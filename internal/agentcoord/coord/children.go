@@ -390,11 +390,11 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			// own agent resolution, a resumed run's freshly re-resolved
 			// plan, or an owned run's synthetic plan, which never sets it —
 			// zero value ResumeModePersistent, correctly never OneShot).
-			OneShot: plan.ResumeMode == ResumeModeOneShot,
-			Prompt:  prompt,
-			Resume:      resume,
-			Ladder:      ladderToFact(plan.Ladder),
-			Permission:  plan.Perm.String(),
+			OneShot:    plan.ResumeMode == ResumeModeOneShot,
+			Prompt:     prompt,
+			Resume:     resume,
+			Ladder:     ladderToFact(plan.Ladder),
+			Permission: plan.Perm.String(),
 			// Names only: an operator auditing a live delegation sees WHAT a
 			// child can reach, and command/args/env never enter the journal.
 			MCPServers: operations.MCPServerNames(plan.MCPServers),

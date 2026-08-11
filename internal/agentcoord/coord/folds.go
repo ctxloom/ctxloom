@@ -38,9 +38,9 @@ type RunRecord struct {
 	// OneShot mirrors Identity.OneShot — see its doc.
 	OneShot bool
 	Prompt  string
-	State       string
-	Ended       bool
-	Cause       string
+	State   string
+	Ended   bool
+	Cause   string
 	// Detail is the terminal fact's human-readable detail (runEnded.Detail):
 	// for an agent_stop, the stopping session plus the caller's `reason`
 	// (`reason` used to be advertised to the model and discarded).

@@ -559,7 +559,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		EffectivePermissions: agent.ResolveDefault(
 			[]string{sub.Permissions, labelEntry.Permissions},
 			backend == config.BackendClaudeCode).String(),
-		Escalation:  sub.Escalation,
-		Driving:     sub.Driving,
+		Escalation: sub.Escalation,
+		Driving:    sub.Driving,
 	}, nil
 }

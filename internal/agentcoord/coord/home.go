@@ -113,8 +113,8 @@ type Home struct {
 // HomeConfig carries the spawn-injected coordinator trio plus the runner's
 // self-description.
 type HomeConfig struct {
-	URL     string // CTXLOOM_COORD_URL
-	Token   string // CTXLOOM_COORD_CRED (held ONLY by the runner)
+	URL   string // CTXLOOM_COORD_URL
+	Token string // CTXLOOM_COORD_CRED (held ONLY by the runner)
 	// RunID is CTXLOOM_RUN_ID. Empty on the plugin-hosted session-owner
 	// credential (that runner hosts no run of its own). NON-EMPTY on a
 	// container top-level session's owned run (StartOwnedRun mints one for

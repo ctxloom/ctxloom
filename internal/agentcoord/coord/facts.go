@@ -107,9 +107,9 @@ type runEnqueued struct {
 	// ResumeModeOneShot — journaled so this run's OWN future credential
 	// (folds.go's applyEnqueued) reports it via Identity.OneShot without a
 	// second resolve. See Identity.OneShot's doc for what it gates.
-	OneShot bool `json:"one_shot,omitempty"`
-	Prompt      string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
-	Resume      bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
+	OneShot bool   `json:"one_shot,omitempty"`
+	Prompt  string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
+	Resume  bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
 	// Ladder is the run's resolved escalation ladder (Wave C2), journaled at
 	// enqueue so a later config edit cannot retroactively change a live
 	// run's policy and restart adoption recovers it without re-resolving

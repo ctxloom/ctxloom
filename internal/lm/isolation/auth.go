@@ -788,6 +788,14 @@ func CredentialSeedEngineNames() []string {
 // descriptive, actionable error when the host source (~/.codex/auth.json)
 // is missing or the copy itself fails, so the caller can fail loud instead
 // of silently launching an unauthenticated codex.
+//
+// The no-source error names ONLY the two fixes that actually work — `codex
+// login` and OPENAI_API_KEY. It used to offer "(or pass --degraded)" as a
+// third: that was FALSE. --degraded relaxes this package's strictness
+// recording, and internal/codex (which owns this call site, via
+// ensureCodexCredentials) never consults strictness at all — it stashes the
+// error on the backend and Execute refuses to launch regardless. Naming a
+// flag that cannot unblock the user is worse than naming nothing.
 func SeedCodexHome(destDir string) (skipped bool, err error) {
 	spec, ok := credentialSeedSpecs["codex"]
 	if !ok || spec.sourceFiles == nil {
@@ -798,7 +806,7 @@ func SeedCodexHome(destDir string) (skipped bool, err error) {
 		return false, err
 	}
 	if result == seedNoSource {
-		return false, fmt.Errorf("no OPENAI_API_KEY and no host ~/.codex/auth.json credentials found to authenticate this run — run `codex login` or set OPENAI_API_KEY (or pass --degraded)")
+		return false, fmt.Errorf("no OPENAI_API_KEY and no host ~/.codex/auth.json credentials found to authenticate this run — run `codex login` or set OPENAI_API_KEY")
 	}
 	return result == seedSkippedEnv, nil
 }

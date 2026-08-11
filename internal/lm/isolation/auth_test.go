@@ -410,6 +410,25 @@ func TestSeedCodexHome_NoSourceFailsLoud(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "OPENAI_API_KEY")
 	assert.Contains(t, err.Error(), "auth.json")
+	assert.Contains(t, err.Error(), "codex login", "the error must name a fix that works")
+}
+
+// TestSeedCodexHome_NoSourceOffersNoDegradedEscape pins the REMOVAL of the
+// "(or pass --degraded)" clause this error used to carry. The flag relaxes
+// this package's strictness recording; the caller that surfaces this error
+// (internal/codex's ensureCodexCredentials → Codex.Setup, whose result
+// Execute refuses to launch on) never consults strictness, so --degraded
+// changes nothing on this path. An error naming an escape hatch that does
+// not exist sends the user round a loop that cannot terminate — a worse
+// failure than saying less.
+func TestSeedCodexHome_NoSourceOffersNoDegradedEscape(t *testing.T) {
+	withFakeHome(t)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	_, err := SeedCodexHome(t.TempDir())
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "degraded",
+		"--degraded does not unblock this path — internal/codex never reads strictness")
 }
 
 // realisticDotClaudeJSON is a stand-in for a real user's ~/.claude.json: on a

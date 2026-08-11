@@ -31,6 +31,17 @@ type RunOneshotRequest struct {
 	WorkDir   string // working directory for the run
 	Verbosity int
 
+	// Permissions is an explicit posture override, in the same string
+	// vocabulary agent.ParsePermissionMode accepts (agent.PermissionBypass.
+	// String(), etc.). It wins over the resolved label's configured
+	// permissions — for a caller whose intent about gating does not come
+	// from an llm label at all (the init auth-ping is the first such caller:
+	// a fixed trivial probe that wants no permission gating, unrelated to
+	// whatever posture the chosen engine's label happens to declare). Empty
+	// defers to the label's configured posture, unchanged from before this
+	// field existed.
+	Permissions string
+
 	// Pipeline is an optional pre-configured process stage (test seam).
 	Pipeline *bundles.Pipeline
 	// Factory builds the plugin client; nil self-invokes the compiled-in
@@ -68,6 +79,10 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	label := resolveOneshotLabel(cfg, req.LLM, ctxResult.ProfileLLM)
 	backendName, model := ResolveBackend(cfg, label)
 	labelEntry, _ := cfg.GetLLMEntry(label)
+	permissions := req.Permissions
+	if permissions == "" {
+		permissions = labelEntry.Permissions
+	}
 
 	// The single-profile oneshot's axes: the session-level workspace default
 	// (cfg.Workspace) x the project runtime default (cfg.Runtime — a bare
@@ -108,9 +123,10 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		Label:     label,
 		Backend:   backendName,
 		Model:     model,
-		// A bare-profile oneshot has no agent binding; its posture is the engine
-		// label's configured permissions (if any), resolved for headless below.
-		Permissions: labelEntry.Permissions,
+		// A bare-profile oneshot has no agent binding; its posture is the
+		// caller's explicit override if it gave one, else the engine label's
+		// configured permissions (if any) — resolved for headless below.
+		Permissions: permissions,
 		// AgentID scopes a per-agent workspace by the profile name.
 		Axes:           axes,
 		IsolationImage: IsolationImageConfig(cfg, backendName),

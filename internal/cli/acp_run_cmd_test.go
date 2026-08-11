@@ -132,7 +132,12 @@ func acpRunTestConfig() *config.Config {
 	return config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
-				"acp-kiro":    {Type: "acp"},
+				// bypass: this config backs the door-counting/turn-loop/backend
+				// tests below, not permission-resolution tests — headless-safe
+				// so the unroasted-spinning refusals don't collide with
+				// unrelated coverage (see acp_run_cmd_test.go's dedicated
+				// permission-pin tests for the unset/unenforceable cases).
+				"acp-kiro":    {Type: "acp", Permissions: "bypass"},
 				"claude-fast": {Type: "claude-code"},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
@@ -369,7 +374,7 @@ func TestRunACPSession_CarriesTheProjectRuntimeAxis(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		Runtime: agent.RuntimeContainer,
 		LM: config.LMConfig{
-			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp"}},
+			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp", Permissions: "bypass"}}, // headless-safe: this test is about the runtime axis, not permission resolution
 			Defaults: config.RoleDefaults{Primary: "acp-kiro"},
 		},
 	})

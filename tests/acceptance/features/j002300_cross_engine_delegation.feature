@@ -283,7 +283,28 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine      | marker                                       |
       | claude-code | J002300-DELEGATE-MARKER-CLAUDE-CODE-1d4c07ab |
 
-    @codex
+    # @wip — HOST CREDENTIAL FAILURE, not a ctxloom defect and not a harness
+    # one. Measured 2026-08-12 on this box: the child launched, the runner
+    # dialled home, and the coordinator's mailbox received a message from the
+    # child's harp — the whole delegation path worked — but the body was a
+    # runner-exit report carrying codex's own 401:
+    # "Your access token could not be refreshed because your refresh token was
+    # already used. Please log out and sign in again." (codex_error_info:
+    # unauthorized). Confirmed HOST-side, independent of ctxloom, by running
+    # `codex exec` directly with no ctxloom in the picture: identical 401. This
+    # is the same refresh_token_reused condition that already keeps the
+    # cross-engine scenario above @wip.
+    #
+    # NOTE THE PROBE GAP THIS EXPOSES (live_engine_registry.go): the availability
+    # report says `codex ✓` because authCheckCodex's `codex login status` prints
+    # "Logged in using ChatGPT" — a LOCAL read of auth.json that never attempts a
+    # refresh, so it cannot see a server-side-consumed refresh token. INSTALLED
+    # and AUTHENTICATED are distinguished; AUTHENTICATED and STILL-VALID are not.
+    # There is no cheap fix: the only probe that would know is one that performs
+    # a refresh, which itself consumes the token.
+    # Untag once a human has run `codex login` on the host and this row returns
+    # its own marker. No product change is known to be required.
+    @codex @wip
     Examples:
       | engine | marker                                 |
       | codex  | J002300-DELEGATE-MARKER-CODEX-8b3f52cd |
@@ -293,7 +314,28 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine | marker                                |
       | kiro   | J002300-DELEGATE-MARKER-KIRO-2e9a16ef |
 
-    @opencode
+    # @wip — A REAL PRODUCT GAP in opencode's delegated-child path, measured
+    # 2026-08-12 and deliberately NOT routed around. opencode child delegation
+    # was migrated onto the StartRun/runner model in the spool cutover's S3b
+    # slice (coord.viaStartRunBackends["opencode"] == true) and a full live
+    # round trip had never been run behind it. It does not work: in 240s,
+    # ZERO messages reached the coordinator's mailbox from the child's harp —
+    # not the child's own agent_send, not coord/children.go's bridgeTurnResult
+    # copy of its turn output, and not even a runner-exit report. Contrast the
+    # codex row above, which delivered a runner-exit report through that exact
+    # machinery, so the mailbox path itself is not the suspect.
+    #
+    # THE ENGINE IS NOT THE SUSPECT EITHER — both halves were isolated:
+    #   - `opencode run --model openrouter/openai/gpt-oss-20b:free` answers
+    #     normally on this host (credentials, provider and pinned model fine);
+    #   - `ctxloom run --agent delegate --one-shot` against THIS row's exact
+    #     agent/profile/bundle fixture returns the marker verbatim, so ctxloom's
+    #     opencode engine wiring AND its composed-context delivery are fine on
+    #     the run path.
+    # What is unproven is opencode as a DELEGATED CHILD specifically. Untag when
+    # a live opencode child returns its own marker here; until then this row is
+    # the standing, addressable proof that it does not.
+    @opencode @wip
     Examples:
       | engine   | marker                                    |
       | opencode | J002300-DELEGATE-MARKER-OPENCODE-7f05b391 |

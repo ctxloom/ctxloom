@@ -18,8 +18,9 @@ import (
 // =============================================================================
 // Context File Writing Tests
 // =============================================================================
-// Context files are written to .ctxloom/ephemeral/context/ with content-based hash filenames.
-// This enables the SessionStart hook to inject the correct context.
+// Context files are written to .ctxloom/cache/context/ (agent.SCMContextSubdir)
+// with content-based hash filenames. This enables the SessionStart hook to
+// inject the correct context.
 
 func TestWriteContextFile(t *testing.T) {
 	t.Run("writes content and returns hash", func(t *testing.T) {

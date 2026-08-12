@@ -110,6 +110,13 @@ const (
 	// than inventing a location of its own).
 	EnginesDir = "engines"
 
+	// ContextCacheDir is the CacheDir subdirectory holding assembled context
+	// files, one per content hash (agent.WriteContextFile). The leaf lived in
+	// internal/shared/agent because this package had no helper left for it;
+	// it belongs here, with every other .ctxloom segment, so Layout can
+	// classify the directory without either side inventing the name twice.
+	ContextCacheDir = "context"
+
 	// LocksDir is the StateDir subdirectory holding the advisory lock sidecars
 	// that guard project-scoped files (filelock.ProjectPathFor). It is state,
 	// not cache: a lock file is a fact about THIS machine's concurrent
@@ -801,6 +808,20 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, CacheDir, BundlesDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
 		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
 		{Rel: filepath.Join(AppDirName, CacheDir, RefusedAdvancesFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom deps upgrade"},
+		// The assembled context files (agent.WriteContextFile), one per content
+		// hash. Derived, and it stays in cache/ deliberately: the file is
+		// content-ADDRESSED — a function of the fragment set, not of the
+		// session — so two sessions that assemble the same context share one
+		// file, which is a cache's defining property rather than an accident.
+		//
+		// The Rebuild command names `ctxloom manage hooks install` rather than
+		// `ctxloom run`, though a run rewrites it too: there is no `ctxloom
+		// context` command to point at, and of the two writers only the hook
+		// apply is a thing a user can run ON PURPOSE to get the directory back.
+		{
+			Rel: filepath.Join(AppDirName, CacheDir, ContextCacheDir), Tier: TierDerived,
+			Rebuild: "ctxloom manage hooks install (the next ctxloom run also rewrites it)",
+		},
 		{
 			Rel: filepath.Join(AppDirName, StateDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,
 			Lost: "the content-addressed snapshots review diffed an update against; update review degrades from a diff to a full-content dump, but committed approval signatures still verify",

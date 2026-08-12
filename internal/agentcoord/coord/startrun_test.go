@@ -88,7 +88,8 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond, "plane-1 items must journal (counted) for a migrated run")
 }
 
-// TestStartRun_BackendParity pins Wave C3's acceptance: codex, kiro, and the
+// TestStartRun_BackendParity pins Wave C3's acceptance (and, for the
+// opencode row, the spool cutover's S3b): codex, kiro, opencode and the
 // generic "acp" entry ride the IDENTICAL StartRun mechanics claude proved in
 // C1 — the coordinator/runner machinery (EngineHost, HarnessSpec codec,
 // turn delivery, journaling) is backend-agnostic by construction (it only
@@ -104,9 +105,17 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 // OPENAI_API_KEY/CODEX_API_KEY, and kiro-cli requires `kiro-cli login`
 // before it even opens its JSON-RPC loop), so a live multi-turn engine echo
 // could not be exercised for either; this scripted-adapter proof is the
-// stated hermetic substitute per the acceptance's own allowance.
+// stated hermetic substitute per the acceptance's own allowance. opencode's
+// row carries the same substitution for the same reason.
+//
+// The per-backend proof is not cosmetic: the runner's EngineHost refuses a
+// StartRun whose HarnessSpec.harness does not equal the name its own
+// RunnerHello advertised (enginehost.go's A9-adjacent FailedPrecondition
+// check, wired in fake_test's StartEngine from plan.Backend), so a backend
+// whose name were dropped or coerced anywhere between Resolve and the wire
+// would never deliver the briefing this asserts.
 func TestStartRun_BackendParity(t *testing.T) {
-	for _, backend := range []string{"codex", "kiro", "acp"} {
+	for _, backend := range []string{"codex", "kiro", "acp", "opencode"} {
 		t.Run(backend, func(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(map[string]fakeAgent{

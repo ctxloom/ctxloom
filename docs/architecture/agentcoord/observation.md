@@ -125,11 +125,13 @@ The watchdog is read-only: it never terminates, relaunches or reaps.
   all** (`:180-187`).
 - **Legacy-driver children are not live-observable.** `driveChild`'s note
   (`children.go:1000-1009`) calls this "an accepted, documented gap on an already-degraded
-  path", but the legacy path is what `opencode` takes on every ordinary `agent_run`, so
-  it is an observability gap for a supported backend. The path is now FROZEN for
-  retirement (spool-cutover RETIRE-FIRST ruling; `spawner.go`'s `checkLegacyChatFreeze`):
-  the gap ends when opencode migrates onto StartRun or the path is deleted with the
-  mailbox machinery.
+  path", and since S3b migrated `opencode` onto StartRun no PRODUCTION backend reaches
+  it by backend identity: the frozen residue (`legacyChatBackends`) is the `mock` test
+  backend alone. The gap survives only for a degraded (no-reach-back) spawn of an
+  otherwise-migrated backend, which is already unobservable for the same reason it is
+  degraded. The path is FROZEN for retirement (spool-cutover RETIRE-FIRST ruling;
+  `spawner.go`'s `checkLegacyChatFreeze`) and the gap closes entirely when it is deleted
+  with the mailbox machinery.
 - **`LivenessSnapshot` is exported with no out-of-package caller** (`liveness.go:182`);
   its only production consumer is the watchdog's `clidiag.Warn`. The monitor computes a
   `SeqPinned` signal — the exact symptom the container-delegation defect presents as —

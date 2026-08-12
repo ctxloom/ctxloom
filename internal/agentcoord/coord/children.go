@@ -1707,6 +1707,21 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 		}
 		if _, _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
 			clidiag.Warn("ctxloom", "agent %s: queue terminal notice: %v", rec.Harp, err)
+			// The durable queue is what just failed, so the invariant above
+			// ("the parent ALWAYS learns of a child death") cannot hold through
+			// the mailbox. Preserve it for the one case that actually hangs on
+			// it — a parent parked in agent_recv right now — by completing its
+			// poll directly with the same notice (non-durable, unjournaled), so
+			// it returns instead of blocking until its own timeout. A parent not
+			// currently parked cannot be reached this way; the warn above is the
+			// honest, loud record that it will not learn of this death.
+			if c.deliverTerminalFallback(rec.ParentHarp, Message{
+				ID: newMessageID(), From: rec.Harp, To: rec.ParentHarp, Kind: kind, Body: body,
+			}) {
+				clidiag.Warn("ctxloom", "agent %s: terminal notice delivered to parked parent %s via non-durable fallback (mailbox journal failed)", rec.Harp, rec.ParentHarp)
+			} else {
+				clidiag.Warn("ctxloom", "agent %s: parent %s was NOT parked in agent_recv and the mailbox journal failed — parent will not learn of this death", rec.Harp, rec.ParentHarp)
+			}
 		}
 	}
 	c.spawner.MarkSessionEnded(rec.Harp)

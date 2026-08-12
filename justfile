@@ -472,6 +472,13 @@ test-integration: build _ensure-gotmpdir
 # Run integration tests matching a -run PATTERN (requires ctxloom binary).
 # Same false-green hazard as test-pkg: a PATTERN that matches nothing still
 # exits 0 from `go test` (`[no tests to run]`). Detect and fail on that.
+#
+# Unlike test-pkg this walks a MULTI-package tree, so test-pkg's "any
+# `[no tests to run]` line is a miss" rule does not transfer: `.../testenv`
+# has test files of its own and reports that line for every PATTERN aimed at
+# the sibling package, which made the guard fail runs whose target test had
+# just PASSED. Scope the verdict to the whole tree instead — a miss is when
+# NO package ran a matching test, i.e. every `ok` line carries the marker.
 test-integration-run PATTERN: build _ensure-gotmpdir
     #!/usr/bin/env bash
     set -euo pipefail
@@ -484,8 +491,8 @@ test-integration-run PATTERN: build _ensure-gotmpdir
     if [ "$status" -ne 0 ]; then
         exit "$status"
     fi
-    if grep -q '\[no tests to run\]' <<<"$output"; then
-        echo "error: -run matched no tests (typo'd or renamed test name?)" >&2
+    if ! grep -E '^ok[[:space:]]' <<<"$output" | grep -qv '\[no tests to run\]'; then
+        echo "error: -run matched no tests in any package (typo'd or renamed test name?)" >&2
         exit 1
     fi
 

@@ -167,6 +167,11 @@ type Coordinator struct {
 	// custom maps host-relay tool names ("ctxloom/<tool>") onto the
 	// coordinator-side handlers the hosting process injects.
 	custom map[string]CustomHandler
+	// spoolDoorbell counts what the spool doorbell deliberately does not
+	// retry (spooldoorbell.go). Atomics, not mu-guarded: a counter that
+	// needed the coordinator lock would put contention on the exact path
+	// whose whole point is to cost nothing when it fails.
+	spoolDoorbell spoolDoorbellCounters
 
 	mu          sync.Mutex
 	attach      map[string]*childRt // runID → runtime attachment
@@ -213,6 +218,11 @@ type Coordinator struct {
 	onPendingApproval func(PendingApproval, bool)
 	// sessionAccepts (C2) is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
 	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
+	// spoolHandler is the registered consumer for validated inbound spool
+	// doorbells (SetSpoolDoorbellHandler). NIL BY DEFAULT and nil in every
+	// build until delivery is wired: an arriving doorbell is validated,
+	// counted and dropped, so the wire is capable and inert.
+	spoolHandler SpoolDoorbellHandler
 	// launchArmed pre-registers the "attached" signal for a harp's NEXT
 	// (re)launch attempt(s), synchronously, before the caller dispatches the
 	// async runChild/resumeChild goroutine (see armLaunch, children.go).

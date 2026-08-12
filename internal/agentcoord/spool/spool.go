@@ -83,6 +83,17 @@ const (
 // allDirs is every Dir, in creation order (parents before children).
 var allDirs = []Dir{DirIn, DirOut, DirInConsumed, DirOutConsumed, DirInWithdrawn}
 
+// Dirs returns every Dir in the closed set, in creation order (parents before
+// children).
+//
+// It exists so that a table in ANOTHER package can be checked for
+// exhaustiveness against the authority rather than against a second hand-kept
+// list — notably the wire-enum mapping the doorbell needs, which must fail a
+// test the day a sixth directory is added instead of silently not mapping it.
+// The returned slice is a copy: an exhaustiveness authority a caller can
+// mutate is not one.
+func Dirs() []Dir { return append([]Dir(nil), allDirs...) }
+
 // Valid reports whether d is one of the closed set.
 func (d Dir) Valid() bool {
 	for _, known := range allDirs {

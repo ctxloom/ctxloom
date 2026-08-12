@@ -287,6 +287,8 @@ func (c *Coordinator) handleAgentFrame(ch *runChan, frame *agentcoordpb.AgentFra
 		// Duplicate hello on a live stream: tolerated.
 	case *agentcoordpb.AgentFrame_Response:
 		c.handleAgentResponse(ch, kind.Response)
+	case *agentcoordpb.AgentFrame_SpoolChanged:
+		c.handleSpoolChanged(ch, kind.SpoolChanged)
 	}
 }
 

@@ -95,6 +95,13 @@ type Home struct {
 	// human never asked for.
 	inflightCtrl map[string]*inflightCtrl
 
+	// spoolHandler is the registered consumer for validated inbound spool
+	// doorbells (SetSpoolDoorbellHandler), nil by default and nil until
+	// delivery is wired. spoolDoorbell counts what the doorbell deliberately
+	// does not retry — see spooldoorbell.go.
+	spoolHandler  SpoolDoorbellHandler
+	spoolDoorbell spoolDoorbellCounters
+
 	link     *RunnerLink
 	linkDone chan struct{} // closed when Close ran (stops the redial loops)
 
@@ -360,19 +367,30 @@ func (h *Home) helloCapabilities() []string {
 // send writes one frame on the current stream under the single-writer
 // mutex. A nil/absent stream drops the frame — events sit in unacked and
 // requests in pending, both reissued on reconnect.
-func (h *Home) send(frame *agentcoordpb.AgentFrame) {
+func (h *Home) send(frame *agentcoordpb.AgentFrame) { _ = h.trySend(frame) }
+
+// trySend is send with an answer: false means the frame did NOT reach the
+// stream, either because there is none or because the write failed.
+//
+// The reissuing senders ignore that answer — their own buffers cover them —
+// but the spool doorbell has no buffer BY DESIGN, so it is the one caller that
+// must be able to count what it dropped instead of letting a permanently down
+// channel look like a permanently quiet one.
+func (h *Home) trySend(frame *agentcoordpb.AgentFrame) bool {
 	h.mu.Lock()
 	stream := h.stream
 	h.mu.Unlock()
 	if stream == nil {
-		return
+		return false
 	}
 	h.sendMu.Lock()
 	defer h.sendMu.Unlock()
 	if err := stream.Send(frame); err != nil {
 		// The receive loop observes the same failure and re-dials.
 		clidiag.WarnOnce("ctxloom", "run channel send failed (reconnecting): %v", err)
+		return false
 	}
+	return true
 }
 
 // handleCoordinatorFrame dispatches one inbound coordinator frame.
@@ -391,6 +409,9 @@ func (h *Home) handleCoordinatorFrame(frame *agentcoordpb.CoordinatorFrame) {
 	case *agentcoordpb.CoordinatorFrame_Notice:
 		if pm := kind.Notice.GetPeerMessage(); pm != nil {
 			h.deliverNotice(pm)
+		}
+		if sc := kind.Notice.GetSpoolChanged(); sc != nil {
+			h.handleSpoolChanged(sc)
 		}
 	case *agentcoordpb.CoordinatorFrame_Request:
 		h.serveCoordinatorRequest(kind.Request)

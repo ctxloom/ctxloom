@@ -328,6 +328,10 @@
         "spool_tee": {
           "type": "boolean",
           "description": "Mirrors every coordinator-to-agent and agent-to-coordinator message into the session's on-disk message spool (~/.ctxloom/sessions/<harp>/persist/spool), in addition to delivering it normally. Messages are still delivered and read exactly as before — nothing reads the spool — so turning this on changes no behaviour; it exists so the file-based substrate carries real traffic before anything depends on it. Default off, and off means no spool directory is created at all."
+        },
+        "spool_delivery": {
+          "type": "boolean",
+          "description": "DELIVERS coordinator-to-agent and agent-to-coordinator messages from the session's on-disk message spool instead of the in-memory mailbox: the message file is the only copy, an agent consumes it by moving it into consumed/, and the coordinator routes what an agent writes into out/. Messages therefore survive a coordinator or agent restart and are visible on disk while they wait. Applies only to agents run with their own ctxloom runner; the session's own inbox and frozen legacy agents keep the mailbox. Default off, which is the pre-spool behaviour exactly."
         }
       }
     },

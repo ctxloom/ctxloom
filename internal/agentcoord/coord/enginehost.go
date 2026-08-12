@@ -28,6 +28,9 @@ type engineHome interface {
 	emitEvent(ev *agentcoordpb.AgentEvent) uint64
 	emitCustomEvent(name string, value map[string]any)
 	SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool)
+	// SweepSpoolIn asks the runner to reconcile its inbound spool — the file
+	// plane's turn-boundary drain. A no-op for a run that is not cut over.
+	SweepSpoolIn()
 	ReportRunExited(exitCode int, harnessSessionID string)
 	// SetRequestHandler registers this host as the executor for
 	// coordinator-initiated plane-2 control requests (BindHome does it).
@@ -415,6 +418,11 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			// gets re-announced here — the mechanism §6.1 assumed and never
 			// had. It dispatches and returns; this loop must keep draining.
 			eh.reannounceAtBoundary(home)
+			// TURN-BOUNDARY SWEEP (the §6a drain, file plane): mail that
+			// arrived mid-turn becomes the next turn here. It is a no-op
+			// unless this run is cut over, and it dispatches rather than
+			// blocks — this loop must keep draining.
+			home.SweepSpoolIn()
 		case ev.Permission != nil:
 			// C2: HarnessSpec sets ForwardPermissions unconditionally on this
 			// path now, so every engine permission request round-trips

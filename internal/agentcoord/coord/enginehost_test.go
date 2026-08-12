@@ -33,7 +33,8 @@ type fakeEngineHome struct {
 		Name  string
 		Value map[string]any
 	}
-	sink   func(*agentcoordpb.PeerMessage) bool
+	sink        func(*agentcoordpb.PeerMessage) bool
+	spoolSweeps int
 	exited []struct {
 		Code      int
 		SessionID string
@@ -122,6 +123,23 @@ func (f *fakeEngineHome) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sink = sink
+}
+
+// SweepSpoolIn records that the engine host asked for a spool reconciliation
+// at a turn boundary. Counted rather than ignored: the file plane's whole
+// boundary drain hangs off this one call, and a silently-dropped fake would
+// let a refactor delete the trigger with every test still green.
+func (f *fakeEngineHome) SweepSpoolIn() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.spoolSweeps++
+}
+
+// spoolSweepCount reports how many boundary sweeps were asked for.
+func (f *fakeEngineHome) spoolSweepCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.spoolSweeps
 }
 
 func (f *fakeEngineHome) SetRequestHandler(fn func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse) {

@@ -469,12 +469,17 @@ func TestSpoolTee_UnmappableKindFailsLoudlyAndDelivers(t *testing.T) {
 		"an unmappable message must leave NO file rather than a mis-kinded one")
 }
 
-// TestSpoolTee_NonObjectStructuredIsRefusedNotStripped pins the payload half of
-// the same rule. Writing the message without its structured companion would
-// reproduce, in the spool, exactly the defect servePeerSend's own comment
-// records having shipped: a message queued stripped of its payload and
-// reported as fine.
-func TestSpoolTee_NonObjectStructuredIsRefusedNotStripped(t *testing.T) {
+// TestSpoolTee_NonObjectStructuredRoundTripsUnderTheWrapper pins the payload
+// half of the same rule, in the shape the CUTOVER forced.
+//
+// While the spool was a shadow, a payload that is not a JSON object could be
+// refused: the file was dropped and counted and the mailbox still carried the
+// message. Once the file IS the message that refusal becomes the message being
+// lost, so a non-object payload now travels as its own JSON TEXT under a
+// marker key. What this pins is that the wrap is BYTE-FAITHFUL — the exact
+// bytes back out, not a YAML re-rendering of them, which is where a big
+// integer or a numeric-looking string would quietly change.
+func TestSpoolTee_NonObjectStructuredRoundTripsUnderTheWrapper(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
@@ -483,13 +488,30 @@ func TestSpoolTee_NonObjectStructuredIsRefusedNotStripped(t *testing.T) {
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "go", "", "")
 	require.NoError(t, err)
 
-	_, _, err = c.queueMailPayload(ownerIdentity().Harp, out.Harp, KindMessage, "body",
-		json.RawMessage(`["not","an","object"]`), "")
-	require.NoError(t, err)
+	// A bare array, a value whose YAML round trip would lose precision, and a
+	// string that YAML would happily hand back as a number.
+	payloads := []string{
+		`["not","an","object"]`,
+		`12345678901234567890123`,
+		`"0640"`,
+	}
+	for _, raw := range payloads {
+		_, _, err = c.queueMailPayload(ownerIdentity().Harp, out.Harp, KindMessage, "body "+raw,
+			json.RawMessage(raw), "")
+		require.NoError(t, err, "queueing a message whose payload is %s", raw)
+	}
 
-	assert.Equal(t, uint64(1), c.SpoolTeeStats().Failed)
-	assert.Empty(t, spoolEntries(t, out.Harp, spool.DirIn),
-		"a payload that will not project must cost the FILE, never the payload")
+	assert.Zero(t, c.SpoolTeeStats().Failed, "a non-object payload is carried, not refused")
+	entries := spoolEntries(t, out.Harp, spool.DirIn)
+	require.Len(t, entries, len(payloads), "one file per message, payload and all")
+
+	got := make([]string, 0, len(entries))
+	for _, e := range entries {
+		back, err := mailStructured(e.Message.Structured)
+		require.NoError(t, err, "reading %s back", e.Ref)
+		got = append(got, string(back))
+	}
+	assert.Equal(t, payloads, got, "every non-object payload must come back byte for byte")
 }
 
 // TestSpoolTee_KindMappingIsExhaustive is the completeness gate: every kind

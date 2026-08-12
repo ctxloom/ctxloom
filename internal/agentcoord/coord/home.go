@@ -108,6 +108,20 @@ type Home struct {
 	// disk. spoolTeeCount is atomics for the same reason spoolDoorbell is.
 	spoolOut      *spoolWriterCache
 	spoolTeeCount spoolTeeCounters
+	// spoolDelivery is the CUTOVER switch for this run (HomeConfig.
+	// SpoolDelivery, stamped by the coordinator). When it is on, in/ is where
+	// mail comes from and out/ is where this agent's sends go; the mailbox
+	// notice path is never used for either.
+	spoolDelivery bool
+	// spoolRefs maps a delivered message's dedupe id to the in/ file it came
+	// from, so the CONSUME-RENAME can happen at the existing acknowledgement
+	// moments (the engine accepted the turn / a later Recv proved the harness
+	// took the batch) rather than at read time. Renaming at read would convert
+	// this path's at-least-once guarantee into at-most-once silently.
+	spoolRefs map[string]spool.Ref
+	// spoolIn serialises this runner's own in/ sweeps — see spoolReactor.
+	spoolIn            *spoolReactor
+	spoolDeliveryCount spoolDeliveryCounters
 
 	link     *RunnerLink
 	linkDone chan struct{} // closed when Close ran (stops the redial loops)
@@ -161,6 +175,17 @@ type HomeConfig struct {
 	// coordinator's own half reads, so the two ends of one run never disagree
 	// about whether the run is being teed.
 	SpoolTee bool
+	// SpoolDelivery turns on the CUTOVER (spooldelivery.go) for this run: the
+	// runner delivers coordinator mail out of this harp's in/ spool and
+	// consumes each file by renaming it, and its own agent_send writes out/
+	// locally instead of asking the coordinator to queue it. Off by default
+	// and stamped by the coordinator per spawn (EnvRunSpoolDelivery); a
+	// runner with no harp has no spool and stays on the mailbox with a loud
+	// warning, because half a cutover is no delivery at all.
+	SpoolDelivery bool
+	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
+	// built-in spoolSweepInterval) — see coord.Options.SpoolSweepInterval.
+	SpoolSweepInterval time.Duration
 }
 
 type homeReq struct {
@@ -237,13 +262,25 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		inflightCtrl: make(map[string]*inflightCtrl),
 		linkDone:     make(chan struct{}),
 	}
-	if cfg.SpoolTee && cfg.Harp != "" {
+	if (cfg.SpoolTee || cfg.SpoolDelivery) && cfg.Harp != "" {
 		// A runner writes exactly ONE spool: its own harp's out/. The cache is
 		// still keyed by harp because spoolWriterCache is shared with the
 		// coordinator's half, which serves many.
 		h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, cfg.Harp)
 	} else if cfg.SpoolTee {
 		clidiag.Warn("ctxloom", "runner: the spool tee is enabled but this run has no session harp, so it has no spool to write into; outbound mail will not be mirrored")
+	}
+	if cfg.SpoolDelivery && cfg.Harp != "" {
+		h.spoolDelivery = true
+		h.spoolRefs = make(map[string]spool.Ref)
+		h.startSpoolReactor()
+	} else if cfg.SpoolDelivery {
+		// A cutover run with no harp has no spool to read: it would sit
+		// waiting on a directory that does not exist while the coordinator
+		// writes files nobody sweeps. Refusing the cutover for it leaves the
+		// mailbox in charge, which still works — but silently is exactly the
+		// wrong way to do that.
+		clidiag.Warn("ctxloom", "runner: spool delivery is enabled but this run has no session harp, so it has no spool to read; falling back to mailbox delivery for this run")
 	}
 	h.goTracked(h.runnerChannelLoop)
 	h.goTracked(h.runChannelLoop)
@@ -361,6 +398,10 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 	for _, r := range reqs {
 		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: r}})
 	}
+	// RECONNECT SWEEP: every doorbell rung while this stream was down was
+	// dropped by design (the file was the truth, so nothing needed reissuing),
+	// and this is the moment that costs nothing to make good.
+	h.SweepSpoolIn()
 	if parked {
 		h.emitCustomEvent(CustomRecvParked, nil)
 	}
@@ -562,7 +603,10 @@ func (h *Home) turnPump(q <-chan *agentcoordpb.PeerMessage, sink func(*agentcoor
 			}
 			h.mu.Unlock()
 			if ok {
-				h.emitCustomEvent(CustomMailConsumed, map[string]any{"message_ids": []any{pm.GetMessageId()}})
+				// THE ACK, whichever substrate carried it (mailConsumed):
+				// emitted only now, because "the engine accepted the turn" is
+				// the earliest moment the delivery is real.
+				h.ackMailConsumed([]string{pm.GetMessageId()})
 			}
 		case <-h.ctx.Done():
 			return
@@ -606,6 +650,13 @@ func (h *Home) ReportRunExited(exitCode int, harnessSessionID string) {
 func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
 	if req.GetRequestId() == "" {
 		req.RequestId = randID("req-", 12)
+	}
+	// THE CUTOVER's outbound half: under spool delivery an agent_send is a
+	// LOCAL durable file write plus a doorbell, with no coordinator round trip
+	// — so it also succeeds while the coordinator is restarting, and the
+	// coordinator routes it when it sweeps.
+	if resp, handled := h.sendPeerViaSpool(req); handled {
+		return resp, nil
 	}
 	hr := &homeReq{req: req, ch: make(chan *agentcoordpb.CoordinatorResponse, 1)}
 	h.mu.Lock()
@@ -723,11 +774,7 @@ func (h *Home) ackReturned() {
 	if len(ids) == 0 {
 		return
 	}
-	vals := make([]any, len(ids))
-	for i, id := range ids {
-		vals[i] = id
-	}
-	h.emitCustomEvent(CustomMailConsumed, map[string]any{"message_ids": vals})
+	h.ackMailConsumed(ids)
 }
 
 // abandonPark resolves the timeout/cancel race against a delivery exactly

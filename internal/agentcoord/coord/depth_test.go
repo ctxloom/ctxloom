@@ -20,12 +20,12 @@ import (
 // depend on reach-back being available, and neither must the runner's ability
 // to tell "the tee is off" from "the stamp went missing".
 func TestRunnerEnv_StampsDepth(t *testing.T) {
-	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3, true, true)
+	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3, true, spoolPosture{Tee: true, Delivery: true})
 	assert.Equal(t, "3", withURL[EnvRunDepth])
 	assert.Equal(t, "true", withURL[EnvRunOneShot])
 	assert.Equal(t, "true", withURL[EnvRunSpoolTee])
 
-	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0, false, false)
+	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0, false, spoolPosture{})
 	assert.Equal(t, "0", degraded[EnvRunDepth], "depth is stamped even on a degraded (no reach-back) launch")
 	assert.Equal(t, "false", degraded[EnvRunOneShot], "oneshot is stamped even on a degraded (no reach-back) launch")
 	assert.Equal(t, "false", degraded[EnvRunSpoolTee], "the tee posture is stamped even on a degraded launch")

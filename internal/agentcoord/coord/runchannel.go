@@ -230,6 +230,11 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	if migratedAttach && c.pendingCount(id.Harp) > 0 {
 		c.pushMail(id.Harp)
 	}
+	// PER-CHILD ATTACH SWEEP (file plane): the coordinator's own half of the
+	// same reconnect reconciliation the runner does above — anything this
+	// child wrote or consumed while its channel was down is picked up now
+	// rather than at the slow timer.
+	c.spoolReactor.mark(id.Harp)
 
 	defer c.releaseRunChan(id.Harp, ch)
 

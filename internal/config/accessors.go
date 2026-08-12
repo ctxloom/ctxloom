@@ -314,6 +314,13 @@ func (c *Config) GetDelegationDepth() int {
 // DelegationConfig.SpoolTee.
 func (c *Config) GetDelegationSpoolTee() bool { return c.delegation.SpoolTee }
 
+// GetDelegationSpoolDelivery returns delegation.spool_delivery: whether
+// coordinator<->child mail is DELIVERED from the file spool rather than the
+// mailbox. Unset reads as false (off), the posture in which every delivery
+// behaves exactly as it did before the spool existed — see
+// DelegationConfig.SpoolDelivery.
+func (c *Config) GetDelegationSpoolDelivery() bool { return c.delegation.SpoolDelivery }
+
 // GetDefaultAgent returns the name of the always-bound default agent (may be
 // empty or reference an undefined agent).
 func (c *Config) GetDefaultAgent() string { return c.defaultAgent }

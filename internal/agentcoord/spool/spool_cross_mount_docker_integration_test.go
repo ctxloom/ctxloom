@@ -165,12 +165,28 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	const harp = "ugly-icy-squid"
 	marker := fmt.Sprintf("xmount-%d", time.Now().UnixNano())
 
+	// Build the probe BEFORE $HOME is redirected. `go test -c` derives GOPATH
+	// from $HOME, so building under the fixture home rebuilds the whole module
+	// cache inside the fixture — read-only trees the cleanup then cannot
+	// remove, leaving debris in the repo and adding ~10s to the run. Measured,
+	// not theorised: this test left two undeletable .spool-xmount-* dirs
+	// behind before the reorder.
+	probeDir := t.TempDir()
+	buildProbe(t, filepath.Join(probeDir, containerProbeName))
+
 	// The fixture home lives on the REPO's filesystem, not TMPDIR: /tmp is
 	// tmpfs on a stock Linux box, and a spool substrate proven only over a
 	// RAM filesystem would be evidence about the wrong thing.
 	fixture, err := os.MkdirTemp(repoRoot(t), ".spool-xmount-")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(fixture) })
+	t.Cleanup(func() {
+		// Loud on purpose: leftover fixture dirs are machine debris that a
+		// later run reads as signal, and a swallowed error here is how they
+		// accumulate unnoticed.
+		if err := os.RemoveAll(fixture); err != nil {
+			t.Errorf("removing the cross-mount fixture %s: %v", fixture, err)
+		}
+	})
 	t.Setenv("HOME", fixture)
 
 	m := NewHomeMapper()
@@ -186,9 +202,6 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	require.NoError(t, err)
 	hostConsumedPath, err := m.Resolve(consumedRef)
 	require.NoError(t, err)
-
-	probeDir := t.TempDir()
-	buildProbe(t, filepath.Join(probeDir, containerProbeName))
 
 	args := []string{"run", "--rm"}
 	if !dockerIsRootless(t) {

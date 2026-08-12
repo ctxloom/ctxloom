@@ -305,6 +305,81 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// The POSITIVE container-launch row (unripe-juiciness). Unlike the fail-loud
+	// row above — which means something only where a container CANNOT launch —
+	// this one means something only where one CAN, so it self-skips loudly
+	// otherwise. It is tagged @container: excluded from the default hermetic run,
+	// gated by `just test-acceptance-container`, and it launches the mock in a
+	// REAL container against a real daemon + built image.
+	ctx.Step(`^Alice runs the container-bound agent in a real container$`, func(c context.Context) error {
+		w := worldFrom(c)
+		j002200 := j002200Of(w)
+		rt, _, msg := containercell.Select(c, "j002200's container credential shared-identity row")
+		if !rt.Available {
+			fmt.Printf("SKIPPED (j002200 container shared-identity row): no container runtime reachable here (%s)\n", msg)
+			return godog.ErrSkip
+		}
+		// The record MUST live inside the project workspace: a containerized
+		// engine can only write where the container can see, and ctxloom mounts
+		// the project at the SAME absolute path — so this host path IS the path
+		// the container writes to, through a read-write bind mount. That shared
+		// identity is the whole point (asserted by the Then step). A fresh name
+		// keeps a stale prior record from reading as this run's evidence.
+		recPath := filepath.Join(w.env.ProjectDir, "j002200-container-record.txt")
+		if err := os.Remove(recPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("clear stale record %s: %w", recPath, err)
+		}
+		if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j002200HomeConfigYAML(recPath)); err != nil {
+			return err
+		}
+		j002200.lastContainerRecPath = recPath
+		_ = w.env.Run("run", "--agent", "mock-container", "--one-shot", "credential-mount-check")
+		if code := w.env.LastExitCode(); code != 0 {
+			return fmt.Errorf("containerized mock run exited %d; output:\n%s", code, w.env.LastOutput())
+		}
+		return nil
+	})
+
+	ctx.Step(`^the engine's in-container write is the same file the host holds$`, func(c context.Context) error {
+		w := worldFrom(c)
+		j002200 := j002200Of(w)
+		host, err := os.Hostname()
+		if err != nil {
+			return fmt.Errorf("read this host's name: %w", err)
+		}
+		if j002200.lastContainerRecPath == "" {
+			return fmt.Errorf("no containerized run was recorded yet")
+		}
+		body, err := os.ReadFile(j002200.lastContainerRecPath)
+		if err != nil {
+			// The characteristic silent no-op guard: exit 0 with no payload. If
+			// the record is not here, the engine's in-container write never
+			// reached the host through the read-write bind mount — so it is NOT
+			// the same file, which is exactly the safety property under test.
+			return fmt.Errorf("no host-visible record at %s: the engine's in-container write never reached the host through the read-write bind mount (%w)", j002200.lastContainerRecPath, err)
+		}
+		rec := j002400ParseRecord(string(body))
+		if rec.Hostname == "" {
+			return fmt.Errorf("record carries no hostname line — cannot show it was written inside the container:\n%s", body)
+		}
+		if rec.Hostname == host {
+			return fmt.Errorf("the engine reported this host's own name (%q); the run did not land in a container, so a host-path read proves nothing about a cross-boundary shared file", host)
+		}
+		// Written from INSIDE the container (its own UTS namespace → a different
+		// hostname) and read here at the HOST path: one file, reached from both
+		// sides through ctxloom's read-write bind mount, NOT a copy. That is
+		// exactly the property claude's real-credential container mount now
+		// relies on — a write on the container side IS the write on the host
+		// side, so the container's single-use token refresh lands in the one
+		// file the host holds and never desyncs it. The credential file itself
+		// is not exercised here (the mock authenticates against nothing); its
+		// mount SOURCE = real ~/.claude/.credentials.json, rw, refresh present is
+		// pinned in auth_test.go, and a real claude refreshing in place is the
+		// @live isolation probe. See this scenario's feature-file note.
+		w.docStepMaterialized = fmt.Sprintf("in-container write (hostname=%s, this host=%s) read at host path %s — same file both sides via a read-write bind mount, not a copy", rec.Hostname, host, j002200.lastContainerRecPath)
+		return nil
+	})
+
 	ctx.Step(`^the run aborts with an isolation finding$`, func(c context.Context) error {
 		w := worldFrom(c)
 		out := w.env.LastOutput()

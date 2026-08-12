@@ -53,6 +53,20 @@ type agentDescriptor struct {
 	// newWriter constructs the backend's settings writer from resolved
 	// options. nil = backend has no settings support.
 	newWriter func(agent.SettingsOptions) agent.SettingsWriter
+	// newInstanceConfig constructs the backend's INSTANCE-CONFIG writer — the
+	// engine-owned generator of its own top-level config file inside a config
+	// home ctxloom provisioned (claude's .claude.json, codex's config.toml
+	// base). It is the write-config half of the engine capability set, sibling
+	// to newWriter, and exists because config-file manipulation is an ENGINE
+	// capability: the ambient copy-in decides WHICH files cross from the user's
+	// real host home, the engine owns every byte of its own format.
+	//
+	// Pushed into internal/lm/isolation by registerDescriptor because that
+	// package resolves engines by NAME and cannot import these
+	// ones. nil = the backend has no generated instance config at all; kiro is
+	// NOT nil — it registers a DECLARED-EMPTY writer, so "contributes nothing"
+	// is a fact about kiro rather than an inference from a missing entry.
+	newInstanceConfig func(agent.SettingsOptions) agent.InstanceConfigWriter
 	// newSurfaces builds the backend's SurfaceSet from a run's shared inputs and a
 	// filesystem (nil = OS fs), so a name-only caller (materialize) can deliver
 	// every native surface through a cell without importing the concrete backend.
@@ -182,6 +196,39 @@ func registerDescriptor(d agentDescriptor) {
 		panic("backends: duplicate descriptor registration for " + d.name)
 	}
 	descriptors[d.name] = &d
+	if d.newInstanceConfig != nil {
+		// Push the engine's own config writer down to internal/lm/isolation at
+		// the same moment the descriptor is registered, so a backend can never
+		// be launchable here while invisible there. isolation resolves engines
+		// by NAME (its worktree axis has no engine value in hand) and cannot
+		// import these packages, so this is the only direction the wiring can
+		// run — see isolation.RegisterInstanceConfigWriter.
+		isolation.RegisterInstanceConfigWriter(d.name, d.newInstanceConfig(agent.SettingsOptions{}))
+	}
+}
+
+// prepareInTreeAmbient is the Prepare body every in-tree config-home descriptor
+// shares: THE ambient copy-in (isolation.CopyAmbient) into this session's
+// instance root, turning its "nothing seedable" DECISION into the actionable
+// error operations.InTreeAgentHomeEnv fails loud on.
+//
+// The decision is not an error inside CopyAmbient because the two axes answer
+// it differently — this one refuses the relocation outright rather than point
+// an engine at a home it cannot authenticate against; the worktree axis records
+// a degradable ClassIsolation finding and carries on.
+func prepareInTreeAmbient(engine, instanceRoot, workDir string) error {
+	report, err := isolation.CopyAmbient(isolation.AmbientRequest{
+		Engine:       engine,
+		InstanceHome: instanceRoot,
+		WorkDir:      workDir,
+	})
+	if err != nil {
+		return err
+	}
+	if report.NoSource {
+		return fmt.Errorf("%s", report.NoSourceReason)
+	}
+	return nil
 }
 
 // descriptorFor returns the named descriptor, creating an empty one if absent.
@@ -378,7 +425,8 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &claude.ClaudeConfig{})
 		},
-		newWriter: claude.NewWriter,
+		newWriter:         claude.NewWriter,
+		newInstanceConfig: claude.NewInstanceConfigWriter,
 		// claude takes the shared agent.SurfaceInputs directly rather than a
 		// local copy: two hand-maintained field-by-field mappers drift apart, as
 		// they did on MCPCommandOverride. It binds an out-of-cwd
@@ -423,8 +471,7 @@ func init() {
 				EnvVar: claude.ConfigDirEnv,
 				Dir:    dir,
 				Prepare: func() error {
-					_, perr := isolation.PrepareClaudeHome(root)
-					return perr
+					return prepareInTreeAmbient("claude-code", root, workDir)
 				},
 			}, nil
 		},
@@ -443,7 +490,8 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &codex.CodexConfig{})
 		},
-		newWriter: codex.NewWriter,
+		newWriter:         codex.NewWriter,
+		newInstanceConfig: codex.NewInstanceConfigWriter,
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
 			// The static apply/materialize path has no isolation context — no
 			// homeOverride/trustAbsPath, exactly as before those params existed
@@ -497,8 +545,7 @@ func init() {
 				EnvVar: codex.CodexHomeEnv,
 				Dir:    filepath.Join(root, codex.ConfigDirName),
 				Prepare: func() error {
-					_, perr := isolation.PrepareCodexHome(root)
-					return perr
+					return prepareInTreeAmbient("codex", root, workDir)
 				},
 			}, nil
 		},
@@ -524,10 +571,11 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &kiro.KiroConfig{})
 		},
-		newWriter:    kiro.NewWriter,
-		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
-		exports:      kiroExports,
-		skillExports: kiroSkillExports,
+		newWriter:         kiro.NewWriter,
+		newInstanceConfig: kiro.NewInstanceConfigWriter,
+		newSurfaces:       func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
+		exports:           kiroExports,
+		skillExports:      kiroSkillExports,
 		// LIVE VERIFIED 2026-07-15 (authenticated kiro-cli 2.12.1):
 		// `--trust-tools=fs_read` genuinely denies a headless fs_write — a
 		// sentinel-file overwrite left the file byte-unchanged and kiro-cli

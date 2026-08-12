@@ -356,23 +356,26 @@ func writeCodexAuth(t *testing.T, home string) {
 }
 
 // =============================================================================
-// PrepareCodexHome — the exported seam internal/codex's Setup (ensureCodexCredentials,
-// calls to extend THIS package's copy-based codex credential seeding
-// to the in-tree/None axis, which never goes through provisionConfigHome at all.
+// CopyAmbient, codex arm — THE one-way ambient copy-in, exercised through the
+// in-tree axis's shape (a per-session instance root the worktree axis's
+// provisionConfigHome never sees). It superseded the PrepareCodexHome /
+// PrepareClaudeHome pair, which were this one function twice.
 // =============================================================================
 
-// TestPrepareCodexHome_CopiesAuthJson is the PAYLOAD-asserting case: the host's
+// TestCopyAmbient_Codex_CopiesAuthJson is the PAYLOAD-asserting case: the host's
 // ~/.codex/auth.json lands byte-identical, owner-only, at destDir/.codex/auth.json
 // — exactly where cellScopedCodexHome(destDir) resolves CODEX_HOME to.
-func TestPrepareCodexHome_CopiesAuthJson(t *testing.T) {
+func TestCopyAmbient_Codex_CopiesAuthJson(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("OPENAI_API_KEY", "")
 	writeCodexAuth(t, home)
 	dest := t.TempDir()
 
-	skipped, err := PrepareCodexHome(dest)
+	report, err := CopyAmbient(AmbientRequest{Engine: "codex", InstanceHome: dest, WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	assert.False(t, skipped)
+	assert.False(t, report.SkippedEnv)
+	assert.False(t, report.NoSource)
+	assert.Equal(t, 1, report.Copied, "the report must count the bytes that actually moved")
 
 	want, err := os.ReadFile(filepath.Join(home, ".codex", "auth.json"))
 	require.NoError(t, err)
@@ -385,35 +388,39 @@ func TestPrepareCodexHome_CopiesAuthJson(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
 }
 
-// TestPrepareCodexHome_EnvTriggerSkips: OPENAI_API_KEY set → skipped=true, nil
+// TestCopyAmbient_Codex_EnvTriggerSkips: OPENAI_API_KEY set → SkippedEnv, nil
 // error, no copy attempted (matches hostCredentialSeed's envTrigger precedence).
-func TestPrepareCodexHome_EnvTriggerSkips(t *testing.T) {
+func TestCopyAmbient_Codex_EnvTriggerSkips(t *testing.T) {
 	withFakeHome(t) // no ~/.codex/auth.json on disk
 	t.Setenv("OPENAI_API_KEY", "sk-test")
 	dest := t.TempDir()
 
-	skipped, err := PrepareCodexHome(dest)
+	report, err := CopyAmbient(AmbientRequest{Engine: "codex", InstanceHome: dest, WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	assert.True(t, skipped)
-	assert.NoDirExists(t, filepath.Join(dest, ".codex"))
+	assert.True(t, report.SkippedEnv)
+	assert.False(t, report.NoSource)
+	assert.NoFileExists(t, filepath.Join(dest, ".codex", "auth.json"))
 }
 
-// TestPrepareCodexHome_NoSourceFailsLoud pins the fail-loud contract: no
-// OPENAI_API_KEY and no host ~/.codex/auth.json returns a non-nil, actionable
-// error — NEVER a silent success that would let codex launch straight into a 401.
-func TestPrepareCodexHome_NoSourceFailsLoud(t *testing.T) {
+// TestCopyAmbient_Codex_NoSourceFailsLoud pins the fail-loud contract: no
+// OPENAI_API_KEY and no host ~/.codex/auth.json reports NoSource with an
+// actionable reason — NEVER a silent success that would let codex launch
+// straight into a 401. It is a DECISION rather than a Go error because the two
+// axes act on it differently; both callers surface this exact string.
+func TestCopyAmbient_Codex_NoSourceFailsLoud(t *testing.T) {
 	withFakeHome(t) // empty fake home — no .codex at all
 	t.Setenv("OPENAI_API_KEY", "")
 	dest := t.TempDir()
 
-	_, err := PrepareCodexHome(dest)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "OPENAI_API_KEY")
-	assert.Contains(t, err.Error(), "auth.json")
-	assert.Contains(t, err.Error(), "codex login", "the error must name a fix that works")
+	report, err := CopyAmbient(AmbientRequest{Engine: "codex", InstanceHome: dest, WorkDir: t.TempDir()})
+	require.NoError(t, err, "nothing seedable is a DECISION, not an I/O error")
+	require.True(t, report.NoSource)
+	assert.Contains(t, report.NoSourceReason, "OPENAI_API_KEY")
+	assert.Contains(t, report.NoSourceReason, "auth.json")
+	assert.Contains(t, report.NoSourceReason, "codex login", "the reason must name a fix that works")
 }
 
-// TestPrepareCodexHome_NoSourceOffersNoDegradedEscape pins the REMOVAL of the
+// TestCopyAmbient_Codex_NoSourceOffersNoDegradedEscape pins the REMOVAL of the
 // "(or pass --degraded)" clause this error used to carry. The flag relaxes
 // this package's strictness recording; the caller that surfaces this error
 // (internal/codex's ensureCodexCredentials → Codex.Setup, whose result
@@ -421,29 +428,30 @@ func TestPrepareCodexHome_NoSourceFailsLoud(t *testing.T) {
 // changes nothing on this path. An error naming an escape hatch that does
 // not exist sends the user round a loop that cannot terminate — a worse
 // failure than saying less.
-func TestPrepareCodexHome_NoSourceOffersNoDegradedEscape(t *testing.T) {
+func TestCopyAmbient_Codex_NoSourceOffersNoDegradedEscape(t *testing.T) {
 	withFakeHome(t)
 	t.Setenv("OPENAI_API_KEY", "")
 
-	_, err := PrepareCodexHome(t.TempDir())
-	require.Error(t, err)
-	assert.NotContains(t, err.Error(), "degraded",
+	report, err := CopyAmbient(AmbientRequest{Engine: "codex", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	require.True(t, report.NoSource)
+	assert.NotContains(t, report.NoSourceReason, "degraded",
 		"--degraded does not unblock this path — internal/codex never reads strictness")
 }
 
 // =============================================================================
-// PrepareClaudeHome — PrepareCodexHome's sibling for the IN-TREE AGENT axis, where
-// internal/operations points CLAUDE_CONFIG_DIR at a project-scoped state home
-// (internal/claude.SessionConfigDir) that provisionConfigHome never sees.
+// CopyAmbient, claude arm — the same one mechanism against claude's allow-list,
+// on the IN-TREE AGENT axis where internal/operations points CLAUDE_CONFIG_DIR
+// at a per-session instance (internal/claude.SessionConfigDir).
 // =============================================================================
 
-// TestPrepareClaudeHome_CopiesCredentials is the PAYLOAD-asserting case: the
+// TestCopyAmbient_Claude_CopiesCredentials is the PAYLOAD-asserting case: the
 // host's ~/.claude/.credentials.json lands byte-identical, owner-only, at
 // destDir/claude/.credentials.json — exactly where claude.SessionConfigDir
 // resolves CLAUDE_CONFIG_DIR to. The empty-source guard (a non-empty fixture,
 // re-read and compared) keeps the byte comparison from passing vacuously on two
 // empty files, which is this project's signature failure mode.
-func TestPrepareClaudeHome_CopiesCredentials(t *testing.T) {
+func TestCopyAmbient_Claude_CopiesCredentials(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	writeCreds(t, home, false)
@@ -454,9 +462,11 @@ func TestPrepareClaudeHome_CopiesCredentials(t *testing.T) {
 	require.NotEmpty(t, want, "fixture must carry bytes, or the comparison below proves nothing")
 
 	dest := t.TempDir()
-	skipped, err := PrepareClaudeHome(dest)
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: dest, WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	assert.False(t, skipped)
+	assert.False(t, report.SkippedEnv)
+	assert.False(t, report.NoSource)
+	assert.Equal(t, 1, report.Copied)
 
 	got, err := os.ReadFile(filepath.Join(dest, "claude", ".credentials.json"))
 	require.NoError(t, err, "seeded credential must exist at destDir/claude/.credentials.json")
@@ -467,11 +477,11 @@ func TestPrepareClaudeHome_CopiesCredentials(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
 }
 
-// TestPrepareClaudeHome_NeverWritesTheHostHome is the migration-shaped guard for
+// TestCopyAmbient_Claude_NeverWritesTheHostHome is the migration-shaped guard for
 // an axis that has no migration: the real ~/.claude is READ and never written.
 // An in-tree agent home that mutated the human's own home would be the exact
 // regression this phase exists to avoid.
-func TestPrepareClaudeHome_NeverWritesTheHostHome(t *testing.T) {
+func TestCopyAmbient_Claude_NeverWritesTheHostHome(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	writeCreds(t, home, false)
@@ -482,7 +492,7 @@ func TestPrepareClaudeHome_NeverWritesTheHostHome(t *testing.T) {
 	original, err := os.ReadFile(src)
 	require.NoError(t, err)
 
-	_, err = PrepareClaudeHome(t.TempDir())
+	_, err = CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
 	require.NoError(t, err)
 
 	after, err := os.Stat(src)
@@ -497,33 +507,35 @@ func TestPrepareClaudeHome_NeverWritesTheHostHome(t *testing.T) {
 	assert.Len(t, entries, 1, "seeding added files to the host's own ~/.claude")
 }
 
-// TestPrepareClaudeHome_EnvTriggerSkips: ANTHROPIC_API_KEY set → skipped=true, nil
-// error, nothing copied. Auth rides the environment, so an empty controlled
-// home is correct and the caller still points CLAUDE_CONFIG_DIR at it.
-func TestPrepareClaudeHome_EnvTriggerSkips(t *testing.T) {
+// TestCopyAmbient_Claude_EnvTriggerSkips: ANTHROPIC_API_KEY set → SkippedEnv,
+// nil error, no CREDENTIAL copied. Auth rides the environment, so an unseeded
+// controlled home is correct and the caller still points CLAUDE_CONFIG_DIR at
+// it.
+func TestCopyAmbient_Claude_EnvTriggerSkips(t *testing.T) {
 	withFakeHome(t) // no ~/.claude on disk
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	dest := t.TempDir()
 
-	skipped, err := PrepareClaudeHome(dest)
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: dest, WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	assert.True(t, skipped)
-	assert.NoDirExists(t, filepath.Join(dest, "claude"))
+	assert.True(t, report.SkippedEnv)
+	assert.NoFileExists(t, filepath.Join(dest, "claude", ".credentials.json"))
 }
 
-// TestPrepareClaudeHome_NoSourceFailsLoud pins the fail-loud contract: no
+// TestCopyAmbient_Claude_NoSourceFailsLoud pins the fail-loud contract: no
 // ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json returns a non-nil,
 // actionable error naming fixes that actually work — never a silent success
 // that would point claude at an empty home and strand the agent logged out.
-func TestPrepareClaudeHome_NoSourceFailsLoud(t *testing.T) {
+func TestCopyAmbient_Claude_NoSourceFailsLoud(t *testing.T) {
 	withFakeHome(t) // empty fake home — no .claude at all
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
-	_, err := PrepareClaudeHome(t.TempDir())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ANTHROPIC_API_KEY")
-	assert.Contains(t, err.Error(), ".credentials.json")
-	assert.Contains(t, err.Error(), "claude login", "the error must name a fix that works")
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	require.True(t, report.NoSource)
+	assert.Contains(t, report.NoSourceReason, "ANTHROPIC_API_KEY")
+	assert.Contains(t, report.NoSourceReason, ".credentials.json")
+	assert.Contains(t, report.NoSourceReason, "claude login", "the reason must name a fix that works")
 }
 
 // realisticDotClaudeJSON is a stand-in for a real user's ~/.claude.json: on a

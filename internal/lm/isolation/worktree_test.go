@@ -3,6 +3,7 @@ package isolation
 import (
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -208,7 +209,7 @@ func TestWorktree_TeardownLeaksOnListFailure(t *testing.T) {
 // owner-only (0700) like every MkdirTemp sibling in this package, never
 // world-traversable.
 func TestProvisionConfigHome_OwnerOnly(t *testing.T) {
-	home, _ := Worktree{}.provisionConfigHome("agent-x")
+	home, _ := Worktree{}.provisionConfigHome("agent-x", t.TempDir())
 	require.NotEmpty(t, home)
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 
@@ -266,7 +267,7 @@ func TestWorktree_ConfigHomeMkdirFailureRecordsFinding(t *testing.T) {
 	t.Setenv("TMPDIR", notADir)
 
 	w := NewWorktree(nil, "claude-code")
-	home, denied := w.provisionConfigHome("agent-a")
+	home, denied := w.provisionConfigHome("agent-a", t.TempDir())
 	assert.Empty(t, home)
 	assert.Nil(t, denied)
 
@@ -924,15 +925,34 @@ func TestWorktree_HomeVarDirsExist(t *testing.T) {
 }
 
 // requireNothingSeeded asserts a per-agent config-home subdirectory carries no
-// seeded credential material. It states the invariant a NoDirExists check used
+// seeded CREDENTIAL material. It states the invariant a NoDirExists check used
 // only to approximate: the directory Env() names is created unconditionally, so
-// "no seed happened" is EMPTINESS of that directory, not its absence.
+// "no seed happened" cannot be its absence.
+//
+// Nor is it EMPTINESS, which is what this used to assert. The ambient copy-in
+// has two halves and only the first is the credential copy: the second asks the
+// ENGINE to generate its own instance config (claude's .claude.json onboarding
+// and workspace-trust answers), and that half runs whether or not a credential
+// moved — an ANTHROPIC_API_KEY run authenticates fine and still meets the trust
+// dialog. So the assertion is about the credential FILES, named from the same
+// allow-list the copy itself reads, so the two cannot drift.
 func requireNothingSeeded(t *testing.T, dir string) {
 	t.Helper()
 	require.NotEmpty(t, dir, "the scoped config-home var must be exported")
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err, "the config-home subdirectory exists even when nothing was seeded")
-	assert.Empty(t, entries, "nothing is seeded when there is nothing to seed")
+
+	credentialNames := map[string]bool{}
+	for _, engine := range AmbientEngineNames() {
+		for _, f := range AmbientSet(engine) {
+			credentialNames[path.Base(f.DestRel)] = true
+		}
+	}
+	require.NotEmpty(t, credentialNames, "the allow-list must name real files, or this check proves nothing")
+	for _, e := range entries {
+		assert.False(t, credentialNames[e.Name()],
+			"no credential is seeded when there is nothing to seed, but %s appeared in %s", e.Name(), dir)
+	}
 }
 
 // panicAfterAddGit panics on CommonDir — the first git call PrepareWorkspace

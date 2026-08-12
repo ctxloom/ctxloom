@@ -193,7 +193,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 			"worktree isolation for agent %q: backend %q is not registered in the credential-seed registry — only the working directory is isolated; the engine's global config and credentials remain fully shared with the host",
 			agentID, w.backend)
 	}
-	ws.configHome, ws.deniedHomeVars = w.provisionConfigHome(agentID)
+	ws.configHome, ws.deniedHomeVars = w.provisionConfigHome(agentID, wtPath)
 	ws.scratchDir = w.provisionScratchDir(agentID)
 	w.excludeConfigFromMerge(ctx, projectDir)
 	w.skipTrackedConfig(ctx, wtPath)
@@ -245,7 +245,13 @@ func (Worktree) StartRunner(ctx context.Context, backendName, label string, verb
 // which would strip ~/.gitconfig/ssh identity the worktree still needs. denied
 // carries any GatedOnCreds HomeVars seedCredentials decided NOT to isolate (see
 // its doc) — Env() reads it back to omit them.
-func (w Worktree) provisionConfigHome(agentID string) (home string, denied map[string]bool) {
+//
+// workDir is THIS member's own checkout — the directory the engine will
+// actually run in, and therefore the one an engine-generated workspace-trust
+// answer must name. It is the per-agent worktree, never the shared project
+// root: trusting the project root would answer for a directory this member
+// never enters.
+func (w Worktree) provisionConfigHome(agentID, workDir string) (home string, denied map[string]bool) {
 	home = worktreeScratchPath(w.scratchBase(), "ctxloom-cfg", agentID)
 	// 0700 like every MkdirTemp sibling in this package: the dir holds engine
 	// creds/state (CLAUDE_CONFIG_DIR & co.) in the SHARED OS temp dir — never
@@ -270,7 +276,7 @@ func (w Worktree) provisionConfigHome(agentID string) (home string, denied map[s
 		_ = os.RemoveAll(home)
 		return "", nil
 	}
-	denied = w.seedCredentials(home, agentID)
+	denied = w.seedCredentials(home, agentID, workDir)
 	w.prepareHomeVarDirs(home, denied)
 	return home, denied
 }
@@ -320,7 +326,15 @@ func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) 
 // ClassIsolation finding the choke owner aborts on in strict mode (default)
 // unless --degraded — matching how the container path treats unresolvable auth
 // (resolveClaudeContainerAuth / container.go).
-func (w Worktree) seedCredentials(configHome, agentID string) map[string]bool {
+// It routes through isolation.CopyAmbient — the ONE one-way ambient copy-in,
+// shared with the in-tree axis (D8, ruled 2026-08-11). Sharing the mechanism is
+// what makes the D4/D5 rulings — claude's field-scoped .claude.json, codex's
+// [mcp_servers]/[hooks] elision — apply to a fan-out member for free, instead
+// of being an in-tree-only privilege the worktree axis silently missed. The
+// LOCATION stays split: this axis's homes remain home-rooted under
+// ~/.ctxloom/sessions/<harp>/ephemeral/, because they are per-AGENT, not
+// per-session.
+func (w Worktree) seedCredentials(configHome, agentID, workDir string) map[string]bool {
 	spec, ok := credentialSeedSpecs[w.backend]
 	if !ok {
 		return nil
@@ -328,12 +342,12 @@ func (w Worktree) seedCredentials(configHome, agentID string) map[string]bool {
 	if spec.sourceFiles == nil {
 		return w.gateHomeVars(spec, agentID)
 	}
-	result, err := hostCredentialSeed(spec, configHome)
+	report, err := CopyAmbient(AmbientRequest{Engine: w.backend, InstanceHome: configHome, WorkDir: workDir})
 	if err != nil {
 		clidiag.Warn("ctxloom", "worktree: could not seed %s credentials for %q (using an unseeded config-home): %v", spec.engine, agentID, err)
 		return nil
 	}
-	if result == seedNoSource {
+	if report.NoSource {
 		strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
 			"worktree isolation for agent %q: no %s and no host %s credentials found to seed the per-agent config-home — the agent would start logged out",
 			agentID, spec.envTrigger, spec.engine)

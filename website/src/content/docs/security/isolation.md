@@ -138,6 +138,22 @@ convenience — which meant every isolated agent could also read the host user's
 registrations and whatever tokens they carried. That was a confidentiality bug in ctxloom, not
 in Claude Code, and it was fixed 2026-07-21 by seeding only the credentials file.)
 
+There is a sharper reason the seeded credential is handled the way it is, and it decides all
+three isolation axes. A Claude Code subscription login stores an OAuth **refresh token**, and
+that token is **single-use and rotating**: whenever any holder refreshes, the provider mints a
+replacement and invalidates the one just spent. So a *copy* of `.credentials.json` that ever
+refreshes rotates the live token out from under every other holder — **including your host
+login**, silently logging you out of your own machine. ctxloom resolves this two ways. The
+**worktree** and **in-tree instance** homes get an **access-token-only** copy: the refresh
+token is stripped on the way in, so the copy can never refresh and can never rotate the host's
+token — the trade is that such a run re-launches once its access token expires rather than
+refreshing in place. The **container** does the opposite: it bind-mounts the *real*
+`~/.claude/.credentials.json` read-write, no copy at all, so the container's refresh lands in
+the one real file the host also holds and nothing desyncs — a container keeps refresh with no
+re-launch. The full three-axis model, and why each axis makes the trade it does, is documented
+in the engine isolation reference in the repository (`docs/architecture/engines/isolation.md`,
+"Single-use refresh tokens").
+
 That third case is still worth sitting with, even resolved: a vendor can do exactly the thing
 you asked for and you can still lose, because "honour the variable for everything" and "bring
 the credentials the agent needs on day one" are two different jobs — and closing the gap
@@ -228,8 +244,10 @@ That correction closes what used to be an open question here. **`resolveAntigrav
 (`internal/lm/isolation/auth.go`) is no longer a stub.** It seeds the host's
 `antigravity-oauth-token` file — the correct one — into scratch and mounts the copy read-write
 into the container's fresh `HOME`, at the identical relative path agy itself reads, mirroring
-how Claude Code's OAuth token is copy-mounted for the same reason: the token carries a
+the read-write posture Claude Code's OAuth mount uses for the same reason: the token carries a
 `refresh_token`, so it self-renews, and a read-only mount would collide with that write-back.
+(Claude Code's container mount goes one step further and binds the *real*
+`~/.claude/.credentials.json` rather than a copy — see the credentials note above for why.)
 When no such host token exists, the resolver still degrades honestly (`ok=false`) rather than
 guessing or silently borrowing another engine's credentials — ctxloom's own container launch
 then aborts before the container ever starts, a fatal `ClassIsolation` finding in the default

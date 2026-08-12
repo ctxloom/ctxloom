@@ -185,7 +185,7 @@ trigger-then-mount-then-degrade, shared by claude / kiro / codex / opencode.
 
 | Engine | Env trigger | Mount | Site |
 |---|---|---|---|
-| claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | copies `.credentials.json` into scratch, mounts **RW** (claude refreshes the token in place) | `claudeCredentialCopyMounts`, `auth.go:449`. `~/.claude.json` is deliberately not copied (`:438-447`) |
+| claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | bind-mounts the **real** `~/.claude/.credentials.json` **RW** — no copy — so claude's single-use token refresh lands in the one real file (see [Single-use refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ) below) | `claudeCredentialMounts`, `auth.go`. `~/.claude.json` is deliberately never mounted |
 | codex | `OPENAI_API_KEY` (`CODEX_API_KEY` is **not** a confirmed trigger and is deliberately excluded, `auth.go:186-196`) | **RO** mount of `~/.codex/auth.json` — safe because non-interactive codex never refreshes in place | `codexCredentialMounts`, `auth.go:226` |
 | opencode | `OPENROUTER_API_KEY` | **RO** mount of XDG `auth.json` | `opencodeCredentialMounts`, `auth.go:293` |
 | kiro | `KIRO_API_KEY` (**sole** trigger; `AWS_*` ride along but are not standalone) | **none** | `resolveKiroContainerAuth`, `auth.go:182` |
@@ -199,6 +199,51 @@ used by `operations.InTreeAgentHomeEnv` (below) to populate a per-session
 instance home. They are named *Prepare* because the destination is created at
 instance time and thrown away at session end — the copy is one-way, from the
 real host home in, never back.
+
+### Single-use refresh tokens: why the three axes differ
+
+The credential ctxloom hands an isolated claude run is not inert. A claude
+subscription login stores an OAuth **refresh token**, and that token is
+**single-use and rotating**: the moment any holder refreshes, the provider
+mints a replacement and invalidates the token that was just spent. So a *copy*
+of `.credentials.json` is a latent trap — if the copy ever refreshes, it
+rotates the live token out from under **every** other holder, **including your
+host login**, silently logging you out of your own machine. This is the fact
+the three claude-credential axes are built around, and it is why they do not
+all handle the credential the same way.
+
+- **Worktree** (`{worktree, host}`) and **in-tree instance**
+  (`config_home: project`) both **COPY** the credential into a per-agent /
+  per-session home, and both copies are **access-token-ONLY**: the refresh
+  token is **stripped** as the bytes cross (`copyCredentialFile`'s projector →
+  claude's `ProjectAmbientCredential`). A stripped copy *cannot* refresh, so it
+  can never rotate the host's single-use token. The deliberate trade: such a
+  run authenticates only until its access token expires, then must be
+  **re-launched** to pick up a fresh copy — it does not refresh in place, so a
+  long session pays a re-launch at expiry. These axes exist to isolate the
+  child from host config in the first place, so a stripped, copied credential
+  is coherent with what they are for.
+
+- **Container** (`{none, container}`) does the **opposite**: it bind-mounts the
+  **real** `~/.claude/.credentials.json` **read-write**, with **no copy**
+  (`claudeCredentialMounts`). The container's refresh lands in the one real
+  file — the single source of truth the host also holds — so host and container
+  share the same rotating token and nothing ever desyncs. A container therefore
+  **keeps refresh** (no re-launch at expiry), the reverse of the two host axes'
+  trade. A container is already a separate execution context where sharing the
+  real credential is the natural idiom, and rotation safety is worth more there
+  than file-level credential isolation. The **`ctxloom-never-writes-real-home`**
+  invariant still holds: ctxloom only *declares* the bind mount;
+  claude-the-binary writes the credential through it, exactly as it does on a
+  non-containerized run. ctxloom itself never opens the real credential for
+  writing.
+
+The two host axes were switched to access-token-only stripping in the same
+change that established the single-use-rotation model by live experiment; the
+container axis was switched to the real-home mount immediately after. All three
+are now coherent: **no copy of the credential that can refresh exists anywhere**
+— the only thing that refreshes is either the real file (container) or nothing
+at all (stripped host copies).
 
 ## Engine config homes
 
@@ -217,13 +262,19 @@ and disposable. Three content classes live in it: ctxloom-generated content
 (context, prompts, skills, config fragments) regenerated at each launch;
 engine-specific scaffolding (codex's `config.toml` tables and trust pre-seed)
 synthesized by the engine packages; and **ambient** content whose origin is your
-real host home (credentials today), **copied in one way** at instance time.
+real host home (credentials today), **copied in one way** at instance time. For
+claude that copy is **access-token-only** — the single-use refresh token is
+stripped so the instance can never rotate the host's token (see [Single-use
+refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ)).
 
 **There is no sync-back, ever.** Two accepted costs follow, and they are
-deliberate: a credential the engine refreshes inside an instance does not reach
-your real home, and trust/onboarding answers given inside an instance die with
-it (re-prompted next session unless the engine's own answer already lives in the
-real home and rides the next copy-in).
+deliberate: an instance's stripped credential does not refresh in place — the
+run re-launches to pick up a fresh copy once its access token expires — and
+trust/onboarding answers given inside an instance die with it (re-prompted next
+session unless the engine's own answer already lives in the real home and rides
+the next copy-in). The **container** axis is the deliberate exception: it mounts
+the real credential read-write and so *does* refresh in place, because a mount —
+unlike a copy — shares the host's one rotating token rather than forking it.
 
 An engine's **cwd-keyed** surfaces are a different thing entirely and are never
 relocated: `CLAUDE.md`, `.claude/`, `.kiro/`, `opencode.json`, `AGENTS.md` live

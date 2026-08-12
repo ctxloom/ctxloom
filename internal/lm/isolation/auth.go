@@ -21,7 +21,10 @@ const (
 	// default, used when ANTHROPIC_API_KEY is present).
 	authEnv
 	// authCredentialMount: the host's subscription OAuth credentials are
-	// bind-mounted read-only into the container's fresh HOME.
+	// bind-mounted into the container's fresh HOME — read-only for engines whose
+	// non-interactive mode never refreshes (codex/opencode), read-WRITE and
+	// pointed at the REAL host file for claude, whose token refresh must write
+	// back in place (see claudeCredentialMounts).
 	authCredentialMount
 )
 
@@ -126,19 +129,24 @@ func noContainerAuthProfile(_ string, _ string) (containerAuth, bool) {
 // whose fresh HOME is containerHome. It PREFERS env passthrough (an
 // ANTHROPIC_API_KEY OR ANTHROPIC_AUTH_TOKEN in the host env — the latter covers a
 // gateway host that authenticates via BASE_URL+AUTH_TOKEN and carries no API key)
-// and otherwise falls back to COPYING the host's subscription OAuth credentials
-// into scratchDir and mounting the copies read-write into the container HOME (see
-// claudeCredentialCopyMounts — a plain read-only mount of the host originals would
-// collide with claude's token-refresh write-back). It returns ok=false only when
+// and otherwise falls back to BIND-MOUNTING the host's REAL subscription OAuth
+// credential read-write into the container HOME (see claudeCredentialMounts —
+// the container's token refresh writes back into the one real file so nothing
+// desyncs the host's single-use rotating token). It returns ok=false only when
 // NEITHER is available, so the caller errors and degrades down the chain to None
 // rather than launching an unauthenticated engine that would hang or fail — a
 // fatal finding (ClassIsolation) the choke owner aborts on unless --degraded,
 // since the container was EXPLICITLY requested.
-func resolveClaudeContainerAuth(containerHome, scratchDir string) (containerAuth, bool) {
+//
+// The second parameter (the run's host-side scratch dir) is unused: the claude
+// credential is now the real host file, not a staged copy, so nothing is written
+// under scratch here. It is retained only to satisfy the shared resolveAuth seam
+// signature (containerProfile.resolveAuth).
+func resolveClaudeContainerAuth(containerHome, _ string) (containerAuth, bool) {
 	return resolveEnvOrMountAuth(
 		[]string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
 		claudeAuthEnvVars,
-		func() ([]Mount, bool) { return claudeCredentialCopyMounts(containerHome, scratchDir) },
+		func() ([]Mount, bool) { return claudeCredentialMounts(containerHome) },
 	)
 }
 
@@ -371,33 +379,40 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 	return out
 }
 
-// claudeCredentialCopyMounts builds the READ-WRITE credential mount that
-// authenticates a subscription (OAuth) claude inside the container: the OAuth
-// token file is COPIED into scratchDir and the copy is mapped into
-// containerHome, read-write. A plain read-only bind of the host original (the
-// prior behaviour) collides with claude's token-refresh write-back to that
-// exact file — the refresh would either fail against the read-only mount or
-// (worse) silently no-op, leaving a long-running container's auth to expire
-// mid-session. Mounting a copy read-write instead lets the refresh land in the
-// EPHEMERAL scratch copy, which is discarded at teardown along with the rest
-// of the scratch root (containerWorkspace.Cleanup removes it recursively) —
-// the host's own credential file is never touched, mirroring the
-// copy-not-symlink rationale the host+worktree seed path already uses (this
-// file's package doc above). Returns ok=false when the host OAuth token file
-// is absent (nothing to copy) or the scratch copy cannot be written.
+// claudeCredentialMounts builds the READ-WRITE credential mount that
+// authenticates a subscription (OAuth) claude inside the container: the host's
+// REAL ~/.claude/.credentials.json is bind-mounted DIRECTLY into containerHome,
+// read-write, with NO intervening copy.
 //
-// This used to ALSO copy+mount ~/.claude.json — not a narrow
-// OAuth-association record but claude's WHOLE top-level config, including
-// the host user's OWN mcpServers registrations (and whatever secrets those
-// carry) on a real machine. That handed every isolated agent read access to
-// the user's personal integrations — a confidentiality leak, not the
-// convenience (skip re-onboarding's trust dialog) it was seeded for. Dropped
-// entirely rather than filtered: filtering would mean maintaining an
-// allowlist against claude's own evolving config schema, an unpins fight
-// this package has no way to win, and this file's own live-verification
-// (credentialSeedSpecs' claude-code entry doc) already established
-// .credentials.json alone is sufficient to authenticate.
-func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool) {
+// This deliberately REVERSES the earlier copy-then-mount design for the
+// container axis (RULED 2026-08-12). claude refreshes its OAuth token in place,
+// and that refresh token is SINGLE-USE and ROTATING: any COPY of the credential
+// that refreshes mints a new token and INVALIDATES every other holder —
+// including the host's own login. A read-write copy kept the refresh off the
+// host file, but the container's refresh then rotated a token the host still
+// believed current, silently logging the host out mid-session. Mounting the ONE
+// real file means the container's refresh lands in the single source of truth:
+// host and container share the same rotating token, nothing desyncs, and the
+// host stays valid. The container therefore KEEPS refresh (no re-launch at
+// expiry) — deliberately UNLIKE the host+worktree axes, which copy an
+// ACCESS-TOKEN-ONLY credential (refresh stripped, see hostCredentialSeed and
+// copyCredentialFile's projector) precisely because a copy THERE could rotate
+// the host's single-use token. See docs/architecture/engines/isolation.md for
+// the full three-axis model.
+//
+// The ctxloom-never-writes-real-home invariant HOLDS: ctxloom only DECLARES the
+// bind mount; claude-the-binary writes the credential THROUGH it, exactly as it
+// writes ~/.claude/.credentials.json on a non-containerized run. ctxloom itself
+// never opens the real credential for writing.
+//
+// Only ~/.claude/.credentials.json ever crosses — never ~/.claude.json, which
+// on a real host is claude's WHOLE top-level config including the user's OWN
+// mcpServers registrations (and whatever secrets those carry); mounting it would
+// hand every isolated agent read access to the user's personal integrations, a
+// confidentiality leak, and .credentials.json alone is live-verified sufficient
+// to authenticate (credentialSeedSpecs' claude-code entry doc). Returns
+// ok=false when the host OAuth token file is absent (nothing to mount).
+func claudeCredentialMounts(containerHome string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return nil, false
@@ -406,43 +421,11 @@ func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool
 	if !fileExists(creds) {
 		return nil, false
 	}
-	dir := filepath.Join(scratchDir, "claude-auth")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		warnCredentialCopyFailed("claude", creds, err)
-		return nil, false
-	}
-	credsCopy := filepath.Join(dir, ".credentials.json")
-	// nil projector: the CONTAINER credential-mount path is a SEPARATE axis from
-	// CopyAmbient (it bind-mounts a rw copy so an in-container refresh lands in
-	// the ephemeral scratch, not the host original) and is out of easiest-stomp's
-	// stated scope. It still copies the whole credential, refresh token included,
-	// so a containerized claude that refreshes ALSO rotates the host's single-use
-	// token — the same exposure the strip closes on the worktree/in-tree axes.
-	// Applying the strip here is a deliberate follow-up, not an oversight.
-	if err := copyCredentialFile(creds, credsCopy, nil); err != nil {
-		warnCredentialCopyFailed("claude", creds, err)
-		return nil, false
-	}
 	return []Mount{{
-		Host:      credsCopy,
+		Host:      creds,
 		Container: filepath.Join(containerHome, ".claude", ".credentials.json"),
 		ReadOnly:  false,
 	}}, true
-}
-
-// warnCredentialCopyFailed names the one outcome the credential-copy mount
-// builders cannot express in their ok=false return: the host credential EXISTS
-// and we failed to stage a copy of it. Absence and copy-failure both degrade the
-// run the same way, but they are opposite diagnoses — the caller's authHint
-// ("no ~/.claude/.credentials.json to authenticate the in-container engine")
-// is true for the first and actively false for the second, sending the user to
-// re-authenticate a credential that is already there. Only the failure warns;
-// an absent credential is an ordinary host state and must stay silent, or the
-// signal is noise.
-func warnCredentialCopyFailed(engine, src string, err error) {
-	clidiag.Warn("ctxloom",
-		"%s container auth: the host credential %s exists but could not be staged for the container (%v); this run proceeds as if no host credential were present",
-		engine, src, err)
 }
 
 // fileExists reports whether path is an existing regular file (not a directory).

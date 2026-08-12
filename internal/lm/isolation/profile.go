@@ -37,11 +37,11 @@ import (
 //     engineInstall's OWN embedded validate step instead.
 //   - resolveAuth: how the in-container engine authenticates (scoped env
 //     passthrough and/or credential mounts into the fresh HOME). Takes the
-//     run's host-side scratch dir too (a resolver that needs to COPY a host
-//     credential before mounting it read-write — claude's token-refresh case,
-//     auth.go's claudeCredentialCopyMounts — writes the copy under there; it
-//     is removed at teardown with the rest of the scratch root). Resolvers
-//     that only need read-only mounts or env passthrough ignore it.
+//     run's host-side scratch dir too, a seam-signature remnant: no current
+//     resolver writes a credential under it (claude's token-refresh case now
+//     bind-mounts the REAL host credential read-write instead of a scratch
+//     copy — auth.go's claudeCredentialMounts; codex/opencode mount their real
+//     host credential read-only). Every resolver ignores the scratch dir today.
 //   - authHint: the degrade diagnostic when resolveAuth finds nothing — names
 //     the engine's trigger var/credential source without leaking values.
 //   - overlayDirs: the project-relative managed-config DIRECTORIES ctxloom's

@@ -78,12 +78,20 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # that half stays pinned at the Go level (auth_test.go).
   #
   # The RUNTIME axis's real container LAUNCH boundary needs a live container
-  # daemon plus a built agent image; that is out of hermetic scope and
-  # deliberately deferred (no @container scenario exists in this file). What
-  # IS hermetically provable — and is proven below — is the fail-loud
-  # contract when a requested container can't launch: exit code 3 with a
-  # ClassIsolation finding naming the escape hatch, or exit 0 on the host
-  # under --degraded.
+  # daemon plus a built agent image; that is out of hermetic scope. What IS
+  # hermetically provable — and is proven below — is the fail-loud contract when
+  # a requested container can't launch: exit code 3 with a ClassIsolation
+  # finding naming the escape hatch, or exit 0 on the host under --degraded.
+  #
+  # ONE real-launch scenario DOES live here now, tagged @container (excluded
+  # from the default run, gated by `just test-acceptance-container`, self-skips
+  # where no runtime is reachable): "A containerized engine's write reaches the
+  # host through the same read-write bind mount…", below. It demonstrates the
+  # SHARED-IDENTITY property of ctxloom's read-write host bind mount — the exact
+  # mechanism the container claude credential now relies on (unripe-juiciness:
+  # the credential is the REAL ~/.claude/.credentials.json mounted rw, not a
+  # copy). See that scenario's own note for what the @container lane can and
+  # cannot express about the credential specifically.
 
   Background:
     Given Alice has a git-backed project with a mock agent
@@ -133,6 +141,40 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | flags      | outcome                           |
       |            | aborts with an isolation finding  |
       | --degraded | runs on the host                  |
+
+  # ===========================================================================
+  # THE CONTAINER CREDENTIAL AXIS — real-home mount, not a copy (unripe-juiciness).
+  #
+  # WHY THIS MATTERS. claude's OAuth refresh token is SINGLE-USE and ROTATING:
+  # whenever any holder refreshes, the provider mints a replacement and
+  # invalidates the spent one. A COPY of ~/.claude/.credentials.json that ever
+  # refreshes therefore rotates the live token out from under every other holder
+  # — INCLUDING the host login. So ctxloom mounts the container's claude
+  # credential as the REAL host file, read-write, with no copy: the container's
+  # refresh lands in the one file the host also holds, and nothing desyncs. (The
+  # two HOST axes — worktree, in-tree instance — do the opposite, copying an
+  # access-token-ONLY credential; see the matrix scenarios below and
+  # docs/architecture/engines/isolation.md.)
+  #
+  # WHAT THE @container LANE CAN AND CANNOT EXPRESS. The @container lane launches
+  # the built-in MOCK in a real container; the mock authenticates against NO
+  # vendor, so it carries no claude credential mount to observe, and there is no
+  # CLI surface that prints the resolved container mount plan. So this scenario
+  # does NOT read the credential file's bytes. What it DOES prove — live, against
+  # a real daemon — is the SHARED-IDENTITY property the credential mount depends
+  # on: a write made from INSIDE the container reaches the HOST at the same path,
+  # because ctxloom's read-write bind mount is one file on both sides, not a
+  # copy. The credential-SPECIFIC facts are pinned where they are observable: the
+  # mount SOURCE = real ~/.claude/.credentials.json, rw, refresh token PRESENT is
+  # a hermetic Go test (internal/lm/isolation/auth_test.go's
+  # TestClaudeCredentialMounts_PresentAndAbsent), and a real claude refreshing in
+  # place is the @live isolation probe (@claude-code @container). This scenario
+  # is the runtime-lane half; those two are the credential half.
+  # ===========================================================================
+  @container
+  Scenario: A containerized engine's write reaches the host through the same read-write bind mount claude's real-credential mount uses
+    When Alice runs the container-bound agent in a real container
+    Then the engine's in-container write is the same file the host holds
 
   # ===========================================================================
   # PER-ENGINE CONFIG-HOME ISOLATION MATRIX — fills the gap the journey's own

@@ -665,7 +665,7 @@ test-coverage-gate PROFILE="":
 # machine without one has nothing to say about it. The longer timeout is the
 # image build, not a slow test.
 test-acceptance-container: build _ensure-gotmpdir
-    ACCEPTANCE_PATHS=features/j002400_container.feature,features/j001400_bundle_distribution.feature \
+    ACCEPTANCE_PATHS=features/journeys/j002400_container.feature,features/j001400_bundle_distribution.feature,features/j002200_isolation.feature \
     ACCEPTANCE_TAGS="@container" \
     GOTMPDIR="{{go_tmp}}" \
     go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...

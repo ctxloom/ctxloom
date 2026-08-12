@@ -69,6 +69,7 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -120,6 +121,16 @@ var isoSpyEnvAllowlistShell = strings.Join(isoSpyEnvAllowlist, " ")
 // It records ONLY isoSpyEnvAllowlist's variables, never the whole
 // environment — see that list's doc for the secret-leak hazard that
 // constraint exists to close.
+//
+// The four non-env sections it also captures are all FILES CTXLOOM ITSELF
+// CREATED inside a config home ctxloom provisioned, in a throwaway test HOME —
+// a copy of the obviously-fake isoFixtureCredMarker, a directory listing, a
+// mode string, and the ctxloom-GENERATED .claude.json. None of them can carry
+// a developer's own secret the way a bare `env` dump could, and every one of
+// them exists because the thing being asserted does not survive the run:
+// S8's teardown reaps the instance at session end, so anything read from
+// OUTSIDE, after `ctxloom run` returns, is reading a directory that is
+// legitimately gone. Capture during, assert after.
 var isoMatrixSpyScript = `#!/bin/sh
 out="$CTXLOOM_ISOSPY_OUT"
 {
@@ -136,6 +147,15 @@ out="$CTXLOOM_ISOSPY_OUT"
   [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.credentials.json" 2>/dev/null
   echo "===CODEX_HOME_CREDS==="
   [ -n "$CODEX_HOME" ] && cat "$CODEX_HOME/auth.json" 2>/dev/null
+  echo "===CONFIG_HOME_LISTING==="
+  for d in "$CLAUDE_CONFIG_DIR" "$CODEX_HOME" "$KIRO_HOME"; do
+    [ -n "$d" ] && [ -d "$d" ] && echo "DIR $d"
+  done
+  for f in "$CLAUDE_CONFIG_DIR/.credentials.json" "$CODEX_HOME/auth.json"; do
+    [ -f "$f" ] && echo "MODE $(ls -l "$f" | cut -d' ' -f1) $f"
+  done
+  echo "===CLAUDE_INSTANCE_CONFIG==="
+  [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.claude.json" 2>/dev/null
 } > "$out" 2>/dev/null
 echo '{"result":"ctxloom-isolation-matrix-spy","modelUsage":{"m":{"inputTokens":1,"outputTokens":1}}}'
 exit 0
@@ -146,6 +166,17 @@ exit 0
 // there is nothing to leak even if a bug somehow let this content escape
 // the throwaway test HOME.
 const isoFixtureCredMarker = "ISO-MATRIX-FIXTURE-CREDENTIAL-NOT-A-REAL-SECRET"
+
+// The three classes of Alice's OWN data the personal-claude-config fixture
+// seeds, each obviously fake. They exist to be searched FOR in the generated
+// instance config: an allow-list that quietly widened would carry one of them
+// across, and a fixture without them could not tell that apart from a working
+// one.
+const (
+	isoFixturePersonalSecret  = "ISO-MATRIX-ALICE-OWN-MCP-TOKEN-NOT-A-REAL-SECRET"
+	isoFixturePersonalEmail   = "alice-personal@example.invalid"
+	isoFixturePersonalHistory = "ISO-MATRIX-ALICE-OWN-PROMPT-HISTORY"
+)
 
 // isoBinaryNames maps a scenario's engine token to the literal binary
 // name(s) that engine's backend execs (internal/{claude,codex,kiro,
@@ -563,6 +594,26 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return w.env.GitCommit("initial commit")
 	})
 
+	// The confidentiality fixture for D4. On a real host ~/.claude.json is not
+	// a narrow onboarding record — it is claude's WHOLE top-level config,
+	// carrying the user's own mcpServers registrations and the secrets in
+	// their env blocks, their oauthAccount identity, and their accumulated
+	// per-project history. A scenario that asserts "none of Alice's own config
+	// crossed" against a fixture that HAS none of it proves nothing, so this
+	// writes all four classes, with obviously-fake values.
+	ctx.Step(`^Alice has a personal claude config carrying her own MCP servers$`, func(c context.Context) error {
+		w := worldFrom(c)
+		return w.env.WriteHomeFile(".claude.json", `{
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "9.9.9-fixture",
+  "bypassPermissionsModeAccepted": true,
+  "oauthAccount": {"emailAddress": "`+isoFixturePersonalEmail+`"},
+  "mcpServers": {"spotify": {"command": "spotify-mcp", "args": ["--token", "`+isoFixturePersonalSecret+`"]}},
+  "projects": {"/home/alice/some-other-repo": {"history": ["`+isoFixturePersonalHistory+`"]}}
+}
+`)
+	})
+
 	ctx.Step(`^Alice has a "([^"]*)" credential fixture on the host$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		rel, err := isoCredHostPath(engine)
@@ -684,6 +735,16 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// from internal/claude.SessionConfigDir: an assertion that computes its
 	// expectation with the same function the production code used cannot fail
 	// when that function is wrong.
+	//
+	// EVERYTHING IS READ FROM THE RECORDING, nothing from the post-run
+	// filesystem. This step used to os.Stat the value and glob the project for
+	// exactly one instance; both went red the day S8's teardown started reaping
+	// the instance at session end — correct, ruled behaviour that those two
+	// assertions read as "the engine was pointed at a home nobody created". The
+	// existence claim they were making is still made, and made BETTER: the spy
+	// prints a DIR line for its own config home from inside the running
+	// process, which is when the directory's existence actually matters. The
+	// sibling "is gone after the run" step pins the reaping half.
 	ctx.Step(`^the spy "([^"]*)" process's "([^"]*)" env var points at this session's config-home instance$`, func(c context.Context, engine, varName string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
@@ -706,19 +767,11 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if strings.Contains(val, filepath.Join("state", "engines")) {
 			return fmt.Errorf("%s=%q is the RETIRED durable per-project engine home", varName, val)
 		}
-		if info, statErr := os.Stat(val); statErr != nil || !info.IsDir() {
-			return fmt.Errorf("%s=%q but no such directory exists — the engine was pointed at a home nobody created", varName, val)
+		listing := isoParseSpySection(body, "===CONFIG_HOME_LISTING===")
+		if !strings.Contains(listing, "DIR "+val+"\n") && !strings.HasSuffix(listing, "DIR "+val) {
+			return fmt.Errorf("%s=%q but the spy did not see that directory while it was running — the engine was pointed at a home nobody created; listing:\n%s", varName, val, listing)
 		}
-		// The env var and the filesystem must agree: exactly one instance
-		// exists for this engine, and it is the one the engine was handed.
-		homes, globErr := isoInstanceHomes(w.env.ProjectDir, engine)
-		if globErr != nil {
-			return globErr
-		}
-		if len(homes) != 1 || homes[0] != val {
-			return fmt.Errorf("%s=%q but the project holds instances %v — one run must mint exactly one, and the engine must be handed it", varName, val, homes)
-		}
-		w.docStepMaterialized = fmt.Sprintf("spy %s process env: %s=%s (session %s)", engine, varName, val, harp)
+		w.docStepMaterialized = fmt.Sprintf("spy %s process env: %s=%s (session %s), directory present during the run", engine, varName, val, harp)
 		return nil
 	})
 
@@ -761,37 +814,61 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// The DURABLE half of the seeding claim. The spy's own credential dump
-	// (asserted by the sibling step) proves the engine could read the bytes
-	// while it ran; this proves the home outlives the run, which is what makes
-	// it a project-scoped home rather than a per-run scratch dir — and what
-	// lets phase 2 deliver context into it at rest.
-	ctx.Step(`^the copied "([^"]*)" credential is on disk in this session's config-home instance$`, func(c context.Context, engine string) error {
+	// The PERMISSIONS half of the seeding claim, read — like the bytes — from
+	// inside the running process. A credential copy must be owner-only: the
+	// instance sits inside the project tree, and a group- or world-readable
+	// token there is a leak that no .gitignore rule addresses.
+	//
+	// This used to be a post-run os.Stat of the instance path, alongside a
+	// "the home outlives the run" claim. That claim is now FALSE BY DESIGN —
+	// S8 reaps the instance at session end precisely because it holds copied
+	// credential bytes — so the assertion moved inside the run, where the file
+	// it describes actually exists. The disposal itself is pinned by the
+	// sibling "is gone once the session ends" step.
+	ctx.Step(`^the copied "([^"]*)" credential was owner-only inside the run$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		credName := filepath.Base(mustIsoCredHostPath(engine))
+		listing := isoParseSpySection(body, "===CONFIG_HOME_LISTING===")
+		var line string
+		for _, l := range strings.Split(listing, "\n") {
+			if strings.HasPrefix(l, "MODE ") && strings.HasSuffix(l, string(filepath.Separator)+credName) {
+				line = l
+				break
+			}
+		}
+		if line == "" {
+			return fmt.Errorf("the spy saw no %s inside its config home while it ran — the copy never reached the engine; listing:\n%s", credName, listing)
+		}
+		// `ls -l`'s first field, e.g. "-rw-------": owner rw, and nothing for
+		// group or other.
+		fields := strings.Fields(line)
+		if len(fields) < 3 || !strings.HasPrefix(fields[1], "-rw-") || strings.TrimRight(fields[1][4:], "-") != "" {
+			return fmt.Errorf("the copied %s credential was mode %q inside the run, want owner-only (-rw-------); a credential copy must never be group- or world-readable", engine, fields[1])
+		}
+		w.docStepMaterialized = fmt.Sprintf("%s, read from inside the spy process:\n%s", engine, line)
+		return nil
+	})
+
+	// S8's teardown, pinned at the acceptance layer for the first time. An
+	// instance holds a COPY of the user's live credential inside the project
+	// tree, so reaping it is a security requirement, not hygiene — and until
+	// this step existed, nothing outside internal/operations proved the
+	// removal actually happened at the end of a real run.
+	ctx.Step(`^the "([^"]*)" config-home instance is gone once the session ends$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		homes, err := isoInstanceHomes(w.env.ProjectDir, engine)
 		if err != nil {
 			return err
 		}
-		if len(homes) != 1 {
-			return fmt.Errorf("expected exactly one %q config-home instance in the project, found %v", engine, homes)
+		if len(homes) != 0 {
+			return fmt.Errorf("the %q config-home instance(s) %v survived the run — an un-reaped instance leaves copied credential bytes on disk inside the project tree", engine, homes)
 		}
-		credName := filepath.Base(mustIsoCredHostPath(engine))
-		path := filepath.Join(homes[0], credName)
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return fmt.Errorf("no seeded credential at %s: %w — the controlled home did not survive the run", path, readErr)
-		}
-		if got, want := strings.TrimSpace(string(data)), strings.TrimSpace(isoFixtureCredMarker); got != want {
-			return fmt.Errorf("seeded credential at %s = %q, want the host fixture %q", path, got, want)
-		}
-		info, statErr := os.Stat(path)
-		if statErr != nil {
-			return statErr
-		}
-		if perm := info.Mode().Perm(); perm != 0o600 {
-			return fmt.Errorf("seeded credential at %s has mode %v, want 0600 — a credential copy must be owner-only", path, perm)
-		}
-		w.docStepMaterialized = fmt.Sprintf("%s (mode %v):\n%s", path, info.Mode().Perm(), strings.TrimSpace(string(data)))
+		w.docStepMaterialized = fmt.Sprintf("no %q instance remains under %s after the session ended (it is rebuilt fresh next session)", engine, filepath.Join(w.env.ProjectDir, ".ctxloom", "state"))
 		return nil
 	})
 
@@ -1053,6 +1130,64 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("isolated %s credential content = %q, want the host fixture %q; full spy dump:\n%s", engine, got, want, body)
 		}
 		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s):\n%s", engine, marker, got)
+		return nil
+	})
+
+	// D4's end-to-end payload, read out of the file the ENGINE actually had in
+	// front of it. Three claims at once, and all three matter:
+	//
+	//   - the onboarding answer CROSSED (otherwise every agent session
+	//     re-onboards, which is the cost the field-scoped copy exists to avoid);
+	//   - the workspace-trust answer was GENERATED for the directory the run
+	//     works in (otherwise a headless run proceeds untrusted, silently);
+	//   - none of Alice's own config crossed with it — asserted against the raw
+	//     bytes, because a key can be absent while its VALUE rode in under
+	//     another name.
+	ctx.Step(`^the instance's claude config carries the generated trust answer and none of Alice's own config$`, func(c context.Context) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return err
+		}
+		got := isoParseSpySection(body, "===CLAUDE_INSTANCE_CONFIG===")
+		if got == "" {
+			return fmt.Errorf("the spy read no .claude.json out of its config home — claude would meet its onboarding and trust dialogs with nothing answered; full spy dump:\n%s", body)
+		}
+		var cfg struct {
+			HasCompletedOnboarding        bool `json:"hasCompletedOnboarding"`
+			BypassPermissionsModeAccepted bool `json:"bypassPermissionsModeAccepted"`
+			Projects                      map[string]struct {
+				HasTrustDialogAccepted bool `json:"hasTrustDialogAccepted"`
+			} `json:"projects"`
+			MCPServers map[string]any `json:"mcpServers"`
+		}
+		if err := json.Unmarshal([]byte(got), &cfg); err != nil {
+			return fmt.Errorf("the instance .claude.json is not valid JSON (%w):\n%s", err, got)
+		}
+		if !cfg.HasCompletedOnboarding {
+			return fmt.Errorf("hasCompletedOnboarding did not cross into the instance — every agent session would re-onboard:\n%s", got)
+		}
+		if cfg.BypassPermissionsModeAccepted {
+			return fmt.Errorf("the instance inherited Alice's standing bypass-permissions answer; that answer belongs to her own interactive session, not an agent run:\n%s", got)
+		}
+		workDir := isoParseSpyEnv(body)["PWD"]
+		entry, ok := cfg.Projects[workDir]
+		if !ok || !entry.HasTrustDialogAccepted {
+			return fmt.Errorf("no generated trust answer for the run's own working directory %q — headless, claude proceeds untrusted rather than prompting; instance config:\n%s", workDir, got)
+		}
+		if len(cfg.Projects) != 1 {
+			return fmt.Errorf("the instance carries %d project entries, want exactly the one this run works in — Alice's own projects map must never be copied wholesale:\n%s", len(cfg.Projects), got)
+		}
+		if cfg.MCPServers != nil {
+			return fmt.Errorf("Alice's own mcpServers registrations crossed into the agent's instance:\n%s", got)
+		}
+		for _, secret := range []string{isoFixturePersonalSecret, isoFixturePersonalEmail, isoFixturePersonalHistory} {
+			if strings.Contains(got, secret) {
+				return fmt.Errorf("Alice's own %q reached the agent's instance config:\n%s", secret, got)
+			}
+		}
+		w.docStepMaterialized = "instance .claude.json, read from inside the spy process:\n" + got
 		return nil
 	})
 

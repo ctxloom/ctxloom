@@ -63,6 +63,11 @@ const (
 	// SkillsDirName is codex's Agent Skill package directory inside CODEX_HOME,
 	// global for exactly the same reason as PromptsDirName.
 	SkillsDirName = "skills"
+	// SessionsDirName is the subdirectory of CODEX_HOME codex accumulates its
+	// own native session transcripts under ($CODEX_HOME/sessions) — the
+	// container-axis transcript-store root internal/lm/isolation/profile.go's
+	// codex containerProfile mounts onto.
+	SessionsDirName = "sessions"
 )
 
 // The codex argv vocabulary. Named constants rather than literals so buildArgs

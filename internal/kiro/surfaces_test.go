@@ -88,7 +88,7 @@ var (
 
 func mcpServersOf(t *testing.T, fs afero.Fs, dir string) map[string]any {
 	t.Helper()
-	data, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "settings", "mcp.json"))
+	data, err := afero.ReadFile(fs, filepath.Join(dir, ConfigDirName, "settings", "mcp.json"))
 	require.NoError(t, err)
 	var m struct {
 		Servers map[string]any `json:"mcpServers"`
@@ -107,13 +107,13 @@ func TestContextSurface_DeliverWritesSteering(t *testing.T) {
 	handle, err := s.Context.Deliver(dir)
 	require.NoError(t, err)
 
-	data, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "steering", steeringFileName))
+	data, err := afero.ReadFile(fs, filepath.Join(dir, ConfigDirName, "steering", steeringFileName))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "the secret color is vermilion")
 	assert.Contains(t, string(data), "inclusion: always", "steering carries the auto-load front-matter")
 
 	require.NoError(t, handle.Cleanup())
-	exists, _ := afero.Exists(fs, filepath.Join(dir, kiroDir, "steering", steeringFileName))
+	exists, _ := afero.Exists(fs, filepath.Join(dir, ConfigDirName, "steering", steeringFileName))
 	assert.False(t, exists, "cleanup removes the ctxloom-owned steering file")
 }
 
@@ -147,7 +147,7 @@ func TestSettingsSurface_DeliverWritesAgentConfig(t *testing.T) {
 	handle, err := s.Settings.Deliver(dir)
 	require.NoError(t, err)
 
-	path := filepath.Join(dir, kiroDir, "agents", defaultAgentName+".json")
+	path := filepath.Join(dir, ConfigDirName, "agents", defaultAgentName+".json")
 	data, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
 	var a kiroAgent
@@ -158,9 +158,9 @@ func TestSettingsSurface_DeliverWritesAgentConfig(t *testing.T) {
 	assert.Equal(t, "ltk evaluate", a.Hooks.PreToolUse[0].Command)
 
 	// The settings surface never touches steering or mcp.json.
-	exists, _ := afero.Exists(fs, filepath.Join(dir, kiroDir, "steering", steeringFileName))
+	exists, _ := afero.Exists(fs, filepath.Join(dir, ConfigDirName, "steering", steeringFileName))
 	assert.False(t, exists, "settings surface never writes steering")
-	exists, _ = afero.Exists(fs, filepath.Join(dir, kiroDir, "settings", "mcp.json"))
+	exists, _ = afero.Exists(fs, filepath.Join(dir, ConfigDirName, "settings", "mcp.json"))
 	assert.False(t, exists, "settings surface never writes mcp.json")
 
 	require.NoError(t, handle.Cleanup())
@@ -176,7 +176,7 @@ func TestSettingsSurface_DeliverWritesAgentConfig(t *testing.T) {
 func TestSettingsSurface_CleanupUndeterminableFileIsAnError(t *testing.T) {
 	base := afero.NewMemMapFs()
 	dir := "/proj"
-	path := filepath.Join(dir, kiroDir, "agents", defaultAgentName+".json")
+	path := filepath.Join(dir, ConfigDirName, "agents", defaultAgentName+".json")
 
 	s := NewSurfaces(sampleInputs(), &statFailFs{Fs: base, failOn: path})
 	handle, err := s.Settings.Deliver(dir)
@@ -198,7 +198,7 @@ func TestCommandsSurface_DeliverWritesSkillMd(t *testing.T) {
 	handle, err := s.Commands.Deliver(dir)
 	require.NoError(t, err)
 
-	skillPath := filepath.Join(dir, kiroDir, "skills", "review", "SKILL.md")
+	skillPath := filepath.Join(dir, ConfigDirName, "skills", "review", "SKILL.md")
 	exists, _ := afero.Exists(fs, skillPath)
 	assert.True(t, exists, "the SKILL.md lands under .kiro/skills/<name>/")
 
@@ -222,14 +222,14 @@ func TestSkillsSurface_DeliverWritesSkillPackage(t *testing.T) {
 	handle, err := s.Skills.Deliver(dir)
 	require.NoError(t, err)
 
-	data, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "humanize", "SKILL.md"))
+	data, err := afero.ReadFile(fs, filepath.Join(dir, ConfigDirName, "skills", "humanize", "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "skill body", string(data))
-	exists, _ := afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "humanize", "assets", "note.txt"))
+	exists, _ := afero.Exists(fs, filepath.Join(dir, ConfigDirName, "skills", "humanize", "assets", "note.txt"))
 	assert.True(t, exists, "sibling files travel with the skill package")
 
 	require.NoError(t, handle.Cleanup())
-	exists, _ = afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "humanize", "SKILL.md"))
+	exists, _ = afero.Exists(fs, filepath.Join(dir, ConfigDirName, "skills", "humanize", "SKILL.md"))
 	assert.False(t, exists, "cleanup reverts the manifest-tracked skill")
 }
 
@@ -252,19 +252,19 @@ func TestCoexistence_DifferentNamedCommandAndSkillBothSurvive(t *testing.T) {
 	skillHandle, err := s.Skills.Deliver(dir)
 	require.NoError(t, err)
 
-	cmdData, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "alpha", "SKILL.md"))
+	cmdData, err := afero.ReadFile(fs, filepath.Join(dir, ConfigDirName, "skills", "alpha", "SKILL.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(cmdData), "command alpha body")
 
-	skillData, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "beta", "SKILL.md"))
+	skillData, err := afero.ReadFile(fs, filepath.Join(dir, ConfigDirName, "skills", "beta", "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "skill beta body", string(skillData))
 
 	// Cleaning up the SKILLS surface must not touch the command's file.
 	require.NoError(t, skillHandle.Cleanup())
-	exists, _ := afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "alpha", "SKILL.md"))
+	exists, _ := afero.Exists(fs, filepath.Join(dir, ConfigDirName, "skills", "alpha", "SKILL.md"))
 	assert.True(t, exists, "cleaning up skills leaves the unrelated command file alone")
-	exists, _ = afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "beta", "SKILL.md"))
+	exists, _ = afero.Exists(fs, filepath.Join(dir, ConfigDirName, "skills", "beta", "SKILL.md"))
 	assert.False(t, exists, "the skill itself is gone")
 
 	// Re-deliver the skill, then clean up the COMMANDS surface — must not
@@ -272,9 +272,9 @@ func TestCoexistence_DifferentNamedCommandAndSkillBothSurvive(t *testing.T) {
 	skillHandle, err = s.Skills.Deliver(dir)
 	require.NoError(t, err)
 	require.NoError(t, cmdHandle.Cleanup())
-	exists, _ = afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "alpha", "SKILL.md"))
+	exists, _ = afero.Exists(fs, filepath.Join(dir, ConfigDirName, "skills", "alpha", "SKILL.md"))
 	assert.False(t, exists, "the command itself is gone")
-	skillData, err = afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "beta", "SKILL.md"))
+	skillData, err = afero.ReadFile(fs, filepath.Join(dir, ConfigDirName, "skills", "beta", "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "skill beta body", string(skillData), "cleaning up commands leaves the unrelated skill file alone")
 	require.NoError(t, skillHandle.Cleanup())
@@ -302,12 +302,12 @@ func TestClash_SkillWinsOverSameNamedCommand(t *testing.T) {
 	skillHandle, err := s.Skills.Deliver(dir)
 	require.NoError(t, err)
 
-	path := filepath.Join(dir, kiroDir, "skills", "gamma", "SKILL.md")
+	path := filepath.Join(dir, ConfigDirName, "skills", "gamma", "SKILL.md")
 	data, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
 	assert.Equal(t, "SKILL VERSION", string(data), "the skill package wins; the command's content must not be present")
 
-	exists, _ := afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "gamma", "assets", "note.txt"))
+	exists, _ := afero.Exists(fs, filepath.Join(dir, ConfigDirName, "skills", "gamma", "assets", "note.txt"))
 	assert.True(t, exists, "the skill's sibling files are present too")
 
 	// The commands writer never saw "gamma" (agent.FilterCommandsClaimedBySkills dropped
@@ -390,7 +390,7 @@ func TestClash_DisabledSkillDoesNotShadowCommand(t *testing.T) {
 	_, err = s.Skills.Deliver(dir)
 	require.NoError(t, err)
 
-	data, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "delta", "SKILL.md"))
+	data, err := afero.ReadFile(fs, filepath.Join(dir, ConfigDirName, "skills", "delta", "SKILL.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "COMMAND VERSION", "a skill disabled for kiro must not shadow the same-named command")
 }
@@ -418,7 +418,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	assert.Contains(t, stderr, "shared cwd")
 
 	// It PROCEEDED: the well-known write lands under the shared cwd.
-	exists, _ := afero.Exists(fs, filepath.Join(cwd, kiroDir, "skills", "review", "SKILL.md"))
+	exists, _ := afero.Exists(fs, filepath.Join(cwd, ConfigDirName, "skills", "review", "SKILL.md"))
 	assert.True(t, exists, "the well-known write proceeded into the shared cwd")
 	require.NoError(t, delivered[0].Cleanup())
 }
@@ -449,11 +449,11 @@ func TestDirectoryIsolatedCell_AcceptsAllKiroSurfaces(t *testing.T) {
 	}
 
 	for _, rel := range []string{
-		filepath.Join(kiroDir, "steering", steeringFileName),
-		filepath.Join(kiroDir, "settings", "mcp.json"),
-		filepath.Join(kiroDir, "agents", defaultAgentName+".json"),
-		filepath.Join(kiroDir, "skills", "review", "SKILL.md"),
-		filepath.Join(kiroDir, "skills", "humanize", "SKILL.md"),
+		filepath.Join(ConfigDirName, "steering", steeringFileName),
+		filepath.Join(ConfigDirName, "settings", "mcp.json"),
+		filepath.Join(ConfigDirName, "agents", defaultAgentName+".json"),
+		filepath.Join(ConfigDirName, "skills", "review", "SKILL.md"),
+		filepath.Join(ConfigDirName, "skills", "humanize", "SKILL.md"),
 	} {
 		exists, _ := afero.Exists(fs, filepath.Join(dir, rel))
 		assert.True(t, exists, "expected %s", rel)

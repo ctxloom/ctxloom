@@ -42,7 +42,7 @@ func legacyFixture(t *testing.T, workDir string) {
 		[]byte("# onboarding\nhand written\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(legacy, SkillsDirName, "humanize", "SKILL.md"),
 		[]byte("---\nname: humanize\n---\nBody.\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(legacy, codexAuthFileName),
+	require.NoError(t, os.WriteFile(filepath.Join(legacy, AuthFileName),
 		[]byte(`{"tokens":{"access_token":"fixture"}}`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(legacy, "sessions", "rollout-1.jsonl"),
 		[]byte("{\"kind\":\"turn\"}\n"), 0o644))
@@ -72,7 +72,7 @@ func TestMigrateLegacyHome_MovesEveryByte(t *testing.T) {
 		ConfigFileName,
 		filepath.Join(PromptsDirName, "team-onboarding.md"),
 		filepath.Join(SkillsDirName, "humanize", "SKILL.md"),
-		codexAuthFileName,
+		AuthFileName,
 		filepath.Join("sessions", "rollout-1.jsonl"),
 	} {
 		before[rel] = requireBytes(t, filepath.Join(legacyProjectHome(workDir), rel))
@@ -93,7 +93,7 @@ func TestMigrateLegacyHome_MovesEveryByte(t *testing.T) {
 
 	// The credential keeps its owner-only mode: a widened copy would hand away
 	// the whole reason this home lives in the state tier.
-	info, err := os.Stat(filepath.Join(newHome, codexAuthFileName))
+	info, err := os.Stat(filepath.Join(newHome, AuthFileName))
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "auth.json must stay owner-only through the move")
 
@@ -204,7 +204,7 @@ func TestMigrateLegacyHome_RunsOnTheStaticWriterPath(t *testing.T) {
 func TestMigrateLegacyHome_RunsOnTheRunPath(t *testing.T) {
 	workDir := t.TempDir()
 	legacyFixture(t, workDir)
-	want := requireBytes(t, filepath.Join(legacyProjectHome(workDir), codexAuthFileName))
+	want := requireBytes(t, filepath.Join(legacyProjectHome(workDir), AuthFileName))
 
 	restoreSeed := stubSeedCodexHomeFn(t, func(string) (bool, error) { return true, nil })
 	defer restoreSeed()
@@ -214,7 +214,7 @@ func TestMigrateLegacyHome_RunsOnTheRunPath(t *testing.T) {
 		require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{WorkDir: workDir}))
 	})
 
-	assert.Equal(t, string(want), string(requireBytes(t, filepath.Join(ProjectHome(workDir), codexAuthFileName))),
+	assert.Equal(t, string(want), string(requireBytes(t, filepath.Join(ProjectHome(workDir), AuthFileName))),
 		"the run path migrates the seeded credential rather than re-authenticating from scratch")
 	_, err := os.Stat(legacyProjectHome(workDir))
 	assert.True(t, os.IsNotExist(err), "the legacy home is gone after a run")

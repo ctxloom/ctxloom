@@ -766,6 +766,86 @@ func CredentialSeedEngineNames() []string {
 	return names
 }
 
+// CredentialSeedHomeVar is a read-only copy of one homeVar entry, exported so
+// tests/arch's engine-layout gate (TestArch_EngineLayoutAgreement) can check
+// credentialSeedSpecs' env-var-name and subdir literals against the owning
+// engine package's own exported constants. This package cannot import
+// claude/codex/kiro/opencode in production (each of them imports
+// internal/acp, which imports this package — a real cycle), so those tables
+// keep their literals; the arch test, which is free to import every package,
+// is the enforcement point instead.
+type CredentialSeedHomeVar struct {
+	EnvVar       string
+	Subdir       string
+	GatedOnCreds bool
+}
+
+// CredentialSeedHomeVars returns engine's HomeVars (nil for an unregistered
+// engine name — see CredentialSeedEngineNames for the valid keys).
+func CredentialSeedHomeVars(engine string) []CredentialSeedHomeVar {
+	spec, ok := credentialSeedSpecs[engine]
+	if !ok {
+		return nil
+	}
+	out := make([]CredentialSeedHomeVar, len(spec.HomeVars))
+	for i, hv := range spec.HomeVars {
+		out[i] = CredentialSeedHomeVar{EnvVar: hv.EnvVar, Subdir: hv.Subdir, GatedOnCreds: hv.GatedOnCreds}
+	}
+	return out
+}
+
+// CredentialSeedDestSubdir returns engine's destSubdir and true, or ("",
+// false) for an unregistered engine name.
+func CredentialSeedDestSubdir(engine string) (string, bool) {
+	spec, ok := credentialSeedSpecs[engine]
+	if !ok {
+		return "", false
+	}
+	return spec.destSubdir, true
+}
+
+// CredentialSeedFile is a read-only copy of one seedFile entry, with Host
+// resolved against a fixed sentinel HOME (never a real filesystem path) and
+// reduced to its slash-separated path relative to that sentinel, so the arch
+// gate can check the engine-owned directory COMPONENT of the source path
+// without either touching a real filesystem or hard-coding a HOME value of
+// its own.
+type CredentialSeedFile struct {
+	// HostRelToHome is the source path's slash-separated component(s) after
+	// $HOME — e.g. ".codex/auth.json" or ".local/share/opencode/auth.json".
+	HostRelToHome string
+	DestName      string
+	Required      bool
+}
+
+// credentialSeedSourceFileSentinelHome is the fixed stand-in HOME
+// CredentialSeedSourceFiles resolves each spec's sourceFiles function
+// against. sourceFiles only ever filepath.Joins onto it (no I/O), so any
+// fixed value works; using an obviously-fake one makes a future sourceFiles
+// implementation that DID touch the filesystem fail loudly instead of
+// silently reading the real host's files during a test run.
+const credentialSeedSourceFileSentinelHome = "/sentinel-home-never-real"
+
+// CredentialSeedSourceFiles returns engine's seed-file facts (nil when the
+// engine has no sourceFiles — e.g. kiro, whose credentials do not relocate
+// via a seeded file at all).
+func CredentialSeedSourceFiles(engine string) []CredentialSeedFile {
+	spec, ok := credentialSeedSpecs[engine]
+	if !ok || spec.sourceFiles == nil {
+		return nil
+	}
+	files := spec.sourceFiles(credentialSeedSourceFileSentinelHome)
+	out := make([]CredentialSeedFile, len(files))
+	for i, f := range files {
+		rel, err := filepath.Rel(credentialSeedSourceFileSentinelHome, f.host)
+		if err != nil {
+			rel = f.host
+		}
+		out[i] = CredentialSeedFile{HostRelToHome: filepath.ToSlash(rel), DestName: f.destName, Required: f.required}
+	}
+	return out
+}
+
 // SeedCodexHome seeds destDir/.codex (a codex "virtual project dir" —
 // cellScopedCodexHome joins ".codex" onto it, see
 // internal/codex/backend.go's resolveCodexProjectDir) with the host's codex

@@ -114,7 +114,7 @@ func TestReconcileSkillsSurface_RegistersSkillsPathPreservingForeignKeys(t *test
   "theme": "tokyonight",
   "skills": { "urls": ["https://example.com/.well-known/skills/"] }
 }`
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, opencodeConfigFile), []byte(existing), 0o644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, ConfigFileName), []byte(existing), 0o644))
 
 	skills := []agent.SkillExport{{
 		Name:    "humanize",
@@ -123,7 +123,7 @@ func TestReconcileSkillsSurface_RegistersSkillsPathPreservingForeignKeys(t *test
 	}}
 	require.NoError(t, reconcileSkillsSurface(fs, dir, skills))
 
-	got := readJSON(t, fs, filepath.Join(dir, opencodeConfigFile))
+	got := readJSON(t, fs, filepath.Join(dir, ConfigFileName))
 	assert.Equal(t, "tokyonight", got["theme"], "foreign top-level key preserved")
 	skillsObj, ok := got["skills"].(map[string]any)
 	require.True(t, ok, "skills object present")
@@ -146,21 +146,21 @@ func TestReconcileSkillsSurface_NoEnabledSkillsUnregistersPath(t *testing.T) {
 		Files:   []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("body"), Mode: 0644}},
 	}}
 	require.NoError(t, reconcileSkillsSurface(fs, dir, skills))
-	got := readJSON(t, fs, filepath.Join(dir, opencodeConfigFile))
+	got := readJSON(t, fs, filepath.Join(dir, ConfigFileName))
 	skillsObj := got["skills"].(map[string]any)
 	assert.Contains(t, skillsObj["paths"], opencodeSkillDir)
 
 	// Plant a foreign path entry alongside ours before reverting.
-	cfg, err := loadOpencodeConfig(fs, filepath.Join(dir, opencodeConfigFile))
+	cfg, err := loadOpencodeConfig(fs, filepath.Join(dir, ConfigFileName))
 	require.NoError(t, err)
 	_, err = applyManaged(cfg, managedConfig{skillPaths: []string{"/foreign/skills"}})
 	require.NoError(t, err)
-	require.NoError(t, saveOpencodeConfig(fs, filepath.Join(dir, opencodeConfigFile), cfg))
+	require.NoError(t, saveOpencodeConfig(fs, filepath.Join(dir, ConfigFileName), cfg))
 
 	// Revert: reconcile with no skills at all.
 	require.NoError(t, reconcileSkillsSurface(fs, dir, nil))
 
-	got = readJSON(t, fs, filepath.Join(dir, opencodeConfigFile))
+	got = readJSON(t, fs, filepath.Join(dir, ConfigFileName))
 	skillsObj, ok := got["skills"].(map[string]any)
 	require.True(t, ok, "skills object survives (foreign path remains)")
 	assert.NotContains(t, skillsObj["paths"], opencodeSkillDir, "ctxloom's path entry is removed")
@@ -190,7 +190,7 @@ func TestSurfaces_SkillsSurface(t *testing.T) {
 	exists, _ = afero.Exists(fs, filepath.Join("/proj", ".opencode", "skill", "disabled-skill", "SKILL.md"))
 	assert.False(t, exists, "a disabled skill must not be written")
 
-	got := readJSON(t, fs, filepath.Join("/proj", opencodeConfigFile))
+	got := readJSON(t, fs, filepath.Join("/proj", ConfigFileName))
 	skillsObj, ok := got["skills"].(map[string]any)
 	require.True(t, ok, "skills.paths registered by the surface")
 	assert.Contains(t, skillsObj["paths"], opencodeSkillDir)
@@ -198,9 +198,9 @@ func TestSurfaces_SkillsSurface(t *testing.T) {
 	require.NoError(t, delivered.Cleanup())
 	exists, _ = afero.Exists(fs, skillMD)
 	assert.False(t, exists, "skills surface cleanup reverts the skill")
-	cfgExists, _ := afero.Exists(fs, filepath.Join("/proj", opencodeConfigFile))
+	cfgExists, _ := afero.Exists(fs, filepath.Join("/proj", ConfigFileName))
 	if cfgExists {
-		got = readJSON(t, fs, filepath.Join("/proj", opencodeConfigFile))
+		got = readJSON(t, fs, filepath.Join("/proj", ConfigFileName))
 		if skillsObj, ok = got["skills"].(map[string]any); ok {
 			assert.NotContains(t, skillsObj["paths"], opencodeSkillDir, "cleanup unregisters skills.paths")
 		}

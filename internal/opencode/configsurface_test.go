@@ -32,7 +32,7 @@ func TestConfigSurface_IsTheOneProductionWriteSettingsCaller(t *testing.T) {
 
 	// A user-authored config the delivery must merge into, never replace.
 	existing := `{"theme":"gruvbox","mcp":{"user-server":{"type":"local","command":["user-cmd"]}}}`
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, opencodeConfigFile), []byte(existing), 0o644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, ConfigFileName), []byte(existing), 0o644))
 
 	surfaces := NewSurfaces(agent.SurfaceInputs{
 		Context: "ctx",
@@ -60,8 +60,8 @@ func TestConfigSurface_IsTheOneProductionWriteSettingsCaller(t *testing.T) {
 // mcpServers reads the `mcp` object out of the delivered opencode.json.
 func mcpServers(t *testing.T, fs afero.Fs, dir string) map[string]any {
 	t.Helper()
-	raw, err := afero.ReadFile(fs, filepath.Join(dir, opencodeConfigFile))
-	require.NoError(t, err, "the config surface must have written %s", opencodeConfigFile)
+	raw, err := afero.ReadFile(fs, filepath.Join(dir, ConfigFileName))
+	require.NoError(t, err, "the config surface must have written %s", ConfigFileName)
 	var doc struct {
 		MCP map[string]any `json:"mcp"`
 	}

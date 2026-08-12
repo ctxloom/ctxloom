@@ -107,13 +107,22 @@ func (s *mockContextSurface) State(dir string) (agent.DeliveryState, error) {
 	return state, nil
 }
 
+// MockConfigDirName is the mock engine's project-relative managed-config
+// directory — its analogue of claude.ConfigDirName/codex.ConfigDirName/
+// kiro.ConfigDirName/opencode.ConfigDirName. Exported so tests/arch's
+// engine-layout gate can check internal/lm/isolation's mockOverlayDirs
+// literal against this package's own fact; mock has no separate engine
+// plugin package (it IS internal/lm/backends), so this package is the
+// owner directly, with no cycle to route around.
+const MockConfigDirName = ".mock"
+
 // mockSkillsDirName is the directory the mock engine "reads" its Agent Skill
 // packages from, relative to the delivery dir. Unlike the context file it is
 // NESTED, because that is the shape every real engine has (.claude/skills,
 // .agents/skills, .kiro/skills, .opencode/skill, .codex/skills) and because a
 // bare top-level `skills/` would collide with the `skills/` directory of a
 // bundle content tree materialized into the same project.
-const mockSkillsDirName = ".mock/skills"
+const mockSkillsDirName = MockConfigDirName + "/skills"
 
 // mockSkillsPath returns the mock skills directory's path under dir.
 func mockSkillsPath(dir string) string {

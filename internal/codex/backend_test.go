@@ -432,7 +432,7 @@ func TestEnsureCodexCredentials_ContainerFresh_VerifiesMount(t *testing.T) {
 	// Now simulate the mount having landed.
 	codexDir := filepath.Join(home, ".codex")
 	assert.NoError(t, os.MkdirAll(codexDir, 0o700))
-	assert.NoError(t, os.WriteFile(filepath.Join(codexDir, codexAuthFileName), []byte(`{}`), 0o600))
+	assert.NoError(t, os.WriteFile(filepath.Join(codexDir, AuthFileName), []byte(`{}`), 0o600))
 	assert.NoError(t, ensureCodexCredentials(home, codexHomeContainerFresh, resolveOpenAIAPIKey(nil, nil)))
 }
 
@@ -590,7 +590,7 @@ func TestCodex_SetupExecute_ProcessIsolatedUsesContainerHome(t *testing.T) {
 	containerHome := t.TempDir()
 	t.Setenv("HOME", containerHome)
 	assert.NoError(t, os.MkdirAll(filepath.Join(containerHome, ".codex"), 0o700))
-	assert.NoError(t, os.WriteFile(filepath.Join(containerHome, ".codex", codexAuthFileName), []byte(`{}`), 0o600))
+	assert.NoError(t, os.WriteFile(filepath.Join(containerHome, ".codex", AuthFileName), []byte(`{}`), 0o600))
 
 	b := NewCodex()
 	setupReq := &agent.SetupRequest{WorkDir: "/workspace/proj", CellKind: agent.CellKindProcessIsolated}

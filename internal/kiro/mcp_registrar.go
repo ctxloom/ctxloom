@@ -46,7 +46,7 @@ func (MCPRegistrar) Present(dir string, global bool) bool {
 		}
 		return pathExistsKiro(home)
 	}
-	return pathExistsKiro(filepath.Join(dir, kiroDir))
+	return pathExistsKiro(filepath.Join(dir, ConfigDirName))
 }
 
 // ConfigPath returns the MCP config file for the scope.
@@ -58,7 +58,7 @@ func (MCPRegistrar) ConfigPath(dir string, global bool) (string, error) {
 		}
 		return filepath.Join(home, "settings", "mcp.json"), nil
 	}
-	return filepath.Join(dir, kiroDir, "settings", "mcp.json"), nil
+	return filepath.Join(dir, ConfigDirName, "settings", "mcp.json"), nil
 }
 
 // Install merges the named server into the config bytes. Idempotent; foreign
@@ -77,19 +77,33 @@ func (MCPRegistrar) Installed(config []byte, name string) (bool, error) {
 	return agent.MCPServerInstalledJSON(config, name)
 }
 
+// HomeEnv is the environment variable kiro honors to relocate its global
+// config home (agents/settings/skills/steering) away from the default
+// ~/.kiro. ctxloom's per-agent isolation (internal/lm/isolation) points this
+// at a private home per run for config/session state — but NOT credentials:
+// those live in a global sqlite keyed off XDGDataHomeEnv regardless of this
+// var (see internal/lm/isolation/auth.go's kiro credentialSeedSpecs entry).
+const HomeEnv = "KIRO_HOME"
+
+// XDGDataHomeEnv is the XDG env var kiro's subscription-auth sqlite store
+// resolves against, independent of HomeEnv — see HomeEnv's doc and
+// internal/lm/isolation/auth.go's resolveKiroContainerAuth for the
+// live-verified account of why kiro's credentials do not follow KIRO_HOME.
+const XDGDataHomeEnv = "XDG_DATA_HOME"
+
 // kiroHome resolves Kiro's global config home: $KIRO_HOME if set, else
 // ~/.kiro — KIRO_HOME/~/.kiro holds agents/settings/skills/steering as
 // siblings of the (formerly scraped, tough-cloud S5-deleted) sessions/ dir —
 // and codex's codexHome() pattern (commandfiles.go).
 func kiroHome() (string, error) {
-	if home := os.Getenv("KIRO_HOME"); home != "" {
+	if home := os.Getenv(HomeEnv); home != "" {
 		return home, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, kiroDir), nil
+	return filepath.Join(home, ConfigDirName), nil
 }
 
 // pathExistsKiro reports whether the path exists (file or directory). An absent
@@ -115,4 +129,4 @@ func GlobalHome() (string, error) { return kiroHome() }
 // apply/materialize path targets for workDir (KiroWriter.agentPath /
 // mcpPath / steeringPath all join off this same directory), exported for the
 // same external collision check as GlobalHome.
-func ProjectHome(workDir string) string { return filepath.Join(workDir, kiroDir) }
+func ProjectHome(workDir string) string { return filepath.Join(workDir, ConfigDirName) }

@@ -12,8 +12,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// kiroDir is the workspace directory Kiro reads configuration from.
-const kiroDir = ".kiro"
+// ConfigDirName is the workspace directory Kiro reads configuration from.
+// Exported (renamed from the package-private kiroDir) so tests/arch's
+// engine-layout gate can check internal/lm/isolation's kiroOverlayDirs/
+// credentialSeedSpecs literals against this package's own fact —
+// isolation cannot import this package in production (kiro -> internal/acp
+// -> internal/lm/isolation is a real cycle), so its copy of ".kiro" stays a
+// literal there.
+const ConfigDirName = ".kiro"
 
 // steeringFileName is the ctxloom-owned steering file carrying the assembled
 // context (front-matter `inclusion: always`, auto-loaded by Kiro every session).
@@ -80,22 +86,22 @@ func (w *KiroWriter) resolvedAgentName() string {
 }
 
 func (w *KiroWriter) agentPath(projectDir string) string {
-	return filepath.Join(projectDir, kiroDir, "agents", w.resolvedAgentName()+".json")
+	return filepath.Join(projectDir, ConfigDirName, "agents", w.resolvedAgentName()+".json")
 }
 
 func (w *KiroWriter) mcpPath(projectDir string) string {
-	return filepath.Join(projectDir, kiroDir, "settings", "mcp.json")
+	return filepath.Join(projectDir, ConfigDirName, "settings", "mcp.json")
 }
 
 // mcpLedgerDir is the directory holding the shared managed-content marker for
 // this project's settings/mcp.json. The marker's NAME is owned by
 // internal/shared/ledger, not by this engine.
 func (w *KiroWriter) mcpLedgerDir(projectDir string) string {
-	return filepath.Join(projectDir, kiroDir, "settings")
+	return filepath.Join(projectDir, ConfigDirName, "settings")
 }
 
 func (w *KiroWriter) steeringPath(projectDir string) string {
-	return filepath.Join(projectDir, kiroDir, "steering", steeringFileName)
+	return filepath.Join(projectDir, ConfigDirName, "steering", steeringFileName)
 }
 
 // --- agent-JSON hooks (Kiro CLI hooks live inside the agent config) ---
@@ -237,7 +243,7 @@ func (w *KiroWriter) writeAgentConfig(projectDir string, h kiroHooks) error {
 	fs := w.getFS()
 	path := w.agentPath(projectDir)
 	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("failed to create %s agents directory: %w", kiroDir, err)
+		return fmt.Errorf("failed to create %s agents directory: %w", ConfigDirName, err)
 	}
 	data, err := agent.CanonicalJSON(a)
 	if err != nil {
@@ -286,7 +292,7 @@ func (w *KiroWriter) reconcileSteering(projectDir, hash string) error {
 func (w *KiroWriter) writeSteering(projectDir, content string) (agent.ContextReport, error) {
 	fs := w.getFS()
 	path := w.steeringPath(projectDir)
-	rel := filepath.Join(kiroDir, "steering", steeringFileName)
+	rel := filepath.Join(ConfigDirName, "steering", steeringFileName)
 
 	if content == "" {
 		exists, err := afero.Exists(fs, path)
@@ -301,7 +307,7 @@ func (w *KiroWriter) writeSteering(projectDir, content string) (agent.ContextRep
 		return agent.ContextReport{Removed: []string{rel}}, nil
 	}
 	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return agent.ContextReport{}, fmt.Errorf("failed to create %s steering directory: %w", kiroDir, err)
+		return agent.ContextReport{}, fmt.Errorf("failed to create %s steering directory: %w", ConfigDirName, err)
 	}
 	body := "---\ninclusion: always\n---\n\n" + content + "\n"
 	if err := agent.AtomicWriteFile(fs, path, []byte(body), steeringFileName); err != nil {
@@ -322,7 +328,7 @@ func (w *KiroWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 		FS:              w.getFS(),
 		Path:            w.mcpPath(projectDir),
 		LedgerDir:       w.mcpLedgerDir(projectDir),
-		Label:           kiroDir + "/settings/mcp.json",
+		Label:           ConfigDirName + "/settings/mcp.json",
 		PluginKey:       "kiro",
 		Warn:            w.warn,
 		CommandOverride: w.mcpCommandOverride,

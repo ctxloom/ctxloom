@@ -29,9 +29,13 @@ func warnRevertFailure(what string, err error) {
 // Compile-time assertion that Opencode offers the optional StructuredChat capability.
 var _ agent.StructuredChat = (*Opencode)(nil)
 
-// opencodeConfigFile is the project-local config opencode reads (and strictly
-// validates) from its cwd. ctxloom merges its managed keys into it (settings.go).
-const opencodeConfigFile = "opencode.json"
+// ConfigFileName is the project-local config opencode reads (and strictly
+// validates) from its cwd. ctxloom merges its managed keys into it
+// (settings.go). Exported (renamed from the package-private
+// opencodeConfigFile) so tests/arch's engine-layout gate can check
+// internal/gitignore's "opencode.json" WorktreeArtifactPatterns entry
+// against this package's own fact.
+const ConfigFileName = "opencode.json"
 
 // Chat implements structured chat by delegating to the generic ACP driver over
 // `opencode acp`. opencode speaks ACP natively (first-party subcommand), so no

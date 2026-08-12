@@ -11,7 +11,7 @@ import (
 // a directory holding a SKILL.md (YAML front-matter name+description, body =
 // instructions), discovered via the agent's skill:// resource glob and
 // invocable as the /<name> slash command.
-const kiroSkillsDir = kiroDir + "/skills"
+const kiroSkillsDir = ConfigDirName + "/skills"
 
 // WriteCommandFiles writes enabled command exports as agentskills SKILL.md files
 // under .kiro/skills/<name>/SKILL.md and records them in the manifest.

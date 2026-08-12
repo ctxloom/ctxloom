@@ -98,22 +98,18 @@ const askBudget = controlRequestBudget
 // the kind (which renders into the delivered turn's provenance header, so the
 // agent sees an instruction rather than an anonymous message) and the returned
 // id, which is the withdraw handle.
+// It shares steerAsMail with §5.6's fallback because the delivery question is
+// the same one — the child still has to be WOKEN, an ended session resumed and
+// an idle one driven — and only what the caller does with the answer differs:
+// this route hands the id back as the withdraw handle, because here the
+// message is a file that can still be retracted.
 func (c *Coordinator) steerViaSpool(sender, harp, text string) (SteerOutcome, error) {
-	msgID, completed, err := c.queueMailPayload(sender, harp, KindSteer, text, nil, "")
+	msgID, outcome, err := c.steerAsMail(sender, harp, KindSteer, text)
 	if err != nil {
 		return SteerOutcome{}, err
 	}
-	if completed {
-		// Not reachable under the cutover (the spool write hands nothing to a
-		// waiting receiver synchronously) and reported honestly if it ever is.
-		return SteerOutcome{Fallback: DeliveryCompletedRecv, MessageID: msgID}, nil
-	}
-	// The child still has to be WOKEN — an ended session resumed, an idle one
-	// driven — which is the same delivery-by-state question ordinary mail
-	// asks, answered by the same function. Under the cutover the message the
-	// woken runner finds is the file, not the fold.
-	mode, _ := deliveryDisposition(c.driveQueued(harp))
-	return SteerOutcome{Fallback: mode, MessageID: msgID}, nil
+	outcome.MessageID = msgID
+	return outcome, nil
 }
 
 // WithdrawSteer retracts an instruction the target has not yet taken.

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,616** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,617** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 201 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 213 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 214 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 213 |
 | `open` | no commit names this ID | **24** |
 
-**Totals: 2268 findings across 162 units — 1,616 resolved, 24 still open, 628 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,617 resolved, 24 still open, 627 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -336,7 +336,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 0 | 13 | 6 | 6 |
-| MED | 999 | 626 | 16 | 117 | 98 | 142 |
+| MED | 999 | 627 | 16 | 117 | 98 | 141 |
 | LOW | 871 | 627 | 8 | 66 | 105 | 65 |
 | (unparsed) | 22 | 12 | 0 | 5 | 4 | 1 |
 
@@ -1686,7 +1686,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U099-F09 | **ESCALATED** `4c18b518` | `index_upgrade.go:71-78` | CORRECTNESS | An unparseable timestamp is degraded to `time.Now()`. Because the upgrade is applied **in memory on every load** and persisted only on explicit `CommitUpgrade`, such an entry gets a *different* val... | U099.md |
 | U099-F10 | **RESOLVED** `14c19d48` | `index.go:360-390` | COMPLEXITY | The anonymous `fs.WalkDirFunc` inside `LocateTranscript` is CCN 11, one over the enforced CI gate. | U099.md |
 | U100-F04 | **REFUTED** `5e0883b2` | `cells.go:541` | DEAD | `ResolvedSelection.DeliverShared` has **zero** production call sites — 11 hits, all in `_test.go`. The production shared-cwd path calls `deliverOneShared` directly. | U100.md |
-| U100-F05 | **ESCALATED** `80dc8184` | `cells.go:571-584` | COUPLING | `deliverOneShared` ignores `rs.approach` entirely: `SharedRealization` wins unconditionally. On claude a caller naming `ContextWriteUnsafeFile` (asking for CLAUDE.md) silently gets the out-of-cwd s... | U100.md |
+| U100-F05 | **RESOLVED** `28a77a68` | `cells.go:660-687` | COUPLING | `SharedRealization` is now keyed on `(SurfaceKind, Approach)`. claude's context realizes only at `ApproachSystemPrompt`; `ApproachUnsafeFile` is honored (native write + loud warning), never silentl... | U100.md |
 | U100-F06 | **RESOLVED** `5e0883b2` | `approach.go:79, 103, 117, 131, 148` | DEAD | All five per-surface `String()` methods are test-only; `SkillsWrite.String` has no caller at all (it is the unit's sole `deadcode` entry). ~15 lines + 5 doc comments with no production consumer. | U100.md |
 | U100-F07 | **RESOLVED** `5e0883b2` | `cells.go:296-312, 586-590` | NOPAY | `DirectoryIsolatedCell` and `ProcessIsolatedCell` are behaviourally identical — both are `isolatedCell{dir}` with no added field or method — and the only consumer picks between them through an anon... | U100.md |
 | U100-F08 | **PARTIAL** `2933697d` | **`backend.go:40-48`** | NOPAY | Six of `Fragment`'s seven fields are write-only across the whole system: only `Content` is ever read. `Installation` is never even populated. Each dead field costs a proto field plus two converter ... | U100.md |

@@ -190,6 +190,17 @@ type deliverySpec struct {
 	// promises one destination and the code delivers another. The case is
 	// SKIPPED (never quietly reconciled) so the disagreement stays visible.
 	disagreement string
+	// elsewhere records that this pair's promised payload is REAL and covered
+	// — just not by this test's generic SurfaceFor(kind, approach).Deliver(root)
+	// mechanism. claude's (context, system-prompt) is the one case: SurfaceFor
+	// resolves the SAME dual-capable object unsafe-file does (its well-known
+	// Deliver always writes the native file — that is what SurfaceFor decides,
+	// not what approach was named), so the out-of-cwd scratch this approach
+	// actually promises is reachable only through SharedRealization
+	// (DeliverIsolated), which this generic loop never calls. Named test covers
+	// the real payload with the right mechanism; unlike disagreement, this is
+	// not an open mismatch to reconcile.
+	elsewhere string
 }
 
 // codexHomeRel is the delivery-root-relative path to codex's CODEX_HOME —
@@ -208,13 +219,11 @@ var matrixSpecs = map[string]deliverySpec{
 	// ---- claude-code -------------------------------------------------------
 	"claude-code/context/unsafe-file": {wantFile: "CLAUDE.md", wantSlot: slotContext},
 	"claude-code/context/system-prompt": {
-		disagreement: "DECLARED system-prompt promises an out-of-cwd <hash>.sysprompt.md " +
-			"consumed via --append-system-prompt-file, but the Delivery that " +
-			"SurfaceFor(context, system-prompt) returns writes CLAUDE.md — the scratch " +
-			"file is reachable only through SharedRealization, which is keyed on KIND " +
-			"and so fires for unsafe-file too. See " +
-			"TestDeliveryApproach_SystemPromptScratchIsKindKeyedNotApproachKeyed.",
-		wantFile: "", wantSlot: slotContext,
+		elsewhere: "TestDeliveryApproach_ClaudeSystemPromptScratchPlacement — SharedRealization " +
+			"is now keyed on (kind, approach) (U100-F05), so this pair's out-of-cwd " +
+			"<hash>.sysprompt.md scratch is real; it is reached through SharedRealization " +
+			"(DeliverIsolated), never through the generic SurfaceFor+Deliver(root) this " +
+			"loop uses for every other cell.",
 	},
 	"claude-code/context/hook": {
 		noOp: "claude's hook arm resolves to a documented no-op (a static CLAUDE.md " +
@@ -298,9 +307,10 @@ func TestDeliveryApproach_DeclaredPairsAreExhaustive(t *testing.T) {
 
 	for key, s := range matrixSpecs {
 		if s.wantFile == "" {
-			assert.True(t, s.noOp != "" || s.disagreement != "",
-				"%s expects NO delivered file but records neither a noOp reason nor a disagreement — "+
-					"an unexplained zero-byte expectation is exactly the silent-no-op shape these tests exist to catch", key)
+			assert.True(t, s.noOp != "" || s.disagreement != "" || s.elsewhere != "",
+				"%s expects NO delivered file via this loop's mechanism but records no noOp, "+
+					"disagreement, or elsewhere reason — an unexplained zero-byte expectation is "+
+					"exactly the silent-no-op shape these tests exist to catch", key)
 		}
 	}
 }
@@ -346,6 +356,9 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 					require.True(t, ok, "%s is declared but has no expected destination", key)
 					if spec.disagreement != "" {
 						t.Skipf("DECLARATION vs BEHAVIOUR disagreement (not reconciled here, reported instead): %s", spec.disagreement)
+					}
+					if spec.elsewhere != "" {
+						t.Skipf("payload covered by a dedicated harness, not this loop's generic mechanism: %s", spec.elsewhere)
 					}
 
 					fs := afero.NewMemMapFs()
@@ -521,26 +534,30 @@ func TestDeliveryApproach_UndeclaredApproachFailsTheBuilder(t *testing.T) {
 	}
 }
 
-// TestDeliveryApproach_SystemPromptScratchIsKindKeyedNotApproachKeyed is the
-// DISAGREEMENT this matrix exists to surface, stated as an executable fact.
+// TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05 is the
+// RESOLUTION of what was
+// TestDeliveryApproach_SystemPromptScratchIsKindKeyedNotApproachKeyed — the
+// disagreement this matrix used to surface as an executable fact.
+// SharedRealization is now keyed on the (kind, approach) PAIR, not the surface
+// kind alone, so:
 //
-// The declaration (agent.ApproachSystemPrompt) promises "claude's framed context
-// written to an out-of-cwd scratch file consumed via --append-system-prompt-file".
-// What actually decides whether that scratch file is written is NOT the approach
-// — it is agent.ResolvedSelection.deliverOneShared consulting
-// SurfaceSet.SharedRealization, which is keyed on the surface KIND alone. So:
-//
-//   - selecting unsafe-file and delivering into a SHARED cwd writes the SYSPROMPT
-//     scratch (the approach the caller did not name), and
-//   - selecting system-prompt and delivering at rest writes CLAUDE.md (via the
-//     raw Delivery) or is refused outright (via the DeliverUnder terminal).
-//
-// Both halves are asserted here so the mismatch cannot be closed accidentally in
-// either direction. It is NOT reconciled by this test — reported instead.
-func TestDeliveryApproach_SystemPromptScratchIsKindKeyedNotApproachKeyed(t *testing.T) {
+//   - selecting unsafe-file and delivering into a SHARED cwd now writes the
+//     NATIVE CLAUDE.md the caller actually asked for — honored, with the
+//     existing "unsafe: ... races concurrent agents" warning (the
+//     honor-with-warning fork DECIDED for U100-F05) — never silently upgraded
+//     to the scratch the caller did not name.
+//   - selecting system-prompt and delivering at rest is still refused outright
+//     (DeliverUnder has no argv sink; unaffected by this fix) — and the raw
+//     Delivery SurfaceFor hands back for that pair still writes the native
+//     file, which is a SEPARATE, structural fact about SurfaceFor (it resolves
+//     the SAME dual-capable object every context approach shares) rather than
+//     a SharedRealization defect. The scratch this pair actually promises is
+//     covered by TestDeliveryApproach_ClaudeSystemPromptScratchPlacement,
+//     which calls SharedRealization directly rather than the raw Delivery.
+func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T) {
 	scratch := "/out-of-cwd/run-1"
 
-	t.Run("unsafe-file into a shared cwd writes the sysprompt scratch, not CLAUDE.md", func(t *testing.T) {
+	t.Run("unsafe-file into a shared cwd honors CLAUDE.md, not the sysprompt scratch", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(scratch, 0o755))
 		surfaces := claude.NewSurfaces(matrixSentinelInputs(), scratchPlacement{dir: scratch}, fs)
@@ -551,28 +568,17 @@ func TestDeliveryApproach_SystemPromptScratchIsKindKeyedNotApproachKeyed(t *test
 		require.Empty(t, errs)
 		require.Equal(t, []agent.SurfaceKind{agent.SurfaceContext}, kinds)
 
-		// The payload landed OUT of the working dir...
-		scratchTree := matrixTree(t, fs, scratch)
-		hits := findSentinel(scratchTree, slotContext)
-		require.Len(t, hits, 1,
-			"the system-prompt scratch file must carry the context sentinel (scratch tree: %v)",
-			sortedTreePaths(scratchTree))
-		assert.True(t, strings.HasSuffix(hits[0], agent.SCMFramedContextSuffix),
-			"the scratch file must be the framed <hash>%s claude's --append-system-prompt-file names, got %s",
-			agent.SCMFramedContextSuffix, hits[0])
-		assert.Contains(t, scratchTree[hits[0]], agent.FrameProjectContext(slotContext),
-			"the scratch file must carry the FRAMED envelope, not the bare context")
+		// The caller's explicit native-file request is honored: CLAUDE.md lands
+		// in the shared cwd, carrying the sentinel...
+		liveTree := matrixTree(t, fs, "/live-cwd")
+		assert.Equal(t, []string{"CLAUDE.md"}, findSentinel(liveTree, slotContext),
+			"unsafe-file must be HONORED, not silently converted to the scratch")
 
-		// ...and NOT in the working dir, even though unsafe-file was the approach named.
-		assert.Empty(t, matrixTree(t, fs, "/live-cwd"),
-			"unsafe-file into a shared cwd was silently upgraded to the scratch file, "+
-				"so no native file may be written")
-
-		// The argv sink is populated — the flag claude is launched with points at
-		// a file that exists. A non-empty Path() with no file behind it is the
-		// exact false-green this asserts against.
-		assert.Equal(t, filepath.Join(scratch, hits[0]), surfaces.Context.Path(),
-			"Context.Path() is the --append-system-prompt-file argument and must name the written file")
+		// ...and the out-of-cwd scratch is never touched — no silent upgrade.
+		assert.Empty(t, matrixTree(t, fs, scratch),
+			"unsafe-file must not be silently upgraded to the system-prompt scratch")
+		assert.Empty(t, surfaces.Context.Path(),
+			"DeliverIsolated never ran, so Path() (the --append-system-prompt-file argument) stays empty")
 	})
 
 	t.Run("system-prompt at rest never produces a sysprompt file", func(t *testing.T) {
@@ -580,7 +586,8 @@ func TestDeliveryApproach_SystemPromptScratchIsKindKeyedNotApproachKeyed(t *test
 		require.NoError(t, fs.MkdirAll(scratch, 0o755))
 		surfaces := claude.NewSurfaces(matrixSentinelInputs(), scratchPlacement{dir: scratch}, fs)
 
-		// (a) Through the sanctioned at-rest terminal: an honest, loud refusal.
+		// (a) Through the sanctioned at-rest terminal: an honest, loud refusal —
+		// unaffected by this fix (DeliverUnder never consults SharedRealization).
 		resolved, err := agent.Select(surfaces).WithContext(agent.ContextWriteSystemPrompt).Build()
 		require.NoError(t, err, "the approach IS declared, so Build must accept it")
 		_, kinds, errs := resolved.DeliverUnder("/cell")
@@ -591,22 +598,71 @@ func TestDeliveryApproach_SystemPromptScratchIsKindKeyedNotApproachKeyed(t *test
 		assert.Empty(t, matrixTree(t, fs, "/cell"), "a refused delivery must write zero files")
 
 		// (b) Through the raw Delivery SurfaceFor hands back: it writes the
-		// NATIVE file, which is the destination unsafe-file promises, not the
-		// one system-prompt promises. This is the disagreement.
+		// NATIVE file — a structural fact about SurfaceFor resolving the SAME
+		// dual-capable object unsafe-file resolves to (SurfaceFor decides WHICH
+		// object answers a pair, not what its well-known Deliver does). This is
+		// not the U100-F05 defect: the real out-of-cwd destination this pair
+		// promises is reached only through SharedRealization (DeliverIsolated),
+		// which this raw call never invokes.
 		d, err := surfaces.SurfaceFor(agent.SurfaceContext, agent.ApproachSystemPrompt)
 		require.NoError(t, err)
 		_, err = d.Deliver("/raw")
 		require.NoError(t, err)
 		rawTree := matrixTree(t, fs, "/raw")
-		assert.Equal(t, []string{"CLAUDE.md"}, findSentinel(rawTree, slotContext),
-			"DISAGREEMENT: the Delivery resolved at approach system-prompt writes the NATIVE "+
-				"CLAUDE.md; the declared out-of-cwd scratch is reachable only via the "+
-				"kind-keyed SharedRealization")
+		assert.Equal(t, []string{"CLAUDE.md"}, findSentinel(rawTree, slotContext))
 		for p := range rawTree {
 			assert.False(t, strings.HasSuffix(p, agent.SCMFramedContextSuffix),
-				"no sysprompt file is produced by the system-prompt approach itself (%s)", p)
+				"no sysprompt file is produced by the raw Delivery — only SharedRealization writes it (%s)", p)
 		}
 	})
+}
+
+// TestDeliveryApproach_ClaudeSystemPromptScratchPlacement is the
+// scratch-placement-aware variant matrixSpecs' "elsewhere" entry for
+// claude-code/context/system-prompt promises (U100-F05 un-skip). Unlike every
+// other matrix cell, this pair's payload is not reached through
+// SurfaceFor(kind, approach).Deliver(root) — that resolves to the SAME
+// dual-capable contextSurface every context approach shares, whose well-known
+// Deliver always writes CLAUDE.md regardless of which approach was named (see
+// TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05's second
+// half). The out-of-cwd scratch this approach promises is reached through
+// SharedRealization(context, system-prompt) — the exact call
+// agent.ResolvedSelection.deliverOneShared makes for a real shared-cwd
+// launch — which the pair-keyed re-key (U100-F05) makes trustworthy to assert
+// on here: it fires ONLY for this pair, never for unsafe-file.
+func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	root := "/cell"
+	scratch := "/isolated"
+	require.NoError(t, fs.MkdirAll(root, 0o755))
+	require.NoError(t, fs.MkdirAll(scratch, 0o755))
+
+	set := claude.NewSurfaces(matrixSentinelInputs(), scratchPlacement{dir: scratch}, fs)
+
+	realize, ok := set.SharedRealization(agent.SurfaceContext, agent.ApproachSystemPrompt)
+	require.True(t, ok, "claude-code/context/system-prompt must realize")
+	require.NotNil(t, realize)
+
+	handle, err := realize()
+	require.NoError(t, err)
+	require.NotNil(t, handle)
+
+	// root — the shared cwd this cell's launch-flag scratch exists to spare —
+	// stays completely empty.
+	assert.Empty(t, matrixTree(t, fs, root), "system-prompt must not touch the shared cwd")
+
+	scratchTree := matrixTree(t, fs, scratch)
+	hits := findSentinel(scratchTree, slotContext)
+	require.Len(t, hits, 1,
+		"the system-prompt scratch file must carry the context sentinel (scratch tree: %v)",
+		sortedTreePaths(scratchTree))
+	assert.True(t, strings.HasSuffix(hits[0], agent.SCMFramedContextSuffix),
+		"the framed file must be named <hash>%s, got %s", agent.SCMFramedContextSuffix, hits[0])
+	assert.Contains(t, scratchTree[hits[0]], agent.FrameProjectContext(slotContext),
+		"the scratch file must carry the FRAMED envelope, not the bare context")
+
+	assert.Equal(t, filepath.Join(scratch, hits[0]), set.Context.Path(),
+		"Context.Path() (the --append-system-prompt-file argument) must name the written file")
 }
 
 // scratchPlacement is the out-of-cwd agent.Placement claude's race-safe surfaces

@@ -36,7 +36,7 @@ func TestCopyCredentialFile_RefusesSymlinkDestination(t *testing.T) {
 	dst := filepath.Join(dir, "auth.json")
 	require.NoError(t, os.Symlink(victim, dst))
 
-	err := copyCredentialFile(src, dst)
+	err := copyCredentialFile(src, dst, nil)
 	require.Error(t, err, "must refuse to write through a symlinked destination")
 	assert.Contains(t, err.Error(), "symlink")
 
@@ -54,7 +54,7 @@ func TestCopyCredentialFile_PlainDestinationStillWorks(t *testing.T) {
 	require.NoError(t, os.WriteFile(src, []byte("seed-content"), 0o600))
 	dst := filepath.Join(dir, "auth.json")
 
-	require.NoError(t, copyCredentialFile(src, dst))
+	require.NoError(t, copyCredentialFile(src, dst, nil))
 	content, err := os.ReadFile(dst)
 	require.NoError(t, err)
 	assert.Equal(t, "seed-content", string(content))
@@ -260,7 +260,7 @@ func TestHostCredentialSeed_SkipsWhenEnvTriggerSet(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedSkippedEnv, result)
 	assert.NoDirExists(t, filepath.Join(dest, "claude"), "no seed dir is created when the env trigger covers auth")
@@ -283,7 +283,7 @@ func TestHostCredentialSeed_CopiesCredentialFileWhenPresent(t *testing.T) {
 	writeCreds(t, home, true) // withDotClaude=true: host ALSO has ~/.claude.json — must not be seeded
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 
@@ -310,7 +310,7 @@ func TestHostCredentialSeed_OnlyCredentialFileRequired(t *testing.T) {
 	writeCreds(t, home, false)
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 	assert.FileExists(t, filepath.Join(dest, "claude", ".credentials.json"))
@@ -326,7 +326,7 @@ func TestHostCredentialSeed_NoSourceReturnsNoSourceNotError(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
 	require.NoError(t, err, "nothing seedable is a DECISION, not an I/O error")
 	assert.Equal(t, seedNoSource, result)
 	assert.NoDirExists(t, filepath.Join(dest, "claude"), "no half-built seed dir is left behind")
@@ -343,7 +343,7 @@ func TestHostCredentialSeed_UnresolvableHostHome(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result)
 }
@@ -591,7 +591,7 @@ func TestHostCredentialSeed_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(realisticDotClaudeJSON), 0o600))
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 
@@ -712,7 +712,7 @@ func TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode(t *testing
 	writeOpencodeAuth(t, home, true)
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 
@@ -743,7 +743,7 @@ func TestHostCredentialSeed_OpencodeMcpAuthOptionalAbsence(t *testing.T) {
 	writeOpencodeAuth(t, home, false) // no mcp-auth.json
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 	assert.FileExists(t, filepath.Join(dest, "xdg-data", "opencode", "auth.json"))
@@ -759,7 +759,7 @@ func TestHostCredentialSeed_OpencodeSkipsWhenOpenrouterKeySet(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedSkippedEnv, result)
 	assert.NoDirExists(t, filepath.Join(dest, "xdg-data"))
@@ -776,7 +776,7 @@ func TestHostCredentialSeed_OpencodeNoSourceReturnsNoSourceNotError(t *testing.T
 	t.Setenv("OPENROUTER_API_KEY", "")
 	dest := t.TempDir()
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result)
 }
@@ -808,7 +808,7 @@ func TestCopyCredentialFile_TightensAPreExistingDestination(t *testing.T) {
 	require.NoError(t, os.WriteFile(src, []byte(`{"token":"secret"}`), 0o600))
 	require.NoError(t, os.WriteFile(dst, []byte("stale"), 0o644))
 
-	require.NoError(t, copyCredentialFile(src, dst))
+	require.NoError(t, copyCredentialFile(src, dst, nil))
 
 	info, err := os.Stat(dst)
 	require.NoError(t, err)
@@ -832,7 +832,7 @@ func TestHostCredentialSeed_TightensAPreExistingSeedDir(t *testing.T) {
 	seedDir := filepath.Join(dest, credentialSeedSpecs["claude-code"].destSubdir)
 	require.NoError(t, os.MkdirAll(seedDir, 0o755))
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest, nil)
 	require.NoError(t, err)
 	require.Equal(t, seedOK, result)
 
@@ -859,7 +859,7 @@ func TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	done := captureStderr(t)
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], t.TempDir())
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], t.TempDir(), nil)
 	stderr := done()
 
 	require.NoError(t, err)
@@ -927,7 +927,7 @@ func TestHostCredentialSeed_SeedDirUncreatable(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], notADir)
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], notADir, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credential seed dir")
 	assert.Equal(t, seedNoSource, result)
@@ -947,7 +947,7 @@ func TestHostCredentialSeed_UnreadableSourceIsAnError(t *testing.T) {
 	require.NoError(t, os.Chmod(src, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(src, 0o600) })
 
-	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], t.TempDir())
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], t.TempDir(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "seed claude credential")
 	assert.Equal(t, seedNoSource, result)
@@ -966,7 +966,7 @@ func TestHostCredentialSeed_AllOptionalAndNonePresent(t *testing.T) {
 	}
 
 	dest := t.TempDir()
-	result, err := hostCredentialSeed(spec, dest)
+	result, err := hostCredentialSeed(spec, dest, nil)
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result, "copying nothing is never seedOK")
 	assert.NoFileExists(t, filepath.Join(dest, "phantom", "nope"))

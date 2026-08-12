@@ -67,6 +67,14 @@ type agentDescriptor struct {
 	// NOT nil — it registers a DECLARED-EMPTY writer, so "contributes nothing"
 	// is a fact about kiro rather than an inference from a missing entry.
 	newInstanceConfig func(agent.SettingsOptions) agent.InstanceConfigWriter
+	// newCredentialProjector constructs the backend's AMBIENT-CREDENTIAL
+	// projector — the engine-owned transform applied to a COPY of one host
+	// credential file as it crosses into an instance home (claude strips its
+	// single-use rotating refresh token here). Sibling of newInstanceConfig, and
+	// pushed into internal/lm/isolation the same way and for the same reason.
+	// nil = the backend's ambient credential files copy VERBATIM; only claude
+	// registers one today.
+	newCredentialProjector func() agent.CredentialProjector
 	// newSurfaces builds the backend's SurfaceSet from a run's shared inputs and a
 	// filesystem (nil = OS fs), so a name-only caller (materialize) can deliver
 	// every native surface through a cell without importing the concrete backend.
@@ -225,6 +233,12 @@ func registerDescriptor(d agentDescriptor) {
 		// import these packages, so this is the only direction the wiring can
 		// run — see isolation.RegisterInstanceConfigWriter.
 		isolation.RegisterInstanceConfigWriter(d.name, d.newInstanceConfig(agent.SettingsOptions{}))
+	}
+	if d.newCredentialProjector != nil {
+		// Same push, same reason as the instance-config writer above: isolation
+		// resolves engines by NAME and cannot import these packages, so the
+		// engine-owned credential projector is registered here at descriptor time.
+		isolation.RegisterCredentialProjector(d.name, d.newCredentialProjector())
 	}
 }
 
@@ -446,8 +460,9 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &claude.ClaudeConfig{})
 		},
-		newWriter:         claude.NewWriter,
-		newInstanceConfig: claude.NewInstanceConfigWriter,
+		newWriter:              claude.NewWriter,
+		newInstanceConfig:      claude.NewInstanceConfigWriter,
+		newCredentialProjector: claude.NewCredentialProjector,
 		// claude takes the shared agent.SurfaceInputs directly rather than a
 		// local copy: two hand-maintained field-by-field mappers drift apart, as
 		// they did on MCPCommandOverride. It binds an out-of-cwd

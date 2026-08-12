@@ -288,25 +288,29 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # The credential half of the "gets a ctxloom-controlled config home" scenario
   # above, claude-code only (kiro has no seedable credential — see that
-  # scenario's note). The bytes the engine reads out of its controlled home are
-  # the host fixture's, exactly; and Alice's own `~/.claude/.credentials.json`
-  # is READ, never rewritten. There is no migration on this axis — nothing has
-  # ever lived at the new path — so "the host copy is untouched" is the whole
-  # safety claim.
+  # scenario's note). The copy is ACCESS-TOKEN-ONLY (easiest-stomp, ruled
+  # 2026-08-12): the engine reads its access token out of the controlled home
+  # and authenticates, but the single-use ROTATING refresh token is stripped —
+  # a live experiment proved any copy that refreshes invalidates the human's own
+  # host login, so a disposable instance is never handed a refreshable
+  # credential. Alice's own `~/.claude/.credentials.json` is READ, never
+  # rewritten, and still carries its refresh token in full. There is no
+  # migration on this axis — nothing has ever lived at the new path — so "the
+  # host copy is untouched" is the other half of the safety claim.
   #
-  # Both instance-side assertions are read from INSIDE the running engine.
+  # The instance-side assertions are read from INSIDE the running engine.
   # They used to inspect the instance directory after `ctxloom run` returned,
   # which stopped being possible the moment the instance began being reaped at
   # session end — the last line now pins that disposal instead of contradicting
   # it. An instance holds a COPY of Alice's live credential inside her project
   # tree, so its removal is a security requirement rather than tidiness, and
   # this is the only place outside Go tests that proves it happens.
-  Scenario: An in-tree AGENT run copies the host credential into its instance, and leaves the host's own copy alone
+  Scenario: An in-tree AGENT run copies an access-token-only credential into its instance, and leaves the host's own copy alone
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
     And Alice's agent declares config_home "project"
     When Alice runs the isolated "claude-code" agent under workspace "none"
-    Then the isolated "claude-code" credential matches the host fixture byte-for-byte
+    Then the isolated "claude-code" credential is access-token-only (refresh token stripped)
     And the host "claude-code" credential file was never modified
     And the copied "claude-code" credential was owner-only inside the run
     And the "claude-code" config-home instance is gone once the session ends
@@ -462,18 +466,28 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # every commit; the probe is slow, costs a real paid call, and is the one
   # that would have caught kiro's actual credential-store leak (legal-hula) —
   # discovered by running kiro live, not by any spy.
-  Scenario Outline: A worktree run copies the host credential into the isolated config-home verbatim, and never touches the host's own copy
+  # codex's whole auth.json is safe to copy verbatim — it never rotates in a
+  # non-interactive run (auth.go's resolveCodexContainerAuth doc), so there is
+  # no refresh token to strip and the isolated copy is byte-identical.
+  Scenario: A worktree codex run copies the host credential into the isolated config-home verbatim, and never touches the host's own copy
     Given Alice has a git-backed project
-    And Alice has a "<engine>" credential fixture on the host
-    When Alice runs the isolated "<engine>" agent under workspace "worktree"
-    Then the spy "<engine>" process's "<var>" env var points to an isolated per-agent directory, not the host's own
-    And the isolated "<engine>" credential matches the host fixture byte-for-byte
-    And the host "<engine>" credential file was never modified
+    And Alice has a "codex" credential fixture on the host
+    When Alice runs the isolated "codex" agent under workspace "worktree"
+    Then the spy "codex" process's "CODEX_HOME" env var points to an isolated per-agent directory, not the host's own
+    And the isolated "codex" credential matches the host fixture byte-for-byte
+    And the host "codex" credential file was never modified
 
-    Examples:
-      | engine      | var               |
-      | claude-code | CLAUDE_CONFIG_DIR |
-      | codex       | CODEX_HOME        |
+  # claude's copy is ACCESS-TOKEN-ONLY (easiest-stomp): the same CopyAmbient
+  # mechanism as the in-tree axis, so the worktree exposure closes here too —
+  # the isolated copy authenticates but cannot rotate the host's single-use
+  # refresh token, and the host's own file keeps its refresh token in full.
+  Scenario: A worktree claude run copies an access-token-only credential into the isolated config-home, and never touches the host's own copy
+    Given Alice has a git-backed project
+    And Alice has a "claude-code" credential fixture on the host
+    When Alice runs the isolated "claude-code" agent under workspace "worktree"
+    Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points to an isolated per-agent directory, not the host's own
+    And the isolated "claude-code" credential is access-token-only (refresh token stripped)
+    And the host "claude-code" credential file was never modified
 
   # LOCKED — kiro's PARTIAL isolation, and this IS the leak: subscription auth
   # lives in a GLOBAL sqlite under $XDG_DATA_HOME that KIRO_HOME does not

@@ -162,10 +162,42 @@ exit 0
 `
 
 // isoFixtureCredMarker is the deterministic, obviously-fake host credential
-// content every "credential fixture" step seeds — never a real token, so
-// there is nothing to leak even if a bug somehow let this content escape
-// the throwaway test HOME.
+// content the CODEX credential fixture seeds — never a real token, so there is
+// nothing to leak even if a bug somehow let this content escape the throwaway
+// test HOME. codex copies its auth.json VERBATIM (no credential projector), so
+// an opaque marker still exercises that path faithfully.
 const isoFixtureCredMarker = "ISO-MATRIX-FIXTURE-CREDENTIAL-NOT-A-REAL-SECRET"
+
+// The two halves of claude's OAuth credential, each obviously fake. The
+// access-token-only copy (easiest-stomp) KEEPS the access marker and STRIPS the
+// refresh marker; the fixture carries both so the strip has something real to
+// prove and the host-untouched check something real to preserve.
+const (
+	isoFixtureAccessMarker  = "ISO-MATRIX-FIXTURE-ACCESS-TOKEN-NOT-A-REAL-SECRET"
+	isoFixtureRefreshMarker = "ISO-MATRIX-FIXTURE-REFRESH-TOKEN-NOT-A-REAL-SECRET"
+)
+
+// isoFixtureClaudeCred is the host ~/.claude/.credentials.json fixture: valid
+// JSON in claude's live claudeAiOauth shape (probe-verified 2026-08-12). It is
+// JSON, not a bare marker, because claude's credential projector PARSES it to
+// strip the refresh token — a bare marker would fail that parse loud, which is
+// the projector's correct posture (an unparseable credential cannot be proven
+// refresh-token-free) but not what this fixture is here to test.
+const isoFixtureClaudeCred = `{"claudeAiOauth":{"accessToken":"` + isoFixtureAccessMarker + `","refreshToken":"` + isoFixtureRefreshMarker + `","expiresAt":1,"refreshTokenExpiresAt":2,"subscriptionType":"max"}}`
+
+// isoCredFixtureContent is the host credential-file body to seed for engine.
+// claude-code needs realistic JSON (its projector parses it); codex copies
+// verbatim and keeps the opaque marker.
+func isoCredFixtureContent(engine string) (string, error) {
+	switch engine {
+	case "claude-code":
+		return isoFixtureClaudeCred, nil
+	case "codex":
+		return isoFixtureCredMarker, nil
+	default:
+		return "", fmt.Errorf("iso matrix: no credential fixture content for engine %q", engine)
+	}
+}
 
 // The three classes of Alice's OWN data the personal-claude-config fixture
 // seeds, each obviously fake. They exist to be searched FOR in the generated
@@ -620,7 +652,11 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
-		return w.env.WriteHomeFile(rel, isoFixtureCredMarker+"\n")
+		body, err := isoCredFixtureContent(engine)
+		if err != nil {
+			return err
+		}
+		return w.env.WriteHomeFile(rel, body+"\n")
 	})
 
 	// The per-engine form of the credential-fixture step, for an outline whose
@@ -639,7 +675,11 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			return w.env.WriteHomeFile(rel, isoFixtureCredMarker+"\n")
+			body, err := isoCredFixtureContent(engine)
+			if err != nil {
+				return err
+			}
+			return w.env.WriteHomeFile(rel, body+"\n")
 		case "kiro":
 			return nil
 		default:
@@ -1113,6 +1153,9 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// The VERBATIM-copy assertion, for an engine whose whole credential file is
+	// safe to copy (codex's auth.json — no rotation, no projector). claude-code
+	// is NOT verbatim: it uses the access-token-only step below.
 	ctx.Step(`^the isolated "([^"]*)" credential matches the host fixture byte-for-byte$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
@@ -1125,11 +1168,40 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		got := isoParseSpySection(body, marker)
-		want := strings.TrimSpace(isoFixtureCredMarker)
+		wantBody, err := isoCredFixtureContent(engine)
+		if err != nil {
+			return err
+		}
+		want := strings.TrimSpace(wantBody)
 		if got != want {
 			return fmt.Errorf("isolated %s credential content = %q, want the host fixture %q; full spy dump:\n%s", engine, got, want, body)
 		}
 		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s):\n%s", engine, marker, got)
+		return nil
+	})
+
+	ctx.Step(`^the isolated "([^"]*)" credential is access-token-only \(refresh token stripped\)$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		marker, err := isoCredsSectionMarker(engine)
+		if err != nil {
+			return err
+		}
+		got := isoParseSpySection(body, marker)
+		// The access token stays (the copy must still authenticate); the
+		// single-use rotating refresh token is stripped, so a refresh in this
+		// disposable home can never invalidate Alice's real ~/.claude login.
+		if !strings.Contains(got, isoFixtureAccessMarker) {
+			return fmt.Errorf("isolated %s credential lost its access token; the copy must still authenticate. spy read:\n%s", engine, got)
+		}
+		if strings.Contains(got, isoFixtureRefreshMarker) || strings.Contains(got, "refreshToken") {
+			return fmt.Errorf("isolated %s credential STILL carries the refresh token; a copied home that can refresh rotates and invalidates the host's single-use token. spy read:\n%s", engine, got)
+		}
+		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s) — access-token-only, refresh token stripped:\n%s", engine, marker, got)
 		return nil
 	})
 
@@ -1201,7 +1273,11 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("host %s credential file missing after run: %w", engine, err)
 		}
-		if strings.TrimSpace(got) != strings.TrimSpace(isoFixtureCredMarker) {
+		want, err := isoCredFixtureContent(engine)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(got) != strings.TrimSpace(want) {
 			return fmt.Errorf("host %s credential file content changed by the run — the seed path must be a COPY, never a mutation of the host original; got:\n%s", engine, got)
 		}
 		w.docStepMaterialized = fmt.Sprintf("host %s credential file (%s), unchanged after the run:\n%s", engine, rel, strings.TrimSpace(got))

@@ -175,6 +175,41 @@ func instanceConfigWriterFor(engine string) agent.InstanceConfigWriter {
 	return instanceConfigWriters[engine]
 }
 
+// credentialProjectors is the engine-owned ambient-credential projector per
+// registered backend, populated once at init by internal/lm/backends alongside
+// instanceConfigWriters — for the identical name-keyed-indirection reason (this
+// package cannot import the engine packages, and the worktree axis resolves its
+// engine by NAME with no engine value in hand). An engine with no registered
+// projector has its ambient credential files copied byte-for-byte; only claude
+// registers one today (to strip its single-use refresh token — see
+// agent.CredentialProjector and internal/claude.NewCredentialProjector).
+var (
+	credentialProjectorMu sync.RWMutex
+	credentialProjectors  = map[string]agent.CredentialProjector{}
+)
+
+// RegisterCredentialProjector installs engine's ambient-credential projector.
+// Called from internal/lm/backends' init, once per backend that declares one;
+// re-registering a name replaces it, and a nil projector deletes the entry (so
+// a test can restore the pre-existing registration). An engine with no
+// registration copies its ambient credential files verbatim.
+func RegisterCredentialProjector(engine string, p agent.CredentialProjector) {
+	credentialProjectorMu.Lock()
+	defer credentialProjectorMu.Unlock()
+	if p == nil {
+		delete(credentialProjectors, engine)
+		return
+	}
+	credentialProjectors[engine] = p
+}
+
+// credentialProjectorFor returns engine's registered projector, or nil.
+func credentialProjectorFor(engine string) agent.CredentialProjector {
+	credentialProjectorMu.RLock()
+	defer credentialProjectorMu.RUnlock()
+	return credentialProjectors[engine]
+}
+
 // CopyAmbient performs THE ambient copy-in — the one one-way transfer from the
 // user's real host home into an instance config home, shared by both axes that
 // have one (D8, ruled 2026-08-11: share the MECHANISM, keep the locations
@@ -221,7 +256,7 @@ func copyAmbientLocked(spec credentialSeedSpec, req AmbientRequest) (AmbientCopy
 	var rep AmbientCopyReport
 
 	if spec.sourceFiles != nil {
-		result, err := hostCredentialSeed(spec, req.InstanceHome)
+		result, err := hostCredentialSeed(spec, req.InstanceHome, credentialProjectorFor(req.Engine))
 		if err != nil {
 			return rep, err
 		}

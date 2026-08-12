@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -411,7 +412,14 @@ func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool
 		return nil, false
 	}
 	credsCopy := filepath.Join(dir, ".credentials.json")
-	if err := copyCredentialFile(creds, credsCopy); err != nil {
+	// nil projector: the CONTAINER credential-mount path is a SEPARATE axis from
+	// CopyAmbient (it bind-mounts a rw copy so an in-container refresh lands in
+	// the ephemeral scratch, not the host original) and is out of easiest-stomp's
+	// stated scope. It still copies the whole credential, refresh token included,
+	// so a containerized claude that refreshes ALSO rotates the host's single-use
+	// token — the same exposure the strip closes on the worktree/in-tree axes.
+	// Applying the strip here is a deliberate follow-up, not an oversight.
+	if err := copyCredentialFile(creds, credsCopy, nil); err != nil {
 		warnCredentialCopyFailed("claude", creds, err)
 		return nil, false
 	}
@@ -907,7 +915,7 @@ const (
 // logs a secret value — only paths, and only the caller (worktree.go) logs
 // even those, via clidiag.Warn/strictness.Fail on the DECISION, not the
 // content.
-func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult, error) {
+func hostCredentialSeed(spec credentialSeedSpec, configHome string, projector agent.CredentialProjector) (seedResult, error) {
 	if spec.envTrigger != "" && os.Getenv(spec.envTrigger) != "" {
 		return seedSkippedEnv, nil
 	}
@@ -919,7 +927,7 @@ func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult,
 	if err := prepareSeedDir(spec, destDir); err != nil {
 		return seedNoSource, err
 	}
-	return copySeedFiles(spec, files, destDir)
+	return copySeedFiles(spec, files, destDir, projector)
 }
 
 // hostSeedSources resolves spec's host source files against the host HOME and
@@ -970,13 +978,22 @@ func prepareSeedDir(spec credentialSeedSpec, destDir string) error {
 // reports seedNoSource, never seedOK — no current spec reaches that (claude's
 // primary file is required), but a future all-optional spec must not report
 // success having delivered zero bytes.
-func copySeedFiles(spec credentialSeedSpec, files []seedFile, destDir string) (seedResult, error) {
+func copySeedFiles(spec credentialSeedSpec, files []seedFile, destDir string, projector agent.CredentialProjector) (seedResult, error) {
 	seededAny := false
 	for _, f := range files {
 		if !fileExists(f.host) {
 			continue // optional file absent — already checked required above
 		}
-		if err := copyCredentialFile(f.host, filepath.Join(destDir, f.destName)); err != nil {
+		// The engine's projector (claude's refresh-token strip) transforms the
+		// bytes as they cross; an engine with no projector copies verbatim. The
+		// projection is keyed by the engine's own destName, so a projector that
+		// only cares about one of several ambient files passes the rest through.
+		var project func([]byte) ([]byte, error)
+		if projector != nil {
+			destName := f.destName
+			project = func(b []byte) ([]byte, error) { return projector.ProjectAmbientCredential(destName, b) }
+		}
+		if err := copyCredentialFile(f.host, filepath.Join(destDir, f.destName), project); err != nil {
 			return seedNoSource, fmt.Errorf("seed %s credential %q: %w", spec.engine, f.destName, err)
 		}
 		seededAny = true
@@ -992,10 +1009,24 @@ func copySeedFiles(spec credentialSeedSpec, files []seedFile, destDir string) (s
 // token/account record, never a large blob), so the simplicity of
 // read-then-write outweighs any streaming benefit, and it keeps the write
 // atomic-enough for this use (no partial dst on a read failure).
-func copyCredentialFile(src, dst string) error {
+//
+// project, when non-nil, is the ENGINE's ambient-credential projection applied
+// to the bytes AFTER reading src and BEFORE writing dst — claude strips its
+// single-use refresh token here so a copied home cannot rotate the host's. src
+// is only ever READ; the projection lands solely in dst. A projection error
+// fails the copy loud (no dst is written) rather than falling back to the
+// unprojected bytes, which for a security-motivated strip would be worse than
+// not copying at all.
+func copyCredentialFile(src, dst string, project func([]byte) ([]byte, error)) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
+	}
+	if project != nil {
+		data, err = project(data)
+		if err != nil {
+			return err
+		}
 	}
 	// os.WriteFile follows a symlink at the destination (it is
 	// OpenFile(dst, O_WRONLY|O_CREATE|O_TRUNC, perm) under the hood), so an

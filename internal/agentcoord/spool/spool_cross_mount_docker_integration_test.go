@@ -49,109 +49,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
-// Probe-mode environment. The container side is this same test binary
-// re-entered through TestMain, which is why there is no separate command to
-// build, keep in sync, or forget to rebuild: the container exercises the
-// EXACT library code this test run compiled.
-const (
-	envProbe       = "CTXLOOM_SPOOL_PROBE"
-	envProbeHarp   = "CTXLOOM_SPOOL_PROBE_HARP"
-	envProbeMarker = "CTXLOOM_SPOOL_PROBE_MARKER"
-)
-
-// TestMain re-enters as the container-side probe when envProbe is set, and is
-// an ordinary test main otherwise.
-//
-// A probe rather than a t.Skip-guarded test on purpose: a bare t.Skip in a
-// docker-gated file is invisible reachability policy (build/gates.justfile
-// fails the build on one), and this entry point never wants to report
-// "skipped" — on the host it simply is not the entry point.
-func TestMain(m *testing.M) {
-	if phase := os.Getenv(envProbe); phase != "" {
-		os.Exit(runProbe(phase))
-	}
-	os.Exit(m.Run())
-}
-
-// runProbe is the container side. It prints machine-readable lines the host
-// asserts on and returns a non-zero status with a reason on any failure —
-// a probe that exited 0 having checked nothing is the failure mode this whole
-// suite exists to catch.
-func runProbe(phase string) int {
-	harp := os.Getenv(envProbeHarp)
-	marker := os.Getenv(envProbeMarker)
-	if phase != "roundtrip" {
-		fmt.Fprintf(os.Stderr, "probe: unknown phase %q\n", phase)
-		return 2
-	}
-	if harp == "" || marker == "" {
-		fmt.Fprintf(os.Stderr, "probe: %s and %s are required\n", envProbeHarp, envProbeMarker)
-		return 2
-	}
-	m := NewHomeMapper()
-
-	// 1. The host wrote one in/ message and consumed it. In-container, in/
-	//    must be EMPTY and in/consumed/ must hold it.
-	live, err := Sweep(m, harp, DirIn)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "probe: sweeping in/: %v\n", err)
-		return 1
-	}
-	if err := live.ProblemErr(); err != nil {
-		fmt.Fprintf(os.Stderr, "probe: in/ has unreadable files: %v\n", err)
-		return 1
-	}
-	if len(live.Entries) != 0 {
-		fmt.Fprintf(os.Stderr, "probe: in/ should be empty after the host consumed, found %d\n", len(live.Entries))
-		return 1
-	}
-	consumed, err := Sweep(m, harp, DirInConsumed)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "probe: sweeping in/consumed: %v\n", err)
-		return 1
-	}
-	if err := consumed.ProblemErr(); err != nil {
-		fmt.Fprintf(os.Stderr, "probe: in/consumed has unreadable files: %v\n", err)
-		return 1
-	}
-	if len(consumed.Entries) != 1 {
-		fmt.Fprintf(os.Stderr, "probe: in/consumed should hold exactly the consumed message, found %d\n", len(consumed.Entries))
-		return 1
-	}
-	wantBody := marker + "-in\n"
-	if got := consumed.Entries[0].Message.Body; got != wantBody {
-		fmt.Fprintf(os.Stderr, "probe: consumed body %q, want %q\n", got, wantBody)
-		return 1
-	}
-	consumedPath, err := m.Resolve(consumed.Entries[0].Ref)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "probe: resolving the consumed ref: %v\n", err)
-		return 1
-	}
-	fmt.Printf("PROBE_CONSUMED_PATH=%s\n", consumedPath)
-
-	// 2. Write one out/ message for the host to read back.
-	w, err := NewWriter(m, harp, DirOut, "agentprobe")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "probe: creating the out writer: %v\n", err)
-		return 1
-	}
-	ref, err := w.Write(&Message{Kind: "report", FromHarp: harp, To: "parent", Body: marker + "-out\n"})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "probe: writing out/: %v\n", err)
-		return 1
-	}
-	outPath, err := m.Resolve(ref)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "probe: resolving the written ref: %v\n", err)
-		return 1
-	}
-	fmt.Printf("PROBE_OUT_NAME=%s\n", ref.Name)
-	fmt.Printf("PROBE_OUT_PATH=%s\n", outPath)
-	fmt.Println("PROBE_OK")
-	return 0
-}
-
 const (
 	crossMountImage    = "alpine:latest"
 	containerHome      = "/chome"
@@ -174,10 +71,13 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	probeDir := t.TempDir()
 	buildProbe(t, filepath.Join(probeDir, containerProbeName))
 
-	// The fixture home lives on the REPO's filesystem, not TMPDIR: /tmp is
-	// tmpfs on a stock Linux box, and a spool substrate proven only over a
-	// RAM filesystem would be evidence about the wrong thing.
-	fixture, err := os.MkdirTemp(repoRoot(t), ".spool-xmount-")
+	// The fixture home lives OUTSIDE the checkout, on a real filesystem —
+	// see crossMountFixtureRoot for both halves of that requirement. It used
+	// to be created in the repo root, which put container-written state inside
+	// the source tree: `just test`'s _check-no-ctxloom-leak scans the checkout
+	// for exactly that shape, and residue there confuses worktree-safe WIP
+	// detection even while .gitignore keeps `git status` clean.
+	fixture, err := os.MkdirTemp(crossMountFixtureRoot(), "ctxloom-spool-xmount-")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// Loud on purpose: leftover fixture dirs are machine debris that a
@@ -280,7 +180,13 @@ func buildProbe(t *testing.T, out string) {
 	cmd := exec.CommandContext(ctx, "go", "test", "-c", "-tags", "docker_integration",
 		"-o", out, "github.com/ctxloom/ctxloom/internal/agentcoord/spool")
 	cmd.Dir = repoRoot(t)
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
+	// HOME=realHOME, explicitly: TestMain's sandbox has already redirected
+	// $HOME by the time this runs, and `go` derives GOPATH and its module
+	// cache from it — building under the sandbox home rebuilds the entire
+	// module cache into a throwaway dir whose read-only entries the cleanup
+	// cannot remove. Measured here before the fixture moved out of the repo:
+	// two undeletable directories and ~9s of a 14s run.
+	cmd.Env = append(os.Environ(), "HOME="+realHOME, "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if combined, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building the container-side probe: %v\n%s", err, combined)
 	}

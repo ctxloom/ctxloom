@@ -193,14 +193,18 @@ type resolvedRunRequest struct {
 	// environment (a delegated child's session harp / bus socket / depth).
 	ExtraEnv map[string]string
 
-	// AgentBound reports that this run was resolved through an AGENT binding
-	// (a delegated child, a fan-out member) rather than a bare profile. It
-	// decides ONE thing: whether an in-tree run gets a ctxloom-controlled
-	// engine config home instead of the human's own ~/.claude / ~/.kiro — see
-	// InTreeAgentHomeEnv. RunOneshot leaves it false, because a bare-profile
-	// oneshot has no agent binding (the same fact its Permissions comment
-	// already records).
-	AgentBound bool
+	// ConfigHome is the resolved agent binding's EFFECTIVE config-home policy
+	// (operations.ResolvedAgent.ConfigHome — agents.ConfigHomeProject or
+	// agents.ConfigHomeHost) when this run was resolved through an AGENT
+	// binding (a delegated child, a fan-out member), or "" when it was not —
+	// a bare-profile oneshot has no agent binding to read one from (the same
+	// fact its Permissions comment already records). It decides ONE thing:
+	// whether an in-tree run gets a ctxloom-controlled engine config home
+	// instead of the human's own ~/.claude / ~/.kiro — see
+	// InTreeAgentHomeEnv. RunOneshot leaves it "", since a bare-profile
+	// oneshot has no binding at all, which reads identically to an undeclared
+	// one — both keep the real host home.
+	ConfigHome string
 
 	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
 }
@@ -479,7 +483,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		workspaceEnv = mergeInTreeAgentHome(workspaceEnv, InTreeAgentHome{
 			Backend:    req.Backend,
 			WorkDir:    req.WorkDir,
-			AgentBound: req.AgentBound,
+			ConfigHome: req.ConfigHome,
 			Policy:     policy,
 			Env:        mergedEnvView(workspaceEnv, req.ExtraEnv),
 		})

@@ -327,19 +327,23 @@ type runState struct {
 	// boundAgent names the agent binding this run launched under (--agent or
 	// the default agent) — surround-bar identity only.
 	boundAgent string
-	// explicitAgent reports that the user NAMED an agent (`run --agent x`),
-	// as opposed to the bare launch that binds the always-bound default agent
-	// or the -p/-f/-t classic assembly that binds none.
+	// agentConfigHome is the resolved agent binding's EFFECTIVE config-home
+	// policy (operations.ResolvedAgent.ConfigHome — always
+	// agents.ConfigHomeProject or agents.ConfigHomeHost once a binding
+	// resolved), or "" when this run has NO agent binding at all: the
+	// -p/-f/-t classic assembly, or a bare launch whose default agent failed
+	// to resolve.
 	//
 	// It exists as its own field because boundAgent cannot answer the
-	// question: resolveDefaultAgent sets boundAgent too, so "boundAgent != \"\""
-	// is true of a plain `ctxloom run` — the human's own session. The
-	// distinction is load-bearing for exactly one decision, the in-tree engine
-	// config home (prepareWorkspace → operations.InTreeAgentHomeEnv): naming
-	// an agent is asking ctxloom to run one, and a ctxloom agent is not
-	// entitled to the human's own ~/.claude memory, plugins and settings;
-	// typing `ctxloom run` is the human starting their own session, which is.
-	explicitAgent bool
+	// question the in-tree engine config home (prepareWorkspace →
+	// operations.InTreeAgentHomeEnv) needs: resolveDefaultAgent sets
+	// boundAgent too, so "boundAgent != \"\"" is true of a plain `ctxloom run`
+	// just as much as `run --agent x` — both bind a real agent, and the
+	// decision reads that agent's OWN declared config_home (always host by
+	// default), never how it was invoked. Only "was any binding resolved at
+	// all" is invocation-shaped, and that is exactly what an empty
+	// agentConfigHome (vs. a resolved "project"/"host") already answers.
+	agentConfigHome string
 
 	// prepareRequestInputs: everything the RunStart payload is built from that
 	// does not depend on the session having been opened.
@@ -656,6 +660,7 @@ func (st *runState) applyResolvedAgent(rs *operations.ResolvedAgent, name string
 	st.agentPermissions = rs.Permissions
 	st.agentSurfaces = rs.Surfaces
 	st.boundAgent = name
+	st.agentConfigHome = rs.ConfigHome
 }
 
 // resolveNamedAgent is the --agent arm. An unknown name is a HARD error: an
@@ -666,9 +671,6 @@ func (st *runState) resolveNamedAgent() error {
 		return rerr
 	}
 	st.applyResolvedAgent(rs, runAgent)
-	// The one arm where the USER named an agent. resolveDefaultAgent
-	// deliberately does not set this — see runState.explicitAgent.
-	st.explicitAgent = true
 	return nil
 }
 
@@ -1244,11 +1246,12 @@ func (st *runState) prepareWorkspace() {
 
 	// IN-TREE AGENT HOME. On the none axis there is no isolation-provided
 	// config home, and claude/kiro would otherwise run against the human's own
-	// ~/.claude / ~/.kiro. A run bound to a NAMED agent is ctxloom's process,
-	// not the human's, so it gets a project-scoped controlled home instead;
-	// this run's own interactive session does not. See
-	// operations.InTreeAgentHomeEnv for the whole rule, and st.explicitAgent
-	// for why the DEFAULT-agent bare launch counts as the human's.
+	// ~/.claude / ~/.kiro. A run bound to an agent whose EFFECTIVE config_home
+	// is "project" gets a project-scoped controlled home instead; every other
+	// run — no binding at all, or a binding that is undeclared or declares
+	// "host" — keeps the real one. See operations.InTreeAgentHomeEnv for the
+	// whole rule, and st.agentConfigHome for why this reads the resolved
+	// agent's OWN declared policy rather than how it was invoked.
 	//
 	// Merged with the SAME precedence as the isolation env above (and layered
 	// under it — the call reads the already-merged map and declines any var
@@ -1256,7 +1259,7 @@ func (st *runState) prepareWorkspace() {
 	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
 		Backend:    st.backendName,
 		WorkDir:    st.workDir,
-		AgentBound: st.explicitAgent,
+		ConfigHome: st.agentConfigHome,
 		Policy:     st.policy,
 		Env:        st.req.Options.Env,
 	}))

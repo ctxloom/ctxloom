@@ -343,15 +343,16 @@ func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.C
 	mark := strictness.Checkpoint()
 	policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), p.req.WorkDir, rs.Name, isolation.SessionStateFromEnv(p.req.Env))
 	p.workspaceEnv = isolation.WorkspaceEnv(ws)
-	// A delegated child is ALWAYS an agent run (p.req.Resolved IS the binding),
-	// so on the none axis it gets a project-scoped controlled config home
+	// A delegated child is ALWAYS an agent run (p.req.Resolved IS the
+	// binding), so on the none axis its EFFECTIVE config_home decides: only
+	// rs.ConfigHome == "project" gets a project-scoped controlled config home
 	// rather than the human's own ~/.claude / ~/.kiro — see
 	// InTreeAgentHomeEnv. Resolved inside the checkpoint window so its
 	// fail-loud finding lands in this spawn's own gate below.
 	p.workspaceEnv = mergeInTreeAgentHome(p.workspaceEnv, InTreeAgentHome{
 		Backend:    rs.Backend,
 		WorkDir:    p.req.WorkDir,
-		AgentBound: true,
+		ConfigHome: rs.ConfigHome,
 		Policy:     policy,
 		Env:        mergedEnvView(p.workspaceEnv, p.req.Env),
 	})
@@ -1186,12 +1187,12 @@ func (p *PreparedAgentChat) startOneshot(ctx context.Context) *AgentChatLaunch {
 				Profiles:       rs.Profiles,
 				Gate:           p.req.Gate,
 				Factory:        p.req.Factory,
-				ExtraEnv:       p.req.Env,
+				ExtraEnv: p.req.Env,
 				// The oneshot FALLBACK for a delegated child is still a
-				// delegated child: same agent binding, same claim on a
-				// controlled engine config home as the structured-chat path
-				// bindIsolatedSpawn takes.
-				AgentBound: true,
+				// delegated child: same agent binding, same EFFECTIVE
+				// config_home as the structured-chat path bindIsolatedSpawn
+				// reads (rs.ConfigHome — already resolved/defaulted).
+				ConfigHome: rs.ConfigHome,
 			})
 			if err != nil {
 				events <- agent.ChatEvent{Entry: &agent.SessionEntry{

@@ -443,6 +443,14 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "config_home": {
+            "type": "string",
+            "description": "Per-engine config-home policy for this binding's claude-code/kiro runs, on the IN-TREE (workspace: none) axis only \u2014 the worktree axis already provisions a per-agent config home unconditionally, and this key does not touch it. \"project\" points the engine at a ctxloom-controlled home under .ctxloom/state/engines/<engine>, isolated from the human's own; \"host\" keeps the engine's real host home. Empty (omitted) DEFAULTS TO \"host\": the controlled home is strictly opt-in. A declared value wins on every invocation path this binding resolves through \u2014 a bare run under default_agent, run --agent, a delegated child, a oneshot fan member alike; only a run with NO agent binding at all (no --agent, no default_agent) has no config_home to read and always keeps the real host home. Validated when written \u2014 an unknown value is refused, naming the two valid ones.",
+            "enum": [
+              "project",
+              "host"
+            ]
           }
         },
         "additionalProperties": false

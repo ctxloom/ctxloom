@@ -39,6 +39,10 @@ type AgentEntry struct {
 	// derived from Permissions at resolve time (see agents.Agent.Escalation's
 	// doc).
 	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
+	// ConfigHome is the agent's declared per-engine config-home policy
+	// (project|host), as written; empty (undeclared) defaults to host at
+	// resolve time — see agents.Agent.ConfigHome's doc.
+	ConfigHome string `json:"config_home,omitempty"`
 	// Source is "config" for a config.yaml `agents:` entry, otherwise the
 	// .ctxloom/agents/*.yaml file path it was read from.
 	Source string `json:"source,omitempty"`
@@ -59,6 +63,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Permissions: s.Permissions,
 			Driving:     s.Driving,
 			Escalation:  s.Escalation,
+			ConfigHome:  s.ConfigHome,
 			Source:      s.Source,
 		})
 	}
@@ -83,6 +88,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Permissions: sub.Permissions,
 		Driving:     sub.Driving,
 		Escalation:  sub.Escalation,
+		ConfigHome:  sub.ConfigHome,
 		Source:      sub.Source,
 	}, nil
 }
@@ -117,6 +123,12 @@ type SetAgentRequest struct {
 	// returns an error, nothing is persisted) rather than warned-and-stored —
 	// see agents.ValidateDriving's doc for why.
 	Driving *string `json:"driving,omitempty"`
+	// ConfigHome sets the binding's per-engine config-home policy
+	// (project|host); empty (undeclared) defaults to host at resolve time.
+	// Unlike Runtime/Permissions, an unknown value here is REJECTED (SetAgent
+	// returns an error, nothing is persisted) — the same treatment Surfaces
+	// gets, and for the same reason: see agents.Agent.ConfigHome's doc.
+	ConfigHome *string `json:"config_home,omitempty"`
 }
 
 // orKeep dereferences an optional request field: nil means "the caller did not
@@ -219,6 +231,17 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
+
+	// config_home breaks rather than degrades: an unknown value here would
+	// otherwise silently resolve to the host default at launch (fault
+	// tolerance's usual treatment), which for THIS key means silently
+	// dropping the very opt-in the write was trying to make — refused here
+	// instead, before it is ever persisted.
+	if req.ConfigHome != nil && *req.ConfigHome != "" {
+		if _, err := ResolveConfigHome(*req.ConfigHome); err != nil {
+			return fmt.Errorf("agent %q: %w", name, err)
+		}
+	}
 	return nil
 }
 
@@ -304,6 +327,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		if req.Driving != nil {
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
+		entry.ConfigHome = orKeep(req.ConfigHome, entry.ConfigHome)
 		d.Agents[name] = entry
 		return nil
 	})
@@ -318,6 +342,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		Permissions: entry.Permissions,
 		Driving:     entry.Driving,
 		Escalation:  entry.Escalation,
+		ConfigHome:  entry.ConfigHome,
 		Source:      agents.SourceConfig,
 	}, nil
 }
@@ -442,6 +467,16 @@ type ResolvedAgent struct {
 	// coordinator's per-engine resume-capability gate (coord.resolveResumeMode)
 	// consumes this to decide SpawnPlan.ResumeMode.
 	Driving agents.DrivingMode `json:"driving,omitempty"`
+	// ConfigHome is the agent's EFFECTIVE, already-resolved config-home
+	// policy — always agents.ConfigHomeProject or agents.ConfigHomeHost,
+	// never empty, whatever the binding declared (ResolveConfigHome's
+	// undeclared/unresolvable → host default already applied). It is the
+	// ONE thing every invocation path (cli/run.go's prepareWorkspace,
+	// operations/delegate.go's bindIsolatedSpawn/startOneshot) threads into
+	// InTreeAgentHome.ConfigHome — a run with NO resolved agent binding at
+	// all never has a ResolvedAgent to read this from, and so falls back to
+	// the real host home by construction, not by this field's value.
+	ConfigHome string `json:"config_home,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -542,6 +577,15 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
 	}
 
+	// Same warn+default treatment as Surfaces just above: a value that fails
+	// validation here reached this point only via a hand-edited config.yaml
+	// (SetAgent already refused it at write time), so the launch degrades to
+	// the safe default (host) with a warning rather than blocking.
+	configHome, cherr := ResolveConfigHome(sub.ConfigHome)
+	if cherr != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, cherr)
+	}
+
 	return &ResolvedAgent{
 		Name:        name,
 		Surfaces:    surfaces,
@@ -561,5 +605,6 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 			backend == config.BackendClaudeCode).String(),
 		Escalation: sub.Escalation,
 		Driving:    sub.Driving,
+		ConfigHome: configHome,
 	}, nil
 }

@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -19,9 +20,15 @@ type InTreeAgentHome struct {
 	// WorkDir is the run's PROJECT root — the live checkout, not a prepared
 	// workspace directory. The controlled home hangs off it.
 	WorkDir string
-	// AgentBound reports whether this run was resolved through an AGENT
-	// binding. It is THE scoping condition; see InTreeAgentHomeEnv's doc.
-	AgentBound bool
+	// ConfigHome is the run's resolved agent binding's EFFECTIVE config-home
+	// policy — agents.ConfigHomeProject or agents.ConfigHomeHost when a
+	// binding was resolved (operations.ResolvedAgent.ConfigHome, already
+	// defaulted), or "" when this run has NO agent binding at all. It is THE
+	// scoping condition; see InTreeAgentHomeEnv's doc. Only
+	// agents.ConfigHomeProject gets a contribution — "" (no binding) and
+	// agents.ConfigHomeHost (an undeclared or explicitly host-declared
+	// binding) both mean "keep the real host home".
+	ConfigHome string
 	// Policy is the resolved isolation policy. Only the in-tree (none) policy
 	// gets a contribution; a nil Policy means no policy was resolved at all
 	// (an injected-Factory path) and is treated the same as an isolated one.
@@ -47,35 +54,48 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 //
 // THE SCOPING RULE, and the reason this is not simply "every in-tree run":
 //
-//	An AGENT run gets a controlled home. The human's own session keeps the
-//	REAL host home.
+//	A run resolved through an agent binding whose EFFECTIVE config_home is
+//	"project" gets a controlled home. Every other run — no binding at all, an
+//	undeclared binding, or one that declares "host" — keeps the REAL host
+//	home.
 //
-// A delegated child, a fan-out member, a `run --agent` — these are ctxloom's
-// processes, and pointing them at the human's ~/.claude or ~/.kiro hands each
-// one the human's memory, plugins, personal MCP registrations, global agents
-// and steering, and lets it write session state and settings edits back into
-// them. That is the pollution this policy exists to end.
+// The controlled-home behaviour is strictly OPT-IN: a binding that never
+// mentions config_home resolves to agents.ConfigHomeHost
+// (operations.ResolveConfigHome), so declaring the binding at all is not
+// enough on its own — an agent that wants its runs kept off the human's real
+// ~/.claude or ~/.kiro must say `config_home: project`. A delegated child, a
+// fan-out member, a `run --agent` — these ARE ctxloom's processes, and
+// pointing an unopted one at the human's ~/.claude or ~/.kiro hands it the
+// human's memory, plugins, personal MCP registrations, global agents and
+// steering, and lets it write session state and settings edits back into
+// them; that is the pollution `config_home: project` exists to let a binding
+// opt out of. But nothing takes that on by default — a project that wants it
+// asks for it by name, on the binding that wants it.
 //
-// The human's own interactive session is the opposite case. Those files are
-// their property and their working environment; relocating them out from under
-// an interactive session is a regression dressed as isolation, so an unbound
-// run (AgentBound false) gets nothing and behaves exactly as it did before this
-// policy existed.
+// The human's own interactive session (no agent binding resolved at all —
+// no --agent, no default_agent) has no ConfigHome to read in the first
+// place and always keeps the real home: relocating a human's own working
+// environment out from under their interactive session would be a
+// regression dressed as isolation, and there is no binding through which
+// they could even opt in.
 //
 // This DELIBERATELY differs from codex, which relocates CODEX_HOME on every
-// in-tree run bound or not. The asymmetry is historical fact, not
-// inconsistency: codex never used the real ~/.codex in-tree — ctxloom has
-// always pointed it at a project-scoped home — so there was nothing of the
-// user's to take away. claude and kiro DID use the real host home, so for them
-// the same move is a taking, and it is scoped to the runs that are not the
-// human's.
+// in-tree run bound or not, unconditionally. The asymmetry is historical
+// fact, not inconsistency: codex never used the real ~/.codex in-tree —
+// ctxloom has always pointed it at a project-scoped home — so there was
+// nothing of the user's to take away, and no opt-in was ever needed. claude
+// and kiro DID use the real host home, so for them the same move is a
+// taking, and it happens only for the runs that both are not the human's own
+// AND asked for it.
 //
 // THREE EXCLUSIONS, each independently sufficient to contribute nothing:
 //
-//   - not agent-bound (the rule above);
+//   - the effective config_home is not "project" (the rule above — this
+//     covers no binding, an undeclared binding, and an explicit "host");
 //   - not the in-tree axis — a container run's fresh in-container $HOME already
 //     IS the controlled home, and a worktree run's per-agent config home is
-//     already provisioned and seeded by internal/lm/isolation. An in-tree path
+//     already provisioned and seeded by internal/lm/isolation, UNCONDITIONALLY
+//     (config_home does not reach the worktree axis at all). An in-tree path
 //     handed to either would name a directory the boundary cannot see;
 //   - the var is already set — isolation's own Env(), or the user's `--env`,
 //     wins outright. This fills gaps; it never overrides.
@@ -87,7 +107,7 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // working run for a mysterious 401; falling back to the host home is what
 // --degraded then actually does.
 func InTreeAgentHomeEnv(in InTreeAgentHome) map[string]string {
-	if !in.AgentBound {
+	if in.ConfigHome != agents.ConfigHomeProject {
 		return nil
 	}
 	if in.Policy == nil || isolation.Isolated(in.Policy) {

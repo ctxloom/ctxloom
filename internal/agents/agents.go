@@ -139,6 +139,48 @@ type Agent struct {
 	// advisory-only unknown-value handling, so it does not get their lenient
 	// treatment).
 	Driving DrivingMode `yaml:"driving,omitempty"`
+	// ConfigHome is this binding's per-engine config-home POLICY: whether an
+	// in-tree (workspace: none) run gets a ctxloom-CONTROLLED engine config
+	// home under .ctxloom/state/engines/<engine> (ConfigHomeProject) or the
+	// engine's REAL host home (ConfigHomeHost). It is the single source of
+	// truth for operations.InTreeAgentHomeEnv's scoping rule, and a DECLARED
+	// value wins on every invocation path this binding resolves through — a
+	// bare run under default_agent, `run --agent`, a delegated child, a
+	// oneshot fan member alike. Invocation never matters for a declared
+	// binding; only whether ANY binding is in play at all does (a run with no
+	// agent binding — no --agent, no default_agent — has no ConfigHome to
+	// read and always keeps the real host home).
+	//
+	// Empty (undeclared) DEFAULTS TO ConfigHomeHost: nothing gets a
+	// controlled in-tree home until a binding explicitly opts in with
+	// "project". An unconfigured binding therefore behaves exactly like no
+	// binding at all on this one axis — the controlled-home behaviour is
+	// strictly opt-in, never assumed.
+	//
+	// Only the IN-TREE axis (workspace: none) reads this. The worktree axis
+	// already provisions a per-agent config home unconditionally, for every
+	// run whether or not it is agent-bound, and container's fresh in-container
+	// $HOME already is a controlled home — ConfigHome does not touch either.
+	//
+	// Validated against ConfigHomeNames when WRITTEN (operations.SetAgent,
+	// same treatment as Surfaces — an unknown value is refused, naming the
+	// two valid ones); a value that fails that same check at RESOLVE time (a
+	// hand-edited config.yaml) warns and falls back to ConfigHomeHost rather
+	// than blocking the launch (operations.ResolveConfigHome).
+	ConfigHome string `yaml:"config_home,omitempty"`
+}
+
+// ConfigHomeProject and ConfigHomeHost are Agent.ConfigHome's two accepted
+// values. See that field's doc for the scoping rule they select between.
+const (
+	ConfigHomeProject = "project"
+	ConfigHomeHost    = "host"
+)
+
+// ConfigHomeNames lists the accepted config_home values, for flag help,
+// shell completion, and error messages.
+func ConfigHomeNames() []string {
+	return []string{ConfigHomeProject, ConfigHomeHost}
 }
 
 // FromConfig reports whether this binding came from config.yaml's `agents:`

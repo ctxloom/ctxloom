@@ -610,7 +610,7 @@ comment: **when ctxloom provisions an engine's config home, it pre-answers that
 engine's own "do you trust this workspace?" prompt for the directory the engine
 is about to run in.**
 
-Only codex has such a prompt today. It records the answer as
+Only codex gets that pre-answer. It records the answer as
 `[projects."<abs cwd>"] trust_level = "trusted"` in the `config.toml` inside
 `$CODEX_HOME`, and it keys that entry by the **working directory**, never by the
 home. So a home codex has never seen carries no answer, and an unanswered prompt
@@ -649,6 +649,28 @@ pre-seed the first run after the move would re-prompt or silently downgrade.
 
 If you would rather answer for yourself, run codex directly — outside ctxloom it
 reads its own global home, which ctxloom never writes to.
+
+### claude-code: the prompt ctxloom deliberately does *not* pre-answer
+
+claude has an equivalent onboarding/trust dialog, and it records the answer in
+`~/.claude.json` — a file that lives beside the credential inside
+`CLAUDE_CONFIG_DIR`, so a config home ctxloom provisioned carries no answer and
+claude asks again the first time an *interactive* agent run uses one. (A headless
+agent run never sees it.)
+
+ctxloom does **not** carry that answer over, on purpose. On a real host
+`~/.claude.json` is not a narrow trust record — it is claude's whole top-level
+config, including the `mcpServers` entries for your own personal integrations.
+Copying it into every agent's config home to save one dialog would hand each
+agent read access to those integrations and whatever secrets they carry. A
+one-time prompt is the cheaper of the two costs, so only `.credentials.json` is
+seeded.
+
+This applies to both homes ctxloom points `CLAUDE_CONFIG_DIR` at: the per-agent
+worktree home, and — since agent runs stopped using your real `~/.claude` — the
+project-scoped one under `.ctxloom/state/engines/claude-code/`. The second is
+durable, so the prompt is answered once per project rather than once per run.
+kiro has no such prompt at all.
 
 ## Lifecycle
 

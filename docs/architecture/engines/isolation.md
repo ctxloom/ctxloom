@@ -192,9 +192,92 @@ trigger-then-mount-then-degrade, shared by claude / kiro / codex / opencode.
 | antigravity | **none** | mount-only, **deliberately not** via `resolveEnvOrMountAuth` so no `ANTHROPIC_*` trigger can leak in | `resolveAntigravityContainerAuth`, `auth.go:356` |
 | **unprofiled** (`acp`, `mock`, unknown, empty) | — | **inherits `resolveClaudeContainerAuth`** | `profile.go:500-510` |
 
-Host/worktree seeding is `hostCredentialSeed` (`auth.go:861`) + `copyCredentialFile`
-(`:904`, writes at 0600). The one exported seam is `SeedCodexHome` (`auth.go:819`),
-used by `internal/codex/backend.go:298`.
+Host/worktree seeding is `hostCredentialSeed` + `copyCredentialFile` (writes at
+0600). Two exported seams reuse it for callers whose home relocation is not
+driven by a `Policy` at all: `SeedCodexHome` (used by `internal/codex`'s `Setup`)
+and `SeedClaudeHome` (used by `operations.InTreeAgentHomeEnv`, below).
+
+## Engine config homes
+
+An engine's **home** is where it keeps what is not project-specific: config,
+global prompts / skills / steering / agents, session state, and credentials.
+Every engine names one env var that relocates it. ctxloom points that var at a
+home **it** provisioned, so an agent run does not read or write the human's own.
+
+An engine's **cwd-keyed** surfaces are a different thing entirely and are never
+relocated: `CLAUDE.md`, `.claude/`, `.kiro/`, `opencode.json`, `AGENTS.md` live
+at the project root, where the engine natively looks.
+
+| Engine | Var | Container | Worktree | In-tree, **agent** run | In-tree, **human's own** run |
+|---|---|---|---|---|---|
+| codex | `CODEX_HOME` | fresh `$HOME/.codex` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/codex/.codex` | same as agent |
+| claude-code | `CLAUDE_CONFIG_DIR` | fresh `$HOME/.claude` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/claude-code/claude` | **real `~/.claude`** |
+| kiro | `KIRO_HOME` | fresh `$HOME/.kiro` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/kiro/kiro` | **real `~/.kiro`** |
+| opencode | `XDG_CONFIG_HOME` / `XDG_DATA_HOME` | fresh `$HOME` | per-agent scratch | **not controlled** | **not controlled** |
+
+Every project-scoped home resolves through one helper, `paths.EngineStateHome`,
+reached via the owning engine package's own `StateHome` — `codex.StateHome`,
+`claude.StateHome`, `kiro.StateHome`. That single ownership is the point: before
+it existed codex's run path and its static writers derived the location
+separately and wrote to different roots. The **state** tier is deliberate: these
+homes hold seeded credentials and a user's hand-edits, so they are gitignored
+*and* unrebuildable.
+
+### The rule: agent runs only
+
+**A run resolved through an agent binding gets a ctxloom-controlled home. The
+human's own session keeps the real one.** Decided in
+`operations.InTreeAgentHomeEnv`, the single place the condition lives; contributed
+by `cli/run.go`'s `prepareWorkspace`, `operations/delegate.go`'s
+`bindIsolatedSpawn`, and `operations/oneshot.go`'s `runResolvedAgent`.
+
+A delegated child, a fan-out member, a `run --agent` — those are ctxloom's
+processes. Pointing one at `~/.claude` or `~/.kiro` hands it the human's memory,
+plugins, personal MCP registrations, global agents and steering, and lets it
+write session state and settings edits back into them. That is the pollution
+this policy ends.
+
+The human's own interactive session is the opposite case. Those files are their
+property and their working environment; relocating them out from under an
+interactive session is a regression dressed as isolation. So a bare `ctxloom run`
+— which binds the *default* agent, but is still the human starting their own
+session — keeps the real home. Only an explicitly named agent counts as an agent
+run at the top level (`runState.explicitAgent`).
+
+**Why codex is asymmetric.** codex relocates on every in-tree run, bound or not.
+That is history, not inconsistency: ctxloom has *always* pointed `CODEX_HOME` at
+a project-scoped directory, so there was never a real `~/.codex` in use in-tree
+to take away. claude and kiro *did* use the real host home, so for them the same
+move is a taking — and it is scoped to the runs that are not the human's.
+
+**opencode is excluded**, pending its own decision: its only lever is
+`XDG_CONFIG_HOME` / `XDG_DATA_HOME`, which are not engine-private. Relocating
+them moves git's, fish's and every other XDG-aware tool's config for the child
+too.
+
+### Three exclusions, and one fail-loud
+
+The in-tree contribution declines, each condition independently sufficient:
+
+1. **not agent-bound** — the rule above;
+2. **not the in-tree axis** — a container's fresh `$HOME` already *is* the
+   controlled home, and a worktree's per-agent home is already provisioned and
+   seeded by this package. An in-tree path handed to either names a directory the
+   boundary cannot see;
+3. **the var is already set** — isolation's own `Env()`, or the user's `--env`,
+   wins outright. This fills gaps; it never overrides.
+
+Credentials follow the home for claude (`.credentials.json` is copied from
+`~/.claude`, never moved, never written back) and **do not** for kiro, whose
+subscription auth lives in a global sqlite under `XDG_DATA_HOME` that `KIRO_HOME`
+does not relocate — which is exactly why a fresh `KIRO_HOME` stays authenticated
+and why `XDG_DATA_HOME` is deliberately *not* relocated alongside it.
+
+When claude's credentials cannot be seeded (no `ANTHROPIC_API_KEY`, no host
+`~/.claude/.credentials.json`), ctxloom records a `ClassIsolation` finding and
+contributes **nothing** — the run aborts at the choke gate, or under `--degraded`
+falls back to the host's own home. Handing the engine a controlled home it cannot
+authenticate against would trade a working run for a mysterious 401.
 
 ## Per-engine container profiles
 
@@ -250,7 +333,7 @@ rather than destroying anything WIP-bearing.
 | `ImageConfig` | `isolation.go:355` | `Image`, `BaseContainerfile`, `AppRoot`, `NoDevcontainerBase`, `DevcontainerService`, `Engines` |
 | `None` / `Container` / `Worktree` | `none.go:25` / `container.go:70` / `worktree.go:55` | The three policy types (four postures) |
 | `RunAttached` / `AttachedContainer` | `attach.go:71` / `:23` | Foreground stdio container for `internal/acp` |
-| `SeedCodexHome` | `auth.go:819` | The one exported seeding seam |
+| `SeedCodexHome` / `SeedClaudeHome` | `auth.go` | The exported seeding seams, for homes relocated outside a `Policy` |
 | `Runtime` / `Docker` / `Podman` / `Host` | `runtime.go:22` / `:321` / `:379` / `:434` | Pluggable launcher substrate |
 | `SelectRuntime` | `runtime.go:719` | Preference-then-detect; `Host{}` when none; never errors |
 | `InContainer` | `runtime.go:668` | Self-detection (sentinel files + env + cgroup v1) |

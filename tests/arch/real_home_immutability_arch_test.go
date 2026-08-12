@@ -65,9 +65,12 @@ func realHomeFixture(t *testing.T) string {
 	}
 
 	// claude: the credential the copy-in reads, plus the personal top-level
-	// config that must never be copied OR modified.
+	// config that must never be copied OR modified. The credential carries the
+	// full live shape (accessToken + the single-use rotating refreshToken half)
+	// so the copy-in's refresh-token STRIP is exercised and the real home's
+	// refresh token can be shown untouched below.
 	write(filepath.Join(".claude", ".credentials.json"),
-		`{"claudeAiOauth":{"accessToken":"host-token","refreshToken":"host-refresh"}}`, 0o600)
+		`{"claudeAiOauth":{"accessToken":"host-token","refreshToken":"host-refresh","expiresAt":1,"refreshTokenExpiresAt":2,"subscriptionType":"max"}}`, 0o600)
 	write(".claude.json", `{"mcpServers":{"personal":{"command":"secret"}}}`, 0o600)
 
 	// codex: the credential, the user's own config.toml with their model
@@ -223,6 +226,19 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	credential, err := os.ReadFile(filepath.Join(instances["claude-code"], ".credentials.json"))
 	if err != nil || len(credential) == 0 {
 		t.Fatalf("claude's credential was not copied into the instance (%v); the copy-in must have happened for this gate to mean anything", err)
+	}
+
+	// ACCESS-TOKEN-ONLY (easiest-stomp): the copy is a STRICT SUBSET of the host
+	// credential — the access token authenticates it, the single-use rotating
+	// refresh token is stripped so a refresh in this disposable home can never
+	// invalidate the human's real ~/.claude login. The byte-identity gate below
+	// already proves the real home was untouched; this proves the COPY is the
+	// safe subset rather than a verbatim clone.
+	if s := string(credential); strings.Contains(s, "refreshToken") || strings.Contains(s, "host-refresh") {
+		t.Errorf("claude's instance credential still carries the refresh token; a copied home that can refresh rotates and invalidates the host's single-use token.\ncopy: %s", s)
+	}
+	if !strings.Contains(string(credential), "host-token") {
+		t.Errorf("claude's instance credential lost its access token; the copy must still authenticate.\ncopy: %s", string(credential))
 	}
 
 	// codex is the engine whose hooks, MCP servers, prompts and skills are all

@@ -57,6 +57,44 @@ type InstanceConfigRequest struct {
 	WorkDir string
 }
 
+// CredentialProjector is the AMBIENT-CREDENTIAL facet of an engine: it PROJECTS
+// the bytes of one host credential file as they are copied into an instance
+// home, so an engine that must not hand its full on-disk credential to a
+// DISPOSABLE instance can strip the fields that would be dangerous there.
+//
+// It is a SIBLING of InstanceConfigWriter, for the same reason that one is a
+// sibling of SettingsWriter/ContextWriter: an engine whose whole credential
+// file is safe to copy verbatim (codex's auth.json, opencode's auth.json)
+// simply registers no projector and the copy is byte-for-byte.
+//
+// WHY IT EXISTS — the same engine write-config directive InstanceConfigWriter
+// serves: byte-level surgery on a vendor's own file format is an ENGINE
+// capability and must live in that vendor's package, never in generic
+// isolation/operations code. isolation.CopyAmbient decides WHICH credential
+// files cross; it must never parse or edit a format it does not own. claude's
+// case is the reason this exists: its `.credentials.json` carries a SINGLE-USE
+// rotating refresh token, and any copy that refreshes invalidates the host
+// login (proven live 2026-08-12). So claude's projector strips the refresh
+// token, handing a disposable instance an access-token-only credential that
+// can authenticate but can never rotate the host's.
+//
+// ONE WAY, ALWAYS. An implementation receives a COPY of the host bytes and its
+// result is written ONLY into the instance; the user's real credential file is
+// read (by the caller) and never written. tests/arch's real-home byte-identity
+// gate holds that honest.
+type CredentialProjector interface {
+	// ProjectAmbientCredential transforms the raw bytes of ONE host credential
+	// file being copied into an instance home. destName identifies which file
+	// by the engine's own leaf (e.g. ".credentials.json"), so a projector that
+	// only cares about one of several ambient files can pass the rest through.
+	// It returns the exact bytes to WRITE into the instance copy. An error
+	// FAILS the copy loud rather than writing an unprojected credential: for a
+	// security-motivated projection (claude's refresh-token strip) a silent
+	// passthrough of a credential the projector could not sanitize would defeat
+	// the whole control.
+	ProjectAmbientCredential(destName string, hostBytes []byte) ([]byte, error)
+}
+
 // InstanceConfigReport is what one WriteInstanceConfig call did.
 type InstanceConfigReport struct {
 	// Wrote lists the absolute paths written, so a caller can report real

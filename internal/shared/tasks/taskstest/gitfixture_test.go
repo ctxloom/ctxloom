@@ -86,7 +86,9 @@ func worktreeFixtureBodiesUnder(root string) ([]string, error) {
 			// Never skip root: root itself is routinely a linked worktree
 			// (every agent worktree is), and skipping it would scan nothing
 			// and report a vacuous PASS.
-			_ = isLinkedWorktreeRoot // RED-FIRST: pre-fix behaviour, no skip.
+			if path != root && isLinkedWorktreeRoot(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") {
@@ -166,6 +168,24 @@ func TestWorktreeFixtureBodiesUnder_StillCatchesStrayCopies(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, bodies, stray,
 		"a stray fixture body at an ordinary path must still be reported")
+}
+
+// TestWorktreeFixtureBodiesUnder_ScansAWorktreeRootItself guards the silent
+// half of the skip. The scan root is ITSELF a linked worktree whenever the
+// suite runs from an agent worktree, which is most of the time; skipping the
+// root would scan zero files and report a vacuous PASS — the exact
+// silent-no-op shape this file's other tests exist to refuse.
+func TestWorktreeFixtureBodiesUnder_ScansAWorktreeRootItself(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".git"),
+		[]byte("gitdir: /somewhere/.git/worktrees/agent-deadbeef\n"), 0o644))
+	stray := filepath.Join("internal", "elsewhere", "helpers_test.go")
+	writeFixtureBody(t, filepath.Join(root, stray))
+
+	bodies, err := worktreeFixtureBodiesUnder(root)
+	require.NoError(t, err)
+	assert.Contains(t, bodies, stray,
+		"the scan root must be scanned even when it is a linked worktree")
 }
 
 // writeFixtureBody plants a .go file carrying worktreeFixtureMarker at path,

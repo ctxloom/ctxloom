@@ -495,6 +495,14 @@ type credentialSeedSpec struct {
 	// credential material (kiro — its creds live in a global sqlite no
 	// per-agent home var relocates; see HonoursVarForCreds).
 	sourceFiles func(hostHome string) []seedFile
+	// loginHint is the command that MAKES this engine's credential file
+	// exist (e.g. "claude login") — the one fix, besides envTrigger, that
+	// resolves the "nothing seedable" fail-loud case. It lives on the spec
+	// rather than inside a per-engine error string so
+	// CopyAmbient's one message covers every engine and no engine can be
+	// added with a fail-loud path that names no fix at all. "" for a spec
+	// with no sourceFiles (kiro — nothing to log in FOR, here).
+	loginHint string
 	// HomeVars is the FULL set of isolation env vars this engine's per-agent
 	// config-home contributes to worktreeWorkspace.Env() — the creds-only
 	// descriptor widened to the full config/state/creds home map per the
@@ -567,6 +575,7 @@ type seedFile struct {
 //   - claude: HonoursVarForCreds true — CLAUDE_CONFIG_DIR relocates both
 //     config AND credentials, so seeding copies .credentials.json (+
 //     .claude.json) into it.
+//
 //   - codex: HonoursVarForCreds true — CODEX_HOME relocates config, state,
 //     AND credentials (auth.json resolves from $CODEX_HOME only — see
 //     internal/codex/backend.go's package doc). This registry is now codex's
@@ -579,6 +588,7 @@ type seedFile struct {
 //     an isolated run, resolving the two-mechanism conflict this package's
 //     own doc used to warn about here. destSubdir/HomeVars both use ".codex"
 //     (dot-prefixed) — see homeVar's doc for why the leaf name matters.
+//
 //   - kiro: HonoursVarForCreds FALSE — subscription auth lives in a GLOBAL
 //     sqlite under $XDG_DATA_HOME regardless of KIRO_HOME (see
 //     resolveKiroContainerAuth's doc, verified live against kiro-cli 2.12.1),
@@ -603,6 +613,7 @@ type seedFile struct {
 //     accuracy: "sessions only" made pointing an in-tree AGENT run at the
 //     human's own ~/.kiro look harmless, when it in fact hands that agent the
 //     human's global agents and steering — see internal/kiro.SessionHome.
+//
 //   - opencode: HonoursVarForCreds TRUE — the OPPOSITE of
 //     kiro's shape immediately above, despite both engines relocating via
 //     XDG_DATA_HOME: opencode's auth.json genuinely lives under
@@ -623,6 +634,7 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 		engine:     "claude",
 		destSubdir: "claude",
 		envTrigger: "ANTHROPIC_API_KEY",
+		loginHint:  "claude login",
 		sourceFiles: func(hostHome string) []seedFile {
 			// ~/.claude.json used to be seeded here too
 			// (optional, "carries over account association/trust-dialog
@@ -653,6 +665,7 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 		engine:     "codex",
 		destSubdir: ".codex",
 		envTrigger: "OPENAI_API_KEY", // live-verified: `codex doctor` reports "auth is provided by environment" with a fresh CODEX_HOME + OPENAI_API_KEY set, no `codex login` needed.
+		loginHint:  "codex login",
 		sourceFiles: func(hostHome string) []seedFile {
 			return []seedFile{
 				{
@@ -738,6 +751,7 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 		engine:     "opencode",
 		destSubdir: filepath.Join("xdg-data", "opencode"),
 		envTrigger: "OPENROUTER_API_KEY", // mirrors resolveOpencodeContainerAuth's container-axis trigger
+		loginHint:  "opencode auth login",
 		sourceFiles: func(hostHome string) []seedFile {
 			dir := filepath.Join(hostHome, ".local", "share", "opencode")
 			return []seedFile{
@@ -858,95 +872,13 @@ func CredentialSeedSourceFiles(engine string) []CredentialSeedFile {
 	return out
 }
 
-// PrepareCodexHome seeds destDir/.codex (a codex "virtual project dir" —
-// cellScopedCodexHome joins ".codex" onto it, see
-// internal/codex/backend.go's resolveCodexProjectDir) with the host's codex
-// credentials, for a caller whose CODEX_HOME relocation is NOT driven by an
-// isolation Policy at all: a run whose agent binding declares
-// `config_home: project` gets a PER-SESSION instance home
-// (internal/codex.SessionHome) that this package's Policy machinery never sees
-// or seeds, so it starts empty and codex 401s silently. The name is Prepare,
-// not Seed, because the instance is created and populated at instance time and
-// then thrown away — one-way, from the real host home in, never back.
-//
-// This reuses the EXACT SAME copy-based credentialSeedSpecs["codex"]
-// descriptor and hostCredentialSeed mechanics worktree.go's
-// provisionConfigHome already uses for the fan-out path — NOT a second
-// seeding mechanism — exported here because internal/codex owns codex's own
-// relocation policy but not this package's credential registry (an import
-// from internal/codex onto this package is safe: this package imports
-// neither internal/codex nor internal/shared/agent).
-//
-// Returns (skipped=true, nil) when OPENAI_API_KEY already authenticates
-// (codex's envTrigger) — nothing to copy, not an error. Returns a
-// descriptive, actionable error when the host source (~/.codex/auth.json)
-// is missing or the copy itself fails, so the caller can fail loud instead
-// of silently launching an unauthenticated codex.
-//
-// The no-source error names ONLY the two fixes that actually work — `codex
-// login` and OPENAI_API_KEY. It used to offer "(or pass --degraded)" as a
-// third: that was FALSE. --degraded relaxes this package's strictness
-// recording, and internal/codex (which owns this call site, via
-// ensureCodexCredentials) never consults strictness at all — it stashes the
-// error on the backend and Execute refuses to launch regardless. Naming a
-// flag that cannot unblock the user is worse than naming nothing.
-func PrepareCodexHome(destDir string) (skipped bool, err error) {
-	spec, ok := credentialSeedSpecs["codex"]
-	if !ok || spec.sourceFiles == nil {
-		return false, fmt.Errorf("codex credential seed spec is not registered (internal error)")
-	}
-	result, err := hostCredentialSeed(spec, destDir)
-	if err != nil {
-		return false, err
-	}
-	if result == seedNoSource {
-		return false, fmt.Errorf("no OPENAI_API_KEY and no host ~/.codex/auth.json credentials found to authenticate this run — run `codex login` or set OPENAI_API_KEY")
-	}
-	return result == seedSkippedEnv, nil
-}
-
-// PrepareClaudeHome seeds destDir/claude (internal/claude.SessionConfigDir's
-// parent — that package joins the SAME leaf) with the host's claude
-// credentials, for a caller whose CLAUDE_CONFIG_DIR relocation is NOT driven by
-// an isolation Policy at all: an IN-TREE AGENT run whose binding declares
-// `config_home: project` points claude at a PER-SESSION instance home
-// (paths.SessionHomePath) that this package's Policy machinery never sees or
-// seeds, so it would start empty and claude would run logged out.
-//
-// PrepareCodexHome's sibling in every respect — the SAME copy-based
-// credentialSeedSpecs["claude-code"] descriptor and hostCredentialSeed
-// mechanics provisionConfigHome already uses for the worktree axis, NOT a
-// second seeding mechanism — exported for the same reason: internal/operations
-// owns the in-tree agent-home policy but not this package's credential
-// registry.
-//
-// Returns (skipped=true, nil) when ANTHROPIC_API_KEY already authenticates
-// (claude's envTrigger): nothing to copy, not an error, and the caller still
-// points CLAUDE_CONFIG_DIR at the controlled home. Returns a descriptive,
-// actionable error when the host source (~/.claude/.credentials.json) is
-// missing or the copy fails, so the caller can fail loud instead of silently
-// relocating an authenticated run onto an empty home.
-//
-// The no-source error names only the two fixes that work — `claude login` and
-// ANTHROPIC_API_KEY. It deliberately does NOT offer "(or pass --degraded)":
-// that escape belongs to the CALLER's strictness finding (which is where
-// --degraded is actually consulted), not to this error string, and naming a
-// flag inside a message the caller may surface verbatim on a path where it does
-// nothing is the mistake PrepareCodexHome's doc records having already made once.
-func PrepareClaudeHome(destDir string) (skipped bool, err error) {
-	spec, ok := credentialSeedSpecs["claude-code"]
-	if !ok || spec.sourceFiles == nil {
-		return false, fmt.Errorf("claude credential seed spec is not registered (internal error)")
-	}
-	result, err := hostCredentialSeed(spec, destDir)
-	if err != nil {
-		return false, err
-	}
-	if result == seedNoSource {
-		return false, fmt.Errorf("no ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json credentials found to authenticate this run — run `claude login` or set ANTHROPIC_API_KEY")
-	}
-	return result == seedSkippedEnv, nil
-}
+// CopyAmbient (ambient.go) is what REPLACED the two exported per-engine
+// preparers that used to live here, PrepareCodexHome and PrepareClaudeHome.
+// They were the same function twice — the same credentialSeedSpecs descriptor,
+// the same hostCredentialSeed mechanics, differing only in a map key and an
+// error string — and neither could carry the working directory the engine
+// write-config directive needs to generate a workspace-trust answer. One named
+// mechanism, one allow-list per engine, both axes through it.
 
 // seedResult is hostCredentialSeed's decision, returned instead of a bare
 // bool so the caller (worktree.go) can tell "nothing to do" (seedSkippedEnv,

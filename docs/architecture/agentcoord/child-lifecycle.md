@@ -71,7 +71,7 @@ name.
 | `childEnv` / `runnerEnv` | `children.go:467,493` | the child ENGINE env (harp + project id, deliberately no credential) vs the RUNNER env (reach-back trio + delegation-depth stamp) |
 | `runChild` | `children.go:529` | slot acquire → launch context → migrated or legacy spawn; every failure routes to `failChild` |
 | `runChildViaStartRun` / `issueStartRun` | `children.go:616,661` | build the `HarnessSpec`, join context+prompt, await dial-home, send `StartRun`, audit, drain queued mail, mark attached |
-| `driveChild` / `handleChildEvent` / `onTurnBoundary` | `children.go:1010,1046,1086` | the legacy event loop and its turn boundary |
+| `driveChild` / `handleChildEvent` / `onTurnBoundary` | `children.go:1010,1046,1086` | the legacy event loop and its turn boundary — **FROZEN** per the spool-cutover RETIRE-FIRST ruling: never ported to the spool substrate, closed to new backends (`spawner.go`'s `checkLegacyChatFreeze`; frozen residue `legacyChatBackends` = opencode, mock, plus the degraded no-reach-back spawn) |
 | `bridgeTurnResult` | `children.go:895` | swaps out the turn accumulator and queues the child's answer to the parent as kind `result` |
 | `oneShotReady` / `onTurnIdle` | `children.go:949,966` | the three-condition one-shot gate, then either a `CauseOneShotBoundary` teardown or idle + slot yield + mail push |
 | `terminateRun` | `children.go:1299` | the exactly-once terminal: claim the fact, then slot release, credential revocation, poll+channel sever, parent notice, session-ended stamp, relaunch check, reap |

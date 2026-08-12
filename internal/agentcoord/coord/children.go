@@ -1993,6 +1993,11 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	// with no rendered-transcript re-priming needed; only a prior run that
 	// never reported a session id falls back to the lossy ResumeContext
 	// replay.
+	//
+	// FROZEN (spool-cutover RETIRE-FIRST ruling): this legacy resume arm is
+	// retired-in-place exactly like runChild's launch arm — never ported to
+	// the spool substrate, closed to new backends (spawner.go's
+	// checkLegacyChatFreeze, applied via the Resolve call above).
 	contextText := ""
 	if !haveResumeKey {
 		contextText = c.spawner.ResumeContext(lctx, plan, harp)

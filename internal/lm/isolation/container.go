@@ -665,12 +665,13 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// config overlays, gitdir mirror) is prepared, so it can probe the ACTUAL
 	// mount set (see mountProbeRoots) instead.
 	//
-	// The host-side scratch root is created BEFORE auth resolution (not after,
-	// as before this comment) because a resolver may need to WRITE into it — a
-	// credential COPY a resolver mounts read-write (claude's token-refresh
-	// case, auth.go's claudeCredentialCopyMounts) has to land somewhere the
-	// container run can bind-mount from and that gets discarded at teardown;
-	// the scratch root already serves exactly that role for the socket dir.
+	// The host-side scratch root is created BEFORE auth resolution and passed to
+	// resolveAuth, historically because a resolver could COPY a credential into
+	// it and mount that copy read-write. No resolver does that anymore — claude's
+	// token-refresh case bind-mounts the REAL host credential read-write
+	// (auth.go's claudeCredentialMounts), so the scratch dir it is handed goes
+	// unused there — but the root is still needed at this point for the socket
+	// dir carved out of it just below, so its creation stays here.
 	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")
 	if err != nil {
 		// root is normally "" here (MkdirTemp itself failed) — defensive

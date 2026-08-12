@@ -84,45 +84,53 @@ func writeCreds(t *testing.T, home string, withDotClaude bool) {
 	}
 }
 
-// TestClaudeCredentialCopyMounts_PresentAndAbsent: absent OAuth creds → not
-// ok; when present, the mount is a COPY of the credential file under
-// scratchDir, mounted read-write into the container HOME, byte-identical to
-// the host original (payload assertion — the copy, not just its presence,
-// is what makes the refresh-safe rw mount correct). This used
-// to also assert a SECOND mount carrying ~/.claude.json — removed along with
-// that mount (see claudeCredentialCopyMounts' doc): it leaked the host
-// user's own mcpServers registrations into every isolated agent, for mere
-// onboarding convenience .credentials.json alone doesn't need.
-func TestClaudeCredentialCopyMounts_PresentAndAbsent(t *testing.T) {
+// TestClaudeCredentialMounts_PresentAndAbsent: absent OAuth creds → not ok;
+// when present, the mount SOURCE is the host's REAL ~/.claude/.credentials.json
+// (NOT a staged scratch copy), mounted read-write into the container HOME.
+// Read-write so claude's in-place token refresh lands in the ONE real file —
+// the single source of truth the host also holds — so a container refresh can
+// never desync the host's single-use rotating token. The mounted file is the
+// FULL real credential: its refresh token is PRESENT (unlike the host+worktree
+// axes, which copy an access-token-ONLY credential precisely because a copy
+// that refreshes WOULD rotate the host's single-use token). This used to assert
+// a SECOND mount carrying ~/.claude.json — removed along with that mount (see
+// claudeCredentialMounts' doc): it leaked the host user's own mcpServers
+// registrations into every isolated agent, for mere onboarding convenience
+// .credentials.json alone doesn't need.
+func TestClaudeCredentialMounts_PresentAndAbsent(t *testing.T) {
 	home := withFakeHome(t)
-	scratch := t.TempDir()
 
-	_, ok := claudeCredentialCopyMounts("/root", scratch)
+	_, ok := claudeCredentialMounts("/root")
 	assert.False(t, ok, "no ~/.claude/.credentials.json → cannot credential-mount")
 
-	writeCreds(t, home, true)
-	mounts, ok := claudeCredentialCopyMounts("/root", scratch)
+	realCreds := filepath.Join(home, ".claude", ".credentials.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(realCreds), 0o755))
+	require.NoError(t, os.WriteFile(realCreds,
+		[]byte(`{"claudeAiOauth":{"accessToken":"at","refreshToken":"single-use-rotating-rt"}}`), 0o600))
+
+	mounts, ok := claudeCredentialMounts("/root")
 	require.True(t, ok)
 	require.Len(t, mounts, 1, "only the OAuth token file is ever mounted — never ~/.claude.json (tangy-heave)")
 	assert.Equal(t, "/root/.claude/.credentials.json", mounts[0].Container)
-	assert.False(t, mounts[0].ReadOnly, "rw so claude's token refresh can write back into the scratch copy")
-	assert.NotEqual(t, filepath.Join(home, ".claude", ".credentials.json"), mounts[0].Host, "the mount targets a SCRATCH COPY, never the host original")
+	assert.False(t, mounts[0].ReadOnly, "rw so claude's token refresh writes back into the ONE real file")
+	assert.Equal(t, realCreds, mounts[0].Host,
+		"the mount SOURCE is the host's REAL credential — NOT a staged copy (a copy that refreshes would rotate the host's single-use token out from under it)")
 	gotCreds, err := os.ReadFile(mounts[0].Host)
 	require.NoError(t, err)
-	wantCreds, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
-	require.NoError(t, err)
-	assert.Equal(t, wantCreds, gotCreds, "the scratch copy is byte-identical to the host source")
+	assert.Contains(t, string(gotCreds), "single-use-rotating-rt",
+		"the mount carries the FULL real credential, refresh token PRESENT (the container axis is NOT stripped, unlike the host axes)")
 }
 
-// TestClaudeCredentialCopyMounts_OmitsDotClaudeEvenWhenPresent: ~/.claude.json
-// is never mounted at all, regardless of whether it exists on
-// the host — the OAuth token file is the only thing required or copied.
-func TestClaudeCredentialCopyMounts_OmitsDotClaudeEvenWhenPresent(t *testing.T) {
+// TestClaudeCredentialMounts_OmitsDotClaudeEvenWhenPresent: ~/.claude.json is
+// never mounted at all, regardless of whether it exists on the host — the OAuth
+// token file is the only thing ever mounted.
+func TestClaudeCredentialMounts_OmitsDotClaudeEvenWhenPresent(t *testing.T) {
 	home := withFakeHome(t)
 	writeCreds(t, home, true) // withDotClaude=true: ~/.claude.json DOES exist on the host
-	mounts, ok := claudeCredentialCopyMounts("/root", t.TempDir())
+	mounts, ok := claudeCredentialMounts("/root")
 	require.True(t, ok)
 	require.Len(t, mounts, 1, "~/.claude.json must never be mounted, present or not")
+	assert.Equal(t, filepath.Join(home, ".claude", ".credentials.json"), mounts[0].Host, "the REAL credential, no copy")
 	assert.False(t, mounts[0].ReadOnly)
 }
 
@@ -552,23 +560,22 @@ const realisticDotClaudeJSON = `{
 	}
 }`
 
-// TestClaudeCredentialCopyMounts_NeverLeaksPersonalMCPConfig is the
-// container-path regression test: claudeCredentialCopyMounts must not carry
-// the user's own mcpServers registrations (or any other non-auth state) into
-// an isolated agent's mounted config — an isolated agent seeing the host
-// user's personal Spotify/Gmail/etc. integrations (and their embedded
-// tokens) is a confidentiality leak, not a convenience. Only the OAuth token
-// file (.credentials.json) is required to authenticate — already
-// live-verified elsewhere in this package's own comments — so nothing here
-// needs .claude.json's contents at all.
-func TestClaudeCredentialCopyMounts_NeverLeaksPersonalMCPConfig(t *testing.T) {
+// TestClaudeCredentialMounts_NeverLeaksPersonalMCPConfig is the container-path
+// regression test: claudeCredentialMounts must not carry the user's own
+// mcpServers registrations (or any other non-auth state) into an isolated
+// agent's mounted config — an isolated agent seeing the host user's personal
+// Spotify/Gmail/etc. integrations (and their embedded tokens) is a
+// confidentiality leak, not a convenience. Only the OAuth token file
+// (.credentials.json) is ever mounted — already live-verified elsewhere in
+// this package's own comments to be sufficient to authenticate — so
+// .claude.json (which holds those registrations) never crosses at all.
+func TestClaudeCredentialMounts_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	home := withFakeHome(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(realisticDotClaudeJSON), 0o600))
-	scratch := t.TempDir()
 
-	mounts, ok := claudeCredentialCopyMounts("/root", scratch)
+	mounts, ok := claudeCredentialMounts("/root")
 	require.True(t, ok)
 	for _, m := range mounts {
 		data, err := os.ReadFile(m.Host)
@@ -868,43 +875,17 @@ func TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced(t *testing.T) {
 	assert.Contains(t, stderr, "claude credential seed", "…named for the engine whose seed it broke")
 }
 
-// TestClaudeCredentialCopyMounts_CopyFailureIsNotSilentAbsence pins a
-// regression. The credential-copy mount builders collapsed "no host credential
-// exists" and "the credential exists but we could not copy it" into one ok=false,
-// so the caller emitted its authHint — "no ~/.claude/.credentials.json to
-// authenticate the in-container engine" — about a file that is right there. An
-// actively false diagnostic points the user at `claude login` for a problem that
-// is nothing of the kind.
-func TestClaudeCredentialCopyMounts_CopyFailureIsNotSilentAbsence(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("root ignores directory write protection; cannot make the scratch copy fail")
-	}
-	home := withFakeHome(t)
-	writeCreds(t, home, false)
-
-	scratch := t.TempDir()
-	require.NoError(t, os.Chmod(scratch, 0o500)) // present, unwritable
-	t.Cleanup(func() { _ = os.Chmod(scratch, 0o755) })
-
-	done := captureStderr(t)
-	mounts, ok := claudeCredentialCopyMounts("/home/ctxloom", scratch)
-	stderr := done()
-
-	assert.False(t, ok)
-	assert.Nil(t, mounts)
-	assert.Contains(t, stderr, "could not", "a copy failure must say so; it is not an absent credential")
-	assert.Contains(t, stderr, ".credentials.json")
-}
-
-// TestClaudeCredentialCopyMounts_AbsentCredentialStaysSilent is the other side:
-// a host with no credential file at all is an ordinary, expected state
-// (the caller's authHint already explains it), so it must NOT warn — otherwise the
-// new signal is noise and stops meaning anything.
-func TestClaudeCredentialCopyMounts_AbsentCredentialStaysSilent(t *testing.T) {
+// TestClaudeCredentialMounts_AbsentCredentialStaysSilent: a host with no
+// credential file at all is an ordinary, expected state (the caller's authHint
+// already explains it), so it must degrade quietly — ok=false, no warning.
+// There is no copy step here (the real file is mounted directly), so there is
+// no copy-failure diagnosis to emit either: absence is the only degrade, and it
+// is silent.
+func TestClaudeCredentialMounts_AbsentCredentialStaysSilent(t *testing.T) {
 	withFakeHome(t) // no ~/.claude/.credentials.json written
 
 	done := captureStderr(t)
-	_, ok := claudeCredentialCopyMounts("/home/ctxloom", t.TempDir())
+	_, ok := claudeCredentialMounts("/home/ctxloom")
 	stderr := done()
 
 	assert.False(t, ok)

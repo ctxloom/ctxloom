@@ -253,26 +253,52 @@ const maxProfileDepth = 64
 // Returns an error if the profile doesn't exist or if circular dependencies are detected.
 func ResolveProfile(profiles map[string]Profile, name string) (*Profile, error) {
 	visited := collections.NewSet[string]()
+	// resolved is shared across the WHOLE resolution (unlike visited, which is
+	// cloned per parent for cycle detection): a profile reached again through a
+	// second DAG path has already contributed its subtree to the builder, so it
+	// is short-circuited. Without this a diamond chain costs O(2^depth) — the
+	// maxProfileDepth guard bounds depth, not total work, so a malformed config
+	// could hang (U049-F13).
+	resolved := collections.NewSet[string]()
 	builder := newProfileBuilder()
-	if err := resolveProfileRecursive(profiles, name, visited, builder, 0); err != nil {
+	if err := resolveProfileRecursive(profiles, name, visited, resolved, builder, 0); err != nil {
 		return nil, err
 	}
 	return builder.toProfile(), nil
 }
 
-func resolveProfileRecursive(profiles map[string]Profile, name string, visited collections.Set[string], builder *profileBuilder, depth int) error {
+func resolveProfileRecursive(profiles map[string]Profile, name string, visited, resolved collections.Set[string], builder *profileBuilder, depth int) error {
+	if resolveVisitHook != nil {
+		resolveVisitHook(name)
+	}
 	profile, err := guardProfileResolution(profiles, name, visited, depth)
 	if err != nil {
 		return err
 	}
 
-	if err := resolveProfileParents(profiles, profile, name, visited, builder, depth); err != nil {
+	// Already fully merged into the builder on an earlier DAG path. The
+	// depth/cycle guards above still run first, so a genuine cycle is caught
+	// before this short-circuit; a shared ancestor is merged exactly once,
+	// which both bounds total work and stops a distant ancestor from re-winning
+	// last-write over a nearer profile on a second visit.
+	if resolved.Has(name) {
+		return nil
+	}
+
+	if err := resolveProfileParents(profiles, profile, name, visited, resolved, builder, depth); err != nil {
 		return err
 	}
 
 	mergeProfileValues(builder, profile)
+	resolved.Add(name)
 	return nil
 }
+
+// resolveVisitHook, when non-nil, is invoked with each profile name as it is
+// (re)entered in resolveProfileRecursive. It is a test-only seam (nil in
+// production, one nil check per entry) used to prove the memoization bounds
+// total work (U049-F13).
+var resolveVisitHook func(string)
 
 // guardProfileResolution enforces the depth limit and circular-dependency
 // guard, marks name visited, and returns the profile (or ErrProfileNotFound).
@@ -301,9 +327,9 @@ func guardProfileResolution(profiles map[string]Profile, name string, visited co
 // profiles.Loader.ResolveProfile. Circular references and depth overruns stay
 // hard errors in both modes: continuing would mask a real misconfiguration or
 // risk runaway recursion.
-func resolveProfileParents(profiles map[string]Profile, profile Profile, name string, visited collections.Set[string], builder *profileBuilder, depth int) error {
+func resolveProfileParents(profiles map[string]Profile, profile Profile, name string, visited, resolved collections.Set[string], builder *profileBuilder, depth int) error {
 	for _, parentName := range profile.Parents {
-		err := resolveProfileRecursive(profiles, parentName, visited.Clone(), builder, depth+1)
+		err := resolveProfileRecursive(profiles, parentName, visited.Clone(), resolved, builder, depth+1)
 		if err == nil {
 			continue
 		}

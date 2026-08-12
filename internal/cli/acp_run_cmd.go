@@ -199,7 +199,7 @@ func runACPSessionWithConfig(cmd *cobra.Command, cfg *config.Config, opening str
 	// honorable here and is left as declared — the headless flooring that a
 	// one-shot needs (it cannot answer a prompt, so it would hang) is exactly
 	// what must NOT happen to an interactive turn loop.
-	permission := resolvePermissionMode("", "", labelEntry.Permissions, backendName,
+	permission := resolvePermissionMode("", "", labelEntry.Permissions, cfg.GetPermissions(), backendName,
 		pb.ExecutionMode_INTERACTIVE, backends.EnforcesReadOnlyPlan(backendName))
 	// A session with no channel to render or answer a permission prompt
 	// (there is no connected editor client here, unlike `acp serve`) must

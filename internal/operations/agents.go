@@ -599,9 +599,13 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		Runtime:     runtime,
 		Permissions: sub.Permissions,
 		// The interactive base an unflagged run resolves to (declared → label →
-		// built-in default), so a blank claude-code posture shows its real bypass.
+		// PROJECT DEFAULT → built-in default), so a blank claude-code posture
+		// shows its real bypass. The project default belongs in this list
+		// because this field's whole job is to print what an unflagged run WILL
+		// do: omitting a rung the run itself consults would make `agent show`
+		// report a posture the launch does not use.
 		EffectivePermissions: agent.ResolveDefault(
-			[]string{sub.Permissions, labelEntry.Permissions},
+			[]string{sub.Permissions, labelEntry.Permissions, cfg.GetPermissions()},
 			backend == config.BackendClaudeCode).String(),
 		Escalation: sub.Escalation,
 		Driving:    sub.Driving,

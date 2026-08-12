@@ -105,12 +105,18 @@ func TestEnsure_IsIdempotentAcrossRuns(t *testing.T) {
 	assert.Equal(t, first, second)
 }
 
+// TestPrivateStatePatterns_MatchExpectedSet pins membership EXACTLY, in both
+// directions. A pattern missing from the set leaks private state; a pattern
+// present for a path no writer produces is worse than useless — it documents a
+// directory that does not exist, and a reader auditing "what does ctxloom keep
+// out of git" is told about a tier that was never built. `.ctxloom/pieces/`
+// (the L4 sparse-checkout fetcher, never built) and `.ctxloom/ephemeral/` (the
+// ephemeral concept is permanently HOME-rooted — paths.HarpEphemeralDir) were
+// both phantoms of that second kind.
 func TestPrivateStatePatterns_MatchExpectedSet(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		".ctxloom/cache/",
-		".ctxloom/pieces/",
 		".ctxloom/sessions/",
-		".ctxloom/ephemeral/",
 		".ctxloom/project-id",
 		".ctxloom/state/",
 	}, PrivateStatePatterns)
@@ -233,10 +239,9 @@ func TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState(t *testing.T) {
 
 	for _, ignored := range []string{
 		".ctxloom/cache/",
-		".ctxloom/pieces/",
 		".ctxloom/sessions/",
-		".ctxloom/ephemeral/",
 		".ctxloom/project-id",
+		".ctxloom/state/",
 	} {
 		assert.Contains(t, got, ignored, "expected %q to be ignored", ignored)
 	}
@@ -250,6 +255,30 @@ func TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState(t *testing.T) {
 		".ctxloom/approvals/",
 	} {
 		assert.NotContains(t, got, committed, "expected %q to stay committed (not ignored)", committed)
+	}
+}
+
+// TestEnsure_LeavesRetiredPhantomPatternsAlone is the other half of removing a
+// pattern from PrivateStatePatterns: every project initialized by an older
+// ctxloom already has `.ctxloom/pieces/` and `.ctxloom/ephemeral/` written into
+// its .gitignore, and those lines are the USER'S file now. Ensure appends and
+// retires only the superseded blanket rule, so ceasing to write a pattern must
+// leave existing ones exactly where they are — untouched, inert, and nobody's
+// merge conflict.
+func TestEnsure_LeavesRetiredPhantomPatternsAlone(t *testing.T) {
+	dir := t.TempDir()
+	pre := ".ctxloom/cache/\n.ctxloom/pieces/\n.ctxloom/sessions/\n.ctxloom/ephemeral/\n.ctxloom/project-id\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(pre), 0644))
+
+	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
+
+	got := readGitignore(t, dir)
+	for _, retired := range []string{".ctxloom/pieces/", ".ctxloom/ephemeral/"} {
+		assert.Equal(t, 1, countOccurrences(got, "\n"+retired+"\n"),
+			"a pattern ctxloom no longer writes must be neither removed nor duplicated: %s", retired)
+	}
+	for _, p := range PrivateStatePatterns {
+		assert.Contains(t, got, p, "the current patterns must still be ensured: %s", p)
 	}
 }
 

@@ -14,24 +14,32 @@ import (
 )
 
 // Comment is the header under which ctxloom's ignore patterns are grouped.
-const Comment = "# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)"
+const Comment = "# ctxloom private working state (rebuildable/local — cache, sessions, project id, local state)"
 
 // PrivateStatePatterns are the .ctxloom paths that are rebuildable or purely
 // local and so must never ride a distributable tree: the resolved-artifact
-// cache, fetched remote-bundle pieces, per-project session state, ephemeral
-// scratch (synced bundles, transient context data), the project-id marker
-// (ADR 0025 — private identity), and the third .ctxloom tier
-// (paths.StateDir) — local-only checkout state nothing rebuilds (e.g. the
-// dirty-tree-commit acknowledgement, paths.DirtyTreeCommitAckPath): a clone
-// must never arrive pre-carrying somebody else's answer. Everything else
+// cache, per-project session state, the project-id marker (ADR 0025 — private
+// identity), and the third .ctxloom tier (paths.StateDir) — local-only
+// checkout state nothing rebuilds (e.g. the dirty-tree-commit acknowledgement,
+// paths.DirtyTreeCommitAckPath, and the lock sidecars under state/locks): a
+// clone must never arrive pre-carrying somebody else's answer. Everything else
 // under .ctxloom/ (config.yaml, remotes.yaml, lock.yaml, allowed_signers,
 // approvals/, content/) is committed by omission — it's content, config, or
 // trust state the project depends on.
+//
+// EVERY ENTRY NAMES A PATH SOME WRITER PRODUCES. Two did not: `.ctxloom/pieces/`
+// (the sparse-checkout piece fetcher was never built) and `.ctxloom/ephemeral/`
+// (the ephemeral tier is HOME-rooted — paths.HarpEphemeralDir resolves
+// ~/.ctxloom/sessions/<harp>/ephemeral — and under the ruled layout no project
+// ephemeral/ will ever exist). A pattern for a path nothing writes is not
+// harmless insurance: it is this list claiming a tier exists, read by anyone
+// auditing what ctxloom keeps out of git, and it outlived both features that
+// would have justified it. Removing it only stops ctxloom WRITING the line —
+// projects that already carry it keep it (Ensure appends and never removes
+// anything but a superseded blanket rule), where it is inert.
 var PrivateStatePatterns = []string{
 	".ctxloom/cache/",
-	".ctxloom/pieces/",
 	".ctxloom/sessions/",
-	".ctxloom/ephemeral/",
 	".ctxloom/project-id",
 	".ctxloom/state/",
 }

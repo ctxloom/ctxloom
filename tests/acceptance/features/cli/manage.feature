@@ -449,7 +449,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage gitignore install
         """
       Then the command succeeds
-      And the file ".gitignore" contains ".ctxloom/ephemeral/"
+      And the file ".gitignore" contains ".ctxloom/cache/"
+      And the file ".gitignore" contains ".ctxloom/state/"
 
     # The dirty-tree-commit acknowledgement moved out of config.yaml into its
     # own gitignored state-store record: the value records a prior HUMAN

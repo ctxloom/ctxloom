@@ -690,16 +690,25 @@ func DirtyTreeCommitAckPath(appPath string) string {
 
 // Tier classifies one .ctxloom path by WHAT A FRESH CLONE GETS — the question
 // that matters for "can I lose this" and "does a clone start from the same
-// place I did", not merely "is it gitignored" (TierLocal and the derived half
-// of TierDerived are BOTH gitignored; only asking a clone tells them apart).
+// place I did", not merely "is it gitignored" (TierLocal and the gitignored
+// half of TierDerived are BOTH gitignored; only asking a clone tells them
+// apart).
 type Tier uint8
 
 const (
 	// TierCommitted paths are checked in: a clone has them, byte for byte.
 	TierCommitted Tier = iota
-	// TierDerived paths are gitignored but REBUILT by a named command from
-	// committed pins (a lockfile, a remote) — deleting one only costs the time
-	// to re-run that command.
+	// TierDerived paths are REBUILDABLE by a named command from committed pins
+	// (a lockfile, a remote) — deleting one only costs the time to re-run that
+	// command. Rebuildability is the whole of the definition; being gitignored
+	// is the usual CONSEQUENCE of it, not part of it.
+	//
+	// lock.yaml is the deliberate exception, and the reason the two are stated
+	// separately: `ctxloom remote lock` regenerates it, so it is derived — and
+	// it is COMMITTED anyway, because a lockfile whose whole job is pinning
+	// versions for the next clone is worthless if the clone does not get it.
+	// Derived-and-committed is a coherent position; "gitignored" was never the
+	// test.
 	TierDerived
 	// TierLocal paths are gitignored and NOTHING rebuilds them: a fact about
 	// this checkout on this machine that a clone simply does not have, and

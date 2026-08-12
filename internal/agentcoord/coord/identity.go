@@ -59,6 +59,21 @@ const (
 	// its engine tears down at every turn boundary, so it cannot hold a
 	// coordination relationship across turns (see Identity.OneShot's doc).
 	EnvRunOneShot = "CTXLOOM_RUN_ONESHOT"
+	// EnvRunSpoolTee carries whether the mailbox's SHADOW TEE onto the file
+	// spool is on for this run ("true"), so the runner's outbound half
+	// (Home.teePeerSendResponse) and the coordinator's inbound half agree
+	// without asking each other. Rides the same per-spawn runnerEnv seam as
+	// EnvRunDepth/EnvRunOneShot and is stamped UNCONDITIONALLY for the same
+	// reason those are: the runner must be able to tell "the tee is off" from
+	// "the stamp went missing", and both read as off only because off is the
+	// safe direction — an un-teed run loses shadow coverage, never mail.
+	//
+	// The coordinator is the only source. A runner cannot read the project
+	// config for this the way it does for delegation.depth, because a
+	// containerized runner's config is a different file (or none), and a run
+	// teed on one side only would produce exactly the half-populated spool the
+	// soak would then misread as a mapping bug.
+	EnvRunSpoolTee = "CTXLOOM_RUN_SPOOL_TEE"
 	// EnvCellWorkDir carries the prepared workspace directory
 	// (isolation.Workspace.Dir(), e.g. Worktree's per-agent checkout) to the
 	// runner process at spawn time. It rides the SAME per-spawn spawnEnv

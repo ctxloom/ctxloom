@@ -104,7 +104,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	require.NoError(t, err)
 
 	args := []string{"run", "--rm"}
-	if !dockerIsRootless(t) {
+	if !dockergate.DockerIsRootless() {
 		// Rootful daemon: without this the container writes as real root and
 		// the host cannot read back (or clean up) what it wrote. Rootless
 		// already maps container root to the invoking user.
@@ -201,19 +201,6 @@ func repoRoot(t *testing.T) string {
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(root, "go.mod"), "derived repo root must contain go.mod")
 	return root
-}
-
-// dockerIsRootless reports whether the daemon is rootless, which decides
-// whether the run needs an explicit --user.
-func dockerIsRootless(t *testing.T) bool {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{.SecurityOptions}}").CombinedOutput()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(out), "rootless")
 }
 
 // probeValue extracts one KEY=value line the probe printed.

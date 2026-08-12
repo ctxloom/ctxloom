@@ -39,6 +39,9 @@ func NewHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordin
 		// see coord.agentDepthCap's doc. <= 0 (unset project config) falls
 		// back to the built-in default inside coord.New.
 		Depth: cfg.GetDelegationDepth(),
+		// The mailbox's shadow tee onto the file spool — off unless the
+		// project asks for it. See config.DelegationConfig.SpoolTee.
+		SpoolTee: cfg.GetDelegationSpoolTee(),
 	})
 	if err != nil {
 		return nil, err

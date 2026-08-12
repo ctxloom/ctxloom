@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -101,6 +102,12 @@ type Home struct {
 	// does not retry — see spooldoorbell.go.
 	spoolHandler  SpoolDoorbellHandler
 	spoolDoorbell spoolDoorbellCounters
+	// spoolOut lends this harp's out/ writer for the shadow tee. Non-nil ONLY
+	// when the tee is on and this run has a harp — constructing it is what
+	// creates the spool directories, and a disabled tee must leave no trace on
+	// disk. spoolTeeCount is atomics for the same reason spoolDoorbell is.
+	spoolOut      *spoolWriterCache
+	spoolTeeCount spoolTeeCounters
 
 	link     *RunnerLink
 	linkDone chan struct{} // closed when Close ran (stops the redial loops)
@@ -142,6 +149,18 @@ type HomeConfig struct {
 	// can actually execute (RunnerCapabilities). Empty advertises
 	// CapPeerMessaging alone — the mailbox surface every runner has.
 	Capabilities []string
+	// Harp is this run's session harp (CTXLOOM_SESSION_HARP), which is the
+	// name of ITS spool. Empty on a runner that has none, and a runner with no
+	// harp has no spool to write into — the same degrade the persist mount
+	// itself takes (statemounts.go's noHarpNotice).
+	Harp string
+	// SpoolTee turns on the outbound half of the mailbox's SHADOW TEE
+	// (spooltee.go): every accepted agent_send is additionally written into
+	// this harp's out/ spool and doorbelled. Off by default and stamped by the
+	// coordinator per spawn (EnvRunSpoolTee) from the same project config the
+	// coordinator's own half reads, so the two ends of one run never disagree
+	// about whether the run is being teed.
+	SpoolTee bool
 }
 
 type homeReq struct {
@@ -217,6 +236,14 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		turnPending:  make(map[string]bool),
 		inflightCtrl: make(map[string]*inflightCtrl),
 		linkDone:     make(chan struct{}),
+	}
+	if cfg.SpoolTee && cfg.Harp != "" {
+		// A runner writes exactly ONE spool: its own harp's out/. The cache is
+		// still keyed by harp because spoolWriterCache is shared with the
+		// coordinator's half, which serves many.
+		h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, cfg.Harp)
+	} else if cfg.SpoolTee {
+		clidiag.Warn("ctxloom", "runner: the spool tee is enabled but this run has no session harp, so it has no spool to write into; outbound mail will not be mirrored")
 	}
 	h.goTracked(h.runnerChannelLoop)
 	h.goTracked(h.runChannelLoop)
@@ -594,6 +621,12 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	started := time.Now()
 	select {
 	case resp := <-hr.ch:
+		// The outbound half of the SHADOW TEE (spooltee.go). Here rather than
+		// at the send above because out/ records what this agent actually
+		// SENT: a request the coordinator refused was never a message, and
+		// mirroring it would put a file in the spool with no mailbox twin —
+		// the exact divergence the tee exists to detect.
+		h.teePeerSendResponse(req, resp)
 		return resp, nil
 	case <-ctx.Done():
 		h.mu.Lock()

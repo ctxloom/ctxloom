@@ -712,10 +712,11 @@ type UIConfig struct {
 	Surround *bool `mapstructure:"surround" yaml:"surround,omitempty"`
 }
 
-// DelegationConfig groups the two agent-delegation limits. They are grouped
-// under one key because both are limits ON DELEGATION — not because they
+// DelegationConfig groups the project-wide agent-delegation settings. They are
+// grouped under one key because each governs DELEGATION — not because they
 // share a mechanism, which they do not: Concurrency is a resource ceiling,
-// Depth is a structural/correctness limit. See each field's doc.
+// Depth is a structural/correctness limit, SpoolTee is a substrate rollout
+// switch. See each field's doc.
 type DelegationConfig struct {
 	// Concurrency is the maximum number of delegated child turns EXECUTING
 	// at once (agentcoord/coord's turnSlots — each is a live engine
@@ -736,6 +737,24 @@ type DelegationConfig struct {
 	// which can leave an agent holding an inbox plus a child roster waiting
 	// on children it never spawned.
 	Depth int `yaml:"depth,omitempty"`
+	// SpoolTee turns on the SHADOW TEE of coordinator<->child mail onto the
+	// file spool (~/.ctxloom/sessions/<harp>/persist/spool): every mailbox
+	// delivery is ADDITIONALLY written as a spool message file and announced
+	// with a doorbell, while every read still comes from the mailbox. It
+	// changes no delivery behaviour by design — it exists so the file
+	// substrate can soak under real traffic before anything reads from it,
+	// and so a fidelity gap between the two representations shows up as a
+	// diverging file rather than as a lost message after a cutover.
+	//
+	// DEFAULT FALSE, and false must mean literally nothing happens: no spool
+	// directory is created, no doorbell is rung. A tee that half-runs when
+	// disabled would make "the flag is off" an untrustworthy statement about
+	// every incident that followed.
+	//
+	// It is a plain bool rather than a *bool because there is no third state
+	// to distinguish: unset and false both mean the tee is off, and the key
+	// is pruned from a saved config in both cases.
+	SpoolTee bool `yaml:"spool_tee,omitempty"`
 }
 
 // DefaultDelegationDepth is the built-in default for delegation.depth (flat

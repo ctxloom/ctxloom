@@ -312,7 +312,7 @@
     },
     "delegation": {
       "type": "object",
-      "description": "The two agent-delegation limits. Grouped because both are limits ON delegation, not because they share a mechanism \u2014 they differ in kind (see each member's own description).",
+      "description": "The project-wide agent-delegation settings. Grouped because each governs delegation, not because they share a mechanism \u2014 they differ in kind (see each member's own description).",
       "additionalProperties": false,
       "properties": {
         "concurrency": {
@@ -324,6 +324,10 @@
           "type": "integer",
           "minimum": 1,
           "description": "Maximum nesting depth of delegated agents. The session owner is depth 0, its subagents depth 1, theirs depth 2. A run at the cap cannot delegate and is not given the coordination tools (agent_run, roster, agent_stop, agent_fetch_artifact). Raising this above 1 gives those tools to non-root agents, which can leave an agent waiting on children it never spawned. Unset uses the built-in default."
+        },
+        "spool_tee": {
+          "type": "boolean",
+          "description": "Mirrors every coordinator-to-agent and agent-to-coordinator message into the session's on-disk message spool (~/.ctxloom/sessions/<harp>/persist/spool), in addition to delivering it normally. Messages are still delivered and read exactly as before — nothing reads the spool — so turning this on changes no behaviour; it exists so the file-based substrate carries real traffic before anything depends on it. Default off, and off means no spool directory is created at all."
         }
       }
     },

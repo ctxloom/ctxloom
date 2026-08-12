@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,4 +61,17 @@ func resetStrictness(t *testing.T) {
 		strictness.Reset()
 		strictness.SetDegraded(false)
 	})
+}
+
+// pkgSourceDir is this package's own source directory, resolved from the
+// compiled-in path of this file rather than from the process cwd (a test that
+// chdirs would otherwise scan the wrong tree, or none at all, and report a
+// clean sweep).
+func pkgSourceDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller: cannot locate this source file")
+	}
+	return filepath.Dir(file)
 }

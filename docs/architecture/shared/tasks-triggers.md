@@ -1,6 +1,6 @@
 # Revive triggers — evidence, prompt, parse, verdict
 
-`internal/shared/tasks/triggers` is the pure, I/O-free core of revive-trigger triage: it shapes gathered evidence into a batch-triage prompt, defines the closed vocabulary of outcomes and of the follow-up evidence queries a model may request, validates those queries for repo containment, and parses the model's JSON verdicts back out. It performs no I/O and makes no LLM call — `internal/operations` (`task_triggers.go`, `task_triggers_query.go`, `task_triggers_cache.go`) does all the git, filesystem, and model work and owns the verdict cache; `internal/cli/mcp_tools_triggers.go` re-exports `Verdict` verbatim as the `evaluate_triggers` MCP wire type.
+`internal/shared/tasks/triggers` is the pure, I/O-free core of revive-trigger triage: it shapes gathered evidence into a batch-triage prompt, defines the closed vocabulary of outcomes and of the follow-up evidence queries a model may request, validates those queries for repo containment, and parses the model's JSON verdicts back out. It performs no I/O and makes no LLM call — `internal/operations` (`task_triggers.go`, `task_triggers_query.go`, `task_triggers_cache.go`) does all the git, filesystem, and model work and owns the verdict cache; `internal/mcp/mcp_tools_triggers.go` re-exports `Verdict` verbatim as the `evaluate_triggers` MCP wire type.
 
 The contract: everything here is deterministic. That purity is what makes this the only fuzz-tested, property-asserted part of the trigger path.
 

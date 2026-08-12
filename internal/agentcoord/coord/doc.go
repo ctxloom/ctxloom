@@ -24,8 +24,10 @@
 //     missed heartbeats — the fix for the child-death queue-stranding bug —
 //     reconciled exactly-once with the legacy chat-stream-close path (which,
 //     post Wave C4, survives only for the degraded no-reach-back spawn
-//     fallback and non-allowlisted StructuredChat backends — see
-//     spawner.go's viaStartRunBackends);
+//     fallback and the FROZEN legacy backends — see spawner.go's
+//     viaStartRunBackends and legacyChatBackends; the legacy path is
+//     retired-in-place per the spool-cutover RETIRE-FIRST ruling and
+//     admits no new backends);
 //   - the delegation orchestration that used to live in the parent's
 //     `ctxloom mcp` process (spawn queue under the D4 cap, §6a
 //     delivery-by-state, resume of ended children, oneshot bridging, the

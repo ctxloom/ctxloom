@@ -323,6 +323,7 @@ func (geminiToAntigravityUpgrade) Apply(root *yaml.Node) (changed bool) {
 	if llm := upgrade.MapValue(root, "llm"); llm != nil && llm.Kind == yaml.MappingNode {
 		if configs := upgrade.MapValue(llm, "configs"); configs != nil && configs.Kind == yaml.MappingNode {
 			for i := 0; i+1 < len(configs.Content); i += 2 {
+				label := configs.Content[i]
 				entry := configs.Content[i+1]
 				if entry.Kind != yaml.MappingNode {
 					continue
@@ -333,9 +334,18 @@ func (geminiToAntigravityUpgrade) Apply(root *yaml.Node) (changed bool) {
 				}
 				// Rewrite the scalar in place so the node's comments survive.
 				typ.Value = "antigravity"
-				upgrade.MapDelete(entry, "trust_workspace")
-				upgrade.MapDelete(entry, "approval_mode")
-				upgrade.MapDelete(entry, "binary_path")
+				// These three gemini-only knobs have no antigravity equivalent and
+				// are dropped — but a USER-SET value being deleted by a migration
+				// is an irreversible on-disk loss, so name each one the way
+				// migrateLLMv3 names its own lossy branch (recordMigrationWarning →
+				// WarnKindMigrationLossy, fatal in strict mode) instead of dropping
+				// it silently (U049-F18).
+				for _, key := range []string{"trust_workspace", "approval_mode", "binary_path"} {
+					if v := upgrade.MapValue(entry, key); v != nil && v.Kind == yaml.ScalarNode {
+						recordMigrationWarning("config migration (gemini→antigravity): dropped %s=%q from llm config %q; it has no antigravity equivalent", key, v.Value, label.Value)
+					}
+					upgrade.MapDelete(entry, key)
+				}
 			}
 		}
 	}

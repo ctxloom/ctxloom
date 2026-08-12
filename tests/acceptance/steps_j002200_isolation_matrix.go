@@ -197,6 +197,55 @@ func isoCredHostPath(engine string) (string, error) {
 	}
 }
 
+// isoHostHomeDirRel maps an engine to the directory it uses as its config home
+// on the host when NOTHING relocates it — the directory an in-tree AGENT run
+// must stop reading and writing. Relative to $HOME.
+func isoHostHomeDirRel(engine string) (string, error) {
+	switch engine {
+	case "claude-code":
+		return ".claude", nil
+	case "codex":
+		return ".codex", nil
+	case "kiro":
+		return ".kiro", nil
+	default:
+		return "", fmt.Errorf("iso matrix: no known host config home for engine %q", engine)
+	}
+}
+
+// isoStateHomeRel maps an engine to the project-relative ctxloom-CONTROLLED
+// config home an in-tree AGENT run is pointed at —
+// `.ctxloom/state/engines/<backend>/<leaf>`. The leaves duplicate
+// internal/{claude,kiro}'s own inTreeConfigLeaf/inTreeHomeLeaf rather than
+// importing them: this file's whole point is to observe the value a REAL run
+// hands a REAL engine process from the outside, so deriving the expectation
+// from the same helper the production code uses would make the assertion
+// tautological.
+func isoStateHomeRel(engine string) (string, error) {
+	base := filepath.Join(".ctxloom", "state", "engines")
+	switch engine {
+	case "claude-code":
+		return filepath.Join(base, "claude-code", "claude"), nil
+	case "kiro":
+		return filepath.Join(base, "kiro", "kiro"), nil
+	default:
+		return "", fmt.Errorf("iso matrix: engine %q has no ctxloom-controlled in-tree home", engine)
+	}
+}
+
+// mustIsoCredHostPath is isoCredHostPath for the two callers whose scenario
+// already restricts the engine to one that has a host credential path. An
+// engine without one returns "", which the caller's own os.ReadFile then
+// reports as a missing file naming the directory — a legible failure, not a
+// panic in a test helper.
+func mustIsoCredHostPath(engine string) string {
+	rel, err := isoCredHostPath(engine)
+	if err != nil {
+		return ""
+	}
+	return rel
+}
+
 // isoCredsSectionMarker maps an engine to the spy script's own marker line
 // preceding its credential dump (see isoMatrixSpyScript).
 func isoCredsSectionMarker(engine string) (string, error) {
@@ -340,6 +389,55 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 	return nil
 }
 
+// runIsoMatrixOwnerSession is runIsoMatrix's counterpart for ALICE'S OWN
+// session: the identical fixture, the identical engine, the identical none
+// axis — the ONE difference is that no agent is named on the command line.
+//
+// The project declares `default_agent: iso`, so this is not "a run with no
+// agent resolved at all": ctxloom still binds the default agent, exactly as it
+// does for any bare `ctxloom run`. That is deliberate, and it is the sharpest
+// possible control for the scoping rule under test. If the rule keyed off
+// "was any agent binding resolved" it would fire here too and Alice would lose
+// her own ~/.claude; it keys off whether SHE named one, so it does not.
+//
+// Without the default_agent declaration a bare run would abort at the startup
+// gate (an unresolvable default agent is a ClassRef finding), which would prove
+// nothing about config homes.
+func runIsoMatrixOwnerSession(c context.Context, engine string) error {
+	w := worldFrom(c)
+	j := isoMatrixOf(w)
+
+	j.engine = engine
+	j.workspace = "none"
+
+	binNames, err := isoBinaryNames(engine)
+	if err != nil {
+		return err
+	}
+	spyDir := filepath.Join(w.env.Root, "iso-spy-bin")
+	if err := installIsoSpy(spyDir, binNames...); err != nil {
+		return err
+	}
+	w.env.SetEnv("PATH", isoMatrixSanitizedPATH(spyDir))
+
+	spyOut := filepath.Join(w.env.Root, "iso-spy-out.txt")
+	_ = os.Remove(spyOut)
+	j.spyOut = spyOut
+
+	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine)+"default_agent: iso\n"); err != nil {
+		return err
+	}
+	if err := w.env.WriteHomeFile(".ctxloom/config.yaml", isoMatrixHomeConfigYAML(spyOut)); err != nil {
+		return err
+	}
+	if err := w.env.GitCommit("iso matrix config for " + engine); err != nil {
+		return err
+	}
+
+	_ = w.env.Run("run", "--workspace", "none", "--one-shot", "hello")
+	return nil
+}
+
 // isoReadSpyOut reads the spy's recorded output, erroring with a clear
 // message (not a bare os.ReadFile error) when the spy was never invoked —
 // itself diagnostic evidence for a scenario asserting an isolated success
@@ -414,6 +512,30 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return w.env.WriteHomeFile(rel, isoFixtureCredMarker+"\n")
 	})
 
+	// The per-engine form of the credential-fixture step, for an outline whose
+	// rows genuinely differ in what "authenticated" means. claude-code needs a
+	// host ~/.claude/.credentials.json to seed; kiro needs NOTHING, because its
+	// subscription auth lives in a global sqlite under $XDG_DATA_HOME that
+	// KIRO_HOME does not relocate — a fresh KIRO_HOME is already authenticated.
+	// Spelled as a switch rather than "isoCredHostPath, ignore the error"
+	// so a future engine with a real credential cannot be silently seeded with
+	// nothing by falling into kiro's arm.
+	ctx.Step(`^Alice has whatever host credentials "([^"]*)" needs to authenticate$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		switch engine {
+		case "claude-code", "codex":
+			rel, err := isoCredHostPath(engine)
+			if err != nil {
+				return err
+			}
+			return w.env.WriteHomeFile(rel, isoFixtureCredMarker+"\n")
+		case "kiro":
+			return nil
+		default:
+			return fmt.Errorf("iso matrix: no declared host-credential requirement for engine %q", engine)
+		}
+	})
+
 	ctx.Step(`^Alice has no "([^"]*)" credentials or API key on the host$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		key, err := isoAPIKeyEnvVar(engine)
@@ -471,6 +593,139 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice runs the isolated "([^"]*)" agent under workspace "([^"]*)"$`, func(c context.Context, engine, workspace string) error {
 		return runIsoMatrix(c, engine, workspace)
+	})
+
+	ctx.Step(`^Alice runs "([^"]*)" under workspace "none" as her own session, naming no agent$`, func(c context.Context, engine string) error {
+		return runIsoMatrixOwnerSession(c, engine)
+	})
+
+	// The AGENT half of the in-tree config-home rule, read from INSIDE the
+	// spawned engine process: the variable the engine was really handed names
+	// the project-scoped state home, not the human's own directory and not a
+	// per-agent scratch tree (which is the WORKTREE axis' answer — asserting
+	// against it too keeps this step from passing on the wrong axis).
+	//
+	// The expected path is spelled here rather than derived from
+	// internal/claude.InTreeConfigDir: an assertion that computes its
+	// expectation with the same function the production code used cannot fail
+	// when that function is wrong.
+	ctx.Step(`^the spy "([^"]*)" process's "([^"]*)" env var points at the project-scoped engine state home$`, func(c context.Context, engine, varName string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		env := isoParseSpyEnv(body)
+		val, ok := env[varName]
+		if !ok || val == "" {
+			return fmt.Errorf("spy %s process's env carries no %s at all — an in-tree AGENT run must be handed a ctxloom-controlled config home; full env dump:\n%s", engine, varName, body)
+		}
+		rel, err := isoStateHomeRel(engine)
+		if err != nil {
+			return err
+		}
+		want := filepath.Join(w.env.ProjectDir, rel)
+		if val != want {
+			return fmt.Errorf("%s=%q, want the project-scoped engine state home %q; full env dump:\n%s", varName, val, want, body)
+		}
+		if strings.Contains(val, filepath.Join(".ctxloom", "sessions")) {
+			return fmt.Errorf("%s=%q is a per-agent SCRATCH home (the worktree axis' answer), not the durable in-tree one", varName, val)
+		}
+		if info, statErr := os.Stat(val); statErr != nil || !info.IsDir() {
+			return fmt.Errorf("%s=%q but no such directory exists — the engine was pointed at a home nobody created", varName, val)
+		}
+		w.docStepMaterialized = fmt.Sprintf("spy %s process env: %s=%s", engine, varName, val)
+		return nil
+	})
+
+	// The taking this whole rule exists to avoid, asserted from the other side:
+	// Alice's own engine home is not merely left unread, it is not brought into
+	// existence. A run that created ~/.kiro (or ~/.claude) and then wrote its
+	// session state there would have relocated nothing at all.
+	ctx.Step(`^Alice's own "([^"]*)" home directory was never created by the run$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		rel, err := isoHostHomeDirRel(engine)
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(w.env.HomeDir, rel)
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			w.docStepMaterialized = fmt.Sprintf("Alice's own ~/%s: absent, as it was before the run", rel)
+			return nil
+		}
+		// claude-code's scenarios seed ~/.claude/.credentials.json as their
+		// premise, so the DIRECTORY legitimately exists there. What must not
+		// have happened is the run adding anything to it.
+		entries, readErr := os.ReadDir(path)
+		if readErr != nil {
+			return fmt.Errorf("cannot inspect Alice's own ~/%s: %w", rel, readErr)
+		}
+		credRel, credErr := isoCredHostPath(engine)
+		expected := 0
+		if credErr == nil && w.env.HomeFileExists(credRel) {
+			expected = 1 // the fixture credential this scenario seeded, and nothing else
+		}
+		if len(entries) != expected {
+			names := make([]string, 0, len(entries))
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			return fmt.Errorf("the run wrote into Alice's own ~/%s: expected %d entr(ies), found %d %v", rel, expected, len(entries), names)
+		}
+		w.docStepMaterialized = fmt.Sprintf("Alice's own ~/%s: %d entr(ies), unchanged by the run (info: %s)", rel, len(entries), info.Mode())
+		return nil
+	})
+
+	// The DURABLE half of the seeding claim. The spy's own credential dump
+	// (asserted by the sibling step) proves the engine could read the bytes
+	// while it ran; this proves the home outlives the run, which is what makes
+	// it a project-scoped home rather than a per-run scratch dir — and what
+	// lets phase 2 deliver context into it at rest.
+	ctx.Step(`^the seeded "([^"]*)" credential is on disk in the project's engine state home$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		rel, err := isoStateHomeRel(engine)
+		if err != nil {
+			return err
+		}
+		credName := filepath.Base(mustIsoCredHostPath(engine))
+		path := filepath.Join(w.env.ProjectDir, rel, credName)
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return fmt.Errorf("no seeded credential at %s: %w — the controlled home did not survive the run", path, readErr)
+		}
+		if got, want := strings.TrimSpace(string(data)), strings.TrimSpace(isoFixtureCredMarker); got != want {
+			return fmt.Errorf("seeded credential at %s = %q, want the host fixture %q", path, got, want)
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return statErr
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			return fmt.Errorf("seeded credential at %s has mode %v, want 0600 — a credential copy must be owner-only", path, perm)
+		}
+		w.docStepMaterialized = fmt.Sprintf("%s (mode %v):\n%s", path, info.Mode().Perm(), strings.TrimSpace(string(data)))
+		return nil
+	})
+
+	// The absence half of Alice's own session. It is only meaningful next to
+	// the AGENT scenario in the same feature, which proves this exact path IS
+	// created in this exact fixture when an agent is named — otherwise
+	// "nothing exists here" would be satisfied by a fixture where nothing ever
+	// exists anywhere.
+	ctx.Step(`^no ctxloom-controlled config home exists for "([^"]*)" in the project$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		rel, err := isoStateHomeRel(engine)
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(w.env.ProjectDir, rel)
+		if _, statErr := os.Stat(path); statErr == nil {
+			return fmt.Errorf("a ctxloom-controlled config home exists at %s — Alice's own session must keep her real engine home, not be relocated into the project", path)
+		}
+		w.docStepMaterialized = fmt.Sprintf("no controlled home at %s (Alice's own session keeps her real engine home)", path)
+		return nil
 	})
 
 	// PAYLOAD, not absence. This step used to assert ONLY that two needles

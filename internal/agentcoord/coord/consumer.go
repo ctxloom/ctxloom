@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // D1 — the consumer watch API: read-only observation for viewers (the TUI,
@@ -129,6 +130,11 @@ func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan *agentcoordp
 	return sub.ch, cancel, narrow
 }
 
+func isTerminal(ev *agentcoordpb.AgentEvent) bool {
+	_, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
+	return ok
+}
+
 // broadcast fans ev out to every matching subscriber. Two invariants govern
 // this function, and both are load-bearing:
 //
@@ -154,7 +160,7 @@ func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan *agentcoordp
 func (h *watchHub) broadcast(ev *agentcoordpb.AgentEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, terminal := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
+	terminal := isTerminal(ev)
 	for sub := range h.subs {
 		if len(sub.runIDs) > 0 && !sub.runIDs[ev.GetRunId()] {
 			continue
@@ -190,16 +196,64 @@ func sendTerminal(ch chan *agentcoordpb.AgentEvent, ev *agentcoordpb.AgentEvent)
 		default:
 		}
 		if attempt == terminalEvictAttempts {
-			// Every attempt raced a full ring that never yielded a slot —
-			// acceptable-but-unlikely (it would take the serving loop
-			// refilling the ring as fast as we can evict from it): fall
-			// through and drop, same as any other event this hub ever
-			// drops under sustained overload.
+			// Every attempt raced a full ring that never yielded a slot, OR the
+			// ring is saturated with OTHER runs' terminals evictOneNonTerminal
+			// refuses to sacrifice. Dropping this terminal both evades seq-gap
+			// detection (nothing follows to reveal the hole) and hangs any
+			// watcher on this run (operations.adaptConsumerFeed ends its feed
+			// only on RunCompleted), so unlike an ordinary dropped event it must
+			// NOT be silent (F10): name the run whose terminal was lost so a hung
+			// viewer is diagnosable from the coordinator's logs.
+			clidiag.Warn("ctxloom", "consumer watch: dropped terminal event for run %q after %d evict attempts on a full ring — a watcher on that run may hang until its own timeout",
+				ev.GetRunId(), terminalEvictAttempts)
 			return
 		}
+		evictOneNonTerminal(ch)
+	}
+}
+
+// evictOneNonTerminal frees one slot in ch by dropping its OLDEST NON-terminal
+// event, and only a non-terminal (F09): a terminal is the one event whose loss
+// is unrecoverable (no seq gap ever reveals it, and a watcher waits on it
+// forever), so sendTerminal draining another run's terminal here to make room —
+// the payload-blind `<-ch` this replaced — destroyed the very invariant it
+// exists to protect (both production subscribers watch ALL runs, so one ring
+// carries many runs' terminals). It drains events until it finds a non-terminal
+// to sacrifice, holding any terminals it must drain past and re-queuing them so
+// only a seq-gap-recoverable event is dropped. If every queued event is itself a
+// terminal, nothing is evicted and the caller's bounded retry falls through to
+// the F10 drop-with-diagnostic. Stays non-blocking throughout (never trades away
+// broadcast's never-block invariant), and runs under watchHub.mu so no
+// concurrent broadcast races the drain — only the serving loop drains ch too,
+// which is safe (it delivers, never loses).
+func evictOneNonTerminal(ch chan *agentcoordpb.AgentEvent) {
+	var held []*agentcoordpb.AgentEvent
+	for {
+		var e *agentcoordpb.AgentEvent
 		select {
-		case <-ch: // evict the oldest queued event to make room
+		case e = <-ch:
 		default:
+			// Ring drained without a non-terminal to sacrifice: put the
+			// terminals back (in order) and let the retry bound decide.
+			requeue(ch, held)
+			return
+		}
+		if !isTerminal(e) {
+			// Sacrifice this one non-terminal, then restore any terminals we
+			// had to drain past to reach it.
+			requeue(ch, held)
+			return
+		}
+		held = append(held, e)
+	}
+}
+
+func requeue(ch chan *agentcoordpb.AgentEvent, evs []*agentcoordpb.AgentEvent) {
+	for _, e := range evs {
+		select {
+		case ch <- e:
+		default:
+			return
 		}
 	}
 }

@@ -156,6 +156,35 @@ func (c *Coordinator) deliverToPoll(role string, msg Message) bool {
 	return true
 }
 
+// deliverTerminalFallback completes role's parked agent_recv poll with msg
+// WITHOUT journaling or reserving it — the last-resort path terminateRun takes
+// when the DURABLE queueMail for a child's terminal notice failed. The durable
+// write is exactly what just failed, so this is non-durable by construction: a
+// best-effort unblock of a parent parked in agent_recv RIGHT NOW, which would
+// otherwise hang until its own timeout with no indication its child died. It
+// reuses the same async unpark+send shape as deliverToPoll (so the caller never
+// blocks on the recipient's slot re-acquire) but skips the delivery ledger — an
+// unjournaled id reserved there would make a later ackDelivered journal a
+// mail_consumed fact for a message no mailQueued fact ever recorded. Reports
+// whether a parked poll was completed; a parent not currently parked cannot be
+// reached this way (the caller logs that residual gap loudly).
+func (c *Coordinator) deliverTerminalFallback(role string, msg Message) bool {
+	c.mu.Lock()
+	p := c.polls[role]
+	if p == nil || p.done {
+		c.mu.Unlock()
+		return false
+	}
+	p.done = true
+	delete(c.polls, role)
+	c.mu.Unlock()
+	go func() {
+		c.onRoleUnpark(role)
+		p.ch <- pollResult{msgs: []Message{msg}}
+	}()
+	return true
+}
+
 // undeliveredLocked lists the role's pending messages minus the runtime
 // delivery ledger (delivered-but-unacked). Caller holds c.mu.
 //

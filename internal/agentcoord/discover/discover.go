@@ -96,8 +96,34 @@ func List() (endpoints []Endpoint, skipped []error) {
 	if err != nil {
 		return nil, []error{fmt.Errorf("discover: glob coordinator endpoint files: %w", err)}
 	}
-	sort.Slice(matches, func(i, j int) bool { return mtime(matches[i]).After(mtime(matches[j])) })
-	for _, m := range matches {
+	// Stat each candidate exactly ONCE into a snapshot before sorting, then
+	// sort the snapshot. Calling os.Stat inside the comparator (the previous
+	// shape) was both O(n log n) syscalls AND — the real defect — an
+	// INCONSISTENT comparator: discovery exists for the case where ANOTHER
+	// live process owns a coordinator, and that coordinator rewrites its
+	// endpoint.json on Serve(), so a file's mtime can change mid-sort. A
+	// comparator whose keys move underfoot violates sort.Slice's strict-weak-
+	// ordering contract and yields an arbitrary order. Snapshotting fixes the
+	// keys; a path tiebreak makes the order fully reproducible even when two
+	// coordinators share an mtime (1-second filesystem granularity makes that
+	// the exact case "most-recently-active first" matters most — several
+	// coordinators started together).
+	type candidate struct {
+		path string
+		mt   time.Time
+	}
+	snap := make([]candidate, len(matches))
+	for i, m := range matches {
+		snap[i] = candidate{path: m, mt: mtime(m)}
+	}
+	sort.Slice(snap, func(i, j int) bool {
+		if !snap[i].mt.Equal(snap[j].mt) {
+			return snap[i].mt.After(snap[j].mt) // most-recently-active first
+		}
+		return snap[i].path < snap[j].path // stable, reproducible tiebreak
+	})
+	for _, s := range snap {
+		m := s.path
 		raw, rerr := os.ReadFile(m)
 		if rerr != nil {
 			skipped = append(skipped, fmt.Errorf("discover: read %s: %w", m, rerr))
@@ -124,7 +150,14 @@ func List() (endpoints []Endpoint, skipped []error) {
 	return endpoints, skipped
 }
 
-func mtime(path string) time.Time {
+// mtime reads a path's modification time (zero on error, which sorts an
+// unreadable entry last — the right fail direction). It is a package var, not a
+// plain func, so a test can observe the load-bearing property this unit's sort
+// depends on: List must snapshot each candidate's mtime EXACTLY ONCE before
+// sorting, never re-stat inside the comparator (which was both O(n log n)
+// syscalls and an inconsistent comparator when a live coordinator rewrote its
+// endpoint.json mid-sort).
+var mtime = func(path string) time.Time {
 	if fi, err := os.Stat(path); err == nil {
 		return fi.ModTime()
 	}

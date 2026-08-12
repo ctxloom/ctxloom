@@ -198,12 +198,14 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       And the <engine> skill surface carries the doctor skill's marker "DOCTOR-CHECK-VERSION-c3"
       And the <engine> skill surface carries the doctor skill's marker "DOCTOR-CHECK-HOOKS-TRUST-d4"
 
+      # codex removed: skills are home-keyed and a declared absence at rest
+      # (codex.LaunchOnlySettingsReason) — delivered per-session at launch;
+      # see manage.feature's launch-only scenario and the j002200 lane.
       Examples:
         | engine      |
         | claude-code |
         | kiro        |
         | opencode    |
-        | codex       |
 
     # Structural invocability, beyond bare file-presence: opencode's skill
     # loader is registered explicitly in opencode.json (skillfiles.go's

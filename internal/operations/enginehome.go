@@ -4,9 +4,7 @@ import (
 	"maps"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -39,69 +37,6 @@ type InTreeAgentHome struct {
 // credentialSeedFixIt, and it names --degraded truthfully: under --degraded
 // nothing is contributed, so the run falls back to the engine's real host home.
 const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude login`) or set its API-key env var, or pass --degraded (env CTXLOOM_DEGRADED=1) to run this agent against the host's own shared config home"
-
-// inTreeAgentHome describes one engine's in-tree controlled home: which env var
-// relocates it, where that var points for a given project, and how (if at all)
-// credentials get into it.
-type inTreeAgentHome struct {
-	// envVar is the engine's own home-relocation variable.
-	envVar string
-	// home resolves the value for a project root, through the engine package's
-	// OWN StateHome-derived helper — never a join spelled here. That is what
-	// keeps the run path and any future home-keyed static writer on one root.
-	home func(workDir string) string
-	// seed copies host credentials into the controlled home, returning an
-	// actionable error when there is nothing to authenticate with. nil for an
-	// engine that needs none (kiro: its credentials live in a global sqlite no
-	// home var relocates, so a FRESH home stays authenticated).
-	seed func(workDir string) error
-}
-
-// inTreeAgentHomes is the roster of engines that get a ctxloom-controlled
-// config home on the IN-TREE axis. Membership is deliberate, and the absentees
-// are the interesting part:
-//
-//   - codex is ABSENT because it already has one on every axis, resolved by its
-//     own resolveCodexProjectDir and seeded by its own Setup. A second
-//     contributor here would race the one that already works.
-//   - opencode is ABSENT because its only home lever is XDG_CONFIG_HOME /
-//     XDG_DATA_HOME — not engine-private. Relocating those moves git's, fish's
-//     and every other XDG-aware tool's config for the child too, a blast radius
-//     that needs its own decision (home-delivery plan, phase 3).
-//   - mock and acp are ABSENT because they have no engine-global home to
-//     control.
-var inTreeAgentHomes = map[string]inTreeAgentHome{
-	config.BackendClaudeCode: {
-		envVar: claude.ConfigDirEnv,
-		home:   claude.InTreeConfigDir,
-		seed: func(workDir string) error {
-			// StateHome, not InTreeConfigDir: SeedClaudeHome joins the seed
-			// spec's own destSubdir under what it is handed, and lands on
-			// InTreeConfigDir exactly. internal/claude's
-			// TestInTreeConfigDir_IsTheSeedDestination is what keeps that true.
-			_, err := isolation.SeedClaudeHome(claude.StateHome(workDir))
-			return err
-		},
-	},
-	kiroBackendName: {
-		envVar: kiro.HomeEnv,
-		home:   kiro.InTreeHome,
-		// No seed, and none possible: kiro's subscription auth lives in a
-		// global sqlite under XDG_DATA_HOME that KIRO_HOME does not relocate
-		// (internal/kiro.HomeEnv's doc, live-verified against kiro-cli 2.12.1).
-		// A fresh KIRO_HOME therefore stays authenticated, and XDG_DATA_HOME is
-		// deliberately NOT contributed alongside it: relocating the credential
-		// store with nothing to seed into it is precisely the silent
-		// logged-out-agent failure the worktree axis' GatedOnCreds machinery
-		// refuses to cause.
-	},
-}
-
-// kiroBackendName is kiro's registered backend name. internal/config declares a
-// constant for claude-code only, so this one is spelled here rather than
-// silently reaching into internal/kiro for an identifier that package does not
-// export.
-const kiroBackendName = "kiro"
 
 // InTreeAgentHomeEnv returns the config-home env additions an IN-TREE AGENT run
 // of in.Backend gets — CLAUDE_CONFIG_DIR / KIRO_HOME pointed at a
@@ -158,20 +93,20 @@ func InTreeAgentHomeEnv(in InTreeAgentHome) map[string]string {
 	if in.Policy == nil || isolation.Isolated(in.Policy) {
 		return nil
 	}
-	spec, ok := inTreeAgentHomes[in.Backend]
+	spec, ok := backends.InTreeAgentHomeFor(in.Backend, in.WorkDir)
 	if !ok {
 		return nil
 	}
-	if in.Env[spec.envVar] != "" {
+	if in.Env[spec.EnvVar] != "" {
 		return nil
 	}
 
-	home := spec.home(in.WorkDir)
-	if spec.seed != nil {
-		if err := spec.seed(in.WorkDir); err != nil {
+	home := spec.Dir
+	if spec.Seed != nil {
+		if err := spec.Seed(); err != nil {
 			strictness.Fail(strictness.ClassIsolation, inTreeAgentHomeFixIt,
 				"in-tree agent home for %s: %v — refusing to point %s at an unauthenticated %s; this run uses the host's own config home instead",
-				in.Backend, err, spec.envVar, home)
+				in.Backend, err, spec.EnvVar, home)
 			return nil
 		}
 	}
@@ -184,7 +119,7 @@ func InTreeAgentHomeEnv(in InTreeAgentHome) map[string]string {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: cannot create %s (%v); using the host's own config home instead", in.Backend, home, err)
 		return nil
 	}
-	return map[string]string{spec.envVar: home}
+	return map[string]string{spec.EnvVar: home}
 }
 
 // mergeInTreeAgentHome layers InTreeAgentHomeEnv(in)'s result UNDER workspaceEnv

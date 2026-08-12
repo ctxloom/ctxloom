@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
@@ -108,6 +109,18 @@ type agentDescriptor struct {
 	// "Claude Code's user-global settings file"). Empty when
 	// hookGlobalScopePaths is nil.
 	hookGlobalScopeLabel string
+	// inTreeAgentHome resolves the ctxloom-CONTROLLED config home an IN-TREE
+	// AGENT run of this backend gets, for a project root: which env var
+	// relocates the engine's home, where it points, and how (if at all)
+	// credentials are seeded into it. nil = this backend gets no controlled
+	// in-tree home; see InTreeAgentHomeFor (delegate_seams.go) for the roster's
+	// deliberate absentees and for the scoping rule operations applies on top.
+	//
+	// It lives here, beside hookGlobalScopePaths and resolveModel, for the same
+	// ADR-0026 reason: the fact is engine-specific but the CALLER
+	// (internal/operations) must not branch on engine identity or import a
+	// concrete engine package to learn it.
+	inTreeAgentHome func(workDir string) InTreeAgentHomeSpec
 	// noHooksReason declares, in one clause, that this backend has NO hook
 	// mechanism AT ALL and says why ("opencode has no hook mechanism"). Empty
 	// means the backend carries hooks — every backend but opencode today.
@@ -382,6 +395,21 @@ func init() {
 			return claude.ProjectSettingsPath(workDir), global, err
 		},
 		hookGlobalScopeLabel: "Claude Code's user-global settings file",
+		// An in-tree AGENT run gets a project-scoped CLAUDE_CONFIG_DIR seeded
+		// with the host's .credentials.json, instead of the human's own
+		// ~/.claude. StateHome (not InTreeConfigDir) is the seed root:
+		// SeedClaudeHome joins the seed spec's own leaf under what it is
+		// handed, landing on InTreeConfigDir exactly.
+		inTreeAgentHome: func(workDir string) InTreeAgentHomeSpec {
+			return InTreeAgentHomeSpec{
+				EnvVar: claude.ConfigDirEnv,
+				Dir:    claude.InTreeConfigDir(workDir),
+				Seed: func() error {
+					_, err := isolation.SeedClaudeHome(claude.StateHome(workDir))
+					return err
+				},
+			}
+		},
 	})
 
 	// LIVE-UNTESTED: codex has never been run against a real account on any
@@ -468,6 +496,17 @@ func init() {
 			return kiro.ProjectHome(workDir), global, err
 		},
 		hookGlobalScopeLabel: "kiro's global home",
+		// An in-tree AGENT run gets a project-scoped KIRO_HOME instead of the
+		// human's own ~/.kiro (which since kiro-cli 2.3.0 carries their global
+		// agents, prompts, skills, steering and settings, not just sessions).
+		// No Seed, and none possible: kiro's subscription auth lives in a global
+		// sqlite under XDG_DATA_HOME that KIRO_HOME does not relocate, so a
+		// FRESH home stays authenticated — and XDG_DATA_HOME is deliberately
+		// NOT relocated alongside it, since relocating a credential store with
+		// nothing to seed into it is what strands an agent logged out.
+		inTreeAgentHome: func(workDir string) InTreeAgentHomeSpec {
+			return InTreeAgentHomeSpec{EnvVar: kiro.HomeEnv, Dir: kiro.InTreeHome(workDir)}
+		},
 	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent

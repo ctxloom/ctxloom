@@ -155,6 +155,41 @@ agents:
 `, claudeSpec.Name, claudeSpec.Profile, codexSpec.Name, codexSpec.Profile)
 }
 
+// j002300PerEngineAgent is the ONE delegated child the per-engine live outline
+// configures, in every row. A fixed name (rather than "<engine>-child") is
+// deliberate: the outline reuses this file's existing harp-remembering and
+// mailbox steps verbatim, which address a child by agent name, and a single
+// name keeps the Gherkin identical across rows so the ONLY thing varying
+// between them is the engine under test.
+const j002300PerEngineAgent = "delegate"
+
+// j002300PerEngineConfigYAML renders config.yaml for ONE per-engine live row:
+// the engine's OWN registry config (live_engine_registry.go's liveAgents[key].
+// config — already carrying that engine's backend type and the cheap pinned
+// model the whole @live lane shares) with a single agent binding appended.
+//
+// Appending to the registry's own string, rather than re-declaring the llm
+// block here, is what keeps ONE source of truth for "which backend type and
+// which model does the live lane drive this engine with". The registry entry
+// names its llm config after the registry key and points primary+fast at it,
+// so the agent binding just names that same key.
+//
+// `workspace: none` matches j002300HermeticConfigYAML's own reasoning: this
+// row proves the delegation round trip, not workspace isolation
+// (j002200_isolation.feature's job), and the fixture's freshly written,
+// uncommitted bundle/profile files would otherwise make a worktree spawn
+// refuse to start ("refusing to auto-commit for delegated agent").
+func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec) string {
+	return a.config + fmt.Sprintf(`workspace: none
+agents:
+  %s:
+    llm: %s
+    profiles:
+      - %s
+    permissions: bypass
+`, s.Name, llmKey, s.Profile)
+}
+
 // j002300WriteAgent writes one agent's bundle + profile files.
 func j002300WriteAgent(w *World, s *j002300AgentSpec) error {
 	if err := w.env.WriteFile(".ctxloom/content/bundles/"+s.Bundle+".yaml", j002300BundleYAML(s)); err != nil {
@@ -369,6 +404,67 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			return seedLiveCredentials("codex", liveAgents["codex"], realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
 		})
 
+	// --- @live per-engine fixture -------------------------------------------
+	//
+	// The per-engine floor's gate (see the feature file's own header for what
+	// each row proves). One engine, named by its BACKEND TYPE — the same
+	// vocabulary isolation_probe.feature's rows use, resolved onto the
+	// registry's own key by backendTypeToLiveKey, so "claude-code" and
+	// "claude" can never drift into two different notions of the same engine.
+	//
+	// Everything the row needs is written HERE, before a single paid turn is
+	// spent, and an unavailable engine skips with its own reason printed by
+	// name — the identical discipline steps_live.go and the cross-engine gate
+	// above apply.
+	ctx.Step(`^a real "([^"]*)" engine is available for a delegated child carrying marker "([^"]*)"$`,
+		func(c context.Context, engine, marker string) error {
+			w := worldFrom(c)
+			j002300 := j002300Of(w)
+			key := backendTypeToLiveKey(engine)
+			a, ok := liveAgents[key]
+			if !ok {
+				return fmt.Errorf("j002300: %q is not a known live engine (registry keys: %v) — a row naming an engine the registry cannot probe would skip forever and look like coverage", engine, liveAgentOrder)
+			}
+			// EMPTY-MARKER GUARD. The whole row's assertion is
+			// strings.Contains(body, marker); an empty marker is contained in
+			// every string ever sent, so a blank Examples cell would turn the
+			// one payload assertion into a tautology that passes on a
+			// runner-exit report — this project's characteristic silent
+			// false-green, in its acceptance-suite form.
+			if strings.TrimSpace(marker) == "" {
+				return fmt.Errorf("j002300: per-engine row for %q carries an EMPTY marker — every body contains the empty string, so this row would pass without the child ever running", engine)
+			}
+			status := probeEngine(key, a, realHomeDir, resolveOptIn())
+			// Loud either way, in the suite's own one-line report shape.
+			w.docStepMaterialized = formatLiveEngineReport([]engineStatus{status})
+			if !status.available {
+				fmt.Printf("SKIP j002300 per-engine live delegation for %q: %s\n", engine, status.reason)
+				return godog.ErrSkip
+			}
+
+			spec := &j002300AgentSpec{
+				Name:     j002300PerEngineAgent,
+				Profile:  j002300PerEngineAgent + "-profile",
+				Bundle:   "bundle-" + j002300PerEngineAgent,
+				Fragment: "marker",
+				Guidance: marker,
+			}
+			j002300.specs[spec.Name] = spec
+
+			if err := w.env.InitGitRepo(); err != nil {
+				return err
+			}
+			if err := j002300WriteAgent(w, spec); err != nil {
+				return err
+			}
+			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec)); err != nil {
+				return err
+			}
+			// Subscription path: MAP this engine at its real credential
+			// directory (erased-collar), never copy — see seedLiveCredentials.
+			return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
+		})
+
 	// --- Shared: capture a spawned child's harp -----------------------------
 
 	ctx.Step(`^"([^"]*)"'s session harp is remembered$`, func(c context.Context, name string) error {
@@ -485,6 +581,66 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 					continue
 				}
 				return nil // a real, non-error result — subsequent Then steps assert its content
+			}
+		})
+
+	// --- @live-only: agent_recv, retried until the PAYLOAD arrives ----------
+	//
+	// The per-engine floor's single assertion, and deliberately not the
+	// "wait for any message, then assert on the first one" pair the
+	// cross-engine scenario above uses. Two messages reach a coordinator's
+	// mailbox from the SAME child harp on a live run — the child's own
+	// agent_send, and coord/children.go's bridgeTurnResult copy of its turn
+	// output (plus, when an engine fails to authenticate, a runner-exit
+	// report). Which one lands in which agent_recv batch is a race, so
+	// asserting on "the first message from that harp" would make a genuinely
+	// green engine flake red, and — worse for a floor — would let a
+	// PASS depend on batch ordering rather than on the payload.
+	//
+	// So this drains the mailbox until the MARKER BYTES themselves appear,
+	// and on expiry reports every body it did see from that child, verbatim:
+	// a live failure has to be readable as "the engine said this instead",
+	// never as a bare timeout. Each retry is a free local mailbox poll, never
+	// a second paid model call. Literally contains `calls tool "agent_recv"`
+	// so completeness_test.go's ranAsTool credits it as real coverage.
+	ctx.Step(`^the agent calls tool "agent_recv" repeatedly, waiting up to (\d+)s total, until "([^"]*)" reports a body containing "([^"]*)"$`,
+		func(c context.Context, budgetSec int, name, want string) error {
+			w := worldFrom(c)
+			j002300 := j002300Of(w)
+			harp, ok := j002300.harps[name]
+			if !ok {
+				return fmt.Errorf("j002300: no session harp remembered for %q — spawn it first", name)
+			}
+			if strings.TrimSpace(want) == "" {
+				return fmt.Errorf("j002300: waiting for an EMPTY body from %q would be satisfied by any message at all, including a runner-exit report", name)
+			}
+			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
+			var seen []string
+			for {
+				if err := callTool(c, "agent_recv", map[string]any{"wait": 12}); err != nil {
+					return fmt.Errorf("j002300: agent_recv transport error while waiting for %q: %w", name, err)
+				}
+				if isErr, _ := w.lastTool.IsError(); !isErr {
+					msgs, merr := j002300Messages(w)
+					if merr != nil {
+						return merr
+					}
+					for _, m := range msgs {
+						if from, _ := m["from"].(string); from != harp {
+							continue
+						}
+						body, _ := m["body"].(string)
+						seen = append(seen, body)
+						if strings.Contains(body, want) {
+							w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", name, harp, body)
+							return nil
+						}
+					}
+				}
+				if time.Now().After(deadline) {
+					return fmt.Errorf("j002300: %q never sent its coordinator a body containing %q within %ds — %d message(s) arrived from harp %s:\n%s",
+						name, want, budgetSec, len(seen), harp, strings.Join(seen, "\n---\n"))
+				}
 			}
 		})
 

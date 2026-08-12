@@ -103,6 +103,35 @@ func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
 		"the ping must carry an explicit bypass posture on the request, not rely on the label's configured (or unset) permissions")
 }
 
+// TestDiscoveryRunRequest_StatesDefaultPermissionExplicitly pins that the init
+// DISCOVERY LAUNCH — the interactive setup session init hands the user off to —
+// declares its permission posture on the wire request instead of leaving the
+// field at its zero value. Both spellings reach the same posture through
+// agent.WireMode (""and "default" both parse to PermissionDefault), so this is
+// not a behaviour change; it is the difference between a posture nobody stated
+// and one this call site OWNS. An unset field is indistinguishable from a
+// caller that forgot, which is precisely the silent fall-through the ping's
+// explicit bypass (TestPingEngineAuth_RequestsBypassPermissionExplicitly)
+// closed on the other init launch site.
+//
+// This is a PAYLOAD assertion on the request that actually rides the wire, not
+// on a helper's return value in isolation: launchEngineWithPrompt hands this
+// very struct to goplugin.NewLauncher.
+func TestDiscoveryRunRequest_StatesDefaultPermissionExplicitly(t *testing.T) {
+	req := discoveryRunRequest(nil, t.TempDir())
+
+	require.NotNil(t, req)
+	require.NotNil(t, req.Options)
+	assert.Equal(t, agent.PermissionDefault.String(), req.Options.PermissionMode,
+		"the discovery launch must state its posture out loud; an empty PermissionMode is a fall-through nobody declared")
+
+	// The posture it states is the vendor TUI's own prompting — NOT a second
+	// bypass on top of the engine's native consent surface.
+	assert.NotEqual(t, agent.PermissionBypass.String(), req.Options.PermissionMode,
+		"the interactive setup session must never launch at bypass: the vendor TUI's native approval prompts are the consent surface")
+	assert.Equal(t, pb.ExecutionMode_INTERACTIVE, req.Options.Mode)
+}
+
 // TestPingEngineAuth_FailsLoud_NamesTheFix: a dead engine (nonzero exit, as a
 // real backend reports when auth is missing) fails the ping with an error
 // naming BOTH the engine and its specific fix — never a bare "failed."

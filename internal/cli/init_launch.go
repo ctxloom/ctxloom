@@ -42,6 +42,43 @@ func discoverySessionPrompt(cfg *config.Config) string {
 	return operations.ResolveSetupPrompt(cfg, ctxloomInitPrompt)
 }
 
+// discoveryRunRequest builds the wire request for the init discovery launch —
+// the interactive setup session `ctxloom init` hands off to. Extracted from
+// launchEngineWithPrompt so the request's payload (prompt, mode, and above all
+// its permission posture) is assertable without spawning an engine subprocess,
+// exactly as the auth ping's posture is pinned through operations.RunOneshot.
+//
+// The posture is PermissionDefault, and it is SAID: the engine's OWN normal
+// in-tool approval prompting, not another bypass. This session runs entirely
+// inside the vendor's raw CLI/TUI (init's whole reason for launching it this
+// way), so the vendor TUI's native edit-approval prompts ARE the consent
+// surface for whatever the setup skill's tool calls (incl. client-config
+// writes, §6) attempt — exactly the right gate, and the same one the user gets
+// in every other engine session.
+//
+// It is spelled out rather than left at the zero value. Both reach the same
+// posture (agent.WireMode maps "" and "default" alike to PermissionDefault),
+// so nothing about the launch changes — but an unset field is a posture NOBODY
+// DECLARED, indistinguishable from a caller that never considered the
+// question, and it is the same silent fall-through the auth ping's explicit
+// bypass closed on init's other launch site. Note that no resolution chain runs
+// here at all: unlike `ctxloom run` (resolvePermissionMode: flag > agent
+// binding > llm label > backend built-in, which is BYPASS for claude-code on
+// the host), the discovery launch consults neither the label nor the binding.
+// That divergence is intended — a setup session is not the place to inherit a
+// host-wide bypass stopgap — and stating the posture here is what makes it
+// visible instead of leaving it to be inferred from an absent field.
+func discoveryRunRequest(cfg *config.Config, workDir string) *pb.RunStart {
+	return &pb.RunStart{
+		Prompt: &pb.Fragment{Content: discoverySessionPrompt(cfg)},
+		Options: &pb.RunOptions{
+			WorkDir:        workDir,
+			Mode:           pb.ExecutionMode_INTERACTIVE,
+			PermissionMode: agent.PermissionDefault.String(),
+		},
+	}
+}
+
 // launchEngineWithPrompt starts the engine's own raw CLI/TUI with the merged
 // setup-skill prompt (pty passthrough — the vendor's real interactive binary
 // on this terminal, exactly as `ctxloom run`'s interactive path). Errors
@@ -62,21 +99,7 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	// which discoverySessionPrompt already degrades to the built-in body for.
 	cfg, _ := GetConfig()
 
-	// No PermissionMode is set: the zero value rides the wire as "" and
-	// resolves (agent.WireMode) to PermissionDefault — the engine's OWN normal
-	// in-tool approval prompting, not another bypass. This session runs
-	// entirely inside the vendor's raw CLI/TUI (init's whole reason for
-	// launching it this way), so the vendor TUI's native edit-approval prompts
-	// ARE the consent surface for whatever the setup skill's tool calls (incl.
-	// client-config writes, §6) attempt — exactly the right gate, and the same
-	// one the user gets in every other engine session.
-	req := &pb.RunStart{
-		Prompt: &pb.Fragment{Content: discoverySessionPrompt(cfg)},
-		Options: &pb.RunOptions{
-			WorkDir: workDir,
-			Mode:    pb.ExecutionMode_INTERACTIVE,
-		},
-	}
+	req := discoveryRunRequest(cfg, workDir)
 
 	// The discovery session is interactive, so the frontend must own the
 	// terminal exactly as `ctxloom run` does: raw-mode keystrokes and resize

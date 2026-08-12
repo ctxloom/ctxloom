@@ -13,19 +13,22 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// TestRunnerEnv_StampsDepth pins that runnerEnv stamps EnvRunDepth and
-// EnvRunOneShot UNCONDITIONALLY — unlike the reach-back trio
+// TestRunnerEnv_StampsDepth pins that runnerEnv stamps EnvRunDepth,
+// EnvRunOneShot and EnvRunSpoolTee UNCONDITIONALLY — unlike the reach-back trio
 // (EnvCoordURL/EnvCoordCred/EnvRunID), which is omitted whole when url == ""
-// (a degraded launch), both must always be present: leafness must not depend
-// on reach-back being available.
+// (a degraded launch), all three must always be present: leafness must not
+// depend on reach-back being available, and neither must the runner's ability
+// to tell "the tee is off" from "the stamp went missing".
 func TestRunnerEnv_StampsDepth(t *testing.T) {
-	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3, true)
+	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3, true, true)
 	assert.Equal(t, "3", withURL[EnvRunDepth])
 	assert.Equal(t, "true", withURL[EnvRunOneShot])
+	assert.Equal(t, "true", withURL[EnvRunSpoolTee])
 
-	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0, false)
+	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0, false, false)
 	assert.Equal(t, "0", degraded[EnvRunDepth], "depth is stamped even on a degraded (no reach-back) launch")
 	assert.Equal(t, "false", degraded[EnvRunOneShot], "oneshot is stamped even on a degraded (no reach-back) launch")
+	assert.Equal(t, "false", degraded[EnvRunSpoolTee], "the tee posture is stamped even on a degraded launch")
 	assert.NotContains(t, degraded, EnvCoordURL, "the trio is still omitted whole on a degraded launch")
 }
 

@@ -353,6 +353,15 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		Version:      "test",
 		Engine:       host.Handle,
 		Capabilities: caps,
+		// Read out of the STAMPED runner env rather than handed in by the
+		// test, mirroring production's consumeCoordinatorReachBack
+		// (llm_runner_common.go) field for field. That makes every test using
+		// this fake a live check that the coordinator's per-spawn stamp
+		// actually reaches the runner: a tee enabled only on the coordinator
+		// would show up here as a runner that never mirrors, which is exactly
+		// the half-populated spool the soak must not have to diagnose.
+		Harp:     runnerEnv["CTXLOOM_SESSION_HARP"],
+		SpoolTee: runnerEnv[EnvRunSpoolTee] == "true",
 	})
 	if err != nil {
 		cancel()

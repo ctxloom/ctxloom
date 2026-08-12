@@ -111,13 +111,17 @@ func TestManageInstall_EngineScopesWrites(t *testing.T) {
 	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "codex")
 	require.NoError(t, err)
 
-	// codex's harpless static surface is asked of the engine's own resolver so
-	// this assertion cannot drift from where the write lands. It is NOT under
-	// .ctxloom/state: a static materialize has no session, and the durable
-	// per-project engine home the per-session instance replaced is retired.
-	assert.DirExists(t, codex.ProjectHome(dir), "the named engine's surface must be written")
+	// codex's ONE static surface is its cwd-keyed AGENTS.md: since S7 its
+	// home-keyed surfaces are a declared absence, delivered per-session at
+	// launch and written nowhere by a static install
+	// (internal/codex/declared_absence.go). Asserting AGENTS.md is what keeps
+	// this scoping test honest — with no positive assertion at all, an install
+	// that wrote nothing anywhere would pass the four negatives below.
+	assert.FileExists(t, filepath.Join(dir, codex.AgentsMDFile), "the named engine's cwd-keyed surface must be written")
+	assert.NoDirExists(t, filepath.Join(dir, codex.ConfigDirName),
+		"and no project-root .codex: codex has no durable project home to write one into")
 	assert.NoDirExists(t, filepath.Join(dir, ".ctxloom", "state", "engines"),
-		"and never at the retired durable per-project engine home")
+		"nor the retired durable per-project engine home")
 	for _, other := range []string{".claude", ".kiro", ".opencode", ".agents"} {
 		_, statErr := os.Stat(filepath.Join(dir, other))
 		assert.True(t, os.IsNotExist(statErr), "%s must NOT be written when --engine codex was asked for", other)
@@ -145,9 +149,10 @@ func TestManageInstall_NoEngineFlagAppliesAllBackends(t *testing.T) {
 	for _, backend := range []string{".claude", ".kiro", ".opencode"} {
 		assert.DirExists(t, filepath.Join(dir, backend), "omitting --engine must still wire %s", backend)
 	}
-	// codex's home is relocated out of the project root, so it is named through
-	// its own resolver rather than as a sibling dot-dir.
-	assert.DirExists(t, codex.ProjectHome(dir), "omitting --engine must still wire codex")
+	// codex has no sibling dot-dir to check: its home-keyed surfaces are a
+	// declared absence on this path. Its cwd-keyed AGENTS.md is what "wired
+	// codex" means for a static install.
+	assert.FileExists(t, filepath.Join(dir, codex.AgentsMDFile), "omitting --engine must still wire codex")
 }
 
 // TestCheckInstallEngineApplies covers the decision itself, free of the cobra

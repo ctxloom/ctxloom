@@ -203,13 +203,17 @@ type deliverySpec struct {
 	elsewhere string
 }
 
-// codexHomeRel is the delivery-root-relative path to codex's CODEX_HOME —
-// codex is the ONE engine whose settings/commands/skills surfaces are
-// HOME-keyed rather than cwd-keyed, so they do not sit where every other
-// engine's do. Asked of codex's own harpless resolver
-// (internal/codex.ProjectHome) with an empty root, because a literal here would
-// be this file's private opinion about a location codex's writers own.
-var codexHomeRel = codex.ProjectHome("")
+// codexLaunchOnly is the noOp reason codex's three HOME-keyed pairs carry at
+// this seam. codex is the ONE engine whose settings/commands/skills surfaces
+// are home-keyed rather than cwd-keyed, and since S7 the only homes that exist
+// are a per-session instance and the user's own ~/.codex — neither of which
+// this loop's harpless BuildSurfaces + Deliver(root) can name. Quoted from
+// codex's own declaration so this file cannot paraphrase it into something
+// subtly different.
+var codexLaunchOnly = "codex's home-keyed surfaces are a DECLARED ABSENCE on any harpless path: " +
+	codex.LaunchOnlySettingsReason + ". The real delivery — into a resolved CODEX_HOME — is covered by " +
+	"internal/codex's TestConfigSurface_DeliverWritesConfigTOML and its commands/skills siblings, and the " +
+	"absence itself by TestCodexHome_StaticSurfaceDeliveryWritesNothingHomeKeyed."
 
 // matrixSpecs is the expected destination for every DECLARED pair.
 // TestDeliveryApproach_DeclaredPairsAreExhaustive holds these keys equal to the
@@ -252,11 +256,14 @@ var matrixSpecs = map[string]deliverySpec{
 	// second spelling of hook, and would hand someone asking for a portable
 	// document a file that means nothing without ctxloom.
 	"codex/context/unsafe-file": {wantFile: "AGENTS.md", wantSlot: slotContext},
-	// The three CODEX_HOME-keyed surfaces land under the home ctxloom
-	// relocates, not at the project root beside AGENTS.md — see codexHomeRel.
-	"codex/settings/unsafe-file": {wantFile: codexHomeRel + "/config.toml", wantSlot: slotHook},
-	"codex/commands/unsafe-file": {wantFile: codexHomeRel + "/prompts/ctxsentinelcmd.md", wantSlot: slotCommand},
-	"codex/skills/unsafe-file":   {wantFile: codexHomeRel + "/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
+	// The three CODEX_HOME-keyed surfaces write NOTHING on this harpless seam —
+	// see codexLaunchOnly. They stay in the matrix rather than being dropped
+	// because a declared pair with no stated destination is a test bug, and
+	// because the day codex regrows a project-root fallback this is where the
+	// silence stops being expected.
+	"codex/settings/unsafe-file": {noOp: codexLaunchOnly},
+	"codex/commands/unsafe-file": {noOp: codexLaunchOnly},
+	"codex/skills/unsafe-file":   {noOp: codexLaunchOnly},
 
 	// ---- kiro --------------------------------------------------------------
 	"kiro/context/unsafe-file":  {wantFile: ".kiro/steering/ctxloom-context.md", wantSlot: slotContext},

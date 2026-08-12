@@ -131,20 +131,16 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 
 	// engineSkillMDPath returns the --target-relative path to the
 	// materialized ctxloom-doctor SKILL.md, per the per-engine table
-	// j000600_agent_skill.feature documents. codex's OWN skills surface is
-	// documented GLOBAL ($CODEX_HOME/skills — internal/codex/skillfiles.go's
-	// WriteSkillFiles, used by the LIVE run/launch path), but on the STATIC
-	// `profile materialize` CLI path codex.NewSurfaces binds Skills to an
-	// inline closure that — with no homeOverride, exactly like its Commands
-	// closure — cell-scopes the PROJECT-SCOPED home derived from the target
-	// dir (codex.ProjectHome, the engine-home policy's single owner), landing
-	// at codex.ProjectHome(<target>)/skills/ — the SAME
-	// cell-scoping its commands surface already uses
-	// (j000400_multi_engine.feature's own codex row, likewise under
-	// ProjectHome). Confirmed live (a real `profile materialize --backend
-	// codex` run, with $CODEX_HOME redirected to a fixture dir, wrote NOTHING
-	// there and wrote the skill under --target instead) — globality is
-	// realized only on the live run/launch path, not here.
+	// j000600_agent_skill.feature documents.
+	//
+	// codex has NO ROW, and the reason is worth stating because it changed.
+	// codex's skills surface is GLOBAL ($CODEX_HOME/skills —
+	// internal/codex/skillfiles.go's WriteSkillFiles), and the static
+	// `profile materialize` path used to cell-scope a project-root home to give
+	// it somewhere to land. S7 ended that: there is no durable project home, so
+	// a harpless materialize writes no skill package for codex at all
+	// (internal/codex/declared_absence.go). A codex row here would be asserting
+	// a file the product deliberately does not produce.
 	engineSkillMDPath := func(w *World) (string, error) {
 		j000600 := j000600Of(w)
 		switch j000600.engine {
@@ -155,7 +151,7 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 		case "opencode":
 			return filepath.Join(j000600.target, ".opencode", "skill", "ctxloom-doctor", "SKILL.md"), nil
 		case "codex":
-			return filepath.Join(codex.ProjectHome(j000600.target), "skills", "ctxloom-doctor", "SKILL.md"), nil
+			return "", fmt.Errorf("j000600: codex materializes no skill package on this path — %s", codex.LaunchOnlySettingsReason)
 		default:
 			return "", fmt.Errorf("j000600: unknown engine %q for the skill surface", j000600.engine)
 		}

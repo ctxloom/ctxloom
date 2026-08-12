@@ -45,22 +45,42 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file "<context_surface>" contains "<context_marker>"
       And the file ".gitignore" contains "ctxloom"
 
-      # codex's row names a project-root .codex, which is a HARPLESS path: a
-      # static `manage install` has no session, and codex's real settings
-      # surface since S5 is $CODEX_HOME/config.toml inside a per-session
-      # instance. This project-root join is the S7 interim (see
-      # codex.CodexHookWriter.SettingsPath) — no run resolves here, and S7
-      # replaces it with a declared absence.
+      # codex has no row here at all. Its settings surface is
+      # $CODEX_HOME/config.toml, and the only $CODEX_HOME ctxloom writes is a
+      # per-session one created at launch — a static `manage install` has no
+      # session and so no file (a DECLARED ABSENCE; see
+      # internal/codex/declared_absence.go). What install DOES write for codex
+      # is its cwd-keyed AGENTS.md, asserted in its own scenario below, and the
+      # absence itself is asserted right after this one.
       Examples: engines with a session hook — context is injected at launch
         | engine      | context_surface       | context_marker      |
         | claude-code | .claude/settings.json | hook inject-context |
-        | codex       | .codex/config.toml    | hook inject-context |
 
       Examples: engines without one — context is read from a materialized file
         | engine      | context_surface                 | context_marker         |
         | kiro        | .kiro/steering/ctxloom-context.md | inclusion: always    |
         | opencode    | .opencode/ctxloom-context.md    | Isolation              |
         | mock        | MOCK_CONTEXT.md                 | ctxloom:context:begin  |
+
+    # codex's install, stated in full: the cwd-keyed surface lands, the
+    # home-keyed ones do not, and the user is told which is which.
+    #
+    # BOTH HALVES OR NEITHER. The absence alone would be satisfied by an
+    # install that wrote nothing whatsoever; the presence alone would hide the
+    # narrowing. Together they say what a codex user actually gets from
+    # `manage install` — and the message is what stops them looking for a
+    # config.toml that is never coming.
+    Scenario: Installing for codex writes its cwd-keyed surface and declares the rest launch-only
+      Given an empty project directory
+      When Alice installs ctxloom for codex:
+        """
+        ctxloom manage install --engine codex
+        """
+      Then the command succeeds
+      And the file "AGENTS.md" contains "ctxloom:context:begin"
+      And the file ".codex/config.toml" does not exist
+      And the file ".codex/prompts/discover.md" does not exist
+      And the output contains "delivered per-session at launch"
 
     # ONE CLAIM, FOUR SHAPES. Every engine ctxloom drives gets the SAME
     # registration — ctxloom as an MCP server, launched by the ctxloom binary
@@ -87,9 +107,12 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | claude-code | .mcp.json                | ctxloom-auto | ${CLAUDE_PROJECT_DIR} |
         | kiro        | .kiro/settings/mcp.json  | mcpServers   | mcp           |
 
+      # codex folds its servers into a config the engine owns too — but into
+      # $CODEX_HOME's copy, which only a session has, so a static install
+      # registers nothing (the scenario above asserts that absence). opencode
+      # is the only engine left in this shape.
       Examples: folded into a config the engine already owns
         | engine   | mcp_surface        | server_key            | launch_marker |
-        | codex    | .codex/config.toml | [mcp_servers.ctxloom] | mcp           |
         | opencode | opencode.json      | ctxloom               | mcp           |
 
     # The engines that ALSO write a native agent-instruction file, which is a
@@ -143,10 +166,11 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the file "<command_surface>" contains "Scan the current project and discover matching ctxloom content"
 
+      # codex has no row: its prompts are $CODEX_HOME-global, delivered into a
+      # session's own home at launch, so a static install writes none.
       Examples: a flat command file
         | engine      | command_surface               |
         | claude-code | .claude/commands/discover.md  |
-        | codex       | .codex/prompts/discover.md    |
         | opencode    | .opencode/command/discover.md |
 
       Examples: a SKILL.md package directory
@@ -222,13 +246,15 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
   Rule: A materialized hook reaches every engine in its own native shape
 
-    # ONE hook, THREE files, THREE formats — PARSED in its own format and
+    # ONE hook, TWO files, TWO formats — PARSED in its own format and
     # asserted on the actual command field under the right event, never a
-    # bare file-exists or a substring of a key name. codex folds hooks
-    # into the same config file that also carries its MCP registration
-    # (codex's config.toml); kiro gets a hook surface of its own. kiro
-    # diverts the event name itself — session_start becomes agentSpawn —
-    # because that is kiro's own name for it, not ctxloom's.
+    # bare file-exists or a substring of a key name. kiro diverts the event
+    # name itself — session_start becomes agentSpawn — because that is kiro's
+    # own name for it, not ctxloom's.
+    #
+    # codex is the third engine and its answer is an absence, so it gets the
+    # scenario after this one rather than a row: it folds hooks into
+    # $CODEX_HOME/config.toml, which a static materialize cannot name.
     Scenario Outline: A team's hook reaches every engine's own hook surface
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       When Alice materializes the team profile for <engine>
@@ -237,8 +263,16 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Examples:
         | engine      |
         | claude-code |
-        | codex       |
         | kiro        |
+
+    # The team's guardrail does not reach a statically-materialized codex tree,
+    # and the report says so. This is the scenario that makes the narrowing
+    # honest: a hook silently dropped is a guardrail a team believes it has.
+    Scenario: A team's hook does not reach a materialized codex tree, and the report says why
+      Given Carol's team profile carries a shared fragment, command, MCP server, and hook
+      When Alice materializes the team profile for codex
+      Then no codex surface anywhere in the materialized tree carries the shared hook's command
+      And the materialize report says codex delivers those surfaces per-session at launch
 
   Rule: Hooks install, list, and genuinely uninstall
 

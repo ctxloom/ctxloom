@@ -178,9 +178,32 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 	// assertion against one guessed path — an absence claim is only worth
 	// something if it covers the whole output tree, since the interesting
 	// failure mode is "it landed somewhere I did not think to look".
-	ctx.Step(`^no (\S+) surface anywhere in the materialized tree carries the shared hook's command$`,
+	// The artifact is a PARAMETER because two different absences now need this
+	// shape: opencode's structural hook gap, and codex's declared absence of a
+	// durable project home for its settings, MCP servers and prompts. Three
+	// hand-written walks over one tree would drift.
+	ctx.Step(`^no (\S+) surface anywhere in the materialized tree carries the shared (hook's command|MCP server's command|command's body)$`,
+		func(c context.Context, engine, artifact string) error {
+			return j000400AssertMarkerNowhere(worldFrom(c), engine, artifact)
+		})
+
+	// codex's declared absence, asserted on the REPORT rather than the tree
+	// (the tree half is the step above). A materialize that quietly writes four
+	// true "wrote" lines and says nothing about the settings, MCP servers,
+	// prompts and skills that went nowhere is this project's signature failure
+	// — the loss has to be stated in the same report as the wins.
+	ctx.Step(`^the materialize report says (\S+) delivers those surfaces per-session at launch$`,
 		func(c context.Context, engine string) error {
-			return j000400AssertNoHookAnywhere(worldFrom(c), engine)
+			w := worldFrom(c)
+			out := w.env.LastOutput()
+			w.docStepMaterialized = fmt.Sprintf("materialize report for %s:\n%s", engine, out)
+			if !strings.Contains(out, "delivered per-session at launch") {
+				return fmt.Errorf("the %s materialize report never says where those surfaces DO come from, so a user reads it as %s simply losing them; report:\n%s", engine, engine, out)
+			}
+			if !strings.Contains(out, "NOT carried") {
+				return fmt.Errorf("the %s materialize report does not list the undelivered surfaces at all; report:\n%s", engine, out)
+			}
+			return nil
 		})
 
 	// The other half of the same finding, and the one that is @wip: the loss
@@ -507,11 +530,12 @@ func j000400AssertCtxloomMCPInvocation(w *World, engine, want string) error {
 // into the same config.toml its hooks live in; opencode folds "mcp" into the
 // same opencode.json its `instructions` context reference lives in.
 //
-// codex's path comes from codex's own writer rather than a literal: it is the
-// one engine whose config home ctxloom RELOCATES (internal/codex.ProjectHome),
-// so a spelled-out path here would be a second opinion about where the file is
-// — and a journey asserting the wrong location would pass or fail for reasons
-// that have nothing to do with the journey.
+// codex has NO ROW, and its absence is the declared one: its MCP servers fold
+// into $CODEX_HOME/config.toml, a file no harpless materialize can name
+// (internal/codex/declared_absence.go). Asking for one here is a scenario bug —
+// the codex claim is an ABSENCE claim, asserted by
+// j000400AssertMarkerNowhere over the whole tree — so the error says so rather
+// than handing back a path nothing will ever be at.
 func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 	switch engine {
 	case "claude-code":
@@ -519,7 +543,7 @@ func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 	case "kiro":
 		return filepath.Join(dir, ".kiro", "settings", "mcp.json"), "mcpServers", nil
 	case "codex":
-		return (&codex.CodexHookWriter{}).SettingsPath(dir), "mcp_servers", nil
+		return "", "", fmt.Errorf("j000400: codex has no materialized MCP registry to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
 	case "opencode":
 		return filepath.Join(dir, "opencode.json"), "mcp", nil
 	default:
@@ -621,9 +645,10 @@ func j000400AssertHook(w *World, engine string) error {
 		doc, err = j000400ReadJSON(w, rel)
 		event = "agentSpawn"
 	case "codex":
-		rel = (&codex.CodexHookWriter{}).SettingsPath(dir)
-		doc, err = j000400ReadTOML(w, rel)
-		event = "SessionStart"
+		// No row, for the same reason j000400MCPRegistryFor has none: codex's
+		// hooks live in $CODEX_HOME/config.toml, which a harpless materialize
+		// cannot name at all.
+		return fmt.Errorf("j000400: codex has no materialized hook configuration to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
 	default:
 		return fmt.Errorf("j000400: unknown engine %q", engine)
 	}
@@ -669,16 +694,37 @@ func j000400AssertHook(w *World, engine string) error {
 // slash to a dash (backends/commandfiles.go's exportNames), while kiro
 // preserves it as a subdirectory (internal/kiro/capabilities.go), rendering
 // commands as `<name>/SKILL.md` directories.
-// j000400AssertNoHookAnywhere proves a capability LOSS on the payload: it walks the
-// whole materialized tree and fails if ANY file carries the shared hook's
-// command. Used by U3's opencode row, where hooks are structurally absent —
-// internal/opencode's NewSurfaces dispatch table registers context, settings
-// (MCP folded in), commands and skills, and no hook surface at all.
+// j000400LostArtifacts maps the Gherkin phrase naming a shared artifact to the
+// sentinel that proves it landed. One map, so an absence claim and its matching
+// presence claim can never be about different bytes.
+var j000400LostArtifacts = map[string]string{
+	"hook's command":       j000400HookCommand,
+	"MCP server's command": j000400MCPCommand,
+	"command's body":       j000400CommandMarker,
+}
+
+// j000400AssertMarkerNowhere proves a delivery LOSS on the payload: it walks the
+// whole materialized tree and fails if ANY file carries the named artifact.
 //
-// It also guards the opposite regression: should opencode ever GAIN a hook
-// surface, this goes red and whoever adds it is pointed straight at the
-// journey scenario whose premise their change invalidates.
-func j000400AssertNoHookAnywhere(w *World, engine string) error {
+// Two different absences use it, for two different reasons, and the difference
+// matters to whoever it goes red on:
+//
+//   - opencode's hooks are STRUCTURALLY absent — internal/opencode's
+//     NewSurfaces registers context, settings (MCP folded in), commands and
+//     skills, and no hook surface at all.
+//   - codex's settings, MCP servers and prompts are a DECLARED ABSENCE on this
+//     harpless path: they exist only inside a per-session engine home
+//     (internal/codex/declared_absence.go), so a static materialize has nowhere
+//     to put them.
+//
+// It also guards the opposite regression both ways: should opencode gain a hook
+// surface, or codex regrow a durable project home, this goes red and whoever
+// did it is pointed at the scenario whose premise their change invalidates.
+func j000400AssertMarkerNowhere(w *World, engine, artifact string) error {
+	marker, ok := j000400LostArtifacts[artifact]
+	if !ok {
+		return fmt.Errorf("j000400: no sentinel known for the shared %s", artifact)
+	}
 	j000400 := j000400Of(w)
 	root := filepath.Join(w.env.ProjectDir, j000400.target)
 	var found []string
@@ -693,7 +739,7 @@ func j000400AssertNoHookAnywhere(w *World, engine string) error {
 		if rerr != nil {
 			return rerr
 		}
-		if strings.Contains(string(body), j000400HookCommand) {
+		if strings.Contains(string(body), marker) {
 			rel, _ := filepath.Rel(root, path)
 			found = append(found, rel)
 		}
@@ -703,9 +749,9 @@ func j000400AssertNoHookAnywhere(w *World, engine string) error {
 		return fmt.Errorf("j000400: walking the materialized %s tree (%s): %w", engine, j000400.target, err)
 	}
 	if len(found) > 0 {
-		return fmt.Errorf("expected %s to carry NO hook surface, but the shared hook's command appears in: %s -- if %s genuinely gained a hook mechanism, this journey's premise changed and the scenario needs rewriting, not silencing", engine, strings.Join(found, ", "), engine)
+		return fmt.Errorf("expected %s to carry the shared %s NOWHERE, but it appears in: %s -- if %s genuinely gained that surface, this journey's premise changed and the scenario needs rewriting, not silencing", engine, artifact, strings.Join(found, ", "), engine)
 	}
-	w.docStepMaterialized = fmt.Sprintf("%s: walked the whole materialized tree; the shared hook's command appears in no file", engine)
+	w.docStepMaterialized = fmt.Sprintf("%s: walked the whole materialized tree; the shared %s appears in no file", engine, artifact)
 	return nil
 }
 
@@ -717,7 +763,9 @@ func j000400AssertCommand(w *World, engine string) error {
 	case "claude-code":
 		rel = filepath.Join(dir, ".claude", "commands", "team-onboarding.md")
 	case "codex":
-		rel = filepath.Join(codex.ProjectHome(dir), "prompts", "team-onboarding.md")
+		// No row: codex's prompts are $CODEX_HOME-global, so a harpless
+		// materialize writes none (internal/codex/declared_absence.go).
+		return fmt.Errorf("j000400: codex has no materialized command file to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
 	case "kiro":
 		rel = filepath.Join(dir, ".kiro", "skills", "team", "onboarding", "SKILL.md")
 	case "opencode":

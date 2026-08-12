@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // The writer-agreement gate split in two when the engine home became a
@@ -24,9 +26,10 @@ import (
 //
 // The old single gate pinned run path and static writers to ONE root. That
 // claim is now false ON PURPOSE: a run resolves a per-session instance or the
-// user's real ~/.codex, and the harpless static writers resolve neither. What
-// remains true, and is pinned below, is that the harpless writers agree with
-// EACH OTHER.
+// user's real ~/.codex, and the harpless static writers resolve NOTHING AT ALL.
+// S7 turned the interim project-root join they briefly shared into a DECLARED
+// ABSENCE, so what the second gate below pins is that every one of them
+// declines — in its own idiom, and for the one stated reason.
 
 // TestCodexHome_RunPathAgreesWithinOneRun is gate (a). b.resolvedProjectDir
 // makes it true by construction — Setup computes the resolution once and
@@ -53,70 +56,109 @@ func TestCodexHome_RunPathAgreesWithinOneRun(t *testing.T) {
 		"run path (cellCodexHomeEnv — the env the child is spawned with)")
 
 	// And the surfaces, which are handed the SAME resolution as homeOverride.
-	assert.Equal(t, want, cellScopedCodexHome(codexHomeUnder(workDir, runDir)),
-		"delivery target (configSurface via codexHomeUnder)")
+	target, why := deliveryHome(runDir)
+	require.Equal(t, homeAvailable, why, "a resolved instance is deliverable")
+	assert.Equal(t, want, cellScopedCodexHome(target), "delivery target (configSurface via deliveryHome)")
 	assert.Equal(t, filepath.Join(want, ConfigFileName), (&CodexHookWriter{}).settingsPathIn(runDir),
 		"delivery target (settingsPathIn)")
 }
 
-// TestCodexHome_HarplessStaticWritersAgree is what survives of the old gate.
-// The static apply/materialize path has no session, so it cannot name an
-// instance; every harpless writer therefore shares the S7-interim project-root
-// join, and they must share it with each other — one name for one file is what
-// makes the SettingsWriter conformance suite's write-then-read-back mean
-// anything. S7 replaces this with a DECLARED ABSENCE
-// (launchOnlySettingsReason); until then, drift between these four is still a
-// silent split-writer bug.
-func TestCodexHome_HarplessStaticWritersAgree(t *testing.T) {
+// TestCodexHome_HarplessStaticWritersAllDecline is gate (b)'s in-package half,
+// and what survives of the old agreement gate. The static apply/materialize
+// path has no session, so it cannot name an instance — and since S7 it does not
+// pretend to. Every harpless writer declines, each in the idiom its own
+// signature allows, and each quoting the ONE declared reason.
+//
+// AGREEMENT IS STILL THE CLAIM. Four writers that decline for four different
+// reasons, or three that decline while a fourth quietly writes, is the same
+// split-writer bug the old gate existed to catch — it just shows up now as a
+// path that exists again rather than as two paths disagreeing.
+func TestCodexHome_HarplessStaticWritersAllDecline(t *testing.T) {
 	const workDir = "/proj"
-	want := ProjectHome(workDir)
-	require.Equal(t, filepath.Join(workDir, ConfigDirName), want,
-		"the harpless join is the project root's own .codex — no run resolves here")
 
-	assert.Equal(t, filepath.Join(want, ConfigFileName), (&CodexHookWriter{}).SettingsPath(workDir),
-		"static writer (CodexHookWriter.SettingsPath)")
+	assert.Empty(t, (&CodexHookWriter{}).SettingsPath(workDir),
+		"static writer (CodexHookWriter.SettingsPath) must name NO file")
 
-	registrarPath, err := (MCPRegistrar{}).ConfigPath(workDir, false)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(want, ConfigFileName), registrarPath, "static writer (MCPRegistrar.ConfigPath)")
+	writeErr := (&CodexHookWriter{}).WriteSettings(&wire.HooksConfig{}, nil, nil, workDir)
+	require.Error(t, writeErr, "static writer (CodexHookWriter.WriteSettings) must refuse")
+	assert.Contains(t, writeErr.Error(), LaunchOnlySettingsReason,
+		"the refusal must quote the declared reason, not invent a second one")
 
-	assert.Equal(t, want, cellScopedCodexHome(codexHomeUnder(workDir, "")),
-		"static surface delivery (codexHomeUnder with no homeOverride)")
+	_, registrarErr := (MCPRegistrar{}).ConfigPath(workDir, false)
+	require.Error(t, registrarErr, "static writer (MCPRegistrar.ConfigPath, project scope) must refuse")
+	assert.Contains(t, registrarErr.Error(), LaunchOnlySettingsReason)
+
+	_, why := deliveryHome("")
+	assert.Equal(t, homeLaunchOnly, why,
+		"static surface delivery (deliveryHome with no homeOverride) must refuse as launch-only")
+
+	status, err := (&CodexHookWriter{}).Status(workDir)
+	require.NoError(t, err, "a status read is a question, and 'nothing here' answers it")
+	assert.Equal(t, agent.SettingsStatus{}, status, "there is no project-keyed settings state to report")
 }
 
-// TestCodexHome_StaticSurfaceDeliveryLandsWhereTheStaticWriterSays is the
-// agreement asserted on BYTES rather than on strings: the static
+// TestCodexHome_StaticSurfaceDeliveryWritesNothingHomeKeyed is the declared
+// absence asserted on BYTES rather than on strings: the static
 // materialize/apply path (NewSurfaces with no homeOverride — registry.go's
-// closure) is driven for real and every artifact it produces must land under
-// the path the static writer names. A path assertion can agree with a writer
-// that never wrote; this one cannot.
-func TestCodexHome_StaticSurfaceDeliveryLandsWhereTheStaticWriterSays(t *testing.T) {
+// closure) is driven for real, and NOTHING home-keyed may appear anywhere
+// beneath the delivery dir.
+//
+// The walk is the point. Asserting "not at <projectDir>/.codex" would pass a
+// regression that moved the fallback one directory sideways; a whole-tree walk
+// for the three home-keyed artifacts passes only if none of them was written at
+// all. The cwd-keyed surfaces are asserted present by the sibling test below,
+// so this is not a vacuous "nothing was written" claim.
+func TestCodexHome_StaticSurfaceDeliveryWritesNothingHomeKeyed(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const workDir = "/proj"
-	home := ProjectHome(workDir)
 
 	s := NewSurfaces(sampleInputs(), "", "", fs)
 	for _, d := range []agent.Delivery{s.Config, s.Commands, s.Skills} {
 		_, err := d.Deliver(workDir)
-		require.NoError(t, err)
+		require.NoError(t, err, "a declared absence is a SKIP, not an error: materialize must keep going")
 	}
-
-	for _, rel := range []string{
-		ConfigFileName,
-		filepath.Join(PromptsDirName, "review.md"),
-		filepath.Join(SkillsDirName, "humanize", "SKILL.md"),
-	} {
-		path := filepath.Join(home, rel)
-		exists, err := afero.Exists(fs, path)
-		require.NoError(t, err)
-		assert.True(t, exists, "the static path delivered %s somewhere other than %s", rel, home)
-	}
-
-	// And NOT into the retired durable per-project home, which is what a
-	// half-reverted site would leave behind.
-	retired, err := afero.DirExists(fs, filepath.Join(workDir, ".ctxloom", "state", "engines"))
+	// The config surface reports the skip in the strongest form available to it,
+	// a NIL handle: there is nothing to revert. Its two siblings ride the shared
+	// manifest-scoped delivery, which returns a handle whose revert is itself a
+	// no-op — so for them the byte walk below is the whole claim.
+	delivered, err := s.Config.Deliver(workDir)
 	require.NoError(t, err)
-	assert.False(t, retired, "no surface may write the retired durable per-project engine home")
+	assert.Nil(t, delivered, "nothing was delivered, so there is no handle to clean up")
+
+	var written []string
+	require.NoError(t, afero.Walk(fs, "/", func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil //nolint:nilerr // a walk error on a memfs is not this test's subject
+		}
+		written = append(written, path)
+		return nil
+	}))
+	for _, path := range written {
+		for _, forbidden := range []string{ConfigFileName, PromptsDirName, SkillsDirName} {
+			assert.NotContains(t, path, forbidden,
+				"the harpless static path wrote a home-keyed artifact at %s; it has no home to write one into", path)
+		}
+	}
+}
+
+// TestCodexHome_StaticContextSurfacesStillDeliver is the vacuity guard for the
+// test above, and the answer to "did S7 just gut materialize for codex?". No:
+// codex's two CWD-keyed surfaces are untouched by the declaration and still
+// deliver on the harpless path, which is why `profile materialize --backend
+// codex` is NARROWED rather than emptied.
+func TestCodexHome_StaticContextSurfacesStillDeliver(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const workDir = "/proj"
+
+	s := NewSurfaces(sampleInputs(), "", "", fs)
+	for _, d := range []agent.Delivery{s.AgentsMD, s.Context} {
+		_, err := d.Deliver(workDir)
+		require.NoError(t, err)
+	}
+
+	data, err := afero.ReadFile(fs, filepath.Join(workDir, AgentsMDFile))
+	require.NoError(t, err, "AGENTS.md is cwd-keyed and must still be written")
+	assert.NotEmpty(t, data, "an empty AGENTS.md is the silent no-op this suite exists to catch")
 }
 
 // TestCodexHome_CwdKeyedSurfacesStayAtTheProjectRoot is the policy's other

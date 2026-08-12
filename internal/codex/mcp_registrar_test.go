@@ -22,9 +22,9 @@ func TestMCPRegistrar_ConfigPath(t *testing.T) {
 	// redirect the home resolution. The override itself is covered below.
 	t.Setenv("CODEX_HOME", "")
 	p, err := (MCPRegistrar{}).ConfigPath("/proj", false)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(ProjectHome("/proj"), "config.toml"), p,
-		"project scope resolves through the engine-home policy's single owner (StateHome), not a bare <workDir>/.codex")
+	require.Error(t, err, "project scope is the DECLARED ABSENCE: codex has no project-scoped config.toml")
+	assert.Empty(t, p, "a refusal must not also hand back a path the caller will join onto")
+	assert.Contains(t, err.Error(), LaunchOnlySettingsReason)
 
 	g, err := (MCPRegistrar{}).ConfigPath("/proj", true)
 	require.NoError(t, err)
@@ -44,10 +44,9 @@ func TestMCPRegistrar_ConfigPath_CodexHome(t *testing.T) {
 	assert.Equal(t, filepath.Join("/custom/codexhome", "config.toml"), g,
 		"global config rooted at $CODEX_HOME, not ~/.codex")
 
-	p, err := (MCPRegistrar{}).ConfigPath("/proj", false)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(ProjectHome("/proj"), "config.toml"), p,
-		"project scope ignores CODEX_HOME")
+	_, err = (MCPRegistrar{}).ConfigPath("/proj", false)
+	require.Error(t, err,
+		"project scope refuses whatever CODEX_HOME says: there is no project-scoped file for it to redirect")
 }
 
 // TestMCPRegistrar_UninstallParityWithSettingsWriter is the parity test across
@@ -122,22 +121,20 @@ func TestCodexPathVocabularyIsSingleSourced(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(envHome, ConfigFileName), global, "MCPRegistrar.ConfigPath (global)")
 
-	// The HARPLESS project-scoped consumers all hang off the project root (the
-	// S7-interim join — no run resolves here, see CodexHookWriter.SettingsPath)
-	// with the SAME vocabulary constants layered on top: they share one name for
-	// one file, which is what makes the conformance suite's write-then-read-back
-	// meaningful.
-	stateHome := "/proj"
-	project, err := (MCPRegistrar{}).ConfigPath("/proj", false)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(stateHome, ConfigDirName, ConfigFileName), project, "MCPRegistrar.ConfigPath (project)")
+	// The HARPLESS project-scoped consumers name NOTHING (the declared absence),
+	// while every RESOLVED-home consumer layers the same vocabulary constants on
+	// top of the home it was handed. Both halves belong in one test: the
+	// vocabulary is only worth pinning if the set of writers that use it is also
+	// pinned, and the pair that stopped using it is the interesting change.
+	_, err = (MCPRegistrar{}).ConfigPath("/proj", false)
+	require.Error(t, err, "MCPRegistrar.ConfigPath (project) declines")
+	assert.Empty(t, (&CodexHookWriter{}).SettingsPath("/proj"), "CodexHookWriter.SettingsPath declines")
 
-	assert.Equal(t, filepath.Join(stateHome, ConfigDirName, ConfigFileName),
-		(&CodexHookWriter{}).SettingsPath("/proj"), "CodexHookWriter.SettingsPath")
-	assert.Equal(t, filepath.Join(stateHome, ConfigDirName), ProjectHome("/proj"), "codex.ProjectHome")
-	assert.Equal(t, filepath.Join(stateHome, ConfigDirName), cellScopedCodexHome(stateHome))
-	assert.Equal(t, filepath.Join(stateHome, ConfigDirName, PromptsDirName), cellScopedPromptsDir(stateHome))
-	assert.Equal(t, filepath.Join(stateHome, ConfigDirName, SkillsDirName), cellScopedSkillsDir(stateHome))
+	resolved := "/proj/.ctxloom/state/ugly-icy-squid/home"
+	assert.Equal(t, filepath.Join(resolved, ConfigDirName, ConfigFileName), (&CodexHookWriter{}).settingsPathIn(resolved))
+	assert.Equal(t, filepath.Join(resolved, ConfigDirName), cellScopedCodexHome(resolved))
+	assert.Equal(t, filepath.Join(resolved, ConfigDirName, PromptsDirName), cellScopedPromptsDir(resolved))
+	assert.Equal(t, filepath.Join(resolved, ConfigDirName, SkillsDirName), cellScopedSkillsDir(resolved))
 }
 
 func TestMCPRegistrar_InstallPreservesForeignTables(t *testing.T) {

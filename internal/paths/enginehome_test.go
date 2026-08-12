@@ -2,6 +2,7 @@ package paths
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,4 +60,22 @@ func TestLayout_EngineStateHomeIsTierLocal(t *testing.T) {
 		return
 	}
 	t.Errorf("Layout() does not list %q at all", want)
+}
+
+// TestLayout_EngineStateHomeRowCoversEveryEngine is the check that keeps the
+// classification row a PARENT rather than a per-engine enumeration: Layout()
+// lists state/engines once, so a newly home-controlled engine (claude-code and
+// kiro joined codex) inherits the TierLocal classification with no new row. If
+// Layout ever starts enumerating engines individually, this goes red and the
+// missing rows have to be added deliberately instead of being silently
+// unclassified — an unclassified state directory is one doctor never warns
+// about losing.
+func TestLayout_EngineStateHomeRowCoversEveryEngine(t *testing.T) {
+	row := filepath.Join(AppDirName, StateDir, EnginesDir)
+	for _, engine := range []string{"codex", "claude-code", "kiro"} {
+		home := EngineStateHome(AppDirName, engine)
+		if !strings.HasPrefix(home, row+string(filepath.Separator)) {
+			t.Errorf("EngineStateHome(%q, %q) = %q is not covered by the Layout row %q", AppDirName, engine, home, row)
+		}
+	}
 }

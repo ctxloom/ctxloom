@@ -144,35 +144,108 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # not executed) these scenarios and their Go-level siblings together prove.
   # ===========================================================================
 
-  # workspace "none" is the baseline every other row in the matrix is
-  # measured against: it shares the live project dir AND the engine's shared
-  # global config — by design, not a bug — so NONE of the config-home
-  # machinery below (seeding, gating, curated HOME, findings) fires at all.
-  # Asserting this explicitly is what lets a later "worktree" cell's finding
-  # read as isolation actually engaging, rather than the isolation machinery
-  # just always firing regardless of which axis was requested.
+  # workspace "none" for ALICE'S OWN SESSION is the baseline every other row in
+  # the matrix is measured against: it shares the live project dir AND the
+  # engine's shared global config — by design, not a bug — so NONE of the
+  # config-home machinery below (seeding, gating, curated HOME, findings) fires
+  # at all. Asserting this explicitly is what lets a later "worktree" cell's
+  # finding read as isolation actually engaging, rather than the isolation
+  # machinery just always firing regardless of which axis was requested.
+  #
+  # "HER OWN SESSION" IS NOW LOAD-BEARING, and it did not used to be. Alice
+  # types `ctxloom run` and names no agent; the project's default agent is
+  # bound for her, but the session is hers. Her ~/.claude memory, plugins,
+  # personal MCP registrations and settings — and kiro's ~/.kiro global agents
+  # and steering — stay exactly where they were. An AGENT run in the same
+  # project does NOT get that treatment any more: see the sibling scenario
+  # below, which is the positive control for every absence asserted here. The
+  # two must be read together, or "nothing was created" degenerates into
+  # "nothing happens in this fixture at all".
   #
   # The baseline is asserted on PAYLOAD, not on the absence of a warning: the
   # engine really runs (exit 0, the spy process leaves its recording), it runs
-  # in the LIVE project dir, and not one of its config-home variables points
-  # into a per-agent scratch tree. An earlier version checked only that two
-  # phrases were missing from the output, which an audit showed is equally
-  # satisfied by a run in which the engine never launched at all.
+  # in the LIVE project dir, not one of its config-home variables points into a
+  # per-agent scratch tree, and no ctxloom-controlled home was created in the
+  # project. An earlier version checked only that two phrases were missing from
+  # the output, which an audit showed is equally satisfied by a run in which the
+  # engine never launched at all.
   #
   # This table lists TWO engines, not four, and the two absentees are the
   # honest part. codex and opencode each have their own scenario below,
   # because for them the sentence above is not true as written — and a table
   # row that quietly asserts less than its scenario's title claims is how the
   # audit's finding happened in the first place.
-  Scenario Outline: workspace "none" never touches any engine's config-home isolation at all
+  Scenario Outline: workspace "none" never touches any engine's config-home isolation for Alice's own session
     Given Alice has a git-backed project
-    When Alice runs the isolated "<engine>" agent under workspace "none"
+    When Alice runs "<engine>" under workspace "none" as her own session, naming no agent
     Then the run touches no isolation mechanism at all
+    And no ctxloom-controlled config home exists for "<engine>" in the project
 
     Examples:
       | engine      |
       | claude-code |
       | kiro        |
+
+  # THE OTHER HALF, and the positive control the scenario above depends on: the
+  # SAME project, the SAME none axis, the SAME engine — but Alice names an
+  # agent, so the run is ctxloom's process rather than hers. A ctxloom agent is
+  # not entitled to her memory, plugins, personal MCP registrations, global
+  # agents or steering, and must not write its session state into them, so it is
+  # given a project-scoped config home under `.ctxloom/state/engines/` instead.
+  #
+  # This is asserted on PAYLOAD from INSIDE the spawned engine process, not on
+  # ctxloom's own say-so: the spy dumps the config-home variable it was really
+  # handed, and `cat`s the credential file that variable points at. Both halves
+  # matter — a variable naming a home the engine cannot authenticate against is
+  # worse than no relocation at all, and asserting only the variable would pass
+  # in exactly that world.
+  #
+  # kiro has no credential half and correctly so: its subscription auth lives in
+  # a global sqlite under $XDG_DATA_HOME that KIRO_HOME does not relocate, so a
+  # FRESH KIRO_HOME stays authenticated and there is nothing to seed. Its row
+  # asserts instead that the home really exists and that Alice's own ~/.kiro was
+  # never created behind her back.
+  #
+  # codex is absent because it has ALWAYS had a project-scoped home on this axis
+  # (its own scenario below), and opencode because its only home lever is
+  # XDG_CONFIG_HOME/XDG_DATA_HOME, which are not engine-private.
+  Scenario Outline: An in-tree AGENT run gets a ctxloom-controlled config home instead of Alice's own
+    Given Alice has a git-backed project
+    And Alice has whatever host credentials "<engine>" needs to authenticate
+    When Alice runs the isolated "<engine>" agent under workspace "none"
+    Then the run reports no isolation finding
+    And the spy "<engine>" process's "<var>" env var points at the project-scoped engine state home
+    And Alice's own "<engine>" home directory was never created by the run
+
+    Examples:
+      | engine      | var               |
+      | claude-code | CLAUDE_CONFIG_DIR |
+      | kiro        | KIRO_HOME         |
+
+  # The credential half of the scenario above, claude-code only (kiro has no
+  # seedable credential — see that scenario's note). The bytes the engine reads
+  # out of its controlled home are the host fixture's, exactly; and Alice's own
+  # `~/.claude/.credentials.json` is READ, never rewritten. There is no
+  # migration on this axis — nothing has ever lived at the new path — so "the
+  # host copy is untouched" is the whole safety claim.
+  Scenario: An in-tree AGENT run seeds the controlled home from the host credential, and leaves the host's own copy alone
+    Given Alice has a git-backed project
+    And Alice has a "claude-code" credential fixture on the host
+    When Alice runs the isolated "claude-code" agent under workspace "none"
+    Then the isolated "claude-code" credential matches the host fixture byte-for-byte
+    And the host "claude-code" credential file was never modified
+    And the seeded "claude-code" credential is on disk in the project's engine state home
+
+  # The fail-loud half. With no ANTHROPIC_API_KEY and no host credential to
+  # seed, ctxloom refuses rather than pointing claude at a controlled home it
+  # cannot authenticate against — the same ClassIsolation mechanism the worktree
+  # axis uses, and degradable the same way. The failure names the run's own
+  # escape hatch, and it happens BEFORE any engine is spawned.
+  Scenario: An in-tree AGENT run refuses a controlled home it cannot authenticate
+    Given Alice has a git-backed project
+    And Alice has no "claude-code" credentials or API key on the host
+    When Alice runs the isolated "claude-code" agent under workspace "none"
+    Then the run aborts with an isolation finding naming "no ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json"
 
   # codex is the documented EXCEPTION to the baseline above, and it belongs in
   # the feature file rather than hidden in a table row that asserts around it.

@@ -650,13 +650,16 @@ func StatePath(appPath string) string {
 	return filepath.Join(appPath, StateDir)
 }
 
-// EngineStateHome is the project-scoped config home for engines whose project
-// delivery is HOME-KEYED rather than cwd-keyed — codex today, whose
-// config.toml/prompts/skills/auth.json all hang off $CODEX_HOME rather than the
-// working directory. An engine that reads its project surfaces from the cwd
-// (claude's CLAUDE.md/.claude, kiro's .kiro, opencode's opencode.json, the
-// shared AGENTS.md) is NOT relocated here: those live where the engine natively
-// looks, and ctxloom does not get a vote.
+// EngineStateHome is the project-scoped config home ctxloom points an engine's
+// HOME-RELOCATION variable at — $CODEX_HOME (codex, every axis),
+// $CLAUDE_CONFIG_DIR (claude-code) and $KIRO_HOME (kiro) on an in-tree AGENT
+// run. It holds what the engine keeps in its own home: config, global
+// prompts/skills/steering, session state, and seeded credentials.
+//
+// An engine's CWD-KEYED surfaces (claude's CLAUDE.md/.claude, kiro's .kiro,
+// opencode's opencode.json, the shared AGENTS.md) are NOT relocated here: those
+// live where the engine natively looks, and ctxloom does not get a vote. Only
+// the home moves, and only because ctxloom is the one choosing where it points.
 //
 // State tier, deliberately (see StateDir): the directory holds seeded
 // credentials and a user's own hand-edited engine config, so it is gitignored
@@ -664,11 +667,11 @@ func StatePath(appPath string) string {
 // exactly what disqualifies cache/ and what makes the single .ctxloom/state/
 // ignore rule cover a seeded auth.json.
 //
-// It is the ONE owner of the location: codex's run path
-// (resolveCodexProjectDir's in-tree arm) and every static writer
-// (CodexHookWriter, MCPRegistrar, the hook-scope collision check, doctor's MCP
-// surface list) resolve through it via internal/codex.StateHome, so the run and
-// the materialize can never target different roots — the writer split this
+// It is the ONE owner of the location. Each engine reaches it through its own
+// package's StateHome helper — internal/codex.StateHome,
+// internal/claude.StateHome, internal/kiro.StateHome — and every run path and
+// static writer for that engine resolves through that helper, so a run and a
+// materialize can never target different roots. That is the writer split this
 // helper exists to close.
 func EngineStateHome(appPath, engine string) string {
 	return filepath.Join(StatePath(appPath), EnginesDir, engine)
@@ -767,7 +770,7 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, StateDir), Tier: TierLocal, Lost: "local-only checkout state, e.g. the dirty-tree-commit acknowledgement — see DirtyTreeCommitAckPath"},
 		{
 			Rel: filepath.Join(AppDirName, StateDir, EnginesDir), Tier: TierLocal,
-			Lost: "the project-scoped config homes ctxloom points home-keyed engines at (codex's CODEX_HOME today — see EngineStateHome): the credentials seeded from this machine's host login, plus whatever the user hand-edited into the engine's own config there. Nothing rebuilds it; a fresh clone re-seeds from the host on the next run, and any hand-edits are simply gone",
+			Lost: "the project-scoped config homes ctxloom points relocated engines at (codex's CODEX_HOME on every axis; claude-code's CLAUDE_CONFIG_DIR and kiro's KIRO_HOME on in-tree agent runs — see EngineStateHome): the credentials seeded from this machine's host login, plus whatever the user hand-edited into the engine's own config there. Nothing rebuilds it; a fresh clone re-seeds from the host on the next run, and any hand-edits are simply gone",
 		},
 	}
 }

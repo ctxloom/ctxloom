@@ -327,6 +327,19 @@ type runState struct {
 	// boundAgent names the agent binding this run launched under (--agent or
 	// the default agent) — surround-bar identity only.
 	boundAgent string
+	// explicitAgent reports that the user NAMED an agent (`run --agent x`),
+	// as opposed to the bare launch that binds the always-bound default agent
+	// or the -p/-f/-t classic assembly that binds none.
+	//
+	// It exists as its own field because boundAgent cannot answer the
+	// question: resolveDefaultAgent sets boundAgent too, so "boundAgent != \"\""
+	// is true of a plain `ctxloom run` — the human's own session. The
+	// distinction is load-bearing for exactly one decision, the in-tree engine
+	// config home (prepareWorkspace → operations.InTreeAgentHomeEnv): naming
+	// an agent is asking ctxloom to run one, and a ctxloom agent is not
+	// entitled to the human's own ~/.claude memory, plugins and settings;
+	// typing `ctxloom run` is the human starting their own session, which is.
+	explicitAgent bool
 
 	// prepareRequestInputs: everything the RunStart payload is built from that
 	// does not depend on the session having been opened.
@@ -653,6 +666,9 @@ func (st *runState) resolveNamedAgent() error {
 		return rerr
 	}
 	st.applyResolvedAgent(rs, runAgent)
+	// The one arm where the USER named an agent. resolveDefaultAgent
+	// deliberately does not set this — see runState.explicitAgent.
+	st.explicitAgent = true
 	return nil
 }
 
@@ -1225,6 +1241,25 @@ func (st *runState) prepareWorkspace() {
 	// an explicit user/session var still wins over a resolved isolation var
 	// — this must never clobber a caller-set env, only fill gaps.
 	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, isolation.WorkspaceEnv(st.ws))
+
+	// IN-TREE AGENT HOME. On the none axis there is no isolation-provided
+	// config home, and claude/kiro would otherwise run against the human's own
+	// ~/.claude / ~/.kiro. A run bound to a NAMED agent is ctxloom's process,
+	// not the human's, so it gets a project-scoped controlled home instead;
+	// this run's own interactive session does not. See
+	// operations.InTreeAgentHomeEnv for the whole rule, and st.explicitAgent
+	// for why the DEFAULT-agent bare launch counts as the human's.
+	//
+	// Merged with the SAME precedence as the isolation env above (and layered
+	// under it — the call reads the already-merged map and declines any var
+	// already present), so an explicit user/session var still wins.
+	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
+		Backend:    st.backendName,
+		WorkDir:    st.workDir,
+		AgentBound: st.explicitAgent,
+		Policy:     st.policy,
+		Env:        st.req.Options.Env,
+	}))
 }
 
 // cleanupWorkspace tears the prepared workspace down. none's cleanup is a

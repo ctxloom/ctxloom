@@ -77,12 +77,17 @@ func (MCPRegistrar) Installed(config []byte, name string) (bool, error) {
 	return agent.MCPServerInstalledJSON(config, name)
 }
 
-// HomeEnv is the environment variable kiro honors to relocate its global
-// config home (agents/settings/skills/steering) away from the default
-// ~/.kiro. ctxloom's per-agent isolation (internal/lm/isolation) points this
-// at a private home per run for config/session state — but NOT credentials:
-// those live in a global sqlite keyed off XDGDataHomeEnv regardless of this
-// var (see internal/lm/isolation/auth.go's kiro credentialSeedSpecs entry).
+// HomeEnv is the environment variable kiro honors to relocate its home away
+// from the default ~/.kiro. Since kiro-cli 2.3.0 it relocates the FULL home —
+// global agents, prompts, skills, steering, settings AND sessions — not just
+// session state, which is how internal/lm/isolation's tables used to describe
+// it. ctxloom points it at a private home per run (per-agent under the worktree
+// axis, project-scoped under StateHome for an in-tree agent run).
+//
+// It does NOT relocate credentials: those live in a global sqlite keyed off
+// XDGDataHomeEnv regardless of this var (see internal/lm/isolation/auth.go's
+// kiro credentialSeedSpecs entry), which is exactly why a FRESH KIRO_HOME stays
+// authenticated and needs no credential seeding of its own.
 const HomeEnv = "KIRO_HOME"
 
 // XDGDataHomeEnv is the XDG env var kiro's subscription-auth sqlite store

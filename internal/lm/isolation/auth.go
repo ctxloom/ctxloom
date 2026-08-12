@@ -501,8 +501,9 @@ type credentialSeedSpec struct {
 	// per-engine-isolation-home plan §6, so the var wiring rides the SAME
 	// struct as the credential seed instead of a
 	// second hardcoded map. claude/codex: one entry each (their whole home
-	// moves with the var). kiro: two — KIRO_HOME (sessions only, always
-	// isolated) and XDG_DATA_HOME (the credential store, GatedOnCreds).
+	// moves with the var). kiro: two — KIRO_HOME (kiro's WHOLE home except
+	// credentials, always isolated) and XDG_DATA_HOME (the credential store,
+	// GatedOnCreds).
 	HomeVars []homeVar
 	// HonoursVarForCreds reports whether this engine's HomeVars actually
 	// relocate CREDENTIALS (true — claude/codex: sourceFiles/envTrigger seed
@@ -533,8 +534,8 @@ type homeVar struct {
 	Subdir string
 	// GatedOnCreds marks this var as the one that relocates the engine's
 	// CREDENTIAL store (not just config/session state) — kiro's
-	// XDG_DATA_HOME (its KIRO_HOME entry is NOT gated: it relocates sessions
-	// only, no creds, so it isolates unconditionally). Only meaningful on a
+	// XDG_DATA_HOME (its KIRO_HOME entry is NOT gated: it relocates kiro's
+	// whole home but no creds, so it isolates unconditionally). Only meaningful on a
 	// HonoursVarForCreds==false spec; ignored otherwise (a
 	// HonoursVarForCreds==true spec's vars are never gated — a seed
 	// failure there is reported by seedCredentials, but the var still
@@ -589,8 +590,19 @@ type seedFile struct {
 //     finding + omits it otherwise — turning kiro's previously-SILENT
 //     shared-sqlite non-isolation into a real per-agent
 //     isolation on the KIRO_API_KEY path and a loud, degradable error
-//     otherwise. Its KIRO_HOME entry (session jsonl only, no creds) stays
-//     unconditional.
+//     otherwise. Its KIRO_HOME entry stays unconditional — it carries no
+//     creds, so isolating it can never log an agent out.
+//
+//     KIRO_HOME's SCOPE, corrected 2026-08-11: this file used to describe it
+//     as relocating "sessions only" / "session jsonl only". That was true of
+//     an older kiro-cli and is now wrong — since kiro-cli 2.3.0 KIRO_HOME
+//     relocates the FULL home: global agents, prompts, skills, steering,
+//     settings AND sessions (internal/kiro.HomeEnv's doc). The credential
+//     carve-out is the only part that still holds, and it is the only part
+//     this comment ever needed to make. The correction matters beyond
+//     accuracy: "sessions only" made pointing an in-tree AGENT run at the
+//     human's own ~/.kiro look harmless, when it in fact hands that agent the
+//     human's global agents and steering — see internal/kiro.StateHome.
 //   - opencode: HonoursVarForCreds TRUE — the OPPOSITE of
 //     kiro's shape immediately above, despite both engines relocating via
 //     XDG_DATA_HOME: opencode's auth.json genuinely lives under
@@ -887,6 +899,49 @@ func SeedCodexHome(destDir string) (skipped bool, err error) {
 	}
 	if result == seedNoSource {
 		return false, fmt.Errorf("no OPENAI_API_KEY and no host ~/.codex/auth.json credentials found to authenticate this run — run `codex login` or set OPENAI_API_KEY")
+	}
+	return result == seedSkippedEnv, nil
+}
+
+// SeedClaudeHome seeds destDir/claude (internal/claude.InTreeConfigDir's
+// parent — that package joins the SAME leaf) with the host's claude
+// credentials, for a caller whose CLAUDE_CONFIG_DIR relocation is NOT driven by
+// an isolation Policy at all: an IN-TREE AGENT run points claude at a
+// project-scoped state home (internal/claude.StateHome) that this package's
+// Policy machinery never sees or seeds, so it would start empty and claude
+// would run logged out.
+//
+// SeedCodexHome's sibling in every respect — the SAME copy-based
+// credentialSeedSpecs["claude-code"] descriptor and hostCredentialSeed
+// mechanics provisionConfigHome already uses for the worktree axis, NOT a
+// second seeding mechanism — exported for the same reason: internal/operations
+// owns the in-tree agent-home policy but not this package's credential
+// registry.
+//
+// Returns (skipped=true, nil) when ANTHROPIC_API_KEY already authenticates
+// (claude's envTrigger): nothing to copy, not an error, and the caller still
+// points CLAUDE_CONFIG_DIR at the controlled home. Returns a descriptive,
+// actionable error when the host source (~/.claude/.credentials.json) is
+// missing or the copy fails, so the caller can fail loud instead of silently
+// relocating an authenticated run onto an empty home.
+//
+// The no-source error names only the two fixes that work — `claude login` and
+// ANTHROPIC_API_KEY. It deliberately does NOT offer "(or pass --degraded)":
+// that escape belongs to the CALLER's strictness finding (which is where
+// --degraded is actually consulted), not to this error string, and naming a
+// flag inside a message the caller may surface verbatim on a path where it does
+// nothing is the mistake SeedCodexHome's doc records having already made once.
+func SeedClaudeHome(destDir string) (skipped bool, err error) {
+	spec, ok := credentialSeedSpecs["claude-code"]
+	if !ok || spec.sourceFiles == nil {
+		return false, fmt.Errorf("claude credential seed spec is not registered (internal error)")
+	}
+	result, err := hostCredentialSeed(spec, destDir)
+	if err != nil {
+		return false, err
+	}
+	if result == seedNoSource {
+		return false, fmt.Errorf("no ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json credentials found to authenticate this run — run `claude login` or set ANTHROPIC_API_KEY")
 	}
 	return result == seedSkippedEnv, nil
 }

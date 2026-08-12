@@ -352,7 +352,7 @@ func (w Worktree) seedCredentials(configHome, agentID string) map[string]bool {
 // ClassIsolation fail-loud finding (degradable via --degraded) and returns the
 // var DENIED — Env() omits it, so the agent falls back to the engine's shared
 // global store instead. Non-gated HomeVars on the same spec (kiro's KIRO_HOME —
-// sessions only, no creds) are never denied.
+// kiro's whole home, but no creds) are never denied.
 func (w Worktree) gateHomeVars(spec credentialSeedSpec, agentID string) map[string]bool {
 	granted := spec.envTrigger != "" && os.Getenv(spec.envTrigger) != ""
 	var denied map[string]bool

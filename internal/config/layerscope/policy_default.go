@@ -63,6 +63,23 @@ func DefaultPolicy() Policy {
 
 		{Path: "delegation.concurrency", Scope: ScopeMachine, Note: "a resource ceiling — a fact about the box"},
 		{Path: "delegation.depth", Scope: ScopeMachine, Note: "a structural safety ceiling, tuned per box like a resource cap; a team's shared policy would belong in agents.*.permissions instead"},
+		// Machine, with its siblings, and for the SAME kind of reason
+		// delegation.concurrency is: what it decides is a cost this box pays,
+		// not behaviour this project has. The tee changes no delivery — every
+		// read still comes from the mailbox — so there is nothing about it a
+		// team could legitimately decide once for everyone; what it does is
+		// spend this machine's disk and two fsyncs per message writing
+		// evidence into ~/.ctxloom/sessions/<harp>/persist/spool that only the
+		// operator running the soak will ever read. Committing it would opt
+		// every clone into paying for that.
+		//
+		// NOT ScopeInvocation, despite being a rollout switch: a soak is
+		// measured over days, and Invocation would restrict it to env and
+		// flag — i.e. forbid the home config file that is exactly where an
+		// operator leaves it on across many runs. "Per-run" here means each
+		// delegated run carries the posture (the coordinator stamps it into
+		// the runner's env at spawn), not that it varies per invocation.
+		{Path: "delegation.spool_tee", Scope: ScopeMachine, Note: "a soak switch whose cost is this box's disk and fsyncs; it changes no delivery, so there is nothing here for a team to decide once for everyone"},
 
 		{Path: "llm.configs.*", Scope: ScopePreference, Note: "which model a person likes; harmless in either file"},
 		{Path: "llm.configs.*.binary_path", Scope: ScopeMachine, Note: "an absolute path on this filesystem"},

@@ -107,16 +107,45 @@ func planPresetSpawnerFor(backend string, mk func() *scriptedChat) *fakeSpawner 
 	return sp
 }
 
-// TestApproval_RelayRoundTrip pins the core C2 flow both ways: a plan-preset
-// child's COMMAND_EXECUTION relays to the parent's mailbox with a
-// correlation id and the ApprovalRequest's proto projection, the parent
-// answers via agent_send(in_reply_to, structured), and the child's engine
-// receives the matching option — proceeding on ACCEPT, declining on
-// DECLINE. The journal shows the full chain: the runner's own
-// InteractionRecorded item (counted) plus the coordinator's per-rung audit
-// trail (relay_to_role → granted/denied), which is where "which rung
-// answered" is actually queryable (facts.go's audit journal, no
-// projection — read straight off disk, matching the live operational rule).
+// relayLadderSpawner builds a fakeSpawner with one migrated agent "worker"
+// whose ladder has exactly one ActionRelayToRole rung (timeout given
+// explicitly by the caller) — the explicit-ladder vehicle every RELAY-
+// MECHANISM test (mailbox landing, reply decode, ACCEPT_FOR_SESSION
+// caching, slot-yield contention) uses as of marauding-hacksaw: the plan
+// PRESET no longer relays a COMMAND_EXECUTION directly (presetLadder now
+// surfaces to a human FIRST — see ladder.go), so a test whose actual
+// subject is the relay mechanism itself, not which preset selects it,
+// builds the relay rung explicitly here, exactly as an agent's own
+// escalation: block would (buildLadder's explicit path is untouched by the
+// preset change — TestBuildLadder_ExplicitRelayOnlyOmitsPresetSurfaceRung).
+func relayLadderSpawner(mk func() *scriptedChat, timeout time.Duration) *fakeSpawner {
+	return relayLadderSpawnerFor("", mk, timeout)
+}
+
+// relayLadderSpawnerFor is relayLadderSpawner with a settable backend label
+// (Wave C3 backend-parity variant) — "" keeps the default ("mock").
+func relayLadderSpawnerFor(backend string, mk func() *scriptedChat, timeout time.Duration) *fakeSpawner {
+	ladder := Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: timeout}}
+	sp := newFakeSpawner(map[string]fakeAgent{
+		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, backend: backend, ladder: ladder},
+	}, nil)
+	sp.nextChat = mk
+	return sp
+}
+
+// TestApproval_RelayRoundTrip pins the core C2 flow both ways: a child under
+// an explicit relay_to_role-only ladder (relayLadderSpawner — the preset no
+// longer relays a COMMAND_EXECUTION directly since marauding-hacksaw;
+// TestPresetLadder_PlanSurfacesToHumanFirst pins THAT flow) relays its
+// COMMAND_EXECUTION to the parent's mailbox with a correlation id and the
+// ApprovalRequest's proto projection, the parent answers via
+// agent_send(in_reply_to, structured), and the child's engine receives the
+// matching option — proceeding on ACCEPT, declining on DECLINE. The journal
+// shows the full chain: the runner's own InteractionRecorded item (counted)
+// plus the coordinator's per-rung audit trail (relay_to_role →
+// granted/denied), which is where "which rung answered" is actually
+// queryable (facts.go's audit journal, no projection — read straight off
+// disk, matching the live operational rule).
 func TestApproval_RelayRoundTrip(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -130,7 +159,7 @@ func TestApproval_RelayRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			resetStrictness(t)
 			permReq := commandExecRequest("perm-1")
-			sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
+			sp := relayLadderSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} }, conformanceWait)
 			c := newTestCoordinator(t, sp, nil)
 
 			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")
@@ -193,15 +222,15 @@ func TestApproval_RelayRoundTrip(t *testing.T) {
 // acceptance: the SAME relay round-trip TestApproval_RelayRoundTrip proves
 // for claude/mock also holds for codex and kiro — ForwardPermissions
 // (decodeHarnessSpec) and the escalation ladder (approval.go) never branch
-// on the harness/backend name, only on ApprovalKind, so a plan-preset
-// COMMAND_EXECUTION relays and resolves identically regardless of which
-// backend label the run carries.
+// on the harness/backend name, only on ApprovalKind, so a relay_to_role
+// rung's COMMAND_EXECUTION relays and resolves identically regardless of
+// which backend label the run carries.
 func TestApproval_RelayRoundTrip_BackendParity(t *testing.T) {
 	for _, backend := range []string{"codex", "kiro"} {
 		t.Run(backend, func(t *testing.T) {
 			resetStrictness(t)
 			permReq := commandExecRequest("perm-1")
-			sp := planPresetSpawnerFor(backend, func() *scriptedChat { return &scriptedChat{permission: permReq} })
+			sp := relayLadderSpawnerFor(backend, func() *scriptedChat { return &scriptedChat{permission: permReq} }, conformanceWait)
 			c := newTestCoordinator(t, sp, nil)
 
 			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")
@@ -285,7 +314,7 @@ func TestApproval_TimeoutFallsThroughToCancel(t *testing.T) {
 func TestApproval_AcceptForSessionSuppressesSecondAsk(t *testing.T) {
 	resetStrictness(t)
 	permReq := commandExecRequest("perm-first")
-	sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
+	sp := relayLadderSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} }, conformanceWait)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")
@@ -353,7 +382,7 @@ func TestApproval_AcceptForSessionSuppressesSecondAsk(t *testing.T) {
 func TestApproval_AcceptForSessionSurvivesRunIDChange(t *testing.T) {
 	resetStrictness(t)
 	permReq := commandExecRequest("perm-first")
-	sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
+	sp := relayLadderSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} }, conformanceWait)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")
@@ -503,16 +532,19 @@ func TestApproval_PlanPresetAutoDeclinesFileChange(t *testing.T) {
 // exists post-kill (the degraded no-reach-back fallback + any
 // non-allowlisted StructuredChat backend — see delegate.go's Start doc), so
 // the test is not moot: it spawns a LEGACY (non-StartRun) child alongside a
-// MIGRATED child that walks the full plan-preset approval-relay round trip,
-// and pins that the two run entirely independently — the legacy child never
-// touches the plane-1 approval item journal, keeps taking turns unaffected
-// by its sibling's ladder activity, and the migrated child's relay resolves
-// exactly as TestApproval_RelayRoundTrip proves in isolation.
+// MIGRATED child that walks a full explicit relay_to_role approval-relay
+// round trip (relayLadderSpawner's vehicle — the plan preset itself no
+// longer relays directly since marauding-hacksaw), and pins that the two
+// run entirely independently — the legacy child never touches the plane-1
+// approval item journal, keeps taking turns unaffected by its sibling's
+// ladder activity, and the migrated child's relay resolves exactly as
+// TestApproval_RelayRoundTrip proves in isolation.
 func TestLegacyChild_UnaffectedByMigratedSiblingApprovalLadder(t *testing.T) {
 	resetStrictness(t)
 	permReq := commandExecRequest("perm-legacy-sibling")
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true},
+		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true,
+			ladder: Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: conformanceWait}}},
 		// "legacy" declares no viaStartRun (zero value: false) — it rides
 		// fakeSpawner.Launch, the legacy go-plugin Chat dial's test analog.
 		"legacy": {perm: "bypass", profiles: []string{"p1"}},
@@ -575,7 +607,7 @@ func TestLegacyChild_UnaffectedByMigratedSiblingApprovalLadder(t *testing.T) {
 func TestApproval_ReplyRacingTheRelayResolves(t *testing.T) {
 	resetStrictness(t)
 	permReq := commandExecRequest("perm-1")
-	sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
+	sp := relayLadderSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} }, conformanceWait)
 	c := newTestCoordinator(t, sp, nil)
 
 	// Reply at the earliest instant the correlation id exists: the moment the

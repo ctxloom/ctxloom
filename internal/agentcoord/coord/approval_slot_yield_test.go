@@ -31,7 +31,11 @@ import (
 func TestApproval_DecisionSurvivesSlotContention(t *testing.T) {
 	resetStrictness(t)
 	permReq := commandExecRequest("perm-1")
-	sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
+	// Explicit relay_to_role ladder, not the plan preset (relayLadderSpawner):
+	// this test's subject is the SLOT-YIELD mechanism during any parked
+	// approval, not which preset selects relay_to_role — the plan preset no
+	// longer relays a COMMAND_EXECUTION directly since marauding-hacksaw.
+	sp := relayLadderSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} }, conformanceWait)
 	c := newTestCoordinatorCap(t, sp, nil, 1) // exactly one slot, so contention is forced
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")

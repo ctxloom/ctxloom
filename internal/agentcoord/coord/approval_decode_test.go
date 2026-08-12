@@ -59,14 +59,19 @@ func pendingApprovalCount(c *Coordinator) int {
 	return len(c.approvals)
 }
 
-// startRelayedApproval spawns a plan-preset child that immediately asks for a
-// COMMAND_EXECUTION approval and returns the coordinator, the spawner, the
-// child harp, and the relayed mail's correlation id.
+// startRelayedApproval spawns a child under an explicit relay_to_role-only
+// ladder (relayLadderSpawner — the plan preset itself no longer relays a
+// COMMAND_EXECUTION directly since marauding-hacksaw; this file's subject is
+// the REPLY DECODE path, which relay_to_role and surface_to_human share
+// identically, so the vehicle is the explicit ladder, not the preset) that
+// immediately asks for a COMMAND_EXECUTION approval, and returns the
+// coordinator, the spawner, the child harp, and the relayed mail's
+// correlation id.
 func startRelayedApproval(t *testing.T, permID string) (*Coordinator, *fakeSpawner, string, string) {
 	t.Helper()
 	resetStrictness(t)
 	permReq := commandExecRequest(permID)
-	sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
+	sp := relayLadderSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} }, conformanceWait)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")

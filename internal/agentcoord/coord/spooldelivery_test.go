@@ -358,9 +358,11 @@ func TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel(t *testing.T) {
 		Token:              "unused",
 		RunID:              "run-cold",
 		Harness:            "mock",
-		Harp:               harp,
-		SpoolDelivery:      true,
-		SpoolSweepInterval: 150 * time.Millisecond,
+		Harp:          harp,
+		SpoolDelivery: true,
+		// The PRODUCTION cadence, deliberately: at 30s nothing but the
+		// STARTUP pass can deliver inside this test's budget, so a delivery
+		// here is proof of the cold-start path and not of a fast timer.
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { home.crash() })

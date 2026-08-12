@@ -151,10 +151,15 @@ func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan *agentcoordp
 //     still never a blocking send — rather than trading invariant 1 away
 //     even for this one event. The evicted event becomes an honest seq gap,
 //     which is exactly what PART 1's consumer-side detection is for.
+func isTerminal(ev *agentcoordpb.AgentEvent) bool {
+	_, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
+	return ok
+}
+
 func (h *watchHub) broadcast(ev *agentcoordpb.AgentEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, terminal := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
+	terminal := isTerminal(ev)
 	for sub := range h.subs {
 		if len(sub.runIDs) > 0 && !sub.runIDs[ev.GetRunId()] {
 			continue
@@ -190,16 +195,58 @@ func sendTerminal(ch chan *agentcoordpb.AgentEvent, ev *agentcoordpb.AgentEvent)
 		default:
 		}
 		if attempt == terminalEvictAttempts {
-			// Every attempt raced a full ring that never yielded a slot —
-			// acceptable-but-unlikely (it would take the serving loop
-			// refilling the ring as fast as we can evict from it): fall
-			// through and drop, same as any other event this hub ever
-			// drops under sustained overload.
+			// Every attempt raced a full ring that never yielded a slot, OR the
+			// ring is saturated with OTHER runs' terminals evictOneNonTerminal
+			// refuses to sacrifice — fall through and drop, same as any other
+			// event this hub drops under sustained overload.
 			return
 		}
+		evictOneNonTerminal(ch)
+	}
+}
+
+// evictOneNonTerminal frees one slot in ch by dropping its OLDEST NON-terminal
+// event, and only a non-terminal (F09): a terminal is the one event whose loss
+// is unrecoverable (no seq gap ever reveals it, and a watcher waits on it
+// forever), so sendTerminal draining another run's terminal here to make room —
+// the payload-blind `<-ch` this replaced — destroyed the very invariant it
+// exists to protect (both production subscribers watch ALL runs, so one ring
+// carries many runs' terminals). It drains events until it finds a non-terminal
+// to sacrifice, holding any terminals it must drain past and re-queuing them so
+// only a seq-gap-recoverable event is dropped. If every queued event is itself a
+// terminal, nothing is evicted and the caller's bounded retry falls through to
+// the F10 drop-with-diagnostic. Stays non-blocking throughout (never trades away
+// broadcast's never-block invariant), and runs under watchHub.mu so no
+// concurrent broadcast races the drain — only the serving loop drains ch too,
+// which is safe (it delivers, never loses).
+func evictOneNonTerminal(ch chan *agentcoordpb.AgentEvent) {
+	var held []*agentcoordpb.AgentEvent
+	for {
+		var e *agentcoordpb.AgentEvent
 		select {
-		case <-ch: // evict the oldest queued event to make room
+		case e = <-ch:
 		default:
+			// Ring drained without a non-terminal to sacrifice: put the
+			// terminals back (in order) and let the retry bound decide.
+			requeue(ch, held)
+			return
+		}
+		if !isTerminal(e) {
+			// Sacrifice this one non-terminal, then restore any terminals we
+			// had to drain past to reach it.
+			requeue(ch, held)
+			return
+		}
+		held = append(held, e)
+	}
+}
+
+func requeue(ch chan *agentcoordpb.AgentEvent, evs []*agentcoordpb.AgentEvent) {
+	for _, e := range evs {
+		select {
+		case ch <- e:
+		default:
+			return
 		}
 	}
 }

@@ -273,30 +273,61 @@ func TestCodex_buildArgs_NoModelWhenEmpty(t *testing.T) {
 // (container fresh-$HOME) for the two axes the isolation package never sees.
 // =============================================================================
 
-// TestResolveCodexProjectDir_NoIsolation_UsesTheProjectStateHome pins the
-// in-tree default (None/shared-cwd, or no backend context): no
-// isolation-provided CODEX_HOME in env, not a container cell → the virtual
-// project dir is the project-scoped state home, StateHome(WorkDir), NOT WorkDir
-// itself. That is the engine-home policy: a home ctxloom RELOCATES lives in the
-// gitignored, unrebuildable tier, one root for the run path and every static
-// writer alike.
-func TestResolveCodexProjectDir_NoIsolation_UsesTheProjectStateHome(t *testing.T) {
+// TestResolveCodexProjectDir_NoControlledHome_UsesTheRealHostHome is D2's core
+// case (ruled 2026-08-11). With no isolation-provided CODEX_HOME and no
+// container cell, codex uses the user's OWN ~/.codex — it no longer relocates
+// unconditionally. It relocated for years on the reasoning that the target was
+// durable and nothing of the user's was being taken; a per-session, disposable
+// instance takes token refreshes, accumulated trust and session state away
+// every session, which is why the decision now rides config_home like claude's
+// and kiro's, in operations.InTreeAgentHomeEnv, and reaches this function only
+// as an isolation-provided value.
+func TestResolveCodexProjectDir_NoControlledHome_UsesTheRealHostHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
 	dir, source := resolveCodexProjectDir(nil, "/proj", agent.CellKindShared)
-	assert.Equal(t, StateHome("/proj"), dir)
-	assert.Equal(t, "/proj/.ctxloom/state/engines/codex", dir,
-		"spelled out once, so a change to the policy's location cannot pass by agreeing with itself")
-	assert.Equal(t, codexHomeInTree, source)
+	assert.Equal(t, home, dir)
+	assert.Equal(t, codexHomeRealHost, source)
+	assert.Equal(t, filepath.Join(home, ConfigDirName), cellScopedCodexHome(dir),
+		"the final CODEX_HOME is the user's real ~/.codex")
+	assert.NotContains(t, dir, ".ctxloom",
+		"no controlled home means no in-tree relocation at all — not even a per-session one")
 }
 
-// TestResolveCodexProjectDir_EmptyWorkDir mirrors cellCodexHomeEnv's old
-// "" → "." fallback: the relative form of the same state home, so an empty
-// WorkDir still lands somewhere self-consistent rather than at the filesystem
-// root.
-func TestResolveCodexProjectDir_EmptyWorkDir(t *testing.T) {
-	dir, source := resolveCodexProjectDir(nil, "", agent.CellKindShared)
-	assert.Equal(t, StateHome("."), dir)
-	assert.Equal(t, ".ctxloom/state/engines/codex", dir)
-	assert.Equal(t, codexHomeInTree, source)
+// TestResolveCodexProjectDir_NoControlledHome_IgnoresWorkDir states the same
+// fact from the other side: WorkDir no longer participates in the fallback, so
+// no spelling of the project root (nor an empty one) can produce an in-tree
+// codex home by accident.
+func TestResolveCodexProjectDir_NoControlledHome_IgnoresWorkDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, workDir := range []string{"", "/proj", "relative/proj"} {
+		dir, source := resolveCodexProjectDir(nil, workDir, agent.CellKindShared)
+		assert.Equal(t, home, dir, "WorkDir %q must not affect the real-home fallback", workDir)
+		assert.Equal(t, codexHomeRealHost, source)
+	}
+}
+
+// TestResolveCodexProjectDir_SessionInstance_ArrivesAsIsolationProvided is D2's
+// other half: the per-session instance a `config_home: project` binding earns
+// is contributed as CODEX_HOME by operations.InTreeAgentHomeEnv (through the
+// backends inTreeAgentHome seam), so codex sees it as an already-prepared home
+// and strips its ".codex" suffix back to the virtual project dir. There is ONE
+// decision point, and it is not here.
+func TestResolveCodexProjectDir_SessionInstance_ArrivesAsIsolationProvided(t *testing.T) {
+	instance, err := SessionHome("/proj", "ugly-icy-squid")
+	require.NoError(t, err)
+
+	dir, source := resolveCodexProjectDir(
+		map[string]string{CodexHomeEnv: filepath.Join(instance, ConfigDirName)}, "/proj", agent.CellKindShared)
+
+	assert.Equal(t, instance, dir)
+	assert.Equal(t, codexHomeIsolationProvided, source,
+		"a ctxloom-created instance is already prepared and is trust-pre-seed eligible")
+	assert.Equal(t, filepath.Join("/proj", ".ctxloom", "state", "ugly-icy-squid", "home", ".codex"), cellScopedCodexHome(dir),
+		"spelled out once, so a change to the instance layout cannot pass by agreeing with itself")
 }
 
 // TestResolveCodexProjectDir_IsolationProvided_StripsCodexSuffix is the
@@ -344,16 +375,27 @@ func TestResolveCodexProjectDir_ProcessIsolated_UsesHomeEnv(t *testing.T) {
 	assert.Equal(t, "/home/ctxloom/.codex", cellScopedCodexHome(dir), "matches codexCredentialMounts' mount target exactly")
 }
 
-// TestResolveCodexProjectDir_ProcessIsolated_NoHomeFallsBackToWorkDir covers
-// the defensive fallback: a container cell with no $HOME set at all
-// (unexpected — every container spec sets one) degrades to the same
-// codexHomeInTree path a Shared cell takes, so it still gets ACTIVE seeding
-// (ensureCodexCredentials) rather than silently trusting an unverified home.
-func TestResolveCodexProjectDir_ProcessIsolated_NoHomeFallsBackToWorkDir(t *testing.T) {
+// TestResolveCodexProjectDir_NoResolvableHome_ContributesNothing covers the
+// one degenerate case: no $HOME at all (a container cell whose spec forgot one,
+// or a host with an unresolvable home dir). The answer is to name NO home —
+// contributing an invented path would point codex somewhere nobody asked for,
+// which is worse than letting codex apply its own ~/.codex precedence and fail
+// on its own terms. It is announced, never silent.
+func TestResolveCodexProjectDir_NoResolvableHome_ContributesNothing(t *testing.T) {
 	t.Setenv("HOME", "")
-	dir, source := resolveCodexProjectDir(nil, "/workspace/proj", agent.CellKindProcessIsolated)
-	assert.Equal(t, StateHome("/workspace/proj"), dir)
-	assert.Equal(t, codexHomeInTree, source)
+	var dir string
+	var source codexHomeSource
+	out := captureStderr(t, func() {
+		dir, source = resolveCodexProjectDir(nil, "/workspace/proj", agent.CellKindProcessIsolated)
+	})
+	assert.Empty(t, dir, "no resolvable home means no CODEX_HOME contribution")
+	assert.Equal(t, codexHomeRealHost, source)
+	assert.Contains(t, out, CodexHomeEnv, "the degradation is announced")
+
+	b := NewCodex()
+	b.resolvedProjectDir = dir
+	assert.Nil(t, b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: "/workspace/proj", Env: map[string]string{}}),
+		"and Execute contributes no CODEX_HOME either, rather than a bare relative .codex")
 }
 
 // =============================================================================
@@ -362,68 +404,59 @@ func TestResolveCodexProjectDir_ProcessIsolated_NoHomeFallsBackToWorkDir(t *test
 // codex at all when it is set (see the Execute tests further below).
 // =============================================================================
 
-// TestEnsureCodexCredentials_IsolationProvided_NoOp pins that the worktree
-// fan-out axis is a deliberate no-op here: it is already seeded (and already
-// fails loud) upstream by isolation.Prepare, before this run starts.
+// TestEnsureCodexCredentials_IsolationProvided_NoOp pins that an
+// already-prepared home is a deliberate no-op here: the worktree fan-out axis
+// is seeded (and fails loud) upstream by isolation.Prepare, and the per-session
+// instance is prepared (and fails loud) by the inTreeAgentHome spec's Prepare,
+// both before this run starts.
 func TestEnsureCodexCredentials_IsolationProvided_NoOp(t *testing.T) {
-	restoreSeed := stubSeedCodexHomeFn(t, func(string) (bool, error) {
-		t.Fatal("seedCodexHomeFn must not be called for codexHomeIsolationProvided")
-		return false, nil
-	})
-	defer restoreSeed()
-	assert.NoError(t, ensureCodexCredentials("/tmp/ctxloom-cfg-x", codexHomeIsolationProvided, resolveOpenAIAPIKey(nil, nil)))
+	// A directory with NO auth.json: if this arm ever started verifying, this
+	// would fail — which is the point, it must not.
+	assert.NoError(t, ensureCodexCredentials(t.TempDir(), codexHomeIsolationProvided, resolveOpenAIAPIKey(nil, nil)))
 }
 
-// TestEnsureCodexCredentials_EnvTrigger_SkipsEverything pins OPENAI_API_KEY
-// as codex's envTrigger: present, it bypasses BOTH the in-tree seed call and
-// the container mount verification — matching resolveCodexContainerAuth's
-// and hostCredentialSeed's own envTrigger precedence.
+// TestEnsureCodexCredentials_EnvTrigger_SkipsEverything pins OPENAI_API_KEY as
+// codex's envTrigger: present, it bypasses verification on every axis —
+// matching hostCredentialSeed's own envTrigger precedence.
 func TestEnsureCodexCredentials_EnvTrigger_SkipsEverything(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "sk-test")
-	restoreSeed := stubSeedCodexHomeFn(t, func(string) (bool, error) {
-		t.Fatal("seedCodexHomeFn must not be called when OPENAI_API_KEY is set")
-		return false, nil
-	})
-	defer restoreSeed()
-	assert.NoError(t, ensureCodexCredentials(t.TempDir(), codexHomeInTree, resolveOpenAIAPIKey(nil, nil)))
+	assert.NoError(t, ensureCodexCredentials(t.TempDir(), codexHomeRealHost, resolveOpenAIAPIKey(nil, nil)))
 	assert.NoError(t, ensureCodexCredentials(t.TempDir(), codexHomeContainerFresh, resolveOpenAIAPIKey(nil, nil)))
 }
 
-// TestEnsureCodexCredentials_InTree_SeedsViaIsolation pins the core
-// assertion: the in-tree axis actively calls the copy-based seed seam.
-func TestEnsureCodexCredentials_InTree_SeedsViaIsolation(t *testing.T) {
-	var calledWith string
-	restoreSeed := stubSeedCodexHomeFn(t, func(dir string) (bool, error) {
-		calledWith = dir
-		return false, nil
-	})
-	defer restoreSeed()
-	assert.NoError(t, ensureCodexCredentials("/tmp/proj", codexHomeInTree, resolveOpenAIAPIKey(nil, nil)))
-	assert.Equal(t, "/tmp/proj", calledWith)
-}
+// TestEnsureCodexCredentials_RealHost_VerifiesAndNeverWrites is the ruling's
+// hardest line applied to codex's own Setup: the real ~/.codex is the user's,
+// and ctxloom neither copies into it nor creates it. A missing auth.json fails
+// LOUD with the user's own fix (`codex login`) rather than being papered over
+// by a copy from somewhere else — and the directory is left byte-for-byte as it
+// was found, including still absent.
+func TestEnsureCodexCredentials_RealHost_VerifiesAndNeverWrites(t *testing.T) {
+	home := t.TempDir()
 
-// TestEnsureCodexCredentials_InTree_SeedFailureIsLoud pins the fail-loud
-// contract: a seed failure (no host source) returns a non-nil, wrapped error
-// naming the underlying problem — never a silent success.
-func TestEnsureCodexCredentials_InTree_SeedFailureIsLoud(t *testing.T) {
-	restoreSeed := stubSeedCodexHomeFn(t, func(string) (bool, error) {
-		return false, fmt.Errorf("no OPENAI_API_KEY and no host ~/.codex/auth.json credentials found")
-	})
-	defer restoreSeed()
-	err := ensureCodexCredentials("/tmp/proj", codexHomeInTree, resolveOpenAIAPIKey(nil, nil))
-	assert.ErrorContains(t, err, "no host ~/.codex/auth.json credentials found")
+	err := ensureCodexCredentials(home, codexHomeRealHost, resolveOpenAIAPIKey(nil, nil))
+	assert.ErrorContains(t, err, "codex login")
+	assert.ErrorContains(t, err, "ctxloom does not write this home")
+	_, statErr := os.Stat(filepath.Join(home, ConfigDirName))
+	assert.True(t, os.IsNotExist(statErr),
+		"the failing verification must not have CREATED the real home it was checking")
+
+	codexDir := filepath.Join(home, ConfigDirName)
+	require.NoError(t, os.MkdirAll(codexDir, 0o700))
+	authPath := filepath.Join(codexDir, AuthFileName)
+	require.NoError(t, os.WriteFile(authPath, []byte(`{"tokens":"host"}`), 0o600))
+
+	before, err := os.ReadFile(authPath)
+	require.NoError(t, err)
+	assert.NoError(t, ensureCodexCredentials(home, codexHomeRealHost, resolveOpenAIAPIKey(nil, nil)))
+	after, err := os.ReadFile(authPath)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "verification is a READ; the host's own credential bytes are untouched")
 }
 
 // TestEnsureCodexCredentials_ContainerFresh_VerifiesMount pins the core
 // assertion: the container axis VERIFIES the bind-mounted auth.json
 // rather than copying (copying would collide with the read-only mount).
 func TestEnsureCodexCredentials_ContainerFresh_VerifiesMount(t *testing.T) {
-	restoreSeed := stubSeedCodexHomeFn(t, func(string) (bool, error) {
-		t.Fatal("seedCodexHomeFn (a COPY) must never be called for codexHomeContainerFresh")
-		return false, nil
-	})
-	defer restoreSeed()
-
 	home := t.TempDir()
 	// No auth.json yet — the mount "didn't land".
 	err := ensureCodexCredentials(home, codexHomeContainerFresh, resolveOpenAIAPIKey(nil, nil))
@@ -473,17 +506,20 @@ func TestResolveCodexProjectDir_ExpectedShape_IsSilent(t *testing.T) {
 // BaseBackend.BuildEnv) — so a gate that consults only os.Getenv refuses to
 // launch a run that would have authenticated perfectly well.
 func TestCodex_Setup_PerAgentEnvKeyAuthenticates(t *testing.T) {
-	seedFailure := func(string) (bool, error) {
-		return false, fmt.Errorf("no OPENAI_API_KEY and no host ~/.codex/auth.json credentials found")
+	// An empty HOME (so the real-home verification would find no auth.json and
+	// fail) isolates the env-key question from everything else.
+	setupNoCredentials := func(t *testing.T) {
+		t.Helper()
+		t.Setenv("HOME", t.TempDir())
 	}
 
 	t.Run("run env", func(t *testing.T) {
 		t.Setenv("OPENAI_API_KEY", "")
-		defer stubSeedCodexHomeFn(t, seedFailure)()
+		setupNoCredentials(t)
 
 		b := NewCodex()
 		_ = b.Setup(context.Background(), &agent.SetupRequest{
-			WorkDir: "/proj",
+			WorkDir: t.TempDir(),
 			Env:     map[string]string{"OPENAI_API_KEY": "sk-per-agent"},
 		})
 		assert.NoError(t, b.credentialErr, "the run env carries the key onto the child, so codex authenticates")
@@ -491,37 +527,26 @@ func TestCodex_Setup_PerAgentEnvKeyAuthenticates(t *testing.T) {
 
 	t.Run("backend config env", func(t *testing.T) {
 		t.Setenv("OPENAI_API_KEY", "")
-		defer stubSeedCodexHomeFn(t, seedFailure)()
+		setupNoCredentials(t)
 
 		b := NewCodex()
 		b.Configure(&CodexConfig{Env: map[string]string{"OPENAI_API_KEY": "sk-per-agent"}})
-		_ = b.Setup(context.Background(), &agent.SetupRequest{WorkDir: "/proj"})
+		_ = b.Setup(context.Background(), &agent.SetupRequest{WorkDir: t.TempDir()})
 		assert.NoError(t, b.credentialErr, "BuildEnv puts the config env on the child, so codex authenticates")
 	})
 
 	t.Run("run env wins an empty override", func(t *testing.T) {
 		t.Setenv("OPENAI_API_KEY", "sk-ambient")
-		var seeded bool
-		defer stubSeedCodexHomeFn(t, func(string) (bool, error) { seeded = true; return false, nil })()
+		setupNoCredentials(t)
 
 		b := NewCodex()
 		_ = b.Setup(context.Background(), &agent.SetupRequest{
-			WorkDir: "/proj",
+			WorkDir: t.TempDir(),
 			Env:     map[string]string{"OPENAI_API_KEY": ""},
 		})
-		assert.True(t, seeded, "an explicit empty run-env value overrides the ambient key on the child, so the seed must still run")
+		assert.Error(t, b.credentialErr,
+			"an explicit empty run-env value overrides the ambient key on the child, so the credential check must still bite")
 	})
-}
-
-// stubSeedCodexHomeFn substitutes the package-level seedCodexHomeFn seam for
-// the duration of a test and returns the restore func — never touches the
-// real host's ~/.codex or the real filesystem paths tests drive Setup
-// against (e.g. "/proj").
-func stubSeedCodexHomeFn(t *testing.T, fn func(string) (bool, error)) func() {
-	t.Helper()
-	orig := seedCodexHomeFn
-	seedCodexHomeFn = fn
-	return func() { seedCodexHomeFn = orig }
 }
 
 // TestCodex_SetupExecute_AgreeOnIsolatedCodexHome is the end-to-end PAYLOAD
@@ -547,38 +572,58 @@ func TestCodex_SetupExecute_AgreeOnIsolatedCodexHome(t *testing.T) {
 	assert.Equal(t, isolatedHome, execEnv["CODEX_HOME"], "Execute's CODEX_HOME matches exactly what Setup delivered into")
 }
 
-// TestCodex_SetupExecute_NoneCellAgreesOnTheProjectStateHome is the in-tree
-// axis's end-to-end agreement: with NO isolation-provided CODEX_HOME
-// (None/shared-cwd), Setup's delivery target, the credential seed's
-// destination and Execute's CODEX_HOME all land on the project-scoped state
-// home. Trust IS pre-seeded here now — the relocated home is one codex has
-// never seen, so its own accumulated `[projects."<abs WorkDir>"]` entry is not
-// in it (see docs/trust-model.md). seedCodexHomeFn is stubbed to keep the test
-// hermetic (never touches the real host's ~/.codex or writes into the fake
-// "/proj").
-func TestCodex_SetupExecute_NoneCellAgreesOnTheProjectStateHome(t *testing.T) {
-	var seededDir string
-	restoreSeed := stubSeedCodexHomeFn(t, func(dir string) (bool, error) {
-		seededDir = dir
-		return false, nil
-	})
-	defer restoreSeed()
+// TestCodex_SetupExecute_NoControlledHomeAgreesOnTheRealHostHome is D2's
+// end-to-end shape: with NO isolation-provided CODEX_HOME (None/shared-cwd, no
+// binding or a `host` one), Setup's delivery target and Execute's CODEX_HOME
+// both land on the user's real ~/.codex — and trust is NOT pre-seeded, because
+// that home is the user's own and carries codex's own accumulated
+// `[projects."..."]` answers. ctxloom answers a trust prompt only for a home it
+// created (docs/trust-model.md).
+func TestCodex_SetupExecute_NoControlledHomeAgreesOnTheRealHostHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ConfigDirName), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ConfigDirName, AuthFileName), []byte(`{}`), 0o600))
+	workDir := t.TempDir()
 
 	b := NewCodex()
-	setupReq := &agent.SetupRequest{WorkDir: "/proj"}
+	_ = b.Setup(context.Background(), &agent.SetupRequest{WorkDir: workDir})
+	assert.Equal(t, home, b.resolvedProjectDir)
+	assert.Empty(t, b.resolvedTrustAbsPath,
+		"the real ~/.codex is the user's own; ctxloom must not write a trust answer into it")
+	assert.NoError(t, b.credentialErr, "the host's own auth.json authenticates the run")
+
+	execEnv := b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: workDir})
+	assert.Equal(t, filepath.Join(home, ConfigDirName), execEnv[CodexHomeEnv])
+}
+
+// TestCodex_SetupExecute_SessionInstanceAgreesAndIsTrustSeeded is the same
+// end-to-end shape for a `config_home: project` run, whose per-session instance
+// arrives as an isolation-provided CODEX_HOME: Setup and Execute agree on it,
+// and trust IS pre-seeded — the instance is a home ctxloom created and codex
+// has never seen, so without the entry codex would re-prompt (or, under `codex
+// exec`, proceed silently untrusted).
+func TestCodex_SetupExecute_SessionInstanceAgreesAndIsTrustSeeded(t *testing.T) {
+	workDir := t.TempDir()
+	instance, err := SessionHome(workDir, "ugly-icy-squid")
+	require.NoError(t, err)
+	instanceHome := filepath.Join(instance, ConfigDirName)
+
+	b := NewCodex()
+	setupReq := &agent.SetupRequest{WorkDir: workDir, Env: map[string]string{CodexHomeEnv: instanceHome}}
 	_ = b.Setup(context.Background(), setupReq)
-	assert.Equal(t, StateHome("/proj"), b.resolvedProjectDir)
-	wantTrust, err := filepath.Abs("/proj")
+
+	assert.Equal(t, instance, b.resolvedProjectDir)
+	wantTrust, err := filepath.Abs(workDir)
 	require.NoError(t, err)
 	assert.Equal(t, wantTrust, b.resolvedTrustAbsPath,
-		"the relocated in-tree home is one codex has never seen, so trust is pre-seeded for the WORKING DIRECTORY")
+		"the instance is a home codex has never seen, so trust is pre-seeded for the WORKING DIRECTORY")
 	assert.NotEqual(t, b.resolvedProjectDir, b.resolvedTrustAbsPath,
 		"codex keys trust by the cwd it runs in, NEVER by its home")
-	assert.Equal(t, StateHome("/proj"), seededDir, "Setup actively seeds the in-tree CODEX_HOME (warm-yodel)")
-	assert.NoError(t, b.credentialErr)
+	assert.NoError(t, b.credentialErr, "the instance was prepared upstream; Setup does not re-verify it")
 
-	execEnv := b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: "/proj"})
-	assert.Equal(t, ProjectHome("/proj"), execEnv["CODEX_HOME"])
+	execEnv := b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: workDir, Env: setupReq.Env})
+	assert.Equal(t, instanceHome, execEnv[CodexHomeEnv])
 }
 
 // TestCodex_SetupExecute_ProcessIsolatedUsesContainerHome is the

@@ -194,15 +194,36 @@ trigger-then-mount-then-degrade, shared by claude / kiro / codex / opencode.
 
 Host/worktree seeding is `hostCredentialSeed` + `copyCredentialFile` (writes at
 0600). Two exported seams reuse it for callers whose home relocation is not
-driven by a `Policy` at all: `SeedCodexHome` (used by `internal/codex`'s `Setup`)
-and `SeedClaudeHome` (used by `operations.InTreeAgentHomeEnv`, below).
+driven by a `Policy` at all: `PrepareCodexHome` and `PrepareClaudeHome`, both
+used by `operations.InTreeAgentHomeEnv` (below) to populate a per-session
+instance home. They are named *Prepare* because the destination is created at
+instance time and thrown away at session end — the copy is one-way, from the
+real host home in, never back.
 
 ## Engine config homes
 
 An engine's **home** is where it keeps what is not project-specific: config,
 global prompts / skills / steering / agents, session state, and credentials.
-Every engine names one env var that relocates it. ctxloom points that var at a
-home **it** provisioned, so an agent run does not read or write the human's own.
+Every engine names one env var that relocates it.
+
+**Your real `~/.claude`, `~/.codex` and `~/.kiro` are the durable truth, and
+ctxloom never writes them.** Engines natively keep per-project durable facts
+there, path-keyed (codex's `[projects."<abs path>"]` trust entries, claude's
+per-project keys). That stays the single durable location.
+
+What an opted-in agent run gets instead is a **per-session INSTANCE**,
+`<WorkDir>/.ctxloom/state/<harp>/home/<engine-leaf>`, created at session start
+and disposable. Three content classes live in it: ctxloom-generated content
+(context, prompts, skills, config fragments) regenerated at each launch;
+engine-specific scaffolding (codex's `config.toml` tables and trust pre-seed)
+synthesized by the engine packages; and **ambient** content whose origin is your
+real host home (credentials today), **copied in one way** at instance time.
+
+**There is no sync-back, ever.** Two accepted costs follow, and they are
+deliberate: a credential the engine refreshes inside an instance does not reach
+your real home, and trust/onboarding answers given inside an instance die with
+it (re-prompted next session unless the engine's own answer already lives in the
+real home and rides the next copy-in).
 
 An engine's **cwd-keyed** surfaces are a different thing entirely and are never
 relocated: `CLAUDE.md`, `.claude/`, `.kiro/`, `opencode.json`, `AGENTS.md` live
@@ -210,18 +231,25 @@ at the project root, where the engine natively looks.
 
 | Engine | Var | Container | Worktree | In-tree, `config_home: project` | In-tree, undeclared / `host` / no binding |
 |---|---|---|---|---|---|
-| codex | `CODEX_HOME` | fresh `$HOME/.codex` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/codex/.codex` | same (codex ignores this key — see below) |
-| claude-code | `CLAUDE_CONFIG_DIR` | fresh `$HOME/.claude` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/claude-code/claude` | **real `~/.claude`** |
-| kiro | `KIRO_HOME` | fresh `$HOME/.kiro` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/kiro/kiro` | **real `~/.kiro`** |
+| codex | `CODEX_HOME` | fresh `$HOME/.codex` | per-agent scratch | `<WorkDir>/.ctxloom/state/<harp>/home/.codex` | **real `~/.codex`** |
+| claude-code | `CLAUDE_CONFIG_DIR` | fresh `$HOME/.claude` | per-agent scratch | `<WorkDir>/.ctxloom/state/<harp>/home/claude` | **real `~/.claude`** |
+| kiro | `KIRO_HOME` | fresh `$HOME/.kiro` | per-agent scratch | `<WorkDir>/.ctxloom/state/<harp>/home/kiro` | **real `~/.kiro`** |
 | opencode | `XDG_CONFIG_HOME` / `XDG_DATA_HOME` | fresh `$HOME` | per-agent scratch | **not controlled** | **not controlled** |
 
-Every project-scoped home resolves through one helper, `paths.EngineStateHome`,
-reached via the owning engine package's own `StateHome` — `codex.StateHome`,
-`claude.StateHome`, `kiro.StateHome`. That single ownership is the point: before
-it existed codex's run path and its static writers derived the location
-separately and wrote to different roots. The **state** tier is deliberate: these
-homes hold seeded credentials and a user's hand-edits, so they are gitignored
-*and* unrebuildable.
+The instance root resolves through one helper, `paths.SessionHomePath`, and each
+engine appends its OWN leaf through its own package — `codex.SessionHome`,
+`claude.SessionConfigDir`, `kiro.SessionHome`. The three leaves are pairwise
+distinct by construction, so one session root hosts every engine that session
+runs. The **state** tier is deliberate: an instance holds copied credentials, so
+it is gitignored *and* unrebuildable.
+
+**Instances are per SESSION, not per project.** Two concurrent sessions in one
+checkout get two homes — isolation the in-tree axis did not have while the home
+was project-scoped. Two runs *within* one session (a coordinator and its in-tree
+delegated child, which inherits the harp on `req.Env`) deliberately share one
+instance. A run with no session name gets no instance at all and keeps the
+engine's real home; there is no session-less fallback, because a shared one
+would be the project-scoped home this model replaced.
 
 ### The rule: `config_home: project`, declared, on the in-tree axis only
 
@@ -231,7 +259,7 @@ project|host`:
 ```yaml
 agents:
   coder:
-    config_home: project   # a ctxloom-controlled home under .ctxloom/state/engines/<engine>
+    config_home: project   # a per-session instance under .ctxloom/state/<harp>/home/
     # or: host             # the engine's real host home (also the default)
 ```
 
@@ -260,13 +288,28 @@ lets it write session state and settings edits back into them. That is the
 pollution `config_home: project` lets a binding opt out of — but nothing takes
 it on by default; a project asks for it by name, on the binding that wants it.
 
-**Why codex is asymmetric.** codex relocates on every in-tree run regardless of
-`config_home` — it does not read this key at all. That is history, not
-inconsistency: ctxloom has *always* pointed `CODEX_HOME` at a project-scoped
-directory, so there was never a real `~/.codex` in use in-tree to take away,
-and so no opt-in was ever needed. claude and kiro *did* use the real host
-home, so for them the same move is a taking, and it happens only for a
-binding that both is agent-bound AND asked for it.
+**codex's asymmetry has ENDED.** codex used to relocate `CODEX_HOME` on every
+in-tree run regardless of `config_home`, and that was defensible while the
+relocation target was DURABLE: ctxloom had always pointed `CODEX_HOME` at a
+project-scoped directory that survived across sessions, so there was nothing of
+yours to take away and no opt-in was needed.
+
+A per-session instance is **disposable**, which changes the arithmetic. Under
+the old rule your own interactive `ctxloom run` — no agent binding at all —
+would have been handed a throwaway codex home every session, losing its token
+refreshes, its accumulated workspace-trust answers and its session state each
+time. So codex now reads `config_home` exactly like claude and kiro: no binding,
+an undeclared binding, or an explicit `host` all keep your real `~/.codex`, and
+only `config_home: project` earns an instance. One rule, three engines, decided
+in one place.
+
+**What that costs, stated plainly.** codex is the only engine whose hooks, MCP
+servers, prompts and skills live *only* in `$CODEX_HOME` — it has no cwd-keyed
+equivalent of claude's `.claude/settings.json` or kiro's `.kiro/settings`. So a
+codex run that keeps your real home gets **none of them**, because ctxloom will
+not write that home. It says so out loud and names the fix
+(`config_home: project`); codex's cwd-keyed `AGENTS.md` context still delivers,
+so the run is degraded rather than broken.
 
 **opencode is excluded**, pending its own decision: its only lever is
 `XDG_CONFIG_HOME` / `XDG_DATA_HOME`, which are not engine-private. Relocating
@@ -287,8 +330,9 @@ The in-tree contribution declines, each condition independently sufficient:
 3. **the var is already set** — isolation's own `Env()`, or the user's `--env`,
    wins outright. This fills gaps; it never overrides.
 
-Credentials follow the home for claude (`.credentials.json` is copied from
-`~/.claude`, never moved, never written back) and **do not** for kiro, whose
+Credentials follow the home for claude and codex (`.credentials.json` and
+`auth.json` are copied from `~/.claude` / `~/.codex`, never moved, never written
+back) and **do not** for kiro, whose
 subscription auth lives in a global sqlite under `XDG_DATA_HOME` that `KIRO_HOME`
 does not relocate — which is exactly why a fresh `KIRO_HOME` stays authenticated
 and why `XDG_DATA_HOME` is deliberately *not* relocated alongside it.
@@ -353,7 +397,7 @@ rather than destroying anything WIP-bearing.
 | `ImageConfig` | `isolation.go:355` | `Image`, `BaseContainerfile`, `AppRoot`, `NoDevcontainerBase`, `DevcontainerService`, `Engines` |
 | `None` / `Container` / `Worktree` | `none.go:25` / `container.go:70` / `worktree.go:55` | The three policy types (four postures) |
 | `RunAttached` / `AttachedContainer` | `attach.go:71` / `:23` | Foreground stdio container for `internal/acp` |
-| `SeedCodexHome` / `SeedClaudeHome` | `auth.go` | The exported seeding seams, for homes relocated outside a `Policy` |
+| `PrepareCodexHome` / `PrepareClaudeHome` | `auth.go` | The exported one-way copy-in seams, for per-session instance homes outside a `Policy` |
 | `Runtime` / `Docker` / `Podman` / `Host` | `runtime.go:22` / `:321` / `:379` / `:434` | Pluggable launcher substrate |
 | `SelectRuntime` | `runtime.go:719` | Preference-then-detect; `Host{}` when none; never errors |
 | `InContainer` | `runtime.go:668` | Self-detection (sentinel files + env + cgroup v1) |
@@ -395,7 +439,7 @@ rather than destroying anything WIP-bearing.
 - **A backend in neither `credentialSeedSpecs` nor `curatedHomeSpecs` gets a worktree with zero engine-global isolation and no finding at all** (`auth.go:341` bare `return nil`; `Env():526` emits nothing) while the run reports "worktree". Live for `acp` and `mock`. `auth.go:650-653` names this exact branch as the bug that was fixed *for opencode only*.
 - **The curated-HOME allowlist symlinks the whole `~/.ssh`** (`curatedhome.go:65`, `[".gitconfig", ".ssh"]`) while the adjacent comment excludes `.netrc` / `.npmrc` / `.gnupg` on secret-exclusion grounds.
 - **On every plain host codex run the OpenAI credential is copied into the project working tree** (`internal/codex/backend.go:287` → `auth.go:685-702`) and no `Cleanup` path removes it; ctxloom's managed ignore set covers `.codex/config.toml` but not `.codex/auth.json`.
-- **`copyCredentialFile` follows a symlink at the destination** (`auth.go:904`, `os.WriteFile` semantics), and `SeedCodexHome`'s `destDir` is unvalidated.
+- **`copyCredentialFile` follows a symlink at the destination** (`auth.go:904`, `os.WriteFile` semantics), and `PrepareCodexHome`'s `destDir` is unvalidated.
 - **The worktree reaper's scope is `~/.ctxloom/sessions/*/ephemeral/` only** (`worktree_reap.go:184`); worktrees on the `os.TempDir()` fallback are permanently unreapable, and nothing sweeps the sibling `ctxloom-cfg-*` / `ctxloom-home-*` / `ctxloom-tmp-*` dirs — so a crashed run leaves 0600 credential copies on disk indefinitely.
 - **`Cleanup`'s idempotence guard is `dir` alone** (`worktree.go:583-585`), short-circuiting removal of `configHome` / `curatedHome` / `scratchDir` — one of which holds those credential copies.
 

@@ -204,11 +204,11 @@ type deliverySpec struct {
 }
 
 // codexHomeRel is the delivery-root-relative path to codex's CODEX_HOME —
-// codex is the ONE engine whose config home ctxloom relocates out of the
-// project root (internal/codex.StateHome, the uniform engine-home policy), so
-// its home-keyed surfaces do not sit where every other engine's do. Asked of
-// codex's own resolver with an empty root, because a literal here would be this
-// file's private opinion about a location codex's writers own.
+// codex is the ONE engine whose settings/commands/skills surfaces are
+// HOME-keyed rather than cwd-keyed, so they do not sit where every other
+// engine's do. Asked of codex's own harpless resolver
+// (internal/codex.ProjectHome) with an empty root, because a literal here would
+// be this file's private opinion about a location codex's writers own.
 var codexHomeRel = codex.ProjectHome("")
 
 // matrixSpecs is the expected destination for every DECLARED pair.

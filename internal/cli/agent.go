@@ -314,10 +314,11 @@ the per-turn execution axis; omit it to keep the default conversational
 (warm-engine) model. oneshot requires a resume-capable engine and is
 EXPERIMENTAL in this release — executable, but its interfaces and behavior
 may change. Config-home (optional: project|host) decides which engine config
-home this agent's claude-code/kiro runs get on the in-tree (workspace: none)
-axis: "project" points the engine at a ctxloom-controlled home under
-.ctxloom/state/engines/<engine>, isolated from your own; "host" (also the
-default when omitted) keeps the engine's real host home. It wins on every
+home this agent's claude-code/codex/kiro runs get on the in-tree (workspace:
+none) axis: "project" points the engine at a ctxloom-controlled, PER-SESSION
+home under .ctxloom/state/<session>/home/, isolated from your own and thrown
+away with the session; "host" (also the default when omitted) keeps the
+engine's real host home, which ctxloom never writes. It wins on every
 invocation path this binding resolves through — a bare run under
 default_agent, run --agent, a delegated child, a oneshot fan member alike.`
 

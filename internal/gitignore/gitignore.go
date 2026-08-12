@@ -72,20 +72,19 @@ var PrivateStatePatterns = []string{
 //
 //   - .codex/ does not, so its members are listed one by one: config.toml,
 //     which ctxloom generates, and auth.json, which
-//     internal/lm/isolation/auth.go's SeedCodexHome copies from the host's
+//     internal/lm/isolation/auth.go's PrepareCodexHome copies from the host's
 //     ~/.codex/auth.json. The latter is a live credential rather than a config
 //     artifact, but it has to be kept out of the tree exactly the same way.
 //
-//     THE .codex ENTRIES ARE NOW LEGACY, kept for pre-migration checkouts.
-//     The engine-home policy moved codex's project-scoped home to
-//     paths.EngineStateHome (.ctxloom/state/engines/codex), covered by
+//     THE .codex ENTRIES ARE NOW LEGACY, kept for checkouts an older ctxloom
+//     wrote. A ctxloom-controlled codex home is a PER-SESSION INSTANCE under
+//     .ctxloom/state/<harp>/home/.codex (paths.SessionHomePath), covered by
 //     PrivateStatePatterns' ".ctxloom/state/" above — one rule for the whole
-//     tier, credential included. ctxloom migrates a legacy <WorkDir>/.codex
-//     into the new home the first time it writes (internal/codex's
-//     migrateLegacyHome), but that migration only runs where ctxloom runs: a
-//     checkout nobody opens again keeps its old files forever, and un-ignoring
-//     them would surface a credential in `git status`. So these stay, and
-//     blanket_retirement_test pins them.
+//     tier, credential included. NOTHING migrates the old locations: the
+//     legacy <WorkDir>/.codex is simply no longer referenced (ruled
+//     2026-08-11), so a checkout that still has one keeps it forever, and
+//     un-ignoring it would surface a credential in `git status`. So these
+//     stay, and blanket_retirement_test pins them.
 //
 // The rule is stated because it is per-entry and irreversible in one
 // direction: broadening an entry to its whole directory later un-tracks

@@ -30,7 +30,7 @@ import (
 //
 // codex's entry is COMPUTED from its own writer rather than spelled out, and
 // that is the point: codex is the one engine whose home ctxloom relocates
-// (internal/codex.StateHome), so a literal here would be a second opinion about
+// (internal/codex.ProjectHome), so a literal here would be a second opinion about
 // where the file is — exactly the run-path/static-path split the shared helper
 // exists to close. Passing an empty project root yields the project-relative
 // path this list wants.

@@ -122,11 +122,12 @@ func TestCodexPathVocabularyIsSingleSourced(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(envHome, ConfigFileName), global, "MCPRegistrar.ConfigPath (global)")
 
-	// The project-scoped consumers all hang off StateHome (the engine-home
-	// policy's one location) with the SAME vocabulary constants layered on top
-	// — the relocation moved the root, it did not give codex a second set of
-	// names.
-	stateHome := StateHome("/proj")
+	// The HARPLESS project-scoped consumers all hang off the project root (the
+	// S7-interim join — no run resolves here, see CodexHookWriter.SettingsPath)
+	// with the SAME vocabulary constants layered on top: they share one name for
+	// one file, which is what makes the conformance suite's write-then-read-back
+	// meaningful.
+	stateHome := "/proj"
 	project, err := (MCPRegistrar{}).ConfigPath("/proj", false)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(stateHome, ConfigDirName, ConfigFileName), project, "MCPRegistrar.ConfigPath (project)")

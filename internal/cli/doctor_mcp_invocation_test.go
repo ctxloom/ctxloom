@@ -14,7 +14,7 @@ import (
 // codexMCPSurfaceRel is the project-relative path to codex's MCP registry —
 // resolved through codex's own writer, exactly as doctorMCPInvocationSurfaces
 // does. codex is the one engine whose config home ctxloom relocates
-// (internal/codex.StateHome), so a literal here would be a second opinion about
+// (internal/codex.ProjectHome), so a literal here would be a second opinion about
 // where that file is, and a test carrying its own copy is how the run-path /
 // static-path split went unnoticed in the first place.
 func codexMCPSurfaceRel() string { return (&codex.CodexHookWriter{}).SettingsPath("") }

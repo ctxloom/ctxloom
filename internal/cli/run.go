@@ -1257,8 +1257,14 @@ func (st *runState) prepareWorkspace() {
 	// under it — the call reads the already-merged map and declines any var
 	// already present), so an explicit user/session var still wins.
 	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
-		Backend:    st.backendName,
-		WorkDir:    st.workDir,
+		Backend: st.backendName,
+		WorkDir: st.workDir,
+		// The instance is PER SESSION, and st.activeHarp is this session:
+		// runRun calls openSession() BEFORE prepareWorkspace(), and openSession
+		// is what assigns it (and stamps CTXLOOM_SESSION_HARP into runEnv). A
+		// run that reached here with no session name gets no instance and keeps
+		// the engine's own host home.
+		Harp:       st.activeHarp,
 		ConfigHome: st.agentConfigHome,
 		Policy:     st.policy,
 		Env:        st.req.Options.Env,

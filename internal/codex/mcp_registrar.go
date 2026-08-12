@@ -39,10 +39,11 @@ func (r MCPRegistrar) Present(dir string, global bool) bool {
 // ConfigPath returns the MCP config file for the scope. Global scope resolves
 // Codex's home via codexHome ($CODEX_HOME, else ~/.codex) so the path matches
 // where codex actually reads its global config — the same precedence used by
-// codexPromptsDir and getSessionsDir. Project scope resolves through StateHome,
-// the one owner of the project-scoped codex home, so this registrar and
-// CodexHookWriter (which folds [mcp_servers] into the very same file) can never
-// name two different config.tomls for one project.
+// codexPromptsDir and getSessionsDir. Project scope resolves through
+// ProjectHome — the harpless S7-interim project-root join CodexHookWriter.
+// SettingsPath uses (which folds [mcp_servers] into the very same file), so
+// this registrar and that writer can never name two different config.tomls for
+// one project.
 func (MCPRegistrar) ConfigPath(dir string, global bool) (string, error) {
 	if global {
 		home, err := codexHome()
@@ -51,7 +52,7 @@ func (MCPRegistrar) ConfigPath(dir string, global bool) (string, error) {
 		}
 		return filepath.Join(home, ConfigFileName), nil
 	}
-	return filepath.Join(cellScopedCodexHome(StateHome(dir)), ConfigFileName), nil
+	return filepath.Join(ProjectHome(dir), ConfigFileName), nil
 }
 
 // Install merges the named server into the config bytes. Idempotent; foreign

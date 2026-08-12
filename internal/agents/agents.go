@@ -140,9 +140,10 @@ type Agent struct {
 	// treatment).
 	Driving DrivingMode `yaml:"driving,omitempty"`
 	// ConfigHome is this binding's per-engine config-home POLICY: whether an
-	// in-tree (workspace: none) run gets a ctxloom-CONTROLLED engine config
-	// home under .ctxloom/state/engines/<engine> (ConfigHomeProject) or the
-	// engine's REAL host home (ConfigHomeHost). It is the single source of
+	// in-tree (workspace: none) run gets a ctxloom-CONTROLLED, PER-SESSION
+	// engine config home under .ctxloom/state/<harp>/home/<leaf>
+	// (ConfigHomeProject) or the engine's REAL host home (ConfigHomeHost,
+	// which ctxloom never writes). It is the single source of
 	// truth for operations.InTreeAgentHomeEnv's scoping rule, and a DECLARED
 	// value wins on every invocation path this binding resolves through — a
 	// bare run under default_agent, `run --agent`, a delegated child, a

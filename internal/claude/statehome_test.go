@@ -9,47 +9,97 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// TestStateHome_IsTheProjectScopedEngineHome pins claude's project-scoped
-// engine home to the ONE location the engine-home policy names
-// (paths.EngineStateHome), keyed by claude's REGISTERED backend name — the
-// same key credentialSeedSpecs and the backends registry use, so a second
-// engine can never land in claude's directory.
-func TestStateHome_IsTheProjectScopedEngineHome(t *testing.T) {
-	workDir := filepath.Join(string(filepath.Separator), "proj")
-	want := paths.EngineStateHome(filepath.Join(workDir, paths.AppDirName), "claude-code")
-	if got := StateHome(workDir); got != want {
-		t.Errorf("StateHome(%q) = %q, want %q", workDir, got, want)
+const (
+	harpA = "ugly-icy-squid"
+	harpB = "brave-warm-otter"
+)
+
+func testWorkDir() string { return filepath.Join(string(filepath.Separator), "proj") }
+
+// TestSessionConfigDir_IsUnderTheSessionInstanceHome pins claude's instance to
+// the ONE location the per-session model names — <workDir>/.ctxloom/state/
+// <harp>/home/claude — derived from paths.SessionHomePath rather than from a
+// literal spelled twice.
+func TestSessionConfigDir_IsUnderTheSessionInstanceHome(t *testing.T) {
+	workDir := testWorkDir()
+	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harpA)
+	if err != nil {
+		t.Fatalf("paths.SessionHomePath() error = %v", err)
+	}
+	got, err := SessionConfigDir(workDir, harpA)
+	if err != nil {
+		t.Fatalf("SessionConfigDir() error = %v", err)
+	}
+	if want := filepath.Join(root, inTreeConfigLeaf); got != want {
+		t.Errorf("SessionConfigDir(%q, %q) = %q, want %q", workDir, harpA, got, want)
 	}
 }
 
-// TestInTreeConfigDir_IsTheSeedDestination is the writer-agreement pin: the
-// value ctxloom hands claude as CLAUDE_CONFIG_DIR on an in-tree agent run and
-// the directory isolation's credential seed writes .credentials.json into MUST
-// be the same directory, or the engine reads a home nothing seeded. Both are
-// derived here from the ONE helper plus the ONE registry, never from a literal
-// spelled twice.
-//
-// A future static writer (phase 2's home-keyed context delivery) resolves
-// through InTreeConfigDir too — this test is what makes that inherit the
-// discipline instead of re-deriving the join by hand, exactly as
-// TestCodexHome_RunPathAndStaticWritersAgree does for codex.
-func TestInTreeConfigDir_IsTheSeedDestination(t *testing.T) {
-	workDir := filepath.Join(string(filepath.Separator), "proj")
+// TestSessionConfigDir_IsPerSession is the property the per-project home did
+// not have: two concurrent sessions in ONE checkout get two homes, so neither
+// reads the other's copied credentials or clobbers its generated config.
+func TestSessionConfigDir_IsPerSession(t *testing.T) {
+	workDir := testWorkDir()
+	a, err := SessionConfigDir(workDir, harpA)
+	if err != nil {
+		t.Fatalf("SessionConfigDir(A) error = %v", err)
+	}
+	b, err := SessionConfigDir(workDir, harpB)
+	if err != nil {
+		t.Fatalf("SessionConfigDir(B) error = %v", err)
+	}
+	if a == b {
+		t.Errorf("two sessions share one CLAUDE_CONFIG_DIR (%q); the instance must be keyed by harp, not by project", a)
+	}
+	if !strings.Contains(a, harpA) {
+		t.Errorf("SessionConfigDir(%q) = %q does not contain the harp", harpA, a)
+	}
+}
+
+// TestSessionConfigDir_RefusesAHarplessCaller is gate (b) at this engine's own
+// resolver: there is no session-less instance, and no shared fallback, because
+// a shared fallback is exactly the durable per-project home the model retired.
+func TestSessionConfigDir_RefusesAHarplessCaller(t *testing.T) {
+	for _, bad := range []string{"", "..", "../.."} {
+		got, err := SessionConfigDir(testWorkDir(), bad)
+		if err == nil {
+			t.Errorf("SessionConfigDir(harp=%q) = %q with no error", bad, got)
+		}
+		if got != "" {
+			t.Errorf("SessionConfigDir(harp=%q) returned %q alongside its error", bad, got)
+		}
+	}
+}
+
+// TestSessionConfigDir_IsTheSeedDestination is the writer-agreement pin: the
+// value ctxloom hands claude as CLAUDE_CONFIG_DIR and the directory isolation's
+// one-way copy-in writes .credentials.json into MUST be the same directory, or
+// the engine reads a home nothing prepared. Both sides are derived here from
+// the ONE helper plus the ONE registry.
+func TestSessionConfigDir_IsTheSeedDestination(t *testing.T) {
+	workDir := testWorkDir()
 	destSubdir, ok := isolation.CredentialSeedDestSubdir("claude-code")
 	if !ok {
 		t.Fatal(`isolation.CredentialSeedDestSubdir("claude-code") reports no such row`)
 	}
-	want := filepath.Join(StateHome(workDir), destSubdir)
-	if got := InTreeConfigDir(workDir); got != want {
-		t.Errorf("InTreeConfigDir(%q) = %q, want %q (the seed destination)", workDir, got, want)
+	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harpA)
+	if err != nil {
+		t.Fatalf("paths.SessionHomePath() error = %v", err)
+	}
+	got, err := SessionConfigDir(workDir, harpA)
+	if err != nil {
+		t.Fatalf("SessionConfigDir() error = %v", err)
+	}
+	if want := filepath.Join(root, destSubdir); got != want {
+		t.Errorf("SessionConfigDir(%q, %q) = %q, want the copy-in destination %q", workDir, harpA, got, want)
 	}
 }
 
-// TestInTreeConfigDir_MatchesTheIsolationHomeVarSubdir keeps the in-tree leaf
-// name equal to the leaf the WORKTREE axis points CLAUDE_CONFIG_DIR at. The
-// two axes root their homes in different places by design; the leaf must not
-// also diverge, or claude's own config-home layout would differ per axis.
-func TestInTreeConfigDir_MatchesTheIsolationHomeVarSubdir(t *testing.T) {
+// TestSessionConfigDir_MatchesTheIsolationHomeVarSubdir keeps the in-tree leaf
+// equal to the leaf the WORKTREE axis points CLAUDE_CONFIG_DIR at. The two axes
+// root their homes in different places by design; the leaf must not also
+// diverge, or claude's config-home layout would differ per axis.
+func TestSessionConfigDir_MatchesTheIsolationHomeVarSubdir(t *testing.T) {
 	hv := isolation.CredentialSeedHomeVars("claude-code")
 	if len(hv) != 1 {
 		t.Fatalf(`isolation.CredentialSeedHomeVars("claude-code") = %v, want exactly one entry`, hv)
@@ -57,25 +107,31 @@ func TestInTreeConfigDir_MatchesTheIsolationHomeVarSubdir(t *testing.T) {
 	if hv[0].EnvVar != ConfigDirEnv {
 		t.Errorf("claude's isolation HomeVar is %q, want ConfigDirEnv %q", hv[0].EnvVar, ConfigDirEnv)
 	}
-	workDir := filepath.Join(string(filepath.Separator), "proj")
-	if got := filepath.Base(InTreeConfigDir(workDir)); got != hv[0].Subdir {
-		t.Errorf("InTreeConfigDir leaf = %q, want the isolation HomeVar Subdir %q", got, hv[0].Subdir)
+	got, err := SessionConfigDir(testWorkDir(), harpA)
+	if err != nil {
+		t.Fatalf("SessionConfigDir() error = %v", err)
+	}
+	if base := filepath.Base(got); base != hv[0].Subdir {
+		t.Errorf("SessionConfigDir leaf = %q, want the isolation HomeVar Subdir %q", base, hv[0].Subdir)
 	}
 }
 
-// TestStateHome_NeverTheRealHostHome is the regression this whole phase exists
-// to avoid creating: the controlled home is under the PROJECT's .ctxloom/state
-// tier, never the user's own ~/.claude. Asserted structurally (a relative
-// project path stays relative) so it holds without consulting a real HOME.
-func TestStateHome_NeverTheRealHostHome(t *testing.T) {
-	got := StateHome("proj")
-	if filepath.IsAbs(got) {
-		t.Errorf("StateHome(%q) = %q, want a project-relative path — an absolute one means the home escaped the checkout", "proj", got)
+// TestSessionConfigDir_NeverTheRealHostHome is the regression the whole model
+// exists to avoid: the instance is under the PROJECT's .ctxloom/state tier,
+// never the user's own ~/.claude. Asserted structurally (a relative project
+// path stays relative) so it holds without consulting a real HOME.
+func TestSessionConfigDir_NeverTheRealHostHome(t *testing.T) {
+	got, err := SessionConfigDir("proj", harpA)
+	if err != nil {
+		t.Fatalf("SessionConfigDir() error = %v", err)
 	}
-	if want := filepath.Join("proj", paths.AppDirName); !strings.HasPrefix(got, want) {
-		t.Errorf("StateHome(%q) = %q, want it under %q", "proj", got, want)
+	if filepath.IsAbs(got) {
+		t.Errorf("SessionConfigDir(%q) = %q, want a project-relative path — an absolute one means the instance escaped the checkout", "proj", got)
+	}
+	if want := filepath.Join("proj", paths.AppDirName, paths.StateDir); !strings.HasPrefix(got, want) {
+		t.Errorf("SessionConfigDir(%q) = %q, want it under %q", "proj", got, want)
 	}
 	if filepath.Base(got) == ConfigDirName {
-		t.Errorf("StateHome(%q) = %q — the state home must not be spelled like claude's own cwd-keyed %q surface", "proj", got, ConfigDirName)
+		t.Errorf("SessionConfigDir(%q) = %q — the instance must not be spelled like claude's own cwd-keyed %q surface", "proj", got, ConfigDirName)
 	}
 }

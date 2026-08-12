@@ -213,24 +213,58 @@ func isoHostHomeDirRel(engine string) (string, error) {
 	}
 }
 
-// isoStateHomeRel maps an engine to the project-relative ctxloom-CONTROLLED
-// config home an in-tree AGENT run is pointed at —
-// `.ctxloom/state/engines/<backend>/<leaf>`. The leaves duplicate
-// internal/{claude,kiro}'s own inTreeConfigLeaf/inTreeHomeLeaf rather than
-// importing them: this file's whole point is to observe the value a REAL run
-// hands a REAL engine process from the outside, so deriving the expectation
-// from the same helper the production code uses would make the assertion
-// tautological.
-func isoStateHomeRel(engine string) (string, error) {
-	base := filepath.Join(".ctxloom", "state", "engines")
+// isoInstanceLeaf maps an engine to its leaf inside ONE SESSION's config-home
+// instance — `.ctxloom/state/<harp>/home/<leaf>`. The leaves duplicate
+// internal/{claude,kiro,codex}'s own constants rather than importing them: this
+// file's whole point is to observe the value a REAL run hands a REAL engine
+// process from the outside, so deriving the expectation from the same helper
+// the production code uses would make the assertion tautological.
+func isoInstanceLeaf(engine string) (string, error) {
 	switch engine {
 	case "claude-code":
-		return filepath.Join(base, "claude-code", "claude"), nil
+		return "claude", nil
 	case "kiro":
-		return filepath.Join(base, "kiro", "kiro"), nil
+		return "kiro", nil
+	case "codex":
+		return ".codex", nil
 	default:
 		return "", fmt.Errorf("iso matrix: engine %q has no ctxloom-controlled in-tree home", engine)
 	}
+}
+
+// isoInstanceHomes globs every config-home instance that exists for engine in
+// projectDir. The HARP is not knowable to a test from the outside — ctxloom
+// mints it per run — so the glob is how an outside observer names a
+// per-session path at all. Its CARDINALITY is the assertion: exactly one for a
+// single opted-in run, zero when nothing opted in.
+func isoInstanceHomes(projectDir, engine string) ([]string, error) {
+	leaf, err := isoInstanceLeaf(engine)
+	if err != nil {
+		return nil, err
+	}
+	return filepath.Glob(filepath.Join(projectDir, ".ctxloom", "state", "*", "home", leaf))
+}
+
+// isoInstanceHomeShape checks that val really is a per-session instance path
+// for engine under projectDir, and returns the harp it is keyed by. The shape
+// is checked component by component rather than against a precomputed string
+// because the harp is the one part a test cannot predict — and it is exactly
+// the part that must be there.
+func isoInstanceHomeShape(projectDir, engine, val string) (harp string, err error) {
+	leaf, err := isoInstanceLeaf(engine)
+	if err != nil {
+		return "", err
+	}
+	prefix := filepath.Join(projectDir, ".ctxloom", "state") + string(filepath.Separator)
+	suffix := string(filepath.Separator) + filepath.Join("home", leaf)
+	if !strings.HasPrefix(val, prefix) || !strings.HasSuffix(val, suffix) {
+		return "", fmt.Errorf("%q is not a per-session config-home instance: want %s<harp>%s", val, prefix, suffix)
+	}
+	harp = strings.TrimSuffix(strings.TrimPrefix(val, prefix), suffix)
+	if harp == "" || strings.Contains(harp, string(filepath.Separator)) {
+		return "", fmt.Errorf("%q carries no single harp component between %q and %q — the instance must be keyed by SESSION", val, prefix, suffix)
+	}
+	return harp, nil
 }
 
 // mustIsoCredHostPath is isoCredHostPath for the two callers whose scenario
@@ -641,15 +675,16 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 
 	// The AGENT half of the in-tree config-home rule, read from INSIDE the
 	// spawned engine process: the variable the engine was really handed names
-	// the project-scoped state home, not the human's own directory and not a
-	// per-agent scratch tree (which is the WORKTREE axis' answer — asserting
-	// against it too keeps this step from passing on the wrong axis).
+	// THIS SESSION's config-home instance — not the human's own directory, not
+	// a per-agent scratch tree (the WORKTREE axis' answer, asserted against so
+	// this step cannot pass on the wrong axis), and not a project-wide path
+	// (the durable per-project home the per-session model retired).
 	//
-	// The expected path is spelled here rather than derived from
-	// internal/claude.InTreeConfigDir: an assertion that computes its
+	// The expectation is built component by component here rather than derived
+	// from internal/claude.SessionConfigDir: an assertion that computes its
 	// expectation with the same function the production code used cannot fail
 	// when that function is wrong.
-	ctx.Step(`^the spy "([^"]*)" process's "([^"]*)" env var points at the project-scoped engine state home$`, func(c context.Context, engine, varName string) error {
+	ctx.Step(`^the spy "([^"]*)" process's "([^"]*)" env var points at this session's config-home instance$`, func(c context.Context, engine, varName string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
 		body, err := isoReadSpyOut(j)
@@ -659,23 +694,31 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		env := isoParseSpyEnv(body)
 		val, ok := env[varName]
 		if !ok || val == "" {
-			return fmt.Errorf("spy %s process's env carries no %s at all — an in-tree AGENT run must be handed a ctxloom-controlled config home; full env dump:\n%s", engine, varName, body)
+			return fmt.Errorf("spy %s process's env carries no %s at all — an in-tree AGENT run that declared config_home: project must be handed a ctxloom-controlled config home; full env dump:\n%s", engine, varName, body)
 		}
-		rel, err := isoStateHomeRel(engine)
+		harp, err := isoInstanceHomeShape(w.env.ProjectDir, engine, val)
 		if err != nil {
-			return err
-		}
-		want := filepath.Join(w.env.ProjectDir, rel)
-		if val != want {
-			return fmt.Errorf("%s=%q, want the project-scoped engine state home %q; full env dump:\n%s", varName, val, want, body)
+			return fmt.Errorf("%s: %w; full env dump:\n%s", varName, err, body)
 		}
 		if strings.Contains(val, filepath.Join(".ctxloom", "sessions")) {
-			return fmt.Errorf("%s=%q is a per-agent SCRATCH home (the worktree axis' answer), not the durable in-tree one", varName, val)
+			return fmt.Errorf("%s=%q is a per-agent SCRATCH home (the worktree axis' answer), not the in-tree instance", varName, val)
+		}
+		if strings.Contains(val, filepath.Join("state", "engines")) {
+			return fmt.Errorf("%s=%q is the RETIRED durable per-project engine home", varName, val)
 		}
 		if info, statErr := os.Stat(val); statErr != nil || !info.IsDir() {
 			return fmt.Errorf("%s=%q but no such directory exists — the engine was pointed at a home nobody created", varName, val)
 		}
-		w.docStepMaterialized = fmt.Sprintf("spy %s process env: %s=%s", engine, varName, val)
+		// The env var and the filesystem must agree: exactly one instance
+		// exists for this engine, and it is the one the engine was handed.
+		homes, globErr := isoInstanceHomes(w.env.ProjectDir, engine)
+		if globErr != nil {
+			return globErr
+		}
+		if len(homes) != 1 || homes[0] != val {
+			return fmt.Errorf("%s=%q but the project holds instances %v — one run must mint exactly one, and the engine must be handed it", varName, val, homes)
+		}
+		w.docStepMaterialized = fmt.Sprintf("spy %s process env: %s=%s (session %s)", engine, varName, val, harp)
 		return nil
 	})
 
@@ -723,14 +766,17 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// while it ran; this proves the home outlives the run, which is what makes
 	// it a project-scoped home rather than a per-run scratch dir — and what
 	// lets phase 2 deliver context into it at rest.
-	ctx.Step(`^the seeded "([^"]*)" credential is on disk in the project's engine state home$`, func(c context.Context, engine string) error {
+	ctx.Step(`^the copied "([^"]*)" credential is on disk in this session's config-home instance$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		rel, err := isoStateHomeRel(engine)
+		homes, err := isoInstanceHomes(w.env.ProjectDir, engine)
 		if err != nil {
 			return err
 		}
+		if len(homes) != 1 {
+			return fmt.Errorf("expected exactly one %q config-home instance in the project, found %v", engine, homes)
+		}
 		credName := filepath.Base(mustIsoCredHostPath(engine))
-		path := filepath.Join(w.env.ProjectDir, rel, credName)
+		path := filepath.Join(homes[0], credName)
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return fmt.Errorf("no seeded credential at %s: %w — the controlled home did not survive the run", path, readErr)
@@ -756,15 +802,20 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// exists anywhere.
 	ctx.Step(`^no ctxloom-controlled config home exists for "([^"]*)" in the project$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		rel, err := isoStateHomeRel(engine)
+		homes, err := isoInstanceHomes(w.env.ProjectDir, engine)
 		if err != nil {
 			return err
 		}
-		path := filepath.Join(w.env.ProjectDir, rel)
-		if _, statErr := os.Stat(path); statErr == nil {
-			return fmt.Errorf("a ctxloom-controlled config home exists at %s — Alice's own session must keep her real engine home, not be relocated into the project", path)
+		if len(homes) != 0 {
+			return fmt.Errorf("ctxloom-controlled config home(s) exist at %v — a run that did not declare config_home: project must keep its real engine home, not be relocated into the project", homes)
 		}
-		w.docStepMaterialized = fmt.Sprintf("no controlled home at %s (Alice's own session keeps her real engine home)", path)
+		// The retired durable per-project location too: an implementation that
+		// regrew it would leave this glob empty and still be wrong.
+		retired := filepath.Join(w.env.ProjectDir, ".ctxloom", "state", "engines")
+		if _, statErr := os.Stat(retired); statErr == nil {
+			return fmt.Errorf("the retired durable per-project engine home regrew at %s", retired)
+		}
+		w.docStepMaterialized = fmt.Sprintf("no config-home instance for %q under %s (the run keeps its real engine home)", engine, filepath.Join(w.env.ProjectDir, ".ctxloom", "state"))
 		return nil
 	})
 

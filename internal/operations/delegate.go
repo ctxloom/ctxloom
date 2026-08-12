@@ -350,8 +350,13 @@ func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.C
 	// InTreeAgentHomeEnv. Resolved inside the checkpoint window so its
 	// fail-loud finding lands in this spawn's own gate below.
 	p.workspaceEnv = mergeInTreeAgentHome(p.workspaceEnv, InTreeAgentHome{
-		Backend:    rs.Backend,
-		WorkDir:    p.req.WorkDir,
+		Backend: rs.Backend,
+		WorkDir: p.req.WorkDir,
+		// The SESSION's harp, not this child's agent name: a delegated child
+		// runs inside its parent's session and deliberately shares its config
+		// -home instance. It rides p.req.Env under agent.SessionHarpEnv — the
+		// same map isolation.SessionStateFromEnv reads two lines above.
+		Harp:       p.req.Env[agent.SessionHarpEnv],
 		ConfigHome: rs.ConfigHome,
 		Policy:     policy,
 		Env:        mergedEnvView(p.workspaceEnv, p.req.Env),

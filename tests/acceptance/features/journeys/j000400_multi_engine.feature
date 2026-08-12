@@ -24,7 +24,7 @@ Feature: One shared profile, reaching three engines in their own native format
   codex's rows name $CODEX_HOME rather than a project-root .codex, and that is
   the second divergence worth stating: codex is the one engine whose config
   home ctxloom RELOCATES, to
-  <WorkDir>/.ctxloom/state/engines/codex/.codex (internal/codex.StateHome — the
+  <WorkDir>/.codex (codex.ProjectHome, the HARPLESS static path — the
   uniform engine-home policy). Its cwd-keyed surface, AGENTS.md, stays at the
   project root where codex natively reads it; the home-keyed ones move.
 

@@ -305,11 +305,11 @@ func TestEngineCLI_ProbesMatchTheWriters(t *testing.T) {
 
 	commands := byKindScope(agent.ProbeKindCommands, agent.ScopeEnvDir)
 	assert.True(t, commands.Dir)
-	assert.Equal(t, cellScopedPromptsDir(StateHome(dir)), filepath.Join(home, commands.Rel))
+	assert.Equal(t, cellScopedPromptsDir(dir), filepath.Join(home, commands.Rel))
 
 	skills := byKindScope(agent.ProbeKindSkills, agent.ScopeEnvDir)
 	assert.True(t, skills.Dir)
-	assert.Equal(t, cellScopedSkillsDir(StateHome(dir)), filepath.Join(home, skills.Rel))
+	assert.Equal(t, cellScopedSkillsDir(dir), filepath.Join(home, skills.Rel))
 
 	// cwd-rooted context: AGENTS.md is the native read.
 	contexts := cli.ProbesFor(agent.ProbeKindContext)

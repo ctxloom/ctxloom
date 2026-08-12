@@ -98,51 +98,73 @@ func UnregisterForTesting(name string) {
 	delete(descriptors, name)
 }
 
-// InTreeAgentHomeSpec is one backend's ctxloom-CONTROLLED config home for an
-// IN-TREE agent run, resolved for a project root: the engine's own
-// home-relocation variable, the project-scoped directory it points at, and the
-// credential seeding (if any) that has to happen before the engine is launched
-// at it.
+// InTreeAgentHomeSpec is one backend's ctxloom-CONTROLLED config home INSTANCE
+// for one session's in-tree agent run: the engine's own home-relocation
+// variable, the per-session directory it points at, and the preparation (if
+// any) that has to happen before the engine is launched at it.
 type InTreeAgentHomeSpec struct {
 	// EnvVar is the engine's home-relocation variable (CLAUDE_CONFIG_DIR,
-	// KIRO_HOME).
+	// CODEX_HOME, KIRO_HOME).
 	EnvVar string
-	// Dir is the project-scoped home, resolved through the owning engine
-	// package's own paths.EngineStateHome-derived helper — so a run and any
-	// future home-keyed static writer resolve ONE root.
+	// Dir is THIS SESSION's instance home, resolved through the owning engine
+	// package's own paths.SessionHomePath-derived helper — the engine package
+	// owns its own leaf, so no two engines can collide under one session root.
 	Dir string
-	// Seed copies host credentials into Dir, returning an actionable error when
-	// there is nothing to authenticate with. nil when the backend needs none
-	// (kiro, whose credentials live in a global store no home var relocates).
-	Seed func() error
+	// Prepare populates Dir before the engine is launched at it: the one-way
+	// copy-in of ambient host material (credentials today) plus any
+	// engine-specific scaffolding, returning an actionable error when there is
+	// nothing to authenticate with. nil when the backend needs neither (kiro,
+	// whose credentials live in a global store no home var relocates — a
+	// DECLARED empty ambient set, not an omission).
+	Prepare func() error
 }
 
-// InTreeAgentHomeFor resolves the named backend's controlled in-tree config
-// home for workDir, or ok=false when that backend has none. It is the
-// polymorphic seam operations.InTreeAgentHomeEnv reads instead of branching on
-// engine identity (ADR-0026) — the same shape ResolveModelFor and
-// CheckHookTargetScope above have, and for the same reason.
+// InTreeAgentHomeFor resolves the named backend's controlled config-home
+// INSTANCE for (workDir, harp), or ok=false when that backend has none — or
+// when the harp cannot name one. It is the polymorphic seam
+// operations.InTreeAgentHomeEnv reads instead of branching on engine identity
+// (ADR-0026) — the same shape ResolveModelFor and CheckHookTargetScope above
+// have, and for the same reason.
 //
 // This answers only WHERE, never WHETHER. The scoping rule — controlled homes
-// go to AGENT runs, on the in-tree axis, when nothing has already set the var —
-// belongs to the caller and lives in one place there.
+// go to runs whose agent binding declares `config_home: project`, on the
+// in-tree axis, when nothing has already set the var — belongs to the caller
+// and lives in ONE place there, for all three engines.
+//
+// harp is REQUIRED. An empty harp resolves nothing and creates nothing: there
+// is no session-less instance to fall back to, and a project-wide fallback is
+// exactly the durable home the per-session model retired. A harp that fails
+// validation warns and declines, because a caller that got this far with an
+// unusable session name has a bug the run should not paper over.
 //
 // The roster's absentees are deliberate:
 //
-//   - codex has no entry because it already relocates CODEX_HOME on EVERY axis
-//     through its own resolveCodexProjectDir, and seeds itself in Setup. A
-//     second contributor here would race the one that works.
 //   - opencode has none because its only lever is XDG_CONFIG_HOME /
 //     XDG_DATA_HOME, which are not engine-private: relocating them moves git's,
 //     fish's and every other XDG-aware tool's config for the child too.
 //   - acp, mock and antigravity have no engine-global home for ctxloom to
 //     control.
-func InTreeAgentHomeFor(name, workDir string) (InTreeAgentHomeSpec, bool) {
+//
+// codex USED to be an absentee, on the reasoning that it relocated CODEX_HOME
+// on every axis itself and a second contributor here would race the one that
+// works. The D2 ruling ended that asymmetry: codex reads config_home like
+// claude and kiro, its own resolver's non-isolated arm now lands on the real
+// ~/.codex, and this seam is the single contributor of a controlled home for
+// all three.
+func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) {
 	d, exists := descriptors[name]
 	if !exists || d.inTreeAgentHome == nil {
 		return InTreeAgentHomeSpec{}, false
 	}
-	return d.inTreeAgentHome(workDir), true
+	if harp == "" {
+		return InTreeAgentHomeSpec{}, false
+	}
+	spec, err := d.inTreeAgentHome(workDir, harp)
+	if err != nil {
+		clidiag.Warn("ctxloom", "cannot resolve a per-session config home for %s in session %q (%v); this run uses the engine's own host config home instead", name, harp, err)
+		return InTreeAgentHomeSpec{}, false
+	}
+	return spec, true
 }
 
 // cleanAbsPath returns p's cleaned absolute form for path comparison, falling

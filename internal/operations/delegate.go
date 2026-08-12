@@ -962,8 +962,8 @@ func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProces
 // for this path, StartEngine's for that one) and both are bounding "process/
 // container comes up and finishes a handshake" under the same possible
 // contention (loaded docker daemon, DinD nesting, a busy bridge network).
-// Absent evidence the legacy path's engines (today: opencode,
-// mock, or any StartRun-eligible backend launched --degraded) are faster or
+// Absent evidence the legacy path's engines (today: mock, or any
+// StartRun-eligible backend launched --degraded) are faster or
 // slower to spawn, matching the sibling path's just-tuned number is the
 // defensible choice — not a copy-paste, an independent application of the
 // same reasoning to the same class of wait.
@@ -991,14 +991,13 @@ const defaultChatDialTimeout = 5 * time.Minute
 // reached ONLY when `!(plan.ViaStartRun && url != "")`, i.e. exactly two
 // documented, intentional cases: (a) a StructuredChat backend outside the
 // coordinator's ViaStartRun allowlist (coord/spawner.go's
-// viaStartRunBackends) — CORRECTED 2026-07-24 (fix/legacy-launch-timeout):
-// this is NOT "no production backend, only test doubles". opencode is a
-// fully registered production backend (internal/lm/
-// backends/registry.go) that implements agent.StructuredChat and is absent
-// from viaStartRunBackends by design (spawner.go's doc); an agent_run against
-// it rides this exact dial, unconditionally, on every ordinary
-// (non-degraded) launch. "mock" is the only member of the allowlist gap that is
-// test-only. And (b) C1's documented degraded-mode no-reach-back spawn
+// viaStartRunBackends) — which, since the spool cutover's S3b slice migrated
+// opencode onto StartRun, is the "mock" test backend ALONE. (The 2026-07-24
+// correction this comment used to carry — that opencode was a fully
+// registered PRODUCTION backend riding this dial on every ordinary
+// non-degraded agent_run — was true until S3b and is what S3b removed; no
+// production backend reaches this dial by backend identity any more.)
+// And (b) C1's documented degraded-mode no-reach-back spawn
 // fallback (a StartRun-eligible backend launched with CTXLOOM_DEGRADED=1 and
 // no coordinator endpoint reachable — the runner could never dial home, so
 // StartRun is impossible and this is the only way the child launches at
@@ -1013,8 +1012,8 @@ const defaultChatDialTimeout = 5 * time.Minute
 // file-spool messaging substrate that replaces the coordinator mailbox, and
 // closed to new backends (coord/spawner.go's checkLegacyChatFreeze refuses
 // any backend outside viaStartRunBackends + legacyChatBackends at Resolve).
-// Its remaining consumers (opencode, mock, the degraded no-reach-back spawn)
-// either migrate onto StartRun or lose delegation when the mailbox deletes.
+// Its remaining consumers (mock, the degraded no-reach-back spawn) lose
+// delegation when the mailbox deletes.
 func (p *PreparedAgentChat) Start(ctx context.Context) (*AgentChatLaunch, error) {
 	if p.oneshot {
 		return p.startOneshot(ctx), nil

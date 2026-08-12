@@ -14,34 +14,60 @@ import (
 // versionKey is the top-level integer schema-version field on config.yaml.
 const versionKey = "version"
 
-// migrationWarnings collects lossy-migration diagnostics raised while the
-// upgrade pipeline runs. The Upgrader interface has no warning channel and no
-// access to the Config being built, so lossy steps record here and
-// loadConfigFile drains into cfg.warnings (kind migration-lossy) right after
-// configUpgrades.Run — the pipeline's single call site — so the strict startup
-// gate can abort on a silently dropped setting instead of it scrolling past as
-// an unclassified stderr line.
-var (
-	migrationWarnMu   sync.Mutex
-	migrationWarnings []string
-)
-
-// recordMigrationWarning notes a lossy migration (a user-set value the upgrade
-// had to drop). The message must name the key to fix.
-func recordMigrationWarning(format string, args ...any) {
-	migrationWarnMu.Lock()
-	defer migrationWarnMu.Unlock()
-	migrationWarnings = append(migrationWarnings, fmt.Sprintf(format, args...))
+// migrationSink collects the lossy-migration diagnostics raised while ONE
+// config load's upgrade pipeline runs (a user-set value a step had to drop).
+// The Upgrader interface has no warning channel and no access to the Config
+// being built, so the lossy steps record into a sink THREADED through the
+// upgraders that can drop a value; loadConfigLayer builds a fresh sink per load
+// and drains it into cfg.warnings (kind migration-lossy) so the strict startup
+// gate can abort on a silently dropped setting.
+//
+// It is per-load precisely so concurrent loads — which now exist (the
+// delegation concurrency ceiling admits concurrent child spawns, each
+// re-loading config; Manager.Update loads twice per transaction) — never
+// attribute one config's dropped setting to another, or lose it entirely, the
+// way a single package-global buffer drained by whichever load finished first
+// did (U049-F14).
+type migrationSink struct {
+	mu   sync.Mutex
+	msgs []string
 }
 
-// drainMigrationWarnings returns and clears the collected lossy-migration
-// diagnostics.
-func drainMigrationWarnings() []string {
-	migrationWarnMu.Lock()
-	defer migrationWarnMu.Unlock()
-	out := migrationWarnings
-	migrationWarnings = nil
+func (s *migrationSink) record(format string, args ...any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.msgs = append(s.msgs, fmt.Sprintf(format, args...))
+}
+
+func (s *migrationSink) drain() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.msgs
+	s.msgs = nil
 	return out
+}
+
+// packageMigrationSink backs only the STATIC configUpgrades pipeline — the one
+// tests run directly and the one any caller that does not thread its own sink
+// falls back to. The production load path threads a fresh per-load sink instead
+// (loadConfigLayer via newConfigUpgrades), so concurrent loads never touch this
+// shared buffer. See U049-F14.
+var packageMigrationSink = &migrationSink{}
+
+// recordMigrationWarningTo notes a lossy migration on sink, falling back to the
+// package sink when a step was reached through the static pipeline (nil sink).
+// The message must name the key to fix.
+func recordMigrationWarningTo(sink *migrationSink, format string, args ...any) {
+	if sink == nil {
+		sink = packageMigrationSink
+	}
+	sink.record(format, args...)
+}
+
+// drainMigrationWarnings returns and clears the diagnostics collected on the
+// package sink (the static-pipeline / test path).
+func drainMigrationWarnings() []string {
+	return packageMigrationSink.drain()
 }
 
 // CurrentConfigVersion is the config *schema* version ctxloom writes and
@@ -57,12 +83,20 @@ const CurrentConfigVersion = 6
 // pipeline over the raw config bytes on every load (see loadConfigFile);
 // upgrades apply in memory and are only persisted after the user confirms
 // (see Config.CommitUpgrade).
-var configUpgrades = upgrade.Pipeline{
-	llmRenameUpgrade{},
-	labeledConfigUpgrade{},
-	geminiToAntigravityUpgrade{},
-	profileCommandSelectorUpgrade{},
-	defaultAgentUpgrade{},
+var configUpgrades = newConfigUpgrades(nil)
+
+// newConfigUpgrades builds the ordered upgrade pipeline, binding the lossy
+// steps to sink so one load's dropped-setting warnings stay its own (U049-F14).
+// A nil sink routes those warnings to the package sink — the shape the static
+// configUpgrades var (and the tests that run it) rely on.
+func newConfigUpgrades(sink *migrationSink) upgrade.Pipeline {
+	return upgrade.Pipeline{
+		llmRenameUpgrade{},
+		labeledConfigUpgrade{sink: sink},
+		geminiToAntigravityUpgrade{sink: sink},
+		profileCommandSelectorUpgrade{},
+		defaultAgentUpgrade{sink: sink},
+	}
 }
 
 // llmRenameUpgrade is the v1→v2 config upgrade: the schema generation that
@@ -138,18 +172,18 @@ func (llmRenameUpgrade) Apply(root *yaml.Node) (changed bool) {
 //   - root profiles:        → profiles.definitions
 //   - defaults.use_distilled → config.use_distilled
 //   - delete defaults:, llm.compaction; set version 3.
-type labeledConfigUpgrade struct{}
+type labeledConfigUpgrade struct{ sink *migrationSink }
 
 // Name identifies the upgrade in logs and the rewrite prompt.
 func (labeledConfigUpgrade) Name() string { return "labeled LLM configs + role map (v2→v3)" }
 
 // Apply performs the reshape and stamps version 3, a no-op once at version 3+.
-func (labeledConfigUpgrade) Apply(root *yaml.Node) (changed bool) {
+func (u labeledConfigUpgrade) Apply(root *yaml.Node) (changed bool) {
 	if v, ok := upgrade.Version(root, versionKey); !ok || v >= 3 {
 		return false
 	}
 
-	migrateLLMv3(root)
+	migrateLLMv3(root, u.sink)
 	migrateProfilesV3(root)
 	migrateSettingsV3(root)
 
@@ -163,7 +197,7 @@ func (labeledConfigUpgrade) Apply(root *yaml.Node) (changed bool) {
 
 // migrateLLMv3 stamps `type` onto each labeled config, renames llm.default to
 // llm.defaults.primary, and folds llm.compaction into the fast role.
-func migrateLLMv3(root *yaml.Node) {
+func migrateLLMv3(root *yaml.Node, sink *migrationSink) {
 	llm := upgrade.MapValue(root, "llm")
 	if llm == nil || llm.Kind != yaml.MappingNode {
 		return
@@ -230,7 +264,7 @@ func migrateLLMv3(root *yaml.Node) {
 				// migration-lossy config warning; fatal in strict mode) rather
 				// than silently drop the user's chosen compaction model — this
 				// migration is irreversible on disk.
-				recordMigrationWarning("config migration: dropped compaction model %q (no LLM label to attach it to); set llm.defaults.fast and re-specify the model", cm.Value)
+				recordMigrationWarningTo(sink, "config migration: dropped compaction model %q (no LLM label to attach it to); set llm.defaults.fast and re-specify the model", cm.Value)
 			}
 		}
 		// compaction.chunks → config.compaction_chunks
@@ -305,7 +339,7 @@ func migrateProfilesV3(root *yaml.Node) {
 //
 // Labels (llm.configs keys, llm.defaults role references) are never touched: a
 // label named "gemini" is just a name; only the type discriminator matters.
-type geminiToAntigravityUpgrade struct{}
+type geminiToAntigravityUpgrade struct{ sink *migrationSink }
 
 // Name identifies the upgrade in logs and the rewrite prompt.
 func (geminiToAntigravityUpgrade) Name() string { return "gemini→antigravity backend (v3→v4)" }
@@ -313,7 +347,7 @@ func (geminiToAntigravityUpgrade) Name() string { return "gemini→antigravity b
 // Apply performs the replacement and stamps version 4, a no-op once at
 // version 4+. As with earlier steps, stamping the version is itself a valid
 // upgrade, so a gemini-free v3 config upgrades simply by gaining `version: 4`.
-func (geminiToAntigravityUpgrade) Apply(root *yaml.Node) (changed bool) {
+func (u geminiToAntigravityUpgrade) Apply(root *yaml.Node) (changed bool) {
 	if v, ok := upgrade.Version(root, versionKey); !ok || v >= 4 {
 		return false
 	}
@@ -323,6 +357,7 @@ func (geminiToAntigravityUpgrade) Apply(root *yaml.Node) (changed bool) {
 	if llm := upgrade.MapValue(root, "llm"); llm != nil && llm.Kind == yaml.MappingNode {
 		if configs := upgrade.MapValue(llm, "configs"); configs != nil && configs.Kind == yaml.MappingNode {
 			for i := 0; i+1 < len(configs.Content); i += 2 {
+				label := configs.Content[i]
 				entry := configs.Content[i+1]
 				if entry.Kind != yaml.MappingNode {
 					continue
@@ -333,9 +368,18 @@ func (geminiToAntigravityUpgrade) Apply(root *yaml.Node) (changed bool) {
 				}
 				// Rewrite the scalar in place so the node's comments survive.
 				typ.Value = "antigravity"
-				upgrade.MapDelete(entry, "trust_workspace")
-				upgrade.MapDelete(entry, "approval_mode")
-				upgrade.MapDelete(entry, "binary_path")
+				// These three gemini-only knobs have no antigravity equivalent and
+				// are dropped — but a USER-SET value being deleted by a migration
+				// is an irreversible on-disk loss, so name each one the way
+				// migrateLLMv3 names its own lossy branch (recordMigrationWarning →
+				// WarnKindMigrationLossy, fatal in strict mode) instead of dropping
+				// it silently (U049-F18).
+				for _, key := range []string{"trust_workspace", "approval_mode", "binary_path"} {
+					if v := upgrade.MapValue(entry, key); v != nil && v.Kind == yaml.ScalarNode {
+						recordMigrationWarningTo(u.sink, "config migration (gemini→antigravity): dropped %s=%q from llm config %q; it has no antigravity equivalent", key, v.Value, label.Value)
+					}
+					upgrade.MapDelete(entry, key)
+				}
 			}
 		}
 	}
@@ -537,18 +581,18 @@ func rewriteSeqCommandSelectors(m *yaml.Node, key string) {
 // No-clobber: an existing agents.default or a set default_agent is left intact —
 // stamping the version alone is a valid upgrade for a config that already carries
 // the new shape.
-type defaultAgentUpgrade struct{}
+type defaultAgentUpgrade struct{ sink *migrationSink }
 
 // Name identifies the upgrade in logs and the rewrite prompt.
 func (defaultAgentUpgrade) Name() string { return "profiles.defaults → default agent (v5→v6)" }
 
 // Apply performs the reshape and stamps version 6, a no-op once at version 6+.
-func (defaultAgentUpgrade) Apply(root *yaml.Node) (changed bool) {
+func (u defaultAgentUpgrade) Apply(root *yaml.Node) (changed bool) {
 	if v, ok := upgrade.Version(root, versionKey); !ok || v >= 6 {
 		return false
 	}
 
-	migrateDefaultAgentV6(root)
+	migrateDefaultAgentV6(root, u.sink)
 
 	upgrade.SetVersion(root, versionKey, 6)
 	return true
@@ -557,7 +601,7 @@ func (defaultAgentUpgrade) Apply(root *yaml.Node) (changed bool) {
 // migrateDefaultAgentV6 synthesizes agents.default + default_agent from a legacy
 // profiles.defaults seq (see defaultAgentUpgrade). A config with no
 // profiles.defaults is left untouched (the version stamp alone upgrades it).
-func migrateDefaultAgentV6(root *yaml.Node) {
+func migrateDefaultAgentV6(root *yaml.Node, sink *migrationSink) {
 	prof := upgrade.MapValue(root, "profiles")
 	if prof == nil || prof.Kind != yaml.MappingNode {
 		return
@@ -606,7 +650,7 @@ func migrateDefaultAgentV6(root *yaml.Node) {
 		// having written it. See config_migrate_test.go for the pinned
 		// absence.
 	} else {
-		recordMigrationWarning("config migration: dropped profiles.defaults %v (agents.default already exists); re-add them under agents.<name>.profiles", scalarSeqValues(defaultsSeq))
+		recordMigrationWarningTo(sink, "config migration: dropped profiles.defaults %v (agents.default already exists); re-add them under agents.<name>.profiles", scalarSeqValues(defaultsSeq))
 	}
 
 	// Point default_agent at the synthesized (or pre-existing) default agent,

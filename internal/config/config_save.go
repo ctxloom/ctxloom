@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
@@ -81,42 +83,53 @@ func (c *Config) commitPendingUpgrade(p *upgrade.Pending) error {
 // silently discard one another's change, despite the write itself never
 // interleaving at the byte level.
 func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
-	existing, err := readExistingConfig(fs, configPath)
+	existingData, existing, err := readExistingConfig(fs, configPath)
 	if err != nil {
 		return err
 	}
 
 	c.applyConfigSections(existing)
 
-	data, err := yaml.Marshal(existing)
+	// Normalize the desired sections (applyConfigSections' typed-struct blocks —
+	// c.editor, c.mcp, c.settings, ...) into a nested generic map, exactly like a
+	// freshly-read config layer, so (a) the layer-scope walker can traverse it via
+	// kmaps and (b) each section compares canonically against the on-disk node in
+	// marshalPreservingComments below.
+	desiredBytes, err := yaml.Marshal(existing)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
+	var desired map[string]any
+	if err := yaml.Unmarshal(desiredBytes, &desired); err != nil {
+		return fmt.Errorf("failed to normalize config for save: %w", err)
+	}
 
-	// c is the FULLY MERGED view Manager.Update's loadUncached produced (home
-	// < project < env < flag), so applyConfigSections just wrote every
-	// section it carries into existing regardless of which layer originally
-	// contributed it — a Machine-scoped value set ONLY in home (editor.
-	// command, llm.configs.*.env, ...) included. Writing that into configPath
-	// is exactly the leak internal/config/layerscope exists to close: the
-	// file being written here IS the project layer whenever a separate home
-	// layer also exists (c.source == SourceProject — see
-	// resolveConfigLayerPaths), and Scope.Allows(LayerProject) says a
-	// Machine-scoped value may not live there, committed-file-visible to
-	// every clone, no matter which in-memory Config section carried it in.
-	// Left unfiltered, the NEXT load of this same file re-discovers the
-	// leaked value at LayerProject and (in FATAL-class strictness) refuses
-	// to start — a command with nothing to do with editor.command (e.g. `mcp
-	// server create`) would otherwise brick every subsequent strict-mode
-	// invocation. When c.source is SourceHome (no project directory exists
-	// at all; this file IS home acting alone, nothing to violate), the
-	// filter is skipped.
+	// c is the FULLY MERGED view Manager.Update's loadUncached produced (home <
+	// project < env < flag), so applyConfigSections wrote every section it
+	// carries regardless of which layer contributed it — a Machine-scoped value
+	// set ONLY in home (editor.command, llm.configs.*.env, ...) included. Writing
+	// that into configPath is exactly the leak internal/config/layerscope closes:
+	// the file being written IS the project layer whenever a separate home layer
+	// also exists (c.source == SourceProject), and Scope.Allows(LayerProject)
+	// forbids a Machine-scoped value there. Drop each via the SAME
+	// dropLayerScopeViolations load-time uses (never a bespoke filter), zap-logged
+	// because there is no live *Config.warnings slice to append to here. When
+	// c.source is SourceHome (this file IS home acting alone), nothing to filter.
 	if c.source == SourceProject {
-		filtered, ferr := dropSaveLayerScopeViolations(data)
-		if ferr != nil {
-			return fmt.Errorf("failed to enforce layer scope on config: %w", ferr)
+		for _, v := range dropLayerScopeViolations(layerscope.LayerProject, desired) {
+			zap.L().Warn("config_layer_scope_save_warning", zap.Strings("key", v.Path))
 		}
-		data = filtered
+	}
+
+	// Persist by PATCHING the on-disk document's yaml.Node tree so comments and
+	// key order survive — only a section whose canonical content actually changed
+	// is re-encoded, exactly like the comment-preserving upgrade path, rather than
+	// re-emitting a sorted, comment-stripped map[string]interface{} marshal on
+	// every write (U049-F16). A first write (no existing bytes) falls back to a
+	// fresh document whose keys are emitted sorted, matching what Marshal produces.
+	data, err := marshalPreservingComments(existingData, desired)
+	if err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
 	}
 
 	if err := iox.WriteFileAtomicFs(fs, configPath, data, 0o644); err != nil {
@@ -131,31 +144,107 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	return nil
 }
 
-// dropSaveLayerScopeViolations re-decodes marshaled config YAML into a
-// generic map[string]any — undoing applyConfigSections' typed-struct
-// sections (c.editor, c.mcp, c.settings, ...) so kmaps can walk the result
-// uniformly, exactly like a freshly-read config layer — and drops whatever
-// ScopeProject disallows via the SAME dropLayerScopeViolations
-// load-time uses (never a second, bespoke filter), before re-marshaling.
-// Each drop is zap-logged (config_layer_scope_save_warning): there is no
-// live *Config.warnings slice to append to at this point in a save (the
-// fresh Config Manager.Update built is local to that call and about to be
-// discarded), so a zap log is the only channel available — silently
-// dropping it with no trace at all would repeat exactly the failure mode
-// WarnKindLayerScope's own load-time doc rejects.
-func dropSaveLayerScopeViolations(data []byte) ([]byte, error) {
-	var generic map[string]any
-	if err := yaml.Unmarshal(data, &generic); err != nil {
-		return nil, fmt.Errorf("re-parse marshaled config: %w", err)
+// marshalPreservingComments renders desired to YAML by patching the parsed node
+// tree of original, so every comment and the authored key order in original
+// survive the write. A key whose canonical value is unchanged keeps its exact
+// on-disk node (comments and all); a changed section is re-encoded from desired;
+// a key desired no longer carries is dropped; a new key is appended. With no
+// original bytes it emits a fresh document (keys sorted, matching a map marshal).
+func marshalPreservingComments(original []byte, desired map[string]any) ([]byte, error) {
+	var doc yaml.Node
+	haveDoc := false
+	if len(original) > 0 {
+		if err := yaml.Unmarshal(original, &doc); err != nil {
+			// readExistingConfig already parse-checked; treat a re-parse failure as
+			// a hard error rather than silently truncating.
+			return nil, fmt.Errorf("re-parse existing config for patch: %w", err)
+		}
+		if len(doc.Content) == 1 && doc.Content[0].Kind == yaml.MappingNode {
+			haveDoc = true
+		}
 	}
-	for _, v := range dropLayerScopeViolations(layerscope.LayerProject, generic) {
-		zap.L().Warn("config_layer_scope_save_warning", zap.Strings("key", v.Path))
+	var root *yaml.Node
+	if haveDoc {
+		root = doc.Content[0]
+	} else {
+		root = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	}
-	out, err := yaml.Marshal(generic)
+	if err := reconcileMappingNode(root, desired); err != nil {
+		return nil, err
+	}
+	if haveDoc {
+		return yaml.Marshal(&doc)
+	}
+	return yaml.Marshal(root)
+}
+
+// reconcileMappingNode mutates root (a mapping node) so it represents desired,
+// touching a key only when its content changed so untouched keys keep their
+// authored comments and position.
+func reconcileMappingNode(root *yaml.Node, desired map[string]any) error {
+	// Drop keys the desired state no longer carries (pruned/retired sections),
+	// leaving every surviving key node — and its comments — in place.
+	for i := 0; i+1 < len(root.Content); {
+		if _, ok := desired[root.Content[i].Value]; ok {
+			i += 2
+			continue
+		}
+		root.Content = append(root.Content[:i], root.Content[i+2:]...)
+	}
+	// Set or replace each desired key, but re-encode only a section whose content
+	// actually changed. New keys are appended in a stable (sorted) order.
+	keys := make([]string, 0, len(desired))
+	for k := range desired {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		want := desired[key]
+		if cur := upgrade.MapValue(root, key); cur != nil {
+			same, err := nodeCanonicallyEqual(cur, want)
+			if err != nil {
+				return err
+			}
+			if same {
+				continue
+			}
+		}
+		var enc yaml.Node
+		if err := enc.Encode(want); err != nil {
+			return fmt.Errorf("encode config section %q: %w", key, err)
+		}
+		upgrade.MapSet(root, key, &enc)
+	}
+	return nil
+}
+
+// nodeCanonicallyEqual reports whether an on-disk node and a desired value carry
+// the same content, ignoring comments and key order — the test for "this section
+// did not change, so keep its authored node". Both sides are normalized through
+// a decode→re-marshal so a struct's field order and a map's sorted order compare
+// equal.
+func nodeCanonicallyEqual(node *yaml.Node, v any) (bool, error) {
+	a, err := canonicalYAML(node)
 	if err != nil {
-		return nil, fmt.Errorf("re-marshal filtered config: %w", err)
+		return false, err
 	}
-	return out, nil
+	b, err := canonicalYAML(v)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(a, b), nil
+}
+
+func canonicalYAML(v any) ([]byte, error) {
+	raw, err := yaml.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var g any
+	if err := yaml.Unmarshal(raw, &g); err != nil {
+		return nil, err
+	}
+	return yaml.Marshal(g)
 }
 
 // Marshal renders the configuration to YAML bytes using the same section
@@ -190,18 +279,18 @@ func (c *Config) Marshal() ([]byte, error) {
 // not a licence to overwrite it. A corrupt config is a reason to stop: the
 // user still has their file and can fix the one line that broke it, which is
 // impossible once we have rewritten it.
-func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{}, error) {
+func readExistingConfig(fs afero.Fs, configPath string) ([]byte, map[string]interface{}, error) {
 	existingData, err := afero.ReadFile(fs, configPath)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("failed to read existing config: %w", err)
+		return nil, nil, fmt.Errorf("failed to read existing config: %w", err)
 	}
 	existing := make(map[string]interface{})
 	if len(existingData) > 0 {
 		if err := yaml.Unmarshal(existingData, &existing); err != nil {
-			return nil, fmt.Errorf("refusing to write over %s: it does not parse as YAML, and saving would replace it with a truncated file — fix or move it first: %w", configPath, err)
+			return nil, nil, fmt.Errorf("refusing to write over %s: it does not parse as YAML, and saving would replace it with a truncated file — fix or move it first: %w", configPath, err)
 		}
 	}
-	return existing, nil
+	return existingData, existing, nil
 }
 
 // userAuthoredLM returns the LM section with default-overlaid values stripped:

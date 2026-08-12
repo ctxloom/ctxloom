@@ -1,6 +1,10 @@
 package config
 
 import (
+	"fmt"
+	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"gopkg.in/yaml.v3"
 )
@@ -93,13 +97,26 @@ type FragmentRef struct {
 //	    priority: 10          # Struct format with explicit priority
 func (f *FragmentRef) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
+		// A null/empty scalar ("- " on its own line, `- ""`, or whitespace)
+		// would otherwise decode to FragmentRef{Name: ""} and flow silently
+		// through the resolver to select nothing (U049-F19). An empty entry is
+		// a typo, never an intent — reject it at decode with the line named.
+		if strings.TrimSpace(node.Value) == "" {
+			return fmt.Errorf("empty fragment reference at line %d: a fragments list entry must name a fragment", node.Line)
+		}
 		f.Name = node.Value
 		f.Priority = 0
 		return nil
 	}
 	// Struct format
 	type plain FragmentRef
-	return node.Decode((*plain)(f))
+	if err := node.Decode((*plain)(f)); err != nil {
+		return err
+	}
+	if strings.TrimSpace(f.Name) == "" {
+		return fmt.Errorf("empty fragment reference at line %d: a fragments list entry must name a fragment", node.Line)
+	}
+	return nil
 }
 
 // MarshalYAML outputs as string if priority is 0, otherwise as struct.
@@ -163,6 +180,31 @@ type Profile struct {
 	// executable trust gate: a deny entry can only make a run MORE
 	// restrictive, never execute anything).
 	DenyTools []string `mapstructure:"deny_tools" yaml:"deny_tools,omitempty"`
+}
+
+// UnmarshalYAML decodes a profile and then backstops the fragments list against
+// empty entries (U049-F19). FragmentRef.UnmarshalYAML rejects an empty or
+// whitespace scalar, but yaml.v3 never invokes a value's Unmarshaler for a NULL
+// node — a bare "- " list item decodes straight to the zero FragmentRef,
+// bypassing that check — so an empty-named fragment is caught here after the
+// whole profile has decoded, where the null slot is visible as Name == "".
+func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
+	type plain Profile
+	if err := node.Decode((*plain)(p)); err != nil {
+		return err
+	}
+	// Inspect the RAW fragments sequence: yaml.v3 silently DROPS a null list
+	// item ("- ") during sequence decode (its Unmarshaler is never called for a
+	// null node), so an empty entry never reaches p.Fragments to be caught
+	// there. Walk the source nodes so the typo fails loudly instead of vanishing.
+	if frags := upgrade.MapValue(node, "fragments"); frags != nil && frags.Kind == yaml.SequenceNode {
+		for _, item := range frags.Content {
+			if item.Kind == yaml.ScalarNode && strings.TrimSpace(item.Value) == "" {
+				return fmt.Errorf("empty fragment reference in profile fragments list (line %d): a fragments entry must name a fragment", item.Line)
+			}
+		}
+	}
+	return nil
 }
 
 // ProfilesConfig holds the named profile definitions. Definitions was the old

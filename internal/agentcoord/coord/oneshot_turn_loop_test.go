@@ -144,13 +144,21 @@ func TestApproval_MidTurnWaitYieldsSlotToPeer(t *testing.T) {
 	resetStrictness(t)
 	bGate := make(chan struct{})
 	var spawns int
-	sp := planPresetSpawner(func() *scriptedChat {
+	// Explicit relay_to_role ladder, not the plan preset (relayLadderSpawner):
+	// this test's subject is the SLOT-YIELD mechanism while ANY approval is
+	// parked, not which preset selects relay_to_role — the plan preset no
+	// longer relays a COMMAND_EXECUTION directly since marauding-hacksaw
+	// (TestApproval_MidTurnWaitYieldsSlotToPeer's own park/yield assertions
+	// hold identically for a surface_to_human park — see
+	// TestApproval_SurfaceToHumanRoundTrip / surfaceApprovalToHuman's doc,
+	// which documents the SAME onRolePark/onRoleUnpark discipline).
+	sp := relayLadderSpawner(func() *scriptedChat {
 		spawns++
 		if spawns == 1 {
 			return &scriptedChat{permission: commandExecRequest("perm-A")} // A parks on approval
 		}
 		return &scriptedChat{turnGate: bGate} // B: held mid-turn until released
-	})
+	}, conformanceWait)
 	c := newTestCoordinatorCap(t, sp, nil, 1) // cap 1: B can only run if A yields its slot
 
 	a, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task A", "", "")

@@ -14,14 +14,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// C2 slice 2 acceptance: an ActionSurfaceToHuman rung — today unreachable
-// from any preset (presetLadder never emits it; only an explicit
-// escalation: block can, per approval-surface.plan.md's survey), so these
-// tests build the ladder directly via fakeAgent.ladder, mirroring
-// TestApproval_RelayRoundTrip's shape but for the HUMAN surface: no mail is
-// ever queued, PendingApprovals()/OnPendingApproval are the only way an
-// observer learns the approval exists, and a human answers over the SAME
-// AgentSend(in_reply_to) path a relayed approval's parent answers over.
+// C2 slice 2 acceptance: an ActionSurfaceToHuman rung. At the time this file
+// was written, presetLadder never emitted it (only an explicit escalation:
+// block could, per approval-surface.plan.md's survey) — marauding-hacksaw
+// later changed the plan preset itself to surface first (ladder.go;
+// preset_surface_test.go pins that end to end). These tests still build the
+// ladder directly via fakeAgent.ladder — a single, isolated surface_to_human
+// rung, mirroring TestApproval_RelayRoundTrip's shape but for the HUMAN
+// surface — because their subject is the surfaceApprovalToHuman MECHANISM
+// itself (no mail is ever queued, PendingApprovals()/OnPendingApproval are
+// the only way an observer learns the approval exists, and a human answers
+// over the SAME AgentSend(in_reply_to) path a relayed approval's parent
+// answers over), independent of which ladder — preset or explicit — put the
+// rung there.
 
 // surfaceLadderSpawner builds a fakeSpawner with one migrated agent "worker"
 // whose ladder has exactly one ActionSurfaceToHuman rung (timeout given

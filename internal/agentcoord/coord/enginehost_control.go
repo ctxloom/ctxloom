@@ -79,6 +79,20 @@ func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string)
 	case <-runCtx.Done():
 		return runCtx.Err()
 	}
+	// THE PAUSE GATE (spoolcontrol.go's ControlPause). A paused run takes no
+	// new turn: the caller waits here, holding NOTHING — not the enqueue lock,
+	// not a slot on the FIFO — so a pause cannot deadlock a resume, and the
+	// mail behind this turn stays unconsumed in the spool where a relaunch
+	// would find it. Bounded by the same two contexts everything else here is.
+	if gate := eh.pauseGate(); gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-runCtx.Done():
+			return runCtx.Err()
+		}
+	}
 
 	eh.enqueueMu.Lock()
 	defer eh.enqueueMu.Unlock()
@@ -158,6 +172,69 @@ func (eh *EngineHost) HandleControl(ctx context.Context, req *agentcoordpb.Coord
 		return &agentcoordpb.AgentResponse{Status: statusErr(codes.Unimplemented,
 			"this engine host has no executor for that control request kind")}
 	}
+}
+
+// pauseGate returns the channel a turn must wait on, or nil when the run is
+// not paused. Nil rather than a closed channel: an unpaused run must not even
+// select, so the gate costs one nil check on the path every turn takes.
+func (eh *EngineHost) pauseGate() chan struct{} {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
+	return eh.paused
+}
+
+// pauseRun holds this run's turn hand-off. It is IDEMPOTENT, and says which
+// it did: a second pause is not an error (the caller wanted the run paused,
+// and it is), but reporting "newly paused" for it would let a supervisor
+// believe it caught a running agent when it caught a stopped one.
+func (eh *EngineHost) pauseRun(req *agentcoordpb.PauseRun) *agentcoordpb.RunnerResponse {
+	if resp := eh.checkRunID(req.GetRunId(), "PauseRun"); resp != nil {
+		return resp
+	}
+	eh.mu.Lock()
+	newly := eh.paused == nil
+	if newly {
+		eh.paused = make(chan struct{})
+	}
+	eh.mu.Unlock()
+	return &agentcoordpb.RunnerResponse{
+		Status: okStatus(""),
+		Kind:   &agentcoordpb.RunnerResponse_PauseRun{PauseRun: &agentcoordpb.PauseRunResult{NewlyPaused: newly}},
+	}
+}
+
+// resumeRun releases a paused run. Idempotent on the same terms as pauseRun.
+//
+// The gate is CLOSED, never sent to, so every waiter is released by the one
+// operation — a resume that had to wake waiters one at a time would deliver
+// its turns in an order decided by scheduling.
+func (eh *EngineHost) resumeRun(req *agentcoordpb.ResumeRun) *agentcoordpb.RunnerResponse {
+	if resp := eh.checkRunID(req.GetRunId(), "ResumeRun"); resp != nil {
+		return resp
+	}
+	eh.mu.Lock()
+	gate := eh.paused
+	eh.paused = nil
+	eh.mu.Unlock()
+	if gate != nil {
+		close(gate)
+	}
+	return &agentcoordpb.RunnerResponse{
+		Status: okStatus(""),
+		Kind:   &agentcoordpb.RunnerResponse_ResumeRun{ResumeRun: &agentcoordpb.ResumeRunResult{NewlyResumed: gate != nil}},
+	}
+}
+
+// checkRunID enforces the A9 correlation every runner request carries: this
+// process hosts exactly ONE run, and a request naming another is refused
+// rather than applied to the run that happens to be here. Returns nil when the
+// request may proceed.
+func (eh *EngineHost) checkRunID(runID, what string) *agentcoordpb.RunnerResponse {
+	if runID == eh.runID {
+		return nil
+	}
+	return &agentcoordpb.RunnerResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf(
+		"%s named run %s, but this runner hosts run %s (A9 correlation)", what, runID, eh.runID))}
 }
 
 // steerBodyID derives the parked body's message id from the request id, so a

@@ -559,8 +559,12 @@ func TestSpoolTee_KindMappingIsExhaustive(t *testing.T) {
 func TestSpoolTee_EveryProtoMessageKindIsAccountedFor(t *testing.T) {
 	// Kinds that travel as control PeerMessages (enginehost_control.go), never
 	// through the mailbox queue the tee shadows.
+	//
+	// "steer" LEFT this set with the interaction-plane cutover (spoolcontrol.go):
+	// a steer is now ordinary mail — a durable, withdrawable file in the target's
+	// in/ — so it must have a frontmatter spelling like any other kind. Only
+	// user_control still travels solely as a control PeerMessage.
 	notMailborne := map[string]bool{
-		"steer":        true,
 		"user_control": true,
 	}
 	checked := 0

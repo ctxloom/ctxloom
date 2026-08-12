@@ -93,6 +93,17 @@ type EngineHost struct {
 	pendingTags []turnTag
 	currentTag  turnTag
 
+	// paused, when non-nil, is the PAUSE GATE (spoolcontrol.go's ControlPause):
+	// a channel every locally-originated turn waits on before it may reach the
+	// engine, closed by ResumeRun. Nil means running — the gate is absent
+	// rather than open, so an unpaused run does not so much as select on it.
+	//
+	// It gates the HAND-OFF and nothing else. A turn already inside the engine
+	// runs to its end (no surface ctxloom drives takes an interrupt), and mail
+	// stays unconsumed in its spool, which is what makes a pause survivable
+	// across a relaunch: nothing was taken that was not delivered.
+	paused chan struct{}
+
 	// reannounce is the turn-boundary re-announcer's state (F10): what keeps
 	// an announced-but-never-pulled control body from sitting in the recv
 	// buffer, unread and unreported, until the process dies. See
@@ -187,6 +198,10 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 	switch kind := req.GetKind().(type) {
 	case *agentcoordpb.RunnerRequest_StartRun:
 		return eh.startRun(kind.StartRun)
+	case *agentcoordpb.RunnerRequest_PauseRun:
+		return eh.pauseRun(kind.PauseRun)
+	case *agentcoordpb.RunnerRequest_ResumeRun:
+		return eh.resumeRun(kind.ResumeRun)
 	case *agentcoordpb.RunnerRequest_KillRun, *agentcoordpb.RunnerRequest_StopRun:
 		// C1-minimal termination: cancel the engine context (Chat returns,
 		// RunExited flows). The graceful interrupt-then-escalate StopRun

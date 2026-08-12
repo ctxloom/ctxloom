@@ -281,6 +281,18 @@ type Coordinator struct {
 	onPendingApproval func(PendingApproval, bool)
 	// sessionAccepts (C2) is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
 	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
+	// asks holds the outstanding correlated asks (spoolcontrol.go) — question
+	// and summarize — keyed by the id their request file carries as origin_id,
+	// which is what a reply quotes in in_reply_to. Registered BEFORE the file
+	// is published, for the reason relayApproval's own comment gives.
+	// Lazily initialized.
+	asks map[string]*pendingAsk
+	// onAskPublished, when set, is called by controlAsk at the instant the ask
+	// became observable to the target. It is the register-before-publish test
+	// seam, the ask plane's twin of onApprovalMailQueued: only a hook fired at
+	// THIS instant can assert the ordering deterministically rather than by
+	// racing an Eventually. Nil in production.
+	onAskPublished func(askID string)
 	// spoolHandler is the registered consumer for validated inbound spool
 	// doorbells (SetSpoolDoorbellHandler). NIL BY DEFAULT and nil in every
 	// build until delivery is wired: an arriving doorbell is validated,
@@ -808,6 +820,16 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 	if inReplyTo != "" {
 		if disposition, rerr, matched := c.resolveApprovalReply(caller, inReplyTo, structured); matched {
 			return inReplyTo, true, disposition, rerr
+		}
+		// The CORRELATED ASK's answer (spoolcontrol.go), on the same terms and
+		// in the same place: a reply to a coordinator question/summarize
+		// resolves the parked ask and does NOT also become mail — the asker is
+		// this coordinator, not a mailbox, and delivering the answer onward
+		// would give the target's parent a message it never asked for. A miss
+		// falls through, so a stale correlation degrades to ordinary mail
+		// rather than failing the send.
+		if disposition, matched := c.resolveAskReply(caller, inReplyTo, body, structured); matched {
+			return inReplyTo, true, disposition, nil
 		}
 	}
 	// The closed-vocabulary ingress guard, at the ONE point both sender surfaces

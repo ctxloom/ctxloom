@@ -16,8 +16,13 @@ const (
 	// AppDirName is the name of the ctxloom directory.
 	AppDirName = ".ctxloom"
 
-	// CacheDir is the subdirectory for cached/regeneratable data (bundles, vendor, context).
-	// These can be deleted and re-fetched from remotes.
+	// CacheDir is the subdirectory for REGENERABLE data: pulled remote bundle
+	// copies, git clone caches, assembled context files, and the refused-advance
+	// record. Every path under it is TierDerived and names the command that
+	// rebuilds it (see Layout), so the whole directory may be deleted freely.
+	// A gitignored path that NOTHING rebuilds is not cache — it belongs under
+	// StateDir; see Tier's doc for why that, and not gitignore status, is the
+	// test.
 	CacheDir = "cache"
 
 	// ConfigFileName is the name of the config file (without extension).
@@ -32,7 +37,9 @@ const (
 	// TrustFileName is the "trust" path segment. Despite the name it is NOT a
 	// file: no .ctxloom/trust.yaml exists and nothing in this package builds
 	// one. Its sole use is as the DIRECTORY segment in TrustObjectsPath
-	// (cache/trust/objects), the approved-content snapshot store.
+	// (state/trust/objects), the approved-content snapshot store — and in
+	// LegacyTrustObjectsPath, the pre-relocation cache/trust/objects the
+	// one-time migration reads.
 	TrustFileName = "trust"
 
 	// AllowedSignersFileName is the name of the trust-root file: the set of
@@ -808,6 +815,10 @@ type Entry struct {
 // config-layer-scope design doc's ".ctxloom classification" section derived by
 // hand, given a name so a doctor check (and any future arch test) has
 // something to walk instead of re-deriving it by inspection every time.
+//
+// docs/layout.md is the user-facing account of the same classification — what a
+// clone gets, what may be deleted, and what each deletion costs. The two must
+// agree; this is the source.
 func Layout() []Entry {
 	return []Entry{
 		{Rel: filepath.Join(AppDirName, ConfigFileName+".yaml"), Tier: TierCommitted},

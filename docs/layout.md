@@ -250,4 +250,3 @@ write.
   isolation axes, `config_home`, and the per-engine home variables.
 - [trust-model.md](trust-model.md) — what `approvals/`, `allowed_signers` and
   the review snapshots under `state/trust/objects` mean.
-</content>

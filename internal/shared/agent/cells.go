@@ -162,12 +162,14 @@ type SurfaceSet interface {
 	// errors on an unsupported combination the builder did not pre-validate.
 	SurfaceFor(kind SurfaceKind, a Approach) (Delivery, error)
 	// SharedRealization reports the backend's out-of-cwd, genuinely race-safe
-	// conversion for kind — claude's --append-system-prompt-file /--mcp-config /
-	// --settings scratch writers. false means the backend has no such conversion
-	// for kind (every kind on codex/kiro; claude's commands), so a
-	// SHARED-cwd delivery falls back to the loud well-known write. The returned
-	// closure, when non-nil, performs the isolated write and returns its handle.
-	SharedRealization(kind SurfaceKind) (func() (Delivered, error), bool)
+	// conversion for the (kind, approach) pair — claude's
+	// --append-system-prompt-file /--mcp-config / --settings scratch writers.
+	// false means the backend has no such conversion for this pair (every kind
+	// on codex/kiro; claude's commands; claude's context at ApproachUnsafeFile,
+	// which the caller explicitly asked to write natively), so a SHARED-cwd
+	// delivery falls back to the loud well-known write. The returned closure,
+	// when non-nil, performs the isolated write and returns its handle.
+	SharedRealization(kind SurfaceKind, a Approach) (func() (Delivered, error), bool)
 }
 
 // SurfaceInputs is the shared, per-run superset of everything a backend's
@@ -288,8 +290,8 @@ func (EmptySurfaceSet) SurfaceFor(kind SurfaceKind, a Approach) (Delivery, error
 	return nil, fmt.Errorf("empty surface set: no %s surface via %s (this backend materializes no files)", kind, a)
 }
 
-// SharedRealization reports no realization for any kind.
-func (EmptySurfaceSet) SharedRealization(SurfaceKind) (func() (Delivered, error), bool) {
+// SharedRealization reports no realization for any (kind, approach) pair.
+func (EmptySurfaceSet) SharedRealization(SurfaceKind, Approach) (func() (Delivered, error), bool) {
 	return nil, false
 }
 
@@ -646,26 +648,34 @@ type unsafeNamed interface {
 }
 
 // deliverOneShared delivers ONE resolved surface into the SHARED live cwd at dir.
-// When the backend offers a SharedRealization for this kind (claude's out-of-cwd
-// scratch conversion), it runs that closure — genuinely race-safe, no warning.
+// When the backend offers a SharedRealization for this (kind, approach) pair
+// (claude's out-of-cwd scratch conversion, offered only at ApproachSystemPrompt
+// for context), it runs that closure — genuinely race-safe, no warning.
 // Otherwise the well-known write lands directly in the shared cwd: loudly warned
 // first, since the selected UNSAFE_FILE approach is the caller's acknowledgment
-// that ctxloom does not lock projects. A nil delivery (claude's Hook no-op) is
-// itself a no-op.
+// that ctxloom does not lock projects — this is also where an explicit
+// context=unsafe-file preference on a shared cell lands (U100-F05's fork:
+// honored, not silently converted to the scratch, and not refused). A nil
+// delivery (claude's Hook no-op) is itself a no-op.
 func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, dir string) (Delivered, error) {
 	if rs.delivery == nil {
 		return nil, nil
 	}
-	// SharedRealization is keyed on kind ALONE, but a kind can resolve to
-	// DIFFERENT deliveries per approach — claude's context resolves to the
-	// dual-capable contextSurface at UnsafeFile/SystemPrompt and to a documented
-	// no-op at Hook. Requiring the RESOLVED delivery to carry the isolated path
-	// is what keeps the kind-keyed lookup from converting a surface the caller
-	// asked not to write: running the scratch writer for a hook-carried context
-	// would emit --append-system-prompt-file alongside the inject hook and
-	// DOUBLE the context.
+	// SharedRealization is keyed on the (kind, approach) PAIR: a kind can
+	// resolve to different deliveries per approach, and — since U100-F05 —
+	// different approaches of the SAME dual-capable delivery can realize
+	// differently. claude's context resolves to the dual-capable contextSurface
+	// at both UnsafeFile and SystemPrompt, but only SystemPrompt has a
+	// realization; UnsafeFile is the caller's explicit request to write the
+	// native file, honored below with a warning (the fork this method already
+	// implements). Hook resolves to a documented no-op. Requiring the RESOLVED
+	// delivery to carry the isolated path is what keeps the pair-keyed lookup
+	// from converting a surface the caller asked not to write: running the
+	// scratch writer for a hook-carried context would emit
+	// --append-system-prompt-file alongside the inject hook and DOUBLE the
+	// context.
 	if _, isolatable := rs.delivery.(isolatedDelivery); isolatable {
-		if realize, ok := r.set.SharedRealization(rs.kind); ok {
+		if realize, ok := r.set.SharedRealization(rs.kind, rs.approach); ok {
 			return realize()
 		}
 	}

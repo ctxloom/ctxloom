@@ -541,12 +541,15 @@ func TestSurfaceFor_ContextHookUnsupported(t *testing.T) {
 	assert.Error(t, err, "kiro context is FILE-only")
 }
 
-// SharedRealization is absent for every kind: kiro has no out-of-cwd redirect, so
-// a SHARED-cwd delivery always falls back to the loud well-known write.
+// SharedRealization is absent for every (kind, approach) pair: kiro has no
+// out-of-cwd redirect, so a SHARED-cwd delivery always falls back to the loud
+// well-known write.
 func TestSurfaces_SharedRealization_Absent(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
-		_, ok := s.SharedRealization(kind)
-		assert.False(t, ok, "%s: kiro has no out-of-cwd realization", kind)
+		for _, a := range []agent.Approach{agent.ApproachUnsafeFile, agent.ApproachSystemPrompt, agent.ApproachHook} {
+			_, ok := s.SharedRealization(kind, a)
+			assert.False(t, ok, "(%s, %s): kiro has no out-of-cwd realization", kind, a)
+		}
 	}
 }

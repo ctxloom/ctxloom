@@ -103,10 +103,11 @@ func (s *recordSet) SurfaceFor(kind SurfaceKind, _ Approach) (Delivery, error) {
 	return nil, fmt.Errorf("no fake surface for %s", kind)
 }
 
-// SharedRealization reports the fake surface's isolated path for every kind —
-// mirroring a fully flag-backed backend (claude) so DeliverShared always converts
-// rather than falling back to a loud well-known write.
-func (s *recordSet) SharedRealization(kind SurfaceKind) (func() (Delivered, error), bool) {
+// SharedRealization reports the fake surface's isolated path for every (kind,
+// approach) pair — mirroring a fully flag-backed backend (claude) so
+// DeliverShared always converts rather than falling back to a loud well-known
+// write.
+func (s *recordSet) SharedRealization(kind SurfaceKind, _ Approach) (func() (Delivered, error), bool) {
 	s.usedShared = true
 	for _, sf := range s.surfaces() {
 		if sf.Kind() == kind {

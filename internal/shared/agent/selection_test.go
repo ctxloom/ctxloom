@@ -111,11 +111,27 @@ func TestDeliverUnder_RejectsSystemPrompt(t *testing.T) {
 	assert.False(t, exists, "the rejected surface must not fall back to a native write")
 }
 
-// claude is the ONLY backend with a SharedRealization: a SHARED-cwd delivery of
-// its context surface ALWAYS converts to the out-of-cwd system-prompt scratch —
-// never the native CLAUDE.md write, and never the Hook no-op (WithEverything
-// picks UnsafeFile as claude's default, yet DeliverShared still converts it).
-func TestDeliverShared_ClaudeContextConvertsToSystemPrompt_NeverHook(t *testing.T) {
+// RESOLUTION of U100-F05 (was:
+// TestDeliverShared_ClaudeContextConvertsToSystemPrompt_NeverHook, pinning the
+// kind-alone defect where DeliverShared "ALWAYS converts... yet DeliverShared
+// still converts it" regardless of which approach the caller resolved).
+// SharedRealization is now PAIR-keyed: a RAW builder call — Select(set).
+// WithEverything().Build(), with no launch involved — resolves context to the
+// backend's table default (claude: ApproachUnsafeFile), and that pair has NO
+// realization, so DeliverShared honors it: the native CLAUDE.md write lands in
+// the shared cwd, loudly warned, exactly like commands/skills (which never had
+// a realization). This is deliberately NOT the "no-preference shared launch"
+// behaviour — that is a LAUNCH concern, not a builder concern: the
+// default-derivation step that keeps a real claude launch on the scratch
+// (preferring the pair that DOES realize when the caller named no preference)
+// lives in launch_backend.go's deliverSet (SharedCell-only, unexported —
+// SurfaceSet gained no new exported surface for this fix), and is proven
+// end-to-end by the claude package's own Setup()-driven tests
+// (TestSetup_ContextPayloadStillReachesTheLaunchFlag,
+// TestClaudeCode_BuildArgs_NativeContextFlag, TestEngineCLI_*) rather than
+// here: those exercise the real launch path this external package cannot
+// reach (deliverSet is unexported, and this file is package agent_test).
+func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	isolated := "/isolated-scratch"
 	sharedCwd := "/live/project"
@@ -127,16 +143,16 @@ func TestDeliverShared_ClaudeContextConvertsToSystemPrompt_NeverHook(t *testing.
 	stderr := captureStderr(t, func() {
 		delivered, _, errs := r.DeliverShared(sharedCwd)
 		require.Empty(t, errs)
-		assert.Len(t, delivered, 5, "context, mcp, settings, commands, and skills (Unsafe) all deliver")
+		assert.Len(t, delivered, 5, "context, mcp, settings, commands, and skills all deliver (context via the well-known write, not a realization)")
 	})
 
 	exists, _ := afero.Exists(fs, filepath.Join(sharedCwd, "CLAUDE.md"))
-	assert.False(t, exists, "context must NEVER land as a native file in the shared cwd")
-	assert.Equal(t, isolated, filepath.Dir(set.Context.Path()), "context converted to the out-of-cwd system-prompt scratch")
+	assert.True(t, exists, "no realization for (context, unsafe-file) — the caller's table-default request is honored, not silently converted")
+	assert.Contains(t, stderr, "context", "context has no realization at this pair and must warn")
 	assert.Contains(t, stderr, "commands", "commands has no realization and must warn")
 	assert.Contains(t, stderr, "skills", "skills has no realization and must warn")
-	assert.Equal(t, 2, strings.Count(stderr, "warning:"),
-		"only commands and skills (no SharedRealization) warn — context/mcp/settings convert silently via SharedRealization")
+	assert.Equal(t, 3, strings.Count(stderr, "warning:"),
+		"context, commands, and skills all warn; only mcp/settings convert silently via SharedRealization (their sole approach IS the one that realizes)")
 }
 
 // A backend with NO SharedRealization for any surface (codex, kiro —

@@ -191,12 +191,13 @@ func (s MockSurfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agen
 	return mockApproaches.SurfaceFor("mock", s.dispatch, kind, a)
 }
 
-// SharedRealization reports no out-of-cwd conversion for any kind: mock has no
-// race-safe redirect, so a SHARED-cwd delivery of either surface always falls
-// back to the loud well-known write (each surface's UnsafeInfo — "mock/context"
-// and "mock/skills" — is that fallback's warning). No engine has an out-of-cwd
-// flag for a skill package at all, so the skills half is not a mock shortcut.
-func (s MockSurfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, error), bool) {
+// SharedRealization reports no out-of-cwd conversion for any (kind, approach)
+// pair: mock has no race-safe redirect, so a SHARED-cwd delivery of either
+// surface always falls back to the loud well-known write (each surface's
+// UnsafeInfo — "mock/context" and "mock/skills" — is that fallback's warning).
+// No engine has an out-of-cwd flag for a skill package at all, so the skills
+// half is not a mock shortcut.
+func (s MockSurfaces) SharedRealization(agent.SurfaceKind, agent.Approach) (func() (agent.Delivered, error), bool) {
 	return nil, false
 }
 

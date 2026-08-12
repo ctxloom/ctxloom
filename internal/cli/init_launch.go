@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -48,8 +49,9 @@ func discoverySessionPrompt(cfg *config.Config) string {
 // its permission posture) is assertable without spawning an engine subprocess,
 // exactly as the auth ping's posture is pinned through operations.RunOneshot.
 //
-// The posture is PermissionDefault, and it is SAID: the engine's OWN normal
-// in-tool approval prompting, not another bypass. This session runs entirely
+// The posture is PermissionDefault unless THIS PROJECT DIRECTORY declared its
+// own, and either way it is SAID. The pinned default is the engine's OWN normal
+// in-tool approval prompting, not another bypass: this session runs entirely
 // inside the vendor's raw CLI/TUI (init's whole reason for launching it this
 // way), so the vendor TUI's native edit-approval prompts ARE the consent
 // surface for whatever the setup skill's tool calls (incl. client-config
@@ -58,25 +60,79 @@ func discoverySessionPrompt(cfg *config.Config) string {
 //
 // It is spelled out rather than left at the zero value. Both reach the same
 // posture (agent.WireMode maps "" and "default" alike to PermissionDefault),
-// so nothing about the launch changes — but an unset field is a posture NOBODY
-// DECLARED, indistinguishable from a caller that never considered the
-// question, and it is the same silent fall-through the auth ping's explicit
-// bypass closed on init's other launch site. Note that no resolution chain runs
-// here at all: unlike `ctxloom run` (resolvePermissionMode: flag > agent
-// binding > llm label > backend built-in, which is BYPASS for claude-code on
-// the host), the discovery launch consults neither the label nor the binding.
-// That divergence is intended — a setup session is not the place to inherit a
-// host-wide bypass stopgap — and stating the posture here is what makes it
-// visible instead of leaving it to be inferred from an absent field.
+// so nothing about an undeclared launch changes — but an unset field is a
+// posture NOBODY DECLARED, indistinguishable from a caller that never
+// considered the question, and it is the same silent fall-through the auth
+// ping's explicit bypass closed on init's other launch site.
+//
+// EXACTLY ONE resolution rung runs here, and the asymmetry with `ctxloom run`
+// (resolvePermissionMode: flag > agent binding > llm label > project default >
+// backend built-in, which is BYPASS for claude-code on the host) is the point.
+// The discovery launch consults the PROJECT DEFAULT and nothing else — not the
+// label, not a binding, not the host stopgap. A setup session is not the place
+// to inherit a host-wide bypass, nor a posture attached to some engine label
+// the human has not yet chosen; but a human who wrote `permissions:` into THIS
+// directory's config has decided, for this directory, what an agent here may
+// do, and honouring that is not inheritance. Pinning `default` over their own
+// declaration would also make init lie: setup would prompt for everything and
+// the very next `ctxloom run` in the same directory would not.
 func discoveryRunRequest(cfg *config.Config, workDir string) *pb.RunStart {
+	posture, _ := discoveryPermissionMode(cfg)
 	return &pb.RunStart{
 		Prompt: &pb.Fragment{Content: discoverySessionPrompt(cfg)},
 		Options: &pb.RunOptions{
 			WorkDir:        workDir,
 			Mode:           pb.ExecutionMode_INTERACTIVE,
-			PermissionMode: agent.PermissionDefault.String(),
+			PermissionMode: posture.String(),
 		},
 	}
+}
+
+// discoveryPermissionMode is the discovery launch's one-rung resolution: this
+// project's declared default posture, else the pinned PermissionDefault.
+//
+// Nil-safe on purpose, and unparseable-safe for the same reason: GetConfig
+// hands back a nil config on a load failure (launchEngineWithPrompt is
+// explicitly best-effort about that), and config.GetPermissions is a raw
+// hand-editable spelling that nothing validates on the way in. Both degrade to
+// the pinned default, which is the narrow end — a misspelling must never widen
+// a setup session.
+// The declared bool is the caller's way to tell "this project chose default"
+// apart from "this project chose nothing" — two inputs that resolve to the same
+// posture but are opposite answers to whether the human has been asked yet.
+// printDiscoveryPostureHint turns on exactly that distinction.
+func discoveryPermissionMode(cfg *config.Config) (mode agent.PermissionMode, declared bool) {
+	if cfg == nil {
+		return agent.PermissionDefault, false
+	}
+	if m, ok := agent.ParsePermissionMode(cfg.GetPermissions()); ok {
+		return m, true
+	}
+	return agent.PermissionDefault, false
+}
+
+// printDiscoveryPostureHint tells the user, at the moment init hands off, that
+// a project-scoped default posture exists and how to set it — but only when
+// this launch is running at the PINNED DEFAULT, i.e. when they have not set
+// one. A capability nobody is told about is a capability nobody has, and this
+// handoff is the one moment in the product where a human is already being
+// walked through configuring this specific directory.
+//
+// It names the KEY, the FILE, and the values, because all three are needed to
+// act on it and because WHICH file is the entire restriction: the same line in
+// ~/.ctxloom/config.yaml is dropped with a warning and never applied (see
+// config.Config.permissions / layerscope). Silent once a posture is declared —
+// repeating instructions for something already done is noise.
+//
+// Prints to stdout via fmt.Println, following printReentryHint below: this is
+// part of the handoff narration a human is reading, not a diagnostic.
+func printDiscoveryPostureHint(cfg *config.Config) {
+	if _, declared := discoveryPermissionMode(cfg); declared {
+		return
+	}
+	fmt.Printf("Tip: set `permissions: <%s>` in this project's .ctxloom/config.yaml\n",
+		strings.Join(agent.PermissionModeNames(), "|"))
+	fmt.Println("to choose the default posture agents start at HERE (this directory only; a home config is ignored).")
 }
 
 // launchEngineWithPrompt starts the engine's own raw CLI/TUI with the merged
@@ -249,6 +305,11 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 
 	fmt.Printf("\nLaunching %s for setup...\n", engine)
 	fmt.Println("(Exit the session when done)")
+	// Said HERE, immediately before the session that the posture governs, rather
+	// than buried in the reentry hint after it: this is the moment the pinned
+	// default is about to bite, and the moment the human is already deciding how
+	// this directory should be set up.
+	printDiscoveryPostureHint(cfg)
 	fmt.Println()
 
 	if launchErr := launchEngineWithPromptFn(cmd.Context(), engine, workDir); launchErr != nil {

@@ -465,6 +465,16 @@ message AgentFrame {
     AgentRequest request = 3;           // plane 2: agent asks coordinator
     AgentResponse response = 4;         // plane 2: agent answers coordinator
     Heartbeat heartbeat = 5;            // plane 3
+
+    // The spool doorbell, runner -> coordinator (an out/ create, or an
+    // in/consumed rename). TOP-LEVEL, deliberately NOT an AgentEvent: events
+    // carry a seq, buffer as unacked, and reissue until the durable Ack,
+    // machinery that exists to make the WIRE the durable record. The
+    // doorbell's durable record is the FILE, so wrapping it in ack/reissue
+    // would rebuild the consumption-fact plumbing the spool deletes. Advisory
+    // frame: no seq, no buffering, dropped when the stream is down — the
+    // receiver's sweep is the at-least-once floor.
+    SpoolChanged spool_changed = 6;
   }
 }
 
@@ -1252,6 +1262,15 @@ message CoordinatorNotice {
     BudgetUpdate budget_update = 2;
     PeerMessage peer_message = 3;
     CancelRequest cancel_request = 4;
+
+    // The spool doorbell, coordinator -> runner (an in/ create, or an
+    // out/consumed / in/withdrawn rename). Rides the notice arm because a
+    // doorbell IS a fire-and-forget notice: no response, no correlation, and
+    // a saturated send pump DROPS it with no rollback bookkeeping at all
+    // (contrast the PeerMessage push's reservation rollback — that exists
+    // because the wire was the only carrier; here the file is the truth and
+    // the sweep redelivers).
+    SpoolChanged spool_changed = 6;
   }
 }
 
@@ -1300,6 +1319,85 @@ message PeerMessage {
 // simply stop waiting and treat their own timeout fallback).
 message CancelRequest {
   string request_id = 1;
+}
+
+// ----- the spool doorbell (both directions) ----------------------------------
+
+// SpoolChanged is the doorbell: "a file now exists at this logical spool
+// coordinate; look". It travels BOTH ways — on CoordinatorNotice toward a
+// runner and as a top-level AgentFrame arm toward the coordinator.
+//
+// It carries a REFERENCE AND NOTHING ELSE. No body, no kind, no correlation
+// id: the spool file's own YAML frontmatter is the control plane, and a
+// doorbell that carried payload would recreate the two-carrier desync the
+// spool exists to kill. The file is the durable truth; this frame only bounds
+// latency, so losing one costs latency and never a message (the receiver's
+// startup / turn-boundary / reconnect / 30s sweeps re-derive the whole
+// picture from readdir).
+//
+// It is STRUCTURED rather than a path or a "spool://harp/in/name" URI for two
+// reasons. First, a raw path is a SENDER-VIEW ARTIFACT: the same file is
+// ~/.ctxloom/sessions/<harp>/persist/spool/in/<name> on the host and
+// <containerHome>/.ctxloom/sessions/<harp>/persist/spool/in/<name> inside a
+// container, so a host path baked into a doorbell resolves to nothing (or to
+// something unintended) on the other side. What travels is the logical
+// coordinate and each receiver renders its own view through its own
+// spool.PathMapper. Second, a closed enum for the directory fails loudly on an
+// unknown value at decode instead of reaching a path join as a string.
+//
+// ONE MESSAGE SHAPE COVERS EVERY TRANSITION — create, consume, withdraw —
+// because the consume-rename IS the delivery acknowledgement: a doorbell for
+// in/consumed is what tells the coordinator its mail landed, with no separate
+// ack vocabulary. Handling is therefore uniformly "resolve, read-or-sweep,
+// act", idempotent and stateless: a doorbell naming a file the sweep already
+// consumed resolves to ENOENT and is ignored, never an error.
+//
+// SECURITY: every field arrives from a less-trusted peer and is validated at
+// the receive chokepoint (spool.Ref.Validate — harp grammar, closed dir,
+// bare-filename grammar), rejected and never sanitised. `harp` in particular
+// is ADVISORY on the coordinator side: refs arriving on a child's channel are
+// resolved against THAT child's spool, never against a harp the child names,
+// or a child could aim the coordinator's reader at a sibling's spool.
+message SpoolChanged {
+  // Whose spool the file lives in. Advisory on receipt — see SECURITY above.
+  string harp = 1;
+  // Which subdirectory of that spool, from the closed set below.
+  SpoolDir dir = 2;
+  // The bare filename, e.g. "00001754919000123456789.00000042.coord.md".
+  // A single path segment: no separators, no "..", no leading dot.
+  string name = 3;
+}
+
+// SpoolDir is the closed set of spool subdirectories a doorbell may name,
+// mirroring spool.Dir's five values exactly. The consumed/ and withdrawn/
+// values exist because RENAMES RING THE DOORBELL TOO (the consume-rename is
+// the ack).
+//
+// SPOOL_DIR_UNSPECIFIED is INVALID at every consumer: a ref that did not
+// decode to a recognised directory is refused, never defaulted. The zero value
+// must not be a way for a doorbell to arrive unclassified and inherit whatever
+// a switch's default branch happens to do.
+enum SpoolDir {
+  // Invalid. Never send, and refuse on receipt.
+  SPOOL_DIR_UNSPECIFIED = 0;
+
+  // in/ — messages TO the agent whose spool this is. Single writer: the
+  // coordinator.
+  SPOOL_DIR_IN = 1;
+
+  // out/ — messages FROM that agent. Single writer: its runner.
+  SPOOL_DIR_OUT = 2;
+
+  // in/consumed/ — an in/ message the runner accepted. This doorbell is the
+  // DELIVERY CONFIRMATION.
+  SPOOL_DIR_IN_CONSUMED = 3;
+
+  // out/consumed/ — an out/ message the coordinator processed.
+  SPOOL_DIR_OUT_CONSUMED = 4;
+
+  // in/withdrawn/ — an in/ message its WRITER retracted before it was
+  // consumed. Rename-won means retracted; ENOENT means the reader won.
+  SPOOL_DIR_IN_WITHDRAWN = 5;
 }
 
 // =============================================================================

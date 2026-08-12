@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/claude"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -132,6 +134,82 @@ func TestTopLevelRunIsolationEnv_WorktreeDeliversConfigHomeEnv(t *testing.T) {
 				"the isolation-resolved %s must be delivered into the wire RunOptions.Env — this is the aged-clasp gap", tc.envVar)
 		})
 	}
+}
+
+// TestPrepareWorkspace_InTreeAgentHome drives the REAL prepareWorkspace — the
+// only place the top-level run decides its engine config home — across the
+// three cases the scoping rule turns on. It is a wiring test on purpose: the
+// helper's own behaviour is pinned in internal/operations, and what can rot
+// here is the CONDITION prepareWorkspace passes it.
+func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
+	newState := func(t *testing.T, workDir string, explicitAgent bool, axes isolation.Axes) *runState {
+		t.Helper()
+		return &runState{
+			ctx:           context.Background(),
+			backendName:   "claude-code",
+			workDir:       workDir,
+			activeHarp:    "test-harp",
+			explicitAgent: explicitAgent,
+			runAxes:       axes,
+			req:           &pb.RunStart{Options: &pb.RunOptions{Env: map[string]string{"CTXLOOM_SESSION_HARP": "test-harp"}}},
+		}
+	}
+	hostAxes := isolation.Axes{Workspace: isolation.WorkspaceShared, Runtime: isolation.RuntimeHost}
+
+	t.Run("a --agent run on the in-tree axis gets the controlled home", func(t *testing.T) {
+		resetStrictness(t)
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("ANTHROPIC_API_KEY", "sk-test") // authenticates without a host credential fixture
+
+		workDir := t.TempDir()
+		st := newState(t, workDir, true, hostAxes)
+		st.prepareWorkspace()
+		t.Cleanup(st.cleanupWorkspace)
+
+		assert.Equal(t, claude.InTreeConfigDir(workDir), st.req.Options.Env[claude.ConfigDirEnv])
+		assert.Equal(t, "test-harp", st.req.Options.Env["CTXLOOM_SESSION_HARP"], "the pre-assembled session env must survive")
+	})
+
+	t.Run("the human's own unbound session keeps the real host home", func(t *testing.T) {
+		resetStrictness(t)
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+
+		workDir := t.TempDir()
+		st := newState(t, workDir, false, hostAxes)
+		st.prepareWorkspace()
+		t.Cleanup(st.cleanupWorkspace)
+
+		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
+			"an unbound interactive session must keep the human's own ~/.claude")
+		assert.NoDirExists(t, claude.StateHome(workDir))
+	})
+
+	t.Run("the worktree axis' own config home is never overridden", func(t *testing.T) {
+		if _, err := exec.LookPath("git"); err != nil {
+			t.Skip("git not on PATH; skipping the worktree precedence case")
+		}
+		resetStrictness(t)
+		strictness.SetDegraded(true) // a bare runner has no host claude credential to seed
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+
+		repo := initIsolationTestRepo(t)
+		st := newState(t, repo, true, isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost})
+		st.prepareWorkspace()
+		t.Cleanup(st.cleanupWorkspace)
+
+		require.Equal(t, "worktree", st.policy.Name(), "the worktree axis must not have degraded — the precedence claim needs a real isolation value")
+		got := st.req.Options.Env[claude.ConfigDirEnv]
+		require.NotEmpty(t, got)
+		assert.Equal(t, isolation.WorkspaceEnv(st.ws)[claude.ConfigDirEnv], got,
+			"isolation's per-agent config home must win — the in-tree contribution fills gaps only")
+		assert.NotEqual(t, claude.InTreeConfigDir(repo), got)
+		assert.NoDirExists(t, claude.StateHome(repo), "the losing in-tree arm must not even create its home")
+	})
 }
 
 // initIsolationTestRepo creates a temp git repo with one commit and a stable

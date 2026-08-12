@@ -193,6 +193,15 @@ type resolvedRunRequest struct {
 	// environment (a delegated child's session harp / bus socket / depth).
 	ExtraEnv map[string]string
 
+	// AgentBound reports that this run was resolved through an AGENT binding
+	// (a delegated child, a fan-out member) rather than a bare profile. It
+	// decides ONE thing: whether an in-tree run gets a ctxloom-controlled
+	// engine config home instead of the human's own ~/.claude / ~/.kiro — see
+	// InTreeAgentHomeEnv. RunOneshot leaves it false, because a bare-profile
+	// oneshot has no agent binding (the same fact its Permissions comment
+	// already records).
+	AgentBound bool
+
 	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
 }
 
@@ -456,13 +465,27 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// one entry per member forever.
 		mark := strictness.Checkpoint()
 		policy, ws := prepareIsolation(ctx, req.Axes, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID, isolation.SessionStateFromEnv(req.ExtraEnv))
-		found := strictness.Since(mark)
-		strictness.Close(mark)
-		workDir = ws.Dir()
 		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
 		// config layer; nil for none/container. Threaded into the member's engine
 		// env below so the shared ~/.claude.json etc. don't clobber.
 		workspaceEnv = isolation.WorkspaceEnv(ws)
+		// The none axis has no isolation-provided config home, so an AGENT run
+		// there would otherwise use the human's own ~/.claude / ~/.kiro. Give
+		// it a project-scoped controlled one instead. Resolved INSIDE the
+		// checkpoint window below so its fail-loud finding (nothing to seed) is
+		// caught by this member's own isolation gate rather than escaping into
+		// a sibling member's window. It declines any var the workspace env or
+		// ExtraEnv already carries, so isolation and the caller both win.
+		workspaceEnv = mergeInTreeAgentHome(workspaceEnv, InTreeAgentHome{
+			Backend:    req.Backend,
+			WorkDir:    req.WorkDir,
+			AgentBound: req.AgentBound,
+			Policy:     policy,
+			Env:        mergedEnvView(workspaceEnv, req.ExtraEnv),
+		})
+		found := strictness.Since(mark)
+		strictness.Close(mark)
+		workDir = ws.Dir()
 		// Tear the workspace down after the run. Registered BEFORE the client so
 		// it runs AFTER client.Kill() (kill the plugin before removing its
 		// workspace — WIP-safe for the worktree teardown). none's cleanup is a

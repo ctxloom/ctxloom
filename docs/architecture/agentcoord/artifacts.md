@@ -54,7 +54,7 @@ flowchart TD
 | `Coordinator.Artifacts` / `artifactRecord` / `LatestReport` | `reports.go:237,249,261` | list a harp's manifests (map order, unsorted), one manifest by id, the latest summary line |
 
 Scopes come from `Summary.Scope` in the proto; `SCOPE_UNSPECIFIED` is hard-rejected at
-the MCP edge (`cli/mcp_runner.go:550-552`) — the fail-loud model for the rest of the
+the MCP edge (`mcp/mcp_runner.go:550-552`) — the fail-loud model for the rest of the
 subsystem. `SCOPE_CHECKPOINT` additionally triggers items-journal compaction.
 
 ## Checkpoint (items compaction)

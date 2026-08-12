@@ -38,8 +38,8 @@ flowchart TD
     RB["RelayBudget()<br/>binding.go:264"]
   end
   GOLD ==>|embedded| TOOLS
-  TOOLS & ROUTES & COO --> RUNNER["newRunnerMCPServer<br/>cli/mcp_runner.go:219"]
-  RB --> RELAY["relayTyped<br/>cli/mcp_runner.go:336"]
+  TOOLS & ROUTES & COO --> RUNNER["newRunnerMCPServer<br/>mcp/mcp_runner.go:219"]
+  RB --> RELAY["relayTyped<br/>mcp/mcp_runner.go:336"]
   RUNNER --> HANDLERS["recvHandler :495 · reportHandler :540<br/>(hand-written result maps)"]
   SYN -.->|ungated mirror| HANDLERS
 ```
@@ -81,8 +81,8 @@ flowchart TD
 | M2 | The binding table and the routing table are pinned against each other, so drift between them is impossible | `binding_test.go:53-61` (via `Binding.Route`) |
 | M3 | One golden per binding, no strays — a bidirectional cardinality assertion | `binding_test.go:24` |
 | M4 | Generation fails rather than degrading when the descriptor set lacks source info | `gen/main.go:71` |
-| M5 | Leaf (non-coordinator) children are denied the coordinator-only tools | `binding.go:40` → `cli/mcp_runner.go:283` |
-| M6 | Every classified tool must be served by some route, checked at runner startup | `cli/mcp_runner.go:312-316` |
+| M5 | Leaf (non-coordinator) children are denied the coordinator-only tools | `binding.go:40` → `mcp/mcp_runner.go:283` |
+| M6 | Every classified tool must be served by some route, checked at runner startup | `mcp/mcp_runner.go:312-316` |
 
 The drift gate is `just gen-mcp-schemas-check` — regenerate, then
 `git diff --exit-code -- internal/agentcoord/mcpschema/schemas` — wired at
@@ -98,11 +98,11 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
   `binding.go` and diffing against a golden generated from `binding.go` proves the golden
   matches the literal; it says nothing about whether the literal matches the runtime
   handler, which is a *second* hand-written map literal in another package
-  (`cli/mcp_runner.go:530,607`). They agree today and nothing enforces that they continue
+  (`mcp/mcp_runner.go:530,607`). They agree today and nothing enforces that they continue
   to.
 - **`agent_recv`'s schema prose hard-codes "default 60, max 600"** while the real values
-  are `defaultRecvWait` and `maxRecvWait` in `cli/mcp_tools_agents.go:34-35`, and the
-  runtime **silently clamps** rather than rejecting (`cli/mcp_runner.go:509`).
+  are `defaultRecvWait` and `maxRecvWait` in `mcp/mcp_tools_agents.go:34-35`, and the
+  runtime **silently clamps** rather than rejecting (`mcp/mcp_runner.go:509`).
 - **`additionalProperties: false` is set only at the top level** (`project.go:317`), so
   the stated "models must not invent argument names" invariant does not hold for nested
   objects (`agent_run`'s `budget`, `roster`'s `runs.items`, `agent_recv`'s
@@ -111,10 +111,10 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
   schema-legal and unmarshal-fatal.
 - **The `required` keyword this package emits is enforced by nobody.**
   `server.AddTool`'s contract states validation is the caller's responsibility, and the
-  caller (`cli/mcp_runner.go:447`) uses `protojson`, which has no concept of `required`
+  caller (`mcp/mcp_runner.go:447`) uses `protojson`, which has no concept of `required`
   and returns `nil` on zero-length arguments — so `agent_run` with `{}` produces a fully
   zero-valued `SpawnAgentRequest`. `agent_report`'s handler validates its own requireds
-  explicitly (`cli/mcp_runner.go:547-552`).
+  explicitly (`mcp/mcp_runner.go:547-552`).
 - **`Route` has no `RouteUnspecified`**, so a `Routes()` map miss is indistinguishable
   from a deliberate `RouteCoordination`. Unreachable today only because M2/M3 pin the two
   tables together.
@@ -150,4 +150,4 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
   recursing field carries a doc (`project.go:107-112` vs `:177-179`). No current golden
   contains the marker.
 - **9 of the 16 routed tools have no `Tool*` constant** and appear as raw string
-  literals in `Routes()`, `relayBudgets` and two slice literals in `cli/mcp_runner.go`.
+  literals in `Routes()`, `relayBudgets` and two slice literals in `mcp/mcp_runner.go`.

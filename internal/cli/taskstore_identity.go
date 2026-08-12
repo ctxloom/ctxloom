@@ -14,7 +14,7 @@ import (
 // (internal/taskloom/workdir carries the identical redirect). This is
 // deliberately a NEW, separate seam from taskops.ResolveProjectIdentity
 // itself, which stays untouched and worktree-distinct for its OTHER caller,
-// internal/cli/coord_host.go: the runtime coordinator's state-dir key (an
+// internal/mcp/coord_host.go: the runtime coordinator's state-dir key (an
 // exclusive owner.pid lock) must never merge across worktrees, or two
 // concurrent worktree sessions collide and the loser silently degrades to an
 // ephemeral state dir (task brown-canal, 2026-07-09/10). "tasks aren't

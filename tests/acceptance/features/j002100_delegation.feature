@@ -17,7 +17,7 @@ Feature: Coordinator delegates isolated work
   # wire or lands on disk, never a captured in-process Go struct. There is no
   # MCP tool reachable from this harness that exposes the roster/ListRuns
   # projection over the wire (roster's real "runner-terminated" MCP endpoint
-  # is a spawned child's own local socket — internal/cli/mcp_runner.go — which
+  # is a spawned child's own local socket — internal/mcp/mcp_runner.go — which
   # this harness's plain `ctxloom mcp` subprocess never becomes). So every
   # assertion below reads the coordinator's own durable journal, runs.jsonl,
   # directly off disk: the SAME data roster is backed by (consumer.go's

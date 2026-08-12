@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/internal/docsgen"
+	"github.com/ctxloom/ctxloom/internal/mcp"
 )
 
 func main() {
@@ -60,7 +61,7 @@ func run(w io.Writer, args []string, build func() (*docsgen.Product, func(), err
 // MCP server's backing coord.Home, whose construction opens a gRPC client and
 // two background loops.
 func ctxloomProduct() (*docsgen.Product, func(), error) {
-	mcpServer, closeMCP, err := cli.NewDocMCPServer()
+	mcpServer, closeMCP, err := mcp.NewDocMCPServer()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -79,7 +80,7 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 		ConfigSchema: "resources/schema/input/config-schema.json",
 
 		MCPServer: mcpServer,
-		MCPSource: "internal/cli",
+		MCPSource: "internal/mcp",
 		// The documented surface is the RUNNER-terminated one (NewDocMCPServer →
 		// newRunnerMCPServer): what a harness actually sees inside `ctxloom run`
 		// / `ctxloom acp`, through its stdio `ctxloom mcp serve` shim. Naming

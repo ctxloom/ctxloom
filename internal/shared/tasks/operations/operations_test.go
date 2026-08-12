@@ -86,7 +86,7 @@ func TestResolveProjectIdentity(t *testing.T) {
 }
 
 // TestResolveProjectIdentity_UnchangedForCoordinator pins ResolveProjectIdentity's
-// behavior for its coordinator caller (internal/cli/coord_host.go, which derives
+// behavior for its coordinator caller (internal/mcp/coord_host.go, which derives
 // the coordinator state-dir key from it -- an exclusive owner.pid lock): a
 // linked git worktree and its primary checkout must resolve to DIFFERENT
 // project ids, exactly as before the task-store worktree redirect (2026-07-10).

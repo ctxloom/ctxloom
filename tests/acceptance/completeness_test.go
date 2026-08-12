@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/cli"
+	"github.com/ctxloom/ctxloom/internal/mcp"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -56,7 +56,7 @@ var knownUncoveredTools = []string{
 }
 
 // knownUncoveredRunnerOnlyTools is the exact set of tools that exist ONLY on
-// the documented (runner-terminated, cli.NewDocMCPServer) MCP surface -- not
+// the documented (runner-terminated, mcp.NewDocMCPServer) MCP surface -- not
 // on the standalone `ctxloom mcp serve` surface knownUncoveredTools governs
 // -- and are not yet exercised by any scenario. roster, agent_report and
 // agent_fetch_artifact are named in scripts/gendocs/main.go's mcpIntro as
@@ -231,7 +231,7 @@ func TestCompleteness(t *testing.T) {
 	// NOT the surface ctxloom documents: scripts/gendocs/main.go's
 	// mcpIntro states outright that the standalone surface is a reduced
 	// agent-delegation surface with different schemas, and points its
-	// generated reference page at cli.NewDocMCPServer() instead -- the
+	// generated reference page at mcp.NewDocMCPServer() instead -- the
 	// RUNNER-terminated surface every harness actually sees through
 	// `ctxloom run`/`ctxloom acp serve`. Before this subtest, the tools that
 	// exist ONLY on that documented surface (roster, agent_report,
@@ -241,7 +241,7 @@ func TestCompleteness(t *testing.T) {
 	// stayed green regardless of whether a real scenario ever touched
 	// them.
 	t.Run("mcp tools (documented runner surface)", func(t *testing.T) {
-		docTools, err := cli.ListDocMCPToolNames(t.Context())
+		docTools, err := mcp.ListDocMCPToolNames(t.Context())
 		if err != nil {
 			t.Fatalf("list documented MCP tools: %v", err)
 		}

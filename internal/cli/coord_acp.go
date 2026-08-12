@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/mcp"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -46,14 +47,14 @@ func (a *acpCoordinator) SessionEnv(cfg *config.Config, cwd, harp string) map[st
 			return nil
 		}
 		a.tried = true
-		c, err := newHostedCoordinator(cfg, cwd)
+		c, err := mcp.NewHostedCoordinator(cfg, cwd)
 		if err != nil {
 			clidiag.Warn("ctxloom", "acp: agent delegation unavailable (coordinator standup failed): %v", err)
 			return nil
 		}
 		a.c = c
 	}
-	env, err := sessionOwnerEnv(a.c, harp, "host")
+	env, err := mcp.SessionOwnerEnv(a.c, harp, "host")
 	if err != nil {
 		clidiag.Warn("ctxloom", "acp: mint session credential: %v", err)
 		return nil

@@ -13,6 +13,7 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/cli"
+	"github.com/ctxloom/ctxloom/internal/mcp"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/schemagen"
 )
@@ -32,6 +33,7 @@ func main() {
 	var targets []schemagen.Target
 	targets = append(targets, operations.SchemaTargets()...)
 	targets = append(targets, cli.SchemaTargets()...)
+	targets = append(targets, mcp.SchemaTargets()...)
 
 	written, err := schemagen.Generate(schemaDir, targets)
 	if err != nil {

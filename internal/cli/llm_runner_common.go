@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/mcp"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/version"
@@ -139,19 +140,19 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, cfgErr error, r
 	// not available yet at that earlier point — this is the first place
 	// both reach.depth/reach.oneshot and cfg exist together.
 	leaf := runnerIsLeaf(reach.depth, reach.oneshot, cfg)
-	endpoint, merr := serveRunnerMCP(cfg, reach.harp, h, leaf, reach.cellWorkDir)
+	endpoint, merr := mcp.ServeRunnerMCP(cfg, reach.harp, h, leaf, reach.cellWorkDir)
 	if merr == nil {
 		// The child's shim reads CTXLOOM_MCP_SOCKET from THIS process's env
 		// (every engine spawn path builds the harness env over os.Environ), so a
 		// failed export leaves the endpoint standing and unaddressable — the same
 		// end state as no endpoint at all, and treated as the same failure.
-		if merr = exportRunnerMCPSocket(os.Setenv, endpoint.socketPath); merr != nil {
-			endpoint.close()
+		if merr = exportRunnerMCPSocket(os.Setenv, endpoint.SocketPath); merr != nil {
+			endpoint.Close()
 		}
 	}
 	switch {
 	case merr == nil:
-		standup.endpointClose = endpoint.close
+		standup.endpointClose = endpoint.Close
 		return nil
 	case standup.engineHost != nil:
 		return fmt.Errorf("runner MCP endpoint failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", reach.home.RunID, merr)
@@ -179,7 +180,7 @@ type coordinatorReachBack struct {
 	oneshot bool
 	// cellWorkDir is the prepared workspace dir stamped by the host StartRunner
 	// (fix/host-discovery-anchor); empty on workspace:none or container spawns,
-	// where serveRunnerMCP falls back to the runner's own os.Getwd().
+	// where mcp.ServeRunnerMCP falls back to the runner's own os.Getwd().
 	cellWorkDir string
 }
 
@@ -294,7 +295,7 @@ func exportRunnerMCPSocket(set func(string, string) error, socketPath string) er
 // endpoint from. Binding EngineHost in that state would let the
 // engine launch with CTXLOOM_MCP_SOCKET never exported — the same "hosted
 // delegated run with no reach-back" condition standUpRunner's merr branch
-// (a few lines up) already refuses for when serveRunnerMCP itself fails.
+// (a few lines up) already refuses for when mcp.ServeRunnerMCP itself fails.
 // Extracted as a pure predicate so the branch condition is unit-testable
 // without needing config.Load() to actually fail — which the loader's own
 // fault tolerance (CLAUDE.md) makes hard to trigger from real file content;

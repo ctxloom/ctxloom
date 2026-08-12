@@ -11,7 +11,7 @@ through an LLM plugin, reduce, and write one essence document plus the index pro
 
 `internal/cli` is the only internal consumer: `cli/memory.go` (`ctxloom memory
 compact|show|list`), `cli/session_cmd.go` (`compactEntry`, the `session distill` / resume-picker
-path), `cli/mcp_tools_memory.go` (`compact_session`, `load_session`, `get_previous_session`), and
+path), `mcp/mcp_tools_memory.go` (`compact_session`, `load_session`, `get_previous_session`), and
 `cli/hook_stamp_plan.go` (the PostToolUse plan-stamping hook).
 
 **The package does not have one responsibility.** `compactor.go` carries five separable concerns

@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/mcp"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
@@ -629,9 +630,9 @@ func (st *runState) runStartupTasks() {
 	// Startup reaper, second half: sweep any per-session ENGINE-HOME instance
 	// left behind by a crashed/killed prior run in this project. Each one holds
 	// a credential copied out of the user's real host home, so this is a
-	// security sweep, not hygiene — see sweepOrphanedSessionHomes.
+	// security sweep, not hygiene — see operations.SweepOrphanedSessionHomes.
 	if !runDryRun {
-		sweepOrphanedSessionHomes(os.Stderr)
+		operations.SweepOrphanedSessionHomes(os.Stderr)
 	}
 }
 
@@ -1061,7 +1062,7 @@ func (st *runState) hostCoordinator() func() {
 		return func() {}
 	}
 
-	sc, coordEnv, cerr := hostCoordinatorForSession(st.cfg, st.workDir, st.activeHarp, st.agentRuntime)
+	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(st.cfg, st.workDir, st.activeHarp, st.agentRuntime)
 	if cerr != nil {
 		strictness.Fail(strictness.ClassApply,
 			"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation reach-back",
@@ -1077,7 +1078,7 @@ func (st *runState) hostCoordinator() func() {
 
 	// RevokeSessionOwner existed with zero call sites, so a depth-0
 	// session-owner credential (minted per `ctxloom run` process by
-	// sessionOwnerEnv) was never revoked — doc.go's "revocation at run end
+	// mcp.SessionOwnerEnv) was never revoked — doc.go's "revocation at run end
 	// severs the credential's streams and parked polls" held for run
 	// credentials but not for this one, and since runsFold.apply re-applies
 	// every factSessionCred on replay/adoption, every owner token ever minted

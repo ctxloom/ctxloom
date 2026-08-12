@@ -287,7 +287,12 @@ func runCarryCase(t *testing.T, tc carryCase) {
 		sentSig = s
 	}
 	post := readSidecar(t, cfg)
-	sourceGone := !regularFileExists(localBundlePath(cfg))
+	// Stat directly rather than borrowing a shared predicate: the only thing
+	// in question here is whether `push`/`move` left the local bundle file
+	// behind, and the predicate this used to call is production code of the
+	// MCP memory tools (internal/mcp), pinned by its own test there.
+	srcInfo, srcErr := os.Stat(localBundlePath(cfg))
+	sourceGone := srcErr != nil || !srcInfo.Mode().IsRegular()
 
 	assert.Equal(t, tc.wantSigRelation.String(), classifyPublishedSig(sentSig, pre, post).String(),
 		"what reached the remote as a signature")

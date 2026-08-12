@@ -145,7 +145,7 @@ flowchart TD
 |---|---|---|
 | `GetExecutablePath` | `internal/shared/agent/symlink.go:25` | `os.Executable` + `EvalSymlinks`, memoized in a package global. |
 | `SetExecutablePathForTesting` | `internal/shared/agent/symlink.go:46` | Assigns the memoized path. |
-| `WarnOnCtxloomPathSkew` | `internal/shared/agent/symlink.go:62` | Warns when the `ctxloom` on PATH differs from the running binary. Called from `internal/cli/mcp_server.go:179`. |
+| `WarnOnCtxloomPathSkew` | `internal/shared/agent/symlink.go:62` | Warns when the `ctxloom` on PATH differs from the running binary. Called from `internal/mcp/mcp_server.go`'s `ctxServer.startup`. |
 | `ctxloomPathSkewed` | `internal/shared/agent/symlink.go:90` | The predicate, extracted so it can be tested without a filesystem. |
 
 ## Invariants and contracts

@@ -1,6 +1,6 @@
 # `ctxloom mcp` and the MCP server surfaces
 
-`internal/cli` builds and serves **five different MCP surfaces**: the
+`internal/mcp` builds and serves **five different MCP surfaces**: the
 runner-terminated HTTP-on-unix server that a real session's harness actually
 talks to, the stdio shim that forwards onto it, the legacy standalone stdio
 server that stands a coordinator up itself, the read-only `ctxloom://` resource
@@ -9,7 +9,10 @@ is the boundary where an external MCP client meets `internal/operations`
 (content), `internal/agentcoord/coord` (delegation), and
 `internal/agentcoord/mcpschema` (the proto-canonical tool routing table). The
 `ctxloom mcp *` command tree — server CRUD and registration — is a much smaller
-concern that happens to share the prefix.
+concern that happens to share the prefix, and is the only part still in
+`internal/cli` (`mcp.go`, plus `mcp_server.go`'s cobra `RunE`, which hands
+`mcp.ServeStdio` the fail-loud gate that builds cli's exit-3 `ExitError`).
+Unqualified filenames below are relative to `internal/mcp`.
 
 ## Entry points and topology
 
@@ -17,7 +20,7 @@ concern that happens to share the prefix.
 flowchart TD
     subgraph entry["three entry points"]
         A["runMCPServerSDK<br/>mcp_server.go:90<br/>(ctxloom mcp / mcp serve)"]
-        B["serveRunnerMCP<br/>mcp_runner.go:87<br/>(from standUpRunner)"]
+        B["ServeRunnerMCP<br/>mcp_runner.go:87<br/>(from standUpRunner)"]
         C["NewDocMCPServer<br/>mcp_docgen.go:25<br/>(scripts/gendocs)"]
     end
 
@@ -75,7 +78,7 @@ is a third, deprecated spelling of the same commands.
 
 | Flavour | Built by | Transport | Tool surface |
 |---|---|---|---|
-| **Runner** | `serveRunnerMCP` `mcp_runner.go:87` → `newRunnerMCPServer` `:219` | HTTP over a unix socket (three-tier placement, `runnerSocketPath` `:173`) | Context tools + resources (cell-local), 6 host-relay tools, plus proto-generated coordination + artifact-fetch tools |
+| **Runner** | `ServeRunnerMCP` `mcp_runner.go:87` → `newRunnerMCPServer` `:219` | HTTP over a unix socket (three-tier placement, `runnerSocketPath` `:173`) | Context tools + resources (cell-local), 6 host-relay tools, plus proto-generated coordination + artifact-fetch tools |
 | **Forward shim** | `runMCPForward` `mcp_forward.go:52` | stdio in, HTTP-on-unix (or `tcp://`) out | Mirrors whatever the runner advertises, as passthrough handlers |
 | **Standalone stdio** | `runMCPServerSDK` `mcp_server.go:90` local branch | stdio | Context + memory + trigger + resources, plus a **second, hand-written** `agent_*` delegation surface |
 | **Resources only** | `registerResources` `mcp_resources.go:36` | (registered onto both runner and stdio) | 9 concrete + 5 templated `ctxloom://` URIs |
@@ -105,7 +108,7 @@ fail-loud, and one of the better patterns in the package.
 |---|---|---|
 | `ctxServer` | `mcp_server.go:32` | Shared handler state: `cfg`, `self coord.Identity`, `agents *agentDelegation` + `agentsMu`, `distill *singleflight.Group`. Four disjoint field partitions; on the runner path `agents`/`agentsMu`/`distill` stay nil and `self` is unread by resource handlers. |
 | `agentDelegation` | `mcp_tools_agents.go:39` | `{self, c *coord.Coordinator}` behind the standalone stdio `agent_*` tools. |
-| `runnerMCP` | `mcp_runner.go:56` | `{socketPath, httpSrv, cleanup}` — one runner's live endpoint handle. |
+| `RunnerMCP` | `mcp_runner.go:56` | `{SocketPath, httpSrv, cleanup}` — one runner's live endpoint handle. |
 | `socketKind` | `mcp_runner.go:140` | Three-tier enum: container / host-runtime / private-temp. `socketKindPrivateTemp` means "no marker is publishable", encoded only in prose at `:152-156`. |
 | `artifactStamper` / `artifactCandidate` | `mcp_runner.go:637`, `:623` | Per-run upload dedupe (artifact_id → last sha256) and the candidate shape. `seen` is committed only after a successful upload. |
 | `runnerDiscoveryMarker` | `mcp_discovery.go:42` | `{Socket, Pid, Harp}` on-disk record. `Harp` is written and read nowhere. |
@@ -164,7 +167,7 @@ Six steps, warn-and-continue by design, with two `ctx.Err()` checkpoints:
   (`newRunnerMCPServer`), so a renamed tool fails loudly at boot rather than at
   first call.
 - **The marker is written after the socket binds, and cleaned up by
-  `runnerMCP.close`** (`:130`, 2 s graceful shutdown then cleanup).
+  `RunnerMCP.Close`** (`:130`, 2 s graceful shutdown then cleanup).
 - **`startup()` must run before `registerTools`** — otherwise `cfg` is nil and
   every handler nil-derefs. Enforced only by the call ordering inside
   `runMCPServerSDK:127-153`, and deliberately violated by `NewDocMCPServer`,
@@ -186,7 +189,7 @@ Six steps, warn-and-continue by design, with two `ctx.Err()` checkpoints:
 - `newRunnerMCPServer:230` takes its own `os.Getwd()` for the cell-path boundary.
   The runner is spawned with no `cmd.Dir` so it inherits the *coordinator's* cwd,
   while the harness it hosts runs in the per-agent worktree
-  (`coord/identity.go:53-58` states this outright). `serveRunnerMCP` receives
+  (`coord/identity.go:53-58` states this outright). `ServeRunnerMCP` receives
   `cellWorkDir` but uses it only for the discovery marker.
 - `recvHandler` (`:521-528`) `continue`s past any message that fails a
   protojson/JSON round-trip and returns SUCCESS, while `coord.Home` cursor-acks

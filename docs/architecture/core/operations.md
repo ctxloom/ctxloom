@@ -82,7 +82,7 @@ flowchart TD
 | `scaffoldSeedProfile` | `init.go:102` | Write-if-absent seed profile at `.ctxloom/profiles/default.yaml` (`:104-105`). |
 | `BuildInitialConfig` | `init.go:130` | Renders a fresh project's `config.yaml` with the chosen engine's LLM registry and default agent. Also used by `config/fixture.go`. |
 | `engineRegistry` / `fallbackRegistry` / `roleLabel` | `init.go:170,196,205` | Selects the engine's primary/fast registry entries, else a single self-contained `{type: engine}` entry. |
-| `PurgeExtractedBundles` | `legacy_cleanup.go:29` | One-shot removal of pre-PR1 extracted bundle YAML, then prunes empty dirs. Callers: `config/config.go`, `cli/mcp_server.go`. |
+| `PurgeExtractedBundles` | `legacy_cleanup.go:29` | One-shot removal of pre-PR1 extracted bundle YAML, then prunes empty dirs. Callers: `config/config.go`, `mcp/mcp_server.go`. |
 
 **Preservation semantics inside `InitializeProject` are not uniform**: `config.yaml` (`init.go:76`)
 and `remotes.yaml` (`init.go:84`) are written unconditionally with a direct `afero.WriteFile` and
@@ -215,7 +215,7 @@ flowchart LR
 
 | Function | file:line | Contract |
 |---|---|---|
-| `ApplyHooks` | `hooks.go:54` | Reloads config, runs the $HOME-collision scope guard, optionally regenerates context, builds the executable trust gate, then writes every requested backend's surfaces. Callers: `cli/manage.go:109,257`, `cli/trust.go:223`, `cli/mcp_server.go:270`, `cli/init.go:1035`. |
+| `ApplyHooks` | `hooks.go:54` | Reloads config, runs the $HOME-collision scope guard, optionally regenerates context, builds the executable trust gate, then writes every requested backend's surfaces. Callers: `cli/manage.go:109,257`, `cli/trust.go:223`, `mcp/mcp_server.go:270`, `cli/init.go:1035`. |
 | `checkHookTargetScope` (+ claude/codex/kiro variants) | `hooks.go:234,271,300,326` | Refuses to apply when the resolved workDir would write onto an engine's *global* settings file. |
 | `maybeRegenerateContext` / `regenerateContext` | `hooks.go:358,487` | Collects, dedupes, sorts and loads fragments and writes the SessionStart context cache. |
 | `applyHooksToBackends` / `applyHooksToBackend` | `hooks.go:397,435` | Per-backend loop; each failure is recorded via `strictness.Fail` and collected, and the loop aborts on ctx cancel. |

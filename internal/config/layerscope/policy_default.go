@@ -130,6 +130,23 @@ func DefaultPolicy() Policy {
 		// Machine-scoped project-committed field now has (accepted per
 		// design decision #4), not agents.*.runtime's unconditional dead end.
 		{Path: "runtime", Scope: ScopeMachine, Note: "whether THIS box has a container runtime"},
+		// Shared, and this key is the sharpest instance of what ScopeShared is
+		// FOR. It is a privilege grant — the same class as
+		// agents.*.permissions and llm.configs.*.permissions above, which are
+		// Shared for the identical reason — but unlike those two it is not
+		// attached to a binding a project must also name, so a home value would
+		// gap-fill EVERY project on the machine that declared nothing. The whole
+		// point of a project permission default is PER-PROJECT consent: "in this
+		// directory, and nowhere else, an agent may start at this posture". A
+		// home-wide permissive default already exists as the claude-code host
+		// stopgap (agent.ResolveDefault's claudeCodeDefault), and letting
+		// ~/.ctxloom/config.yaml carry this key would create a second one that
+		// silently re-grants every clone on the box the posture a human granted
+		// exactly one project. Env is refused for the ordinary ScopeShared
+		// reason, which bites harder here than anywhere: env is the one channel
+		// every spawned child inherits, so an agent that can run `bash` would be
+		// setting its own successors' posture.
+		{Path: "permissions", Scope: ScopeShared, Note: "a PER-PROJECT privilege grant — the consent is scoped to one project dir, so a home config filling it in for every project on the machine is the exact escalation this key exists to avoid"},
 
 		{Path: "sync.auto_sync", Scope: ScopePreference},
 

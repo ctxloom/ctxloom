@@ -300,6 +300,16 @@
         "container"
       ]
     },
+    "permissions": {
+      "type": "string",
+      "description": "Project default for the launch-time permission posture of engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. 'default' (prompt on each gated call), 'acceptEdits' (auto-accept file edits, prompt for the rest), 'plan' (read-only), 'bypass' (skip all in-engine prompting). Resolution: `run --permissions` > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's built-in default (bypass for the claude-code host stopgap, prompt elsewhere) — so a narrower posture declared anywhere above always wins, and a declared project default beats a silent engine fallback. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them.",
+      "enum": [
+        "default",
+        "acceptEdits",
+        "plan",
+        "bypass"
+      ]
+    },
     "delegation": {
       "type": "object",
       "description": "The two agent-delegation limits. Grouped because both are limits ON delegation, not because they share a mechanism \u2014 they differ in kind (see each member's own description).",

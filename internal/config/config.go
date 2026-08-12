@@ -141,6 +141,28 @@ type Config struct {
 	// operations.resolveAgentBinding. The two axes are independent and meet
 	// only at launch (isolation.Axes).
 	runtime string
+	// permissions is the project-wide DEFAULT launch-time permission posture
+	// (default | acceptEdits | plan | bypass) for engines launched in THIS
+	// project directory — the per-project consent knob: "in this directory, an
+	// agent starts at this posture unless something narrower says otherwise".
+	// Empty means undeclared, which falls through to the engine's own built-in
+	// default (bypass for the claude-code host stopgap, prompt elsewhere).
+	//
+	// It sits BELOW every explicit declaration (--permissions flag > the agent
+	// binding's own `permissions` > the engine label's `permissions` > this) and
+	// ABOVE the engine fallback, so a narrower posture declared anywhere always
+	// wins and a declared project posture beats a silent engine default.
+	// Resolution lives in cli.resolvePermissionMode / operations.RunOneshot /
+	// operations.ResolveAgent.
+	//
+	// LAYER-SCOPED TO THE PROJECT FILE. layerscope assigns it ScopeShared, so a
+	// ~/.ctxloom/config.yaml carrying it is DROPPED with a warning rather than
+	// gap-filling a project that declared nothing, and CTXLOOM_CONFIG_PERMISSIONS
+	// cannot carry it either. That restriction is the feature, not an
+	// implementation detail: a home-wide permissive default already exists as the
+	// claude-code host stopgap, and a second one would silently re-grant every
+	// project on the machine the posture a human granted exactly one of them.
+	permissions string
 	// delegation groups the two agent-delegation limits — see
 	// DelegationConfig's doc for why they are grouped (both are limits ON
 	// delegation) despite differing in kind (one a resource ceiling, the
@@ -327,6 +349,7 @@ type configDoc struct {
 	Workspace                    string                  `yaml:"workspace,omitempty"`
 	DirtyTreeHandler             string                  `yaml:"dirty_tree_handler,omitempty"`
 	Runtime                      string                  `yaml:"runtime,omitempty"`
+	Permissions                  string                  `yaml:"permissions,omitempty"`
 	Delegation                   DelegationConfig        `yaml:"delegation,omitempty"`
 	IsolationImages              map[string]string       `yaml:"isolation_images,omitempty"`
 	IsolationBaseContainerfile   string                  `yaml:"isolation_base_containerfile,omitempty"`
@@ -361,6 +384,7 @@ func (c *Config) toDoc() configDoc {
 		Workspace:                    c.workspace,
 		DirtyTreeHandler:             c.dirtyTreeHandler,
 		Runtime:                      c.runtime,
+		Permissions:                  c.permissions,
 		Delegation:                   c.delegation,
 		IsolationImages:              cloneStringMap(c.isolationImages),
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
@@ -390,6 +414,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.workspace = doc.Workspace
 	c.dirtyTreeHandler = doc.DirtyTreeHandler
 	c.runtime = doc.Runtime
+	c.permissions = doc.Permissions
 	c.delegation = doc.Delegation
 	c.isolationImages = doc.IsolationImages
 	c.isolationBaseContainerfile = doc.IsolationBaseContainerfile

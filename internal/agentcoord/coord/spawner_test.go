@@ -29,10 +29,12 @@ func TestChildVerbosity(t *testing.T) {
 // (C1), codex, kiro, and the generic "acp" entry (C3) all route their
 // delegated children over StartRun — every backend whose Chat rides the
 // shared internal/acp driver, verified per-backend in the C3 recon.
-// Backends NOT reviewed onto the migrated path (mock, and any unknown/future
-// backend name) stay on the legacy go-plugin Chat dial — this is a
+// Backends NOT reviewed onto the migrated path stay on the FROZEN legacy
+// chat path only if legacyChatBackends admits them (opencode, mock); any
+// other name is refused at Resolve by checkLegacyChatFreeze — this is a
 // deliberate allowlist, not "implements StructuredChat", so a new backend
-// never gets swept onto StartRun unreviewed.
+// never gets swept onto StartRun unreviewed (nor onto the retired legacy
+// path at all).
 func TestViaStartRunBackends(t *testing.T) {
 	cases := map[string]bool{
 		"claude-code":  true,

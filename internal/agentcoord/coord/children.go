@@ -656,7 +656,16 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	// intentional, documented reachable case for an allowlisted backend
 	// (preserved as-is, matching what C1 already landed);
 	// the dial's other reachable case is a StructuredChat backend outside
-	// the allowlist (today: none in production, only test doubles).
+	// the allowlist — in production that is exactly opencode (see
+	// delegate.go Start's KILL-LIST VERIFICATION), plus the mock test
+	// backend; spawner.go's checkLegacyChatFreeze admits nothing else.
+	//
+	// FROZEN (spool-cutover RETIRE-FIRST ruling): the legacy arm below is
+	// retired-in-place — it is never ported to the file-spool messaging
+	// substrate that replaces the coordinator mailbox, and it admits no new
+	// backends (spawner.go's legacyChatBackends may only empty). Its
+	// remaining consumers either migrate onto StartRun or lose delegation
+	// when the mailbox machinery is deleted.
 	// The launch runs under a CANCELLABLE per-harp context, not baseCtx, so
 	// agent_stop reaches a launch that is in flight (container prepare, image
 	// pull, fs probe) and not merely the process a completed launch produced
@@ -1202,6 +1211,17 @@ func (c *Coordinator) onTurnIdle(role string) {
 // path only (a degraded no-reach-back spawn, or a StructuredChat backend
 // outside the viaStartRun allowlist — spawner.go's viaStartRunBackends);
 // D2 retired its agentbus TapHub tee along with the rest of the bus package.
+//
+// FROZEN (spool-cutover RETIRE-FIRST ruling): this loop and its exclusive
+// helpers (handleChildEvent, onTurnBoundary, wakeChild, sendMailTurn,
+// sendTurn, endChild, attachLaunch, the rt.in/rt.wake channels, and
+// Spawner.Launch) are retired-in-place. They are never ported to the
+// file-spool messaging substrate that replaces the coordinator mailbox
+// (takeNextMail/pushMail below), and spawner.go's checkLegacyChatFreeze
+// refuses any backend not already frozen onto this path (legacyChatBackends:
+// opencode, mock — plus the degraded no-reach-back spawn of a StartRun
+// backend). When the mailbox machinery is deleted, whatever still rides this
+// loop has either migrated onto StartRun or loses delegation.
 // A legacy child is therefore not LIVE-observable via ConsumerService (D1's
 // watchHub only covers RunChannel item events, which this path never emits)
 // — an accepted, documented gap on an already-degraded path; its transcript

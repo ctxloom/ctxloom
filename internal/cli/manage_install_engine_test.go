@@ -111,13 +111,13 @@ func TestManageInstall_EngineScopesWrites(t *testing.T) {
 	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "codex")
 	require.NoError(t, err)
 
-	// codex's surface is the project-scoped config home ctxloom relocates
-	// (internal/codex.ProjectHome), NOT a bare <project>/.codex — asked of the
-	// engine's own resolver so this assertion cannot drift from where the write
-	// lands.
+	// codex's harpless static surface is asked of the engine's own resolver so
+	// this assertion cannot drift from where the write lands. It is NOT under
+	// .ctxloom/state: a static materialize has no session, and the durable
+	// per-project engine home the per-session instance replaced is retired.
 	assert.DirExists(t, codex.ProjectHome(dir), "the named engine's surface must be written")
-	assert.NoDirExists(t, filepath.Join(dir, ".codex"),
-		"and never at the pre-relocation location, which the engine-home policy retired")
+	assert.NoDirExists(t, filepath.Join(dir, ".ctxloom", "state", "engines"),
+		"and never at the retired durable per-project engine home")
 	for _, other := range []string{".claude", ".kiro", ".opencode", ".agents"} {
 		_, statErr := os.Stat(filepath.Join(dir, other))
 		assert.True(t, os.IsNotExist(statErr), "%s must NOT be written when --engine codex was asked for", other)

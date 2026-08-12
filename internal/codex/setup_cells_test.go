@@ -13,6 +13,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// sessionInstance gives a test the per-session codex home a `config_home:
+// project` run gets: the env CODEX_HOME contribution operations.
+// InTreeAgentHomeEnv makes, and the home it names. Every Setup test that
+// exercises codex's HOME-KEYED surfaces needs one, because since D2 a run with
+// no contributed CODEX_HOME keeps the user's own ~/.codex — which ctxloom
+// refuses to write (surfaces.go's deliveryHome), so those surfaces would
+// deliver nothing at all.
+func sessionInstance(t *testing.T, work string) (env map[string]string, home string) {
+	t.Helper()
+	root, err := SessionHome(work, "ugly-icy-squid")
+	require.NoError(t, err)
+	home = cellScopedCodexHome(root)
+	return map[string]string{CodexHomeEnv: home}, home
+}
+
 // contextCacheHash returns the single hash under <work>/.ctxloom/cache/context.
 func contextCacheHash(t *testing.T, work string) string {
 	t.Helper()
@@ -39,8 +54,10 @@ func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 		}},
 		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
 	}
+	env, home := sessionInstance(t, work)
 	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
+		Env:       env,
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		CellKind:  agent.CellKindDirectoryIsolated,
 		Managed:   managed,
@@ -50,21 +67,21 @@ func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 	hash := contextCacheHash(t, work)
 
 	// config.toml carries the inject-context SessionStart hook keyed to that hash.
-	cfg, err := os.ReadFile(filepath.Join(ProjectHome(work), ConfigFileName))
-	require.NoError(t, err, "the config surface must write config.toml under the project-scoped codex home")
+	cfg, err := os.ReadFile(filepath.Join(home, ConfigFileName))
+	require.NoError(t, err, "the config surface must write config.toml under this session's codex home")
 	config := string(cfg)
 	assert.Contains(t, config, "inject-context", "codex fires the SessionStart context-injection hook")
 	assert.Contains(t, config, hash, "the injection hook is keyed to the delivered context hash")
 	assert.Contains(t, config, "run-srv", "the managed MCP server is written to config.toml")
 
-	// Cell-scoped prompts live under the project-scoped home (NOT the global ~/.codex).
-	assert.FileExists(t, filepath.Join(ProjectHome(work), PromptsDirName, "demo.md"),
+	// Cell-scoped prompts live under this session's instance (NOT the global ~/.codex).
+	assert.FileExists(t, filepath.Join(home, PromptsDirName, "demo.md"),
 		"commands are delivered to the cell-scoped prompts dir")
 
-	// CODEX_HOME points codex at the cell-scoped home so it discovers those prompts.
-	env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: agent.CellKindDirectoryIsolated})
-	assert.Equal(t, ProjectHome(work), env["CODEX_HOME"],
-		"an isolated cell scopes CODEX_HOME to the project-scoped state home")
+	// CODEX_HOME points codex at the same home so it discovers those prompts.
+	execEnv := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, Env: env, CellKind: agent.CellKindDirectoryIsolated})
+	assert.Equal(t, home, execEnv[CodexHomeEnv],
+		"Execute's CODEX_HOME is the instance Setup delivered into")
 }
 
 // TestCodex_Setup_WritesAGENTSmd proves the LIVE RUN/LAUNCH path — not just
@@ -84,8 +101,10 @@ func TestCodex_Setup_WritesAGENTSmd(t *testing.T) {
 	work := t.TempDir()
 	b := NewCodex()
 
+	env, _ := sessionInstance(t, work)
 	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
+		Env:       env,
 		Fragments: []*agent.Fragment{{Content: "the secret color is vermilion"}},
 		CellKind:  agent.CellKindDirectoryIsolated,
 		Managed:   &agent.ManagedConfig{},
@@ -102,27 +121,69 @@ func TestCodex_Setup_WritesAGENTSmd(t *testing.T) {
 }
 
 // TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup proves CODEX_HOME is scoped to
-// the project-scoped state home (ProjectHome) in every NON-container cell
-// (including SharedCell, so codex finds the cell-scoped prompts for the live
-// cwd), and is left unset for a minimal/distill (SkipSetup) run so codex keeps
-// its global ~/.codex home. A ProcessIsolated (container) cell is asserted
-// separately below (TestCodex_CodexHomeEnv_ProcessIsolated_UsesContainerHome,
-// dense-amaze): it scopes to the container's own fresh $HOME instead, since the
-// project tree there is the bind-mounted PROJECT dir, where the isolation layer
-// never mounts creds.
+// this session's instance in every NON-container cell (including SharedCell, so
+// codex finds the cell-scoped prompts for the live cwd), and is left unset for
+// a minimal/distill (SkipSetup) run so codex keeps its global ~/.codex home. A
+// ProcessIsolated (container) cell is asserted separately below
+// (TestCodex_CodexHomeEnv_ProcessIsolated_UsesContainerHome, dense-amaze): it
+// scopes to the container's own fresh $HOME instead, since the project tree
+// there is the bind-mounted PROJECT dir, where the isolation layer never mounts
+// creds.
 func TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup(t *testing.T) {
 	b := NewCodex()
-	work := "/proj"
-	want := ProjectHome(work)
+	work := t.TempDir()
+	env, want := sessionInstance(t, work)
 
 	for _, cell := range []agent.CellKind{agent.CellKindShared, agent.CellKindDirectoryIsolated} {
-		env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: cell})
-		assert.Equal(t, want, env["CODEX_HOME"], "CODEX_HOME is set for cell %v", cell)
+		got := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, Env: env, CellKind: cell})
+		assert.Equal(t, want, got[CodexHomeEnv], "CODEX_HOME is set for cell %v", cell)
 	}
 
-	env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: agent.CellKindShared, SkipSetup: true})
-	_, ok := env["CODEX_HOME"]
+	// No Env here on purpose: ExecuteEnv layers req.Env in first, so passing
+	// the instance would prove nothing about the backend's own contributor.
+	skipped := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: agent.CellKindShared, SkipSetup: true})
+	_, ok := skipped[CodexHomeEnv]
 	assert.False(t, ok, "a SkipSetup run keeps codex's global home (no CODEX_HOME override)")
+}
+
+// TestCodex_HomeKeyedSurfaces_RefuseTheRealHostHome is the ruling's hardest
+// line at the delivery seam: a run with no controlled home (no binding, an
+// undeclared one, or `config_home: host`) keeps the user's own ~/.codex, and
+// ctxloom writes NOTHING into it — not config.toml, not prompts, not skills.
+// The refusal is LOUD, because a delivery that silently wrote nothing is this
+// project's signature failure wearing a success's clothes. The CWD-KEYED
+// context surface still delivers, so the run is degraded, not broken.
+func TestCodex_HomeKeyedSurfaces_RefuseTheRealHostHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	work := t.TempDir()
+
+	b := NewCodex()
+	out := captureStderr(t, func() {
+		require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
+			WorkDir:   work,
+			Fragments: []*agent.Fragment{{Content: "project rules"}},
+			CellKind:  agent.CellKindShared,
+			Managed: &agent.ManagedConfig{
+				Commands: []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
+				Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
+					PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
+				}},
+				MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
+			},
+		}))
+	})
+
+	entries, err := os.ReadDir(home)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "ctxloom created something inside the user's real home: %v", entries)
+
+	assert.Contains(t, out, "config_home: project", "the refusal names the fix")
+	assert.Contains(t, out, filepath.Join(home, ConfigDirName), "and the home it refused to write")
+
+	// Degraded, not broken: the cwd-keyed context surface still landed.
+	assert.FileExists(t, filepath.Join(work, AgentsMDFile), "AGENTS.md is cwd-keyed and unaffected")
 }
 
 // TestCodex_CodexHomeEnv_ProcessIsolated_UsesContainerHome is dense-amaze's
@@ -160,12 +221,14 @@ func TestCodex_Setup_ConfigByteIdenticalToDirectWrite(t *testing.T) {
 	}
 	fragments := []*agent.Fragment{{Content: "project rules"}}
 	work := t.TempDir()
-	configPath := filepath.Join(ProjectHome(work), ConfigFileName)
+	env, home := sessionInstance(t, work)
+	configPath := filepath.Join(home, ConfigFileName)
 
 	// New path: the cell delivery writes config.toml via the config surface.
 	b := NewCodex()
 	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
+		Env:       env,
 		Fragments: fragments,
 		CellKind:  agent.CellKindDirectoryIsolated,
 		Managed:   managed,
@@ -182,7 +245,9 @@ func TestCodex_Setup_ConfigByteIdenticalToDirectWrite(t *testing.T) {
 	life.MergeManaged(managed, work, hash)
 	absWork, err := filepath.Abs(work)
 	require.NoError(t, err)
-	require.NoError(t, (&CodexHookWriter{}).WriteSettingsWithTrust(life.GetHooks(), life.GetMCP(), nil, work, absWork))
+	instanceRoot, err := SessionHome(work, "ugly-icy-squid")
+	require.NoError(t, err)
+	require.NoError(t, (&CodexHookWriter{}).writeSettingsIn(life.GetHooks(), life.GetMCP(), nil, instanceRoot, absWork))
 	directCfg, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 

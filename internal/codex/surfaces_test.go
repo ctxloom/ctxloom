@@ -265,9 +265,10 @@ func TestConfigSurface_DeliverWritesConfigTOML(t *testing.T) {
 
 // commands Delivery writes prompts under the CELL-SCOPED $CODEX_HOME derived
 // from dir — NOT the global ~/.codex/prompts — so a DirectoryIsolatedCell
-// isolates them. On this static path the cell-scoping is applied to the
-// project-scoped state home (ProjectHome), the same root the run path's in-tree
-// arm resolves. Cleanup reverts the manifest-tracked set.
+// isolates them. On this HARPLESS static path the cell-scoping is applied to
+// the delivery dir itself (ProjectHome) — no run resolves there; see
+// CodexHookWriter.SettingsPath's S7-interim note. Cleanup reverts the
+// manifest-tracked set.
 func TestCommandsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
@@ -279,9 +280,9 @@ func TestCommandsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 	promptPath := filepath.Join(ProjectHome(dir), PromptsDirName, "review.md")
 	exists, _ := afero.Exists(fs, promptPath)
 	assert.True(t, exists, "the prompt lands under the cell-scoped $CODEX_HOME (<ProjectHome>/prompts)")
-	assert.Equal(t, filepath.Join(ProjectHome(dir), PromptsDirName), cellScopedPromptsDir(StateHome(dir)))
-	assert.Equal(t, ProjectHome(dir), cellScopedCodexHome(StateHome(dir)),
-		"CODEX_HOME is <StateHome>/.codex, so the launched codex reads these prompts")
+	assert.Equal(t, filepath.Join(ProjectHome(dir), PromptsDirName), cellScopedPromptsDir(dir))
+	assert.Equal(t, ProjectHome(dir), cellScopedCodexHome(dir),
+		"the harpless static path's CODEX_HOME-equivalent is <projectDir>/.codex")
 
 	require.NoError(t, handle.Cleanup())
 	exists, _ = afero.Exists(fs, promptPath)
@@ -293,7 +294,7 @@ func TestCommandsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 // skills Delivery writes Agent Skill packages under the CELL-SCOPED $CODEX_HOME
 // derived from dir — NOT the global ~/.codex/skills — so a
 // DirectoryIsolatedCell isolates them, mirroring the commands surface (and,
-// like it, cell-scoping the project-scoped state home on this static path).
+// like it, cell-scoping the delivery dir itself on this harpless static path).
 // Cleanup reverts the manifest-tracked set.
 func TestSkillsSurface_DeliverWritesCellScopedSkills(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -306,7 +307,7 @@ func TestSkillsSurface_DeliverWritesCellScopedSkills(t *testing.T) {
 	skillMD := filepath.Join(ProjectHome(dir), SkillsDirName, "humanize", "SKILL.md")
 	exists, _ := afero.Exists(fs, skillMD)
 	assert.True(t, exists, "the skill lands under the cell-scoped $CODEX_HOME (<ProjectHome>/skills)")
-	assert.Equal(t, filepath.Join(ProjectHome(dir), SkillsDirName), cellScopedSkillsDir(StateHome(dir)))
+	assert.Equal(t, filepath.Join(ProjectHome(dir), SkillsDirName), cellScopedSkillsDir(dir))
 
 	data, err := afero.ReadFile(fs, skillMD)
 	require.NoError(t, err)

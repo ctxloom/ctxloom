@@ -356,21 +356,21 @@ func writeCodexAuth(t *testing.T, home string) {
 }
 
 // =============================================================================
-// SeedCodexHome — the exported seam internal/codex's Setup (ensureCodexCredentials,
+// PrepareCodexHome — the exported seam internal/codex's Setup (ensureCodexCredentials,
 // calls to extend THIS package's copy-based codex credential seeding
 // to the in-tree/None axis, which never goes through provisionConfigHome at all.
 // =============================================================================
 
-// TestSeedCodexHome_CopiesAuthJson is the PAYLOAD-asserting case: the host's
+// TestPrepareCodexHome_CopiesAuthJson is the PAYLOAD-asserting case: the host's
 // ~/.codex/auth.json lands byte-identical, owner-only, at destDir/.codex/auth.json
 // — exactly where cellScopedCodexHome(destDir) resolves CODEX_HOME to.
-func TestSeedCodexHome_CopiesAuthJson(t *testing.T) {
+func TestPrepareCodexHome_CopiesAuthJson(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("OPENAI_API_KEY", "")
 	writeCodexAuth(t, home)
 	dest := t.TempDir()
 
-	skipped, err := SeedCodexHome(dest)
+	skipped, err := PrepareCodexHome(dest)
 	require.NoError(t, err)
 	assert.False(t, skipped)
 
@@ -385,35 +385,35 @@ func TestSeedCodexHome_CopiesAuthJson(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
 }
 
-// TestSeedCodexHome_EnvTriggerSkips: OPENAI_API_KEY set → skipped=true, nil
+// TestPrepareCodexHome_EnvTriggerSkips: OPENAI_API_KEY set → skipped=true, nil
 // error, no copy attempted (matches hostCredentialSeed's envTrigger precedence).
-func TestSeedCodexHome_EnvTriggerSkips(t *testing.T) {
+func TestPrepareCodexHome_EnvTriggerSkips(t *testing.T) {
 	withFakeHome(t) // no ~/.codex/auth.json on disk
 	t.Setenv("OPENAI_API_KEY", "sk-test")
 	dest := t.TempDir()
 
-	skipped, err := SeedCodexHome(dest)
+	skipped, err := PrepareCodexHome(dest)
 	require.NoError(t, err)
 	assert.True(t, skipped)
 	assert.NoDirExists(t, filepath.Join(dest, ".codex"))
 }
 
-// TestSeedCodexHome_NoSourceFailsLoud pins the fail-loud contract: no
+// TestPrepareCodexHome_NoSourceFailsLoud pins the fail-loud contract: no
 // OPENAI_API_KEY and no host ~/.codex/auth.json returns a non-nil, actionable
 // error — NEVER a silent success that would let codex launch straight into a 401.
-func TestSeedCodexHome_NoSourceFailsLoud(t *testing.T) {
+func TestPrepareCodexHome_NoSourceFailsLoud(t *testing.T) {
 	withFakeHome(t) // empty fake home — no .codex at all
 	t.Setenv("OPENAI_API_KEY", "")
 	dest := t.TempDir()
 
-	_, err := SeedCodexHome(dest)
+	_, err := PrepareCodexHome(dest)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "OPENAI_API_KEY")
 	assert.Contains(t, err.Error(), "auth.json")
 	assert.Contains(t, err.Error(), "codex login", "the error must name a fix that works")
 }
 
-// TestSeedCodexHome_NoSourceOffersNoDegradedEscape pins the REMOVAL of the
+// TestPrepareCodexHome_NoSourceOffersNoDegradedEscape pins the REMOVAL of the
 // "(or pass --degraded)" clause this error used to carry. The flag relaxes
 // this package's strictness recording; the caller that surfaces this error
 // (internal/codex's ensureCodexCredentials → Codex.Setup, whose result
@@ -421,29 +421,29 @@ func TestSeedCodexHome_NoSourceFailsLoud(t *testing.T) {
 // changes nothing on this path. An error naming an escape hatch that does
 // not exist sends the user round a loop that cannot terminate — a worse
 // failure than saying less.
-func TestSeedCodexHome_NoSourceOffersNoDegradedEscape(t *testing.T) {
+func TestPrepareCodexHome_NoSourceOffersNoDegradedEscape(t *testing.T) {
 	withFakeHome(t)
 	t.Setenv("OPENAI_API_KEY", "")
 
-	_, err := SeedCodexHome(t.TempDir())
+	_, err := PrepareCodexHome(t.TempDir())
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "degraded",
 		"--degraded does not unblock this path — internal/codex never reads strictness")
 }
 
 // =============================================================================
-// SeedClaudeHome — SeedCodexHome's sibling for the IN-TREE AGENT axis, where
+// PrepareClaudeHome — PrepareCodexHome's sibling for the IN-TREE AGENT axis, where
 // internal/operations points CLAUDE_CONFIG_DIR at a project-scoped state home
 // (internal/claude.InTreeConfigDir) that provisionConfigHome never sees.
 // =============================================================================
 
-// TestSeedClaudeHome_CopiesCredentials is the PAYLOAD-asserting case: the
+// TestPrepareClaudeHome_CopiesCredentials is the PAYLOAD-asserting case: the
 // host's ~/.claude/.credentials.json lands byte-identical, owner-only, at
 // destDir/claude/.credentials.json — exactly where claude.InTreeConfigDir
 // resolves CLAUDE_CONFIG_DIR to. The empty-source guard (a non-empty fixture,
 // re-read and compared) keeps the byte comparison from passing vacuously on two
 // empty files, which is this project's signature failure mode.
-func TestSeedClaudeHome_CopiesCredentials(t *testing.T) {
+func TestPrepareClaudeHome_CopiesCredentials(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	writeCreds(t, home, false)
@@ -454,7 +454,7 @@ func TestSeedClaudeHome_CopiesCredentials(t *testing.T) {
 	require.NotEmpty(t, want, "fixture must carry bytes, or the comparison below proves nothing")
 
 	dest := t.TempDir()
-	skipped, err := SeedClaudeHome(dest)
+	skipped, err := PrepareClaudeHome(dest)
 	require.NoError(t, err)
 	assert.False(t, skipped)
 
@@ -467,11 +467,11 @@ func TestSeedClaudeHome_CopiesCredentials(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
 }
 
-// TestSeedClaudeHome_NeverWritesTheHostHome is the migration-shaped guard for
+// TestPrepareClaudeHome_NeverWritesTheHostHome is the migration-shaped guard for
 // an axis that has no migration: the real ~/.claude is READ and never written.
 // An in-tree agent home that mutated the human's own home would be the exact
 // regression this phase exists to avoid.
-func TestSeedClaudeHome_NeverWritesTheHostHome(t *testing.T) {
+func TestPrepareClaudeHome_NeverWritesTheHostHome(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	writeCreds(t, home, false)
@@ -482,7 +482,7 @@ func TestSeedClaudeHome_NeverWritesTheHostHome(t *testing.T) {
 	original, err := os.ReadFile(src)
 	require.NoError(t, err)
 
-	_, err = SeedClaudeHome(t.TempDir())
+	_, err = PrepareClaudeHome(t.TempDir())
 	require.NoError(t, err)
 
 	after, err := os.Stat(src)
@@ -497,29 +497,29 @@ func TestSeedClaudeHome_NeverWritesTheHostHome(t *testing.T) {
 	assert.Len(t, entries, 1, "seeding added files to the host's own ~/.claude")
 }
 
-// TestSeedClaudeHome_EnvTriggerSkips: ANTHROPIC_API_KEY set → skipped=true, nil
+// TestPrepareClaudeHome_EnvTriggerSkips: ANTHROPIC_API_KEY set → skipped=true, nil
 // error, nothing copied. Auth rides the environment, so an empty controlled
 // home is correct and the caller still points CLAUDE_CONFIG_DIR at it.
-func TestSeedClaudeHome_EnvTriggerSkips(t *testing.T) {
+func TestPrepareClaudeHome_EnvTriggerSkips(t *testing.T) {
 	withFakeHome(t) // no ~/.claude on disk
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	dest := t.TempDir()
 
-	skipped, err := SeedClaudeHome(dest)
+	skipped, err := PrepareClaudeHome(dest)
 	require.NoError(t, err)
 	assert.True(t, skipped)
 	assert.NoDirExists(t, filepath.Join(dest, "claude"))
 }
 
-// TestSeedClaudeHome_NoSourceFailsLoud pins the fail-loud contract: no
+// TestPrepareClaudeHome_NoSourceFailsLoud pins the fail-loud contract: no
 // ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json returns a non-nil,
 // actionable error naming fixes that actually work — never a silent success
 // that would point claude at an empty home and strand the agent logged out.
-func TestSeedClaudeHome_NoSourceFailsLoud(t *testing.T) {
+func TestPrepareClaudeHome_NoSourceFailsLoud(t *testing.T) {
 	withFakeHome(t) // empty fake home — no .claude at all
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
-	_, err := SeedClaudeHome(t.TempDir())
+	_, err := PrepareClaudeHome(t.TempDir())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ANTHROPIC_API_KEY")
 	assert.Contains(t, err.Error(), ".credentials.json")

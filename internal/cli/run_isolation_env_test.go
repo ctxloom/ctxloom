@@ -168,7 +168,11 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 
-		assert.Equal(t, claude.InTreeConfigDir(workDir), st.req.Options.Env[claude.ConfigDirEnv])
+		want, err := claude.SessionConfigDir(workDir, "test-harp")
+		require.NoError(t, err)
+		assert.Equal(t, want, st.req.Options.Env[claude.ConfigDirEnv])
+		assert.Contains(t, want, "test-harp",
+			"prepareWorkspace must pass THIS SESSION's harp — st.activeHarp, assigned by openSession before this runs")
 		assert.Equal(t, "test-harp", st.req.Options.Env["CTXLOOM_SESSION_HARP"], "the pre-assembled session env must survive")
 	})
 
@@ -195,7 +199,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 
 		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
 			"an agent-bound run with an undeclared config_home must keep the real ~/.claude")
-		assert.NoDirExists(t, claude.StateHome(workDir))
+		assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
 	})
 
 	// MUTATION TARGET m2: a bug that ignored a declared "host" value (treating
@@ -213,7 +217,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 
 		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
 			"a binding that DECLARES config_home: host must keep the real ~/.claude")
-		assert.NoDirExists(t, claude.StateHome(workDir))
+		assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
 	})
 
 	t.Run("a run with NO agent binding at all keeps the real host home", func(t *testing.T) {
@@ -229,7 +233,49 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 
 		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
 			"a run with no agent binding at all must keep the human's own ~/.claude")
-		assert.NoDirExists(t, claude.StateHome(workDir))
+		assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
+	})
+
+	// The instance is PER SESSION, and prepareWorkspace is where the harp
+	// enters: two runs of the same project under two session names must be
+	// handed two homes. MUTATION TARGET: drop Harp from prepareWorkspace's
+	// contribution and both runs decline (no session name), so this goes red.
+	t.Run("two sessions in one checkout get two instances", func(t *testing.T) {
+		resetStrictness(t)
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+
+		workDir := t.TempDir()
+		homes := map[string]string{}
+		for _, harp := range []string{"ugly-icy-squid", "brave-warm-otter"} {
+			st := newState(t, workDir, agents.ConfigHomeProject, hostAxes)
+			st.activeHarp = harp
+			st.prepareWorkspace()
+			t.Cleanup(st.cleanupWorkspace)
+			got := st.req.Options.Env[claude.ConfigDirEnv]
+			require.NotEmpty(t, got, "%s: the controlled home must be contributed", harp)
+			homes[harp] = got
+		}
+		assert.NotEqual(t, homes["ugly-icy-squid"], homes["brave-warm-otter"],
+			"two concurrent sessions in one checkout must not share one CLAUDE_CONFIG_DIR")
+	})
+
+	// A run that somehow reached prepareWorkspace with no session name gets NO
+	// instance and creates nothing — never a shared project-wide fallback,
+	// which is the durable home the per-session model retired.
+	t.Run("a run with no session name declines the controlled home", func(t *testing.T) {
+		resetStrictness(t)
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+
+		workDir := t.TempDir()
+		st := newState(t, workDir, agents.ConfigHomeProject, hostAxes)
+		st.activeHarp = ""
+		st.prepareWorkspace()
+		t.Cleanup(st.cleanupWorkspace)
+
+		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv)
+		assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"))
 	})
 
 	t.Run("the worktree axis' own config home is never overridden", func(t *testing.T) {
@@ -252,8 +298,10 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		require.NotEmpty(t, got)
 		assert.Equal(t, isolation.WorkspaceEnv(st.ws)[claude.ConfigDirEnv], got,
 			"isolation's per-agent config home must win — the in-tree contribution fills gaps only")
-		assert.NotEqual(t, claude.InTreeConfigDir(repo), got)
-		assert.NoDirExists(t, claude.StateHome(repo), "the losing in-tree arm must not even create its home")
+		inTree, err := claude.SessionConfigDir(repo, "test-harp")
+		require.NoError(t, err)
+		assert.NotEqual(t, inTree, got)
+		assert.NoDirExists(t, filepath.Join(repo, ".ctxloom", "state"), "the losing in-tree arm must not even create its home")
 	})
 }
 

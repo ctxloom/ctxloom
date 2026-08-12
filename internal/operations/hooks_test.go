@@ -539,51 +539,41 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 	assert.True(t, exists, "--force must actually write the settings file")
 }
 
-// TestApplyHooks_CodexHomeCollisionIsUnreachableAfterRelocation replaces the
-// pair of codex collision tests that used to sit here
-// (TestApplyHooks_RefusesCodexHomeCollision / _ForceOverrides...). They pinned a
-// real defect: `manage hooks install` from $HOME made codex.ProjectHome(WorkDir)
-// resolve onto codex.GlobalHome(), so ctxloom's hooks and MCP servers landed in
-// the developer's user-global ~/.codex/config.toml and followed them into every
+// TestApplyHooks_RefusesCodexHomeCollision is the codex hook-scope guard's
+// canonical red case, the sibling of TestApplyHooks_RefusesHomeCollision
+// (claude) and TestApplyHooks_RefusesKiroHomeCollision. It pins a real defect:
+// `manage hooks install` from $HOME makes codex.ProjectHome(WorkDir) resolve
+// onto codex.GlobalHome(), so ctxloom's hooks and MCP servers would land in the
+// developer's user-global ~/.codex/config.toml and follow them into every
 // project.
 //
-// The engine-home policy removes the collision at the root rather than guarding
-// it: the project-scoped home is now
-// $HOME/.ctxloom/state/engines/codex/.codex, which is never $HOME/.codex for
-// any $HOME. So the apply SUCCEEDS from $HOME and writes where it should. The
-// guard itself stays wired in the backends registry — it is a check on what
-// those two functions return, not an assumption about what they cannot return.
-//
-// What this test therefore asserts is the property the guard used to enforce:
-// nothing ctxloom writes for codex lands in the user's global home.
-func TestApplyHooks_CodexHomeCollisionIsUnreachableAfterRelocation(t *testing.T) {
+// The collision briefly became UNREACHABLE while codex's project home lived at
+// $HOME/.ctxloom/state/engines/codex/.codex. The per-session instance retired
+// that durable location, and the harpless static writers fell back to the
+// project-root join they had before it existed — so $HOME/.codex is reachable
+// again for both sides, and this guard is load-bearing rather than defensive.
+func TestApplyHooks_RefusesCodexHomeCollision(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
-	projectHome := codex.ProjectHome(home)
 	globalHome, err := codex.GlobalHome()
 	require.NoError(t, err)
-	require.NotEqual(t, globalHome, projectHome,
-		"the relocation is what makes the collision unreachable; if these are ever equal again the guard below is load-bearing and this test is wrong")
+	require.Equal(t, globalHome, codex.ProjectHome(home),
+		"this case exists because the two collapse onto one path when WorkDir is $HOME")
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	_, err = ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "codex",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      home,
 	})
-	require.NoError(t, err, "with the home relocated out of the project root there is no collision to refuse")
-	require.NotNil(t, result)
-	assert.Equal(t, "applied", result.Status)
-
-	wrote, err := afero.Exists(fs, (&codex.CodexHookWriter{}).SettingsPath(home))
-	require.NoError(t, err)
-	assert.True(t, wrote, "the apply lands in the project-scoped state home")
+	require.Error(t, err, "installing codex hooks from $HOME would apply ctxloom to every project")
+	assert.Contains(t, err.Error(), "codex's global home")
 
 	leaked, err := afero.Exists(fs, filepath.Join(globalHome, "config.toml"))
 	require.NoError(t, err)
-	assert.False(t, leaked, "nothing ctxloom writes for codex may reach the user's GLOBAL home")
+	assert.False(t, leaked, "a refused apply must not have written the user's GLOBAL home first")
 }
 
 // TestApplyHooks_RefusesKiroHomeCollision is the kiro hook-scope guard's

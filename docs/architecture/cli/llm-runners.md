@@ -34,7 +34,7 @@ flowchart TD
     SUR --> SBC["serveBackendConfig — llm_serve.go:75<br/>label-first, type-fallback"] --> DBC["decodeBackendConfig — llm_resolve.go:20"]
     SBC --> DBCFT["decodeBackendConfigForType :46"]
     SUR --> EH["coord.EngineHost + coord.NewHome"]
-    SUR --> SRM["serveRunnerMCP (mcp_runner.go:87)"]
+    SUR --> SRM["ServeRunnerMCP (mcp_runner.go:87)"]
     SRM --> EXP["os.Setenv(coord.EnvMCPSocket, path)"]
     EXP --> BH["engineHost.BindHome(h) — MUST be after the socket export"]
     SUR --> RSTD["runnerStandup{home, engineHost, endpointClose} :21"]
@@ -65,7 +65,7 @@ flowchart TD
 2. **`:62-72` — config load + backend `Configure`.** `config.Load()` directly,
    with the label resolved through `serveBackendConfig`.
 3. **`:74-91` — `coord.EngineHost` + `coord.NewHome`** (the dial-home).
-4. **`:94-119` — MCP endpoint standup + `BindHome`.** `serveRunnerMCP` gives a
+4. **`:94-119` — MCP endpoint standup + `BindHome`.** `ServeRunnerMCP` gives a
    socket path, which is exported as `coord.EnvMCPSocket` into *this process's*
    env (every engine spawn path builds the harness env over `os.Environ`), and
    only then is `BindHome` called.
@@ -106,7 +106,7 @@ via `defer` (`llm_turn.go:79`), `llm serve` after `plugin.Serve` returns
 - **Teardown order is `engineHost` → `home` → `endpointClose`** (`:123-126`), and
   each caller must block before calling it.
 - **A run-hosting runner refuses to launch without MCP reach-back.** When
-  `serveRunnerMCP` fails *and* `engineHost != nil`, `:97-103` returns a fatal
+  `ServeRunnerMCP` fails *and* `engineHost != nil`, `:97-103` returns a fatal
   error whose reasoning is spelled out: it would otherwise stand up a rogue local
   coordinator nobody reads.
 - **`--label` is a single input, carried by one global.** `llm host` and

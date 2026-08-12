@@ -80,7 +80,7 @@ func cloneSpecs(specs []ToolSpec) []ToolSpec {
 // ToolByName looks one generated tool up.
 //
 // test-only: no production caller — kept rather than deleted
-// because internal/cli/mcp_runner_test.go, a different package, calls it;
+// because internal/mcp/mcp_runner_test.go, a different package, calls it;
 // Go test files cannot be imported cross-package, so it cannot be moved into
 // a _test.go file the way a same-package-only test helper could be. The
 // goldens are a build product: a Tools() error here means the embedded

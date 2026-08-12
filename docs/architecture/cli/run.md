@@ -71,7 +71,7 @@ flowchart TD
         TSW["taskStoreWorkDir :832 → project identity"]
     end
 
-    COORD["hostCoordinatorForSession :890<br/>→ coord.Coordinator + runnerSpawnEnv (URL + credential)"]
+    COORD["HostCoordinatorForSession :890<br/>→ coord.Coordinator + runnerSpawnEnv (URL + credential)"]
     SEED["seedTaskIntoSession :911"]
 
     subgraph managed["6. managed-config assembly"]

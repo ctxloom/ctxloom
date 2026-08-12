@@ -180,7 +180,7 @@ type coordinatorReachBack struct {
 	oneshot bool
 	// cellWorkDir is the prepared workspace dir stamped by the host StartRunner
 	// (fix/host-discovery-anchor); empty on workspace:none or container spawns,
-	// where serveRunnerMCP falls back to the runner's own os.Getwd().
+	// where mcp.ServeRunnerMCP falls back to the runner's own os.Getwd().
 	cellWorkDir string
 }
 
@@ -295,7 +295,7 @@ func exportRunnerMCPSocket(set func(string, string) error, socketPath string) er
 // endpoint from. Binding EngineHost in that state would let the
 // engine launch with CTXLOOM_MCP_SOCKET never exported — the same "hosted
 // delegated run with no reach-back" condition standUpRunner's merr branch
-// (a few lines up) already refuses for when serveRunnerMCP itself fails.
+// (a few lines up) already refuses for when mcp.ServeRunnerMCP itself fails.
 // Extracted as a pure predicate so the branch condition is unit-testable
 // without needing config.Load() to actually fail — which the loader's own
 // fault tolerance (CLAUDE.md) makes hard to trigger from real file content;

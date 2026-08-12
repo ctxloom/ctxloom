@@ -168,7 +168,7 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 // mcpServers — a `ctxloom mcp` stdio shim) still reach the HOST runner's MCP
 // endpoint. It SHARES the runner-terminated-MCP mechanism the container
 // delegation track already built for exactly this cross-boundary problem
-// (agentcoord's coord.EnvMCPSocket / internal/cli/mcp_forward.go — a
+// (agentcoord's coord.EnvMCPSocket / internal/mcp/mcp_forward.go — a
 // container-local-or-host unix socket the shim dials over HTTP), rather than
 // forking a new reach-back path.
 //
@@ -280,7 +280,7 @@ func startReachBackBridge(sock string) (*reachBackBridge, error) {
 
 // acceptLoop runs until the listener closes (Close, or an unexpected accept
 // error) — the normal go-plugin-style "serve until closed" shape, matching
-// serveRunnerMCP's own `go func() { _ = srv.Serve(ln) }()`.
+// ServeRunnerMCP's own `go func() { _ = srv.Serve(ln) }()`.
 func (b *reachBackBridge) acceptLoop(sock string) {
 	for {
 		conn, err := b.ln.Accept()

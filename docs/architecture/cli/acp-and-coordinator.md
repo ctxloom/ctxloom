@@ -3,10 +3,14 @@
 `ctxloom acp` exposes ctxloom as an Agent Client Protocol server that an editor
 (Zed and friends) launches over stdio, plus a client for driving a third-party
 ACP agent and an `entries` command that prints paste-ready editor config. Beside
-it live two files that are not CLI at all: `coord_acp.go` and `coord_host.go`
-stand up and own the per-process `coord.Coordinator` that `acp`, `run` and the
-MCP tools all reach delegation through. They live in `internal/cli` because that
-is where `ctxServer` is.
+it live two files that are not CLI at all: `coord_acp.go` (still
+`internal/cli`) and `coord_host.go` (`internal/mcp`) stand up and own the
+per-process `coord.Coordinator` that `acp`, `run` and the MCP tools all reach
+delegation through. `coord_host.go` sits with `ctxServer` — it constructs one
+directly and calls six handler methods on six typed input types, which is
+exactly why moving it kept those 18 symbols unexported. `internal/cli` reaches
+it through three exported helpers: `mcp.NewHostedCoordinator`,
+`mcp.SessionOwnerEnv` and `mcp.HostCoordinatorForSession`.
 
 ## Structure
 
@@ -36,12 +40,12 @@ flowchart TD
         AC --> SE["SessionEnv :31 — lazy standup under lock, warn-once"]
         AC --> CO["coordinator() :58"]
         AC --> CL["close() :64"]
-        SE --> SOE["sessionOwnerEnv — coord_host.go:141"]
-        NHC["newHostedCoordinator — coord_host.go:24"] --> CCH["coordCustomHandlers :58"]
+        SE --> SOE["SessionOwnerEnv — coord_host.go:141"]
+        NHC["NewHostedCoordinator — coord_host.go:24"] --> CCH["coordCustomHandlers :58"]
         CCH --> RH["relayHost&lt;In&gt; :98 x6"]
         RH --> SF["one shared singleflight.Group"]
         RH --> SRVFOR["serverFor closure :64 — per-caller ctxServer"]
-        HCFS["hostCoordinatorForSession :123"] --> NHC
+        HCFS["HostCoordinatorForSession :123"] --> NHC
         HCFS --> SOE
     end
 
@@ -83,12 +87,12 @@ Two consumers, one mechanism.
 
 | Function | file:line | Contract |
 |---|---|---|
-| `newHostedCoordinator` | `coord_host.go:24` | Resolves project identity, `coord.New`, installs the custom handlers, serves. A `Serve` failure closes before returning. |
+| `NewHostedCoordinator` | `coord_host.go:24` | Resolves project identity, `coord.New`, installs the custom handlers, serves. A `Serve` failure closes before returning. |
 | `coordCustomHandlers` | `coord_host.go:58` | Builds the six relay handlers over **one shared** `singleflight.Group`, so concurrent identical distills across per-call `ctxServer`s dedupe. |
 | `relayHost&lt;In&gt;` | `coord_host.go:98` | Generic decode → run under the **caller's** identity → encode. Six instantiations. |
 | `serverFor` (closure) | `coord_host.go:64-66` | Mints a per-caller `ctxServer` bound to the caller's `coord.Identity`. This is the "per-identity constructor" that two comments elsewhere misname `newCtxServerForIdentity`. |
-| `hostCoordinatorForSession` | `coord_host.go:123` | Standup + credential mint for `run`; closes the coordinator if minting fails, so a failure cannot leak a live coordinator. |
-| `sessionOwnerEnv` | `coord_host.go:141` | Registers the owner, resolves the reach URL, returns `{coord.EnvCoordURL, coord.EnvCoordCred}` — a **two**-entry map. |
+| `HostCoordinatorForSession` | `coord_host.go:123` | Standup + credential mint for `run`; closes the coordinator if minting fails, so a failure cannot leak a live coordinator. |
+| `SessionOwnerEnv` | `coord_host.go:141` | Registers the owner, resolves the reach URL, returns `{coord.EnvCoordURL, coord.EnvCoordCred}` — a **two**-entry map. |
 | `(*acpCoordinator).SessionEnv` | `coord_acp.go:31` | Lazy standup under lock; both failure modes warn via `clidiag` once and return nil (documented degradation). |
 | `(*acpCoordinator).close` | `coord_acp.go:64` | Locked, idempotent close; deferred at `acp_cmd.go:128`. |
 | `acpChildWatcher` / `adaptChildWatch` | `acp_children.go:30`, `:55` | Translate the coordinator's `AgentEvent` stream into `acpagent.ChildUpdate` so an editor can watch delegated children. |
@@ -102,7 +106,7 @@ Two consumers, one mechanism.
 - **Relay handlers run under the caller's identity, never the host process's
   env** (`coord_host.go:19-21,56-57`). This is what makes a delegated child's
   memory tool calls resolve to *its* session rather than the host's.
-- **The reach-back pair is the whole credential surface.** `sessionOwnerEnv`
+- **The reach-back pair is the whole credential surface.** `SessionOwnerEnv`
   returns exactly `EnvCoordURL` + `EnvCoordCred`; the runner scrubs both from its
   own environment before spawning the engine (`llm_runner_common.go:53-55`).
 - **`acp run` refuses a non-`acp` backend** rather than trying and failing
@@ -135,5 +139,5 @@ Two consumers, one mechanism.
 - `zedAgentServersBlock` discards both `json.Marshal` errors (`:140-141`).
 - The doc comments at `coord_acp.go:26`, `coord_host.go:120` and
   `operations/engine_session.go:42` all say "the coordinator reach-back **trio**";
-  `sessionOwnerEnv` returns two entries (the third was retired by D2, as
-  `sessionOwnerEnv`'s own comment at `:136-140` explains).
+  `SessionOwnerEnv` returns two entries (the third was retired by D2, as
+  `SessionOwnerEnv`'s own comment at `:136-140` explains).

@@ -183,7 +183,7 @@ func (s *coordServing) saveEndpointLocked() {
 // test-only: no production call site — production reaches the
 // same value through ReachURL("host"). Kept as its own accessor rather than
 // deleted because it has a genuine cross-package test consumer
-// (internal/cli/mcp_runner_artifact_test.go), and every one of its 8 call
+// (internal/mcp/mcp_runner_artifact_test.go), and every one of its 8 call
 // sites would need to grow by a line to handle ReachURL's error return,
 // which costs more lines than this wrapper.
 func (c *Coordinator) LoopbackURL() string {

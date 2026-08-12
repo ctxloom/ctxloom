@@ -11,7 +11,7 @@
 // what an earlier draft of this file's OWN brief assumed, a plain `ctxloom
 // mcp` subprocess never exposes an MCP tool literally named "roster" either:
 // that tool is registered ONLY on a spawned session's runner-terminated
-// socket (internal/cli/mcp_runner.go's newRunnerMCPServer), which this
+// socket (internal/mcp/mcp_runner.go's newRunnerMCPServer), which this
 // harness's `ctxloom mcp` process — launched directly, with
 // CTXLOOM_MCP_SOCKET scrubbed by testsupport.EnvKeys — never becomes.
 //

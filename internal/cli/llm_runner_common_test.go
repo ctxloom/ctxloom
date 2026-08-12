@@ -133,7 +133,7 @@ func TestRunnerMustRefuseNoConfigReachBack(t *testing.T) {
 	assert.False(t, runnerMustRefuseNoConfigReachBack(nil, nil),
 		"no config but no hosted run (e.g. `llm serve` with no RunID) has nothing to refuse for")
 	assert.False(t, runnerMustRefuseNoConfigReachBack(&config.Config{}, hostedRun),
-		"a loaded config (however degraded) takes the normal serveRunnerMCP path instead")
+		"a loaded config (however degraded) takes the normal mcp.ServeRunnerMCP path instead")
 }
 
 // labelCapturingBackend is a Configurable agent.Backend double that records the
@@ -341,7 +341,7 @@ func TestExportRunnerMCPSocket(t *testing.T) {
 // split moves that is reachable without a live coordinator.
 //
 // The arms deliberately NOT covered here, and why: dial-home failure,
-// EngineHost creation, and serveRunnerMCP failure all need a real coordinator
+// EngineHost creation, and mcp.ServeRunnerMCP failure all need a real coordinator
 // endpoint (coord.NewHome retries with backoff), which is integration territory,
 // not a unit gate. The two fail-loud decisions those arms guard are pinned
 // directly instead — runnerMustRefuseNoConfigReachBack and

@@ -176,7 +176,7 @@ message ArtifactDownloadHeader {
 // generator; classified mcpschema.RouteArtifactFetch — NOT a typed RunChannel
 // plane-2 frame like the RouteCoordination bindings. The runner-local handler
 // calls DownloadArtifact directly on this same credentialed connection and
-// verifies+places the bytes cell-locally; see internal/cli/mcp_runner.go).
+// verifies+places the bytes cell-locally; see internal/mcp/mcp_runner.go).
 // =============================================================================
 
 message FetchArtifactRequest {

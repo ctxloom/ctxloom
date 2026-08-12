@@ -30,7 +30,7 @@ const (
 	// cannot bind-mount a live unix socket across the Docker Desktop VM
 	// boundary off Linux (macOS/Windows), so there this instead carries
 	// "tcp://host:port" — a host-loopback TCP bridge onto the same unix
-	// socket, dialed by the shim's forward mode (internal/cli/mcp_forward.go).
+	// socket, dialed by the shim's forward mode (internal/mcp/mcp_forward.go).
 	// Every OTHER setter of this var (this package's runner, in particular)
 	// always emits a plain unix path; only that one ACP seam ever emits the
 	// tcp:// form.
@@ -75,9 +75,9 @@ const (
 	// the shim keys off ITS cwd (the worktree) — for workspace:worktree
 	// these differ, so discovery misses and a delegated child can't reach
 	// its parent. The runner (internal/cli/llm_serve.go) reads this var and
-	// passes it into serveRunnerMCP so the marker is keyed by the SAME
+	// passes it into ServeRunnerMCP so the marker is keyed by the SAME
 	// workspace directory the shim's cwd derives from
-	// (internal/cli/mcp_runner.go), falling back to the runner's own
+	// (internal/mcp/mcp_runner.go), falling back to the runner's own
 	// os.Getwd() when this is unset (workspace:none / container, where
 	// runner cwd and child WorkDir already agree, or a container, which
 	// uses a fixed marker name and never consults this at all).

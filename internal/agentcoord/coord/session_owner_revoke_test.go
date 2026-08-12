@@ -9,8 +9,8 @@ import (
 
 // RevokeSessionOwner had ZERO call sites anywhere in the repo
 // (production or test), so depth-0 session-owner credentials — minted once
-// per `ctxloom run`/`ctxloom acp` process by sessionOwnerEnv
-// (internal/cli/coord_host.go) — were never revoked. Since runsFold.apply
+// per `ctxloom run`/`ctxloom acp` process by SessionOwnerEnv
+// (internal/mcp/coord_host.go) — were never revoked. Since runsFold.apply
 // re-applies every factSessionCred fact on replay/adoption, every owner
 // token ever minted for a project stayed valid forever in that project's
 // coordinator state, contradicting doc.go's own "revocation at run end

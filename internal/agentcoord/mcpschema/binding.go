@@ -29,7 +29,7 @@ const (
 )
 
 // CoordinatorOnlyTools returns the set of tools a LEAF delegated agent must
-// NOT receive (the trust-boundary gate, internal/cli/mcp_runner.go's
+// NOT receive (the trust-boundary gate, internal/mcp/mcp_runner.go's
 // registration loop): agent_run, roster, agent_stop, and
 // agent_fetch_artifact all either spawn/observe/control OTHER children or
 // retrieve another agent's artifacts — capabilities that make sense only for

@@ -46,7 +46,7 @@ import (
 //     loop denies. os.WriteFile would fail on a missing parent anyway, so
 //     nothing legitimate is lost by refusing first.
 //
-// Containment itself is expressed the same way internal/cli/mcp_runner.go's
+// Containment itself is expressed the same way internal/mcp/mcp_runner.go's
 // resolveCellPath expresses the delegation cell boundary — same separator
 // handling, same filesystem-root edge case — deliberately, so this codebase
 // has one shape of confinement test rather than two.
@@ -119,7 +119,7 @@ func withinRoot(root, candidate string) bool {
 	// unconditionally breaks when root IS the filesystem root ("/"): root is
 	// already "/", so root+separator would be "//", a prefix no real path
 	// has — rejecting everything. (Same edge case, same handling, as
-	// internal/cli/mcp_runner.go's resolveCellPath.)
+	// internal/mcp/mcp_runner.go's resolveCellPath.)
 	prefix := root
 	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
 		prefix += string(filepath.Separator)

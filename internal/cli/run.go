@@ -1078,7 +1078,7 @@ func (st *runState) hostCoordinator() func() {
 
 	// RevokeSessionOwner existed with zero call sites, so a depth-0
 	// session-owner credential (minted per `ctxloom run` process by
-	// sessionOwnerEnv) was never revoked — doc.go's "revocation at run end
+	// mcp.SessionOwnerEnv) was never revoked — doc.go's "revocation at run end
 	// severs the credential's streams and parked polls" held for run
 	// credentials but not for this one, and since runsFold.apply re-applies
 	// every factSessionCred on replay/adoption, every owner token ever minted

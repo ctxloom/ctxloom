@@ -91,15 +91,15 @@ var handlerScopes = map[string]handlerScope{
 		// handler (validation + plan-manifest stamping) and the coordinator's
 		// journal fold.
 		funcs: []string{
-			"../../cli/mcp_runner.go:reportHandler",
+			"../../mcp/mcp_runner.go:reportHandler",
 			"../coord/reports.go:recordSummary",
 		},
 	},
 	ToolAgentRecv: {
-		funcs: []string{"../../cli/mcp_runner.go:recvHandler"},
+		funcs: []string{"../../mcp/mcp_runner.go:recvHandler"},
 	},
 	ToolAgentFetchArtifact: {
-		funcs: []string{"../../cli/mcp_runner.go:fetchArtifactHandler"},
+		funcs: []string{"../../mcp/mcp_runner.go:fetchArtifactHandler"},
 	},
 }
 

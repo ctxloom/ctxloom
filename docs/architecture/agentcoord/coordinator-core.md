@@ -102,7 +102,7 @@ because both are fixed at enqueue and never mutated.
 
 `identity.go` is the canonical explanation of the reach-back seam (the `Env*` block);
 three other packages duplicate the *values* to avoid an import cycle
-(`lm/isolation/none.go:9`, `acp/container_transport.go:16`, `cli/mcp_forward.go:32`).
+(`lm/isolation/none.go:9`, `acp/container_transport.go:16`, `mcp/mcp_forward.go:32`).
 
 **Divergences.**
 - `RevokeSessionOwner` (`coordinator.go:590`) has **zero call sites anywhere,
@@ -155,7 +155,7 @@ created; `closePartial` discards all four journal `Close()` errors.
 `Inject` accepts an empty `text` and durably journals an empty-body mail, returning a
 success delivery mode; the only emptiness guard is three layers away in the TUI
 (`cli/tui/model.go:399`). The sibling verb `AgentSend` is guarded at a different layer
-(`cli/mcp_tools_agents.go:238`). Neither guard is in the verb.
+(`mcp/mcp_tools_agents.go:238`). Neither guard is in the verb.
 
 The delivery-by-state classification is written twice over the same `driveQueued`
 return, in two vocabularies: `peerSend` (`coordinator.go:704-713`) returns English

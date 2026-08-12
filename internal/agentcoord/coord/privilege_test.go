@@ -56,7 +56,7 @@ func TestEnqueueRun_JournalsPermissionAndMCPServerNames(t *testing.T) {
 // plan.Profiles, and enqueueRun journals exactly what Resolve put on the
 // plan, so this is testable at the fake-spawner layer without a real
 // engine). Modeled on
-// internal/cli/mcp_tools_agents_test.go's
+// internal/mcp/mcp_tools_agents_test.go's
 // TestProdSpawner_ChildMCPServers_ScopedPerAgent, which pins the same
 // property against the REAL prodSpawner composition; this one pins the
 // JOURNAL side of the same guarantee.

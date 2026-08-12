@@ -97,7 +97,7 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 	t.Cleanup(endpoint.Close)
 
 	// This is the shim's own discovery call (mcp_server.go's second tier),
-	// invoked exactly as runMCPServerSDK invokes it, with no env var in
+	// invoked exactly as ServeStdio invokes it, with no env var in
 	// play at all.
 	sock, derr := probeWellKnownRunner(cellDir)
 	require.NoError(t, derr)
@@ -120,7 +120,7 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 // (internal/lm/grpc/client.go), while the harness it hosts is launched with
 // cmd.Dir=the per-agent worktree (internal/lm/backends/launcher.go) — the
 // SAME dir the shim's `ctxloom mcp` process later runs in. Before this fix,
-// serveRunnerMCP always keyed its marker off its own os.Getwd() (the
+// ServeRunnerMCP always keyed its marker off its own os.Getwd() (the
 // coordinator's cwd), so a workspace:worktree run's marker and the shim's
 // probe derived DIFFERENT keys and discovery silently missed.
 //
@@ -266,7 +266,7 @@ func TestMCPDiscovery_StandaloneSessionGetsLocalMode(t *testing.T) {
 // proposed keying it by cwd like the host tier.
 // Keying it by cwd is what would BREAK it:
 //
-//   - The two sides do NOT share a cwd inside a container. serveRunnerMCP keys
+//   - The two sides do NOT share a cwd inside a container. ServeRunnerMCP keys
 //     the marker off coord.EnvCellWorkDir, which the host does not stamp for a
 //     container spawn, so the runner falls back to its OWN os.Getwd(); the shim
 //     runs in the engine child's cwd. A cwd-derived key would make the two

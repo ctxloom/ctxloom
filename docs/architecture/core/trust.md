@@ -218,7 +218,7 @@ approved, so the next review can show a diff rather than the whole item:
 - `readTrustSnapshot` `:64` — `("", false)` on a miss.
 - `snapshotFilename` `:38` — the hash→filename mapping is `":"` → `"-"`.
 - `snapshotAcceptedItemContent` `:93` — called from `SetItemTrust` (`trust.go:612`).
-- Storage root: `paths.TrustObjectsPath(appPath)` = `.ctxloom/cache/trust/objects` (derived, gitignored).
+- Storage root: `paths.TrustObjectsPath(appPath)` = `.ctxloom/state/trust/objects` (local, gitignored, nothing rebuilds it). A legacy store under `cache/trust/objects` is moved there once, by `migrateLegacyTrustObjects`.
 
 ## Invariants
 

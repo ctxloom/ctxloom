@@ -617,11 +617,31 @@ func ReposCachePath(appPath string) string {
 }
 
 // TrustObjectsPath returns the approved-content snapshot directory (under
-// cache/): content-addressed copies of the bytes a human approved at review,
+// state/): content-addressed copies of the bytes a human approved at review,
 // keyed by a payload hash. The review porcelain diffs an UPDATE against them.
-// Pure cache: deleting it only degrades update review from a diff to a
-// full-content display (the countersignature stores stay authoritative).
+//
+// STATE, not cache, and the distinction is the whole of Tier's doc: nothing
+// rebuilds these. They are the bytes that existed at the moment a human said
+// yes, and once they are gone no pull, sync or re-derivation brings them back —
+// every later update review degrades from a diff to a full-content dump, which
+// is a quieter loss than an error and therefore an easier one to cause. Under
+// cache/ they sat in a directory whose whole contract is "delete me freely",
+// which is an invitation to exactly that.
+//
+// Losing them is not a correctness failure: the countersignature stores remain
+// authoritative about what was approved. It is a review-quality failure, which
+// is why this is TierLocal-with-a-Lost-string rather than something that fails
+// loud.
 func TrustObjectsPath(appPath string) string {
+	return filepath.Join(StatePath(appPath), TrustFileName, TrustObjectsDir)
+}
+
+// LegacyTrustObjectsPath returns the pre-relocation snapshot directory under
+// cache/. It exists for ONE reader — the one-time migration in
+// internal/operations' snapshot store — so the retired location is named once,
+// beside its replacement, instead of being re-derived as a literal wherever
+// somebody remembers it. Nothing writes here.
+func LegacyTrustObjectsPath(appPath string) string {
 	return filepath.Join(CachePath(appPath), TrustFileName, TrustObjectsDir)
 }
 
@@ -782,7 +802,7 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
 		{Rel: filepath.Join(AppDirName, CacheDir, RefusedAdvancesFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom deps upgrade"},
 		{
-			Rel: filepath.Join(AppDirName, CacheDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,
+			Rel: filepath.Join(AppDirName, StateDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,
 			Lost: "the content-addressed snapshots review diffed an update against; update review degrades from a diff to a full-content dump, but committed approval signatures still verify",
 		},
 		{

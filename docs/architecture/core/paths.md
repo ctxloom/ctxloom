@@ -56,7 +56,11 @@ flowchart TD
     AP --> GCD["GetCacheDir<br/>cache/ :343"]
     GCD --> CBP["CacheBundlesPath<br/>cache/bundles :447"]
     GCD --> RCP["ReposCachePath<br/>cache/repos :483"]
-    GCD --> TOP["TrustObjectsPath<br/>cache/trust/objects :492"]
+    GCD --> LTOP["LegacyTrustObjectsPath<br/>cache/trust/objects (migration source only)"]
+
+    AP --> SP["StatePath<br/>state/"]
+    SP --> TOP["TrustObjectsPath<br/>state/trust/objects"]
+    SP --> LKD["LocksPath<br/>state/locks/"]
 
     subgraph committed["COMMITTED · authored"]
       LP
@@ -71,7 +75,11 @@ flowchart TD
       GCD
       CBP
       RCP
+    end
+    subgraph localstate["LOCAL · gitignored, nothing rebuilds it"]
+      SP
       TOP
+      LKD
     end
 ```
 
@@ -125,7 +133,9 @@ Call-site counts are production-only.
 | `GetCacheDir` | `paths.go:343` | `<appPath>/cache` | 6 in-package |
 | `CacheBundlesPath` | `paths.go:447` | `<appPath>/cache/bundles` — pulled remote copies | 3 |
 | `ReposCachePath` | `paths.go:483` | `<appPath>/cache/repos` — git clone cache | 3 |
-| `TrustObjectsPath` | `paths.go:492` | `<appPath>/cache/trust/objects` — review snapshots | 2 |
+| `TrustObjectsPath` | `paths.TrustObjectsPath` | `<appPath>/state/trust/objects` — review snapshots | 2 |
+| `LegacyTrustObjectsPath` | `paths.LegacyTrustObjectsPath` | `<appPath>/cache/trust/objects` — the retired location, read only by the one-time migration | 1 |
+| `LocksPath` | `paths.LocksPath` | `<appPath>/state/locks` — advisory lock sidecars; the protected-path→lock-name mapping is `filelock.ProjectPathFor` | 1 |
 | `ProjectSessionsDir` | `paths.go:303` | `<appDir>/sessions`, else cwd-derived, else a bare relative path | 6 |
 | `DefaultRemotesPath` | `paths.go:502` | `RemotesPath(AppDirName)` | 1 (`internal/remote/registry.go:43`) |
 

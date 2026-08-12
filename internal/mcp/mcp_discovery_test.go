@@ -1,4 +1,4 @@
-package cli
+package mcp
 
 import (
 	"context"
@@ -92,9 +92,9 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 	testsupport.ChangeDir(t, cellDir)
 
 	const harp = "codex-drop-scenario-harp"
-	endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t), false, "")
+	endpoint, err := ServeRunnerMCP(testConfig(), harp, testHome(t), false, "")
 	require.NoError(t, err)
-	t.Cleanup(endpoint.close)
+	t.Cleanup(endpoint.Close)
 
 	// This is the shim's own discovery call (mcp_server.go's second tier),
 	// invoked exactly as runMCPServerSDK invokes it, with no env var in
@@ -102,7 +102,7 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 	sock, derr := probeWellKnownRunner(cellDir)
 	require.NoError(t, derr)
 	require.NotEmpty(t, sock, "well-known discovery must find the runner with NO env var set")
-	assert.Equal(t, endpoint.socketPath, sock, "discovered socket must be the REAL runner's own socket")
+	assert.Equal(t, endpoint.SocketPath, sock, "discovered socket must be the REAL runner's own socket")
 
 	// Payload assertion: actually connect over the discovered socket and
 	// read back THIS runner's own instructions (they embed its harp) —
@@ -146,9 +146,9 @@ func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
 	const harp = "worktree-anchor-harp"
 
 	t.Run("without the anchor, mismatched cwds miss (the pre-fix bug)", func(t *testing.T) {
-		endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t), false, "")
+		endpoint, err := ServeRunnerMCP(testConfig(), harp, testHome(t), false, "")
 		require.NoError(t, err)
-		defer endpoint.close()
+		defer endpoint.Close()
 
 		sock, derr := probeWellKnownRunner(workDir)
 		require.NoError(t, derr)
@@ -156,9 +156,9 @@ func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
 	})
 
 	t.Run("with the anchor, runner and shim agree across the cwd gap", func(t *testing.T) {
-		endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t), false, workDir)
+		endpoint, err := ServeRunnerMCP(testConfig(), harp, testHome(t), false, workDir)
 		require.NoError(t, err)
-		defer endpoint.close()
+		defer endpoint.Close()
 
 		// The marker must have been written under workDir's key, not
 		// runnerProcCwd's — assert the derivation directly.
@@ -174,7 +174,7 @@ func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
 		sock, derr := probeWellKnownRunner(workDir)
 		require.NoError(t, derr)
 		require.NotEmpty(t, sock, "the shim probing from the worktree's cwd must find the runner via the anchored key")
-		assert.Equal(t, endpoint.socketPath, sock, "discovered socket must be the real runner's own socket")
+		assert.Equal(t, endpoint.SocketPath, sock, "discovered socket must be the real runner's own socket")
 
 		cs := dialForwardClient(t, sock)
 		init := cs.InitializeResult()
@@ -207,10 +207,12 @@ func TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable(t *testing.T) {
 	markerPath := filepath.Join(markerDir, name)
 	require.NoError(t, os.WriteFile(markerPath, raw, 0o600))
 
-	// Drive the ACTUAL shim entry point — runMCPServerSDK returns this
-	// error before ever touching stdio (no risk of the test hanging on
-	// stdin), so this is the real wiring, not a stand-in for it.
-	runErr := runMCPServerSDK(nil, nil)
+	// Drive the ACTUAL shim entry point — ServeStdio is the whole body of
+	// `ctxloom mcp serve` (internal/cli's cobra RunE adds only the signal
+	// context, the cwd, and the fail-loud gate), and it returns this error
+	// before ever touching stdio (no risk of the test hanging on stdin), so
+	// this is the real wiring, not a stand-in for it.
+	runErr := ServeStdio(context.Background(), cellDir, nil)
 	require.Error(t, runErr, "the shim must fail loud, not silently fall back to a local coordinator")
 	assert.Contains(t, runErr.Error(), "refusing to silently start a local coordinator")
 	assert.Contains(t, runErr.Error(), deadSocket, "the error must name the unreachable socket")

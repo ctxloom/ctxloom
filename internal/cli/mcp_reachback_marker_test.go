@@ -34,7 +34,15 @@ func TestReachBackMarker_HasExactlyOneDeclaration(t *testing.T) {
 	// Absolute, from the compiled-in source paths — not "." / "../acp" (see
 	// pkgSourceDir): TestMain sandboxes the binary into a temp cwd, where
 	// neither relative path resolves.
-	for _, dir := range []string{pkgSourceDir(t), filepath.Join(repoDir(t), "internal", "acp")} {
+	// internal/mcp is in the list because the forward shim that DECODES the
+	// marker moved there with the rest of the MCP implementation; internal/cli
+	// stays because the invariant is "no package grows its own literal", and
+	// this package is where a fresh copy would most plausibly reappear.
+	for _, dir := range []string{
+		pkgSourceDir(t),
+		filepath.Join(repoDir(t), "internal", "mcp"),
+		filepath.Join(repoDir(t), "internal", "acp"),
+	} {
 		entries, err := os.ReadDir(dir)
 		require.NoError(t, err, "read %s", dir)
 		for _, e := range entries {

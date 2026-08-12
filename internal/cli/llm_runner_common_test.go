@@ -17,6 +17,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
+// testConfig is an empty-but-valid config: enough for the leafness arithmetic
+// below, which reads only the resolved delegation-depth cap. A local copy of
+// internal/mcp's fixture of the same name — the two packages' test binaries
+// share no code, and the fixture is four lines of literal.
+func testConfig() *config.Config {
+	return config.NewFixture(config.Fixture{
+		LM:       config.LMConfig{Configs: map[string]config.LLMConfig{}},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
+	})
+}
+
 // TestLlmServe_MalformedConfigAbortsInsteadOfLaunching pins that `llm
 // serve`/`llm host`/`llm turn` are process-owning entry points that used to
 // call config.Load() directly and never surface its warnings (via

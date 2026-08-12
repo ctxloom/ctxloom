@@ -1,4 +1,4 @@
-package cli
+package mcp
 
 import (
 	"context"
@@ -20,16 +20,16 @@ import (
 // modes of `ctxloom mcp` (forward-to-runner, bare local) both covered by
 // tests (playbook deliverable 1).
 func TestForward_UnixSocketRoundTrip(t *testing.T) {
-	endpoint, err := serveRunnerMCP(testConfig(), "test-harp", testHome(t), false, "")
+	endpoint, err := ServeRunnerMCP(testConfig(), "test-harp", testHome(t), false, "")
 	require.NoError(t, err)
-	t.Cleanup(endpoint.close)
+	t.Cleanup(endpoint.Close)
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "ctxloom-forward", Version: "test"}, nil)
 	transport := &mcp.StreamableClientTransport{
 		Endpoint: "http://ctxloom-runner/mcp",
 		HTTPClient: &http.Client{Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, "unix", endpoint.socketPath)
+				return (&net.Dialer{}).DialContext(ctx, "unix", endpoint.SocketPath)
 			},
 		}},
 	}
@@ -121,9 +121,9 @@ func TestDialReachBackSocket_TCPFallback(t *testing.T) {
 // as runMCPForward would. Proves the far-side dial change is not just wiring
 // — the whole forwarded toolset survives the TCP hop.
 func TestForward_TCPFallbackRoundTrip(t *testing.T) {
-	endpoint, err := serveRunnerMCP(testConfig(), "test-harp", testHome(t), false, "")
+	endpoint, err := ServeRunnerMCP(testConfig(), "test-harp", testHome(t), false, "")
 	require.NoError(t, err)
-	t.Cleanup(endpoint.close)
+	t.Cleanup(endpoint.Close)
 
 	// A minimal TCP<->unix bridge, mirroring reachBackBridge without
 	// importing internal/acp (which would cycle back into this package).
@@ -138,7 +138,7 @@ func TestForward_TCPFallbackRoundTrip(t *testing.T) {
 			}
 			go func(c net.Conn) {
 				defer func() { _ = c.Close() }()
-				uc, uerr := net.Dial("unix", endpoint.socketPath)
+				uc, uerr := net.Dial("unix", endpoint.SocketPath)
 				if uerr != nil {
 					return
 				}

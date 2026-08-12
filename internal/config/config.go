@@ -1745,7 +1745,11 @@ func loadConfigLayer(cfg *Config, layer layerscope.Layer, appPath, homeAppPath, 
 	// and re-encodes the document exactly once. The canonicalization step is
 	// threaded the alias→URL resolver here (it depends on .ctxloom/remotes.yaml,
 	// which the static pipeline cannot reach); a nil resolver makes it a no-op.
-	pipeline := append(upgrade.Pipeline{}, configUpgrades...)
+	// Thread a FRESH sink per load so a lossy upgrade's warning stays attached
+	// to THIS config, never crossed with or lost to a concurrent load draining
+	// a shared package buffer (U049-F14).
+	migSink := &migrationSink{}
+	pipeline := append(upgrade.Pipeline{}, newConfigUpgrades(migSink)...)
 	pipeline = append(pipeline, agentProfileCanonicalizeUpgrade{aliasToURL: cfg.ProfileRemoteURLResolver()})
 	if upgraded, applied := pipeline.Run(data); len(applied) > 0 {
 		data = upgraded
@@ -1755,7 +1759,7 @@ func loadConfigLayer(cfg *Config, layer layerscope.Layer, appPath, homeAppPath, 
 	// A lossy upgrade (a dropped user-set value) is collected by the pipeline
 	// rather than printed inline, so the loader can tag it with its kind and
 	// the strict startup gate can abort on it (fail-loudly).
-	for _, lost := range drainMigrationWarnings() {
+	for _, lost := range migSink.drain() {
 		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindMigrationLossy, Text: lost})
 		zap.L().Warn("config_migration_lossy", zap.String("path", configPath), zap.String("warning", lost))
 	}

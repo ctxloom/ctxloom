@@ -666,6 +666,15 @@ agent read access to those integrations and whatever secrets they carry. A
 one-time prompt is the cheaper of the two costs, so only `.credentials.json` is
 seeded.
 
+How that one seeded `.credentials.json` is itself handled differs by isolation
+axis, and for a security-relevant reason: claude's OAuth **refresh token is
+single-use and rotating**, so a copy that refreshes would invalidate the host's
+own login. The worktree and in-tree instance homes therefore get an
+**access-token-only** copy (refresh stripped), while a container **mounts the
+real credential read-write** so it refreshes in place without a second copy to
+desync. The full three-axis model is documented under [Single-use refresh
+tokens](architecture/engines/isolation.md#single-use-refresh-tokens-why-the-three-axes-differ).
+
 This applies to both homes ctxloom points `CLAUDE_CONFIG_DIR` at: the per-agent
 worktree home, and — for a binding whose `config_home: project` opts it off
 your real `~/.claude` (see [Engine config homes](architecture/engines/isolation.md),

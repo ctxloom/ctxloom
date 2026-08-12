@@ -649,16 +649,17 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	c.setState(rt, StateExecuting)
 
 	// MIGRATED (C1 landed claude; C3 extended the allowlist to codex/kiro/
-	// acp — see spawner.go's viaStartRunBackends): engine control rides
+	// acp; the spool cutover's S3b added opencode — see spawner.go's
+	// viaStartRunBackends): engine control rides
 	// StartRun on the runner's RunnerChannel. A degraded spawn without
 	// reach-back (url == "") cannot — the runner could never dial home — so
 	// it keeps the legacy dial. This is now the go-plugin Chat dial's ONE
 	// intentional, documented reachable case for an allowlisted backend
 	// (preserved as-is, matching what C1 already landed);
 	// the dial's other reachable case is a StructuredChat backend outside
-	// the allowlist — in production that is exactly opencode (see
-	// delegate.go Start's KILL-LIST VERIFICATION), plus the mock test
-	// backend; spawner.go's checkLegacyChatFreeze admits nothing else.
+	// the allowlist — since S3b that is the mock test backend ALONE, no
+	// production backend (see delegate.go Start's KILL-LIST VERIFICATION);
+	// spawner.go's checkLegacyChatFreeze admits nothing else.
 	//
 	// FROZEN (spool-cutover RETIRE-FIRST ruling): the legacy arm below is
 	// retired-in-place — it is never ported to the file-spool messaging

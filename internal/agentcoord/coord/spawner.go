@@ -172,24 +172,44 @@ func newProdSpawner(cfg *config.Config, projectDir string, factory pb.ClientFact
 
 // viaStartRunBackends is the C3 spawn-cutover gate: the set of backend types
 // whose delegated Chat implementation rides the shared internal/acp driver
-// (claude/codex/kiro embed it via their own chatACPConfig; "acp" IS it
-// directly — see internal/acp/registry.go's descriptor comment). C3 recon
+// (claude/codex/kiro/opencode embed it via their own chatACPConfig; "acp" IS
+// it directly — see internal/acp/registry.go's descriptor comment). C3 recon
 // confirmed the runner-side EngineHost (internal/cli/llm_serve.go) already
 // gates on the agent.StructuredChat type assertion alone, never a backend
 // name, so every member of this set gets the identical StartRun/adaptation/
 // approval-forwarding/resume machinery — only each backend's OWN
 // chatACPConfig differs (model delivery: internal/claude, internal/codex,
-// internal/kiro, internal/acp's agent_engine default). Backends NOT in this
-// set ride the legacy coordinator-driven chat path ONLY if they are in
-// legacyChatBackends below; anything else is refused at Resolve
+// internal/kiro, internal/opencode, internal/acp's agent_engine default).
+// Backends NOT in this set ride the legacy coordinator-driven chat path ONLY
+// if they are in legacyChatBackends below; anything else is refused at Resolve
 // (checkLegacyChatFreeze) — this gate is deliberately an
 // allowlist of VERIFIED backends, not "implements StructuredChat", so a new
 // backend must be reviewed onto StartRun explicitly rather than swept in.
+//
+// opencode joined in the spool cutover's S3b slice, the shrink the freeze
+// below exists to permit. Its recon measured the SAME delta C3 measured for
+// kiro and found it empty: internal/opencode's Chat is acp.NewChatDriver over
+// `opencode acp` (a first-party ACP subcommand — an ACPNative transport, like
+// kiro's `kiro-cli acp`, NOT a server the coordinator dials), wrapped in a
+// transient opencode.json overlay that carries what `opencode acp` has no
+// flag for (model, MCP set, the plan-mode read-only permission). That overlay
+// is written by Chat itself from the ChatRequest it is handed, so it is
+// identical whichever transport delivered the request; the runner-side
+// standup (internal/cli's standUpRunner), the isolation starter
+// (`ctxloom llm host opencode --label ...`, which applies the configured
+// binary_path exactly as `llm serve` did) and the HarnessSpec codec never
+// name a backend at all. The one Setup-time dependency in that overlay
+// (b.pendingContext/Commands/Skills) is not a delta either: a delegated
+// child's context rides the FIRST TURN on both paths — legacy via
+// operations.leadContextIn, StartRun via runChildViaStartRun's JoinLeadBlocks
+// into StartRun.input — never through opencode.json, which is exactly the
+// ACP-hosted case assertSetupRan documents.
 var viaStartRunBackends = map[string]bool{
 	config.BackendClaudeCode: true,
 	"codex":                  true,
 	"kiro":                   true,
 	"acp":                    true,
+	"opencode":               true,
 }
 
 // legacyChatBackends is the RETIRE-FIRST freeze gate for the legacy
@@ -203,18 +223,16 @@ var viaStartRunBackends = map[string]bool{
 // added: a backend in NEITHER table used to be swept silently onto the
 // legacy loop and is now refused loudly at Resolve (checkLegacyChatFreeze).
 //
-//   - opencode: production backend, deliberately outside viaStartRunBackends
-//     (its Chat does not ride the shared internal/acp driver); its delegated
-//     children stay on the frozen path until it migrates.
-//   - mock: the test backend.
+//   - mock: the test backend, and — since S3b migrated opencode onto
+//     StartRun — the table's SOLE remaining member. No production backend
+//     rides the frozen path by backend identity any more.
 //
 // The frozen path's OTHER reachable arm — a degraded (no-reach-back) spawn
 // of a viaStartRunBackends member, where StartRun is impossible because the
 // runner could never dial home — is gated by runChild's `url == ""` check,
 // not by this table; it is frozen under the same ruling.
 var legacyChatBackends = map[string]bool{
-	"opencode": true,
-	"mock":     true,
+	"mock": true,
 }
 
 // checkLegacyChatFreeze refuses a delegated spawn whose backend would land on
@@ -246,11 +264,16 @@ func checkLegacyChatFreeze(backend string) error {
 //     the adapter's advertised loadSession capability once Slice 4 records it
 //     from the first StartRunResult/init (see SpawnPlan.ResumeMode's doc);
 //     this table is the STATIC half alone.
-//   - opencode: FALSE, deliberately absent — it neither consumes
+//   - opencode: FALSE, deliberately absent even though S3b migrated it onto
+//     the StartRun path (viaStartRunBackends["opencode"] == true) — the two
+//     tables answer different questions. It neither consumes
 //     ChatRequest.ResumeSessionID nor emits a native session-id Session
 //     event (internal/opencode/chat.go); its only resume surface is
 //     read-only `opencode export`. No cheap resume-by-key primitive exists;
-//     new backend work (v0.8+), not a config toggle.
+//     new backend work (v0.8+), not a config toggle. A resumed opencode child
+//     therefore re-primes from rendered history (resumeChild's
+//     ResumeContext fallback), over StartRun like every other migrated
+//     backend.
 //   - kiro: FALSE, deliberately absent even though it rides the migrated
 //     StartRun path (viaStartRunBackends["kiro"] == true) — per
 //     isolation-must-not-negotiate its GLOBAL sqlite makes resume IDENTITY

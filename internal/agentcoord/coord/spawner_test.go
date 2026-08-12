@@ -26,12 +26,13 @@ func TestChildVerbosity(t *testing.T) {
 }
 
 // TestViaStartRunBackends pins the Wave C3 spawn-cutover gate: claude-code
-// (C1), codex, kiro, and the generic "acp" entry (C3) all route their
-// delegated children over StartRun — every backend whose Chat rides the
-// shared internal/acp driver, verified per-backend in the C3 recon.
+// (C1), codex, kiro, the generic "acp" entry (C3) and opencode (the spool
+// cutover's S3b slice) all route their delegated children over StartRun —
+// every backend whose Chat rides the shared internal/acp driver, verified
+// per-backend in the C3/S3b recons.
 // Backends NOT reviewed onto the migrated path stay on the FROZEN legacy
-// chat path only if legacyChatBackends admits them (opencode, mock); any
-// other name is refused at Resolve by checkLegacyChatFreeze — this is a
+// chat path only if legacyChatBackends admits them (since S3b: mock alone);
+// any other name is refused at Resolve by checkLegacyChatFreeze — this is a
 // deliberate allowlist, not "implements StructuredChat", so a new backend
 // never gets swept onto StartRun unreviewed (nor onto the retired legacy
 // path at all).
@@ -41,6 +42,7 @@ func TestViaStartRunBackends(t *testing.T) {
 		"codex":        true,
 		"kiro":         true,
 		"acp":          true,
+		"opencode":     true,
 		"mock":         false,
 		"":             false,
 		"unknown-type": false,

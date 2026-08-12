@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -16,11 +17,28 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
+
+// TestCompactEntryFn_IsBoundToTheRealCompactor pins the seam's DEFAULT
+// binding. Every other test in this file substitutes compactEntryFn to observe
+// how it is called, so all of them pass just as happily against a seam wired to
+// a stub that distills nothing — a no-op default is exactly the silent-no-op
+// failure this project keeps hitting (success reported, zero bytes written),
+// and it survived the whole package unnoticed until a mutation went looking.
+// Identity, not behaviour, is the thing to pin: what the callers observe is
+// covered elsewhere, what nothing covered is that production still reaches the
+// real compactor.
+func TestCompactEntryFn_IsBoundToTheRealCompactor(t *testing.T) {
+	assert.Equal(t,
+		reflect.ValueOf(operations.CompactEntry).Pointer(),
+		reflect.ValueOf(compactEntryFn).Pointer(),
+		"compactEntryFn must default to operations.CompactEntry — it is a test OBSERVATION seam, never a production substitution point")
+}
 
 // withDistillBudget is the one place the host side of the relay's budget
 // contract is applied. DistillBudget's own doc states the invariant: it

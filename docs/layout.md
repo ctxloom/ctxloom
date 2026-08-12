@@ -166,8 +166,9 @@ config homes".
 
 ## The gitignore contract
 
-`ctxloom init` writes exactly these patterns
-(`gitignore.PrivateStatePatterns`):
+These are the only patterns ctxloom writes for the `.ctxloom` tree
+(`gitignore.PrivateStatePatterns`; `gitignore.Ensure` appends them once and
+never removes a user's own lines):
 
 ```gitignore
 # ctxloom private working state (rebuildable/local — cache, sessions, project id, local state)

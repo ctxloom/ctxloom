@@ -268,6 +268,31 @@ func clip(s string) string {
 	return s[:max] + "..."
 }
 
+// deliverableStructured normalises a spool payload for the PeerMessage WIRE
+// shape, which is a protobuf Struct and therefore always an object.
+//
+// A bare array or scalar has nowhere to sit in a Struct, so today's mailbox
+// path warns and leaves such a message pending forever (pushMail's "cannot
+// project mail onto the wire"). Under the cutover the file already carries the
+// payload faithfully, and the only question left is what the engine's turn
+// sees; wrapping it under the SAME marker key the file uses (spoolRawJSONKey)
+// delivers the message with its payload legible instead of stranding it, and
+// keeps one spelling of the wrapper rather than two.
+func deliverableStructured(raw json.RawMessage) (json.RawMessage, error) {
+	head, err := spoolStructured(raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(head) == 0 {
+		return nil, nil
+	}
+	out, err := json.Marshal(head)
+	if err != nil {
+		return nil, fmt.Errorf("coord: structured payload cannot be projected onto the delivery seam: %w", err)
+	}
+	return out, nil
+}
+
 // mailFromSpool recovers the mailbox Message one spool file carries.
 //
 // The message ID is origin_id when the producer had one (the coordinator mints
@@ -687,6 +712,13 @@ func (h *Home) sweepSpoolIn() {
 			h.spoolDeliveryCount.failed.Add(1)
 			continue
 		}
+		wire, err := deliverableStructured(msg.Structured)
+		if err != nil {
+			clidiag.Warn("ctxloom", "runner: cannot project spool message %s's payload onto the delivery seam: %v", e.Ref, err)
+			h.spoolDeliveryCount.failed.Add(1)
+			continue
+		}
+		msg.Structured = wire
 		pm, err := peerMessageProto(msg)
 		if err != nil {
 			clidiag.Warn("ctxloom", "runner: cannot project spool message %s onto the delivery seam: %v", e.Ref, err)

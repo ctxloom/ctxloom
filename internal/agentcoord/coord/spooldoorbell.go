@@ -207,10 +207,13 @@ func (c *Coordinator) RingSpool(role string, ref spool.Ref) error {
 	return nil
 }
 
+// noteSpoolDrop reports and then counts, in that order. The counter is what an
+// observer polls, so incrementing it LAST is what makes "the count moved"
+// imply "the report is already written" rather than "is about to be".
 func (c *Coordinator) noteSpoolDrop(role string, ref spool.Ref, why string) {
-	c.spoolDoorbell.dropped.Add(1)
 	clidiag.WarnOnce("ctxloom", "coordinator: spool doorbell for %s dropped (%s); %s is still on disk and will be delivered by the next sweep",
 		role, why, ref)
+	c.spoolDoorbell.dropped.Add(1)
 }
 
 // SetSpoolDoorbellHandler registers the consumer for validated inbound
@@ -232,8 +235,9 @@ func (c *Coordinator) SetSpoolDoorbellHandler(fn SpoolDoorbellHandler) {
 func (c *Coordinator) handleSpoolChanged(ch *runChan, msg *agentcoordpb.SpoolChanged) {
 	ref, err := SpoolRefFromProto(msg)
 	if err != nil {
-		c.spoolDoorbell.rejected.Add(1)
+		// Report, then count — see noteSpoolDrop.
 		clidiag.Warn("ctxloom", "coordinator: refusing an invalid spool doorbell from %s: %v", ch.role, err)
+		c.spoolDoorbell.rejected.Add(1)
 		return
 	}
 	if ref.Harp != ch.role {
@@ -270,8 +274,9 @@ func (h *Home) RingSpool(ref spool.Ref) error {
 	}
 	frame := &agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{SpoolChanged: msg}}
 	if !h.trySend(frame) {
-		h.spoolDoorbell.dropped.Add(1)
+		// Report, then count — see Coordinator.noteSpoolDrop.
 		clidiag.WarnOnce("ctxloom", "runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", ref)
+		h.spoolDoorbell.dropped.Add(1)
 	}
 	return nil
 }
@@ -295,8 +300,8 @@ func (h *Home) SetSpoolDoorbellHandler(fn SpoolDoorbellHandler) {
 func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 	ref, err := SpoolRefFromProto(msg)
 	if err != nil {
-		h.spoolDoorbell.rejected.Add(1)
 		clidiag.Warn("ctxloom", "runner: refusing an invalid spool doorbell from the coordinator: %v", err)
+		h.spoolDoorbell.rejected.Add(1)
 		return
 	}
 	h.mu.Lock()

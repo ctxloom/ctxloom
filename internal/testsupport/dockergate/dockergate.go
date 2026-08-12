@@ -36,9 +36,13 @@
 package dockergate
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
+	"time"
 )
 
 // EnvRequireDocker, set to "1", promotes "container runtime unreachable" from
@@ -122,4 +126,33 @@ func SkipCapability(t testing.TB, reason string) {
 	t.Helper()
 	t.Skipf("%s — environment capability, not runtime reachability, so %s=1 does not promote it",
 		reason, EnvRequireDocker)
+}
+
+// DockerIsRootless reports whether the local docker daemon runs rootless.
+//
+// It exists because a docker-gated test that bind-mounts a host directory has
+// to know: a ROOTFUL daemon runs the container as real root, so anything it
+// writes lands root-owned on the host (unremovable debris) and anything it
+// reads out of a 0700 directory owned by the test user is refused. Passing
+// `--user $(id -u):$(id -g)` fixes both, and is exactly wrong under a rootless
+// daemon, which already maps container root onto the invoking user.
+//
+// An unreachable or unanswering daemon reads as ROOTFUL — the conservative
+// direction, since the extra --user is harmless where it is unnecessary while
+// its absence leaks root-owned files. This is deliberately NOT part of the
+// skip/fail decision above: reachability is that decision's job, and a test
+// calling this has already passed it.
+//
+// It lives here rather than in each test file because two docker-gated
+// packages had already grown their own copy, and a probe of the daemon's
+// posture that disagrees between test files is how one of them silently starts
+// mounting as the wrong user.
+func DockerIsRootless() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{.SecurityOptions}}").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "rootless")
 }

@@ -1,4 +1,4 @@
-package cli
+package mcp
 
 import (
 	"context"
@@ -20,8 +20,8 @@ import (
 // the CALLER's credential-derived identity — never the host process's env
 // (review R12f).
 
-// newHostedCoordinator builds and serves the coordinator for projectDir.
-func newHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordinator, error) {
+// NewHostedCoordinator builds and serves the coordinator for projectDir.
+func NewHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordinator, error) {
 	key := ""
 	if pid, _, err := taskops.ResolveProjectIdentity(projectDir); err == nil {
 		key = pid
@@ -119,17 +119,17 @@ func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context
 	}
 }
 
-// hostCoordinatorForSession is the run/acp hosting helper: coordinator up,
+// HostCoordinatorForSession is the run/acp hosting helper: coordinator up,
 // viewer socket bound under the owner harp, owner credential minted, and the
 // engine-env pair (EnvCoordURL, EnvCoordCred) returned for injection at launch. A standup failure returns
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
-func hostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp, runtimeAxis string) (*coord.Coordinator, map[string]string, error) {
-	c, err := newHostedCoordinator(cfg, projectDir)
+func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp, runtimeAxis string) (*coord.Coordinator, map[string]string, error) {
+	c, err := NewHostedCoordinator(cfg, projectDir)
 	if err != nil {
 		return nil, nil, err
 	}
-	env, err := sessionOwnerEnv(c, ownerHarp, runtimeAxis)
+	env, err := SessionOwnerEnv(c, ownerHarp, runtimeAxis)
 	if err != nil {
 		c.Close()
 		return nil, nil, err
@@ -137,12 +137,12 @@ func hostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp, runtim
 	return c, env, nil
 }
 
-// sessionOwnerEnv mints one session-owner credential on an already-hosted
+// SessionOwnerEnv mints one session-owner credential on an already-hosted
 // coordinator and returns the env pair for that owner's harness. D2 retired
 // the per-owner-harp agent-bus.sock bind step: observe/roster/inject now
 // ride ConsumerService, a single coordinator-wide surface Serve() already
 // stood up — nothing left to bind here.
-func sessionOwnerEnv(c *coord.Coordinator, ownerHarp, runtimeAxis string) (map[string]string, error) {
+func SessionOwnerEnv(c *coord.Coordinator, ownerHarp, runtimeAxis string) (map[string]string, error) {
 	token, err := c.RegisterSessionOwner(ownerHarp)
 	if err != nil {
 		return nil, err

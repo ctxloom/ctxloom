@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"bytes"
@@ -51,7 +51,7 @@ func TestSweepOrphanedSessionHomes_ReapsAndReports(t *testing.T) {
 	instanceRoot, credential := seedSweepFixture(t)
 
 	var buf bytes.Buffer
-	sweepOrphanedSessionHomes(&buf)
+	SweepOrphanedSessionHomes(&buf)
 
 	assert.NoFileExists(t, credential, "the copied credential must be gone, not merely reported gone")
 	assert.NoDirExists(t, instanceRoot)
@@ -66,7 +66,7 @@ func TestSweepOrphanedSessionHomes_SilentWhenNothingToReap(t *testing.T) {
 	t.Setenv(projectroot.EnvVar, t.TempDir())
 
 	var buf bytes.Buffer
-	sweepOrphanedSessionHomes(&buf)
+	SweepOrphanedSessionHomes(&buf)
 
 	assert.Empty(t, buf.String())
 }

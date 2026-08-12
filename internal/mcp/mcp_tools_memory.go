@@ -1,4 +1,4 @@
-package cli
+package mcp
 
 import (
 	"context"
@@ -21,6 +21,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
+
+// compactEntryFn is operations.CompactEntry behind a package var so a
+// caller's wiring — notably the context bound a long-running distillation is
+// handed — can be observed in a test (mcp_tools_memory_budget_test.go).
+// Production never reassigns it; operations must not inherit this
+// observation-only test seam, so it lives beside its sole caller
+// (distillMissingForList) rather than moving with CompactEntry itself.
+var compactEntryFn = operations.CompactEntry
 
 // reductionPct formats the in→out token reduction as a percentage, guarding
 // the in==0 case (a zero-input distill) that would otherwise divide by zero

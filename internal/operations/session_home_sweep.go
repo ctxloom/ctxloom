@@ -1,35 +1,32 @@
-package cli
+package operations
 
 import (
 	"io"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-// sweepOrphanedSessionHomes runs the startup per-session engine-home reaper for
-// THIS project, the sibling of operations.SweepOrphanedWorktrees and wired into
+// SweepOrphanedSessionHomes runs the startup per-session engine-home reaper for
+// THIS project, the sibling of SweepOrphanedWorktrees and wired into
 // the same two entry points (`ctxloom run` and `ctxloom mcp`) for the same
 // reason: the sweep must run however the session was started.
 //
-// It exists because instance teardown (operations.EndSession) only fires on a
+// It exists because instance teardown (EndSession) only fires on a
 // GRACEFUL session end, and every instance holds a credential copied out of the
 // user's real host home — so without a backstop a crashed run leaves credential
 // bytes inside the project tree, one directory per crash. See
-// operations.ReapOrphanedSessionHomes for what it will and will not touch.
+// ReapOrphanedSessionHomes for what it will and will not touch.
 //
 // Best-effort and silent on the all-clear path, mirroring the worktree sweep's
 // reporting shape: it reports only when it actually removed something, and a
-// failure warns rather than blocking startup. It lives here, unexported, rather
-// than as a second exported operations helper because internal/cli is the only
-// caller and both entry points are in this package.
-func sweepOrphanedSessionHomes(w io.Writer) {
+// failure warns rather than blocking startup.
+func SweepOrphanedSessionHomes(w io.Writer) {
 	appPath := filepath.Join(projectroot.WorkDir(), paths.AppDirName)
-	result, err := operations.ReapOrphanedSessionHomes(appPath)
+	result, err := ReapOrphanedSessionHomes(appPath)
 	if err != nil {
 		clidiag.Warn("ctxloom", "session home reap: %v", err)
 		return

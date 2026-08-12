@@ -1,4 +1,4 @@
-package cli
+package mcp
 
 import (
 	"bytes"
@@ -54,14 +54,14 @@ import (
 //     coordination tools, but never a typed RunChannel frame; see
 //     mcpschema.RouteArtifactFetch.
 
-// runnerMCP is one runner's MCP endpoint: the unix listener + server.
-type runnerMCP struct {
-	socketPath string
+// RunnerMCP is one runner's MCP endpoint: the unix listener + server.
+type RunnerMCP struct {
+	SocketPath string
 	httpSrv    *http.Server
 	cleanup    func()
 }
 
-// serveRunnerMCP builds the runner's MCP server, binds the unix socket, and
+// ServeRunnerMCP builds the runner's MCP server, binds the unix socket, and
 // starts serving. It returns only with the socket LISTENING — the ordering
 // invariant: the runner controls the harness spawn, and the socket exists
 // before it (assert, don't race).
@@ -86,7 +86,7 @@ type runnerMCP struct {
 // present; falls back to os.Getwd() when empty (workspace:none/container, or
 // any caller that never threads it) — behaviour-identical to before this
 // var existed.
-func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*runnerMCP, error) {
+func ServeRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*RunnerMCP, error) {
 	// cellWorkDir must reach the SAME place on both uses — the
 	// discovery marker key below AND the tool surface's own cell-path
 	// boundary (newRunnerMCPServer's ctxServer identity + resolveCellPath
@@ -127,7 +127,7 @@ func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool
 		cleanupMarker()
 		cleanupSocket()
 	}
-	return &runnerMCP{socketPath: path, httpSrv: srv, cleanup: cleanup}, nil
+	return &RunnerMCP{SocketPath: path, httpSrv: srv, cleanup: cleanup}, nil
 }
 
 // serveRunnerHTTP runs the runner's MCP endpoint until it stops. http.Server's
@@ -143,8 +143,8 @@ func serveRunnerHTTP(srv *http.Server, ln net.Listener, socketPath string) {
 	}
 }
 
-// close shuts the endpoint down and removes its socket dir.
-func (r *runnerMCP) close() {
+// Close shuts the endpoint down and removes its socket dir.
+func (r *RunnerMCP) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = r.httpSrv.Shutdown(ctx)
@@ -152,7 +152,7 @@ func (r *runnerMCP) close() {
 }
 
 // socketKind classifies WHICH tier runnerSocketPath landed on, so
-// serveRunnerMCP knows whether (and how) to publish a discovery marker
+// ServeRunnerMCP knows whether (and how) to publish a discovery marker
 // alongside the socket — see mcp_discovery.go.
 type socketKind int
 

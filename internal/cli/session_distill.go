@@ -83,10 +83,3 @@ func situateForEntry(e *sessions.Entry, origWd string) error {
 	}
 	return os.Chdir(want)
 }
-
-// compactEntryFn is operations.CompactEntry behind a package var so a
-// caller's wiring — notably the context bound a long-running distillation is
-// handed — can be observed in a test (mcp_tools_memory_budget_test.go).
-// Production never reassigns it; operations must not inherit this cli-only
-// test seam, so it stays here rather than moving with CompactEntry itself.
-var compactEntryFn = operations.CompactEntry

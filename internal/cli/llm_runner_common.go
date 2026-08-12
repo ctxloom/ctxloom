@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/mcp"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/version"
@@ -139,19 +140,19 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, cfgErr error, r
 	// not available yet at that earlier point — this is the first place
 	// both reach.depth/reach.oneshot and cfg exist together.
 	leaf := runnerIsLeaf(reach.depth, reach.oneshot, cfg)
-	endpoint, merr := serveRunnerMCP(cfg, reach.harp, h, leaf, reach.cellWorkDir)
+	endpoint, merr := mcp.ServeRunnerMCP(cfg, reach.harp, h, leaf, reach.cellWorkDir)
 	if merr == nil {
 		// The child's shim reads CTXLOOM_MCP_SOCKET from THIS process's env
 		// (every engine spawn path builds the harness env over os.Environ), so a
 		// failed export leaves the endpoint standing and unaddressable — the same
 		// end state as no endpoint at all, and treated as the same failure.
-		if merr = exportRunnerMCPSocket(os.Setenv, endpoint.socketPath); merr != nil {
-			endpoint.close()
+		if merr = exportRunnerMCPSocket(os.Setenv, endpoint.SocketPath); merr != nil {
+			endpoint.Close()
 		}
 	}
 	switch {
 	case merr == nil:
-		standup.endpointClose = endpoint.close
+		standup.endpointClose = endpoint.Close
 		return nil
 	case standup.engineHost != nil:
 		return fmt.Errorf("runner MCP endpoint failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", reach.home.RunID, merr)

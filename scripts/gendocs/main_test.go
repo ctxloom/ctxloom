@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/internal/docsgen"
+	"github.com/ctxloom/ctxloom/internal/mcp"
 )
 
 // TestCtxloomProduct pins the wiring this entrypoint is responsible for: the
@@ -87,7 +88,7 @@ func TestRun_ReportsAGeneratorFailure(t *testing.T) {
 }
 
 // TestRun_ReportsAnAssemblyFailureInsteadOfPanicking pins a fix already
-// landed: ctxloomProduct calls cli.NewDocMCPServer, which used to PANIC on two
+// landed: ctxloomProduct calls mcp.NewDocMCPServer, which used to PANIC on two
 // internal failure paths, so a bug in the runner MCP assembly surfaced as a
 // panic from a function whose signature promised no failure. Commit 2e9df890
 // "release the docgen Home and return its failures" gave
@@ -230,11 +231,11 @@ func TestMCPIntro_StandaloneSurfaceClaimsAreTrue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	standalone, err := cli.ListStandaloneMCPToolContracts(ctx)
+	standalone, err := mcp.ListStandaloneMCPToolContracts(ctx)
 	if err != nil {
 		t.Fatalf("enumerate the standalone `ctxloom mcp serve` surface: %v", err)
 	}
-	documented, err := cli.ListDocMCPToolContracts(ctx)
+	documented, err := mcp.ListDocMCPToolContracts(ctx)
 	if err != nil {
 		t.Fatalf("enumerate the documented runner surface: %v", err)
 	}
@@ -243,8 +244,8 @@ func TestMCPIntro_StandaloneSurfaceClaimsAreTrue(t *testing.T) {
 			len(standalone), len(documented))
 	}
 
-	byName := func(cs []cli.DocMCPToolContract) map[string]cli.DocMCPToolContract {
-		m := make(map[string]cli.DocMCPToolContract, len(cs))
+	byName := func(cs []mcp.DocMCPToolContract) map[string]mcp.DocMCPToolContract {
+		m := make(map[string]mcp.DocMCPToolContract, len(cs))
 		for _, c := range cs {
 			m[c.Name] = c
 		}

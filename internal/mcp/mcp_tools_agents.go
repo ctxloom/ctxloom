@@ -1,4 +1,4 @@
-package cli
+package mcp
 
 import (
 	"context"
@@ -99,7 +99,7 @@ func newAgentDelegation(cfg *config.Config) (*agentDelegation, error) {
 		cwd = "."
 	}
 	self := selfIdentityFromEnv(cwd)
-	c, err := newHostedCoordinator(cfg, cwd)
+	c, err := NewHostedCoordinator(cfg, cwd)
 	if err != nil {
 		return nil, err
 	}

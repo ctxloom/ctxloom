@@ -1,4 +1,4 @@
-package cli
+package mcp
 
 import (
 	"crypto/sha256"
@@ -49,7 +49,7 @@ type runnerDiscoveryMarker struct {
 
 // discoveryMarkerName returns the well-known marker filename for kind at
 // cwd, or ok=false if this tier publishes no marker at all
-// (socketKindPrivateTemp — see runnerSocketPath). The writer (serveRunnerMCP)
+// (socketKindPrivateTemp — see runnerSocketPath). The writer (ServeRunnerMCP)
 // and the reader (probeWellKnownRunner) both call this, so they can never
 // drift apart on the name.
 func discoveryMarkerName(kind socketKind, cwd string) (name string, ok bool) {
@@ -94,7 +94,7 @@ func hostRuntimeSocketDir() string {
 // writeDiscoveryMarker publishes marker at dir/kind's well-known name,
 // atomically (write-temp then rename, so a concurrent reader never sees a
 // partial file). ok=false (no error) for tiers that publish no marker.
-// Best-effort by design: the caller (serveRunnerMCP) degrades to env-only
+// Best-effort by design: the caller (ServeRunnerMCP) degrades to env-only
 // discovery on failure rather than blocking the runner over it.
 func writeDiscoveryMarker(dir string, kind socketKind, cwd string, marker runnerDiscoveryMarker) (cleanup func(), err error) {
 	name, ok := discoveryMarkerName(kind, cwd)

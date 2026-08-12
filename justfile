@@ -839,24 +839,6 @@ isolation-probe ENGINE AXIS: build
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
-# Run the LIVE delegation round trip (j002300_cross_engine_delegation.feature's
-# per-engine floor) for exactly ONE engine. ENGINE is one of
-# claude-code|codex|kiro|opencode. It spawns a real delegated child on that
-# engine and asserts the marker phrase that exists ONLY in the child's own
-# composed context comes back to the coordinator's mailbox over the
-# agent_send/agent_recv bus — the round trip agent_run's own success value
-# famously does not prove (see that feature's header). Makes real, paid engine
-# calls; self-skips loudly, naming the engine and the reason, when that engine
-# is missing or unauthenticated. -timeout 20m because a live turn on a slow
-# engine can outlast `go test`'s 10m default, and a killed run reads as a
-# harness fault rather than the engine being slow.
-live-delegation ENGINE: build _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" \
-    ACCEPTANCE_PATHS=features/j002300_cross_engine_delegation.feature \
-    ACCEPTANCE_TAGS="@live && @delegation && @{{ENGINE}}" \
-    CTXLOOM_ACCEPTANCE_LIVE=1 \
-    go test -v -timeout 20m -tags "acceptance integration" -count=1 ./tests/acceptance/...
-
 # Run a single package's tests under -race (fast local iteration).
 # A `-run` pattern that matches nothing still exits 0 from `go test` (`ok
 # ... [no tests to run]`) — silently passing a typo'd or renamed test name.

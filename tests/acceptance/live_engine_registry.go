@@ -511,19 +511,6 @@ func authCheckKiro(realHome string) (bool, string) {
 // make (and whose absence hid kiro's own breakage for months), replacing the
 // old hardcoded "codex has no live authentication probe implemented" stub
 // that reported unavailable regardless of reality.
-//
-// MEASURED LIMIT, 2026-08-12 — this probe distinguishes INSTALLED from
-// AUTHENTICATED, but NOT authenticated from STILL-VALID. `codex login status`
-// is a local read of auth.json's stored mode; it never attempts a refresh, so
-// it prints "Logged in using ChatGPT" and exits 0 even when the stored refresh
-// token has already been consumed server-side. Observed exactly that: this
-// probe reported codex ✓ while a real delegated child (and a bare `codex exec`
-// with no ctxloom involved) both died on 401 "Your access token could not be
-// refreshed because your refresh token was already used". The consequence is
-// that such a box gets a loud RED @live row rather than a named skip. No cheap
-// fix exists — the only probe that would know is one that performs a refresh,
-// and performing one is what consumes the token. See the @codex @wip Examples
-// block in j002300_cross_engine_delegation.feature.
 func authCheckCodex(realHome string) (bool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), authProbeTimeout)
 	defer cancel()

@@ -220,5 +220,83 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     Then the tool call succeeds
     And the received message is from "claude-child" and its body contains "J002300-LIVE-ECHO-TOKEN-4a6f18"
 
+  # THE PER-ENGINE FLOOR — one live row per engine ctxloom 0.7 can delegate to.
+  #
+  # WHY IT EXISTS. Every scenario above proves delegation against either the
+  # mock (hermetic) or the claude/codex PAIR (@live @wip). Neither answers the
+  # question an operator actually asks before trusting `agent_run` on their own
+  # box: "does a delegated child on MY engine really launch, really receive its
+  # composed context, and really get a word back to its coordinator?" Until
+  # this outline existed, three of the four 0.7 engines had never had a full
+  # live delegation round trip verified AT ALL — opencode's child path was
+  # migrated onto the StartRun/runner model (coord.viaStartRunBackends now
+  # carries claude-code, codex, kiro, acp and opencode) with no live proof
+  # behind it, and kiro's was proven only at the isolation layer. A per-engine
+  # matrix, in the suite's own live lane, is the difference between "the code
+  # path exists" and "the engine came back".
+  #
+  # WHAT EACH ROW PROVES, AND WHY IT CANNOT BE FAKED. The marker phrase exists
+  # in exactly ONE place: a fragment in the child's OWN bundle, written fresh
+  # by the gate step into this scenario's isolated project. It is NOT in the
+  # prompt (read it — the prompt only says "the one distinctive marker phrase
+  # in your context"), so an engine that echoes what it was sent cannot
+  # produce it. It reaches the coordinator only if (a) the child process
+  # really launched on that engine, (b) ctxloom really delivered the composed
+  # profile context into its first turn, (c) the engine really reasoned over
+  # that context, and (d) the child really reached back through its forwarder
+  # MCP server to call agent_send(to:"parent"). The assertion is on the BODY
+  # BYTES that arrive in the coordinator's mailbox, never on an exit code and
+  # never on agent_run's own success — which this journey's own history
+  # already showed is worth nothing on its own (agent_run kept returning
+  # success for weeks while the empty-coordinator-harp defect silently ate
+  # every reply). A child that launches and dies still delivers a message —
+  # bridgeTurnResult queues its runner-exit report to the same mailbox — so
+  # "a message arrived from the child" is deliberately NOT the assertion; the
+  # marker in the body is.
+  #
+  # GATING. Each row probes ITS OWN engine through the same
+  # live_engine_registry.go decision every other @live step uses, and a row
+  # whose engine is missing or unauthenticated skips with the engine and the
+  # reason printed by name — never silently. CTXLOOM_LIVE_REQUIRE turns any
+  # named engine's skip into a hard failure (checkRequiredEngines), which is
+  # how a credential expiry is stopped from quietly deleting a row.
+  #
+  # ONE ROW AT A TIME. Each Examples block carries its own @<engine> tag —
+  # the addressing mechanism isolation_probe.feature established, and used
+  # here for the same reason: `just live-delegation <engine>` runs exactly one
+  # engine's row, which is what a live, paid, minutes-long turn wants. Tags
+  # attach to an Examples: block, not to a row inside one, so each engine gets
+  # its own single-row block.
+  @live @delegation
+  Scenario Outline: A delegated child on a real <engine> reports back a marker only its own composed context could supply
+    Given a real "<engine>" engine is available for a delegated child carrying marker "<marker>"
+    When the agent calls tool "agent_run" with:
+      | agent  | delegate |
+      | prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
+    Then the tool call succeeds
+    And "delegate"'s session harp is remembered
+    When the agent calls tool "agent_recv" repeatedly, waiting up to 240s total, until "delegate" reports a body containing "<marker>"
+    Then the tool call succeeds
+
+    @claude-code
+    Examples:
+      | engine      | marker                                       |
+      | claude-code | J002300-DELEGATE-MARKER-CLAUDE-CODE-1d4c07ab |
+
+    @codex
+    Examples:
+      | engine | marker                                 |
+      | codex  | J002300-DELEGATE-MARKER-CODEX-8b3f52cd |
+
+    @kiro
+    Examples:
+      | engine | marker                                |
+      | kiro   | J002300-DELEGATE-MARKER-KIRO-2e9a16ef |
+
+    @opencode
+    Examples:
+      | engine   | marker                                    |
+      | opencode | J002300-DELEGATE-MARKER-OPENCODE-7f05b391 |
+
   # Back to: tests/acceptance/features/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).

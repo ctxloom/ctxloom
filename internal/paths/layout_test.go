@@ -2,6 +2,7 @@ package paths
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,49 @@ func TestLayout_OnlyTierLocalOmitsRebuild(t *testing.T) {
 			t.Errorf("%q is TierDerived but names no Rebuild command", e.Rel)
 		}
 	}
+}
+
+// TestLayout_RebuildNamesACtxloomCommand pins Rebuild's own doc — "names the
+// COMMAND that reconstructs this path" — as something checkable. A Rebuild
+// string is the only instruction a user gets after deleting a derived path, and
+// prose ("regenerated automatically") reads fine right up to the moment someone
+// needs to actually do it.
+func TestLayout_RebuildNamesACtxloomCommand(t *testing.T) {
+	for _, e := range Layout() {
+		if e.Rebuild == "" {
+			continue
+		}
+		if !strings.HasPrefix(e.Rebuild, "ctxloom ") {
+			t.Errorf("%q declares Rebuild %q, which does not start with a runnable `ctxloom ` command", e.Rel, e.Rebuild)
+		}
+	}
+}
+
+// TestLayout_ListsTheAssembledContextCache closes the one hole in Layout's own
+// claim to enumerate "every path this tree's own writers produce": the
+// content-addressed context files agent.WriteContextFile has always written
+// under cache/context had no row at all, so nothing classified them and doctor
+// could not name them.
+//
+// TierDerived, and it stays in cache/ on purpose: the file is content-ADDRESSED
+// — a function of the fragment set, not of the session — so two sessions
+// assembling the same context legitimately share one file, which is what a
+// cache is.
+func TestLayout_ListsTheAssembledContextCache(t *testing.T) {
+	want := filepath.Join(AppDirName, CacheDir, ContextCacheDir)
+	for _, e := range Layout() {
+		if e.Rel != want {
+			continue
+		}
+		if e.Tier != TierDerived {
+			t.Errorf("%q has tier %s, want %s: a run reassembles it from the fragment set", want, e.Tier, TierDerived)
+		}
+		if e.Rebuild == "" {
+			t.Errorf("%q names no Rebuild command", want)
+		}
+		return
+	}
+	t.Errorf("Layout() does not list %q at all, though agent.WriteContextFile writes there on every launch", want)
 }
 
 // TestLayout_StateDirIsTierLocal pins the one entry this whole task's third

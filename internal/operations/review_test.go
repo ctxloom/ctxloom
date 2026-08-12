@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -328,7 +330,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#fragments/solid", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 		require.NoError(t, err)
-		require.NoError(t, fs.RemoveAll(".ctxloom/cache/trust/objects"))
+		require.NoError(t, fs.RemoveAll(paths.TrustObjectsPath(".ctxloom")))
 
 		edited := reviewBundle()
 		solid := edited.Fragments["solid"]
@@ -361,8 +363,8 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "the accepted body", got)
 
-	// The object file lives under cache/trust/objects with ':' made portable.
-	exists, err := afero.Exists(fs, ".ctxloom/cache/trust/objects/sha256-abc123")
+	// The object file lives under state/trust/objects with ':' made portable.
+	exists, err := afero.Exists(fs, filepath.Join(paths.TrustObjectsPath(".ctxloom"), "sha256-abc123"))
 	require.NoError(t, err)
 	assert.True(t, exists)
 
@@ -402,7 +404,7 @@ func TestSetItemTrust_NoSnapshotForExecutables(t *testing.T) {
 	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#mcp/pg", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 	require.NoError(t, err)
 
-	exists, err := afero.DirExists(fs, ".ctxloom/cache/trust/objects")
+	exists, err := afero.DirExists(fs, paths.TrustObjectsPath(".ctxloom"))
 	require.NoError(t, err)
 	assert.False(t, exists, "executable approvals must not write snapshots")
 }

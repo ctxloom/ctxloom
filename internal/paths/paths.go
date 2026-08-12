@@ -110,6 +110,21 @@ const (
 	// than inventing a location of its own).
 	EnginesDir = "engines"
 
+	// ContextCacheDir is the CacheDir subdirectory holding assembled context
+	// files, one per content hash (agent.WriteContextFile). The leaf lived in
+	// internal/shared/agent because this package had no helper left for it;
+	// it belongs here, with every other .ctxloom segment, so Layout can
+	// classify the directory without either side inventing the name twice.
+	ContextCacheDir = "context"
+
+	// LocksDir is the StateDir subdirectory holding the advisory lock sidecars
+	// that guard project-scoped files (filelock.ProjectPathFor). It is state,
+	// not cache: a lock file is a fact about THIS machine's concurrent
+	// processes and nothing rebuilds it — though nothing is lost either when it
+	// is absent, which is why it earns no Layout row (see Layout's doc on what
+	// a row means to doctor).
+	LocksDir = "locks"
+
 	// RepoContentPrefix is the repo-relative path prefix under which a remote
 	// repo's authored content lives: .ctxloom/content/<kind>/<name>.yaml. It is
 	// the canonical (non-local) counterpart to LocalPath — every fetcher/
@@ -609,11 +624,31 @@ func ReposCachePath(appPath string) string {
 }
 
 // TrustObjectsPath returns the approved-content snapshot directory (under
-// cache/): content-addressed copies of the bytes a human approved at review,
+// state/): content-addressed copies of the bytes a human approved at review,
 // keyed by a payload hash. The review porcelain diffs an UPDATE against them.
-// Pure cache: deleting it only degrades update review from a diff to a
-// full-content display (the countersignature stores stay authoritative).
+//
+// STATE, not cache, and the distinction is the whole of Tier's doc: nothing
+// rebuilds these. They are the bytes that existed at the moment a human said
+// yes, and once they are gone no pull, sync or re-derivation brings them back —
+// every later update review degrades from a diff to a full-content dump, which
+// is a quieter loss than an error and therefore an easier one to cause. Under
+// cache/ they sat in a directory whose whole contract is "delete me freely",
+// which is an invitation to exactly that.
+//
+// Losing them is not a correctness failure: the countersignature stores remain
+// authoritative about what was approved. It is a review-quality failure, which
+// is why this is TierLocal-with-a-Lost-string rather than something that fails
+// loud.
 func TrustObjectsPath(appPath string) string {
+	return filepath.Join(StatePath(appPath), TrustFileName, TrustObjectsDir)
+}
+
+// LegacyTrustObjectsPath returns the pre-relocation snapshot directory under
+// cache/. It exists for ONE reader — the one-time migration in
+// internal/operations' snapshot store — so the retired location is named once,
+// beside its replacement, instead of being re-derived as a literal wherever
+// somebody remembers it. Nothing writes here.
+func LegacyTrustObjectsPath(appPath string) string {
 	return filepath.Join(CachePath(appPath), TrustFileName, TrustObjectsDir)
 }
 
@@ -648,6 +683,15 @@ func DefaultRemotesPath() string {
 // gitignored, unrebuildable checkout state — see StateDir's doc.
 func StatePath(appPath string) string {
 	return filepath.Join(appPath, StateDir)
+}
+
+// LocksPath returns the project's advisory-lock directory (under state/) — one
+// flat directory holding every lock sidecar guarding a file in this .ctxloom
+// tree. filelock.ProjectPathFor owns the protected-path→lock-name mapping;
+// this function owns only WHERE that mapping puts its results, so the location
+// moves in one place if it ever moves again.
+func LocksPath(appPath string) string {
+	return filepath.Join(StatePath(appPath), LocksDir)
 }
 
 // EngineStateHome is the project-scoped config home ctxloom points an engine's
@@ -690,16 +734,25 @@ func DirtyTreeCommitAckPath(appPath string) string {
 
 // Tier classifies one .ctxloom path by WHAT A FRESH CLONE GETS — the question
 // that matters for "can I lose this" and "does a clone start from the same
-// place I did", not merely "is it gitignored" (TierLocal and the derived half
-// of TierDerived are BOTH gitignored; only asking a clone tells them apart).
+// place I did", not merely "is it gitignored" (TierLocal and the gitignored
+// half of TierDerived are BOTH gitignored; only asking a clone tells them
+// apart).
 type Tier uint8
 
 const (
 	// TierCommitted paths are checked in: a clone has them, byte for byte.
 	TierCommitted Tier = iota
-	// TierDerived paths are gitignored but REBUILT by a named command from
-	// committed pins (a lockfile, a remote) — deleting one only costs the time
-	// to re-run that command.
+	// TierDerived paths are REBUILDABLE by a named command from committed pins
+	// (a lockfile, a remote) — deleting one only costs the time to re-run that
+	// command. Rebuildability is the whole of the definition; being gitignored
+	// is the usual CONSEQUENCE of it, not part of it.
+	//
+	// lock.yaml is the deliberate exception, and the reason the two are stated
+	// separately: `ctxloom remote lock` regenerates it, so it is derived — and
+	// it is COMMITTED anyway, because a lockfile whose whole job is pinning
+	// versions for the next clone is worthless if the clone does not get it.
+	// Derived-and-committed is a coherent position; "gitignored" was never the
+	// test.
 	TierDerived
 	// TierLocal paths are gitignored and NOTHING rebuilds them: a fact about
 	// this checkout on this machine that a clone simply does not have, and
@@ -755,8 +808,22 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, CacheDir, BundlesDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
 		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
 		{Rel: filepath.Join(AppDirName, CacheDir, RefusedAdvancesFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom deps upgrade"},
+		// The assembled context files (agent.WriteContextFile), one per content
+		// hash. Derived, and it stays in cache/ deliberately: the file is
+		// content-ADDRESSED — a function of the fragment set, not of the
+		// session — so two sessions that assemble the same context share one
+		// file, which is a cache's defining property rather than an accident.
+		//
+		// The Rebuild command names `ctxloom manage hooks install` rather than
+		// `ctxloom run`, though a run rewrites it too: there is no `ctxloom
+		// context` command to point at, and of the two writers only the hook
+		// apply is a thing a user can run ON PURPOSE to get the directory back.
 		{
-			Rel: filepath.Join(AppDirName, CacheDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,
+			Rel: filepath.Join(AppDirName, CacheDir, ContextCacheDir), Tier: TierDerived,
+			Rebuild: "ctxloom manage hooks install (the next ctxloom run also rewrites it)",
+		},
+		{
+			Rel: filepath.Join(AppDirName, StateDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,
 			Lost: "the content-addressed snapshots review diffed an update against; update review degrades from a diff to a full-content dump, but committed approval signatures still verify",
 		},
 		{

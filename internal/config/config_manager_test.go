@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -31,6 +32,44 @@ func managerTestDir(t *testing.T) string {
 	Invalidate()
 	t.Cleanup(Invalidate)
 	return appDir
+}
+
+// managerConfigPath returns the config.yaml path mgr resolves, the same way
+// Update itself does.
+func managerConfigPath(t *testing.T, mgr *Manager) string {
+	t.Helper()
+	pathCfg, err := loadUncached(mgr.opts...)
+	require.NoError(t, err)
+	configPath, err := pathCfg.GetConfigFilePath()
+	require.NoError(t, err)
+	return configPath
+}
+
+// TestUpdate_LocksUnderStateLocksNotBesideTheConfig pins WHERE the sidecar
+// lands, which is not a cosmetic question: beside-the-file put
+// `.ctxloom/config.yaml.lock` at the root of every project the moment anything
+// wrote config, untracked and (before the matching ignore pattern) unignored —
+// a file a developer is invited to `git add` by mistake.
+//
+// The assertion is on the file the transaction ACTUALLY took, observed after a
+// real Update, rather than on a path recomputed here: recomputing would pass
+// just as happily if Update locked somewhere else entirely, which is precisely
+// the divergence filelock's one-name-per-resource invariant is about.
+func TestUpdate_LocksUnderStateLocksNotBesideTheConfig(t *testing.T) {
+	appDir := managerTestDir(t)
+	mgr := NewManager(WithAppDir(appDir))
+
+	require.NoError(t, mgr.Update(func(d *Draft) error {
+		d.DefaultAgent = "locked-write"
+		return nil
+	}))
+
+	want := filepath.Join(appDir, paths.StateDir, paths.LocksDir, "config.yaml.lock")
+	require.FileExists(t, want, "the update lock must be taken under state/locks")
+
+	besideTheFile := managerConfigPath(t, mgr) + ".lock"
+	require.NoFileExists(t, besideTheFile,
+		"a lock beside the config file is the shape this move retired; two locations means two writers that do not exclude each other")
 }
 
 // TestUpdate_SerializesConcurrentWritersInProcess proves N goroutines each
@@ -83,11 +122,9 @@ func TestUpdate_FailsClosedWhenLockCannotBeAcquired(t *testing.T) {
 	appDir := managerTestDir(t)
 	mgr := NewManager(WithAppDir(appDir))
 
-	pathCfg, err := loadUncached(mgr.opts...)
+	lockPath, err := filelock.ProjectPathFor(managerConfigPath(t, mgr))
 	require.NoError(t, err)
-	configPath, err := pathCfg.GetConfigFilePath()
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(configPath+".lock", 0o755))
+	require.NoError(t, os.MkdirAll(lockPath, 0o755))
 
 	err = mgr.Update(func(d *Draft) error {
 		d.DefaultAgent = "should-not-be-written"

@@ -550,7 +550,7 @@ signature body, resolves pending — never allow.
 | `~/.ctxloom/companion_consent.yaml` | The **companion exec-consent record**: one decision per companion binary, keyed on resolved absolute path + SHA-256. Mode `0600`, personal only, **no committable twin** — it answers "may ctxloom run this file on this machine", which no repo may answer for you. Plain data, not a signature; its authority is filesystem permissions. Managed with `ctxloom companion list\|allow\|forget`. |
 | `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
 | `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |
-| `cache/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Pure cache: deleting it only degrades update review to a full-content display. |
+| `state/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Local state, not cache: nothing rebuilds these, and deleting them degrades every later update review to a full-content display. |
 
 The decision function's approval/rejection steps (`operations.EffectiveTrust`
 steps 1 and 6) read through the `ReviewRecords` seam, which takes the exposed

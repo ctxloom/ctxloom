@@ -80,14 +80,23 @@ func TestPathSegments_ComeFromNamedConstants(t *testing.T) {
 }
 
 // TestTriggerAndTrustObjectSegments_AreUnchanged is the public-seam half: the
-// paths these two functions produce are what actually exist on users' disks, so
-// naming their segments must move no bytes. Green before and after by design —
-// its job is to prove the extraction behaviour-preserving, not to fail.
+// paths these functions produce are what actually exist on users' disks, so
+// naming their segments must move no bytes.
+//
+// The snapshot store DID move, deliberately — cache/ to state/, because nothing
+// rebuilds it — so both spellings are pinned here: the live one, and the legacy
+// one the migration still has to be able to find. A legacy path that quietly
+// drifts is a migration that stops finding anything, which reads as "no project
+// had snapshots" rather than as a bug.
 func TestTriggerAndTrustObjectSegments_AreUnchanged(t *testing.T) {
 	assert.Equal(t,
-		filepath.Join("/project/.ctxloom", "cache", "trust", "objects"),
+		filepath.Join("/project/.ctxloom", "state", "trust", "objects"),
 		TrustObjectsPath("/project/.ctxloom"),
-		"the approved-content snapshot store must stay at cache/trust/objects")
+		"the approved-content snapshot store lives at state/trust/objects")
+	assert.Equal(t,
+		filepath.Join("/project/.ctxloom", "cache", "trust", "objects"),
+		LegacyTrustObjectsPath("/project/.ctxloom"),
+		"the migration must keep looking where the store used to be")
 
 	// TriggerCacheDir is home-rooted, so assert on the tail it composes rather
 	// than on a home directory this test has no business fixing.

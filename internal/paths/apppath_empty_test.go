@@ -35,7 +35,8 @@ func appPathFamily() []appPathFunc {
 		{"LocalPath", LocalPath, "content"},
 		{"LocalBundlesPath", LocalBundlesPath, filepath.Join("content", "bundles")},
 		{"ReposCachePath", ReposCachePath, filepath.Join("cache", "repos")},
-		{"TrustObjectsPath", TrustObjectsPath, filepath.Join("cache", "trust", "objects")},
+		{"TrustObjectsPath", TrustObjectsPath, filepath.Join("state", "trust", "objects")},
+		{"LegacyTrustObjectsPath", LegacyTrustObjectsPath, filepath.Join("cache", "trust", "objects")},
 	}
 }
 

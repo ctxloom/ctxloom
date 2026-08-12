@@ -51,10 +51,13 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # disk-backed observable j002100_delegation.feature already established for
   # runs.jsonl — never an in-process Go struct, never faked.
   #
-  # A SECOND, more serious finding surfaced live-verifying the @live
-  # scenario below — a real permission-ladder gap that blocks it from going
-  # green today (not a test bug; see that scenario's own @wip comment for
-  # the full evidence).
+  # A SECOND finding surfaced live-verifying the @live scenario below, first
+  # recorded here as "a real permission-ladder gap". It was not one: the root
+  # cause turned out to be runner WIRING, and the last thing keeping that
+  # scenario red after the fix was a consumed codex refresh token on the host.
+  # Both are resolved and both are kept, in full, in that scenario's own
+  # comment — the misdiagnosis included, because it is the reason the
+  # per-engine floor at the bottom of this file exists at all.
 
   # LOCKED — requirement 3 (distinct context): each child's OWN reported
   # turn is read straight off its canonical transcript, never off an
@@ -143,9 +146,12 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # and names whichever is missing, and how, before spending a single live
   # turn.
   #
-  # @wip — the CLAUDE half of this scenario is now GREEN; a single
-  # CODEX-specific vendor gap keeps the whole thing @wip. History and
-  # current state, live-verified 2026-07-22 (task woozy-hasty-karma):
+  # GREEN END TO END, live-verified 2026-08-12: 18 of 18 steps, both children
+  # returned their OWN marker over the bus and the round-trip ECHO token came
+  # back. It spent months @wip, and the history below is kept in full because
+  # each entry names a real defect this scenario caught — and the last one is
+  # the reminder that a red @live row is not automatically a product bug.
+  # History, live-verified 2026-07-22 (task woozy-hasty-karma):
   #
   # ORIGINAL finding (icy-value), now FIXED: a live claude-haiku-4-5 child
   # decided to call agent_send, emitted a tool_use for
@@ -190,12 +196,18 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   #     from codex-child — but the body is a runner-exit report, not the
   #     marker, because the codex ENGINE could not authenticate:
   #     "Your access token could not be refreshed because your refresh
-  #     token was already used" (401 refresh_token_reused). That is a
-  #     credential-environment failure on this host, not a ctxloom defect,
-  #     and it is the one thing still keeping this scenario @wip.
-  # Untag @wip once a codex-child with WORKING credentials returns its own
-  # marker phrase here. No product change is known to be required.
-  @live @wip
+  #     token was already used" (401 refresh_token_reused).
+  #
+  # RESOLVED 2026-08-12 — and it was never a ctxloom defect, exactly as the
+  # entry above judged. The host's own `codex exec`, with no ctxloom in the
+  # picture, failed with the identical 401; a human ran `codex login`; this
+  # scenario then passed unchanged, no product change of any kind. Read a
+  # future red here with that precedent in hand: a runner-exit body carrying a
+  # 401 means re-authenticate the engine, and only a body that is neither the
+  # marker nor a credential error is evidence against ctxloom. The per-engine
+  # floor below now guards each engine of that pair separately, so a repeat of
+  # this failure names ONE engine instead of taking the pair down together.
+  @live
   Scenario: A coordinator delegates the same kind of task to two real, differently-vendored engines, and each proves it saw its own context over the real bus
     Given real "claude" and "codex" engines are both available for cross-engine delegation
     When the agent calls tool "agent_run" with:
@@ -223,7 +235,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # THE PER-ENGINE FLOOR — one live row per engine ctxloom 0.7 can delegate to.
   #
   # WHY IT EXISTS. Every scenario above proves delegation against either the
-  # mock (hermetic) or the claude/codex PAIR (@live @wip). Neither answers the
+  # mock (hermetic) or the claude/codex PAIR (@live). Neither answers the
   # question an operator actually asks before trusting `agent_run` on their own
   # box: "does a delegated child on MY engine really launch, really receive its
   # composed context, and really get a word back to its coordinator?" Until
@@ -283,28 +295,26 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine      | marker                                       |
       | claude-code | J002300-DELEGATE-MARKER-CLAUDE-CODE-1d4c07ab |
 
-    # @wip — HOST CREDENTIAL FAILURE, not a ctxloom defect and not a harness
-    # one. Measured 2026-08-12 on this box: the child launched, the runner
-    # dialled home, and the coordinator's mailbox received a message from the
-    # child's harp — the whole delegation path worked — but the body was a
-    # runner-exit report carrying codex's own 401:
-    # "Your access token could not be refreshed because your refresh token was
-    # already used. Please log out and sign in again." (codex_error_info:
-    # unauthorized). Confirmed HOST-side, independent of ctxloom, by running
-    # `codex exec` directly with no ctxloom in the picture: identical 401. This
-    # is the same refresh_token_reused condition that already keeps the
-    # cross-engine scenario above @wip.
+    # GREEN, but it took a human to get here, and the detour is worth keeping:
+    # this row's FIRST live run was red, and not for any reason in this repo.
+    # The child launched, the runner dialled home, and a message really did
+    # reach the coordinator's mailbox from the child's harp — the delegation
+    # path worked — but the body was a runner-exit report carrying codex's own
+    # 401 refresh_token_reused. Confirmed HOST-side, independent of ctxloom, by
+    # running `codex exec` with no ctxloom in the picture: identical 401. A
+    # human ran `codex login`, and the row returned its own marker unchanged.
     #
-    # NOTE THE PROBE GAP THIS EXPOSES (live_engine_registry.go): the availability
-    # report says `codex ✓` because authCheckCodex's `codex login status` prints
-    # "Logged in using ChatGPT" — a LOCAL read of auth.json that never attempts a
-    # refresh, so it cannot see a server-side-consumed refresh token. INSTALLED
-    # and AUTHENTICATED are distinguished; AUTHENTICATED and STILL-VALID are not.
-    # There is no cheap fix: the only probe that would know is one that performs
-    # a refresh, which itself consumes the token.
-    # Untag once a human has run `codex login` on the host and this row returns
-    # its own marker. No product change is known to be required.
-    @codex @wip
+    # THE PROBE GAP THAT DETOUR EXPOSED IS STILL REAL (live_engine_registry.go):
+    # the availability report said `codex ✓` throughout, because
+    # authCheckCodex's `codex login status` is a LOCAL read of auth.json that
+    # never attempts a refresh — INSTALLED and AUTHENTICATED are distinguished,
+    # AUTHENTICATED and STILL-VALID are not. So a consumed refresh token
+    # surfaces here as a loud RED row rather than a named skip. That is the
+    # honest failure shape (a skip would be worse), and there is no cheap fix:
+    # the only probe that would know is one that performs a refresh, which is
+    # what consumes the token. If this row ever goes red again with a 401 in the
+    # body, read it as "re-run `codex login`", not as a delegation regression.
+    @codex
     Examples:
       | engine | marker                                 |
       | codex  | J002300-DELEGATE-MARKER-CODEX-8b3f52cd |

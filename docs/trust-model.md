@@ -617,17 +617,19 @@ home. So a home codex has never seen carries no answer, and an unanswered prompt
 is not harmless: `codex exec` is non-interactive and has nobody to ask, so it
 proceeds in an untrusted posture instead of stopping.
 
-ctxloom points `$CODEX_HOME` somewhere it provisioned on every axis a run can
-take:
+ctxloom points `$CODEX_HOME` somewhere **it** provisioned on the axes below —
+and, since the D2 ruling, deliberately does not on the one axis where the home
+is yours:
 
-| Axis | Home | Lifetime |
-|------|------|----------|
-| plain host run | `<WorkDir>/.ctxloom/state/engines/codex/.codex` | durable, gitignored |
-| per-agent worktree | `~/.ctxloom/sessions/<harp>/ephemeral/…/.codex` | one run |
-| container cell | the container's own fresh `$HOME/.codex` | one run |
+| Axis | Home | Lifetime | Pre-seeded? |
+|------|------|----------|-------------|
+| in-tree, `config_home: project` | `<WorkDir>/.ctxloom/state/<harp>/home/.codex` | one session | yes |
+| per-agent worktree | `~/.ctxloom/sessions/<harp>/ephemeral/…/.codex` | one run | yes |
+| container cell | the container's own fresh `$HOME/.codex` | one run | yes |
+| in-tree, undeclared / `host` / no binding | your real `~/.codex` | yours, durable | **no** |
 
-All three get the pre-seed, for the working directory ctxloom is launching the
-run in. The scope is deliberate and narrow:
+The first three get the pre-seed, for the working directory ctxloom is launching
+the run in. The scope is deliberate and narrow:
 
 - **ctxloom auto-answers only for homes ctxloom itself created.** It never
   writes a trust entry into a codex home a human maintains — your real
@@ -640,15 +642,13 @@ run in. The scope is deliberate and narrow:
   ephemeral, so the machine-specific absolute path baked into the entry cannot
   reach a teammate's checkout.
 
-This was previously true of the two ephemeral homes only. The durable
-project-scoped home joined them when the engine-home policy moved codex's
-project config out of `<WorkDir>/.codex` into the state tier
-(`internal/paths.EngineStateHome`): that relocation deliberately leaves behind
-the trust entry codex had accumulated in the old in-tree file, so without the
-pre-seed the first run after the move would re-prompt or silently downgrade.
+The last row is the point of the table. A run without `config_home: project`
+uses your own `~/.codex`, which already carries whatever trust answers you have
+given codex yourself — so there is nothing to carry over, and writing one there
+would be ctxloom answering on your behalf in a file it does not own.
 
-If you would rather answer for yourself, run codex directly — outside ctxloom it
-reads its own global home, which ctxloom never writes to.
+If you would rather answer for yourself everywhere, leave `config_home`
+undeclared (the default) or run codex directly.
 
 ### claude-code: the prompt ctxloom deliberately does *not* pre-answer
 
@@ -669,11 +669,12 @@ seeded.
 This applies to both homes ctxloom points `CLAUDE_CONFIG_DIR` at: the per-agent
 worktree home, and — for a binding whose `config_home: project` opts it off
 your real `~/.claude` (see [Engine config homes](architecture/engines/isolation.md),
-undeclared/`host` bindings keep using your real home and never see this
-project-scoped one at all) — the project-scoped one under
-`.ctxloom/state/engines/claude-code/`. The second is durable, so the prompt is
-answered once per project rather than once per run. kiro has no such prompt at
-all.
+undeclared/`host` bindings keep using your real home and never see an instance
+at all) — the per-session instance under `.ctxloom/state/<harp>/home/claude`.
+Both are disposable, so under `config_home: project` an interactive agent run
+sees that dialog **once per session**. That is the second of the model's two
+accepted costs, stated plainly: answers given inside an instance die with it.
+kiro has no such prompt at all.
 
 ## Lifecycle
 

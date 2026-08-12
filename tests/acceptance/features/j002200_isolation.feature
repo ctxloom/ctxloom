@@ -193,7 +193,9 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # controlled home instead of hers. A ctxloom agent that opts in this way is
   # not entitled to her memory, plugins, personal MCP registrations, global
   # agents or steering, and must not write its session state into them, so it is
-  # given a project-scoped config home under `.ctxloom/state/engines/` instead.
+  # given a PER-SESSION config-home INSTANCE under
+  # `.ctxloom/state/<harp>/home/<leaf>` instead — created at session start,
+  # copied into one way from her real home, and disposable.
   #
   # THE DECLARATION IS LOAD-BEARING, and it did not used to be: naming an agent
   # used to be enough on its own. Now config_home is strictly opt-in (undeclared
@@ -215,22 +217,25 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # asserts instead that the home really exists and that Alice's own ~/.kiro was
   # never created behind her back.
   #
-  # codex is absent because it has ALWAYS had a project-scoped home on this axis
-  # (its own scenario below), and opencode because its only home lever is
+  # codex IS a row now. It used to be absent because it relocated CODEX_HOME on
+  # every in-tree run regardless of this key; D2 (ruled 2026-08-11) ended that
+  # asymmetry, so codex reads config_home exactly like claude and kiro and this
+  # outline covers all three. opencode stays out because its only home lever is
   # XDG_CONFIG_HOME/XDG_DATA_HOME, which are not engine-private.
-  Scenario Outline: An in-tree AGENT run gets a ctxloom-controlled config home instead of Alice's own
+  Scenario Outline: An in-tree AGENT run gets a per-session config-home instance instead of Alice's own home
     Given Alice has a git-backed project
     And Alice has whatever host credentials "<engine>" needs to authenticate
     And Alice's agent declares config_home "project"
     When Alice runs the isolated "<engine>" agent under workspace "none"
     Then the run reports no isolation finding
-    And the spy "<engine>" process's "<var>" env var points at the project-scoped engine state home
+    And the spy "<engine>" process's "<var>" env var points at this session's config-home instance
     And Alice's own "<engine>" home directory was never created by the run
 
     Examples:
       | engine      | var               |
       | claude-code | CLAUDE_CONFIG_DIR |
       | kiro        | KIRO_HOME         |
+      | codex       | CODEX_HOME        |
 
   # UNDECLARED config_home — the headline behaviour move. This is the SAME
   # fixture as the scenario above with ONE difference: the "iso" binding never
@@ -242,6 +247,11 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # agent-bound run gets a controlled home) this scenario fails, because the
   # spy would report a project-scoped CLAUDE_CONFIG_DIR/KIRO_HOME that must not
   # exist here.
+  #
+  # codex's row is D2's red-first case specifically: against the pre-D2 tree
+  # codex relocated CODEX_HOME here unconditionally, so an instance WOULD exist
+  # in the project and this row fails. It is the one that proves the asymmetry
+  # actually ended rather than merely being described as ended.
   Scenario Outline: An in-tree AGENT run with an undeclared config_home keeps Alice's own real home
     Given Alice has a git-backed project
     And Alice has whatever host credentials "<engine>" needs to authenticate
@@ -253,6 +263,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | engine      |
       | claude-code |
       | kiro        |
+      | codex       |
 
   # THE EXPLICIT OPT-OUT. config_home: host reads IDENTICALLY to the undeclared
   # scenario above on outcome — both keep the real host home — but the two pin
@@ -262,13 +273,18 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # binding as project regardless of what it declared) would make this scenario
   # red while the undeclared one stayed green, since only THIS one exercises the
   # declared-but-not-project branch.
-  Scenario: An in-tree AGENT run that declares config_home: host keeps Alice's own real home
+  Scenario Outline: An in-tree AGENT run that declares config_home: host keeps Alice's own real home
     Given Alice has a git-backed project
-    And Alice has whatever host credentials "claude-code" needs to authenticate
+    And Alice has whatever host credentials "<engine>" needs to authenticate
     And Alice's agent declares config_home "host"
-    When Alice runs the isolated "claude-code" agent under workspace "none"
+    When Alice runs the isolated "<engine>" agent under workspace "none"
     Then the run reports no isolation finding
-    And no ctxloom-controlled config home exists for "claude-code" in the project
+    And no ctxloom-controlled config home exists for "<engine>" in the project
+
+    Examples:
+      | engine      |
+      | claude-code |
+      | codex       |
 
   # The credential half of the "gets a ctxloom-controlled config home" scenario
   # above, claude-code only (kiro has no seedable credential — see that
@@ -277,14 +293,14 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # is READ, never rewritten. There is no migration on this axis — nothing has
   # ever lived at the new path — so "the host copy is untouched" is the whole
   # safety claim.
-  Scenario: An in-tree AGENT run seeds the controlled home from the host credential, and leaves the host's own copy alone
+  Scenario: An in-tree AGENT run copies the host credential into its instance, and leaves the host's own copy alone
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
     And Alice's agent declares config_home "project"
     When Alice runs the isolated "claude-code" agent under workspace "none"
     Then the isolated "claude-code" credential matches the host fixture byte-for-byte
     And the host "claude-code" credential file was never modified
-    And the seeded "claude-code" credential is on disk in the project's engine state home
+    And the copied "claude-code" credential is on disk in this session's config-home instance
 
   # The fail-loud half. With no ANTHROPIC_API_KEY and no host credential to
   # seed, ctxloom refuses rather than pointing claude at a controlled home it
@@ -301,30 +317,25 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     When Alice runs the isolated "claude-code" agent under workspace "none"
     Then the run aborts with an isolation finding naming "no ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json"
 
-  # codex is the documented EXCEPTION to the baseline above, and it belongs in
-  # the feature file rather than hidden in a table row that asserts around it.
-  # codex relocates CODEX_HOME on EVERY axis including none — its own project
-  # fallback, not ctxloom's isolation policy (see
-  # internal/lm/isolation.SeedCodexHome's doc and internal/codex/backend.go's
-  # resolveCodexProjectDir). On the none axis that home is the project-scoped
-  # state home, <WorkDir>/.ctxloom/state/engines/codex/.codex
-  # (internal/codex.StateHome — the uniform engine-home policy's one location
-  # for a home ctxloom relocates, replacing the old bare <WorkDir>/.codex).
-  # That relocated home starts empty, so ctxloom seeds the host's credentials
-  # into it, and with neither OPENAI_API_KEY nor ~/.codex/auth.json there is
-  # nothing to seed. ctxloom then refuses rather than launching a codex that
-  # would silently 401.
+  # codex USED TO BE the documented exception here: it relocated CODEX_HOME on
+  # every in-tree run regardless of config_home, so `workspace: none` still met
+  # a relocation that needed credentials seeded into it. D2 (ruled 2026-08-11)
+  # ended that — an undeclared binding now keeps Alice's real ~/.codex, which
+  # the outlines above cover alongside claude and kiro.
   #
-  # So "workspace none touches no config-home machinery" is FALSE for codex,
-  # and this scenario says so out loud. Note the failure is a plain backend
-  # error (exit 1), NOT a ClassIsolation finding (exit 3) — ctxloom's own
-  # isolation gates genuinely stayed out of the way, which is the half of the
-  # baseline claim that does hold here.
-  Scenario: workspace "none" still meets codex's own CODEX_HOME relocation, which needs credentials of its own
+  # What survives is the CREDENTIAL half, and it survives with a different
+  # reason: codex still refuses to launch against a home with nothing to
+  # authenticate with, but the home is now Alice's own, so ctxloom VERIFIES it
+  # rather than copying into it — and says so, because ctxloom never writes a
+  # home it did not create. The failure is a plain backend error (exit 1), NOT
+  # a ClassIsolation finding (exit 3): ctxloom's isolation gates genuinely
+  # stayed out of the way.
+  Scenario: workspace "none" leaves codex on Alice's own home, and refuses to launch when it cannot authenticate
     Given Alice has a git-backed project
     And Alice has no "codex" credentials or API key on the host
     When Alice runs the isolated "codex" agent under workspace "none"
-    Then the run fails without any isolation finding, naming "no OPENAI_API_KEY and no host ~/.codex/auth.json credentials"
+    Then the run fails without any isolation finding, naming "no OPENAI_API_KEY and no credentials at"
+    And no ctxloom-controlled config home exists for "codex" in the project
 
   # opencode's baseline row, split out for a HARNESS reason rather than a
   # product one: opencode is driven over ACP, a stateful JSON-RPC handshake,

@@ -21,19 +21,21 @@ import (
 // silent and unrecoverable — a leaked credential cannot be un-pushed. This gate
 // makes the ignore rule load-bearing in the test suite instead of by convention.
 //
-// BOTH the current and the legacy location are listed. The engine-home policy
-// moved the home to .ctxloom/state/engines/codex (paths.EngineStateHome), where
-// the single ".ctxloom/state/" rule covers it — but ctxloom's one-time
-// migration only runs in checkouts somebody actually opens, so a pre-migration
-// tree still holds the old file and still needs its rule.
+// EVERY location a credential has ever landed in is listed, current and
+// historical alike. The blanket ".ctxloom/state/" rule covers the current
+// per-session instances, but this table asserts SPECIFIC paths on purpose: a
+// blanket rule is one careless edit from narrowed, and the historical paths
+// survive forever in checkouts nobody re-opens.
 //
-// Add a row here whenever a new engine seeds a credential in-tree.
+// Add a row here whenever a new engine copies a credential in-tree.
 var credentialPaths = []struct {
 	path string
 	why  string
 }{
-	{".ctxloom/state/engines/codex/.codex/auth.json", "codex OAuth/API credential at the CURRENT project-scoped home (paths.EngineStateHome), seeded from the host's ~/.codex/auth.json by isolation.SeedCodexHome"},
-	{".codex/auth.json", "codex OAuth/API credential at the LEGACY pre-migration home; a checkout that never runs ctxloom again keeps this file forever"},
+	{".ctxloom/state/ugly-icy-squid/home/.codex/auth.json", "codex OAuth/API credential in a per-session INSTANCE home (paths.SessionHomePath + codex's own .codex leaf), copied one-way from the host's ~/.codex/auth.json by isolation.PrepareCodexHome. The harp is a stand-in: every session mints its own directory here"},
+	{".ctxloom/state/ugly-icy-squid/home/claude/.credentials.json", "claude OAuth credential in a per-session INSTANCE home, copied one-way from the host's ~/.claude/.credentials.json by isolation.PrepareClaudeHome"},
+	{".ctxloom/state/engines/codex/.codex/auth.json", "codex credential at the RETIRED durable per-project home; a checkout last written by that ctxloom keeps this file forever"},
+	{".codex/auth.json", "codex OAuth/API credential at the LEGACY pre-relocation home; a checkout that never runs ctxloom again keeps this file forever"},
 }
 
 func TestArch_SeededCredentialsAreGitignored(t *testing.T) {

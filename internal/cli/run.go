@@ -431,7 +431,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// Dry run mode - show the assembled context and prompt, then stop before
 	// anything stateful or interactive happens: no session-index writes
-	// (AssignSession / MarkSessionEnded), no coordinator, no task seeding, no
+	// (AssignSession / EndSession), no coordinator, no task seeding, no
 	// isolation, no plugin launch.
 	if runDryRun {
 		return st.emitDryRun()
@@ -620,6 +620,14 @@ func (st *runState) runStartupTasks() {
 	// else ever reaps these. Best-effort, silent unless it found something.
 	if !runDryRun {
 		operations.SweepOrphanedWorktrees(st.ctx, os.Stderr)
+	}
+
+	// Startup reaper, second half: sweep any per-session ENGINE-HOME instance
+	// left behind by a crashed/killed prior run in this project. Each one holds
+	// a credential copied out of the user's real host home, so this is a
+	// security sweep, not hygiene — see sweepOrphanedSessionHomes.
+	if !runDryRun {
+		sweepOrphanedSessionHomes(os.Stderr)
 	}
 }
 
@@ -1023,7 +1031,7 @@ func (st *runState) markSessionEnded() {
 	if st.activeHarp == "" {
 		return
 	}
-	if err := operations.MarkSessionEnded(st.activeHarp, time.Now()); err != nil {
+	if err := operations.EndSession(st.activeHarp, time.Now()); err != nil {
 		clidiag.Warn("ctxloom", "session end-mark failed: %v", err)
 	}
 }

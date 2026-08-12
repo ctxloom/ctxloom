@@ -440,7 +440,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 			aw.cleanup()
 		}
 		if harp != "" {
-			if merr := MarkSessionEnded(harp, time.Now()); merr != nil {
+			if merr := EndSession(harp, time.Now()); merr != nil {
 				clidiag.Warn("ctxloom", "acp agent: mark session ended: %v", merr)
 			}
 		}

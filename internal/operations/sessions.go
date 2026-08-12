@@ -267,15 +267,51 @@ func AssignSession(projectDir, backend string) (sessions.Entry, error) {
 	return entry, nil
 }
 
-// MarkSessionEnded stamps the harp entry's end time. Idempotent; lets the
-// time-window transcript fallback find the session even when the bind hook
-// never fired.
-func MarkSessionEnded(harp string, at time.Time) error {
+// EndSession ends harp's session: it stamps the entry's end time AND removes
+// the session's per-session engine-home instance from the project tree.
+// Idempotent; the end stamp lets the time-window transcript fallback find the
+// session even when the bind hook never fired.
+//
+// NAMED FOR BOTH HALVES, deliberately — it used to be MarkSessionEnded, which
+// described only the index write. A caller reaching for a session-end helper
+// must see that it also DELETES a directory, for the same reason
+// WriteAndRecordSyncSummary is not called WriteSyncSummary: a destructive
+// second effect hiding behind a read-ish name is how it gets called from
+// somewhere that did not want it.
+//
+// THE ORDER IS LOAD → MARK → REMOVE, and each step depends on the one before:
+//
+//   - LOAD first, because the instance lives under the session's own PROJECT
+//     tree and the index entry is the only record of which project that is.
+//     A harp the index does not carry resolves to no project and therefore to
+//     no removal — guessing would make this a project-wide delete keyed by an
+//     unvalidated string.
+//   - MARK before REMOVE, so that a removal which fails still leaves an entry
+//     the startup sweep (ReapOrphanedSessionHomes) reads as ended and can
+//     collect later. Removing first and failing to mark would strand the
+//     leftover as "live" forever.
+//
+// The removal is best-effort and never fails the session end: see
+// removeSessionInstance.
+func EndSession(harp string, at time.Time) error {
 	mgr, err := openSessions()
 	if err != nil {
 		return err
 	}
-	return mgr.MarkEnded(harp, at)
+	// Read the project BEFORE the mark: nothing here mutates it, but the entry
+	// is what names the tree the instance sits in, and a failed mark must not
+	// cost us the ability to clean up.
+	entry, ferr := mgr.Find(harp)
+	if ferr != nil {
+		clidiag.Warn("ctxloom", "session end: cannot read %s's index entry, so its engine-home instance is left for the startup sweep: %v", harp, ferr)
+	}
+	if err := mgr.MarkEnded(harp, at); err != nil {
+		return err
+	}
+	if entry != nil {
+		removeSessionInstance(entry.ProjectDir, harp)
+	}
+	return nil
 }
 
 // SessionIndexUpgrade reports whether loading the index would apply an in-memory

@@ -169,6 +169,37 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 	}
 }
 
+// TestResolveAgent_ConfigHome proves the resolve-time treatment of
+// ResolvedAgent.ConfigHome: undeclared and unresolvable both warn-and-default
+// to agents.ConfigHomeHost (never fatal — a hand-edited config.yaml must not
+// block a launch over this), a declared "project" or "host" round-trips
+// unchanged, and the field is NEVER empty once an agent resolved at all —
+// that emptiness is reserved for "no agent binding was resolved", a state
+// this function (which always resolves SOME binding) can never produce.
+func TestResolveAgent_ConfigHome(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"undeclared": {LLM: "fast", Profiles: []string{"p1"}},
+		"project":    {LLM: "fast", Profiles: []string{"p1"}, ConfigHome: "project"},
+		"host":       {LLM: "fast", Profiles: []string{"p1"}, ConfigHome: "host"},
+		"typo":       {LLM: "fast", Profiles: []string{"p1"}, ConfigHome: "projectt"},
+	})
+	cases := map[string]string{
+		"undeclared": agents.ConfigHomeHost,    // MUTATION TARGET m1's unit-layer twin
+		"project":    agents.ConfigHomeProject,
+		"host":       agents.ConfigHomeHost,
+		"typo":       agents.ConfigHomeHost, // warn+default, never fatal
+	}
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			res, err := ResolveAgent(context.Background(), cfg, name, "")
+			require.NoError(t, err, "an unresolvable config_home must warn, not fail the resolve")
+			assert.Equal(t, want, res.ConfigHome)
+		})
+	}
+}
+
 // TestResolveAgent_ExplicitEngineOverrideWins proves a caller-supplied
 // engine override (ACP --llm) beats the agent's own declared engine — the
 // same precedence a delegated child's engine override uses.

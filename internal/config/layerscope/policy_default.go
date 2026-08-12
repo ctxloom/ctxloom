@@ -43,6 +43,15 @@ func DefaultPolicy() Policy {
 		// replaces a binding wholesale, so it could not stick anyway.
 		{Path: "agents.*.surfaces.*", Scope: ScopeShared, Note: "a delivery choice validated against the binding's engine; it is only meaningful where that engine is named"},
 		{Path: "agents.*.permissions", Scope: ScopeShared, Note: "a privilege grant; a team may decide it, but a user's home config must never fill it in for a project"},
+		// Shared, same reasoning as agents.*.surfaces.* just above: which
+		// config home a binding gets is a pollution/isolation POLICY decision
+		// about the project's agents, not a fact about this machine — a team
+		// deciding an agent's runs should (or should not) touch a
+		// ctxloom-controlled home is exactly the kind of call agents.*.llm and
+		// agents.*.permissions already make in this table, and
+		// agentBindingMergeFunc's atomic-replace rule means a home-only value
+		// could never stick to a project-defined binding anyway.
+		{Path: "agents.*.config_home", Scope: ScopeShared, Note: "a pollution/isolation policy decision about this project's agents, not a per-machine fact"},
 
 		{Path: "dirty_tree_handler", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},
 		{Path: "workspace", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},

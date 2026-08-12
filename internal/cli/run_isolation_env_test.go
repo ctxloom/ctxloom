@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
@@ -142,28 +143,28 @@ func TestTopLevelRunIsolationEnv_WorktreeDeliversConfigHomeEnv(t *testing.T) {
 // helper's own behaviour is pinned in internal/operations, and what can rot
 // here is the CONDITION prepareWorkspace passes it.
 func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
-	newState := func(t *testing.T, workDir string, explicitAgent bool, axes isolation.Axes) *runState {
+	newState := func(t *testing.T, workDir string, agentConfigHome string, axes isolation.Axes) *runState {
 		t.Helper()
 		return &runState{
-			ctx:           context.Background(),
-			backendName:   "claude-code",
-			workDir:       workDir,
-			activeHarp:    "test-harp",
-			explicitAgent: explicitAgent,
-			runAxes:       axes,
-			req:           &pb.RunStart{Options: &pb.RunOptions{Env: map[string]string{"CTXLOOM_SESSION_HARP": "test-harp"}}},
+			ctx:             context.Background(),
+			backendName:     "claude-code",
+			workDir:         workDir,
+			activeHarp:      "test-harp",
+			agentConfigHome: agentConfigHome,
+			runAxes:         axes,
+			req:             &pb.RunStart{Options: &pb.RunOptions{Env: map[string]string{"CTXLOOM_SESSION_HARP": "test-harp"}}},
 		}
 	}
 	hostAxes := isolation.Axes{Workspace: isolation.WorkspaceShared, Runtime: isolation.RuntimeHost}
 
-	t.Run("a --agent run on the in-tree axis gets the controlled home", func(t *testing.T) {
+	t.Run("an agent binding that declares config_home: project gets the controlled home", func(t *testing.T) {
 		resetStrictness(t)
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test") // authenticates without a host credential fixture
 
 		workDir := t.TempDir()
-		st := newState(t, workDir, true, hostAxes)
+		st := newState(t, workDir, agents.ConfigHomeProject, hostAxes)
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 
@@ -171,19 +172,63 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		assert.Equal(t, "test-harp", st.req.Options.Env["CTXLOOM_SESSION_HARP"], "the pre-assembled session env must survive")
 	})
 
-	t.Run("the human's own unbound session keeps the real host home", func(t *testing.T) {
+	// MUTATION TARGET m1: invert the "undeclared → host" default so an
+	// agent-bound run with NO declared config_home resolves to project — this
+	// case (agentConfigHome == "project" produced only via ResolveConfigHome's
+	// own default, exercised in the operations-layer test) is pinned there;
+	// here the headline red is the UNDECLARED-binding case just below, which
+	// this same st.prepareWorkspace call must resolve to the real home.
+	t.Run("an agent binding with an UNDECLARED config_home keeps the real host home", func(t *testing.T) {
 		resetStrictness(t)
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 
 		workDir := t.TempDir()
-		st := newState(t, workDir, false, hostAxes)
+		// agentConfigHome carries the RESOLVED value a ResolvedAgent would hand
+		// prepareWorkspace — an undeclared binding resolves to
+		// agents.ConfigHomeHost (operations.ResolveConfigHome's default), never
+		// the empty string a no-binding run leaves behind.
+		st := newState(t, workDir, agents.ConfigHomeHost, hostAxes)
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 
 		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
-			"an unbound interactive session must keep the human's own ~/.claude")
+			"an agent-bound run with an undeclared config_home must keep the real ~/.claude")
+		assert.NoDirExists(t, claude.StateHome(workDir))
+	})
+
+	// MUTATION TARGET m2: a bug that ignored a declared "host" value (treating
+	// every resolved agent binding as project) would make this red.
+	t.Run("an agent binding that declares config_home: host keeps the real host home", func(t *testing.T) {
+		resetStrictness(t)
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+
+		workDir := t.TempDir()
+		st := newState(t, workDir, agents.ConfigHomeHost, hostAxes)
+		st.prepareWorkspace()
+		t.Cleanup(st.cleanupWorkspace)
+
+		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
+			"a binding that DECLARES config_home: host must keep the real ~/.claude")
+		assert.NoDirExists(t, claude.StateHome(workDir))
+	})
+
+	t.Run("a run with NO agent binding at all keeps the real host home", func(t *testing.T) {
+		resetStrictness(t)
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+
+		workDir := t.TempDir()
+		st := newState(t, workDir, "", hostAxes)
+		st.prepareWorkspace()
+		t.Cleanup(st.cleanupWorkspace)
+
+		assert.NotContains(t, st.req.Options.Env, claude.ConfigDirEnv,
+			"a run with no agent binding at all must keep the human's own ~/.claude")
 		assert.NoDirExists(t, claude.StateHome(workDir))
 	})
 
@@ -198,7 +243,7 @@ func TestPrepareWorkspace_InTreeAgentHome(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 
 		repo := initIsolationTestRepo(t)
-		st := newState(t, repo, true, isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost})
+		st := newState(t, repo, agents.ConfigHomeProject, isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost})
 		st.prepareWorkspace()
 		t.Cleanup(st.cleanupWorkspace)
 

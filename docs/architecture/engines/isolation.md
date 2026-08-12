@@ -208,9 +208,9 @@ An engine's **cwd-keyed** surfaces are a different thing entirely and are never
 relocated: `CLAUDE.md`, `.claude/`, `.kiro/`, `opencode.json`, `AGENTS.md` live
 at the project root, where the engine natively looks.
 
-| Engine | Var | Container | Worktree | In-tree, **agent** run | In-tree, **human's own** run |
+| Engine | Var | Container | Worktree | In-tree, `config_home: project` | In-tree, undeclared / `host` / no binding |
 |---|---|---|---|---|---|
-| codex | `CODEX_HOME` | fresh `$HOME/.codex` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/codex/.codex` | same as agent |
+| codex | `CODEX_HOME` | fresh `$HOME/.codex` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/codex/.codex` | same (codex ignores this key — see below) |
 | claude-code | `CLAUDE_CONFIG_DIR` | fresh `$HOME/.claude` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/claude-code/claude` | **real `~/.claude`** |
 | kiro | `KIRO_HOME` | fresh `$HOME/.kiro` | per-agent scratch | `<WorkDir>/.ctxloom/state/engines/kiro/kiro` | **real `~/.kiro`** |
 | opencode | `XDG_CONFIG_HOME` / `XDG_DATA_HOME` | fresh `$HOME` | per-agent scratch | **not controlled** | **not controlled** |
@@ -223,32 +223,50 @@ separately and wrote to different roots. The **state** tier is deliberate: these
 homes hold seeded credentials and a user's hand-edits, so they are gitignored
 *and* unrebuildable.
 
-### The rule: agent runs only
+### The rule: `config_home: project`, declared, on the in-tree axis only
 
-**A run resolved through an agent binding gets a ctxloom-controlled home. The
-human's own session keeps the real one.** Decided in
-`operations.InTreeAgentHomeEnv`, the single place the condition lives; contributed
-by `cli/run.go`'s `prepareWorkspace`, `operations/delegate.go`'s
-`bindIsolatedSpawn`, and `operations/oneshot.go`'s `runResolvedAgent`.
+Each agent binding declares its own policy, `agents.<name>.config_home:
+project|host`:
 
-A delegated child, a fan-out member, a `run --agent` — those are ctxloom's
-processes. Pointing one at `~/.claude` or `~/.kiro` hands it the human's memory,
-plugins, personal MCP registrations, global agents and steering, and lets it
-write session state and settings edits back into them. That is the pollution
-this policy ends.
+```yaml
+agents:
+  coder:
+    config_home: project   # a ctxloom-controlled home under .ctxloom/state/engines/<engine>
+    # or: host             # the engine's real host home (also the default)
+```
 
-The human's own interactive session is the opposite case. Those files are their
-property and their working environment; relocating them out from under an
-interactive session is a regression dressed as isolation. So a bare `ctxloom run`
-— which binds the *default* agent, but is still the human starting their own
-session — keeps the real home. Only an explicitly named agent counts as an agent
-run at the top level (`runState.explicitAgent`).
+**Empty (undeclared) DEFAULTS TO `host`.** The controlled home is strictly
+opt-in — naming an agent, on its own, is *not* enough to relocate its config
+home. A binding that wants its runs kept off the human's real `~/.claude` or
+`~/.kiro` has to say `config_home: project` explicitly.
 
-**Why codex is asymmetric.** codex relocates on every in-tree run, bound or not.
-That is history, not inconsistency: ctxloom has *always* pointed `CODEX_HOME` at
-a project-scoped directory, so there was never a real `~/.codex` in use in-tree
-to take away. claude and kiro *did* use the real host home, so for them the same
-move is a taking — and it is scoped to the runs that are not the human's.
+**A declared value WINS on every invocation path that binding resolves
+through** — a bare `ctxloom run` under `default_agent`, `run --agent`, a
+delegated child, a oneshot fan member, alike. Invocation never matters for a
+declared binding; only whether a binding is in play at all does. A run with
+**no agent binding whatsoever** (no `--agent`, no `default_agent`) has no
+`config_home` to read in the first place, and always keeps the real host
+home — there is no binding through which it could even opt in. Decided in
+`operations.InTreeAgentHomeEnv` off the resolved binding's *effective*
+`ConfigHome` (`operations.ResolveConfigHome`), the single place the condition
+lives; contributed by `cli/run.go`'s `prepareWorkspace`,
+`operations/delegate.go`'s `bindIsolatedSpawn`/`startOneshot`, and
+`operations/oneshot.go`'s `runResolvedAgent`.
+
+A delegated child, a fan-out member, a `run --agent` — these ARE ctxloom's
+processes, and pointing one at `~/.claude` or `~/.kiro` hands it the human's
+memory, plugins, personal MCP registrations, global agents and steering, and
+lets it write session state and settings edits back into them. That is the
+pollution `config_home: project` lets a binding opt out of — but nothing takes
+it on by default; a project asks for it by name, on the binding that wants it.
+
+**Why codex is asymmetric.** codex relocates on every in-tree run regardless of
+`config_home` — it does not read this key at all. That is history, not
+inconsistency: ctxloom has *always* pointed `CODEX_HOME` at a project-scoped
+directory, so there was never a real `~/.codex` in use in-tree to take away,
+and so no opt-in was ever needed. claude and kiro *did* use the real host
+home, so for them the same move is a taking, and it happens only for a
+binding that both is agent-bound AND asked for it.
 
 **opencode is excluded**, pending its own decision: its only lever is
 `XDG_CONFIG_HOME` / `XDG_DATA_HOME`, which are not engine-private. Relocating
@@ -259,10 +277,12 @@ too.
 
 The in-tree contribution declines, each condition independently sufficient:
 
-1. **not agent-bound** — the rule above;
+1. **the effective `config_home` is not `project`** — the rule above (this
+   covers no binding, an undeclared binding, and an explicit `host`);
 2. **not the in-tree axis** — a container's fresh `$HOME` already *is* the
    controlled home, and a worktree's per-agent home is already provisioned and
-   seeded by this package. An in-tree path handed to either names a directory the
+   seeded by this package, UNCONDITIONALLY — `config_home` does not reach the
+   worktree axis at all. An in-tree path handed to either names a directory the
    boundary cannot see;
 3. **the var is already set** — isolation's own `Env()`, or the user's `--env`,
    wins outright. This fills gaps; it never overrides.

@@ -667,10 +667,13 @@ one-time prompt is the cheaper of the two costs, so only `.credentials.json` is
 seeded.
 
 This applies to both homes ctxloom points `CLAUDE_CONFIG_DIR` at: the per-agent
-worktree home, and — since agent runs stopped using your real `~/.claude` — the
-project-scoped one under `.ctxloom/state/engines/claude-code/`. The second is
-durable, so the prompt is answered once per project rather than once per run.
-kiro has no such prompt at all.
+worktree home, and — for a binding whose `config_home: project` opts it off
+your real `~/.claude` (see [Engine config homes](architecture/engines/isolation.md),
+undeclared/`host` bindings keep using your real home and never see this
+project-scoped one at all) — the project-scoped one under
+`.ctxloom/state/engines/claude-code/`. The second is durable, so the prompt is
+answered once per project rather than once per run. kiro has no such prompt at
+all.
 
 ## Lifecycle
 

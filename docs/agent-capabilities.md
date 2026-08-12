@@ -152,5 +152,3 @@ session is launched; needing a container is a property of the agent.
 - In-repo: [GLOSSARY.md](../GLOSSARY.md) (vocabulary),
   `internal/lm/backends/registry.go` (the engine set),
   [adr/0031-agent-equity-documented-divergences.md](./adr/0031-agent-equity-documented-divergences.md)
-</content>
-</invoke>

@@ -21,7 +21,7 @@ here.
 | [operations.md](./operations.md) | `internal/operations` | The frontend-neutral orchestration layer: bootstrap, sync, lock, assemble, apply, review, launch. |
 | [trust.md](./trust.md) | `internal/trust` + the gate | The trust vocabulary and addressing, the seven-step decision cascade, the state machine, and the exposure chokes. |
 | [signing.md](./signing.md) | `internal/signing` | The signature envelope, the countersignature preimage, and the publisher state machine. |
-| [paths.md](./paths.md) | `internal/paths` | The on-disk layout vocabulary and the `content/` vs `cache/` split. |
+| [paths.md](./paths.md) | `internal/paths` | The on-disk layout vocabulary and the three tiers — `content/`, `cache/`, `state/` (user-facing account: [docs/layout.md](../../layout.md)). |
 | [projectroot.md](./projectroot.md) | `internal/projectroot` | Which directory is the project, worktree classification, and the task-store exception. |
 | [schema.md](./schema.md) | `internal/schema`, `internal/schemagen` | JSON Schema validation and the path oracle; reflected schema publication. |
 

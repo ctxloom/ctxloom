@@ -241,7 +241,9 @@ engine appends its OWN leaf through its own package — `codex.SessionHome`,
 `claude.SessionConfigDir`, `kiro.SessionHome`. The three leaves are pairwise
 distinct by construction, so one session root hosts every engine that session
 runs. The **state** tier is deliberate: an instance holds copied credentials, so
-it is gitignored *and* unrebuildable.
+it is gitignored *and* unrebuildable — see [the `.ctxloom` layout
+page](../../layout.md) for the three trees, the wipe costs and the gitignore
+contract that keeps that credential out of git.
 
 **Instances are per SESSION, not per project.** Two concurrent sessions in one
 checkout get two homes — isolation the in-tree axis did not have while the home

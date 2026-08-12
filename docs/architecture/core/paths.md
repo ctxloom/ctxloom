@@ -1,17 +1,23 @@
 # internal/paths
 
-`internal/paths` is the single declarative source of truth for ctxloom's on-disk layout: 26
-constants naming every directory and file, and ~37 pure functions joining them under two
+`internal/paths` is the single declarative source of truth for ctxloom's on-disk layout: 36
+constants naming every directory and file, 39 pure functions joining them under two
 roots — the **home root** (`~/.ctxloom/...`, keyed by harp) and a **project app dir**
-(`<appPath>/...`, supplied by the caller). It declares no types, performs no writes, and
+(`<appPath>/...`, supplied by the caller) — and the layout classification itself
+(`Tier`, `Entry`, `Layout`). It declares no other types, performs no writes, and
 (with one exception) does no I/O. Its contract is vocabulary: if a path segment appears as a
 string literal anywhere else in the repo, that is a duplication of this package.
+
+The user-facing account of the same layout — what a clone gets, what you may delete, and
+what it costs — is [docs/layout.md](../../layout.md). This page is about the package.
 
 ## Responsibilities
 
 - The layout constants: directory and file names for sessions, config, remotes, lockfile,
-  profiles, agents, content, cache, trust and signing artifacts.
+  profiles, agents, content, cache, local state, per-session engine-home instances, trust
+  and signing artifacts.
 - Path composition functions over those constants.
+- The tier classification (`Tier`, `Entry`, `Layout`) that doctor walks.
 - One resolution with I/O: `ResolveHarpCanonicalTranscriptPath` (current name, else legacy name).
 
 ## Non-responsibilities
@@ -19,48 +25,60 @@ string literal anywhere else in the repo, that is a duplication of this package.
 - Deciding *which* project directory is the root — `internal/projectroot`; see
   [projectroot.md](./projectroot.md).
 - Creating, reading or writing anything at these paths — every caller.
-- Validating that a harp or an `appPath` is real: this package accepts and blesses empty input
-  (see invariant 5).
+- Validating that an `appPath` is real: this package accepts and blesses empty input
+  (see invariant 6). A **harp** is the deliberate exception — `HarpDir`,
+  `SessionStatePath` and `SessionHomePath` validate it, because it becomes a single
+  path component and is user-renameable.
 
 ## The two roots
 
 ```mermaid
 flowchart TD
-    HOME["os.UserHomeDir()"] --> HSD["HomeSessionsDir<br/>~/.ctxloom/sessions<br/>paths.go:162"]
-    HOME --> TCD["TriggerCacheDir<br/>~/.ctxloom/cache/triggers<br/>paths.go:333"]
-    HOME --> HAP["HomeApprovalsPath<br/>~/.ctxloom/approvals<br/>paths.go:369"]
-    HOME --> HASP["HomeAllowedSignersPath :389"]
-    HOME --> HDSP["HomeDistrustedSignersPath :414"]
+    HOME["os.UserHomeDir()"] --> HSD["HomeSessionsDir<br/>~/.ctxloom/sessions"]
+    HOME --> HLD["HomeLogsDir → HomeLogFilePath<br/>~/.ctxloom/logs/ctxloom.log"]
+    HOME --> TCD["TriggerCacheDir<br/>~/.ctxloom/cache/triggers"]
+    HOME --> HAP["HomeApprovalsPath<br/>~/.ctxloom/approvals"]
+    HOME --> HCCP["HomeCompanionConsentPath"]
+    HOME --> HASP["HomeAllowedSignersPath"]
+    HOME --> HDSP["HomeDistrustedSignersPath"]
 
-    HSD --> SIP["SessionIndexPath<br/>index.yaml :172"]
-    HSD --> HD["HarpDir(harp) :182"]
-    HD --> HEP["HarpEssencePath<br/>essence.md :192"]
-    HD --> HED["HarpEphemeralDir<br/>ephemeral/ :202"]
-    HD --> HPD["HarpPersistDir<br/>persist/ :212"]
-    HPD --> HTSD["HarpTranscriptStoreDir<br/>persist/transcripts/ :223"]
-    HPD --> HCTP["HarpCanonicalTranscriptPath<br/>persist/transcript.jsonl :244"]
-    HCTP --> RES["ResolveHarpCanonicalTranscriptPath :280<br/>(the only I/O: 2x os.Stat)"]
+    HSD --> SIP["SessionIndexPath<br/>index.yaml"]
+    HSD --> HD["HarpDir(harp)"]
+    HD --> HEP["HarpEssencePath<br/>essence.md"]
+    HD --> HED["HarpEphemeralDir<br/>ephemeral/"]
+    HD --> HPD["HarpPersistDir<br/>persist/"]
+    HPD --> HTSD["HarpTranscriptStoreDir<br/>persist/transcripts/"]
+    HPD --> HCTP["HarpCanonicalTranscriptPath<br/>persist/transcript.jsonl"]
+    HCTP --> RES["ResolveHarpCanonicalTranscriptPath<br/>(the only I/O: 2x os.Stat)"]
 
-    AP["appPath (caller-supplied)"] --> CP["ConfigPath config.yaml :348"]
-    AP --> RP["RemotesPath remotes.yaml :353"]
-    AP --> LKP["LockPath lock.yaml :423"]
-    AP --> PP["ProfilesPath profiles/ :428"]
-    AP --> AGP["AgentsPath agents/ :434"]
-    AP --> APP["ApprovalsPath approvals/ :362"]
-    AP --> ASP["AllowedSignersPath :382"]
-    AP --> DSP["DistrustedSignersPath :407"]
+    AP["appPath (caller-supplied)"] --> CP["ConfigPath config.yaml"]
+    AP --> RP["RemotesPath remotes.yaml"]
+    AP --> LKP["LockPath lock.yaml"]
+    AP --> PP["ProfilesPath profiles/"]
+    AP --> AGP["AgentsPath agents/"]
+    AP --> APP["ApprovalsPath approvals/"]
+    AP --> ASP["AllowedSignersPath"]
+    AP --> DSP["DistrustedSignersPath"]
 
-    AP --> LP["LocalPath<br/>content/ :454"]
-    LP --> LBP["LocalBundlesPath<br/>content/bundles :463"]
+    AP --> LP["LocalPath<br/>content/"]
+    LP --> LBP["LocalBundlesPath<br/>content/bundles"]
 
-    AP --> GCD["GetCacheDir<br/>cache/ :343"]
-    GCD --> CBP["CacheBundlesPath<br/>cache/bundles :447"]
-    GCD --> RCP["ReposCachePath<br/>cache/repos :483"]
+    AP --> GCD["CachePath<br/>cache/"]
+    GCD --> CBP["CacheBundlesPath<br/>cache/bundles"]
+    GCD --> RCP["ReposCachePath<br/>cache/repos"]
+    GCD --> RAP["RefusedAdvancesPath<br/>cache/refused_advances.yaml"]
+    GCD --> CTX["cache/context (ContextCacheDir)<br/>agent.WriteContextFile"]
     GCD --> LTOP["LegacyTrustObjectsPath<br/>cache/trust/objects (migration source only)"]
+
+    AP --> PID[".ctxloom/project-id<br/>(ProjectIDFileName)"]
+    AP --> PSD["ProjectSessionsDir<br/>sessions/"]
 
     AP --> SP["StatePath<br/>state/"]
     SP --> TOP["TrustObjectsPath<br/>state/trust/objects"]
     SP --> LKD["LocksPath<br/>state/locks/"]
+    SP --> DTA["DirtyTreeCommitAckPath<br/>state/dirty_tree_commit_ack.yaml"]
+    SP --> SSP["SessionStatePath(harp)<br/>state/&lt;harp&gt;"]
+    SSP --> SHP["SessionHomePath(harp)<br/>state/&lt;harp&gt;/home"]
 
     subgraph committed["COMMITTED · authored"]
       LP
@@ -70,126 +88,165 @@ flowchart TD
       LKP
       PP
       AGP
+      APP
+      ASP
+      DSP
     end
-    subgraph derived["DERIVED · gitignored"]
+    subgraph derived["DERIVED · gitignored (except lock.yaml)"]
       GCD
       CBP
       RCP
+      RAP
+      CTX
     end
     subgraph localstate["LOCAL · gitignored, nothing rebuilds it"]
       SP
       TOP
       LKD
+      DTA
+      PID
+      PSD
+    end
+    subgraph instance["PER-SESSION INSTANCE · disposable, no Layout row"]
+      SSP
+      SHP
     end
 ```
 
 ## Constant groups
 
-Three disjoint vocabularies share one file; only `AppDirName` and `CacheDir` cross groups.
+Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 
 | Group | Constants |
 |---|---|
-| Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName` |
-| Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix` |
-| Trust / signing | `TrustFileName`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
+| Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `LogFileName`, `TriggersDir`, `CompanionConsentFileName` |
+| Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `RefusedAdvancesFileName`, `ProjectIDFileName` |
+| Local state tier | `StateDir`, `LocksDir`, `DirtyTreeCommitAckFileName`, `SessionHomeDirName` |
+| Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
 
 ## Key functions
 
 Grouped by root; every function is a pure `filepath.Join` composition except where noted.
-Call-site counts are production-only.
+Caller counts are production-only (`_test.go` excluded) and count call sites outside
+this package.
 
-### Home root (returns `(string, error)` — the error is `os.UserHomeDir`'s, unwrapped)
+### Home root (returns `(string, error)` — the error is `os.UserHomeDir`'s, wrapped)
 
-| Function | file:line | Path | Prod callers |
-|---|---|---|---|
-| `HomeSessionsDir` | `paths.go:162` | `~/.ctxloom/sessions` | 1 |
-| `SessionIndexPath` | `paths.go:172` | `+ index.yaml` | 1 |
-| `HarpDir` | `paths.go:182` | `+ <harp>` | 7 |
-| `HarpEssencePath` | `paths.go:192` | `<harp>/essence.md` | 3 |
-| `HarpEphemeralDir` | `paths.go:202` | `<harp>/ephemeral` — regenerable state | 3 |
-| `HarpPersistDir` | `paths.go:212` | `<harp>/persist` — must survive teardown | 2 |
-| `HarpTranscriptStoreDir` | `paths.go:223` | `persist/transcripts` — container bind target | 2 |
-| `HarpCanonicalTranscriptPath` | `paths.go:244` | `persist/transcript.jsonl` — the canonical write target | 4 |
-| `ResolveHarpCanonicalTranscriptPath` | `paths.go:280` | Stats the current name, falls back to `persist/transcript.acp.jsonl`, else returns the current name. **The only function here that touches the filesystem.** | 3 |
-| `HomeApprovalsPath` | `paths.go:369` | `~/.ctxloom/approvals` — the user countersignature store | 2 |
-| `HomeAllowedSignersPath` | `paths.go:389` | `~/.ctxloom/allowed_signers` | 3 |
-| `HomeDistrustedSignersPath` | `paths.go:414` | `~/.ctxloom/distrusted_signers` | 2 |
-| `TriggerCacheDir` | `paths.go:333` | `~/.ctxloom/cache/triggers` | 1 |
+| Function | Path | Prod callers |
+|---|---|---|
+| `HomeSessionsDir` | `~/.ctxloom/sessions` | 6 |
+| `HomeLogsDir` | `~/.ctxloom/logs` | 0 (feeds `HomeLogFilePath`) |
+| `HomeLogFilePath` | `~/.ctxloom/logs/ctxloom.log` | 1 |
+| `SessionIndexPath` | `+ index.yaml` | 1 |
+| `HarpDir` | `+ <harp>` — **validates the harp** | 9 |
+| `HarpEssencePath` | `<harp>/essence.md` | 4 |
+| `HarpEphemeralDir` | `<harp>/ephemeral` — regenerable state, incl. per-agent worktree scratch | 4 |
+| `HarpPersistDir` | `<harp>/persist` — must survive teardown | 2 |
+| `HarpTranscriptStoreDir` | `persist/transcripts` — container bind target | 2 |
+| `HarpCanonicalTranscriptPath` | `persist/transcript.jsonl` — the canonical write target | 6 |
+| `ResolveHarpCanonicalTranscriptPath` | Stats the current name, falls back to `persist/transcript.acp.jsonl`, else returns the current name. **The only function here that touches the filesystem.** | 5 |
+| `HomeApprovalsPath` | `~/.ctxloom/approvals` — the user countersignature store | 2 |
+| `HomeCompanionConsentPath` | `~/.ctxloom/companion_consent.yaml` — personal-only, no project twin | 1 |
+| `HomeAllowedSignersPath` | `~/.ctxloom/allowed_signers` | 4 |
+| `HomeDistrustedSignersPath` | `~/.ctxloom/distrusted_signers` | 1 |
+| `TriggerCacheDir` | `~/.ctxloom/cache/triggers` | 1 |
 
-### Project app dir (pure, no error return)
+### Project app dir (pure, no error return unless noted)
 
-| Function | file:line | Path | Prod callers |
-|---|---|---|---|
-| `ConfigPath` | `paths.go:348` | `<appPath>/config.yaml` | 8 |
-| `RemotesPath` | `paths.go:353` | `<appPath>/remotes.yaml` | 10 |
-| `LockPath` | `paths.go:423` | `<appPath>/lock.yaml` | 0 (re-implemented in `internal/remote/lockfile.go:20,62`) |
-| `ProfilesPath` | `paths.go:428` | `<appPath>/profiles` | 5 |
-| `AgentsPath` | `paths.go:434` | `<appPath>/agents` — local-only agent definitions | 1 |
-| `ApprovalsPath` | `paths.go:362` | `<appPath>/approvals` — the project countersignature store | 2 |
-| `AllowedSignersPath` | `paths.go:382` | `<appPath>/allowed_signers` | 3 |
-| `DistrustedSignersPath` | `paths.go:407` | `<appPath>/distrusted_signers` | 2 |
-| `LocalPath` | `paths.go:454` | `<appPath>/content` — committed content root | 2 |
-| `LocalBundlesPath` | `paths.go:463` | `<appPath>/content/bundles` — authored bundles | 11 |
-| `GetCacheDir` | `paths.go:343` | `<appPath>/cache` | 6 in-package |
-| `CacheBundlesPath` | `paths.go:447` | `<appPath>/cache/bundles` — pulled remote copies | 3 |
-| `ReposCachePath` | `paths.go:483` | `<appPath>/cache/repos` — git clone cache | 3 |
-| `TrustObjectsPath` | `paths.TrustObjectsPath` | `<appPath>/state/trust/objects` — review snapshots | 2 |
-| `LegacyTrustObjectsPath` | `paths.LegacyTrustObjectsPath` | `<appPath>/cache/trust/objects` — the retired location, read only by the one-time migration | 1 |
-| `LocksPath` | `paths.LocksPath` | `<appPath>/state/locks` — advisory lock sidecars; the protected-path→lock-name mapping is `filelock.ProjectPathFor` | 1 |
-| `ProjectSessionsDir` | `paths.go:303` | `<appDir>/sessions`, else cwd-derived, else a bare relative path | 6 |
-| `DefaultRemotesPath` | `paths.go:502` | `RemotesPath(AppDirName)` | 1 (`internal/remote/registry.go:43`) |
+| Function | Path | Prod callers |
+|---|---|---|
+| `ConfigPath` | `<appPath>/config.yaml` | 11 |
+| `RemotesPath` | `<appPath>/remotes.yaml` | 6 |
+| `LockPath` | `<appPath>/lock.yaml` | 3 |
+| `ProfilesPath` | `<appPath>/profiles` | 4 |
+| `AgentsPath` | `<appPath>/agents` — local-only agent definitions | 1 |
+| `ApprovalsPath` | `<appPath>/approvals` — the project countersignature store | 2 |
+| `AllowedSignersPath` | `<appPath>/allowed_signers` | 3 |
+| `DistrustedSignersPath` | `<appPath>/distrusted_signers` | 1 |
+| `LocalPath` | `<appPath>/content` — committed content root | 2 |
+| `LocalBundlesPath` | `<appPath>/content/bundles` — authored bundles | 12 |
+| `CachePath` | `<appPath>/cache` | 0 outside the package (6 in-package) |
+| `CacheBundlesPath` | `<appPath>/cache/bundles` — pulled remote copies | 5 |
+| `ReposCachePath` | `<appPath>/cache/repos` — git clone cache | 3 |
+| `RefusedAdvancesPath` | `<appPath>/cache/refused_advances.yaml` — what the last `deps upgrade` declined | 1 |
+| `StatePath` | `<appPath>/state` — the third tier | 2 |
+| `TrustObjectsPath` | `<appPath>/state/trust/objects` — review snapshots | 1 |
+| `LegacyTrustObjectsPath` | `<appPath>/cache/trust/objects` — the retired location, read only by the one-time migration | 1 |
+| `LocksPath` | `<appPath>/state/locks` — advisory lock sidecars; the protected-path→lock-name mapping is `filelock.ProjectPathFor` | 1 |
+| `DirtyTreeCommitAckPath` | `<appPath>/state/dirty_tree_commit_ack.yaml` | 2 |
+| `SessionStatePath` | `<appPath>/state/<harp>` — **validates the harp**, returns an error | 1 |
+| `SessionHomePath` | `<appPath>/state/<harp>/home` — the per-session engine config-home instance; returns an error | 4 |
+| `ProjectSessionsDir` | `<appDir>/sessions`, else cwd-derived, else a bare relative path | 4 |
+| `DefaultRemotesPath` | `RemotesPath(AppDirName)` | 1 |
 
-Dead in production: `HarpPlanPath` (`:317`), `VendorPath` (`:468`), `ContextPath` (`:473`),
-`MemoryPath` (`:478`), `DefaultAppDir` (`:497`), `DefaultLockPath` (`:507`),
-`DefaultVendorPath` (`:512`).
+### Classification
+
+`Tier` (`TierCommitted` / `TierDerived` / `TierLocal`), `Entry` and `Layout()` classify
+every path this tree's own writers produce, each appearing exactly once. `Layout` is read
+by doctor's local-tier check (`cli.doctorCheckLocalTierState`), which reports any absent
+`TierLocal` path using that entry's `Lost` text.
 
 ## Invariants
 
-1. **`content/` is committed and authored; `cache/` is derived and gitignored.** `LocalPath` and
-   `LocalBundlesPath` (`:454,:463`) name the tree a project commits — authored bundles, and
-   alongside them `config.yaml`, `remotes.yaml`, `lock.yaml`, `profiles/`, `agents/`.
-   `GetCacheDir` and everything under it (`:343,:447,:483,:492`) names regenerable state: pulled
-   remote bundle copies, git clones, trust snapshots. Deleting `cache/` must lose nothing that is
-   not recoverable by `ctxloom deps pull` / `sync`.
-2. **`CacheBundlesPath` is never a bundle *search* dir.** Authored bundles are read only from
-   `content/bundles` (`config.GetBundleDirs`, `internal/config/config.go:1632`); authored YAML found
-   under `cache/bundles` raises a fatal migration finding. The doc comment on `CacheBundlesPath`
-   (`:447`) is a deliberate warning against exactly that confusion.
-3. **`ephemeral/` vs `persist/` is the container teardown boundary.** `HarpEphemeralDir` holds state
-   that may vanish when a cell is torn down; `HarpPersistDir` holds state that must not, including
-   the canonical transcript.
-4. **The countersignature stores are a user/project pair**: `HomeApprovalsPath` (`:369`) and
-   `ApprovalsPath` (`:362`). `internal/operations.buildCountersignRecords` reads their union.
-5. **Every function accepts empty input and returns a plausible, wrong path.** `HarpDir("")` is the
-   sessions root itself; `ConfigPath("")` is the cwd-relative `"config.yaml"`; `GetCacheDir("")` is
-   `"cache"`. No function validates a harp or an `appPath` — that invariant is enforced (unevenly)
-   at roughly 17 downstream call sites instead.
-6. **No writes.** Nothing in this package creates a directory or a file.
+1. **Three tiers, told apart by what a fresh clone gets.** `content/` (`LocalPath`,
+   `LocalBundlesPath`) is committed and authored, alongside `config.yaml`, `remotes.yaml`,
+   `lock.yaml`, `profiles/`, `agents/`, `approvals/` and the signer files. `cache/`
+   (`CachePath` and everything under it) is derived: deleting it must lose nothing that a
+   named command cannot rebuild. `state/` (`StatePath`) is local-only and gitignored, and
+   **nothing rebuilds it** — that, not gitignore status, is what earns a path a place there
+   rather than in `cache/` (`Tier`'s doc).
+2. **`TierDerived` is about rebuildability, not about git.** `lock.yaml` is derived
+   (`ctxloom remote lock`) *and* committed, deliberately: a lockfile the next clone does not
+   receive pins nothing.
+3. **`CacheBundlesPath` is never a bundle *search* dir.** Authored bundles are read only from
+   `content/bundles` (`config.Config.GetBundleDirs`); authored YAML found under
+   `cache/bundles` raises a fatal migration finding. `CacheBundlesPath`'s doc comment is a
+   deliberate warning against exactly that confusion.
+4. **`ephemeral/` vs `persist/` is the container teardown boundary.** `HarpEphemeralDir` holds state
+   that may vanish when a cell is torn down (including the worktree axis's per-agent config
+   homes); `HarpPersistDir` holds state that must not, including the canonical transcript.
+5. **The countersignature stores are a user/project pair**: `HomeApprovalsPath` and
+   `ApprovalsPath`. `internal/operations`' countersign-record builder reads their union.
+6. **Every function accepts an empty `appPath` and returns a plausible, wrong path.**
+   `ConfigPath("")` is the cwd-relative `"config.yaml"`; `CachePath("")` is `"cache"`. The
+   harp-keyed functions are the exception: `HarpDir`, `SessionStatePath` and
+   `SessionHomePath` reject an empty or traversing harp rather than falling back to a
+   shared path.
+7. **A per-session instance gets no `Layout` row.** `Layout` enumerates paths whose ABSENCE
+   doctor reports, and `state/<harp>` is created at session start and removed at session
+   end, so its absence is the normal case. `TestArch_LayoutHasNoHarpKeyedRows` (and its
+   in-package twin `TestLayout_HasNoHarpKeyedRows`) keep that true.
+8. **No writes.** Nothing in this package creates a directory or a file.
 
 ## Boundaries
 
-- **Imports:** nothing internal. This is a leaf package.
-- **Imported by:** 15 internal packages — `config` and `operations` for project artifacts;
-  `sessions`, `memory`, `transcript`, `lm/isolation`, `lm/grpc`, `agentcoord/coord` and `cli` for
-  per-harp session state.
+- **Imports:** two shared leaves only — `internal/shared/harp` (harp validation) and
+  `internal/shared/clidiag` (the one warning `ProjectSessionsDir` emits).
+- **Imported by:** 23 internal packages plus `cmd/validate` — `config` and `operations` for
+  project artifacts; `sessions`, `memory`, `transcript`, `lm/isolation`, `lm/grpc`,
+  `agentcoord/coord` and `cli` for per-harp session state; `claude`, `codex` and `kiro` for
+  the per-session engine-home instance.
 
 ## Where documented and real behavior diverge
 
-- The layout vocabulary is **not exclusive**. Four places re-derive paths this package owns:
-  `internal/shared/tasks/paths` aliases `AppDirName` onto this package but declares its own
-  `IndexFileName` — which is NOT a duplication to collapse, since the two name different files
-  (`sessions/index.yaml` versus `projects/index.yaml`) that independently took the conventional
-  name for an index;
-  `internal/shared/plans` re-declares the sessions dir and `.plan.md`;
-  `internal/remote/lockfile.go:20,62` re-implements `LockPath`; and
-  `internal/shared/agent/contextfile.go:21` hardcodes `".ctxloom/cache/context"` rather than calling
-  `ContextPath`. `internal/remote/reference.go:501` re-derives `CacheBundlesPath` by hand.
+- The layout vocabulary is **not exclusive**. `internal/shared/tasks/paths` aliases
+  `AppDirName` onto this package but declares its own `IndexFileName` — which is NOT a
+  duplication to collapse, since the two name different files (`sessions/index.yaml` versus
+  `projects/index.yaml`) that independently took the conventional name for an index. It
+  also owns the `project-id` marker leaf (`tasks/paths.ProjectMarkerPath`) while this
+  package declares `ProjectIDFileName` for `Layout`'s benefit — two declarations of one
+  name, kept in step by `TestPathSegments_ComeFromNamedConstants`.
 - `ProjectSessionsDir` still returns a **relative** path when `os.Getwd()` fails — degrading is
   correct, since an unanchorable sessions dir must not block startup — but the fallback is no
   longer silent: it warns that the path it returned is resolved by the caller's working directory
   rather than anchored.
 - Every function still accepts an empty `appPath` and composes a cwd-relative path from it (see
-  invariant 5). No production caller can currently reach that: `config.findAppDir` and
+  invariant 6). No production caller can currently reach that: `config.findAppDir` and
   `cli.resolveAppDir` cannot return an empty string, and the three callers that accept one
   substitute `AppDirName` themselves (`operations.getBaseDir`, `remote.NewLockfileManager`,
   `cli.projectConfigPath`) — a default duplicated at each site and owned by none of them.
+- **`project-id` is the one classified path still at the `.ctxloom` root** rather than under
+  `state/`, where its tier says it belongs. A move to `state/project-id` (with a read
+  fallback and a one-time migration) is decided but unimplemented; `Layout` and
+  `gitignore.PrivateStatePatterns` both name the root path, which is what the code resolves
+  today.

@@ -18,25 +18,28 @@ Feature: One shared profile, reaching three engines in their own native format
     | engine      | context lands in                                          | MCP lands in                              | hooks land in                | commands land in                   |
     |-------------|-------------------------------------------------------------|----------------------------------------------|-------------------------------|--------------------------------------|
     | claude-code | CLAUDE.md (managed markers)                                | .mcp.json                                   | .claude/settings.json          | .claude/commands/                    |
-    | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | $CODEX_HOME/config.toml [hooks] | $CODEX_HOME/prompts/ (global)         |
+    | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | $CODEX_HOME/config.toml [hooks] — per-session only | $CODEX_HOME/prompts/ (global) — per-session only |
     | kiro        | .kiro/steering/ctxloom-context.md                          | .kiro/settings/mcp.json                     | .kiro/agents/<name>.json        | .kiro/skills/<name>/SKILL.md         |
 
   codex's rows name $CODEX_HOME rather than a project-root .codex, and that is
-  the second divergence worth stating: codex is the one engine whose config
-  home ctxloom RELOCATES, to
-  <WorkDir>/.codex (codex.ProjectHome, the HARPLESS static path — the
-  uniform engine-home policy). Its cwd-keyed surface, AGENTS.md, stays at the
-  project root where codex natively reads it; the home-keyed ones move.
+  the second divergence worth stating: codex is the ONE engine with no
+  cwd-keyed place for its hooks, MCP servers and prompts at all. They live in
+  $CODEX_HOME/config.toml and $CODEX_HOME/prompts, and the only $CODEX_HOME
+  ctxloom may write is a PER-SESSION one it creates when an agent launches.
+  Alice's real ~/.codex is hers; ctxloom does not write it.
 
-  codex still has NO native MCP file of its own — MCP folds into that same
-  config.toml, the file that carries its hooks. Its context surface
-  is the one that used to be the honest gap this feature existed to show: codex
-  now writes AGENTS.md natively too (managed-section markers, taskloom
-  lanky-plop/tiny-ooze), alongside the SessionStart-hook cache file the live
-  run/launch path still needs for its per-invocation content hash. Proving
-  Alice's bytes were WRITTEN in each engine's own shape is NOT the same claim as
-  proving any engine READ them — that is what the second, much smaller table
-  below exists to prove, for the engines where it can honestly be proven today.
+  So `profile materialize --backend codex` is NARROWED rather than gutted, and
+  the third scenario below is where that is proven: codex's cwd-keyed surface,
+  AGENTS.md, is materialized exactly like everyone else's context, while the
+  three home-keyed surfaces are DECLARED as delivered per-session at launch and
+  land in the materialized tree nowhere at all. An absence a report states is a
+  fact a team can plan around; an absence nothing mentions is the same tree with
+  a lie on top of it.
+
+  Proving Alice's bytes were WRITTEN in each engine's own shape is NOT the same
+  claim as proving any engine READ them — that is what the second, much smaller
+  table below exists to prove, for the engines where it can honestly be proven
+  today.
 
   # THE UNIQUE CLAIM HERE IS THE FAN-OUT, and it is the reason this outline
   # survives alongside four specs that each look stronger than it in isolation.
@@ -71,7 +74,27 @@ Feature: One shared profile, reaching three engines in their own native format
       | engine      |
       | claude-code |
       | kiro        |
-      | codex       |
+
+  # codex is the THIRD engine of the fan-out and it gets its own scenario, not
+  # a row, because its answer is genuinely different: one surface materializes
+  # and three are DECLARED as launch-only. Keeping it as a row would have meant
+  # either asserting files the product deliberately does not write, or quietly
+  # dropping codex from the journey — and dropping it is how a narrowing
+  # becomes a regression nobody notices.
+  #
+  # ABSENCE OVER THE WHOLE TREE, never "the file I guessed is missing": the
+  # interesting failure is a fallback landing somewhere nobody thought to look,
+  # which a single-path check cannot see. And the REPORT is asserted alongside,
+  # because a narrowing a user is not told about is indistinguishable from a
+  # loss.
+  Scenario: codex materializes its native context, and declares the three surfaces it delivers at launch instead
+    Given Carol's team profile carries a shared fragment, command, MCP server, and hook
+    When Alice materializes the team profile for codex
+    Then the materialized codex context carries the shared fragment's marker, in its own native shape
+    And no codex surface anywhere in the materialized tree carries the shared hook's command
+    And no codex surface anywhere in the materialized tree carries the shared MCP server's command
+    And no codex surface anywhere in the materialized tree carries the shared command's body
+    And the materialize report says codex delivers those surfaces per-session at launch
 
   # Regression coverage for taskloom lanky-plop (P0 data loss): materializing a
   # profile for claude-code/codex must never destroy a team's hand-authored

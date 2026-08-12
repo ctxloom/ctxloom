@@ -53,6 +53,9 @@ func hostCodexHome() (string, error) {
 // to go. The answer is that they do not go anywhere — see surfaces.go's
 // deliveryHome, which refuses and says so.
 //
+// Also read by internal/cli's DOCTOR-CHECK-CODEXHOME-n4, which REPORTS both
+// homes: reading the real home is always permitted, only writing it is not.
+//
 // Conservative by construction: anything it cannot resolve reports false, so a
 // machine with no resolvable home directory degrades to writing a path that is
 // definitionally not the user's real home rather than to refusing every write.
@@ -75,25 +78,18 @@ func cleanCodexPath(p string) string {
 }
 
 // GlobalHome returns codex's home resolution with NO workDir context —
-// codexHome()'s own precedence ($CODEX_HOME, else ~/.codex) — exported for
-// the codex descriptor's hookGlobalScopePaths (comfy-lion: the codex
-// analog of prim-guy's claude $HOME-collision guard).
+// codexHome()'s own precedence ($CODEX_HOME, else ~/.codex).
+//
+// This is what codex reads for a run that keeps its own home: no agent
+// binding, an undeclared one, or an explicit `config_home: host` (D2). It is
+// therefore the home internal/cli's DOCTOR-CHECK-CODEXHOME-n4 reports as the
+// host truth.
+//
+// ProjectHome, its former sibling, is DELETED with S7: there is no project-root
+// codex home. Its one production reader was the codex descriptor's
+// hookGlobalScopePaths $HOME-collision guard, which the declared absence
+// retires — a surface that writes nothing cannot collide with anything.
 func GlobalHome() (string, error) { return codexHome() }
-
-// ProjectHome returns the project-root codex home the HARPLESS static
-// apply/materialize path targets for workDir — <workDir>/.codex — exported for
-// the same external collision check as GlobalHome.
-//
-// S7 INTERIM, see CodexHookWriter.SettingsPath: the run path no longer resolves
-// here at all. A run's CODEX_HOME is either a per-session instance
-// (SessionHome, under `config_home: project`) or the user's real ~/.codex, and
-// neither has a harpless spelling. This join is what the static writers shared
-// before the retired durable per-project home existed.
-//
-// The collision it guards (workDir == $HOME making the project home resolve
-// onto codex's global one — $HOME/.codex both ways) is REACHABLE again with
-// this shape, which is precisely why the guard is wired.
-func ProjectHome(workDir string) string { return cellScopedCodexHome(workDir) }
 
 // codexPromptFile maps one command export to its Codex prompt file: a flat
 // `<name>.md` (slashes flattened to dashes, since Codex scans only top-level

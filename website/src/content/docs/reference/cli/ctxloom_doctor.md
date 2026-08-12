@@ -23,7 +23,10 @@ codex-acp) each configured claude-code/codex engine needs for HOST-runtime
 structured chat is present; whether every configured agent resolves (profile
 composition + engine/runtime) and the roster is non-empty; the seeded
 dependency lockfile parses and a real context assembly succeeds; hooks AND
-MCP registration per configured backend; the trust store's signers;
+MCP registration per configured backend; where codex's home-keyed surfaces
+actually live, since it is the one engine with no durable project copy of
+them (your real ~/.codex, plus the most recent per-session instance if one is
+on disk, labelled with its harp and age); the trust store's signers;
 companion detection + loadout probing (taskloom/ltk/...); every
 paths.TierLocal path (internal/paths.Layout) this checkout is missing — the
 local-only state (the dirty-tree-commit acknowledgement, the task-log

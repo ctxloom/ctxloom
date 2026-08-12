@@ -186,6 +186,14 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// Reported, not fatal: the rest of the tree is still worth having, and the
 	// decision to ship it anyway belongs to whoever now knows.
 	res.NotCarried = backends.UncarriedSurfaces(backend, inputs)
+	// The OTHER half of the same report, for the other kind of absence: a
+	// surface this engine delivers only at launch, into a per-session engine
+	// home, which THIS harpless call has no way to name (codex — see
+	// backends.LaunchOnlySurfaces and internal/codex/declared_absence.go). The
+	// surfaces themselves skip and warn; without this line the structured
+	// result would list four true "wrote" entries and stay silent about the
+	// settings, MCP servers, prompts and skills that went nowhere.
+	res.NotCarried = append(res.NotCarried, backends.LaunchOnlySurfaces(backend, inputs)...)
 
 	// Materialize delivers EVERY native surface (the full opt-in selection). Fail
 	// loud, fail early (CLAUDE.md): each surface is attempted and each write failure

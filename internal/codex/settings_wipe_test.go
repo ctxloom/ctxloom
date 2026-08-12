@@ -19,11 +19,11 @@ import (
 func TestWriteSettings_UnparseableConfigIsNotWipedOut(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &CodexHookWriter{FS: fs}
-	path := w.SettingsPath("/proj")
+	path := w.settingsPathIn("/proj")
 	original := "this is [not valid toml at all\n"
 	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0o644))
 
-	err := w.WriteSettingsWithTrust(&wire.HooksConfig{}, nil, nil, "/proj", "")
+	err := w.writeSettingsIn(&wire.HooksConfig{}, nil, nil, "/proj", "")
 	assert.Error(t, err, "writing an empty table over a real config.toml must be refused")
 
 	data, rerr := afero.ReadFile(fs, path)
@@ -41,22 +41,22 @@ type statErrFs struct {
 
 func (f statErrFs) Stat(string) (os.FileInfo, error) { return nil, f.err }
 
-// An UNREADABLE config.toml must not be reported as an ABSENT one.
-// RemoveSettings returning nil there claims to have removed ctxloom's hooks and
-// MCP servers from a file it never opened, and Status reports the engine as
-// unconfigured — both are answers about a file nobody could look at.
+// An UNREADABLE config.toml must not be reported as an ABSENT one. Returning
+// nil there claims to have removed ctxloom's hooks and MCP servers from a file
+// nobody could open.
+//
+// This is asserted on the RESOLVED-home revert (removeSettingsIn, the one a
+// delivery handle's Cleanup calls), which is the only path that reads a
+// config.toml at all. Its harpless sibling, RemoveSettings, cannot reach this
+// case: it opens no file, because there is none to open (declared_absence.go),
+// and its own behaviour is pinned in TestRemoveSettings_SaysNothingToRemove.
 func TestSettings_UnreadableConfigIsNotReportedAsAbsent(t *testing.T) {
 	fs := statErrFs{Fs: afero.NewMemMapFs(), err: fs.ErrPermission}
 	w := &CodexHookWriter{FS: fs}
 
-	err := w.RemoveSettings("/proj")
+	err := w.removeSettingsIn("/proj")
 	require.Error(t, err, "an unreadable config.toml is not a clean removal")
 	assert.ErrorIs(t, err, os.ErrPermission)
-
-	status, err := w.Status("/proj")
-	require.Error(t, err, "an unreadable config.toml is not 'not configured'")
-	assert.ErrorIs(t, err, os.ErrPermission)
-	assert.False(t, status.SettingsExists)
 }
 
 // A genuine removal still empties the file: stripping ctxloom's own keys from
@@ -64,11 +64,11 @@ func TestSettings_UnreadableConfigIsNotReportedAsAbsent(t *testing.T) {
 func TestRemoveSettings_MayLegitimatelyEmptyTheFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &CodexHookWriter{FS: fs}
-	path := w.SettingsPath("/proj")
-	require.NoError(t, w.WriteSettingsWithTrust(&wire.HooksConfig{}, &wire.MCPConfig{
+	path := w.settingsPathIn("/proj")
+	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, &wire.MCPConfig{
 		Servers: map[string]wire.MCPServer{"ctxloom": {Command: "ctxloom", Args: []string{"mcp"}}},
 	}, nil, "/proj", ""))
-	require.NoError(t, w.RemoveSettings("/proj"))
+	require.NoError(t, w.removeSettingsIn("/proj"))
 
 	data, rerr := afero.ReadFile(fs, path)
 	require.NoError(t, rerr)

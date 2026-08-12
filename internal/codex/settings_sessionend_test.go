@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -25,13 +24,13 @@ func TestWriteSettings_SessionEndIsAnnounced(t *testing.T) {
 	defer restore()
 
 	fs := afero.NewMemMapFs()
-	w := NewWriter(agent.SettingsOptions{FS: fs})
+	w := &CodexHookWriter{FS: fs}
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
 		SessionEnd:   []wire.Hook{{Command: "ctxloom hook wrap-up"}},
 	}}
 
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
 
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	hookTbl := asMap(cfg["hooks"])
@@ -52,11 +51,11 @@ func TestWriteSettings_NoSessionEndNoWarning(t *testing.T) {
 	defer restore()
 
 	fs := afero.NewMemMapFs()
-	w := NewWriter(agent.SettingsOptions{FS: fs})
+	w := &CodexHookWriter{FS: fs}
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
 	}}
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
 
 	assert.NotContains(t, strings.ToLower(buf.String()), "session_end")
 }

@@ -94,6 +94,82 @@ func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss 
 	return unsupportedHookKindLosses(d, *in.Hooks)
 }
 
+// LaunchOnlySurfaces is UncarriedSurfaces' sibling for the STATIC path: the
+// parts of a run's assembled loadout the named backend delivers ONLY at launch,
+// into a per-session engine home, and which a HARPLESS caller (`ctxloom profile
+// materialize`, `ctxloom manage install`, a hooks apply outside a run)
+// therefore cannot write anywhere (agentDescriptor.launchOnlySettingsReason —
+// codex, and only codex).
+//
+// THE TWO ARE NOT INTERCHANGEABLE and must not be merged. UncarriedSurfaces
+// answers "what can this ENGINE never carry" — a fact about the engine, true
+// for every caller, which is why `agent show` may report it about a binding it
+// will never materialize. This answers "what can a HARPLESS caller not write" —
+// a fact about the CALLER. Folding this into UncarriedSurfaces would make
+// `agent show` tell a user their codex agent loses its hooks, when an agent
+// declaring `config_home: project` receives every one of them at launch.
+//
+// Same "only when it costs something" rule as its sibling: a surface the inputs
+// do not carry is reported nowhere. Losses come out in a fixed order (settings,
+// MCP, commands, skills) so the report can be diffed.
+func LaunchOnlySurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss {
+	d, ok := descriptors[name]
+	if !ok || d.launchOnlySettingsReason == "" {
+		return nil
+	}
+	var losses []agent.SurfaceLoss
+	add := func(surface, detail string) {
+		if detail == "" {
+			return
+		}
+		losses = append(losses, agent.SurfaceLoss{Surface: surface, Detail: detail, Reason: d.launchOnlySettingsReason})
+	}
+	if in.Hooks != nil {
+		// droppedHookDetail names the events in the user's own config
+		// vocabulary — reused verbatim, because "which hooks did not land" is
+		// the same question here as it is for a hookless backend.
+		add("hooks", droppedHookDetail(name, *in.Hooks))
+	}
+	add("mcp", managedMCPDetail(name, in))
+	if n := len(in.Commands); n > 0 {
+		add("commands", fmt.Sprintf("%d command file(s)", n))
+	}
+	if n := len(in.Skills); n > 0 {
+		add("skills", fmt.Sprintf("%d skill package(s)", n))
+	}
+	return losses
+}
+
+// LaunchOnlySettingsReason returns the named backend's declared launch-only
+// clause, or "" when it has none. It is the read for a caller that wants the
+// SENTENCE without assembling any inputs — doctor's codex-home report.
+func LaunchOnlySettingsReason(name string) string {
+	d, ok := descriptors[name]
+	if !ok {
+		return ""
+	}
+	return d.launchOnlySettingsReason
+}
+
+// managedMCPDetail counts the MCP servers a delivery for name would have
+// registered: ctxloom's own auto-registered entry (the one whose absence costs
+// the user every ctxloom tool, so it is counted even though nobody wrote it
+// into a config by hand), plus bundle servers, plus configured ones, plus this
+// backend's native passthrough set. "" when there are none at all.
+func managedMCPDetail(name string, in agent.SurfaceInputs) string {
+	n := len(in.BundleMCP)
+	if in.MCP != nil {
+		n += len(in.MCP.Servers) + len(in.MCP.Plugins[name])
+	}
+	if in.MCP == nil || in.MCP.ShouldAutoRegisterCtxloom() {
+		n++
+	}
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d MCP server(s), including ctxloom's own", n)
+}
+
 // unsupportedHookKindLosses reports, for a backend that carries hooks
 // generally but declares specific unified KINDS it has no native event for
 // (agentDescriptor.unsupportedHookKinds), the ones the inputs actually

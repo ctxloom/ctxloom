@@ -12,13 +12,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// codexConfigPath is the config.toml a STATIC write for projectDir lands at.
-// Resolved through the writer itself rather than re-spelled, so these tests
-// follow the engine-home policy's single owner (internal/codex.ProjectHome) the
-// same way production does — a test carrying its own copy of the path is
-// exactly how the run-path/static-path split went unnoticed.
-func codexConfigPath(projectDir string) string {
-	return (&CodexHookWriter{}).SettingsPath(projectDir)
+// codexConfigPath is the config.toml a write into the RESOLVED codex home
+// codexHome lands at. Resolved through the writer itself rather than
+// re-spelled, so these tests follow the same single owner production does — a
+// test carrying its own copy of the path is exactly how the
+// run-path/static-path split went unnoticed.
+//
+// There is deliberately no static/project-root spelling of this: since S7 a
+// harpless caller has no codex home at all (declared_absence.go), and the tests
+// in this file exercise the TOML manipulation, which happens inside a resolved
+// home either way.
+func codexConfigPath(codexHome string) string {
+	return (&CodexHookWriter{}).settingsPathIn(codexHome)
 }
 
 func readConfig(t *testing.T, fs afero.Fs, path string) map[string]any {
@@ -40,7 +45,7 @@ func TestWriteSettings_CompanionHookIdempotent(t *testing.T) {
 	existing := "[hooks]\n[[hooks.PreToolUse]]\nmatcher = 'Bash'\n[[hooks.PreToolUse.hooks]]\ncommand = 'ltk evaluate --config .ltk/config.yaml'\ntype = 'command'\n"
 	require.NoError(t, afero.WriteFile(fs, codexConfigPath("/proj"), []byte(existing), 0644))
 
-	w := NewWriter(agent.SettingsOptions{FS: fs})
+	w := &CodexHookWriter{FS: fs}
 	hooks := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "ltk evaluate", Matcher: "Bash", SCM: "bundle:builtin:ltk"}},
@@ -62,8 +67,8 @@ func TestWriteSettings_CompanionHookIdempotent(t *testing.T) {
 		return
 	}
 
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
 
 	exact, variant := countLtk()
 	assert.Equal(t, 1, exact, "companion hook must not duplicate across re-applies")
@@ -79,7 +84,7 @@ func TestWriteSettings_CompanionHookIdempotent(t *testing.T) {
 // group is removed when PreShell re-adds the same command, leaving only Bash.
 func TestWriteSettings_SameCommandDistinctMatchersCoexist(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	w := NewWriter(agent.SettingsOptions{FS: fs})
+	w := &CodexHookWriter{FS: fs}
 	hooks := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
 			PreTool:  []wire.Hook{{Command: "guard run"}}, // -> PreToolUse, no matcher
@@ -87,8 +92,8 @@ func TestWriteSettings_SameCommandDistinctMatchersCoexist(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
 
 	byMatcher := map[string]int{}
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
@@ -113,7 +118,7 @@ func TestWriteSettings_HooksAndMCP(t *testing.T) {
 	// Pre-existing user config the writer must preserve.
 	require.NoError(t, afero.WriteFile(fs, codexConfigPath("/proj"), []byte("model = \"o3\"\n"), 0644))
 
-	w := NewWriter(agent.SettingsOptions{FS: fs})
+	w := &CodexHookWriter{FS: fs}
 	hooks := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
 			SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
@@ -124,7 +129,7 @@ func TestWriteSettings_HooksAndMCP(t *testing.T) {
 		"context7": {Command: "npx", Args: []string{"-y", "@upstash/context7-mcp"}},
 	}}
 
-	require.NoError(t, w.WriteSettings(hooks, mcp, nil, "/proj"))
+	require.NoError(t, w.writeSettingsIn(hooks, mcp, nil, "/proj", ""))
 
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	assert.Equal(t, "o3", cfg["model"], "user key preserved")
@@ -138,11 +143,6 @@ func TestWriteSettings_HooksAndMCP(t *testing.T) {
 	require.NotNil(t, servers)
 	assert.Contains(t, servers, "context7", "config MCP server written")
 	assert.Contains(t, servers, agent.MCPServerName, "ctxloom server auto-registered")
-
-	status, err := w.Status("/proj")
-	require.NoError(t, err)
-	assert.True(t, status.HooksPresent)
-	assert.True(t, status.MCPPresent)
 }
 
 // TestWriteSettings_MCPCommandOverride pins dire-five's fix at codex's own
@@ -165,7 +165,7 @@ func TestWriteSettings_MCPCommandOverride(t *testing.T) {
 	t.Run("host-unchanged: no override writes CtxloomCommand()", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		w := &CodexHookWriter{FS: fs}
-		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+		require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, nil, nil, "/proj", ""))
 		assert.Equal(t, agent.CtxloomCommand(), command(t, fs))
 	})
 
@@ -173,7 +173,7 @@ func TestWriteSettings_MCPCommandOverride(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		const containerBin = "/usr/local/bin/ctxloom"
 		w := &CodexHookWriter{FS: fs, MCPCommandOverride: containerBin}
-		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+		require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, nil, nil, "/proj", ""))
 		assert.Equal(t, containerBin, command(t, fs))
 	})
 }
@@ -183,7 +183,7 @@ func TestWriteSettings_MCPCommandOverride(t *testing.T) {
 // as an env table, matching what MCPRegistrar.Install writes.
 func TestWriteSettings_MCPServerEnvPreserved(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	w := NewWriter(agent.SettingsOptions{FS: fs})
+	w := &CodexHookWriter{FS: fs}
 
 	mcp := &wire.MCPConfig{
 		Servers: map[string]wire.MCPServer{
@@ -203,7 +203,7 @@ func TestWriteSettings_MCPServerEnvPreserved(t *testing.T) {
 		"bundle-server": {Command: "bundle-cmd", Env: map[string]string{"BUNDLE_VAR": "value"}},
 	}
 
-	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, mcp, bundleMCP, "/proj"))
+	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, mcp, bundleMCP, "/proj", ""))
 
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	servers := asMap(cfg["mcp_servers"])
@@ -229,12 +229,12 @@ func TestWriteSettings_MCPServerEnvPreserved(t *testing.T) {
 // TestRemoveSettings strips ctxloom-managed hooks + MCP but keeps user content.
 func TestRemoveSettings(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	w := NewWriter(agent.SettingsOptions{FS: fs})
+	w := &CodexHookWriter{FS: fs}
 
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
 	}}
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
 
 	// A user-authored hook the writer must not touch.
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
@@ -245,7 +245,7 @@ func TestRemoveSettings(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, afero.WriteFile(fs, codexConfigPath("/proj"), buf, 0644))
 
-	require.NoError(t, w.RemoveSettings("/proj"))
+	require.NoError(t, w.removeSettingsIn("/proj"))
 
 	got := readConfig(t, fs, codexConfigPath("/proj"))
 	gotHooks := asMap(got["hooks"])

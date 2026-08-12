@@ -196,6 +196,40 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
       Then the command succeeds
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-MCP-INVOCATION-g7" and whose "status" is "ok"
 
+  Rule: Doctor says where codex's configuration actually lives
+
+    codex is the one engine ctxloom wires whose hooks, MCP servers, prompts
+    and skills have no home in the project at all — they live in $CODEX_HOME,
+    and the only $CODEX_HOME ctxloom writes is a throwaway one it creates when
+    an agent launches. A user who greps their project for a codex config and
+    finds nothing has no way to tell that apart from a broken install. This
+    check is the answer to "so where IS it?", and it reports BOTH places:
+    Alice's own codex home, which any unbound run uses, and the most recent
+    per-session instance if one is still on disk.
+
+    # The instance half is labelled EVERY TIME — harp, age, and that it is
+    # rebuilt next session — because an unlabelled path invites the reader to
+    # edit a directory that is about to be deleted. The label is the whole
+    # reason reporting it is safe, so the label is what is asserted.
+    Scenario: Doctor reports codex's real home and says it writes no project copy
+      Given an initialized ctxloom project
+      When Alice asks where her codex configuration lives:
+        """
+        ctxloom doctor
+        """
+      Then the command succeeds
+      And the output contains "DOCTOR-CHECK-CODEXHOME-n4"
+      And the output contains "no durable project home exists"
+      And the output contains "host home"
+
+    # It reports "info", never "warn": nothing here is broken and there is
+    # nothing to fix. A warn would teach a codex user to ignore the report.
+    Scenario: The codex-home report is context, not a verdict
+      Given an initialized ctxloom project
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-CODEXHOME-n4" and whose "status" is "info"
+
   Rule: The report ends on a stated limit rather than going quiet
 
     Every check above can be green — the context assembled, the surface

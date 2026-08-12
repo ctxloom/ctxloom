@@ -77,7 +77,7 @@ flowchart TD
     subgraph managed["6. managed-config assembly"]
         TR["executable trust gate (TR5)"]
         AMC["backends.AssembleManagedConfig(backend, workDir, execGate, ctxResult.Profiles) :972<br/>slash commands · hooks · MCP · statusline, SCOPED to the selected profiles"]
-        PERM["resolvePermissionMode :952 / requestedPermission :955<br/>--permissions > agent > label > backend default;<br/>headless ONESHOT floors to bypass"]
+        PERM["resolvePermissionMode :952 / requestedPermission :955<br/>--permissions > agent > label > PROJECT permissions: > backend default;<br/>headless ONESHOT floors to bypass"]
         REQ["pb.RunStart{ManagedConfig: ...} :984"]
     end
 
@@ -190,7 +190,7 @@ SAME `pb.Client.Chat` door `ctxloom acp serve` uses.
 | Function | file:line | What it decides |
 |---|---|---|
 | `resolvePermissionMode` | `:1492` | Posture precedence + plan collapse + headless bypass floor |
-| `requestedPermission` | `:1510` | First parseable of flag > agent > label, so a silently-different posture can be warned about |
+| `requestedPermission` | `:1510` | First parseable of flag > agent > label > project `permissions:`, so a silently-different posture can be warned about |
 | `validatePermissionFlag` | `:1525` | Hard-errors an unknown typed `--permissions` |
 | `resolveRunLLM` | `:1547` | Label precedence `--llm` > `profile.llm` > primary |
 | `validateExplicitLLM` / `usableLLMs` | `:1568`, `:1587` | Validates a label or an installed backend type; error names what *is* usable |

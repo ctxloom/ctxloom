@@ -51,10 +51,14 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       When Alice materializes the team profile for <engine>
       Then the materialized <engine> command file carries the shared command's body, in its own native shape
 
+      # codex is absent from this outline since the declared absence
+      # (codex.LaunchOnlySettingsReason): its prompts dir is home-keyed and
+      # ctxloom writes no durable project copy — commands reach codex
+      # per-session at launch (j002200) and materialize says so
+      # (manage.feature's launch-only scenario).
       Examples:
         | engine      |
         | claude-code |
-        | codex       |
         | kiro        |
 
   Rule: Creating a command writes real content, and it reaches every surface

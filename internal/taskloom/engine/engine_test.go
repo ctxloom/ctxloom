@@ -196,7 +196,8 @@ func TestConfigPath_Scopes(t *testing.T) {
 	}{
 		{"claude-code", false, ".mcp.json"},
 		{"claude-code", true, ".claude.json"},
-		{"codex", false, ".codex/config.toml"},
+		// codex's project scope is a DECLARED ABSENCE (launch-only settings;
+		// no durable project home) — asserted separately below, not a row here.
 		{"codex", true, ".codex/config.toml"},
 		{"kiro", false, ".kiro/settings/mcp.json"},
 		{"kiro", true, "settings/mcp.json"},
@@ -213,4 +214,13 @@ func TestConfigPath_Scopes(t *testing.T) {
 		}
 		assert.Contains(t, p, tt.suffix)
 	}
+
+	// codex project scope: the declared absence, not a path. The error names
+	// the launch-only reason so a caller can tell "no file by design" from a
+	// resolution bug; taskloom's engine adapter degrades Present to false on it.
+	codexEng, err := Get("codex")
+	require.NoError(t, err)
+	_, err = codexEng.ConfigPath("/proj", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "delivered per-session at launch")
 }

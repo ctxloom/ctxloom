@@ -110,6 +110,14 @@ const (
 	// than inventing a location of its own).
 	EnginesDir = "engines"
 
+	// LocksDir is the StateDir subdirectory holding the advisory lock sidecars
+	// that guard project-scoped files (filelock.ProjectPathFor). It is state,
+	// not cache: a lock file is a fact about THIS machine's concurrent
+	// processes and nothing rebuilds it — though nothing is lost either when it
+	// is absent, which is why it earns no Layout row (see Layout's doc on what
+	// a row means to doctor).
+	LocksDir = "locks"
+
 	// RepoContentPrefix is the repo-relative path prefix under which a remote
 	// repo's authored content lives: .ctxloom/content/<kind>/<name>.yaml. It is
 	// the canonical (non-local) counterpart to LocalPath — every fetcher/
@@ -648,6 +656,15 @@ func DefaultRemotesPath() string {
 // gitignored, unrebuildable checkout state — see StateDir's doc.
 func StatePath(appPath string) string {
 	return filepath.Join(appPath, StateDir)
+}
+
+// LocksPath returns the project's advisory-lock directory (under state/) — one
+// flat directory holding every lock sidecar guarding a file in this .ctxloom
+// tree. filelock.ProjectPathFor owns the protected-path→lock-name mapping;
+// this function owns only WHERE that mapping puts its results, so the location
+// moves in one place if it ever moves again.
+func LocksPath(appPath string) string {
+	return filepath.Join(StatePath(appPath), LocksDir)
 }
 
 // EngineStateHome is the project-scoped config home ctxloom points an engine's

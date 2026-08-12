@@ -119,6 +119,7 @@ func TestPrivateStatePatterns_MatchExpectedSet(t *testing.T) {
 		".ctxloom/sessions/",
 		".ctxloom/project-id",
 		".ctxloom/state/",
+		".ctxloom/*.lock",
 	}, PrivateStatePatterns)
 }
 

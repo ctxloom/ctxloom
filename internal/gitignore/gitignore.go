@@ -37,11 +37,19 @@ const Comment = "# ctxloom private working state (rebuildable/local — cache, s
 // would have justified it. Removing it only stops ctxloom WRITING the line —
 // projects that already carry it keep it (Ensure appends and never removes
 // anything but a superseded blanket rule), where it is inert.
+// `.ctxloom/*.lock` is the one entry here for a path current ctxloom does NOT
+// write, and it is deliberate rather than an oversight of the rule above:
+// advisory lock sidecars now live under state/locks (filelock.ProjectPathFor),
+// covered by `.ctxloom/state/`, but every project written by an earlier
+// version has a `.ctxloom/config.yaml.lock` sitting at its root — the bug that
+// prompted the move. That file is not going anywhere on its own, and leaving it
+// visible in `git status` invites exactly one mistake.
 var PrivateStatePatterns = []string{
 	".ctxloom/cache/",
 	".ctxloom/sessions/",
 	".ctxloom/project-id",
 	".ctxloom/state/",
+	".ctxloom/*.lock",
 }
 
 // TransientArtifactPatterns are unambiguous generated artifacts that accumulate
@@ -61,6 +69,7 @@ var PrivateStatePatterns = []string{
 //     hooks.json/mcp_config.json/skills, agy (antigravity, removed in 0.7.0)
 //     filled it with per-conversation subagent scratch that must never be
 //     committed — kept as a legacy-debris pattern for pre-upgrade projects.
+//
 //   - .codex/ does not, so its members are listed one by one: config.toml,
 //     which ctxloom generates, and auth.json, which
 //     internal/lm/isolation/auth.go's SeedCodexHome copies from the host's

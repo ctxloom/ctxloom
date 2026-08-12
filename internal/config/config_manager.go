@@ -55,9 +55,10 @@ func (m *Manager) Options() []LoadOption {
 }
 
 // Update runs fn as ONE serialized write transaction: it acquires an advisory
-// file lock (filelock.PathFor(configPath)), re-reads the config FRESH from
-// disk while holding it, hands fn a Draft built from that fresh read, applies
-// whatever fn changed, and persists via saveLocked — all before releasing it.
+// file lock (filelock.ProjectPathFor(configPath), which puts the sidecar under
+// .ctxloom/state/locks/), re-reads the config FRESH from disk while holding it,
+// hands fn a Draft built from that fresh read, applies whatever fn changed, and
+// persists via saveLocked — all before releasing it.
 // This is what closes the lost-update window a bare Load-mutate-write
 // sequence does not: the state fn mutates is never older than the moment
 // this call acquired the lock, so two concurrent Update calls (same process
@@ -95,7 +96,18 @@ func (m *Manager) Update(fn func(*Draft) error) error {
 	// the read-modify-write serialization this method exists to provide,
 	// silently, on every subsequent Update call. Fail closed.
 	if !injectedFS {
-		unlock, lerr := filelock.Lock(filelock.PathFor(configPath))
+		// ProjectPathFor, not PathFor: config.yaml lives in the project's
+		// .ctxloom tree, so its sidecar belongs under state/locks rather than
+		// beside it, where `.ctxloom/config.yaml.lock` showed up untracked in
+		// every freshly initialized project. The derivation is the filelock
+		// package's, whole — a lock path composed here is a second opinion
+		// about the same resource, which is the one failure that package
+		// cannot detect.
+		lockPath, lerr := filelock.ProjectPathFor(configPath)
+		if lerr != nil {
+			return fmt.Errorf("config: locating update lock for %s: %w", configPath, lerr)
+		}
+		unlock, lerr := filelock.Lock(lockPath)
 		if lerr != nil {
 			return fmt.Errorf("config: acquiring update lock for %s: %w", configPath, lerr)
 		}

@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // D1 — the consumer watch API: read-only observation for viewers (the TUI,
@@ -129,6 +130,11 @@ func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan *agentcoordp
 	return sub.ch, cancel, narrow
 }
 
+func isTerminal(ev *agentcoordpb.AgentEvent) bool {
+	_, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
+	return ok
+}
+
 // broadcast fans ev out to every matching subscriber. Two invariants govern
 // this function, and both are load-bearing:
 //
@@ -151,11 +157,6 @@ func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan *agentcoordp
 //     still never a blocking send — rather than trading invariant 1 away
 //     even for this one event. The evicted event becomes an honest seq gap,
 //     which is exactly what PART 1's consumer-side detection is for.
-func isTerminal(ev *agentcoordpb.AgentEvent) bool {
-	_, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
-	return ok
-}
-
 func (h *watchHub) broadcast(ev *agentcoordpb.AgentEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -197,8 +198,14 @@ func sendTerminal(ch chan *agentcoordpb.AgentEvent, ev *agentcoordpb.AgentEvent)
 		if attempt == terminalEvictAttempts {
 			// Every attempt raced a full ring that never yielded a slot, OR the
 			// ring is saturated with OTHER runs' terminals evictOneNonTerminal
-			// refuses to sacrifice — fall through and drop, same as any other
-			// event this hub drops under sustained overload.
+			// refuses to sacrifice. Dropping this terminal both evades seq-gap
+			// detection (nothing follows to reveal the hole) and hangs any
+			// watcher on this run (operations.adaptConsumerFeed ends its feed
+			// only on RunCompleted), so unlike an ordinary dropped event it must
+			// NOT be silent (F10): name the run whose terminal was lost so a hung
+			// viewer is diagnosable from the coordinator's logs.
+			clidiag.Warn("ctxloom", "consumer watch: dropped terminal event for run %q after %d evict attempts on a full ring — a watcher on that run may hang until its own timeout",
+				ev.GetRunId(), terminalEvictAttempts)
 			return
 		}
 		evictOneNonTerminal(ch)

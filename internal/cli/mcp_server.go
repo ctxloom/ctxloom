@@ -199,6 +199,12 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// found something.
 	operations.SweepOrphanedWorktrees(ctx, os.Stderr)
 
+	// Startup reaper, second half: the per-session engine-home instances a
+	// crashed run leaves in THIS project's tree, each holding a copied
+	// credential — see sweepOrphanedSessionHomes. Same fault-tolerance, same
+	// silence when there is nothing to do.
+	sweepOrphanedSessionHomes(os.Stderr)
+
 	purgeLegacyBundles(cfg)
 
 	if ctx.Err() != nil {

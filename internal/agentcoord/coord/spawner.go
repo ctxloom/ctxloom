@@ -143,7 +143,11 @@ type Spawner interface {
 	// ResumeContext composes the context for a RESUMED harp: the plan
 	// context plus the rendered recorded history when one is loadable.
 	ResumeContext(ctx context.Context, plan *SpawnPlan, harp string) string
-	// MarkSessionEnded stamps the harp ended in session accounting.
+	// MarkSessionEnded ends the harp's session: it stamps it ended in session
+	// accounting AND (in production, via operations.EndSession) removes the
+	// child's per-session engine-home instance, credential copy and all, from
+	// the project tree. A test double that does neither is fine; a production
+	// implementation that only stamps leaves a credential on disk per child.
 	MarkSessionEnded(harp string)
 }
 
@@ -506,8 +510,8 @@ func (s *prodSpawner) ResumeContext(ctx context.Context, plan *SpawnPlan, harp s
 }
 
 func (s *prodSpawner) MarkSessionEnded(harp string) {
-	if err := operations.MarkSessionEnded(harp, time.Now()); err != nil {
-		clidiag.Warn("ctxloom", "agent %s: mark session ended: %v", harp, err)
+	if err := operations.EndSession(harp, time.Now()); err != nil {
+		clidiag.Warn("ctxloom", "agent %s: end session: %v", harp, err)
 	}
 }
 

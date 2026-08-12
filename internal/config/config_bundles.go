@@ -19,6 +19,29 @@ import (
 // lookPath is the PATH-resolution seam for tests.
 var lookPath = exec.LookPath
 
+// hookPreimage and mcpPreimage are the executable-surface preimage builders for
+// a bundle hook / MCP server, indirected through package vars so a test can
+// force the (in production near-unreachable) build failure that
+// extractHooksFromBundle / extractMCPFromBundle must report rather than swallow
+// (U049-F17). SetPreimageBuildersForTesting swaps them and returns a restore.
+var (
+	hookPreimage = func(h bundles.BundleHook) ([]byte, error) { return h.ContentPayload() }
+	mcpPreimage  = func(m bundles.BundleMCP) ([]byte, error) { return m.ContentPayload() }
+)
+
+// SetPreimageBuildersForTesting swaps the hook/MCP preimage builders (either may
+// be nil to leave that one unchanged) and returns a function that restores both.
+func SetPreimageBuildersForTesting(hook func(bundles.BundleHook) ([]byte, error), mcp func(bundles.BundleMCP) ([]byte, error)) func() {
+	prevHook, prevMCP := hookPreimage, mcpPreimage
+	if hook != nil {
+		hookPreimage = hook
+	}
+	if mcp != nil {
+		mcpPreimage = mcp
+	}
+	return func() { hookPreimage, mcpPreimage = prevHook, prevMCP }
+}
+
 // SetExecutableTrustGate injects the trust gate consulted when resolving the
 // bundle executable surfaces — bundle MCP servers (ResolveBundleMCPServers),
 // bundle hooks (ResolveBundleHooks), and prompt command-file exports
@@ -758,9 +781,16 @@ func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles
 				// auto-trust; a cloned one is judged by WHO SIGNED it) and aligns
 				// the gate key with the baseline/grant key (both source).
 				ref := source + "#hooks/" + bundles.HookEntry{Event: event, Index: i}.ID()
-				payload, perr := h.ContentPayload()
+				payload, perr := hookPreimage(h)
 				if perr != nil {
-					continue // cannot build the preimage → cannot evaluate → withhold
+					// Cannot build the preimage → cannot evaluate → withhold. Fail
+					// CLOSED, but never SILENTLY: a hook the user configured would
+					// otherwise vanish from the launched engine with no trace
+					// (U049-F17). Name the ref and the fault.
+					strictness.Fail(strictness.ClassBundle,
+						"fix or re-pull the bundle, or pass --degraded",
+						"bundle hook %q withheld: cannot build its trust preimage: %v", ref, perr)
+					continue
 				}
 				if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Allow {
 					continue // withheld by the trust gate
@@ -806,9 +836,16 @@ func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.A
 			// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
 			// gate key matches the baseline/grant key. See extractHooksFromBundle.
 			ref := source + "#mcp/" + name
-			payload, perr := mcp.ContentPayload()
+			payload, perr := mcpPreimage(mcp)
 			if perr != nil {
-				continue // cannot build the preimage → cannot evaluate → withhold
+				// Cannot build the preimage → cannot evaluate → withhold. Fail
+				// CLOSED, but never SILENTLY: an MCP server the user configured
+				// would otherwise vanish from the launched engine with no trace
+				// (U049-F17). Name the ref and the fault.
+				strictness.Fail(strictness.ClassBundle,
+					"fix or re-pull the bundle, or pass --degraded",
+					"bundle MCP server %q withheld: cannot build its trust preimage: %v", ref, perr)
+				continue
 			}
 			if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Allow {
 				continue // withheld by the trust gate

@@ -267,11 +267,11 @@ func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.De
 	return kiroApproaches.SurfaceFor("kiro", s.dispatch, kind, a)
 }
 
-// SharedRealization reports no realization for any kind: kiro has no out-of-cwd
-// redirect for ANY surface, so a SHARED-cwd delivery always falls back to the
-// loud well-known write. (The `--agent` name lever isolates CONCURRENT agents at
-// launch, orthogonally to this seam.)
-func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, error), bool) {
+// SharedRealization reports no realization for any (kind, approach) pair:
+// kiro has no out-of-cwd redirect for ANY surface, so a SHARED-cwd delivery
+// always falls back to the loud well-known write. (The `--agent` name lever
+// isolates CONCURRENT agents at launch, orthogonally to this seam.)
+func (Surfaces) SharedRealization(agent.SurfaceKind, agent.Approach) (func() (agent.Delivered, error), bool) {
 	return nil, false
 }
 

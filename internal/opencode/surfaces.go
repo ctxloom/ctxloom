@@ -153,10 +153,10 @@ func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.De
 	return opencodeApproaches.SurfaceFor("opencode", s.dispatch, kind, a)
 }
 
-// SharedRealization reports no realization for any kind: opencode has no out-of-cwd
-// redirect for ANY surface, so a SHARED-cwd delivery always falls back to the loud
-// well-known write.
-func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, error), bool) {
+// SharedRealization reports no realization for any (kind, approach) pair:
+// opencode has no out-of-cwd redirect for ANY surface, so a SHARED-cwd
+// delivery always falls back to the loud well-known write.
+func (Surfaces) SharedRealization(agent.SurfaceKind, agent.Approach) (func() (agent.Delivered, error), bool) {
 	return nil, false
 }
 

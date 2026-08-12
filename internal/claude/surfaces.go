@@ -343,18 +343,29 @@ func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.De
 	return claudeApproaches.SurfaceFor("claude", s.dispatch, kind, a)
 }
 
-// SharedRealization reports claude's out-of-cwd scratch conversion for context,
-// MCP, and settings — the ONLY backend with one (commands has no out-of-cwd flag).
-// Each closure runs the SAME DeliverIsolated method already bound to the concrete
-// surface instances NewSurfaces built (the ones stashed at ClaudeCode.surfaces),
-// never a second Surfaces set — so buildArgs' later Path() read sees the write.
-func (s Surfaces) SharedRealization(kind agent.SurfaceKind) (func() (agent.Delivered, error), bool) {
-	switch kind {
-	case agent.SurfaceContext:
+// SharedRealization reports claude's out-of-cwd scratch conversion for the
+// (kind, approach) pair — the ONLY backend with one (commands/skills have no
+// out-of-cwd flag). It is PAIR-keyed, not kind-alone (U100-F05): context is the
+// one multi-approach kind claude realizes, and only ApproachSystemPrompt does —
+// ApproachUnsafeFile is the caller's explicit request for the native CLAUDE.md
+// write, so it reports no realization and deliverOneShared falls to the
+// well-known write (loudly warned; the honor-with-warning fork DECIDED for
+// U100-F05). ApproachHook resolves to the documented no-op, which never carries
+// DeliverIsolated, so deliverOneShared's isolatedDelivery guard never even
+// reaches this switch for it. mcp/settings have exactly one approach each
+// (ApproachUnsafeFile), and it is the one that realizes — the pair-key changes
+// nothing for them, so their --mcp-config/--settings launch flags keep firing.
+// Each closure runs the SAME DeliverIsolated method already bound to the
+// concrete surface instances NewSurfaces built (the ones stashed at
+// ClaudeCode.surfaces), never a second Surfaces set — so buildArgs' later
+// Path() read sees the write.
+func (s Surfaces) SharedRealization(kind agent.SurfaceKind, a agent.Approach) (func() (agent.Delivered, error), bool) {
+	switch {
+	case kind == agent.SurfaceContext && a == agent.ApproachSystemPrompt:
 		return s.Context.DeliverIsolated, true
-	case agent.SurfaceMCP:
+	case kind == agent.SurfaceMCP && a == agent.ApproachUnsafeFile:
 		return s.MCP.DeliverIsolated, true
-	case agent.SurfaceSettings:
+	case kind == agent.SurfaceSettings && a == agent.ApproachUnsafeFile:
 		return s.Settings.DeliverIsolated, true
 	default:
 		return nil, false

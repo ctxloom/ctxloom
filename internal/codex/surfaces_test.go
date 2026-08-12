@@ -546,12 +546,15 @@ func TestSurfaces_ExportedContextFieldsAreTheComposedRouteParts(t *testing.T) {
 	assert.Same(t, s.AgentsMD, composed.Parts[1], "the exported AGENTS.md field is the delivered instance")
 }
 
-// SharedRealization is absent for every kind: codex has no out-of-cwd redirect,
-// so a SHARED-cwd delivery always falls back to the loud well-known write.
+// SharedRealization is absent for every (kind, approach) pair: codex has no
+// out-of-cwd redirect, so a SHARED-cwd delivery always falls back to the loud
+// well-known write.
 func TestSurfaces_SharedRealization_Absent(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), "", "", afero.NewMemMapFs())
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
-		_, ok := s.SharedRealization(kind)
-		assert.False(t, ok, "%s: codex has no out-of-cwd realization", kind)
+		for _, a := range []agent.Approach{agent.ApproachUnsafeFile, agent.ApproachSystemPrompt, agent.ApproachHook} {
+			_, ok := s.SharedRealization(kind, a)
+			assert.False(t, ok, "(%s, %s): codex has no out-of-cwd realization", kind, a)
+		}
 	}
 }

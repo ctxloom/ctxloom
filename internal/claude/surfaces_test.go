@@ -356,9 +356,15 @@ func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 
 // ---- cells wiring (the vertical slice) -------------------------------------
 
-// DeliverShared converts claude's flag-backed surfaces (context/MCP/settings) via
-// SharedRealization with no warning, and falls back to the loud well-known write
-// for commands (no realization) — the builder's shared-cwd terminal packages exactly
+// DeliverShared over a PLAIN WithEverything() selection (no default-derivation —
+// that lever lives only at the launch site, launch_backend.go's deliverSet, not
+// in the builder itself) resolves context to its TABLE default, UnsafeFile.
+// SharedRealization is now pair-keyed (U100-F05): only (context, SystemPrompt)
+// realizes, so a raw WithEverything selection's UnsafeFile context does NOT
+// convert — it falls back to the loud well-known write exactly like
+// commands/skills (neither of which has ANY realization). MCP and settings
+// still convert via SharedRealization with no warning (their sole approach IS
+// the one that realizes) — the builder's shared-cwd terminal packages exactly
 // that set for iteration.
 func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 	cwd := t.TempDir()
@@ -375,7 +381,14 @@ func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 		require.Empty(t, errs)
 	})
 	require.Len(t, delivered, 5, "context, MCP, settings, commands, and skills all deliver")
-	assert.Contains(t, stderr, "warning:", "the commands fallback warns when DeliverShared delivers it")
+	assert.Equal(t, 3, strings.Count(stderr, "warning:"),
+		"context (table-default UnsafeFile, no realization for this pair), commands, and skills all warn; MCP and settings convert silently")
+	assert.FileExists(t, filepath.Join(cwd, "CLAUDE.md"),
+		"context's well-known write landed in the shared cwd — no realization fired for (context, unsafe-file)")
+	assert.NoFileExists(t, filepath.Join(cwd, ".mcp.json"),
+		"MCP converted via SharedRealization into the isolated dir, not the shared cwd")
+	assert.NoFileExists(t, filepath.Join(cwd, ".claude", "settings.json"),
+		"settings converted via SharedRealization into the isolated dir, not the shared cwd")
 }
 
 // An isolated cell accepts EVERY surface as a plain Delivery — Deliveries() is the
@@ -471,20 +484,43 @@ func TestSurfaceFor_UnsupportedApproachErrors(t *testing.T) {
 	assert.Error(t, err, "claude's MCP surface has no system-prompt approach")
 }
 
-// SharedRealization is present for context/MCP/settings (claude's out-of-cwd
-// scratch conversion) and ABSENT for commands (no out-of-cwd flag exists for
-// slash-commands) — claude is the only backend with any realization at all.
+// SharedRealization is PAIR-keyed (U100-F05), not kind-alone: context realizes
+// ONLY at ApproachSystemPrompt (ApproachUnsafeFile is the caller's explicit
+// native-file request, honored by the DeliverShared fallback instead — see
+// TestSharedCell_AcceptsClaudeRaceSafeSurfaces — and ApproachHook is the
+// documented no-op, which never even reaches this method via
+// deliverOneShared's isolatedDelivery guard). MCP and settings each have
+// exactly one approach (ApproachUnsafeFile) and it is the one that realizes,
+// so the pair-key changes nothing for them — their --mcp-config/--settings
+// launch flags keep firing. Commands/skills have no realization at any
+// approach — no out-of-cwd flag exists for either. claude is the only backend
+// with any realization at all.
 func TestSurfaces_SharedRealization(t *testing.T) {
 	isolated := t.TempDir()
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
 
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings} {
-		realize, ok := s.SharedRealization(kind)
-		require.True(t, ok, "%s has a scratch realization", kind)
-		require.NotNil(t, realize)
+	cases := []struct {
+		kind     agent.SurfaceKind
+		approach agent.Approach
+		want     bool
+	}{
+		{agent.SurfaceContext, agent.ApproachUnsafeFile, false},
+		{agent.SurfaceContext, agent.ApproachSystemPrompt, true},
+		{agent.SurfaceContext, agent.ApproachHook, false},
+		{agent.SurfaceMCP, agent.ApproachUnsafeFile, true},
+		{agent.SurfaceSettings, agent.ApproachUnsafeFile, true},
+		{agent.SurfaceCommands, agent.ApproachUnsafeFile, false},
+		{agent.SurfaceSkills, agent.ApproachUnsafeFile, false},
 	}
-	_, ok := s.SharedRealization(agent.SurfaceCommands)
-	assert.False(t, ok, "commands has no out-of-cwd flag")
+	for _, tc := range cases {
+		realize, ok := s.SharedRealization(tc.kind, tc.approach)
+		assert.Equal(t, tc.want, ok, "(%s, %s)", tc.kind, tc.approach)
+		if tc.want {
+			require.NotNil(t, realize, "(%s, %s)", tc.kind, tc.approach)
+		} else {
+			assert.Nil(t, realize, "(%s, %s)", tc.kind, tc.approach)
+		}
+	}
 }
 
 // readJSON reads a JSON object file into a map.

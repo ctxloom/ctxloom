@@ -311,6 +311,38 @@ func assembleSurfaceContext(fragments []*Fragment) (string, error) {
 	return assembled, nil
 }
 
+// preferSharedRealization retargets kind's currently-selected approach (as
+// WithEverything left it — the backend's table default) to the first
+// backend-supported approach that HAS a shared realization, when the
+// currently-selected approach does not have one. It is deliverSet's
+// SharedCell default-derivation step (U100-F05) and nothing else calls it: an
+// at-rest selection (DeliverUnder / profile materialize) never reaches this
+// method, so its table default (claude context's unsafe-file) is untouched
+// there, and profile_materialize.go's explicit
+// WithApproach(SurfaceContext, ApproachUnsafeFile) still names its own
+// default independently. For claude this turns the table default (unsafe-file
+// — approach.go:44-50 explains why no table order can make system-prompt the
+// default there) into system-prompt for a no-preference SHARED launch,
+// preserving the scratch-write behaviour every claude launch had before this
+// pair-key existed. mcp/settings already realize at their sole approach, so
+// this is a no-op for them; a backend with no realization at all (codex/kiro/
+// opencode/mock) leaves every kind exactly as WithEverything set it.
+func (s *SurfaceSelection) preferSharedRealization(kind SurfaceKind) {
+	cur, ok := s.approaches[kind]
+	if !ok {
+		return
+	}
+	if _, ok := s.set.SharedRealization(kind, cur); ok {
+		return
+	}
+	for _, a := range s.set.SupportedApproaches(kind) {
+		if _, ok := s.set.SharedRealization(kind, a); ok {
+			s.approaches[kind] = a
+			return
+		}
+	}
+}
+
 // deliverSet delivers every surface of set through the cell named by
 // req.CellKind, recording each returned handle so Cleanup can reverse it (LIFO).
 // A SharedCell takes the race-safe set (out-of-cwd flag files, or a warned Unsafe
@@ -332,6 +364,29 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	// well-known set): only the surface LIST is derived from the selection, not the
 	// cell/placement choice.
 	sel := Select(set).WithEverything()
+	explicit := map[SurfaceKind]bool{}
+	if req != nil && req.Managed != nil {
+		for kind := range req.Managed.Surfaces {
+			explicit[kind] = true
+		}
+	}
+	// U100-F05's default-derivation step: a SHARED-cwd launch with no explicit
+	// per-surface preference should still prefer a race-safe realization over
+	// the table's at-rest default (unsafe-file) — that default exists for
+	// DeliverUnder, which has no argv sink for anything else, not for a launch,
+	// which does. Restricted to CellKindShared (an isolated cell's well-known
+	// write is already race-free by construction — see Deliveries' doc — so
+	// there is nothing to prefer) and skipped for any kind the caller named
+	// explicitly (req.Managed.Surfaces, applied below): an explicit
+	// context=unsafe-file preference must be HONORED, not silently converted
+	// back to the scratch (the fork DECIDED for U100-F05).
+	if req.CellKind == CellKindShared {
+		for kind := range sel.approaches {
+			if !explicit[kind] {
+				sel.preferSharedRealization(kind)
+			}
+		}
+	}
 	// The agent binding's preference, applied where it is actually valid: a
 	// launch has the argv sink system-prompt needs, which is exactly why this
 	// belongs on the agent rather than in the engine's table (an at-rest

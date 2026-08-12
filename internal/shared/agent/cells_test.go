@@ -131,11 +131,16 @@ func TestIsolatedCells_DeliverAnyDeliveryIntoPrivateDir(t *testing.T) {
 
 // fakeSharedSet is a minimal SurfaceSet double for exercising
 // ResolvedSelection.deliverOneShared directly: realize, when set, is what
-// SharedRealization returns for every kind (proving deliverOneShared prefers it
-// over the well-known write); when nil, every kind reports no realization, so
-// deliverOneShared falls back to the loud well-known write.
+// SharedRealization returns (proving deliverOneShared prefers it over the
+// well-known write); when nil, every (kind, approach) pair reports no
+// realization, so deliverOneShared falls back to the loud well-known write.
+// only, when non-nil, restricts realize to firing for exactly that approach —
+// modeling claude's pair-keyed fork (system-prompt realizes, unsafe-file does
+// not) without changing every OTHER test's "fires for whatever approach is
+// queried" fake, which is what leaving only nil preserves.
 type fakeSharedSet struct {
 	realize func() (Delivered, error)
+	only    *Approach
 }
 
 func (fakeSharedSet) Deliveries() []Delivery { return nil }
@@ -145,8 +150,11 @@ func (fakeSharedSet) SupportedApproaches(SurfaceKind) []Approach {
 func (fakeSharedSet) DefaultApproach(SurfaceKind) (Approach, bool)       { return ApproachUnsafeFile, true }
 func (fakeSharedSet) SurfaceFor(SurfaceKind, Approach) (Delivery, error) { return nil, nil }
 
-func (f fakeSharedSet) SharedRealization(SurfaceKind) (func() (Delivered, error), bool) {
+func (f fakeSharedSet) SharedRealization(_ SurfaceKind, a Approach) (func() (Delivered, error), bool) {
 	if f.realize == nil {
+		return nil, false
+	}
+	if f.only != nil && *f.only != a {
 		return nil, false
 	}
 	return f.realize, true
@@ -335,42 +343,61 @@ func TestEmptySurfaceSet_BuildStillResolvesToNothing(t *testing.T) {
 	assert.Empty(t, kinds)
 }
 
-// CHARACTERIZATION PIN (ESCALATED — a live-behaviour decision, not a sweep's
-// call). deliverOneShared never reads rs.approach: for any surface that
-// carries DeliverIsolated, the kind-keyed SharedRealization wins at EVERY
-// approach. So a caller that explicitly named the native-file approach
-// (ContextWriteUnsafeFile — "write CLAUDE.md") silently receives the out-of-cwd
-// scratch instead, which approach.go declares to be a semantically DIFFERENT
-// delivery ("the content enters the system prompt, not project memory"), and
-// receives no warning either. claude's approach table makes UnsafeFile the
-// FIRST/default entry for context, so WithEverything — the selection the launch
-// path uses — hits this on every shared-cwd claude run.
-//
-// This test does NOT endorse the behaviour. It makes an invisible substitution
-// visible so that whichever way the escalation is decided, the change is
-// deliberate.
-func TestDeliverOneShared_RealizationWinsAtEveryApproach_U100F05(t *testing.T) {
+// RESOLUTION of U100-F05, half 1 of 2 (was:
+// TestDeliverOneShared_RealizationWinsAtEveryApproach_U100F05, the anti-test
+// pinning the kind-alone defect this pair-keyed re-key fixes — see the sibling
+// test below for the other half). deliverOneShared now reads rs.approach:
+// SharedRealization is keyed on the (kind, approach) PAIR, so a caller that
+// explicitly named the out-of-cwd approach (ContextWriteSystemPrompt) gets the
+// scratch conversion, race-safe and unwarned.
+func TestDeliverOneShared_SystemPromptRealizes_U100F05(t *testing.T) {
 	resetStrictness(t)
 
-	for _, a := range []Approach{ApproachUnsafeFile, ApproachSystemPrompt} {
-		var realizeCalled bool
-		var wellKnown deliveryCall
-		r := &ResolvedSelection{set: fakeSharedSet{realize: func() (Delivered, error) {
-			realizeCalled = true
-			return stubHandle{}, nil
-		}}}
-		surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}}
+	var realizeCalled bool
+	var wellKnown deliveryCall
+	sysPrompt := ApproachSystemPrompt
+	r := &ResolvedSelection{set: fakeSharedSet{only: &sysPrompt, realize: func() (Delivered, error) {
+		realizeCalled = true
+		return stubHandle{}, nil
+	}}}
+	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}}
 
-		stderr := captureStderr(t, func() {
-			_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: a, delivery: surface}, "/live")
-			require.NoError(t, err)
-		})
+	stderr := captureStderr(t, func() {
+		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachSystemPrompt, delivery: surface}, "/live")
+		require.NoError(t, err)
+	})
 
-		assert.True(t, realizeCalled,
-			"approach %s: the kind-keyed realization runs regardless of the approach the caller named", a)
-		assert.False(t, wellKnown.called,
-			"approach %s: the well-known write the caller may have asked for never happens", a)
-		assert.NotContains(t, stderr, "warning:",
-			"approach %s: and the substitution is not announced either", a)
-	}
+	assert.True(t, realizeCalled, "system-prompt: the pair-keyed realization runs")
+	assert.False(t, wellKnown.called, "system-prompt: the well-known write never runs when a realization exists")
+	assert.NotContains(t, stderr, "warning:", "system-prompt: race-safe, no warning")
+}
+
+// RESOLUTION of U100-F05, half 2 of 2 (see the sibling test above). A caller
+// that explicitly named the native-file approach (ContextWriteUnsafeFile —
+// "write CLAUDE.md") gets EXACTLY that: no realization fires for this pair, so
+// deliverOneShared falls to the well-known write, loudly warned — the
+// honor-with-warning fork DECIDED for U100-F05 (a refuse-loudly alternative
+// was rejected: the approach name itself is the acknowledgment).
+func TestDeliverOneShared_UnsafeFileHonoredWithWarning_U100F05(t *testing.T) {
+	resetStrictness(t)
+
+	var realizeCalled bool
+	var wellKnown deliveryCall
+	sysPrompt := ApproachSystemPrompt
+	r := &ResolvedSelection{set: fakeSharedSet{only: &sysPrompt, realize: func() (Delivered, error) {
+		realizeCalled = true
+		return stubHandle{}, nil
+	}}}
+	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}}
+
+	stderr := captureStderr(t, func() {
+		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachUnsafeFile, delivery: surface}, "/live")
+		require.NoError(t, err)
+	})
+
+	assert.False(t, realizeCalled, "unsafe-file: no realization for this pair — the caller's native-file request is honored, not silently converted")
+	assert.True(t, wellKnown.called, "unsafe-file: the well-known write (the CLAUDE.md-equivalent write) runs")
+	assert.Equal(t, "/live", wellKnown.dir, "the well-known write targets the live shared cwd")
+	assert.Contains(t, stderr, "warning:", "unsafe-file into a shared cwd is loudly warned")
+	assert.Contains(t, stderr, "engine/context", "the warning names the surface via UnsafeInfo")
 }

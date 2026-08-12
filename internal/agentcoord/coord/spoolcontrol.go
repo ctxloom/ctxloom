@@ -91,18 +91,17 @@ const askBudget = controlRequestBudget
 // steerViaSpool is the cutover's steer route: the instruction becomes ONE
 // durable file in the target's in/ spool, with the reserved `steer` kind.
 //
-// It goes through queueMailPayload rather than writing the file itself, and
-// that is the point: the empty-message and no-recipient refusals, the audit,
-// the cutover branch and the spool write are all one chokepoint's, so a steer
-// cannot arrive by a discipline ordinary mail does not have. What it adds is
-// the kind (which renders into the delivered turn's provenance header, so the
-// agent sees an instruction rather than an anonymous message) and the returned
-// id, which is the withdraw handle.
-// It shares steerAsMail with §5.6's fallback because the delivery question is
-// the same one — the child still has to be WOKEN, an ended session resumed and
-// an idle one driven — and only what the caller does with the answer differs:
-// this route hands the id back as the withdraw handle, because here the
-// message is a file that can still be retracted.
+// It goes through the mail chokepoint (steerAsMail, and through it
+// queueMailPayload) rather than writing the file itself, and that is the point:
+// the empty-message and no-recipient refusals, the audit, the cutover branch,
+// the spool write and the delivery-by-state wake are all one path's, so a steer
+// cannot arrive by a discipline ordinary mail does not have.
+//
+// What this route adds is the KIND — which renders into the delivered turn's
+// provenance header, so the agent sees an instruction rather than an anonymous
+// message — and the returned ID, which §5.6's fallback deliberately drops: here
+// the message is a file that can still be retracted, so the id is a live
+// withdraw handle rather than a reference to something nothing can act on.
 func (c *Coordinator) steerViaSpool(sender, harp, text string) (SteerOutcome, error) {
 	msgID, outcome, err := c.steerAsMail(sender, harp, KindSteer, text)
 	if err != nil {

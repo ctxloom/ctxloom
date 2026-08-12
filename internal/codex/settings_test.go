@@ -14,7 +14,7 @@ import (
 
 // codexConfigPath is the config.toml a STATIC write for projectDir lands at.
 // Resolved through the writer itself rather than re-spelled, so these tests
-// follow the engine-home policy's single owner (internal/codex.StateHome) the
+// follow the engine-home policy's single owner (internal/codex.ProjectHome) the
 // same way production does — a test carrying its own copy of the path is
 // exactly how the run-path/static-path split went unnoticed.
 func codexConfigPath(projectDir string) string {

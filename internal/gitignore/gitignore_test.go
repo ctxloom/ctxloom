@@ -181,7 +181,7 @@ func TestPatternSets_AreNonEmpty(t *testing.T) {
 }
 
 // TestTransientArtifactPatterns_IgnoreCodexCredential pins that
-// internal/lm/isolation/auth.go's SeedCodexHome actively copies the
+// internal/lm/isolation/auth.go's PrepareCodexHome actively copies the
 // host's ~/.codex/auth.json into <workDir>/.codex/auth.json on every plain
 // (non-isolated) codex run — a live credential landing directly in the
 // project's tracked working tree. Only .codex/config.toml was ever ignored;

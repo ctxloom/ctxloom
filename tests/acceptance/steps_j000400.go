@@ -508,7 +508,7 @@ func j000400AssertCtxloomMCPInvocation(w *World, engine, want string) error {
 // same opencode.json its `instructions` context reference lives in.
 //
 // codex's path comes from codex's own writer rather than a literal: it is the
-// one engine whose config home ctxloom RELOCATES (internal/codex.StateHome),
+// one engine whose config home ctxloom RELOCATES (internal/codex.ProjectHome),
 // so a spelled-out path here would be a second opinion about where the file is
 // — and a journey asserting the wrong location would pass or fail for reasons
 // that have nothing to do with the journey.

@@ -122,7 +122,7 @@ itself owns.
 | claude-code | `.claude/skills/<name>/SKILL.md` |
 | kiro | `.kiro/skills/<name>/SKILL.md` |
 | opencode | `.opencode/skill/<name>/SKILL.md` |
-| codex | `.ctxloom/state/engines/codex/.codex/skills/<name>/SKILL.md` |
+| codex | `.codex/skills/<name>/SKILL.md` (harpless static path — see codex.CodexHookWriter.SettingsPath) |
 
 codex's row is the long one because codex is the only engine whose config home
 ctxloom relocates: its skills hang off `$CODEX_HOME`, and ctxloom points that at

@@ -138,7 +138,7 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 	// inline closure that — with no homeOverride, exactly like its Commands
 	// closure — cell-scopes the PROJECT-SCOPED home derived from the target
 	// dir (codex.ProjectHome, the engine-home policy's single owner), landing
-	// at <target>/.ctxloom/state/engines/codex/.codex/skills/ — the SAME
+	// at codex.ProjectHome(<target>)/skills/ — the SAME
 	// cell-scoping its commands surface already uses
 	// (j000400_multi_engine.feature's own codex row, likewise under
 	// ProjectHome). Confirmed live (a real `profile materialize --backend

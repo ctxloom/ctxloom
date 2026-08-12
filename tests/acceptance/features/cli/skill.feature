@@ -164,7 +164,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     #   | claude-code | .claude/skills/<name>/SKILL.md              | project     |
     #   | kiro        | .kiro/skills/<name>/SKILL.md                | project     |
     #   | opencode    | .opencode/skill/<name>/SKILL.md             | project     |
-    #   | codex       | .ctxloom/state/engines/codex/.codex/skills/<name>/SKILL.md | cell-scoped |
+    #   | codex       | .codex/skills/<name>/SKILL.md | cell-scoped (harpless static path) |
     #
     # codex's OWN skills directory is documented GLOBAL ($CODEX_HOME/skills —
     # internal/codex/skillfiles.go), but that path only fires on the LIVE

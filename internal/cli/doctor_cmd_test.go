@@ -751,7 +751,7 @@ func scaffoldLocalTierState(t *testing.T, root string) {
 // is a directory.
 //
 // Writing a file for all of them used to work and stopped the moment the layout
-// grew a nested entry (.ctxloom/state now holds state/engines): the fixture
+// grew a nested entry (.ctxloom/state holds per-session subdirectories): the fixture
 // turned real directories into files, and the damage surfaced two checks later
 // as an ENOTDIR from doctor's MCP reader rather than as "this fixture is
 // wrong".

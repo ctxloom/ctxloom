@@ -45,15 +45,16 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file "<context_surface>" contains "<context_marker>"
       And the file ".gitignore" contains "ctxloom"
 
-      # codex's row names a path under .ctxloom/state/engines/codex, not a
-      # project-root .codex: codex is the one engine whose config home ctxloom
-      # RELOCATES (internal/codex.StateHome), so the home lives in the
-      # gitignored state tier rather than loose beside the engine's genuinely
-      # cwd-keyed surfaces.
+      # codex's row names a project-root .codex, which is a HARPLESS path: a
+      # static `manage install` has no session, and codex's real settings
+      # surface since S5 is $CODEX_HOME/config.toml inside a per-session
+      # instance. This project-root join is the S7 interim (see
+      # codex.CodexHookWriter.SettingsPath) — no run resolves here, and S7
+      # replaces it with a declared absence.
       Examples: engines with a session hook — context is injected at launch
         | engine      | context_surface       | context_marker      |
         | claude-code | .claude/settings.json | hook inject-context |
-        | codex       | .ctxloom/state/engines/codex/.codex/config.toml | hook inject-context |
+        | codex       | .codex/config.toml    | hook inject-context |
 
       Examples: engines without one — context is read from a materialized file
         | engine      | context_surface                 | context_marker         |
@@ -88,7 +89,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
       Examples: folded into a config the engine already owns
         | engine   | mcp_surface        | server_key            | launch_marker |
-        | codex    | .ctxloom/state/engines/codex/.codex/config.toml | [mcp_servers.ctxloom] | mcp           |
+        | codex    | .codex/config.toml | [mcp_servers.ctxloom] | mcp           |
         | opencode | opencode.json      | ctxloom               | mcp           |
 
     # The engines that ALSO write a native agent-instruction file, which is a
@@ -145,7 +146,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Examples: a flat command file
         | engine      | command_surface               |
         | claude-code | .claude/commands/discover.md  |
-        | codex       | .ctxloom/state/engines/codex/.codex/prompts/discover.md |
+        | codex       | .codex/prompts/discover.md    |
         | opencode    | .opencode/command/discover.md |
 
       Examples: a SKILL.md package directory

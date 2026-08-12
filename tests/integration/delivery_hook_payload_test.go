@@ -102,7 +102,7 @@ func TestHookApproach_PayloadReachesTheInjectedContext(t *testing.T) {
 	for _, tc := range []struct{ name, path string }{
 		{"claude-code", filepath.Join(projectDir, ".claude", "settings.json")},
 		// codex's config home is the one ctxloom relocates, so its path is
-		// asked of codex's own writer (internal/codex.StateHome) rather than
+		// asked of codex's own writer (internal/codex.ProjectHome) rather than
 		// spelled out here.
 		{"codex", (&codex.CodexHookWriter{}).SettingsPath(projectDir)},
 	} {

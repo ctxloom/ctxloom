@@ -86,7 +86,7 @@ scenario:
    resolve the way the matrix below claims) is pinned at the Go level,
    thoroughly, in `internal/lm/isolation/auth_test.go` and
    `curatedhome_test.go`: `TestResolveClaudeContainerAuth_*`,
-   `TestSeedCodexHome_*` (codex's container-auth mount reuses the same
+   `TestPrepareCodexHome_*` (codex's container-auth mount reuses the same
    spec), and the kiro `KIRO_API_KEY`-only container-auth tests. Run via
    `just test`.
 

@@ -434,12 +434,12 @@ func TestPrepareCodexHome_NoSourceOffersNoDegradedEscape(t *testing.T) {
 // =============================================================================
 // PrepareClaudeHome — PrepareCodexHome's sibling for the IN-TREE AGENT axis, where
 // internal/operations points CLAUDE_CONFIG_DIR at a project-scoped state home
-// (internal/claude.InTreeConfigDir) that provisionConfigHome never sees.
+// (internal/claude.SessionConfigDir) that provisionConfigHome never sees.
 // =============================================================================
 
 // TestPrepareClaudeHome_CopiesCredentials is the PAYLOAD-asserting case: the
 // host's ~/.claude/.credentials.json lands byte-identical, owner-only, at
-// destDir/claude/.credentials.json — exactly where claude.InTreeConfigDir
+// destDir/claude/.credentials.json — exactly where claude.SessionConfigDir
 // resolves CLAUDE_CONFIG_DIR to. The empty-source guard (a non-empty fixture,
 // re-read and compared) keeps the byte comparison from passing vacuously on two
 // empty files, which is this project's signature failure mode.

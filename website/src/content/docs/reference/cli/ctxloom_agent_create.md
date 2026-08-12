@@ -27,7 +27,14 @@ dir) is NOT set here — it is a session trait chosen at invocation time
 the per-turn execution axis; omit it to keep the default conversational
 (warm-engine) model. oneshot requires a resume-capable engine and is
 EXPERIMENTAL in this release — executable, but its interfaces and behavior
-may change.
+may change. Config-home (optional: project|host) decides which engine config
+home this agent's claude-code/codex/kiro runs get on the in-tree (workspace:
+none) axis: "project" points the engine at a ctxloom-controlled, PER-SESSION
+home under .ctxloom/state/<session>/home/, isolated from your own and thrown
+away with the session; "host" (also the default when omitted) keeps the
+engine's real host home, which ctxloom never writes. It wins on every
+invocation path this binding resolves through — a bare run under
+default_agent, run --agent, a delegated child, a oneshot fan member alike.
 
 Examples:
   ctxloom agent create finder --engine claude-fast --profiles finder
@@ -41,6 +48,7 @@ ctxloom agent create <name> [flags]
 ### Options
 
 ```
+      --config-home string    Per-engine config-home policy on the in-tree axis: project|host (empty = host, the default — controlled homes are opt-in)
       --llm string            llm.configs label to bind (overrides the profiles' llm; empty = project default)
       --permissions string    Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
       --profiles strings      Comma-separated profile name(s)/ref(s) to compose

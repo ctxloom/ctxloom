@@ -99,12 +99,14 @@ func TestHookApproach_PayloadReachesTheInjectedContext(t *testing.T) {
 	// Link 2 — the hook itself, registered in each hook-approach backend's
 	// settings surface AND keyed to that same hash. A hook registered with a
 	// stale or empty hash reads a file that is not there and injects nothing.
+	// codex has NO ROW: its hooks live in $CODEX_HOME/config.toml, and a static
+	// apply has no session and so no such file (internal/codex/
+	// declared_absence.go). Its half of this chain — hook registered against the
+	// same regenerated hash — happens inside a per-session instance at launch;
+	// the absence on THIS path is asserted immediately below, so removing the
+	// row does not quietly stop checking codex at all.
 	for _, tc := range []struct{ name, path string }{
 		{"claude-code", filepath.Join(projectDir, ".claude", "settings.json")},
-		// codex's config home is the one ctxloom relocates, so its path is
-		// asked of codex's own writer (internal/codex.ProjectHome) rather than
-		// spelled out here.
-		{"codex", (&codex.CodexHookWriter{}).SettingsPath(projectDir)},
 	} {
 		t.Run("hook registered/"+tc.name, func(t *testing.T) {
 			b, err := os.ReadFile(tc.path)
@@ -116,6 +118,17 @@ func TestHookApproach_PayloadReachesTheInjectedContext(t *testing.T) {
 				"%s: the registered hook must name the hash of the context just regenerated", tc.name)
 		})
 	}
+
+	// Link 2 for codex, stated as the absence it is: a static apply registers
+	// its SessionStart hook nowhere under the project, and — the half that
+	// matters — codex's own cwd-keyed AGENTS.md still carries the payload, so
+	// this is a narrowing rather than a codex run that learns nothing.
+	assert.Empty(t, (&codex.CodexHookWriter{}).SettingsPath(projectDir),
+		"codex declares that it has no project-keyed settings file to register a hook in")
+	agentsMD, err := os.ReadFile(filepath.Join(projectDir, codex.AgentsMDFile))
+	require.NoError(t, err, "codex's cwd-keyed context surface is unaffected by that declaration")
+	assert.Contains(t, string(agentsMD), hookSentinel,
+		"an empty AGENTS.md would mean codex genuinely lost this context, not merely its hook")
 
 	// Link 2b — claude's hook approach must NOT also write a native CLAUDE.md.
 	// A static file alongside the hook would DOUBLE the context, which is the

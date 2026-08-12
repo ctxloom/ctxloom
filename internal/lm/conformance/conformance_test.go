@@ -41,12 +41,31 @@ type agentCase struct {
 	userMarker string // substring of userFile that must survive write + remove
 }
 
-// agentCases returns the TWO agents this suite actually covers today
-// (claude-code, codex) — NOT every agent.SettingsWriter
-// implementation in the repo: opencode and kiro both implement
-// the interface (internal/opencode/settings.go:465,
-// internal/kiro/settings.go:48) and are absent, for two DIFFERENT reasons,
-// not one shared oversight:
+// agentCases returns the agents this suite actually covers today — NOT every
+// agent.SettingsWriter implementation in the repo. Three are absent, for three
+// DIFFERENT reasons, not one shared oversight:
+//
+//   - codex's settings surface is LAUNCH-ONLY. Its config.toml lives in
+//     $CODEX_HOME, and the only $CODEX_HOME ctxloom writes is a per-session
+//     instance; its harpless agent.SettingsWriter methods therefore DECLARE
+//     that absence rather than target a path (SettingsPath returns "",
+//     WriteSettings refuses — internal/codex/declared_absence.go). Every
+//     assertion below is "write at SettingsPath, read it back", which cannot be
+//     asked of a writer that correctly has no path. The suite HONOURS that
+//     declaration by not asking, exactly as it honours opencode's
+//     noHooksReason below.
+//     WHERE THE COVERAGE WENT, so this reads as a move and not a loss:
+//     internal/codex's own settings_test.go / settings_wipe_test.go /
+//     settings_sessionend_test.go drive the identical assertions — unparseable
+//     refusal, per-event hook emission, MCP auto-registration,
+//     remove-preserves-user — through writeSettingsIn, the resolved-home entry
+//     point that is now the only writer there is.
+//     WHAT IT COSTS, stated plainly: this suite's premise is CROSS-AGENT
+//     EQUITY ("claude JSON, codex TOML both pass the same suite"), and with
+//     codex gone it covers one agent and proves nothing cross-format. Restoring
+//     that needs the suite reworked around a RESOLVED ENGINE HOME rather than a
+//     project dir — a real change to its shape, not a table edit, and out of
+//     scope for the slice that created this gap.
 //
 //   - kiro's writer has no SettingsPath method at all — its settings are
 //     genuinely multi-file (agentPath/mcpPath/mcpLedgerPath/steeringPath,
@@ -70,8 +89,20 @@ type agentCase struct {
 func agentCases() []agentCase {
 	return []agentCase{
 		{"claude-code", concrete[*claude.ClaudeCodeHookWriter](claude.NewWriter), `{"theme":"dark"}`, "dark"},
-		{"codex", concrete[*codex.CodexHookWriter](codex.NewWriter), "model = \"o3\"\n", "o3"},
 	}
+}
+
+// TestConformance_CodexIsAbsentByDECLARATION keeps the omission above from
+// decaying into an unnoticed hole. A commented-out table row is a hole; an
+// assertion that the row's PREMISE is still false is a statement that gets
+// re-checked on every run — and goes red the day codex gains a project-keyed
+// settings path, which is the day it belongs back in this table.
+func TestConformance_CodexIsAbsentByDECLARATION(t *testing.T) {
+	assert.Empty(t, (&codex.CodexHookWriter{}).SettingsPath("/project"),
+		"codex is absent from agentCases because it has NO project-keyed settings path; if it has one again, add the row back")
+
+	err := (&codex.CodexHookWriter{}).WriteSettings(standardHooks(), nil, nil, "/project")
+	assert.Error(t, err, "and because its harpless writer declares the absence rather than writing")
 }
 
 // concrete widens a constructor's agent.SettingsWriter result to this suite's

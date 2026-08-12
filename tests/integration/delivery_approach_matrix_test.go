@@ -743,6 +743,14 @@ func TestDeliveryApproach_OpencodeSaysWhatItCannotCarry(t *testing.T) {
 // Both directions are asserted from the PAYLOAD (never from a "delivered"
 // report): a backend that declares no hook mechanism must land the hook
 // sentinel in no file, and a backend that declares nothing must land it in one.
+//
+// TWO DECLARATIONS COUNT AS ONE HERE, deliberately. noHooksReason says the
+// ENGINE has no hook mechanism (opencode, mock); launchOnlySettingsReason says
+// a HARPLESS caller — which is exactly what this loop is, BuildSurfaces with no
+// session — has nowhere to write one (codex). The claim under test is "if
+// anything was declared, nothing landed", and both declarations make that claim
+// about this seam. Reading only the first would fail codex for honouring its
+// own declaration.
 func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
 	for _, name := range matrixBackends(t) {
 		t.Run(name, func(t *testing.T) {
@@ -756,7 +764,8 @@ func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
 			require.Empty(t, errs)
 
 			hookFiles := findSentinel(matrixTree(t, fs, root), slotHook)
-			declaredLoss := backends.UncarriedSurfaces(name, inputs)
+			declaredLoss := append(backends.UncarriedSurfaces(name, inputs),
+				backends.LaunchOnlySurfaces(name, inputs)...)
 
 			if len(declaredLoss) > 0 {
 				assert.Empty(t, hookFiles,

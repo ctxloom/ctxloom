@@ -394,14 +394,17 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// configDoc/Fixture but missing from this section-by-section persist path is
 	// silently discarded on every Save()/Marshal().
 	setOrDelete(existing, "permissions", c.permissions != "", c.permissions)
-	// Agent delegation's two limits (concurrency resource ceiling + depth
-	// structural ceiling — see DelegationConfig's doc); pruned as a whole key
-	// when neither is set (<=0 means "use the built-in default"). Wired here
-	// so a save/Marshal() round-trip does not silently drop it (the exact bug
-	// class dirty_tree_handler's own comment above documents having hit).
+	// Agent delegation's settings (concurrency resource ceiling + depth
+	// structural ceiling + the spool shadow tee — see DelegationConfig's doc);
+	// pruned as a whole key when none is set (<=0 / false means "use the
+	// built-in default"). Wired here so a save/Marshal() round-trip does not
+	// silently drop it (the exact bug class dirty_tree_handler's own comment
+	// above documents having hit) — and EVERY field of the group has to be in
+	// this condition, because a group pruned on a stale subset of its own
+	// fields discards the ones nobody remembered to add.
 	// Renamed/regrouped from the flat agent_turn_cap — see
 	// errRetiredAgentTurnCapKey.
-	setOrDelete(existing, "delegation", c.delegation.Concurrency > 0 || c.delegation.Depth > 0, c.delegation)
+	setOrDelete(existing, "delegation", c.delegation.Concurrency > 0 || c.delegation.Depth > 0 || c.delegation.SpoolTee, c.delegation)
 	// Per-backend user-provided agent images; pruned when empty (built-in
 	// defaults leave no key behind).
 	setOrDelete(existing, "isolation_images", len(c.isolationImages) > 0, c.isolationImages)

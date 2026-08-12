@@ -12,6 +12,7 @@ import (
 	"time"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/config"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/liveness"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -97,6 +98,14 @@ type Options struct {
 	// the real budget, or raise/lower it to prove a slow-but-successful
 	// dial-home survives (or doesn't) at a given budget.
 	RunnerAwaitTimeout time.Duration
+	// SpoolTee turns on the mailbox's SHADOW TEE onto the file spool
+	// (spooltee.go): mail is additionally written as spool files and
+	// doorbelled, reads are untouched. Default false, and false means nothing
+	// happens at all — no directory, no doorbell. Production sources this from
+	// project config (config.Config.GetDelegationSpoolTee); the coordinator
+	// also stamps it onto every runner it spawns (EnvRunSpoolTee) so both ends
+	// of a run agree without asking each other.
+	SpoolTee bool
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -172,6 +181,16 @@ type Coordinator struct {
 	// needed the coordinator lock would put contention on the exact path
 	// whose whole point is to cost nothing when it fails.
 	spoolDoorbell spoolDoorbellCounters
+	// spoolTee is the SHADOW-TEE switch (Options.SpoolTee, config
+	// delegation.spool_tee). Read-only after New, so no lock: it is a
+	// process-lifetime posture, not runtime state, and making it mutable would
+	// mean a delivery could be half-teed across a flip.
+	spoolTee bool
+	// spoolIn lends the per-child in/ writers. Non-nil ONLY when spoolTee is
+	// on: constructing it is what would create spool directories, and "the
+	// flag is off" has to mean nothing on disk changed.
+	spoolIn       *spoolWriterCache
+	spoolTeeCount spoolTeeCounters
 
 	mu          sync.Mutex
 	attach      map[string]*childRt // runID → runtime attachment
@@ -318,6 +337,13 @@ func New(opts Options) (*Coordinator, error) {
 		chans:              make(map[string]*runChan),
 		launchArmed:        make(map[string][]chan struct{}),
 		launches:           make(map[string]*launchState),
+		spoolTee:           opts.SpoolTee,
+	}
+	if c.spoolTee {
+		// Built ONLY under the flag — see the field's doc. The writers
+		// themselves are still lazy (one per child, on its first message), so
+		// enabling the tee does not create a spool for a run that never sends.
+		c.spoolIn = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, spoolWriterIDCoordinator)
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {

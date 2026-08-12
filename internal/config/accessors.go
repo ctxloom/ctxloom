@@ -307,6 +307,13 @@ func (c *Config) GetDelegationDepth() int {
 	return DefaultDelegationDepth
 }
 
+// GetDelegationSpoolTee returns delegation.spool_tee: whether the mailbox's
+// shadow tee onto the file spool is on for this project. Unset reads as false
+// (off), which is the posture in which the coordinator and every runner it
+// spawns behave exactly as they did before the spool existed — see
+// DelegationConfig.SpoolTee.
+func (c *Config) GetDelegationSpoolTee() bool { return c.delegation.SpoolTee }
+
 // GetDefaultAgent returns the name of the always-bound default agent (may be
 // empty or reference an undefined agent).
 func (c *Config) GetDefaultAgent() string { return c.defaultAgent }

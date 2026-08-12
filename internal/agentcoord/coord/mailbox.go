@@ -111,6 +111,12 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	}); err != nil {
 		return "", false, err
 	}
+	// The SHADOW TEE (spooltee.go), at the one point every sender funnels
+	// through, and AFTER the durable queue fact — the moment the coordinator
+	// has actually committed this mail. It is a no-op unless the tee is
+	// enabled, it never fails this delivery, and it changes nothing about what
+	// follows: reads still come from the mailbox in S4.
+	c.teeMailToRun(to, msg)
 	if c.deliverToPoll(to, msg) {
 		return msg.ID, true, nil
 	}

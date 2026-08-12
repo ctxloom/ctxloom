@@ -44,6 +44,22 @@ type Message struct {
 	// InReplyTo correlates a reply to the ID of the request it answers. The
 	// asker matches it against its waiter table.
 	InReplyTo string
+	// OriginID is the identity this message carried in the system that
+	// PRODUCED it, when that system is not the spool itself.
+	//
+	// It exists for the mailbox shadow tee, where the same logical message
+	// lives in two places at once: the mailbox knows it by its own id, and
+	// InReplyTo on a teed reply quotes THAT id, not a spool filename. Without
+	// somewhere to record it, a spool file cannot be matched back to the
+	// mailbox delivery it shadows and every correlation the tee copies is a
+	// dangling reference — which would make the tee's whole purpose (comparing
+	// the two representations before one of them is switched off)
+	// unmeasurable.
+	//
+	// It is DELIBERATELY not ID: ID is the filename stem, stamped by the
+	// Writer, and the spool's own identity must never be something a producer
+	// can choose. Once the file IS the message, this is empty.
+	OriginID string
 	// Created is the write stamp, serialised RFC3339 with nanoseconds.
 	Created time.Time
 	// TTLSeconds is an optional budget: a reader may refuse a stale ask
@@ -73,6 +89,7 @@ const (
 	keyFromHarp   = "from_harp"
 	keyTo         = "to"
 	keyInReplyTo  = "in_reply_to"
+	keyOriginID   = "origin_id"
 	keyCreated    = "created"
 	keyTTLSeconds = "ttl_s"
 	keyStructured = "structured"
@@ -80,7 +97,7 @@ const (
 
 // knownKeys is the frontmatter this build understands, in canonical emit
 // order for a message that was not parsed from disk.
-var knownKeys = []string{keyV, keyID, keyKind, keyFromHarp, keyTo, keyInReplyTo, keyCreated, keyTTLSeconds, keyStructured}
+var knownKeys = []string{keyV, keyID, keyKind, keyFromHarp, keyTo, keyInReplyTo, keyOriginID, keyCreated, keyTTLSeconds, keyStructured}
 
 // CurrentVersion is the format version Encode stamps.
 const CurrentVersion = 1
@@ -155,6 +172,9 @@ func (m *Message) decodeHead() error {
 	if m.InReplyTo, _, err = scalar(keyInReplyTo); err != nil {
 		return err
 	}
+	if m.OriginID, _, err = scalar(keyOriginID); err != nil {
+		return err
+	}
 	if node, ok := mappingGet(m.head, keyV); ok {
 		if err := node.Decode(&m.V); err != nil {
 			return fmt.Errorf("spool: frontmatter %q must be an integer: %w", keyV, err)
@@ -226,6 +246,7 @@ func (m *Message) Encode() ([]byte, error) {
 		{keyFromHarp, m.FromHarp, m.FromHarp != ""},
 		{keyTo, m.To, m.To != ""},
 		{keyInReplyTo, m.InReplyTo, m.InReplyTo != ""},
+		{keyOriginID, m.OriginID, m.OriginID != ""},
 		{keyCreated, created, created != ""},
 		{keyTTLSeconds, m.TTLSeconds, m.TTLSeconds != 0},
 		{keyStructured, m.Structured, len(m.Structured) > 0},

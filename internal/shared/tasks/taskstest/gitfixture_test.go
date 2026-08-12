@@ -39,14 +39,43 @@ var sanctionedWorktreeFixtureFiles = map[string]bool{
 	filepath.Join("internal", "cli", "session_worktrees_test.go"):                   true,
 }
 
+// worktreeFixtureMarker is the distinguishing shape of a hand-built fixture: a
+// linked worktree created on a fresh branch, which is what
+// RealGitWorktreeFixture exists to build.
+const worktreeFixtureMarker = `"worktree", "add", "-q", "-b"`
+
 // TestRealGitWorktreeFixture_CanonicalityClaimHolds enforces the claim
 // RealGitWorktreeFixture's doc makes about itself. A "canonical" claim nobody
 // checks stops the next author from checking: they read the doc, believe the
 // count, and add the copy it says not to add.
 func TestRealGitWorktreeFixture_CanonicalityClaimHolds(t *testing.T) {
 	root := repoRoot(t)
+	bodies, err := worktreeFixtureBodiesUnder(root)
+	require.NoError(t, err)
 	var offenders []string
-	require.NoError(t, filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	for _, rel := range bodies {
+		if !sanctionedWorktreeFixtureFiles[rel] {
+			offenders = append(offenders, rel)
+		}
+	}
+	assert.Empty(t, offenders,
+		"a linked-worktree fixture body exists outside the sanctioned files; use RealGitWorktreeFixture, or amend its doc and this list together")
+}
+
+// worktreeFixtureBodiesUnder returns, relative to root, every .go file holding
+// worktreeFixtureMarker.
+//
+// It descends the working tree rather than asking git for tracked paths on
+// purpose: an unstaged new copy is exactly the drift the canonicality claim
+// must catch, and `git ls-files` would let it through. That means the walk
+// must exclude nested LINKED WORKTREES itself, because a checkout that hosts
+// agent worktrees (.claude/worktrees/agent-*) carries a full second copy of
+// every sanctioned file at a path no sanctioned entry can match. Those copies
+// are machine debris, not drift; flagging them makes the claim fail for
+// everyone whose checkout happens to be the busy one.
+func worktreeFixtureBodiesUnder(root string) ([]string, error) {
+	var found []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -54,6 +83,10 @@ func TestRealGitWorktreeFixture_CanonicalityClaimHolds(t *testing.T) {
 			if name := d.Name(); name == ".git" || name == "node_modules" {
 				return filepath.SkipDir
 			}
+			// Never skip root: root itself is routinely a linked worktree
+			// (every agent worktree is), and skipping it would scan nothing
+			// and report a vacuous PASS.
+			_ = isLinkedWorktreeRoot // RED-FIRST: pre-fix behaviour, no skip.
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") {
@@ -63,22 +96,85 @@ func TestRealGitWorktreeFixture_CanonicalityClaimHolds(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		// The distinguishing shape: a linked worktree created on a fresh
-		// branch, which is what the fixture exists to build.
-		if !strings.Contains(string(body), `"worktree", "add", "-q", "-b"`) {
+		if !strings.Contains(string(body), worktreeFixtureMarker) {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		if !sanctionedWorktreeFixtureFiles[rel] {
-			offenders = append(offenders, rel)
-		}
+		found = append(found, rel)
 		return nil
-	}))
-	assert.Empty(t, offenders,
-		"a linked-worktree fixture body exists outside the sanctioned files; use RealGitWorktreeFixture, or amend its doc and this list together")
+	})
+	return found, err
+}
+
+// isLinkedWorktreeRoot reports whether dir is the root of a git linked
+// worktree. git marks those with a .git FILE holding a gitdir pointer, where a
+// primary checkout gets a .git DIRECTORY — the same discriminator
+// TestRealGitWorktreeFixture_BuildsARealLinkedWorktree pins. It beats matching
+// on a path convention like .claude/worktrees/, which only covers the
+// worktrees this tool happens to create today.
+func isLinkedWorktreeRoot(dir string) bool {
+	info, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil && info.Mode().IsRegular()
+}
+
+// TestWorktreeFixtureBodiesUnder_SkipsNestedLinkedWorktrees is the regression:
+// the scan used to walk into nested linked worktrees and flag their copies of
+// the sanctioned files, so the canonicality claim failed on machine debris
+// (any checkout hosting agent worktrees) instead of on real drift.
+func TestWorktreeFixtureBodiesUnder_SkipsNestedLinkedWorktrees(t *testing.T) {
+	root := t.TempDir()
+
+	// The nested worktree's own copy of a sanctioned file. Its path relative
+	// to root carries the .claude/worktrees/... prefix, so no sanctioned entry
+	// could ever match it.
+	nested := filepath.Join(root, ".claude", "worktrees", "agent-deadbeef")
+	writeFixtureBody(t, filepath.Join(nested,
+		"internal", "shared", "tasks", "taskstest", "gitfixture.go"))
+	// git's marker for a linked worktree root: a .git FILE, not a directory.
+	require.NoError(t, os.WriteFile(filepath.Join(nested, ".git"),
+		[]byte("gitdir: /somewhere/.git/worktrees/agent-deadbeef\n"), 0o644))
+
+	bodies, err := worktreeFixtureBodiesUnder(root)
+	require.NoError(t, err)
+	assert.Empty(t, bodies,
+		"a nested linked worktree's copies are machine debris, not a new fixture body")
+}
+
+// TestWorktreeFixtureBodiesUnder_StillCatchesStrayCopies is the other
+// direction, and the whole point of the scan: skipping nested worktrees must
+// not turn into skipping anything. A stray copy at an ordinary path stays
+// visible.
+func TestWorktreeFixtureBodiesUnder_StillCatchesStrayCopies(t *testing.T) {
+	root := t.TempDir()
+	stray := filepath.Join("internal", "elsewhere", "helpers_test.go")
+	writeFixtureBody(t, filepath.Join(root, stray))
+
+	// A sibling linked worktree, to prove the stray is found by walking PAST a
+	// skip rather than because nothing was skipped at all.
+	nested := filepath.Join(root, ".claude", "worktrees", "agent-deadbeef")
+	writeFixtureBody(t, filepath.Join(nested, "internal", "elsewhere", "helpers_test.go"))
+	require.NoError(t, os.WriteFile(filepath.Join(nested, ".git"),
+		[]byte("gitdir: /somewhere/.git/worktrees/agent-deadbeef\n"), 0o644))
+
+	// Deliberately Contains, not Equal: this test must hold both before and
+	// after the nested-worktree skip lands, so that the only thing that can
+	// turn it red is a skip that swallows ordinary paths too.
+	bodies, err := worktreeFixtureBodiesUnder(root)
+	require.NoError(t, err)
+	assert.Contains(t, bodies, stray,
+		"a stray fixture body at an ordinary path must still be reported")
+}
+
+// writeFixtureBody plants a .go file carrying worktreeFixtureMarker at path,
+// creating parents.
+func writeFixtureBody(t *testing.T, path string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	body := "package planted\n\nfunc f() { runGit(t, dir, " + worktreeFixtureMarker + ", b, d) }\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 }
 
 // TestRealGitWorktreeFixture_BuildsARealLinkedWorktree pins what the fixture

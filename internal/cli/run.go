@@ -364,7 +364,11 @@ type runState struct {
 	sessionCoord *coord.Coordinator
 
 	// buildRunRequest: the resolved permission posture and the wire payload.
-	labelPerm        string
+	labelPerm string
+	// projectPerm is THIS project directory's declared default posture
+	// (config.yaml's top-level `permissions:`, empty when undeclared) — the
+	// rung between the engine label and the engine's own built-in default.
+	projectPerm      string
 	requestedPerm    agent.PermissionMode
 	hasRequestedPerm bool
 	permMode         agent.PermissionMode
@@ -1130,14 +1134,16 @@ func (st *runState) buildRunRequest() {
 	}
 
 	// Launch-time permission posture. Precedence: --permissions flag > agent
-	// binding > engine-label config > built-in default (claude-code → bypass
-	// while container isolation isn't relied on; others prompt). A headless
-	// ONESHOT upgrades a would-block posture to bypass or it would hang with no
-	// human to answer the engine.
+	// binding > engine-label config > THIS PROJECT DIRECTORY's declared default
+	// (config.yaml's top-level `permissions:`) > built-in default (claude-code →
+	// bypass while container isolation isn't relied on; others prompt). A
+	// headless ONESHOT upgrades a would-block posture to bypass or it would hang
+	// with no human to answer the engine.
 	labelEntry, _ := st.cfg.GetLLMEntry(st.label)
 	st.labelPerm = labelEntry.Permissions
-	st.permMode = resolvePermissionMode(runPermissions, st.agentPermissions, st.labelPerm, st.backendName, st.mode, backends.EnforcesReadOnlyPlan(st.backendName))
-	st.requestedPerm, st.hasRequestedPerm = requestedPermission(runPermissions, st.agentPermissions, st.labelPerm)
+	st.projectPerm = st.cfg.GetPermissions()
+	st.permMode = resolvePermissionMode(runPermissions, st.agentPermissions, st.labelPerm, st.projectPerm, st.backendName, st.mode, backends.EnforcesReadOnlyPlan(st.backendName))
+	st.requestedPerm, st.hasRequestedPerm = requestedPermission(runPermissions, st.agentPermissions, st.labelPerm, st.projectPerm)
 	st.warnPermissionCollapse()
 	st.warnHostBypassStopgap()
 	st.warnPlanOneshotCancels()
@@ -1799,14 +1805,34 @@ func warnBypassOnLostContainer(axes isolation.Axes, preparedName string, permMod
 
 // resolvePermissionMode picks the launch-time permission posture for the top-level
 // run. Precedence: the explicit --permissions flag, then the --agent binding, then
-// the engine label's configured permissions, then the built-in default. The
-// built-in default is bypass for claude-code (the host stopgap while container
-// isolation isn't relied on) and default (prompt) for every other backend.
-// Config/CLI is authoritative: the isolation boundary no longer earns or drops
-// bypass. A non-interactive ONESHOT has no human to answer the engine, so a
+// the engine label's configured permissions, then THIS PROJECT DIRECTORY's
+// declared default (config.yaml's top-level `permissions:`), then the built-in
+// default. The built-in default is bypass for claude-code (the host stopgap while
+// container isolation isn't relied on) and default (prompt) for every other
+// backend. Config/CLI is authoritative: the isolation boundary no longer earns or
+// drops bypass. A non-interactive ONESHOT has no human to answer the engine, so a
 // would-block posture (default/acceptEdits) upgrades to bypass or it hangs.
-func resolvePermissionMode(flag, agentPerm, labelPerm, backendType string, mode pb.ExecutionMode, backendEnforcesPlan bool) agent.PermissionMode {
-	m := agent.ResolveDefault([]string{flag, agentPerm, labelPerm}, backendType == config.BackendClaudeCode)
+//
+// projectPerm sits LAST among the declarations and BEFORE the built-in default,
+// and both halves of that placement are load-bearing:
+//
+//   - Below flag/agent/label, so a project default can never widen a posture
+//     someone declared somewhere more specific. Precedence, not "most
+//     restrictive wins": a binding may still declare a WIDER posture than the
+//     project default, exactly as it may today against the built-in one.
+//   - Above the built-in default, so a declared project posture beats the
+//     claude-code host stopgap. The stopgap exists for the case where nobody
+//     stated a posture at all; a project that states one has answered the
+//     question it was standing in for, and leaving the stopgap on top would
+//     make `permissions: plan` in a claude-code project silently mean bypass —
+//     the exact silent widening this chain is built to prevent.
+//
+// projectPerm reaches here from config.GetPermissions(), which can only ever
+// carry a value THIS project's .ctxloom/config.yaml (or an explicit
+// --config-set) wrote: layerscope drops the key from a home config or the
+// environment before the merge. See config.Config.permissions.
+func resolvePermissionMode(flag, agentPerm, labelPerm, projectPerm, backendType string, mode pb.ExecutionMode, backendEnforcesPlan bool) agent.PermissionMode {
+	m := agent.ResolveDefault([]string{flag, agentPerm, labelPerm, projectPerm}, backendType == config.BackendClaudeCode)
 	// plan is only a genuine read-only posture on backends that enforce it. On a
 	// backend with no read-only tier it collapses to default — the nearest posture
 	// that still gates each tool call on a human. Interactive: that prompts; a
@@ -1820,11 +1846,18 @@ func resolvePermissionMode(flag, agentPerm, labelPerm, backendType string, mode 
 }
 
 // requestedPermission returns the posture the user or config asked for — the
-// first parseable of flag > agent > label — independent of any backend collapse.
-// ok is false when nothing parseable was requested (so the caller falls back to a
-// built-in default). It is the input to the "backend can't honor this" warning.
-func requestedPermission(flag, agentPerm, labelPerm string) (agent.PermissionMode, bool) {
-	for _, s := range []string{flag, agentPerm, labelPerm} {
+// first parseable of flag > agent > label > project default — independent of any
+// backend collapse. ok is false when nothing parseable was requested (so the
+// caller falls back to a built-in default). It is the input to the "backend
+// can't honor this" warning.
+//
+// The project default counts as a REQUEST, deliberately: a project that pinned
+// `permissions: plan` on a backend with no read-only tier must be told the pin
+// collapsed. That is the same silent widening the warning exists to surface, and
+// it does not stop being one because the declaration lived in the project file
+// rather than on a binding.
+func requestedPermission(flag, agentPerm, labelPerm, projectPerm string) (agent.PermissionMode, bool) {
+	for _, s := range []string{flag, agentPerm, labelPerm, projectPerm} {
 		if pm, ok := agent.ParsePermissionMode(s); ok {
 			return pm, true
 		}

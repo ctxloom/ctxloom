@@ -79,10 +79,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	label := resolveOneshotLabel(cfg, req.LLM, ctxResult.ProfileLLM)
 	backendName, model := ResolveBackend(cfg, label)
 	labelEntry, _ := cfg.GetLLMEntry(label)
-	permissions := req.Permissions
-	if permissions == "" {
-		permissions = labelEntry.Permissions
-	}
+	permissions := resolveOneshotPermissions(req.Permissions, labelEntry.Permissions, cfg.GetPermissions())
 
 	// The single-profile oneshot's axes: the session-level workspace default
 	// (cfg.Workspace) x the project runtime default (cfg.Runtime — a bare
@@ -360,6 +357,27 @@ func memberLabel(req resolvedRunRequest) string {
 	default:
 		return req.Backend
 	}
+}
+
+// resolveOneshotPermissions picks the posture SPELLING a bare-profile oneshot
+// carries into effectiveMemberPermission: the caller's explicit override, else
+// the engine label's declared posture, else THIS PROJECT DIRECTORY's declared
+// default (config.yaml's top-level `permissions:`). All three are raw config
+// spellings, not parsed modes — the empty string means "nobody declared this
+// rung", which is exactly what effectiveMemberPermission's refusal downstream
+// needs to keep telling apart from a misspelling.
+//
+// A bare profile has no agent binding, so this chain is the run resolver's
+// (cli.resolvePermissionMode) minus that one rung, in the same order and with
+// the same rule: a narrower declaration nearer the invocation always wins, and
+// the project default is the last declaration consulted rather than the first.
+func resolveOneshotPermissions(reqPerm, labelPerm, projectPerm string) string {
+	for _, s := range []string{reqPerm, labelPerm, projectPerm} {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // effectiveMemberPermission resolves the posture a fan member actually launches

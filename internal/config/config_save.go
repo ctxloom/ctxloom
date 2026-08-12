@@ -298,6 +298,13 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// DirtyTreeCommitAcknowledged/SetDirtyTreeCommitAck.
 	setOrDelete(existing, "dirty_tree_handler", c.dirtyTreeHandler != "", c.dirtyTreeHandler)
 	setOrDelete(existing, "runtime", c.runtime != "", c.runtime)
+	// The project-wide default permission posture; pruned when empty so an
+	// undeclared project falls through to the engine's own built-in default
+	// rather than persisting a posture nobody chose. Written here for the same
+	// reason dirty_tree_handler above documents: a field declared on
+	// configDoc/Fixture but missing from this section-by-section persist path is
+	// silently discarded on every Save()/Marshal().
+	setOrDelete(existing, "permissions", c.permissions != "", c.permissions)
 	// Agent delegation's two limits (concurrency resource ceiling + depth
 	// structural ceiling — see DelegationConfig's doc); pruned as a whole key
 	// when neither is set (<=0 means "use the built-in default"). Wired here

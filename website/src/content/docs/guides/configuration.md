@@ -101,6 +101,10 @@ profiles:
       variables:
         VARIABLE: "value"
 
+# The default permission posture for agents run IN THIS DIRECTORY.
+# Only ever read from this project file — see "Permissions" below.
+permissions: acceptEdits      # default|acceptEdits|plan|bypass
+
 # Project-wide isolation defaults
 workspace: none               # session workspace axis: none|worktree
 runtime: host                 # agent runtime axis: host|container
@@ -220,6 +224,68 @@ antigravity equivalent) are dropped.
 | `mcp.auto_register_ctxloom` | `true` | Register ctxloom's MCP server |
 | `workspace` | `none` | Session workspace axis default |
 | `runtime` | `host` | Agent runtime axis default |
+| `permissions` | engine's own | Default permission posture for this project directory |
+
+## Permissions
+
+Approving every edit gets old fast in a scratch repo, and approving nothing at
+all is the wrong answer in the one that ships. `permissions:` lets you settle
+that question **once per project directory**:
+
+```yaml
+# .ctxloom/config.yaml — in the project you want it to apply to
+permissions: bypass       # default | acceptEdits | plan | bypass
+```
+
+Every agent launched in this directory now starts at that posture, with no
+flag to remember and nothing to re-type. A scratch repo can be `bypass`; the
+repo that deploys can be `plan`; neither one learns anything about the other.
+
+**This key is only honored from the project's own `.ctxloom/config.yaml`.**
+The same line in your `~/.ctxloom/config.yaml`, or in
+`CTXLOOM_CONFIG_PERMISSIONS`, is dropped with a warning and never applied.
+That is the entire point of it. The grant is consent for one directory you
+chose deliberately; a home-wide or environment-wide version would silently
+re-grant every project on the machine what you meant for one of them — and an
+agent that can run `bash` can write an environment variable, which would let
+it widen its own successors.
+
+The postures:
+
+| Value | What the engine does |
+|-------|----------------------|
+| `default` | Prompts you for each gated call |
+| `acceptEdits` | Auto-accepts file edits, prompts for the rest |
+| `plan` | Read-only: it may inspect, not mutate |
+| `bypass` | No in-engine prompting at all |
+
+Anything more specific wins. The full order, nearest first:
+
+```
+run --permissions  >  the agent binding's `permissions`
+                   >  the engine label's `permissions`
+                   >  this project default
+                   >  the engine's own built-in default
+```
+
+So a `reviewer` agent declaring `permissions: plan` stays read-only in a
+project whose default is `bypass` — a project default can never widen a
+posture you wrote down somewhere more specific. It is precedence, not
+"strictest wins": a binding may equally declare a *wider* posture than the
+project default, exactly as it can today against the built-in one.
+
+Declaring the project default also settles what would otherwise be an engine's
+own choice — claude-code runs at `bypass` on the host when nobody has said
+otherwise, so `permissions: plan` in a claude-code project is the difference
+between read-only and unrestricted.
+
+:::caution
+`bypass` means the engine asks nothing before running commands or writing
+files. Its blast radius is whatever contains the process — a container, or
+nothing at all on the bare host. Pair a permissive project default with
+`runtime: container` (below) if the directory is not one you would hand a
+stranger a shell in.
+:::
 
 ## Agents and Isolation
 

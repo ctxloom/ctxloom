@@ -269,6 +269,19 @@ func (c *Config) GetDirtyTreeHandler() string { return c.dirtyTreeHandler }
 // container).
 func (c *Config) GetRuntime() string { return c.runtime }
 
+// GetPermissions returns the PROJECT-DIR-SCOPED default launch-time permission
+// posture (default | acceptEdits | plan | bypass), as written; empty means the
+// project declared none. It is the fourth rung of the resolution chain
+// (--permissions flag > agent binding > engine label > THIS > engine built-in),
+// so a narrower posture declared anywhere above always wins while a declared
+// project posture still beats a silent engine fallback.
+//
+// The value can only ever have come from THIS project's .ctxloom/config.yaml
+// (or an explicit one-invocation --config-set): layerscope scopes the key
+// Shared, so a home config or an environment variable carrying it is dropped
+// with a warning before the merge. See Config.permissions' own doc.
+func (c *Config) GetPermissions() string { return c.permissions }
+
 // GetDelegationConcurrency returns delegation.concurrency: the project-wide
 // RESOURCE ceiling on concurrently EXECUTING delegated child turns (0/unset
 // means "use the built-in default" — see coord.agentConcurrencyCap and

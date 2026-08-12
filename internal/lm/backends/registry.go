@@ -170,6 +170,27 @@ type agentDescriptor struct {
 	// the generic acp backend (whatever command config names), and a
 	// REFUSAL-CAUSING gap for any engine whose transcripts ctxloom reads.
 	versionCommand engineversion.Command
+	// launchOnlySettingsReason declares, in one clause, that this backend's
+	// settings/prompt/skill surfaces exist ONLY inside a per-session engine
+	// home, so no stable path a STATIC materialize/apply can write exists at
+	// all. Empty for every backend whose settings live at a cwd-keyed project
+	// path (claude-code, kiro, opencode) — codex is the only one, because it is
+	// the only engine with no cwd-keyed equivalent of .claude/settings.json.
+	//
+	// It is the third member of the declared-absence family beside
+	// noHooksReason and unsupportedHookKinds, and it is declared for the
+	// identical reason: a surface written nowhere is indistinguishable from a
+	// surface nobody asked for, so the absence has to be DECLARED to be
+	// reportable. Read by LaunchOnlySurfaces (surfaces.go), which materialize
+	// folds into its "not carried" report.
+	//
+	// DELIBERATELY NOT read by UncarriedSurfaces. That one answers "what can
+	// this ENGINE never carry", and is consulted by `agent show` about a live
+	// binding — where an agent declaring `config_home: project` DOES get its
+	// hooks, at launch. Reporting them lost there would be a false alarm about
+	// a run that works. This field answers the narrower "what can a HARPLESS
+	// caller not write", which is a fact about the caller, not the engine.
+	launchOnlySettingsReason string
 	// unsupportedHookKinds is the PER-EVENT twin of noHooksReason, for a
 	// backend that has a hook mechanism generally but lacks a native event
 	// for specific unified KINDS ("session_end") — keyed by the same kind
@@ -510,14 +531,22 @@ func init() {
 		unsupportedHookKinds: map[string]string{
 			bundles.HookEventSessionEnd: codex.NoSessionEndReason,
 		},
-		// codex's project config-home (codex.ProjectHome) collapses onto its
-		// bare GLOBAL home (codex.GlobalHome) exactly when workDir == $HOME --
-		// the same collision class found for claude.
-		hookGlobalScopePaths: func(workDir string) (string, string, error) {
-			global, err := codex.GlobalHome()
-			return codex.ProjectHome(workDir), global, err
-		},
-		hookGlobalScopeLabel: "codex's global home",
+		// S7's DECLARED ABSENCE. codex reads hooks, MCP servers, prompts and
+		// skills only from $CODEX_HOME, which since S5 is either a per-session
+		// instance ctxloom creates at launch or the user's own ~/.codex, which
+		// ctxloom never writes — so a harpless materialize/install has no
+		// target at all. Stated once, in internal/codex, and read here so a
+		// caller that never imports that package reports the identical
+		// sentence.
+		launchOnlySettingsReason: codex.LaunchOnlySettingsReason,
+		// hookGlobalScopePaths is deliberately ABSENT (audited, not
+		// overlooked). Its purpose is the workDir == $HOME collision, where a
+		// backend's PROJECT config path collapses onto its user-global one —
+		// claude's and kiro's still do. codex no longer HAS a project config
+		// path (the declared absence above), so the static path writes nothing
+		// that could land in the user's global home; and the run path has its
+		// own, stronger guard — codex.IsHostCodexHome refuses the real home
+		// outright, whatever the workDir.
 		// D2 (RULED 2026-08-11): codex reads config_home like claude and kiro,
 		// through THIS seam and no other. An in-tree run whose binding declares
 		// `config_home: project` gets this session's own CODEX_HOME,

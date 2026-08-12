@@ -64,24 +64,22 @@ type CodexHookWriter struct {
 
 func (w *CodexHookWriter) getFS() afero.Fs { return agent.GetFS(w.FS) }
 
-// SettingsPath returns the path this HARPLESS, static writer targets for a
-// PROJECT ROOT: <projectDir>/.codex/config.toml.
+// SettingsPath returns "" — codex has NO project-keyed settings file, and this
+// empty string is the DECLARED ABSENCE (declared_absence.go) in path form.
 //
-// S7 INTERIM. codex's real settings surface is $CODEX_HOME/config.toml, and
-// since S5 that home exists only as a PER-SESSION instance
-// (SessionHome) — there is no stable path a static
-// `ctxloom profile materialize --backend codex` can write that a later run
-// will read. The durable per-project home this used to resolve through is
-// retired. Until S7 declares that absence properly (the
-// launchOnlySettingsReason field, mirroring noHooksReason), this and its three
-// harpless siblings — RemoveSettings, Status and MCPRegistrar.ConfigPath — sit
-// back on the pre-relocation project-root join they had before the durable
-// home existed, so the SettingsWriter conformance suite's
-// write-then-read-back still names ONE file for one argument. It is honest
-// about being nobody's live home: no run resolves here.
-func (w *CodexHookWriter) SettingsPath(projectDir string) string {
-	return w.settingsPathIn(projectDir)
-}
+// codex's settings surface is $CODEX_HOME/config.toml, and that home exists
+// only as a PER-SESSION instance (SessionHome) or as the user's own ~/.codex,
+// which ctxloom never writes. A harpless caller can name neither, so there is
+// no stable path a static `ctxloom profile materialize --backend codex` could
+// write that a later run would read. Returning a plausible-looking
+// <projectDir>/.codex/config.toml instead — which this did as the S7 interim —
+// hands the caller a file nothing reads, dressed as a real surface.
+//
+// EVERY CALLER MUST TREAT "" AS "THIS ENGINE HAS NO SUCH FILE", never as a
+// relative path: filepath.Join(projectDir, "") is projectDir, so a caller that
+// forgets ends up statting a DIRECTORY and reporting it unreadable.
+// TestSettingsPath_IsTheDeclaredAbsence pins the value.
+func (w *CodexHookWriter) SettingsPath(string) string { return "" }
 
 // settingsPathIn joins config.toml under an ALREADY-RESOLVED codex home parent
 // — the "virtual project dir" cellScopedCodexHome derives CODEX_HOME from. The
@@ -126,40 +124,38 @@ func (w *CodexHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.Con
 	return agent.WriteManagedContext(w.getFS(), path, AgentsMDFile, req.Context, AgentsMDFile)
 }
 
-// WriteSettings implements SettingsWriter for Codex CLI. Hooks and MCP servers
-// are written to .codex/config.toml as the [hooks] and [mcp_servers] tables.
-func (w *CodexHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
-	return w.WriteSettingsWithTrust(hooks, mcp, bundleMCP, projectDir, "")
+// WriteSettings implements SettingsWriter for Codex CLI and REFUSES: this
+// entry point takes a project dir, and codex has no project-keyed settings
+// file to write one into (see SettingsPath and declared_absence.go). An error
+// rather than a quiet no-op because the caller asked for a WRITE, and a write
+// that reports success having produced nothing is this project's signature
+// failure.
+//
+// The real writer is writeSettingsIn, reached only through the config surface,
+// which holds an ALREADY-RESOLVED codex home. There is no exported harpless
+// twin of it on purpose: every exported spelling of "write codex's settings
+// under a project root" is a durable project home regrowing.
+func (w *CodexHookWriter) WriteSettings(*wire.HooksConfig, *wire.MCPConfig, map[string]wire.MCPServer, string) error {
+	return launchOnlyError("codex has no project-scoped settings file to write")
 }
 
-// WriteSettingsWithTrust is WriteSettings plus an optional project-trust
-// pre-seed: when trustAbsPath is non-empty, it appends
-// `[projects."<trustAbsPath>"] trust_level = "trusted"` to the written
-// config.toml so codex does not re-prompt for trust the FIRST time it reads a
+// writeSettingsIn writes hooks + MCP servers (and, when trustAbsPath is
+// non-empty, the project-trust pre-seed) into config.toml under an
+// ALREADY-RESOLVED codex home parent — see settingsPathIn.
+//
+// THE TRUST PRE-SEED: `[projects."<trustAbsPath>"] trust_level = "trusted"` is
+// appended so codex does not re-prompt for trust the FIRST time it reads a
 // config.toml it has never seen before — and, under `codex exec`, does not
 // silently proceed untrusted because there is nobody to prompt. That covers
-// every home ctxloom itself provisions — the isolation-provided per-run
-// CODEX_HOME, a container cell's fresh $HOME, and the durable project state
-// home — none of which is ever committed, so a machine-specific absolute path
-// baked into one is harmless.
+// every home ctxloom itself provisions — the per-session instance, the
+// isolation-provided per-run CODEX_HOME, a container cell's fresh $HOME — none
+// of which is ever committed, so a machine-specific absolute path baked into
+// one is harmless.
 //
 // docs/trust-model.md, "Engine workspace-trust prompts", is the NORMATIVE
-// statement of this decision and its boundary (ctxloom answers only for homes
-// it created, only for the directory the run was asked for). It used to live
-// only in this comment, which is why the boundary was easy to widen by
-// accident; internal/codex/backend.go's Setup is what fills the value.
-//
-// projectDir is a PROJECT ROOT and is used AS the codex home parent (see
-// SettingsPath's S7-interim note): this harpless entry point can no longer
-// relocate onto a per-session instance, because it has no session. The surfaces
-// call writeSettingsIn instead — they have already resolved their axis's own
-// home and must not have a relocation applied on top of it.
-func (w *CodexHookWriter) WriteSettingsWithTrust(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir, trustAbsPath string) error {
-	return w.writeSettingsIn(hooks, mcp, bundleMCP, projectDir, trustAbsPath)
-}
-
-// writeSettingsIn is WriteSettingsWithTrust against an ALREADY-RESOLVED codex
-// home parent — see settingsPathIn.
+// statement of that decision and its boundary (ctxloom answers only for homes
+// it created, only for the directory the run was asked for); internal/codex/
+// backend.go's Setup is what fills the value.
 func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, codexProjectDir, trustAbsPath string) error {
 	if hooks == nil {
 		hooks = &wire.HooksConfig{}
@@ -261,16 +257,25 @@ func (w *CodexHookWriter) save(path string, cfg map[string]any, allowEmpty bool)
 	return agent.AtomicWriteFile(w.getFS(), path, buf.Bytes(), ConfigFileName, opts...)
 }
 
-// RemoveSettings implements SettingsWriter for Codex CLI: it strips ctxloom
-// hooks and MCP servers from config.toml, leaving an absent file absent. A file
-// that cannot be STATTED is neither: reporting a clean removal from a file
-// nobody could look at leaves ctxloom's hooks and servers live in it.
+// RemoveSettings implements SettingsWriter for Codex CLI and removes NOTHING —
+// there is nothing home-keyed under a project to remove, because a static
+// install never wrote any (declared_absence.go).
 //
-// projectDir is a PROJECT ROOT used AS the codex home parent — the same
-// harpless, S7-interim shape SettingsPath documents, so an uninstall removes
-// exactly what the harpless writer wrote.
+// It SAYS SO rather than returning silently. `ctxloom manage hooks uninstall`
+// reporting codex among the backends it cleaned, having touched no file, is
+// indistinguishable from an uninstall that missed one — and the user's next
+// move on that belief is to go hunting for a file, or to delete the wrong
+// directory. The note also states whose the pre-relocation <workDir>/.codex is
+// (D3: not ctxloom's).
+//
+// nil, not an error: nothing to remove is not a failure, and an error here
+// would make a whole-project uninstall report "partial" for the one backend
+// that had nothing to do. The removal that DOES happen — a session's instance,
+// which holds a copied credential — is operations.removeSessionInstance's, at
+// session end, not this writer's.
 func (w *CodexHookWriter) RemoveSettings(projectDir string) error {
-	return w.removeSettingsIn(projectDir)
+	warnNothingToRemove(projectDir)
+	return nil
 }
 
 // removeSettingsIn is RemoveSettings against an ALREADY-RESOLVED codex home
@@ -294,38 +299,19 @@ func (w *CodexHookWriter) removeSettingsIn(codexProjectDir string) error {
 	return w.save(settingsPath, cfg, true)
 }
 
-// Status implements SettingsWriter for Codex CLI. An unreadable config.toml is
-// an error, not a "not configured" report: the two look identical to a caller
-// and only one of them is a fact about the file.
+// Status implements SettingsWriter for Codex CLI and reports the EMPTY status:
+// no project-keyed settings file exists to report on (SettingsPath, and
+// declared_absence.go for why). `ctxloom manage check` therefore shows codex
+// with every surface false, which is the literal truth about the project tree —
+// what codex actually reads lives in a per-session instance that exists only
+// while a session is running, and in the user's own ~/.codex, which
+// `ctxloom doctor` reports (DOCTOR-CHECK-CODEXHOME-n4).
 //
-// projectDir is a PROJECT ROOT, read through SettingsPath — the same harpless,
-// S7-interim shape the writer uses.
-func (w *CodexHookWriter) Status(projectDir string) (agent.SettingsStatus, error) {
-	fs := w.getFS()
-	var status agent.SettingsStatus
-	settingsPath := w.SettingsPath(projectDir)
-	exists, err := afero.Exists(fs, settingsPath)
-	if err != nil {
-		return status, fmt.Errorf("cannot determine whether %s exists: %w", settingsPath, err)
-	}
-	if !exists {
-		return status, nil
-	}
-	status.SettingsExists = true
-	cfg, err := w.load(settingsPath)
-	if err != nil {
-		return status, fmt.Errorf("failed to load existing config.toml: %w", err)
-	}
-	status.HooksPresent = hasManagedHook(cfg)
-	if servers := asMap(cfg["mcp_servers"]); servers != nil {
-		for name, s := range servers {
-			if name == agent.MCPServerName || isManagedServer(asMap(s)) {
-				status.MCPPresent = true
-				break
-			}
-		}
-	}
-	return status, nil
+// A nil error, not a refusal: a status read is a question, and "this engine
+// keeps nothing here" is a complete answer to it. Erroring would make one
+// backend with nothing to report blot the whole cross-backend status line.
+func (w *CodexHookWriter) Status(string) (agent.SettingsStatus, error) {
+	return agent.SettingsStatus{}, nil
 }
 
 // --- generic TOML table helpers -------------------------------------------

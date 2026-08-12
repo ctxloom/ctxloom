@@ -12,8 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// MCPRegistrar implements agent.MCPRegistrar for Codex: `.codex/config.toml`
-// under the project for project scope, under the home dir for user scope.
+// MCPRegistrar implements agent.MCPRegistrar for Codex: `config.toml` under
+// $CODEX_HOME for user scope, and NO project scope at all (see ConfigPath).
 // Servers live in the `[mcp_servers.<name>]` table.
 //
 // The merge round-trips through a TOML document model, so unknown tables and
@@ -36,14 +36,20 @@ func (r MCPRegistrar) Present(dir string, global bool) bool {
 	return err == nil
 }
 
-// ConfigPath returns the MCP config file for the scope. Global scope resolves
-// Codex's home via codexHome ($CODEX_HOME, else ~/.codex) so the path matches
-// where codex actually reads its global config — the same precedence used by
-// codexPromptsDir and getSessionsDir. Project scope resolves through
-// ProjectHome — the harpless S7-interim project-root join CodexHookWriter.
-// SettingsPath uses (which folds [mcp_servers] into the very same file), so
-// this registrar and that writer can never name two different config.tomls for
-// one project.
+// ConfigPath returns the MCP config file for the scope.
+//
+// GLOBAL scope resolves Codex's home via codexHome ($CODEX_HOME, else
+// ~/.codex) so the path matches where codex actually reads its global config —
+// the same precedence used by codexPromptsDir and getSessionsDir. This is the
+// scope that still works, and it is the scope that matters: codex's servers
+// have only ever been home-keyed.
+//
+// PROJECT scope REFUSES. There is no project-scoped config.toml — codex folds
+// [mcp_servers] into the very same file CodexHookWriter has no project-keyed
+// path for (declared_absence.go), so this registrar and that writer agree by
+// both declining rather than by naming one dead path twice. An error, not "",
+// because every caller of this joins onto the result: a caller handed "" writes
+// a stray config.toml at the filesystem root.
 func (MCPRegistrar) ConfigPath(dir string, global bool) (string, error) {
 	if global {
 		home, err := codexHome()
@@ -52,7 +58,7 @@ func (MCPRegistrar) ConfigPath(dir string, global bool) (string, error) {
 		}
 		return filepath.Join(home, ConfigFileName), nil
 	}
-	return filepath.Join(ProjectHome(dir), ConfigFileName), nil
+	return "", launchOnlyError("codex has no project-scoped MCP configuration file")
 }
 
 // Install merges the named server into the config bytes. Idempotent; foreign

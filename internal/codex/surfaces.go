@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -183,15 +182,17 @@ type configSurface struct {
 	mcp       *wire.MCPConfig
 	bundleMCP map[string]wire.MCPServer
 	fs        afero.Fs
-	// homeOverride, when non-empty, is the project-dir-equivalent config.toml
-	// (and, via the sibling commands/skills surfaces, prompts/skills) is
-	// written under INSTEAD of the dir Deliver receives — the run path's
-	// already-resolved CODEX_HOME virtual project dir (white-dawn §2.2A; see
-	// backend.go's resolveCodexProjectDir). Empty for the static
-	// materialize/apply path (registry.go's NewSurfaces caller has no
-	// isolation context and no session), where codexHomeUnder falls back to
-	// Deliver's dir itself — the harpless S7-interim project-root join, which
-	// no run resolves; see CodexHookWriter.SettingsPath.
+	// homeOverride is the codex home parent config.toml (and, via the sibling
+	// commands/skills surfaces, prompts/skills) is written under — the run
+	// path's already-resolved CODEX_HOME virtual project dir (white-dawn §2.2A;
+	// see backend.go's resolveCodexProjectDir). It is the ONLY target these
+	// three surfaces have: Deliver's own dir is deliberately ignored, because a
+	// project root is not a codex home and never was one a run would read.
+	//
+	// EMPTY is the DECLARED ABSENCE (declared_absence.go), not a fallback: the
+	// static materialize/apply path (registry.go's NewSurfaces caller has no
+	// isolation context and no session) cannot name a per-session instance, so
+	// these surfaces deliver nothing and say why.
 	homeOverride string
 	// trustAbsPath, when non-empty, pre-seeds `[projects."<trustAbsPath>"]
 	// trust_level = "trusted"` into the written config.toml (white-dawn
@@ -216,10 +217,10 @@ type configSurface struct {
 // methods have no analogous split-target need, so this is a deliberate,
 // reviewed divergence from their shape, not a missed update.
 // reprise:accept-drift
-func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
-	target, ok := deliveryHome(dir, s.homeOverride)
-	if !ok {
-		warnHostHomeUndelivered("hooks and MCP servers")
+func (s *configSurface) Deliver(_ string) (agent.Delivered, error) {
+	target, why := deliveryHome(s.homeOverride)
+	if why != homeAvailable {
+		warnUndelivered("hooks and MCP servers", why)
 		return nil, nil
 	}
 	w := &CodexHookWriter{FS: s.fs, MCPCommandOverride: s.mcpCommandOverride}
@@ -229,60 +230,35 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	return agent.DeliveredFunc(func() error { return w.removeSettingsIn(target) }), nil
 }
 
-// codexHomeUnder resolves the codex home parent one surface delivery writes
-// into: the run path's already-resolved homeOverride when set (a per-session
-// instance, an isolation-provided worktree home, a container's fresh $HOME, or
-// the user's real ~/.codex), otherwise the delivery dir itself — the harpless
-// static materialize/apply path, where the dir IS the project root and the
-// S7-interim <projectDir>/.codex join is what CodexHookWriter.SettingsPath also
-// names. TestCodexHome_HarplessStaticWritersAgree keeps those two together.
-func codexHomeUnder(dir, homeOverride string) string {
-	if homeOverride != "" {
-		return homeOverride
+// deliveryHome resolves the codex home parent one surface delivery writes into,
+// and is the ONE place both reasons a delivery has nowhere to go are decided.
+// It takes ONLY the run path's already-resolved homeOverride — deliberately not
+// the delivery dir — because there is no longer any project-root fallback to
+// resolve onto: see declared_absence.go.
+//
+//  1. homeOverride EMPTY ⇒ homeLaunchOnly. The caller is the harpless static
+//     materialize/apply path, which has no session and therefore no instance.
+//     This used to fall back to the delivery dir itself (the S7-interim
+//     <projectDir>/.codex join), producing a config.toml no run would ever read.
+//  2. The resolved home IS the user's real ~/.codex ⇒ homeIsHostOwned. Since D2
+//     a run whose agent binding does not declare `config_home: project` — the
+//     human's own interactive session, an undeclared binding, an explicit
+//     `host` — keeps the user's own home, and ctxloom never writes it.
+//
+// Refusing LOUDLY rather than writing somewhere inert is the whole point: a
+// delivery that silently wrote nothing would be this project's signature
+// failure — exit 0, a live session, and no ctxloom hooks, indistinguishable
+// from a working run. codex's CWD-KEYED surfaces (AGENTS.md, the context cache)
+// are unaffected by both arms and still deliver, so a static materialize still
+// produces codex's native context file and a run still gets its context.
+func deliveryHome(homeOverride string) (target string, why homeRefusal) {
+	if homeOverride == "" {
+		return "", homeLaunchOnly
 	}
-	return dir
-}
-
-// deliveryHome is codexHomeUnder plus the ONE rule that outranks it: ctxloom
-// never writes the engine's REAL host home. ok=false means this run has no
-// ctxloom-writable codex home at all, and the surface must deliver nothing.
-//
-// This is reachable for exactly one class of run, and it is a deliberate,
-// ruled cost. Since D2 a run whose agent binding does not declare
-// `config_home: project` — the human's own interactive session, an undeclared
-// binding, an explicit `host` — keeps the user's own ~/.codex. codex is the
-// only engine where that costs anything, because its hooks, MCP servers,
-// prompts and skills live ONLY in $CODEX_HOME/config.toml and
-// $CODEX_HOME/prompts|skills; it has no cwd-keyed equivalent the way claude has
-// .claude/settings.json and kiro has .kiro/settings. So those surfaces have
-// nowhere to go, and writing the user's real home instead is the one thing the
-// model forbids outright.
-//
-// Refusing LOUDLY rather than writing there is the whole point: a delivery that
-// silently wrote nothing would be this project's signature failure — exit 0, a
-// live session, and no ctxloom hooks, indistinguishable from a working run. Each
-// caller therefore names what was not delivered and the fix. codex's CWD-KEYED
-// surfaces (AGENTS.md, the context cache) are unaffected and still deliver, so
-// the run still gets its context.
-//
-// S7 replaces this with a DECLARED ABSENCE in the backend descriptor
-// (launchOnlySettingsReason, the shape noHooksReason already has), which also
-// narrows `profile materialize --backend codex` and teaches doctor to report
-// it. Until then this guard is what keeps the rule true at run time.
-func deliveryHome(dir, homeOverride string) (target string, ok bool) {
-	target = codexHomeUnder(dir, homeOverride)
-	if IsHostCodexHome(cellScopedCodexHome(target)) {
-		return "", false
+	if IsHostCodexHome(cellScopedCodexHome(homeOverride)) {
+		return "", homeIsHostOwned
 	}
-	return target, true
-}
-
-// warnHostHomeUndelivered is deliveryHome's refusal, said out loud. surface
-// names what did not arrive in the user's words ("hooks and MCP servers"), so
-// the message is actionable without knowing ctxloom's internals.
-func warnHostHomeUndelivered(surface string) {
-	real, _ := hostCodexHome()
-	clidiag.Warn("ctxloom", "codex reads %s only from %s, which is YOUR OWN codex home — ctxloom does not write it, so this run gets none. Declare `config_home: project` on this agent's binding to give it a per-session codex home ctxloom can deliver into (AGENTS.md context is unaffected and was still written).", surface, real)
+	return homeOverride, homeAvailable
 }
 
 // UnsafeInfo returns codex's config identity for the DeliverShared fallback's
@@ -349,28 +325,29 @@ type Surfaces struct {
 // resolveCodexProjectDir), they write under it INSTEAD of whatever dir a
 // later Deliver call receives, making the run path's resolved CODEX_HOME the
 // single owner (white-dawn §2.2A). Empty (the static materialize/apply path,
-// via registry.go's backends.BuildSurfaces) falls back to Deliver's dir via
-// codexHomeUnder — the harpless S7-interim project-root join every other
-// harpless codex writer shares.
+// via registry.go's backends.BuildSurfaces) is the DECLARED ABSENCE: those
+// three surfaces deliver NOTHING and say why (declared_absence.go). The two
+// cwd-keyed surfaces — AGENTS.md and the context cache — ignore homeOverride
+// entirely and deliver either way.
 // trustAbsPath, when non-empty, pre-seeds config.toml's project trust (see
-// WriteSettingsWithTrust) — passed through to the config surface only.
+// writeSettingsIn) — passed through to the config surface only.
 func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	ctxSurf := &contextSurface{fragments: in.Fragments, fs: fs}
 	mdSurf := &agentsMDSurface{context: in.Context, fs: fs}
 	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, homeOverride: homeOverride, trustAbsPath: trustAbsPath, mcpCommandOverride: in.MCPCommandOverride}
-	commands := agent.NewManagedCommandsDelivery("codex/commands (global $CODEX_HOME)", in.Commands, func(dir string, commands []agent.CommandExport) error {
-		target, ok := deliveryHome(dir, homeOverride)
-		if !ok {
-			warnHostHomeUndelivered("slash-command prompts")
+	commands := agent.NewManagedCommandsDelivery("codex/commands (global $CODEX_HOME)", in.Commands, func(_ string, commands []agent.CommandExport) error {
+		target, why := deliveryHome(homeOverride)
+		if why != homeAvailable {
+			warnUndelivered("slash-command prompts", why)
 			return nil
 		}
 		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(target), commands, codexPromptFile)
 	})
-	skills := agent.NewManagedSkillPackagesDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.SkillExport) error {
-		target, ok := deliveryHome(dir, homeOverride)
-		if !ok {
-			warnHostHomeUndelivered("Agent Skills")
+	skills := agent.NewManagedSkillPackagesDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(_ string, skills []agent.SkillExport) error {
+		target, why := deliveryHome(homeOverride)
+		if why != homeAvailable {
+			warnUndelivered("Agent Skills", why)
 			return nil
 		}
 		return writeCodexSkillPackages(fs, cellScopedSkillsDir(target), skills)

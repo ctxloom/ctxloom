@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -150,11 +149,16 @@ func NewCodex() *Codex {
 // WriteSettingsWithTrust's doc) — an out-of-tree home that spills no engine
 // state into the project tree and is removed at Worktree.Cleanup.
 //
-// No isolation-provided value falls back to two further cases, both of which
-// codex itself relocates CODEX_HOME for WITHOUT any isolation-package
-// involvement — and so, unlike the isolation-provided case above, WITHOUT any
-// upstream credential seeding either (see ensureCodexCredentials, which
-// covers exactly these two):
+// THE PER-SESSION INSTANCE ARRIVES THROUGH THE SAME DOOR. Since S5 the in-tree
+// controlled home is a PER-SESSION instance (SessionHome), and the decision to
+// use one is `config_home: project` on the run's agent binding — read in
+// exactly ONE place for all three engines, operations.InTreeAgentHomeEnv, which
+// contributes CODEX_HOME=<instance>/.codex to the run env (and prepares its
+// credentials) before this backend is ever constructed. So the instance reaches
+// codex as an isolation-provided CODEX_HOME, above; codex does not resolve it
+// itself and has no second opinion about whether one is warranted.
+//
+// No isolation-provided value falls back to two further cases:
 //
 //   - a ProcessIsolatedCell (container — req.CellKind) already runs inside a
 //     fresh, per-container $HOME (isolation/runtime.go passes `-e HOME=...`
@@ -165,11 +169,16 @@ func NewCodex() *Codex {
 //     below, landing on the bind-mounted PROJECT dir instead — empty, no
 //     auth.json, hence the 401 mismatch).
 //   - anything else (None/shared-cwd, or no backend context) resolves to the
-//     project-scoped state home, StateHome(WorkDir) — the uniform engine-home
-//     policy's one location for a home ctxloom relocates (it used to be a bare
-//     <WorkDir>/.codex, which every static writer had to re-derive by hand and
-//     which sat in the project root as if it were one of codex's cwd-keyed
-//     surfaces). Nothing upstream prepares it, so Setup seeds it.
+//     user's REAL ~/.codex — codexHomeRealHost. This is the D2 ruling
+//     (2026-08-11): codex reads config_home like claude and kiro, and no
+//     binding / an undeclared binding / an explicit `host` all keep the real
+//     home. codex used to relocate CODEX_HOME here unconditionally, which was
+//     defensible only while the relocation target was DURABLE; a disposable
+//     per-session instance would have taken the human's own interactive codex
+//     state — token refreshes, accumulated trust, sessions — away every single
+//     session. Nothing is seeded into the real home and no trust is pre-seeded
+//     into it: it is the user's, and ctxloom does not write a home it did not
+//     create (see Setup and ensureCodexCredentials).
 func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agent.CellKind) (dir string, source codexHomeSource) {
 	if home := env[CodexHomeEnv]; home != "" {
 		if stripped := strings.TrimSuffix(home, string(filepath.Separator)+ConfigDirName); stripped != home {
@@ -197,10 +206,17 @@ func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agen
 		// (ensureCodexCredentials) rather than silently landing on an
 		// unverified home.
 	}
-	if workDir == "" {
-		return StateHome("."), codexHomeInTree
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// No resolvable home directory at all. Contribute NOTHING rather than
+		// invent a relocation: an empty dir means cellCodexHomeEnv sets no
+		// CODEX_HOME, so codex applies its own ~/.codex precedence and fails
+		// on its own terms instead of ctxloom silently pointing it somewhere
+		// nobody asked for.
+		clidiag.Warn("ctxloom", "cannot resolve this machine's home directory (%v); leaving %s unset so codex uses its own default", err, CodexHomeEnv)
+		return "", codexHomeRealHost
 	}
-	return StateHome(workDir), codexHomeInTree
+	return home, codexHomeRealHost
 }
 
 // codexHomeSource classifies WHY resolveCodexProjectDir landed on the
@@ -210,17 +226,25 @@ func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agen
 type codexHomeSource int
 
 const (
-	// codexHomeInTree: plain host run, no isolation-provided CODEX_HOME, not
-	// a container cell — the project-scoped state home, StateHome(WorkDir).
-	// NOTHING upstream ever prepared this directory, so Setup must ACTIVELY
-	// COPY host credentials into it, and (since it is a home codex has never
-	// seen) pre-seed workspace trust for the WorkDir as well.
-	codexHomeInTree codexHomeSource = iota
-	// codexHomeIsolationProvided: env["CODEX_HOME"] came from the isolation
-	// package (worktree.go's Env(), gated through credentialSeedSpecs
-	// ["codex"]) — ALREADY seeded by provisionConfigHome before this run
-	// even started, and already fails loud earlier (isolation.Prepare's own
-	// choke gate) if seeding found nothing. Setup does nothing further.
+	// codexHomeRealHost: plain host run with no controlled home — no
+	// isolation-provided CODEX_HOME, not a container cell. The dir is the
+	// user's home directory, so cellScopedCodexHome lands on the REAL
+	// ~/.codex. ctxloom did not create this home and must not prepare it:
+	// no credential copy (the user's own `codex login` is what put auth.json
+	// there) and NO trust pre-seed (codex's own accumulated
+	// `[projects."..."]` entries are the user's answers, not ctxloom's to
+	// write). Setup only VERIFIES there is something to authenticate with.
+	codexHomeRealHost codexHomeSource = iota
+	// codexHomeIsolationProvided: env["CODEX_HOME"] was contributed by a
+	// ctxloom layer that also PREPARED it — the isolation package's worktree
+	// Env() (gated through credentialSeedSpecs["codex"]) or, since S5, the
+	// per-session instance operations.InTreeAgentHomeEnv resolves for a
+	// binding declaring `config_home: project` (backends' codex
+	// inTreeAgentHome spec, whose Prepare copies the host's auth.json in).
+	// Either way the credentials landed before this run started and the
+	// contributor already failed loud if they could not. Setup does nothing
+	// further about credentials — but it DOES pre-seed trust, because this is
+	// a home ctxloom created and codex has never seen.
 	codexHomeIsolationProvided
 	// codexHomeContainerFresh: a ProcessIsolatedCell's own $HOME — codex's
 	// auth.json is already bind-mounted there by codexCredentialMounts
@@ -251,28 +275,26 @@ func (b *Codex) buildSurfaces(in agent.SurfaceInputs, _ string) agent.SurfaceSet
 // Setup's delivery and Execute's env agree by construction, not convention.
 func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	dir, source := resolveCodexProjectDir(req.Env, req.WorkDir, req.CellKind)
-	if source == codexHomeInTree {
-		// The in-tree home moved out of the project root into the state tier,
-		// so a checkout that ran an older ctxloom still has its config.toml,
-		// prompts, skills and auth.json at <WorkDir>/.codex. Bring them along
-		// before anything reads or seeds the new home (one-way, one-time).
-		resolveInTreeHome(nil, req.WorkDir)
-	}
 	b.resolvedProjectDir = dir
-	// EVERY axis pre-seeds trust for the WORKING DIRECTORY, because every axis
-	// now points codex at a home ctxloom itself provisioned and codex has
-	// therefore never seen. The in-tree arm used to be excluded on the reasoning
-	// that its config.toml was the user's own file, carrying codex's own
-	// accumulated `[projects."<abs WorkDir>"]` entry from a real prior run —
-	// true of <WorkDir>/.codex, false of the relocated state home, which starts
-	// empty. Without the pre-seed codex re-prompts for workspace trust, or (under
-	// `codex exec`, which has nobody to ask) runs silently untrusted. See
-	// WriteSettingsWithTrust and docs/trust-model.md.
+	// Trust is pre-seeded for the WORKING DIRECTORY on every axis that points
+	// codex at a home CTXLOOM ITSELF PROVISIONED and codex has therefore never
+	// seen — the isolation-provided worktree home, the per-session instance, a
+	// container cell's fresh $HOME. Without the pre-seed codex re-prompts for
+	// workspace trust there, or (under `codex exec`, which has nobody to ask)
+	// runs silently untrusted. See WriteSettingsWithTrust and
+	// docs/trust-model.md.
+	//
+	// codexHomeRealHost is EXCLUDED, and that exclusion is the boundary the
+	// trust model states: the real ~/.codex is the user's own, carrying codex's
+	// own accumulated `[projects."<abs WorkDir>"]` answers from real prior
+	// runs. ctxloom answers a trust prompt only for a home it created.
 	//
 	// The path is abs(WorkDir), NEVER the home directory: codex keys trust by
-	// the cwd it runs in, so an entry naming the state home would answer a
+	// the cwd it runs in, so an entry naming the config home would answer a
 	// question codex never asks.
-	if abs, err := filepath.Abs(req.WorkDir); err == nil {
+	if source == codexHomeRealHost {
+		b.resolvedTrustAbsPath = ""
+	} else if abs, err := filepath.Abs(req.WorkDir); err == nil {
 		b.resolvedTrustAbsPath = abs
 	} else {
 		b.resolvedTrustAbsPath = req.WorkDir
@@ -310,56 +332,45 @@ func resolveOpenAIAPIKey(reqEnv, backendEnv map[string]string) string {
 }
 
 // ensureCodexCredentials makes sure the CODEX_HOME this run is about to use
-// (cellScopedCodexHome(dir)) actually has usable credentials, for the two
-// axes codex relocates CODEX_HOME on WITHOUT any upstream isolation-package
-// seeding — codexHomeIsolationProvided (worktree fan-out) is already seeded
-// by internal/lm/isolation/worktree.go's provisionConfigHome before this run
-// even starts and already fails loud at isolation.Prepare's own choke gate,
-// so it is a deliberate no-op here:
+// (cellScopedCodexHome(dir)) actually has usable credentials. It NEVER COPIES —
+// every axis's home is prepared by whoever created it, and the one home ctxloom
+// did not create must not be written at all:
 //
-//   - codexHomeInTree: nothing upstream ever prepared this
-//     directory, so this ACTIVELY COPIES the host's ~/.codex/auth.json into
-//     it via isolation.SeedCodexHome — the SAME copy-based
-//     credentialSeedSpecs mechanism worktree.go's fan-out path already
-//     relies on, reused rather than reinvented.
-//   - codexHomeContainerFresh: the container's fresh $HOME
-//     already has auth.json bind-mounted in by codexCredentialMounts
-//     (isolation/auth.go) before this process even started — copying here
-//     would read AND write the SAME read-only-mounted file, so this only
-//     VERIFIES the mount landed rather than re-seeding.
+//   - codexHomeIsolationProvided: already seeded before this run started, by
+//     internal/lm/isolation/worktree.go's provisionConfigHome (worktree
+//     fan-out) or by the per-session instance's Prepare
+//     (backends' codex inTreeAgentHome spec, via operations.
+//     InTreeAgentHomeEnv). Both fail loud at their own choke gate when there
+//     was nothing to copy, so this is a deliberate no-op.
+//   - codexHomeContainerFresh: the container's fresh $HOME already has
+//     auth.json bind-mounted in by codexCredentialMounts (isolation/auth.go)
+//     before this process even started — copying here would read AND write the
+//     SAME read-only-mounted file, so this only VERIFIES the mount landed.
+//   - codexHomeRealHost: the user's own ~/.codex, which ctxloom never writes.
+//     VERIFY ONLY — a missing auth.json here means the user has not run `codex
+//     login`, and the fix is theirs, not a copy from somewhere else.
 //
-// Either way, no usable credential (and no OPENAI_API_KEY override) returns
-// a clear, actionable error naming the fix. apiKey is the value the CHILD will
-// see for OPENAI_API_KEY (resolveOpenAIAPIKey), which is not necessarily this
-// process's own: a per-agent `env:` key authenticates the child just as well as
-// an ambient one.
+// No usable credential (and no OPENAI_API_KEY override) returns a clear,
+// actionable error naming the fix. apiKey is the value the CHILD will see for
+// OPENAI_API_KEY (resolveOpenAIAPIKey), which is not necessarily this process's
+// own: a per-agent `env:` key authenticates the child just as well as an
+// ambient one.
 func ensureCodexCredentials(dir string, source codexHomeSource, apiKey string) error {
 	if source == codexHomeIsolationProvided {
 		return nil
 	}
 	if apiKey != "" {
-		return nil // codex's envTrigger — auth rides the env, nothing to seed/verify
+		return nil // codex's envTrigger — auth rides the env, nothing to verify
 	}
-	if source == codexHomeContainerFresh {
-		authPath := filepath.Join(cellScopedCodexHome(dir), AuthFileName)
-		if !codexFileExists(authPath) {
-			return fmt.Errorf("codex: no OPENAI_API_KEY and no credentials at %s — this container's codex auth mount did not land; authenticate with `codex login` on the host (or set OPENAI_API_KEY), or check the container runtime/image", authPath)
-		}
+	authPath := filepath.Join(cellScopedCodexHome(dir), AuthFileName)
+	if codexFileExists(authPath) {
 		return nil
 	}
-	// codexHomeInTree: actively seed from the host's ~/.codex/auth.json.
-	if _, err := seedCodexHomeFn(dir); err != nil {
-		return fmt.Errorf("codex: %w", err)
+	if source == codexHomeContainerFresh {
+		return fmt.Errorf("codex: no OPENAI_API_KEY and no credentials at %s — this container's codex auth mount did not land; authenticate with `codex login` on the host (or set OPENAI_API_KEY), or check the container runtime/image", authPath)
 	}
-	return nil
+	return fmt.Errorf("codex: no OPENAI_API_KEY and no credentials at %s — run `codex login` (or set OPENAI_API_KEY); ctxloom does not write this home, it is your own", authPath)
 }
-
-// seedCodexHomeFn is the seam onto isolation.SeedCodexHome — a package var
-// (mirroring internal/lm/isolation/isolation.go's selectRuntimeProbe
-// pattern) so tests can substitute a fake without touching the real host's
-// ~/.codex or attempting real filesystem writes against the fake WorkDirs
-// (e.g. "/proj") the existing Setup tests already drive against.
-var seedCodexHomeFn = isolation.SeedCodexHome
 
 // codexFileExists reports whether path is an existing regular file.
 func codexFileExists(path string) bool {
@@ -390,6 +401,12 @@ func (b *Codex) cellCodexHomeEnv(req *agent.ExecuteRequest) map[string]string {
 	dir := b.resolvedProjectDir
 	if dir == "" {
 		dir, _ = resolveCodexProjectDir(req.Env, req.WorkDir, req.CellKind)
+	}
+	if dir == "" {
+		// No home to name — resolveCodexProjectDir could not find this
+		// machine's home directory and already warned. Contribute nothing so
+		// codex applies its own ~/.codex precedence.
+		return nil
 	}
 	return map[string]string{CodexHomeEnv: cellScopedCodexHome(dir)}
 }
@@ -434,13 +451,13 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	// resolve to (see resolveCodexProjectDir / codexHomeSource) — not just the
 	// worktree fan-out's isolation-provided home this comment used to name as
 	// the sole mechanism:
-	//   - codexHomeIsolationProvided (worktree fan-out): COPIED host-side by
-	//     internal/lm/isolation/worktree.go's provisionConfigHome BEFORE this
-	//     run even starts (credentialSeedSpecs["codex"], auth.go).
-	//   - codexHomeInTree (plain host run): COPIED by Setup itself via
-	//     isolation.SeedCodexHome — a container is NOT required for this
-	//     seeding to matter; a bare host run relocates CODEX_HOME too
-	//     and needed its own seed path.
+	//   - codexHomeIsolationProvided (worktree fan-out, and the per-session
+	//     instance a `config_home: project` binding gets): COPIED host-side
+	//     BEFORE this run even starts — by isolation/worktree.go's
+	//     provisionConfigHome or by the codex inTreeAgentHome spec's Prepare
+	//     (both credentialSeedSpecs["codex"], auth.go).
+	//   - codexHomeRealHost (plain host run): NOT copied and never written —
+	//     it is the user's own ~/.codex, VERIFIED by Setup only.
 	//   - codexHomeContainerFresh (container): VERIFIED by Setup against the
 	//     bind-mounted auth.json in the container's own fresh $HOME
 	//     — container alone does NOT isolate/seed CODEX_HOME by

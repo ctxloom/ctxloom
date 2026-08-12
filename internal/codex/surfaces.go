@@ -27,8 +27,8 @@ import (
 //
 // The two cwd-keyed surfaces sit at the project root, where codex natively
 // looks; the three CODEX_HOME-keyed ones sit under the home ctxloom relocates
-// (StateHome for a project-scoped run — see statehome.go — or the worktree/
-// container home for an isolated one):
+// (SessionHome for a `config_home: project` run — see statehome.go — the real
+// ~/.codex otherwise, or the worktree/container home for an isolated one):
 //
 //	surface   | well-known target                       | also a SharedRealization?
 //	----------|------------------------------------------|-----------------------
@@ -188,9 +188,9 @@ type configSurface struct {
 	// already-resolved CODEX_HOME virtual project dir (white-dawn §2.2A; see
 	// backend.go's resolveCodexProjectDir). Empty for the static
 	// materialize/apply path (registry.go's NewSurfaces caller has no
-	// isolation context), where codexHomeUnder derives the project-scoped
-	// state home from Deliver's dir instead — the SAME root the run path's
-	// in-tree arm resolves, which is the whole point of the helper.
+	// isolation context and no session), where codexHomeUnder falls back to
+	// Deliver's dir itself — the harpless S7-interim project-root join, which
+	// no run resolves; see CodexHookWriter.SettingsPath.
 	homeOverride string
 	// trustAbsPath, when non-empty, pre-seeds `[projects."<trustAbsPath>"]
 	// trust_level = "trusted"` into the written config.toml (white-dawn
@@ -216,7 +216,7 @@ type configSurface struct {
 // reviewed divergence from their shape, not a missed update.
 // reprise:accept-drift
 func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
-	target := codexHomeUnder(s.fs, dir, s.homeOverride)
+	target := codexHomeUnder(dir, s.homeOverride)
 	w := &CodexHookWriter{FS: s.fs, MCPCommandOverride: s.mcpCommandOverride}
 	if err := w.writeSettingsIn(s.hooks, s.mcp, s.bundleMCP, target, s.trustAbsPath); err != nil {
 		return nil, err
@@ -225,16 +225,17 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 }
 
 // codexHomeUnder resolves the codex home parent one surface delivery writes
-// into: the run path's already-resolved homeOverride when set, otherwise the
-// project-scoped state home derived from the delivery dir (which, on the static
-// materialize/apply path, IS the project root). Both arms land on the same root
-// as CodexHookWriter.SettingsPath for the same project — the agreement
-// TestCodexHome_RunPathAndStaticWritersAgree exists to keep true.
-func codexHomeUnder(fsys afero.Fs, dir, homeOverride string) string {
+// into: the run path's already-resolved homeOverride when set (a per-session
+// instance, an isolation-provided worktree home, a container's fresh $HOME, or
+// the user's real ~/.codex), otherwise the delivery dir itself — the harpless
+// static materialize/apply path, where the dir IS the project root and the
+// S7-interim <projectDir>/.codex join is what CodexHookWriter.SettingsPath also
+// names. TestCodexHome_HarplessStaticWritersAgree keeps those two together.
+func codexHomeUnder(dir, homeOverride string) string {
 	if homeOverride != "" {
 		return homeOverride
 	}
-	return resolveInTreeHome(fsys, dir)
+	return dir
 }
 
 // UnsafeInfo returns codex's config identity for the DeliverShared fallback's
@@ -301,9 +302,9 @@ type Surfaces struct {
 // resolveCodexProjectDir), they write under it INSTEAD of whatever dir a
 // later Deliver call receives, making the run path's resolved CODEX_HOME the
 // single owner (white-dawn §2.2A). Empty (the static materialize/apply path,
-// via registry.go's backends.BuildSurfaces) resolves the project-scoped state
-// home from Deliver's dir via codexHomeUnder — the SAME root, so the static
-// writers and the run path cannot target different trees.
+// via registry.go's backends.BuildSurfaces) falls back to Deliver's dir via
+// codexHomeUnder — the harpless S7-interim project-root join every other
+// harpless codex writer shares.
 // trustAbsPath, when non-empty, pre-seeds config.toml's project trust (see
 // WriteSettingsWithTrust) — passed through to the config surface only.
 func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs afero.Fs) Surfaces {
@@ -312,10 +313,10 @@ func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs a
 	mdSurf := &agentsMDSurface{context: in.Context, fs: fs}
 	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, homeOverride: homeOverride, trustAbsPath: trustAbsPath, mcpCommandOverride: in.MCPCommandOverride}
 	commands := agent.NewManagedCommandsDelivery("codex/commands (global $CODEX_HOME)", in.Commands, func(dir string, commands []agent.CommandExport) error {
-		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(codexHomeUnder(fs, dir, homeOverride)), commands, codexPromptFile)
+		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(codexHomeUnder(dir, homeOverride)), commands, codexPromptFile)
 	})
 	skills := agent.NewManagedSkillPackagesDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return writeCodexSkillPackages(fs, cellScopedSkillsDir(codexHomeUnder(fs, dir, homeOverride)), skills)
+		return writeCodexSkillPackages(fs, cellScopedSkillsDir(codexHomeUnder(dir, homeOverride)), skills)
 	})
 	routes := agent.ComposedDelivery{
 		Parts:       []agent.Delivery{ctxSurf, mdSurf},

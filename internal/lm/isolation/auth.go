@@ -602,7 +602,7 @@ type seedFile struct {
 //     this comment ever needed to make. The correction matters beyond
 //     accuracy: "sessions only" made pointing an in-tree AGENT run at the
 //     human's own ~/.kiro look harmless, when it in fact hands that agent the
-//     human's global agents and steering — see internal/kiro.StateHome.
+//     human's global agents and steering — see internal/kiro.SessionHome.
 //   - opencode: HonoursVarForCreds TRUE — the OPPOSITE of
 //     kiro's shape immediately above, despite both engines relocating via
 //     XDG_DATA_HOME: opencode's auth.json genuinely lives under
@@ -858,14 +858,16 @@ func CredentialSeedSourceFiles(engine string) []CredentialSeedFile {
 	return out
 }
 
-// SeedCodexHome seeds destDir/.codex (a codex "virtual project dir" —
+// PrepareCodexHome seeds destDir/.codex (a codex "virtual project dir" —
 // cellScopedCodexHome joins ".codex" onto it, see
 // internal/codex/backend.go's resolveCodexProjectDir) with the host's codex
 // credentials, for a caller whose CODEX_HOME relocation is NOT driven by an
-// isolation Policy at all: codex ALWAYS relocates CODEX_HOME to
-// <WorkDir>/.codex even under the plain None/host axis (its own in-tree
-// fallback) — a relocated home this package's Policy machinery never sees
-// or seeds, so it starts empty and codex 401s silently.
+// isolation Policy at all: a run whose agent binding declares
+// `config_home: project` gets a PER-SESSION instance home
+// (internal/codex.SessionHome) that this package's Policy machinery never sees
+// or seeds, so it starts empty and codex 401s silently. The name is Prepare,
+// not Seed, because the instance is created and populated at instance time and
+// then thrown away — one-way, from the real host home in, never back.
 //
 // This reuses the EXACT SAME copy-based credentialSeedSpecs["codex"]
 // descriptor and hostCredentialSeed mechanics worktree.go's
@@ -888,7 +890,7 @@ func CredentialSeedSourceFiles(engine string) []CredentialSeedFile {
 // ensureCodexCredentials) never consults strictness at all — it stashes the
 // error on the backend and Execute refuses to launch regardless. Naming a
 // flag that cannot unblock the user is worse than naming nothing.
-func SeedCodexHome(destDir string) (skipped bool, err error) {
+func PrepareCodexHome(destDir string) (skipped bool, err error) {
 	spec, ok := credentialSeedSpecs["codex"]
 	if !ok || spec.sourceFiles == nil {
 		return false, fmt.Errorf("codex credential seed spec is not registered (internal error)")
@@ -903,15 +905,15 @@ func SeedCodexHome(destDir string) (skipped bool, err error) {
 	return result == seedSkippedEnv, nil
 }
 
-// SeedClaudeHome seeds destDir/claude (internal/claude.InTreeConfigDir's
+// PrepareClaudeHome seeds destDir/claude (internal/claude.SessionConfigDir's
 // parent — that package joins the SAME leaf) with the host's claude
 // credentials, for a caller whose CLAUDE_CONFIG_DIR relocation is NOT driven by
-// an isolation Policy at all: an IN-TREE AGENT run points claude at a
-// project-scoped state home (internal/claude.StateHome) that this package's
-// Policy machinery never sees or seeds, so it would start empty and claude
-// would run logged out.
+// an isolation Policy at all: an IN-TREE AGENT run whose binding declares
+// `config_home: project` points claude at a PER-SESSION instance home
+// (paths.SessionHomePath) that this package's Policy machinery never sees or
+// seeds, so it would start empty and claude would run logged out.
 //
-// SeedCodexHome's sibling in every respect — the SAME copy-based
+// PrepareCodexHome's sibling in every respect — the SAME copy-based
 // credentialSeedSpecs["claude-code"] descriptor and hostCredentialSeed
 // mechanics provisionConfigHome already uses for the worktree axis, NOT a
 // second seeding mechanism — exported for the same reason: internal/operations
@@ -930,8 +932,8 @@ func SeedCodexHome(destDir string) (skipped bool, err error) {
 // that escape belongs to the CALLER's strictness finding (which is where
 // --degraded is actually consulted), not to this error string, and naming a
 // flag inside a message the caller may surface verbatim on a path where it does
-// nothing is the mistake SeedCodexHome's doc records having already made once.
-func SeedClaudeHome(destDir string) (skipped bool, err error) {
+// nothing is the mistake PrepareCodexHome's doc records having already made once.
+func PrepareClaudeHome(destDir string) (skipped bool, err error) {
 	spec, ok := credentialSeedSpecs["claude-code"]
 	if !ok || spec.sourceFiles == nil {
 		return false, fmt.Errorf("claude credential seed spec is not registered (internal error)")

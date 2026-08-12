@@ -31,19 +31,20 @@ func codexHome() (string, error) {
 // analog of prim-guy's claude $HOME-collision guard).
 func GlobalHome() (string, error) { return codexHome() }
 
-// ProjectHome returns the project-scoped $CODEX_HOME both the static
-// apply/materialize path and the run path's in-tree arm target for workDir —
-// cellScopedCodexHome under StateHome — exported for the same external
-// collision check as GlobalHome.
+// ProjectHome returns the project-root codex home the HARPLESS static
+// apply/materialize path targets for workDir — <workDir>/.codex — exported for
+// the same external collision check as GlobalHome.
 //
-// Since the home moved into the state tier that collision (workDir == $HOME,
-// making the project home resolve onto codex's global one) is no longer
-// REACHABLE: $HOME/.ctxloom/state/engines/codex/.codex is never $HOME/.codex.
-// The guard stays wired anyway — it is a check on what these two functions
-// return, not an assumption about what they cannot return, and the day a
-// future engine's home resolves differently is not the day to discover the
-// check was deleted.
-func ProjectHome(workDir string) string { return cellScopedCodexHome(StateHome(workDir)) }
+// S7 INTERIM, see CodexHookWriter.SettingsPath: the run path no longer resolves
+// here at all. A run's CODEX_HOME is either a per-session instance
+// (SessionHome, under `config_home: project`) or the user's real ~/.codex, and
+// neither has a harpless spelling. This join is what the static writers shared
+// before the retired durable per-project home existed.
+//
+// The collision it guards (workDir == $HOME making the project home resolve
+// onto codex's global one — $HOME/.codex both ways) is REACHABLE again with
+// this shape, which is precisely why the guard is wired.
+func ProjectHome(workDir string) string { return cellScopedCodexHome(workDir) }
 
 // codexPromptFile maps one command export to its Codex prompt file: a flat
 // `<name>.md` (slashes flattened to dashes, since Codex scans only top-level

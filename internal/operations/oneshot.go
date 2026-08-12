@@ -481,8 +481,13 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// a sibling member's window. It declines any var the workspace env or
 		// ExtraEnv already carries, so isolation and the caller both win.
 		workspaceEnv = mergeInTreeAgentHome(workspaceEnv, InTreeAgentHome{
-			Backend:    req.Backend,
-			WorkDir:    req.WorkDir,
+			Backend: req.Backend,
+			WorkDir: req.WorkDir,
+			// The SESSION's harp — the one this member runs inside, carried on
+			// ExtraEnv under agent.SessionHarpEnv exactly as the transcript
+			// capture below reads it. NOT req.AgentID: fan-out members of one
+			// session share that session's instance.
+			Harp:       req.ExtraEnv[agent.SessionHarpEnv],
 			ConfigHome: req.ConfigHome,
 			Policy:     policy,
 			Env:        mergedEnvView(workspaceEnv, req.ExtraEnv),

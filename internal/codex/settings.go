@@ -64,13 +64,23 @@ type CodexHookWriter struct {
 
 func (w *CodexHookWriter) getFS() afero.Fs { return agent.GetFS(w.FS) }
 
-// SettingsPath returns the path to Codex's project-scoped config.toml for a
-// PROJECT ROOT: <projectDir>/.ctxloom/state/engines/codex/.codex/config.toml.
-// It resolves through StateHome for the same reason WriteSettings does — the
-// two must name one file for one argument, which is what makes the conformance
-// suite's write-then-read-back at this path meaningful.
+// SettingsPath returns the path this HARPLESS, static writer targets for a
+// PROJECT ROOT: <projectDir>/.codex/config.toml.
+//
+// S7 INTERIM. codex's real settings surface is $CODEX_HOME/config.toml, and
+// since S5 that home exists only as a PER-SESSION instance
+// (SessionHome) — there is no stable path a static
+// `ctxloom profile materialize --backend codex` can write that a later run
+// will read. The durable per-project home this used to resolve through is
+// retired. Until S7 declares that absence properly (the
+// launchOnlySettingsReason field, mirroring noHooksReason), this and its three
+// harpless siblings — RemoveSettings, Status and MCPRegistrar.ConfigPath — sit
+// back on the pre-relocation project-root join they had before the durable
+// home existed, so the SettingsWriter conformance suite's
+// write-then-read-back still names ONE file for one argument. It is honest
+// about being nobody's live home: no run resolves here.
 func (w *CodexHookWriter) SettingsPath(projectDir string) string {
-	return w.settingsPathIn(StateHome(projectDir))
+	return w.settingsPathIn(projectDir)
 }
 
 // settingsPathIn joins config.toml under an ALREADY-RESOLVED codex home parent
@@ -139,12 +149,13 @@ func (w *CodexHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCo
 // only in this comment, which is why the boundary was easy to widen by
 // accident; internal/codex/backend.go's Setup is what fills the value.
 //
-// projectDir is a PROJECT ROOT, relocated through resolveInTreeHome (which also
-// performs the one-time legacy-home migration). The surfaces call
-// writeSettingsIn instead: they have already resolved their axis's own home and
-// must not have a second relocation applied on top of it.
+// projectDir is a PROJECT ROOT and is used AS the codex home parent (see
+// SettingsPath's S7-interim note): this harpless entry point can no longer
+// relocate onto a per-session instance, because it has no session. The surfaces
+// call writeSettingsIn instead — they have already resolved their axis's own
+// home and must not have a relocation applied on top of it.
 func (w *CodexHookWriter) WriteSettingsWithTrust(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir, trustAbsPath string) error {
-	return w.writeSettingsIn(hooks, mcp, bundleMCP, resolveInTreeHome(w.FS, projectDir), trustAbsPath)
+	return w.writeSettingsIn(hooks, mcp, bundleMCP, projectDir, trustAbsPath)
 }
 
 // writeSettingsIn is WriteSettingsWithTrust against an ALREADY-RESOLVED codex
@@ -255,12 +266,11 @@ func (w *CodexHookWriter) save(path string, cfg map[string]any, allowEmpty bool)
 // that cannot be STATTED is neither: reporting a clean removal from a file
 // nobody could look at leaves ctxloom's hooks and servers live in it.
 //
-// projectDir is a PROJECT ROOT, resolved through StateHome — deliberately NOT
-// through resolveInTreeHome: an uninstall must not move a user's files as a
-// side effect, and anything left at the pre-relocation <projectDir>/.codex is
-// inert once CODEX_HOME no longer points there.
+// projectDir is a PROJECT ROOT used AS the codex home parent — the same
+// harpless, S7-interim shape SettingsPath documents, so an uninstall removes
+// exactly what the harpless writer wrote.
 func (w *CodexHookWriter) RemoveSettings(projectDir string) error {
-	return w.removeSettingsIn(StateHome(projectDir))
+	return w.removeSettingsIn(projectDir)
 }
 
 // removeSettingsIn is RemoveSettings against an ALREADY-RESOLVED codex home
@@ -288,8 +298,8 @@ func (w *CodexHookWriter) removeSettingsIn(codexProjectDir string) error {
 // an error, not a "not configured" report: the two look identical to a caller
 // and only one of them is a fact about the file.
 //
-// projectDir is a PROJECT ROOT, resolved through StateHome — a read never
-// migrates, for the reason RemoveSettings gives.
+// projectDir is a PROJECT ROOT, read through SettingsPath — the same harpless,
+// S7-interim shape the writer uses.
 func (w *CodexHookWriter) Status(projectDir string) (agent.SettingsStatus, error) {
 	fs := w.getFS()
 	var status agent.SettingsStatus

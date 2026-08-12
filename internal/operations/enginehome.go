@@ -20,6 +20,12 @@ type InTreeAgentHome struct {
 	// WorkDir is the run's PROJECT root — the live checkout, not a prepared
 	// workspace directory. The controlled home hangs off it.
 	WorkDir string
+	// Harp is THIS SESSION's name, the second half of the instance key
+	// (<WorkDir>/.ctxloom/state/<Harp>/home). Empty contributes NOTHING — no
+	// env var, no directory, a warn — because there is no session-less
+	// instance, and falling back to a project-wide path would recreate the
+	// durable per-project engine home the per-session model retired.
+	Harp string
 	// ConfigHome is the run's resolved agent binding's EFFECTIVE config-home
 	// policy — agents.ConfigHomeProject or agents.ConfigHomeHost when a
 	// binding was resolved (operations.ResolvedAgent.ConfigHome, already
@@ -46,11 +52,11 @@ type InTreeAgentHome struct {
 const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude login`) or set its API-key env var, or pass --degraded (env CTXLOOM_DEGRADED=1) to run this agent against the host's own shared config home"
 
 // InTreeAgentHomeEnv returns the config-home env additions an IN-TREE AGENT run
-// of in.Backend gets — CLAUDE_CONFIG_DIR / KIRO_HOME pointed at a
-// project-scoped, ctxloom-controlled home under paths.EngineStateHome — or nil
-// when this run must not get one. It creates the home and seeds it as a side
-// effect, so a non-nil result always names a directory that exists and (for an
-// engine with seedable credentials) can authenticate.
+// of in.Backend gets — CLAUDE_CONFIG_DIR / CODEX_HOME / KIRO_HOME pointed at
+// THIS SESSION's ctxloom-controlled INSTANCE home under paths.SessionHomePath —
+// or nil when this run must not get one. It creates the instance and prepares
+// it as a side effect, so a non-nil result always names a directory that exists
+// and (for an engine with copyable credentials) can authenticate.
 //
 // THE SCOPING RULE, and the reason this is not simply "every in-tree run":
 //
@@ -79,14 +85,22 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // regression dressed as isolation, and there is no binding through which
 // they could even opt in.
 //
-// This DELIBERATELY differs from codex, which relocates CODEX_HOME on every
-// in-tree run bound or not, unconditionally. The asymmetry is historical
-// fact, not inconsistency: codex never used the real ~/.codex in-tree —
-// ctxloom has always pointed it at a project-scoped home — so there was
-// nothing of the user's to take away, and no opt-in was ever needed. claude
-// and kiro DID use the real host home, so for them the same move is a
-// taking, and it happens only for the runs that both are not the human's own
-// AND asked for it.
+// ONE RULE FOR THREE ENGINES. codex used to be the exception — it relocated
+// CODEX_HOME on every in-tree run, bound or not — on the reasoning that it
+// never used the real ~/.codex in-tree anyway, so there was nothing of the
+// user's to take away. That held only while the relocation target was DURABLE.
+// A per-session instance is disposable, so relocating an unbound interactive
+// run onto one WOULD take something real: its token refreshes, its accumulated
+// trust answers and its session state, every session. D2 (ruled 2026-08-11)
+// ended the asymmetry — codex reads config_home HERE, through this function,
+// exactly like claude and kiro, and its own resolver treats the contributed
+// CODEX_HOME as isolation-provided (already prepared, nothing further to do).
+//
+// THE INSTANCE IS PER SESSION. Two concurrent sessions in one checkout get two
+// homes — isolation the in-tree axis did not have while the home was
+// per-project. Two runs WITHIN one session (a coordinator and its in-tree
+// delegated child, which inherits the harp on req.Env) deliberately share one
+// instance.
 //
 // THREE EXCLUSIONS, each independently sufficient to contribute nothing:
 //
@@ -113,7 +127,11 @@ func InTreeAgentHomeEnv(in InTreeAgentHome) map[string]string {
 	if in.Policy == nil || isolation.Isolated(in.Policy) {
 		return nil
 	}
-	spec, ok := backends.InTreeAgentHomeFor(in.Backend, in.WorkDir)
+	if in.Harp == "" {
+		clidiag.Warn("ctxloom", "in-tree agent home for %s: this run carries no session name and a config-home instance is per-session; using the engine's own host config home instead", in.Backend)
+		return nil
+	}
+	spec, ok := backends.InTreeAgentHomeFor(in.Backend, in.WorkDir, in.Harp)
 	if !ok {
 		return nil
 	}
@@ -122,19 +140,19 @@ func InTreeAgentHomeEnv(in InTreeAgentHome) map[string]string {
 	}
 
 	home := spec.Dir
-	if spec.Seed != nil {
-		if err := spec.Seed(); err != nil {
+	if spec.Prepare != nil {
+		if err := spec.Prepare(); err != nil {
 			strictness.Fail(strictness.ClassIsolation, inTreeAgentHomeFixIt,
 				"in-tree agent home for %s: %v — refusing to point %s at an unauthenticated %s; this run uses the host's own config home instead",
 				in.Backend, err, spec.EnvVar, home)
 			return nil
 		}
 	}
-	// Restated after seeding rather than assumed: the seed creates the home
-	// only on the path where there WAS something to copy, and an engine with no
-	// seed at all (kiro) is otherwise handed a variable naming a directory
-	// nobody created. 0700 because the tree holds engine config and, for
-	// claude, live credential bytes.
+	// Restated after preparation rather than assumed: the copy-in creates the
+	// instance only on the path where there WAS something to copy, and an
+	// engine with a DECLARED EMPTY ambient set (kiro) is otherwise handed a
+	// variable naming a directory nobody created. 0700 because the tree holds
+	// engine config and live credential bytes.
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: cannot create %s (%v); using the host's own config home instead", in.Backend, home, err)
 		return nil

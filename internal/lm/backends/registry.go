@@ -2,6 +2,7 @@ package backends
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 
 	"github.com/spf13/afero"
@@ -14,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/opencode"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
@@ -109,18 +111,23 @@ type agentDescriptor struct {
 	// "Claude Code's user-global settings file"). Empty when
 	// hookGlobalScopePaths is nil.
 	hookGlobalScopeLabel string
-	// inTreeAgentHome resolves the ctxloom-CONTROLLED config home an IN-TREE
-	// AGENT run of this backend gets, for a project root: which env var
-	// relocates the engine's home, where it points, and how (if at all)
-	// credentials are seeded into it. nil = this backend gets no controlled
-	// in-tree home; see InTreeAgentHomeFor (delegate_seams.go) for the roster's
-	// deliberate absentees and for the scoping rule operations applies on top.
+	// inTreeAgentHome resolves the ctxloom-CONTROLLED config-home INSTANCE an
+	// in-tree agent run of this backend gets for ONE session, keyed by
+	// (project root, harp): which env var relocates the engine's home, where
+	// that session's instance points, and how (if at all) it is prepared. nil =
+	// this backend gets no controlled in-tree home; see InTreeAgentHomeFor
+	// (delegate_seams.go) for the roster's deliberate absentees and for the
+	// scoping rule operations applies on top.
+	//
+	// The error is harp validation, surfaced by the engine package's own
+	// paths.SessionHomePath call — an instance cannot be named without a valid
+	// session, which is what keeps a durable project-wide home from regrowing.
 	//
 	// It lives here, beside hookGlobalScopePaths and resolveModel, for the same
 	// ADR-0026 reason: the fact is engine-specific but the CALLER
 	// (internal/operations) must not branch on engine identity or import a
 	// concrete engine package to learn it.
-	inTreeAgentHome func(workDir string) InTreeAgentHomeSpec
+	inTreeAgentHome func(workDir, harp string) (InTreeAgentHomeSpec, error)
 	// noHooksReason declares, in one clause, that this backend has NO hook
 	// mechanism AT ALL and says why ("opencode has no hook mechanism"). Empty
 	// means the backend carries hooks — every backend but opencode today.
@@ -395,20 +402,31 @@ func init() {
 			return claude.ProjectSettingsPath(workDir), global, err
 		},
 		hookGlobalScopeLabel: "Claude Code's user-global settings file",
-		// An in-tree AGENT run gets a project-scoped CLAUDE_CONFIG_DIR seeded
-		// with the host's .credentials.json, instead of the human's own
-		// ~/.claude. StateHome (not InTreeConfigDir) is the seed root:
-		// SeedClaudeHome joins the seed spec's own leaf under what it is
-		// handed, landing on InTreeConfigDir exactly.
-		inTreeAgentHome: func(workDir string) InTreeAgentHomeSpec {
+		// An in-tree agent run whose binding declares `config_home: project`
+		// gets THIS SESSION's own CLAUDE_CONFIG_DIR, copy-seeded with the
+		// host's .credentials.json, instead of the human's own ~/.claude. The
+		// session's instance ROOT (paths.SessionHomePath) is what
+		// PrepareClaudeHome is handed, not the claude leaf: it joins the seed
+		// spec's own copy of that leaf under what it is given, landing on
+		// claude.SessionConfigDir exactly —
+		// TestSessionConfigDir_IsTheSeedDestination is the gate.
+		inTreeAgentHome: func(workDir, harp string) (InTreeAgentHomeSpec, error) {
+			dir, err := claude.SessionConfigDir(workDir, harp)
+			if err != nil {
+				return InTreeAgentHomeSpec{}, err
+			}
+			root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harp)
+			if err != nil {
+				return InTreeAgentHomeSpec{}, err
+			}
 			return InTreeAgentHomeSpec{
 				EnvVar: claude.ConfigDirEnv,
-				Dir:    claude.InTreeConfigDir(workDir),
-				Seed: func() error {
-					_, err := isolation.SeedClaudeHome(claude.StateHome(workDir))
-					return err
+				Dir:    dir,
+				Prepare: func() error {
+					_, perr := isolation.PrepareClaudeHome(root)
+					return perr
 				},
-			}
+			}, nil
 		},
 	})
 
@@ -452,6 +470,38 @@ func init() {
 			return codex.ProjectHome(workDir), global, err
 		},
 		hookGlobalScopeLabel: "codex's global home",
+		// D2 (RULED 2026-08-11): codex reads config_home like claude and kiro,
+		// through THIS seam and no other. An in-tree run whose binding declares
+		// `config_home: project` gets this session's own CODEX_HOME,
+		// copy-seeded with the host's auth.json; every other in-tree run keeps
+		// the real ~/.codex (internal/codex's resolveCodexProjectDir,
+		// codexHomeRealHost). codex used to relocate CODEX_HOME here
+		// unconditionally, which stopped being defensible the moment the
+		// relocation target became a DISPOSABLE per-session instance: an
+		// unbound interactive run would have lost its token refreshes and its
+		// codex state every session.
+		//
+		// The env value is the session instance root plus codex's own
+		// ConfigDirName, because CODEX_HOME IS the .codex directory rather
+		// than its parent — the same composition
+		// isolation's credentialSeedSpecs["codex"] HomeVar Subdir performs for
+		// the worktree axis, and the suffix resolveCodexProjectDir strips back
+		// off to recover the virtual project dir. Prepare is handed the ROOT,
+		// which is what PrepareCodexHome joins ".codex" under.
+		inTreeAgentHome: func(workDir, harp string) (InTreeAgentHomeSpec, error) {
+			root, err := codex.SessionHome(workDir, harp)
+			if err != nil {
+				return InTreeAgentHomeSpec{}, err
+			}
+			return InTreeAgentHomeSpec{
+				EnvVar: codex.CodexHomeEnv,
+				Dir:    filepath.Join(root, codex.ConfigDirName),
+				Prepare: func() error {
+					_, perr := isolation.PrepareCodexHome(root)
+					return perr
+				},
+			}, nil
+		},
 	})
 
 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
@@ -504,8 +554,12 @@ func init() {
 		// FRESH home stays authenticated — and XDG_DATA_HOME is deliberately
 		// NOT relocated alongside it, since relocating a credential store with
 		// nothing to seed into it is what strands an agent logged out.
-		inTreeAgentHome: func(workDir string) InTreeAgentHomeSpec {
-			return InTreeAgentHomeSpec{EnvVar: kiro.HomeEnv, Dir: kiro.InTreeHome(workDir)}
+		inTreeAgentHome: func(workDir, harp string) (InTreeAgentHomeSpec, error) {
+			dir, err := kiro.SessionHome(workDir, harp)
+			if err != nil {
+				return InTreeAgentHomeSpec{}, err
+			}
+			return InTreeAgentHomeSpec{EnvVar: kiro.HomeEnv, Dir: dir}, nil
 		},
 	})
 

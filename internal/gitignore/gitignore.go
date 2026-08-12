@@ -72,7 +72,7 @@ var PrivateStatePatterns = []string{
 //
 //   - .codex/ does not, so its members are listed one by one: config.toml,
 //     which ctxloom generates, and auth.json, which
-//     internal/lm/isolation/auth.go's SeedCodexHome copies from the host's
+//     internal/lm/isolation/auth.go's PrepareCodexHome copies from the host's
 //     ~/.codex/auth.json. The latter is a live credential rather than a config
 //     artifact, but it has to be kept out of the tree exactly the same way.
 //

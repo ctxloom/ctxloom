@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
@@ -179,8 +180,9 @@ func newProdSpawner(cfg *config.Config, projectDir string, factory pb.ClientFact
 // approval-forwarding/resume machinery — only each backend's OWN
 // chatACPConfig differs (model delivery: internal/claude, internal/codex,
 // internal/kiro, internal/acp's agent_engine default). Backends NOT in this
-// set (mock, and any future non-ACP StructuredChat backend) stay on the
-// legacy go-plugin Chat dial — this gate is deliberately an
+// set ride the legacy coordinator-driven chat path ONLY if they are in
+// legacyChatBackends below; anything else is refused at Resolve
+// (checkLegacyChatFreeze) — this gate is deliberately an
 // allowlist of VERIFIED backends, not "implements StructuredChat", so a new
 // backend must be reviewed onto StartRun explicitly rather than swept in.
 var viaStartRunBackends = map[string]bool{
@@ -188,6 +190,49 @@ var viaStartRunBackends = map[string]bool{
 	"codex":                  true,
 	"kiro":                   true,
 	"acp":                    true,
+}
+
+// legacyChatBackends is the RETIRE-FIRST freeze gate for the legacy
+// coordinator-driven child path (children.go's driveChild loop: the go-plugin
+// Chat dial for a StructuredChat backend outside viaStartRunBackends, and the
+// per-turn oneshot fallback for a backend with no StructuredChat at all).
+// That path is RETIRED: it is never ported to the file-spool messaging
+// substrate that replaces the coordinator mailbox, so this set may only
+// EMPTY — a member either migrates onto StartRun (viaStartRunBackends) or
+// loses delegation when the mailbox machinery is deleted. Nothing is ever
+// added: a backend in NEITHER table used to be swept silently onto the
+// legacy loop and is now refused loudly at Resolve (checkLegacyChatFreeze).
+//
+//   - opencode: production backend, deliberately outside viaStartRunBackends
+//     (its Chat does not ride the shared internal/acp driver); its delegated
+//     children stay on the frozen path until it migrates.
+//   - mock: the test backend.
+//
+// The frozen path's OTHER reachable arm — a degraded (no-reach-back) spawn
+// of a viaStartRunBackends member, where StartRun is impossible because the
+// runner could never dial home — is gated by runChild's `url == ""` check,
+// not by this table; it is frozen under the same ruling.
+var legacyChatBackends = map[string]bool{
+	"opencode": true,
+	"mock":     true,
+}
+
+// checkLegacyChatFreeze refuses a delegated spawn whose backend would land on
+// the retired legacy chat path without being one of its frozen residents. A
+// backend on the StartRun path (viaStartRunBackends) or in the frozen residue
+// (legacyChatBackends) passes; anything else — a newly registered backend
+// never reviewed onto StartRun, or a config-declared llm type that matches no
+// backend — fails loud here at Resolve time instead of silently joining a
+// path that is being removed (ctxloom never silently no-ops).
+func checkLegacyChatFreeze(backend string) error {
+	if viaStartRunBackends[backend] || legacyChatBackends[backend] {
+		return nil
+	}
+	return fmt.Errorf(
+		"backend %q cannot run delegated children: the legacy coordinator-driven chat path is retired and frozen — it admits no new backends; delegated children run runner-side via StartRun (backends: %s), and only the frozen legacy backends (%s) remain on the old path until they migrate or are removed",
+		backend,
+		strings.Join(backendNames(viaStartRunBackends), ", "),
+		strings.Join(backendNames(legacyChatBackends), ", "))
 }
 
 // resumeCapableBackends is the one-shot-resume plan's Slice 2 / Fork 3
@@ -267,8 +312,14 @@ func resolveResumeMode(driving agents.DrivingMode, backend string) (ResumeMode, 
 // resumeCapableBackendNames lists resumeCapableBackends' keys, sorted, for
 // the resolveResumeMode error message.
 func resumeCapableBackendNames() []string {
-	names := make([]string, 0, len(resumeCapableBackends))
-	for name, ok := range resumeCapableBackends {
+	return backendNames(resumeCapableBackends)
+}
+
+// backendNames lists a backend table's true-valued keys, sorted, for error
+// messages that enumerate a gate's membership.
+func backendNames(table map[string]bool) []string {
+	names := make([]string, 0, len(table))
+	for name, ok := range table {
 		if ok {
 			names = append(names, name)
 		}
@@ -359,6 +410,16 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		return nil, fmt.Errorf(
 			"agent_run: agent %q: driving: oneshot is not yet available for backend %q in this release (its one-shot turn loop lands in v0.8); it is resume-capable but ctxloom does not yet tear down/resume THIS engine at turn boundaries",
 			agentName, rs.Backend)
+	}
+
+	// RETIRE-FIRST freeze gate (spool cutover): a backend outside BOTH
+	// viaStartRunBackends and legacyChatBackends used to be swept silently
+	// onto the legacy coordinator-driven chat loop (children.go's
+	// driveChild). That loop is retired — never ported to the spool
+	// substrate — so an unreviewed backend fails loud here instead of
+	// quietly joining a path that is being removed.
+	if err := checkLegacyChatFreeze(rs.Backend); err != nil {
+		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
 	}
 
 	plan := &SpawnPlan{

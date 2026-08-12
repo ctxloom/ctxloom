@@ -287,11 +287,12 @@ type Coordinator struct {
 	// is published, for the reason relayApproval's own comment gives.
 	// Lazily initialized.
 	asks map[string]*pendingAsk
-	// onAskPublished, when set, is called by controlAsk at the instant the ask
-	// became observable to the target. It is the register-before-publish test
-	// seam, the ask plane's twin of onApprovalMailQueued: only a hook fired at
-	// THIS instant can assert the ordering deterministically rather than by
-	// racing an Eventually. Nil in production.
+	// onAskPublished, when set, is called by controlAsk between REGISTERING the
+	// waiter and PUBLISHING the ask — the register-before-publish test seam,
+	// and the ask plane's twin of onApprovalMailQueued. It fires on that side
+	// of the publish deliberately: a hook fired after it cannot distinguish a
+	// correct implementation from one that registers between the write and the
+	// hook, since both have registered by then. Nil in production.
 	onAskPublished func(askID string)
 	// spoolHandler is the registered consumer for validated inbound spool
 	// doorbells (SetSpoolDoorbellHandler). NIL BY DEFAULT and nil in every

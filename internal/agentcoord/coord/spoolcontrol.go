@@ -292,6 +292,20 @@ func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp,
 		c.mu.Unlock()
 	}()
 
+	if hook := c.onAskPublished; hook != nil {
+		// THE ORDERING SEAM, fired between the registration above and the
+		// publish below — the one instant that distinguishes this ordering
+		// from every wrong one.
+		//
+		// It is deliberately NOT fired after the publish, which is where the
+		// analogous approval seam sits: a hook on that side cannot tell a
+		// correct implementation from one that registers in the gap between
+		// the write and the hook, because both have registered by the time it
+		// runs. Fired HERE, "the waiter is already in the table" is exactly
+		// what a test can assert, and any implementation that registers later
+		// fails it.
+		hook(askID)
+	}
 	if _, _, err := c.queueMailPayloadID(askID, by.auditName(), harp, kind, text, nil, ""); err != nil {
 		return AskAnswer{}, fmt.Errorf("%s %s: %w", kind, harp, err)
 	}
@@ -300,12 +314,6 @@ func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp,
 	// gets. THIS is what bounds an idle child's answer to one delivery rather
 	// than to whenever it next happens to run.
 	c.driveQueued(harp)
-	if hook := c.onAskPublished; hook != nil {
-		// The register-before-publish test seam, fired at the instant the ask
-		// became observable to the only party that may answer it — the same
-		// contract (and the same reason) as onApprovalMailQueued's.
-		hook(askID)
-	}
 
 	if _, has := ctx.Deadline(); !has {
 		var cancel context.CancelFunc

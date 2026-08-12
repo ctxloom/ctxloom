@@ -313,7 +313,16 @@ func TestSpoolAsk_ReplyArrivingAtThePublishInstantStillResolves(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 
+	registered := false
 	c.onAskPublished = func(askID string) {
+		// The STRUCTURAL half, asserted at the one instant that separates this
+		// ordering from every wrong one: the ask is about to be published, and
+		// its waiter is ALREADY in the table. The reply below then exercises
+		// the same fact end to end — one asserts the invariant, the other
+		// asserts that the invariant is what makes the answer land.
+		c.mu.Lock()
+		_, registered = c.asks[askID]
+		c.mu.Unlock()
 		answerAsk(t, home, askID, "answered in the same instant", nil)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
@@ -322,6 +331,8 @@ func TestSpoolAsk_ReplyArrivingAtThePublishInstantStillResolves(t *testing.T) {
 	require.NoError(t, err, "a reply landing at the publish instant must resolve, not time out")
 	assert.Equal(t, "answered in the same instant", ans.Text)
 	assert.NotEmpty(t, ans.AskID)
+	assert.True(t, registered,
+		"the waiter must be in the table BEFORE the ask is observable: a reply that finds no waiter degrades to ordinary mail and the asker times out on an answer it was given")
 }
 
 // TestSpoolAsk_TurnOutputIsNotTheAnswer pins the COOPERATIVE-REPLY ruling: the
@@ -406,14 +417,40 @@ func TestSpoolAsk_SummarizeCarriesItsOwnKind(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 
-	c.onAskPublished = func(askID string) {
-		answerAsk(t, home, askID, "we chose sqlx, then wrote the migrations", nil)
-	}
+	askIDs := make(chan string, 1)
+	c.onAskPublished = func(id string) { askIDs <- id }
+	answers := make(chan AskAnswer, 1)
+	errs := make(chan error, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	ans, err := c.ControlSummarize(ctx, humanInitiator(), out.Harp, "just the schema decisions")
-	require.NoError(t, err)
-	assert.Equal(t, "we chose sqlx, then wrote the migrations", ans.Text)
+	go func() {
+		ans, err := c.ControlSummarize(ctx, humanInitiator(), out.Harp, "just the schema decisions")
+		if err != nil {
+			errs <- err
+			return
+		}
+		answers <- ans
+	}()
+
+	var askID string
+	select {
+	case askID = <-askIDs:
+	case <-time.After(conformanceWait):
+		t.Fatal("the ask was never published")
+	}
+	// Answer only AFTER the child has actually been given the ask, so the file
+	// this test then reads has genuinely been delivered and consumed rather
+	// than short-circuited by a reply that beat its own question.
+	awaitChatText(t, sp, 0, "just the schema decisions")
+	answerAsk(t, home, askID, "we chose sqlx, then wrote the migrations", nil)
+	select {
+	case ans := <-answers:
+		assert.Equal(t, "we chose sqlx, then wrote the migrations", ans.Text)
+	case err := <-errs:
+		t.Fatalf("the summarize ask failed: %v", err)
+	case <-time.After(conformanceWait):
+		t.Fatal("the summarize ask went unanswered")
+	}
 
 	consumed := spoolEntries(t, out.Harp, spool.DirInConsumed)
 	require.NotEmpty(t, consumed, "the ask must have been delivered as a file")

@@ -66,6 +66,28 @@ type Ladder []LadderRung
 // relay/surface rung that omits Timeout — gets.
 const defaultRelayTimeout = 24 * time.Hour
 
+// presetSurfaceTimeout bounds the ActionSurfaceToHuman rung presetLadder now
+// puts ahead of every preset's relay rung for a kind that used to relay
+// straight to the parent ROLE (marauding-hacksaw, ruled 2026-08-11).
+//
+// TEN MINUTES, not defaultRelayTimeout's 24 hours — deliberately a
+// different number for a different reason. defaultRelayTimeout's 24h exists
+// for a RELAY, parked on a possibly-busy COORDINATOR AGENT that may be deep
+// in its own multi-hour turn before it drains agent_recv; waiting matters
+// more than answering fast. This rung instead parks on a HUMAN at a live
+// terminal — the surround-bar ⚠N + BEL + overlay y/s/n view that shipped
+// today — who either answers within minutes or is not at the keyboard right
+// now. A short park either gets answered or falls through fast to the
+// relay rung beneath it, exactly the fallback an away human needs; a 24h
+// park here would only delay that fallback, not help anyone.
+//
+// Measured evidence behind the ruling: 24/24 preset relay_to_role approvals
+// over a month timed out unanswered (24h parks; all 12 relaying runs died
+// abnormally) — the relay-first preset default had a ZERO answer rate,
+// which is exactly why the terminal approval surface was reachable only
+// through an explicit escalation: block until this change.
+const presetSurfaceTimeout = 10 * time.Minute
+
 // approvalKindNames is the user-facing short-form vocabulary for
 // ApprovalRequest.ApprovalKind — deliberately hand-written (not derived from
 // the proto's enum-value reflection) so agent YAML stays readable and
@@ -100,10 +122,15 @@ const unrecognisedApprovalKind = agentcoordpb.ApprovalRequest_ApprovalKind(-1)
 //   - bypass: auto-accept every kind — mirrors decidePermission's old
 //     "allow under bypass" default, now expressed as a one-rung ladder.
 //   - plan: auto-decline the kinds that mutate state OUTRIGHT (file
-//     changes, permission escalation) and relay everything else —
-//     including COMMAND_EXECUTION, which is inherently ambiguous (a
-//     command can be as read-only as `ls` or as destructive as `rm -rf`)
-//     and so gets a judgment call rather than a reflexive decline.
+//     changes, permission escalation); everything else — including
+//     COMMAND_EXECUTION, which is inherently ambiguous (a command can be as
+//     read-only as `ls` or as destructive as `rm -rf`) and so gets a
+//     judgment call rather than a reflexive decline — first SURFACES to a
+//     human at a live terminal (presetSurfaceTimeout), then, if nobody
+//     answers, falls through to the ORIGINAL relay_to_role rung, unchanged.
+//     The surface rung is new (marauding-hacksaw): a preset ladder used to
+//     relay straight to the parent ROLE, which measured 24/24 unanswered
+//     over a month — see presetSurfaceTimeout's doc.
 //   - default/acceptEdits: UNREACHABLE for a delegated child in practice —
 //     headlessSafePermission (spawner.go) already refuses them at spawn
 //     (D3's structural floor is unchanged by this ladder). The decline-all
@@ -121,6 +148,14 @@ func presetLadder(perm agent.PermissionMode) Ladder {
 				},
 				Action: ActionAutoDecline,
 			},
+			// KNOWN, ACCEPTED LIMITATION (taskloom slighting-distress):
+			// surfaceApprovalToHuman authorizes an answer against
+			// rec.ParentHarp, which for a depth ≥ 2 child is the
+			// INTERMEDIATE AGENT, not a human — so at that depth this rung
+			// always parks its presetSurfaceTimeout unanswered and falls
+			// through to the relay rung below. A bounded ~10m delay, not a
+			// hang; fixed in coord later.
+			{Action: ActionSurfaceToHuman, Role: ParentAddress, Timeout: presetSurfaceTimeout},
 			{Action: ActionRelayToRole, Role: ParentAddress, Timeout: defaultRelayTimeout},
 		}
 	default:

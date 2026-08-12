@@ -30,10 +30,18 @@ func TestPresetLadder_BypassAcceptsEverything(t *testing.T) {
 	}
 }
 
-// TestPresetLadder_PlanDeclinesMutatingRelaysTheRest pins the plan preset:
-// FILE_CHANGE/PERMISSION_ESCALATION auto-decline outright; everything else
-// (including the ambiguous COMMAND_EXECUTION) relays to the parent.
-func TestPresetLadder_PlanDeclinesMutatingRelaysTheRest(t *testing.T) {
+// TestPresetLadder_PlanDeclinesMutatingSurfacesThenRelaysTheRest pins the
+// plan preset's post-marauding-hacksaw shape: FILE_CHANGE/
+// PERMISSION_ESCALATION auto-decline outright (untouched by the change);
+// everything else (including the ambiguous COMMAND_EXECUTION) first
+// SURFACES to a human at a live terminal (presetSurfaceTimeout, NOT
+// defaultRelayTimeout), then — unanswered — falls through to the ORIGINAL
+// relay_to_role rung, unchanged. Was
+// TestPresetLadder_PlanDeclinesMutatingRelaysTheRest, which pinned the
+// pre-change defect this ladder shipped with: 24/24 preset relay_to_role
+// approvals over a month timed out unanswered because the preset relayed
+// straight to a parent ROLE with no human-facing surface at all.
+func TestPresetLadder_PlanDeclinesMutatingSurfacesThenRelaysTheRest(t *testing.T) {
 	l := presetLadder(agent.PermissionPlan)
 	for _, k := range []agentcoordpb.ApprovalRequest_ApprovalKind{
 		agentcoordpb.ApprovalRequest_APPROVAL_KIND_FILE_CHANGE,
@@ -49,9 +57,19 @@ func TestPresetLadder_PlanDeclinesMutatingRelaysTheRest(t *testing.T) {
 		agentcoordpb.ApprovalRequest_APPROVAL_KIND_ARTIFACT_REVIEW,
 	} {
 		rungs := l.matchingRungs(k)
-		require.NotEmpty(t, rungs)
-		assert.Equal(t, ActionRelayToRole, rungs[0].Action, "kind %v must relay for judgment", k)
+		require.Len(t, rungs, 2, "kind %v must surface to a human, then fall through to relay", k)
+		assert.Equal(t, ActionSurfaceToHuman, rungs[0].Action, "kind %v must surface to a human FIRST", k)
 		assert.Equal(t, ParentAddress, rungs[0].Role)
+		// Pinned against the LITERAL value, not the presetSurfaceTimeout
+		// symbol: a mutant that redefines the constant to defaultRelayTimeout
+		// must still turn this assertion red, which comparing against the
+		// symbol itself could never do.
+		assert.Equal(t, 10*time.Minute, rungs[0].Timeout,
+			"the preset surface rung must use presetSurfaceTimeout (10m), not defaultRelayTimeout (24h)")
+		assert.Equal(t, presetSurfaceTimeout, rungs[0].Timeout, "sanity: the constant itself flows through unmodified")
+		assert.Equal(t, ActionRelayToRole, rungs[1].Action, "kind %v must still relay for judgment if nobody answers", k)
+		assert.Equal(t, ParentAddress, rungs[1].Role)
+		assert.Equal(t, defaultRelayTimeout, rungs[1].Timeout, "the relay rung beneath the surface rung is unchanged")
 	}
 }
 
@@ -165,4 +183,26 @@ func TestBuildLadder_EscalationConfigOverridesDefaultRelayTimeout(t *testing.T) 
 	assert.Equal(t, 10*time.Minute, l[0].Timeout,
 		"an agent's own escalation: timeout must override the 24h default")
 	assert.NotEqual(t, 24*time.Hour, l[0].Timeout)
+}
+
+// TestBuildLadder_ExplicitRelayOnlyOmitsPresetSurfaceRung is
+// marauding-hacksaw's explicit-escalation regression proof: presetLadder's
+// plan preset now injects a surface_to_human rung ahead of its relay rung,
+// but buildLadder's explicit path (a non-empty raw escalation: block)
+// REPLACES the preset wholesale (TestBuildLadder_ExplicitOverridesPreset) —
+// it must never MERGE the two. An agent that declares its own
+// relay_to_role-only ladder gets EXACTLY that: no surface rung anywhere in
+// it, exactly as before this change.
+func TestBuildLadder_ExplicitRelayOnlyOmitsPresetSurfaceRung(t *testing.T) {
+	raw := []agents.EscalationRung{
+		{Action: "relay_to_role"},
+	}
+	l, err := buildLadder("custom-agent", raw, agent.PermissionPlan)
+	require.NoError(t, err)
+	require.Len(t, l, 1, "an explicit escalation: block must not have a preset surface rung merged into it")
+	assert.Equal(t, ActionRelayToRole, l[0].Action)
+	for _, r := range l {
+		assert.NotEqual(t, ActionSurfaceToHuman, r.Action,
+			"the preset's new surface_to_human rung must never leak into an explicit escalation: block")
+	}
 }

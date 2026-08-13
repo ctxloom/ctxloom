@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	igit "github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // GitPublisher publishes to ANY git remote — file://, ssh://, git://, a
@@ -194,7 +195,10 @@ func (p *GitPublisher) CreateOrUpdateFile(ctx context.Context, _, _, filePath, b
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return "", fmt.Errorf("publish %s: create its directory in the working clone: %w", filePath, err)
 	}
-	if err := os.WriteFile(full, content, 0o644); err != nil {
+	// No AllowEmpty: content's zero-length case is already refused above, so
+	// the default empty-over-existing guard can never fire on a legitimate
+	// call here.
+	if err := iox.WriteFileAtomic(full, content, 0o644); err != nil {
 		return "", fmt.Errorf("publish %s: write it into the working clone: %w", filePath, err)
 	}
 

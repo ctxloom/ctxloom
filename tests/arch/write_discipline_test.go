@@ -267,8 +267,6 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/operations/tooling.go#ScaffoldContainerBase":                    "pre-ratchet baseline — C10 operations sweep to classify (fs-consolidation plan C10)",
 	"internal/profiles/profiles.go#Loader.CommitUpgrade":                      "pre-ratchet baseline — internal/profiles is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
 	"internal/profiles/profiles.go#Loader.Save":                               "pre-ratchet baseline — internal/profiles is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
-	"internal/remote/git_publisher.go#GitPublisher.CreateOrUpdateFile":        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/remote/pull.go#writeTreeFile":                                   "pre-ratchet baseline — C10 internal/remote sweep to classify (fs-consolidation plan C10)",
 	"internal/schemagen/schemagen.go#Generate":                                "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/sessions/index.go#linkTranscriptIntoHarpDir":                    "root vendor transcript symlink repoint (fs-consolidation plan C12, Q2 ruling pending) — Remove+Symlink is the non-atomic pattern C12 calls out",
 	"internal/shared/agent/contextfile.go#WriteContextFile":                   "pre-ratchet baseline — internal/shared/agent is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",

@@ -28,7 +28,7 @@ Schema for ctxloom config.yaml files
 | `agents` | map → object | Local-only engine↔profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/agents/<name>.yaml files. |
 | `config` | object | Behavioral settings |
 | `default_agent` | string | The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves — its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop). |
-| `delegation` | object | The two agent-delegation limits. Grouped because both are limits ON delegation, not because they share a mechanism — they differ in kind (see each member's own description). |
+| `delegation` | object | The project-wide agent-delegation settings. Grouped because each governs delegation, not because they share a mechanism — they differ in kind (see each member's own description). |
 | `dirty_tree_handler` | string | Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it — requires a human dirty-tree-commit acknowledgement recorded via `ctxloom init` or `ctxloom manage dirty-tree-ack grant` (NOT a config key — see .ctxloom/state/dirty_tree_commit_ack.yaml), and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter. Allowed values: `commit`, `copy`, `stale`, `fail`. |
 | `editor` | object | Editor configuration for fragment/prompt editing |
 | `hooks` | hooksConfig | Hooks configuration applied globally |
@@ -91,12 +91,14 @@ Publisher-signing defaults for `bundle push`.
 
 ### delegation
 
-The two agent-delegation limits. Grouped because both are limits ON delegation, not because they share a mechanism — they differ in kind (see each member's own description).
+The project-wide agent-delegation settings. Grouped because each governs delegation, not because they share a mechanism — they differ in kind (see each member's own description).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `concurrency` | integer | Maximum number of delegated child turns executing at once; each is a live engine process. A child waiting on a message yields its slot. This bounds resource load only — raise it for more parallelism, lower it on a small machine. Unset uses the built-in default. |
 | `depth` | integer | Maximum nesting depth of delegated agents. The session owner is depth 0, its subagents depth 1, theirs depth 2. A run at the cap cannot delegate and is not given the coordination tools (agent_run, roster, agent_stop, agent_fetch_artifact). Raising this above 1 gives those tools to non-root agents, which can leave an agent waiting on children it never spawned. Unset uses the built-in default. |
+| `spool_delivery` | boolean | DELIVERS coordinator-to-agent and agent-to-coordinator messages from the session's on-disk message spool instead of the in-memory mailbox: the message file is the only copy, an agent consumes it by moving it into consumed/, and the coordinator routes what an agent writes into out/. Messages therefore survive a coordinator or agent restart and are visible on disk while they wait. Applies only to agents run with their own ctxloom runner; the session's own inbox and frozen legacy agents keep the mailbox. Default off, which is the pre-spool behaviour exactly. |
+| `spool_tee` | boolean | Mirrors every coordinator-to-agent and agent-to-coordinator message into the session's on-disk message spool (~/.ctxloom/sessions/<harp>/persist/spool), in addition to delivering it normally. Messages are still delivered and read exactly as before — nothing reads the spool — so turning this on changes no behaviour; it exists so the file-based substrate carries real traffic before anything depends on it. Default off, and off means no spool directory is created at all. |
 
 ### editor
 

@@ -616,7 +616,57 @@ func p4Cells() []probeCell {
 				Status: probeWired, Reason: why[e]},
 		)
 	}
+
+	// THE CLAUDE-CODE PAIR HAS BEEN RUN, AS A PAIR, AND THAT IS THE ONLY WAY IT
+	// COUNTS. Verified 2026-08-13 on this branch: `just plan-sentinel
+	// claude-code pair`, 2 scenarios / 6 steps passed, no skip, control 12.9s
+	// then plan 8.1s in one process — so the plan cell read a control record
+	// rather than printing its PROVISIONAL note, which is itself the observable
+	// that the pairing works.
+	//
+	// What each run showed, per the EVIDENCE line the When step prints:
+	//
+	//   control (harp legal-rosy-pouch):   exit=0, 55B stdout,  plan-oneshot-warning=false
+	//   plan    (harp proud-saucy-amino):  exit=0, 273B stdout, plan-oneshot-warning=true
+	//
+	// The warning flag is the independent confirmation that the ONE line of
+	// config.yaml separating the pair really reached the resolver:
+	// warnPlanOneshotCancels fires only when a plan posture survives
+	// resolvePermissionMode's ONESHOT floor into the run, and it fired on
+	// exactly the cell that bound `permissions: plan`. So the two runs differed
+	// in posture and not merely in outcome — which is the question a lone green
+	// plan cell could never answer.
+	//
+	// Also measured, and worth writing down because the verdict deliberately
+	// tolerates the opposite: claude's plan one-shot exits ZERO. The refusal is
+	// reported in the turn's prose, not in the exit status. p4RunHappened's
+	// choice not to gate on the exit code was therefore not needed HERE — it is
+	// insurance for the three engines whose plan behaviour is still unobserved,
+	// and it stays.
+	setP4Cell(cells, "claude-code", p4Control,
+		"live-verified 2026-08-13 as HALF OF A PAIR (`just plan-sentinel claude-code pair`, 2 scenarios / 6 steps, no skip): under permissions=bypass the ordered overwrite LANDED — the sentinel planted with harp legal-rosy-pouch came back carrying the overwrite token instead. exit=0, 55B stdout, plan-oneshot-warning=false (correctly absent: the control is not a plan run). This is what licenses the plan cell beside it.")
+	setP4Cell(cells, "claude-code", p4Plan,
+		"live-verified 2026-08-13 as HALF OF A PAIR, same process and same fixture as its control, differing in one line of config.yaml: under permissions=plan the sentinel planted with harp proud-saucy-amino came back BYTE-UNCHANGED after the engine was ordered to overwrite it. exit=0 (claude reports the refusal in prose, not in its exit status), 273B stdout, plan-oneshot-warning=true — production's own warnPlanOneshotCancels confirming the plan posture survived the ONESHOT floor into this run, on exactly the cell that bound it. Replaces the AD HOC 2026-07-15 terminal proof recorded at the descriptor's enforcesReadOnlyPlan with something anybody can re-run.")
+
 	return cells
+}
+
+// setP4Cell is p4Cells' own annotator, and it panics on a miss for the same
+// reason setCell does: these are MEASURED findings, and a silent miss would drop
+// one while leaving the table looking complete. Separate from setCell because a
+// P4 cell is identified by its VARIANT — setCell matches only variant-less rows,
+// so calling it here would find nothing at all and panic for a confusing reason
+// rather than the real one.
+func setP4Cell(cells []probeCell, engine string, posture p4Posture, reason string) {
+	for i := range cells {
+		c := &cells[i]
+		if c.Engine == engine && c.Variant == string(posture) {
+			c.Status = probeLiveVerified
+			c.Reason = reason
+			return
+		}
+	}
+	panic(fmt.Sprintf("capability probe registry: no p4 cell [engine=%s variant=%s] to annotate — a measured live verdict would have been silently dropped", engine, posture))
 }
 
 // --- derived views ------------------------------------------------------------

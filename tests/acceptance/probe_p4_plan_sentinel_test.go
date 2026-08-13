@@ -397,6 +397,58 @@ func TestP4ControlLedger_DistinguishesUnrunFromFailed(t *testing.T) {
 	assert.Equal(t, boom, v, "a failed control must be retrievable as a failure, not merely as 'recorded'")
 }
 
+// TestP4Controls_IsTheProcessWideLedgerTheCellsActuallyShare pins the one thing
+// the pairing mechanism cannot work without: both halves must read and write the
+// SAME ledger. The control step records into p4Controls and the plan step
+// consults p4Controls; give either of them a fresh ledger of its own and the
+// dependency evaporates silently — every plan cell would print its PROVISIONAL
+// note forever and nobody would notice, because a provisional green still looks
+// green.
+//
+// Order-independent on purpose: this file's tests and the godog suite share a
+// process, so asserting the ledger is EMPTY would make this test depend on
+// whether a live cell happened to run first.
+func TestP4Controls_IsTheProcessWideLedgerTheCellsActuallyShare(t *testing.T) {
+	require.NotNil(t, p4Controls, "the shared ledger must exist before any cell runs; a nil one makes p4AssertPlan refuse every plan cell")
+
+	const nobody = "an-engine-that-never-ran"
+	if _, recorded := p4Controls.Lookup(nobody); recorded {
+		t.Fatalf("the shared ledger reports a control record for %q, which no cell can have run — Lookup is matching too loosely, and a plan cell would then borrow a verdict that was never measured", nobody)
+	}
+}
+
+// TestP4SetCell_RefusesToAnnotateACellThatIsNotThere guards the one place a
+// measured LIVE verdict can vanish without trace. setP4Cell attaches each live
+// result onto a generated row; if it ever stopped matching — an engine renamed,
+// a variant respelled — a silent miss would leave the table reading "wired"
+// where somebody actually watched a real engine, and the evidence would simply
+// not be there. It panics at package init instead, and this says so.
+//
+// Written because the sibling guard on setCell was a measured mutation SURVIVOR
+// until someone covered it: a panic nobody exercises is a comment.
+func TestP4SetCell_RefusesToAnnotateACellThatIsNotThere(t *testing.T) {
+	cells := []probeCell{{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p4Plan)}}
+
+	t.Run("the present cell is annotated and promoted", func(t *testing.T) {
+		setP4Cell(cells, "claude-code", p4Plan, "measured")
+		require.Equal(t, "measured", cells[0].Reason, "setP4Cell must write through, or every live verdict it carries is a no-op")
+		require.Equal(t, probeLiveVerified, cells[0].Status, "a measured cell must be promoted out of 'wired', or the table understates what is known")
+	})
+
+	t.Run("a variant that is not there panics rather than dropping the finding", func(t *testing.T) {
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatal("setP4Cell silently ignored a cell that is not there — the live verdict it carries would vanish while the table still looked complete")
+			}
+			if !strings.Contains(fmt.Sprint(r), "variant=control") {
+				t.Fatalf("the panic must name the cell it could not find, got: %v", r)
+			}
+		}()
+		setP4Cell(cells, "claude-code", p4Control, "unreachable")
+	})
+}
+
 // TestP4Registry_DeclaresBothArmsForEveryEngine closes the loop between this
 // file's vocabulary and the registry's rows. A registry row dropped or renamed
 // is the drift the completeness gate cannot see on its own: it checks that rows

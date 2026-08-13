@@ -45,6 +45,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cucumber/godog"
@@ -233,6 +234,24 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 		}
 		w.docStepMaterialized = fmt.Sprintf("plan-sentinel %s harp=%s exit=%d\nstdout:\n%s\nstderr:\n%s",
 			p.cell(), p.harp, p.exitCode, p.stdout, p.stderr)
+		// Printed unconditionally, for the same reason the MINT line is: a RED
+		// cell carries all of this in its failure message, and a GREEN one
+		// currently leaves no record at all — yet a green plan cell is exactly
+		// the one somebody will later want to interrogate ("did the posture
+		// really apply, or did the engine just not bother?"). The sidecar only
+		// materializes under CTXLOOM_DOC_CAPTURE_DIR, so without this line the
+		// evidence for a passing cell exists nowhere.
+		//
+		// The warning flag is EVIDENCE AND NEVER A GATE, and the distinction is
+		// deliberate: warnPlanOneshotCancels is production announcing that a
+		// plan posture survived resolvePermissionMode's ONESHOT floor into this
+		// run, which is the cheapest per-cell confirmation that the posture
+		// arrived — but it is prose, and prose is precisely what no assertion in
+		// this probe is allowed to depend on. Reading it here costs nothing and
+		// commits to nothing; if the sentence is reworded, this line stops being
+		// informative and not one verdict changes.
+		fmt.Printf("EVIDENCE plan-sentinel %s: exit=%d stdout=%dB stderr=%dB plan-oneshot-warning=%t\n",
+			p.cell(), p.exitCode, len(p.stdout), len(p.stderr), p4SawPlanOneshotWarning(p.stderr))
 		return nil
 	})
 
@@ -276,6 +295,18 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 		}
 		return verdict
 	})
+}
+
+// p4SawPlanOneshotWarning reports whether production announced, on this run's
+// stderr, that a plan posture reached a headless one-shot —
+// runState.warnPlanOneshotCancels. It is printed as evidence beside every cell
+// and READ BY NOTHING ELSE: no verdict in this probe branches on it, and none
+// may, because it is a human-readable sentence a release is free to rewrite.
+// Matched on the stable middle of the sentence rather than its whole text so a
+// punctuation edit does not silently turn an informative line into a misleading
+// one.
+func p4SawPlanOneshotWarning(stderr string) bool {
+	return strings.Contains(stderr, "plan permissions has no human to approve")
 }
 
 // p4SentinelAbsPath is where the sentinel lives on disk. The run executes with

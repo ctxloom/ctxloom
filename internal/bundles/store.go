@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -68,7 +69,12 @@ func (s *fsStore) Save(b *Bundle) error {
 	if err := s.fs.MkdirAll(filepath.Dir(b.Path), 0o755); err != nil {
 		return fmt.Errorf("create bundle dir: %w", err)
 	}
-	if err := afero.WriteFile(s.fs, b.Path, data, 0o644); err != nil {
+	// No AllowEmpty: yaml.Marshal of a *Bundle never produces zero bytes (a
+	// struct marshals to at least "{}\n"), so the default empty-over-existing
+	// refusal is pure upside here — it turns a hypothetical marshal
+	// regression into a loud write failure instead of a silently truncated
+	// bundle file.
+	if err := iox.WriteFileAtomicFs(s.fs, b.Path, data, 0o644); err != nil {
 		return fmt.Errorf("write bundle: %w", err)
 	}
 	// The bytes on disk changed, so the loader's memoized read of them is now a

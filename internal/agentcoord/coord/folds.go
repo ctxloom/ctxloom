@@ -209,6 +209,20 @@ func (f *runsFold) applySessionCredRevoked(p sessionCred, _ time.Time) {
 // run returns the record for run_id (nil when unknown).
 func (f *runsFold) run(runID string) *RunRecord { return f.runs[runID] }
 
+// currentHarps lists every harp this coordinator has a run record for, in no
+// particular order.
+//
+// It is deliberately WIDER than "currently attached": its one caller is the
+// spool reconciliation set, whose whole job is to find files written for a run
+// whose channel does not exist yet (a cold start) or exists no longer.
+func (f *runsFold) currentHarps() []string {
+	out := make([]string, 0, len(f.byHarp))
+	for harp := range f.byHarp {
+		out = append(out, harp)
+	}
+	return out
+}
+
 // currentRun returns the harp's latest run attempt (nil when the harp was
 // never spawned here).
 func (f *runsFold) currentRun(harp string) *RunRecord {

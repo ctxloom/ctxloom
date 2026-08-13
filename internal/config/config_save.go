@@ -404,7 +404,7 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// fields discards the ones nobody remembered to add.
 	// Renamed/regrouped from the flat agent_turn_cap — see
 	// errRetiredAgentTurnCapKey.
-	setOrDelete(existing, "delegation", c.delegation.Concurrency > 0 || c.delegation.Depth > 0 || c.delegation.SpoolTee, c.delegation)
+	setOrDelete(existing, "delegation", c.delegation.Concurrency > 0 || c.delegation.Depth > 0 || c.delegation.SpoolTee || c.delegation.SpoolDelivery, c.delegation)
 	// Per-backend user-provided agent images; pruned when empty (built-in
 	// defaults leave no key behind).
 	setOrDelete(existing, "isolation_images", len(c.isolationImages) > 0, c.isolationImages)

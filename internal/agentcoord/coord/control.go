@@ -88,6 +88,12 @@ func (i ControlInitiator) auditName() string {
 type SteerOutcome struct {
 	Applied  agentcoordpb.SteerResult_Applied
 	Fallback string
+	// MessageID is the WITHDRAW HANDLE, set only on the spool route
+	// (spoolcontrol.go): under the cutover a steer is a durable file, and this
+	// is the id WithdrawSteer takes to retract it before the target reads it.
+	// Empty on the plane-2 route, where the body rides the request and there
+	// is nothing durable to retract.
+	MessageID string
 }
 
 // ErrCapabilityUnavailable marks every refusal whose CAUSE is that the target
@@ -423,14 +429,28 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 	c.audit("agent_steer", by.auditName(), map[string]string{"harp": harp})
 
 	sender := by.auditName()
-	outcome, planeTwo, err := c.steerPlaneTwo(ctx, by, sender, harp, text)
-	if err != nil {
-		return SteerOutcome{}, err
-	}
-	if !planeTwo {
-		outcome, err = c.steerFallback(sender, harp, text)
-		if err != nil {
+	var outcome SteerOutcome
+	// THE CUTOVER (spoolcontrol.go). A steer to a spool-delivered target is a
+	// DURABLE FILE, not a wire request: it survives a relaunch, an unread one
+	// is visible in in/, and it can be withdrawn. The branch is taken BEFORE
+	// plane 2 — a cut-over child is migrated and attached, so plane 2 would
+	// otherwise always win and the durable route would be unreachable — and it
+	// uses the SAME predicate the mail plane does, because a steer written
+	// where nothing sweeps is an instruction that silently never arrives.
+	if c.spoolDeliverTo(harp) {
+		if outcome, err = c.steerViaSpool(sender, harp, text); err != nil {
 			return SteerOutcome{}, err
+		}
+	} else {
+		out, planeTwo, perr := c.steerPlaneTwo(ctx, by, sender, harp, text)
+		if perr != nil {
+			return SteerOutcome{}, perr
+		}
+		outcome = out
+		if !planeTwo {
+			if outcome, err = c.steerFallback(sender, harp, text); err != nil {
+				return SteerOutcome{}, err
+			}
 		}
 	}
 	// Mirror notice (decision O3), preserved verbatim across BOTH routes: a
@@ -502,15 +522,28 @@ func (c *Coordinator) steerPlaneTwo(ctx context.Context, by ControlInitiator, se
 // queued as ordinary mail HERE and only here — the plane-2 route never queues
 // mail, so the two can never both hold a copy.
 func (c *Coordinator) steerFallback(sender, harp, text string) (SteerOutcome, error) {
-	_, completed, err := c.queueMail(sender, harp, "", text)
+	// The UNKINDED mail this route has always queued, and the id deliberately
+	// dropped: a mailbox message cannot be withdrawn, so handing back a handle
+	// WithdrawSteer would refuse is worse than handing back none.
+	_, outcome, err := c.steerAsMail(sender, harp, KindUnset, text)
+	return outcome, err
+}
+
+// steerAsMail is the shared body of BOTH mail-borne steer routes — §5.6's
+// unkinded fallback and the cutover's durable `steer` file. What differs
+// between them is the kind and what the caller does with the id; the delivery
+// question ("does this target need waking, and did the send complete a waiting
+// receive") is one question with one answer, so it is asked once.
+func (c *Coordinator) steerAsMail(sender, harp, kind, text string) (msgID string, outcome SteerOutcome, err error) {
+	msgID, completed, err := c.queueMailPayload(sender, harp, kind, text, nil, "")
 	if err != nil {
-		return SteerOutcome{}, err
+		return "", SteerOutcome{}, err
 	}
 	if completed {
-		return SteerOutcome{Fallback: DeliveryCompletedRecv}, nil
+		return msgID, SteerOutcome{Fallback: DeliveryCompletedRecv}, nil
 	}
 	mode, _ := deliveryDisposition(c.driveQueued(harp))
-	return SteerOutcome{Fallback: mode}, nil
+	return msgID, SteerOutcome{Fallback: mode}, nil
 }
 
 func initiatorName(k agentcoordpb.ControlInitiatorKind) string {

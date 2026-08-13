@@ -103,6 +103,15 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 			"(check the sender's message composition)", from, to, kind)
 	}
 	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
+	// THE CUTOVER (spooldelivery.go). For a recipient delivered by FILE the
+	// spool write IS the delivery: no queue fact, no poll completion, no push.
+	// It is branched here, before the journal, rather than teed after it —
+	// under the cutover there is no second copy to keep, and a mailbox fact
+	// nobody would ever consume is a message the fold reports as pending
+	// forever.
+	if c.spoolDeliverTo(to) {
+		return c.deliverMailViaSpool(msg)
+	}
 	if err := c.mail.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factMailQueued, c.now(), mailQueued{
 			MessageID: msg.ID, From: from, To: to, Kind: kind, Body: body,
@@ -220,6 +229,12 @@ func (c *Coordinator) undeliveredLocked(role string) []Message {
 // pendingCount reports how many messages could still be delivered to role —
 // the ended-child check: leftover mail triggers a resume, never strands.
 func (c *Coordinator) pendingCount(role string) int {
+	// Under the cutover the fold holds nothing for this role — the files do.
+	// Reading the mailbox here would report a permanent zero and strand every
+	// leftover-mail resume and standup drain that depends on this answer.
+	if c.spoolDeliverTo(role) {
+		return c.spoolPendingCount(role)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.undeliveredLocked(role))

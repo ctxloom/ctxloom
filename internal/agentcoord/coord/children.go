@@ -199,6 +199,15 @@ type childRt struct {
 	// a policy/spawner that captures nothing (tests, host paths without a
 	// ring). Set at spawn (runChildViaStartRun).
 	stderrTail func() string
+	// runnerWait blocks until the runner PROCESS exits, reporting why. It is
+	// the DEATH half of the standup race issueStartRun runs: dial-home
+	// readiness is a push (awaitRunner parks on a channel the runner's Hello
+	// closes) and carries no "…and it is still alive" signal, so this is the
+	// only thing that can tell a dead runner from a slow one before the
+	// dial-home budget expires. Nil when the spawner captures no process
+	// (test doubles, the owner-run path), which degrades to the timeout.
+	// Set at spawn (runChildViaStartRun), alongside stderrTail.
+	runnerWait func() error
 	// selfReported records that the CHILD ITSELF sent mail to its parent
 	// during the current turn (peerSend, caller.IsChild()). It is the
 	// no-double-delivery discriminator for bridgeTurnResult: a child that
@@ -597,16 +606,17 @@ func (c *Coordinator) childEnv(harp string) map[string]string {
 // coordinator-only MCP tools (mcp_runner.go). oneshot is this run's own
 // SpawnPlan.ResumeMode == ResumeModeOneShot, stamped via EnvRunOneShot on
 // the SAME unconditional terms as depth: a one-shot run is a leaf
-// regardless of depth (Identity.OneShot's doc). spoolTee is the coordinator's
-// own shadow-tee posture, stamped via EnvRunSpoolTee on those same
-// unconditional terms — the runner cannot derive it locally (see that
-// constant's doc).
-func runnerEnv(harp, runID, token, url string, depth int, oneshot, spoolTee bool) map[string]string {
+// regardless of depth (Identity.OneShot's doc). spool is the coordinator's own
+// spool posture (shadow tee and/or delivery cutover), stamped via
+// EnvRunSpoolTee/EnvRunSpoolDelivery on those same unconditional terms — the
+// runner cannot derive either locally (see those constants' docs).
+func runnerEnv(harp, runID, token, url string, depth int, oneshot bool, spool spoolPosture) map[string]string {
 	env := map[string]string{
 		"CTXLOOM_SESSION_HARP": harp,
 		EnvRunDepth:            strconv.Itoa(depth),
 		EnvRunOneShot:          strconv.FormatBool(oneshot),
-		EnvRunSpoolTee:         strconv.FormatBool(spoolTee),
+		EnvRunSpoolTee:         strconv.FormatBool(spool.Tee),
+		EnvRunSpoolDelivery:    strconv.FormatBool(spool.Delivery),
 	}
 	if url != "" {
 		env[EnvCoordURL] = url
@@ -690,7 +700,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 
 	launch, err := c.spawner.Launch(lctx, rt.plan, rt.plan.Context, "",
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolTee))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -735,7 +745,7 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // baseCtx: agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
 	engine, err := c.spawner.StartEngine(ctx, rt.plan,
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolTee))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -743,6 +753,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	c.mu.Lock()
 	rt.close = engine.Kill
 	rt.stderrTail = engine.StderrTail
+	rt.runnerWait = engine.Wait
 	rt.workDir = engine.WorkDir
 	c.mu.Unlock()
 
@@ -815,10 +826,26 @@ func (c *Coordinator) startRunPayloadErr(rt *childRt, first, resumeSessionID str
 
 func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, spec *agentcoordpb.HarnessSpec, first, model, resumeSessionID string) error {
 	actx, acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)
+	// The standup RACE: readiness (awaitRunner, a push the runner's Hello
+	// closes) against DEATH (the runner process exiting). Without the second
+	// arm the wait can only ever end on the clock, so a runner that died at
+	// standup — an unknown backend name, a refused config, a missing binary,
+	// a fail-loud startup finding — held the parent in TOTAL SILENCE for the
+	// whole runnerAwaitTimeout: no agent_send, no bridged turn, and not even
+	// the terminal notice failChild would eventually queue. An observer
+	// watching for less than that budget sees a child that simply never
+	// reports anything, which is indistinguishable from an engine that hung.
+	exited := watchRunnerExit(rt.runnerWait, acancel)
 	_, err := c.awaitRunner(actx, credHash)
 	acancel()
 	if err != nil {
-		err = fmt.Errorf("runner never dialed home (StartRun path): %w", err)
+		// Attribute before blaming the clock: a runner that is GONE gets the
+		// death (with its dying words), not "never dialed home".
+		if reason, dead := runnerExitReason(exited); dead {
+			err = fmt.Errorf("runner exited before dialing home (StartRun path): %s", reason)
+		} else {
+			err = fmt.Errorf("runner never dialed home (StartRun path): %w", err)
+		}
 		c.failChild(rt, err)
 		return err
 	}
@@ -871,6 +898,59 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	c.noteLaunchAttached(rt.harp) // a launch that came up resets the retry budget
 	c.markAttached(rt)            // StartRun round-tripped: the migrated run is up
 	return nil
+}
+
+// watchRunnerExit starts the DEATH arm of issueStartRun's standup race: it
+// reaps the runner process in the background and, the moment it exits, both
+// publishes why and cancels the dial-home wait so the caller stops waiting for
+// a runner that no longer exists.
+//
+// ORDER MATTERS: the exit reason is published to the buffered channel BEFORE
+// cancel fires. The waiter is woken by that cancel, so by the time it looks,
+// the reason is already there — the reverse order would race the waiter into
+// reporting a bare timeout about a runner it had just been told was dead.
+//
+// A nil wait (a spawner that captures no process) returns a nil channel: the
+// receive below simply never yields, and detection degrades to the timeout
+// that was the only mechanism before this existed.
+//
+// The goroutine does not leak on the HEALTHY path. It blocks in wait() for the
+// runner's whole lifetime, which is the point — when the child eventually dies
+// it sends into a BUFFERED channel (never blocking on the absent reader),
+// cancels an already-cancelled context (a no-op), and returns.
+func watchRunnerExit(wait func() error, cancel context.CancelFunc) <-chan error {
+	if wait == nil {
+		return nil
+	}
+	exited := make(chan error, 1)
+	go func() {
+		err := wait()
+		exited <- err
+		cancel()
+	}()
+	return exited
+}
+
+// runnerExitReason reports whether the runner process is already known to have
+// exited, and why. The read is NON-BLOCKING: it is called on a wait that has
+// just ended and must answer "is this runner dead?" from what is already
+// known, never wait around to find out.
+//
+// A CLEAN exit still counts as death. A runner that exits 0 without dialing
+// home has failed just as completely as one that crashed — `ctxloom` printing
+// help and exiting 0 is the documented shape of this (see
+// pb.StartHostRunner's refusal of a bare self-exec) — and reporting only
+// non-zero exits would let the quietest failure keep the old silent timeout.
+func runnerExitReason(exited <-chan error) (string, bool) {
+	select {
+	case err := <-exited:
+		if err != nil {
+			return err.Error(), true
+		}
+		return "runner process exited cleanly (status 0) without ever dialing home", true
+	default:
+		return "", false
+	}
 }
 
 // recordHarnessSession journals the run's harness-native session id (the
@@ -1099,7 +1179,23 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	if reported {
 		return // the child reported itself; never deliver the same turn twice
 	}
+	// THE CUTOVER (spoolturnresult.go). For a spool-delivered run the RUNNER
+	// wrote this turn's report into the child's own out/ before it announced
+	// the boundary, so the bridge's delivery is a second copy of a message the
+	// parent already has. Suppressed HERE rather than at the call site, and
+	// after the accumulator has been taken, so the state machine still steps
+	// exactly as it always did — only the delivery is someone else's now.
+	//
+	// FILE XOR BRIDGE: this predicate and the runner's are the same fact (the
+	// coordinator's flag, stamped onto the run at spawn) read from the two
+	// sides, so a turn cannot be reported twice and cannot go unreported.
+	spooled := c.spoolDeliverTo(rt.harp)
 	text := strings.TrimSpace(strings.Join(out, sep))
+	if text == "" && spooled {
+		// The empty turn is reported too — by the runner, as an error the
+		// parent can actually read, which is more than this warn ever was.
+		return
+	}
 	if text == "" {
 		clidiag.Warn("ctxloom", "agent %s: turn ended with no report and no output — nothing to bridge to %s", rt.harp, rt.parentHarp)
 		// That warning goes to the COORDINATOR PROCESS's stderr —
@@ -1124,6 +1220,13 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 		// MIGRATED child already emits its own RunCompleted on the
 		// RunChannel, so this synthetic sub-run is oneshot-only.
 		c.publishOneshotResult(rt, text, errored)
+	}
+	if spooled {
+		// The report is the child's own out/ file. The EVENT record above is
+		// not: PublishEvents is the event plane, carries no delivery semantics,
+		// and the cutover moved deliveries only — so it still happens here,
+		// from the accumulator that still accumulates.
+		return
 	}
 	if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", text); err != nil {
 		clidiag.Warn("ctxloom", "agent %s: bridge turn result: %v", rt.harp, err)
@@ -2008,7 +2111,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 		contextText = c.spawner.ResumeContext(lctx, plan, harp)
 	}
 	launch, err := c.spawner.Launch(lctx, plan, contextText, resumeSessionID,
-		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolTee))
+		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
 	if err != nil {
 		c.failChild(rt, err)
 		return

@@ -157,7 +157,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// hardcoded false, so it stays correct if that ever changes. This is
 	// UNRELATED to rt.oneshot/spec.Oneshot above (the --print single-turn
 	// CLI axis) — see Identity.OneShot's doc for the distinction.
-	kill, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolTee))
+	kill, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
 	if err != nil {
 		// ONE error, both destinations: the run's terminal record and the
 		// caller get the same text. Returning the bare cause here left the

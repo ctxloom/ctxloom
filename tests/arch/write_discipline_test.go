@@ -123,7 +123,6 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/docsgen/config.go#GenConfig":                                           "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/docsgen/mcp.go#GenMCPTools":                                            "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/gitignore/gitignore.go#appendBlock":                                    "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/gitignore/gitignore.go#replaceFile":                                    "named in fs-consolidation plan C3 as one of the three strays to migrate: CreateTemp with no fsync, fixed-name rename",
 	"internal/lm/backends/mock.go#writeMockRecord":                                   "pre-ratchet baseline, test/mock backend — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/lm/isolation/auth.go#copyCredentialFile":                               "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/lm/isolation/imagebuild.go#buildBaseImage":                             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",

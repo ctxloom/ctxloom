@@ -342,6 +342,7 @@ func registerHostRelays(server *mcp.Server, home *coord.Home) []string {
 		addHostRelay[getPreviousSessionInput](server, home, "get_previous_session", getPreviousSessionDesc),
 		addHostRelay[listSessionsInput](server, home, "list_sessions", listSessionsDesc),
 		addHostRelay[evaluateTriggersInput](server, home, "evaluate_triggers", evaluateTriggersDesc),
+		addHostRelay[contextStatusInput](server, home, "context_status", contextStatusDesc),
 	}
 }
 

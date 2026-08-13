@@ -28,6 +28,7 @@ every engine, and ctxloom's own stdio server.
 Tools ctxloom serves under 'mcp serve':
   Context:  assemble_context, search_content, search_library
   Sessions: compact_session, list_sessions, load_session, get_previous_session, recover_session
+  Health:   context_status (this session's measured context-window occupancy)
   Agents:   agent_run, agent_send, agent_recv (delegated child sessions +
             the in-memory coordinator/executor message bus)
 

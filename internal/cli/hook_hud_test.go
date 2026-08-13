@@ -57,7 +57,8 @@ func TestFormatHud_HarpDisplay(t *testing.T) {
 	t.Run("composes_with_other_sections", func(t *testing.T) {
 		t.Setenv("CTXLOOM_SESSION_HARP", "bold-crimson-thunder")
 		session := agentSessionJSON{Model: json.RawMessage(`{"display_name":"Claude Sonnet"}`)}
-		session.ContextWindow.UsedPercentage = 42
+		pct := 42.0
+		session.ContextWindow.UsedPercentage = &pct
 		session.Cost.TotalCostUSD = 1.23
 		out := formatHud(session, ctxloomHudInfo{Profile: "developer", BundleCount: 5})
 		assert.Contains(t, out, "Claude Sonnet")

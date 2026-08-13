@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/contextmetrics"
 )
 
 var hookHudCmd = &cobra.Command{
@@ -40,10 +42,23 @@ func init() {
 // agents map onto as they gain command-backed statuslines. Model is captured raw
 // so it can be either an object ({display_name|name|id}) or a bare string —
 // resolved by modelName.
+//
+// UsedPercentage is a POINTER because the engine distinguishes two states this
+// program must not collapse. Verified against Claude Code 2.1.229 — both its
+// shipped payload builder and a live capture — the field is JSON null, with
+// current_usage null beside it, for as long as a session has accumulated no
+// usage; it becomes an integer 0..100 afterwards. Decoded into a bare float64
+// those two states are both 0, and 0 is the single most dangerous value this
+// field can take: it reads as "the context is empty" when it means "nobody has
+// looked". The pointer keeps "unknown" spellable, and contextSample refuses to
+// record a sample without it.
 type agentSessionJSON struct {
+	SessionID     string          `json:"session_id"`
 	Model         json.RawMessage `json:"model"`
 	ContextWindow struct {
-		UsedPercentage float64 `json:"used_percentage"`
+		UsedPercentage    *float64 `json:"used_percentage"`
+		TotalInputTokens  int      `json:"total_input_tokens"`
+		ContextWindowSize int      `json:"context_window_size"`
 	} `json:"context_window"`
 	Cost struct {
 		TotalCostUSD float64 `json:"total_cost_usd"`
@@ -104,12 +119,59 @@ func runHookHud(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Persist the context-occupancy sample before rendering. The statusline is
+	// the only place the engine's own context accounting is handed to ctxloom,
+	// so this callback is the sole capture point for the series `context_status`
+	// serves back.
+	recordContextSample(session)
+
 	// Gather ctxloom info (fault tolerant - continue with empty info on error)
 	info := gatherCtxloomInfo()
 
 	// Format and output the statusline
 	fmt.Print(formatHud(session, info))
 	return nil
+}
+
+// contextSample projects one statusline payload onto a metrics sample,
+// reporting false when the payload carries nothing worth recording.
+//
+// Two refusals, both of which would otherwise produce a plausible-looking lie:
+// without a harp there is no session directory to write to (and a sample
+// attributed to no session is unreadable by the tool that wants it), and
+// without a used_percentage the engine has not measured occupancy yet — a
+// sample invented for that state would record 0% for a session whose usage is
+// simply unknown. Absence of a sample is the honest representation of both.
+func contextSample(session agentSessionJSON, harp string, now time.Time) (contextmetrics.Sample, bool) {
+	if harp == "" || session.ContextWindow.UsedPercentage == nil {
+		return contextmetrics.Sample{}, false
+	}
+	return contextmetrics.Sample{
+		TS:         now,
+		Harp:       harp,
+		SessionID:  session.SessionID,
+		ContextPct: *session.ContextWindow.UsedPercentage,
+		TokensUsed: session.ContextWindow.TotalInputTokens,
+		Window:     session.ContextWindow.ContextWindowSize,
+		Model:      session.modelName(),
+	}, true
+}
+
+// recordContextSample appends this refresh's sample to the session's series,
+// subject to contextmetrics' sampling rule.
+//
+// Best-effort and silent, matching every other path in this command: a
+// statusline that printed a diagnostic would corrupt the status bar, and one
+// that printed it on EVERY refresh would do so several times per assistant
+// message. That is tolerable here only because the failure does not stay
+// hidden from the agent — a series that was never written reads back through
+// `context_status` as an explicit "no samples yet", never as 0%.
+func recordContextSample(session agentSessionJSON) {
+	s, ok := contextSample(session, os.Getenv("CTXLOOM_SESSION_HARP"), time.Now().UTC())
+	if !ok {
+		return
+	}
+	_, _ = contextmetrics.Record(s.Harp, s)
 }
 
 // gatherCtxloomInfo loads ctxloom project info for the HUD.
@@ -171,12 +233,16 @@ func formatHud(session agentSessionJSON, info ctxloomHudInfo) string {
 		parts = append(parts, fmt.Sprintf("%s%s%s", colorCyan, model, colorReset))
 	}
 
-	// Context usage with mini bar
-	pct := session.ContextWindow.UsedPercentage
-	if pct > 0 {
-		barColor := contextBarColor(pct)
-		bar := contextBar(pct)
-		parts = append(parts, fmt.Sprintf("%s%s %.0f%%%s", barColor, bar, pct, colorReset))
+	// Context usage with mini bar. A null used_percentage (session with no
+	// usage yet) renders nothing, exactly as a zero did before it became
+	// distinguishable from one.
+	if session.ContextWindow.UsedPercentage != nil {
+		pct := *session.ContextWindow.UsedPercentage
+		if pct > 0 {
+			barColor := contextBarColor(pct)
+			bar := contextBar(pct)
+			parts = append(parts, fmt.Sprintf("%s%s %.0f%%%s", barColor, bar, pct, colorReset))
+		}
 	}
 
 	// Cost

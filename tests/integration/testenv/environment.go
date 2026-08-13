@@ -402,6 +402,19 @@ func (e *TestEnvironment) SetChildEnv(key, value string) {
 	e.childEnv[key] = value
 }
 
+// ChildEnv returns the value SetChildEnv forced for key, or "" when the
+// scenario never set one.
+//
+// It exists so a later step can seed a fixture against the SAME identity the
+// scenario handed the child, rather than repeating the literal. Repeating it
+// is how a fixture and the process it is meant to describe drift apart: the
+// step that changes the harp is not the step that seeds the file, and nothing
+// would report the mismatch — the tool would simply answer about a session
+// nobody wrote to, which is a passing "no samples" result.
+func (e *TestEnvironment) ChildEnv(key string) string {
+	return e.childEnv[key]
+}
+
 // Cleanup removes the test environment and restores original env vars.
 func (e *TestEnvironment) Cleanup() error {
 	// Restore original environment

@@ -99,6 +99,10 @@ func coordCustomHandlers(cfg *config.Config, c *coord.Coordinator) map[string]co
 			_, out, err := s.handleEvaluateTriggers(ctx, nil, in)
 			return out, err
 		}),
+		coord.CustomToolPrefix + "context_status": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in contextStatusInput) (any, error) {
+			_, out, err := s.handleContextStatus(ctx, nil, in)
+			return out, err
+		}),
 	}
 }
 

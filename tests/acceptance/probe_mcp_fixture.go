@@ -44,6 +44,24 @@
 // the tool NAME and never the returned value, so the log itself can never become
 // a second channel to the nonce.
 //
+// THAT CLAIM WAS MUTATION-TESTED, hermetically and live, 2026-08-13. Live: the
+// harp was planted in composed context, the MCP registration was removed so the
+// server could not start, and the workspace leak guard was disabled so the
+// assertion would actually be reached. The claude-code cell RED, on the tool
+// path — MCP-DELIVERY, "the fixture MCP server NEVER STARTED" — which is the
+// result the probe's whole value depends on.
+//
+// One honest limit on what that measured. The model did not take the bait: it
+// answered {"nonce":"unable-to-locate-tool-schema"} rather than echoing the
+// value sitting in its context, so the live run proved the PATH reds and not
+// that a willing model would be caught. That is partly the prompt's own doing —
+// it tells the engine the nonce is nowhere in its context, which discourages
+// exactly the substitution the mutation was trying to provoke. The rigorous
+// version of the check is therefore the hermetic one, which bypasses model
+// behaviour entirely: TestMCPProbeAssert_AcceptsOnlyTheRoundTrip feeds the
+// verdict a byte-identical CORRECT answer with no tool call and requires a red.
+// If that test is ever deleted or loosened, this probe is a string comparison.
+//
 // WHY PYTHON. The design's own words: "a self-contained stdio JSON-RPC responder,
 // no deps". Python 3 is in the base image and on every dev box this suite runs
 // on; the script imports only json/os/sys/time. A cell whose interpreter is

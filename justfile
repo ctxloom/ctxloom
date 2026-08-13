@@ -878,6 +878,34 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
+# Run ONE cell of the capability-probe ladder (tests/acceptance's probe
+# registry): PROBE is a registry probe name without the @probe- prefix
+# ("p3-hook-firing"), FEATURE is that probe's own feature file, ENGINE is
+# claude-code|codex|kiro|opencode, RUNTIME is host|container, WORKSPACE is
+# none|worktree. The five tags it composes are exactly the tag line every
+# probe's Examples block carries (probeCell.Tags), so this recipe and the
+# registry cannot drift about how a cell is addressed.
+#
+# WHY FEATURE IS A PARAMETER rather than looked up from the registry: this is
+# a justfile, and reaching into a Go table from one would mean building and
+# running something first — which is the thing the recipe exists to start. The
+# registry's Feature field is the source of truth and the completeness test
+# already refuses a probe naming a feature that does not exist, so a wrong
+# value here fails loudly on the very next hermetic run.
+#
+# ONE CELL AT A TIME, for the same reasons engine-matrix above says so and
+# there is deliberately no all-cells recipe here either: every cell is a real
+# paid engine turn on somebody's subscription, and fanning them out on a loaded
+# box is how a machine gets OOM-killed mid-measurement (the design's own §5.5
+# counter). The sweep runner that sequences cells, pre-flights the process
+# table and renders a report is slice S10's job, not this recipe's.
+capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
+    GOTMPDIR="{{go_tmp}}" \
+    ACCEPTANCE_PATHS=features/{{FEATURE}} \
+    ACCEPTANCE_TAGS="@live && @probe-{{PROBE}} && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
+    CTXLOOM_ACCEPTANCE_LIVE=1 \
+    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
 # Run a single package's tests under -race (fast local iteration).
 # A `-run` pattern that matches nothing still exits 0 from `go test` (`ok
 # ... [no tests to run]`) — silently passing a typo'd or renamed test name.

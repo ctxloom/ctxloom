@@ -66,6 +66,7 @@ type World struct {
 	matrix       *matrixState       // engine × isolation floor: one cell's fixture and captured run (steps_engine_isolation_matrix.go)
 	approach     *approachState     // P1 context-approach sweep: one cell's pinned-approach fixture and captured run (steps_capability_context_approaches.go)
 	mcpProbe     *mcpProbeState     // capability probe P2: the MCP round trip's fixture server and captured run (steps_capability_mcp_round_trip.go)
+	hookProbe    *hookProbeState    // P3 hook-firing probe: one cell's fixture, hook script and stamp read-back (steps_capability_hook_firing.go)
 	ts           *tsState           // trust-surface matrix: fixture state (steps_trust_surface.go)
 	contract     *contractState     // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
@@ -172,6 +173,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerEngineMatrixSteps(ctx)
 	registerContextApproachSteps(ctx)
 	registerCapabilityMCPSteps(ctx)
+	registerCapabilityHookFiringSteps(ctx)
 	registerJ000600Steps(ctx)
 	registerJ002500Steps(ctx)
 	registerJ001000Steps(ctx)

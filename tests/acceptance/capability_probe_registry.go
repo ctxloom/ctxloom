@@ -203,6 +203,18 @@ var (
 		Shape: "HOOK-DELIVERY failure",
 		Where: "the session_start hook's argv, reachable only by the engine actually executing the hook ctxloom wrote",
 	}
+	// channelHookStdout is P3's SECOND channel, and it exists as its own entry
+	// rather than as a variation on channelHookStamp because the two fail for
+	// different reasons in different subsystems. The stamp channel fails when
+	// the engine never EXECUTED the hook; this one fails when the engine
+	// executed it and never INGESTED what it printed. Only an engine whose
+	// declared context approach is the hook can be asked the second question —
+	// codex, whose codexApproaches lists agent.ApproachHook first for
+	// agent.SurfaceContext, and no other engine at this base.
+	channelHookStdout = probeChannel{
+		Shape: "HOOK-OUTPUT-INGESTION failure",
+		Where: "the session_start hook's STANDARD OUTPUT, written to no file the engine reads and present in no prompt",
+	}
 	channelSentinelFile = probeChannel{
 		Shape: "SENTINEL-DELIVERY failure",
 		Where: "a sentinel file the fixture wrote, whose PERSISTENCE (not its echo) is the assertion",
@@ -370,15 +382,21 @@ var probeRegistry = []probeSpec{
 		Title:        "hook firing: the vendor binary executes the session_start hook ctxloom wrote, proven by the hook's own stamp file",
 		Capabilities: []int{6, 7},
 		Channel:      channelHookStamp,
+		Feature:      "capability_hook_firing.feature",
 		Paid:         true,
 		Cells: []probeCell{
-			hostCell("claude-code", probePlanned, ""),
-			hostCell("codex", probePlanned, ""),
-			hostCell("kiro", probePlanned, ""),
+			hostCell("claude-code", probeLiveVerified,
+				"GREEN, measured 2026-08-13 on this branch: 1 scenario / 3 steps, stamp file carrying the 18-byte argv harp, run exit 0. Corroborated OUTSIDE the harness by a hand-built project run of the same fixture. This is the first live proof anywhere in the repo that a ctxloom-written hook is EXECUTED by a vendor binary (inventory row 7). Stage (a) only: claude declares agent.ApproachHook for SurfaceContext, but claude's SurfaceFor resolves that pair to noopContextDelivery, the documented no-op that never carries, so ctxloom does not deliver claude's context through a hook and this cell must not assert an output echo production never asked for."),
+			{Engine: "codex", Runtime: "host", Workspace: "none", Status: probeWired,
+				Reason: "the ONLY cell that would run both stages. codexApproaches lists agent.ApproachHook FIRST for agent.SurfaceContext, making the hook codex's DEFAULT context route, so stage (b) - the harp printed on the hook's stdout reaching the model - is a claim production actually makes here. RED at this base; see the note.",
+				ExpectedFailure: "HOOK-DELIVERY failure",
+				ExpectedFailureNote: "MEASURED 2026-08-13, and this is a CAPABILITY FINDING, not a harness fault: codex hooks written by ctxloom NEVER FIRE. Carriage is proven - with `config_home: project` the hook command was observed live in <project>/.ctxloom/state/<harp>/home/.codex/config.toml while the engine ran - and no stamp file appeared. Root cause isolated against the vendor binary directly, ctxloom out of the picture: with a hand-built CODEX_HOME carrying the identical [[hooks.SessionStart]] block, `codex exec` did NOT run the hook, and `codex exec --dangerously-bypass-hook-trust` DID (stamp written, same config, same turn). codex 0.144.4 gates hooks behind a PERSISTED HOOK TRUST that ctxloom does not satisfy and does not bypass, and codex says nothing when it declines. CONSEQUENCE BEYOND THIS PROBE: the hook is codex's DEFAULT CONTEXT ROUTE, so ctxloom's hook-carried context delivery to codex is inert too - P1's codex hook cell should expect the same red, and any green codex context row is arriving through the compositional AGENTS.md route instead. AND THE PROBE'S OWN DESIGN EARNED ITS KEEP HERE: on the run of 2026-08-13 codex ANSWERED WITH THE CORRECT stage-(b) HARP while its hook had never fired - its stderr shows it ran `rg` across the temp tree and the session store until it found the phrase in the fixture's own script. A probe that asserted only the echo would have gone GREEN on a completely dead hook mechanism. It reds because stage (a) is a FILE and is judged FIRST. DO NOT loosen this cell to green; it goes green when ctxloom satisfies codex's hook trust."},
+			hostCell("kiro", probeLiveVerified,
+				"GREEN, measured 2026-08-13 on this branch: stamp file carrying the 17-byte argv harp, and kiro's OWN stderr independently reports \"1 of 1 hooks finished in 0.08 s\" - two witnesses to the same firing. Carriage confirmed by the cell in .kiro/agents/ctxloom.json (kiro's surfaces are cwd-keyed, so unlike claude's they survive the scan). Note this cell is green while kiro's P0 row is red-mapped for terminal decoration on stdout: P3 asserts a FILE and is immune to that, which is the design working as intended. Stage (a) only, and not because kiro is weaker - KiroWriter.mapHooks maps unified session_start onto kiro's own agentSpawn hook, and kiro reads steering files for context rather than ingesting hook output, so firing is observable here and ingestion is not a claim kiro makes."),
 			{Engine: "opencode", Runtime: "host", Workspace: "none", Status: probeGatedOut,
-				Reason: "opencode declares hooks absent: noHooksReason. Not a gap — a declared absence."},
+				Reason: "opencode declares hooks absent: noHooksReason (\"opencode has no hook mechanism\"). Not a gap - a declared absence, gated by ABSENCE, which is why capability_hook_firing.feature carries no Examples row for it."},
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "session-end", Status: probeGatedOut,
-				Reason: "unsupportedHookKinds[bundles.HookEventSessionEnd] — codex declares this one kind unsupported while supporting the rest"},
+				Reason: "unsupportedHookKinds[bundles.HookEventSessionEnd] / codex.NoSessionEndReason (\"codex has no session-end event\") - codex declares this one kind unsupported while supporting the rest, which is the reason P3 plants on session_start; gated by ABSENCE, so this variant gets no Examples row"},
 		},
 	},
 	{

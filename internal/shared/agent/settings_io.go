@@ -157,19 +157,6 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ..
 	for _, opt := range opts {
 		opt(&o)
 	}
-	// Zero-length data is almost never an intentional settings
-	// write — writing it over a live file would silently truncate it to zero
-	// bytes on a success path. Refuse by default, matching the "refuse to
-	// overwrite, never self-heal" posture corrupt-config handling already
-	// uses. The one legitimate exception (codex's config.toml, whose TOML
-	// encoder renders an emptied managed set as literally zero bytes, unlike
-	// JSON's "{}") opts in explicitly via AllowEmptyWrite — every other
-	// caller's removal path goes through fs.Remove instead, never here.
-	if len(data) == 0 && !o.allowEmpty {
-		if exists, _ := afero.Exists(fs, path); exists {
-			return fmt.Errorf("refusing to write %s: assembled zero bytes over an existing file", desc)
-		}
-	}
 
 	// Default new files to owner-only; reuse the existing mode when present.
 	//
@@ -196,7 +183,19 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ..
 	// non-atomic overwrite of the live file that a reader can observe
 	// half-finished. Such a fallback would only be justified cross-device,
 	// which cannot occur: the temp lives in the destination directory.
-	if err := iox.WriteFileAtomicFs(fs, path, data, perm); err != nil {
+	//
+	// The zero-length-over-existing refusal is iox's own guard now (promoted
+	// from here, fs-consolidation plan C4/Q1): AllowEmptyWrite maps straight
+	// onto iox.AllowEmpty rather than this function keeping a second copy of
+	// the check. The one legitimate exception (codex's config.toml, whose
+	// TOML encoder renders an emptied managed set as literally zero bytes,
+	// unlike JSON's "{}") still opts in explicitly; every other caller's
+	// removal path goes through fs.Remove instead, never here.
+	var iopts []iox.Option
+	if o.allowEmpty {
+		iopts = append(iopts, iox.AllowEmpty())
+	}
+	if err := iox.WriteFileAtomicFs(fs, path, data, perm, iopts...); err != nil {
 		return fmt.Errorf("failed to write %s: %w", desc, err)
 	}
 	return nil

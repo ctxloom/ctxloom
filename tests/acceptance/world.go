@@ -195,5 +195,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerTrustVocabularySteps(ctx)
 	registerSkillSteps(ctx)
 	registerRecoverSessionSteps(ctx)
+	registerContextStatusSteps(ctx)
 	registerDocCaptureHooks(ctx)
 }

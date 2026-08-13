@@ -405,6 +405,37 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # on while nothing is written is this project's characteristic bug wearing the
   # cutover's clothes.
   #
+  # MEASURED 2026-08-13, ALL FOUR ROWS GREEN — and three of them are new. The
+  # claude-code row re-proves what the LOCKED scenario above already proves;
+  # codex, kiro and opencode had coordinator->child mid-session steer claimed
+  # and never demonstrated (capability inventory row 13 read "marker only; no
+  # mid-session steer" for all three). Each child returned the minted harp as
+  # its whole message body. Each row's assertion was then mutated on the
+  # ASSERTION SIDE ONLY — the verdict made to look for harp+"-MUTANT" while the
+  # fixture still sent the real one — and each went RED with a BUS-DELIVERY
+  # shape, so no row is passing because the check cannot fail.
+  #
+  # WHAT THE SPOOL CENSUS ACTUALLY SHOWED, on every one of the four: three
+  # message files, and BOTH directions on disk.
+  #
+  #   in/consumed   1: <ts>.00000001.coord.md            <- the coordinator's steer
+  #   out/consumed  2: <ts>.00000001.<childharp>.md      <- the child's wake-up reply
+  #                    <ts>.00000002.<childharp>.md      <- the child's echo
+  #
+  # Two things worth reading off that. First, the steer file is in CONSUMED, not
+  # in/: the rename IS the child runner's acknowledgement, so the full
+  # at-least-once cycle completed rather than a file merely being dropped in a
+  # directory. Second, the OUT plane carried the child's traffic too, harp and
+  # all — so the cutover is running in both directions here, not only the one
+  # this step asserts. That is recorded rather than asserted on purpose: P6's
+  # claim is the coordinator's steer, and a cell must not silently become the
+  # regression gate for a neighbouring subsystem's scope. If child->parent file
+  # delivery is meant to be guaranteed, that belongs in its own assertion.
+  #
+  # TIMING, for whoever tunes the budget: claude-code, codex and kiro completed
+  # in well under a minute each; opencode's echo turn landed roughly 79 seconds
+  # after the steer. Do not shorten 240s on the strength of the fast three.
+  #
   # ONE ROW AT A TIME, two paid turns each (the wake-up and the steer). Address
   # exactly one cell with the registry's own tag expression:
   #   ACCEPTANCE_TAGS="@live && @probe-p6-steer-echo && @codex && @host && @ws-none"

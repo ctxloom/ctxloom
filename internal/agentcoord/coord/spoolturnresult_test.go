@@ -265,6 +265,40 @@ func TestSpoolTurnResult_AskStaysParkedUntilTheDeliberateReply(t *testing.T) {
 	}
 }
 
+// TestSpoolAsk_DeliberateResultKindReplyStillAnswers is why the collision is
+// resolved by AUTHORSHIP and not by KIND.
+//
+// A child answering an ask with its findings naturally sends KindResult — the
+// same kind an automatic report carries. A resolver that told the two apart by
+// kind would refuse this reply, and the asker would sit out its whole budget
+// and report that the child never answered a question the child answered. That
+// is this project's characteristic defect, and it is what this test makes
+// impossible to reintroduce quietly.
+func TestSpoolAsk_DeliberateResultKindReplyStillAnswers(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
+
+	c.onAskPublished = func(askID string) {
+		structured := mustStruct(t, map[string]any{"kind": KindResult})
+		resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
+			Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
+				ToRole: ParentAddress, Text: "sqlx, for the compile-time checks", InReplyTo: askID, Structured: structured,
+			}},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 0, resp.GetStatus().GetCode(), "%s", resp.GetStatus().GetMessage())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	ans, err := c.ControlQuestion(ctx, humanInitiator(), out.Harp, "which driver?")
+	require.NoError(t, err, "a deliberate reply must answer the ask whatever kind the child chose")
+	assert.Equal(t, "sqlx, for the compile-time checks", ans.Text)
+	assert.False(t, isAutoReport(ans.Structured), "and it is the CHILD's message, not a composed report")
+}
+
 // TestSpoolTurnResult_SelfReportSuppressesIt pins the no-double-delivery rule
 // on its runner-side home: a child that reported in its own words during the
 // turn must not also have the runner report the same turn.

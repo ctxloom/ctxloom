@@ -31,6 +31,22 @@ const (
 	// relayed ApprovalRequest projection (approval.go), which the recipient
 	// answers as a trust decision on a child's behalf.
 	KindApprovalRequest = "approval_request"
+
+	// KindSteer is COORDINATOR-RESERVED: an instruction injected into a
+	// running target (control.go's ControlSteer). Under the spool cutover a
+	// steer IS ordinary mail — a durable, withdrawable file in the target's
+	// in/ — rather than a wire request whose body is parked and pulled, which
+	// is why it needs a mailbox spelling at all. Reserved because a delivered
+	// steer renders its kind into the turn's provenance header: a sender able
+	// to set it could make its own message read as the human's instruction.
+	KindSteer = "steer"
+
+	// KindSummarize is COORDINATOR-RESERVED: the on-demand summary ask
+	// (spoolcontrol.go). Its sibling KindQuestion is sender-allowed because an
+	// agent may legitimately ask a peer a question; a summarize ask carries
+	// the coordinator's own request for a report and is answered by
+	// correlation, so it is not a sender's to mint.
+	KindSummarize = "summarize"
 )
 
 // senderMailKinds is the vocabulary agent_send documents and accepts.
@@ -39,7 +55,7 @@ var senderMailKinds = []string{KindMessage, KindResult, KindError, KindQuestion}
 // reservedMailKinds are constructed by the coordinator only. Every one of them
 // asks the recipient to trust its provenance, so accepting one from a sender
 // would let the sender borrow the coordinator's authority.
-var reservedMailKinds = []string{KindApprovalRequest, KindUserInjected, KindExited}
+var reservedMailKinds = []string{KindApprovalRequest, KindUserInjected, KindExited, KindSteer, KindSummarize}
 
 // ErrSenderMailKind rejects a sender-supplied mail kind outside the
 // sender-allowed vocabulary. Typed so the plane-2 ingress answers
@@ -126,6 +142,8 @@ var mailKindToSpool = map[string]string{
 	KindApprovalRequest: KindApprovalRequest,
 	KindUserInjected:    KindUserInjected,
 	KindExited:          KindExited,
+	KindSteer:           KindSteer,
+	KindSummarize:       KindSummarize,
 }
 
 // spoolKindToMail inverts mailKindToSpool, built once at init. A collision is

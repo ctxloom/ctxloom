@@ -597,16 +597,17 @@ func (c *Coordinator) childEnv(harp string) map[string]string {
 // coordinator-only MCP tools (mcp_runner.go). oneshot is this run's own
 // SpawnPlan.ResumeMode == ResumeModeOneShot, stamped via EnvRunOneShot on
 // the SAME unconditional terms as depth: a one-shot run is a leaf
-// regardless of depth (Identity.OneShot's doc). spoolTee is the coordinator's
-// own shadow-tee posture, stamped via EnvRunSpoolTee on those same
-// unconditional terms — the runner cannot derive it locally (see that
-// constant's doc).
-func runnerEnv(harp, runID, token, url string, depth int, oneshot, spoolTee bool) map[string]string {
+// regardless of depth (Identity.OneShot's doc). spool is the coordinator's own
+// spool posture (shadow tee and/or delivery cutover), stamped via
+// EnvRunSpoolTee/EnvRunSpoolDelivery on those same unconditional terms — the
+// runner cannot derive either locally (see those constants' docs).
+func runnerEnv(harp, runID, token, url string, depth int, oneshot bool, spool spoolPosture) map[string]string {
 	env := map[string]string{
 		"CTXLOOM_SESSION_HARP": harp,
 		EnvRunDepth:            strconv.Itoa(depth),
 		EnvRunOneShot:          strconv.FormatBool(oneshot),
-		EnvRunSpoolTee:         strconv.FormatBool(spoolTee),
+		EnvRunSpoolTee:         strconv.FormatBool(spool.Tee),
+		EnvRunSpoolDelivery:    strconv.FormatBool(spool.Delivery),
 	}
 	if url != "" {
 		env[EnvCoordURL] = url
@@ -690,7 +691,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 
 	launch, err := c.spawner.Launch(lctx, rt.plan, rt.plan.Context, "",
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolTee))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -735,7 +736,7 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // baseCtx: agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
 	engine, err := c.spawner.StartEngine(ctx, rt.plan,
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolTee))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -1099,7 +1100,23 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	if reported {
 		return // the child reported itself; never deliver the same turn twice
 	}
+	// THE CUTOVER (spoolturnresult.go). For a spool-delivered run the RUNNER
+	// wrote this turn's report into the child's own out/ before it announced
+	// the boundary, so the bridge's delivery is a second copy of a message the
+	// parent already has. Suppressed HERE rather than at the call site, and
+	// after the accumulator has been taken, so the state machine still steps
+	// exactly as it always did — only the delivery is someone else's now.
+	//
+	// FILE XOR BRIDGE: this predicate and the runner's are the same fact (the
+	// coordinator's flag, stamped onto the run at spawn) read from the two
+	// sides, so a turn cannot be reported twice and cannot go unreported.
+	spooled := c.spoolDeliverTo(rt.harp)
 	text := strings.TrimSpace(strings.Join(out, sep))
+	if text == "" && spooled {
+		// The empty turn is reported too — by the runner, as an error the
+		// parent can actually read, which is more than this warn ever was.
+		return
+	}
 	if text == "" {
 		clidiag.Warn("ctxloom", "agent %s: turn ended with no report and no output — nothing to bridge to %s", rt.harp, rt.parentHarp)
 		// That warning goes to the COORDINATOR PROCESS's stderr —
@@ -1124,6 +1141,13 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 		// MIGRATED child already emits its own RunCompleted on the
 		// RunChannel, so this synthetic sub-run is oneshot-only.
 		c.publishOneshotResult(rt, text, errored)
+	}
+	if spooled {
+		// The report is the child's own out/ file. The EVENT record above is
+		// not: PublishEvents is the event plane, carries no delivery semantics,
+		// and the cutover moved deliveries only — so it still happens here,
+		// from the accumulator that still accumulates.
+		return
 	}
 	if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", text); err != nil {
 		clidiag.Warn("ctxloom", "agent %s: bridge turn result: %v", rt.harp, err)
@@ -2008,7 +2032,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 		contextText = c.spawner.ResumeContext(lctx, plan, harp)
 	}
 	launch, err := c.spawner.Launch(lctx, plan, contextText, resumeSessionID,
-		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolTee))
+		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
 	if err != nil {
 		c.failChild(rt, err)
 		return

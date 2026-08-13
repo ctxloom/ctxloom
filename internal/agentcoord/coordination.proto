@@ -311,6 +311,14 @@ message RunnerRequest {
     StopRun stop_run = 11;
     KillRun kill_run = 12;
     Drain drain = 13;
+    // Pause/resume live HERE, with the rest of process control, and NOT on
+    // the message plane. They mutate engine RUN-STATE — they gate the turn
+    // hand-off and hold what is already queued — so there is nothing to
+    // deliver and nothing a file could express: "pause when you next read
+    // your mail" is not a pause. A delivery is something the agent acts on;
+    // this is something done TO the run.
+    PauseRun pause_run = 14;
+    ResumeRun resume_run = 15;
     CustomRequest custom = 90;
   }
 }
@@ -323,6 +331,8 @@ message RunnerResponse {
     StopRunResult stop_run = 11;
     KillRunResult kill_run = 12;
     DrainResult drain = 13;
+    PauseRunResult pause_run = 14;
+    ResumeRunResult resume_run = 15;
     google.protobuf.Struct custom = 90;
   }
 }
@@ -424,6 +434,38 @@ message KillRun {
 }
 
 message KillRunResult {}
+
+// Hold the run's turn hand-off. The engine keeps whatever it is doing now —
+// no turn is interrupted, because no surface ctxloom drives supports that —
+// but nothing NEW is handed to it, and anything already queued waits at the
+// gate in arrival order until ResumeRun.
+//
+// Mail is unaffected and that is deliberate: under the spool it stays in the
+// run's in/ directory, undelivered and therefore unconsumed, so a paused run
+// that is relaunched finds its mail exactly where it left it.
+message PauseRun {
+  string run_id = 1;
+  string reason = 2;  // recorded in the coordinator's audit journal
+}
+
+message PauseRunResult {
+  // Whether this request is what paused the run, as opposed to finding it
+  // already paused. Pause is idempotent; this says which happened rather
+  // than reporting the same success for both.
+  bool newly_paused = 1;
+}
+
+// Release a paused run: turns held at the gate are handed to the engine in
+// arrival order.
+message ResumeRun {
+  string run_id = 1;
+}
+
+message ResumeRunResult {
+  // Whether this request is what released the run, as opposed to finding it
+  // already running.
+  bool newly_resumed = 1;
+}
 
 // Stop accepting StartRuns; finish or stop what's active by deadline.
 message Drain {

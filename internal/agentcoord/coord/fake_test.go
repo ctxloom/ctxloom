@@ -190,6 +190,11 @@ type fakeSpawner struct {
 	// advertisement a production migrated child actually makes
 	// (llm_runner_common.go).
 	engineCaps []string
+	// spoolSweepInterval is handed to every in-process Home this fake builds
+	// (HomeConfig.SpoolSweepInterval). A cutover test that has to prove the
+	// SWEEP recovers a dropped doorbell sets it small; everything else leaves
+	// it zero and gets the production cadence, which no test waits on.
+	spoolSweepInterval time.Duration
 	// engineHomes records each StartEngine call's runner-side Home, in spawn
 	// order — the seam a plane-2 test needs to drain the runner-LOCAL
 	// agent_recv a control body is parked in.
@@ -341,6 +346,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 	workDir := s.engineWorkDir
 	engineEnv := s.engineEnv
 	caps := s.engineCaps
+	sweepInterval := s.spoolSweepInterval
 	s.mu.Unlock()
 
 	sctx, cancel := context.WithCancel(ctx)
@@ -362,6 +368,11 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		// the half-populated spool the soak must not have to diagnose.
 		Harp:     runnerEnv["CTXLOOM_SESSION_HARP"],
 		SpoolTee: runnerEnv[EnvRunSpoolTee] == "true",
+		// The CUTOVER stamp, read the same way for the same reason: a run cut
+		// over on the coordinator only would deliver nothing, and that is a
+		// failure every test using this fake should be able to catch.
+		SpoolDelivery:      runnerEnv[EnvRunSpoolDelivery] == "true",
+		SpoolSweepInterval: sweepInterval,
 	})
 	if err != nil {
 		cancel()

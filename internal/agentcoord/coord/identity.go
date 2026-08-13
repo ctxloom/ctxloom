@@ -74,6 +74,22 @@ const (
 	// teed on one side only would produce exactly the half-populated spool the
 	// soak would then misread as a mapping bug.
 	EnvRunSpoolTee = "CTXLOOM_RUN_SPOOL_TEE"
+	// EnvRunSpoolDelivery carries whether coordinator<->child mail for THIS
+	// run is DELIVERED from the file spool ("true") rather than the mailbox.
+	// It rides the same per-spawn runnerEnv seam as EnvRunSpoolTee and is
+	// stamped just as unconditionally, but the consequence of the two ends
+	// disagreeing is far worse here than for the tee: a coordinator that
+	// writes only files to a runner still reading the mailbox delivers
+	// NOTHING, with every signal green. The stamp is the single source so
+	// that disagreement is impossible by construction rather than by two
+	// processes independently resolving the same config — which a
+	// containerized runner cannot do at all (its config is a different file,
+	// or none).
+	//
+	// Anything other than exactly "true" reads as OFF, which is the safe
+	// direction: off means the mailbox, which works whatever the other end
+	// believes.
+	EnvRunSpoolDelivery = "CTXLOOM_RUN_SPOOL_DELIVERY"
 	// EnvCellWorkDir carries the prepared workspace directory
 	// (isolation.Workspace.Dir(), e.g. Worktree's per-agent checkout) to the
 	// runner process at spawn time. It rides the SAME per-spawn spawnEnv

@@ -28,10 +28,17 @@ type engineHome interface {
 	emitEvent(ev *agentcoordpb.AgentEvent) uint64
 	emitCustomEvent(name string, value map[string]any)
 	SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool)
+	// SweepSpoolIn asks the runner to reconcile its inbound spool — the file
+	// plane's turn-boundary drain. A no-op for a run that is not cut over.
+	SweepSpoolIn()
 	ReportRunExited(exitCode int, harnessSessionID string)
 	// SetRequestHandler registers this host as the executor for
 	// coordinator-initiated plane-2 control requests (BindHome does it).
 	SetRequestHandler(fn func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse)
+	// ReportTurnResult writes this turn's own output to the parent as the
+	// automatic turn report — the file plane's owner of what the coordinator's
+	// bridge does for a run that is not cut over. A no-op for such a run.
+	ReportTurnResult(text, inReplyTo string) error
 	// ParkControlPayload puts a control request's body where agent_recv finds
 	// it, WITHOUT routing it to the turn sink — the control verbs inject their
 	// own reminder turn and the agent pulls the body.
@@ -89,6 +96,29 @@ type EngineHost struct {
 	// enqueueTurn serializes the sends onto the unbuffered `in`.
 	pendingTags []turnTag
 	currentTag  turnTag
+
+	// turnFinal accumulates the CURRENT turn's FINAL-channel text — the
+	// engine's answer, excluding its reasoning and its system chatter — for
+	// the automatic turn report (spoolturnresult.go).
+	//
+	// It accumulates the SAME deltas, in the same order, that the
+	// coordinator's own accumulator does (children.go's accumulateFinalText,
+	// which folds the plane-1 MessageDelta events these entries become), and
+	// joins them the same way. That is deliberate and is what makes the two
+	// carriers' reports byte-identical: one substrate changed, not what the
+	// parent reads.
+	turnFinal []string
+
+	// paused, when non-nil, is the PAUSE GATE (spoolcontrol.go's ControlPause):
+	// a channel every locally-originated turn waits on before it may reach the
+	// engine, closed by ResumeRun. Nil means running — the gate is absent
+	// rather than open, so an unpaused run does not so much as select on it.
+	//
+	// It gates the HAND-OFF and nothing else. A turn already inside the engine
+	// runs to its end (no surface ctxloom drives takes an interrupt), and mail
+	// stays unconsumed in its spool, which is what makes a pause survivable
+	// across a relaunch: nothing was taken that was not delivered.
+	paused chan struct{}
 
 	// reannounce is the turn-boundary re-announcer's state (F10): what keeps
 	// an announced-but-never-pulled control body from sitting in the recv
@@ -184,6 +214,10 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 	switch kind := req.GetKind().(type) {
 	case *agentcoordpb.RunnerRequest_StartRun:
 		return eh.startRun(kind.StartRun)
+	case *agentcoordpb.RunnerRequest_PauseRun:
+		return eh.pauseRun(kind.PauseRun)
+	case *agentcoordpb.RunnerRequest_ResumeRun:
+		return eh.resumeRun(kind.ResumeRun)
 	case *agentcoordpb.RunnerRequest_KillRun, *agentcoordpb.RunnerRequest_StopRun:
 		// C1-minimal termination: cancel the engine context (Chat returns,
 		// RunExited flows). The graceful interrupt-then-escalate StopRun
@@ -345,7 +379,11 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	// It rides enqueueTurn like every other locally-originated turn, so mail
 	// and the control verbs cannot reach `in` by two different disciplines.
 	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
-		return eh.enqueueTurn(ctx, turnTag{}, frameCoordinatorMessage(pm)) == nil
+		// The delivered message's id rides the turn's attribution tag, so the
+		// report this turn produces can quote it (spoolturnresult.go). It is
+		// the id the DELIVERY used — under the cutover the file's origin id —
+		// which is exactly what the sender registered its waiter under.
+		return eh.enqueueTurn(ctx, turnTag{mail: pm.GetMessageId()}, frameCoordinatorMessage(pm)) == nil
 	})
 
 	// The briefing is the first turn (context already joined coordinator-side).
@@ -375,7 +413,7 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 		turns     int
 		sessionID string
 	)
-	items := &itemStream{home: home}
+	items := &itemStream{home: home, final: eh.appendTurnFinal}
 	for ev := range out {
 		switch {
 		case ev.Session != nil:
@@ -408,13 +446,27 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			lastMeta = ev.Complete
 			turns++
 			inTurn = false
-			eh.endTurn()
+			tag := eh.endTurn()
+			// THE AUTOMATIC TURN REPORT, file plane (spoolturnresult.go). It
+			// runs BEFORE the turn-idle event, so the child's answer is
+			// durable before the coordinator is told the child is idle —
+			// which is the moment a leftover-mail resume decision reads the
+			// spool. A no-op unless this run is cut over; the coordinator's
+			// bridge still owns the report otherwise.
+			if err := home.ReportTurnResult(eh.takeTurnFinal(), tag.mail); err != nil {
+				clidiag.Warn("ctxloom", "engine host: this turn's report was not written: %v", err)
+			}
 			home.emitCustomEvent(CustomTurnIdle, map[string]any{"stop_reason": ev.Complete.StopReason})
 			// THE TURN BOUNDARY IS THE TRIGGER (F10). A control body that
 			// was announced and not pulled during the turn that just ended
 			// gets re-announced here — the mechanism §6.1 assumed and never
 			// had. It dispatches and returns; this loop must keep draining.
 			eh.reannounceAtBoundary(home)
+			// TURN-BOUNDARY SWEEP (the §6a drain, file plane): mail that
+			// arrived mid-turn becomes the next turn here. It is a no-op
+			// unless this run is cut over, and it dispatches rather than
+			// blocks — this loop must keep draining.
+			home.SweepSpoolIn()
 		case ev.Permission != nil:
 			// C2: HarnessSpec sets ForwardPermissions unconditionally on this
 			// path now, so every engine permission request round-trips
@@ -464,7 +516,13 @@ func terminalResult(chatErr, ctxErr error, lastMeta *agent.TurnMeta, turns int) 
 // (contiguous same-type entries share one message) and the FIFO pairing of tool
 // results to starts; adapt itself keeps only turn and session state.
 type itemStream struct {
-	home     engineHome
+	home engineHome
+	// final receives every FINAL-channel fragment as it is emitted — the
+	// engine's answer, as opposed to its reasoning (REASONING) or its
+	// chatter (LOG). It is fed HERE, at the one place channels are decided
+	// (messageRouting), so a future entry type cannot start counting as the
+	// answer without passing through this switch.
+	final    func(text string)
 	openMsg  string
 	openType agent.SessionEntryType
 	msgSeq   int
@@ -554,6 +612,9 @@ func (s *itemStream) text(e *agent.SessionEntry) {
 		MessageId: s.openMsg,
 		Text:      e.Content,
 	}}})
+	if _, channel := messageRouting(e.Type); channel == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL && s.final != nil {
+		s.final(e.Content)
+	}
 }
 
 // runStartedConfig echoes the HarnessSpec into RunStarted.config so the log
@@ -590,6 +651,28 @@ func messageRouting(t agent.SessionEntryType) (agentcoordpb.MessageRole, agentco
 	default:
 		return agentcoordpb.MessageRole_MESSAGE_ROLE_SYSTEM, agentcoordpb.MessageChannel_MESSAGE_CHANNEL_LOG
 	}
+}
+
+// appendTurnFinal accumulates one FINAL-channel fragment for the current turn.
+func (eh *EngineHost) appendTurnFinal(text string) {
+	if text == "" {
+		return
+	}
+	eh.mu.Lock()
+	eh.turnFinal = append(eh.turnFinal, text)
+	eh.mu.Unlock()
+}
+
+// takeTurnFinal returns the current turn's answer and CLEARS the accumulator,
+// so the next turn starts empty. Joined with no separator, matching the
+// coordinator accumulator's migrated-path join: these are fragments of one
+// message, not a list of messages.
+func (eh *EngineHost) takeTurnFinal() string {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
+	text := strings.Join(eh.turnFinal, "")
+	eh.turnFinal = nil
+	return text
 }
 
 // usageFromMeta projects the engine's cumulative turn accounting onto the

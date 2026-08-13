@@ -79,6 +79,54 @@ func awaitCutoverChild(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt str
 	return out, home
 }
 
+// awaitCutoverChildIdle is awaitCutoverChild plus a wait for the child's FIRST
+// TURN BOUNDARY to have passed.
+//
+// A test that acts on the child's in/ spool needs that boundary behind it: the
+// boundary runs a sweep, so a fixture written while it is still pending would
+// be delivered and consumed by it, and the test would be measuring which of
+// the two happened to go first. After it, the next sweep is a production
+// interval away and the test owns the directory.
+func awaitCutoverChildIdle(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt string) (*RunOutcome, *Home) {
+	t.Helper()
+	out, home := awaitCutoverChild(t, c, sp, prompt)
+	require.Eventually(t, func() bool {
+		for _, e := range c.Roster() {
+			if e.Harp == out.Harp {
+				return e.State == StateIdle
+			}
+		}
+		return false
+	}, conformanceWait, 10*time.Millisecond, "the child never reached its first turn boundary")
+	return out, home
+}
+
+// spoolEntryWithBody finds the swept entry whose body is want, so a test can
+// name the message it means instead of counting a directory whose contents a
+// later feature may legitimately grow.
+func spoolEntryWithBody(t *testing.T, harp string, dir spool.Dir, want string) (spool.Entry, bool) {
+	t.Helper()
+	require.NotEmpty(t, want, "an EMPTY body would match a message that carries nothing")
+	for _, e := range spoolEntries(t, harp, dir) {
+		if e.Message.Body == want {
+			return e, true
+		}
+	}
+	return spool.Entry{}, false
+}
+
+// awaitSpoolEntryWithBody waits for dir to hold a message whose body is want.
+func awaitSpoolEntryWithBody(t *testing.T, harp string, dir spool.Dir, want, why string) spool.Entry {
+	t.Helper()
+	var got spool.Entry
+	require.Eventually(t, func() bool {
+		e, ok := spoolEntryWithBody(t, harp, dir, want)
+		got = e
+		return ok
+	}, conformanceWait, 10*time.Millisecond, "%s: %s never held a message whose body is %q", why, dir, want)
+	return got
+}
+
 // awaitChatText waits until the i-th scripted engine has been driven with a
 // turn containing want, and returns every recorded turn.
 func awaitChatText(t *testing.T, sp *fakeSpawner, i int, want string) []string {
@@ -286,10 +334,14 @@ func TestSpoolDelivery_ChildSendRidesOutAndReachesAgentRecv(t *testing.T) {
 	require.NoError(t, json.Unmarshal(got[0].Structured, &payload))
 	assert.Equal(t, "high", payload["confidence"])
 
-	// Consumed by rename, not deleted.
+	// Consumed by rename, not deleted. The message is SELECTED rather than
+	// counted: this run's turn boundary also writes its automatic report into
+	// out/ (spoolturnresult.go), so the directory legitimately holds more than
+	// this one send.
 	awaitSpoolCount(t, out.Harp, spool.DirOut, 0, "after routing")
-	consumed := awaitSpoolCount(t, out.Harp, spool.DirOutConsumed, 1, "after routing")
-	assert.Equal(t, "a finding", consumed[0].Message.Body)
+	consumed := awaitSpoolEntryWithBody(t, out.Harp, spool.DirOutConsumed, "a finding", "after routing")
+	assert.Equal(t, msgID, strings.TrimSuffix(consumed.Ref.Name, spool.MessageFileExt),
+		"the consumed file is the one agent_send named")
 }
 
 // TestSpoolDelivery_SweepDeliversWhatNoDoorbellEverAnnounced pins the floor:
@@ -430,7 +482,8 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 	require.NotEmpty(t, got, "a coordinator coming up cold must drain what it finds in a child's out/ spool")
 	assert.Equal(t, out.Harp, got[0].From)
 	require.Eventually(t, func() bool { return len(spoolEntries(t, out.Harp, spool.DirOut)) == 0 }, conformanceWait, 10*time.Millisecond)
-	assert.Len(t, spoolEntries(t, out.Harp, spool.DirOutConsumed), 1)
+	awaitSpoolEntryWithBody(t, out.Harp, spool.DirOutConsumed, "written while the coordinator was down",
+		"the routed file must be consumed by rename")
 }
 
 // TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice pins the arbitration.

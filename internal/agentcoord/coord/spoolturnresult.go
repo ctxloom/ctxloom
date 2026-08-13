@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -121,6 +122,10 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 	}
 	ref, err := h.writeOutbound(Message{
 		From: h.cfg.Harp, To: ParentAddress, Kind: kind, Body: body, InReplyTo: inReplyTo,
+		// MARKED AUTOMATIC. The correlation above is what makes this necessary:
+		// without the marker this message is indistinguishable from the child
+		// deliberately answering the ask that started the turn.
+		Structured: autoReportStructured(),
 	})
 	if err != nil {
 		// LOUD AND COUNTED. A report that could not be written is a turn the

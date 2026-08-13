@@ -101,7 +101,10 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
+	// IDLE first: the withdrawal must race nothing. A fixture written while the
+	// child's first turn boundary is still pending would be delivered by that
+	// boundary's sweep, and this test would be measuring which went first.
+	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 
 	writeInSpool(t, out.Harp, KindSteer, "m-withdraw-me", "delete the production database")
 	require.Len(t, spoolEntries(t, out.Harp, spool.DirIn), 1, "the fixture must be on disk before the withdrawal")

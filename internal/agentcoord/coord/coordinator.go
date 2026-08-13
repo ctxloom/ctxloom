@@ -818,7 +818,25 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 // through to ordinary delivery, so a stale/duplicate in_reply_to degrades
 // gracefully rather than erroring the send.
 func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, delivered bool, disposition string, err error) {
-	if inReplyTo != "" {
+	// THE COLLISION, and where it is resolved (spoolturnresult.go).
+	//
+	// A cut-over child's AUTOMATIC turn report quotes the id of the message
+	// that started the turn — the correlation a parent wants, and a ruling.
+	// But correlation is AUTHORITY here: an in_reply_to that names an
+	// outstanding ask answers it, and one that names a relayed approval is
+	// decoded as a decision. An automatic report must do neither, or the
+	// cooperative-reply ruling ("the answer is what the child CHOSE to send")
+	// is defeated by whatever the model happened to say that turn, arriving
+	// with exactly the right correlation.
+	//
+	// The discriminator is AUTHORSHIP, not kind. Kind cannot draw this line: a
+	// child deliberately answering "here are my findings" naturally sends
+	// KindResult, which is also what an automatic report is, so a resolver
+	// that refused KindResult would silently strand the most natural
+	// cooperative reply there is — this project's characteristic defect, newly
+	// installed. Only the writer knows whether the agent chose to send, so the
+	// writer marks it and this chokepoint reads the mark.
+	if inReplyTo != "" && !isAutoReport(structured) {
 		if disposition, rerr, matched := c.resolveApprovalReply(caller, inReplyTo, structured); matched {
 			return inReplyTo, true, disposition, rerr
 		}

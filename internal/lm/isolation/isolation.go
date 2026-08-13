@@ -126,6 +126,23 @@ func StderrTailOf(h *RunnerHandle) string {
 	return h.StderrTail()
 }
 
+// WaitOf returns h's process-exit waiter, or nil when there is no process to
+// reap (a nil handle, or a policy that captures none). It returns the FUNCTION
+// rather than calling it — Wait blocks until the runner exits, so a nil-safe
+// wrapper that invoked it would block its caller for the runner's whole
+// lifetime instead of handing over a signal the caller can select on.
+//
+// The nil return is meaningful, not merely defensive: a caller with no waiter
+// genuinely cannot tell a dead runner from a slow one and must fall back to
+// its own timeout. Callers therefore nil-check this rather than assuming a
+// no-op waiter, which would look like "the runner is still alive" forever.
+func WaitOf(h *RunnerHandle) func() error {
+	if h == nil {
+		return nil
+	}
+	return h.Wait
+}
+
 // EngineStarter is the StartRun spawn-half seam that replaces pb.ClientFactory
 // on the delegated StartEngine path (Phase 1). It binds a policy +
 // prepared workspace + backend/label/verbosity + runner env into a single

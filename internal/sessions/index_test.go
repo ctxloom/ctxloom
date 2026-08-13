@@ -126,6 +126,54 @@ func TestBindSession_RotationRepointsTheBinding(t *testing.T) {
 	require.NotNil(t, found)
 	assert.Equal(t, "second-id", found.SessionID, "rotation re-points the session id")
 	assert.Equal(t, "/new", found.TranscriptPath, "rotation re-points the transcript path")
+	// The displaced binding is NOT discarded: commit af54e29f re-pointed the
+	// binding but kept no history, so the pre-rotation vendor file (and
+	// everything it recorded) became permanently unreachable the moment a
+	// second BindSession call landed. Rotations is where it now survives.
+	require.Len(t, found.Rotations, 1, "the displaced binding must be preserved in Rotations")
+	assert.Equal(t, "first-id", found.Rotations[0].SessionID)
+	assert.Equal(t, "/orig", found.Rotations[0].TranscriptPath)
+	assert.False(t, found.Rotations[0].RotatedAt.IsZero(), "RotatedAt must be stamped")
+}
+
+// TestBindSession_MultipleRotationsAppendOldestFirst pins the ordering
+// operations.RefreshVendorTranscript's lifetime rebuild depends on: Rotations
+// accumulates one entry per displacement, oldest first, so concatenating
+// segments in Rotations order reproduces the harp's conversation in the order
+// it actually happened.
+func TestBindSession_MultipleRotationsAppendOldestFirst(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.BindSession(entry.HarpName, "id-1", "/t1"))
+	require.NoError(t, m.BindSession(entry.HarpName, "id-2", "/t2"))
+	require.NoError(t, m.BindSession(entry.HarpName, "id-3", "/t3"))
+
+	found, err := m.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, "id-3", found.SessionID, "the current binding is the latest rotation")
+	require.Len(t, found.Rotations, 2, "two displacements happened (id-1 and id-2)")
+	assert.Equal(t, "id-1", found.Rotations[0].SessionID, "oldest rotation first")
+	assert.Equal(t, "/t1", found.Rotations[0].TranscriptPath)
+	assert.Equal(t, "id-2", found.Rotations[1].SessionID)
+	assert.Equal(t, "/t2", found.Rotations[1].TranscriptPath)
+}
+
+// TestBindSession_IdempotentRebindNeverAppendsRotation pins that a repeat bind
+// carrying the SAME session id (an idempotent hook re-run) never records a
+// rotation — nothing was actually displaced, so a rotation entry here would
+// fabricate lineage that never happened and would make a later rebuild
+// convert the SAME vendor file twice.
+func TestBindSession_IdempotentRebindNeverAppendsRotation(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.BindSession(entry.HarpName, "uuid-1", "/t1"))
+	require.NoError(t, m.BindSession(entry.HarpName, "uuid-1", "/t1"))
+
+	found, err := m.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Empty(t, found.Rotations, "an idempotent same-id rebind must never append a rotation")
 }
 
 // The counterweight to rotation: a binder that knows an ID but names no
@@ -145,6 +193,7 @@ func TestBindSession_IDOnlyBindNeverDisplacesALiveBinding(t *testing.T) {
 	require.NotNil(t, found)
 	assert.Equal(t, "first-id", found.SessionID, "an id-only bind cannot re-point")
 	assert.Equal(t, "/orig", found.TranscriptPath, "and cannot move the transcript path")
+	assert.Empty(t, found.Rotations, "a bind that never displaces anything must never append a rotation")
 }
 
 func TestBindSession_UnknownHarpErrors(t *testing.T) {
@@ -714,4 +763,53 @@ func TestRename_RefusesUnsafeNewName(t *testing.T) {
 		require.NoError(t, ferr)
 		assert.Nil(t, got, "a refused rename must mint no entry under %q", bad)
 	}
+}
+
+// TestFindBySessionID_ResolvesCurrentBinding pins the ordinary case: a
+// session id that is still the entry's live binding resolves directly.
+func TestFindBySessionID_ResolvesCurrentBinding(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.BindSession(entry.HarpName, "current-id", "/t1"))
+
+	found, err := m.FindBySessionID("current-id")
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, entry.HarpName, found.HarpName)
+}
+
+// TestFindBySessionID_ResolvesRotatedAwayID pins the lineage lookup: a
+// session id that a /clear rotated PAST (no longer the entry's SessionID, but
+// still recorded in Rotations) must still resolve to the owning harp. Without
+// scanning Rotations, this degrades to the pre-fix behavior — a stale hook
+// payload or an old vendor transcript naming a superseded session id has no
+// harp to attribute itself to at all.
+func TestFindBySessionID_ResolvesRotatedAwayID(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.BindSession(entry.HarpName, "pre-clear-id", "/pre-clear.jsonl"))
+	require.NoError(t, m.BindSession(entry.HarpName, "post-clear-id", "/post-clear.jsonl"))
+
+	found, err := m.FindBySessionID("pre-clear-id")
+	require.NoError(t, err)
+	require.NotNil(t, found, "a rotated-away session id must still resolve to its harp")
+	assert.Equal(t, entry.HarpName, found.HarpName)
+	assert.Equal(t, "post-clear-id", found.SessionID, "the returned entry is the CURRENT entry, not a reconstructed historical one")
+}
+
+// TestFindBySessionID_UnknownIDReturnsNil pins the negative case: an id that
+// names neither a current binding nor any recorded rotation resolves to
+// nothing, without error.
+func TestFindBySessionID_UnknownIDReturnsNil(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.BindSession(entry.HarpName, "some-id", "/t1"))
+
+	found, err := m.FindBySessionID("no-such-id")
+	require.NoError(t, err)
+	assert.Nil(t, found)
+
+	found, err = m.FindBySessionID("")
+	require.NoError(t, err)
+	assert.Nil(t, found, "an empty id must resolve to nothing, not the first entry")
 }

@@ -21,7 +21,23 @@ import (
 // buys is that the rename can never become visible ahead of the data behind
 // it. A caller that needs the new content to survive a crash must arrange that
 // itself.
-func WriteFileAtomicFs(fs afero.Fs, path string, data []byte, perm os.FileMode) error {
+//
+// Zero-length data is refused when path already exists and neither opts nor
+// the caller passed AllowEmpty(): silently succeeding would truncate a live
+// file to nothing on what looks like a success path, with the original bytes
+// gone. Zero-length data to a path with nothing there yet is not a
+// truncation and proceeds — a writer that has never run is indistinguishable
+// from one that just produced an empty file, and refusing the second would
+// make first-run behavior depend on accidents of timing. AllowEmpty() opts
+// out for the rare caller whose own reasoning has already decided an empty
+// result is legitimate (see the Option's doc).
+func WriteFileAtomicFs(fs afero.Fs, path string, data []byte, perm os.FileMode, opts ...Option) error {
+	cfg := resolveOptions(opts)
+	if len(data) == 0 && !cfg.allowEmpty {
+		if exists, err := afero.Exists(fs, path); err == nil && exists {
+			return fmt.Errorf("atomic write %s: refusing to write zero bytes over an existing file", path)
+		}
+	}
 	dir := filepath.Dir(path)
 	tmp, err := afero.TempFile(fs, dir, "."+filepath.Base(path)+".*.tmp")
 	if err != nil {

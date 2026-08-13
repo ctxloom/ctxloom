@@ -47,7 +47,9 @@ func TestAtomicWriters_PermIsExact_UmaskIndependent(t *testing.T) {
 		"fixture is not hostile: the umask did not mask os.WriteFile's mode")
 
 	writers := map[string]func(path string, data []byte, perm os.FileMode) error{
-		"WriteFileAtomic": WriteFileAtomic,
+		"WriteFileAtomic": func(path string, data []byte, perm os.FileMode) error {
+			return WriteFileAtomic(path, data, perm)
+		},
 		"WriteFileAtomicFs": func(path string, data []byte, perm os.FileMode) error {
 			return WriteFileAtomicFs(afero.NewOsFs(), path, data, perm)
 		},

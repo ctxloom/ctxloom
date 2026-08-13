@@ -539,8 +539,11 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 		out += "\n"
 	}
 	// Same atomic-write requirement as appendAllowedSignersLine — the trust
-	// root must never be observed half-rewritten.
-	if err := iox.WriteFileAtomicFs(fs, path, []byte(out), 0o600); err != nil {
+	// root must never be observed half-rewritten. Removing the LAST entry
+	// legitimately empties this file (kept == nil, out == ""): AllowEmpty is
+	// required here, not a bug being masked — the alternative is a "remove"
+	// that refuses to ever remove the final principal.
+	if err := iox.WriteFileAtomicFs(fs, path, []byte(out), 0o600, iox.AllowEmpty()); err != nil {
 		return 0, fmt.Errorf("write %s: %w", path, err)
 	}
 	return removed, nil

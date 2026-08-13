@@ -1,0 +1,43 @@
+{
+  "session_id": "e9093f97-709a-4580-8699-23367665aaa5",
+  "transcript_path": "/home/babbitt/.claude/projects/-home-babbitt-workspace-ctxloom-ctxloom-main/e9093f97-709a-4580-8699-23367665aaa5.jsonl",
+  "cwd": "/home/babbitt/workspace/ctxloom/ctxloom/main",
+  "model": {
+    "id": "claude-fable-5",
+    "display_name": "Fable 5"
+  },
+  "workspace": {
+    "current_dir": "/home/babbitt/workspace/ctxloom/ctxloom/main",
+    "project_dir": "/home/babbitt/workspace/ctxloom/ctxloom/main",
+    "added_dirs": []
+  },
+  "version": "2.1.229",
+  "output_style": {
+    "name": "default"
+  },
+  "cost": {
+    "total_cost_usd": 0.42,
+    "total_duration_ms": 812340,
+    "total_api_duration_ms": 190210,
+    "total_lines_added": 61,
+    "total_lines_removed": 12
+  },
+  "context_window": {
+    "total_input_tokens": 372000,
+    "total_output_tokens": 4100,
+    "context_window_size": 1000000,
+    "current_usage": {
+      "input_tokens": 1200,
+      "output_tokens": 4100,
+      "cache_creation_input_tokens": 20800,
+      "cache_read_input_tokens": 350000
+    },
+    "used_percentage": 37,
+    "remaining_percentage": 63
+  },
+  "exceeds_200k_tokens": false,
+  "fast_mode": false,
+  "thinking": {
+    "enabled": true
+  }
+}

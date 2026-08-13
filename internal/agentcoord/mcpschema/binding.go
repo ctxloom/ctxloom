@@ -229,6 +229,10 @@ func Routes() map[string]Route {
 		// and the project's git history are not mounted into an isolated
 		// child cell.
 		"evaluate_triggers": RouteHostRelay,
+		// Host-resident — the context-occupancy series lives beside the
+		// session's other persisted state (~/.ctxloom/sessions/<harp>/persist),
+		// which an isolated child cell does not mount.
+		"context_status": RouteHostRelay,
 	}
 }
 

@@ -315,6 +315,7 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 // is the only thing the SDK server needs at construction.
 func (s *ctxServer) registerTools(server *mcp.Server) {
 	s.registerContextTools(server)
+	s.registerContextStatusTool(server)
 	s.registerMemoryTools(server)
 	s.registerAgentTools(server)
 	s.registerTriggerTools(server)

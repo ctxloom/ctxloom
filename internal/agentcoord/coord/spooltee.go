@@ -134,7 +134,9 @@ func (c *spoolWriterCache) writerFor(harp string) (*spool.Writer, error) {
 //	mailbox.From       -> frontmatter from_harp (ADVISORY — the directory is identity)
 //	mailbox.To         -> frontmatter to        (advisory in the same way)
 //	mailbox.InReplyTo  -> frontmatter in_reply_to
-//	mailbox.Structured -> frontmatter structured
+//	mailbox.Structured -> frontmatter structured (spoolStructured; a payload
+//	                      that is not a JSON object rides the wrapper key —
+//	                      see spoolRawJSONKey)
 //	mailbox.Body       -> the markdown body, verbatim
 //
 // Nothing else exists on a mailbox Message, and the mapping is total: a kind
@@ -159,26 +161,6 @@ func spoolMessageForMail(msg Message, to string) (*spool.Message, error) {
 		Structured: structured,
 		Body:       msg.Body,
 	}, nil
-}
-
-// spoolStructured projects a mailbox message's raw-JSON companion onto the
-// frontmatter mapping.
-//
-// A payload that is not a JSON OBJECT is an error, not a best effort: YAML
-// frontmatter's `structured` key is a mapping, there is nowhere faithful to
-// put a bare array or scalar, and writing the message without it would
-// reproduce exactly the defect servePeerSend's own comment records — a message
-// queued stripped of its payload and reported as sent.
-func spoolStructured(raw json.RawMessage) (map[string]any, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, fmt.Errorf("coord: mail structured payload does not project onto frontmatter (it must be a JSON object): %w", err)
-	}
-	// A literal `null` decodes without error into a nil map: no payload.
-	return obj, nil
 }
 
 // ---- coordinator side --------------------------------------------------

@@ -80,6 +80,19 @@ func DefaultPolicy() Policy {
 		// delegated run carries the posture (the coordinator stamps it into
 		// the runner's env at spawn), not that it varies per invocation.
 		{Path: "delegation.spool_tee", Scope: ScopeMachine, Note: "a soak switch whose cost is this box's disk and fsyncs; it changes no delivery, so there is nothing here for a team to decide once for everyone"},
+		// The CUTOVER switch, and ScopeMachine for a different reason than its
+		// soak sibling above: this one does change delivery, and what it
+		// changes it to depends on the box — the spool lives in THIS machine's
+		// ~/.ctxloom/sessions, and a container-backed run only sees it because
+		// this machine's mount puts it there. A committed value would opt every
+		// clone's coordinator into a substrate whose behaviour is a property of
+		// the operator's filesystem, not of the project.
+		//
+		// NOT ScopeShared despite being a correctness-relevant switch: it is a
+		// migration posture an operator carries across many runs while the
+		// cutover is rolling out, not a project decision, and it must be
+		// settable in a home config for exactly that reason.
+		{Path: "delegation.spool_delivery", Scope: ScopeMachine, Note: "a substrate cutover whose behaviour depends on this machine's spool directory and mounts; a team cannot decide it once for every clone"},
 
 		{Path: "llm.configs.*", Scope: ScopePreference, Note: "which model a person likes; harmless in either file"},
 		{Path: "llm.configs.*.binary_path", Scope: ScopeMachine, Note: "an absolute path on this filesystem"},

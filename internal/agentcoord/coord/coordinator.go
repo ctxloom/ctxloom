@@ -106,6 +106,30 @@ type Options struct {
 	// also stamps it onto every runner it spawns (EnvRunSpoolTee) so both ends
 	// of a run agree without asking each other.
 	SpoolTee bool
+	// SpoolDelivery CUTS coordinator<->child mail over onto the file spool
+	// (spooldelivery.go): the file is the only copy, the consume-rename is the
+	// delivery ack, and the doorbell only bounds latency. Default false, and
+	// false is byte-identical pre-spool behaviour. Production sources it from
+	// project config (config.Config.GetDelegationSpoolDelivery); the
+	// coordinator stamps it onto every runner it spawns
+	// (EnvRunSpoolDelivery), because a run cut over on one side only delivers
+	// nothing at all.
+	SpoolDelivery bool
+	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
+	// built-in spoolSweepInterval). Exposed for tests, which must be able to
+	// prove that a DROPPED doorbell is still delivered by the sweep without
+	// waiting out the production interval.
+	SpoolSweepInterval time.Duration
+}
+
+// spoolPosture is the pair of spool switches a run is spawned under, kept
+// together so the per-spawn env stamp cannot acquire a third bare bool
+// argument and so a caller cannot pass one of the two and forget the other.
+type spoolPosture struct {
+	// Tee mirrors mail onto the spool without changing delivery.
+	Tee bool
+	// Delivery makes the spool the delivery path.
+	Delivery bool
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -186,11 +210,31 @@ type Coordinator struct {
 	// process-lifetime posture, not runtime state, and making it mutable would
 	// mean a delivery could be half-teed across a flip.
 	spoolTee bool
-	// spoolIn lends the per-child in/ writers. Non-nil ONLY when spoolTee is
-	// on: constructing it is what would create spool directories, and "the
-	// flag is off" has to mean nothing on disk changed.
+	// spoolDelivery is the CUTOVER switch (Options.SpoolDelivery, config
+	// delegation.spool_delivery), read-only after New for the same reason
+	// spoolTee is: a delivery half-cut across a flip would be a message with
+	// no reader.
+	spoolDelivery bool
+	// spoolIn lends the per-child in/ writers. Non-nil ONLY when the spool is
+	// switched on at all (tee or delivery): constructing it is what would
+	// create spool directories, and "both flags are off" has to mean nothing
+	// on disk changed.
 	spoolIn       *spoolWriterCache
 	spoolTeeCount spoolTeeCounters
+	// spoolReactor serialises the coordinator's own spool reading (out/ and
+	// in/consumed sweeps). Non-nil only under spoolDelivery — see its type.
+	spoolReactor *spoolReactor
+	// spoolSweepInterval overrides the reconciliation cadence
+	// (Options.SpoolSweepInterval; 0 = spoolSweepInterval). Test seam: a
+	// missed-doorbell test has to prove the sweep RECOVERS delivery, and the
+	// only honest way to do that is to let the sweep actually run.
+	spoolSweepInterval time.Duration
+	spoolDeliveryCount spoolDeliveryCounters
+	// spoolSeen remembers which in/consumed entries have already been credited
+	// as progress, per role. consumed/ is an audit trail nothing prunes yet, so
+	// without this every sweep would re-credit the whole history.
+	spoolSeenMu sync.Mutex
+	spoolSeen   map[string]map[string]bool
 
 	mu          sync.Mutex
 	attach      map[string]*childRt // runID → runtime attachment
@@ -237,6 +281,19 @@ type Coordinator struct {
 	onPendingApproval func(PendingApproval, bool)
 	// sessionAccepts (C2) is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
 	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
+	// asks holds the outstanding correlated asks (spoolcontrol.go) — question
+	// and summarize — keyed by the id their request file carries as origin_id,
+	// which is what a reply quotes in in_reply_to. Registered BEFORE the file
+	// is published, for the reason relayApproval's own comment gives.
+	// Lazily initialized.
+	asks map[string]*pendingAsk
+	// onAskPublished, when set, is called by controlAsk between REGISTERING the
+	// waiter and PUBLISHING the ask — the register-before-publish test seam,
+	// and the ask plane's twin of onApprovalMailQueued. It fires on that side
+	// of the publish deliberately: a hook fired after it cannot distinguish a
+	// correct implementation from one that registers between the write and the
+	// hook, since both have registered by then. Nil in production.
+	onAskPublished func(askID string)
 	// spoolHandler is the registered consumer for validated inbound spool
 	// doorbells (SetSpoolDoorbellHandler). NIL BY DEFAULT and nil in every
 	// build until delivery is wired: an arriving doorbell is validated,
@@ -338,11 +395,14 @@ func New(opts Options) (*Coordinator, error) {
 		launchArmed:        make(map[string][]chan struct{}),
 		launches:           make(map[string]*launchState),
 		spoolTee:           opts.SpoolTee,
+		spoolDelivery:      opts.SpoolDelivery,
+		spoolSweepInterval: opts.SpoolSweepInterval,
 	}
-	if c.spoolTee {
-		// Built ONLY under the flag — see the field's doc. The writers
+	if c.spoolTee || c.spoolDelivery {
+		// Built ONLY under a flag — see the field's doc. The writers
 		// themselves are still lazy (one per child, on its first message), so
-		// enabling the tee does not create a spool for a run that never sends.
+		// enabling either switch does not create a spool for a run that never
+		// sends.
 		c.spoolIn = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, spoolWriterIDCoordinator)
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
@@ -357,6 +417,12 @@ func New(opts Options) (*Coordinator, error) {
 	}
 
 	c.adopt()
+	// THE STARTUP SWEEP IS A FIRST-CLASS DELIVERY PATH, not doorbell-miss
+	// recovery: a coordinator coming up cold drains every known run's spool
+	// before any channel exists to ring it. It starts after adopt() because
+	// adopt is what makes the run records readable, and the sweep enumerates
+	// runs.
+	c.startSpoolReactor()
 	c.goTracked(c.runnerWatchdog)
 	// The PROGRESS watchdog (liveness.go), alongside the runner-liveness one
 	// above. They answer different questions and neither subsumes the other:
@@ -752,9 +818,37 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 // through to ordinary delivery, so a stale/duplicate in_reply_to degrades
 // gracefully rather than erroring the send.
 func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, delivered bool, disposition string, err error) {
-	if inReplyTo != "" {
+	// THE COLLISION, and where it is resolved (spoolturnresult.go).
+	//
+	// A cut-over child's AUTOMATIC turn report quotes the id of the message
+	// that started the turn — the correlation a parent wants, and a ruling.
+	// But correlation is AUTHORITY here: an in_reply_to that names an
+	// outstanding ask answers it, and one that names a relayed approval is
+	// decoded as a decision. An automatic report must do neither, or the
+	// cooperative-reply ruling ("the answer is what the child CHOSE to send")
+	// is defeated by whatever the model happened to say that turn, arriving
+	// with exactly the right correlation.
+	//
+	// The discriminator is AUTHORSHIP, not kind. Kind cannot draw this line: a
+	// child deliberately answering "here are my findings" naturally sends
+	// KindResult, which is also what an automatic report is, so a resolver
+	// that refused KindResult would silently strand the most natural
+	// cooperative reply there is — this project's characteristic defect, newly
+	// installed. Only the writer knows whether the agent chose to send, so the
+	// writer marks it and this chokepoint reads the mark.
+	if inReplyTo != "" && !isAutoReport(structured) {
 		if disposition, rerr, matched := c.resolveApprovalReply(caller, inReplyTo, structured); matched {
 			return inReplyTo, true, disposition, rerr
+		}
+		// The CORRELATED ASK's answer (spoolcontrol.go), on the same terms and
+		// in the same place: a reply to a coordinator question/summarize
+		// resolves the parked ask and does NOT also become mail — the asker is
+		// this coordinator, not a mailbox, and delivering the answer onward
+		// would give the target's parent a message it never asked for. A miss
+		// falls through, so a stale correlation degrades to ordinary mail
+		// rather than failing the send.
+		if disposition, matched := c.resolveAskReply(caller, inReplyTo, body, structured); matched {
+			return inReplyTo, true, disposition, nil
 		}
 	}
 	// The closed-vocabulary ingress guard, at the ONE point both sender surfaces

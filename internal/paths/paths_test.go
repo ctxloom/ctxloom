@@ -109,6 +109,34 @@ func TestProjectSessionsDir(t *testing.T) {
 }
 
 // =============================================================================
+// Coordinator State Directory Tests
+// =============================================================================
+
+// TestHomeCoordDir_HomeRootedCoordSegment pins ~/.ctxloom/coord — the root
+// internal/agentcoord/coord and discover both resolve project coordinator
+// state under (see CoordProjectStateDir). The literal "coord" (not
+// CoordDirName) is deliberate: a mutation to the constant's VALUE must still
+// fail this.
+func TestHomeCoordDir_HomeRootedCoordSegment(t *testing.T) {
+	testsupport.Isolate(t)
+	got, err := HomeCoordDir()
+	assert.NoError(t, err)
+	assert.True(t, strings.HasSuffix(got, filepath.Join(AppDirName, "coord")))
+}
+
+// TestCoordProjectStateDir_UnderHomeCoordDir pins the per-project state dir
+// as a direct child of HomeCoordDir, keyed by the caller's (already
+// sanitized) project key.
+func TestCoordProjectStateDir_UnderHomeCoordDir(t *testing.T) {
+	testsupport.Isolate(t)
+	root, err := HomeCoordDir()
+	assert.NoError(t, err)
+	got, err := CoordProjectStateDir("proj-key")
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "proj-key"), got)
+}
+
+// =============================================================================
 // Default Path Tests
 // =============================================================================
 

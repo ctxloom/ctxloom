@@ -119,7 +119,7 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 
 | Group | Constants |
 |---|---|
-| Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `LogFileName`, `TriggersDir`, `CompanionConsentFileName` |
+| Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `LogFileName`, `TriggersDir`, `CompanionConsentFileName`, `CoordDirName`, `CoordEndpointFileName` |
 | Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `RefusedAdvancesFileName`, `ProjectIDFileName` |
 | Local state tier | `StateDir`, `LocksDir`, `DirtyTreeCommitAckFileName`, `SessionHomeDirName` |
 | Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
@@ -150,6 +150,8 @@ this package.
 | `HomeAllowedSignersPath` | `~/.ctxloom/allowed_signers` | 4 |
 | `HomeDistrustedSignersPath` | `~/.ctxloom/distrusted_signers` | 1 |
 | `TriggerCacheDir` | `~/.ctxloom/cache/triggers` | 1 |
+| `HomeCoordDir` | `~/.ctxloom/coord` — root of one project-keyed subdirectory per live/recent coordinator | 1 |
+| `CoordProjectStateDir` | `~/.ctxloom/coord/<project-key>` — one project's coordinator state dir (`internal/agentcoord/coord`'s owner lock + journals) | 1 |
 
 ### Project app dir (pure, no error return unless noted)
 
@@ -245,6 +247,18 @@ by doctor's local-tier check (`cli.doctorCheckLocalTierState`), which reports an
   `cli.resolveAppDir` cannot return an empty string, and the three callers that accept one
   substitute `AppDirName` themselves (`operations.getBaseDir`, `remote.NewLockfileManager`,
   `cli.projectConfigPath`) — a default duplicated at each site and owned by none of them.
+- **`HomeCoordDir`/`CoordProjectStateDir` get no `Layout` row**, unlike every
+  other constant this package names. `Layout` classifies paths *relative to
+  one project's root* (`doctorCheckLocalTierState` joins each `Entry.Rel`
+  onto `filepath.Dir(appDir)`); `~/.ctxloom/coord/<project-key>` is HOME-rooted
+  and keyed by a derived project identity, the same shape as
+  `HomeApprovalsPath`, `HomeAllowedSignersPath`, `HomeSessionsDir` and
+  `TriggerCacheDir` — none of which have a `Layout` row either, for the same
+  reason: there is no single project root a home-rooted path resolves under,
+  so `Layout`'s "is this present in THIS checkout" check cannot ask a
+  meaningful question about it. Giving coordinator state a doctor-visible row
+  would need a second, home-rooted enumeration (or a `Layout` root-kind
+  field) — a real but separate design question, not answered by this note.
 - **`project-id` is the one classified path still at the `.ctxloom` root** rather than under
   `state/`, where its tier says it belongs. A move to `state/project-id` (with a read
   fallback and a one-time migration) is decided but unimplemented; `Layout` and

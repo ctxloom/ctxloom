@@ -253,6 +253,22 @@ const (
 	// canonical transcript at all.
 	legacyCanonicalTranscriptFileName = "transcript.acp.jsonl"
 
+	// CoordDirName is the per-user directory holding one subdirectory of
+	// in-process coordinator state per project: ~/.ctxloom/coord/<project-key>/
+	// (owner lock, run/mailbox/interaction journals, last-bound endpoint) — see
+	// HomeCoordDir / CoordProjectStateDir. Keyed by a project identity resolved
+	// outside this package (internal/agentcoord/coord.stateDirForProject), not
+	// by harp: a project's coordinator state outlives any one session.
+	CoordDirName = "coord"
+
+	// CoordEndpointFileName is the discovery file inside a project's
+	// coordinator state dir (~/.ctxloom/coord/<project-key>/endpoint.json):
+	// the ports a coordinator last bound, re-minted every Serve() so a
+	// relaunched coordinator re-binds the SAME endpoint and a separate CLI
+	// invocation (internal/agentcoord/discover.List) can find it. 0600 and
+	// host-local — it also carries the read-only consumer credential.
+	CoordEndpointFileName = "endpoint.json"
+
 	// SegmentsDirName is the harp-dir leaf holding cached per-rotation
 	// canonical segments (see ResolveHarpSegmentsDir/ResolveHarpSegmentPath):
 	// one converted-once JSONL file per displaced session ID in a harp's
@@ -524,6 +540,32 @@ func TriggerCacheDir() (string, error) {
 		return "", fmt.Errorf("resolve the trigger verdict cache ~/%s/%s/%s: %w", AppDirName, CacheDir, TriggersDir, err)
 	}
 	return filepath.Join(home, AppDirName, CacheDir, TriggersDir), nil
+}
+
+// HomeCoordDir returns ~/.ctxloom/coord — the per-user root holding one
+// subdirectory of coordinator state per project (see CoordDirName,
+// CoordProjectStateDir). internal/agentcoord/discover.List globs one level
+// below this root for every project's endpoint.json.
+func HomeCoordDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve the coordinator state root ~/%s/%s: %w", AppDirName, CoordDirName, err)
+	}
+	return filepath.Join(home, AppDirName, CoordDirName), nil
+}
+
+// CoordProjectStateDir returns ~/.ctxloom/coord/<projectKey> — one project's
+// coordinator state directory. projectKey is assumed to already be a single
+// safe path segment (internal/agentcoord/coord.sanitizeKey's job, not this
+// package's: a coordinator project key is not a harp, so it gets no
+// HarpDir-style traversal validation here); this function only composes the
+// path.
+func CoordProjectStateDir(projectKey string) (string, error) {
+	dir, err := HomeCoordDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, projectKey), nil
 }
 
 // CachePath returns the cache subdirectory path for the given app path.

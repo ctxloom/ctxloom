@@ -52,6 +52,7 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 		"HomeAllowedSignersPath":    HomeAllowedSignersPath,
 		"HomeDistrustedSignersPath": HomeDistrustedSignersPath,
 		"TriggerCacheDir":           TriggerCacheDir,
+		"HomeCoordDir":              HomeCoordDir,
 	}
 	harpArg := map[string]func(string) (string, error){
 		"HarpDir":                            HarpDir,
@@ -61,6 +62,12 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 		"HarpTranscriptStoreDir":             HarpTranscriptStoreDir,
 		"HarpCanonicalTranscriptPath":        HarpCanonicalTranscriptPath,
 		"ResolveHarpCanonicalTranscriptPath": ResolveHarpCanonicalTranscriptPath,
+	}
+	// CoordProjectStateDir takes a string too, but it is NOT a harp (no
+	// traversal validation — see its doc), so it gets its own group rather
+	// than joining harpArg's name.
+	projectKeyArg := map[string]func(string) (string, error){
+		"CoordProjectStateDir": CoordProjectStateDir,
 	}
 
 	check := func(t *testing.T, name string, got string, err error) {
@@ -83,6 +90,12 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 	for name, fn := range harpArg {
 		t.Run(name, func(t *testing.T) {
 			got, err := fn("swift-amber-falcon")
+			check(t, name, got, err)
+		})
+	}
+	for name, fn := range projectKeyArg {
+		t.Run(name, func(t *testing.T) {
+			got, err := fn("proj-key")
 			check(t, name, got, err)
 		})
 	}

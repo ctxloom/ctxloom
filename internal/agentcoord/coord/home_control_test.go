@@ -37,6 +37,20 @@ func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
 		defer c.mu.Unlock()
 		return c.chans[harp] != nil
 	}, 10*time.Second, 10*time.Millisecond, "the run channel must attach before a control request can be sent")
+	// BOTH sides, because the handshake attaches them at different moments:
+	// the coordinator registers c.chans[harp] when it READS the Hello, while
+	// the runner sets h.stream only after it has read the HelloAck back. A
+	// fixture that waits on the coordinator's half alone hands back a Home
+	// whose stream is still nil, and every unbuffered runner->coordinator
+	// send in that window is dropped ON PURPOSE (Home.trySend's nil-stream
+	// arm) — silently, because fire-and-forget is the design. That is a
+	// fixture defect, not a product one: it turns "the doorbell arrived" into
+	// a race against the scheduler, lost whenever the box is busy.
+	require.Eventually(t, func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return h.stream != nil
+	}, 10*time.Second, 10*time.Millisecond, "the runner's own end of the run channel must be attached, or a send made now is dropped as 'run channel down'")
 	return h
 }
 

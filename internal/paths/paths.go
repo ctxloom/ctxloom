@@ -252,6 +252,16 @@ const (
 	// treating an already-captured pre-rename session as if it had no
 	// canonical transcript at all.
 	legacyCanonicalTranscriptFileName = "transcript.acp.jsonl"
+
+	// SegmentsDirName is the harp-dir leaf holding cached per-rotation
+	// canonical segments (see ResolveHarpSegmentsDir/ResolveHarpSegmentPath):
+	// one converted-once JSONL file per displaced session ID in a harp's
+	// sessions.Entry.Rotations lineage. A sibling of persist/ and
+	// ephemeral/, not nested under either — a segment is neither the
+	// bind-mounted vendor store (persist/transcripts) nor purely regenerable
+	// (re-deriving it means re-locating a vendor file that may already be
+	// gone; see operations.RefreshVendorTranscript), so it gets its own root.
+	SegmentsDirName = "segments"
 )
 
 // HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory
@@ -367,6 +377,35 @@ func HarpTranscriptStoreDir(harp string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, TranscriptStoreDirName), nil
+}
+
+// ResolveHarpSegmentsDir returns ~/.ctxloom/sessions/<harp>/segments — the
+// cache root for harp's per-rotation canonical segments (see
+// SegmentsDirName). This is the single chokepoint every segment path is
+// built from; a caller that needs one particular rotation's segment file
+// should call ResolveHarpSegmentPath instead of hand-joining onto this.
+func ResolveHarpSegmentsDir(harp string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, SegmentsDirName), nil
+}
+
+// ResolveHarpSegmentPath returns
+// ~/.ctxloom/sessions/<harp>/segments/<sessionID>.jsonl — the cached
+// canonical-form conversion of ONE displaced session ID in harp's rotation
+// lineage (sessions.Entry.Rotations). Converted at most once per rotation
+// (operations.RefreshVendorTranscript checks this path for an existing file
+// before re-running the vendor adapter over that rotation's transcript) since
+// a rotation's vendor file is immutable history — the engine will never write
+// to it again once a later rotation has superseded it.
+func ResolveHarpSegmentPath(harp, sessionID string) (string, error) {
+	dir, err := ResolveHarpSegmentsDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, sessionID+".jsonl"), nil
 }
 
 // HarpCanonicalTranscriptPath returns

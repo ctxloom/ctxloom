@@ -98,6 +98,33 @@ func (m *MemStore) Find(harpName string) (*Entry, error) {
 	return nil, nil
 }
 
+// FindBySessionID returns a copy of the entry whose current SessionID equals
+// sessionID or whose Rotations carries it, matching *Manager.FindBySessionID
+// (S4/rotation lineage).
+func (m *MemStore) FindBySessionID(sessionID string) (*Entry, error) {
+	if sessionID == "" {
+		return nil, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		e := &m.sessions[i]
+		if e.SessionID == sessionID {
+			out := *e
+			fillCanonicalTranscript(&out)
+			return &out, nil
+		}
+		for _, r := range e.Rotations {
+			if r.SessionID == sessionID {
+				out := *e
+				fillCanonicalTranscript(&out)
+				return &out, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
 // AssignHarp mints a fresh unique harp for a new run and appends a pending
 // entry (SessionID unbound), matching *Manager.AssignHarp.
 func (m *MemStore) AssignHarp(projectDir, backend string) (Entry, error) {
@@ -124,7 +151,9 @@ func (m *MemStore) AssignHarp(projectDir, backend string) (Entry, error) {
 // BindSession records the backend session id / transcript for harpName,
 // matching *Manager.BindSession's rebind rule: an identical id is a no-op, a
 // different id accompanied by a transcript path re-points the binding (engine
-// transcript rotation), and an id-only bind never displaces an existing one.
+// transcript rotation) — appending the displaced binding to Rotations first,
+// matching *Manager's lineage-preserving rebind — and an id-only bind never
+// displaces an existing one.
 func (m *MemStore) BindSession(harpName, sessionID, transcriptPath string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -138,6 +167,20 @@ func (m *MemStore) BindSession(harpName, sessionID, transcriptPath string) error
 			}
 			if sessionID == "" || transcriptPath == "" {
 				return nil
+			}
+			alreadyRecorded := false
+			for _, r := range m.sessions[i].Rotations {
+				if r.SessionID == cur {
+					alreadyRecorded = true
+					break
+				}
+			}
+			if !alreadyRecorded {
+				m.sessions[i].Rotations = append(m.sessions[i].Rotations, Rotation{
+					SessionID:      cur,
+					TranscriptPath: m.sessions[i].TranscriptPath,
+					RotatedAt:      time.Now().UTC(),
+				})
 			}
 		}
 		if sessionID != "" {

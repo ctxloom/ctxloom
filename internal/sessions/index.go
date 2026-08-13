@@ -124,6 +124,35 @@ type Entry struct {
 	// sees the zero value, and no schema upgrade or on-disk migration is
 	// needed in either direction.
 	EngineVersion string `yaml:"engine_version,omitempty" json:"engine_version,omitempty"`
+
+	// Rotations records every binding this harp has DISPLACED, oldest first —
+	// the lineage BindSession's rebind rule used to discard entirely (commit
+	// af54e29f made rotation re-point the binding but kept no history: the old
+	// session_id/transcript_path were simply overwritten). claude-code's
+	// /clear starts a fresh session UUID and transcript file under the same
+	// live process, firing SessionStart again; without this, a harp that had
+	// been /clear'd lost the vendor file naming everything said before the
+	// clear, and the canonical-transcript rebuild (RefreshVendorTranscript)
+	// had nothing left to rebuild it from.
+	//
+	// Appended to by BindSession exactly when a rebind DISPLACES the current
+	// binding (a different, non-empty session ID arrives with a transcript
+	// path) — see BindSession's doc comment for the full rebind rule this
+	// piggybacks on. Never appended to for an idempotent same-id rebind or an
+	// id-only bind, since neither displaces anything.
+	Rotations []Rotation `yaml:"rotations,omitempty" json:"rotations,omitempty"`
+}
+
+// Rotation is one displaced binding in an Entry's lineage: the session ID and
+// vendor transcript path a harp was bound to before a later rebind replaced
+// it (see Entry.Rotations). TranscriptPath is the vendor file's location AT
+// THE MOMENT OF DISPLACEMENT, tracked by the store so a later canonical
+// rebuild (operations.RefreshVendorTranscript) can still find it even though
+// the index entry itself now points at the current binding.
+type Rotation struct {
+	SessionID      string    `yaml:"session_id" json:"session_id"`
+	TranscriptPath string    `yaml:"transcript_path,omitempty" json:"transcript_path,omitempty"`
+	RotatedAt      time.Time `yaml:"rotated_at" json:"rotated_at"`
 }
 
 // Index is the on-disk form of the session index.
@@ -319,6 +348,13 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 // that is the compactor's forward-bind backstop, which knows an ID but not a
 // file, and it must not displace what the SessionStart hook established. An
 // empty ID likewise never blanks a live binding.
+//
+// A displacement does not DISCARD the binding it replaces: the old
+// session_id/transcript_path are appended to Entry.Rotations before being
+// overwritten (see its doc comment). An earlier revision clobbered them —
+// the canonical-transcript rebuild then had only the new, empty-at-/clear
+// vendor file to rebuild from, and /recover found nothing even though the
+// pre-clear conversation was still sitting on disk under the old session ID.
 func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error {
 	// Both empty is a genuine no-op — the ordinary shape of a hook
 	// payload that carried no session identifier at all (session_cmd.go's
@@ -358,6 +394,27 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 			// that names a transcript file is allowed to re-point.
 			if sessionID == "" || transcriptPath == "" {
 				return nil
+			}
+			// A DISPLACEMENT: cur is about to be overwritten by sessionID.
+			// Preserve it in Rotations (oldest first) before that happens —
+			// see Entry.Rotations' doc comment for why. Guard against
+			// duplicating an id already recorded (a defensive belt: nothing
+			// in this rebind path re-visits the same id twice today, but a
+			// duplicate lineage entry would double-convert that segment on
+			// rebuild).
+			alreadyRecorded := false
+			for _, r := range idx.Sessions[i].Rotations {
+				if r.SessionID == cur {
+					alreadyRecorded = true
+					break
+				}
+			}
+			if !alreadyRecorded {
+				idx.Sessions[i].Rotations = append(idx.Sessions[i].Rotations, Rotation{
+					SessionID:      cur,
+					TranscriptPath: idx.Sessions[i].TranscriptPath,
+					RotatedAt:      time.Now().UTC(),
+				})
 			}
 		}
 		if sessionID != "" {
@@ -558,6 +615,41 @@ func (m *Manager) Find(harpName string) (*Entry, error) {
 	fillTranscriptByLocation(&out)
 	fillCanonicalTranscript(&out)
 	return &out, nil
+}
+
+// FindBySessionID returns a copy of the entry whose CURRENT SessionID equals
+// sessionID, OR — the lineage lookup Find cannot do — whose Rotations carries
+// sessionID as a session id it was PREVIOUSLY bound to before a /clear rotated
+// it away. A backend-native id an old vendor transcript, a stale hook payload,
+// or a caller's own memory of "the session before the clear" still names is
+// otherwise unresolvable to any harp once BindSession has re-pointed the
+// entry past it. Enriches the copy the same way Find does (S4).
+func (m *Manager) FindBySessionID(sessionID string) (*Entry, error) {
+	if sessionID == "" {
+		return nil, nil
+	}
+	idx, err := m.Load()
+	if err != nil {
+		return nil, err
+	}
+	for i := range idx.Sessions {
+		e := &idx.Sessions[i]
+		if e.SessionID == sessionID {
+			out := *e
+			fillTranscriptByLocation(&out)
+			fillCanonicalTranscript(&out)
+			return &out, nil
+		}
+		for _, r := range e.Rotations {
+			if r.SessionID == sessionID {
+				out := *e
+				fillTranscriptByLocation(&out)
+				fillCanonicalTranscript(&out)
+				return &out, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 // ActivityTime returns e's last-worked time for resume-picker ordering: the

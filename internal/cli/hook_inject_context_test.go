@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -282,25 +283,40 @@ func TestClearRecoveryMessage(t *testing.T) {
 	}
 }
 
-// TestCurrentSessionRecoverable covers the transcript gate behind the /clear
-// recovery nudge: only a present, non-empty transcript file signals that
-// recover_session has something to bring back; an empty path, a missing file,
-// or an empty file all read as not-recoverable.
+// TestCurrentSessionRecoverable covers the rotation-lineage gate behind the
+// /clear recovery nudge: claude-code's /clear starts a fresh, necessarily
+// EMPTY transcript file, so "is the current transcript non-empty" (the old
+// check) can never fire right after a clear — the fix is checking whether the
+// harp's index entry carries rotation history instead (see the production
+// doc comment for the measured premise this replaces).
 func TestCurrentSessionRecoverable(t *testing.T) {
-	assert.False(t, currentSessionRecoverable(""),
-		"an empty transcript path is never recoverable")
-	assert.False(t, currentSessionRecoverable(filepath.Join(t.TempDir(), "nope.jsonl")),
-		"a non-existent transcript is not recoverable")
+	testsupport.Isolate(t)
 
-	nonEmpty := filepath.Join(t.TempDir(), "transcript.jsonl")
-	require.NoError(t, os.WriteFile(nonEmpty, []byte(`{"role":"user"}`), 0644))
-	assert.True(t, currentSessionRecoverable(nonEmpty),
-		"a present, non-empty transcript is recoverable")
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	rotated, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(rotated.HarpName, "pre-clear-id", "/pre-clear.jsonl"))
+	require.NoError(t, mgr.BindSession(rotated.HarpName, "post-clear-id", "/post-clear.jsonl"))
 
-	empty := filepath.Join(t.TempDir(), "empty.jsonl")
-	require.NoError(t, os.WriteFile(empty, nil, 0644))
-	assert.False(t, currentSessionRecoverable(empty),
-		"an empty transcript has nothing to re-distill")
+	neverRotated, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(neverRotated.HarpName, "only-id", "/t.jsonl"))
+
+	assert.True(t, currentSessionRecoverable("clear", rotated.HarpName),
+		"clear-source + rotation history present -> recoverable")
+	assert.False(t, currentSessionRecoverable("clear", neverRotated.HarpName),
+		"clear-source + no rotation history -> nothing to recover")
+
+	for _, src := range []string{"startup", "resume", "compact", ""} {
+		assert.False(t, currentSessionRecoverable(src, rotated.HarpName),
+			"source %q is not a /clear, even with rotation history present -> not recoverable", src)
+	}
+
+	assert.False(t, currentSessionRecoverable("clear", ""),
+		"an empty harp name is never recoverable")
+	assert.False(t, currentSessionRecoverable("clear", "no-such-harp-in-the-index"),
+		"a harp the index has never heard of is never recoverable")
 }
 
 // TestInjectContextSystemMessageComposition pins the join behavior the

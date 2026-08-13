@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -62,9 +63,18 @@ func (s *syncBuf) String() string {
 
 // waitForComposition polls until cond holds — hermetic, no bare sleeps as
 // synchronization (Wave F playbook timing constraint).
+//
+// The budget is generous on purpose. cond is always an EVENT (bytes the real
+// bubbletea renderer or the Controller wrote through a real pty, or a call
+// the overlay's own command goroutines made), so a longer wait never turns a
+// failure into a pass — it only stops a real event being called absent
+// because a pty round trip, a tea.Program and its renderer were competing for
+// a CPU with every other package `go test ./...` is running at that moment.
+// The previous three seconds sat inside that contention's tail, so it expired
+// on events that were merely late.
 func waitForComposition(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return
@@ -120,12 +130,29 @@ func newComposedPTY(t *testing.T) (master pty.Pty, slave *os.File, tty *syncBuf)
 // realOverlaySources is a minimal tui.Sources good enough to drive the real
 // Model through one auto-opened roster row (tui's own fakeSources is
 // unexported and package-local — this re-derives the same idiom externally).
-func realOverlaySources(harp string) tui.Sources {
+// It also RECORDS the harps the overlay asked to watch: that call is the only
+// frame-diff-proof evidence that a feed was opened (see the engage assertion).
+type recordedSources struct {
+	mu      sync.Mutex
+	watched []string
+}
+
+func (r *recordedSources) watchedHarps() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.watched...)
+}
+
+func realOverlaySources(harp string) (tui.Sources, *recordedSources) {
+	rec := &recordedSources{}
 	return tui.Sources{
 		Roster: func(context.Context) ([]tui.RosterRow, error) {
 			return []tui.RosterRow{{Harp: harp, State: "live"}}, nil
 		},
-		Watch: func(context.Context, string) (*tui.Feed, error) {
+		Watch: func(_ context.Context, h string) (*tui.Feed, error) {
+			rec.mu.Lock()
+			rec.watched = append(rec.watched, h)
+			rec.mu.Unlock()
 			return &tui.Feed{
 				Source: "live",
 				Events: make(chan operations.SessionFeedEvent),
@@ -134,7 +161,7 @@ func realOverlaySources(harp string) tui.Sources {
 			}, nil
 		},
 		Now: time.Now,
-	}
+	}, rec
 }
 
 // pumpEngineInput drains c.Stdin() (the interceptor's engine-bound side) —
@@ -169,7 +196,7 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	ptyDev, slave, tty := newComposedPTY(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	src := realOverlaySources("perky-same-chevy")
+	src, watched := realOverlaySources("perky-same-chevy")
 
 	resize := make(chan *pb.WindowSize, 4)
 	warns := make(chan string, 4)
@@ -202,8 +229,29 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	// off the slave, exactly as it would read a real terminal's stdin.
 	_, err := ptyDev.Write([]byte{compPrefix, 'j'})
 	require.NoError(t, err)
-	waitForComposition(t, "the real overlay painted its feed title on the pty", func() bool {
-		return strings.Contains(tty.String(), "feed: perky-same-chevy")
+	// The real overlay's panel reaches the pty (the composition this test
+	// exists for), and the roster row's feed is really opened.
+	//
+	// The two are asserted SEPARATELY because the old single assertion — the
+	// literal "feed: perky-same-chevy" appearing on the pty — is only
+	// observable when the roster resolves before the tea.Program's FIRST
+	// frame. Lose that race, which is all a busy box has to do, and the
+	// overlay's first frame paints the empty panel ("feed: —") while the
+	// roster arrives into a DIFFED repaint: bubbletea v2 rewrites only the
+	// changed cells, so the harp never appears as a contiguous string on the
+	// pty at all. (Measured: with a 30s budget the string still never came.)
+	// The same trap is already documented on this file's sibling assertion in
+	// tui/overlay_test.go — this one just had not been converted.
+	//
+	// So: the panel's own frame proves the overlay painted THROUGH the pty
+	// (which is the composition claim), and the Watch call proves the row's
+	// feed was auto-opened (which is the behaviour claim). Neither depends on
+	// which side of the race won.
+	waitForComposition(t, "the real overlay painted its panel on the pty", func() bool {
+		return strings.Contains(tty.String(), "feed:")
+	})
+	waitForComposition(t, "the real overlay auto-opened the roster row's feed", func() bool {
+		return slices.Contains(watched.watchedHarps(), "perky-same-chevy")
 	})
 	assert.Contains(t, tty.String(), "\x1b7\x1b[r",
 		"engage saves the engine cursor and hands the overlay the full scroll region")

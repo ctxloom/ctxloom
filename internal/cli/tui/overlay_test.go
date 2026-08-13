@@ -47,9 +47,18 @@ func (b *syncBuffer) String() string {
 // waitForOverlay polls until cond holds — a hermetic replacement for sleeps
 // around the real Program's own goroutines (repo convention; see
 // termui/controller_test.go's waitFor).
+//
+// The budget is generous on purpose. cond is always an EVENT (a call the
+// Program's own command goroutines make, or an escape sequence its renderer
+// writes), so waiting longer never turns a failure into a pass — it only
+// stops a real event being called absent because a real tea.Program, its
+// renderer goroutine and its command goroutines were competing for a CPU
+// with every other package `go test ./...` is running at that moment. The
+// previous two seconds sat inside that contention's tail, so it expired on
+// events that were merely late.
 func waitForOverlay(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return
@@ -114,7 +123,7 @@ func TestOverlay_RunEngageKeystrokeAltScreenQuitRestores(t *testing.T) {
 
 // TestOverlay_RunKeystrokeNavigatesRoster proves a plain (non-chord) keystroke
 // reaches the model's roster navigation: 'j' selects the second row and opens
-// its feed, rendered as the feed pane's title.
+// its feed.
 func TestOverlay_RunKeystrokeNavigatesRoster(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "h1", State: "live"},
@@ -128,8 +137,16 @@ func TestOverlay_RunKeystrokeNavigatesRoster(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- o.Run(pr, &tty, testGeo()) }()
 
+	// Asserted through the WATCH the auto-open causes, for the SAME reason
+	// the navigation assertion below is (see its comment): the painted title
+	// is only ever a substring of the tty when the roster resolves before the
+	// Program's FIRST frame. Lose that race — which is all a busy box has to
+	// do — and the roster arrives into a diffed repaint, where bubbletea
+	// rewrites only the changed cells and the literal "feed: h1" is never
+	// written at all. Waiting longer cannot fix that, which is exactly how
+	// this failed: not slowly, but never.
 	waitForOverlay(t, "auto-opened first feed", func() bool {
-		return strings.Contains(tty.String(), "feed: h1")
+		return slices.Contains(f.watchedHarps(), "h1")
 	})
 
 	_, err := pw.Write([]byte("j"))

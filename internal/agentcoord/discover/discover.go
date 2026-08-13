@@ -29,11 +29,16 @@ import (
 
 const (
 	// DirName is the per-user directory holding one subdirectory of coordinator
-	// state per project: ~/.ctxloom/<DirName>/<project-key>/.
-	DirName = "coord"
+	// state per project: ~/.ctxloom/<DirName>/<project-key>/. Re-exports
+	// paths.CoordDirName: internal/paths is the single declarative source of
+	// truth for path SEGMENTS (docs/architecture/core/paths.md), while this
+	// package stays the LAYOUT owner (see the package doc above) that coord,
+	// the writer, imports.
+	DirName = paths.CoordDirName
 	// FileName is the discovery file inside a project's state dir. 0600 and
-	// host-local: it carries the consumer credential.
-	FileName = "endpoint.json"
+	// host-local: it carries the consumer credential. Re-exports
+	// paths.CoordEndpointFileName.
+	FileName = paths.CoordEndpointFileName
 	// MCPPath is retained in the advertised CTXLOOM_COORD_URL shape
 	// (http://<host>:<port>/mcp) for continuity — the gRPC server rides the same
 	// host:port as the MCP endpoint (one h2c listener, content-type routed), and
@@ -88,11 +93,11 @@ type Endpoint struct {
 // not-yet-minted case, kept quiet on purpose) so the caller CAN tell them
 // apart, without ever aborting discovery over one bad candidate.
 func List() (endpoints []Endpoint, skipped []error) {
-	home, err := os.UserHomeDir()
+	coordDir, err := paths.HomeCoordDir()
 	if err != nil {
-		return nil, []error{fmt.Errorf("discover: resolve user home dir: %w", err)}
+		return nil, []error{fmt.Errorf("discover: resolve coordinator state root: %w", err)}
 	}
-	matches, err := filepath.Glob(filepath.Join(home, paths.AppDirName, DirName, "*", FileName))
+	matches, err := filepath.Glob(filepath.Join(coordDir, "*", FileName))
 	if err != nil {
 		return nil, []error{fmt.Errorf("discover: glob coordinator endpoint files: %w", err)}
 	}

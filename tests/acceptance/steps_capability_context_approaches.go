@@ -11,7 +11,7 @@
 //
 // THE STRUCTURE IS P0'S, ON PURPOSE. Same three steps (gate+fixture / run /
 // assert), same shared gate (probeCellGate), same credential posture
-// (matrixHostCredentialEnv — production's own per-axis machinery resolving
+// (probeHostCredentialEnv — production's own per-axis machinery resolving
 // against the REAL host home, because a cell more cautious than the product is
 // not a test of it), same separate stdout/stderr capture. Two differences, and
 // both are the experiment:
@@ -61,7 +61,7 @@ func registerContextApproachSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 
-			a, key, err := probeCellGate(c, w, approachFamily, engine, runtime, workspace)
+			a, key, err := probeCellGate(c, w, approachFamily, s.cell())
 			if err != nil {
 				return err
 			}
@@ -118,7 +118,7 @@ func registerContextApproachSteps(ctx *godog.ScenarioContext) {
 			}
 			// NOTHING is seeded here on purpose — each axis's credentials are
 			// delivered by ctxloom's own production machinery, resolving against
-			// the real host home the run is given (matrixHostCredentialEnv).
+			// the real host home the run is given (probeHostCredentialEnv).
 			return nil
 		})
 
@@ -132,10 +132,9 @@ func registerContextApproachSteps(ctx *godog.ScenarioContext) {
 
 		cmd := w.env.Command(nil, "run", "--agent", matrixAgent,
 			"--workspace", s.workspace, "--one-shot", matrixPrompt())
-		if realHomeDir == "" {
-			return fmt.Errorf("%s: no real HOME was captured, so this cell cannot exercise production's own credential resolution", approachFamily)
+		if err := probeCellCredentialEnv(approachFamily, cmd); err != nil {
+			return err
 		}
-		cmd.Env = matrixHostCredentialEnv(cmd.Env, realHomeDir)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 

@@ -58,8 +58,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/cucumber/godog"
@@ -118,59 +116,6 @@ func matrixNonce(cell probeCellID) (string, error) {
 	return probeHarps.Mint(cell)
 }
 
-// matrixHostCredentialEnv rewrites a cell's command environment so that
-// ctxloom's OWN per-axis credential machinery resolves against the REAL host
-// home — because that is the mechanism under test, and starving it was making
-// this matrix measure the harness instead of the product.
-//
-// WHAT WENT WRONG BEFORE, AND WHY THIS IS THE FIX. testenv isolates HOME to a
-// temp dir, which is right for filesystem assertions and wrong here: EVERY
-// production credential path resolves from hostHomeDir() — worktree.go's
-// seedCredentials via credentialSeedSpecs, and the container mounts
-// (claudeCredentialCopyMounts read-write, codexCredentialMounts /
-// opencodeCredentialMounts read-only) all start there. Point HOME at an empty
-// temp dir and every one of them finds nothing, so cells failed or had to be
-// gated for reasons that exist nowhere outside this harness. Worse, the
-// obvious workaround — the harness copying credentials into its fake home —
-// would have made the cell MORE cautious than the product it verifies, and a
-// cell that does not exercise production's credential mechanism proves nothing
-// about it.
-//
-// So the credential mechanism is deliberately NOT isolated: HOME and the XDG
-// roots point at the real ones, exactly as they do for a user typing this
-// command. Everything this floor actually asserts on stays isolated — the
-// project directory is still a fresh temp checkout carrying the fixture, and
-// the assertion reads only the run's stdout, never HOME. The cost is stated
-// plainly: a cell writes session state under the real ~/.ctxloom and lets the
-// engine refresh its own credential in place, which is precisely what a real
-// run does and precisely what makes claude's rotating token safe here (merge
-// 07072acf: the container credential mount shares the real store read-write,
-// so a refresh lands in the live chain rather than dying in a copy).
-//
-// The fake entries are REMOVED before the real ones are appended, never merely
-// appended after: a duplicate key in a child environment is resolved by the C
-// library, and glibc's getenv returns the FIRST match, so appending alone
-// would silently lose to the isolated value.
-func matrixHostCredentialEnv(env []string, realHome string) []string {
-	shadowed := map[string]bool{
-		"HOME": true, "USERPROFILE": true,
-		"XDG_CONFIG_HOME": true, "XDG_DATA_HOME": true,
-	}
-	out := make([]string, 0, len(env)+4)
-	for _, kv := range env {
-		if k, _, ok := strings.Cut(kv, "="); ok && shadowed[k] {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return append(out,
-		"HOME="+realHome,
-		"USERPROFILE="+realHome,
-		"XDG_CONFIG_HOME="+filepath.Join(realHome, ".config"),
-		"XDG_DATA_HOME="+filepath.Join(realHome, ".local", "share"),
-	)
-}
-
 // matrixFamily is this probe's name in a skip line, a failure message and the
 // evidence sidecar. One constant so the three cannot disagree.
 const matrixFamily = "engine-matrix"
@@ -188,7 +133,7 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 			m := matrixOf(w)
 			m.engine, m.runtime, m.workspace = engine, runtime, workspace
 
-			a, key, err := probeCellGate(c, w, matrixFamily, engine, runtime, workspace)
+			a, key, err := probeCellGate(c, w, matrixFamily, m.cell())
 			if err != nil {
 				return err
 			}
@@ -241,7 +186,7 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 			}
 			// NOTHING is seeded here on purpose. Each axis's credentials are
 			// delivered by ctxloom's own production machinery, resolving against
-			// the real host home the run is given (matrixHostCredentialEnv) —
+			// the real host home the run is given (probeHostCredentialEnv) —
 			// which is the behaviour this cell exists to exercise.
 			return nil
 		})
@@ -261,11 +206,10 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 		cmd := w.env.Command(nil, "run", "--agent", matrixAgent,
 			"--workspace", m.workspace, "--one-shot", matrixPrompt())
 		// The credential mechanism is production's, resolving against the real
-		// host home — see matrixHostCredentialEnv.
-		if realHomeDir == "" {
-			return fmt.Errorf("engine-matrix: no real HOME was captured, so this cell cannot exercise production's own credential resolution")
+		// host home — see probeHostCredentialEnv.
+		if err := probeCellCredentialEnv(matrixFamily, cmd); err != nil {
+			return err
 		}
-		cmd.Env = matrixHostCredentialEnv(cmd.Env, realHomeDir)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 

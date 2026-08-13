@@ -29,7 +29,7 @@
 //     between cells is the engine rather than the fixture's cleanliness.
 //
 // THE GATES AND THE CREDENTIAL ENVIRONMENT ARE REUSED, NOT RE-DERIVED.
-// probeEngine, the liveAgents registry config and matrixHostCredentialEnv are
+// probeEngine, the liveAgents registry config and probeHostCredentialEnv are
 // the same ones the engine matrix runs — extraction over copy, per the design's
 // own instruction for wave 2. In particular the credential environment is not a
 // convenience: point HOME at an isolated temp dir and every production
@@ -62,14 +62,9 @@ func hookProbeOf(w *World) *hookProbeState {
 	return w.hookProbe
 }
 
-// hookProbeSkip prints the cell's own reason and skips. Never silent, always
-// naming the engine and both axes: a matrix whose blanks carry no reasons is
-// indistinguishable from a matrix nobody ran.
-func hookProbeSkip(engine, runtime, workspace, reason string) error {
-	fmt.Printf("SKIP hook-probe cell [engine=%s runtime=%s workspace=%s]: %s\n",
-		engine, runtime, workspace, reason)
-	return godog.ErrSkip
-}
+// hookProbeFamily is this probe's name in a skip line, a failure message and the
+// evidence sidecar. One constant so the three cannot disagree.
+const hookProbeFamily = "hook-probe"
 
 func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 	// --- the cell's gate and fixture -----------------------------------------
@@ -91,17 +86,9 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			}
 			h.engine, h.runtime, h.workspace = engine, runtime, workspace
 
-			key := backendTypeToLiveKey(engine)
-			a, ok := liveAgents[key]
-			if !ok {
-				return fmt.Errorf("hook-probe: %q (resolved key %q) is not registered in liveAgents (known: %v) — a row naming an unregistered engine would skip forever and look like coverage",
-					engine, key, liveAgentOrder)
-			}
-
-			status := probeEngine(key, a, realHomeDir, resolveOptIn())
-			w.docStepMaterialized = formatLiveEngineReport([]engineStatus{status})
-			if !status.available {
-				return hookProbeSkip(engine, runtime, workspace, status.reason)
+			a, key, err := probeCellGate(c, w, hookProbeFamily, h.cell())
+			if err != nil {
+				return err
 			}
 
 			// The two mints. Stage (a)'s harp rides the hook command's argv;
@@ -214,6 +201,20 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// just before it was written.
 		runStart := time.Now().Add(-time.Second)
 
+		cmd := w.env.Command(nil, "run", "--agent", hookProbeAgent,
+			"--workspace", h.workspace, "--one-shot", hookProbePrompt(h.echoHarp != ""))
+		// Reused from the shared gate, not re-derived: production's credential
+		// paths all resolve from the real host home, and starving them makes
+		// the cell measure the harness.
+		//
+		// BEFORE the carriage watcher, deliberately. The watcher scans a root
+		// built from realHomeDir, and this is the check that refuses when there
+		// is no realHomeDir to build one from — behind it, a refused cell still
+		// started a scanning goroutine over "/.ctxloom/sessions" first.
+		if err := probeCellCredentialEnv(hookProbeFamily, cmd); err != nil {
+			return err
+		}
+
 		// Started BEFORE the run, and this is not an optimisation: ctxloom
 		// scrubs delivered settings at session teardown, so a scan afterwards
 		// reports "no carriage" on a cell where carriage worked perfectly.
@@ -224,16 +225,6 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			Authored:  h.authored,
 			NotBefore: runStart,
 		})
-
-		cmd := w.env.Command(nil, "run", "--agent", hookProbeAgent,
-			"--workspace", h.workspace, "--one-shot", hookProbePrompt(h.echoHarp != ""))
-		if realHomeDir == "" {
-			return fmt.Errorf("hook-probe: no real HOME was captured, so this cell cannot exercise production's own credential resolution")
-		}
-		// Reused from the engine matrix, not re-derived: production's
-		// credential paths all resolve from the real host home, and starving
-		// them makes the cell measure the harness.
-		cmd.Env = matrixHostCredentialEnv(cmd.Env, realHomeDir)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 

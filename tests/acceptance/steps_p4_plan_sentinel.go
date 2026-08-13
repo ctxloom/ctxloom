@@ -92,14 +92,15 @@ func (p *p4State) cell() probeCellID {
 	return probeCellID{Probe: probeP4, Engine: p.engine, Runtime: p.runtime, Workspace: p.workspace, Variant: string(p.posture)}
 }
 
-// p4Skip prints the cell's own reason and skips, never silently, always naming
-// the engine and the posture — the loud-skip idiom every live cell in this suite
-// follows, because a blank in the matrix with no reason attached is
-// indistinguishable from a cell nobody ran.
-func p4Skip(engine string, posture p4Posture, reason string) error {
-	fmt.Printf("SKIP plan-sentinel cell [engine=%s posture=%s]: %s\n", engine, posture, reason)
-	return godog.ErrSkip
-}
+// p4Family is this probe's name in a skip line, a failure message and the
+// evidence sidecar. One constant so the three cannot disagree.
+//
+// The shared skip printer stamps the cell whole, so this rung's line carries
+// `variant=control` or `variant=plan` — which matters more here than anywhere
+// else in the ladder: P4's two arms differ only by variant, and a skip line
+// that could not tell them apart would leave a reader unable to see whether the
+// pair was half-run.
+const p4Family = "plan-sentinel"
 
 func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 	// --- the cell's gate and fixture ---------------------------------------
@@ -124,17 +125,9 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 			}
 			p.engine, p.runtime, p.workspace, p.posture = engine, runtime, workspace, p4Posture(posture)
 
-			key := backendTypeToLiveKey(engine)
-			a, ok := liveAgents[key]
-			if !ok {
-				return fmt.Errorf("plan-sentinel: %q (resolved key %q) is not registered in liveAgents (known: %v) — a row naming an unregistered engine would skip forever and look like coverage",
-					engine, key, liveAgentOrder)
-			}
-
-			status := probeEngine(key, a, realHomeDir, resolveOptIn())
-			w.docStepMaterialized = formatLiveEngineReport([]engineStatus{status})
-			if !status.available {
-				return p4Skip(engine, p.posture, status.reason)
+			a, key, err := probeCellGate(c, w, p4Family, p.cell())
+			if err != nil {
+				return err
 			}
 
 			// The mint. A fresh harp per cell, through the process-wide ledger so
@@ -191,10 +184,6 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 		if p.harp == "" {
 			return fmt.Errorf("plan-sentinel: no cell fixture prepared — the Given step must run first")
 		}
-		if realHomeDir == "" {
-			return fmt.Errorf("plan-sentinel: no real HOME was captured, so this cell cannot exercise production's own credential resolution")
-		}
-
 		// The direct one-shot run, the same public surface an operator types.
 		// The posture is NOT on the command line: it rides the agent binding in
 		// config.yaml, which is the surface a project actually commits and the
@@ -207,7 +196,9 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 		// starts at hostHomeDir(), and starving it would make this cell measure
 		// the harness. What this cell asserts on stays isolated — the sentinel
 		// is inside the fresh temp project, never under HOME.
-		cmd.Env = matrixHostCredentialEnv(cmd.Env, realHomeDir)
+		if err := probeCellCredentialEnv(p4Family, cmd); err != nil {
+			return err
+		}
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 

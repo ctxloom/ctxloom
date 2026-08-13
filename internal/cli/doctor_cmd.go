@@ -1314,6 +1314,17 @@ func doctorCheckHarpDurability() doctorCheck {
 			case paths.EssenceFileName, paths.CanonicalTranscriptFileName, "transcript.acp.jsonl", paths.IndexFileName:
 				continue
 			}
+			// One immutable per-vendor-log symlink per binding
+			// (sessions.linkEngineTranscript, fs-consolidation plan C12) —
+			// ctxloom-owned, not an authored artifact at risk of loss. Prefix
+			// match, not an exact name, since the leaf carries the engine and
+			// session id (paths.HarpEngineTranscriptLinkPath). Pre-rename
+			// legacy `transcript.jsonl` root symlinks are already covered by
+			// the CanonicalTranscriptFileName case above (same literal string,
+			// left on disk read-only — see linkEngineTranscript's doc).
+			if strings.HasPrefix(name, paths.EngineTranscriptLinkPrefix) {
+				continue
+			}
 			flagged = append(flagged, harp+"/"+name)
 		}
 	}

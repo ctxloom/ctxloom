@@ -475,9 +475,10 @@ func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySuc
 
 // TestConvertVendorTranscript_Refresh_ReplacesExistingSymlinkWithARegularFile
 // is a defensive robustness check on the atomic install, NOT a pin of a real
-// production scenario: sessions.linkTranscriptIntoHarpDir's convenience
-// symlink lives at the harp ROOT (<harp>/transcript.jsonl, pointing at the
-// live vendor file) — a DIFFERENT path from paths.HarpCanonicalTranscriptPath
+// production scenario: sessions.linkEngineTranscript's per-vendor-log
+// convenience symlinks live at the harp ROOT
+// (<harp>/engine-transcript-<engine>-<sessionID>.jsonl, pointing at a live
+// vendor file) — a DIFFERENT path from paths.HarpCanonicalTranscriptPath
 // (<harp>/persist/transcript.jsonl), which is what this function's dest
 // actually is and which production code never turns into a symlink. This
 // test only confirms os.Rename's documented behavior (replaces whatever is

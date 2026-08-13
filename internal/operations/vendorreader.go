@@ -248,13 +248,15 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	//
 	// dest here is the PERSIST-DIR canonical path (paths.
 	// HarpCanonicalTranscriptPath / ResolveHarpCanonicalTranscriptPath —
-	// <harp>/persist/transcript.jsonl), never sessions.linkTranscriptIntoHarpDir's
-	// convenience symlink (a DIFFERENT file at the harp ROOT, <harp>/
-	// transcript.jsonl, pointing at the live vendor file). Production never
-	// makes THIS path a symlink. iox.AtomicFile's Commit still replaces
-	// whatever is at a destination atomically without following a symlink if
-	// it ever were one, so this stays correct even if that ever changed — but
-	// nothing here currently exercises that case.
+	// <harp>/persist/transcript.jsonl), never one of
+	// sessions.linkEngineTranscript's per-vendor-log convenience symlinks
+	// (DIFFERENT files at the harp ROOT, <harp>/engine-transcript-<engine>-
+	// <sessionID>.jsonl, each pointing at a live vendor file — see its doc
+	// for why there is one per binding rather than one mutable name).
+	// Production never makes THIS path a symlink. iox.AtomicFile's Commit
+	// still replaces whatever is at a destination atomically without
+	// following a symlink if it ever were one, so this stays correct even if
+	// that ever changed — but nothing here currently exercises that case.
 	dest, derr := canonicalDestination(e.HarpName, refresh)
 	if derr != nil {
 		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)

@@ -1339,6 +1339,24 @@ func TestDoctorCheckHarpDurability_RightState_OnlyClassifiedFiles(t *testing.T) 
 	assert.Equal(t, doctorOK, check.Status)
 }
 
+// TestDoctorCheckHarpDurability_RightState_EngineTranscriptLinksExcluded pins
+// that the per-vendor-log engine-transcript symlinks (sessions.
+// linkEngineTranscript, fs-consolidation plan C12) are ctxloom-owned and must
+// never be flagged as an at-risk authored artifact — several can legitimately
+// sit at one harp dir's top level (one per rotation, one per engine).
+func TestDoctorCheckHarpDurability_RightState_EngineTranscriptLinksExcluded(t *testing.T) {
+	testsupport.Isolate(t)
+	harpDir, err := paths.HarpDir("amber-quiet-heron")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(harpDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "engine-transcript-claude-code-sess-1.jsonl"), []byte("{}"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "engine-transcript-claude-code-sess-2.jsonl"), []byte("{}"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "engine-transcript-codex-sess-3.jsonl"), []byte("{}"), 0o644))
+
+	check := doctorCheckHarpDurability()
+	assert.Equal(t, doctorOK, check.Status)
+}
+
 // TestDoctorCheckHarpDurability_WrongState_NamesTheAuthoredFile is J001300 row
 // 3's own assertion: an authored plan file sitting at a harp directory's TOP
 // LEVEL must be named, with the word "persist" in the fix.

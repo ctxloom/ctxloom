@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -41,7 +42,13 @@ func fakeItemRender(i fakeItem) ([]PackageFile, error) { return i.files, i.err }
 // mutation kill for phase ordering: revert render-then-swap back to the
 // historical delete-first order and this goes red, because the previously
 // written scripts/run.sh would already be gone by the time the render error
-// is discovered.
+// is discovered — regardless of which layer catches the failure. Here the
+// ONLY enabled item fails to render, so this is also exercising the
+// empty-render guard's "would gut a previously-populated surface" branch
+// (a render() error is a per-item warn-and-skip, same as an unsafe path —
+// see the doc comment above WriteManagedPackageFiles' phase 1 — but skipping
+// the only item still drives expectedFileCount to zero against a non-empty
+// previous ledger, which the guard refuses).
 func TestWriteManagedPackageFiles_RenderFailureLeavesOldSurfaceIntact(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/work/.claude/skills"
@@ -188,4 +195,48 @@ func TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFi
 
 	assert.False(t, violated.Load(), "%s", detail.Load())
 	assert.True(t, everSeen.Load(), "the reader must have observed the surface present at least once, or this test proves nothing")
+}
+
+// TestWriteManagedPackageFiles_FirstDeliveryIntoWhollyNonexistentTree pins the
+// merge-gate defect found in four consumer packages (internal/claude,
+// internal/kiro, internal/opencode, internal/operations): on a FIRST-EVER
+// delivery, dir's own parent (e.g. .claude/, the engine's config dir) does not
+// exist yet either. Phase 2 creates dir's temp SIBLING via
+// afero.TempDir(fs, filepath.Dir(dir), …), which — unlike the pre-rewrite
+// writer's single recursive fs.MkdirAll(dir, …) — needs filepath.Dir(dir) to
+// already exist; afero.TempDir's underlying Mkdir is not recursive. Mutation:
+// remove the fs.MkdirAll(filepath.Dir(dir), …) call added ahead of the
+// afero.TempDir call and this goes red with exactly the reported error shape
+// ("mkdir .../.skills.tmp-…: no such file or directory").
+func TestWriteManagedPackageFiles_FirstDeliveryIntoWhollyNonexistentTree(t *testing.T) {
+	fs := afero.NewOsFs()
+	root := t.TempDir()
+	// Nothing below root exists yet — not "project", not ".claude", not
+	// ".claude/skills" — mirroring a fresh checkout with no prior ctxloom
+	// delivery at all.
+	dir := filepath.Join(root, "project", ".claude", "skills")
+
+	items := []fakeItem{{
+		name:    "reviewer",
+		enabled: true,
+		files: []PackageFile{
+			{RelPath: "reviewer/SKILL.md", Content: []byte("---\nname: reviewer\n---\nBody"), Mode: 0644},
+			{RelPath: "reviewer/scripts/run.sh", Content: []byte("#!/bin/sh\necho reviewer\n"), Mode: 0755},
+		},
+	}}
+
+	err := WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, fakeItemEnabled, fakeItemName, fakeItemRender)
+	require.NoError(t, err, "a first-ever delivery into a wholly nonexistent parent chain must succeed, not fail on temp-tree creation")
+
+	skillMD, err := afero.ReadFile(fs, filepath.Join(dir, "reviewer", "SKILL.md"))
+	require.NoError(t, err, "SKILL.md must actually be on disk, not just report success")
+	assert.Contains(t, string(skillMD), "Body")
+
+	script, err := afero.ReadFile(fs, filepath.Join(dir, "reviewer", "scripts", "run.sh"))
+	require.NoError(t, err, "the sibling script must actually be on disk")
+	assert.Contains(t, string(script), "echo reviewer")
+
+	info, err := fs.Stat(filepath.Join(dir, "reviewer", "scripts", "run.sh"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit must survive a from-scratch delivery")
 }

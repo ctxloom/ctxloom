@@ -107,6 +107,63 @@ func TestApproachAssert_RefusesARunThatDegradedOffThePin(t *testing.T) {
 	}
 }
 
+// codexHookNotWrittenWarning is the VERBATIM stderr line that made P1's first
+// codex finding false. Kept exactly as production emitted it (captured
+// 2026-08-13 from the codex hook cell's own run) so the guard is matched against
+// the real thing rather than against a paraphrase of it.
+const codexHookNotWrittenWarning = "ctxloom: warning: codex hooks and MCP servers were NOT written: codex settings/prompts/skills are delivered per-session at launch; no durable project home exists — see config_home. They are delivered into this session's own CODEX_HOME when an agent whose binding declares `config_home: project` launches; there is no durable project file to materialize. codex's cwd-keyed AGENTS.md context is unaffected and was still written.\n"
+
+// TestApproachAssert_RefusesAHookCellWhoseHookWasNeverWritten is the regression
+// test for a false FINDING, which is a rarer and more expensive thing than a
+// false test.
+//
+// The original codex hook cell went green, and P1 recorded on that basis that
+// the 2026-07-14 fragment-drop finding was fixed. It was not: the run's stderr
+// said the hook surface had not been written at all, so the nonce had arrived
+// through codex's natively-read AGENTS.md and the cell's subject — the hook —
+// had never existed in that session. stdout looked identical either way, which
+// is precisely why the check has to live off stdout.
+func TestApproachAssert_RefusesAHookCellWhoseHookWasNeverWritten(t *testing.T) {
+	s := approachCellFixture()
+	s.engine, s.variant, s.approach = "codex", "hook", "hook"
+	s.stdout = "{\"hello\":\"swift-amber-falcon\"}\n"
+	s.stderr = codexHookNotWrittenWarning
+
+	err := approachAssert(s)
+	require.Error(t, err,
+		"a hook-pinned cell whose hook was never written must not pass. It did once, and the green became a written finding that another slice had to come back and overturn.")
+	shape, ok := probeShapeOf(err)
+	require.True(t, ok)
+	require.Equal(t, channelComposedContext.Shape, shape,
+		"an uninstalled hook is a CONTEXT-DELIVERY failure: the context arrived, but not by the channel this cell names")
+	require.Contains(t, err.Error(), "NOT written",
+		"the failure must quote production's own words, so the next reader can find the same line in their own run")
+}
+
+// TestApproachRequiredSurfaceDelivered_IsScopedToTheApproachThatRidesTheHook.
+// The same launch legitimately reports other undelivered surfaces, and a red a
+// context probe cannot act on is its own kind of noise. Only the approach that
+// is COUPLED to the settings surface (agent.ApproachHook's own doc) cares.
+func TestApproachRequiredSurfaceDelivered_IsScopedToTheApproachThatRidesTheHook(t *testing.T) {
+	for _, approach := range []string{"unsafe-file", "system-prompt"} {
+		t.Run(approach, func(t *testing.T) {
+			s := approachCellFixture()
+			s.engine, s.variant, s.approach = "codex", approach, approach
+			s.stderr = codexHookNotWrittenWarning
+			require.NoError(t, approachAssert(s),
+				"%s carries itself and does not ride the hook surface; reddening it for an unwritten hook would be a red nobody can act on", approach)
+		})
+	}
+
+	t.Run("an unrelated NOT-written line does not red a hook cell", func(t *testing.T) {
+		s := approachCellFixture()
+		s.engine, s.variant, s.approach = "codex", "hook", "hook"
+		s.stderr = "ctxloom: warning: codex slash-command prompts were NOT written: no durable project home exists\n"
+		require.NoError(t, approachAssert(s),
+			"the guard must require BOTH the not-written signal and the hook on the same line: undelivered PROMPTS say nothing about the context channel")
+	})
+}
+
 // TestApproachAssert_RunFailureBeatsThePinCheck keeps the diagnostic ORDER
 // honest. A crashed run's stderr can contain almost anything; if the pin check
 // ran first, an engine that died while printing an unrelated warning would be

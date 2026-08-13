@@ -201,6 +201,59 @@ var approachDegradeMarkers = []approachDegradeMarker{
 	},
 }
 
+// approachHookSurfaceUndelivered reports the stderr line, if any, in which
+// production announced that it did NOT write the hook surface.
+//
+// THIS CHECK EXISTS BECAUSE ITS ABSENCE COST A FALSE FINDING. P1's first live
+// pass recorded "the 2026-07-14 codex hook finding is fixed" on the strength of
+// a green hook-pinned codex cell. The run's own stderr — captured, saved, and
+// not read — said:
+//
+//	ctxloom: warning: codex hooks and MCP servers were NOT written: codex
+//	settings/prompts/skills are delivered per-session at launch; no durable
+//	project home exists — see config_home. ... codex's cwd-keyed AGENTS.md
+//	context is unaffected and was still written.
+//
+// There was no hook. The context arrived by AGENTS.md, which codex reads
+// natively, and the cell's entire claim was about a mechanism that had not been
+// installed. A probe that reads only stdout cannot see this: the answer is
+// correct either way.
+//
+// Matched per LINE and requiring BOTH signals, rather than on "NOT written"
+// alone: the same launch legitimately reports that other surfaces (slash-command
+// prompts, MCP) were not written, and reddening a context cell for those would
+// be a different kind of dishonesty — a red nobody can act on.
+func approachHookSurfaceUndelivered(stderr string) (string, bool) {
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.Contains(line, "NOT written") && strings.Contains(strings.ToLower(line), "hook") {
+			return strings.TrimSpace(line), true
+		}
+	}
+	return "", false
+}
+
+// approachRequiredSurfaceDelivered refuses a cell whose pinned approach depends
+// on a surface production said it did not write.
+//
+// Scoped to the hook approach because that is the only context approach that
+// rides another surface: agent.ApproachHook's own doc says it is COUPLED to the
+// settings surface (the hook travels on it), so a settings/hooks surface that
+// was never written means the pinned mechanism does not exist in that session.
+// unsafe-file and system-prompt carry themselves and are unaffected.
+func approachRequiredSurfaceDelivered(v probeVerdict, approach, stderr string) error {
+	if approach != "hook" {
+		return nil
+	}
+	line, undelivered := approachHookSurfaceUndelivered(stderr)
+	if !undelivered {
+		return nil
+	}
+	return v.fail(v.Channel.Shape,
+		fmt.Sprintf("%s — the cell pinned the %q approach, but production reported that it did NOT write the hook surface the approach rides: %q. agent.ApproachHook is coupled to the settings surface, so with no hook installed there is no hook channel, and any nonce that came back arrived some other way. Whatever this run proves, it is not about the hook.",
+			v.Channel.Shape, approach, line),
+		fmt.Sprintf("\nstderr:\n%s", stderr))
+}
+
 // approachPinHonoured is the check that separates this probe from P0: it refuses
 // a run in which production announced it was not using the pinned approach.
 //
@@ -236,6 +289,12 @@ func approachPinHonoured(v probeVerdict, approach, stderr string) error {
 //	               perfectly is this probe's characteristic false green, and a
 //	               green reported here would be a lie about the capability rather
 //	               than a mistake about the output.
+//	surfaceDelivered — was the surface the pinned approach RIDES actually
+//	               written. Same position and same argument, one level down:
+//	               the pin can be honoured by a launch that then declines to
+//	               install the mechanism, and the model answers just as well
+//	               from whatever else reached it. This check was added after a
+//	               measured false finding, not in anticipation of one.
 //	jsonObject   — is stdout the requested form (fences and preamble are RED, by
 //	               design; see the feature header).
 //	carriesNonce — did the pinned channel deliver at all.
@@ -247,6 +306,9 @@ func approachAssert(s *approachState) error {
 		return err
 	}
 	if err := approachPinHonoured(v, s.approach, s.stderr); err != nil {
+		return err
+	}
+	if err := approachRequiredSurfaceDelivered(v, s.approach, s.stderr); err != nil {
 		return err
 	}
 	got, err := v.jsonObject(trimmed)

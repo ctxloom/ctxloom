@@ -283,19 +283,23 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells: []probeCell{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "system-prompt",
-				Status: probeLiveVerified, Reason: "agent.ApproachSystemPrompt (--append-system-prompt-file) is claude-only, and no test had ever selected it live. Measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 5.3s, harp \"fond-ugly-cycle\" planted in a profile bundle fragment and echoed back exactly, no degrade warning on stderr. Inventory row 4 moves from claimed to proven."},
+				Status: probeLiveVerified, Reason: "agent.ApproachSystemPrompt (--append-system-prompt-file) is claude-only, and no test had ever selected it live. Measured 2026-08-13: 1 scenario / 3 steps green in 5.3s, harp \"fond-ugly-cycle\" echoed back exactly, no degrade warning. SIDE-CHANNEL-CONTROLLED, by the only two arguments available: the DELIVERY writes out of cwd (claude's system-prompt realization is the ladder's one context delivery that puts no nonce bytes in the workspace — TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace), and the workspace-search channel that remains — the fixture's own bundle YAML in the project tree — is ruled out by the NEGATIVE CONTROL sitting next to it: the claude hook cell has that identical tree, identical tools and identical prompt, and comes back with no nonce. An engine that was reading the fixture off disk would have passed both. Inventory row 4 moves from claimed to proven."},
 			// THE ONE RED IN P1, AND IT IS A PRODUCT FINDING. See the long note
 			// below the table: claude's hook context route delivers nothing.
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "hook",
 				Status: probeWired, ExpectedFailure: channelComposedContext.Shape,
 				ExpectedFailureNote: "measured 2026-08-13, THREE consecutive runs, three freshly minted harps, same shape every time: the run exits 0 with well-formed JSON that carries nothing of the nonce. Verbatim stdout, in order: {\"hello\":\"2467643947\"} (harp \"vast-racy-pound\"), {\"hello\":\"bumpy-stony-sixth\"} (harp \"near-green-parka\"), {\"hello\":\"mere-teal-jet\"} (harp \"free-rich-jet\"). Two of the three answers are that run's OWN SESSION HARP, which ctxloom had just printed in its start-session banner — see the note below the table for why that detail is the finding rather than a curiosity. No degrade marker appeared on stderr, so the pin WAS honoured; the same stderr also reports \"context: 2 fragment(s), ~336 tokens\", so the context was assembled. The failure is between assembly and the model, in the hook route itself.",
-				Reason: "claude's SessionStart inject-context route. A green here would also have meant the vendor binary EXECUTED a ctxloom-written hook — inventory row 7's own proof is P3's job, and P3 should now expect to find something."},
+				Reason: "RE-ATTRIBUTED 2026-08-13: this is not a broken hook route, it is an EMPTY one. claude's Surfaces.SurfaceFor resolves (context, ApproachHook) to noopContextDelivery — a documented no-op, on the reasoning that claude's APPLY path carries context through the settings-borne inject hook plus a regenerated cache file. On a LAUNCH that reasoning does not hold: the context surface is what would have written that cache file, and at this approach it writes nothing (TestClaudeHookApproach_DeliversNothing). So a user-selectable config key elects a delivery of zero bytes and the session starts anyway, reporting success. Doubles as the negative control for the system-prompt cell's side channel."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "unsafe-file-shared",
 				Status: probeLiveVerified, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion, and the worktree axis is where that matters. Measured 2026-08-13: 1 scenario / 3 steps green in 5.5s, harp \"snug-void-rebel\", no degrade warning. CLAUDE.md into an isolated checkout delivers."},
+			// RETRACTED 2026-08-13, same day, after S4's hook-firing probe
+			// forced a re-adjudication. This cell WAS recorded live-verified
+			// with "the 2026-07-14 finding is fixed". It was not fixed; the cell
+			// never touched the hook. See the retraction note below the table.
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probeLiveVerified, Reason: "THE 2026-07-14 FINDING IS FIXED, and this cell is the measurement that says so. That finding (recorded on liveAgents[\"codex\"]) was that codex's run-path context cache file — the one its SessionStart hook actually reads — carried only companion fragments and DROPPED the active profile's own bundle fragments. This cell's nonce lives in exactly such a fragment. Measured 2026-08-13: 1 scenario / 3 steps green in 17.3s, harp \"funny-bats-wife\" echoed back exactly, no degrade warning. Inventory row 5 is proven for codex."},
+				Status: probeDeferred, Reason: "NO SELECTABLE CONFIGURATION ISOLATES CODEX'S HOOK CONTEXT CHANNEL, so an attributing cell cannot be built here yet — deferred rather than left standing as a green that measures something else. Two independent reasons, both pinned hermetically in capability_context_channels_test.go: (1) codex's Surfaces.SurfaceFor resolves (context, Hook) to a COMPOSED delivery that also writes the native AGENTS.md, which codex reads by itself with no hook involved (TestCodexHookApproach_AlsoWritesAGENTSMD); (2) on this fixture ctxloom writes codex no hook AT ALL — it warns \"codex hooks and MCP servers were NOT written ... no durable project home exists — see config_home\" — so the channel is absent from the session entirely. An attributing cell needs a binding with `config_home: project` (so a hook is written), plus S4's stamp-file discipline (so hook EXECUTION is observed rather than inferred), plus a way to suppress the AGENTS.md leg. approachRequiredSurfaceDelivered now reds any hook cell whose hook was not written, so this cannot silently come back."},
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "unsafe-file",
-				Status: probeLiveVerified, Reason: "codex's AGENTS.md route, and the CONTROL for the hook row above: same engine, same axes, same nonce channel, different mechanism. Measured 2026-08-13: 1 scenario / 3 steps green in 7.0s, harp \"smug-fatal-rush\". With both codex rows green the differential says the hook route is healthy rather than merely untested."},
+				Status: probeLiveVerified, Reason: "codex's AGENTS.md route. Measured 2026-08-13: 1 scenario / 3 steps green in 7.0s, harp \"smug-fatal-rush\", no degrade warning. NOT SIDE-CHANNEL-CONTROLLED, and the registry says so rather than implying otherwise: codex has no out-of-cwd realization for any surface (TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace), so this delivery writes AGENTS.md INTO the working directory, and the fixture's own bundle YAML sits in the project tree beside it. S4 measured codex satisfying a nonce probe by searching the workspace with rg. So this cell proves the bytes reached the workspace and the model produced them; it does not separate native AGENTS.md ingestion from agentic file search. The claim is stated at that strength deliberately."},
 			// These two named the HOOKS surface's symbols (kiro.WithContextHook,
 			// noHooksReason) — which is P3's gate, a different claim. What
 			// declares the absence for a CONTEXT-DELIVERY probe is the engine's
@@ -592,25 +596,87 @@ func p0Cells() []probeCell {
 // a CONTEXT-DELIVERY failure while the engine is plainly healthy, the nonce is
 // still the first thing to rule out, and matrixBundleYAML is where to look.
 
-// P1's FINDING, 2026-08-13: CLAUDE'S HOOK CONTEXT ROUTE DELIVERS NOTHING — AND
-// THE MINTED-HARP RULING IS WHAT CAUGHT IT.
+// RETRACTION, 2026-08-13: P1's CODEX HOOK FINDING WAS WRONG, AND THE WAY IT WAS
+// WRONG IS THE MOST USEFUL THING THIS PROBE HAS PRODUCED.
+//
+// P1 first recorded, against the codex hook cell: "THE 2026-07-14 FINDING IS
+// FIXED, and this cell is the measurement that says so." The cell was green, the
+// pin validated, no degrade warning. Every word of the evidence was true and the
+// conclusion did not follow. S4's hook-firing probe forced the re-check by
+// measuring, independently, that codex hooks never fire under `codex exec` and
+// that codex will satisfy a nonce probe by searching the workspace for the
+// phrase.
+//
+// The re-adjudication needed no new paid turn, because the disproof was already
+// in the first run's own captured stderr, unread:
+//
+//	ctxloom: warning: codex hooks and MCP servers were NOT written: codex
+//	settings/prompts/skills are delivered per-session at launch; no durable
+//	project home exists — see config_home. ... codex's cwd-keyed AGENTS.md
+//	context is unaffected and was still written.
+//
+// There was no hook in that session. ctxloom said so, on the run that was cited
+// as proof that the hook worked. Two independent facts, both now pinned
+// hermetically in capability_context_channels_test.go, close it:
+//
+//  1. codex's SurfaceFor resolves (context, Hook) to a COMPOSED delivery that
+//     ALSO writes the native AGENTS.md, which codex reads by itself. So even
+//     with a hook installed, a green hook-pinned codex cell cannot attribute
+//     anything to the hook.
+//  2. On this fixture no codex hook is written at all.
+//
+// So the 2026-07-14 fragment-drop finding is REOPENED. It was never re-measured;
+// a different channel answered and the answer was credited to the wrong one. The
+// cell is deferred with what an attributing version would require.
+//
+// WHAT WENT WRONG METHODOLOGICALLY, stated plainly because it generalises. The
+// verdict asked "did the pinned approach get selected" and never "did the
+// mechanism get installed", and it read the model's answer instead of ctxloom's
+// report. For a tool-using engine the model's answer is downstream of every
+// channel at once, so it can never attribute one. approachRequiredSurfaceDelivered
+// is the corrective, and it is retrospective: it exists because of this, not in
+// anticipation of it.
+//
+// WHAT EVERY OTHER CONTEXT PROBE INHERITS — P0 INCLUDED. The nonce lives in a
+// bundle file inside the project tree, and every engine except claude-at-
+// system-prompt also has its context DELIVERED into the working directory (no
+// out-of-cwd realization exists for codex, kiro or opencode). So for any
+// tool-using engine, a nonce-echo context cell cannot separate "ctxloom
+// delivered the context" from "the engine read the bytes off disk". P0's sixteen
+// cells are all in this position. That is not a reason to delete them — they
+// still prove the run completes, the isolation scheme survives, and the output
+// contract holds — but "context delivery survived that isolation scheme" is a
+// stronger claim than they can support, and P0's header currently makes it.
+// Recorded here for S9/S11 rather than edited into P0's file mid-wave.
+//
+// P1's SURVIVING FINDING, 2026-08-13: CLAUDE'S HOOK CONTEXT APPROACH IS AN EMPTY
+// DELIVERY — AND THE MINTED-HARP RULING IS WHAT CAUGHT IT.
 //
 // The cell is claude-code host/none at agent.ApproachHook: the agent binding
-// pins `surfaces: {context: hook}`, so context should reach the model through
-// the SessionStart inject-context hook ctxloom writes into .claude/settings.json
-// and the vendor binary then executes. Three consecutive runs, three freshly
-// minted harps, one shape: exit 0, well-formed JSON, no trace of the nonce.
+// pins `surfaces: {context: hook}`. Three consecutive runs, three freshly minted
+// harps, one shape: exit 0, well-formed JSON, no trace of the nonce.
 //
-// WHAT IT IS NOT. It is not a degrade: no degrade marker appeared on stderr, so
-// operations.ResolveAgent validated the pin and internal/cli/run.go carried it to
-// the wire (approachPinHonoured is the check that can tell these apart, and this
-// is the case it was written for). It is not an empty assembly either — the same
-// stderr reports "context: 2 fragment(s), ~336 tokens". The context was composed
-// and the mechanism was selected; what did not happen is the model seeing it. It
-// is also not the output contract: the JSON was perfect every time. Every other
-// approach on both engines that declares one — claude system-prompt, claude
-// unsafe-file, codex hook, codex unsafe-file — went green on the same fixture in
-// the same hour.
+// THE MECHANISM, read from production rather than guessed from the answers:
+// claude's Surfaces.SurfaceFor resolves (context, ApproachHook) to
+// noopContextDelivery — "a documented no-op", justified by claude's APPLY path
+// carrying context through the settings-borne inject hook plus a regenerated
+// cache file. A LAUNCH is not that path: the context surface is the thing that
+// would have written the cache file, and at this approach it writes nothing.
+// TestClaudeHookApproach_DeliversNothing holds that fact so this attribution
+// cannot rot the way the codex one did.
+//
+// So the finding is sharper than "the hook route is broken": a user-selectable
+// config key elects a context delivery of ZERO BYTES, and the session launches
+// and reports success. That is this project's characteristic bug — exit 0, no
+// payload — sitting in the delivery layer, reachable from config.yaml.
+//
+// WHAT IT IS NOT. Not a degrade: no degrade marker appeared on stderr, so the
+// pin reached the wire (approachPinHonoured is the check that tells those
+// apart). Not an unwritten hook surface either — claude has a durable project
+// home, so unlike codex its hook IS written; approachRequiredSurfaceDelivered
+// stays silent here, correctly. Not an empty assembly: the same stderr reports
+// "context: 2 fragment(s), ~336 tokens". And not the output contract — the JSON
+// was perfect every time.
 //
 // NOW THE PART THAT MATTERS BEYOND THIS CELL. Two of the three runs answered
 // with that run's OWN SESSION HARP — {"hello":"bumpy-stony-sixth"} and

@@ -101,7 +101,28 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
       | engine | runtime   | workspace |
       | codex  | container | worktree  |
 
-    @kiro @host @ws-none
+    # @wip — RED, and the finding is NOT about the model. Measured 2026-08-13:
+    # kiro produced the requested object byte-perfectly, and ctxloom handed it
+    # back on stdout wrapped in TERMINAL DECORATION — an ANSI colour sequence
+    # and an interactive prompt marker:
+    #
+    #   \x1b[38;5;141m> \x1b[0m{"hello":"CTXLOOM-HELLO-a1eeaec503ddef0c"}\x1b[0m
+    #
+    # reported as: OUTPUT-FORMAT failure — stdout is not a bare JSON object
+    # (invalid character '\x1b' looking for beginning of value).
+    #
+    # So a one-shot kiro run's stdout is not machine-readable: any caller
+    # piping `ctxloom run --one-shot` into a JSON parser gets a syntax error,
+    # while the engine did everything right. That is a ctxloom-side channel
+    # defect (the interactive `> ` echo leaking into a non-interactive
+    # capture), not an engine one, and it is exactly the class of thing this
+    # floor exists to surface.
+    #
+    # DO NOT fix this by stripping ANSI in the assertion. The contract under
+    # test is "stdout IS the JSON"; a matcher that launders the stream would
+    # report success to this suite while every real consumer still breaks.
+    # Untag when a one-shot kiro run's stdout is the bare object.
+    @kiro @host @ws-none @wip
     Examples:
       | engine | runtime | workspace |
       | kiro   | host    | none      |
@@ -126,6 +147,22 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
       | engine   | runtime | workspace |
       | opencode | host    | none      |
 
+    # GREEN, but FLAKY — recorded rather than smoothed over. Measured
+    # 2026-08-13: two consecutive attempts, the first FAILED and the second
+    # passed in 100s, same fixture, same box. The failing attempt's stderr:
+    #
+    #   ctxloom: warning: run channel down (reconnecting): rpc error: code =
+    #     Unavailable ... dial tcp 127.0.0.1:1: connect: connection refused
+    #   ctxloom: warning: runner dial-home failed (reconnecting; the
+    #     coordinator synthesizes loss meanwhile): coord: open RunnerChannel:
+    #     ... dial tcp 127.0.0.1:1: connect: connection refused
+    #
+    # 127.0.0.1:1 is not a real endpoint, so the runner was handed a
+    # placeholder reach-back address rather than a live one — the same family
+    # as the standup-death silence fixed at 2725325e, and worth chasing on
+    # that evidence. This cell is left untagged (it does pass) with the
+    # flakiness documented here: if it goes red in a lane, check for that dial
+    # address before assuming the engine.
     @opencode @host @ws-worktree
     Examples:
       | engine   | runtime | workspace |

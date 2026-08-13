@@ -466,8 +466,7 @@ func (c *Compactor) legacySessionsDir() string {
 // precedence so the two can't disagree about where the essence lives.
 func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 	if harpName != "" {
-		if harpDir, err := harpSessionDir(harpName); err == nil {
-			essencePath := filepath.Join(harpDir, paths.EssenceFileName)
+		if essencePath, err := paths.HarpEssencePath(harpName); err == nil {
 			if st, err := os.Stat(essencePath); err == nil && st.Size() > 0 {
 				return essencePath, true
 			}
@@ -1264,7 +1263,11 @@ func (c *Compactor) saveEssence(harpName, legacyPath string, docBytes []byte) (s
 		c.warnf("create harp dir %s: %v; writing legacy layout only", harpDir, err)
 		return "", false
 	}
-	essencePath := filepath.Join(harpDir, paths.EssenceFileName)
+	essencePath, err := paths.HarpEssencePath(harpName)
+	if err != nil {
+		c.warnf("resolve essence path for %s: %v; writing legacy layout only", harpName, err)
+		return "", false
+	}
 	if err := iox.WriteFileAtomic(essencePath, docBytes, 0o644); err != nil {
 		c.warnf("write essence %s: %v; writing legacy layout only", essencePath, err)
 		return "", false

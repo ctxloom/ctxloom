@@ -579,7 +579,7 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 // parameter is kept so a future second ItemType doesn't require re-widening the
 // signature (the switch this replaced had an identical case and default arm).
 func PublishPath(_ ItemType, name string) string {
-	return path.Join(paths.RepoContentPrefix, "bundles", name+".yaml")
+	return path.Join(paths.RepoContentPrefix, paths.BundlesDir, name+".yaml")
 }
 
 // NewPublisher creates a publisher for the given repository URL: the GitHub

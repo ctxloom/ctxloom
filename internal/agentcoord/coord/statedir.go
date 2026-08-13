@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -29,19 +28,22 @@ import (
 //	    endpoint.json      last-bound ports, re-bound on relaunch so
 //	                       adopted children re-Hello a stable endpoint
 //
-// Declared in discover, whose List globs this same directory.
-const coordDirName = discover.DirName
+// The "coord" segment and the per-project directory it composes both live in
+// internal/paths (CoordDirName, CoordProjectStateDir) — the declarative
+// source of truth for ctxloom path segments (docs/architecture/core/
+// paths.md). discover, the layout owner for endpoint.json's SHAPE (see its
+// package doc), globs this same directory via paths.HomeCoordDir.
+const coordDirName = paths.CoordDirName
 
 // stateDirForProject resolves the coordinator state dir, keyed by project
 // (plan: durability first, keyed by project — a fresh `ctxloom run` adopts
 // orphaned state from disk). projectKey should be the stable project id when
 // one resolves; the caller may fall back to a path-derived key.
 func stateDirForProject(projectKey string) (string, error) {
-	home, err := os.UserHomeDir()
+	dir, err := paths.CoordProjectStateDir(sanitizeKey(projectKey))
 	if err != nil {
 		return "", fmt.Errorf("coord: state dir: %w", err)
 	}
-	dir := filepath.Join(home, paths.AppDirName, coordDirName, sanitizeKey(projectKey))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("coord: state dir: %w", err)
 	}

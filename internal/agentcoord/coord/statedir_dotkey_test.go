@@ -62,3 +62,22 @@ func TestSanitizeKey_DotHandling(t *testing.T) {
 	assert.Equal(t, "a-b", sanitizeKey("a..b"), "traversal is still mapped, not preserved")
 	assert.NotEqual(t, sanitizeKey("proj.one"), sanitizeKey("proj.two"))
 }
+
+// TestStateDirForProject_ResolvesUnderHomeDotCtxloomCoord pins
+// stateDirForProject's resolved path against a HARD-CODED ".ctxloom"/"coord"
+// segment pair, independent of paths.CoordDirName/paths.AppDirName — unlike
+// TestStateDirForProject_DotOnlyKeyNeverResolvesToTheCoordRoot above (which
+// builds its "root" from the same coordDirName identifier production uses,
+// so it cannot catch a change to that identifier's VALUE), this test fails
+// if either segment's spelling ever drifts.
+func TestStateDirForProject_ResolvesUnderHomeDotCtxloomCoord(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := os.UserHomeDir()
+	require.NoError(t, err)
+	require.Equal(t, home, got, "the HOME override must be what os.UserHomeDir resolves")
+
+	dir, err := stateDirForProject("proj-key")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, ".ctxloom", "coord", "proj-key"), dir)
+}

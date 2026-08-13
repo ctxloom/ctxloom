@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // hookCell builds a stage-(a)-only cell whose run succeeded, so each test below
@@ -346,32 +347,98 @@ func TestHookProbePrompt_StageAAsksForNothingParseable(t *testing.T) {
 
 // --- the carriage evidence scan --------------------------------------------------
 
+const carriageNeedle = "/tmp/p3/stamp-claude-code.sh"
+
+func writeCarriageFile(t *testing.T, path, body string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestHookProbeCarriageScan_FindsTheDeliveredHookAndSaysNothingWhenAbsent(t *testing.T) {
 	root := t.TempDir()
-	const needle = "/tmp/p3/stamp-claude-code.sh"
 
-	if got := hookProbeCarriageScan(root, needle); got != "" {
+	if got := hookProbeCarriageScan(hookProbeCarriage{Needle: carriageNeedle, Roots: []string{root}}); got != "" {
 		t.Errorf("an empty tree must yield NO carriage claim (silence is honest here; the settings may ride an out-of-cwd scratch), got %q", got)
 	}
 
-	settings := filepath.Join(root, ".claude")
-	if err := os.MkdirAll(settings, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(settings, "settings.json"),
-		[]byte(`{"hooks":{"SessionStart":[{"hooks":[{"command":"`+needle+` swift-amber-falcon"}]}]}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got := hookProbeCarriageScan(root, needle)
-	if !strings.Contains(got, filepath.Join(".claude", "settings.json")) {
+	settings := writeCarriageFile(t, filepath.Join(root, ".claude", "settings.json"),
+		`{"hooks":{"SessionStart":[{"hooks":[{"command":"`+carriageNeedle+` swift-amber-falcon"}]}]}}`)
+
+	got := hookProbeCarriageScan(hookProbeCarriage{Needle: carriageNeedle, Roots: []string{root}})
+	if !strings.Contains(got, settings) {
 		t.Errorf("the scan must name the file that carried the hook command — that is what separates a carriage red from a firing red, got %q", got)
+	}
+}
+
+// THE FLAW A LIVE RUN EXPOSED, now pinned. The fixture DECLARES the hook in a
+// bundle YAML it writes itself, so the command string is in the project tree
+// whether or not any settings writer ever ran. Counting that file made the scan
+// report "hook command found in .ctxloom/content/bundles/bundle-hookprobe.yaml"
+// on a run where delivery could not be confirmed at all — a diagnostic pointing
+// confidently at the wrong subsystem, which is worse than one that says nothing.
+func TestHookProbeCarriageScan_ExcludesTheFixturesOwnDeclaration(t *testing.T) {
+	root := t.TempDir()
+	bundle := writeCarriageFile(t, filepath.Join(root, ".ctxloom", "content", "bundles", "bundle-hookprobe.yaml"),
+		"hooks:\n  session_start:\n    - command: \""+carriageNeedle+" swift-amber-falcon\"\n")
+
+	got := hookProbeCarriageScan(hookProbeCarriage{
+		Needle:   carriageNeedle,
+		Roots:    []string{root},
+		Authored: []string{bundle},
+	})
+	if got != "" {
+		t.Errorf("the fixture's OWN hook declaration is not evidence that ctxloom delivered anything; the scan must ignore it, got %q", got)
+	}
+
+	// Without the exclusion the same tree reports carriage — which is exactly
+	// the false diagnostic this guard exists to prevent, kept executable so
+	// nobody "simplifies" Authored away.
+	if unguarded := hookProbeCarriageScan(hookProbeCarriage{Needle: carriageNeedle, Roots: []string{root}}); unguarded == "" {
+		t.Error("this test is inert: the unguarded scan must still find the fixture file, or it is not demonstrating what Authored prevents")
+	}
+}
+
+// The session root holds every session ever recorded. NotBefore is what keeps
+// the scan from walking all of them and from attributing another run's
+// delivered settings to this cell.
+func TestHookProbeCarriageScan_NotBeforeExcludesOlderRuns(t *testing.T) {
+	root := t.TempDir()
+	old := writeCarriageFile(t, filepath.Join(root, "old-session", "settings.json"),
+		`{"command":"`+carriageNeedle+`"}`)
+	stale := time.Now().Add(-2 * time.Hour)
+	for _, p := range []string{old, filepath.Dir(old)} {
+		if err := os.Chtimes(p, stale, stale); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cutoff := time.Now().Add(-time.Minute)
+	if got := hookProbeCarriageScan(hookProbeCarriage{
+		Needle: carriageNeedle, Roots: []string{root}, NotBefore: cutoff,
+	}); got != "" {
+		t.Errorf("a session untouched since before this run cannot hold this run's delivery, got %q", got)
+	}
+
+	fresh := writeCarriageFile(t, filepath.Join(root, "this-session", "settings.json"),
+		`{"command":"`+carriageNeedle+`"}`)
+	got := hookProbeCarriageScan(hookProbeCarriage{
+		Needle: carriageNeedle, Roots: []string{root}, NotBefore: cutoff,
+	})
+	if !strings.Contains(got, fresh) {
+		t.Errorf("this run's own delivered settings must still be found, got %q", got)
 	}
 }
 
 // An empty needle would match every file and report carriage everywhere, which
 // would send a reader to the wrong subsystem with total confidence.
 func TestHookProbeCarriageScan_RefusesAnEmptyNeedle(t *testing.T) {
-	got := hookProbeCarriageScan(t.TempDir(), "")
+	got := hookProbeCarriageScan(hookProbeCarriage{Roots: []string{t.TempDir()}})
 	if !strings.Contains(got, "skipped") {
 		t.Errorf("an empty needle must be refused, not matched against everything, got %q", got)
 	}

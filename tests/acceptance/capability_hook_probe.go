@@ -56,6 +56,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // --- what each engine's hook surface can be asked to prove --------------------
@@ -214,12 +215,17 @@ type hookProbeState struct {
 	stampBody  string // the stamp file's bytes, read after the run
 	stampErr   error  // why the stamp file could not be read; nil once read
 
-	// carriage is EVIDENCE, never a gate: where in the project tree the hook
-	// command turned up after the run, so a red says whether ctxloom failed to
-	// WRITE the hook or the engine failed to RUN it. Not an assertion, because
-	// an engine may legitimately be handed its settings through an out-of-cwd
-	// scratch file via a launch flag, and a check that reddened on that would
-	// be asserting a delivery route rather than a capability.
+	// authored are the ABSOLUTE paths the fixture itself wrote. The carriage
+	// scan excludes them: the bundle YAML declares the hook command in plain
+	// text, so counting it would report a delivery that never happened.
+	authored []string
+
+	// carriage is EVIDENCE, never a gate: where the hook command turned up
+	// after the run, so a red says whether ctxloom failed to WRITE the hook or
+	// the engine failed to RUN it. Not an assertion, because an engine may
+	// legitimately be handed its settings through an out-of-cwd scratch file on
+	// a launch flag, and a check that reddened on that would be asserting a
+	// delivery route rather than a capability.
 	carriage string
 
 	stdout   string
@@ -358,54 +364,104 @@ func hookProbeCarriageOrUnknown(h *hookProbeState) string {
 
 // --- the carriage evidence scan --------------------------------------------------
 
-// hookProbeCarriageScan walks root for files whose bytes mention needle (the
-// stamp script's absolute path — unique per cell, so a hit is unambiguous) and
-// returns a one-line summary of where the delivered hook command landed.
+// hookProbeCarriage describes one carriage scan: what to look for, where to
+// look, what to ignore, and how recent a file has to be to count.
 //
-// EVIDENCE, NOT A GATE, and the doc comment says so at the call site too. Its
-// entire job is to split one red into two: "ctxloom never wrote the hook"
-// (carriage — our bug, inventory row 6) versus "ctxloom wrote it and the engine
-// never ran it" (firing — the vendor's behaviour, inventory row 7). Those are
-// the two subsystems P3 sits between, and a red that cannot say which one it
-// found sends the next person to the wrong file.
+// EVIDENCE, NOT A GATE. Its entire job is to split one red into two: "ctxloom
+// never wrote the hook" (carriage — our bug, inventory row 6) versus "ctxloom
+// wrote it and the engine never ran it" (firing — the vendor's behaviour,
+// inventory row 7). Those are the two subsystems P3 sits between, and a red
+// that cannot say which one it found sends the next person to the wrong file.
+//
+// AUTHORED IS THE FIELD THAT MAKES IT HONEST, and it was added because the scan
+// lied without it. The fixture DECLARES the hook in a bundle YAML it writes
+// itself, so the hook command is trivially present in the project tree whether
+// or not any settings writer ever ran. The first version of this scan reported
+// that file as carriage evidence — "hook command found in
+// .ctxloom/content/bundles/bundle-hookprobe.yaml" — which reads as "ctxloom
+// delivered the hook" and means nothing of the sort. A diagnostic that
+// confidently points at the wrong subsystem is worse than one that says
+// nothing, so the fixture's own files are excluded by exact path.
+//
+// ROOTS IS PLURAL FOR A MEASURED REASON. claude is launched with its settings
+// on a flag pointing OUT of the project — an ephemeral per-session directory
+// under the real home — so a project-only walk finds no delivered hook even on
+// a cell where delivery worked perfectly. The session root is scanned too, and
+// NotBefore keeps that from turning into a walk of every session ever recorded:
+// a directory untouched since the run began cannot contain this run's delivery.
+type hookProbeCarriage struct {
+	// Needle is the stamp script's absolute path — unique per cell (it carries
+	// the scenario's own temp root), so a hit is unambiguous.
+	Needle string
+	// Roots are the trees to walk, in report order.
+	Roots []string
+	// Authored are ABSOLUTE paths the fixture itself wrote. Their contents are
+	// the probe's own declaration, never evidence of delivery.
+	Authored []string
+	// NotBefore bounds the walk to this run: files and directories untouched
+	// since then belong to somebody else's session.
+	NotBefore time.Time
+}
+
+// hookProbeCarriageScan runs the scan and returns a one-line summary, or "" when
+// nothing was found.
 //
 // Errors are folded into the returned string rather than returned: a scan that
 // could not walk a directory must not fail the cell, because the cell's verdict
-// is the stamp file and this is a note attached to it.
-func hookProbeCarriageScan(root, needle string) string {
-	if needle == "" {
+// is the stamp file and this is only a note attached to it.
+func hookProbeCarriageScan(q hookProbeCarriage) string {
+	if q.Needle == "" {
 		return "carriage scan skipped: no hook command to look for"
 	}
+	authored := make(map[string]bool, len(q.Authored))
+	for _, p := range q.Authored {
+		if abs, err := filepath.Abs(p); err == nil {
+			authored[abs] = true
+		}
+	}
+
 	var hits []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	for _, root := range q.Roots {
+		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil // unreadable subtree: note nothing, fail nothing
+			}
+			info, ierr := d.Info()
+			if ierr != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if d.Name() == ".git" || d.Name() == "node_modules" {
+					return filepath.SkipDir
+				}
+				// The root itself is always descended: its own mtime says
+				// nothing about the subtree we care about.
+				if path != root && !q.NotBefore.IsZero() && info.ModTime().Before(q.NotBefore) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if info.Size() > hookProbeCarriageMaxFileBytes {
+				return nil
+			}
+			if !q.NotBefore.IsZero() && info.ModTime().Before(q.NotBefore) {
+				return nil
+			}
+			if authored[path] {
+				return nil // the probe's own declaration, not a delivery
+			}
+			b, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return nil
+			}
+			if strings.Contains(string(b), q.Needle) {
+				hits = append(hits, path)
+			}
+			return nil
+		})
 		if err != nil {
-			return nil // unreadable subtree: note nothing, fail nothing
+			hits = append(hits, fmt.Sprintf("(scan of %s failed: %v)", root, err))
 		}
-		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == "node_modules" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		info, ierr := d.Info()
-		if ierr != nil || info.Size() > hookProbeCarriageMaxFileBytes {
-			return nil
-		}
-		b, rerr := os.ReadFile(path)
-		if rerr != nil {
-			return nil
-		}
-		if strings.Contains(string(b), needle) {
-			rel, relErr := filepath.Rel(root, path)
-			if relErr != nil {
-				rel = path
-			}
-			hits = append(hits, rel)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Sprintf("carriage scan of %s failed: %v", root, err)
 	}
 	if len(hits) == 0 {
 		return ""

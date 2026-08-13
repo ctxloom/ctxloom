@@ -185,6 +185,17 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			if err := w.env.GitCommit("hook-probe fixture: " + engine + " " + runtime + "/" + workspace); err != nil {
 				return err
 			}
+			// The files the FIXTURE wrote, recorded so the carriage scan can
+			// exclude them. The bundle YAML declares the hook command in plain
+			// text, so a scan that counted it would report "ctxloom delivered
+			// the hook" on a run where no writer ever executed.
+			for _, rel := range []string{
+				".ctxloom/content/bundles/bundle-" + hookProbeAgent + ".yaml",
+				".ctxloom/profiles/" + hookProbeAgent + "-profile.yaml",
+				".ctxloom/config.yaml",
+			} {
+				h.authored = append(h.authored, filepath.Join(w.env.ProjectDir, rel))
+			}
 			return nil
 		})
 
@@ -195,6 +206,13 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		if h.stampHarp == "" || h.scriptPath == "" {
 			return fmt.Errorf("hook-probe: no cell fixture prepared — the Given step must run first")
 		}
+
+		// Stamped BEFORE the run so the carriage scan can tell this run's
+		// delivered files from every other session's. One second of slack
+		// absorbs filesystem timestamp granularity, which on some filesystems
+		// is coarse enough to stamp a file a moment "before" a clock read taken
+		// just before it was written.
+		runStart := time.Now().Add(-time.Second)
 
 		cmd := w.env.Command(nil, "run", "--agent", hookProbeAgent,
 			"--workspace", h.workspace, "--one-shot", hookProbePrompt(h.echoHarp != ""))
@@ -240,12 +258,38 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// Carriage evidence: EVIDENCE, never a gate. It splits a red into "we
 		// never wrote the hook" (row 6, our bug) and "we wrote it and the
 		// engine never ran it" (row 7, the vendor's behaviour).
-		h.carriage = hookProbeCarriageScan(w.env.ProjectDir, h.scriptPath)
+		//
+		// Two roots, because a project-only walk answers the wrong question:
+		// claude is launched with --settings pointing at an EPHEMERAL
+		// per-session directory under the real home, so its delivered hook is
+		// nowhere near the project. The session root is bounded by runStart so
+		// this does not become a walk of every session ever recorded.
+		//
+		// The fixture's own authored files are excluded by exact path. Without
+		// that the scan reports the bundle YAML the probe wrote itself and
+		// calls it delivery evidence — measured, and the reason Authored exists.
+		h.carriage = hookProbeCarriageScan(hookProbeCarriage{
+			Needle:    h.scriptPath,
+			Roots:     []string{w.env.ProjectDir, filepath.Join(realHomeDir, ".ctxloom", "sessions")},
+			Authored:  h.authored,
+			NotBefore: runStart,
+		})
 
 		w.docStepMaterialized = fmt.Sprintf(
 			"hook-probe %s exit=%d\nargv harp=%s\nstdout harp=%s\nstamp path=%s\nstamp read err=%v\nstamp contents:\n%s\ncarriage: %s\nstdout:\n%s\nstderr:\n%s",
 			h.cell(), h.exitCode, h.stampHarp, h.echoHarp, h.stampPath, h.stampErr,
 			h.stampBody, hookProbeCarriageOrUnknown(h), h.stdout, h.stderr)
+
+		// Printed unconditionally, for the GREEN case specifically. A red cell
+		// carries all of this in its failure message; a green one would
+		// otherwise say nothing at all, and "the hook fired" is a claim whose
+		// evidence a reader should be able to see without re-running the cell.
+		// It is also the line that makes an implausibly fast pass legible: a
+		// live turn that took no time, exited nonzero, or produced a stamp
+		// nobody can account for is visible here and invisible in a bare PASS.
+		fmt.Printf("EVIDENCE hook-probe %s: exit=%d, stamp read err=%v, stamp bytes=%d, carriage=%s\n  stamp contents: %q\n  stdout: %q\n  stderr tail: %q\n",
+			h.cell(), h.exitCode, h.stampErr, len(h.stampBody), hookProbeCarriageOrUnknown(h),
+			h.stampBody, h.stdout, lastRunes(h.stderr, 400))
 		return nil
 	})
 
@@ -268,6 +312,18 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 // timeout, which reads like an engine defect. The hook itself is unaffected by
 // the tier: it is exec'd by the engine's own harness, not by a tool call the
 // permission layer mediates.
+// lastRunes returns the final n runes of s, prefixed with an ellipsis when it
+// truncated. Used only for the evidence line: ctxloom's stderr on a live run
+// carries a session banner and companion notices, and the interesting part —
+// why a run failed — is at the END.
+func lastRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return "…" + string(r[len(r)-n:])
+}
+
 func hookProbeConfigYAML(a liveAgent, llmKey string) string {
 	var b strings.Builder
 	b.WriteString(a.config)

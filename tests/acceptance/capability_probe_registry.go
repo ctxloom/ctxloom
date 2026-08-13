@@ -200,6 +200,18 @@ var (
 		Shape: "HOOK-DELIVERY failure",
 		Where: "the session_start hook's argv, reachable only by the engine actually executing the hook ctxloom wrote",
 	}
+	// channelHookStdout is P3's SECOND channel, and it exists as its own entry
+	// rather than as a variation on channelHookStamp because the two fail for
+	// different reasons in different subsystems. The stamp channel fails when
+	// the engine never EXECUTED the hook; this one fails when the engine
+	// executed it and never INGESTED what it printed. Only an engine whose
+	// declared context approach is the hook can be asked the second question —
+	// codex, whose codexApproaches lists agent.ApproachHook first for
+	// agent.SurfaceContext, and no other engine at this base.
+	channelHookStdout = probeChannel{
+		Shape: "HOOK-OUTPUT-INGESTION failure",
+		Where: "the session_start hook's STANDARD OUTPUT, written to no file the engine reads and present in no prompt",
+	}
 	channelSentinelFile = probeChannel{
 		Shape: "SENTINEL-DELIVERY failure",
 		Where: "a sentinel file the fixture wrote, whose PERSISTENCE (not its echo) is the assertion",
@@ -326,15 +338,19 @@ var probeRegistry = []probeSpec{
 		Title:        "hook firing: the vendor binary executes the session_start hook ctxloom wrote, proven by the hook's own stamp file",
 		Capabilities: []int{6, 7},
 		Channel:      channelHookStamp,
+		Feature:      "capability_hook_firing.feature",
 		Paid:         true,
 		Cells: []probeCell{
-			hostCell("claude-code", probePlanned, ""),
-			hostCell("codex", probePlanned, ""),
-			hostCell("kiro", probePlanned, ""),
+			hostCell("claude-code", probeWired,
+				"stage (a) only. claude declares agent.ApproachHook for SurfaceContext, but claude's SurfaceFor resolves that pair to noopContextDelivery, the documented no-op that never carries, so ctxloom does not deliver claude's context through a hook and this cell must not assert an output echo production never asked for."),
+			hostCell("codex", probeWired,
+				"the ONLY cell that runs both stages. codexApproaches lists agent.ApproachHook FIRST for agent.SurfaceContext, making the hook codex's DEFAULT context route, so stage (b) - the harp printed on the hook's stdout reaching the model - is a claim production actually makes here."),
+			hostCell("kiro", probeWired,
+				"stage (a) only, and not because kiro is weaker: KiroWriter.mapHooks maps unified session_start onto kiro's own agentSpawn hook, and kiro reads steering files for context rather than ingesting hook output, so firing is observable here and ingestion is not a claim kiro makes."),
 			{Engine: "opencode", Runtime: "host", Workspace: "none", Status: probeGatedOut,
-				Reason: "opencode declares hooks absent: noHooksReason. Not a gap — a declared absence."},
+				Reason: "opencode declares hooks absent: noHooksReason (\"opencode has no hook mechanism\"). Not a gap - a declared absence, gated by ABSENCE, which is why capability_hook_firing.feature carries no Examples row for it."},
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "session-end", Status: probeGatedOut,
-				Reason: "unsupportedHookKinds[bundles.HookEventSessionEnd] — codex declares this one kind unsupported while supporting the rest"},
+				Reason: "unsupportedHookKinds[bundles.HookEventSessionEnd] / codex.NoSessionEndReason (\"codex has no session-end event\") - codex declares this one kind unsupported while supporting the rest, which is the reason P3 plants on session_start; gated by ABSENCE, so this variant gets no Examples row"},
 		},
 	},
 	{

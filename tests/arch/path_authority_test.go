@@ -69,13 +69,12 @@ var segmentLiteralPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // mapped to the fix required to remove the entry.
 //
 // Generated MECHANICALLY by running this gate with an empty map and
-// transcribing every reported violation (2026-08-13, base bd6b3baf). Nothing
-// here is migrated in this slice — that is C8/C9/C10's job.
-var pathAuthorityAllowed = map[string]string{
-	"internal/agentcoord/coord/statedir.go#stateDirForProject": "C8: move the \"coord\" segment (aliased here as coordDirName = discover.DirName) into internal/paths + Layout()",
-	"internal/agentcoord/discover/discover.go#List":            "C8: move the \"coord\" (DirName) and \"endpoint.json\" (FileName) segments into internal/paths + Layout()",
-	"internal/remote/publish.go#PublishPath":                   "duplicates the existing paths.BundlesDir (\"bundles\") constant instead of referencing it — one-line fix, not yet scheduled to a plan slice",
-}
+// transcribing every reported violation (2026-08-13, base bd6b3baf). Emptied
+// by C8+C9 (2026-08-13): the "coord" and "endpoint.json" segments now live in
+// internal/paths (CoordDirName/CoordEndpointFileName), coord and discover
+// consume them, and remote.PublishPath references paths.BundlesDir instead of
+// duplicating it.
+var pathAuthorityAllowed = map[string]string{}
 
 // pathAuthorityViolation is one Join call this gate found that mixes a
 // paths.* reference with a segment the paths package does not name.

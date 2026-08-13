@@ -78,12 +78,18 @@ type preparedItem struct {
 // written, so a single unsafe path in a multi-file package skips the WHOLE
 // item rather than leaving a partial tree on disk — the silent-no-op /
 // partial-materialize discipline this codebase holds writers to. An item whose
-// render() call itself returns an error is different in kind from an
-// unsafe-path skip (that is bundle content being deliberately declined, not a
-// failure): a render error aborts THIS ENTIRE CALL, propagating the error and
-// leaving dir exactly as it was — nothing has been written to dir yet at that
-// point, so "abort" costs nothing and "warn and keep going" is exactly how
-// this writer used to silently gut a surface one failing item at a time.
+// render() call itself returns an error is treated the SAME way, a per-item
+// warn-and-skip: existing per-agent writers already depend on one bad item
+// (opencode: a command with no content) not taking the rest of a delivery
+// down with it. What the historical bug actually needed fixed is not
+// per-item tolerance — it is that this surface's previously-tracked files
+// used to be deleted before any of this validation ran at all. Under
+// render-then-swap nothing is deleted until the new content has been
+// confirmed live, so a single item's tolerated failure costs it that one
+// item's slot in the ledger, never anyone else's, and never anything before
+// the swap has actually landed. The one failure shape that DOES abort the
+// whole call is every enabled item failing at once while content used to
+// exist here — the empty-render guard below.
 //
 // dir itself is only created when at least one file is written; the manifest
 // is (re)written only when at least one file was written. When cleanup leaves
@@ -117,8 +123,17 @@ func WriteManagedPackageFiles[T any](
 	}
 
 	// PHASE 1 — render + validate every enabled item OFF the live tree. Not one
-	// byte under dir is touched in this phase; a render() failure returns
-	// immediately, before dir has seen any change at all.
+	// byte under dir is touched in this phase, whatever happens: a render()
+	// failure for one item is a per-item WARN-AND-SKIP, same as an unsafe
+	// path, and NOT a whole-call abort — a caller-level content-validation
+	// failure (e.g. a command with no body to render) is an expected,
+	// recoverable per-item condition existing per-agent writers already
+	// depend on tolerating so one bad item doesn't take the rest of a
+	// delivery down with it (see e.g. opencode's
+	// TestWriteCommandFiles_EmptyContentIsSkippedNotWritten). What must never
+	// happen is EVERY enabled item failing while content used to exist here —
+	// that is the empty-render guard below, evaluated once over the whole
+	// batch rather than per item.
 	var enabledCount int
 	var prepared []preparedItem
 	for _, item := range items {
@@ -129,17 +144,15 @@ func WriteManagedPackageFiles[T any](
 		name := itemName(item)
 		// Reject absolute/traversal names outright before any path is derived
 		// from them. Nested names without traversal ("group/cmd") remain
-		// allowed; how they map to paths is the renderer's choice. This is a
-		// content-hygiene skip (bundle content can be remote/untrusted), not a
-		// render failure, so it warns and moves on rather than aborting the
-		// whole call.
+		// allowed; how they map to paths is the renderer's choice.
 		if _, ok := SafeCommandRelPath(dir, name); !ok {
 			Warn("skipping package %q: name is not a relative path inside %s", name, dir)
 			continue
 		}
 		files, err := render(item)
 		if err != nil {
-			return fmt.Errorf("write managed package files %s: package %q: render failed: %w", dir, name, err)
+			Warn("skipping package %q: render failed: %v", name, err)
+			continue
 		}
 		safe := true
 		for _, f := range files {
@@ -190,6 +203,22 @@ func WriteManagedPackageFiles[T any](
 	// a failure here (disk full mid-item, an I/O error) still leaves dir
 	// completely untouched — the same guarantee a render() error gets in phase
 	// 1, extended to the write itself.
+	//
+	// dir's PARENT must exist before a sibling of dir can be created in it —
+	// on a first-ever delivery (nothing under, say, .claude/ yet) it does not.
+	// The pre-rewrite writer got this for free: its first fs.MkdirAll(dir, …)
+	// call (at the first successful write) is recursive and created every
+	// missing ancestor, dir's parent included, in the same call that created
+	// dir itself. This rewrite splits "create the parent chain" from "create
+	// dir" across two different phases (temp-tree creation now needs the
+	// parent BEFORE dir exists at all; phase 3's swap loop still creates dir
+	// itself, lazily, on the first real rename) — the guarantee preserved
+	// here is exactly the old code's "the parent chain always exists before
+	// any write is attempted", narrowed to just the parent since dir itself
+	// is intentionally still not created until content actually lands in it.
+	if err := fs.MkdirAll(filepath.Dir(dir), 0755); err != nil {
+		return fmt.Errorf("write managed package files %s: create parent dir: %w", dir, err)
+	}
 	tempDir, err := afero.TempDir(fs, filepath.Dir(dir), "."+filepath.Base(dir)+".tmp-")
 	if err != nil {
 		return fmt.Errorf("write managed package files %s: create temp render tree: %w", dir, err)

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -58,6 +59,39 @@ func deadProcessPID(t *testing.T) int {
 	return pid
 }
 
+// requireRunnerAcceptReady blocks until socket actually answers a connection.
+//
+// It exists because probeWellKnownRunner FAILS LOUD by design when a marker
+// names a live runner whose socket does not answer RIGHT NOW: that refusal is
+// the whole point of the discovery design (never silently start a second,
+// rogue coordinator), and it is the correct verdict whenever the answer is
+// no. But it makes any test that probes immediately after ServeRunnerMCP a
+// race against the endpoint's own readiness, decided by whether the scheduler
+// has run its accept goroutine yet — which on a loaded box it may not have.
+// Losing that race produced a refusal about the test's OWN live pid.
+//
+// So serialize against the real signal — a connection the socket accepts —
+// using exactly the operation the probe's dialable() performs, before
+// asserting on the probe's verdict. Nothing is weakened: an endpoint that
+// never becomes reachable still fails here, and the fail-loud refusal itself
+// stays pinned by TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable,
+// which builds that condition deliberately instead of hoping for it.
+func requireRunnerAcceptReady(t *testing.T, socket string) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		conn, err := net.DialTimeout("unix", socket, 2*time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the runner endpoint at %s never accepted a connection: %v", socket, err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // dialForwardClient connects to socket exactly as runMCPForward does, and
 // returns the connected session so the caller can assert on what the OTHER
 // end actually says — the payload, not just that Connect returned nil.
@@ -95,6 +129,7 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 	endpoint, err := ServeRunnerMCP(testConfig(), harp, testHome(t), false, "")
 	require.NoError(t, err)
 	t.Cleanup(endpoint.Close)
+	requireRunnerAcceptReady(t, endpoint.SocketPath)
 
 	// This is the shim's own discovery call (mcp_server.go's second tier),
 	// invoked exactly as ServeStdio invokes it, with no env var in
@@ -171,6 +206,7 @@ func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
 		// The shim always probes from ITS OWN cwd (=the child's WorkDir);
 		// simulate that exactly, without ever touching the runner process's
 		// real cwd.
+		requireRunnerAcceptReady(t, endpoint.SocketPath)
 		sock, derr := probeWellKnownRunner(workDir)
 		require.NoError(t, derr)
 		require.NotEmpty(t, sock, "the shim probing from the worktree's cwd must find the runner via the anchored key")

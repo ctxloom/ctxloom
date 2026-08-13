@@ -34,7 +34,7 @@
 // recorded as a tagged, evidenced exception, never absorbed into the matcher.
 //
 // THE NONCE IS PLANTED IN CONTEXT, NOT IN THE PROMPT, and that is load-bearing
-// twice over. A random per-run nonce means no canned or memorised "hello world"
+// twice over. A fresh per-cell nonce means no canned or memorised "hello world"
 // answer can pass. Placing it in the agent's own composed profile context —
 // rather than in the prompt text — additionally makes the cell prove that
 // ctxloom's context delivery survived that isolation scheme, and lets a failure
@@ -42,14 +42,20 @@
 // failure, the right nonce wrapped in prose is an output-format failure. The
 // assertion below names which of the two it found rather than reporting a bare
 // mismatch.
+//
+// THE NONCE IS A FRESHLY MINTED HARP (human ruling, 2026-08-12), not a hex
+// blob and emphatically not the session's own harp — see probe_assert.go's
+// header for the full argument. Two properties this floor gets from the change:
+// the value is greppable by a human reading a spool or a transcript by eye, and
+// it doubles as a CROSS-CELL LEAK TRACER, since a harp minted for one cell
+// turning up in another's output is an isolation failure one grep finds
+// (assertNoForeignHarps). The mint goes through the process-wide ledger so no
+// two cells can collide — a collision would make the leak scanner cry wolf.
 package acceptance
 
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -95,21 +101,33 @@ func matrixOf(w *World) *matrixState {
 	return w.matrix
 }
 
-// matrixNonce returns the per-run secret the engine must echo back. Random, so
-// no memorised answer can satisfy a cell; obviously synthetic, so it can never
-// be mistaken for credential material in a log.
-func matrixNonce() string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("CTXLOOM-HELLO-%d", time.Now().UnixNano())
-	}
-	return "CTXLOOM-HELLO-" + hex.EncodeToString(b)
+// cell is this cell's identity in the capability ladder's own vocabulary: the
+// ledger key its nonce was minted under, and the stamp every failure carries.
+// The probe name is fixed — this feature IS P0 of the ladder — so the ledger
+// and the assertion cannot key the same cell two different ways.
+func (m *matrixState) cell() probeCellID {
+	return probeCellID{Probe: probeP0, Engine: m.engine, Runtime: m.runtime, Workspace: m.workspace}
 }
 
-// matrixExpected is the object the engine's entire stdout must parse to.
-func matrixExpected(nonce string) map[string]any {
-	return map[string]any{"hello": nonce}
+// matrixNonce mints this cell's nonce: a FRESH harp, unique across every cell
+// in the run, recorded in the ledger so the evidence sidecar and the foreign-
+// harp scanner both see it.
+//
+// It is not the session's own harp and not a random hex string. Both
+// alternatives were live here before: the session harp is ambient (an engine
+// could read it from CTXLOOM_SESSION_HARP and satisfy the check without the
+// channel ever delivering), and hex was fixture-private but illegible — a human
+// diffing two spools cannot hold 16 hex characters in their head, and this
+// value's second job is to be the thing you grep for when a cell reds.
+func matrixNonce(cell probeCellID) (string, error) {
+	return probeHarps.Mint(cell)
 }
+
+// matrixExpectedKey is the ONE key the engine's entire stdout must parse to an
+// object of: {"hello": "<the minted harp>"}. Named once so the prompt below and
+// the assertion above cannot drift apart — a probe that asks for one key and
+// asserts another is a test of nothing.
+const matrixExpectedKey = "hello"
 
 // matrixPrompt is the whole task. Every constraint is stated explicitly and
 // redundantly, because this floor's job is to find out which engines honour a
@@ -273,7 +291,20 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 				}
 			}
 
-			m.nonce = matrixNonce()
+			// The mint, and the cell→harp record. The mapping goes into the
+			// evidence sidecar (docStepMaterialized), which is written to
+			// CTXLOOM_DOC_CAPTURE_DIR — OUTSIDE the cell's workspace, checked
+			// deliberately: a sidecar written inside the project the engine can
+			// read would hand the engine its own answer through a channel this
+			// probe does not test, which is the exact false-green the minted
+			// nonce exists to rule out.
+			nonce, err := matrixNonce(m.cell())
+			if err != nil {
+				return err
+			}
+			m.nonce = nonce
+			w.docStepMaterialized += fmt.Sprintf("\nengine-matrix %s: minted nonce harp %q\n", m.cell(), m.nonce)
+
 			if err := w.env.InitGitRepo(); err != nil {
 				return err
 			}
@@ -344,9 +375,12 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 			m.exitCode = -1
 		}
 		// Evidence for the @doc sidecar and for a human reading a failure: the
-		// cell's identity plus what actually came back, both streams.
-		w.docStepMaterialized = fmt.Sprintf("engine-matrix [engine=%s runtime=%s workspace=%s] exit=%d\nstdout:\n%s\nstderr:\n%s",
-			m.engine, m.runtime, m.workspace, m.exitCode, m.stdout, m.stderr)
+		// cell's identity, the harp minted for it, and what actually came back
+		// on both streams. The harp is repeated here on purpose — it is what
+		// makes a red cell's captured payload key straight back to its cell,
+		// and what a human greps for across transcripts and spools.
+		w.docStepMaterialized = fmt.Sprintf("engine-matrix %s nonce=%s exit=%d\nstdout:\n%s\nstderr:\n%s",
+			m.cell(), m.nonce, m.exitCode, m.stdout, m.stderr)
 		return nil
 	})
 
@@ -371,39 +405,27 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 //   - it parses but the nonce is nowhere in it — a CONTEXT-DELIVERY failure,
 //     which is a different bug in a different subsystem;
 //   - it parses and carries the nonce but is not the exact object — a
-//     shape failure (extra keys, wrong key).
+//     shape failure (extra keys, wrong key), or a value failure.
+//
+// The checks themselves live in probe_assert.go and are COMPOSED here rather
+// than written here. That is the whole point of the extraction: P2–P7's
+// verdicts get this same taxonomy for free, so a format-red on the MCP probe
+// and a format-red on this floor mean the same thing and read the same way.
+// This function keeps the ORDER — did it run, did it say anything, is it the
+// right form, did the channel deliver, is it the right object — because the
+// order is what makes each red attributable to one subsystem.
 func matrixAssert(m *matrixState) error {
-	cell := fmt.Sprintf("[engine=%s runtime=%s workspace=%s]", m.engine, m.runtime, m.workspace)
-	if m.runErr != nil {
-		return fmt.Errorf("engine-matrix %s: the run itself failed (exit %d): %v\nstdout:\n%s\nstderr:\n%s",
-			cell, m.exitCode, m.runErr, m.stdout, m.stderr)
+	v := probeVerdict{Family: "engine-matrix", Cell: m.cell(), Channel: channelComposedContext}
+	trimmed, err := v.ran(probeRun{Stdout: m.stdout, Stderr: m.stderr, ExitCode: m.exitCode, Err: m.runErr})
+	if err != nil {
+		return err
 	}
-	trimmed := strings.TrimSpace(m.stdout)
-	if trimmed == "" {
-		return fmt.Errorf("engine-matrix %s: the run exited 0 and produced NO stdout at all — a silent no-op, not an output-format problem\nstderr:\n%s",
-			cell, m.stderr)
+	got, err := v.jsonObject(trimmed)
+	if err != nil {
+		return err
 	}
-	var got map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &got); err != nil {
-		return fmt.Errorf("engine-matrix %s: OUTPUT-FORMAT failure — stdout is not a bare JSON object (%v). The prompt forbids preamble, postamble and code fences; this is a finding about the engine, not a reason to loosen the assertion.\nstdout (verbatim):\n%s",
-			cell, err, trimmed)
+	if err := v.carriesNonce(trimmed, m.nonce); err != nil {
+		return err
 	}
-	if !strings.Contains(trimmed, m.nonce) {
-		return fmt.Errorf("engine-matrix %s: CONTEXT-DELIVERY failure — stdout is well-formed JSON but carries nothing of the nonce %q that was planted in the agent's own composed context, so the engine answered without ever seeing it.\nstdout:\n%s",
-			cell, m.nonce, trimmed)
-	}
-	want := matrixExpected(m.nonce)
-	if len(got) != len(want) {
-		return fmt.Errorf("engine-matrix %s: SHAPE failure — expected exactly one key %q, got %d key(s).\nstdout:\n%s",
-			cell, "hello", len(got), trimmed)
-	}
-	gotVal, ok := got["hello"]
-	if !ok {
-		return fmt.Errorf("engine-matrix %s: SHAPE failure — the object has no \"hello\" key.\nstdout:\n%s", cell, trimmed)
-	}
-	if gotVal != any(m.nonce) {
-		return fmt.Errorf("engine-matrix %s: VALUE failure — \"hello\" is %#v, want %q.\nstdout:\n%s",
-			cell, gotVal, m.nonce, trimmed)
-	}
-	return nil
+	return v.exactObject(got, trimmed, matrixExpectedKey, m.nonce)
 }

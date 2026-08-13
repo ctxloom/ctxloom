@@ -122,6 +122,12 @@ type Home struct {
 	// spoolIn serialises this runner's own in/ sweeps — see spoolReactor.
 	spoolIn            *spoolReactor
 	spoolDeliveryCount spoolDeliveryCounters
+	// selfReported records that this run sent its parent a message during the
+	// CURRENT turn, which suppresses the automatic turn report for that turn
+	// (spoolturnresult.go) — the runner-side home of the no-double-delivery
+	// rule the coordinator kept on childRt.selfReported. Read-and-cleared at
+	// each turn boundary.
+	selfReported bool
 
 	link     *RunnerLink
 	linkDone chan struct{} // closed when Close ran (stops the redial loops)

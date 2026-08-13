@@ -47,6 +47,17 @@ type turnTag struct {
 	// message id — which is what the re-announcer's budget is keyed on and
 	// what its give-up event names.
 	reqID string
+	// mail is the id of the DELIVERED MESSAGE that started this turn, when one
+	// did. It rides the attribution FIFO rather than a field of its own
+	// because that FIFO already answers exactly this question — which turn
+	// belongs to which enqueue — and a second mechanism would have to be kept
+	// in step with it.
+	//
+	// It becomes the automatic turn report's in_reply_to
+	// (spoolturnresult.go): the correlation a parent needs to tell which of
+	// its outstanding asks an answer answers. Empty for a turn nothing
+	// delivered started — the briefing, or an engine continuing on its own.
+	mail string
 }
 
 // enqueueTurn is the ONE funnel onto eh.in for every locally-originated turn —
@@ -139,12 +150,18 @@ func (eh *EngineHost) beginTurn() {
 	eh.currentTag = turnTag{}
 }
 
-// endTurn marks the engine idle at a turn boundary.
-func (eh *EngineHost) endTurn() {
+// endTurn marks the engine idle at a turn boundary and RETURNS the tag it
+// cleared — which is the only moment the just-ended turn's attribution is
+// still available. The automatic turn report reads its correlation from it, so
+// a caller that cleared the tag first would have to re-derive what it had just
+// thrown away.
+func (eh *EngineHost) endTurn() turnTag {
 	eh.mu.Lock()
 	defer eh.mu.Unlock()
 	eh.inTurn = false
+	tag := eh.currentTag
 	eh.currentTag = turnTag{}
+	return tag
 }
 
 // HandleControl executes ONE coordinator-initiated control request against the

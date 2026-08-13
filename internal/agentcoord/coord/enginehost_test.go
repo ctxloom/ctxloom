@@ -56,6 +56,9 @@ type fakeEngineHome struct {
 	// turn-boundary re-announcer reads, so the fake must model it (and let a
 	// test age or drain it) rather than pretend every parked body is pulled.
 	pendingCtl []PendingControlPayload
+	// turnReports records every automatic turn report the engine host composed
+	// at a boundary (ReportTurnResult) — the runner half of the result plane.
+	turnReports []turnReport
 }
 
 func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
@@ -133,6 +136,30 @@ func (f *fakeEngineHome) SweepSpoolIn() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.spoolSweeps++
+}
+
+// ReportTurnResult records the automatic turn report the engine host composed
+// at a boundary — the text AND the correlation, because the correlation is
+// half of what this report is for and a fake that swallowed it would let the
+// tag plumbing rot with every test still green.
+func (f *fakeEngineHome) ReportTurnResult(text, inReplyTo string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.turnReports = append(f.turnReports, turnReport{Text: text, InReplyTo: inReplyTo})
+	return nil
+}
+
+// turnReportsSeen snapshots what the host reported, oldest first.
+func (f *fakeEngineHome) turnReportsSeen() []turnReport {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]turnReport(nil), f.turnReports...)
+}
+
+// turnReport is one composed automatic report as the Home seam saw it.
+type turnReport struct {
+	Text      string
+	InReplyTo string
 }
 
 // spoolSweepCount reports how many boundary sweeps were asked for.

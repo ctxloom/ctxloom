@@ -1100,7 +1100,23 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	if reported {
 		return // the child reported itself; never deliver the same turn twice
 	}
+	// THE CUTOVER (spoolturnresult.go). For a spool-delivered run the RUNNER
+	// wrote this turn's report into the child's own out/ before it announced
+	// the boundary, so the bridge's delivery is a second copy of a message the
+	// parent already has. Suppressed HERE rather than at the call site, and
+	// after the accumulator has been taken, so the state machine still steps
+	// exactly as it always did — only the delivery is someone else's now.
+	//
+	// FILE XOR BRIDGE: this predicate and the runner's are the same fact (the
+	// coordinator's flag, stamped onto the run at spawn) read from the two
+	// sides, so a turn cannot be reported twice and cannot go unreported.
+	spooled := c.spoolDeliverTo(rt.harp)
 	text := strings.TrimSpace(strings.Join(out, sep))
+	if text == "" && spooled {
+		// The empty turn is reported too — by the runner, as an error the
+		// parent can actually read, which is more than this warn ever was.
+		return
+	}
 	if text == "" {
 		clidiag.Warn("ctxloom", "agent %s: turn ended with no report and no output — nothing to bridge to %s", rt.harp, rt.parentHarp)
 		// That warning goes to the COORDINATOR PROCESS's stderr —
@@ -1125,6 +1141,13 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 		// MIGRATED child already emits its own RunCompleted on the
 		// RunChannel, so this synthetic sub-run is oneshot-only.
 		c.publishOneshotResult(rt, text, errored)
+	}
+	if spooled {
+		// The report is the child's own out/ file. The EVENT record above is
+		// not: PublishEvents is the event plane, carries no delivery semantics,
+		// and the cutover moved deliveries only — so it still happens here,
+		// from the accumulator that still accumulates.
+		return
 	}
 	if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", text); err != nil {
 		clidiag.Warn("ctxloom", "agent %s: bridge turn result: %v", rt.harp, err)

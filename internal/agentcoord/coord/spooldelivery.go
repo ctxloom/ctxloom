@@ -855,28 +855,20 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	if err := SenderMailKind(kind); err != nil {
 		return spoolSendErr(codes.InvalidArgument, err.Error()), true
 	}
-	sm, err := spoolMessageForMail(Message{
+	ref, err := h.writeOutbound(Message{
 		From: h.cfg.Harp, To: to, Kind: kind,
 		Body: send.GetText(), Structured: structured, InReplyTo: send.GetInReplyTo(),
-	}, to)
+	})
 	if err != nil {
 		h.spoolDeliveryCount.failed.Add(1)
-		return spoolSendErr(codes.InvalidArgument, fmt.Sprintf("agent_send: %v", err)), true
-	}
-	w, err := h.spoolOut.writerFor(h.cfg.Harp)
-	if err != nil {
-		h.spoolDeliveryCount.failed.Add(1)
-		return spoolSendErr(codes.Internal, fmt.Sprintf("agent_send: cannot open this run's outbound spool: %v", err)), true
-	}
-	ref, err := w.Write(sm)
-	if err != nil {
-		h.spoolDeliveryCount.failed.Add(1)
-		return spoolSendErr(codes.Internal, fmt.Sprintf("agent_send: writing the message: %v", err)), true
+		return spoolSendErr(codes.Internal, fmt.Sprintf("agent_send: %v", err)), true
 	}
 	h.spoolDeliveryCount.delivered.Add(1)
-	if err := h.RingSpool(ref); err != nil {
-		clidiag.Warn("ctxloom", "runner: wrote %s but could not ring the coordinator: %v (it will be swept)", ref, err)
-	}
+	// NO DOUBLE DELIVERY (spoolturnresult.go): this run has now reported to its
+	// parent in its own words, so the automatic turn report must not repeat the
+	// same turn. Marked HERE, at the one place an accepted send exists, which
+	// is the runner-side twin of the coordinator's noteChildReported.
+	h.noteSelfReported()
 	return &agentcoordpb.CoordinatorResponse{
 		RequestId: req.GetRequestId(),
 		Status:    okStatus("written to this session's outbound spool"),

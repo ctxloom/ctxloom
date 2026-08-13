@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // profileLoaderFS builds a profile loader over the given filesystem. It resolves
@@ -109,7 +110,9 @@ func ExportProfile(_ context.Context, cfg *config.Config, req ExportProfileReque
 		return nil, fmt.Errorf("failed to create destination directory: %w", err)
 	}
 	dest := filepath.Join(req.DestDir, filepath.Base(profile.Path))
-	if err := afero.WriteFile(fs, dest, srcData, 0644); err != nil {
+	// No AllowEmpty: validateProfileDocument above already refuses a hollow
+	// document.
+	if err := iox.WriteFileAtomicFs(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write profile: %w", err)
 	}
 	return &ExportProfileResult{Status: "exported", Name: req.Name, Source: profile.Path, Dest: dest}, nil
@@ -170,7 +173,9 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 	if exists && !req.Force {
 		return nil, fmt.Errorf("profile already exists: %s (use --force to overwrite)", dest)
 	}
-	if err := afero.WriteFile(fs, dest, srcData, 0644); err != nil {
+	// No AllowEmpty: validateProfileDocument above already refuses a hollow
+	// document.
+	if err := iox.WriteFileAtomicFs(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write profile: %w", err)
 	}
 	return &ImportProfileResult{Status: "imported", Source: req.SourcePath, Dest: dest}, nil
@@ -233,7 +238,9 @@ func SetProfileContent(_ context.Context, cfg *config.Config, req SetProfileCont
 	if _, err := validateProfileDocument([]byte(req.Content), "profile"); err != nil {
 		return nil, err
 	}
-	if err := afero.WriteFile(fs, profile.Path, []byte(req.Content), 0644); err != nil {
+	// No AllowEmpty: validateProfileDocument above already refuses a hollow
+	// document, so an empty edit is rejected before this write is reached.
+	if err := iox.WriteFileAtomicFs(fs, profile.Path, []byte(req.Content), 0644); err != nil {
 		return nil, fmt.Errorf("failed to save profile: %w", err)
 	}
 	return &SetProfileContentResult{Status: "updated", Name: req.Name, Path: profile.Path}, nil

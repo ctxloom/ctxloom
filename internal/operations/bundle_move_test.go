@@ -84,6 +84,20 @@ func (f *failWriteFs) Create(name string) (afero.File, error) {
 	return f.Fs.Create(name)
 }
 
+// Rename intercepts the FINAL step of an atomic write (iox.WriteFileAtomicFs:
+// unique temp + fsync + rename into place) by its DESTINATION name. The temp
+// file itself is created under a name like ".seed.yaml.sig.<rand>.tmp", which
+// never matches a suffix-shaped predicate like ".sig" — so without this, a
+// predicate written against the FINAL name would see the temp-file create
+// succeed and the rename into place go unintercepted, silently defeating the
+// fault injection this fixture exists to provide.
+func (f *failWriteFs) Rename(oldname, newname string) error {
+	if f.fail(newname) {
+		return errors.New("disk on fire")
+	}
+	return f.Fs.Rename(oldname, newname)
+}
+
 // --- local-path destination --------------------------------------------------
 
 // A moved bundle must arrive with its signature, byte-identical: the .sig covers

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -271,7 +272,9 @@ func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) 
 		return nil, fmt.Errorf("create skill directory %s: %w", dir, err)
 	}
 	skillMDPath := filepath.Join(dir, "SKILL.md")
-	if err := afero.WriteFile(fs, skillMDPath, []byte(skillTemplate(req.Name, description)), 0o644); err != nil {
+	// No AllowEmpty: skillTemplate always renders a non-empty document, and
+	// dir was just refused-if-existing above, so this is always a fresh path.
+	if err := iox.WriteFileAtomicFs(fs, skillMDPath, []byte(skillTemplate(req.Name, description)), 0o644); err != nil {
 		_ = fs.RemoveAll(dir)
 		return nil, fmt.Errorf("write %s: %w", skillMDPath, err)
 	}
@@ -572,7 +575,8 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 			return nil, fmt.Errorf("export %q: %s already exists (pass Force/--force to overwrite)", req.Name, outPath)
 		}
 	}
-	if err := afero.WriteFile(fs, outPath, zipBytes, 0o644); err != nil {
+	// No AllowEmpty: a zip archive's own format bytes are never zero-length.
+	if err := iox.WriteFileAtomicFs(fs, outPath, zipBytes, 0o644); err != nil {
 		return nil, fmt.Errorf("write %s: %w", outPath, err)
 	}
 
@@ -593,7 +597,8 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 			return nil, fmt.Errorf("sign %q: %w", req.Name, err)
 		}
 		sigPath := outPath + bundles.SigSuffix
-		if err := afero.WriteFile(fs, sigPath, armored, 0o644); err != nil {
+		// No AllowEmpty: armored is signing.Sign's output, never empty.
+		if err := iox.WriteFileAtomicFs(fs, sigPath, armored, 0o644); err != nil {
 			_ = fs.Remove(outPath)
 			return nil, fmt.Errorf("write %s: %w", sigPath, err)
 		}

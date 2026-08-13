@@ -94,16 +94,31 @@ func TestTrustSnapshots_LegacyStoreMigratesEveryByte(t *testing.T) {
 	assert.False(t, legacyExists, "the legacy store must be gone, or a later run migrates it again over the current one")
 }
 
-// renameFailsFs is a filesystem on which Rename always fails, which is what a
-// cross-device move looks like: EXDEV is returned no matter how many times it
-// is retried, and cache/ and state/ landing on different mounts takes one
-// symlinked .ctxloom/cache to arrange.
+// renameFailsFs is a filesystem on which a CROSS-DIRECTORY rename always
+// fails, which is what a cross-device move looks like: EXDEV is returned no
+// matter how many times it is retried, and cache/ and state/ landing on
+// different mounts takes one symlinked .ctxloom/cache to arrange.
+//
+// A same-directory rename always SUCCEEDS here, deliberately: it is what a
+// real EXDEV never touches (the two names share a parent, hence a device, by
+// construction), and it is exactly the shape copyTrustObjects's per-file
+// writes now use — each goes through iox.WriteFileAtomicFs, whose commit step
+// is a rename of a unique temp file into place WITHIN THE SAME destination
+// directory (see iox's own doc: "a UNIQUE temp file in the destination
+// directory... renamed over path"). Failing every rename unconditionally, as
+// this fixture used to, stopped simulating "the top-level move crosses
+// devices" and started also breaking the fallback COPY's own writes, which
+// results in the test asserting cross-device recovery paths never exercise:
+// on any real filesystem the same-directory case never fails this way.
 type renameFailsFs struct {
 	afero.Fs
 }
 
-func (renameFailsFs) Rename(string, string) error {
-	return errors.New("invalid cross-device link")
+func (f renameFailsFs) Rename(oldname, newname string) error {
+	if filepath.Dir(oldname) != filepath.Dir(newname) {
+		return errors.New("invalid cross-device link")
+	}
+	return f.Fs.Rename(oldname, newname)
 }
 
 // TestTrustSnapshots_CrossDeviceMoveCopiesThenRemoves covers the fallback the

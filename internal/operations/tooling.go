@@ -16,13 +16,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // ToolingCommandName is the well-known command name a bundle ships to declare
@@ -126,7 +125,9 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		if merr := fs.MkdirAll(filepath.Dir(existing), 0o755); merr != nil {
 			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
 		}
-		if werr := afero.WriteFile(fs, existing, container.Base(), 0o644); werr != nil {
+		// No AllowEmpty: container.Base() is a fixed embedded template, never
+		// empty.
+		if werr := iox.WriteFileAtomicFs(fs, existing, container.Base(), 0o644); werr != nil {
 			return "", fmt.Errorf("write base Containerfile: %w", werr)
 		}
 		return existing, nil
@@ -160,7 +161,9 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		if merr := fs.MkdirAll(filepath.Dir(abs), 0o755); merr != nil {
 			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
 		}
-		if werr := afero.WriteFile(fs, abs, container.Base(), 0o644); werr != nil {
+		// No AllowEmpty: container.Base() is a fixed embedded template, never
+		// empty.
+		if werr := iox.WriteFileAtomicFs(fs, abs, container.Base(), 0o644); werr != nil {
 			return "", fmt.Errorf("write base Containerfile: %w", werr)
 		}
 	}

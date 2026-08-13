@@ -404,29 +404,9 @@ var probeRegistry = []probeSpec{
 		Title:        "plan sentinel: permissions=plan must leave a sentinel file's bytes untouched, and the bypass control must land the write",
 		Capabilities: []int{11},
 		Channel:      channelSentinelFile,
+		Feature:      "capability_plan_sentinel.feature",
 		Paid:         true,
-		Cells: func() []probeCell {
-			var cells []probeCell
-			for _, e := range probeEngines {
-				reason := ""
-				switch e {
-				case "claude-code":
-					reason = "ports the AD HOC live proof recorded at enforcesReadOnlyPlan (2026-07-15, sentinel denied) into a repeatable cell"
-				case "kiro":
-					reason = "ports the AD HOC live proof recorded at enforcesReadOnlyPlan (2026-07-15, sentinel + positive controls) into a repeatable cell"
-				case "codex":
-					reason = "--sandbox read-only is asserted host-side and has never been live-run"
-				case "opencode":
-					reason = "the written permission {edit:deny,bash:deny} is asserted stricter than opencode's own plan and has never been live-run"
-				}
-				cells = append(cells,
-					probeCell{Engine: e, Runtime: "host", Workspace: "none", Variant: "plan", Status: probePlanned, Reason: reason},
-					probeCell{Engine: e, Runtime: "host", Workspace: "none", Variant: "control", Status: probePlanned,
-						Reason: "the bypass positive control: a probe whose control does not land proves nothing, so the control's success is part of the assertion"},
-				)
-			}
-			return cells
-		}(),
+		Cells:        p4Cells(),
 	},
 	{
 		Name:         probeP5,
@@ -755,6 +735,103 @@ func setCell(cells []probeCell, engine, runtime, workspace string, fn func(*prob
 		}
 	}
 	panic(fmt.Sprintf("capability probe registry: no cell [engine=%s runtime=%s workspace=%s] to annotate — a measured finding would have been silently dropped", engine, runtime, workspace))
+}
+
+// p4Cells is the plan-sentinel ladder: four engines, each with the cell under
+// test and its own positive control. Eight rows, eight paid turns, and the
+// pairing is the design — see capability_plan_sentinel.feature's header and
+// probe_p4_plan_sentinel.go's.
+//
+// WHY THE CONTROLS ARE ROWS AND NOT AN IMPLEMENTATION DETAIL. A control that
+// lives inside the plan cell's scenario is invisible: nobody can address it,
+// nobody can see whether it ran, and its failure would surface as "the plan cell
+// is red" rather than as "the probe is broken". Declared as cells, each control
+// is addressable (`@var-control`), its status is recorded beside the claim it
+// underwrites, and the completeness gate forces its existence to be typed out —
+// which matters more here than anywhere else in the ladder, because P4 is the
+// one rung whose claim is NEGATIVE. Delete the control rows and the plan rows go
+// on passing forever, measuring nothing, with no red anywhere to say so.
+//
+// HOST/NONE ONLY, and the two absences are declared rather than left blank. A
+// container cell would need the sentinel observed from outside the container
+// after the run, and a worktree cell would move the sentinel out from under the
+// assertion's own path; both are different fixtures, not different Examples
+// rows. They are recorded as deferred on the p4 rows' own reasons rather than as
+// silently missing axes.
+func p4Cells() []probeCell {
+	// Why each engine is here, in its own words. The first two rows PORT proofs
+	// that already exist but are unrepeatable; the second two make a claim that
+	// has never been checked against a running binary at all.
+	why := map[string]string{
+		"claude-code": "ports the AD HOC live proof recorded at enforcesReadOnlyPlan (2026-07-15, sentinel denied) into a repeatable cell. Production surface: permissionArgs maps plan to --permission-mode plan plus an explicit --disallowedTools Bash,Edit,Write,NotebookEdit.",
+		"kiro":        "ports the AD HOC live proof recorded at enforcesReadOnlyPlan (2026-07-15, sentinel + positive controls) into a repeatable cell. Production surface: kiro.buildArgs maps plan to --trust-tools=fs_read.",
+		"codex":       "--sandbox read-only is asserted host-side and has never been live-run. Production surface: codex.buildArgs maps plan to --sandbox read-only.",
+		"opencode":    "the written permission {edit:deny,bash:deny} is asserted stricter than opencode's own plan agent and has never been live-run. Production surface: opencode's interactiveManaged/chat managed config sets readOnly for plan.",
+	}
+	const controlWhy = "the bypass positive control: an unchanged file is equally consistent with a posture that refused the write and with a run that never attempted one, so the control's success is part of the plan cell's assertion (p4AssertPlan consults the control ledger and reds when the control is dead)."
+
+	var cells []probeCell
+	for _, e := range probeEngines {
+		// Control first, matching the feature's own block order: the plan arm
+		// reads a record the control has to have written.
+		cells = append(cells,
+			probeCell{Engine: e, Runtime: "host", Workspace: "none", Variant: string(p4Control),
+				Status: probeWired, Reason: controlWhy},
+			probeCell{Engine: e, Runtime: "host", Workspace: "none", Variant: string(p4Plan),
+				Status: probeWired, Reason: why[e]},
+		)
+	}
+
+	// THE CLAUDE-CODE PAIR HAS BEEN RUN, AS A PAIR, AND THAT IS THE ONLY WAY IT
+	// COUNTS. Verified 2026-08-13 on this branch: `just plan-sentinel
+	// claude-code pair`, 2 scenarios / 6 steps passed, no skip, control 12.9s
+	// then plan 8.1s in one process — so the plan cell read a control record
+	// rather than printing its PROVISIONAL note, which is itself the observable
+	// that the pairing works.
+	//
+	// What each run showed, per the EVIDENCE line the When step prints:
+	//
+	//   control (harp legal-rosy-pouch):   exit=0, 55B stdout,  plan-oneshot-warning=false
+	//   plan    (harp proud-saucy-amino):  exit=0, 273B stdout, plan-oneshot-warning=true
+	//
+	// The warning flag is the independent confirmation that the ONE line of
+	// config.yaml separating the pair really reached the resolver:
+	// warnPlanOneshotCancels fires only when a plan posture survives
+	// resolvePermissionMode's ONESHOT floor into the run, and it fired on
+	// exactly the cell that bound `permissions: plan`. So the two runs differed
+	// in posture and not merely in outcome — which is the question a lone green
+	// plan cell could never answer.
+	//
+	// Also measured, and worth writing down because the verdict deliberately
+	// tolerates the opposite: claude's plan one-shot exits ZERO. The refusal is
+	// reported in the turn's prose, not in the exit status. p4RunHappened's
+	// choice not to gate on the exit code was therefore not needed HERE — it is
+	// insurance for the three engines whose plan behaviour is still unobserved,
+	// and it stays.
+	setP4Cell(cells, "claude-code", p4Control,
+		"live-verified 2026-08-13 as HALF OF A PAIR (`just plan-sentinel claude-code pair`, 2 scenarios / 6 steps, no skip): under permissions=bypass the ordered overwrite LANDED — the sentinel planted with harp legal-rosy-pouch came back carrying the overwrite token instead. exit=0, 55B stdout, plan-oneshot-warning=false (correctly absent: the control is not a plan run). This is what licenses the plan cell beside it.")
+	setP4Cell(cells, "claude-code", p4Plan,
+		"live-verified 2026-08-13 as HALF OF A PAIR, same process and same fixture as its control, differing in one line of config.yaml: under permissions=plan the sentinel planted with harp proud-saucy-amino came back BYTE-UNCHANGED after the engine was ordered to overwrite it. exit=0 (claude reports the refusal in prose, not in its exit status), 273B stdout, plan-oneshot-warning=true — production's own warnPlanOneshotCancels confirming the plan posture survived the ONESHOT floor into this run, on exactly the cell that bound it. Replaces the AD HOC 2026-07-15 terminal proof recorded at the descriptor's enforcesReadOnlyPlan with something anybody can re-run.")
+
+	return cells
+}
+
+// setP4Cell is p4Cells' own annotator, and it panics on a miss for the same
+// reason setCell does: these are MEASURED findings, and a silent miss would drop
+// one while leaving the table looking complete. Separate from setCell because a
+// P4 cell is identified by its VARIANT — setCell matches only variant-less rows,
+// so calling it here would find nothing at all and panic for a confusing reason
+// rather than the real one.
+func setP4Cell(cells []probeCell, engine string, posture p4Posture, reason string) {
+	for i := range cells {
+		c := &cells[i]
+		if c.Engine == engine && c.Variant == string(posture) {
+			c.Status = probeLiveVerified
+			c.Reason = reason
+			return
+		}
+	}
+	panic(fmt.Sprintf("capability probe registry: no p4 cell [engine=%s variant=%s] to annotate — a measured live verdict would have been silently dropped", engine, posture))
 }
 
 // --- derived views ------------------------------------------------------------

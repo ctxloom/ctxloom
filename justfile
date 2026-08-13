@@ -892,7 +892,6 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
 # registry's Feature field is the source of truth and the completeness test
 # already refuses a probe naming a feature that does not exist, so a wrong
 # value here fails loudly on the very next hermetic run.
-#
 # ONE CELL AT A TIME, for the same reasons engine-matrix above says so and
 # there is deliberately no all-cells recipe here either: every cell is a real
 # paid engine turn on somebody's subscription, and fanning them out on a loaded
@@ -903,6 +902,26 @@ capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \
     ACCEPTANCE_PATHS=features/{{FEATURE}} \
     ACCEPTANCE_TAGS="@live && @probe-{{PROBE}} && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
+# Run ONE cell of the plan-sentinel probe (P4 of the capability ladder,
+# features/capability_plan_sentinel.feature): does `permissions: plan` actually
+# stop a write. POSTURE is control|plan, or "pair" to run BOTH — and pair is
+# what you almost always want.
+# WHY PAIR IS THE DEFAULT ANSWER. The plan cell's claim is negative: a file that
+# did not change. On its own that is equally consistent with a posture that
+# refused the write and with a run that never attempted one. The bypass control
+# is the discriminator — same engine, same fixture, one line of config.yaml
+# different — and the plan verdict consults its outcome, reddening when the
+# control is dead and printing a PROVISIONAL note when the control did not run
+# in the same process. So a lone `plan` invocation gives you a caveat, not a
+# result.
+# Two real, paid turns for a pair. Host axis only at this rung. Self-skips
+# loudly, naming the engine and the posture, when that engine is missing or
+# unauthenticated. The sweep runner, the version-stamp trigger and the generic
+# `capability-probe`/`capability-sweep` recipes are a later slice's job (S10 of
+# the capability-probe design); this is the single-cell unit those will call.
+plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
+    ACCEPTANCE_PATHS=features/capability_plan_sentinel.feature \
+    ACCEPTANCE_TAGS="@live && @probe-p4-plan-sentinel && @{{ENGINE}} && @host && @ws-none{{ if POSTURE == 'pair' { '' } else { ' && @var-' + POSTURE } }}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 

@@ -29,12 +29,16 @@
 // its evidence — what was measured, when — because an unevidenced green claim
 // in a table like this is worse than a blank: it stops anyone from looking.
 //
-// RED-MAPPED CELLS ARE CELLS, NOT ABSENCES. Container rows are expected to fail
-// today (ruling 2026-08-12: containerized delegation has never been demonstrably
-// correct, and the map of which cells fail and HOW is the measure of that work).
-// A red-mapped cell records its EXPECTED failure shape, so a weekly sweep can
-// diff shapes rather than count failures — a red cell that starts failing a new
-// way is signal, and a counter cannot see it.
+// RED-MAPPED CELLS ARE CELLS, NOT ABSENCES. A cell expected to fail records its
+// EXPECTED failure shape, so a sweep can DIFF shapes rather than count failures
+// — a red cell that starts failing a new way is signal, and a counter cannot see
+// it. The container rows were the worked example: added red under the 2026-08-12
+// ruling because containerized delegation had never been demonstrably correct,
+// then flipped to live-verified on 2026-08-13 once container auth keying landed
+// and all eight were run. Only one red map is left standing (kiro host/none's
+// ANSI-decoration finding). Flipping one is a one-line edit per cell that the
+// completeness gate forces somebody to make consciously — which is the entire
+// reason the shapes are written down instead of assumed.
 package acceptance
 
 import (
@@ -545,26 +549,33 @@ func p0Cells() []probeCell {
 		c.Status = probeLiveVerified
 		c.Reason = "measured 2026-08-13 (with the PRE-HARP hex nonce — see the note below): green in 100s on the second of two consecutive attempts. The failing attempt dialled 127.0.0.1:1 — a placeholder reach-back address, not a live one (same family as the standup-death silence fixed at 2725325e). If this cell reds in a lane, check the dial address before blaming the engine."
 	})
+	// The ONE cell measured with the minted-harp nonce — see the note below.
 	setCell(cells, "claude-code", "host", "none", func(c *probeCell) {
 		c.Status = probeLiveVerified
-		c.Reason = "the cheapest cell and the ladder's canary: green on the j002300 per-engine live floor 2026-08-12, with the PRE-HARP hex nonce (see the note below)."
+		c.Reason = "the cheapest cell and the ladder's canary. Measured 2026-08-13 on this branch with the MINTED-HARP nonce: `just engine-matrix claude-code host none`, 1 scenario / 3 steps passed in 46s, no skip. Previously green on the j002300 per-engine live floor 2026-08-12 with the pre-harp hex nonce."
 	})
 	return cells
 }
 
-// EVERY live-verified claim in this table PREDATES the minted-harp nonce swap.
-// The cells were measured with the old hex nonce; the value planted in composed
-// context is now a three-word harp. Nothing in the change should matter — the
-// harp is written into the fixture bundle through %q and read back out of a JSON
-// string, both of which are indifferent to hyphens — but "should not matter" is
-// not a measurement, and this table's whole discipline is that a green claim
-// names what was actually observed.
+// THE MINTED-HARP NONCE HAS NOW SURVIVED A LIVE RUN — once, on one cell.
 //
-// So: the statuses above are honest about WHAT was verified and WHEN, and the
-// first live run of any cell after this change is also the first live proof that
-// a minted harp survives context delivery. If that run reds with a
-// CONTEXT-DELIVERY failure while the engine is plainly healthy, the nonce swap
-// is the first thing to suspect, and matrixBundleYAML is where to look.
+// The swap from a hex nonce to a three-word harp changed the value planted in an
+// agent's composed context and echoed back through a JSON string. Nothing about
+// it SHOULD matter — the harp goes into the fixture bundle through %q and comes
+// back out of a JSON string, both indifferent to hyphens — but "should not
+// matter" is not a measurement, and this table's discipline is that a green
+// claim names what was actually observed.
+//
+// So it was measured: claude-code host/none, on this branch, 2026-08-13. The
+// cell ran (1 scenario, 3 steps, no skip), the harp reached the engine through
+// composed context, and the engine echoed it back exactly. That closes the
+// question for the delivery path every probe in the ladder shares.
+//
+// EVERY OTHER live-verified row above still records a PRE-HARP measurement and
+// says so in its own reason. They are not invalidated — the swap is upstream of
+// what they test — but they have not been re-observed. If one of them reds with
+// a CONTEXT-DELIVERY failure while the engine is plainly healthy, the nonce is
+// still the first thing to rule out, and matrixBundleYAML is where to look.
 
 // setCell applies fn to the one cell matching engine/runtime/workspace. It
 // PANICS when the cell is not there: this runs at package init, and a silent

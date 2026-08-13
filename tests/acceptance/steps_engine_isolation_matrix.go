@@ -304,6 +304,16 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 			}
 			m.nonce = nonce
 			w.docStepMaterialized += fmt.Sprintf("\nengine-matrix %s: minted nonce harp %q\n", m.cell(), m.nonce)
+			// Also printed unconditionally, in the loud-skip idiom, because the
+			// sidecar above only materializes under CTXLOOM_DOC_CAPTURE_DIR — so
+			// without this a GREEN cell leaves no record of which harp it used.
+			// A red cell gets the harp in its failure message; a green one is
+			// exactly the case where you later want to grep a transcript or a
+			// spool for the value, which is the whole reason the nonce is a harp
+			// and not a hex blob. This goes to the test runner's stdout, which
+			// the engine under test cannot read — the cell's own stdout is
+			// captured into a buffer.
+			fmt.Printf("MINT engine-matrix %s: nonce harp %q\n", m.cell(), m.nonce)
 
 			if err := w.env.InitGitRepo(); err != nil {
 				return err

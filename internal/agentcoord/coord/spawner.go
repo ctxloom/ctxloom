@@ -544,6 +544,14 @@ type EngineSpawn struct {
 	// without emitting a FAILED RunCompleted (docker-stop / OOM = runner
 	// loss). Nil-safe. See operations.AgentEngineProcess.StderrTail.
 	StderrTail func() string
+	// Wait blocks until the runner PROCESS exits, reporting why (the error
+	// embeds the stderr tail). issueStartRun races it against the dial-home
+	// wait so a runner that died at standup fails the spawn AT ONCE, with its
+	// own dying words, instead of costing the parent the full
+	// runnerAwaitTimeout in total silence. Nil when the spawner captures no
+	// process (test doubles), which degrades to timeout-only detection.
+	// See operations.AgentEngineProcess.Wait.
+	Wait func() error
 }
 
 func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
@@ -570,6 +578,7 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		MCPServers: agent.PatchManagedCommand(plan.MCPServers, prep.MCPCommandOverride()),
 		Kill:       eng.Kill,
 		StderrTail: eng.StderrTail,
+		Wait:       eng.Wait,
 	}, nil
 }
 

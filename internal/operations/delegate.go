@@ -893,6 +893,25 @@ type AgentEngineProcess struct {
 	// where the RunChannel simply disconnects. Nil-safe via
 	// isolation.StderrTailOf. See isolation.RunnerHandle.StderrTail.
 	StderrTail func() string
+	// Wait blocks until the runner PROCESS exits and reports why (its error
+	// already embeds the stderr tail — see both isolation.RunnerHandle.Wait
+	// implementations). It is the DEATH signal a caller needs while it is
+	// still waiting for that runner to dial home: readiness on this path is a
+	// PUSH (the coordinator's awaitRunner parks on a channel the runner's
+	// Hello closes), so without a death signal a runner that died a
+	// millisecond after Start is indistinguishable from one that is merely
+	// slow, and the caller pays its entire dial-home budget — minutes — before
+	// it can say anything at all. Nothing consumed RunnerHandle.Wait before
+	// this field existed (internal/lm/grpc/host_runner.go says so in as many
+	// words), which is precisely why a dead runner surfaced only as a
+	// readiness timeout, with the runner's own dying words never read.
+	//
+	// Both policies fill it and both are safe to call repeatedly and
+	// concurrently: each merely reads the outcome of the ONE background reap
+	// its handle already runs. Nil for a starter that captures no process (a
+	// test double, or a future policy with nothing to reap), so every caller
+	// nil-checks and degrades to its timeout rather than panicking.
+	Wait func() error
 }
 
 // StartEngine spawns the engine runner process WITHOUT opening the go-plugin
@@ -935,6 +954,7 @@ func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProces
 		Env:        env,
 		Model:      rs.Model,
 		StderrTail: func() string { return isolation.StderrTailOf(handle) },
+		Wait:       isolation.WaitOf(handle),
 		Kill: func() {
 			once.Do(func() {
 				handle.Kill()

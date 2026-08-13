@@ -199,6 +199,15 @@ type childRt struct {
 	// a policy/spawner that captures nothing (tests, host paths without a
 	// ring). Set at spawn (runChildViaStartRun).
 	stderrTail func() string
+	// runnerWait blocks until the runner PROCESS exits, reporting why. It is
+	// the DEATH half of the standup race issueStartRun runs: dial-home
+	// readiness is a push (awaitRunner parks on a channel the runner's Hello
+	// closes) and carries no "…and it is still alive" signal, so this is the
+	// only thing that can tell a dead runner from a slow one before the
+	// dial-home budget expires. Nil when the spawner captures no process
+	// (test doubles, the owner-run path), which degrades to the timeout.
+	// Set at spawn (runChildViaStartRun), alongside stderrTail.
+	runnerWait func() error
 	// selfReported records that the CHILD ITSELF sent mail to its parent
 	// during the current turn (peerSend, caller.IsChild()). It is the
 	// no-double-delivery discriminator for bridgeTurnResult: a child that
@@ -743,6 +752,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	c.mu.Lock()
 	rt.close = engine.Kill
 	rt.stderrTail = engine.StderrTail
+	rt.runnerWait = engine.Wait
 	rt.workDir = engine.WorkDir
 	c.mu.Unlock()
 
@@ -815,10 +825,26 @@ func (c *Coordinator) startRunPayloadErr(rt *childRt, first, resumeSessionID str
 
 func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, spec *agentcoordpb.HarnessSpec, first, model, resumeSessionID string) error {
 	actx, acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)
+	// The standup RACE: readiness (awaitRunner, a push the runner's Hello
+	// closes) against DEATH (the runner process exiting). Without the second
+	// arm the wait can only ever end on the clock, so a runner that died at
+	// standup — an unknown backend name, a refused config, a missing binary,
+	// a fail-loud startup finding — held the parent in TOTAL SILENCE for the
+	// whole runnerAwaitTimeout: no agent_send, no bridged turn, and not even
+	// the terminal notice failChild would eventually queue. An observer
+	// watching for less than that budget sees a child that simply never
+	// reports anything, which is indistinguishable from an engine that hung.
+	exited := watchRunnerExit(rt.runnerWait, acancel)
 	_, err := c.awaitRunner(actx, credHash)
 	acancel()
 	if err != nil {
-		err = fmt.Errorf("runner never dialed home (StartRun path): %w", err)
+		// Attribute before blaming the clock: a runner that is GONE gets the
+		// death (with its dying words), not "never dialed home".
+		if reason, dead := runnerExitReason(exited); dead {
+			err = fmt.Errorf("runner exited before dialing home (StartRun path): %s", reason)
+		} else {
+			err = fmt.Errorf("runner never dialed home (StartRun path): %w", err)
+		}
 		c.failChild(rt, err)
 		return err
 	}
@@ -871,6 +897,59 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	c.noteLaunchAttached(rt.harp) // a launch that came up resets the retry budget
 	c.markAttached(rt)            // StartRun round-tripped: the migrated run is up
 	return nil
+}
+
+// watchRunnerExit starts the DEATH arm of issueStartRun's standup race: it
+// reaps the runner process in the background and, the moment it exits, both
+// publishes why and cancels the dial-home wait so the caller stops waiting for
+// a runner that no longer exists.
+//
+// ORDER MATTERS: the exit reason is published to the buffered channel BEFORE
+// cancel fires. The waiter is woken by that cancel, so by the time it looks,
+// the reason is already there — the reverse order would race the waiter into
+// reporting a bare timeout about a runner it had just been told was dead.
+//
+// A nil wait (a spawner that captures no process) returns a nil channel: the
+// receive below simply never yields, and detection degrades to the timeout
+// that was the only mechanism before this existed.
+//
+// The goroutine does not leak on the HEALTHY path. It blocks in wait() for the
+// runner's whole lifetime, which is the point — when the child eventually dies
+// it sends into a BUFFERED channel (never blocking on the absent reader),
+// cancels an already-cancelled context (a no-op), and returns.
+func watchRunnerExit(wait func() error, cancel context.CancelFunc) <-chan error {
+	if wait == nil {
+		return nil
+	}
+	exited := make(chan error, 1)
+	go func() {
+		err := wait()
+		exited <- err
+		cancel()
+	}()
+	return exited
+}
+
+// runnerExitReason reports whether the runner process is already known to have
+// exited, and why. The read is NON-BLOCKING: it is called on a wait that has
+// just ended and must answer "is this runner dead?" from what is already
+// known, never wait around to find out.
+//
+// A CLEAN exit still counts as death. A runner that exits 0 without dialing
+// home has failed just as completely as one that crashed — `ctxloom` printing
+// help and exiting 0 is the documented shape of this (see
+// pb.StartHostRunner's refusal of a bare self-exec) — and reporting only
+// non-zero exits would let the quietest failure keep the old silent timeout.
+func runnerExitReason(exited <-chan error) (string, bool) {
+	select {
+	case err := <-exited:
+		if err != nil {
+			return err.Error(), true
+		}
+		return "runner process exited cleanly (status 0) without ever dialing home", true
+	default:
+		return "", false
+	}
 }
 
 // recordHarnessSession journals the run's harness-native session id (the

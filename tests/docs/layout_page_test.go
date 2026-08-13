@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	tasksp "github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 )
 
 // docsLayoutPage is the user-facing account of the .ctxloom layout.
@@ -21,6 +22,12 @@ const docsLayoutPage = "layout.md"
 // (`<harp>`, `<engine-leaf>`) are captured rather than truncating the match
 // silently, and `*` so the lock glob in the quoted .gitignore block is caught.
 var pagePathRe = regexp.MustCompile(`\.ctxloom/[A-Za-z0-9_.*<>/-]+`)
+
+// homePagePathRe is pagePathRe's HOME-root twin: it requires the leading `~/`
+// pagePathRe's own loop deliberately skips (see the "A ~ immediately before"
+// comment below), so the two regexes partition every .ctxloom path on the
+// page between them rather than double-matching.
+var homePagePathRe = regexp.MustCompile(`~/\.ctxloom/[A-Za-z0-9_.*<>/-]+`)
 
 // TestArch_LayoutPageNamesOnlyRealPaths keeps docs/layout.md from describing a
 // directory ctxloom does not write.
@@ -40,7 +47,8 @@ var pagePathRe = regexp.MustCompile(`\.ctxloom/[A-Za-z0-9_.*<>/-]+`)
 // `.ctxloom/state/`, which is exactly how the blanket rules are meant to work.
 //
 // Home-rooted paths (`~/.ctxloom/...`) are a different root with a different
-// lifecycle and are out of scope here; the page names a few by design.
+// lifecycle; TestArch_LayoutPageNamesOnlyRealHomePaths below is their mirror
+// of this same check, against paths.Layout()'s RootHome rows instead.
 func TestArch_LayoutPageNamesOnlyRealPaths(t *testing.T) {
 	body := readRepoDoc(t, docsLayoutPage)
 	known := declaredProjectPaths()
@@ -68,15 +76,83 @@ func TestArch_LayoutPageNamesOnlyRealPaths(t *testing.T) {
 	}
 }
 
+// TestArch_LayoutPageNamesOnlyRealHomePaths is TestArch_LayoutPageNamesOnly
+// RealPaths' mirror for the `~/.ctxloom/...` paths that test deliberately
+// skips: added by C13 (fs-consolidation plan) once paths.Layout() gained a
+// Root discriminator and could finally enumerate the home-rooted stores
+// (sessions, approvals, signers, trigger cache, coord, companion consent).
+// Before that, docs/layout.md's home-tree table was prose no declarative
+// source could check — this closes the same drift hole the project-side test
+// already closes for the project tree.
+func TestArch_LayoutPageNamesOnlyRealHomePaths(t *testing.T) {
+	body := readRepoDoc(t, docsLayoutPage)
+	known := declaredHomePaths()
+
+	var checked int
+	for _, m := range homePagePathRe.FindAllStringIndex(body, -1) {
+		start, end := m[0], m[1]
+		match := strings.TrimSuffix(body[start:end], "/")
+		path := strings.TrimPrefix(match, "~/")
+		checked++
+		if !coveredBy(path, known) {
+			t.Errorf("docs/%s names %q, which is neither a RootHome row in paths.Layout() nor the documented tasks/paths exception — the page is describing a home path nothing writes, or a real one lost its declaration",
+				docsLayoutPage, match)
+		}
+	}
+
+	// The same empty-input guard TestArch_LayoutPageNamesOnlyRealPaths uses,
+	// scaled to how many home paths the page is expected to name today (the
+	// home-tree table alone names 7 stores).
+	if checked < 7 {
+		t.Fatalf("only %d ~/.ctxloom paths were extracted from docs/%s — the page or the extractor changed shape, and the check above is now vacuous",
+			checked, docsLayoutPage)
+	}
+}
+
 // declaredProjectPaths is the union of the two declarative sources, each
-// normalized to a slash-separated path with no trailing separator.
+// normalized to a slash-separated path with no trailing separator. Filtered
+// to RootProject: a RootHome row can share Rel text with a RootProject one
+// (".ctxloom/sessions" names both the project's distilled-history row and
+// the home sessions store), and mixing them here would let a HOME-only path
+// pass this, the PROJECT-path check, by accident.
 func declaredProjectPaths() []string {
 	var out []string
 	for _, e := range paths.Layout() {
+		if e.Root != paths.RootProject {
+			continue
+		}
 		out = append(out, filepath.ToSlash(e.Rel))
 	}
 	for _, p := range gitignore.PrivateStatePatterns {
 		out = append(out, strings.TrimSuffix(p, "/"))
+	}
+	return out
+}
+
+// declaredHomePaths is declaredProjectPaths' RootHome twin, plus two
+// documented exceptions the page names but paths.Layout() deliberately does
+// NOT carry a row for:
+//   - `~/.ctxloom/tasks` is taskloom's own log store (internal/shared/tasks/
+//     paths.HomeTasksDir), a sibling vocabulary that aliases
+//     internal/paths.AppDirName without folding into it — see
+//     docs/architecture/core/paths.md's "Where documented and real behavior
+//     diverge" note on tasks/paths.IndexFileName for the same boundary drawn
+//     the other way. Referenced via the constants, not a hand-rolled literal,
+//     so a rename there cannot silently desync this allowlist.
+//   - `~/.ctxloom/logs/ctxloom.log` (paths.HomeLogFilePath) is diagnostic
+//     output every ctxloom process writes at startup, not state whose absence
+//     doctor's local-tier check would ever report — see Presence's doc in
+//     internal/paths for why it has no Layout row at all.
+func declaredHomePaths() []string {
+	out := []string{
+		filepath.ToSlash(filepath.Join(tasksp.AppDirName, tasksp.TasksDir)),
+		filepath.ToSlash(filepath.Join(paths.AppDirName, paths.LogsDir, paths.LogFileName)),
+	}
+	for _, e := range paths.Layout() {
+		if e.Root != paths.RootHome {
+			continue
+		}
+		out = append(out, filepath.ToSlash(e.Rel))
 	}
 	return out
 }

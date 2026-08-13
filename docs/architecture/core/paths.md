@@ -183,10 +183,29 @@ this package.
 
 ### Classification
 
-`Tier` (`TierCommitted` / `TierDerived` / `TierLocal`), `Entry` and `Layout()` classify
-every path this tree's own writers produce, each appearing exactly once. `Layout` is read
-by doctor's local-tier check (`cli.doctorCheckLocalTierState`), which reports any absent
-`TierLocal` path using that entry's `Lost` text.
+`Tier` (`TierCommitted` / `TierDerived` / `TierLocal`), `Root` (`RootProject` /
+`RootHome`), `Presence` (`PresenceMustExist` / `PresenceIfUsed`), `Entry` and
+`Layout()` classify every path this tree's own writers produce, each appearing
+exactly once per root — a `RootProject` row and a `RootHome` row may share
+`Rel` text (`.ctxloom/sessions` names both the project's distilled-history row
+and the home sessions store; they are two different physical paths, told apart
+by `Root`). `Root` decides which of the two roots `Entry.Rel` joins onto
+(`Entry.ResolveRoot`); `Presence` decides whether a `TierLocal` row's absence
+is worth a doctor warning at all, an axis that happens to correlate with
+`Tier` for every `RootProject` row (each is created by project setup, so a
+missing one is a genuine loss) but not for `RootHome` rows, which are shared
+across every project on the machine and created lazily by exercising a
+specific feature — a fresh install, or one that never touched that feature,
+legitimately has none of them yet.
+
+`Layout` is read by doctor's local-tier check (`cli.doctorCheckLocalTierState`),
+which resolves each row against the root `Entry.Root` names and reports any
+absent `PresenceMustExist` `TierLocal` row using that entry's `Lost` text;
+a `PresenceIfUsed` row is reported only when PRESENT, never when absent. The
+seven `RootHome` rows (sessions, approvals, allowed/distrusted signers,
+trigger cache, coord, companion consent) and their per-row reasoning are
+documented in full in [layout.md](../../layout.md)'s "The home tree" table —
+this page states the mechanism, that page states the list.
 
 ## Invariants
 
@@ -247,18 +266,13 @@ by doctor's local-tier check (`cli.doctorCheckLocalTierState`), which reports an
   `cli.resolveAppDir` cannot return an empty string, and the three callers that accept one
   substitute `AppDirName` themselves (`operations.getBaseDir`, `remote.NewLockfileManager`,
   `cli.projectConfigPath`) — a default duplicated at each site and owned by none of them.
-- **`HomeCoordDir`/`CoordProjectStateDir` get no `Layout` row**, unlike every
-  other constant this package names. `Layout` classifies paths *relative to
-  one project's root* (`doctorCheckLocalTierState` joins each `Entry.Rel`
-  onto `filepath.Dir(appDir)`); `~/.ctxloom/coord/<project-key>` is HOME-rooted
-  and keyed by a derived project identity, the same shape as
-  `HomeApprovalsPath`, `HomeAllowedSignersPath`, `HomeSessionsDir` and
-  `TriggerCacheDir` — none of which have a `Layout` row either, for the same
-  reason: there is no single project root a home-rooted path resolves under,
-  so `Layout`'s "is this present in THIS checkout" check cannot ask a
-  meaningful question about it. Giving coordinator state a doctor-visible row
-  would need a second, home-rooted enumeration (or a `Layout` root-kind
-  field) — a real but separate design question, not answered by this note.
+- **`CoordProjectStateDir` still gets no `Layout` row**, unlike its parent
+  `HomeCoordDir` (which does, as of C13's `Root: RootHome` rows — see
+  "Classification" above). The reason is the same one every harp-keyed path
+  is excluded (invariant 7): `CoordProjectStateDir(projectKey)` is a
+  per-project INSTANCE under the coord store, not the store root itself, so
+  it names no fixed path a row could describe — the same shape as `HarpDir`
+  under `HomeSessionsDir`.
 - **`project-id` is the one classified path still at the `.ctxloom` root** rather than under
   `state/`, where its tier says it belongs. A move to `state/project-id` (with a read
   fallback and a one-time migration) is decided but unimplemented; `Layout` and

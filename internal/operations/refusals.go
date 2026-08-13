@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // THE RECORD OF WHAT UPGRADE WOULD NOT DO.
@@ -155,7 +156,10 @@ func saveRefusedAdvances(cfg *config.Config, refused []RefusedAdvance) error {
 	if mkErr := fsys.MkdirAll(filepath.Dir(path), 0o755); mkErr != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(path), mkErr)
 	}
-	if werr := afero.WriteFile(fsys, path, data, 0o644); werr != nil {
+	// No AllowEmpty: this branch only runs when refused is non-empty, so data
+	// is always a real, non-empty marshaled doc — the len(refused)==0 case
+	// above deletes the file instead of writing to it.
+	if werr := iox.WriteFileAtomicFs(fsys, path, data, 0o644); werr != nil {
 		return fmt.Errorf("write %s: %w", path, werr)
 	}
 	return nil

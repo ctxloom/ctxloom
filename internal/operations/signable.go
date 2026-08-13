@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -96,7 +97,8 @@ func SignItem(fs afero.Fs, item Signable, signer ssh.Signer) error {
 		return err
 	}
 	sigPath := item.SigPath()
-	if err := afero.WriteFile(fs, sigPath, armored, 0o644); err != nil {
+	// No AllowEmpty: armored is signing.Sign's output, never empty.
+	if err := iox.WriteFileAtomicFs(fs, sigPath, armored, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", sigPath, err)
 	}
 	return nil

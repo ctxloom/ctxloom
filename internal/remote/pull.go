@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // PullOptions configures pull behavior.
@@ -657,11 +658,18 @@ func warnUndeclaredExecutable(repoPath string, file TreeFile) {
 // on disk. Installing at git's mode is what made a published-0755-but-
 // undeclared script arrive as a whole package the consumer refused.
 //
-// The explicit Chmod after the write is not redundant. afero (like os.WriteFile
-// under it) applies a mode only when it CREATES the file, and the umask masks
-// what it does apply — so a 0755 script can land 0644 and the model is shipped
-// something it cannot run, with no error anywhere. internal/shared/agent's
-// packagefiles.go re-Chmods on every materialize for exactly this reason.
+// iox.WriteFileAtomicFs applies perm EXACTLY via its own explicit Chmod on
+// the temp file (see its doc) — the same fix this function used to hand-roll
+// with the trailing fs.Chmod call afero.WriteFile's umask-masked create left
+// necessary. Migrating to it drops that now-redundant second Chmod for free.
+//
+// AllowEmpty: an intentionally empty file is a legitimate member of a bundle
+// tree (a placeholder, a deliberately-emptied config), so the default
+// empty-over-existing refusal would wrongly block a legitimate re-pull —
+// unlike this package's OTHER writers (git_publisher, the lockfile/registry
+// stores), nothing here can distinguish "the tree really has a 0-byte file"
+// from "something upstream went wrong", so the guard is opted out rather than
+// guessed at.
 func writeTreeFile(fs afero.Fs, dir, rel string, file TreeFile) error {
 	mode := os.FileMode(0o644)
 	if file.DeclaredExecutable {
@@ -671,10 +679,7 @@ func writeTreeFile(fs afero.Fs, dir, rel string, file TreeFile) error {
 	if err := fs.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return err
 	}
-	if err := afero.WriteFile(fs, full, file.Data, mode); err != nil {
-		return err
-	}
-	return fs.Chmod(full, mode)
+	return iox.WriteFileAtomicFs(fs, full, file.Data, mode, iox.AllowEmpty())
 }
 
 // promptConfirmation asks the user for yes/no confirmation.

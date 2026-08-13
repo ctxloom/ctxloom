@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // SigDirName is the bundle-root directory holding stored signatures.
@@ -143,7 +145,10 @@ func writeSignature(fsys afero.Fs, bundleDir, key string, ns Namespace, sig []by
 		return fmt.Errorf("content: creating signature store %q: %w", dir, err)
 	}
 	target := filepath.Join(dir, sigFileName(key, ns, sig))
-	if err := afero.WriteFile(fsys, target, sig, 0o644); err != nil {
+	// No AllowEmpty: an empty sig is already refused above, and the filename is
+	// content-addressed (derived from sig's own hash), so a re-write at the
+	// same path is always identical bytes.
+	if err := iox.WriteFileAtomicFs(fsys, target, sig, 0o644); err != nil {
 		return fmt.Errorf("content: writing signature %q: %w", target, err)
 	}
 	return nil

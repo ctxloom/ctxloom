@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -100,7 +101,9 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 		return nil, fmt.Errorf("either an output file or a destination directory must be specified")
 	}
 
-	if err := afero.WriteFile(fs, dest, srcData, 0644); err != nil {
+	// No AllowEmpty: srcData is a bundle this same call just loaded through
+	// bundles.NewLoader, which never yields empty bytes for a real bundle.
+	if err := iox.WriteFileAtomicFs(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write bundle: %w", err)
 	}
 
@@ -209,7 +212,9 @@ func writeSignature(fs afero.Fs, destBundle string, sig []byte) (string, error) 
 		return "", nil
 	}
 	destSig := destBundle + sigSuffix
-	if err := afero.WriteFile(fs, destSig, sig, 0644); err != nil {
+	// No AllowEmpty: sig == nil already short-circuited above, so a non-nil sig
+	// here is real signature bytes, never empty.
+	if err := iox.WriteFileAtomicFs(fs, destSig, sig, 0644); err != nil {
 		return "", fmt.Errorf("write signature %s: %w", destSig, err)
 	}
 	return destSig, nil
@@ -285,7 +290,9 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 	if exists && !req.Force {
 		return nil, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
 	}
-	if err := afero.WriteFile(fs, destPath, srcData, 0644); err != nil {
+	// No AllowEmpty: srcData already parsed as a valid bundle above
+	// (bundles.ParseBundle refuses a document that declares nothing).
+	if err := iox.WriteFileAtomicFs(fs, destPath, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write bundle: %w", err)
 	}
 

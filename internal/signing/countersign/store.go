@@ -273,7 +273,13 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 		return err
 	}
 	path := filepath.Join(s.dir, filename(header, payload, signer.PublicKey()))
-	return afero.WriteFile(s.fs, path, armored, 0o644)
+	// No AllowEmpty: armored is signing.Sign's output, never zero-length, and
+	// the filename is content-addressed (indexHash), so a re-write at the
+	// same path is always the identical bytes — the default empty-over-
+	// existing guard can never legitimately fire here; if it ever did, that
+	// would mean signing.Sign returned nothing, which should fail loud rather
+	// than silently drop a record that reports success.
+	return iox.WriteFileAtomicFs(s.fs, path, armored, 0o644)
 }
 
 // WriteApprove signs and stores a ref-scoped, form-scoped approve
@@ -456,7 +462,11 @@ func (s *Store) writeUnsigned(header signing.CountersignHeader, payload []byte) 
 		return err
 	}
 	path := filepath.Join(s.dir, unsignedFilename(header, payload))
-	return afero.WriteFile(s.fs, path, []byte("unsigned\n"), 0o644)
+	// No AllowEmpty: the marker's whole content is the fixed literal
+	// "unsigned\n" — never zero-length — and the filename is
+	// content-addressed, so a re-write at the same path is always identical
+	// bytes.
+	return iox.WriteFileAtomicFs(s.fs, path, []byte("unsigned\n"), 0o644)
 }
 
 // hasUnsigned reports whether the unsigned marker for header+payload is

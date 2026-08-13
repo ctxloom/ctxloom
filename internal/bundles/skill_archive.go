@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -539,7 +540,11 @@ func (st *extractState) writeEntryFile(fsys afero.Fs, target, name string, mode 
 		return fmt.Errorf("uncompressed size exceeds the %d byte cap — rejected (decompression-bomb guard)", opts.MaxTotalBytes)
 	}
 
-	if err := afero.WriteFile(fsys, target, data, normalizeExtractedMode(mode)); err != nil {
+	// AllowEmpty: a legitimately empty file (a placeholder, an emptied config)
+	// is a normal archive entry — the decompression-bomb guard above already
+	// caps what CAN be written, it says nothing about whether zero bytes is a
+	// valid outcome, so refusing it here would reject a real, harmless entry.
+	if err := iox.WriteFileAtomicFs(fsys, target, data, normalizeExtractedMode(mode), iox.AllowEmpty()); err != nil {
 		return fmt.Errorf("writing entry %q: %w", name, err)
 	}
 	st.filesWritten++

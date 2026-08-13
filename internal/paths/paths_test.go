@@ -262,10 +262,46 @@ func TestHarpDerivedPaths_RefuseTraversingNames(t *testing.T) {
 		"HarpEssencePath":                    HarpEssencePath,
 		"HarpEphemeralDir":                   HarpEphemeralDir,
 		"ResolveHarpCanonicalTranscriptPath": ResolveHarpCanonicalTranscriptPath,
+		"HarpEngineTranscriptLinkPath": func(harp string) (string, error) {
+			return HarpEngineTranscriptLinkPath(harp, "claude-code", "sess-1")
+		},
 	}
 	for label, fn := range helpers {
 		got, err := fn("../../escape")
 		assert.Error(t, err, "%s must refuse a traversing harp name", label)
 		assert.NotContains(t, got, "escape", "%s leaked a traversed path: %q", label, got)
+	}
+}
+
+// TestHarpEngineTranscriptLinkPath_NamesEngineAndSession pins the on-disk
+// name every per-vendor-log symlink gets: engine-transcript-<engine>-<session
+// id>.jsonl, directly under the harp dir root (a sibling of the retired
+// bare transcript.jsonl, not nested under persist/).
+func TestHarpEngineTranscriptLinkPath_NamesEngineAndSession(t *testing.T) {
+	testsupport.Isolate(t)
+	harpDir, err := HarpDir("swift-amber-falcon")
+	require.NoError(t, err)
+
+	got, err := HarpEngineTranscriptLinkPath("swift-amber-falcon", "claude-code", "abc-123")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(harpDir, "engine-transcript-claude-code-abc-123.jsonl"), got)
+	assert.True(t, strings.HasPrefix(filepath.Base(got), EngineTranscriptLinkPrefix))
+}
+
+// TestHarpEngineTranscriptLinkPath_RequiresEngineAndSessionID pins that a
+// missing engine or session id is a refusal, not a malformed path built from
+// an empty component (which would silently collide with a differently-named
+// binding, e.g. "engine-transcript--abc.jsonl" for two different engines that
+// both happened to have an empty name).
+func TestHarpEngineTranscriptLinkPath_RequiresEngineAndSessionID(t *testing.T) {
+	testsupport.Isolate(t)
+	for _, tc := range []struct{ engine, sessionID string }{
+		{"", "abc-123"},
+		{"claude-code", ""},
+		{"", ""},
+	} {
+		got, err := HarpEngineTranscriptLinkPath("swift-amber-falcon", tc.engine, tc.sessionID)
+		assert.Error(t, err, "engine=%q session=%q must be refused", tc.engine, tc.sessionID)
+		assert.Empty(t, got, "engine=%q session=%q must not return a path alongside its error", tc.engine, tc.sessionID)
 	}
 }

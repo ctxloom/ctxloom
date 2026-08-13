@@ -69,6 +69,14 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 	projectKeyArg := map[string]func(string) (string, error){
 		"CoordProjectStateDir": CoordProjectStateDir,
 	}
+	// HarpEngineTranscriptLinkPath takes engine and sessionID too, so it
+	// cannot join harpArg's func(string) shape directly — wrap it with fixed,
+	// valid engine/sessionID so the home failure is still what's exercised.
+	harpEngineArg := map[string]func(string) (string, error){
+		"HarpEngineTranscriptLinkPath": func(h string) (string, error) {
+			return HarpEngineTranscriptLinkPath(h, "claude-code", "sess-1")
+		},
+	}
 
 	check := func(t *testing.T, name string, got string, err error) {
 		t.Helper()
@@ -96,6 +104,12 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 	for name, fn := range projectKeyArg {
 		t.Run(name, func(t *testing.T) {
 			got, err := fn("proj-key")
+			check(t, name, got, err)
+		})
+	}
+	for name, fn := range harpEngineArg {
+		t.Run(name, func(t *testing.T) {
+			got, err := fn("swift-amber-falcon")
 			check(t, name, got, err)
 		})
 	}

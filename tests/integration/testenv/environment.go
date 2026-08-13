@@ -2,6 +2,7 @@ package testenv
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,24 +16,22 @@ import (
 )
 
 // mcpStdinGrace is the CEILING RunWithStdin will keep stdin open after
-// writing the request(s), for a child that never responds at all. The MCP
+// writing the request(s), for a child that never answers them. The MCP
 // server (SDK stdio transport) dispatches requests asynchronously; if stdin
 // closes immediately after the write, its read loop hits EOF and tears the
 // server down before the handler writes its response. A real MCP client keeps
 // stdin open until it has its responses — this models that.
 //
-// This used to be an unconditional time.Sleep(mcpStdinGrace) on
-// every one of RunWithStdin's ~10 call sites -- 2s of wall clock per call
-// regardless of how fast the response actually arrived, even though the doc
-// already conceded "responses arrive in milliseconds". waitForStdinResponse
-// now polls and returns as soon as output has arrived and gone quiet;
-// mcpStdinGrace remains only as the worst-case wait for a genuinely silent or
-// hung child, so a slow-CI run is no worse off than before.
-const mcpStdinGrace = 2 * time.Second
+// It is a ceiling and nothing else: RunWithStdin returns the moment every
+// request it wrote has been ANSWERED (waitForStdinResponses), so raising it
+// costs a passing test nothing. It buys the case that matters — a child whose
+// second answer is genuinely slow, e.g. assemble_context on a box where every
+// other package's tests are running — the room to finish rather than being
+// cut off mid-work.
+const mcpStdinGrace = 20 * time.Second
 
-// stdinPollInterval is how often waitForStdinResponse checks the child's
-// accumulated output for growth, and also the quiet window required before
-// concluding a response has fully arrived.
+// stdinPollInterval is how often waitForStdinResponses checks the child's
+// accumulated output.
 const stdinPollInterval = 10 * time.Millisecond
 
 // TestEnvironment manages isolated test environments with fake home and project directories.
@@ -725,7 +724,7 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	// exec.Cmd starts a background goroutine to copy the child's stdout/stderr
 	// into whatever Writer is assigned here as soon as Start() runs; a bare
 	// bytes.Buffer is not safe for that concurrent write racing against the
-	// polling read in waitForStdinResponse below, so both are a mutex-guarded
+	// polling read in waitForStdinResponses below, so both are a mutex-guarded
 	// syncBuffer instead.
 	var stdout, stderr syncBuffer
 	cmd.Stdout = &stdout
@@ -736,7 +735,7 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	}
 
 	_, _ = stdinPipe.Write([]byte(stdin))
-	waitForStdinResponse(&stdout)
+	waitForStdinResponses(&stdout, jsonrpcRequestCount(stdin))
 	_ = stdinPipe.Close()
 
 	err = cmd.Wait()
@@ -744,30 +743,73 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	return err
 }
 
-// waitForStdinResponse polls out for its response to arrive and settle,
-// instead of blindly sleeping the full mcpStdinGrace ceiling on every call:
-// it returns as soon as some output has been written and then
-// stayed unchanged for one poll interval, which is the common case in
-// milliseconds; a child that never writes anything is still bounded by
-// mcpStdinGrace, exactly matching the old fixed-sleep behavior for that case.
-func waitForStdinResponse(out *syncBuffer) {
+// waitForStdinResponses holds stdin open until the child has answered every
+// request that was written to it, bounded by mcpStdinGrace.
+//
+// The completion signal is the ANSWER, never a lull in the output. Its
+// predecessor returned as soon as stdout had written something and then gone
+// quiet for one poll interval, which is not what "the client has its
+// responses" means for a request/response protocol carrying more than one
+// request: the server answers `initialize` immediately, and the pause while
+// it does the SECOND request's real work (assemble_context loads bundles and
+// profiles off disk, and the same startup syncs remotes) reads as exactly
+// that lull. Stdin then closed underneath the running handler and the server
+// tore down mid-request — the observed "Error: server is closing: EOF" with
+// the tool result never written. Nothing was wrong with the server; the test
+// client hung up on it, and it did so more often the busier the box was.
+//
+// want == 0 means the input was not JSON-RPC (nothing to count), so this
+// falls back to waiting out the ceiling rather than returning immediately.
+func waitForStdinResponses(out *syncBuffer, want int) {
 	deadline := time.Now().Add(mcpStdinGrace)
-	lastLen := -1
-	var quietSince time.Time
 	for time.Now().Before(deadline) {
-		n := out.Len()
-		if n > 0 && n == lastLen {
-			if quietSince.IsZero() {
-				quietSince = time.Now()
-			} else if time.Since(quietSince) >= stdinPollInterval {
-				return
-			}
-		} else {
-			quietSince = time.Time{}
+		if want > 0 && jsonrpcResponseCount(out.String()) >= want {
+			return
 		}
-		lastLen = n
 		time.Sleep(stdinPollInterval)
 	}
+}
+
+// jsonrpcRequestCount reports how many JSON-RPC requests s carries: one per
+// newline-delimited object with both an id and a method. A notification (no
+// id) is deliberately not counted — nothing answers it, so waiting for a
+// response to it would burn the whole ceiling on every call.
+func jsonrpcRequestCount(s string) int {
+	n := 0
+	for _, line := range strings.Split(s, "\n") {
+		var msg struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if json.Unmarshal([]byte(line), &msg) != nil {
+			continue
+		}
+		if len(msg.ID) > 0 && string(msg.ID) != "null" && msg.Method != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// jsonrpcResponseCount reports how many JSON-RPC responses s currently holds:
+// objects carrying an id and either a result or an error. A half-written line
+// simply fails to parse and is counted on a later poll.
+func jsonrpcResponseCount(s string) int {
+	n := 0
+	for _, line := range strings.Split(s, "\n") {
+		var msg struct {
+			ID     json.RawMessage `json:"id"`
+			Result json.RawMessage `json:"result"`
+			Error  json.RawMessage `json:"error"`
+		}
+		if json.Unmarshal([]byte(line), &msg) != nil {
+			continue
+		}
+		if len(msg.ID) > 0 && string(msg.ID) != "null" && (len(msg.Result) > 0 || len(msg.Error) > 0) {
+			n++
+		}
+	}
+	return n
 }
 
 // syncBuffer is a mutex-guarded byte accumulator, safe to read (Len/String)

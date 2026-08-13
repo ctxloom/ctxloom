@@ -126,24 +126,42 @@ func runHookInjectContext(cmd *cobra.Command, args []string) (err error) {
 	output := buildInjectContextOutput(content, resumedEssence, part, total)
 
 	// After a /clear, nudge the USER (not the model) toward /recover via the
-	// systemMessage channel, independent of the injected context. /clear keeps
-	// the SAME session alive — its transcript still holds the pre-clear
-	// conversation, which recover_session re-distills — so the gate is the
-	// CURRENT session being recoverable (a present, non-empty transcript), NOT
-	// a prior session existing. Only the first chunk checks (the message also
-	// guards part>1); the stat is local, and on a missing/empty transcript we
-	// stay silent rather than promise a recovery that would come back empty.
+	// systemMessage channel, independent of the injected context. claude-code's
+	// /clear does NOT keep the pre-clear transcript alive under the same
+	// file — measured false: it starts a FRESH session UUID and a fresh,
+	// empty transcript file, firing SessionStart again with the new id (the
+	// /clear record is the first message of the successor file; no backward
+	// pointer exists in the vendor files). What makes recovery possible now is
+	// the harp-LIFETIME canonical transcript (RefreshVendorTranscript
+	// concatenating sessions.Entry.Rotations' cached segments with the live
+	// conversion) — so recoverability is a question about the harp's index
+	// entry, NOT whether the CURRENT (post-clear, necessarily still-empty-at-
+	// this-moment) transcript file happens to be non-empty.
+	//
+	// It is NOT simply "does the entry already carry a recorded rotation",
+	// though: claude.go's ctxloomMachineCallbacks runs inject-context BEFORE
+	// session-bind on a real SessionStart, so at THIS moment the bind that
+	// would append hookInput.SessionID's predecessor to Rotations has not run
+	// yet — the index still holds the PRE-clear binding. currentSessionRecoverable
+	// therefore also treats a bound entry whose CURRENT SessionID differs from
+	// the incoming hookInput.SessionID as recoverable: that displacement is
+	// about to be recorded by the session-bind hook that fires right after
+	// this one. See its own doc comment.
+	//
+	// Only the first chunk checks (the message also guards part>1); the
+	// lookup is local, and on an unbound harp or one whose current binding
+	// already matches the incoming id we stay silent rather than promise a
+	// recovery that would come back empty.
 	//
 	// WHY the source is not re-checked here: clearRecoveryMessage owns that
 	// decision, and encoding it in both places made each copy individually
 	// unkillable — removing either one alone changed no observable behaviour,
 	// so no test could tell whether the rule was still enforced. This computes
 	// only the fact (is there anything to recover) and lets one function decide
-	// what to do with it. The cost is a stat on every first-chunk SessionStart
-	// rather than only after a clear, which is one local file stat.
+	// what to do with it.
 	clearRecoverable := false
 	if part <= 1 {
-		clearRecoverable = currentSessionRecoverable(hookInput.TranscriptPath)
+		clearRecoverable = currentSessionRecoverable(hookInput.Source, os.Getenv(agent.SessionHarpEnv), hookInput.SessionID)
 	}
 	// Compose the user-facing SessionStart nudges: the clear-recovery hint
 	// (when a /clear left a recoverable prior session) and the agent-setup
@@ -177,18 +195,43 @@ func clearRecoveryMessage(source string, part int, recoverable bool) string {
 	return "ctxloom: context cleared. Run /recover to bring your pre-clear context back."
 }
 
-// currentSessionRecoverable reports whether the still-live current session has a
-// transcript worth re-distilling — a present, non-empty transcript file. After a
-// /clear the session stays alive and its transcript still holds the pre-clear
-// conversation, so this is the signal that /recover (recover_session) has
-// something to bring back. A missing/empty transcript or an unstattable path
-// yields false, so the nudge never promises a recovery that would come back empty.
-func currentSessionRecoverable(transcriptPath string) bool {
-	if transcriptPath == "" {
+// currentSessionRecoverable reports whether /recover (recover_session) has
+// something to bring back for the current harp, for the one source that
+// actually needs this check: source=="clear". claude-code's /clear starts a
+// FRESH session UUID and an empty transcript file (measured; see the call
+// site's doc comment) — the OLD transcript's content only survives if the
+// store recorded it as a rotation (sessions.Entry.Rotations, appended by
+// sessions.Manager.BindSession's displacing rebind).
+//
+// Recoverable iff harpName resolves to an index entry, AND EITHER:
+//   - the entry already carries ≥1 recorded rotation (a prior clear in THIS
+//     session already displaced a binding), OR
+//   - the entry's CURRENT SessionID is non-empty and differs from
+//     payloadSessionID (hookInput.SessionID) — the FIRST clear in a session.
+//     inject-context runs before session-bind (claude.go's
+//     ctxloomMachineCallbacks), so at this moment the index still holds the
+//     PRE-clear binding and no rotation has been appended yet; a bound id
+//     that disagrees with the incoming one is exactly the displacement
+//     session-bind is about to record. Without this disjunct, the FIRST
+//     /clear in every session was reported not-recoverable — the rotation
+//     that would make it true hadn't been written yet.
+//
+// Any other source, an unresolvable harp, an unbound entry, or an entry
+// already bound to payloadSessionID (nothing displaced, nothing to recover)
+// yields false, so the nudge never promises a recovery that would come back
+// empty.
+func currentSessionRecoverable(source, harpName, payloadSessionID string) bool {
+	if source != "clear" || harpName == "" {
 		return false
 	}
-	info, err := os.Stat(transcriptPath)
-	return err == nil && info.Size() > 0
+	entry, err := operations.GetSession(harpName)
+	if err != nil || entry == nil {
+		return false
+	}
+	if len(entry.Rotations) > 0 {
+		return true
+	}
+	return entry.SessionID != "" && entry.SessionID != payloadSessionID
 }
 
 // agentSetupNudge returns the Phase F "profiles but no agents" nudge for

@@ -299,6 +299,34 @@ func TestSessionHarpForID(t *testing.T) {
 	assert.Empty(t, sessionHarpForID(""))
 }
 
+// TestSessionHarpForID_ResolvesRotatedAwaySessionID pins that sessionHarpForID
+// resolves a session id a /clear has since rotated PAST — no longer the
+// harp's current SessionID, but preserved in sessions.Entry.Rotations —
+// through operations.HarpForSession's lineage-aware lookup
+// (sessions.Store.FindBySessionID). A stale hook payload, an old vendor
+// transcript, or a caller's own memory of "the session before the clear"
+// names exactly this id; without the lineage lookup it resolved to nothing at
+// all once BindSession had re-pointed the entry past it.
+func TestSessionHarpForID_ResolvesRotatedAwaySessionID(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp(cwd, "claude-code")
+	require.NoError(t, err)
+	harp := entry.HarpName
+
+	require.NoError(t, mgr.BindSession(harp, "pre-clear-id", "/pre-clear.jsonl"))
+	require.NoError(t, mgr.BindSession(harp, "post-clear-id", "/post-clear.jsonl"))
+
+	assert.Equal(t, harp, sessionHarpForID("pre-clear-id"),
+		"a session id rotated away by a /clear must still resolve to its harp")
+	assert.Equal(t, harp, sessionHarpForID("post-clear-id"),
+		"the current binding must still resolve too")
+}
+
 // TestLoadOrDistillSession_ArchivedAlsoConvertsOnDemand covers the SIBLING
 // tools — load_session and get_previous_session — which hit the same wall as
 // /recover: an interactive session they were asked to open has no canonical

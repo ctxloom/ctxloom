@@ -22,6 +22,7 @@ type Store interface {
 	ListForProject(projectDir string) ([]Entry, error)
 	ListAll() ([]Entry, error)
 	Find(harpName string) (*Entry, error)
+	FindBySessionID(sessionID string) (*Entry, error)
 	AssignHarp(projectDir, backend string) (Entry, error)
 	BindSession(harpName, sessionID, transcriptPath string) error
 	RecordEngineVersion(harpName, version string) error

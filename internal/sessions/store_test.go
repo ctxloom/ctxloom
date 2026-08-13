@@ -183,6 +183,71 @@ func TestSessionStoreContract_FindPopulatesCanonicalTranscript(t *testing.T) {
 	}
 }
 
+// TestSessionStoreContract_RotationLineage holds BOTH adapters to the same
+// rotation-history rule: a displacing rebind appends the old binding to
+// Rotations, and FindBySessionID resolves a rotated-away id through it.
+// MemStore is the fake every other package's tests run against, so a fake
+// that silently drops lineage a real Manager preserves is exactly how that
+// defect stays invisible everywhere else.
+func TestSessionStoreContract_RotationLineage(t *testing.T) {
+	adapters := []struct {
+		name string
+		make func(t *testing.T) Store
+	}{
+		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
+		{"Manager", func(t *testing.T) Store {
+			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			return m
+		}},
+	}
+
+	for _, a := range adapters {
+		t.Run(a.name, func(t *testing.T) {
+			s := a.make(t)
+			e, err := s.AssignHarp("/proj", "claude-code")
+			if err != nil {
+				t.Fatalf("AssignHarp: %v", err)
+			}
+
+			if err := s.BindSession(e.HarpName, "pre-clear", "/pre.jsonl"); err != nil {
+				t.Fatalf("BindSession: %v", err)
+			}
+			if err := s.BindSession(e.HarpName, "post-clear", "/post.jsonl"); err != nil {
+				t.Fatalf("BindSession (rotation): %v", err)
+			}
+
+			got, err := s.Find(e.HarpName)
+			if err != nil || got == nil {
+				t.Fatalf("Find: %v, %v", got, err)
+			}
+			if len(got.Rotations) != 1 || got.Rotations[0].SessionID != "pre-clear" || got.Rotations[0].TranscriptPath != "/pre.jsonl" {
+				t.Fatalf("%s: Rotations = %+v, want [{pre-clear /pre.jsonl}]", a.name, got.Rotations)
+			}
+
+			byOld, err := s.FindBySessionID("pre-clear")
+			if err != nil {
+				t.Fatalf("FindBySessionID(pre-clear): %v", err)
+			}
+			if byOld == nil || byOld.HarpName != e.HarpName {
+				t.Fatalf("%s: FindBySessionID(pre-clear) = %+v, want harp %q", a.name, byOld, e.HarpName)
+			}
+
+			byCurrent, err := s.FindBySessionID("post-clear")
+			if err != nil || byCurrent == nil || byCurrent.HarpName != e.HarpName {
+				t.Fatalf("%s: FindBySessionID(post-clear) = %+v, %v", a.name, byCurrent, err)
+			}
+
+			byUnknown, err := s.FindBySessionID("never-bound")
+			if err != nil || byUnknown != nil {
+				t.Fatalf("%s: FindBySessionID(never-bound) = %+v, %v, want nil, nil", a.name, byUnknown, err)
+			}
+		})
+	}
+}
+
 // TestSessionStoreContract_RenameRefusesUnsafeNames holds BOTH adapters to
 // the same safe-rename rule. It lives in the contract suite deliberately: MemStore is
 // the fake every other package's tests run against, so a fake that accepts a

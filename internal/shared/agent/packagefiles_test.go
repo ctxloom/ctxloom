@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -16,14 +17,18 @@ import (
 
 // failChmodFs fails Chmod for exactly one path, passing everything else
 // through to the wrapped Fs — the seam this regression test uses to
-// force the exec-bit re-assert to fail.
+// force the exec-bit re-assert to fail. Matched by SUFFIX rather than exact
+// equality: the render-to-temp-then-swap rewrite applies the chmod inside a
+// freshly created, randomly-named temp tree (packagefiles.go phase 2), not at
+// the final dir-rooted path, so the fixed relative tail ("humanize/scripts/run.sh")
+// is what's stable across runs.
 type failChmodFs struct {
 	afero.Fs
-	path string
+	pathSuffix string
 }
 
 func (f failChmodFs) Chmod(name string, mode os.FileMode) error {
-	if name == f.path {
+	if strings.HasSuffix(name, f.pathSuffix) {
 		return &os.PathError{Op: "chmod", Path: name, Err: os.ErrPermission}
 	}
 	return f.Fs.Chmod(name, mode)
@@ -184,8 +189,7 @@ func TestWriteManagedPackageFiles_UnsafeItemPathSkipsWholeItem(t *testing.T) {
 func TestWriteManagedPackageFiles_ChmodFailureWarns(t *testing.T) {
 	base := afero.NewMemMapFs()
 	dir := "/work/.claude/skills"
-	scriptPath := filepath.Join(dir, "humanize", "scripts", "run.sh")
-	fs := failChmodFs{Fs: base, path: scriptPath}
+	fs := failChmodFs{Fs: base, pathSuffix: filepath.Join("humanize", "scripts", "run.sh")}
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)

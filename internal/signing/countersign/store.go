@@ -31,6 +31,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -661,10 +662,12 @@ func (s *Store) AppendIndex(e IndexEntry) error {
 	return s.writeIndex(append(existing, e))
 }
 
-// writeIndex replaces the sidecar index with entries, atomically: the whole
-// file is marshalled, written to a temp path, and renamed into place, so a
-// crash mid-write cannot leave behind the truncated file that makes readIndex
-// (and therefore every later append) refuse.
+// writeIndex replaces the sidecar index with entries, atomically, through
+// iox.WriteFileAtomicFs (unique temp file + fsync + rename) — a crash
+// mid-write cannot leave behind the truncated file that makes readIndex (and
+// therefore every later append) refuse. yaml.Marshal of a []IndexEntry, even
+// nil or empty, always renders "[]\n": this write can never be legitimately
+// empty, so no AllowEmpty option is passed.
 //
 // It is the ONE writer of this file, shared by the append and the forget path,
 // because "rewrite the whole index safely" is a single property and two
@@ -677,15 +680,7 @@ func (s *Store) writeIndex(entries []IndexEntry) error {
 	if err := s.fs.MkdirAll(s.dir, 0o755); err != nil {
 		return err
 	}
-	tmp := s.indexPath() + ".tmp"
-	if err := afero.WriteFile(s.fs, tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := s.fs.Rename(tmp, s.indexPath()); err != nil {
-		_ = s.fs.Remove(tmp)
-		return err
-	}
-	return nil
+	return iox.WriteFileAtomicFs(s.fs, s.indexPath(), data, 0o644)
 }
 
 // LatestApprove returns the most recently appended approve index entry for

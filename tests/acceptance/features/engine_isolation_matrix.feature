@@ -36,6 +36,18 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
   silent no-op (exit 0, empty stdout), an output-FORMAT failure, a
   CONTEXT-DELIVERY failure (well-formed JSON, no nonce), or a wrong shape.
 
+  EACH CELL USES PRODUCTION'S OWN CREDENTIAL MECHANISM, NOT A HARNESS
+  SUBSTITUTE. We drive real engines on real subscriptions, and every axis
+  already has a solved mechanism: the host axis uses the engine's real home;
+  the worktree axis seeds per-agent homes through credentialSeedSpecs; the
+  container axis mounts the host credential store (claude's read-write, so a
+  refresh lands in the live chain — merge 07072acf). Those mechanisms all
+  resolve from the real host home, so these cells deliberately do NOT isolate
+  it, and seed nothing themselves: a cell that substituted its own credential
+  delivery would prove nothing about the product, and a cell more cautious than
+  the product is not a test of it. What this floor asserts on stays isolated —
+  a fresh temp project holds the fixture, and the assertion reads only stdout.
+
   CONTAINER CELLS ARE EXPECTED TO BE RED UNTIL CONTAINER AUTH KEYING LANDS.
   Agent containerization has never been demonstrably correct here — the
   container-auth lane sat red for fifteen days — and the fix is in flight on its
@@ -50,12 +62,16 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
   calls, a container cell can be minutes long, and running the matrix in
   parallel on a loaded box is how a machine gets OOM-killed mid-measurement.
 
-  # Each cell self-skips LOUDLY, naming the engine and BOTH axes, when its
-  # engine is missing or unauthenticated, when that specific axis cannot
-  # authenticate it (kiro's container axis, for instance, can only be
-  # authenticated by KIRO_API_KEY — the host's subscription login does not
-  # satisfy it), or when no container runtime is reachable. A blank cell in the
-  # matrix always has a reason attached.
+  # Each cell self-skips LOUDLY, naming the engine and BOTH axes, and every
+  # remaining skip names something PRODUCTION cannot do — never something this
+  # harness declined to arrange. The live example is kiro's worktree and
+  # container axes: credentialSeedSpecs["kiro"] marks XDG_DATA_HOME
+  # GatedOnCreds with HonoursVarForCreds FALSE, because kiro's subscription
+  # credential is a GLOBAL sqlite that no HomeVar relocates — so ctxloom
+  # refuses to start rather than silently hand the agent a fresh, logged-out
+  # data home, and KIRO_API_KEY is the only key that opens those two axes.
+  # That is a real product limitation, recorded here as one.
+  # A blank cell in the matrix always has a reason attached.
   Scenario Outline: A <engine> run under runtime <runtime> and workspace <workspace> returns exactly the JSON it was asked for
     Given the engine matrix targets "<engine>" under runtime "<runtime>" and workspace "<workspace>"
     When it runs the JSON hello-world task in one turn

@@ -857,6 +857,27 @@ live-delegation ENGINE: build _ensure-gotmpdir
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -v -timeout 20m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
+# Run ONE cell of the engine x isolation floor
+# (features/engine_isolation_matrix.feature): the simplest live round trip —
+# "emit exactly this JSON object, nothing else" — for one engine under one
+# isolation scheme. ENGINE is claude-code|codex|kiro|opencode, RUNTIME is
+# host|container, WORKSPACE is none|worktree.
+#
+# ONE CELL AT A TIME, deliberately, and there is no all-cells recipe on
+# purpose: these are real, paid engine calls, a container cell can run for
+# minutes (it may build an agent image first), and fanning the matrix out on a
+# loaded box is how a machine gets OOM-killed in the middle of a measurement.
+# Self-skips loudly, naming the engine and BOTH axes, when the engine is
+# absent/unauthenticated, when that axis cannot authenticate it, or when no
+# container runtime is reachable. -timeout 30m so a slow container cell fails
+# by saying so rather than by being killed.
+engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
+    GOTMPDIR="{{go_tmp}}" \
+    ACCEPTANCE_PATHS=features/engine_isolation_matrix.feature \
+    ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
+    CTXLOOM_ACCEPTANCE_LIVE=1 \
+    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
 # Run a single package's tests under -race (fast local iteration).
 # A `-run` pattern that matches nothing still exits 0 from `go test` (`ok
 # ... [no tests to run]`) — silently passing a typo'd or renamed test name.

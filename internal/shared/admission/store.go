@@ -11,6 +11,9 @@ import (
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // The trust-on-first-use store: the first time a given thing would be
@@ -173,6 +176,13 @@ func (s *Snapshot[K]) Note(rec Record[K]) {
 	s.records = append(s.records, rec)
 }
 
+// LockPathFor derives the sidecar lock file that guards a store's records
+// file. filelock.PathFor (home-rooted, beside the file) and
+// filelock.ProjectPathFor (inside a project .ctxloom tree, under
+// state/locks/) are the two shapes filelock ships; a domain picks whichever
+// matches where ITS store's file actually lives — see WithLockPathFor.
+type LockPathFor func(protected string) (string, error)
+
 // Store is one domain's personal record of admission decisions: a single
 // YAML file under the user's home.
 type Store[K comparable, R comparable] struct {
@@ -182,6 +192,20 @@ type Store[K comparable, R comparable] struct {
 	scope   func(K) string
 	now     func() time.Time
 	reasons Reasons[R]
+	// lockPathFor derives the write lock's sidecar path from s.path. See
+	// LockPathFor and WithLockPathFor; defaults to filelock.PathFor, the
+	// right shape for a home-rooted store like this package's own doc
+	// describes (property 6).
+	lockPathFor LockPathFor
+	// useLock is false only for a store built over a non-OS-backed
+	// filesystem (a test double: afero.MemMapFs, a ReadOnlyFs wrapping one,
+	// ...). Locking exists to exclude OTHER PROCESSES, which a fake
+	// filesystem has none of — and composing a lock path from one of its
+	// (often nonexistent, often unwritable-by-this-user) paths and asking
+	// the REAL OS to create and flock it would touch actual disk at an
+	// address the test never intended, exactly the crosstalk
+	// config.Manager's injectedFS guard exists to avoid. See isOSBackedFs.
+	useLock bool
 	// misconfigured is the construction fault, held rather than panicked so
 	// construction stays total. Every method surfaces it; nothing reads or
 	// writes through a store that carries one.
@@ -190,8 +214,9 @@ type Store[K comparable, R comparable] struct {
 
 // options carries the optional halves of NewStore.
 type options[K comparable] struct {
-	scope func(K) string
-	now   func() time.Time
+	scope       func(K) string
+	now         func() time.Time
+	lockPathFor LockPathFor
 }
 
 // Option adjusts a Store at construction.
@@ -208,6 +233,25 @@ func WithScope[K comparable](scope func(K) string) Option[K] {
 // display metadata it never decides on.
 func WithClock[K comparable](now func() time.Time) Option[K] {
 	return func(o *options[K]) { o.now = now }
+}
+
+// WithLockPathFor overrides how the store derives its write lock's sidecar
+// path from the records file's own path. The default is filelock.PathFor
+// (beside the file), right for a home-rooted store (companion_consent's
+// ~/.ctxloom/companion_consent.yaml). A domain whose store instead lives
+// inside a PROJECT .ctxloom tree (dirty_tree_ack's
+// .ctxloom/state/dirty_tree_commit_ack.yaml) passes filelock.ProjectPathFor
+// here — its signature already matches LockPathFor exactly.
+func WithLockPathFor[K comparable](lp LockPathFor) Option[K] {
+	return func(o *options[K]) { o.lockPathFor = lp }
+}
+
+// isOSBackedFs reports whether fs is the real operating-system filesystem, as
+// opposed to a test double (afero.MemMapFs, a ReadOnlyFs wrapping one, ...).
+// See Store.useLock for why this gates locking.
+func isOSBackedFs(fs afero.Fs) bool {
+	_, ok := fs.(*afero.OsFs)
+	return ok
 }
 
 // NewStore builds a store over path, backed by fs, keyed by key.
@@ -231,7 +275,14 @@ func NewStore[K comparable, R comparable](
 	if fs == nil {
 		fs = afero.NewOsFs()
 	}
-	s := &Store[K, R]{fs: fs, path: path, key: key, scope: o.scope, now: o.now, reasons: reasons}
+	lockPathFor := o.lockPathFor
+	if lockPathFor == nil {
+		lockPathFor = func(protected string) (string, error) { return filelock.PathFor(protected), nil }
+	}
+	s := &Store[K, R]{
+		fs: fs, path: path, key: key, scope: o.scope, now: o.now, reasons: reasons,
+		lockPathFor: lockPathFor, useLock: isOSBackedFs(fs),
+	}
 	if s.scope == nil {
 		s.scope = key
 	}
@@ -293,6 +344,15 @@ type doc[K comparable] struct {
 // admit side it would ask a human to re-confirm something they already
 // approved, teaching them to answer the prompt on reflex, which is the whole
 // value of asking.
+//
+// DELIBERATELY UNLOCKED, including when called from List/Lookup: the file
+// this reads is always produced by write's atomic rename (see
+// iox.WriteFileAtomicFs), so a concurrent writer can only ever leave a
+// reader seeing the whole previous file or the whole new one, never a torn
+// mix — the property a SHARED lock exists to buy is already true here for
+// free. What a read can still see is a STALE-but-whole file (a writer that
+// commits a moment later), which is inherent to any read that is not itself
+// inside the same critical section as a write, and no lock changes that.
 func (s *Store[K, R]) Load() (*Snapshot[K], error) {
 	if err := s.configured(); err != nil {
 		return nil, err
@@ -364,25 +424,35 @@ func (s *Store[K, R]) Lookup(k K) (Record[K], bool, error) {
 // It is the scriptable form of the interactive prompt: the escape hatch a
 // non-interactive CI run or an agent host needs, deliberately requiring a
 // human to type it rather than inferring consent from the environment.
+//
+// The whole read-modify-write runs under the store's write lock (see
+// lockedRMW): the load below is the "read" half, taken AFTER the lock so it
+// sees any writer that just committed, not a snapshot from before this call
+// even started waiting.
 func (s *Store[K, R]) Set(k K, approved bool) (Record[K], error) {
 	var zero Record[K]
-	snap, err := s.Load()
-	if err != nil {
-		// Refuse to overwrite a record we could not read: the file may hold
-		// decisions this write would silently erase.
-		return zero, fmt.Errorf("admission record is unreadable, refusing to overwrite it: %w", err)
+	if err := s.configured(); err != nil {
+		return zero, err
 	}
 	rec := Record[K]{Key: k, Approved: approved, RecordedAt: s.now()}
-	want := s.scope(k)
-	kept := make([]Record[K], 0, len(snap.records)+1)
-	for _, r := range snap.records {
-		if s.scope(r.Key) != want {
-			kept = append(kept, r)
+	if err := s.lockedRMW(func() error {
+		snap, err := s.Load()
+		if err != nil {
+			// Refuse to overwrite a record we could not read: the file may
+			// hold decisions this write would silently erase.
+			return fmt.Errorf("admission record is unreadable, refusing to overwrite it: %w", err)
 		}
-	}
-	kept = append(kept, rec)
-	if werr := s.write(kept); werr != nil {
-		return zero, werr
+		want := s.scope(k)
+		kept := make([]Record[K], 0, len(snap.records)+1)
+		for _, r := range snap.records {
+			if s.scope(r.Key) != want {
+				kept = append(kept, r)
+			}
+		}
+		kept = append(kept, rec)
+		return s.write(kept)
+	}); err != nil {
+		return zero, err
 	}
 	return rec, nil
 }
@@ -390,31 +460,66 @@ func (s *Store[K, R]) Set(k K, approved bool) (Record[K], error) {
 // Forget drops every recorded decision in k's scope and reports how many went.
 // Zero removed is reported as ZERO, never as success-with-no-effect: undoing
 // something nobody recorded is the caller's mistake to see.
+//
+// Runs under the same write lock as Set — see lockedRMW.
 func (s *Store[K, R]) Forget(k K) (int, error) {
-	snap, err := s.Load()
-	if err != nil {
+	if err := s.configured(); err != nil {
 		return 0, err
 	}
-	want := s.scope(k)
-	kept := make([]Record[K], 0, len(snap.records))
-	for _, r := range snap.records {
-		if s.scope(r.Key) != want {
-			kept = append(kept, r)
+	removed := 0
+	if err := s.lockedRMW(func() error {
+		snap, err := s.Load()
+		if err != nil {
+			return err
 		}
-	}
-	removed := len(snap.records) - len(kept)
-	if removed == 0 {
-		return 0, nil
-	}
-	if werr := s.write(kept); werr != nil {
-		return 0, werr
+		want := s.scope(k)
+		kept := make([]Record[K], 0, len(snap.records))
+		for _, r := range snap.records {
+			if s.scope(r.Key) != want {
+				kept = append(kept, r)
+			}
+		}
+		removed = len(snap.records) - len(kept)
+		if removed == 0 {
+			return nil
+		}
+		return s.write(kept)
+	}); err != nil {
+		return 0, err
 	}
 	return removed, nil
 }
 
-// write serializes recs, 0600 in a 0700 directory. These records decide
-// whether code runs and where signed content is pushed: world-readable would
-// leak the machine's layout, and world-WRITABLE would hand the decision away.
+// lockedRMW acquires this store's write lock and runs fn while holding it,
+// unless the store is backed by a non-OS test filesystem (see useLock), in
+// which case fn runs directly — there is no other process to exclude.
+//
+// BOTH a lock-path derivation failure and a lock ACQUISITION failure fail
+// closed: fn never runs unlocked as a fallback. Degrading to unlocked on
+// either would discard the serialization this method exists to provide,
+// silently, on every subsequent call — exactly the fix config.Manager.Update
+// made for the identical failure shape (see its doc).
+func (s *Store[K, R]) lockedRMW(fn func() error) error {
+	if !s.useLock {
+		return fn()
+	}
+	lockPath, err := s.lockPathFor(s.path)
+	if err != nil {
+		return fmt.Errorf("admission: locating write lock for %s: %w", s.path, err)
+	}
+	unlock, err := filelock.Lock(lockPath)
+	if err != nil {
+		return fmt.Errorf("admission: acquiring write lock for %s: %w", s.path, err)
+	}
+	defer unlock()
+	return fn()
+}
+
+// write serializes recs, 0600 in a 0700 directory, atomically (unique temp
+// file, fsynced, renamed into place — see iox.WriteFileAtomicFs) so a reader
+// never observes a half-written file. These records decide whether code runs
+// and where signed content is pushed: world-readable would leak the
+// machine's layout, and world-WRITABLE would hand the decision away.
 func (s *Store[K, R]) write(recs []Record[K]) error {
 	if err := s.configured(); err != nil {
 		return err
@@ -433,7 +538,7 @@ func (s *Store[K, R]) write(recs []Record[K]) error {
 	if mkErr := s.fs.MkdirAll(filepath.Dir(s.path), 0o700); mkErr != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(s.path), mkErr)
 	}
-	if werr := afero.WriteFile(s.fs, s.path, data, 0o600); werr != nil {
+	if werr := iox.WriteFileAtomicFs(s.fs, s.path, data, 0o600); werr != nil {
 		return fmt.Errorf("write %s: %w", s.path, werr)
 	}
 	return nil

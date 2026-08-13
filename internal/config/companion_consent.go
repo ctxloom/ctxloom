@@ -114,6 +114,13 @@ func companionConsentReasons() admission.Reasons[CompanionAdmissionReason] {
 
 // companionConsentStore opens the personal consent record.
 //
+// No admission.WithLockPathFor override: this record lives at
+// ~/.ctxloom/companion_consent.yaml — home-rooted, not inside a project
+// .ctxloom tree — which is exactly the shape admission.Store's default write
+// lock (filelock.PathFor, beside the file) is for. Contrast dirtyTreeAckStore,
+// whose record lives inside a project tree and passes filelock.ProjectPathFor
+// explicitly.
+//
 // An unresolvable home yields an UNCONFIGURED store rather than an error, so
 // construction stays total; the fault surfaces at the gate, where it fails
 // closed. That is not a convenience: filepath.Join("", x) == x, so a store

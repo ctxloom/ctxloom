@@ -276,22 +276,30 @@ var probeRegistry = []probeSpec{
 		Title:        "context-approach sweep: the same task with ManagedConfig.Surfaces pinning a non-default approach",
 		Capabilities: []int{4, 5},
 		Channel:      channelComposedContext,
+		Feature:      "capability_context_approaches.feature",
 		Paid:         true,
 		Cells: []probeCell{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "system-prompt",
-				Status: probePlanned, Reason: "agent.ApproachSystemPrompt is claude-only (--append-system-prompt-file); no test selects it live today"},
+				Status: probeWired, Reason: "agent.ApproachSystemPrompt is claude-only (--append-system-prompt-file); no test selected it live before this cell"},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probePlanned},
+				Status: probeWired, Reason: "claude's SessionStart inject-context route. A green here also means the vendor binary EXECUTED a ctxloom-written hook — inventory row 7's own proof is P3's job, but this cell cannot pass without it."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "unsafe-file-shared",
-				Status: probePlanned, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion; the worktree axis is where that matters"},
+				Status: probeWired, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion; the worktree axis is where that matters"},
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probePlanned, Reason: "must settle the 2026-07-14 finding recorded on liveAgents[\"codex\"]: profile fragments dropped from the hook's cache file. This cell either reconfirms it or records that it is fixed."},
+				Status: probeWired, Reason: "must settle the 2026-07-14 finding recorded on liveAgents[\"codex\"]: profile fragments dropped from the hook's cache file. This cell either reconfirms it or records that it is fixed."},
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "unsafe-file",
-				Status: probePlanned, Reason: "codex's AGENTS.md route is compositional with its hook; the cell proves the turn carries the nonce under the pinned approach"},
+				Status: probeWired, Reason: "codex's AGENTS.md route is compositional with its hook; the cell proves the turn carries the nonce under the pinned approach, and is the CONTROL for the hook row above"},
+			// These two named the HOOKS surface's symbols (kiro.WithContextHook,
+			// noHooksReason) — which is P3's gate, a different claim. What
+			// declares the absence for a CONTEXT-DELIVERY probe is the engine's
+			// own ApproachTable, and that is now what they cite, checked against
+			// production hermetically (TestApproachPinAcceptedByEngine_
+			// AgreesWithTheEnginesOwnTable). The original symbols are kept: they
+			// are the same absence seen from the other surface.
 			{Engine: "kiro", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probeGatedOut, Reason: "kiro.WithContextHook fails loudly — the engine declares no hook context route"},
+				Status: probeGatedOut, Reason: "agent.ApproachHook is absent from kiroApproaches' ApproachTable entry for SurfaceContext (unsafe-file only) — kiro.WithContextHook is the same absence stated at the hooks surface, and it fails loudly"},
 			{Engine: "opencode", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probeGatedOut, Reason: "opencode declares no hook surface at all (noHooksReason)"},
+				Status: probeGatedOut, Reason: "agent.ApproachHook is absent from opencodeApproaches' ApproachTable entry for SurfaceContext (unsafe-file only); opencode declares no hook surface at all either (noHooksReason)"},
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "system-prompt",
 				Status: probeGatedOut, Reason: "agent.ApproachSystemPrompt is absent from codex's ApproachTable — claude-only capability"},
 			{Engine: "kiro", Runtime: "host", Workspace: "none", Variant: "system-prompt",

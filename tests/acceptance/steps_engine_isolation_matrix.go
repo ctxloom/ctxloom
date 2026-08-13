@@ -63,20 +63,15 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-
-	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 )
 
-// matrixAgent is the one agent binding every cell configures. Fixed, so the
-// only thing that varies across the 16 cells is the engine and the two axes.
-const matrixAgent = "hello"
-
-// matrixRunTimeout bounds one cell's live run. Generous on purpose: a cold
-// container cell may pull or build before the engine even starts, and a killed
-// run reports as a failure with no output, which reads like an engine defect
-// rather than an impatient harness. A cell that genuinely hangs still fails —
-// it just fails after saying so.
-const matrixRunTimeout = 8 * time.Minute
+// THE FIXTURE VOCABULARY MOVED. matrixAgent, matrixRunTimeout,
+// matrixExpectedKey, matrixPrompt, matrixBundleYAML and matrixConfigYAML now
+// live in capability_probe_fixture.go, UNTAGGED, because P1's context-approach
+// sweep runs this same task under a pinned delivery approach and unit-tests its
+// config renderer without an engine. They were moved, not copied: two prompts
+// free to drift would turn "this approach delivered the nonce" into "these two
+// prompts got different answers".
 
 // matrixState is one cell's fixture and its captured result. stdout and stderr
 // are kept SEPARATE and the assertion reads stdout alone: ctxloom's own
@@ -121,52 +116,6 @@ func (m *matrixState) cell() probeCellID {
 // value's second job is to be the thing you grep for when a cell reds.
 func matrixNonce(cell probeCellID) (string, error) {
 	return probeHarps.Mint(cell)
-}
-
-// matrixExpectedKey is the ONE key the engine's entire stdout must parse to an
-// object of: {"hello": "<the minted harp>"}. Named once so the prompt below and
-// the assertion above cannot drift apart — a probe that asks for one key and
-// asserts another is a test of nothing.
-const matrixExpectedKey = "hello"
-
-// matrixPrompt is the whole task. Every constraint is stated explicitly and
-// redundantly, because this floor's job is to find out which engines honour a
-// plain output contract — a vaguely worded prompt would blame the engine for
-// the prompt's own slack.
-func matrixPrompt() string {
-	return "Output a single JSON object and nothing else. The object has exactly one key, \"hello\", " +
-		"and its value is the nonce string that appears in the additional context available to you in this " +
-		"session (not in this message). Rules, all mandatory: output JSON only; no preamble; no postamble; " +
-		"no explanation; no apology; no markdown code fences; no backticks; no trailing commentary. Your " +
-		"entire response must be exactly one line of the form {\"hello\":\"THE_NONCE\"}."
-}
-
-// matrixBundleYAML plants the nonce as the agent's own composed context.
-func matrixBundleYAML(nonce string) string {
-	return fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  nonce:\n    content: %q\n",
-		"The nonce for this session is "+nonce)
-}
-
-// matrixConfigYAML renders config.yaml for one cell: the engine's OWN registry
-// config (live_engine_registry.go's liveAgents[key].config, already carrying
-// that engine's backend type and the cheap pinned model the whole @live lane
-// shares) plus one agent binding, and `runtime: container` for the container
-// axis only. Appending to the registry's own string keeps ONE source of truth
-// for which backend type and model the live lane drives an engine with —
-// exactly what probeConfigYAML (isolation_probe.go) does for the same reason.
-//
-// The workspace axis is NOT written here: it rides the `--workspace` flag on
-// the run, mirroring the isolation probe, so a cell exercises the same public
-// surface an operator would type.
-func matrixConfigYAML(a liveAgent, llmKey, runtime string) string {
-	var b strings.Builder
-	b.WriteString(a.config)
-	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
-		matrixAgent, llmKey, matrixAgent)
-	if runtime == "container" {
-		b.WriteString("    runtime: container\n")
-	}
-	return b.String()
 }
 
 // matrixHostCredentialEnv rewrites a cell's command environment so that
@@ -222,73 +171,26 @@ func matrixHostCredentialEnv(env []string, realHome string) []string {
 	)
 }
 
-// matrixSkip prints the cell's own reason and skips. Never silent, and always
-// naming the engine and both axes, because a matrix whose blanks have no
-// reasons attached is indistinguishable from a matrix nobody ran.
-func matrixSkip(engine, runtime, workspace, reason string) error {
-	fmt.Printf("SKIP engine-matrix cell [engine=%s runtime=%s workspace=%s]: %s\n",
-		engine, runtime, workspace, reason)
-	return godog.ErrSkip
-}
+// matrixFamily is this probe's name in a skip line, a failure message and the
+// evidence sidecar. One constant so the three cannot disagree.
+const matrixFamily = "engine-matrix"
 
 func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 	// --- the cell's gate and fixture ---------------------------------------
 	//
 	// Everything is decided BEFORE a paid turn is spent, and every refusal is
-	// named. Three independent gates, in cost order: is the engine there and
-	// authenticated at all; can this specific AXIS authenticate it (the
-	// isolation probe's own per-axis resolvers, reused rather than
-	// re-derived — kiro's container axis, for instance, can only be
-	// authenticated by KIRO_API_KEY, and a cell that ignored that would burn
-	// a turn to discover it); and, for container cells, is a runtime actually
-	// reachable here.
+	// named. The three gates live in probeCellGate (capability_probe_gate.go),
+	// shared with every other probe in the ladder so a cell of P1 and a cell of
+	// P0 cannot come to disagree about what this box can authenticate.
 	ctx.Step(`^the engine matrix targets "([^"]*)" under runtime "([^"]*)" and workspace "([^"]*)"$`,
 		func(c context.Context, engine, runtime, workspace string) error {
 			w := worldFrom(c)
 			m := matrixOf(w)
-
-			switch runtime {
-			case "host", "container":
-			default:
-				return fmt.Errorf("engine-matrix: unknown runtime axis %q (want host|container)", runtime)
-			}
-			switch workspace {
-			case "none", "worktree":
-			default:
-				return fmt.Errorf("engine-matrix: unknown workspace axis %q (want none|worktree)", workspace)
-			}
 			m.engine, m.runtime, m.workspace = engine, runtime, workspace
 
-			key := backendTypeToLiveKey(engine)
-			a, ok := liveAgents[key]
-			if !ok {
-				return fmt.Errorf("engine-matrix: %q (resolved key %q) is not registered in liveAgents (known: %v) — a row naming an unregistered engine would skip forever and look like coverage",
-					engine, key, liveAgentOrder)
-			}
-
-			status := probeEngine(key, a, realHomeDir, resolveOptIn())
-			w.docStepMaterialized = formatLiveEngineReport([]engineStatus{status})
-			if !status.available {
-				return matrixSkip(engine, runtime, workspace, status.reason)
-			}
-
-			// Per-axis auth reality, reused from the isolation probe rather
-			// than re-derived: these two functions already encode production's
-			// own resolveEnvOrMountAuth / seedCredentials precedence per axis,
-			// including the engines whose axis simply cannot be authenticated
-			// today.
-			if workspace == "worktree" {
-				if path, reason := probeWorktreeAuthAvailable(engine); path == probeAuthNone {
-					return matrixSkip(engine, runtime, workspace, "worktree axis cannot authenticate this engine: "+reason)
-				}
-			}
-			if runtime == "container" {
-				if path, reason := probeContainerAuthAvailable(engine); path == probeAuthNone {
-					return matrixSkip(engine, runtime, workspace, "container axis cannot authenticate this engine: "+reason)
-				}
-				if rt, _, msg := containercell.Select(c, "the engine-matrix container cell"); !rt.Available {
-					return matrixSkip(engine, runtime, workspace, "no container runtime reachable here: "+msg)
-				}
+			a, key, err := probeCellGate(c, w, matrixFamily, engine, runtime, workspace)
+			if err != nil {
+				return err
 			}
 
 			// The mint, and the cell→harp record. The mapping goes into the

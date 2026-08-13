@@ -382,14 +382,23 @@ func (s *Store[K, R]) List() ([]Record[K], error) {
 		return nil, err
 	}
 	out := snap.Records()
-	sort.SliceStable(out, func(i, j int) bool {
-		si, sj := s.scope(out[i].Key), s.scope(out[j].Key)
+	s.sortByScopeThenKey(out)
+	return out, nil
+}
+
+// sortByScopeThenKey sorts recs in place by scope then key — the one
+// ordering rule this store imposes on its records, shared by the read side
+// (List) and the write side (write, ahead of serializing) so a human reading
+// the YAML file with `cat` sees the same order `list` prints, and so the two
+// call sites cannot drift into two different orderings of "sorted".
+func (s *Store[K, R]) sortByScopeThenKey(recs []Record[K]) {
+	sort.SliceStable(recs, func(i, j int) bool {
+		si, sj := s.scope(recs[i].Key), s.scope(recs[j].Key)
 		if si != sj {
 			return si < sj
 		}
-		return s.key(out[i].Key) < s.key(out[j].Key)
+		return s.key(recs[i].Key) < s.key(recs[j].Key)
 	})
-	return out, nil
 }
 
 // Lookup reports the live decision for k: a scope-wide denial first, then an
@@ -524,13 +533,7 @@ func (s *Store[K, R]) write(recs []Record[K]) error {
 	if err := s.configured(); err != nil {
 		return err
 	}
-	sort.SliceStable(recs, func(i, j int) bool {
-		si, sj := s.scope(recs[i].Key), s.scope(recs[j].Key)
-		if si != sj {
-			return si < sj
-		}
-		return s.key(recs[i].Key) < s.key(recs[j].Key)
-	})
+	s.sortByScopeThenKey(recs)
 	data, err := yaml.Marshal(doc[K]{Version: storeVersion, Records: recs})
 	if err != nil {
 		return fmt.Errorf("marshal admission records: %w", err)

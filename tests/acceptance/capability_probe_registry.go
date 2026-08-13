@@ -127,6 +127,22 @@ type probeCell struct {
 	// (what was measured, when), gated-out (the declaring symbol) and deferred
 	// (why not yet).
 	Reason string
+	// GateAtRuntime distinguishes WHERE a gated-out cell's gate is enforced,
+	// and it changes what the feature file must contain.
+	//
+	// A gate enforced by ABSENCE (the default) means the engine declares the
+	// capability gone — opencode's noHooksReason, resolveResumeMode's refusal —
+	// so there is nothing to run and the feature must carry NO Examples row for
+	// it. A gate enforced AT RUNTIME means production itself refuses, loudly,
+	// naming the reason, when the cell is attempted: kiro's container axis,
+	// which needs KIRO_API_KEY because its credential is a global sqlite no
+	// HomeVar relocates. Those cells KEEP their Examples row, because the loud
+	// skip is the report — deleting the row would delete the only place a human
+	// meets the limitation.
+	//
+	// The feature-drift test checks both directions on this field, so neither
+	// kind of gate can quietly turn into the other.
+	GateAtRuntime bool
 	// ExpectedFailure is the RED MAP: the failure shape this cell is currently
 	// expected to produce, recorded so a sweep diffs shapes instead of counting
 	// reds. Empty means "expected to pass". Flipping a container cell to
@@ -457,20 +473,60 @@ var probeRegistry = []probeSpec{
 // The two evidenced exceptions are written out rather than generated, because
 // they carry MEASURED findings and a generated row cannot hold one.
 func p0Cells() []probeCell {
-	const containerRed = "ruling 2026-08-12: containerized delegation has never been demonstrably correct, and these rows exist RED on purpose — the map of which cells fail and how is what the container-auth work is measured against. Do not delete them because they fail, and do not green them by loosening."
+	// THE CONTAINER ROWS ARE NO LONGER RED-MAPPED. The 2026-08-12 ruling put
+	// them here red on purpose — containerized delegation had never been
+	// demonstrably correct, and the map of which cells failed and how was the
+	// measure of the container-auth work. That work landed at this base
+	// (303881ee, "container auth keys on the engine"), and the coordinator then
+	// ran all eight container cells serially: claude-code, codex and opencode
+	// went GREEN on both container axes against real engines through the
+	// real-home read-write credential mount; kiro's two gated, loudly, on its
+	// own production limitation.
+	//
+	// So the red map is spent, and flipping it is exactly the conscious one-line
+	// edit the completeness gate was built to force. What replaces it is not a
+	// blanket assumption in the other direction: every one of the eight rows now
+	// carries its own evidence or its own gate reason, written out below.
+	const containerEvidence = "coordinator serial chain 2026-08-13, task bpjje2q53, post auth-keying merge (303881ee): 1 scenario / 3 steps green against the real engine in a container, credentials through the real-home read-write mount. Measured with the PRE-HARP hex nonce — see the note below."
 
 	var cells []probeCell
 	for _, e := range probeEngines {
 		for _, rt := range []string{"host", "container"} {
 			for _, ws := range []string{"none", "worktree"} {
-				c := probeCell{Engine: e, Runtime: rt, Workspace: ws, Status: probeWired}
-				if rt == "container" {
-					c.ExpectedFailure = shapeRunFailed
-					c.ExpectedFailureNote = containerRed
-				}
-				cells = append(cells, c)
+				cells = append(cells, probeCell{Engine: e, Runtime: rt, Workspace: ws, Status: probeWired})
 			}
 		}
+	}
+
+	for _, e := range []string{"claude-code", "codex", "opencode"} {
+		for _, ws := range []string{"none", "worktree"} {
+			setCell(cells, e, "container", ws, func(c *probeCell) {
+				c.Status = probeLiveVerified
+				c.Reason = containerEvidence
+			})
+		}
+	}
+
+	// kiro's container axes: gated, and the gate is PRODUCTION'S, not the
+	// harness's. credentialSeedSpecs["kiro"] marks XDG_DATA_HOME GatedOnCreds
+	// with HonoursVarForCreds FALSE, because kiro's subscription credential is a
+	// global sqlite that no HomeVar relocates — so ctxloom refuses to start
+	// rather than silently hand the agent a fresh, logged-out data home, and
+	// KIRO_API_KEY is the only key that opens the axis.
+	//
+	// Recorded as gated-out per the coordinator's ruling, with the nuance stated
+	// rather than smoothed away: this is a CONDITIONAL gate, not a declared
+	// absence. kiro's container axis works when KIRO_API_KEY is present; it is
+	// unreachable on this box's subscription auth. That is why these two rows
+	// keep their Examples blocks (GateAtRuntime below) — the loud skip IS the
+	// report, and deleting the rows would delete the only place the limitation
+	// is stated where somebody runs into it.
+	for _, ws := range []string{"none", "worktree"} {
+		setCell(cells, "kiro", "container", ws, func(c *probeCell) {
+			c.Status = probeGatedOut
+			c.GateAtRuntime = true
+			c.Reason = "gated 2026-08-13 in the coordinator's serial chain with production's own skip message: credentialSeedSpecs[\"kiro\"] marks XDG_DATA_HOME GatedOnCreds with HonoursVarForCreds FALSE (the subscription credential is a global sqlite no HomeVar relocates), so KIRO_API_KEY is the only key that opens this axis. CONDITIONAL, not a declared absence — with the key set, this cell runs."
+		})
 	}
 
 	// kiro host/none: RED, and the finding is NOT about the model. Measured

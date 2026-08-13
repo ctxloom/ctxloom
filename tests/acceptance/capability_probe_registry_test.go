@@ -192,6 +192,13 @@ func TestProbeRegistry_CellsAreWellFormedAndEvidenced(t *testing.T) {
 				}
 			}
 
+			// GateAtRuntime says WHERE a gate is enforced, so it is meaningless
+			// — and misleading to the feature-drift check, which reads it — on a
+			// cell that is not gated at all.
+			if c.GateAtRuntime && c.Status != probeGatedOut {
+				t.Errorf("%s is marked GateAtRuntime but its status is %s, not gated-out. The flag only says where a GATE is enforced; on an ungated cell it silently changes what the feature file is required to contain.", id, c.Status)
+			}
+
 			// The red map. A recorded expected-failure is what lets a weekly
 			// sweep DIFF shapes instead of counting reds; a shape with no story
 			// behind it cannot be diffed by a human six weeks later.
@@ -259,22 +266,40 @@ func TestProbeRegistry_WiredProbesMatchTheirFeatureFile(t *testing.T) {
 			inFeature := featureCellKeys(doc)
 			require.NotEmpty(t, inFeature, "%s declared no engine/runtime/workspace Examples rows — this check would compare against nothing and pass vacuously", path)
 
+			// Which registry rows the feature MUST carry an Examples row for:
+			// everything that runs, plus the gated-out cells whose gate is
+			// enforced at runtime by production's own loud skip (their row is
+			// how a human meets the limitation). Deferred cells and
+			// gated-out-by-absence cells must NOT appear — a scenario for a
+			// capability the engine declares gone would skip forever and read
+			// as coverage.
 			inRegistry := map[string]bool{}
+			mustBeAbsent := map[string]bool{}
 			for _, c := range p.Cells {
-				if c.Status == probeGatedOut || c.Status == probeDeferred {
-					continue
+				k := cellKey(c.Engine, c.Runtime, c.Workspace)
+				switch {
+				case c.Status == probeGatedOut && c.GateAtRuntime:
+					inRegistry[k] = true
+				case c.Status == probeGatedOut || c.Status == probeDeferred:
+					mustBeAbsent[k] = true
+				default:
+					inRegistry[k] = true
 				}
-				inRegistry[cellKey(c.Engine, c.Runtime, c.Workspace)] = true
 			}
 
 			for k := range inFeature {
-				if !inRegistry[k] {
-					t.Errorf("%s runs cell %s, which the registry does not declare — its expected state (green, or red-mapped with a shape) is recorded nowhere", path, k)
+				if inRegistry[k] {
+					continue
 				}
+				if mustBeAbsent[k] {
+					t.Errorf("%s runs cell %s, but the registry declares it gated-out-by-absence or deferred — a scenario for a capability the engine declares gone skips forever and reads as coverage. Either drop the Examples row, or mark the cell GateAtRuntime because production refuses loudly instead.", path, k)
+					continue
+				}
+				t.Errorf("%s runs cell %s, which the registry does not declare — its expected state (green, or red-mapped with a shape) is recorded nowhere", path, k)
 			}
 			for k := range inRegistry {
 				if !inFeature[k] {
-					t.Errorf("registry declares runnable cell %s for probe %q, but %s has no Examples row for it — the claim cannot be run", k, p.Name, path)
+					t.Errorf("registry declares cell %s for probe %q as runnable (or runtime-gated), but %s has no Examples row for it — the claim cannot be run and the gate cannot be reported", k, p.Name, path)
 				}
 			}
 		})

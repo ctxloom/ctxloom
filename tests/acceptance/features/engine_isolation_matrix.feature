@@ -48,12 +48,21 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
   the product is not a test of it. What this floor asserts on stays isolated —
   a fresh temp project holds the fixture, and the assertion reads only stdout.
 
-  CONTAINER CELLS ARE EXPECTED TO BE RED UNTIL CONTAINER AUTH KEYING LANDS.
-  Agent containerization has never been demonstrably correct here — the
-  container-auth lane sat red for fifteen days — and the fix is in flight on its
-  own branch. These rows exist now, and red, ON PURPOSE: the map of which cells
-  fail and how is the evidence that work is measured against. Do not tag them
-  green-by-loosening, and do not delete them because they fail.
+  THE CONTAINER CELLS WENT GREEN ON 2026-08-13, AND THAT IS WHAT THEY WERE FOR.
+  Agent containerization had never been demonstrably correct here — the
+  container-auth lane sat red for fifteen days — so these rows were added red ON
+  PURPOSE, as the map the fix would be measured against. Container auth keying
+  then landed, and all eight cells were run serially: claude-code, codex and
+  opencode passed on BOTH container axes against real engines, credentials
+  arriving through the real-home read-write mount; kiro's two gated loudly on
+  its own limitation (its subscription credential is a global sqlite no HomeVar
+  relocates, so KIRO_API_KEY is the only key that opens the axis — a real
+  product limitation, recorded as one).
+
+  The cells stay exactly as strict as they were. A red here is now a
+  REGRESSION rather than an expectation, which is the whole point of having run
+  them while they failed. Do not tag them green-by-loosening, and do not delete
+  them because they fail.
 
   ADDRESSING ONE CELL. Every Examples block carries its engine, its runtime axis
   and its workspace axis as tags — the idiom isolation_probe.feature

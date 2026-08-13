@@ -148,8 +148,8 @@ func TestHookProbeAssert_FailureCarriesTheCarriageEvidence(t *testing.T) {
 
 	h.carriage = ""
 	err = hookProbeAssert(h)
-	if err == nil || !strings.Contains(err.Error(), "INCONCLUSIVE") {
-		t.Fatalf("with no carriage hit the message must say the scan is INCONCLUSIVE rather than implying we proved an absence, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not proof of absence") {
+		t.Fatalf("with no carriage hit the message must stop short of claiming a proven absence, got: %v", err)
 	}
 }
 
@@ -196,8 +196,15 @@ func TestHookProbeAssert_EchoingTheArgvHarpDoesNotSatisfyTheStdoutChannel(t *tes
 // reported as a firing failure even if its stdout happens to carry the echo
 // harp. The order is the diagnostic: a stage-(b) red is only meaningful once
 // firing is proven.
+// BOTH STAGES FAIL HERE, and that is the point. Either ordering reds this cell,
+// so a test where only one stage fails cannot tell the two orderings apart —
+// measured: a mutant that judged ingestion first SURVIVED such a test. With
+// both failing, the reported shape is the whole assertion: it must be the
+// STAMP channel, because "the hook never fired" explains the missing echo,
+// while "the echo did not arrive" explains nothing about the missing file and
+// would send a reader to codex's ingestion when the hook never ran.
 func TestHookProbeAssert_FiringIsJudgedBeforeIngestion(t *testing.T) {
-	h := hookEchoCell("swift-amber-falcon", "brave-copper-otter", `{"hook":"brave-copper-otter"}`)
+	h := hookEchoCell("swift-amber-falcon", "brave-copper-otter", `{"hook":"something-else-entirely"}`)
 	h.stampBody = ""
 	h.stampErr = os.ErrNotExist
 
@@ -207,7 +214,16 @@ func TestHookProbeAssert_FiringIsJudgedBeforeIngestion(t *testing.T) {
 	}
 	shape, _ := probeShapeOf(err)
 	if shape != channelHookStamp.Shape {
-		t.Fatalf("firing must be judged first, so this red belongs to the stamp channel, got %q (%v)", shape, err)
+		t.Fatalf("firing must be judged FIRST: with both stages failing the red belongs to the stamp channel, not to ingestion, got %q (%v)", shape, err)
+	}
+
+	// And the ordering must not be an accident of this one input: a cell whose
+	// hook DID fire and whose echo did not arrive must still report ingestion.
+	h.stampBody = h.stampHarp + "\n"
+	h.stampErr = nil
+	err = hookProbeAssert(h)
+	if shape, _ := probeShapeOf(err); shape != channelHookStdout.Shape {
+		t.Fatalf("with firing proven, a missing echo must be reported as an INGESTION failure, got %q (%v)", shape, err)
 	}
 }
 
@@ -432,6 +448,35 @@ func TestHookProbeCarriageScan_NotBeforeExcludesOlderRuns(t *testing.T) {
 	})
 	if !strings.Contains(got, fresh) {
 		t.Errorf("this run's own delivered settings must still be found, got %q", got)
+	}
+}
+
+// The watcher exists because a POST-RUN scan cannot see the answer: ctxloom
+// scrubs delivered settings at teardown. This test models that exactly — the
+// file appears after the watch starts and is emptied before it stops — and
+// requires the evidence to survive.
+func TestHookProbeCarriageWatcher_SeesADeliveryThatIsScrubbedBeforeTheRunEnds(t *testing.T) {
+	root := t.TempDir()
+	settings := filepath.Join(root, "session", "ephemeral", "settings.json")
+
+	w := hookProbeWatchCarriage(hookProbeCarriage{Needle: carriageNeedle, Roots: []string{root}})
+
+	writeCarriageFile(t, settings, `{"command":"`+carriageNeedle+`"}`)
+	// Give the poller a chance to observe it, then scrub exactly as teardown
+	// does. A generous wait: the assertion is about the watcher seeing a
+	// transient file, and a tight sleep would make this test flaky on a loaded
+	// box rather than making it stricter.
+	time.Sleep(6 * hookProbeCarriagePollInterval)
+	writeCarriageFile(t, settings, "{}")
+
+	got := w.Stop()
+	if !strings.Contains(got, settings) {
+		t.Errorf("the watcher must retain a delivery that existed only DURING the run — a post-run scan reports the scrubbed `{}` and would call a working carriage a failure, got %q", got)
+	}
+	// And the post-run scan alone would indeed miss it, which is what makes the
+	// watcher load-bearing rather than decorative.
+	if after := hookProbeCarriageScan(hookProbeCarriage{Needle: carriageNeedle, Roots: []string{root}}); after != "" {
+		t.Errorf("this test is inert: after the scrub a plain scan must find nothing, or it is not demonstrating what the watcher buys, got %q", after)
 	}
 }
 

@@ -179,7 +179,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 				"bundles:\n  - ctxloom:local@bundles/bundle-"+hookProbeAgent+"\n"); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", hookProbeConfigYAML(a, key)); err != nil {
+			if err := w.env.WriteFile(".ctxloom/config.yaml", hookProbeConfigYAML(a, key, engine)); err != nil {
 				return err
 			}
 			if err := w.env.GitCommit("hook-probe fixture: " + engine + " " + runtime + "/" + workspace); err != nil {
@@ -213,6 +213,17 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// is coarse enough to stamp a file a moment "before" a clock read taken
 		// just before it was written.
 		runStart := time.Now().Add(-time.Second)
+
+		// Started BEFORE the run, and this is not an optimisation: ctxloom
+		// scrubs delivered settings at session teardown, so a scan afterwards
+		// reports "no carriage" on a cell where carriage worked perfectly.
+		// Measured 2026-08-13 — see hookProbeCarriageWatcher.
+		watcher := hookProbeWatchCarriage(hookProbeCarriage{
+			Needle:    h.scriptPath,
+			Roots:     []string{w.env.ProjectDir, filepath.Join(realHomeDir, ".ctxloom", "sessions")},
+			Authored:  h.authored,
+			NotBefore: runStart,
+		})
 
 		cmd := w.env.Command(nil, "run", "--agent", hookProbeAgent,
 			"--workspace", h.workspace, "--one-shot", hookProbePrompt(h.echoHarp != ""))
@@ -268,12 +279,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// The fixture's own authored files are excluded by exact path. Without
 		// that the scan reports the bundle YAML the probe wrote itself and
 		// calls it delivery evidence — measured, and the reason Authored exists.
-		h.carriage = hookProbeCarriageScan(hookProbeCarriage{
-			Needle:    h.scriptPath,
-			Roots:     []string{w.env.ProjectDir, filepath.Join(realHomeDir, ".ctxloom", "sessions")},
-			Authored:  h.authored,
-			NotBefore: runStart,
-		})
+		h.carriage = watcher.Stop()
 
 		w.docStepMaterialized = fmt.Sprintf(
 			"hook-probe %s exit=%d\nargv harp=%s\nstdout harp=%s\nstamp path=%s\nstamp read err=%v\nstamp contents:\n%s\ncarriage: %s\nstdout:\n%s\nstderr:\n%s",
@@ -324,10 +330,37 @@ func lastRunes(s string, n int) string {
 	return "…" + string(r[len(r)-n:])
 }
 
-func hookProbeConfigYAML(a liveAgent, llmKey string) string {
+func hookProbeConfigYAML(a liveAgent, llmKey, engine string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
 		hookProbeAgent, llmKey, hookProbeAgent)
+	if hookProbeNeedsProjectConfigHome(engine) {
+		b.WriteString("    config_home: project\n")
+	}
 	return b.String()
+}
+
+// hookProbeNeedsProjectConfigHome reports whether this engine needs the binding
+// to declare `config_home: project` before ctxloom will deliver its hooks AT
+// ALL — and it is codex, for a reason measured rather than assumed.
+//
+// MEASURED 2026-08-13. codex resolves $CODEX_HOME to the user's REAL ~/.codex
+// for any binding that does not declare `config_home: project` (the D2 ruling,
+// registry.go's codex descriptor), and codex's own delivery refuses to write a
+// host-owned home: internal/codex's deliveryHome returns homeIsHostOwned and
+// writes nothing. So a default-bound codex run gets NO ctxloom hooks, no MCP
+// and no prompts, and a P3 cell without this key would red on that refusal
+// while claiming to have measured hook FIRING — the probe would be reporting a
+// finding about the wrong subsystem entirely.
+//
+// With the key set, carriage was confirmed live: the hook command appeared in
+// <project>/.ctxloom/state/<harp>/home/.codex/config.toml while the engine ran.
+// That is what lets this probe's codex red be attributed to firing.
+//
+// claude and kiro need nothing here — both write cwd-keyed or ephemeral
+// per-session surfaces that ctxloom delivers under a default binding, and
+// claude's cell is green on exactly that path.
+func hookProbeNeedsProjectConfigHome(engine string) bool {
+	return engine == "codex"
 }

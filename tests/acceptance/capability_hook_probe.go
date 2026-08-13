@@ -359,7 +359,7 @@ func hookProbeCarriageOrUnknown(h *hookProbeState) string {
 	if h.carriage != "" {
 		return h.carriage
 	}
-	return "none found in the project tree — INCONCLUSIVE, not negative: an engine may be handed its settings through an out-of-cwd scratch file on a launch flag, which this scan does not walk"
+	return "NOT SEEN at any point during the run, in the project tree or under the session root. The scan watches DURING the run precisely because ctxloom scrubs delivered settings at teardown (measured 2026-08-13: claude's delivered settings.json is `{}` immediately after a run whose hook demonstrably fired), so this is meaningful — but it is still not proof of absence: an engine handed its settings through a path neither root covers would look the same"
 }
 
 // --- the carriage evidence scan --------------------------------------------------
@@ -474,3 +474,71 @@ func hookProbeCarriageScan(q hookProbeCarriage) string {
 // build artifact or a log, and reading it would turn a diagnostic note into the
 // slowest step in the cell.
 const hookProbeCarriageMaxFileBytes = 1 << 20
+
+// hookProbeCarriagePollInterval is how often the watcher below re-scans while
+// the engine runs. Fast enough to catch a settings file that exists only for
+// the length of one short turn; slow enough that the watcher is not competing
+// with the engine for the disk on a loaded box.
+const hookProbeCarriagePollInterval = 200 * time.Millisecond
+
+// hookProbeCarriageWatcher scans REPEATEDLY WHILE THE ENGINE RUNS, because a
+// scan afterwards cannot see the answer.
+//
+// MEASURED 2026-08-13, and this is the whole reason the type exists. ctxloom
+// delivers claude's hooks into an ephemeral per-session directory and SCRUBS
+// that file at session teardown: immediately after a run whose hook demonstrably
+// fired, the delivered settings.json on disk is the three bytes `{}`. So a
+// post-run scan reports "no carriage" on a cell where carriage worked perfectly
+// — which is not merely useless, it is the exact wrong answer, and this scan's
+// only job is to tell a carriage failure from a firing failure.
+//
+// The watcher removes that blind spot without asserting anything: it still
+// produces EVIDENCE, and the cell's verdict is still the stamp file alone.
+type hookProbeCarriageWatcher struct {
+	query hookProbeCarriage
+	done  chan struct{}
+	found chan string
+}
+
+// hookProbeWatchCarriage starts a watcher and returns it. Call Stop exactly
+// once, after the run, to collect what it saw.
+func hookProbeWatchCarriage(q hookProbeCarriage) *hookProbeCarriageWatcher {
+	w := &hookProbeCarriageWatcher{
+		query: q,
+		done:  make(chan struct{}),
+		found: make(chan string, 1),
+	}
+	go func() {
+		ticker := time.NewTicker(hookProbeCarriagePollInterval)
+		defer ticker.Stop()
+		for {
+			if hit := hookProbeCarriageScan(w.query); hit != "" {
+				// FIRST hit wins and the watcher stops looking. The question
+				// is binary — was the hook ever delivered — so continuing to
+				// poll would only accumulate the same answer while the engine
+				// is trying to use the disk.
+				w.found <- hit
+				return
+			}
+			select {
+			case <-w.done:
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return w
+}
+
+// Stop ends the watch and returns the carriage evidence, running one final scan
+// so a delivery that appeared between the last tick and the process exiting is
+// not missed. Empty means nothing was seen at any point during the run.
+func (w *hookProbeCarriageWatcher) Stop() string {
+	close(w.done)
+	select {
+	case hit := <-w.found:
+		return hit
+	default:
+	}
+	return hookProbeCarriageScan(w.query)
+}

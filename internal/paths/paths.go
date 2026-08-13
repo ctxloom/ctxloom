@@ -926,17 +926,89 @@ func (t Tier) String() string {
 	}
 }
 
+// RootKind names which of the package's two roots (see the package doc,
+// "the two roots") an Entry.Rel resolves under.
+type RootKind uint8
+
+const (
+	// RootProject entries resolve relative to the project app dir's parent —
+	// today's sole behavior, and the zero value, so every Entry declared
+	// before RootKind existed is unchanged.
+	RootProject RootKind = iota
+	// RootHome entries resolve relative to the user's home directory
+	// (os.UserHomeDir()), matching the Home* function family (HomeSessionsDir,
+	// HomeApprovalsPath, TriggerCacheDir, HomeCoordDir, ...).
+	RootHome
+)
+
+// String names r for a diagnostic.
+func (r RootKind) String() string {
+	switch r {
+	case RootProject:
+		return "project"
+	case RootHome:
+		return "home"
+	default:
+		return "unknown"
+	}
+}
+
+// Presence classifies whether an Entry's absence is worth a doctor warning —
+// an axis independent of Tier (which is about REBUILDABILITY of content, not
+// about whether skipping it is normal). The two happen to correlate for
+// every RootProject entry today (each is created by project setup, so a
+// missing one is a genuine loss), which is why they were never split apart
+// until a RootHome entry needed to say something different: a home-rooted
+// store is shared across every project on the machine and created lazily by
+// a specific feature (a session run anywhere, a countersignature given, a
+// signer trusted, ...), so a fresh install — or a long-lived one that simply
+// never exercised that feature — legitimately has none of it yet, and that
+// is not a loss doctor should report.
+type Presence uint8
+
+const (
+	// PresenceMustExist entries are expected to exist once basic project
+	// setup has happened; absence is a genuine loss worth a doctor warning.
+	// The zero value, so every Entry declared before Presence existed keeps
+	// today's warn-on-absence behavior unchanged.
+	PresenceMustExist Presence = iota
+	// PresenceIfUsed entries are created lazily by exercising a specific
+	// feature; their absence is never reported, but their PRESENCE is (see
+	// doctorCheckLocalTierState), so doctor can still say what it found.
+	PresenceIfUsed
+)
+
 // Entry is one classified .ctxloom path, as Layout enumerates them.
 type Entry struct {
-	// Rel is the path relative to appPath, e.g. ".ctxloom/cache/bundles".
+	// Rel is the path relative to the root Root names: the project app dir's
+	// parent for RootProject (e.g. ".ctxloom/cache/bundles"), the user's home
+	// directory for RootHome (e.g. ".ctxloom/sessions" under ~).
 	Rel  string
+	Root RootKind
 	Tier Tier
 	// Rebuild names the command that reconstructs this path from committed
 	// pins. Empty if and only if Tier is TierLocal — see Tier's doc.
 	Rebuild string
-	// Lost is TierLocal-only: what a clone does not have, in a user's words —
-	// the text doctor's absent-TierLocal-entry check surfaces.
+	// Lost is TierLocal-only: what a clone (RootProject) or this machine
+	// (RootHome) does not have, in a user's words — the text doctor's
+	// absent-TierLocal-entry check surfaces, subject to Presence.
 	Lost string
+	// Presence decides whether Lost is ever surfaced for a TierLocal entry
+	// missing on disk. See Presence's doc.
+	Presence Presence
+}
+
+// ResolveRoot returns the directory Entry.Rel should be joined onto: for
+// RootProject entries, the project app dir's parent (appDir is the same
+// value ConfigPath/StatePath/etc. take as appPath, joined with AppDirName by
+// the caller); for RootHome entries, home (typically os.UserHomeDir(), the
+// caller's job to resolve since this package does no I/O). Both arguments
+// are used as given — this function does no I/O and does not validate them.
+func (e Entry) ResolveRoot(appDir, home string) string {
+	if e.Root == RootHome {
+		return home
+	}
+	return filepath.Dir(appDir)
 }
 
 // Layout is the classification of every path this tree's own writers produce
@@ -994,5 +1066,45 @@ func Layout() []Entry {
 		// is the normal case rather than a loss worth reporting — and a row
 		// cannot name a harp that does not exist yet anyway. TestArch_
 		// LayoutHasNoHarpKeyedRows keeps that true.
+
+		// --- RootHome: the home-rooted stores, added by C13 (fs-consolidation
+		// plan) so doctor can finally see them. Each names a STORE ROOT only —
+		// never a harp- or project-key-keyed subpath (HarpDir, CoordProjectStateDir
+		// and friends stay unrepresented, same reasoning as state/<harp> above).
+		// Every one of them is TierLocal (no ctxloom command reconstructs their
+		// content — see Tier's doc) and PresenceIfUsed: a home-rooted store is
+		// shared across every project on the machine and created lazily by
+		// exercising a specific feature, so a fresh install (or one that simply
+		// never touched that feature) has none of it yet, and that absence is
+		// never reported. When present, doctorCheckLocalTierState lists it — see
+		// Presence's doc for the full reasoning.
+		{
+			Rel: filepath.Join(AppDirName, SessionsDir), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "this machine's distilled record of every ctxloom session, across every project",
+		},
+		{
+			Rel: filepath.Join(AppDirName, ApprovalsDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "the user-scoped countersignature store (HomeApprovalsPath); update review degrades from a diff to a full-content dump for approvals only this store held, though committed approval signatures still verify",
+		},
+		{
+			Rel: filepath.Join(AppDirName, AllowedSignersFileName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "every signing key you personally trusted (ctxloom signer trust); each must be re-trusted by hand",
+		},
+		{
+			Rel: filepath.Join(AppDirName, DistrustedSignersFileName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "every embedded signing key you personally distrusted (ctxloom signer untrust); each suppression must be re-recorded by hand",
+		},
+		{
+			Rel: filepath.Join(AppDirName, CacheDir, TriggersDir), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "cached revive-trigger verdicts; nothing durable is lost — the next trigger check silently recomputes them — but re-checking a large deferred-task backlog cold costs more time",
+		},
+		{
+			Rel: filepath.Join(AppDirName, CoordDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "coordinator state for every project (owner locks, journals); a LIVE coordinator loses its lock and journal outright, and a recent-but-exited one's history becomes unrecoverable",
+		},
+		{
+			Rel: filepath.Join(AppDirName, CompanionConsentFileName+".yaml"), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "the record of which companion binaries you agreed ctxloom may execute; you are asked again",
+		},
 	}
 }

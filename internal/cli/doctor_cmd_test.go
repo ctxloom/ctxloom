@@ -504,21 +504,71 @@ func TestDoctorCheckLocalTierState_RightState_AllPresent(t *testing.T) {
 
 // TestDoctorCheckLocalTierState_WrongState_FreshInitMissesEvery proves the
 // case this check exists for: a project immediately after `ctxloom init`
-// (setupProject's own shape) has NONE of the local-only state yet, and the
-// report names every one of them plus its Lost text — the thing a fresh
-// clone has no way to learn today, per the config-layer-scope design doc.
+// (setupProject's own shape) has NONE of the PresenceMustExist local-only
+// state yet, and the report names every one of them plus its Lost text — the
+// thing a fresh clone has no way to learn today, per the config-layer-scope
+// design doc. PresenceIfUsed rows (the RootHome stores) are asserted absent
+// from the report by the companion test below — a fresh project says
+// nothing about them, which is not the same claim as "they are present".
 func TestDoctorCheckLocalTierState_WrongState_FreshInitMissesEvery(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 
 	check := doctorCheckLocalTierState(cfg)
 	assert.Equal(t, doctorWarn, check.Status)
 	for _, entry := range paths.Layout() {
-		if entry.Tier != paths.TierLocal {
+		if entry.Tier != paths.TierLocal || entry.Presence != paths.PresenceMustExist {
 			continue
 		}
-		assert.Contains(t, check.Detail, entry.Rel, "every absent TierLocal path must be named")
+		assert.Contains(t, check.Detail, entry.Rel, "every absent must-exist TierLocal path must be named")
 		assert.Contains(t, check.Detail, entry.Lost, "and its Lost text must ride along")
 	}
+}
+
+// TestDoctorCheckLocalTierState_FreshHome_HomeRowsNeverWarn is the C13
+// design-note mutation-kill target: "a home store that legitimately doesn't
+// exist yet (fresh install) must NOT warn as broken." setupProject's own
+// testsupport.Isolate call gives this test a fresh, empty HOME, so every
+// PresenceIfUsed (RootHome) row is absent — and none of them may be named in
+// the report, unlike the PresenceMustExist project rows this same fresh
+// state DOES (correctly) warn about.
+//
+// The assertion checks the "Rel (Lost)" PAIR, not bare Rel: a RootHome row
+// and its RootProject sibling can legitimately share Rel text (".ctxloom/
+// sessions" names both the project's distilled-history row and the home
+// store row), so a bare-Rel check would false-fail on the unrelated project
+// row's own, correctly-reported, absence.
+func TestDoctorCheckLocalTierState_FreshHome_HomeRowsNeverWarn(t *testing.T) {
+	_, cfg := setupProject(t, "claude-code")
+
+	check := doctorCheckLocalTierState(cfg)
+	assert.Equal(t, doctorWarn, check.Status, "the pre-existing PresenceMustExist project rows still warn")
+	for _, entry := range paths.Layout() {
+		if entry.Presence != paths.PresenceIfUsed {
+			continue
+		}
+		named := fmt.Sprintf("%s (%s)", entry.Rel, entry.Lost)
+		assert.NotContains(t, check.Detail, named,
+			"a PresenceIfUsed row absent on a fresh install/machine must never be reported as missing")
+	}
+}
+
+// TestDoctorCheckLocalTierState_HomeRowPresent_IsReported proves the other
+// half of C13's goal — "doctor can finally see them": with a fake HOME that
+// actually has a home-rooted store on disk (here, the sessions dir any real
+// session anywhere would have created), doctor reports it BY NAME, even
+// though the project side of this same fresh project still has missing
+// must-exist rows and the overall status is still doctorWarn.
+func TestDoctorCheckLocalTierState_HomeRowPresent_IsReported(t *testing.T) {
+	_, cfg := setupProject(t, "claude-code")
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	sessionsRel := filepath.Join(paths.AppDirName, paths.SessionsDir)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, sessionsRel), 0o755))
+
+	check := doctorCheckLocalTierState(cfg)
+	assert.Equal(t, doctorWarn, check.Status, "the project rows are still missing")
+	assert.Contains(t, check.Detail, "home-rooted store(s) in use")
+	assert.Contains(t, check.Detail, sessionsRel)
 }
 
 // TestDoctorCheckLocalTierState_WrongState_NoMarkerDir mirrors
@@ -538,14 +588,11 @@ func TestDoctorCheckLocalTierState_PartialState_NamesOnlyWhatsMissing(t *testing
 	root, cfg := setupProject(t, "claude-code")
 	// The skipped entry must be a LEAF of the layout: skipping a path other
 	// entries nest inside would make them absent too, and the report would name
-	// more than one.
+	// more than one. It must also be PresenceMustExist -- a PresenceIfUsed
+	// skip would never appear as "missing" at all (see the FreshHome test),
+	// which would make this test's "names only what's missing" claim vacuous.
 	skipRel := filepath.Join(paths.AppDirName, paths.ProjectIDFileName)
-	for _, entry := range paths.Layout() {
-		if entry.Tier != paths.TierLocal || entry.Rel == skipRel {
-			continue
-		}
-		materializeLayoutEntry(t, root, entry.Rel)
-	}
+	materializeLayoutEntries(t, root, map[string]bool{skipRel: true})
 
 	check := doctorCheckLocalTierState(cfg)
 	assert.Equal(t, doctorWarn, check.Status)
@@ -729,37 +776,66 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 }
 
 // scaffoldLocalTierState creates a stand-in for every paths.TierLocal path
-// (internal/paths.Layout) under root's .ctxloom — the local-only state a
-// FRESH init never has (it's exactly what accrues from actually using a
-// project: running sessions, using taskloom, reviewing an update). Only
-// DOCTOR-CHECK-LOCAL-STATE-p6 reads these paths at all (existence only, not
-// content), so an empty placeholder file/dir at each is enough to represent
-// "a fully-wired, actually-used project" for that check.
+// (internal/paths.Layout) — the local-only state a FRESH init/machine never
+// has (it's exactly what accrues from actually using a project AND this
+// machine: running sessions, using taskloom, reviewing an update, giving a
+// countersignature, trusting a signer, running a coordinator). RootProject
+// entries land under root's .ctxloom; RootHome entries land under the
+// isolated HOME testsupport.Isolate already set for this test (setupProject
+// calls it). Only DOCTOR-CHECK-LOCAL-STATE-p6 reads these paths at all
+// (existence only, not content), so an empty placeholder file/dir at each is
+// enough to represent "a fully-wired, actually-used project and machine" for
+// that check.
 func scaffoldLocalTierState(t *testing.T, root string) {
 	t.Helper()
+	materializeLayoutEntries(t, root, nil)
+}
+
+// materializeLayoutEntries scaffolds every paths.Layout() TierLocal entry
+// whose Rel is not a key of skip (nil skips nothing), each at ITS root:
+// RootProject entries under root's .ctxloom, RootHome entries under the
+// isolated HOME this test's setupProject call already set via testsupport.
+// Isolate.
+func materializeLayoutEntries(t *testing.T, root string, skip map[string]bool) {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
 	for _, entry := range paths.Layout() {
-		if entry.Tier != paths.TierLocal {
+		if entry.Tier != paths.TierLocal || skip[entry.Rel] {
 			continue
 		}
-		materializeLayoutEntry(t, root, entry.Rel)
+		base := root
+		if entry.Root == paths.RootHome {
+			base = home
+		}
+		materializeLayoutEntry(t, base, entry.Rel)
 	}
 }
 
-// materializeLayoutEntry creates one Layout path under root as the KIND it
-// really is. Every TierLocal path is a DIRECTORY except the project-id marker,
-// which is a single file — so that is the one this names, and everything else
-// is a directory.
+// layoutFileEntries names every paths.Layout() TierLocal Rel that is a FILE
+// on disk rather than a directory — materializeLayoutEntry's exception list.
+// Keyed by Rel alone (not Root): no directory-shaped Rel collides with one of
+// these names, so root is irrelevant to the question "is this a file".
+var layoutFileEntries = map[string]bool{
+	filepath.Join(paths.AppDirName, paths.ProjectIDFileName):                true,
+	filepath.Join(paths.AppDirName, paths.AllowedSignersFileName):           true,
+	filepath.Join(paths.AppDirName, paths.DistrustedSignersFileName):        true,
+	filepath.Join(paths.AppDirName, paths.CompanionConsentFileName+".yaml"): true,
+}
+
+// materializeLayoutEntry creates one Layout path under base as the KIND it
+// really is, per layoutFileEntries — everything else is a directory.
 //
 // Writing a file for all of them used to work and stopped the moment the layout
 // grew a nested entry (.ctxloom/state holds per-session subdirectories): the fixture
 // turned real directories into files, and the damage surfaced two checks later
 // as an ENOTDIR from doctor's MCP reader rather than as "this fixture is
 // wrong".
-func materializeLayoutEntry(t *testing.T, root, rel string) {
+func materializeLayoutEntry(t *testing.T, base, rel string) {
 	t.Helper()
-	full := filepath.Join(root, rel)
+	full := filepath.Join(base, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-	if rel == filepath.Join(paths.AppDirName, paths.ProjectIDFileName) {
+	if layoutFileEntries[rel] {
 		require.NoError(t, os.WriteFile(full, []byte("test-fixture placeholder\n"), 0o644))
 		return
 	}

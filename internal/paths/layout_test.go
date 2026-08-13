@@ -53,14 +53,105 @@ func TestLayout_EveryEntryHasARelPath(t *testing.T) {
 // TestLayout_RelPathsAreUnique guards against two Entry values naming the
 // same path under two different tiers, which would make "what tier is this
 // path" ambiguous -- exactly the classification confusion Layout exists to
-// resolve.
+// resolve. The key is (Root, Rel), not Rel alone: a RootProject entry and a
+// RootHome entry legitimately share a Rel (".ctxloom/sessions" under the
+// project root and again under home) because Root makes them two different
+// physical paths, the same way two directories on a filesystem can share a
+// leaf name.
 func TestLayout_RelPathsAreUnique(t *testing.T) {
-	seen := map[string]Tier{}
+	type key struct {
+		root RootKind
+		rel  string
+	}
+	seen := map[key]Tier{}
 	for _, e := range Layout() {
-		if prior, ok := seen[e.Rel]; ok {
-			t.Errorf("Layout() lists %q twice, as both %s and %s", e.Rel, prior, e.Tier)
+		k := key{e.Root, e.Rel}
+		if prior, ok := seen[k]; ok {
+			t.Errorf("Layout() lists %q under root %s twice, as both %s and %s", e.Rel, e.Root, prior, e.Tier)
 		}
-		seen[e.Rel] = e.Tier
+		seen[k] = e.Tier
+	}
+}
+
+// TestEntry_ZeroValueRootIsProject pins Entry's own documented contract: an
+// Entry declared with no Root field behaves exactly as it did before RootKind
+// existed. Mutation: swap RootKind's iota order so RootHome is the zero
+// value, and this goes red because ResolveRoot for a bare {Rel: ...} literal
+// would then return home instead of the project root.
+func TestEntry_ZeroValueRootIsProject(t *testing.T) {
+	e := Entry{Rel: "x"}
+	if e.Root != RootProject {
+		t.Fatalf("zero-value Entry.Root = %v, want RootProject", e.Root)
+	}
+	got := e.ResolveRoot("/proj/.ctxloom", "/home/alice")
+	want := "/proj"
+	if got != want {
+		t.Errorf("zero-value Entry.ResolveRoot(appDir, home) = %q, want %q (the project root, unaffected by home)", got, want)
+	}
+}
+
+// TestEntry_ZeroValuePresenceIsMustExist pins Presence's zero value the same
+// way: an Entry declared before Presence existed keeps warning on absence.
+func TestEntry_ZeroValuePresenceIsMustExist(t *testing.T) {
+	e := Entry{Rel: "x"}
+	if e.Presence != PresenceMustExist {
+		t.Fatalf("zero-value Entry.Presence = %v, want PresenceMustExist", e.Presence)
+	}
+}
+
+// TestLayout_HomeRowsResolveUnderHomeNeverProject is the RootHome resolution
+// mutation-kill target: every RootHome entry must resolve under the home
+// argument, never the project's. Mutation: have ResolveRoot ignore Root and
+// always return filepath.Dir(appDir) -- every one of these goes red because
+// the resolved path stops containing the home directory at all.
+func TestLayout_HomeRowsResolveUnderHomeNeverProject(t *testing.T) {
+	const appDir = "/proj/.ctxloom"
+	const home = "/home/alice"
+	var sawHomeRow bool
+	for _, e := range Layout() {
+		if e.Root != RootHome {
+			continue
+		}
+		sawHomeRow = true
+		got := e.ResolveRoot(appDir, home)
+		if got != home {
+			t.Errorf("%q (RootHome) resolves onto %q, want the home root %q", e.Rel, got, home)
+		}
+		full := filepath.Join(got, e.Rel)
+		if !strings.HasPrefix(full, home+string(filepath.Separator)) {
+			t.Errorf("%q (RootHome) joined path %q does not live under home %q", e.Rel, full, home)
+		}
+		if strings.HasPrefix(full, "/proj") {
+			t.Errorf("%q (RootHome) joined path %q resolved under the PROJECT root, not home", e.Rel, full)
+		}
+	}
+	if !sawHomeRow {
+		t.Fatal("Layout() has no RootHome entry at all -- this test would be vacuous")
+	}
+}
+
+// TestLayout_HomeRowsNameStoreRootsOnly keeps the new RootHome rows honest
+// the same way TestLayout_HasNoHarpKeyedRows keeps the project rows honest:
+// a home row must name a fixed store root (a single leaf, or "cache/<leaf>"
+// for the one cache-shaped store), never a harp- or project-key-keyed
+// instance path underneath one.
+func TestLayout_HomeRowsNameStoreRootsOnly(t *testing.T) {
+	allowedHomeRels := map[string]bool{
+		filepath.Join(AppDirName, SessionsDir):                     true,
+		filepath.Join(AppDirName, ApprovalsDirName):                true,
+		filepath.Join(AppDirName, AllowedSignersFileName):          true,
+		filepath.Join(AppDirName, DistrustedSignersFileName):       true,
+		filepath.Join(AppDirName, CacheDir, TriggersDir):           true,
+		filepath.Join(AppDirName, CoordDirName):                    true,
+		filepath.Join(AppDirName, CompanionConsentFileName+".yaml"): true,
+	}
+	for _, e := range Layout() {
+		if e.Root != RootHome {
+			continue
+		}
+		if !allowedHomeRels[e.Rel] {
+			t.Errorf("Layout() home row %q is not a known store root -- if this is a deliberate new store, add it to this test's allowlist; if it is an instance path (harp- or project-key-keyed), it must not have a row at all", e.Rel)
+		}
 	}
 }
 

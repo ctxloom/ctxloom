@@ -935,16 +935,29 @@ func doctorCheckIngestionLimit(cfg *config.Config) doctorCheck {
 }
 
 // doctorCheckLocalTierState reports every paths.TierLocal entry (paths.Layout)
-// that is absent from THIS checkout — the thing a fresh clone has no way to
-// learn today (config-layer-scope design doc, "The .ctxloom classification"):
-// local-only state nothing rebuilds, so its absence is silent everywhere else
-// (a clone gets no warning that it started a new task-log project-id, lost
-// the dirty-tree-commit acknowledgement, has no distilled session history,
-// or degraded review's diff to a full-content dump). TierCommitted/TierDerived
-// entries are not reported here: a derived entry's absence is fine (its own
-// Rebuild command produces it) and a committed entry's absence means the
-// repository itself is incomplete, a different class of problem doctor's
-// other checks (setup marker, lock/assembly) already cover.
+// that is absent — the thing a fresh clone (RootProject rows) or a fresh
+// machine (RootHome rows) has no way to learn today (config-layer-scope
+// design doc, "The .ctxloom classification"): local-only state nothing
+// rebuilds, so its absence is silent everywhere else (a clone gets no warning
+// that it started a new task-log project-id, lost the dirty-tree-commit
+// acknowledgement, has no distilled session history, or degraded review's
+// diff to a full-content dump). TierCommitted/TierDerived entries are not
+// reported here: a derived entry's absence is fine (its own Rebuild command
+// produces it) and a committed entry's absence means the repository itself is
+// incomplete, a different class of problem doctor's other checks (setup
+// marker, lock/assembly) already cover.
+//
+// A row's Presence decides how its absence is treated. PresenceMustExist
+// (every RootProject row, and the zero value) warns on absence exactly as
+// before RootKind/Presence existed. PresenceIfUsed (the RootHome rows added
+// by C13 — sessions, approvals, signers, trigger cache, coord, companion
+// consent) never warns on absence: a home-rooted store is shared across every
+// project on the machine and created lazily by exercising a specific
+// feature, so having none of it yet is normal, not a loss. When a
+// PresenceIfUsed row IS present, it is reported anyway (the `present` list
+// below) — this is the "doctor can finally see them" half of C13: real
+// visibility into what home-rooted state exists, without a false warning on
+// what doesn't yet.
 func doctorCheckLocalTierState(cfg *config.Config) doctorCheck {
 	const marker = "DOCTOR-CHECK-LOCAL-STATE-p6"
 	appDir := doctorAppDir(cfg)
@@ -956,26 +969,46 @@ func doctorCheckLocalTierState(cfg *config.Config) doctorCheck {
 	if cfg != nil && cfg.FS() != nil {
 		fsys = cfg.FS()
 	}
-	root := filepath.Dir(appDir)
+	// homeDir is resolved best-effort: a RootHome row simply cannot be
+	// checked without it, the same "best-effort" shape doctorCheckForeign
+	// Worktrees and doctorCheckHarpDurability already use elsewhere in this
+	// file for a home-rooted lookup that must not fail the whole check.
+	homeDir, homeErr := os.UserHomeDir()
 
 	var missing []string
+	var present []string
 	for _, entry := range paths.Layout() {
 		if entry.Tier != paths.TierLocal {
 			continue
 		}
-		exists, err := afero.Exists(fsys, filepath.Join(root, entry.Rel))
-		if err != nil || exists {
+		if entry.Root == paths.RootHome && homeErr != nil {
 			continue
 		}
-		missing = append(missing, fmt.Sprintf("%s (%s)", entry.Rel, entry.Lost))
+		base := entry.ResolveRoot(appDir, homeDir)
+		exists, err := afero.Exists(fsys, filepath.Join(base, entry.Rel))
+		if err != nil {
+			continue
+		}
+		switch {
+		case exists && entry.Presence == paths.PresenceIfUsed:
+			present = append(present, entry.Rel)
+		case !exists && entry.Presence != paths.PresenceIfUsed:
+			missing = append(missing, fmt.Sprintf("%s (%s)", entry.Rel, entry.Lost))
+		}
 	}
-	if len(missing) == 0 {
-		return doctorCheck{Marker: marker, Status: doctorOK, Detail: "every local-only state path is present"}
+	status := doctorOK
+	detail := "every local-only state path is present"
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		status = doctorWarn
+		detail = fmt.Sprintf("%d local-only path(s) absent, and nothing rebuilds them: %s",
+			len(missing), strings.Join(missing, "; "))
 	}
-	sort.Strings(missing)
-	return doctorCheck{Marker: marker, Status: doctorWarn,
-		Detail: fmt.Sprintf("%d local-only path(s) absent from this checkout, and nothing rebuilds them: %s",
-			len(missing), strings.Join(missing, "; "))}
+	if len(present) > 0 {
+		sort.Strings(present)
+		detail = fmt.Sprintf("%s; %d home-rooted store(s) in use: %s", detail, len(present), strings.Join(present, ", "))
+	}
+	return doctorCheck{Marker: marker, Status: status, Detail: detail}
 }
 
 // renderDoctorReport writes the human-readable check list, one

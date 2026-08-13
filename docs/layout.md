@@ -101,6 +101,40 @@ Two more local-only paths live at the `.ctxloom` root rather than under
 - `.ctxloom/sessions/` — this machine's distilled session records
   (`paths.ProjectSessionsDir`).
 
+## The home tree: `~/.ctxloom`
+
+Everything above lives under one project's `.ctxloom/`. A second, smaller set
+of stores lives under **your home directory** instead, because each is a fact
+about *you* or about *this machine*, not about any one project: which signing
+keys you trust, which companion binaries you let ctxloom execute, and the
+session/coordinator/trigger state that spans every project you use ctxloom in.
+
+`paths.Layout()` carries a row for each of these (a home-rooted row, same
+mechanism as the project rows above), and `ctxloom doctor` reports what it
+finds there — but it will **never** warn that one is missing. A fresh
+install, or a machine that has simply never exercised the feature behind one
+of these stores, has none of it yet, and that absence is not a loss; only
+what actually exists is worth telling you about.
+
+| Path | What it is | Losing it costs |
+|---|---|---|
+| `~/.ctxloom/sessions/` | this machine's distilled record of every ctxloom session, across every project (`paths.HomeSessionsDir`) | the session history; nothing rebuilds it |
+| `~/.ctxloom/approvals/` | your personal countersignature store (`paths.HomeApprovalsPath`) | update review degrades from a diff to a full-content dump for approvals only this store held; committed approval signatures still verify |
+| `~/.ctxloom/allowed_signers` | every signing key you personally trusted (`paths.HomeAllowedSignersPath`, `ctxloom signer trust`) | each key must be re-trusted by hand |
+| `~/.ctxloom/distrusted_signers` | every embedded signing key you personally distrusted (`paths.HomeDistrustedSignersPath`, `ctxloom signer untrust`) | each suppression must be re-recorded by hand |
+| `~/.ctxloom/cache/triggers/` | cached revive-trigger verdicts (`paths.TriggerCacheDir`) | nothing durable — the next trigger check recomputes them, just not for free |
+| `~/.ctxloom/coord/` | coordinator state, one subdirectory per project (`paths.HomeCoordDir`) | a LIVE coordinator loses its lock and journal outright; a recent-but-exited one's history becomes unrecoverable |
+| `~/.ctxloom/companion_consent.yaml` | which companion binaries you agreed ctxloom may execute (`paths.HomeCompanionConsentPath`) | you are asked again |
+
+Two more home-rooted paths exist and are deliberately **not** in the table
+above: `~/.ctxloom/tasks/` is taskloom's own per-project task-log store
+(`internal/shared/tasks/paths.HomeTasksDir`) — a sibling vocabulary that
+shares the `.ctxloom` dot-dir without folding into `internal/paths`, the same
+boundary [architecture/core/paths.md](architecture/core/paths.md) draws for
+`IndexFileName` — and `~/.ctxloom/logs/ctxloom.log` is the structured log
+every ctxloom process writes at startup: diagnostic output, not state whose
+absence is ever worth a doctor warning.
+
 ## Engine homes: your real home, and the per-session instance
 
 **Your real `~/.claude`, `~/.codex` and `~/.kiro` are the durable truth, and

@@ -9,7 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
@@ -286,44 +289,27 @@ func retireBlock(path string, headers []string, retire func(string) bool) (bool,
 }
 
 // replaceFile overwrites path with data ATOMICALLY, keeping the file's
-// existing mode.
+// existing mode, through iox.WriteFileAtomicFs (unique temp file, fsync,
+// exact-mode chmod, rename).
 //
 // The file being rewritten here is USER-AUTHORED — a project's .gitignore, or
 // a repo's .git/info/exclude — and it is rewritten by removing lines from it.
 // A plain truncate-then-write loses all of it if the process dies in between,
 // which for the migration path is the worst possible moment: Ensure has
 // already decided the blanket rule must go and has nothing to restore it
-// from. Staging beside the target and renaming makes the replacement a single
-// step for any reader, and preserves the ORIGINAL mode rather than handing
-// the user's file whatever the umask says.
+// from.
+//
+// data CAN legitimately be empty: retireBlock only calls this when the
+// stripped content differs from what was on disk, and stripping every
+// surviving line (the file held nothing but the retired header and rule)
+// degenerately empties it. That is the caller correctly emptying a file that
+// existed, not a bug — AllowEmpty is passed for exactly that.
 func replaceFile(path string, data []byte) error {
 	mode := os.FileMode(0644)
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}
-
-	// Same directory, so the rename is within one filesystem.
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".ctxloom-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }() // no-op once the rename succeeds
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	// Close is checked, not deferred-and-discarded: it is where a write that
-	// never reached disk surfaces.
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("gitignore: writing %s: %w", path, err)
-	}
-	return os.Rename(tmpName, path)
+	return iox.WriteFileAtomicFs(afero.NewOsFs(), path, data, mode, iox.AllowEmpty())
 }
 
 // keepLines returns lines with every retired line dropped, along with any

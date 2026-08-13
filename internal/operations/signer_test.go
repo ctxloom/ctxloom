@@ -311,6 +311,30 @@ func TestRemoveSigner_RemovesOnlyMatchingPrincipal(t *testing.T) {
 	assert.NotContains(t, principals, "drop@example.com")
 }
 
+// TestRemoveSigner_RemovesLastPrincipal_LeavesEmptyFile pins a legitimate
+// empty write: removing the only entry in the store empties the file, and
+// that write must succeed rather than being caught by iox's empty-over-
+// existing guard (removeFromAllowedSignersFile passes iox.AllowEmpty() for
+// exactly this reason — see fs-consolidation plan C4's 8-caller audit).
+func TestRemoveSigner_RemovesLastPrincipal_LeavesEmptyFile(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+	_, line := testKeyLine(t)
+	k, err := ResolveSignerKey(line, fs, nil)
+	require.NoError(t, err)
+	add, err := AddSigner(cfg, AddSignerRequest{Principal: "solo@example.com", Key: k, Project: true, FS: fs})
+	require.NoError(t, err)
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "solo@example.com", Project: true, FS: fs})
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Removed)
+
+	got, err := afero.ReadFile(fs, add.Path)
+	require.NoError(t, err)
+	assert.Empty(t, string(got), "the store must be left genuinely empty, not refused")
+}
+
 func TestRemoveSigner_UnknownPrincipalIsNoopNotError(t *testing.T) {
 	_, cfg := setupBundleTestDir(t)
 	// ListSigners/ShowSigner also read the USER store — isolate HOME so

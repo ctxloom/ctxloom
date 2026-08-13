@@ -6,6 +6,34 @@ import (
 	"github.com/spf13/afero"
 )
 
+// Option configures an atomic-write call — WriteFileAtomic, WriteFileAtomicFs,
+// or NewAtomicFile's Commit. The zero value (no options) is every entry
+// point's historical default behavior.
+type Option func(*writeConfig)
+
+type writeConfig struct {
+	allowEmpty bool
+}
+
+// AllowEmpty opts a write out of the empty-over-existing refusal guard (see
+// WriteFileAtomicFs's doc). The one legitimate shape is a writer that has
+// already decided, with its own narrower reasoning, that a zero-byte result
+// is a meaningful outcome rather than a bug upstream — e.g. a countersign
+// index whose last entry was just removed, or a gitignore file whose entire
+// content was a now-retired rule.
+func AllowEmpty() Option {
+	return func(c *writeConfig) { c.allowEmpty = true }
+}
+
+// resolveOptions applies opts over the zero value and returns the result.
+func resolveOptions(opts []Option) writeConfig {
+	var c writeConfig
+	for _, opt := range opts {
+		opt(&c)
+	}
+	return c
+}
+
 // WriteFileAtomic writes data to path by creating a UNIQUE temp file in the same
 // directory, then renaming it over path. The unique name (not a fixed
 // "<path>.tmp") keeps a concurrent writer — even one that slipped past an advisory
@@ -30,6 +58,11 @@ import (
 // silently. atomicwrite_parity_test.go drives both entry points through one
 // table and fails on any divergence in bytes, mode, error behaviour, or temp
 // cleanup.
-func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
-	return WriteFileAtomicFs(afero.NewOsFs(), path, data, perm)
+//
+// Zero-length data over an EXISTING file is refused by default — see
+// WriteFileAtomicFs's doc for the guard and AllowEmpty's escape hatch. Zero
+// length data to a path with nothing there yet proceeds; a brand-new empty
+// file is not a truncation.
+func WriteFileAtomic(path string, data []byte, perm os.FileMode, opts ...Option) error {
+	return WriteFileAtomicFs(afero.NewOsFs(), path, data, perm, opts...)
 }

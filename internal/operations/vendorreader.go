@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
@@ -241,7 +242,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// complete one on every future call, permanently masking the failure. And a
 	// refresh writing in place would APPEND a second full copy of the vendor
 	// transcript onto the existing one, since a Recorder appends and no adapter
-	// resumes from an offset. Renaming only on success answers both: the harp
+	// resumes from an offset. Committing only on success answers both: the harp
 	// keeps whatever it had until a complete replacement exists.
 	//
 	// dest here is the PERSIST-DIR canonical path (paths.
@@ -249,49 +250,57 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// <harp>/persist/transcript.jsonl), never sessions.linkTranscriptIntoHarpDir's
 	// convenience symlink (a DIFFERENT file at the harp ROOT, <harp>/
 	// transcript.jsonl, pointing at the live vendor file). Production never
-	// makes THIS path a symlink. os.Rename still replaces whatever is at a
-	// destination atomically without following a symlink if it ever were one,
-	// so this stays correct even if that ever changed — but nothing here
-	// currently exercises that case.
+	// makes THIS path a symlink. iox.AtomicFile's Commit still replaces
+	// whatever is at a destination atomically without following a symlink if
+	// it ever were one, so this stays correct even if that ever changed — but
+	// nothing here currently exercises that case.
 	dest, derr := canonicalDestination(e.HarpName, refresh)
 	if derr != nil {
 		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)
 	}
-	tmp := dest + ".rebuild"
-	// A previous crash between write and rename leaves this behind; it carries
-	// no information (every source is re-read in full) and would otherwise be
-	// appended to.
-	_ = os.Remove(tmp)
 	// The persist dir is normally created lazily by transcript.Recorder's
 	// ensureFile, on the first successful Record — but a rotation segment may
-	// be APPENDED onto tmp (appendFileBytes, a plain os.OpenFile) before any
-	// Recorder ever touches tmp, on a harp whose persist dir has never been
-	// created (this can be the very first canonical build for it). Without
-	// this, that append fails ENOENT before the live conversion — which does
-	// go through a Recorder — ever gets a chance to create the dir itself.
-	if mkErr := os.MkdirAll(filepath.Dir(tmp), 0o755); mkErr != nil {
+	// be APPENDED onto the rebuild file (appendFileBytes) before any Recorder
+	// ever touches it, on a harp whose persist dir has never been created
+	// (this can be the very first canonical build for it). Without this, that
+	// append fails ENOENT before the live conversion — which does go through
+	// a Recorder — ever gets a chance to create the dir itself. It also has
+	// to run before iox.NewAtomicFile, whose own precondition (like
+	// WriteFileAtomicFs's) is that the destination directory already exists.
+	if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr != nil {
 		return false, fmt.Errorf("create persist dir for %s: %w", e.HarpName, mkErr)
 	}
+	af, aerr := iox.NewAtomicFile(dest, 0o644)
+	if aerr != nil {
+		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
+	}
+	tmp := af.TempPath()
 
 	for _, rot := range e.Rotations {
-		if werr := appendRotationSegment(ctx, adapter, e, rot, tmp); werr != nil {
-			_ = os.Remove(tmp)
+		if werr := appendRotationSegment(ctx, adapter, e, rot, af); werr != nil {
+			_ = af.Abort()
 			return true, werr
 		}
 	}
 
 	if liveOK {
+		// transcript.Recorder opens its own append handle by PATH — it has no
+		// io.Writer-shaped constructor — so this hands it af's temp path
+		// rather than af itself (iox.AtomicFile.TempPath's documented escape
+		// hatch). Commit below stats the temp file's actual on-disk size, so
+		// bytes Recorder writes here are covered by the same empty-guard as
+		// anything written through af.Write.
 		rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(tmp))
 		if rerr != nil {
-			_ = os.Remove(tmp)
+			_ = af.Abort()
 			return true, fmt.Errorf("open recorder for %s: %w", e.HarpName, rerr)
 		}
 		cerr := adapter.Convert(ctx, rec, liveSrc)
 		_ = rec.Close()
 		if cerr != nil {
-			// Best-effort: removal failing is not itself reported, since the
-			// conversion error is already the actionable fact.
-			_ = os.Remove(tmp)
+			// Best-effort: Abort's removal failing is not itself reported,
+			// since the conversion error is already the actionable fact.
+			_ = af.Abort()
 			return true, fmt.Errorf("convert %s transcript for %s: %w", e.Backend, e.HarpName, cerr)
 		}
 	}
@@ -301,10 +310,11 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// SUCCESSFUL Record, so a live Convert that (legitimately, per
 	// vendorreader.VendorAdapter's own degrade-to-partial contract) wrote zero
 	// entries — combined with no rotation contributing a segment either —
-	// leaves no tmp file at all.
+	// leaves the temp file at size zero (iox.NewAtomicFile creates it empty
+	// up front, so it always exists, unlike the old fixed ".rebuild" name).
 	info, serr := os.Stat(tmp)
 	if serr != nil || info.Size() == 0 {
-		_ = os.Remove(tmp)
+		_ = af.Abort()
 		// A harp with NO recorded rotations degrading to nothing is the
 		// ordinary single-file "nothing to do" outcome (unchanged from before
 		// rotation lineage existed): reporting it as an error would turn every
@@ -322,9 +332,8 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 		}
 		return false, nil
 	}
-	if rerr := os.Rename(tmp, dest); rerr != nil {
-		_ = os.Remove(tmp)
-		return true, fmt.Errorf("install canonical transcript for %s: %w", e.HarpName, rerr)
+	if cerr := af.Commit(); cerr != nil {
+		return true, fmt.Errorf("install canonical transcript for %s: %w", e.HarpName, cerr)
 	}
 	return true, nil
 }
@@ -332,7 +341,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 // appendRotationSegment ensures a cached canonical segment exists for one
 // displaced binding in e's rotation lineage — converting it once via adapter
 // when no cache is present, reusing the cached file otherwise (paths.
-// ResolveHarpSegmentPath) — and appends its bytes onto tmp, the harp-lifetime
+// ResolveHarpSegmentPath) — and appends its bytes onto af, the harp-lifetime
 // canonical rebuild in progress.
 //
 // A rotation whose vendor file is gone (rotated-away files can be reaped by
@@ -341,7 +350,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 // through clidiag rather than returning an error for that case. Only a
 // genuine I/O failure while converting or caching a segment that DOES exist
 // returns an error.
-func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, tmp string) error {
+func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, af *iox.AtomicFile) error {
 	segPath, perr := paths.ResolveHarpSegmentPath(e.HarpName, rot.SessionID)
 	if perr != nil {
 		return fmt.Errorf("resolve segment path for %s/%s: %w", e.HarpName, rot.SessionID, perr)
@@ -363,51 +372,52 @@ func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapt
 		if mkErr := os.MkdirAll(filepath.Dir(segPath), 0o755); mkErr != nil {
 			return fmt.Errorf("create segments dir for %s: %w", e.HarpName, mkErr)
 		}
-		segTmp := segPath + ".rebuild"
-		_ = os.Remove(segTmp)
-		rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(segTmp))
+		segAF, aerr := iox.NewAtomicFile(segPath, 0o644)
+		if aerr != nil {
+			return fmt.Errorf("open segment rebuild file for %s/%s: %w", e.HarpName, rot.SessionID, aerr)
+		}
+		// Same path-based escape hatch as the live conversion in
+		// convertVendorTranscript — see its comment.
+		rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(segAF.TempPath()))
 		if rerr != nil {
+			_ = segAF.Abort()
 			return fmt.Errorf("open segment recorder for %s/%s: %w", e.HarpName, rot.SessionID, rerr)
 		}
 		cerr := adapter.Convert(ctx, rec, rot.TranscriptPath)
 		_ = rec.Close()
 		if cerr != nil {
-			_ = os.Remove(segTmp)
+			_ = segAF.Abort()
 			return fmt.Errorf("convert rotation %s transcript for %s: %w", rot.SessionID, e.HarpName, cerr)
 		}
-		if info, serr := os.Stat(segTmp); serr != nil || info.Size() == 0 {
+		info, serr := os.Stat(segAF.TempPath())
+		if serr != nil || info.Size() == 0 {
 			// Zero events converted: a legitimate degrade-to-partial outcome
 			// for THIS segment (vendorreader.VendorAdapter's contract), not a
 			// failure — nothing to cache, nothing to append.
-			_ = os.Remove(segTmp)
+			_ = segAF.Abort()
 			return nil
 		}
-		if rerr := os.Rename(segTmp, segPath); rerr != nil {
-			_ = os.Remove(segTmp)
-			return fmt.Errorf("install cached segment for %s/%s: %w", e.HarpName, rot.SessionID, rerr)
+		if cerr := segAF.Commit(); cerr != nil {
+			return fmt.Errorf("install cached segment for %s/%s: %w", e.HarpName, rot.SessionID, cerr)
 		}
 	}
 
-	return appendFileBytes(tmp, segPath)
+	return appendFileBytes(af, segPath)
 }
 
-// appendFileBytes copies src's full contents onto the end of dst, creating
-// dst if it doesn't exist yet. Used to concatenate a harp's cached rotation
-// segments (each already in canonical JSONL form) onto the in-progress
-// harp-lifetime rebuild, ahead of the live binding's own conversion.
-func appendFileBytes(dst, src string) error {
+// appendFileBytes copies src's full contents onto the end of w — the
+// harp-lifetime rebuild in progress (an iox.AtomicFile, which satisfies
+// io.Writer via its own Write method) — used to concatenate a harp's cached
+// rotation segments (each already in canonical JSONL form) ahead of the live
+// binding's own conversion.
+func appendFileBytes(w io.Writer, src string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", src, err)
 	}
 	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("open %s: %w", dst, err)
-	}
-	defer func() { _ = out.Close() }()
-	if _, err := io.Copy(out, in); err != nil {
-		return fmt.Errorf("copy %s to %s: %w", src, dst, err)
+	if _, err := io.Copy(w, in); err != nil {
+		return fmt.Errorf("copy %s: %w", src, err)
 	}
 	return nil
 }

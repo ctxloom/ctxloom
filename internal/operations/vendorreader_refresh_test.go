@@ -212,4 +212,17 @@ func TestRefreshVendorTranscript_LeavesNoRebuildArtifact(t *testing.T) {
 	require.NoError(t, err)
 	_, err = os.Stat(canonPath + ".rebuild")
 	assert.True(t, os.IsNotExist(err), "the .rebuild temp must be renamed into place, never left behind")
+
+	// iox.NewAtomicFile's temp name is a random "."+base+".*.tmp", not the old
+	// fixed ".rebuild" suffix, so the check above alone would pass even if a
+	// temp were leaking under the new name — list the persist dir directly and
+	// require it hold nothing but the canonical file.
+	entries, err := os.ReadDir(filepath.Dir(canonPath))
+	require.NoError(t, err)
+	names := make([]string, len(entries))
+	for i, e := range entries {
+		names[i] = e.Name()
+	}
+	assert.Equal(t, []string{filepath.Base(canonPath)}, names,
+		"the persist dir must hold only the canonical transcript, no leftover temp")
 }

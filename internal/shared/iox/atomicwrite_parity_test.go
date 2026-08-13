@@ -18,12 +18,12 @@ import (
 // any divergence in outcome, bytes, mode, error behaviour, or temp-file
 // cleanup shows up as a failure.
 func TestAtomicWriters_Parity(t *testing.T) {
-	writers := map[string]func(dir, path string, data []byte, perm os.FileMode) error{
-		"WriteFileAtomic": func(_, path string, data []byte, perm os.FileMode) error {
-			return WriteFileAtomic(path, data, perm)
+	writers := map[string]func(dir, path string, data []byte, perm os.FileMode, opts ...Option) error{
+		"WriteFileAtomic": func(_, path string, data []byte, perm os.FileMode, opts ...Option) error {
+			return WriteFileAtomic(path, data, perm, opts...)
 		},
-		"WriteFileAtomicFs": func(_, path string, data []byte, perm os.FileMode) error {
-			return WriteFileAtomicFs(afero.NewOsFs(), path, data, perm)
+		"WriteFileAtomicFs": func(_, path string, data []byte, perm os.FileMode, opts ...Option) error {
+			return WriteFileAtomicFs(afero.NewOsFs(), path, data, perm, opts...)
 		},
 	}
 
@@ -36,12 +36,15 @@ func TestAtomicWriters_Parity(t *testing.T) {
 		missingDir bool
 		data       []byte
 		perm       os.FileMode
+		opts       []Option
 		wantErr    bool
 	}{
 		{name: "create new", data: []byte("hello"), perm: 0o644},
 		{name: "create new restrictive", data: []byte("secret"), perm: 0o600},
 		{name: "overwrite existing", pre: []byte("old-and-longer"), prePerm: 0o644, data: []byte("new"), perm: 0o600},
-		{name: "empty payload", data: []byte{}, perm: 0o644},
+		{name: "empty payload to new path proceeds", data: []byte{}, perm: 0o644},
+		{name: "empty payload over existing is refused", pre: []byte("live"), prePerm: 0o644, data: []byte{}, perm: 0o644, wantErr: true},
+		{name: "empty payload over existing with AllowEmpty proceeds", pre: []byte("live"), prePerm: 0o644, data: []byte{}, perm: 0o644, opts: []Option{AllowEmpty()}},
 		{name: "missing parent dir", missingDir: true, data: []byte("x"), perm: 0o644, wantErr: true},
 	}
 
@@ -66,7 +69,7 @@ func TestAtomicWriters_Parity(t *testing.T) {
 					require.NoError(t, os.WriteFile(target, tc.pre, tc.prePerm))
 				}
 
-				err := w(dir, target, tc.data, tc.perm)
+				err := w(dir, target, tc.data, tc.perm, tc.opts...)
 				o := outcome{err: err != nil}
 				if err == nil {
 					b, rerr := os.ReadFile(target)
@@ -82,6 +85,13 @@ func TestAtomicWriters_Parity(t *testing.T) {
 					if e.Name() != "settings.json" {
 						o.strays++
 					}
+				}
+				if tc.wantErr && tc.pre != nil {
+					// The refusal happens before anything is touched: the
+					// original bytes must survive a rejected write.
+					b, rerr := os.ReadFile(target)
+					require.NoError(t, rerr)
+					assert.Equal(t, string(tc.pre), string(b), "%s: a refused write must leave the original bytes untouched", wname)
 				}
 				got[wname] = o
 			}

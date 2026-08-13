@@ -241,6 +241,26 @@ func TestSupersededBlanketLines_CleanFileIsEmpty(t *testing.T) {
 	assert.Empty(t, lines)
 }
 
+// TestRetireSupersededFile_DegeneratesToEmptyFile pins a legitimate empty
+// write: a .gitignore holding NOTHING but the ctxloom-authored header and the
+// blanket rule retires down to a genuinely empty file, and that write must
+// succeed rather than being caught by iox's empty-over-existing guard
+// (replaceFile passes iox.AllowEmpty() for exactly this reason — see
+// fs-consolidation plan C3/C4).
+func TestRetireSupersededFile_DegeneratesToEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte("# ctxloom local files\n.ctxloom/\n"), 0644))
+
+	changed, err := RetireSupersededFile(path)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Empty(t, string(got), "retiring the file's only content must leave it genuinely empty, not refused")
+}
+
 // TestSupersededBlanketLines_AgreesWithRetireSupersededFile pins the review's
 // mitigation directly: RetireSupersededFile routes through
 // SupersededBlanketLines, so the read-only detector and the mutating

@@ -650,6 +650,63 @@ would be ctxloom answering on your behalf in a file it does not own.
 If you would rather answer for yourself everywhere, leave `config_home`
 undeclared (the default) or run codex directly.
 
+### codex asks twice: the workspace, then each hook
+
+Clearing the workspace prompt above is **not enough to make a hook run**. codex
+gates hooks separately, and on a different thing: not "do you trust this
+directory" but "do you trust *this exact command*".
+
+Since codex 0.144, a hook only runs once codex has a record of that hook's
+normalized identity in `[hooks.state."<key>"] trusted_hash` in the same
+`config.toml`. Without it the hook is `untrusted`; edit a hook that *was*
+trusted and it becomes `modified`. Either way codex skips it. Interactively it
+asks first — *"Hooks need review … Continue without trusting (hooks won't
+run)"* — but `codex exec` has nobody to ask, so it just skips, and the run still
+exits 0 with a working session. Measured on codex-cli 0.144.4: with workspace
+trust granted and hook trust absent, a `SessionStart` hook ctxloom wrote never
+fired and nothing anywhere said so.
+
+So ctxloom pre-answers this prompt too, **on exactly the axes in the table
+above and no others**. When it writes hooks into a codex home it provisioned, it
+also records the trust entry for each of those hooks — the same record codex's
+own prompt writes, computed the same way, covering only the hooks in that file.
+The last row of the table stays `no`: your real `~/.codex` gets neither answer,
+because ctxloom does not write that file at all.
+
+The boundary here is doing less work than it looks like it is, and that is the
+argument for it:
+
+- **The hooks in a ctxloom-provisioned home are ctxloom's own**, delivered from
+  your pinned, signed bundles. The host's `[hooks]` are deliberately not copied
+  into an instance home, so there is nothing in that file to vouch for that you
+  did not already pin.
+- **The trust question was already answered upstream**, by bundle signing and
+  pinning. Making you re-answer it per hook, per throwaway home, per run, is not
+  a second security decision — it is the same one, asked again where you cannot
+  see it.
+- **The record is per-hook and per-file.** It names one command's identity in
+  one home. Change the command and the record stops matching, exactly as it does
+  when you edit a hook you trusted by hand.
+
+ctxloom does **not** pass codex's `--dangerously-bypass-hook-trust`. That flag
+would switch the gate off for the whole home and every hook in it, including any
+that arrived by some other route, and it would do so per invocation rather than
+as a durable, inspectable fact in the config file. Recording the vendor's own
+per-hook answer is both narrower and visible: you can read
+`[hooks.state]` in the generated `config.toml` and see exactly what ctxloom
+vouched for.
+
+If a hook reaches the file and *cannot* be vouched for — an event codex does not
+recognize, a handler shape ctxloom cannot compute an identity for — ctxloom says
+so on stderr and names the hook, because a skipped hook is otherwise invisible
+from the outside.
+
+> **Vendor-internal surface.** `[hooks.state]` is not part of codex's documented
+> configuration, and its key format is provisional upstream. A codex release
+> that moves it would put every ctxloom hook back to being silently skipped, so
+> it is covered by a vendor pin (`just test-vendor-codex`) that asks the
+> installed codex for its own verdict on a config ctxloom just wrote.
+
 ### claude-code: the prompt ctxloom deliberately does *not* pre-answer
 
 claude has an equivalent onboarding/trust dialog, and it records the answer in

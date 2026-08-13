@@ -51,10 +51,13 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # disk-backed observable j002100_delegation.feature already established for
   # runs.jsonl — never an in-process Go struct, never faked.
   #
-  # A SECOND, more serious finding surfaced live-verifying the @live
-  # scenario below — a real permission-ladder gap that blocks it from going
-  # green today (not a test bug; see that scenario's own @wip comment for
-  # the full evidence).
+  # A SECOND finding surfaced live-verifying the @live scenario below, first
+  # recorded here as "a real permission-ladder gap". It was not one: the root
+  # cause turned out to be runner WIRING, and the last thing keeping that
+  # scenario red after the fix was a consumed codex refresh token on the host.
+  # Both are resolved and both are kept, in full, in that scenario's own
+  # comment — the misdiagnosis included, because it is the reason the
+  # per-engine floor at the bottom of this file exists at all.
 
   # LOCKED — requirement 3 (distinct context): each child's OWN reported
   # turn is read straight off its canonical transcript, never off an
@@ -143,9 +146,12 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # and names whichever is missing, and how, before spending a single live
   # turn.
   #
-  # @wip — the CLAUDE half of this scenario is now GREEN; a single
-  # CODEX-specific vendor gap keeps the whole thing @wip. History and
-  # current state, live-verified 2026-07-22 (task woozy-hasty-karma):
+  # GREEN END TO END, live-verified 2026-08-12: 18 of 18 steps, both children
+  # returned their OWN marker over the bus and the round-trip ECHO token came
+  # back. It spent months @wip, and the history below is kept in full because
+  # each entry names a real defect this scenario caught — and the last one is
+  # the reminder that a red @live row is not automatically a product bug.
+  # History, live-verified 2026-07-22 (task woozy-hasty-karma):
   #
   # ORIGINAL finding (icy-value), now FIXED: a live claude-haiku-4-5 child
   # decided to call agent_send, emitted a tool_use for
@@ -190,12 +196,18 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   #     from codex-child — but the body is a runner-exit report, not the
   #     marker, because the codex ENGINE could not authenticate:
   #     "Your access token could not be refreshed because your refresh
-  #     token was already used" (401 refresh_token_reused). That is a
-  #     credential-environment failure on this host, not a ctxloom defect,
-  #     and it is the one thing still keeping this scenario @wip.
-  # Untag @wip once a codex-child with WORKING credentials returns its own
-  # marker phrase here. No product change is known to be required.
-  @live @wip
+  #     token was already used" (401 refresh_token_reused).
+  #
+  # RESOLVED 2026-08-12 — and it was never a ctxloom defect, exactly as the
+  # entry above judged. The host's own `codex exec`, with no ctxloom in the
+  # picture, failed with the identical 401; a human ran `codex login`; this
+  # scenario then passed unchanged, no product change of any kind. Read a
+  # future red here with that precedent in hand: a runner-exit body carrying a
+  # 401 means re-authenticate the engine, and only a body that is neither the
+  # marker nor a credential error is evidence against ctxloom. The per-engine
+  # floor below now guards each engine of that pair separately, so a repeat of
+  # this failure names ONE engine instead of taking the pair down together.
+  @live
   Scenario: A coordinator delegates the same kind of task to two real, differently-vendored engines, and each proves it saw its own context over the real bus
     Given real "claude" and "codex" engines are both available for cross-engine delegation
     When the agent calls tool "agent_run" with:
@@ -219,6 +231,133 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "claude-child" reports
     Then the tool call succeeds
     And the received message is from "claude-child" and its body contains "J002300-LIVE-ECHO-TOKEN-4a6f18"
+
+  # THE PER-ENGINE FLOOR — one live row per engine ctxloom 0.7 can delegate to.
+  #
+  # WHY IT EXISTS. Every scenario above proves delegation against either the
+  # mock (hermetic) or the claude/codex PAIR (@live). Neither answers the
+  # question an operator actually asks before trusting `agent_run` on their own
+  # box: "does a delegated child on MY engine really launch, really receive its
+  # composed context, and really get a word back to its coordinator?" Until
+  # this outline existed, three of the four 0.7 engines had never had a full
+  # live delegation round trip verified AT ALL — opencode's child path was
+  # migrated onto the StartRun/runner model (coord.viaStartRunBackends now
+  # carries claude-code, codex, kiro, acp and opencode) with no live proof
+  # behind it, and kiro's was proven only at the isolation layer. A per-engine
+  # matrix, in the suite's own live lane, is the difference between "the code
+  # path exists" and "the engine came back".
+  #
+  # WHAT EACH ROW PROVES, AND WHY IT CANNOT BE FAKED. The marker phrase exists
+  # in exactly ONE place: a fragment in the child's OWN bundle, written fresh
+  # by the gate step into this scenario's isolated project. It is NOT in the
+  # prompt (read it — the prompt only says "the one distinctive marker phrase
+  # in your context"), so an engine that echoes what it was sent cannot
+  # produce it. It reaches the coordinator only if (a) the child process
+  # really launched on that engine, (b) ctxloom really delivered the composed
+  # profile context into its first turn, (c) the engine really reasoned over
+  # that context, and (d) the child really reached back through its forwarder
+  # MCP server to call agent_send(to:"parent"). The assertion is on the BODY
+  # BYTES that arrive in the coordinator's mailbox, never on an exit code and
+  # never on agent_run's own success — which this journey's own history
+  # already showed is worth nothing on its own (agent_run kept returning
+  # success for weeks while the empty-coordinator-harp defect silently ate
+  # every reply). A child that launches and dies still delivers a message —
+  # bridgeTurnResult queues its runner-exit report to the same mailbox — so
+  # "a message arrived from the child" is deliberately NOT the assertion; the
+  # marker in the body is.
+  #
+  # GATING. Each row probes ITS OWN engine through the same
+  # live_engine_registry.go decision every other @live step uses, and a row
+  # whose engine is missing or unauthenticated skips with the engine and the
+  # reason printed by name — never silently. CTXLOOM_LIVE_REQUIRE turns any
+  # named engine's skip into a hard failure (checkRequiredEngines), which is
+  # how a credential expiry is stopped from quietly deleting a row.
+  #
+  # ONE ROW AT A TIME. Each Examples block carries its own @<engine> tag —
+  # the addressing mechanism isolation_probe.feature established, and used
+  # here for the same reason: `just live-delegation <engine>` runs exactly one
+  # engine's row, which is what a live, paid, minutes-long turn wants. Tags
+  # attach to an Examples: block, not to a row inside one, so each engine gets
+  # its own single-row block.
+  @live @delegation
+  Scenario Outline: A delegated child on a real <engine> reports back a marker only its own composed context could supply
+    Given a real "<engine>" engine is available for a delegated child carrying marker "<marker>"
+    When the agent calls tool "agent_run" with:
+      | agent  | delegate |
+      | prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
+    Then the tool call succeeds
+    And "delegate"'s session harp is remembered
+    When the agent calls tool "agent_recv" repeatedly, waiting up to 240s total, until "delegate" reports a body containing "<marker>"
+    Then the tool call succeeds
+
+    @claude-code
+    Examples:
+      | engine      | marker                                       |
+      | claude-code | J002300-DELEGATE-MARKER-CLAUDE-CODE-1d4c07ab |
+
+    # GREEN, but it took a human to get here, and the detour is worth keeping:
+    # this row's FIRST live run was red, and not for any reason in this repo.
+    # The child launched, the runner dialled home, and a message really did
+    # reach the coordinator's mailbox from the child's harp — the delegation
+    # path worked — but the body was a runner-exit report carrying codex's own
+    # 401 refresh_token_reused. Confirmed HOST-side, independent of ctxloom, by
+    # running `codex exec` with no ctxloom in the picture: identical 401. A
+    # human ran `codex login`, and the row returned its own marker unchanged.
+    #
+    # THE PROBE GAP THAT DETOUR EXPOSED IS STILL REAL (live_engine_registry.go):
+    # the availability report said `codex ✓` throughout, because
+    # authCheckCodex's `codex login status` is a LOCAL read of auth.json that
+    # never attempts a refresh — INSTALLED and AUTHENTICATED are distinguished,
+    # AUTHENTICATED and STILL-VALID are not. So a consumed refresh token
+    # surfaces here as a loud RED row rather than a named skip. That is the
+    # honest failure shape (a skip would be worse), and there is no cheap fix:
+    # the only probe that would know is one that performs a refresh, which is
+    # what consumes the token. If this row ever goes red again with a 401 in the
+    # body, read it as "re-run `codex login`", not as a delegation regression.
+    @codex
+    Examples:
+      | engine | marker                                 |
+      | codex  | J002300-DELEGATE-MARKER-CODEX-8b3f52cd |
+
+    @kiro
+    Examples:
+      | engine | marker                                |
+      | kiro   | J002300-DELEGATE-MARKER-KIRO-2e9a16ef |
+
+    # GREEN — and the one row here whose history is a warning about this row
+    # itself, not about opencode. Keep it: it is the reason to distrust a
+    # single live failure.
+    #
+    # WHAT WAS FILED (2026-08-12): opencode child delegation had ridden the
+    # StartRun/runner model since the spool cutover's S3b slice
+    # (coord.viaStartRunBackends["opencode"] == true) with no live round trip
+    # ever run behind it, and this row's first run found ZERO messages reaching
+    # the coordinator's mailbox in 240s — no agent_send, no bridgeTurnResult
+    # turn copy, not even a runner-exit report, while the codex row delivered
+    # one through that exact machinery. Both other suspects were excluded at
+    # the time (`opencode run` answered normally; `ctxloom run --agent
+    # delegate --one-shot` against this row's exact fixture returned the marker
+    # verbatim), so it was filed as a delegated-child defect.
+    #
+    # WHAT THE INVESTIGATION FOUND (obstinate-amulet): it does NOT reproduce.
+    # 13 consecutive live runs at that same base came back green, and the
+    # original trigger remains unexplained — so the filed defect was closed
+    # unreproduced rather than "fixed". What the hunt DID find is the reason
+    # that silence was so hard to read: a runner whose standup died reported
+    # nothing at all for five minutes, so any cause presented identically as
+    # "zero messages". That is fixed at 2725325e — a dead runner now fails
+    # immediately, naming itself and carrying its own stderr.
+    #
+    # SO: if this row ever shows zero messages again, do not re-file from the
+    # symptom. The coordinator will now name the dead runner and quote its
+    # stderr, and THAT is the evidence to file. A bare timeout with no such
+    # message means something else entirely.
+    # Live-verified green here on the merged base (2725325e), with its own
+    # assertion-side mutation proof.
+    @opencode
+    Examples:
+      | engine   | marker                                    |
+      | opencode | J002300-DELEGATE-MARKER-OPENCODE-7f05b391 |
 
   # Back to: tests/acceptance/features/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).

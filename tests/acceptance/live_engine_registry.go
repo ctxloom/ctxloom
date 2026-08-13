@@ -218,6 +218,28 @@ profiles:
 	// axis is real and correct), but is NOT YET a proven context-delivering
 	// live row — do not add a J000400 @live Examples row for codex until this is
 	// fixed, or it would be red (or falsely green on a weakened assertion).
+	//
+	// STATUS 2026-08-13, after one false start — read both paragraphs, they say
+	// different things.
+	//
+	// THE 2026-07-14 FINDING ABOVE IS STILL OPEN. P1 briefly recorded it closed,
+	// on a green hook-pinned codex cell. That was wrong and has been retracted:
+	// ctxloom wrote no codex hook in that session at all (it warns "codex hooks
+	// and MCP servers were NOT written ... no durable project home exists — see
+	// config_home"), and codex's SurfaceFor resolves (context, Hook) to a
+	// COMPOSED delivery that also writes the native AGENTS.md. The nonce arrived
+	// by AGENTS.md. Nothing touched the cache file the 2026-07-14 defect is
+	// about, so nothing re-measured it. See the retraction note in
+	// capability_probe_registry.go.
+	//
+	// WHAT IS PROVEN: codex delivers context live through AGENTS.md. P1's
+	// unsafe-file cell is green (2026-08-13, harp "smug-fatal-rush"), as are
+	// codex's P0 rows. So the prohibition above — no live codex context row —
+	// is lifted for the AGENTS.md route specifically, and NOT for the hook
+	// route, which remains unproven and unprobed. Note also that this green is
+	// not side-channel-controlled: codex has no out-of-cwd delivery, so its
+	// context lands in the working directory, and S4 measured codex satisfying a
+	// nonce probe by searching the workspace with rg.
 	"codex": {
 		binary:     "codex",
 		apiKeyEnvs: []string{"OPENAI_API_KEY", "CODEX_API_KEY"},

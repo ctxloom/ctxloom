@@ -88,10 +88,10 @@ const (
 )
 
 // p4Postures is the pair, in the order the feature file runs them. The control
-// deliberately runs FIRST: when both cells of an engine run in one process (the
-// `just capability-probe p4-plan-sentinel <engine> host none` invocation, which
-// selects both Examples blocks), the control's outcome is already in the ledger
-// by the time the plan cell asks for it.
+// deliberately runs FIRST: when both cells of an engine run in one process —
+// `just plan-sentinel <engine> pair`, whose tag expression omits the @var- tag
+// and so selects both Examples blocks — the control's outcome is already in the
+// ledger by the time the plan cell asks for it.
 var p4Postures = []p4Posture{p4Control, p4Plan}
 
 // p4PermissionValue maps a posture onto the value written to the agent binding's

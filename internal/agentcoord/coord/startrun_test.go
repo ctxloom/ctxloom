@@ -80,12 +80,65 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	// The item events journaled (group-fsync path): the turn's message and
 	// tool items are COUNTED in the items fold — the C1 journaling decision
 	// (deltas counted, text never materialized).
+	//
+	// Polling the counts against a wall clock is what made this assertion
+	// flaky: the fold is fed by flushItems, which APPENDS AND FSYNCS, and the
+	// roster assertion above does not serialize against that — turn-idle folds
+	// the roster (a DIFFERENT store) before handleAgentEvent flushes the
+	// channel's item buffer, so "idle" is observable while items are still
+	// draining. fsync latency is the unbounded term under whole-repo gate
+	// load, which is how this expired at 5.03s in a merge gate.
+	//
+	// So wait for the DURABILITY EVENT rather than for a duration, then read
+	// the counts ONCE. flushedSeq is advanced only by a flushItems whose
+	// journal append+fsync returned, so a flushedSeq covering the runner's
+	// last emitted seq means every fact this run produced is journaled AND
+	// folded — after which the counts are a deterministic read that fails
+	// immediately (with the actual counts) rather than after a timeout.
+	awaitItemsDurable(t, c, sp, out.Harp)
+	var counts map[string]int
+	c.items.View(func() { counts = c.itemsF.countsFor(out.RunID) })
+	assert.Equal(t, 1, counts["run_started"], "the migrated run must journal exactly one run_started (counts: %v)", counts)
+	assert.GreaterOrEqual(t, counts["message_completed"], 2, "both of the turn's messages must journal a completion (counts: %v)", counts)
+	assert.Equal(t, 1, counts["tool_call_completed"], "the turn's one tool call must journal its completion (counts: %v)", counts)
+	assert.GreaterOrEqual(t, counts["message_delta"], 2, "deltas are COUNTED (never materialized), so both messages' text must show up as deltas (counts: %v)", counts)
+}
+
+// itemsDurableWait is the barrier budget for awaitItemsDurable, and it is
+// deliberately far larger than an assertion budget because it is not an
+// assertion: the thing being waited on is a journal append + fsync, whose
+// latency has no bound the test can reason about when the whole repo's
+// packages are fsyncing on the same disk. The inner check is an EVENT (the
+// coordinator's own durable watermark), not a guess about how long a fold
+// takes, so the budget only has to be longer than the worst drain — it never
+// decides whether the assertion passes.
+const itemsDurableWait = 30 * time.Second
+
+// awaitItemsDurable blocks until every AgentEvent the run's runner has emitted
+// has been journaled by the coordinator, i.e. until the run channel's
+// flushedSeq (advanced only by a flushItems whose append+fsync returned)
+// covers the runner Home's highest assigned seq. It is the synchronisation
+// barrier that lets an item-fold assertion be a plain read.
+func awaitItemsDurable(t *testing.T, c *Coordinator, sp *fakeSpawner, harp string) {
+	t.Helper()
 	require.Eventually(t, func() bool {
-		var counts map[string]int
-		c.items.View(func() { counts = c.itemsF.countsFor(out.RunID) })
-		return counts["run_started"] == 1 && counts["message_completed"] >= 2 &&
-			counts["tool_call_completed"] == 1 && counts["message_delta"] >= 2
-	}, conformanceWait, 10*time.Millisecond, "plane-1 items must journal (counted) for a migrated run")
+		h := sp.engineHome(0)
+		if h == nil {
+			return false
+		}
+		h.mu.Lock()
+		last := h.seq
+		h.mu.Unlock()
+		c.mu.Lock()
+		ch := c.chans[harp]
+		var flushed uint64
+		if ch != nil {
+			flushed = ch.flushedSeq
+		}
+		c.mu.Unlock()
+		return ch != nil && last > 0 && flushed >= last
+	}, itemsDurableWait, 10*time.Millisecond,
+		"the coordinator's durable watermark never caught up with the events the runner emitted — the item journal is stalled, not merely slow")
 }
 
 // TestStartRun_BackendParity pins Wave C3's acceptance (and, for the

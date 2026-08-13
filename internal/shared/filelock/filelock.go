@@ -48,6 +48,29 @@ func LockShared(path string) (unlock func(), err error) {
 	return releaseOrNoop(lockFile(path, true))
 }
 
+// TryLock attempts to acquire an exclusive (write) lock on path WITHOUT
+// blocking. The file is created if it doesn't exist.
+//
+// acquired=false is a NORMAL outcome — someone else holds the lock right
+// now — not an error: the whole reason to reach for TryLock instead of Lock
+// is a caller with useful work to do under contention (skip a rebuild the
+// current owner's writes make redundant, let a concurrent attempt of the
+// same operation stand down) rather than one that must wait its turn. err is
+// reserved for environmental failure — can't create the lock directory,
+// can't open the lock file, or the locking syscall itself failed for a
+// reason OTHER than contention — and means the same fail-closed thing Lock's
+// error does.
+//
+// unlock is NEVER nil, including when acquired is false or err is non-nil:
+// see releaseOrNoop. A caller may defer unlock() immediately after the call
+// — the same shape Lock/LockShared document — without first checking
+// acquired.
+func TryLock(path string) (unlock func(), acquired bool, err error) {
+	u, acquired, err := tryLockFile(path)
+	unlock, err = releaseOrNoop(u, err)
+	return unlock, acquired, err
+}
+
 // waitNoticeAfter is how long an acquisition may block before it says so. Long
 // enough that ordinary contention — one writer appending a line — never
 // prints, short enough that a human who has just run a command and is watching

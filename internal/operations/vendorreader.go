@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
@@ -258,6 +259,40 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	if derr != nil {
 		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)
 	}
+
+	// OWNERSHIP PROBE (easeful-dial): a refresh REBUILDS a canonical
+	// transcript that may already be growing under a live
+	// transcript.Recorder — the structured/ACP host seams hold a SHARED
+	// lock on this exact path for as long as they are appending to it (see
+	// fileRecorder.ensureFile). Renaming a fresh conversion over that path
+	// unlinks the inode the recorder still holds open: every event it
+	// records after the rename lands in an unreachable file and is lost,
+	// silently — exit 0, no error. TryLock is the exclusive counterpart: it
+	// only succeeds when NO recorder (and no other concurrent rebuild —
+	// TryLock also excludes a second RefreshVendorTranscript call, which is
+	// an accepted side effect, not a separate mechanism) holds the shared
+	// lock right now. Not acquired means a live recorder owns the file, and
+	// it is current by construction, so the rebuild is redundant, not
+	// merely blocked: skip it and let the caller read the existing
+	// canonical transcript as-is.
+	//
+	// This only guards the REFRESH path. A first-time ConvertVendorTranscript
+	// only ever runs for an interactive session (no live tee — see this
+	// file's header comment), which by construction has no default-path
+	// Recorder to race with, so probing there would only cost a syscall for
+	// no exclusion anybody needs.
+	if refresh {
+		unlock, acquired, lerr := filelock.TryLock(filelock.PathFor(dest))
+		if lerr != nil {
+			return false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", e.HarpName, lerr)
+		}
+		defer unlock()
+		if !acquired {
+			clidiag.Warn("ctxloom", "rebuild %s: canonical transcript %s is owned by a live recorder (or another rebuild is already in progress); skipping this rebuild — the existing file is current", e.HarpName, dest)
+			return false, nil
+		}
+	}
+
 	// The persist dir is normally created lazily by transcript.Recorder's
 	// ensureFile, on the first successful Record — but a rotation segment may
 	// be APPENDED onto the rebuild file (appendFileBytes) before any Recorder

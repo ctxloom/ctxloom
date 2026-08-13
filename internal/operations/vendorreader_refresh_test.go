@@ -216,13 +216,18 @@ func TestRefreshVendorTranscript_LeavesNoRebuildArtifact(t *testing.T) {
 	// iox.NewAtomicFile's temp name is a random "."+base+".*.tmp", not the old
 	// fixed ".rebuild" suffix, so the check above alone would pass even if a
 	// temp were leaking under the new name — list the persist dir directly and
-	// require it hold nothing but the canonical file.
+	// require it hold nothing but the canonical file and its ownership-probe
+	// lock sidecar (filelock.PathFor(dest) — see convertVendorTranscript's
+	// TryLock probe, easeful-dial). The lock file is a legitimate, permanent
+	// fixture beside the path it guards, not a leftover temp: filelock
+	// creates it once and reuses it on every future acquisition, exactly
+	// like every other beside-the-file lock in this codebase.
 	entries, err := os.ReadDir(filepath.Dir(canonPath))
 	require.NoError(t, err)
 	names := make([]string, len(entries))
 	for i, e := range entries {
 		names[i] = e.Name()
 	}
-	assert.Equal(t, []string{filepath.Base(canonPath)}, names,
-		"the persist dir must hold only the canonical transcript, no leftover temp")
+	assert.ElementsMatch(t, []string{filepath.Base(canonPath), filepath.Base(canonPath) + ".lock"}, names,
+		"the persist dir must hold only the canonical transcript and its ownership-lock sidecar, no leftover temp")
 }

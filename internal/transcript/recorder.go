@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 // Recorder appends one canonical JSONL line per agent.ChatEvent to a harp's
@@ -39,6 +40,16 @@ type fileRecorder struct {
 	now    func() time.Time
 	policy RawPolicy
 
+	// defaultPath is true when path is STILL the default canonical location
+	// (paths.HarpCanonicalTranscriptPath(harp), never overridden by
+	// WithPath) — see ensureFile's ownership-probe lock, which only a
+	// default-path recorder takes. A WithPath-overridden recorder (the
+	// segment and rebuild-temp writers in
+	// operations.convertVendorTranscript) writes to a temp/segment file
+	// nothing else contends for, so taking the lock there would cost a
+	// syscall for no exclusion anybody needs.
+	defaultPath bool
+
 	// open creates/appends the transcript file. A seam, not a strategy: the
 	// only production implementation is openAppendFile, and it exists so a
 	// test can drive the partial-write path — a Write that delivers SOME
@@ -46,8 +57,13 @@ type fileRecorder struct {
 	// will not produce on demand.
 	open func(path string) (io.WriteCloser, error)
 
-	mu        sync.Mutex
-	file      io.WriteCloser // nil until the first successful Record call
+	mu   sync.Mutex
+	file io.WriteCloser // nil until the first successful Record call
+	// unlock releases the shared ownership lock this recorder holds on the
+	// canonical transcript path (see ensureFile) — nil until a default-path
+	// recorder has actually opened its file, since the lock and the file are
+	// acquired together and released together. Close calls it exactly once.
+	unlock    func()
 	seq       int
 	sessionID string // latched from the first KindSession line seen
 
@@ -94,6 +110,7 @@ func WithPath(p string) RecorderOption {
 	return func(r *fileRecorder) {
 		if p != "" {
 			r.path = p
+			r.defaultPath = false
 		}
 	}
 }
@@ -129,12 +146,13 @@ func NewRecorder(harp, engine string, opts ...RecorderOption) (Recorder, error) 
 		return nil, fmt.Errorf("transcript: resolve canonical transcript path for harp %q: %w", harp, err)
 	}
 	r := &fileRecorder{
-		harp:   harp,
-		engine: engine,
-		path:   p,
-		now:    func() time.Time { return time.Now().UTC() },
-		policy: DefaultRawPolicy,
-		open:   openAppendFile,
+		harp:        harp,
+		engine:      engine,
+		path:        p,
+		defaultPath: true,
+		now:         func() time.Time { return time.Now().UTC() },
+		policy:      DefaultRawPolicy,
+		open:        openAppendFile,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -201,19 +219,49 @@ func openAppendFile(path string) (io.WriteCloser, error) {
 // ensureFile lazily creates the persist dir and opens the append-only file.
 // Extracted from record so the write path stays under the project's
 // complexity gate.
+//
+// A DEFAULT-path recorder (no WithPath override — the two structured/ACP
+// host seams, internal/lm/grpc/chat.go and
+// internal/agentcoord/coord/enginehost.go) also takes a SHARED ownership
+// lock on the canonical transcript here, held for the recorder's lifetime
+// and released in Close. This is the other half of the easeful-dial fix:
+// operations.convertVendorTranscript's refresh path takes the matching
+// EXCLUSIVE lock (filelock.TryLock) before rebuilding the same file, so a
+// rebuild that lands while this recorder is live sees the shared lock held
+// and skips rather than renaming the inode this recorder is still appending
+// to out from under it.
 func (r *fileRecorder) ensureFile() error {
 	if r.file != nil {
 		return nil
 	}
+	if r.defaultPath {
+		unlock, err := filelock.LockShared(filelock.PathFor(r.path))
+		if err != nil {
+			return fmt.Errorf("transcript: acquire canonical-transcript ownership lock for %s: %w", r.path, err)
+		}
+		r.unlock = unlock
+	}
 	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+		r.releaseLock()
 		return fmt.Errorf("transcript: create persist dir: %w", err)
 	}
 	f, err := r.open(r.path)
 	if err != nil {
+		r.releaseLock()
 		return fmt.Errorf("transcript: open %s: %w", r.path, err)
 	}
 	r.file = f
 	return nil
+}
+
+// releaseLock releases the ownership lock ensureFile may have taken, if
+// any, and clears it so Close does not release it a second time. Safe to
+// call whether or not a lock was ever acquired.
+func (r *fileRecorder) releaseLock() {
+	if r.unlock != nil {
+		r.unlock()
+		r.unlock = nil
+	}
 }
 
 func (r *fileRecorder) record(ev agent.ChatEvent) error {
@@ -313,6 +361,7 @@ func (r *fileRecorder) Close() error {
 		r.closeWarned = true
 		clidiag.Warn("ctxloom", "transcript capture for harp %q lost %d event(s); %s is incomplete or absent", r.harp, r.failures, r.path)
 	}
+	r.releaseLock()
 	if r.file == nil {
 		return nil
 	}

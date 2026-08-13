@@ -429,8 +429,24 @@ test-conformance:
 # can point at exactly this engine's parser against a fresh vendor transcript
 # without pulling in the rest of the suite). Add a sibling target per engine
 # as internal/transcript/vendorreader/<engine> lands (kiro/claude).
+#
+# It ALSO carries internal/codex's hook-trust vendor pin, which is not a
+# transcript reader but has the identical exposure and belongs in the identical
+# lane: ctxloom seeds `[hooks.state] trusted_hash` into config.toml, an
+# undocumented codex surface whose key format upstream itself calls provisional,
+# and a codex release that moves it puts every ctxloom hook back to being
+# SILENTLY skipped (see internal/codex/hooktrust.go). The pin asks the installed
+# codex for its own verdict over `codex app-server` — free, no credentials, no
+# model turn. It SKIPS when no codex is on PATH, so CTXLOOM_VENDOR_PIN=require
+# is set here: in this lane an absent codex means the pin graded nothing, which
+# must be a failure and not a quiet pass.
+#
+# The behavioural half (does a seeded hook actually FIRE) buys a model turn and
+# stays opt-in behind CTXLOOM_VENDOR_PIN_LIVE=1 — run it when qualifying a new
+# codex release, where one turn is cheap next to shipping dead hooks.
 test-vendor-codex:
     go test -race ./internal/transcript/vendorreader/codex/...
+    CTXLOOM_VENDOR_PIN=require go test -race -run 'TestVendorPin_' ./internal/codex/...
 
 # Validate the kiro vendor-transcript reader in isolation. Its own fixture
 # is a sqlite db built at test time (see

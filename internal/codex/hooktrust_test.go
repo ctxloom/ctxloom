@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -384,6 +385,88 @@ func TestRemoveSettingsIn_RevertsOurTrustRecords(t *testing.T) {
 	}
 	if strings.Contains(string(data), "trusted_hash") {
 		t.Errorf("a trust record survived the revert:\n%s", string(data))
+	}
+}
+
+// --- the fail-loud sibling -------------------------------------------------
+
+// TestWriteSettingsIn_SaysSoWhenAHookCannotBeVouchedFor: a hook that reaches
+// config.toml and will not run has to be ANNOUNCED. Nothing downstream can
+// detect it — codex exits 0, the session works, the hook is just absent — so
+// this warning is the only signal that exists. Silence it and this goes red.
+func TestWriteSettingsIn_SaysSoWhenAHookCannotBeVouchedFor(t *testing.T) {
+	var buf strings.Builder
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	fs := afero.NewMemMapFs()
+	w := &CodexHookWriter{FS: fs}
+	// A backend passthrough hook under an event codex does not have: written
+	// faithfully, dropped by codex's own deserializer, never runs.
+	hooks := &wire.HooksConfig{Plugins: map[string]wire.BackendHooks{
+		"codex": {"NotAnEvent": []wire.Hook{{Command: "echo doomed", Type: "command"}}},
+	}}
+	if err := w.writeSettingsIn(hooks, nil, nil, "/owned/home", "/work/dir"); err != nil {
+		t.Fatalf("writeSettingsIn: %v", err)
+	}
+
+	got := buf.String()
+	if !strings.Contains(got, "NotAnEvent") {
+		t.Errorf("the warning must name the hook that will not run; got:\n%s", got)
+	}
+	if !strings.Contains(got, "SKIP") {
+		t.Errorf("the warning must say the hook will be skipped; got:\n%s", got)
+	}
+	if !strings.Contains(got, "/owned/home/.codex/config.toml") {
+		t.Errorf("the warning must name the file it is talking about; got:\n%s", got)
+	}
+}
+
+// TestWriteSettingsIn_SaysSoWhenNoHookCanBeVouchedFor is the whole-file arm:
+// hooks written into a home ctxloom does not own get no trust records, so NONE
+// of them run. Same reasoning, same silence to break.
+func TestWriteSettingsIn_SaysSoWhenNoHookCanBeVouchedFor(t *testing.T) {
+	var buf strings.Builder
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	fs := afero.NewMemMapFs()
+	w := &CodexHookWriter{FS: fs}
+	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		SessionStart: []wire.Hook{{Command: "echo a", Type: "command"}},
+		PreTool:      []wire.Hook{{Command: "echo b", Type: "command"}},
+	}}
+	if err := w.writeSettingsIn(hooks, nil, nil, "/not/ours", ""); err != nil {
+		t.Fatalf("writeSettingsIn: %v", err)
+	}
+
+	got := buf.String()
+	if !strings.Contains(got, "all 2 hook(s)") {
+		t.Errorf("the warning must count the hooks it is talking about; got:\n%s", got)
+	}
+	if !strings.Contains(got, "config_home: project") {
+		t.Errorf("the warning must name the remedy, as its sibling refusals do; got:\n%s", got)
+	}
+}
+
+// TestWriteSettingsIn_QuietWhenEveryHookIsVouchedFor keeps the warning
+// meaningful. A skip warning that fires on healthy runs is noise, and noise is
+// how a real one gets scrolled past.
+func TestWriteSettingsIn_QuietWhenEveryHookIsVouchedFor(t *testing.T) {
+	var buf strings.Builder
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	fs := afero.NewMemMapFs()
+	w := &CodexHookWriter{FS: fs}
+	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		SessionStart: []wire.Hook{{Command: "echo fine", Type: "command"}},
+	}}
+	if err := w.writeSettingsIn(hooks, nil, nil, "/owned/home", "/work/dir"); err != nil {
+		t.Fatalf("writeSettingsIn: %v", err)
+	}
+	if strings.Contains(buf.String(), "SKIP") {
+		t.Errorf("nothing was skipped; the warning must not fire. got:\n%s", buf.String())
 	}
 }
 

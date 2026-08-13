@@ -297,3 +297,36 @@ func TestBindSession_UnknownHarpWritesNothing(t *testing.T) {
 	assert.NotContains(t, string(after), "sess-1",
 		"and no session id may be recorded against one")
 }
+
+// TestHarpForSession_ResolvesRotatedAwaySessionID pins the lineage lookup: a
+// backend session id a /clear has since rotated PAST — no longer any entry's
+// live SessionID, but preserved in that entry's Rotations by the store's
+// displacing-rebind rule — must still resolve to the harp that owns it.
+// HarpForSession's previous body (a linear scan matching only e.SessionID)
+// could never see it: once BindSession re-pointed the entry to the
+// post-clear id, the pre-clear id named no harp at all, and every caller that
+// spells a session by its (now superseded) id — a stale hook payload, an old
+// vendor transcript, recover_session's own id-resolution path — silently
+// failed to attribute it.
+func TestHarpForSession_ResolvesRotatedAwaySessionID(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(entry.HarpName, "pre-clear-id", "/pre-clear.jsonl"))
+	require.NoError(t, mgr.BindSession(entry.HarpName, "post-clear-id", "/post-clear.jsonl"))
+
+	got, err := HarpForSession("pre-clear-id")
+	require.NoError(t, err)
+	assert.Equal(t, entry.HarpName, got, "a rotated-away session id must still resolve to its harp")
+
+	got, err = HarpForSession("post-clear-id")
+	require.NoError(t, err)
+	assert.Equal(t, entry.HarpName, got, "the current binding must still resolve too")
+
+	got, err = HarpForSession("never-bound-id")
+	require.NoError(t, err)
+	assert.Empty(t, got, "an id the index never saw resolves to nothing")
+}

@@ -97,8 +97,8 @@ func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 // index so unrecoverable sessions are dropped here too. Mirrors
 // ListSessionsForProject without the project filter — the ordered all-projects
 // listing (`session list --all`, the list_sessions MCP tool, the
-// ctxloom://sessions resource). ListSessions (unsorted) stays for the
-// order-insensitive callers that only need membership (HarpForSession).
+// ctxloom://sessions resource). ListSessions (unsorted) stays for
+// order-insensitive callers that only need membership.
 func ListAllSessions() ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
@@ -166,20 +166,31 @@ func selectPreviousEntry(entries []sessions.Entry, activeHarp string) *PreviousS
 // if the index has no bound entry for it. Used to key a distilled session's plan
 // files (stored under ~/.ctxloom/sessions/<harp>/) when distilling a session by
 // id — e.g. a previous or cross-agent session, where the active harp is wrong.
+//
+// Resolves through the store's lineage-aware lookup (sessions.Store.
+// FindBySessionID), so an id a /clear has since rotated PAST — no longer any
+// entry's CURRENT SessionID, but still recorded in that entry's Rotations —
+// still resolves to the harp that owns it. A plain linear scan over
+// ListSessions (this function's previous body) can only ever match the live
+// binding, so a caller handed a pre-clear session id — a stale hook payload,
+// an old vendor transcript, `memory show`'s own mtime fallback — found no
+// harp at all.
 func HarpForSession(sessionID string) (string, error) {
 	if sessionID == "" {
 		return "", nil
 	}
-	entries, err := ListSessions()
+	mgr, err := openSessions()
 	if err != nil {
 		return "", err
 	}
-	for _, e := range entries {
-		if e.SessionID == sessionID {
-			return e.HarpName, nil
-		}
+	entry, err := mgr.FindBySessionID(sessionID)
+	if err != nil {
+		return "", err
 	}
-	return "", nil
+	if entry == nil {
+		return "", nil
+	}
+	return entry.HarpName, nil
 }
 
 // GetSession returns the entry for harp, or nil if absent.

@@ -65,13 +65,17 @@ import (
 // mcpProbeAgent is the one agent binding every P2 cell configures.
 const mcpProbeAgent = "nonce"
 
-// mcpProbeRunTimeout bounds one cell. Shorter than the floor's eight minutes
-// because every P2 cell is host/none — there is no image to pull or build — but
-// still generous: the engine has to complete an MCP handshake with a
-// freshly-spawned server before it can even start the turn, and a killed run
-// reports as a failure with no output, which reads like an engine defect rather
-// than an impatient harness.
-const mcpProbeRunTimeout = 6 * time.Minute
+// mcpProbeRunTimeout bounds one cell, at the floor's own eight minutes.
+//
+// It was six, on the reasoning that every P2 cell is host/none and has no image
+// to pull. Measured 2026-08-13: kiro's cell spent six minutes in a tool-
+// validation retry loop and finished at 6m00.3s — inside the bound by three
+// tenths of a second. Had it lost that race the cell would have reported a RUN
+// failure, which blames the engine for the harness's impatience and would have
+// buried the actual finding (registration and discovery both worked; invocation
+// never happened). A cell that genuinely hangs still fails here — it just fails
+// after saying so, rather than by being killed next to a real result.
+const mcpProbeRunTimeout = 8 * time.Minute
 
 // mcpProbeFixtureDirName is the fixture server's directory, created as a SIBLING
 // of the project directory. Siting is load-bearing, not cosmetic: the script
@@ -327,6 +331,17 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			"probe-p2-mcp %s nonce=%s exit=%d\nMCP call log (%s, present=%t): %s\nstdout:\n%s\nstderr:\n%s",
 			m.cell(), m.nonce, m.exitCode, m.fixture.CallLog, logFound,
 			probeMCPCallLogSummary(calls), m.stdout, m.stderr)
+		// Also printed UNCONDITIONALLY, and this is not belt-and-braces. The
+		// sidecar above only materializes under CTXLOOM_DOC_CAPTURE_DIR, and the
+		// call log itself lives in the harness's temp tree, which is deleted the
+		// moment the scenario ends. Measured the hard way on 2026-08-13: kiro's
+		// cell went red, the temp tree was gone before anyone could look, and the
+		// only surviving question — did the server ever start? — had no answer
+		// short of paying for another turn. This line is what makes the MCP
+		// conversation part of the run's own record. It goes to the test runner's
+		// stdout, which the engine under test cannot read.
+		fmt.Printf("MCP probe-p2-mcp %s: call log present=%t, events: %s\n",
+			m.cell(), logFound, probeMCPCallLogSummary(calls))
 
 		return mcpProbeAssert(mcpProbeRun{
 			Cell:     m.cell(),

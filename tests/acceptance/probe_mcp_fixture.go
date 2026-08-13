@@ -373,12 +373,28 @@ type mcpProbeRun struct {
 // probe_assert.go so an MCP format-red and a P0 format-red mean the same thing
 // and read the same way.
 //
-// THE ORDER IS THE ATTRIBUTION, and P2 adds one rung the floor does not have.
-// The floor asks: did it run, did it say anything, is it the right form, did the
-// channel deliver, is it the right object. P2 inserts THE TOOL PATH between form
-// and delivery, because for this probe "the channel delivered" is not a property
-// of the output at all — it is a property of the server having been called. That
-// rung is what stops the probe from being a tautology:
+// THE ORDER IS THE ATTRIBUTION, and P2 deliberately does NOT use the floor's.
+// The floor asks: did it run, did it say anything, is it the right FORM, did the
+// channel deliver, is it the right object. P2 puts THE TOOL PATH ahead of form,
+// and the reason is measured rather than aesthetic.
+//
+// Run against kiro on 2026-08-13, the floor's order reported an OUTPUT-FORMAT
+// failure — kiro's already-known ANSI-decoration defect, which P0's own kiro
+// host/none row exists to carry — and the interesting finding was underneath it,
+// visible only because the raw stdout happened to be printed: the model had
+// answered "tool not found". A probe about MCP that reds on terminal colour
+// codes and never mentions MCP is attributing to the wrong subsystem, and the
+// shape a sweep diffs would have said "format" for a cell whose actual state was
+// "the tool was never reachable".
+//
+// So: whether the tool was CALLED is a fact about the fixture server's own
+// records, entirely independent of how the engine's stdout is shaped, and it is
+// this probe's whole subject. It is therefore asked first. That reordering can
+// never mislabel the other direction — an engine that DID call the tool and then
+// fenced its answer still gets its OUTPUT-FORMAT failure, because the tool-path
+// rung passes and the form check runs immediately after.
+//
+// The rung is also what stops the probe from being a tautology:
 //
 //   - a run whose output carries the harp but whose server was never called is
 //     an engine that READ THE VALUE off a disk somewhere, and it reds here;
@@ -394,11 +410,11 @@ func mcpProbeAssert(r mcpProbeRun) error {
 	if err != nil {
 		return err
 	}
-	got, err := v.jsonObject(trimmed)
-	if err != nil {
+	if err := mcpProbeToolWasCalled(v, r, trimmed); err != nil {
 		return err
 	}
-	if err := mcpProbeToolWasCalled(v, r, trimmed); err != nil {
+	got, err := v.jsonObject(trimmed)
+	if err != nil {
 		return err
 	}
 	if err := v.carriesNonce(trimmed, r.Nonce); err != nil {

@@ -329,7 +329,7 @@ func TestMCPProbeAssert_AcceptsOnlyTheRoundTrip(t *testing.T) {
 		require.Equal(t, shapeSilentNoOp, shape)
 	})
 
-	t.Run("fenced output is a FORMAT failure even with the round trip done", func(t *testing.T) {
+	t.Run("fenced output is a FORMAT failure once the round trip is done", func(t *testing.T) {
 		err := mcpProbeAssert(mcpProbeRun{
 			Cell: mcpTestCell(), Nonce: nonce,
 			Run:     probeRun{Stdout: "```json\n{\"nonce\":\"swift-amber-falcon\"}\n```"},
@@ -338,7 +338,27 @@ func TestMCPProbeAssert_AcceptsOnlyTheRoundTrip(t *testing.T) {
 		shape, ok := probeShapeOf(err)
 		require.True(t, ok)
 		require.Equal(t, shapeOutputFormat, shape,
-			"loosening this to strip fences would delete the output-contract signal the whole ladder shares")
+			"putting the tool-path rung first must not swallow a genuine output-contract finding: the tool WAS called here, so the form check gets to speak. Loosening this to strip fences would delete the signal the whole ladder shares.")
+	})
+
+	// The kiro run of 2026-08-13, in miniature. Under the floor's check order
+	// this reported OUTPUT-FORMAT — terminal decoration — while the model's own
+	// answer said the tool was not found, and the shape a sweep diffs named the
+	// wrong subsystem entirely.
+	t.Run("malformed output with no tool call is an MCP finding, not a format one", func(t *testing.T) {
+		err := mcpProbeAssert(mcpProbeRun{
+			Cell: mcpTestCell(), Nonce: nonce,
+			Run:      probeRun{Stdout: "\x1b[38;5;141m> \x1b[0m{\"nonce\":\"tool not found\"}\x1b[0m"},
+			CallLog:  []probeMCPCall{{Event: "start"}},
+			LogFound: true,
+		})
+		shape, ok := probeShapeOf(err)
+		require.True(t, ok)
+		require.Equal(t, channelMCPToolResult.Shape, shape,
+			"a probe about MCP that reds on ANSI colour codes and never mentions MCP is attributing to the wrong subsystem — the tool-call fact is independent of the output's shape and is this probe's subject")
+		require.Contains(t, err.Error(), "NEVER CALLED")
+		require.Contains(t, err.Error(), "tool not found",
+			"the raw stdout must ride the message: the most interesting version of this red is what the model said about why")
 	})
 
 	t.Run("the tool was called and the model reported something else: VALUE failure", func(t *testing.T) {

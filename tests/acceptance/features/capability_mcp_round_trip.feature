@@ -79,7 +79,34 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
       | engine | runtime | workspace |
       | codex  | host    | none      |
 
-    @probe-p2-mcp-round-trip @kiro @host @ws-none
+    # @wip — RED, measured twice on 2026-08-13, and the finding is narrow and
+    # real: kiro REGISTERS and DISCOVERS the server, and never calls it.
+    #
+    # The fixture server's own call log is what makes that sayable. It read:
+    #
+    #   start request(initialize) request(notifications/initialized)
+    #   request(tools/list) eof
+    #
+    # so ctxloom wrote .kiro/settings/mcp.json, kiro spawned the server, finished
+    # the handshake, and asked for the tool list — every step up to invocation.
+    # Then nothing. kiro's stderr looped for six minutes on
+    #
+    #   Tool validation failed: No tool with "dummy" is found
+    #
+    # and the model's eventual answer was the literal string
+    # {"nonce":"non-verbatim placeholder - tool not found"} — kiro reporting that
+    # no such tool existed, moments after enumerating it.
+    #
+    # This is NOT the kiro finding P0 already carries. That one is ctxloom's
+    # interactive `> ` prompt echo leaking ANSI decoration into a non-interactive
+    # capture, and it reds the output-format check. It masked this finding on the
+    # first attempt, which is why mcpProbeAssert now asks "was the tool called"
+    # BEFORE "is the output well formed": the tool-call fact is a property of the
+    # server's records, not of the stdout's shape, and it is what this probe is
+    # about. Fixing the decoration defect will not turn this cell green.
+    #
+    # Untag when a kiro run calls a registered MCP tool it has already listed.
+    @probe-p2-mcp-round-trip @kiro @host @ws-none @wip
     Examples:
       | engine | runtime | workspace |
       | kiro   | host    | none      |

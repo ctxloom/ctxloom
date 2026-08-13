@@ -474,14 +474,15 @@ func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySuc
 }
 
 // TestConvertVendorTranscript_Refresh_ReplacesExistingSymlinkWithARegularFile
-// pins that the atomic install correctly replaces transcript.jsonl when it is
-// currently a SYMLINK — the shape linkTranscriptIntoHarpDir
-// (sessions.BindSession's best-effort convenience link) leaves behind when
-// the bound transcript lives outside the harp dir. os.Rename replaces
-// whatever is at the destination path, symlink or not, but this pins the
-// observable outcome rather than the implementation detail: after a refresh,
-// the harp's canonical transcript must be a REGULAR file with the rebuilt
-// content, not a symlink to whatever it pointed at before.
+// is a defensive robustness check on the atomic install, NOT a pin of a real
+// production scenario: sessions.linkTranscriptIntoHarpDir's convenience
+// symlink lives at the harp ROOT (<harp>/transcript.jsonl, pointing at the
+// live vendor file) — a DIFFERENT path from paths.HarpCanonicalTranscriptPath
+// (<harp>/persist/transcript.jsonl), which is what this function's dest
+// actually is and which production code never turns into a symlink. This
+// test only confirms os.Rename's documented behavior (replaces whatever is
+// at the destination, symlink or not, without following it) holds here too,
+// in case that assumption is ever leaned on for real.
 func TestConvertVendorTranscript_Refresh_ReplacesExistingSymlinkWithARegularFile(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "rotation-symlink-harp"

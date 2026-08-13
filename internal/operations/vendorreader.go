@@ -244,12 +244,15 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// resumes from an offset. Renaming only on success answers both: the harp
 	// keeps whatever it had until a complete replacement exists.
 	//
-	// os.Rename replacing dest is also what correctly handles dest being a
-	// SYMLINK: linkTranscriptIntoHarpDir (sessions.BindSession's best-effort
-	// convenience link) may have left transcript.jsonl pointing at the live
-	// vendor file rather than a regular file. rename(2) replaces whatever
-	// directory entry is at the destination path atomically, symlink or not —
-	// it does not follow it — so this needs no special-casing for that case.
+	// dest here is the PERSIST-DIR canonical path (paths.
+	// HarpCanonicalTranscriptPath / ResolveHarpCanonicalTranscriptPath —
+	// <harp>/persist/transcript.jsonl), never sessions.linkTranscriptIntoHarpDir's
+	// convenience symlink (a DIFFERENT file at the harp ROOT, <harp>/
+	// transcript.jsonl, pointing at the live vendor file). Production never
+	// makes THIS path a symlink. os.Rename still replaces whatever is at a
+	// destination atomically without following a symlink if it ever were one,
+	// so this stays correct even if that ever changed — but nothing here
+	// currently exercises that case.
 	dest, derr := canonicalDestination(e.HarpName, refresh)
 	if derr != nil {
 		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)

@@ -305,12 +305,25 @@ var probeRegistry = []probeSpec{
 		Title:        "MCP tool round trip: a fixture stdio server whose get_nonce tool is the ONLY place the harp exists",
 		Capabilities: []int{8},
 		Channel:      channelMCPToolResult,
+		Feature:      "capability_mcp_round_trip.feature",
 		Paid:         true,
 		Cells: []probeCell{
-			hostCell("claude-code", probePlanned, ""),
-			hostCell("codex", probePlanned, ""),
-			hostCell("kiro", probePlanned, ""),
-			hostCell("opencode", probePlanned, ""),
+			// WIRED means a scenario exists and runs — nothing more. Each row's
+			// Reason names the delivery path the cell actually exercises, which is
+			// the claim under test: config.yaml `mcp.servers` (the ungated
+			// production surface; a bundle's MCP block passes the executable trust
+			// gate, and a withheld server would red as an MCP-delivery failure
+			// that is really a trust decision) → ManagedConfig.MCP → that engine's
+			// own native file. None of these claims LIVE-VERIFIED; that is a
+			// different status with its own evidence requirement.
+			hostCell("claude-code", probeWired,
+				"delivery path under test: config.yaml mcp.servers → ManagedConfig.MCP → claude's --mcp-config scratch file (shared cell; layered, not strict, so the user's own .mcp.json still loads)"),
+			hostCell("codex", probeWired,
+				"delivery path under test: config.yaml mcp.servers → ManagedConfig.MCP → codex's folded config.toml [mcp_servers] table (codex advertises no distinct SurfaceMCP — MCP folds into its config surface)"),
+			hostCell("kiro", probeWired,
+				"delivery path under test: config.yaml mcp.servers → ManagedConfig.MCP → .kiro/settings/mcp.json, written through the shared MCPFileConfig reconciler"),
+			hostCell("opencode", probeWired,
+				"delivery path under test: config.yaml mcp.servers → ManagedConfig.MCP → opencode.json's mcp block (folded into opencode's settings surface)"),
 			{Engine: "claude-code", Runtime: "container", Workspace: "none", Status: probeDeferred,
 				Reason: "container MCP reach-back is undesigned — the endpoint DISCOVERY gap, not the transport (cross-container-comms finding). Deferred rather than red so an undesigned thing is not measured as a defect."},
 			{Engine: "codex", Runtime: "container", Workspace: "none", Status: probeDeferred,

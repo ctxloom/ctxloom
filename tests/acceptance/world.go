@@ -64,6 +64,7 @@ type World struct {
 	j002000      *j002000State      // J002000: the engine-switch journey's fixture state (steps_j002000_engine_switch.go)
 	j000500      *j000500State      // J000500: the editor/ACP journey's fixture state (steps_j000500_editor.go)
 	matrix       *matrixState       // engine × isolation floor: one cell's fixture and captured run (steps_engine_isolation_matrix.go)
+	mcpProbe     *mcpProbeState     // capability probe P2: the MCP round trip's fixture server and captured run (steps_capability_mcp_round_trip.go)
 	ts           *tsState           // trust-surface matrix: fixture state (steps_trust_surface.go)
 	contract     *contractState     // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
@@ -168,6 +169,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ002200MatrixSteps(ctx)
 	registerIsolationProbeSteps(ctx)
 	registerEngineMatrixSteps(ctx)
+	registerCapabilityMCPSteps(ctx)
 	registerJ000600Steps(ctx)
 	registerJ002500Steps(ctx)
 	registerJ001000Steps(ctx)

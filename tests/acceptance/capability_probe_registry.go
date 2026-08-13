@@ -342,29 +342,9 @@ var probeRegistry = []probeSpec{
 		Title:        "plan sentinel: permissions=plan must leave a sentinel file's bytes untouched, and the bypass control must land the write",
 		Capabilities: []int{11},
 		Channel:      channelSentinelFile,
+		Feature:      "capability_plan_sentinel.feature",
 		Paid:         true,
-		Cells: func() []probeCell {
-			var cells []probeCell
-			for _, e := range probeEngines {
-				reason := ""
-				switch e {
-				case "claude-code":
-					reason = "ports the AD HOC live proof recorded at enforcesReadOnlyPlan (2026-07-15, sentinel denied) into a repeatable cell"
-				case "kiro":
-					reason = "ports the AD HOC live proof recorded at enforcesReadOnlyPlan (2026-07-15, sentinel + positive controls) into a repeatable cell"
-				case "codex":
-					reason = "--sandbox read-only is asserted host-side and has never been live-run"
-				case "opencode":
-					reason = "the written permission {edit:deny,bash:deny} is asserted stricter than opencode's own plan and has never been live-run"
-				}
-				cells = append(cells,
-					probeCell{Engine: e, Runtime: "host", Workspace: "none", Variant: "plan", Status: probePlanned, Reason: reason},
-					probeCell{Engine: e, Runtime: "host", Workspace: "none", Variant: "control", Status: probePlanned,
-						Reason: "the bypass positive control: a probe whose control does not land proves nothing, so the control's success is part of the assertion"},
-				)
-			}
-			return cells
-		}(),
+		Cells:        p4Cells(),
 	},
 	{
 		Name:         probeP5,
@@ -590,6 +570,53 @@ func setCell(cells []probeCell, engine, runtime, workspace string, fn func(*prob
 		}
 	}
 	panic(fmt.Sprintf("capability probe registry: no cell [engine=%s runtime=%s workspace=%s] to annotate — a measured finding would have been silently dropped", engine, runtime, workspace))
+}
+
+// p4Cells is the plan-sentinel ladder: four engines, each with the cell under
+// test and its own positive control. Eight rows, eight paid turns, and the
+// pairing is the design — see capability_plan_sentinel.feature's header and
+// probe_p4_plan_sentinel.go's.
+//
+// WHY THE CONTROLS ARE ROWS AND NOT AN IMPLEMENTATION DETAIL. A control that
+// lives inside the plan cell's scenario is invisible: nobody can address it,
+// nobody can see whether it ran, and its failure would surface as "the plan cell
+// is red" rather than as "the probe is broken". Declared as cells, each control
+// is addressable (`@var-control`), its status is recorded beside the claim it
+// underwrites, and the completeness gate forces its existence to be typed out —
+// which matters more here than anywhere else in the ladder, because P4 is the
+// one rung whose claim is NEGATIVE. Delete the control rows and the plan rows go
+// on passing forever, measuring nothing, with no red anywhere to say so.
+//
+// HOST/NONE ONLY, and the two absences are declared rather than left blank. A
+// container cell would need the sentinel observed from outside the container
+// after the run, and a worktree cell would move the sentinel out from under the
+// assertion's own path; both are different fixtures, not different Examples
+// rows. They are recorded as deferred on the p4 rows' own reasons rather than as
+// silently missing axes.
+func p4Cells() []probeCell {
+	// Why each engine is here, in its own words. The first two rows PORT proofs
+	// that already exist but are unrepeatable; the second two make a claim that
+	// has never been checked against a running binary at all.
+	why := map[string]string{
+		"claude-code": "ports the AD HOC live proof recorded at enforcesReadOnlyPlan (2026-07-15, sentinel denied) into a repeatable cell. Production surface: permissionArgs maps plan to --permission-mode plan plus an explicit --disallowedTools Bash,Edit,Write,NotebookEdit.",
+		"kiro":        "ports the AD HOC live proof recorded at enforcesReadOnlyPlan (2026-07-15, sentinel + positive controls) into a repeatable cell. Production surface: kiro.buildArgs maps plan to --trust-tools=fs_read.",
+		"codex":       "--sandbox read-only is asserted host-side and has never been live-run. Production surface: codex.buildArgs maps plan to --sandbox read-only.",
+		"opencode":    "the written permission {edit:deny,bash:deny} is asserted stricter than opencode's own plan agent and has never been live-run. Production surface: opencode's interactiveManaged/chat managed config sets readOnly for plan.",
+	}
+	const controlWhy = "the bypass positive control: an unchanged file is equally consistent with a posture that refused the write and with a run that never attempted one, so the control's success is part of the plan cell's assertion (p4AssertPlan consults the control ledger and reds when the control is dead)."
+
+	var cells []probeCell
+	for _, e := range probeEngines {
+		// Control first, matching the feature's own block order: the plan arm
+		// reads a record the control has to have written.
+		cells = append(cells,
+			probeCell{Engine: e, Runtime: "host", Workspace: "none", Variant: string(p4Control),
+				Status: probeWired, Reason: controlWhy},
+			probeCell{Engine: e, Runtime: "host", Workspace: "none", Variant: string(p4Plan),
+				Status: probeWired, Reason: why[e]},
+		)
+	}
+	return cells
 }
 
 // --- derived views ------------------------------------------------------------

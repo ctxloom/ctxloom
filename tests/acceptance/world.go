@@ -68,6 +68,7 @@ type World struct {
 	mcpProbe     *mcpProbeState     // capability probe P2: the MCP round trip's fixture server and captured run (steps_capability_mcp_round_trip.go)
 	hookProbe    *hookProbeState    // P3 hook-firing probe: one cell's fixture, hook script and stamp read-back (steps_capability_hook_firing.go)
 	p4           *p4State           // P4 plan sentinel: one cell's posture, planted harp and captured run (steps_p4_plan_sentinel.go)
+	p6           *p6State           // P6 capability probe: the steer-echo cell's minted harp and its cell id (steps_p6_steer_echo.go)
 	ts           *tsState           // trust-surface matrix: fixture state (steps_trust_surface.go)
 	contract     *contractState     // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
@@ -188,6 +189,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ002400Steps(ctx)
 	registerJ002600Steps(ctx)
 	registerJ002300Steps(ctx)
+	registerP6SteerEchoSteps(ctx)
 	registerJ001600Steps(ctx)
 	registerJ001400Steps(ctx)
 	registerJ001900Steps(ctx)

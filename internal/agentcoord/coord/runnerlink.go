@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
@@ -54,13 +55,18 @@ type RunnerRequestHandler func(*agentcoordpb.RunnerRequest) *agentcoordpb.Runner
 // delivery layer treats the credential as opaque, so that is a mint/verify
 // change, not plumbing.
 type RunnerLink struct {
-	runID   string
-	conn    *grpc.ClientConn
-	stream  grpc.BidiStreamingClient[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]
-	sendMu  sync.Mutex // serializes stream.Send (single-writer discipline)
-	cancel  context.CancelFunc
-	done    chan struct{}
-	handler RunnerRequestHandler
+	runID  string
+	conn   *grpc.ClientConn
+	stream grpc.BidiStreamingClient[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]
+	sendMu sync.Mutex // serializes stream.Send AND CloseSend (see closeSend)
+	// sendClosed records that the send side has been half-closed, so a sender
+	// that acquires sendMu afterwards refuses rather than calling SendMsg on a
+	// stream that can no longer take one. Guarded by sendMu, because it is
+	// exactly the state CloseSend and SendMsg contend over.
+	sendClosed bool
+	cancel     context.CancelFunc
+	done       chan struct{}
+	handler    RunnerRequestHandler
 
 	// tracked owns every goroutine DialRunner/receiveLoop dispatches beyond its
 	// spawning call's own return (heartbeatLoop, receiveLoop itself, and one
@@ -72,11 +78,53 @@ type RunnerLink struct {
 	tracked trackedGroup
 }
 
+// ErrLinkSendClosed refuses a frame written after the link's send side was
+// half-closed.
+//
+// It is typed and it is OURS rather than gRPC's: grpc-go answers a SendMsg
+// after CloseSend with codes.Internal ("SendMsg called after CloseSend"),
+// which reads in a log as a library fault rather than as this process having
+// asked for something impossible during its own orderly shutdown.
+var ErrLinkSendClosed = errors.New("coord: this runner link's send side is closed (shutting down)")
+
 // send writes one frame under the single-writer mutex.
+//
+// The mutex serializes senders against EACH OTHER and against closeSend, which
+// is not a stylistic choice: gRPC's ClientStream contract permits one
+// concurrent reader and one concurrent writer and NOTHING else — SendMsg from
+// two goroutines, or CloseSend concurrent with SendMsg, is a data race inside
+// the stream's own state, not a queueing question.
 func (l *RunnerLink) send(frame *agentcoordpb.RunnerFrame) error {
 	l.sendMu.Lock()
 	defer l.sendMu.Unlock()
+	if l.sendClosed {
+		return ErrLinkSendClosed
+	}
 	return l.stream.Send(frame)
+}
+
+// closeSend half-closes the stream's send side under the SAME mutex every
+// send takes.
+//
+// THIS IS THE FIX FOR A CONFIRMED DATA RACE. CloseSend is a SEND-SIDE
+// operation: it writes the stream's own sent-last state, which SendMsg reads
+// and writes too. Shutdown used to call it unserialized while the heartbeat
+// loop was still ticking — the two are on different goroutines by
+// construction, so the window is not exotic — and the detector caught exactly
+// that pair (CloseSend at Shutdown vs SendMsg under heartbeatLoop).
+//
+// The flag matters as much as the lock. Serializing alone would leave a
+// heartbeat that won the mutex AFTER the half-close calling SendMsg on a
+// closed send side, which gRPC answers as a caller bug; refusing it here means
+// the last thing a shutting-down link does on the wire is its half-close.
+func (l *RunnerLink) closeSend() {
+	l.sendMu.Lock()
+	defer l.sendMu.Unlock()
+	if l.sendClosed {
+		return
+	}
+	l.sendClosed = true
+	_ = l.stream.CloseSend()
 }
 
 // grpcTarget derives the gRPC dial target from the coordinator URL (the gRPC
@@ -267,7 +315,13 @@ func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 		}})
 	}
 	l.tracked.seal()
-	_ = l.stream.CloseSend()
+	// SERIALIZED WITH EVERY SENDER (closeSend). The heartbeat loop is still
+	// ticking at this point — deliberately, because the half-close below is
+	// what makes this a graceful end rather than a cancellation, so it must
+	// happen BEFORE l.cancel() kills the stream. Ordering the two this way is
+	// what left the window the race detector found; the lock is what closes
+	// it without giving the graceful sequence up.
+	l.closeSend()
 	l.cancel()
 	<-l.done
 	l.waitTracked()

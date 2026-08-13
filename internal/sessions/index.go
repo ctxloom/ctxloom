@@ -422,37 +422,73 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 		}
 		if transcriptPath != "" {
 			idx.Sessions[i].TranscriptPath = transcriptPath
-			// Drop a convenience symlink in the harp dir pointing at the
-			// live transcript so the session's tasks.md, essence.md, and
-			// transcript.jsonl all live in one place. Best-effort: a
-			// failure must not block the bind.
-			linkTranscriptIntoHarpDir(harpName, transcriptPath)
+			// Create THIS binding's own immutable engine-transcript symlink
+			// (see linkEngineTranscript's doc) — never a retroactive one for
+			// the entry a rotation just displaced (cur, above): that
+			// binding's link was already created when IT was current, at its
+			// own bind. Best-effort: a failure must not block the bind.
+			linkEngineTranscript(harpName, idx.Sessions[i].Backend, sessionID, transcriptPath)
 		}
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found in index: %q", harpName)
 }
 
-// linkTranscriptIntoHarpDir creates ~/.ctxloom/sessions/<harp>/transcript.jsonl
-// as a symlink to the backend's live transcript. Best-effort: any failure
-// (home unresolved, no symlink privilege on Windows, etc.) is warned and
-// swallowed so it never blocks a session bind. Idempotent — an existing link
-// is replaced.
-func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
-	dir, err := paths.HarpDir(harpName)
-	if err != nil {
-		clidiag.Warn("ctxloom", "transcript link: %v", err)
+// linkEngineTranscript creates
+// ~/.ctxloom/sessions/<harp>/engine-transcript-<engine>-<sessionID>.jsonl
+// (paths.HarpEngineTranscriptLinkPath) as a symlink to the backend's vendor
+// transcript at transcriptPath. Best-effort throughout: any failure (home
+// unresolved, no symlink privilege on Windows, etc.) is warned and swallowed
+// so it never blocks a session bind — the same posture its predecessor,
+// linkTranscriptIntoHarpDir, held.
+//
+// REPLACES the single mutable `<harp>/transcript.jsonl` symlink that name
+// used to be created under: that name is RETIRED — nothing creates or
+// repoints it anymore. A harp accumulates SEVERAL vendor transcripts over its
+// life (one per /clear rotation, one per engine a harp is ever rebound to),
+// and the old symlink could only ever name the single most recent one,
+// silently orphaning every earlier vendor log's only harp-dir reference the
+// moment a later bind repointed it. It also name-collided with the canonical
+// transcript's OWN leaf (paths.CanonicalTranscriptFileName, a DIFFERENT file
+// in a DIFFERENT format at persist/transcript.jsonl) — a human browsing the
+// harp dir root could not tell, from the name alone, which format they were
+// looking at.
+//
+// Existing pre-rename `transcript.jsonl` symlinks are LEFT ALONE: this is
+// read-only legacy, not migrated or cleaned up (standing no-backward-compat-
+// shims policy — a fresh bind is the upgrade path, same as every other
+// harp-index schema change in this package).
+//
+// Each link, once created, is IMMUTABLE: a repeat call naming the SAME
+// engine+sessionID+transcriptPath is a no-op (the ordinary shape of an
+// idempotent repeat hook firing). A repeat call naming the same
+// engine+sessionID but a DIFFERENT transcriptPath — a session-id reuse
+// anomaly, never expected in production but not impossible to construct — is
+// the one case this DOES repoint, and it does so atomically (see
+// atomicSymlink) with a diagnostic naming the collision, since two different
+// files under one name is a correctness hazard for whoever reads it next.
+// Every other rotation gets its OWN new link (a new sessionID means a new
+// path), so the harp dir's own listing becomes the vendor-log lineage.
+func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) {
+	if engine == "" || sessionID == "" {
+		clidiag.Warn("ctxloom", "engine transcript link for harp %q: missing engine (%q) or session id (%q); nothing linked", harpName, engine, sessionID)
 		return
 	}
+	link, err := paths.HarpEngineTranscriptLinkPath(harpName, engine, sessionID)
+	if err != nil {
+		clidiag.Warn("ctxloom", "engine transcript link: %v", err)
+		return
+	}
+	dir := filepath.Dir(link)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		clidiag.Warn("ctxloom", "transcript link: %v", err)
+		clidiag.Warn("ctxloom", "engine transcript link: %v", err)
 		return
 	}
 	// A transcript that already lives INSIDE the session dir needs no
 	// reference link: a containerized run bind-mounts the engine's store root
 	// at persist/transcripts, so the physical file is harp-addressable by
-	// location (LocateTranscript) and a transcript.jsonl symlink would only
-	// add a second name for it inside the same dir.
+	// location (LocateTranscript) and this link would only add a second name
+	// for it inside the same dir.
 	if rel, err := filepath.Rel(dir, transcriptPath); err == nil &&
 		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return
@@ -463,18 +499,79 @@ func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
 	// But a dangling link is indistinguishable from a missing one at every
 	// later read, so the stale binding is named here, where the cause is known.
 	if _, serr := os.Stat(transcriptPath); serr != nil {
-		clidiag.Warn("ctxloom", "transcript link: bound transcript %s does not resolve (%v); linking it anyway, but reads through the session dir will fail until it appears", transcriptPath, serr)
+		clidiag.Warn("ctxloom", "engine transcript link: bound transcript %s does not resolve (%v); linking it anyway, but reads through the session dir will fail until it appears", transcriptPath, serr)
 	}
-	link := filepath.Join(dir, paths.CanonicalTranscriptFileName)
-	// Only ABSENCE licenses moving on. Any other removal failure is reported
-	// where it happened: the Symlink below then fails with EEXIST, which names
-	// the symptom and hides the cause.
-	if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
-		clidiag.Warn("ctxloom", "transcript link: could not replace the existing %s (%v)", link, err)
+
+	existing, rlErr := os.Readlink(link)
+	switch {
+	case rlErr == nil && existing == transcriptPath:
+		// Create-once: already correct, nothing to do. The ordinary shape of
+		// a repeat hook firing for the same live binding.
+		return
+	case rlErr == nil:
+		// Same name, a DIFFERENT target already there: a session id got
+		// reused for a different transcript file. Replace atomically (the
+		// name is never observably absent — see atomicSymlink) and say so
+		// loudly; this is not the routine first-sighting path.
+		if err := atomicSymlink(transcriptPath, link); err != nil {
+			clidiag.Warn("ctxloom", "engine transcript link: %v", err)
+			return
+		}
+		clidiag.Warn("ctxloom", "engine transcript link %s previously pointed at %s, now repointed to %s: session id %q was reused for a different %s transcript", link, existing, transcriptPath, sessionID, engine)
+		return
+	case !errors.Is(rlErr, os.ErrNotExist):
+		// Something occupies the name and it is not even a symlink (or is
+		// unreadable for some other reason). Name the real cause here rather
+		// than letting the Symlink call below fail with an opaque EEXIST,
+		// which describes the symptom and hides the cause.
+		clidiag.Warn("ctxloom", "engine transcript link: could not inspect existing %s (%v)", link, rlErr)
+		return
 	}
+	// Absent: the ordinary first-sighting case for this engine+sessionID.
 	if err := os.Symlink(transcriptPath, link); err != nil {
-		clidiag.Warn("ctxloom", "transcript link: %v", err)
+		clidiag.Warn("ctxloom", "engine transcript link: %v", err)
 	}
+}
+
+// atomicSymlink replaces link with a symlink to target such that link is
+// never observably absent at any instant a concurrent reader can look: a
+// fresh, unique name is reserved in link's directory, symlinked to target,
+// then renamed over link. rename(2) atomically replaces its destination on
+// every platform this project ships for, so link names either the OLD target
+// or the NEW one at every point a reader can observe it — never neither. This
+// is the "unique temp name + rename" idiom iox.WriteFileAtomic/
+// WriteFileAtomicFs use for regular files, applied to a symlink, which those
+// primitives do not cover (they write byte content; a symlink has none to
+// write — os.Symlink IS the write).
+//
+// The atomicity is BY CONSTRUCTION (rename's platform guarantee), not
+// independently reproven by a test that observes the window from a second
+// goroutine — such a test would be racy by nature. What the test suite pins
+// instead is the END STATE (the link resolves to the new target after a
+// call) and that a Remove-then-Symlink mutant — which DOES have an
+// observable absent window — is distinguishable: forcing the temp symlink
+// step to fail leaves the ORIGINAL link fully intact only when nothing before
+// the rename ever touched it, which is exactly this function's structure and
+// exactly what the non-atomic mutant violates.
+func atomicSymlink(target, link string) error {
+	dir := filepath.Dir(link)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(link)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("atomic symlink %s: reserve temp name: %w", link, err)
+	}
+	tmpName := tmp.Name()
+	_ = tmp.Close()
+	if err := os.Remove(tmpName); err != nil {
+		return fmt.Errorf("atomic symlink %s: clear reserved temp name: %w", link, err)
+	}
+	if err := os.Symlink(target, tmpName); err != nil {
+		return fmt.Errorf("atomic symlink %s: create temp symlink: %w", link, err)
+	}
+	if err := os.Rename(tmpName, link); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("atomic symlink %s: rename into place: %w", link, err)
+	}
+	return nil
 }
 
 // LocateTranscript finds a harp's transcript BY LOCATION: the newest

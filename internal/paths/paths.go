@@ -278,6 +278,18 @@ const (
 	// (re-deriving it means re-locating a vendor file that may already be
 	// gone; see operations.RefreshVendorTranscript), so it gets its own root.
 	SegmentsDirName = "segments"
+
+	// EngineTranscriptLinkPrefix names the leaf every per-vendor-log
+	// convenience symlink at a harp dir's ROOT starts with (see
+	// HarpEngineTranscriptLinkPath). A harp accumulates one vendor transcript
+	// per engine binding it has ever had — one per /clear rotation, and one
+	// per engine if a harp is ever rebound to a different engine — and each
+	// gets its OWN immutable link, never a single mutable name repointed on
+	// every rebind (that was the retired transcript.jsonl symlink; see
+	// HarpEngineTranscriptLinkPath's doc). Exported so a lineage-listing
+	// reader, if one is ever written, has one place to recognize the family
+	// without re-deriving the naming scheme.
+	EngineTranscriptLinkPrefix = "engine-transcript-"
 )
 
 // HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory
@@ -422,6 +434,42 @@ func ResolveHarpSegmentPath(harp, sessionID string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, sessionID+".jsonl"), nil
+}
+
+// HarpEngineTranscriptLinkPath returns
+// ~/.ctxloom/sessions/<harp>/engine-transcript-<engine>-<sessionID>.jsonl —
+// one IMMUTABLE convenience symlink per vendor log a harp has ever been bound
+// to, living at the harp dir's root (see EngineTranscriptLinkPrefix).
+//
+// This replaces the single mutable `<harp>/transcript.jsonl` symlink
+// (formerly created by sessions.linkTranscriptIntoHarpDir, non-atomically
+// repointed on every /clear rotation) that name-collided with the canonical
+// transcript's OWN leaf name (CanonicalTranscriptFileName, at
+// persist/transcript.jsonl — a different file in a different format) and
+// could only ever name the SINGLE most recent vendor log, even though a harp
+// accumulates several over its life (one per rotation, one per engine).
+// Naming each link by engine+session-id instead means the harp dir's own
+// listing shows the full lineage, and no later bind ever needs to touch an
+// earlier link.
+//
+// engine and sessionID both become filename components, not path segments —
+// same posture as ResolveHarpSegmentPath's bare sessionID+".jsonl" join, and
+// like it, deliberately unvalidated beyond non-emptiness: both values
+// originate from ctxloom's own engine registry and the backend's own session
+// UUID, never from unreviewed user input. sessions.linkEngineTranscript is
+// the sole writer of this path today, called from BindSession at the moment
+// a binding's session_id/transcript_path first land — never on a later
+// rotation-append of an already-existing binding, whose own link was created
+// when IT was current.
+func HarpEngineTranscriptLinkPath(harp, engine, sessionID string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	if engine == "" || sessionID == "" {
+		return "", fmt.Errorf("engine transcript link path for harp %q: engine (%q) and session id (%q) are both required", harp, engine, sessionID)
+	}
+	return filepath.Join(dir, fmt.Sprintf("%s%s-%s.jsonl", EngineTranscriptLinkPrefix, engine, sessionID)), nil
 }
 
 // HarpCanonicalTranscriptPath returns

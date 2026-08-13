@@ -34,9 +34,10 @@ func TestMemStore_BindSessionWritesNothingToDisk(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(real.HarpName, "sid-1", transcript))
 
-	realLink := filepath.Join(home, ".ctxloom", "sessions", real.HarpName, paths.CanonicalTranscriptFileName)
+	realLink, err := paths.HarpEngineTranscriptLinkPath(real.HarpName, "codex", "sid-1")
+	require.NoError(t, err)
 	require.FileExists(t, realLink,
-		"the real store must drop the per-harp transcript link here, or this test cannot detect MemStore doing so")
+		"the real store must drop the per-harp engine-transcript link here, or this test cannot detect MemStore doing so")
 
 	// --- MemStore, same lifecycle, must leave HOME untouched. ---
 	mem := NewMemStore()

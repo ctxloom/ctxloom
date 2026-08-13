@@ -502,26 +502,33 @@ func (w *OpencodeWriter) contextFilePath(projectDir string) string {
 func (w *OpencodeWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
 	fs := w.getFS()
 	path := w.SettingsPath(projectDir)
-	cfg, err := loadOpencodeConfig(fs, path)
-	if err != nil {
-		return err
-	}
-	ledger, err := w.readLedger(projectDir)
-	if err != nil {
-		return err
-	}
-	if err := stripManagedMCP(cfg, ledger); err != nil {
-		return err
-	}
-	servers := composeManagedServers(mcp, bundleMCP)
-	names, err := applyManaged(cfg, managedConfig{mcpServers: servers})
-	if err != nil {
-		return err
-	}
-	if err := saveOpencodeConfig(fs, path, cfg); err != nil {
-		return err
-	}
-	return w.writeLedger(projectDir, names)
+	// The lock spans load through save+ledger-write: opencode.json is a
+	// SINGLE shared file every managed surface (mcp here, instructions in
+	// WriteContext) reads-modifies-writes, and the CLI/runner/MCP server/an
+	// in-container ctxloom (same file bind-mounted) all reach it unlocked
+	// otherwise — see agent.WithFileLock's doc.
+	return agent.WithFileLock(path, func() error {
+		cfg, err := loadOpencodeConfig(fs, path)
+		if err != nil {
+			return err
+		}
+		ledger, err := w.readLedger(projectDir)
+		if err != nil {
+			return err
+		}
+		if err := stripManagedMCP(cfg, ledger); err != nil {
+			return err
+		}
+		servers := composeManagedServers(mcp, bundleMCP)
+		names, err := applyManaged(cfg, managedConfig{mcpServers: servers})
+		if err != nil {
+			return err
+		}
+		if err := saveOpencodeConfig(fs, path, cfg); err != nil {
+			return err
+		}
+		return w.writeLedger(projectDir, names)
+	})
 }
 
 // WriteContext writes the assembled context to the ctxloom-owned context file and
@@ -533,49 +540,59 @@ func (w *OpencodeWriter) WriteContext(req agent.ContextWriteRequest) (agent.Cont
 	ctxPath := w.contextFilePath(req.ProjectDir)
 	cfgPath := w.SettingsPath(req.ProjectDir)
 
-	// TrimSpace, not == "": whitespace-only content is no context at all, and
-	// must take this removal path rather than writing a blank instruction file
-	// opencode is then pointed at.
-	if strings.TrimSpace(req.Context) == "" {
-		var report agent.ContextReport
-		if exists, _ := afero.Exists(fs, ctxPath); exists {
-			if err := fs.Remove(ctxPath); err != nil {
-				return report, err
-			}
-			report.Removed = append(report.Removed, opencodeContextFile)
-		}
-		if exists, _ := afero.Exists(fs, cfgPath); exists {
-			cfg, err := loadOpencodeConfig(fs, cfgPath)
-			if err != nil {
-				return report, err
-			}
-			if stripManagedInstructions(cfg) {
-				if err := saveOpencodeConfig(fs, cfgPath, cfg); err != nil {
-					return report, err
+	// Locked on cfgPath, not ctxPath: this cycle's shared-file hazard is
+	// opencode.json (the same file WriteSettings/removeMCP/RemoveSettings
+	// read-modify-write for the `mcp` key) — ctxloom-context.md is wholly
+	// ctxloom-owned and safe to overwrite unlocked, but writing it INSIDE the
+	// same critical section keeps its Wrote/Removed report atomic with the
+	// opencode.json edit that references it.
+	var report agent.ContextReport
+	err := agent.WithFileLock(cfgPath, func() error {
+		// TrimSpace, not == "": whitespace-only content is no context at all,
+		// and must take this removal path rather than writing a blank
+		// instruction file opencode is then pointed at.
+		if strings.TrimSpace(req.Context) == "" {
+			if exists, _ := afero.Exists(fs, ctxPath); exists {
+				if err := fs.Remove(ctxPath); err != nil {
+					return err
 				}
-				report.Removed = append(report.Removed, ConfigFileName)
+				report.Removed = append(report.Removed, opencodeContextFile)
 			}
+			if exists, _ := afero.Exists(fs, cfgPath); exists {
+				cfg, err := loadOpencodeConfig(fs, cfgPath)
+				if err != nil {
+					return err
+				}
+				if stripManagedInstructions(cfg) {
+					if err := saveOpencodeConfig(fs, cfgPath, cfg); err != nil {
+						return err
+					}
+					report.Removed = append(report.Removed, ConfigFileName)
+				}
+			}
+			return nil
 		}
-		return report, nil
-	}
 
-	if err := fs.MkdirAll(filepath.Dir(ctxPath), 0755); err != nil {
-		return agent.ContextReport{}, fmt.Errorf("create .opencode directory: %w", err)
-	}
-	if err := agent.AtomicWriteFile(fs, ctxPath, []byte(req.Context+"\n"), "ctxloom-context.md"); err != nil {
-		return agent.ContextReport{}, err
-	}
-	cfg, err := loadOpencodeConfig(fs, cfgPath)
-	if err != nil {
-		return agent.ContextReport{}, err
-	}
-	if _, err := applyManaged(cfg, managedConfig{instructions: []string{opencodeContextFile}}); err != nil {
-		return agent.ContextReport{}, err
-	}
-	if err := saveOpencodeConfig(fs, cfgPath, cfg); err != nil {
-		return agent.ContextReport{}, err
-	}
-	return agent.ContextReport{Wrote: []string{opencodeContextFile, ConfigFileName}}, nil
+		if err := fs.MkdirAll(filepath.Dir(ctxPath), 0755); err != nil {
+			return fmt.Errorf("create .opencode directory: %w", err)
+		}
+		if err := agent.AtomicWriteFile(fs, ctxPath, []byte(req.Context+"\n"), "ctxloom-context.md"); err != nil {
+			return err
+		}
+		cfg, err := loadOpencodeConfig(fs, cfgPath)
+		if err != nil {
+			return err
+		}
+		if _, err := applyManaged(cfg, managedConfig{instructions: []string{opencodeContextFile}}); err != nil {
+			return err
+		}
+		if err := saveOpencodeConfig(fs, cfgPath, cfg); err != nil {
+			return err
+		}
+		report = agent.ContextReport{Wrote: []string{opencodeContextFile, ConfigFileName}}
+		return nil
+	})
+	return report, err
 }
 
 // removeMCP strips only the managed MCP servers (and clears the ledger), leaving
@@ -585,23 +602,26 @@ func (w *OpencodeWriter) WriteContext(req agent.ContextWriteRequest) (agent.Cont
 func (w *OpencodeWriter) removeMCP(projectDir string) error {
 	fs := w.getFS()
 	path := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, path); exists {
-		cfg, err := loadOpencodeConfig(fs, path)
-		if err != nil {
-			return err
+	// See WriteSettings: same file, same lock, same race to close.
+	return agent.WithFileLock(path, func() error {
+		if exists, _ := afero.Exists(fs, path); exists {
+			cfg, err := loadOpencodeConfig(fs, path)
+			if err != nil {
+				return err
+			}
+			ledger, err := w.readLedger(projectDir)
+			if err != nil {
+				return err
+			}
+			if err := stripManagedMCP(cfg, ledger); err != nil {
+				return err
+			}
+			if err := saveOpencodeConfig(fs, path, cfg); err != nil {
+				return err
+			}
 		}
-		ledger, err := w.readLedger(projectDir)
-		if err != nil {
-			return err
-		}
-		if err := stripManagedMCP(cfg, ledger); err != nil {
-			return err
-		}
-		if err := saveOpencodeConfig(fs, path, cfg); err != nil {
-			return err
-		}
-	}
-	return w.writeLedger(projectDir, nil)
+		return w.writeLedger(projectDir, nil)
+	})
 }
 
 // RemoveSettings strips every managed entry from opencode.json (mcp, the
@@ -611,30 +631,33 @@ func (w *OpencodeWriter) removeMCP(projectDir string) error {
 func (w *OpencodeWriter) RemoveSettings(projectDir string) error {
 	fs := w.getFS()
 	path := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, path); exists {
-		cfg, err := loadOpencodeConfig(fs, path)
-		if err != nil {
-			return err
+	// See WriteSettings: same file, same lock, same race to close.
+	return agent.WithFileLock(path, func() error {
+		if exists, _ := afero.Exists(fs, path); exists {
+			cfg, err := loadOpencodeConfig(fs, path)
+			if err != nil {
+				return err
+			}
+			ledger, err := w.readLedger(projectDir)
+			if err != nil {
+				return err
+			}
+			if err := stripManagedMCP(cfg, ledger); err != nil {
+				return err
+			}
+			stripManagedInstructions(cfg)
+			stripManagedSkillPath(cfg, opencodeSkillDir)
+			if err := saveOpencodeConfig(fs, path, cfg); err != nil {
+				return err
+			}
 		}
-		ledger, err := w.readLedger(projectDir)
-		if err != nil {
-			return err
+		if exists, _ := afero.Exists(fs, w.contextFilePath(projectDir)); exists {
+			if err := fs.Remove(w.contextFilePath(projectDir)); err != nil {
+				return err
+			}
 		}
-		if err := stripManagedMCP(cfg, ledger); err != nil {
-			return err
-		}
-		stripManagedInstructions(cfg)
-		stripManagedSkillPath(cfg, opencodeSkillDir)
-		if err := saveOpencodeConfig(fs, path, cfg); err != nil {
-			return err
-		}
-	}
-	if exists, _ := afero.Exists(fs, w.contextFilePath(projectDir)); exists {
-		if err := fs.Remove(w.contextFilePath(projectDir)); err != nil {
-			return err
-		}
-	}
-	return w.writeLedger(projectDir, nil)
+		return w.writeLedger(projectDir, nil)
+	})
 }
 
 // Status reports which managed artifacts are wired into opencode.json.

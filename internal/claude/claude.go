@@ -193,72 +193,78 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
 
-	// Ensure .claude directory exists
-	claudeDir := filepath.Dir(settingsPath)
-	if err := fs.MkdirAll(claudeDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .claude directory: %w", err)
-	}
+	// The lock spans the whole load-modify-save-and-ledger-write cycle below:
+	// a SessionStart hook, the MCP server, the CLI, the runner, and an
+	// in-container ctxloom (same file bind-mounted) all reach this same
+	// settings.json unlocked otherwise — see agent.WithFileLock's doc.
+	return agent.WithFileLock(fs, settingsPath, func() error {
+		// Ensure .claude directory exists
+		claudeDir := filepath.Dir(settingsPath)
+		if err := fs.MkdirAll(claudeDir, 0755); err != nil {
+			return fmt.Errorf("failed to create .claude directory: %w", err)
+		}
 
-	// Load existing settings
-	settings, err := w.loadSettings(settingsPath)
-	if err != nil {
-		return fmt.Errorf("failed to load existing settings: %w", err)
-	}
+		// Load existing settings
+		settings, err := w.loadSettings(settingsPath)
+		if err != nil {
+			return fmt.Errorf("failed to load existing settings: %w", err)
+		}
 
-	// Remove the hooks ctxloom wrote last time. Ownership comes from the shared
-	// managed-content ledger beside settings.json — Claude Code's strict schema
-	// forbids an in-file marker (claudeCodeHook.SCM is json:"-" and never
-	// reaches disk), which is exactly what a SIDECAR record is for.
-	led := ledger.Ledger{FS: fs, Dir: claudeDir, Warn: agent.Warn}
-	owned, err := led.Read(ledger.SurfaceHooks)
-	if err != nil {
-		return err
-	}
-	w.removeCtxloomHooks(settings, owned)
+		// Remove the hooks ctxloom wrote last time. Ownership comes from the shared
+		// managed-content ledger beside settings.json — Claude Code's strict schema
+		// forbids an in-file marker (claudeCodeHook.SCM is json:"-" and never
+		// reaches disk), which is exactly what a SIDECAR record is for.
+		led := ledger.Ledger{FS: fs, Dir: claudeDir, Warn: agent.Warn}
+		owned, err := led.Read(ledger.SurfaceHooks)
+		if err != nil {
+			return err
+		}
+		w.removeCtxloomHooks(settings, owned)
 
-	// Add ctxloom hooks from unified config
-	w.addUnifiedHooks(settings, hooks.Unified)
+		// Add ctxloom hooks from unified config
+		w.addUnifiedHooks(settings, hooks.Unified)
 
-	// Add ctxloom hooks from backend-specific passthrough
-	if backendHooks, ok := hooks.Plugins["claude-code"]; ok {
-		w.addBackendHooks(settings, backendHooks)
-	}
+		// Add ctxloom hooks from backend-specific passthrough
+		if backendHooks, ok := hooks.Plugins["claude-code"]; ok {
+			w.addBackendHooks(settings, backendHooks)
+		}
 
-	// Configure statusLine if not already set by the user.
-	prevStatus, err := led.Read(ledger.SurfaceStatusLine)
-	if err != nil {
-		return err
-	}
-	statusOwned := settings.StatusLine != nil && len(prevStatus) > 0 &&
-		prevStatus[0] == agent.ComputeCommandDigest(settings.StatusLine.Command)
-	w.ensureStatusLine(settings, statusOwned)
+		// Configure statusLine if not already set by the user.
+		prevStatus, err := led.Read(ledger.SurfaceStatusLine)
+		if err != nil {
+			return err
+		}
+		statusOwned := settings.StatusLine != nil && len(prevStatus) > 0 &&
+			prevStatus[0] == agent.ComputeCommandDigest(settings.StatusLine.Command)
+		w.ensureStatusLine(settings, statusOwned)
 
-	// Reconcile ctxloom's deny entries, withdrawing any it no longer declares.
-	prevDeny, err := led.Read(ledger.SurfacePermissions)
-	if err != nil {
-		return err
-	}
-	nowDeny := w.mergeDenyTools(settings, denyTools, prevDeny)
+		// Reconcile ctxloom's deny entries, withdrawing any it no longer declares.
+		prevDeny, err := led.Read(ledger.SurfacePermissions)
+		if err != nil {
+			return err
+		}
+		nowDeny := w.mergeDenyTools(settings, denyTools, prevDeny)
 
-	// Write hooks to settings.json, then record exactly what was written so the
-	// next reconcile removes THOSE and nothing else.
-	if err := w.saveSettings(settingsPath, settings); err != nil {
-		return err
-	}
-	if err := led.Write(ledger.SurfaceHooks, w.managedHookDigests(settings)); err != nil {
-		return err
-	}
-	if err := led.Write(ledger.SurfacePermissions, nowDeny); err != nil {
-		return err
-	}
-	// Everything ctxloom wrote is now recorded, and only what it still writes:
-	// the record is current state, never an append-only history, so it cannot
-	// accumulate cruft — a surface ctxloom stops writing is cleared, not grown.
-	var statusNow []string
-	if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
-		statusNow = []string{agent.ComputeCommandDigest(settings.StatusLine.Command)}
-	}
-	return led.Write(ledger.SurfaceStatusLine, statusNow)
+		// Write hooks to settings.json, then record exactly what was written so the
+		// next reconcile removes THOSE and nothing else.
+		if err := w.saveSettings(settingsPath, settings); err != nil {
+			return err
+		}
+		if err := led.Write(ledger.SurfaceHooks, w.managedHookDigests(settings)); err != nil {
+			return err
+		}
+		if err := led.Write(ledger.SurfacePermissions, nowDeny); err != nil {
+			return err
+		}
+		// Everything ctxloom wrote is now recorded, and only what it still writes:
+		// the record is current state, never an append-only history, so it cannot
+		// accumulate cruft — a surface ctxloom stops writing is cleared, not grown.
+		var statusNow []string
+		if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
+			statusNow = []string{agent.ComputeCommandDigest(settings.StatusLine.Command)}
+		}
+		return led.Write(ledger.SurfaceStatusLine, statusNow)
+	})
 }
 
 // WriteContext implements agent.ContextWriter for Claude Code: it merges the
@@ -571,38 +577,42 @@ func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeM
 func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
 	mcpPath := w.MCPConfigPath(projectDir)
 
-	// Ensure the target directory exists, as writeSettingsFile does for
-	// .claude/. .mcp.json sits directly in projectDir, so this writer used to
-	// depend on someone else having created it — and for an out-of-cwd delivery
-	// that someone was whichever surface happened to be delivered first. When
-	// the context surface delivered nothing (no context configured), the
-	// per-session scratch directory was never created and this write failed with
-	// a bare ENOENT about a temp file.
-	if err := w.getFS().MkdirAll(projectDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create MCP config directory: %w", err)
-	}
-
-	// Load existing MCP config
-	mcpConfig, err := w.loadMCPConfig(mcpPath)
-	if err != nil {
-		return fmt.Errorf("failed to load existing .mcp.json: %w", err)
-	}
-
-	// Remove old ctxloom-managed MCP servers. We match the same way as
-	// hooks: the SCM marker covers bundle/unified servers (arbitrary
-	// commands like `npx …`), and isCtxloomManaged covers ctxloom's own
-	// auto-registered server even if its marker ever drifts.
-	for name, server := range mcpConfig.MCPServers {
-		if server.SCM != "" || agent.IsManaged(server.Command, "ctxloom") {
-			delete(mcpConfig.MCPServers, name)
+	// See writeSettingsFile: the lock spans load through save, the whole RMW
+	// cycle a concurrent writer of the SAME .mcp.json could otherwise race.
+	return agent.WithFileLock(w.getFS(), mcpPath, func() error {
+		// Ensure the target directory exists, as writeSettingsFile does for
+		// .claude/. .mcp.json sits directly in projectDir, so this writer used to
+		// depend on someone else having created it — and for an out-of-cwd delivery
+		// that someone was whichever surface happened to be delivered first. When
+		// the context surface delivered nothing (no context configured), the
+		// per-session scratch directory was never created and this write failed with
+		// a bare ENOENT about a temp file.
+		if err := w.getFS().MkdirAll(projectDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create MCP config directory: %w", err)
 		}
-	}
 
-	// Add MCP servers
-	w.addMCPServersToConfig(mcpConfig, mcp, bundleMCP)
+		// Load existing MCP config
+		mcpConfig, err := w.loadMCPConfig(mcpPath)
+		if err != nil {
+			return fmt.Errorf("failed to load existing .mcp.json: %w", err)
+		}
 
-	// Write MCP config back
-	return w.saveMCPConfig(mcpPath, mcpConfig)
+		// Remove old ctxloom-managed MCP servers. We match the same way as
+		// hooks: the SCM marker covers bundle/unified servers (arbitrary
+		// commands like `npx …`), and isCtxloomManaged covers ctxloom's own
+		// auto-registered server even if its marker ever drifts.
+		for name, server := range mcpConfig.MCPServers {
+			if server.SCM != "" || agent.IsManaged(server.Command, "ctxloom") {
+				delete(mcpConfig.MCPServers, name)
+			}
+		}
+
+		// Add MCP servers
+		w.addMCPServersToConfig(mcpConfig, mcp, bundleMCP)
+
+		// Write MCP config back
+		return w.saveMCPConfig(mcpPath, mcpConfig)
+	})
 }
 
 // ensureStatusLine configures the ctxloom HUD statusline if not already set by the user.
@@ -1009,33 +1019,36 @@ func (w *ClaudeCodeHookWriter) RemoveSettings(projectDir string) error {
 func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
-	exists, err := configExists(fs, settingsPath)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return nil
-	}
-	settings, err := w.loadSettings(settingsPath)
-	if err != nil {
-		return fmt.Errorf("failed to load existing settings: %w", err)
-	}
-	led := ledger.Ledger{FS: fs, Dir: filepath.Dir(settingsPath), Warn: agent.Warn}
-	owned, err := led.Read(ledger.SurfaceHooks)
-	if err != nil {
-		return err
-	}
-	w.removeCtxloomHooks(settings, owned)
-	if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
-		settings.StatusLine = nil
-	}
-	if err := w.saveSettings(settingsPath, settings); err != nil {
-		return err
-	}
-	// Nothing of ctxloom's remains, so the claim must go too — a ledger naming
-	// hooks that are gone would make the next reconcile delete whatever a user
-	// later wrote under those commands.
-	return led.Write(ledger.SurfaceHooks, nil)
+	// See writeSettingsFile: same file, same lock, same race to close.
+	return agent.WithFileLock(fs, settingsPath, func() error {
+		exists, err := configExists(fs, settingsPath)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return nil
+		}
+		settings, err := w.loadSettings(settingsPath)
+		if err != nil {
+			return fmt.Errorf("failed to load existing settings: %w", err)
+		}
+		led := ledger.Ledger{FS: fs, Dir: filepath.Dir(settingsPath), Warn: agent.Warn}
+		owned, err := led.Read(ledger.SurfaceHooks)
+		if err != nil {
+			return err
+		}
+		w.removeCtxloomHooks(settings, owned)
+		if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
+			settings.StatusLine = nil
+		}
+		if err := w.saveSettings(settingsPath, settings); err != nil {
+			return err
+		}
+		// Nothing of ctxloom's remains, so the claim must go too — a ledger naming
+		// hooks that are gone would make the next reconcile delete whatever a user
+		// later wrote under those commands.
+		return led.Write(ledger.SurfaceHooks, nil)
+	})
 }
 
 // removeMCPConfig strips ctxloom-marked servers from .mcp.json under projectDir,
@@ -1045,23 +1058,26 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 func (w *ClaudeCodeHookWriter) removeMCPConfig(projectDir string) error {
 	fs := w.getFS()
 	mcpPath := w.MCPConfigPath(projectDir)
-	exists, err := configExists(fs, mcpPath)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return nil
-	}
-	mcpConfig, err := w.loadMCPConfig(mcpPath)
-	if err != nil {
-		return fmt.Errorf("failed to load existing .mcp.json: %w", err)
-	}
-	for name, server := range mcpConfig.MCPServers {
-		if server.SCM != "" {
-			delete(mcpConfig.MCPServers, name)
+	// See writeMCPConfig: same file, same lock, same race to close.
+	return agent.WithFileLock(fs, mcpPath, func() error {
+		exists, err := configExists(fs, mcpPath)
+		if err != nil {
+			return err
 		}
-	}
-	return w.saveMCPConfig(mcpPath, mcpConfig)
+		if !exists {
+			return nil
+		}
+		mcpConfig, err := w.loadMCPConfig(mcpPath)
+		if err != nil {
+			return fmt.Errorf("failed to load existing .mcp.json: %w", err)
+		}
+		for name, server := range mcpConfig.MCPServers {
+			if server.SCM != "" {
+				delete(mcpConfig.MCPServers, name)
+			}
+		}
+		return w.saveMCPConfig(mcpPath, mcpConfig)
+	})
 }
 
 // Status implements SettingsWriter for Claude Code.

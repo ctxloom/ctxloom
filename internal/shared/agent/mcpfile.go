@@ -82,90 +82,98 @@ type mcpFile struct {
 // anyway would compound today's silent overwrite into a silent deletion the
 // next time RemoveServers or a config change drops it from the managed set.
 func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
-	mf, err := c.load()
-	if err != nil {
-		return fmt.Errorf("failed to load existing %s: %w", c.Label, err)
-	}
+	// The lock spans load through save+ledger-write: this is the whole RMW
+	// cycle a concurrent WriteServers/RemoveServers on the SAME registry file
+	// (another hook firing, the MCP server, a container's bind-mounted
+	// in-place copy) could otherwise interleave with — see WithFileLock's doc.
+	return WithFileLock(c.FS, c.Path, func() error {
+		mf, err := c.load()
+		if err != nil {
+			return fmt.Errorf("failed to load existing %s: %w", c.Label, err)
+		}
 
-	ledgerNames, err := c.readLedger()
-	if err != nil {
-		return fmt.Errorf("failed to read ledger %s: %w", c.ledger().Path(), err)
-	}
-	// handDeleted must be computed against the registry as loaded, BEFORE
-	// dropManaged clears every ledger name from it below — see
-	// reconcileLedger's doc.
-	handDeleted := c.reconcileLedger(mf, ledgerNames)
+		ledgerNames, err := c.readLedger()
+		if err != nil {
+			return fmt.Errorf("failed to read ledger %s: %w", c.ledger().Path(), err)
+		}
+		// handDeleted must be computed against the registry as loaded, BEFORE
+		// dropManaged clears every ledger name from it below — see
+		// reconcileLedger's doc.
+		handDeleted := c.reconcileLedger(mf, ledgerNames)
 
-	c.dropManaged(mf, ledgerNames)
+		c.dropManaged(mf, ledgerNames)
 
-	// A later source (config, plugin) can shadow an earlier one
-	// (bundle) under the same name — including MCPServerName itself. seen
-	// dedupes `managed` so the ledger records each name once, not once per
-	// source that wrote it.
-	var managed []string
-	seen := make(map[string]bool)
-	collisionWarned := make(map[string]bool)
-	add := func(name string, s mcpFileServer) {
-		if !seen[name] {
-			if _, exists := mf.Servers[name]; exists {
-				if !collisionWarned[name] {
-					collisionWarned[name] = true
-					c.Warn("refusing to overwrite MCP server %q in %s: a hand-authored entry already uses this name and ctxloom did not create it; rename it in your config or bundle, or rename/remove the existing entry, to let ctxloom manage %q", name, c.Label, name)
+		// A later source (config, plugin) can shadow an earlier one
+		// (bundle) under the same name — including MCPServerName itself. seen
+		// dedupes `managed` so the ledger records each name once, not once per
+		// source that wrote it.
+		var managed []string
+		seen := make(map[string]bool)
+		collisionWarned := make(map[string]bool)
+		add := func(name string, s mcpFileServer) {
+			if !seen[name] {
+				if _, exists := mf.Servers[name]; exists {
+					if !collisionWarned[name] {
+						collisionWarned[name] = true
+						c.Warn("refusing to overwrite MCP server %q in %s: a hand-authored entry already uses this name and ctxloom did not create it; rename it in your config or bundle, or rename/remove the existing entry, to let ctxloom manage %q", name, c.Label, name)
+					}
+					return
 				}
-				return
+				if handDeleted[name] {
+					c.Warn("recreating MCP server %q in %s: it was removed by hand since the last write, but config, a bundle, or a plugin still declares it; remove it from there instead if you want ctxloom to stop managing it", name, c.Label)
+				}
 			}
-			if handDeleted[name] {
-				c.Warn("recreating MCP server %q in %s: it was removed by hand since the last write, but config, a bundle, or a plugin still declares it; remove it from there instead if you want ctxloom to stop managing it", name, c.Label)
+			c.setServer(mf, name, s)
+			if !seen[name] {
+				seen[name] = true
+				managed = append(managed, name)
 			}
 		}
-		c.setServer(mf, name, s)
-		if !seen[name] {
-			seen[name] = true
-			managed = append(managed, name)
-		}
-	}
 
-	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		add(MCPServerName, mcpFileServer{Command: ResolveMCPCommand(c.CommandOverride), Args: CtxloomMCPArgs})
-	}
-	for name, server := range bundleMCP {
-		add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
-	}
-	if mcp != nil {
-		for name, server := range mcp.Servers {
+		if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
+			add(MCPServerName, mcpFileServer{Command: ResolveMCPCommand(c.CommandOverride), Args: CtxloomMCPArgs})
+		}
+		for name, server := range bundleMCP {
 			add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
 		}
-		if backendServers, ok := mcp.Plugins[c.PluginKey]; ok {
-			for name, server := range backendServers {
+		if mcp != nil {
+			for name, server := range mcp.Servers {
 				add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
 			}
+			if backendServers, ok := mcp.Plugins[c.PluginKey]; ok {
+				for name, server := range backendServers {
+					add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
+				}
+			}
 		}
-	}
 
-	if err := c.save(mf); err != nil {
-		return err
-	}
-	return c.writeLedger(managed)
+		if err := c.save(mf); err != nil {
+			return err
+		}
+		return c.writeLedger(managed)
+	})
 }
 
 // RemoveServers drops every managed server from the registry (leaving an
 // absent file absent and user entries intact) and clears the ledger.
 func (c MCPFileConfig) RemoveServers() error {
-	if exists, _ := afero.Exists(c.FS, c.Path); exists {
-		mf, err := c.load()
-		if err != nil {
-			return fmt.Errorf("failed to load existing %s: %w", c.Label, err)
+	return WithFileLock(c.FS, c.Path, func() error {
+		if exists, _ := afero.Exists(c.FS, c.Path); exists {
+			mf, err := c.load()
+			if err != nil {
+				return fmt.Errorf("failed to load existing %s: %w", c.Label, err)
+			}
+			ledgerNames, err := c.readLedger()
+			if err != nil {
+				return fmt.Errorf("failed to read ledger %s: %w", c.ledger().Path(), err)
+			}
+			c.dropManaged(mf, ledgerNames)
+			if err := c.save(mf); err != nil {
+				return err
+			}
 		}
-		ledgerNames, err := c.readLedger()
-		if err != nil {
-			return fmt.Errorf("failed to read ledger %s: %w", c.ledger().Path(), err)
-		}
-		c.dropManaged(mf, ledgerNames)
-		if err := c.save(mf); err != nil {
-			return err
-		}
-	}
-	return c.writeLedger(nil)
+		return c.writeLedger(nil)
+	})
 }
 
 // ManagedPresent reports whether any managed server (the well-known ctxloom

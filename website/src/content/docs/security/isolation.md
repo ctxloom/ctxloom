@@ -260,7 +260,7 @@ been driven through a live `ctxloom run --runtime container` call against a real
 for a documentation pass; tracked as a follow-up probe/CI run). Two edges also stay open and
 unverified rather than ruled out either way: whether Antigravity's binary also carries a
 separate, cloud-metadata-shaped credential path, reachable only from a genuine cloud host, or if
-a future container profile ever mounted additional cloud credentials into the box; and whether
+a future container auth mapping ever mounted additional cloud credentials into the box; and whether
 Antigravity's *interactive* `-i` mode has any auth-relevant differences from the headless `-p`
 mode this page otherwise discusses (not tested here). Neither experiment run here was on such a
 host or with such a mount or in that mode, so both stay named unknowns, not confirmed second

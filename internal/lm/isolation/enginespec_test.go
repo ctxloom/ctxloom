@@ -333,3 +333,32 @@ func TestEngineContainerSpecFor_EverySpecMapsATranscriptStore(t *testing.T) {
 	assert.Empty(t, engineContainerSpecFor("mock").transcriptStoreRel,
 		"mock keeps no transcripts (NilSessionHistory) — an empty store root is the correct, deliberate value here")
 }
+
+// TestContainerAuthEngines_MatchesTheTable pins the two halves of the exported
+// auth surface config validation refuses bindings with:
+//
+//  1. every engine ContainerAuthEngines() advertises really does have a
+//     container-auth mapping (HasContainerAuth true), so a rejection message
+//     can never name an engine the launch would then refuse; and
+//  2. the engines with NO mapping — the generic "acp" backend, the empty
+//     string the deleted image-only constructors used to pass, and any typo —
+//     report false, which is what makes the refusal fire at all.
+//
+// HasContainerAuth reads the spec table back through noContainerAuthHint
+// rather than keeping a second roster, so (1) is a real check of the table and
+// not of a copy of it: dropping an engine's resolveAuth turns this red.
+func TestContainerAuthEngines_MatchesTheTable(t *testing.T) {
+	require.NotEmpty(t, ContainerAuthEngines(), "the supported set a refusal names must not be empty")
+	for _, name := range ContainerAuthEngines() {
+		assert.True(t, HasContainerAuth(name),
+			"ContainerAuthEngines() advertises %q, so engineContainerSpecFor(%q) must map a real auth resolver", name, name)
+		assert.NotEqual(t, noContainerAuthHint, engineContainerSpecFor(name).authHint,
+			"backend %q must carry its OWN degrade hint, not the no-auth marker", name)
+	}
+	for _, name := range []string{"acp", "", "no-such-engine"} {
+		assert.False(t, HasContainerAuth(name),
+			"backend %q has no container-auth mapping, so a `runtime: container` binding for it must be refusable", name)
+	}
+	assert.Equal(t, noContainerAuthHint, engineContainerSpecFor("acp").authHint,
+		"the generic acp backend reaches the fail-closed default arm — the case config validation exists to catch before launch")
+}

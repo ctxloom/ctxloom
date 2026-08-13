@@ -232,6 +232,10 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 		}
 	}
 
+	if err := validateContainerAuth(cfg, name, req); err != nil {
+		return err
+	}
+
 	// config_home breaks rather than degrades: an unknown value here would
 	// otherwise silently resolve to the host default at launch (fault
 	// tolerance's usual treatment), which for THIS key means silently
@@ -243,6 +247,64 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 		}
 	}
 	return nil
+}
+
+// validateContainerAuth refuses a binding whose {engine, runtime: container}
+// pair has no way to authenticate the engine INSIDE the container.
+//
+// Container auth is keyed on the ENGINE (isolation.HasContainerAuth over
+// engineContainerSpecFor's table), and an engine with no mapping — a generic
+// `acp` backend, or any engine nobody has written a resolver for — fails closed
+// at PrepareWorkspace: the launch aborts with "no container auth is registered
+// for this engine". That gate stays as the last line for the paths that never
+// went through a binding, but a BINDING is knowable now, so the refusal belongs
+// here, at the command that typed the pair, rather than at the first run of an
+// agent that has looked fine in `agent list` all along.
+//
+// Same shape as the Surfaces check above: validated against the pair this write
+// RESULTS IN (the requested field if this call sets it, else the recorded one),
+// and for runtime the project `runtime:` default underneath both — a container
+// project default makes an unmapped engine just as unlaunchable as an explicit
+// `--runtime container` does. An agent with NO engine on the binding is left
+// alone: its engine comes from the composed profiles' llm and then the project
+// default at resolve time, so there is no pair here to judge.
+func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest) error {
+	existing, hasExisting := cfg.Agent(name)
+
+	runtime := ""
+	switch {
+	case req.Runtime != nil:
+		runtime = *req.Runtime
+	case hasExisting:
+		runtime = existing.Runtime
+	}
+	if runtime == "" {
+		runtime = cfg.GetRuntime()
+	}
+	if runtime != string(isolation.RuntimeContainer) {
+		return nil
+	}
+
+	label := ""
+	switch {
+	case req.LLM != nil:
+		label = *req.LLM
+	case hasExisting:
+		label = existing.LLM
+	}
+	if label == "" {
+		return nil
+	}
+	backend, _ := ResolveBackend(cfg, label)
+	if isolation.HasContainerAuth(backend) {
+		return nil
+	}
+	engine := fmt.Sprintf("%q", label)
+	if backend != label {
+		engine = fmt.Sprintf("%q (backend %q)", label, backend)
+	}
+	return fmt.Errorf("agent %q: engine %s has no container auth, so `runtime: container` could not authenticate it inside the container; engines with container auth: %s — bind one of those, or use runtime: host",
+		name, engine, strings.Join(isolation.ContainerAuthEngines(), ", "))
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key,

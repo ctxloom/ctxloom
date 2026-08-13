@@ -95,13 +95,11 @@ func (s *directBusSpawner) Launch(context.Context, *SpawnPlan, string, string, m
 // harp on env drives the session-state mounts (transcript survival).
 func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
 	rt := isolation.SelectRuntime("docker")
-	// Container auth keys on the ENGINE, resolved PER CALL from the plan's
-	// Backend — the same field StarterForWorkspace below already reads. Keying
-	// it on plan.AgentName (or on the constructor's old fixed "") asks
-	// engineContainerSpecFor for an engine nothing registers, which fails
-	// closed at PrepareWorkspace's auth gate. The harness image is unrelated to
-	// the engine, so it is named separately via WithImage.
-	pol := isolation.NewContainerFor(rt, plan.Backend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
+	// Container auth keys on the ENGINE, resolved PER CALL from the plan
+	// (containerAuthBackend — the same Backend field StarterForWorkspace below
+	// already reads). The harness image is unrelated to the engine, so it is
+	// named separately via WithImage.
+	pol := isolation.NewContainerFor(rt, containerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
 	if err != nil {
 		return nil, err
@@ -148,11 +146,11 @@ func (s *directBusSpawner) containerNames() []string {
 func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the docker-direct delegated-spawn integration test")
 	resetStrictness(t)
-	// The default container profile authenticates the in-container engine via
-	// the scoped ANTHROPIC_* env passthrough; the mock backend ignores the
-	// value, but a resolvable auth is what clears PrepareWorkspace's gate under
-	// an isolated HOME.
-	t.Setenv("ANTHROPIC_API_KEY", "itest-mock-key")
+	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
+	// mock's container-auth resolver (resolveMockContainerAuth) resolves
+	// unconditionally because mock authenticates against no vendor. Needing a
+	// borrowed Anthropic key here would mean auth was being keyed on something
+	// other than the engine.
 
 	// Build BEFORE isolating cwd (ProjectDir chdirs outside the module).
 	image := buildBusIntegrationImage(t)

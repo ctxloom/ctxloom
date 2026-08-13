@@ -62,6 +62,20 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 
 	repo := initRealRepo(t) // helper from worktree_integration_test.go (same package)
 
+	// The in-container ctxloom (the plugin the SpawnClient step below brings up)
+	// runs with cwd = the mounted worktree, and a linked worktree with NO
+	// .ctxloom of its own is a fatal config finding — it aborts startup with
+	// exit 3 before the go-plugin handshake, which surfaces here as an
+	// unreadable plugin stdout rather than as the config error it is. A real
+	// project's worktree checkout carries the project's committed .ctxloom, so
+	// the fixture commits one too. (Only reachable since container auth stopped
+	// failing closed on this test's constructor: the run never got past the auth
+	// gate to discover it.)
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".ctxloom"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".ctxloom", "config.yaml"), []byte("version: 5\n"), 0o644))
+	gitRun(t, repo, "add", filepath.Join(".ctxloom", "config.yaml"))
+	gitRun(t, repo, "commit", "-m", "seed ctxloom config")
+
 	pol := NewContainerWorktreeFor(rt, "mock", ImageConfig{Image: worktreeIntegrationImage}, git.NewExec())
 	ws, err := pol.PrepareWorkspace(ctx, repo, "wt-itest")
 	require.NoError(t, err, "PrepareWorkspace must create a worktree + container scratch")

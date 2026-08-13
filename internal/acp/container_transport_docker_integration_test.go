@@ -17,16 +17,17 @@
 // engine's own behavior (that's claude/chat.go's job, unchanged by ISO1).
 //
 // It still exercises the production container gate for real: PrepareWorkspace
-// probes the real docker daemon, resolves real claude auth off THIS host's
-// ambient credentials/env (the "default" container spec — see
-// isolationBackendFor's doc; the spec's ENGINE identity is
-// irrelevant here, only its auth resolver runs), and RunAttached spawns a
-// REAL `docker run` with the identical-path project mount. Skips outright
-// when docker is unavailable OR no claude auth is resolvable (ANTHROPIC_API_
-// KEY/ANTHROPIC_AUTH_TOKEN or ~/.claude credentials) — the SAME ambient
-// requirement internal/lm/isolation's own committed docker-gated container
-// test already carries (TestContainerPolicy_TransportEndToEnd), not a new
-// one this test introduces.
+// probes the real docker daemon, resolves the run's container auth through the
+// production table (isolationBackendFor -> engineContainerSpecFor), and
+// RunAttached spawns a REAL `docker run` with the identical-path project
+// mount. The agent engine is set to "mock" precisely because container auth is
+// keyed on the ENGINE: the harness is credential-free, so it maps to the one
+// mapping that authenticates against no vendor, and this test needs NO host
+// credential of any kind. It used to leave the engine unset, which reached the
+// table's default arm and borrowed whatever claude auth the developer's host
+// happened to have — which is how it came to need an ambient-credentials skip,
+// and then to fail outright once that default started failing closed. Skips
+// only when docker is unavailable.
 package acp
 
 import (
@@ -48,24 +49,6 @@ import (
 
 const acpl1HarnessImage = "ctxloom-acp-iso1-itest:latest"
 
-// hasResolvableClaudeAuth mirrors resolveClaudeContainerAuth's own trigger
-// check (auth.go) without importing package isolation's unexported pieces:
-// same env vars, same credentials-file fallback path. If NEITHER is present
-// PrepareWorkspace will fail this test's gate for a reason that has nothing
-// to do with ISO1's container transport, so this test skips instead of
-// reporting a false red.
-func hasResolvableClaudeAuth() bool {
-	if os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("ANTHROPIC_AUTH_TOKEN") != "" {
-		return true
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(filepath.Join(home, ".claude", ".credentials.json"))
-	return err == nil
-}
-
 // TestACPContainerTransport_RealTurn drives one full ACP conversation through
 // containerTransport against a REAL container, asserting genuine payload —
 // never just "no error": the exact echoed assistant text and the exact
@@ -73,9 +56,6 @@ func hasResolvableClaudeAuth() bool {
 // deterministically produces (cmd/acpl1harness/engine.go's runTurn).
 func TestACPContainerTransport_RealTurn(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the ACP container transport integration test")
-	if !hasResolvableClaudeAuth() {
-		dockergate.SkipCapability(t, "no resolvable claude auth (ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN or ~/.claude credentials): PrepareWorkspace's auth gate needs SOME resolvable auth regardless of the test engine (see isolationBackendFor's doc)")
-	}
 	buildHarnessImage(t)
 
 	workDir := t.TempDir()
@@ -84,6 +64,11 @@ func TestACPContainerTransport_RealTurn(t *testing.T) {
 	b.command = "/acpl1harness"
 	b.BinaryPath = "/acpl1harness"
 	b.containerImage = acpl1HarnessImage
+	// Container auth keys on the ENGINE. The harness authenticates against no
+	// vendor, so it declares the engine whose auth mapping says exactly that
+	// ("mock"); the extra `--agent-engine mock` this puts on the harness argv
+	// is ignored by cmd/acpl1harness, which parses no flags at all.
+	b.agentEngine = "mock"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()

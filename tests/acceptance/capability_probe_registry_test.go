@@ -340,10 +340,18 @@ func TestProbeRegistry_ReportsItsOwnCost(t *testing.T) {
 		t.Errorf("the ladder now declares %d paid cells. The design budgets roughly 40; a jump past 60 is usually an axis accidentally cross-producted. State the cost and raise this bound deliberately, or fix the table.", paid)
 	}
 
-	// The report is evidence, and evidence has to be stable: two renders of the
-	// same registry must be byte-identical or a sweep diff is unreadable.
-	if formatProbeRegistryReport() != formatProbeRegistryReport() {
-		t.Error("the registry report is not deterministic — a report that reorders between runs cannot be diffed, which is the only thing a red-map is for")
+	// The report is the evidence artifact a sweep diffs and a human reads when
+	// deciding what to run, so it must NAME every cell it was given. A renderer
+	// that quietly drops rows would make the ladder look smaller than it is,
+	// which is the same silence the completeness gate exists to break — just
+	// moved one layer out.
+	report := formatProbeRegistryReport()
+	for _, p := range probeRegistry {
+		for _, c := range p.Cells {
+			if !strings.Contains(report, c.ID(p.Name).String()) {
+				t.Errorf("the registry report does not name cell %s — a report that drops rows makes the ladder look smaller than it is", c.ID(p.Name))
+			}
+		}
 	}
 }
 

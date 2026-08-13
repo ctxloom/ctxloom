@@ -86,7 +86,7 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 	// cycle a concurrent WriteServers/RemoveServers on the SAME registry file
 	// (another hook firing, the MCP server, a container's bind-mounted
 	// in-place copy) could otherwise interleave with — see WithFileLock's doc.
-	return WithFileLock(c.Path, func() error {
+	return WithFileLock(c.FS, c.Path, func() error {
 		mf, err := c.load()
 		if err != nil {
 			return fmt.Errorf("failed to load existing %s: %w", c.Label, err)
@@ -157,7 +157,7 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 // RemoveServers drops every managed server from the registry (leaving an
 // absent file absent and user entries intact) and clears the ledger.
 func (c MCPFileConfig) RemoveServers() error {
-	return WithFileLock(c.Path, func() error {
+	return WithFileLock(c.FS, c.Path, func() error {
 		if exists, _ := afero.Exists(c.FS, c.Path); exists {
 			mf, err := c.load()
 			if err != nil {

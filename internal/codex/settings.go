@@ -177,7 +177,7 @@ func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, mcp *wire.MCP
 	// the CLI, the runner, and an in-container ctxloom (same file
 	// bind-mounted) all reach this config.toml unlocked otherwise — see
 	// agent.WithFileLock's doc.
-	return agent.WithFileLock(settingsPath, func() error {
+	return agent.WithFileLock(fs, settingsPath, func() error {
 		if err := fs.MkdirAll(filepath.Dir(settingsPath), 0755); err != nil {
 			return fmt.Errorf("failed to create .codex directory: %w", err)
 		}
@@ -311,7 +311,7 @@ func (w *CodexHookWriter) removeSettingsIn(codexProjectDir string) error {
 	fs := w.getFS()
 	settingsPath := w.settingsPathIn(codexProjectDir)
 	// See writeSettingsIn: same file, same lock, same race to close.
-	return agent.WithFileLock(settingsPath, func() error {
+	return agent.WithFileLock(fs, settingsPath, func() error {
 		exists, err := afero.Exists(fs, settingsPath)
 		if err != nil {
 			return fmt.Errorf("cannot determine whether %s exists: %w", settingsPath, err)

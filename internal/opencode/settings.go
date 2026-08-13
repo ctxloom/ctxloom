@@ -507,7 +507,7 @@ func (w *OpencodeWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCon
 	// WriteContext) reads-modifies-writes, and the CLI/runner/MCP server/an
 	// in-container ctxloom (same file bind-mounted) all reach it unlocked
 	// otherwise — see agent.WithFileLock's doc.
-	return agent.WithFileLock(path, func() error {
+	return agent.WithFileLock(fs, path, func() error {
 		cfg, err := loadOpencodeConfig(fs, path)
 		if err != nil {
 			return err
@@ -547,7 +547,7 @@ func (w *OpencodeWriter) WriteContext(req agent.ContextWriteRequest) (agent.Cont
 	// same critical section keeps its Wrote/Removed report atomic with the
 	// opencode.json edit that references it.
 	var report agent.ContextReport
-	err := agent.WithFileLock(cfgPath, func() error {
+	err := agent.WithFileLock(fs, cfgPath, func() error {
 		// TrimSpace, not == "": whitespace-only content is no context at all,
 		// and must take this removal path rather than writing a blank
 		// instruction file opencode is then pointed at.
@@ -603,7 +603,7 @@ func (w *OpencodeWriter) removeMCP(projectDir string) error {
 	fs := w.getFS()
 	path := w.SettingsPath(projectDir)
 	// See WriteSettings: same file, same lock, same race to close.
-	return agent.WithFileLock(path, func() error {
+	return agent.WithFileLock(fs, path, func() error {
 		if exists, _ := afero.Exists(fs, path); exists {
 			cfg, err := loadOpencodeConfig(fs, path)
 			if err != nil {
@@ -632,7 +632,7 @@ func (w *OpencodeWriter) RemoveSettings(projectDir string) error {
 	fs := w.getFS()
 	path := w.SettingsPath(projectDir)
 	// See WriteSettings: same file, same lock, same race to close.
-	return agent.WithFileLock(path, func() error {
+	return agent.WithFileLock(fs, path, func() error {
 		if exists, _ := afero.Exists(fs, path); exists {
 			cfg, err := loadOpencodeConfig(fs, path)
 			if err != nil {

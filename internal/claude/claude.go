@@ -197,7 +197,7 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 	// a SessionStart hook, the MCP server, the CLI, the runner, and an
 	// in-container ctxloom (same file bind-mounted) all reach this same
 	// settings.json unlocked otherwise — see agent.WithFileLock's doc.
-	return agent.WithFileLock(settingsPath, func() error {
+	return agent.WithFileLock(fs, settingsPath, func() error {
 		// Ensure .claude directory exists
 		claudeDir := filepath.Dir(settingsPath)
 		if err := fs.MkdirAll(claudeDir, 0755); err != nil {
@@ -579,7 +579,7 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPCo
 
 	// See writeSettingsFile: the lock spans load through save, the whole RMW
 	// cycle a concurrent writer of the SAME .mcp.json could otherwise race.
-	return agent.WithFileLock(mcpPath, func() error {
+	return agent.WithFileLock(w.getFS(), mcpPath, func() error {
 		// Ensure the target directory exists, as writeSettingsFile does for
 		// .claude/. .mcp.json sits directly in projectDir, so this writer used to
 		// depend on someone else having created it — and for an out-of-cwd delivery
@@ -1020,7 +1020,7 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
 	// See writeSettingsFile: same file, same lock, same race to close.
-	return agent.WithFileLock(settingsPath, func() error {
+	return agent.WithFileLock(fs, settingsPath, func() error {
 		exists, err := configExists(fs, settingsPath)
 		if err != nil {
 			return err
@@ -1059,7 +1059,7 @@ func (w *ClaudeCodeHookWriter) removeMCPConfig(projectDir string) error {
 	fs := w.getFS()
 	mcpPath := w.MCPConfigPath(projectDir)
 	// See writeMCPConfig: same file, same lock, same race to close.
-	return agent.WithFileLock(mcpPath, func() error {
+	return agent.WithFileLock(fs, mcpPath, func() error {
 		exists, err := configExists(fs, mcpPath)
 		if err != nil {
 			return err

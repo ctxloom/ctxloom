@@ -259,6 +259,16 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// no information (every source is re-read in full) and would otherwise be
 	// appended to.
 	_ = os.Remove(tmp)
+	// The persist dir is normally created lazily by transcript.Recorder's
+	// ensureFile, on the first successful Record — but a rotation segment may
+	// be APPENDED onto tmp (appendFileBytes, a plain os.OpenFile) before any
+	// Recorder ever touches tmp, on a harp whose persist dir has never been
+	// created (this can be the very first canonical build for it). Without
+	// this, that append fails ENOENT before the live conversion — which does
+	// go through a Recorder — ever gets a chance to create the dir itself.
+	if mkErr := os.MkdirAll(filepath.Dir(tmp), 0o755); mkErr != nil {
+		return false, fmt.Errorf("create persist dir for %s: %w", e.HarpName, mkErr)
+	}
 
 	for _, rot := range e.Rotations {
 		if werr := appendRotationSegment(ctx, adapter, e, rot, tmp); werr != nil {

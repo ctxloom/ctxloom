@@ -324,28 +324,37 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine | marker                                |
       | kiro   | J002300-DELEGATE-MARKER-KIRO-2e9a16ef |
 
-    # @wip — A REAL PRODUCT GAP in opencode's delegated-child path, measured
-    # 2026-08-12 and deliberately NOT routed around. opencode child delegation
-    # was migrated onto the StartRun/runner model in the spool cutover's S3b
-    # slice (coord.viaStartRunBackends["opencode"] == true) and a full live
-    # round trip had never been run behind it. It does not work: in 240s,
-    # ZERO messages reached the coordinator's mailbox from the child's harp —
-    # not the child's own agent_send, not coord/children.go's bridgeTurnResult
-    # copy of its turn output, and not even a runner-exit report. Contrast the
-    # codex row above, which delivered a runner-exit report through that exact
-    # machinery, so the mailbox path itself is not the suspect.
+    # GREEN — and the one row here whose history is a warning about this row
+    # itself, not about opencode. Keep it: it is the reason to distrust a
+    # single live failure.
     #
-    # THE ENGINE IS NOT THE SUSPECT EITHER — both halves were isolated:
-    #   - `opencode run --model openrouter/openai/gpt-oss-20b:free` answers
-    #     normally on this host (credentials, provider and pinned model fine);
-    #   - `ctxloom run --agent delegate --one-shot` against THIS row's exact
-    #     agent/profile/bundle fixture returns the marker verbatim, so ctxloom's
-    #     opencode engine wiring AND its composed-context delivery are fine on
-    #     the run path.
-    # What is unproven is opencode as a DELEGATED CHILD specifically. Untag when
-    # a live opencode child returns its own marker here; until then this row is
-    # the standing, addressable proof that it does not.
-    @opencode @wip
+    # WHAT WAS FILED (2026-08-12): opencode child delegation had ridden the
+    # StartRun/runner model since the spool cutover's S3b slice
+    # (coord.viaStartRunBackends["opencode"] == true) with no live round trip
+    # ever run behind it, and this row's first run found ZERO messages reaching
+    # the coordinator's mailbox in 240s — no agent_send, no bridgeTurnResult
+    # turn copy, not even a runner-exit report, while the codex row delivered
+    # one through that exact machinery. Both other suspects were excluded at
+    # the time (`opencode run` answered normally; `ctxloom run --agent
+    # delegate --one-shot` against this row's exact fixture returned the marker
+    # verbatim), so it was filed as a delegated-child defect.
+    #
+    # WHAT THE INVESTIGATION FOUND (obstinate-amulet): it does NOT reproduce.
+    # 13 consecutive live runs at that same base came back green, and the
+    # original trigger remains unexplained — so the filed defect was closed
+    # unreproduced rather than "fixed". What the hunt DID find is the reason
+    # that silence was so hard to read: a runner whose standup died reported
+    # nothing at all for five minutes, so any cause presented identically as
+    # "zero messages". That is fixed at 2725325e — a dead runner now fails
+    # immediately, naming itself and carrying its own stderr.
+    #
+    # SO: if this row ever shows zero messages again, do not re-file from the
+    # symptom. The coordinator will now name the dead runner and quote its
+    # stderr, and THAT is the evidence to file. A bare timeout with no such
+    # message means something else entirely.
+    # Live-verified green here on the merged base (2725325e), with its own
+    # assertion-side mutation proof.
+    @opencode
     Examples:
       | engine   | marker                                    |
       | opencode | J002300-DELEGATE-MARKER-OPENCODE-7f05b391 |

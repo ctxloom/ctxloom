@@ -154,7 +154,9 @@ func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env,
 		return s.startDark(ctx, plan, env)
 	}
 	rt := isolation.SelectRuntime("docker")
-	pol := isolation.NewContainer(rt, s.image).WithSessionState(isolation.SessionStateFromEnv(env))
+	// Auth keys on the plan's engine, never on plan.AgentName — see
+	// containerAuthBackend.
+	pol := isolation.NewContainerFor(rt, containerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
 	if err != nil {
 		return nil, err
@@ -325,10 +327,11 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	t.Helper()
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container-progress integration test")
 	resetStrictness(t)
-	// The container profile authenticates the in-container engine via the
-	// scoped ANTHROPIC_* passthrough; mock ignores the value, but a resolvable
-	// auth is what clears PrepareWorkspace's gate under an isolated HOME.
-	t.Setenv("ANTHROPIC_API_KEY", "itest-mock-key")
+	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
+	// mock's container-auth resolver (resolveMockContainerAuth) resolves
+	// unconditionally because mock authenticates against no vendor. Needing a
+	// borrowed Anthropic key here would mean auth was being keyed on something
+	// other than the engine.
 
 	// Build BEFORE isolating cwd (ProjectDir chdirs outside the module).
 	image := buildBusIntegrationImage(t)

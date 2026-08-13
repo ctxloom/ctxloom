@@ -45,7 +45,7 @@ func newRunnerTestWorkspace() *containerWorkspace {
 // session-state + auth + overlay mounts (§6.4). This is the spec-level proof
 // that closes the peer-container hole for the delegated path.
 func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
-	c := NewContainer(fakeRuntime{name: "docker", binary: "docker", available: true}, "img")
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "docker", available: true}, "mock").WithImage("img")
 	cw := newRunnerTestWorkspace()
 	spawnEnv := map[string]string{
 		"CTXLOOM_COORD_URL":  "http://host:9000",
@@ -161,7 +161,7 @@ func TestStartDirectRunner_ContextIsNotTheTeardownHandle(t *testing.T) {
 		fakeRuntime: fakeRuntime{name: "docker", binary: "sh", available: true},
 		args:        []string{"-c", "sleep 0.4"},
 	}
-	c := NewContainer(rt, "img")
+	c := NewContainerFor(rt, "mock").WithImage("img")
 	cw := newRunnerTestWorkspace()
 
 	h, err := c.StartRunner(ctx, "mock", "", 0, cw, nil)

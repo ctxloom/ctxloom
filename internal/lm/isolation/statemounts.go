@@ -118,13 +118,13 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 		if err := os.MkdirAll(store, 0o755); err != nil {
 			return nil, fmt.Errorf("container session-state mounts: %w", err)
 		}
-		// transcriptStoreRel is set by every containerProfileFor branch; ""
-		// only reaches here through a hand-built profile, which then simply
+		// transcriptStoreRel is set by every engineContainerSpecFor branch; ""
+		// only reaches here through a hand-built spec, which then simply
 		// has no native store to persist.
-		if c.profile.transcriptStoreRel != "" {
+		if c.engineSpec.transcriptStoreRel != "" {
 			mounts = append(mounts, c.runtime.Expose(
 				store,
-				filepath.Join(c.home, c.profile.transcriptStoreRel),
+				filepath.Join(c.home, c.engineSpec.transcriptStoreRel),
 				false,
 			))
 		}

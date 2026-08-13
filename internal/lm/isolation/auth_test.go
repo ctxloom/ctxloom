@@ -221,7 +221,7 @@ func TestContainerAuthMode_String(t *testing.T) {
 
 // TestCredentialSeedSpecs_ClaudeCodeRegistered pins the registry entry claude
 // needs: keyed by the REGISTERED backend name "claude-code" (not "claude" —
-// see profile.go's containerProfileFor using the same key), the ANTHROPIC_API_KEY
+// see enginespec.go's engineContainerSpecFor using the same key), the ANTHROPIC_API_KEY
 // trigger, and the "claude" destSubdir that worktree.go's Env() already points
 // CLAUDE_CONFIG_DIR at.
 func TestCredentialSeedSpecs_ClaudeCodeRegistered(t *testing.T) {
@@ -651,8 +651,8 @@ func writeOpencodeAuth(t *testing.T, home string, withMcpAuth bool) {
 }
 
 // TestCredentialSeedSpecs_OpencodeRegistered pins the registry entry itself:
-// keyed by the registered backend name "opencode" (profile.go's
-// containerProfileFor uses the same key), OPENROUTER_API_KEY as envTrigger
+// keyed by the registered backend name "opencode" (enginespec.go's
+// engineContainerSpecFor uses the same key), OPENROUTER_API_KEY as envTrigger
 // (mirroring resolveOpencodeContainerAuth's container-side trigger — the
 // same var covers both axes), HonoursVarForCreds TRUE — UNLIKE kiro:
 // opencode's XDG_DATA_HOME genuinely relocates its credential file, not a

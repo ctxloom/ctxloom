@@ -51,10 +51,11 @@ const dockerExecIntegrationImage = "ctxloom-dockerexec-itest:latest"
 //     TCP LISTEN socket — the direct mauve-state negative for this path.
 func TestDockerExecInteractive_TurnEchoesNoListener(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the docker-exec interactive integration test")
-	// The default container profile authenticates via the scoped ANTHROPIC_*
-	// passthrough; the mock ignores the value, but a resolvable auth is what
-	// clears PrepareWorkspace's gate under an isolated HOME.
-	t.Setenv("ANTHROPIC_API_KEY", "itest-mock-key")
+	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
+	// mock's container-auth resolver (resolveMockContainerAuth) resolves
+	// unconditionally because mock authenticates against no vendor. Needing a
+	// borrowed Anthropic key here would mean auth was being keyed on something
+	// other than the engine.
 
 	image := buildDockerExecIntegrationImage(t)
 	projectDir := testsupport.ProjectDir(t) // isolated HOME + cwd; never the real ~/.ctxloom
@@ -63,7 +64,7 @@ func TestDockerExecInteractive_TurnEchoesNoListener(t *testing.T) {
 	env := map[string]string{"CTXLOOM_SESSION_HARP": harp, "CTXLOOM_PROJECT_ID": "dockerexec-itest"}
 
 	rt := isolation.SelectRuntime("docker")
-	pol := isolation.NewContainer(rt, image).WithSessionState(isolation.SessionStateFromEnv(env))
+	pol := isolation.NewContainerFor(rt, "mock").WithImage(image).WithSessionState(isolation.SessionStateFromEnv(env))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()

@@ -8,13 +8,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// containerProfile describes how ONE engine's containerized run is provisioned —
+// engineContainerSpec describes how ONE engine's containerized run is provisioned —
 // the backend-keyed knobs of the container policies (Container and the
 // worktree-in-container composition), which are otherwise engine-agnostic:
 //
 //   - image: the agent image tag this engine runs in (it must carry the engine
 //     CLI — a kiro run in a claude image would launch a container whose engine
-//     spawn fails, which is worse than degrading). For a COMPOSABLE profile
+//     spawn fails, which is worse than degrading). For a COMPOSABLE spec
 //     (engineInstall != nil) this is only the FALLBACK when the shared composed
 //     tag cannot be computed (e.g. the base content is unreadable); containerFor
 //     normally overrides it with the content-keyed composed tag (see
@@ -29,7 +29,7 @@ import (
 //     until an installer fragment is written; see composeAgentContainerfile,
 //     buildSources, composedIdentity). A prior fix deleted the legacy
 //     officialImage/containerfile fallback fields this comment used to
-//     describe: no profile, registered or hypothetical, ever set them, so the
+//     describe: no spec, registered or hypothetical, ever set them, so the
 //     fallback branch they gated in buildSources could never produce output.
 //   - validate: the in-image command that proves the client is runnable (the
 //     `<client> --version` build gate), used by the single-engine `--base-image`
@@ -58,11 +58,11 @@ import (
 //     against the CONTAINER home; an engine-home env override (CODEX_HOME &
 //     co.) is deliberately not consulted — the container axis never sets one.
 //
-// Profiles are keyed by the REGISTERED backend name (internal/lm/backends
+// Specs are keyed by the REGISTERED backend name (internal/lm/backends
 // registry: "claude-code", "kiro", ...). The isolation package deliberately does
 // not import the backends registry (it would drag the whole backend tree into
 // the seam); the names are part of the descriptor contract.
-type containerProfile struct {
+type engineContainerSpec struct {
 	image              string
 	engineInstall      []byte
 	validate           string
@@ -118,14 +118,14 @@ var opencodeOverlayDirs = []string{
 // mockSkillsPath — the shared ManagedSkillPackages delivery, the same
 // mechanism every other backend's skills surface uses). The whole ".mock"
 // parent is shadowed, not just "skills" underneath it, mirroring every other
-// profile's whole-managed-dir mount (.claude/.kiro/.codex/.opencode); .mock
+// spec's whole-managed-dir mount (.claude/.kiro/.codex/.opencode); .mock
 // has no other sibling content today, so the wider shadow costs nothing.
 // mock's CONTEXT surface (MOCK_CONTEXT.md, mockContextPath) is a PROJECT-ROOT
 // SINGLE FILE, deliberately NOT listed here — the same single-file residue
 // defaultOverlayDirs' doc flags for claude's .mcp.json and opencodeOverlayDirs'
 // for opencode.json: a file bind-mount would break the writers' atomic
 // write+rename (containerConfigOverlay's own doc: "directories only"). The
-// shared .ctxloom/cache rides along like every other profile's set — the
+// shared .ctxloom/cache rides along like every other spec's set — the
 // framed context file cache is engine-agnostic, not mock-specific.
 var mockOverlayDirs = []string{
 	".mock",
@@ -150,8 +150,8 @@ var mockOverlayDirs = []string{
 // builds onto (baseContractLayer's apt-get layer, or the embedded default
 // base). This fragment adds nothing to either guarantee.
 //
-// Its job is narrower: (1) be NON-NIL, so containerProfileFor("mock").
-// engineInstall marks the profile composable (buildSources' `p.engineInstall
+// Its job is narrower: (1) be NON-NIL, so engineContainerSpecFor("mock").
+// engineInstall marks the spec composable (buildSources' `p.engineInstall
 // != nil` check) and `ctxloom container build mock` stops failing "no local
 // build recipe" for a backend that plainly does not need one refused; and (2)
 // assert the one thing that genuinely IS mock-specific — `cat` — as a
@@ -316,7 +316,7 @@ var claudeCodeInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @
 // sourced from the SAME single declaration internal/codex/chat.go's Chat()
 // gate and DOCTOR-CHECK-ACPADAPTER-m3 read (internal/lm/backends'
 // agent.ACPTransport, ACPTransportFor("codex")) — this package deliberately
-// does not import internal/lm/backends (containerProfile's own doc, above:
+// does not import internal/lm/backends (engineContainerSpec's own doc, above:
 // "it would drag the whole backend tree into the seam"), so wiring this
 // fragment onto that descriptor is a separate, more invasive slice (e.g.
 // threading the resolved InstallCmd through composeAgentContainerfile's
@@ -418,15 +418,27 @@ func resolveEngines(configured []string) []string {
 	return out
 }
 
-// containerProfileFor maps a registered backend name to its container profile.
-// Unknown (and empty) names get the DEFAULT profile — today's claude-oriented
-// behaviour (the generic agent image + claude auth) with no local-build recipe,
-// so engines without a profile keep the pre-profile semantics: run if the
-// generic image is present, degrade if not.
-func containerProfileFor(backend string) containerProfile {
+// engineContainerSpecFor maps a registered backend name to its container spec.
+// The key is the ENGINE (the registered backend name), never an agent label or
+// an agent name: two agents bound to the same engine authenticate identically,
+// and two agents bound to DIFFERENT engines must not (the credential-crossing
+// this table exists to prevent). Callers therefore resolve it PER CALL from the
+// backend the run actually carries — a constructor that fixes it at build time
+// (the deleted NewContainer/NewContainerWorktree, which passed "") could only
+// ever name the wrong engine.
+//
+// An unmapped (or empty) name gets the default spec, whose AUTH fails closed
+// (noContainerAuth): its containerized run aborts at PrepareWorkspace's auth
+// gate rather than inheriting claude's credentials. The image/overlay/transcript
+// defaults it also carries stay claude-oriented, but they never run — the auth
+// gate is upstream of them. Config validation (operations.validateAgentAxes,
+// via HasContainerAuth) refuses `runtime: container` for such a backend at
+// WRITE time; this arm is the last line for the paths that never went through
+// a binding.
+func engineContainerSpecFor(backend string) engineContainerSpec {
 	switch backend {
 	case "claude-code":
-		return containerProfile{
+		return engineContainerSpec{
 			image: defaultContainerImage,
 			// No officialImage: ghcr.io/anthropics/claude-code appears in docs
 			// but does not resolve publicly (manifest unknown; verified live
@@ -442,7 +454,7 @@ func containerProfileFor(backend string) containerProfile {
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
 		}
 	case "kiro":
-		return containerProfile{
+		return engineContainerSpec{
 			image: "ctxloom-agent-kiro:latest",
 			// No officialImage: kiro ships no official container image (only
 			// community ones); the composed engineInstall fragment fetches the
@@ -468,7 +480,7 @@ func containerProfileFor(backend string) containerProfile {
 	case "codex":
 		// codex is now COMPOSABLE (its own official-installer fragment) AND
 		// has its OWN auth/overlay set — it no longer inherits
-		// the default (claude) profile's resolveAuth/authHint/overlayDirs,
+		// the default (claude) spec's resolveAuth/authHint/overlayDirs,
 		// which was a security edge (a containerized codex run
 		// silently mounting/passing the user's ANTHROPIC_* credentials into a
 		// foreign, non-Anthropic engine). image stays the default fallback
@@ -476,7 +488,7 @@ func containerProfileFor(backend string) containerProfile {
 		// tag computed from engineInstall by composedIdentity
 		// (imagebuild.go), which already carries the codex CLI — this field
 		// is only the name used when that composition cannot be computed.
-		p := containerProfileFor("")
+		p := engineContainerSpecFor("")
 		p.engineInstall = codexInstallFragment
 		p.validate = "codex --version"
 		p.resolveAuth = resolveCodexContainerAuth
@@ -489,7 +501,7 @@ func containerProfileFor(backend string) containerProfile {
 		// AND has its OWN auth/overlay set — see codex's case comment above
 		// for why inheriting the default (claude) auth was wrong for a
 		// non-Anthropic engine; the same fix applies here.
-		p := containerProfileFor("")
+		p := engineContainerSpecFor("")
 		p.engineInstall = opencodeInstallFragment
 		p.validate = "opencode --version"
 		p.resolveAuth = resolveOpencodeContainerAuth
@@ -506,7 +518,7 @@ func containerProfileFor(backend string) containerProfile {
 	// nothing to resolve (see that function's doc — this is a POSITIVE,
 	// verified fact about mock, not a template for a real engine).
 	// Deliberately its OWN case rather than falling to `default`: the
-	// default arm's resolveAuth (noContainerAuthProfile) exists precisely
+	// default arm's resolveAuth (noContainerAuth) exists precisely
 	// for engines whose auth needs are UNKNOWN, and mock's are known, so it
 	// does not belong there — and NOT added to composableEngines() (that
 	// roster question is escalated, not decided here; see this change's own
@@ -515,14 +527,14 @@ func containerProfileFor(backend string) containerProfile {
 	// transcriptStoreRel is deliberately "" — mock keeps NO transcripts at
 	// all (internal/lm/backends' NewMock wires &NilSessionHistory{}, its own
 	// doc: "mock keeps no transcripts"), so there is no native store root to
-	// bind-mount; sessionStateMounts' `if c.profile.transcriptStoreRel !=
+	// bind-mount; sessionStateMounts' `if c.engineSpec.transcriptStoreRel !=
 	// ""` guard already treats "" as "nothing to mount for this engine",
 	// the CORRECT reading here, not an oversight (contrast
-	// TestContainerProfileFor_EveryProfileMapsATranscriptStore, whose "every
+	// TestEngineContainerSpecFor_EverySpecMapsATranscriptStore, whose "every
 	// branch sets a non-empty root" invariant is scoped to
 	// composableEngines()+default and explicitly carves mock out).
 	case "mock":
-		return containerProfile{
+		return engineContainerSpec{
 			image:              defaultContainerImage,
 			engineInstall:      mockInstallFragment,
 			validate:           "cat --version",
@@ -536,20 +548,20 @@ func containerProfileFor(backend string) containerProfile {
 		// the unknown-backend default failed OPEN on credentials, so any
 		// unrecognized engine (a real, reachable path: registry.go registers
 		// a generic "acp" backend, and container_transport.go treats an
-		// unrecognized/empty engine name as this default profile) got the
+		// unrecognized/empty engine name as this default spec) got the
 		// user's ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN passed through and
 		// ~/.claude credentials copy-mounted into a FOREIGN engine's
 		// container. codex/kiro/opencode above each earned their
 		// own resolveAuth for exactly this reason; the default must not hand
 		// out Anthropic credentials to an engine nobody vetted. It now fails
-		// closed (noContainerAuthProfile) so an unprofiled engine degrades
+		// closed (noContainerAuth) so an unmapped engine degrades
 		// honestly instead of silently authenticating as claude.
-		return containerProfile{
+		return engineContainerSpec{
 			image:       defaultContainerImage,
-			resolveAuth: noContainerAuthProfile,
-			authHint:    "no container-auth profile is registered for this engine; add one in containerProfileFor rather than inheriting the default",
+			resolveAuth: noContainerAuth,
+			authHint:    noContainerAuthHint,
 			overlayDirs: defaultOverlayDirs,
-			// The default profile's image/store-map default stays
+			// The default spec's image/store-map default stays
 			// claude-oriented (harmless metadata); only the AUTH default
 			// changed — see the resolveAuth comment above.
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
@@ -557,7 +569,34 @@ func containerProfileFor(backend string) containerProfile {
 	}
 }
 
-// ContainerOverlayDirsFor returns a copy of containerProfileFor(backend)'s
+// noContainerAuthHint is the default spec's degrade diagnostic AND the marker
+// that identifies it: HasContainerAuth reads it back rather than comparing
+// resolveAuth function values (Go func values are not comparable), so the
+// "which engines have container auth" question is answered by the SAME table
+// that resolves the auth — there is no second roster to drift out of sync.
+const noContainerAuthHint = "no container auth is registered for this engine; register one in engineContainerSpecFor rather than inheriting the default"
+
+// HasContainerAuth reports whether backend (a REGISTERED backend name) has a
+// container-auth mapping — i.e. whether a `runtime: container` run of that
+// engine can authenticate at all. False means the engine reaches
+// engineContainerSpecFor's fail-closed default arm, so PrepareWorkspace would
+// abort on the auth gate. Exported for config validation
+// (operations.validateAgentAxes), which refuses the binding at write time
+// rather than letting the launch discover it.
+func HasContainerAuth(backend string) bool {
+	return engineContainerSpecFor(backend).authHint != noContainerAuthHint
+}
+
+// ContainerAuthEngines lists the backend names that DO have a container-auth
+// mapping, in the order engineContainerSpecFor declares them — the supported
+// set a rejection message names. Pinned against HasContainerAuth by
+// TestContainerAuthEngines_AllHaveAuth, so a spec added to the table without a
+// listing here (or vice versa) fails loudly.
+func ContainerAuthEngines() []string {
+	return []string{"claude-code", "codex", "kiro", "opencode", "mock"}
+}
+
+// ContainerOverlayDirsFor returns a copy of engineContainerSpecFor(backend)'s
 // overlayDirs — the project-relative managed-config directories a
 // containerized run of backend shadows. Exported read-only so tests/arch's
 // engine-layout gate (TestArch_EngineLayoutAgreement) can check this
@@ -566,17 +605,17 @@ func containerProfileFor(backend string) containerProfile {
 // package's own ConfigDirName constant, the same import-cycle reasoning as
 // ComposableEngines/CredentialSeedEngineNames above applies here too.
 func ContainerOverlayDirsFor(backend string) []string {
-	dirs := containerProfileFor(backend).overlayDirs
+	dirs := engineContainerSpecFor(backend).overlayDirs
 	out := make([]string, len(dirs))
 	copy(out, dirs)
 	return out
 }
 
-// ContainerTranscriptStoreRelFor returns containerProfileFor(backend)'s
+// ContainerTranscriptStoreRelFor returns engineContainerSpecFor(backend)'s
 // transcriptStoreRel — the engine's native transcript-store root, relative to
 // the container HOME (empty when the engine keeps no transcripts, e.g.
 // mock). Exported for the same engine-layout gate as
 // ContainerOverlayDirsFor.
 func ContainerTranscriptStoreRelFor(backend string) string {
-	return containerProfileFor(backend).transcriptStoreRel
+	return engineContainerSpecFor(backend).transcriptStoreRel
 }

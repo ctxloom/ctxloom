@@ -62,7 +62,7 @@ func (b worktreeBase) withState(state SessionState) containerBase {
 // leaks a checkout or a temp dir. This is the ONE place a botched collapse could
 // leak a checkout, so the unwind order is exact: worktree teardown first (here),
 // scratch removal after (the caller).
-func (b worktreeBase) prepareBase(ctx context.Context, rt Runtime, projectDir, agentID, _ string, _ containerProfile, _ git.Git) (string, []Mount, func() error, error) {
+func (b worktreeBase) prepareBase(ctx context.Context, rt Runtime, projectDir, agentID, _ string, _ engineContainerSpec, _ git.Git) (string, []Mount, func() error, error) {
 	raw, err := b.wt.PrepareWorkspace(ctx, projectDir, agentID)
 	if err != nil {
 		// The worktree never came up (non-git repo / add failed) — nothing created
@@ -96,32 +96,8 @@ func (b worktreeBase) prepareBase(ctx context.Context, rt Runtime, projectDir, a
 	return wt.dir, []Mount{gitMount}, wt.Cleanup, nil
 }
 
-// NewContainerWorktree builds the worktree-in-container policy over a container
-// runtime + an EXPLICIT image (default profile, no local build — see NewContainer)
-// and a Git seam (nil → the default git binary; tests pass a git.Fake to drive the
-// worktree lifecycle without a real repo). It is a plain Container with the
-// worktree base injected.
-func NewContainerWorktree(rt Runtime, image string, g git.Git) Container {
-	c := NewContainer(rt, image)
-	// backend "": this generic constructor carries no backend context (only
-	// callers today are tests fixing an explicit image). NOT harmless for a
-	// policy that will actually prepare a workspace: "" resolves to
-	// containerProfileFor's default arm, whose auth resolver fails closed, so
-	// PrepareWorkspace aborts with "no container-auth profile is registered for
-	// this engine". Production never reaches that — it builds this policy
-	// through NewContainerWorktreeFor with a real backend name (isolation.go's
-	// policy chain) — but a docker-backed test that calls PrepareWorkspace on
-	// THIS constructor will fail for that reason and not for anything it meant
-	// to assert. The wrapped Worktree's Env()/credential-seeding is separately
-	// unreachable here (see the package doc above: the unified
-	// containerWorkspace never implements EnvWorkspace), which is why passing
-	// "" to NewWorktree keeps its contract explicit at every call site.
-	c.base = worktreeBase{wt: NewWorktree(g, "")}
-	return c
-}
-
 // NewContainerWorktreeFor builds the worktree-in-container policy for a REGISTERED
-// backend name: the container half comes from the backend's container profile
+// backend name: the container half comes from the backend's container spec
 // (image, auth, build sources — see NewContainerFor) with the user's image
 // configuration applied (image override run as-is / base Containerfile for local
 // builds), the worktree half from the Git seam.

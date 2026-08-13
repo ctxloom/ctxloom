@@ -59,12 +59,17 @@ func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]s
 	// The session harp drives the session-state mounts (transcript survival),
 	// exactly as the host resolves it into the runner spawn env.
 	stateEnv := map[string]string{"CTXLOOM_SESSION_HARP": s.harp}
-	pol := isolation.NewContainer(rt, s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
+	// One name for the engine this starter runs: it keys the container AUTH
+	// (NewContainerFor) and names the runner backend (StartRunner below), so
+	// the two cannot drift into asking for one engine's credentials while
+	// launching another's.
+	const backend = "mock"
+	pol := isolation.NewContainerFor(rt, backend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, s.harp)
 	if err != nil {
 		return nil, err
 	}
-	handle, err := pol.StartRunner(ctx, "mock", "fast", 0, ws, spawnEnv)
+	handle, err := pol.StartRunner(ctx, backend, "fast", 0, ws, spawnEnv)
 	if err != nil {
 		_ = ws.Cleanup()
 		return nil, err
@@ -104,7 +109,11 @@ func (s *dockerOwnerRunStarter) containerNames() []string {
 func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned top-level container integration test")
 	resetStrictness(t)
-	t.Setenv("ANTHROPIC_API_KEY", "itest-mock-key")
+	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
+	// mock's container-auth resolver (resolveMockContainerAuth) resolves
+	// unconditionally because mock authenticates against no vendor. Needing a
+	// borrowed Anthropic key here would mean auth was being keyed on something
+	// other than the engine.
 
 	image := buildBusIntegrationImage(t)
 	projectDir := testsupport.ProjectDir(t)
@@ -215,7 +224,11 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned oneshot container integration test")
 	resetStrictness(t)
-	t.Setenv("ANTHROPIC_API_KEY", "itest-mock-key")
+	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
+	// mock's container-auth resolver (resolveMockContainerAuth) resolves
+	// unconditionally because mock authenticates against no vendor. Needing a
+	// borrowed Anthropic key here would mean auth was being keyed on something
+	// other than the engine.
 
 	image := buildBusIntegrationImage(t)
 	projectDir := testsupport.ProjectDir(t)

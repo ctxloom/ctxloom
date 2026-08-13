@@ -45,8 +45,8 @@ func TestRunAttached_SamePathMountAndTeardown(t *testing.T) {
 	const markerContent = "iso1-same-path-proof"
 	require.NoError(t, os.WriteFile(marker, []byte(markerContent), 0o644))
 
-	pol := NewContainer(rt, "alpine:latest")
-	// alpine:latest resolves NO engine, so ANY profile's auth requirement
+	pol := NewContainerFor(rt, "mock").WithImage("alpine:latest")
+	// alpine:latest resolves NO engine, so ANY spec's auth requirement
 	// would be a false gate here — this test proves the transport/mount
 	// primitive only, so bypass PrepareWorkspace's auth gate entirely by
 	// building the RunSpec directly instead of through the Container policy

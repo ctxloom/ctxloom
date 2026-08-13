@@ -25,26 +25,25 @@ import (
 // silently leaving a containerized engine with no MCP surface.
 const mcpSocketEnvVar = "CTXLOOM_MCP_SOCKET"
 
-// containerProfileBackend maps ACPConfig.AgentEngine's kiro/claude/codex
-// vocabulary (see its doc comment above) onto isolation's container-profile
+// isolationBackendFor maps ACPConfig.AgentEngine's kiro/claude/codex
+// vocabulary (see its doc comment above) onto isolation's container-spec
 // backend-registry keys ("claude-code" / "kiro" / "codex" / "opencode" —
-// see internal/lm/isolation/profile.go's containerProfileFor doc): the two
+// see internal/lm/isolation/enginespec.go's engineContainerSpecFor doc): the two
 // vocabularies were never unified. Names already shared between them (kiro,
 // codex, opencode) pass through unchanged; an unrecognized/empty engine name
-// ALSO passes through unchanged — and containerProfileFor's default arm now
-// FAILS CLOSED on auth (noContainerAuthProfile), so an unmapped name does not
-// get a working generic profile: PrepareWorkspace aborts with "no
-// container-auth profile is registered for this engine". That is deliberate —
-// the default used to hand the user's Anthropic credentials to whatever engine
-// happened to be unrecognized — but it means a containerized run of an unmapped
-// engine is not a degraded run, it is no run at all. "agy" is one such
-// unrecognized name post-0.7.0: antigravity's own container profile was removed
-// with the engine, so a containerized "agy" now fails loudly here rather than
-// routing to a profile that no longer exists. The generic "acp" backend
-// registered in internal/lm/backends is in the same position: registered and
-// selectable, but with no container-auth profile, so it cannot run
-// containerized until one is added in containerProfileFor.
-func containerProfileBackend(agentEngine string) string {
+// ALSO passes through unchanged — and engineContainerSpecFor's default arm
+// FAILS CLOSED on auth (noContainerAuth), so an unmapped name does not get a
+// working generic spec: PrepareWorkspace aborts loudly, and agent-binding
+// validation refuses runtime:container for engines with no container auth
+// before a run ever launches. That is deliberate — the default used to hand
+// the user's Anthropic credentials to whatever engine happened to be
+// unrecognized. "agy" is one such unrecognized name post-0.7.0: antigravity's
+// container spec was removed with the engine, so a containerized "agy" fails
+// loudly rather than routing to a spec that no longer exists. The generic
+// "acp" backend is in the same position: registered and selectable, but with
+// no container auth, so it cannot run containerized until a spec is added in
+// engineContainerSpecFor.
+func isolationBackendFor(agentEngine string) string {
 	switch strings.ToLower(agentEngine) {
 	case claudeEngineName:
 		return "claude-code"
@@ -90,7 +89,7 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 		return nil, fmt.Errorf("acp: agent %q needs runtime:container but no container runtime is reachable (docker or podman CLI on PATH with its daemon up) — install/start docker or podman, or switch this agent's runtime to host", engine)
 	}
 
-	pol := isolation.NewContainerFor(rt, containerProfileBackend(b.agentEngine))
+	pol := isolation.NewContainerFor(rt, isolationBackendFor(b.agentEngine))
 	if b.containerImage != "" {
 		pol = pol.WithImage(b.containerImage)
 	}

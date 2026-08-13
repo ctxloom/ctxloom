@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -578,4 +579,93 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 	require.NoError(t, rerr)
 	_, ok := reloaded.Agent("scout")
 	assert.False(t, ok, "a refused write must not half-apply a binding")
+}
+
+// TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth pins the
+// binding-time half of the container-auth rule: container auth is keyed on the
+// ENGINE, and an engine with no mapping (the generic "acp" backend today) has
+// no credentials to give a containerized run. Before this check the pair was
+// happily written and `agent list` showed a normal-looking agent; the failure
+// arrived at the first launch, from isolation, as "no container auth is
+// registered for this engine" — a config defect reported by a subsystem the
+// user never named.
+//
+// The message is asserted as a PAYLOAD, not just as an error: a refusal that
+// does not name the engines that DO work sends the user back to guessing.
+func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
+
+	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+		Name:     "editor",
+		LLM:      ptr("acp"),
+		Profiles: ptr([]string{"default"}),
+		Runtime:  ptr("container"),
+	})
+	require.Error(t, err, "`backend: acp` + `runtime: container` has no way to authenticate the engine and must be refused at write time")
+	msg := err.Error()
+	assert.Contains(t, msg, "editor", "the refusal must name the agent it refused")
+	assert.Contains(t, msg, "acp", "the refusal must name the engine that cannot be containerized")
+	assert.Contains(t, msg, "container auth", "the refusal must say WHAT is missing, not just that something is wrong")
+	for _, supported := range isolation.ContainerAuthEngines() {
+		assert.Containsf(t, msg, supported, "the refusal must name the supported set, including %q", supported)
+	}
+	assert.Contains(t, msg, "runtime: host", "the refusal must name the way out")
+
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	_, ok := reloaded.Agent("editor")
+	assert.False(t, ok, "a refused SetAgent call must persist nothing")
+}
+
+// TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn is the edit half,
+// and the one a narrower fix would miss: neither `--runtime container` nor
+// `--engine acp` is wrong on its own — the PAIR is. So each field is validated
+// against the value the OTHER one already holds (the same rule the surface
+// preference above follows), from either direction, and a live binding is never
+// left half-updated into a shape that cannot launch.
+func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
+	mgr := managerFor(appDir)
+
+	// An acp agent on the host is perfectly legal.
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{
+		Name:    "editor",
+		LLM:     ptr("acp"),
+		Runtime: ptr("host"),
+	})
+	require.NoError(t, err)
+
+	// Adding runtime: container to it is not — the recorded engine is read.
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "editor", Runtime: ptr("container")})
+	require.Error(t, err, "the recorded engine must be read when only the runtime is set")
+	assert.Contains(t, err.Error(), "acp")
+
+	final, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok := final.Agent("editor")
+	require.True(t, ok, "the existing agent must survive a refused edit")
+	assert.Equal(t, "acp", sub.LLM, "a refused edit must not corrupt the binding it was editing")
+
+	// And a mapped engine takes the same runtime happily — the accepting side,
+	// which a too-broad refusal would break.
+	for _, engine := range []string{"claude-code", "claude-fast", "mock"} {
+		reloaded, err := config.Load(config.WithAppDir(appDir))
+		require.NoError(t, err)
+		_, err = SetAgent(mgr, reloaded, SetAgentRequest{
+			Name:    "worker",
+			LLM:     ptr(engine),
+			Runtime: ptr("container"),
+		})
+		require.NoErrorf(t, err, "engine %q has container auth, so `runtime: container` must be accepted", engine)
+	}
+
+	// An agent with NO engine on the binding is left alone: its engine comes
+	// from the composed profiles' llm and the project default at resolve time,
+	// so there is no knowable pair to refuse here.
+	reloaded, err = config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "unbound", Runtime: ptr("container")})
+	require.NoError(t, err, "an engineless binding has no pair to judge at write time")
 }

@@ -396,9 +396,14 @@ contributes **nothing** — the run aborts at the choke gate, or under `--degrad
 falls back to the host's own home. Handing the engine a controlled home it cannot
 authenticate against would trade a working run for a mysterious 401.
 
-## Per-engine container profiles
+## Per-engine container specs
 
-`containerProfileFor(backend)` — `profile.go:400`. `composableEngines()`
+`engineContainerSpecFor(backend)` — `internal/lm/isolation/enginespec.go` (called
+`containerProfileFor` in `profile.go` until 0.7.0; renamed because "profile" is
+ctxloom's *context-composition* concept and the collision is what let two call
+sites key this table on an agent label instead of an engine). The key is the
+REGISTERED BACKEND NAME, resolved **per call** from the backend the run carries —
+never fixed at construction time. `composableEngines()`
 (`profile.go:357`) returns exactly
 `["antigravity", "claude-code", "codex", "kiro", "opencode"]`. `resolveEngines`
 (`profile.go:368`) filters a configured `isolation_engines` set against that list,
@@ -411,7 +416,18 @@ in that order, never widening.
 | `codex` | default tag (`:453`) | npm `@openai/codex` **+** `@zed-industries/codex-acp` (`:454`) | `codex --version` + adapter ACP gate | `codexOverlayDirs` (`:458`) | `.codex/sessions` (`:459`) |
 | `opencode` | default tag (`:462`) | official script, relocated from `$HOME/.opencode/bin` (`:467`) | `opencode --version` + `nativeACPRunGate` — gates on **text, not exit status** (opencode exits 0 with no `acp` command, measured 2026-07-24) | `opencodeOverlayDirs` (`:471`) | `.local/share/opencode` (`:472`) |
 | `antigravity` | default tag (`:489`) | official `install.sh` (`:490`) | `agy --version` only (no ACP gate) | **nil** (`:497`) | `.gemini/antigravity-cli/brain` (`:498`) |
-| **default arm** | `ctxloom-agent:latest` (`:502`) | none | none | `defaultOverlayDirs` (`:505`) | `.claude/projects` (`:508`) |
+| **default arm** (unmapped engine) | `ctxloom-agent:latest` | none | none | `defaultOverlayDirs` | `.claude/projects` |
+
+The default arm's `resolveAuth` is `noContainerAuth`: an engine with no mapping
+gets **no credentials at all** and its containerized run aborts at
+`PrepareWorkspace`'s auth gate. `isolation.HasContainerAuth(backend)` /
+`ContainerAuthEngines()` expose that same table so the refusal can happen
+*earlier*, at configuration time: `operations.validateContainerAuth` (run from
+`validateAgentAxes`, i.e. `agent create`/`agent edit`/`SetAgent`) rejects a
+binding whose resulting `{engine, runtime: container}` pair names an engine with
+no mapping — `backend: acp` today — naming the supported set in the error. The
+launch-time gate stays as the last line for paths that never went through a
+binding.
 
 The build gates verify the engine is **runnable**, not merely installed: every
 fragment ends in `<client> --version`, and for ACP-driven engines an ACP-surface run
@@ -488,7 +504,7 @@ rather than destroying anything WIP-bearing.
 
 **Credential and coverage gaps**
 
-- **The default (unprofiled) container profile authenticates with claude credentials** (`profile.go:500-510`): the `default:` arm returns a claude-oriented profile with `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container. Reachable — `registry.go:391` registers a generic `acp` backend, and `internal/acp/container_transport.go:24-38` documents that an unrecognized or empty `agent_engine` passes through unchanged. The codex / opencode / antigravity branches exist specifically to close this edge.
+- ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED `a6d9bd95`.** The `default:` arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable: a generic `acp` backend is registered, and `internal/acp`'s container transport passes an unrecognized or empty `agent_engine` through unchanged). It now fails **closed** (`noContainerAuth`) and the launch aborts; `operations.validateContainerAuth` refuses such a binding at write time so the abort is not the first the user hears of it.
 - **A backend in neither `credentialSeedSpecs` nor `curatedHomeSpecs` gets a worktree with zero engine-global isolation and no finding at all** (`auth.go:341` bare `return nil`; `Env():526` emits nothing) while the run reports "worktree". Live for `acp` and `mock`. `auth.go:650-653` names this exact branch as the bug that was fixed *for opencode only*.
 - **The curated-HOME allowlist symlinks the whole `~/.ssh`** (`curatedhome.go:65`, `[".gitconfig", ".ssh"]`) while the adjacent comment excludes `.netrc` / `.npmrc` / `.gnupg` on secret-exclusion grounds.
 - **On every plain host codex run the OpenAI credential is copied into the project working tree** (`internal/codex/backend.go:287` → `auth.go:685-702`) and no `Cleanup` path removes it; ctxloom's managed ignore set covers `.codex/config.toml` but not `.codex/auth.json`.

@@ -23,7 +23,7 @@ import (
 //
 // Sourcing the fragment FROM the descriptor is the real fix and is a
 // separate, more invasive slice: this package deliberately does not import
-// internal/lm/backends (containerProfile's doc — it would drag the whole
+// internal/lm/backends (engineContainerSpec's doc — it would drag the whole
 // backend tree into the isolation seam), and internal/codex depends on this
 // package, so neither literal can move to the other without a layering
 // change. What CAN be had now is the invariant, maintained rather than

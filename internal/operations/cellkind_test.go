@@ -25,8 +25,8 @@ func TestCellKindForPolicy(t *testing.T) {
 	}{
 		{"none→shared", isolation.None{}, agent.CellKindShared, pb.CellKind_CELL_KIND_SHARED},
 		{"worktree→directory-isolated", isolation.NewWorktree(nil, ""), agent.CellKindDirectoryIsolated, pb.CellKind_CELL_KIND_DIRECTORY_ISOLATED},
-		{"container→process-isolated", isolation.NewContainer(nil, "img"), agent.CellKindProcessIsolated, pb.CellKind_CELL_KIND_PROCESS_ISOLATED},
-		{"container-worktree→process-isolated", isolation.NewContainerWorktree(nil, "img", nil), agent.CellKindProcessIsolated, pb.CellKind_CELL_KIND_PROCESS_ISOLATED},
+		{"container→process-isolated", isolation.NewContainerFor(nil, "mock").WithImage("img"), agent.CellKindProcessIsolated, pb.CellKind_CELL_KIND_PROCESS_ISOLATED},
+		{"container-worktree→process-isolated", isolation.NewContainerWorktreeFor(nil, "mock", isolation.ImageConfig{Image: "img"}, nil), agent.CellKindProcessIsolated, pb.CellKind_CELL_KIND_PROCESS_ISOLATED},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

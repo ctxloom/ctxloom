@@ -326,7 +326,7 @@ func warnUnknownAxes(a Axes) {
 // auto-detected devcontainer / the embedded default base. AppRoot +
 // NoDevcontainerBase + DevcontainerService drive the auto-detected project
 // devcontainer base; Engines selects a COMPOSABLE backend's
-// engine set. Zero value = the backend profile's defaults (devcontainer
+// engine set. Zero value = the backend spec's defaults (devcontainer
 // auto-detect ON, engines = every known official-installer fragment).
 type ImageConfig struct {
 	Image             string
@@ -431,7 +431,7 @@ func IsContainerPolicyName(name string) bool {
 }
 
 // Prepare prepares a workspace for the requested axes and the run's BACKEND
-// (per-member engines — the backend picks the container profile, with the
+// (per-member engines — the backend picks the container spec, with the
 // user's ImageConfig applied), walking chainFor's degrade chain until a policy
 // prepares (None never fails). It returns the policy that succeeded and its
 // prepared workspace. One mechanism serves the top-level session and every

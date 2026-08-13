@@ -50,7 +50,7 @@ const (
 // the choke owner aborts on unless --degraded (CLAUDE.md fail-loudly).
 //
 // AUTH crosses the boundary deliberately and scoped (PrepareWorkspace → the
-// profile's resolveAuth): the container gets the engine's scoped env passthrough
+// spec's resolveAuth): the container gets the engine's scoped env passthrough
 // (claude: ANTHROPIC_* when ANTHROPIC_API_KEY is set; kiro: KIRO_API_KEY) or the
 // engine's credentials bind-mounted READ-ONLY into the fresh HOME (claude
 // subscription OAuth). No resolvable auth → PrepareWorkspace errors → the caller
@@ -75,15 +75,15 @@ type Container struct {
 	// base-specific mounts (config overlay + gitdir mirror for the host; the .git
 	// common-dir mirror for a worktree), the base-specific teardown (noop vs the
 	// WIP-safe worktree teardown), and the policy name ("container" |
-	// "container-worktree"). Default hostBase on every NewContainer* path;
-	// NewContainerWorktree* inject worktreeBase. Nil only on a bare test-built
+	// "container-worktree"). Default hostBase on the NewContainerFor/containerFor
+	// paths; NewContainerWorktreeFor injects worktreeBase. Nil only on a bare test-built
 	// Container{} — Name()/withSessionState nil-guard it.
 	base       containerBase
 	image      string
-	profile    containerProfile // backend-keyed knobs: auth, overlays, local-build recipe
-	binaryPath string           // the container's ctxloom path (runs `llm serve <backend>`)
-	home       string           // fresh $HOME inside the container
-	socketDir  string           // fixed in-container unix-socket dir (bind-mount target)
+	engineSpec engineContainerSpec // backend-keyed knobs: auth, overlays, local-build recipe
+	binaryPath string              // the container's ctxloom path (runs `llm serve <backend>`)
+	home       string              // fresh $HOME inside the container
+	socketDir  string              // fixed in-container unix-socket dir (bind-mount target)
 	// baseContainerfile is the user-provided base Containerfile a local build
 	// layers the agent stage onto (config isolation_base_containerfile;
 	// "" = the embedded default base). Beats devcontainer auto-detection
@@ -92,7 +92,7 @@ type Container struct {
 	// appRoot is the project root devcontainer auto-detection resolves
 	// .devcontainer/devcontainer.json (or .devcontainer.json) against; ""
 	// disables auto-detection (same effect as noDevcontainerBase — the zero
-	// Container built by NewContainer/NewContainerFor never auto-detects).
+	// Container built by NewContainerFor never auto-detects).
 	appRoot string
 	// noDevcontainerBase opts out of devcontainer auto-detection (config
 	// isolation_devcontainer_base: false).
@@ -113,7 +113,7 @@ type Container struct {
 	// git is the DI seam used to resolve the live project's git common-dir when
 	// the project is itself a LINKED WORKTREE (or submodule) — see
 	// gitdirMirrorMount. Nil on the normal construction paths
-	// (NewContainer/NewContainerFor/containerFor); gitSeam defaults it to the
+	// (NewContainerFor/containerFor); gitSeam defaults it to the
 	// real git binary. Tests inject a git.Fake.
 	git git.Git
 }
@@ -121,35 +121,30 @@ type Container struct {
 // Ensure Container satisfies the Policy interface.
 var _ Policy = Container{}
 
-// NewContainer builds a container policy bound to a runtime + an EXPLICIT image
-// over the default (claude-oriented) profile, with no local-build recipe — the
-// image the caller names either exists or the gate degrades. Exposed for the
-// docker-gated integration test and callers with a resolved image; the normal
-// {workspace, container} axis resolution (chainFor/Prepare) goes through
-// NewContainerFor instead.
-func NewContainer(rt Runtime, image string) Container {
-	c := NewContainerFor(rt, "")
-	c.image = image
-	return c
-}
-
 // NewContainerFor builds the container policy for a REGISTERED backend name: the
-// backend's container profile picks the agent image, the auth resolver, the
+// backend's container spec picks the agent image, the auth resolver, the
 // managed-config overlay set, and the build sources that let ensureImage build
-// the image locally when it is absent. Unknown/empty names get the default
-// profile: the generic agent image, no local build, and an auth resolver that
-// FAILS CLOSED (noContainerAuthProfile) rather than inheriting claude's. So a
-// policy built with an unknown or empty backend name cannot PrepareWorkspace at
-// all — it aborts with "no container-auth profile is registered for this
-// engine". Callers that have a real backend name must pass it; passing "" is
-// only correct where the policy is never used to prepare a workspace.
+// the image locally when it is absent.
+//
+// backend is REQUIRED and is the ENGINE name, resolved per call from whatever
+// the run actually carries (a SpawnPlan's Backend, an agent binding's resolved
+// engine) — never an agent label, never a fixed "". There is deliberately no
+// image-only constructor: the pair it used to build (an explicit image over the
+// EMPTY backend) resolves to the fail-closed default auth, so every caller of it
+// aborted at PrepareWorkspace's auth gate. A caller with a resolved image of its
+// own says which engine's auth it wants and overrides the image explicitly:
+// NewContainerFor(rt, "mock").WithImage(img).
+//
+// An unmapped name still constructs — the auth gate, not this constructor, is
+// where it fails (see engineContainerSpecFor's default arm) — so a degrade chain
+// keeps its single failure point.
 func NewContainerFor(rt Runtime, backend string) Container {
-	p := containerProfileFor(backend)
+	p := engineContainerSpecFor(backend)
 	return Container{
 		runtime:    rt,
 		base:       hostBase{},
 		image:      p.image,
-		profile:    p,
+		engineSpec: p,
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
 		socketDir:  defaultContainerSocketDir,
@@ -176,11 +171,11 @@ func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 	c.engines = img.Engines
 	if img.Image != "" {
 		c.image = img.Image
-		c.profile.engineInstall = nil
+		c.engineSpec.engineInstall = nil
 		return c
 	}
 	devBase, _ := resolveDevBase(c.appRoot, c.noDevcontainerBase, c.devcontainerService)
-	if image, _, ok := composedIdentity(c.profile, c.baseContainerfile, devBase, c.engines); ok {
+	if image, _, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engines); ok {
 		c.image = image
 	}
 	return c
@@ -196,7 +191,7 @@ func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 // into an advisory guidance line.
 func (c Container) containerBuildSources(baseOverride string) (sources []buildSource, devBase *baseStage, err error) {
 	devBase, err = resolveDevBase(c.appRoot, c.noDevcontainerBase, c.devcontainerService)
-	sources = buildSources(c.profile, buildSourcesOptions{
+	sources = buildSources(c.engineSpec, buildSourcesOptions{
 		baseOverride:      baseOverride,
 		baseContainerfile: c.baseContainerfile,
 		devBase:           devBase,
@@ -207,9 +202,9 @@ func (c Container) containerBuildSources(baseOverride string) (sources []buildSo
 
 // provenanceFor resolves this container's provenance label for the given
 // resolved devcontainer base: composedIdentity's engine-aware digest for a
-// COMPOSABLE profile, else the legacy HostProvenanceDigest.
+// COMPOSABLE spec, else the legacy HostProvenanceDigest.
 func (c Container) provenanceFor(devBase *baseStage) string {
-	if _, prov, ok := composedIdentity(c.profile, c.baseContainerfile, devBase, c.engines); ok {
+	if _, prov, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engines); ok {
 		return prov
 	}
 	return HostProvenanceDigest(c.baseContainerfile)
@@ -256,7 +251,7 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 	// checkout and mirrors its .git common-dir. A base that created a resource
 	// (a worktree) unwinds it WIP-safely before returning the error; the scratch
 	// removal is ours regardless, so a degrade never leaks a temp dir.
-	dir, baseMounts, baseCleanup, err := c.base.prepareBase(ctx, c.runtime, projectDir, agentID, sc.root, c.profile, c.gitSeam())
+	dir, baseMounts, baseCleanup, err := c.base.prepareBase(ctx, c.runtime, projectDir, agentID, sc.root, c.engineSpec, c.gitSeam())
 	if err != nil {
 		_ = os.RemoveAll(sc.root)
 		return nil, err
@@ -350,16 +345,16 @@ func (c Container) WithSessionState(state SessionState) Container {
 	return c
 }
 
-// WithImage overrides this Container's resolved image, keeping the profile's
+// WithImage overrides this Container's resolved image, keeping the spec's
 // auth/overlay/transcript knobs (whichever engine's auth the caller can
 // actually resolve) but running a DIFFERENT image — e.g. a docker-gated
-// test's minimal harness image, which has nothing to do with the profile's
+// test's minimal harness image, which has nothing to do with the spec's
 // own engine but needs SOME resolvable auth to clear PrepareWorkspace's gate.
-// Exposed as a narrow, explicit override (not a general profile mutator) so
+// Exposed as a narrow, explicit override (not a general spec mutator) so
 // production callers (NewContainerFor/containerFor) are unaffected: only a
 // caller that deliberately wants this specific mismatch reaches for it.
 //
-// The image is USER-OWNED, so the profile's local-build recipe is dropped with
+// The image is USER-OWNED, so the spec's local-build recipe is dropped with
 // it — the same pairing containerFor makes for an isolation_images override, and
 // for the same two reasons: ctxloom must not rebuild a tag the caller supplied,
 // and runAsIs() must report true so checkRunAsIsIdentity's pre-start contract
@@ -368,7 +363,7 @@ func (c Container) WithSessionState(state SessionState) Container {
 // the only signal there is.
 func (c Container) WithImage(image string) Container {
 	c.image = image
-	c.profile.engineInstall = nil
+	c.engineSpec.engineInstall = nil
 	return c
 }
 
@@ -485,11 +480,11 @@ type containerBase interface {
 	// the base-specific mounts, and a cleanup that tears the base's own resource
 	// down (called by containerWorkspace.Cleanup AFTER the shared scratch is
 	// removed). rt/g are the runtime + git seams, scratchRoot the already-created
-	// host scratch (the caller removes it), profile the managed-config overlay set.
+	// host scratch (the caller removes it), spec the managed-config overlay set.
 	// A failure returns the error so the caller removes the scratch and the chain
 	// degrades; a base that already created a resource (a worktree) unwinds it
 	// WIP-safely before returning.
-	prepareBase(ctx context.Context, rt Runtime, projectDir, agentID, scratchRoot string, profile containerProfile, g git.Git) (dir string, mounts []Mount, cleanup func() error, err error)
+	prepareBase(ctx context.Context, rt Runtime, projectDir, agentID, scratchRoot string, spec engineContainerSpec, g git.Git) (dir string, mounts []Mount, cleanup func() error, err error)
 	// withState stamps the run's session identity onto the base — worktreeBase
 	// stamps its Worktree's ephemeral-scratch home; hostBase is a no-op. Returns
 	// the stamped base (bases are value types).
@@ -517,8 +512,8 @@ func (hostBase) withState(SessionState) containerBase { return hostBase{} }
 // engine's config writers off the host project, and a pointer-file .git gets its
 // common dir mirrored so in-container git resolves. Failure returns the error
 // (the caller removes the scratch); nothing host-side is created to unwind.
-func (hostBase) prepareBase(ctx context.Context, rt Runtime, projectDir, _, scratchRoot string, profile containerProfile, g git.Git) (string, []Mount, func() error, error) {
-	overlays, created, err := containerConfigOverlay(rt, projectDir, scratchRoot, profile.overlayDirs)
+func (hostBase) prepareBase(ctx context.Context, rt Runtime, projectDir, _, scratchRoot string, spec engineContainerSpec, g git.Git) (string, []Mount, func() error, error) {
+	overlays, created, err := containerConfigOverlay(rt, projectDir, scratchRoot, spec.overlayDirs)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -642,7 +637,7 @@ func containerScratchBase() string {
 
 // prepareContainerScratch runs the container degrade gate — a launchable runtime,
 // the required image present (or locally buildable, see ensureImage), and
-// resolvable engine auth (the profile's resolver) — then provisions the host
+// resolvable engine auth (the spec's resolver) — then provisions the host
 // scratch (temp root + socket dir). Any gate failure returns an error so the
 // caller degrades (the top-level run → None; a fan-out member → a bare worktree).
 // It is the shared front-half of BOTH the top-level Container workspace and the
@@ -686,10 +681,10 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
 	}
-	auth, ok := c.profile.resolveAuth(c.home, root)
+	auth, ok := c.engineSpec.resolveAuth(c.home, root)
 	if !ok {
 		_ = os.RemoveAll(root)
-		return containerScratch{}, fmt.Errorf("container auth: %s", c.profile.authHint)
+		return containerScratch{}, fmt.Errorf("container auth: %s", c.engineSpec.authHint)
 	}
 	// Session-state persistence is part of the container gate: a run whose
 	// state dirs cannot be prepared errors here so the caller's degrade chain
@@ -766,7 +761,7 @@ func (c Container) launchSpec(backendName, label string, verbosity int, cw *cont
 }
 
 // containerConfigOverlay builds one bind mount per managed-config directory
-// (the profile's overlayDirs — project-relative DIRECTORIES the engine's
+// (the spec's overlayDirs — project-relative DIRECTORIES the engine's
 // managed-config writers target under the run's cwd), backed by a scratch dir
 // under scratchRoot SEEDED from the project's existing content, whose container
 // target shadows the same path inside the bind-mounted project. For a container
@@ -912,7 +907,7 @@ func (c Container) imagePresent(ctx context.Context) bool {
 const overrideIdentityFixIt = "base the isolation_images override on a ctxloom-built agent image (or install ctxloom-entrypoint as its ENTRYPOINT — see `ctxloom container build`), or pass --degraded to run it with the image's own identity"
 
 // runAsIs reports whether this policy runs a USER-OWNED image as-is (an
-// isolation_images override, or an explicit image on a profile with no local
+// isolation_images override, or an explicit image on a spec with no local
 // recipe): no build source exists, so nothing ctxloom authored — the identity
 // entrypoint included — is guaranteed to be in the image.
 func (c Container) runAsIs() bool {

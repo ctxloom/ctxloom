@@ -55,15 +55,15 @@ func TestChat_ContainerRuntimeUnavailable_FailsLoud(t *testing.T) {
 	assert.False(t, stillOpen, "out must be closed on a container-transport failure")
 }
 
-// TestContainerProfileBackend_MapsKnownAliases pins the ACPConfig.AgentEngine
-// (kiro/claude/codex) -> isolation container-profile-key (claude-code/
+// TestIsolationBackendFor_MapsKnownAliases pins the ACPConfig.AgentEngine
+// (kiro/claude/codex) -> isolation container-spec-key (claude-code/
 // kiro/codex/opencode) translation: the two vocabularies were
 // never unified (see the function's doc), so a drift here would silently
-// route a claude agent onto the WRONG image/auth profile. "agy" is
-// deliberately in the unmapped set below: antigravity's container profile
+// route a claude agent onto the WRONG image/auth spec. "agy" is
+// deliberately in the unmapped set below: antigravity's container spec
 // was removed in 0.7.0, so it now falls through like any other unrecognized
 // name.
-func TestContainerProfileBackend_MapsKnownAliases(t *testing.T) {
+func TestIsolationBackendFor_MapsKnownAliases(t *testing.T) {
 	cases := map[string]string{
 		"claude":      "claude-code",
 		"Claude":      "claude-code", // case-insensitive
@@ -75,7 +75,7 @@ func TestContainerProfileBackend_MapsKnownAliases(t *testing.T) {
 		"unknown-cli": "unknown-cli",
 	}
 	for in, want := range cases {
-		assert.Equal(t, want, containerProfileBackend(in), "agent_engine %q", in)
+		assert.Equal(t, want, isolationBackendFor(in), "agent_engine %q", in)
 	}
 }
 

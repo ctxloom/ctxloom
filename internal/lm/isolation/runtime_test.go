@@ -338,8 +338,8 @@ func TestInContainerFrom_Markers(t *testing.T) {
 // spec built without a home. The guard is real, but the empty case is
 // unreachable for any spec that launches an ENGINE: home is not a per-call
 // parameter, it is Container.home, assigned defaultContainerHome by
-// NewContainerFor — the sole constructor every production path (NewContainer,
-// containerFor, containerWorktreeFor) routes through — and threaded verbatim
+// NewContainerFor — the sole constructor every path (containerFor,
+// NewContainerWorktreeFor) routes through — and threaded verbatim
 // into all three engine-launching builders (buildRunSpec's home argument,
 // buildRunnerSpec, ExecSpec). The one production RunSpec that carries no home
 // is the shared-fs marker probe, which runs `cat /probe/marker` in a scratch
@@ -354,7 +354,7 @@ func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
 		assert.Equal(t, defaultContainerHome, NewContainerFor(rt, backend).home,
 			"backend %q: every Container must carry the fresh in-container HOME", backend)
 	}
-	assert.Equal(t, defaultContainerHome, NewContainer(rt, "img").home)
+	assert.Equal(t, defaultContainerHome, NewContainerFor(rt, "mock").WithImage("img").home)
 	assert.Equal(t, defaultContainerHome, containerFor(rt, "claude-code", ImageConfig{}).home)
 
 	spec := buildRunSpec("img", "name", "/proj", defaultContainerHome,

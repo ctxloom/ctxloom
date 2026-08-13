@@ -29,18 +29,18 @@
 // calls Cleanup the instant Execute returns and the shared LIFO reversal strips
 // the delivered managed section, so a test that stats the workspace after the
 // turn observes nothing whether delivery worked or not (the same reason J001400's
-// host rows use `profile materialize`, and the same window
+// host rows use `spec materialize`, and the same window
 // container_mcp_integration_test.go reads .mcp.json through). The mock's
 // interactive echo mode (CTXLOOM_MOCK_ECHO_STDIN) blocks the turn on stdin,
 // which holds that window open for as long as the host keeps the pipe open —
 // and each test then asserts the POST-teardown state too, so "gone afterwards"
 // can never be mistaken for "never delivered".
 //
-// PROFILE VS PLUGIN. The policy is built for the claude-code profile (its auth
+// PROFILE VS PLUGIN. The policy is built for the claude-code spec (its auth
 // resolver is the one a test can satisfy with an env var, per WithImage's own
 // doc) while the plugin that runs inside is `mock` — the only backend compiled
 // into ctxloom that delivers surfaces without a vendor CLI in the image. The
-// profile decides the MOUNT PLAN (which is what is under test); the plugin
+// spec decides the MOUNT PLAN (which is what is under test); the plugin
 // decides what gets written through it.
 package isolation
 
@@ -140,12 +140,12 @@ func TestContainerRun_DeliversIntoTheMountedWorkspace(t *testing.T) {
 
 // TestContainerRun_OverlaidConfigDirIsSwallowedByTheScratchOverlay is the
 // containerConfigOverlay claim, live: when the delivering surface's directory
-// is one of the profile's overlayDirs, the container's write lands in the
+// is one of the spec's overlayDirs, the container's write lands in the
 // per-run SCRATCH overlay — visible on the host only at the overlay's own host
 // side — and NEVER in the bind-mounted project. The scratch root is removed at
 // teardown, so that delivery is discarded rather than copied back out.
 //
-// This is the same run as the test above with ONE knob moved: the profile
+// This is the same run as the test above with ONE knob moved: the spec
 // overlays `.mock`, which is where this engine's skills surface writes, exactly
 // as claude's `.claude` overlay covers where claude's skills surface writes.
 // The mock plugin is the only backend that can deliver hermetically, so the
@@ -164,7 +164,7 @@ func TestContainerRun_OverlaidConfigDirIsSwallowedByTheScratchOverlay(t *testing
 	// The engine's managed-config dir for THIS run: mock's skills surface
 	// writes under .mock/skills, so overlaying .mock puts the delivery in the
 	// same position claude's .claude/skills delivery is in on a real run.
-	pol.profile.overlayDirs = []string{mockConfigDirForOverlay}
+	pol.engineSpec.overlayDirs = []string{mockConfigDirForOverlay}
 
 	projectDir := t.TempDir()
 	requireEmptyProject(t, projectDir)
@@ -210,7 +210,7 @@ func TestContainerRun_OverlaidConfigDirIsSwallowedByTheScratchOverlay(t *testing
 
 // mockConfigDirForOverlay is the mock engine's managed-config directory — the
 // parent of its skills tree (backends.mockSkillsDirName is ".mock/skills"),
-// which is what a profile overlays: containerConfigOverlay takes DIRECTORIES
+// which is what a spec overlays: containerConfigOverlay takes DIRECTORIES
 // the engine's writers target under the run's cwd.
 const mockConfigDirForOverlay = ".mock"
 
@@ -244,8 +244,8 @@ func containerRunRuntime(t *testing.T, what string) Runtime {
 }
 
 // containerRunPolicy builds the Container policy under test: the claude-code
-// profile (whose auth resolver an env var can satisfy — see WithImage's doc for
-// why a harness image rides a real profile) over the cell's hermetic image.
+// spec (whose auth resolver an env var can satisfy — see WithImage's doc for
+// why a harness image rides a real spec) over the cell's hermetic image.
 //
 // The API key is a placeholder and is never used: the plugin that runs inside
 // is `mock`, which calls no provider. It exists because PrepareWorkspace's gate

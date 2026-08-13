@@ -16,7 +16,7 @@ import (
 // TestContainerWorktree_Axes pins the composed policy's identity: name
 // "container-worktree", and that it is an isolated policy.
 func TestContainerWorktree_Axes(t *testing.T) {
-	c := NewContainerWorktree(fakeRuntime{name: "docker", available: true}, "img", &git.Fake{})
+	c := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: true}, "mock", ImageConfig{Image: "img"}, &git.Fake{})
 	assert.Equal(t, "container-worktree", c.Name())
 	assert.True(t, Isolated(c), "container-worktree is an isolated policy (writes per-member config into its worktree)")
 }
@@ -69,7 +69,7 @@ func TestContainerWorktree_RunSpecMountsWorktreeAndGitdir(t *testing.T) {
 // worktree with nothing to unwind.
 func TestContainerWorktree_PrepareDegradesBeforeWorktree(t *testing.T) {
 	f := &git.Fake{}
-	_, err := NewContainerWorktree(fakeRuntime{name: "docker", available: false}, "img", f).
+	_, err := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, f).
 		PrepareWorkspace(context.Background(), "/proj", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot launch")
@@ -179,8 +179,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 
 	// container-worktree can't launch (unavailable runtime) → degrade; the bare
 	// worktree prepares → chain stops there.
-	failing := NewContainerWorktree(fakeRuntime{name: "docker", available: false}, "img",
-		&git.Fake{CommonDirValue: common})
+	failing := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, &git.Fake{CommonDirValue: common})
 	working := NewWorktree(&git.Fake{CommonDirValue: common}, "")
 	pol, ws := prepareChain(ctx, []Policy{failing, working, None{}}, "/proj", "m")
 	require.NotNil(t, ws)
@@ -196,7 +195,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	nonRepo := &git.Fake{Repos: map[string]bool{}}
 	pol2, ws2 := prepareChain(ctx,
 		[]Policy{
-			NewContainerWorktree(fakeRuntime{name: "docker", available: false}, "img", nonRepo),
+			NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, nonRepo),
 			NewWorktree(nonRepo, ""),
 			None{},
 		}, "/proj", "m")

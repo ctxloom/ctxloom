@@ -47,10 +47,10 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	}
 	buildGitIntegrationImage(t) // shared helper, container_worktree_integration_test.go (same package)
 
-	// Env-passthrough auth satisfies the container gate without host creds
-	// (PrepareWorkspace resolves auth regardless of whether a plugin is ever
-	// spawned — this test never calls SpawnClient, only PrepareWorkspace).
-	t.Setenv("ANTHROPIC_API_KEY", "itest-mock-key")
+	// No host credential is needed to clear PrepareWorkspace's auth gate: the
+	// policy is keyed on the mock engine, whose resolver authenticates against
+	// no vendor (resolveMockContainerAuth). This test never calls SpawnClient,
+	// only PrepareWorkspace.
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -64,7 +64,7 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	wtDir := filepath.Join(t.TempDir(), "wt")
 	gitRun(t, repo, "worktree", "add", "-b", "feature", wtDir)
 
-	pol := NewContainer(rt, worktreeIntegrationImage)
+	pol := NewContainerFor(rt, "mock").WithImage(worktreeIntegrationImage)
 	ws, err := pol.PrepareWorkspace(ctx, wtDir, "hostwt-itest")
 	require.NoError(t, err, "PrepareWorkspace must mirror the out-of-repo worktree's git common dir")
 	t.Cleanup(func() { _ = ws.Cleanup() })

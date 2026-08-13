@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -78,7 +79,15 @@ func (s *TreeStore) Put(ctx context.Context, ref trust.Ref, f signing.Form, surf
 			return fmt.Errorf("content: creating %q: %w", filepath.Dir(target), err)
 		}
 		perm := fileMode(c.Mode)
-		if err := afero.WriteFile(s.fsys, target, c.Bytes, perm); err != nil {
+		// iox chmods to perm EXACTLY on every write, unlike the afero.WriteFile
+		// this replaces (create-time-only mode) — closing a latent gap where a
+		// re-Put onto an existing path (a changed executable declaration on
+		// update) left the file at its STALE mode, the same class of bug
+		// documented against remote/pull.go's writeTreeFile and
+		// content/archive's reroot. AllowEmpty: an individual component can
+		// legitimately be zero bytes (an empty sidecar); Put's own check above
+		// only refuses zero COMPONENTS, not zero-length ones.
+		if err := iox.WriteFileAtomicFs(s.fsys, target, c.Bytes, perm, iox.AllowEmpty()); err != nil {
 			return fmt.Errorf("content: writing %q: %w", target, err)
 		}
 		written++
@@ -211,7 +220,9 @@ func (s *TreeStore) PutManifest(ctx context.Context, id BundleID, m Manifest) er
 		return fmt.Errorf("%w: bundle %q", ErrNotFound, id)
 	}
 	target := s.osPath(path.Join(string(id), ManifestPath))
-	if err := afero.WriteFile(s.fsys, target, m.Bytes(), 0o644); err != nil {
+	// No AllowEmpty: m.IsZero() is already refused above, and a non-zero
+	// Manifest's Bytes() is never empty.
+	if err := iox.WriteFileAtomicFs(s.fsys, target, m.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("content: writing manifest %q: %w", target, err)
 	}
 	return nil
@@ -241,7 +252,8 @@ func (s *TreeStore) PutRootFile(ctx context.Context, id BundleID, name string, d
 		return fmt.Errorf("%w: bundle %q", ErrNotFound, id)
 	}
 	target := s.osPath(path.Join(string(id), name))
-	if err := afero.WriteFile(s.fsys, target, data, 0o644); err != nil {
+	// No AllowEmpty: a zero-length data is already refused above.
+	if err := iox.WriteFileAtomicFs(s.fsys, target, data, 0o644); err != nil {
 		return fmt.Errorf("content: writing %q: %w", target, err)
 	}
 	return nil

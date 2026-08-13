@@ -181,8 +181,20 @@ func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, mcp *wire.MCP
 		addBackendHooks(cfg, backendHooks)
 	}
 	addMCPServers(cfg, mcp, bundleMCP, w.MCPCommandOverride)
+	// Both of codex's trust gates are answered here, on the SAME axis and for
+	// the same reason (hooktrust.go's header): workspace trust for the cwd, hook
+	// trust for each hook command. Answering only the first was measurably not
+	// enough — codex exec ran, exited 0, and silently fired no hooks.
+	//
+	// Hook trust is seeded LAST, after every add and removal, because its key is
+	// positional in the finished table; see seedHookTrust.
 	if trustAbsPath != "" {
 		addProjectTrust(cfg, trustAbsPath)
+		if _, unseedable := seedHookTrust(cfg, settingsPath); len(unseedable) > 0 {
+			warnHooksWillNotRun(settingsPath, unseedable)
+		}
+	} else if n := countConfiguredHooks(cfg); n > 0 {
+		warnHookTrustUnseeded(settingsPath, n)
 	}
 
 	return w.save(settingsPath, cfg, false)
@@ -296,6 +308,12 @@ func (w *CodexHookWriter) removeSettingsIn(codexProjectDir string) error {
 	}
 	removeManagedHooks(cfg)
 	removeManagedMCP(cfg)
+	// The trust records go with the hooks they vouched for. They could not
+	// grant trust to anything else if left (the recorded hash is what codex
+	// matches, so a different hook landing on the same positional key reads as
+	// `modified` and is skipped), but a revert that leaves ctxloom's answers to
+	// a security prompt lying in the user's file is not a revert.
+	removeHookTrust(cfg, settingsPath)
 	return w.save(settingsPath, cfg, true)
 }
 

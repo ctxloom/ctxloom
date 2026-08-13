@@ -384,13 +384,37 @@ var probeRegistry = []probeSpec{
 		Title:        "steer/mail echo: a minted harp sent over the bus mid-session must come back on agent_recv",
 		Capabilities: []int{13},
 		Channel:      channelBusMessage,
-		Paid:         true,
+		// P6's cells live in J002300's OWN feature file, beside the delegation
+		// journey they extend, rather than in a file of their own. The design says
+		// so ("extend the outline machinery; do NOT rewrite locked scenarios") and
+		// the machinery says so louder: the steer echo needs agent_run, the
+		// harp-remembering step, the payload-draining agent_recv and the per-engine
+		// gate, all four of which already exist there. Copying them into a second
+		// file would fork the one set of steps this journey's history has hardened.
+		//
+		// THE DRIFT CHECK SURVIVES A SHARED FILE, and it is worth saying why,
+		// because the obvious worry — "the registry is now compared against every
+		// scenario in a 400-line journey" — is real and happens to be answered.
+		// featureCellKeys reads Examples blocks carrying engine AND runtime AND
+		// workspace columns, by NAME. J002300's own per-engine floor tabulates
+		// | engine | marker | and contributes nothing; P6's outline tabulates all
+		// three and is compared exactly. The two coexist, in both directions, with
+		// no change to the check itself.
+		//
+		// THE STANDING HAZARD, stated because it is invisible otherwise: if someone
+		// later adds runtime/workspace columns to J002300's own per-engine floor,
+		// those rows begin counting as P6 cells and this probe's drift test reds,
+		// naming cells the registry does not declare. That red is CORRECT — it
+		// means two probes have come to share a table shape — and the fix is a
+		// column rename or a separate feature file, never deleting the check.
+		Feature: "j002300_cross_engine_delegation.feature",
+		Paid:    true,
 		Cells: []probeCell{
-			hostCell("claude-code", probePlanned,
-				"the existing live proof is j002300's J002300-LIVE-ECHO-TOKEN step; this row PORTS it into the outline. Do not rewrite the locked scenario."),
-			hostCell("codex", probePlanned, "child→parent is proven by j002300; coordinator→child mid-session steer is not"),
-			hostCell("kiro", probePlanned, "child→parent is proven by j002300; coordinator→child mid-session steer is not"),
-			hostCell("opencode", probePlanned, "child→parent is proven by j002300; coordinator→child mid-session steer is not"),
+			hostCell("claude-code", probeWired,
+				"the existing live proof is j002300's J002300-LIVE-ECHO-TOKEN step, inside a LOCKED scenario; this row ports the property into the outline BESIDE it rather than rewriting it, so the two now guard the claim independently"),
+			hostCell("codex", probeWired, "child→parent is proven by j002300; coordinator→child mid-session steer is not"),
+			hostCell("kiro", probeWired, "child→parent is proven by j002300; coordinator→child mid-session steer is not"),
+			hostCell("opencode", probeWired, "child→parent is proven by j002300; coordinator→child mid-session steer is not"),
 		},
 	},
 	{

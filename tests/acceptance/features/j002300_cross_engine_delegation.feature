@@ -359,5 +359,98 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine   | marker                                    |
       | opencode | J002300-DELEGATE-MARKER-OPENCODE-7f05b391 |
 
+  # P6 — THE STEER ECHO. Capability-probe ladder rung p6-steer-echo
+  # (tests/acceptance/capability_probe_registry.go), living here rather than in a
+  # file of its own because it extends this journey's machinery rather than
+  # duplicating it: the gate, the harp-remembering step and the payload-draining
+  # agent_recv above are all reused verbatim, and the LOCKED scenarios are left
+  # exactly as they are.
+  #
+  # WHAT IT ADDS TO THE FLOOR ABOVE. The per-engine floor proves the
+  # CHILD -> COORDINATOR direction on all four engines: a marker that exists
+  # only in the child's own composed context reaches the coordinator's mailbox.
+  # The other direction — the coordinator reaching INTO a live session
+  # mid-flight, and the child acting on what it was handed — was proven for
+  # claude-code alone, by the J002300-LIVE-ECHO-TOKEN step of the @live
+  # cross-engine scenario above. Capability-inventory row 13 records codex, kiro
+  # and opencode as claimed-and-unproven for exactly that half. These four rows
+  # are that gap.
+  #
+  # THE CHANNEL IS THE BUS MESSAGE BODY, AND ONLY THAT. The value the child must
+  # produce is a harp minted per cell at fixture time (probeHarps.Mint) and
+  # handed to it in ONE place: the body of an agent_send made AFTER it is
+  # already running. It is not in the composed context, not in the spawn prompt,
+  # not in the environment. So a child that returns it has necessarily received
+  # a mid-session message — which is the whole claim — and no amount of prompt
+  # compliance can fake it.
+  #
+  # WHY EACH ROW STILL PLANTS A CONTEXT MARKER. The wake-up half (the marker
+  # column, the same technique the floor above uses) is not redundant: it proves
+  # the child launched, received its context and can reach its coordinator
+  # BEFORE a steer is spent, so a red on the echo cannot be confused with a
+  # child that never woke up. The two values are deliberately different, and the
+  # verdict function's own unit tests include the false-green where a child
+  # repeats its context marker instead of the steer (probe_p6_steer_echo_test.go,
+  # TestP6AssertEcho_ForeignChannelCannotFalseGreenIt).
+  #
+  # THE SPOOL ASSERTION IS THE MAIL-PLANE CUTOVER'S FIRST BEHAVIOURAL PROOF IN
+  # THIS SUITE. Each row turns delegation.spool_tee and delegation.spool_delivery
+  # ON in its own isolated HOME config — they are ScopeMachine keys, so the
+  # operator's real ~/.ctxloom/config.yaml (where the soak is switched on) can
+  # never reach a scenario whose HOME is a temp dir; a cell that wants the
+  # substrate has to ask for it. The final step then asserts, on PAYLOAD BYTES,
+  # that the coordinator's steer exists as a FILE in the child's own spool in
+  # plane. "The echo came back" is compatible with the spool having done nothing
+  # at all — the mailbox would have carried it either way — and a switch that is
+  # on while nothing is written is this project's characteristic bug wearing the
+  # cutover's clothes.
+  #
+  # ONE ROW AT A TIME, two paid turns each (the wake-up and the steer). Address
+  # exactly one cell with the registry's own tag expression:
+  #   ACCEPTANCE_TAGS="@live && @probe-p6-steer-echo && @codex && @host && @ws-none"
+  # (probeCell.TagExpression renders it; the `just capability-probe` wrapper is
+  # slice S10's, not this one's).
+  @live @probe-p6-steer-echo
+  Scenario Outline: A delegated child on a real <engine> echoes back a harp the coordinator steered into its live session
+    Given a real "<engine>" engine on runtime "<runtime>" with workspace "<workspace>" is available for a steer-echo child carrying wake marker "<marker>"
+    When the agent calls tool "agent_run" with:
+      | agent  | delegate |
+      | prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
+    Then the tool call succeeds
+    And "delegate"'s session harp is remembered
+    When the agent calls tool "agent_recv" repeatedly, waiting up to 240s total, until "delegate" reports a body containing "<marker>"
+    Then the tool call succeeds
+    When the agent calls tool "agent_send" addressed to "delegate"'s session carrying this cell's minted steer harp
+    Then the tool call succeeds
+    When the agent calls tool "agent_recv" repeatedly, waiting up to 240s total, until "delegate" echoes this cell's minted steer harp
+    Then the tool call succeeds
+    And the coordinator's steer is on disk in "delegate"'s own spool, in a file carrying that harp
+
+    @claude-code @host @ws-none
+    Examples:
+      | engine      | runtime | workspace | marker                                |
+      | claude-code | host    | none      | P6-WAKE-MARKER-CLAUDE-CODE-5b1e07c4   |
+
+    # The engine whose availability probe cannot tell AUTHENTICATED from
+    # STILL-VALID (authCheckCodex reads auth.json locally and never refreshes),
+    # so a consumed refresh token surfaces here as a loud RED rather than a named
+    # skip — the honest failure shape, and the reason p6AssertEcho classifies a
+    # credential-shaped body as a RUN failure carrying the re-login precedent
+    # instead of blaming the bus.
+    @codex @host @ws-none
+    Examples:
+      | engine | runtime | workspace | marker                          |
+      | codex  | host    | none      | P6-WAKE-MARKER-CODEX-2f9d61a8   |
+
+    @kiro @host @ws-none
+    Examples:
+      | engine | runtime | workspace | marker                         |
+      | kiro   | host    | none      | P6-WAKE-MARKER-KIRO-8c34e7f2   |
+
+    @opencode @host @ws-none
+    Examples:
+      | engine   | runtime | workspace | marker                            |
+      | opencode | host    | none      | P6-WAKE-MARKER-OPENCODE-71a0d9be  |
+
   # Back to: tests/acceptance/features/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).

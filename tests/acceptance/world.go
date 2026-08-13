@@ -64,6 +64,7 @@ type World struct {
 	j002000      *j002000State      // J002000: the engine-switch journey's fixture state (steps_j002000_engine_switch.go)
 	j000500      *j000500State      // J000500: the editor/ACP journey's fixture state (steps_j000500_editor.go)
 	matrix       *matrixState       // engine × isolation floor: one cell's fixture and captured run (steps_engine_isolation_matrix.go)
+	p6           *p6State           // P6 capability probe: the steer-echo cell's minted harp and its cell id (steps_p6_steer_echo.go)
 	ts           *tsState           // trust-surface matrix: fixture state (steps_trust_surface.go)
 	contract     *contractState     // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
@@ -180,6 +181,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ002400Steps(ctx)
 	registerJ002600Steps(ctx)
 	registerJ002300Steps(ctx)
+	registerP6SteerEchoSteps(ctx)
 	registerJ001600Steps(ctx)
 	registerJ001400Steps(ctx)
 	registerJ001900Steps(ctx)

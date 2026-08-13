@@ -120,14 +120,13 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 		body = fmt.Sprintf("agent %q (run %s) turn produced no output — nothing to report", h.cfg.Harp, h.cfg.RunID)
 		clidiag.Warn("ctxloom", "runner: this turn ended with no report and no output; telling the parent so (%s)", h.cfg.Harp)
 	}
-	ref, err := h.writeOutbound(Message{
+	if _, err := h.writeOutbound(Message{
 		From: h.cfg.Harp, To: ParentAddress, Kind: kind, Body: body, InReplyTo: inReplyTo,
 		// MARKED AUTOMATIC. The correlation above is what makes this necessary:
 		// without the marker this message is indistinguishable from the child
 		// deliberately answering the ask that started the turn.
 		Structured: autoReportStructured(),
-	})
-	if err != nil {
+	}); err != nil {
 		// LOUD AND COUNTED. A report that could not be written is a turn the
 		// parent will never hear about, and the accumulator that held it has
 		// already been taken — there is nothing to retry from, so the failure
@@ -137,7 +136,6 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 		return err
 	}
 	h.spoolDeliveryCount.delivered.Add(1)
-	_ = ref
 	return nil
 }
 

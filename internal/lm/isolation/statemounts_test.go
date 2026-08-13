@@ -47,7 +47,7 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 		{"claude-code", ".claude/projects"},
 		{"codex", ".codex/sessions"},
 		{"kiro", ".kiro"},
-		{"unmapped-backend", ".claude/projects"}, // default profile is claude-oriented
+		{"unmapped-backend", ".claude/projects"}, // default spec is claude-oriented
 	}
 	for _, tt := range tests {
 		t.Run(tt.backend, func(t *testing.T) {
@@ -253,7 +253,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	c := Container{
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-state-test:latest",
-		profile: containerProfile{
+		engineSpec: engineContainerSpec{
 			engineInstall: []byte("RUN echo fake-install\n"), // buildable → the run-as-is identity inspect is skipped
 			resolveAuth: func(string, string) (containerAuth, bool) {
 				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
@@ -309,7 +309,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	cw := Container{
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-state-test:latest",
-		profile: containerProfile{
+		engineSpec: engineContainerSpec{
 			engineInstall: []byte("RUN echo fake-install\n"),
 			resolveAuth: func(string, string) (containerAuth, bool) {
 				return containerAuth{mode: authEnv}, true

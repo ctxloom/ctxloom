@@ -38,7 +38,7 @@ func TestContainerPolicy_TransportEndToEnd(t *testing.T) {
 
 	rt := SelectRuntime("docker")
 	require.Equal(t, "docker", rt.Name(), "docker must be selected when available")
-	pol := NewContainer(rt, integrationImage)
+	pol := NewContainerFor(rt, "mock").WithImage(integrationImage)
 
 	// A real project dir to bind-mount at its identical path inside the container.
 	projectDir := t.TempDir()

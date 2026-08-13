@@ -56,7 +56,7 @@ func baseContentHash(content []byte) string {
 }
 
 // composedContentHash digests a resolved base's content TOGETHER WITH the
-// engine set composed onto it — the content-key for a COMPOSABLE profile's
+// engine set composed onto it — the content-key for a COMPOSABLE spec's
 // shared agent image tag and provenance suffix (locked decision 4/§4): a
 // change to the base content, a devcontainer.json edit, OR an engine-set
 // change produces a different hash, so any of the three lands on a fresh tag
@@ -70,7 +70,7 @@ func composedContentHash(content []byte, engines []string) string {
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
-// composedImageTagFor is the shared image tag a COMPOSABLE profile's build
+// composedImageTagFor is the shared image tag a COMPOSABLE spec's build
 // resolves to: one tag per (resolved base content, engine set) — identical
 // (base, engines) across different backends/sessions shares the SAME tag (and
 // the runtime's layer cache), since "one instance can run any of its
@@ -79,7 +79,7 @@ func composedImageTagFor(content []byte, engines []string) string {
 	return "ctxloom-agent:" + composedContentHash(content, engines)
 }
 
-// baseForIdentity resolves WHICH base stage a profile's local build would use
+// baseForIdentity resolves WHICH base stage a spec's local build would use
 // — without building anything — for content-keying the composed tag/
 // provenance: an explicit user Containerfile beats an auto-detected
 // devcontainer base beats the embedded default, mirroring composableBuildSources'
@@ -95,12 +95,12 @@ func baseForIdentity(baseContainerfile string, devBase *baseStage) *baseStage {
 	return defaultBaseStage()
 }
 
-// composedIdentity resolves a COMPOSABLE profile's (image tag, provenance
-// label) for the given base/engine configuration. ok=false when the profile
+// composedIdentity resolves a COMPOSABLE spec's (image tag, provenance
+// label) for the given base/engine configuration. ok=false when the spec
 // isn't composable (no known engine fragment) or the resolved base's content
-// can't be read — callers fall back to the profile's static image field and
+// can't be read — callers fall back to the spec's static image field and
 // the legacy HostProvenanceDigest.
-func composedIdentity(p containerProfile, baseContainerfile string, devBase *baseStage, engines []string) (image, provenance string, ok bool) {
+func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *baseStage, engines []string) (image, provenance string, ok bool) {
 	if p.engineInstall == nil {
 		return "", "", false
 	}
@@ -242,7 +242,7 @@ const (
 )
 
 // buildSourcesOptions carries every input buildSources needs to order a
-// profile's local-build sources: the CLI/config overrides plus the
+// spec's local-build sources: the CLI/config overrides plus the
 // already-RESOLVED devcontainer base (detection happens once, in the caller —
 // see resolveDevBase — so a detection failure can be handled per-caller:
 // fatal-unless-degraded in runEnsureImage, a hard CLI error in
@@ -257,31 +257,31 @@ type buildSourcesOptions struct {
 	// devBase is the auto-detected project devcontainer base (nil = none
 	// detected, or opted out) — see resolveDevBase.
 	devBase *baseStage
-	// engines is the resolved isolation_engines set for a COMPOSABLE profile
-	// (p.engineInstall != nil); ignored for a non-composable profile.
+	// engines is the resolved isolation_engines set for a COMPOSABLE spec
+	// (p.engineInstall != nil); ignored for a non-composable spec.
 	engines []string
 }
 
-// buildSources orders a profile's local-build sources. An explicit base-IMAGE
+// buildSources orders a spec's local-build sources. An explicit base-IMAGE
 // override wins outright (the caller asserts the client lives there). A
-// COMPOSABLE profile (engineInstall != nil — claude-code/codex/kiro/
+// COMPOSABLE spec (engineInstall != nil — claude-code/codex/kiro/
 // opencode) then builds the SAME composed multi-engine Containerfile
 // (composeAgentContainerfile) onto, in order: the explicit user base
 // Containerfile, the auto-detected project devcontainer, and the embedded
 // default base — precedence locked decision 8 (explicit beats auto-detect
-// beats default). A non-composable profile (no known official-installer
-// fragment yet — an unknown/unprofiled backend, e.g. containerProfileFor's
+// beats default). A non-composable spec (no known official-installer
+// fragment yet — an unknown/unmapped backend, e.g. engineContainerSpecFor's
 // `default` arm) has no local-build recipe at all: empty means the image
 // cannot be built locally, and the caller must have a preexisting image or
 // degrade. (A prior fix deleted the LEGACY officialImage/user-Containerfile/
-// embedded-Containerfile fallback this used to fall through to: no profile,
+// embedded-Containerfile fallback this used to fall through to: no spec,
 // registered or hypothetical, ever populated those fields, so the fallback
 // could never produce a source.)
-func buildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
+func buildSources(p engineContainerSpec, opts buildSourcesOptions) []buildSource {
 	if opts.baseOverride != "" {
 		if p.validate == "" {
 			// The overlay's only proof the base really ships the client is
-			// the profile's validate command, and an unprofiled backend has
+			// the spec's validate command, and an unmapped backend has
 			// none — the image then builds, tags and passes every ctxloom/
 			// companion gate while the engine may be absent, surfacing only
 			// as a run-time exec failure. The caller's assertion still wins
@@ -302,10 +302,10 @@ func buildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
 }
 
 // composableBuildSources builds the ordered source list for a COMPOSABLE
-// profile: the same generated multi-engine Containerfile (one build per
+// spec: the same generated multi-engine Containerfile (one build per
 // engine in composeAgentContainerfile's deterministic order) layered onto
 // each candidate base in precedence order.
-func composableBuildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
+func composableBuildSources(p engineContainerSpec, opts buildSourcesOptions) []buildSource {
 	engines := resolveEngines(opts.engines)
 	if len(engines) == 0 {
 		// composeAgentContainerfile(nil) still renders a
@@ -400,7 +400,7 @@ const baseContractLayer = `RUN (command -v apt-get >/dev/null 2>&1 \
 // cacheable layer per engine: editing one engine's fragment busts only the
 // layers after it, OCI being linear) → the running ctxloom binary + companions
 // + the ctxloom/companion ABI gates. `engines` should already be resolveEngines-
-// filtered; an engine with no known fragment (containerProfileFor(e).engineInstall
+// filtered; an engine with no known fragment (engineContainerSpecFor(e).engineInstall
 // == nil) is silently skipped here — resolveEngines already warned about it,
 // so this is defensive, not a second warning site.
 func composeAgentContainerfile(engines []string) []byte {
@@ -428,7 +428,7 @@ func composeAgentContainerfile(engines []string) []byte {
 	b.WriteString("LABEL ctxloom.version=\"${CTXLOOM_VERSION}\"\n")
 	b.WriteString("LABEL ctxloom.provenance=\"${CTXLOOM_PROVENANCE}\"\n")
 	for _, e := range engines {
-		frag := containerProfileFor(e).engineInstall
+		frag := engineContainerSpecFor(e).engineInstall
 		if frag == nil {
 			continue
 		}
@@ -906,7 +906,7 @@ func (c Container) imageIdentityConfig(ctx context.Context) (imageIdentity, erro
 // whose FROM is an external image; the agent stage over a just-built local
 // base never --pulls (the tag exists only locally) but still skips cache so
 // the client install re-runs. `provenance` is the PRECOMPUTED provenance
-// label (HostProvenanceDigest for a legacy profile, composedIdentity's
+// label (HostProvenanceDigest for a legacy spec, composedIdentity's
 // engine-aware digest for a composable one) — the caller computes it once so
 // the stamped label always equals what the caller's own staleness check used
 // for the same configuration (a mismatch would re-flag the image stale on
@@ -986,7 +986,7 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 // (`ctxloom container build`).
 type ImageBuildOptions struct {
 	// BaseImage overlays ctxloom onto this user-chosen base — which must
-	// already ship the client CLI — instead of the profile's build sources.
+	// already ship the client CLI — instead of the spec's build sources.
 	BaseImage string
 	// BaseContainerfile builds the shared base stage from this user-provided
 	// Containerfile instead of the embedded default; the engine's agent stage
@@ -1058,7 +1058,7 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 	if opts.BaseImage != "" && opts.BaseContainerfile != "" {
 		return "", fmt.Errorf("base-image and base-containerfile are mutually exclusive (an image asserts the client is preinstalled; a containerfile gets the client layered on)")
 	}
-	p := containerProfileFor(backend)
+	p := engineContainerSpecFor(backend)
 	devBase, err := resolveDevBase(opts.AppRoot, opts.NoDevcontainerBase, opts.DevcontainerService)
 	if err != nil {
 		return "", fmt.Errorf("project devcontainer: %w", err)

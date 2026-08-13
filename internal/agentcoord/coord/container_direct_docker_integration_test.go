@@ -95,7 +95,13 @@ func (s *directBusSpawner) Launch(context.Context, *SpawnPlan, string, string, m
 // harp on env drives the session-state mounts (transcript survival).
 func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
 	rt := isolation.SelectRuntime("docker")
-	pol := isolation.NewContainer(rt, s.image).WithSessionState(isolation.SessionStateFromEnv(env))
+	// Container auth keys on the ENGINE, resolved PER CALL from the plan's
+	// Backend — the same field StarterForWorkspace below already reads. Keying
+	// it on plan.AgentName (or on the constructor's old fixed "") asks
+	// engineContainerSpecFor for an engine nothing registers, which fails
+	// closed at PrepareWorkspace's auth gate. The harness image is unrelated to
+	// the engine, so it is named separately via WithImage.
+	pol := isolation.NewContainerFor(rt, plan.Backend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
 	if err != nil {
 		return nil, err

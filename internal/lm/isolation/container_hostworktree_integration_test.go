@@ -64,7 +64,7 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	wtDir := filepath.Join(t.TempDir(), "wt")
 	gitRun(t, repo, "worktree", "add", "-b", "feature", wtDir)
 
-	pol := NewContainer(rt, worktreeIntegrationImage)
+	pol := NewContainerFor(rt, "mock").WithImage(worktreeIntegrationImage)
 	ws, err := pol.PrepareWorkspace(ctx, wtDir, "hostwt-itest")
 	require.NoError(t, err, "PrepareWorkspace must mirror the out-of-repo worktree's git common dir")
 	t.Cleanup(func() { _ = ws.Cleanup() })

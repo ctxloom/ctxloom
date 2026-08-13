@@ -183,10 +183,10 @@ func TestPrepareWorkspace_DegradesOnFSMismatch(t *testing.T) {
 
 	// A runtime whose binary is a real command (`true`) so ensureImage's
 	// image-inspect exec succeeds and the gate reaches the probe.
-	c := NewContainer(fakeRuntime{name: "docker", binary: "true", available: true}, "img")
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "mock").WithImage("img")
 	// Auth must resolve for the gate to reach prepareBase/the probe at all
 	// (host state — real ANTHROPIC_* creds — must never gate a hermetic test).
-	c.profile.resolveAuth = func(string, string) (containerAuth, bool) {
+	c.engineSpec.resolveAuth = func(string, string) (containerAuth, bool) {
 		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 	}
 	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")
@@ -207,8 +207,8 @@ func TestPrepareWorkspace_FSProbeRunFailureIsNotMisreportedAsMismatch(t *testing
 	}
 	t.Cleanup(func() { sharedFSCheck = origCheck })
 
-	c := NewContainer(fakeRuntime{name: "docker", binary: "true", available: true}, "img")
-	c.profile.resolveAuth = func(string, string) (containerAuth, bool) {
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "mock").WithImage("img")
+	c.engineSpec.resolveAuth = func(string, string) (containerAuth, bool) {
 		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 	}
 	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")

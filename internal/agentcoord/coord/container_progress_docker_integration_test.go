@@ -154,7 +154,10 @@ func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env,
 		return s.startDark(ctx, plan, env)
 	}
 	rt := isolation.SelectRuntime("docker")
-	pol := isolation.NewContainer(rt, s.image).WithSessionState(isolation.SessionStateFromEnv(env))
+	// Auth keys on the plan's Backend (the engine), never on plan.AgentName —
+	// see directBusSpawner.StartEngine's comment in
+	// container_direct_docker_integration_test.go.
+	pol := isolation.NewContainerFor(rt, plan.Backend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
 	if err != nil {
 		return nil, err

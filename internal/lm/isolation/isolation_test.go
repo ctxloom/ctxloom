@@ -343,7 +343,7 @@ func TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution(t *testing.T) 
 func TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName(t *testing.T) {
 	rt := fakeRuntime{name: "docker", binary: "docker", available: true}
 
-	assert.True(t, IsContainerPolicyName(NewContainer(rt, "img").Name()),
+	assert.True(t, IsContainerPolicyName(NewContainerFor(rt, "mock").WithImage("img").Name()),
 		"the host-base container policy is container-backed")
 	assert.True(t, IsContainerPolicyName(NewContainerWorktreeFor(rt, "claude-code", ImageConfig{}, nil).Name()),
 		"the worktree-base container policy is container-backed")
@@ -446,7 +446,7 @@ func TestImageOverrideAndBaseImageAreOppositeConcepts(t *testing.T) {
 	sources, _, _ := c.containerBuildSources("")
 	assert.Empty(t, sources, "an isolation_images override has NO build recipe — the user owns its lifecycle")
 
-	overlay := buildSources(containerProfileFor("kiro"), buildSourcesOptions{baseOverride: "my-registry/my-kiro:v2"})
+	overlay := buildSources(engineContainerSpecFor("kiro"), buildSourcesOptions{baseOverride: "my-registry/my-kiro:v2"})
 	require.Len(t, overlay, 1, "the same string as a BaseImage is a base to build onto, not an image to run")
 	assert.Contains(t, string(overlay[0].containerfile), "FROM my-registry/my-kiro:v2\n")
 	assert.Contains(t, string(overlay[0].containerfile), "COPY ctxloom /usr/local/bin/ctxloom\n",

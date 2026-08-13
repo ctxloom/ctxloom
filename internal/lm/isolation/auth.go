@@ -43,7 +43,7 @@ func (m containerAuthMode) String() string {
 // containerAuth is the resolved plan for authenticating the engine INSIDE a
 // container: the scoped env vars to inject (env passthrough) and/or the read-only
 // credential mounts to bind into the fresh HOME (subscription OAuth). Each engine
-// resolves its own plan behind the containerProfile.resolveAuth seam (claude:
+// resolves its own plan behind the engineContainerSpec.resolveAuth seam (claude:
 // ANTHROPIC_* passthrough or ~/.claude mounts; kiro: KIRO_API_KEY passthrough).
 // Only the TRUSTED top-level run reaches it — low-trust fan-out auth
 // (budget-capped per-agent keys, T1.5) is a separate, later concern.
@@ -113,15 +113,15 @@ func resolveEnvOrMountAuth(triggers []string, envVars []string, mountFn func() (
 	return containerAuth{mode: authNone}, false
 }
 
-// noContainerAuthProfile is the resolveAuth for a backend with NO registered
-// container-auth profile at all: it always returns ok=false, so an
-// unrecognized/unprofiled engine's containerized run degrades honestly
+// noContainerAuth is the resolveAuth for a backend with NO registered
+// container-auth spec at all: it always returns ok=false, so an
+// unrecognized/unmapped engine's containerized run degrades honestly
 // (a fatal ClassIsolation finding down the isolation chain, same as any other
-// unresolvable auth) instead of silently inheriting the DEFAULT profile's
+// unresolvable auth) instead of silently inheriting the DEFAULT spec's
 // resolveClaudeContainerAuth and mounting the user's Anthropic credentials
 // into a foreign engine's container. Every backend that SHOULD authenticate
-// must set its own explicit resolveAuth in containerProfileFor.
-func noContainerAuthProfile(_ string, _ string) (containerAuth, bool) {
+// must set its own explicit resolveAuth in engineContainerSpecFor.
+func noContainerAuth(_ string, _ string) (containerAuth, bool) {
 	return containerAuth{mode: authNone}, false
 }
 
@@ -141,7 +141,7 @@ func noContainerAuthProfile(_ string, _ string) (containerAuth, bool) {
 // The second parameter (the run's host-side scratch dir) is unused: the claude
 // credential is now the real host file, not a staged copy, so nothing is written
 // under scratch here. It is retained only to satisfy the shared resolveAuth seam
-// signature (containerProfile.resolveAuth).
+// signature (engineContainerSpec.resolveAuth).
 func resolveClaudeContainerAuth(containerHome, _ string) (containerAuth, bool) {
 	return resolveEnvOrMountAuth(
 		[]string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
@@ -150,7 +150,7 @@ func resolveClaudeContainerAuth(containerHome, _ string) (containerAuth, bool) {
 	)
 }
 
-// claudeContainerAuthHint is the claude profile's degrade diagnostic —
+// claudeContainerAuthHint is the claude spec's degrade diagnostic —
 // platform-aware because the fallback credential path differs by OS. On
 // darwin, a subscription login keeps its OAuth token in the macOS Keychain,
 // NOT ~/.claude/.credentials.json — that file does not exist there, so naming
@@ -176,7 +176,7 @@ func claudeContainerAuthHint() string {
 // verification this package cannot run hermetically; treating them as a
 // trigger without that confirmation risks launching a container that starts but
 // never actually authenticates, a NEW silent-no-op. AWS_PROFILE alone is
-// forwarded but is likely insufficient on its own: profile-based auth resolves
+// forwarded but is likely insufficient on its own: spec-based auth resolves
 // against ~/.aws/{config,credentials}, which this package does NOT mount —
 // explicit key vars (or KIRO_API_KEY) are the supported path until that's
 // revisited. NEVER logged.
@@ -345,7 +345,7 @@ func opencodeCredentialMounts(containerHome string) ([]Mount, bool) {
 // ever need. ok is therefore unconditionally true, and the plan is the
 // unconditional zero value (authNone, no env, no mounts).
 //
-// This is deliberately NOT the same shape as noContainerAuthProfile's
+// This is deliberately NOT the same shape as noContainerAuth's
 // ok=false: that default exists because an UNPROFILED engine's auth needs are
 // UNKNOWN, and failing closed is the only safe answer until someone writes a
 // real resolver for it (see that function's own doc). mock's needs are not
@@ -555,7 +555,7 @@ type seedFile struct {
 
 // credentialSeedSpecs is the registry provisionConfigHome (worktree.go)
 // consults, keyed by the REGISTERED backend name (internal/lm/backends:
-// "claude-code", "codex", "kiro" — see profile.go's containerProfileFor,
+// "claude-code", "codex", "kiro" — see enginespec.go's engineContainerSpecFor,
 // which the same keys already drive). It is now the SINGLE per-engine
 // isolation-home descriptor (per-engine-isolation-home plan §6): every
 // entry's HomeVars drives worktreeWorkspace.Env() in addition to whatever

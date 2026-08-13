@@ -6,7 +6,7 @@ package opencode
 // user's home. Unlike claude/codex, opencode has no agent.EngineCLI
 // declaration (enginecli.go) yet — these constants exist so
 // internal/lm/isolation's opencodeOverlayDirs/credentialSeedSpecs/
-// containerProfile tables and internal/gitignore's WorktreeArtifactPatterns
+// engineContainerSpec tables and internal/gitignore's WorktreeArtifactPatterns
 // have a single owner to check their opencode-shaped literals against,
 // instead of each hand-maintaining its own copy. isolation/gitignore cannot
 // import this package in production (opencode -> internal/acp ->

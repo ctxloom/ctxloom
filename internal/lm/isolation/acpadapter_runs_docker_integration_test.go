@@ -65,7 +65,7 @@ func assertAdapterExecutes(t *testing.T, img, adapter string) {
 	out, _ := exec.Command("docker", "run", "--rm", "-i", "--entrypoint", "/bin/sh", img,
 		"-c", "timeout 20 "+adapter+" < /dev/null 2>&1 | head -40").CombinedOutput()
 	got := string(out)
-	// The SAME vocabulary the in-image gate greps for (profile.go), split back
+	// The SAME vocabulary the in-image gate greps for (enginespec.go), split back
 	// out — so the test and the gate cannot drift apart.
 	for _, bad := range strings.Split(acpProbeFailurePatterns, "|") {
 		if strings.Contains(got, bad) {

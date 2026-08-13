@@ -66,7 +66,7 @@ func TestGitIdentityEnv_AllFourVars(t *testing.T) {
 // if the assertion below found the git email while the sentinel was MISSING, the
 // test would be reading a map the spawn never sees, and it fails.
 func TestContainerGitIdentity_ReachesSpawnEnv(t *testing.T) {
-	c := NewContainer(fakeRuntime{name: "docker", binary: "docker", available: true}, "img")
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "docker", available: true}, "mock").WithImage("img")
 
 	build := func(agentID string) *containerWorkspace {
 		// Mirror PrepareWorkspace's assembly: a base run env (here a sentinel

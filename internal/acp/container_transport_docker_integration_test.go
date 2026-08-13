@@ -18,8 +18,8 @@
 //
 // It still exercises the production container gate for real: PrepareWorkspace
 // probes the real docker daemon, resolves real claude auth off THIS host's
-// ambient credentials/env (the "default" container profile — see
-// containerProfileBackend's doc; the profile's ENGINE identity is
+// ambient credentials/env (the "default" container spec — see
+// isolationBackendFor's doc; the spec's ENGINE identity is
 // irrelevant here, only its auth resolver runs), and RunAttached spawns a
 // REAL `docker run` with the identical-path project mount. Skips outright
 // when docker is unavailable OR no claude auth is resolvable (ANTHROPIC_API_
@@ -74,7 +74,7 @@ func hasResolvableClaudeAuth() bool {
 func TestACPContainerTransport_RealTurn(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the ACP container transport integration test")
 	if !hasResolvableClaudeAuth() {
-		dockergate.SkipCapability(t, "no resolvable claude auth (ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN or ~/.claude credentials): PrepareWorkspace's auth gate needs SOME resolvable auth regardless of the test engine (see containerProfileBackend's doc)")
+		dockergate.SkipCapability(t, "no resolvable claude auth (ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN or ~/.claude credentials): PrepareWorkspace's auth gate needs SOME resolvable auth regardless of the test engine (see isolationBackendFor's doc)")
 	}
 	buildHarnessImage(t)
 

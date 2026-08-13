@@ -62,7 +62,7 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 
 	repo := initRealRepo(t) // helper from worktree_integration_test.go (same package)
 
-	pol := NewContainerWorktree(rt, worktreeIntegrationImage, git.NewExec())
+	pol := NewContainerWorktreeFor(rt, "mock", ImageConfig{Image: worktreeIntegrationImage}, git.NewExec())
 	ws, err := pol.PrepareWorkspace(ctx, repo, "wt-itest")
 	require.NoError(t, err, "PrepareWorkspace must create a worktree + container scratch")
 

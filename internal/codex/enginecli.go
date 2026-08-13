@@ -65,8 +65,8 @@ const (
 	SkillsDirName = "skills"
 	// SessionsDirName is the subdirectory of CODEX_HOME codex accumulates its
 	// own native session transcripts under ($CODEX_HOME/sessions) — the
-	// container-axis transcript-store root internal/lm/isolation/profile.go's
-	// codex containerProfile mounts onto.
+	// container-axis transcript-store root internal/lm/isolation/enginespec.go's
+	// codex engineContainerSpec mounts onto.
 	SessionsDirName = "sessions"
 )
 

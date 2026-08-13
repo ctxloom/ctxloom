@@ -78,13 +78,13 @@ func TestContainer_PrepareDegrades(t *testing.T) {
 	ctx := context.Background()
 
 	// Runtime cannot launch → error mentioning the runtime.
-	_, err := NewContainer(fakeRuntime{name: "docker", available: false}, "img").
+	_, err := NewContainerFor(fakeRuntime{name: "docker", available: false}, "mock").WithImage("img").
 		PrepareWorkspace(ctx, "/proj", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot launch")
 
 	// Runtime available but image absent (binary "" → imagePresent false) → error.
-	_, err = NewContainer(fakeRuntime{name: "docker", binary: "", available: true}, "img").
+	_, err = NewContainerFor(fakeRuntime{name: "docker", binary: "", available: true}, "mock").WithImage("img").
 		PrepareWorkspace(ctx, "/proj", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not present")
@@ -277,7 +277,7 @@ func TestContainerName_AgreesWithSanitizeAgentID(t *testing.T) {
 //     reach PrepareWorkspace with one missing;
 //  2. the only value that HAS a nil base — a bare test-built Container{} — never
 //     reaches c.base.prepareBase at all. prepareContainerScratch runs first and
-//     returns on the nil runtime, and even past that the zero profile's nil
+//     returns on the nil runtime, and even past that the zero spec's nil
 //     resolveAuth would fire before the base is touched. Name()'s guard exists
 //     because Name() IS called on such bare values; PrepareWorkspace is not.
 //
@@ -287,14 +287,14 @@ func TestContainerName_AgreesWithSanitizeAgentID(t *testing.T) {
 func TestContainer_NilBaseIsUnreachable(t *testing.T) {
 	rt := fakeRuntime{name: "docker", available: true}
 	for name, c := range map[string]Container{
-		"NewContainer":              NewContainer(rt, "img"),
-		"NewContainerFor":           NewContainerFor(rt, "claude-code"),
-		"containerFor":              containerFor(rt, "claude-code", ImageConfig{}),
-		"NewContainerWorktree":      NewContainerWorktree(rt, "img", nil),
-		"NewContainerWorktreeFor":   NewContainerWorktreeFor(rt, "claude-code", ImageConfig{}, nil),
-		"WithSessionState":          NewContainerFor(rt, "").WithSessionState(SessionState{Harp: "h"}),
-		"WithImage":                 NewContainerFor(rt, "").WithImage("other"),
-		"WithSessionState/worktree": NewContainerWorktreeFor(rt, "", ImageConfig{}, nil).WithSessionState(SessionState{Harp: "h"}),
+		"NewContainerFor":               NewContainerFor(rt, "claude-code"),
+		"NewContainerFor/WithImage":     NewContainerFor(rt, "mock").WithImage("img"),
+		"containerFor":                  containerFor(rt, "claude-code", ImageConfig{}),
+		"NewContainerWorktreeFor":       NewContainerWorktreeFor(rt, "claude-code", ImageConfig{}, nil),
+		"NewContainerWorktreeFor/image": NewContainerWorktreeFor(rt, "mock", ImageConfig{Image: "img"}, nil),
+		"WithSessionState":              NewContainerFor(rt, "").WithSessionState(SessionState{Harp: "h"}),
+		"WithImage":                     NewContainerFor(rt, "").WithImage("other"),
+		"WithSessionState/worktree":     NewContainerWorktreeFor(rt, "", ImageConfig{}, nil).WithSessionState(SessionState{Harp: "h"}),
 	} {
 		assert.NotNil(t, c.base, "%s must yield a container with a workspace base", name)
 	}
@@ -347,7 +347,7 @@ func TestContainer_ExecSpecRefusesEmptyCommand(t *testing.T) {
 // writes into the mounted project.
 //
 // containerFor already did that for an isolation_images override by clearing the
-// profile's build recipe. WithImage — the override internal/acp's container
+// spec's build recipe. WithImage — the override internal/acp's container
 // transport uses for a per-agent container_image — swapped the image and left
 // the recipe in place, so runAsIs() stayed false, the identity check never ran,
 // and ensureImage would try to BUILD the user's tag locally when absent. The two
@@ -360,7 +360,7 @@ func TestContainer_WithImageRunsAsIs(t *testing.T) {
 	assert.True(t, containerFor(rt, "claude-code", ImageConfig{Image: "user/agent:1"}).runAsIs(),
 		"the isolation_images override path already agreed")
 	assert.False(t, NewContainerFor(rt, "claude-code").runAsIs(),
-		"without an override the profile's own recipe still builds the agent image")
+		"without an override the spec's own recipe still builds the agent image")
 }
 
 // TestContainer_GitdirMirrorMountUnreadableGit pins a regression. The
@@ -436,8 +436,8 @@ func TestHostBase_PrunesOverlayTargetsItCreated(t *testing.T) {
 	require.NoError(t, os.MkdirAll(preexisting, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(preexisting, "user.json"), []byte("{}"), 0o644))
 
-	profile := containerProfile{overlayDirs: []string{".kept", ".claude", filepath.FromSlash(".ctxloom/cache")}}
-	_, _, cleanup, err := hostBase{}.prepareBase(ctx, rt, proj, "m", scratch, profile, &git.Fake{})
+	spec := engineContainerSpec{overlayDirs: []string{".kept", ".claude", filepath.FromSlash(".ctxloom/cache")}}
+	_, _, cleanup, err := hostBase{}.prepareBase(ctx, rt, proj, "m", scratch, spec, &git.Fake{})
 	require.NoError(t, err)
 
 	for _, rel := range []string{".claude", filepath.FromSlash(".ctxloom/cache")} {
@@ -461,9 +461,9 @@ func TestHostBase_KeepsOverlayTargetsThatGainedContent(t *testing.T) {
 	ctx := context.Background()
 	proj := t.TempDir()
 
-	profile := containerProfile{overlayDirs: []string{filepath.FromSlash(".ctxloom/cache")}}
+	spec := engineContainerSpec{overlayDirs: []string{filepath.FromSlash(".ctxloom/cache")}}
 	_, _, cleanup, err := hostBase{}.prepareBase(ctx, fakeRuntime{name: "docker", available: true},
-		proj, "m", t.TempDir(), profile, &git.Fake{})
+		proj, "m", t.TempDir(), spec, &git.Fake{})
 	require.NoError(t, err)
 
 	require.NoError(t, os.WriteFile(filepath.Join(proj, ".ctxloom", "cache", "landed"), []byte("x"), 0o644))
@@ -533,7 +533,7 @@ func TestContainerFor_PropagatesEveryImageConfigField(t *testing.T) {
 
 	over := containerFor(rt, "claude-code", ImageConfig{Image: "user/agent:1"})
 	assert.Equal(t, "user/agent:1", over.image)
-	assert.Nil(t, over.profile.engineInstall,
+	assert.Nil(t, over.engineSpec.engineInstall,
 		"an image the user owns is run as-is, never layered onto by a local build")
 
 	assert.Equal(t,

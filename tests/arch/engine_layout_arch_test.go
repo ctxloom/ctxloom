@@ -10,7 +10,7 @@
 //
 //   - internal/lm/isolation/auth.go's credentialSeedSpecs (env vars, dest
 //     subdirs, host source-file paths for the credential seed).
-//   - internal/lm/isolation/profile.go's per-engine overlayDirs and
+//   - internal/lm/isolation/enginespec.go's per-engine overlayDirs and
 //     transcriptStoreRel (the container-axis config-shadow and
 //     transcript-mount tables).
 //   - internal/lm/backends/mock.go's configHomeEnvKeys (the roster
@@ -60,7 +60,7 @@
 //     lands on it — a real cross-package agreement, gated below. The other
 //     three are escalated in this file's own report rather than force-gated
 //     against a fact they do not actually share.
-//   - the shared ".ctxloom/cache" overlay entry every profile carries is
+//   - the shared ".ctxloom/cache" overlay entry every spec carries is
 //     ctxloom's own cache path, not a fact about any engine's file
 //     arrangement — never checked here.
 //   - TransientArtifactPatterns' and WorktreeArtifactPatterns' ".codex/
@@ -103,8 +103,8 @@ func TestArch_EngineLayoutAgreement(t *testing.T) {
 	t.Run("credentialSeedSpecs_HomeVarEnvNames", testCredentialSeedHomeVarEnvNames)
 	t.Run("credentialSeedSpecs_CodexDestSubdir", testCredentialSeedCodexDestSubdir)
 	t.Run("credentialSeedSpecs_SourceFiles", testCredentialSeedSourceFiles)
-	t.Run("profile_OverlayDirs", testProfileOverlayDirs)
-	t.Run("profile_TranscriptStoreRel", testProfileTranscriptStoreRel)
+	t.Run("spec_OverlayDirs", testSpecOverlayDirs)
+	t.Run("spec_TranscriptStoreRel", testSpecTranscriptStoreRel)
 	t.Run("mock_ConfigHomeEnvKeysRoster", testMockConfigHomeEnvKeysRoster)
 	t.Run("gitignore_LivePatterns", testGitignoreLivePatterns)
 	t.Run("gitignore_LegacyCodexPatterns", testGitignoreLegacyCodexPatterns)
@@ -233,7 +233,7 @@ func testCredentialSeedSourceFiles(t *testing.T) {
 	}
 }
 
-// overlayCheck names one containerProfileFor(backend) row's expected
+// overlayCheck names one engineContainerSpecFor(backend) row's expected
 // project-relative managed-config directory, sourced from the owning engine
 // (or, for mock, internal/lm/backends itself — mock has no separate plugin
 // package).
@@ -242,7 +242,7 @@ type overlayCheck struct {
 	want    string
 }
 
-func testProfileOverlayDirs(t *testing.T) {
+func testSpecOverlayDirs(t *testing.T) {
 	checks := []overlayCheck{
 		{backend: "claude-code", want: claude.ConfigDirName},
 		{backend: "kiro", want: kiro.ConfigDirName},
@@ -254,7 +254,7 @@ func testProfileOverlayDirs(t *testing.T) {
 		t.Run(c.backend, func(t *testing.T) {
 			dirs := isolation.ContainerOverlayDirsFor(c.backend)
 			if !slices.Contains(dirs, c.want) {
-				t.Errorf("isolation profile overlayDirs for backend %q = %v, missing owning engine dir %q",
+				t.Errorf("isolation spec overlayDirs for backend %q = %v, missing owning engine dir %q",
 					c.backend, dirs, c.want)
 			}
 		})
@@ -266,7 +266,7 @@ type transcriptCheck struct {
 	want    string
 }
 
-func testProfileTranscriptStoreRel(t *testing.T) {
+func testSpecTranscriptStoreRel(t *testing.T) {
 	checks := []transcriptCheck{
 		{backend: "claude-code", want: filepath.ToSlash(filepath.Join(claude.ConfigDirName, claude.TranscriptsDirName))},
 		{backend: "kiro", want: kiro.ConfigDirName},
@@ -277,7 +277,7 @@ func testProfileTranscriptStoreRel(t *testing.T) {
 		t.Run(c.backend, func(t *testing.T) {
 			got := filepath.ToSlash(isolation.ContainerTranscriptStoreRelFor(c.backend))
 			if got != c.want {
-				t.Errorf("isolation profile transcriptStoreRel for backend %q = %q, want %q",
+				t.Errorf("isolation spec transcriptStoreRel for backend %q = %q, want %q",
 					c.backend, got, c.want)
 			}
 		})

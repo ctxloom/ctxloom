@@ -66,7 +66,7 @@ const (
 // The claude ISOLATION vocabulary. Unlike the block above (facts the writers
 // and probe declarations both build paths from), these three describe how
 // claude relocates its home and where its OWN credential/transcript state
-// lives — facts internal/lm/isolation's credentialSeedSpecs/containerProfile
+// lives — facts internal/lm/isolation's credentialSeedSpecs/engineContainerSpec
 // tables duplicate as literals today (isolation cannot import this package in
 // production: claude -> internal/acp -> internal/lm/isolation is a real
 // cycle), so tests/arch's engine-layout gate cross-checks those literals

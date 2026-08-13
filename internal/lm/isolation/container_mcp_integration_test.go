@@ -77,7 +77,7 @@ func TestContainerPolicy_MCPCommandOverride_EndToEnd(t *testing.T) {
 
 	rt := SelectRuntime("docker")
 	require.Equal(t, "docker", rt.Name(), "docker must be selected when available")
-	pol := NewContainer(rt, claudeStubIntegrationImage)
+	pol := NewContainerFor(rt, "mock").WithImage(claudeStubIntegrationImage)
 
 	// A real project dir, bind-mounted at its identical path — the host reads
 	// .mcp.json straight back out of it while the container has it open (no

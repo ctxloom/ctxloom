@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestContainerProfileFor_Claude pins the claude-code profile: the generic agent
+// TestEngineContainerSpecFor_Claude pins the claude-code spec: the generic agent
 // image (compat with the container-build-claude tagging), a local-build recipe,
 // and the .claude overlay set.
-func TestContainerProfileFor_Claude(t *testing.T) {
-	p := containerProfileFor("claude-code")
+func TestEngineContainerSpecFor_Claude(t *testing.T) {
+	p := engineContainerSpecFor("claude-code")
 	assert.Equal(t, defaultContainerImage, p.image)
 	assert.NotEmpty(t, p.engineInstall, "claude is composable (official npm installer fragment)")
 	assert.Contains(t, string(p.engineInstall), "npm install -g @anthropic-ai/claude-code")
@@ -24,7 +24,7 @@ func TestContainerProfileFor_Claude(t *testing.T) {
 	// resolver IS the claude (ANTHROPIC_*) one — asserted behaviorally since a
 	// func value is not directly comparable.
 	assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "the degrade hint names claude's trigger var")
-	require.NotNil(t, p.resolveAuth, "the claude profile wires an auth resolver")
+	require.NotNil(t, p.resolveAuth, "the claude spec wires an auth resolver")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	auth, ok := p.resolveAuth("/root", t.TempDir())
 	require.True(t, ok, "with ANTHROPIC_API_KEY set the wired resolver authenticates")
@@ -32,11 +32,11 @@ func TestContainerProfileFor_Claude(t *testing.T) {
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the wired resolver is the claude (ANTHROPIC_*) resolver")
 }
 
-// TestContainerProfileFor_Kiro pins the kiro profile: its OWN image tag (a kiro
+// TestEngineContainerSpecFor_Kiro pins the kiro spec: its OWN image tag (a kiro
 // run in a claude image would fail at engine spawn, worse than degrading), a
 // local-build recipe, and the .kiro overlay set.
-func TestContainerProfileFor_Kiro(t *testing.T) {
-	p := containerProfileFor("kiro")
+func TestEngineContainerSpecFor_Kiro(t *testing.T) {
+	p := engineContainerSpecFor("kiro")
 	assert.Equal(t, "ctxloom-agent-kiro:latest", p.image)
 	assert.NotEmpty(t, p.engineInstall, "kiro is composable (official installer fragment)")
 	assert.Contains(t, string(p.engineInstall), "cli.kiro.dev/install")
@@ -48,7 +48,7 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 	// resolver IS the kiro (KIRO_API_KEY) one — not claude's — asserted
 	// behaviorally since a func value is not directly comparable.
 	assert.Contains(t, p.authHint, "KIRO_API_KEY", "the degrade hint names kiro's trigger var")
-	require.NotNil(t, p.resolveAuth, "the kiro profile wires an auth resolver")
+	require.NotNil(t, p.resolveAuth, "the kiro spec wires an auth resolver")
 	t.Setenv("KIRO_API_KEY", "kiro-test")
 	auth, ok := p.resolveAuth("/root", t.TempDir())
 	require.True(t, ok, "with KIRO_API_KEY set the wired resolver authenticates")
@@ -56,8 +56,8 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY", "the wired resolver is the kiro (KIRO_API_KEY) resolver")
 }
 
-// TestContainerProfileFor_UnknownIsDefault: a genuinely unknown/unregistered
-// backend name keeps the pre-profile semantics for image/overlay/build shape
+// TestEngineContainerSpecFor_UnknownIsDefault: a genuinely unknown/unregistered
+// backend name keeps the pre-spec semantics for image/overlay/build shape
 // — the generic image, NO local build (run if the image is present, degrade
 // if not) — but no longer fails OPEN on credentials. Before
 // the fix the default wired resolveClaudeContainerAuth, so any unrecognized
@@ -65,11 +65,11 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 // doc names this exact fallthrough) got the user's ANTHROPIC_API_KEY/
 // ANTHROPIC_AUTH_TOKEN passed through and ~/.claude credentials copy-mounted
 // into a foreign engine's container. It must now fail CLOSED: resolveAuth
-// always returns ok=false, and the hint names the missing profile rather
+// always returns ok=false, and the hint names the missing spec rather
 // than Anthropic's env vars.
-func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
+func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 	for _, name := range []string{"", "no-such-engine"} {
-		p := containerProfileFor(name)
+		p := engineContainerSpecFor(name)
 		assert.Equal(t, defaultContainerImage, p.image, "backend %q", name)
 		assert.Nil(t, p.engineInstall, "backend %q is not composable", name)
 		assert.Contains(t, p.overlayDirs, ".claude", "backend %q", name)
@@ -77,22 +77,22 @@ func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 		t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-test")
 		_, ok := p.resolveAuth("/root", t.TempDir())
-		assert.False(t, ok, "backend %q must NOT authenticate as claude — no profile is registered for it", name)
+		assert.False(t, ok, "backend %q must NOT authenticate as claude — no spec is registered for it", name)
 		assert.NotContains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q must not inherit claude's degrade hint", name)
 	}
 }
 
-// TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault is a
+// TestEngineContainerSpecFor_NoRegisteredEngineReachesClaudeDefault is a
 // regression guard: every REGISTERED backend in the composable set must
 // resolve its OWN auth — none of them may reach
 // resolveClaudeContainerAuth/defaultOverlayDirs, the security edge where a
 // containerized codex/opencode run would silently authenticate with (or
 // overlay) the user's Anthropic credentials into a foreign engine.
-func TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault(t *testing.T) {
+func TestEngineContainerSpecFor_NoRegisteredEngineReachesClaudeDefault(t *testing.T) {
 	withFakeHome(t) // no real ~/.codex or ~/.local/share/opencode creds to fall back onto
-	claudeDefault := containerProfileFor("")
+	claudeDefault := engineContainerSpecFor("")
 	for _, name := range []string{"codex", "opencode"} {
-		p := containerProfileFor(name)
+		p := engineContainerSpecFor(name)
 		require.NotNil(t, p.resolveAuth, "backend %q must wire its own auth resolver", name)
 		// Behavioral check: feed the resolver an ANTHROPIC_API_KEY only and
 		// confirm it does NOT authenticate via it — a func value can't be
@@ -110,11 +110,11 @@ func TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault(t *testing.T
 	}
 }
 
-// TestContainerProfileFor_Codex pins that codex is composable (its own
+// TestEngineContainerSpecFor_Codex pins that codex is composable (its own
 // official-installer fragment) AND has its own auth/overlay set — no longer
-// inheriting the default (claude) profile's auth axis.
-func TestContainerProfileFor_Codex(t *testing.T) {
-	p := containerProfileFor("codex")
+// inheriting the default (claude) spec's auth axis.
+func TestEngineContainerSpecFor_Codex(t *testing.T) {
+	p := engineContainerSpecFor("codex")
 	assert.NotNil(t, p.engineInstall, "codex is composable")
 	assert.Equal(t, "codex --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".codex")
@@ -129,10 +129,10 @@ func TestContainerProfileFor_Codex(t *testing.T) {
 	assert.Contains(t, auth.envPassthrough, "OPENAI_API_KEY")
 }
 
-// TestContainerProfileFor_Opencode pins opencode's own auth/overlay set — no
-// longer inheriting the default (claude) profile's auth axis.
-func TestContainerProfileFor_Opencode(t *testing.T) {
-	p := containerProfileFor("opencode")
+// TestEngineContainerSpecFor_Opencode pins opencode's own auth/overlay set — no
+// longer inheriting the default (claude) spec's auth axis.
+func TestEngineContainerSpecFor_Opencode(t *testing.T) {
+	p := engineContainerSpecFor("opencode")
 	assert.NotNil(t, p.engineInstall, "opencode is composable")
 	assert.Equal(t, "opencode --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".opencode")
@@ -147,7 +147,7 @@ func TestContainerProfileFor_Opencode(t *testing.T) {
 	assert.Contains(t, auth.envPassthrough, "OPENROUTER_API_KEY")
 }
 
-// TestContainerProfileFor_Mock pins mock's own profile: composable (so
+// TestEngineContainerSpecFor_Mock pins mock's own spec: composable (so
 // `ctxloom container build mock` no longer refuses with "no local build
 // recipe"), a validate command that proves the image without any vendor
 // client (mock installs none), an auth resolver that ALWAYS succeeds (mock
@@ -155,8 +155,8 @@ func TestContainerProfileFor_Opencode(t *testing.T) {
 // resolver, which degrades on some path), and an overlay set scoped to
 // mock's own managed-config directory (.mock, covering mockSkillsPath's
 // .mock/skills) plus the shared .ctxloom/cache — never claude's .claude.
-func TestContainerProfileFor_Mock(t *testing.T) {
-	p := containerProfileFor("mock")
+func TestEngineContainerSpecFor_Mock(t *testing.T) {
+	p := engineContainerSpecFor("mock")
 	assert.Equal(t, defaultContainerImage, p.image)
 	assert.NotNil(t, p.engineInstall, "mock must be composable so `container build mock` has a recipe")
 	assert.Contains(t, string(p.engineInstall), "cat", "mock's fragment asserts the one thing it actually needs: cat")
@@ -166,7 +166,7 @@ func TestContainerProfileFor_Mock(t *testing.T) {
 	assert.Contains(t, p.overlayDirs, filepath.FromSlash(".ctxloom/cache"))
 	assert.Empty(t, p.transcriptStoreRel, "mock keeps no transcripts (NilSessionHistory)")
 
-	require.NotNil(t, p.resolveAuth, "the mock profile wires an auth resolver")
+	require.NotNil(t, p.resolveAuth, "the mock spec wires an auth resolver")
 	auth, ok := p.resolveAuth("/root", t.TempDir())
 	require.True(t, ok, "mock authenticates against no vendor, so resolution always succeeds")
 	assert.Equal(t, authNone, auth.mode)
@@ -175,8 +175,8 @@ func TestContainerProfileFor_Mock(t *testing.T) {
 }
 
 // TestResolveMockContainerAuth_AlwaysSucceeds is the unit-level pin on the
-// resolver itself (as opposed to TestContainerProfileFor_Mock's pin that the
-// profile WIRES it): unlike every other resolveXContainerAuth in this
+// resolver itself (as opposed to TestEngineContainerSpecFor_Mock's pin that the
+// spec WIRES it): unlike every other resolveXContainerAuth in this
 // package, it must return ok=true unconditionally — there is no env var or
 // credential file whose presence/absence could flip it, because mock has no
 // vendor to authenticate against.
@@ -194,16 +194,16 @@ func TestResolveMockContainerAuth_AlwaysSucceeds(t *testing.T) {
 	assert.Equal(t, authNone, auth2.mode)
 }
 
-// TestNewContainerFor_UsesProfileImage / TestNewContainer_ExplicitImageWins pin
-// the two constructors: For resolves the profile's image; the legacy explicit
-// image overrides it over the default profile.
-func TestNewContainerFor_UsesProfileImage(t *testing.T) {
+// TestNewContainerFor_UsesSpecImage / TestNewContainer_ExplicitImageWins pin
+// the two constructors: For resolves the spec's image; the legacy explicit
+// image overrides it over the default spec.
+func TestNewContainerFor_UsesSpecImage(t *testing.T) {
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "kiro")
 	assert.Equal(t, "ctxloom-agent-kiro:latest", c.image)
 
-	explicit := NewContainer(fakeRuntime{name: "docker", available: true}, "custom:tag")
+	explicit := NewContainerFor(fakeRuntime{name: "docker", available: true}, "mock").WithImage("custom:tag")
 	assert.Equal(t, "custom:tag", explicit.image)
-	assert.Nil(t, explicit.profile.engineInstall, "an explicit image is never locally built")
+	assert.Nil(t, explicit.engineSpec.engineInstall, "an explicit image is never locally built")
 }
 
 // TestResolveKiroContainerAuth pins kiro's container auth: KIRO_API_KEY env
@@ -265,7 +265,7 @@ func TestEveryComposableEngineGatesItsACPSurfaceByExecution(t *testing.T) {
 		{"opencode", "opencode acp"},
 	} {
 		t.Run(tc.backend, func(t *testing.T) {
-			frag := string(containerProfileFor(tc.backend).engineInstall)
+			frag := string(engineContainerSpecFor(tc.backend).engineInstall)
 			require.NotEmpty(t, frag, "%s must be composable", tc.backend)
 			assert.Contains(t, frag, "timeout 20 "+tc.surface+" </dev/null",
 				"%s must RUN its ACP surface at image-build time, not merely locate it", tc.backend)
@@ -303,33 +303,33 @@ func TestNativeACPRunGate_ProbesTheSubcommandNotTheClient(t *testing.T) {
 	assert.Contains(t, g, "exit 1")
 }
 
-// TestContainerProfileFor_EveryProfileMapsATranscriptStore pins that a
-// review row claimed an empty profile.transcriptStoreRel silently
+// TestEngineContainerSpecFor_EverySpecMapsATranscriptStore pins that a
+// review row claimed an empty spec.transcriptStoreRel silently
 // skips the transcript mount, so a containerized run writes a transcript that
 // dies at --rm teardown with nothing said. sessionStateMounts' `if
-// c.profile.transcriptStoreRel != ""` guard is real, but the empty case is
-// unreachable for every backend HERE COVERED: Container.profile is only ever
-// assigned from containerProfileFor (NewContainerFor), and every branch of
+// c.engineSpec.transcriptStoreRel != ""` guard is real, but the empty case is
+// unreachable for every backend HERE COVERED: Container.spec is only ever
+// assigned from engineContainerSpecFor (NewContainerFor), and every branch of
 // that switch checked below — each composable engine, plus the
 // unknown/empty default — sets a non-empty store root. This pins that
 // reachability argument so the row's premise cannot become true unnoticed: a
-// new engine profile that forgets its store root turns this red rather than
+// new engine spec that forgets its store root turns this red rather than
 // silently losing that engine's transcripts.
 //
-// mock is the ONE deliberate, documented exception (see containerProfileFor's
+// mock is the ONE deliberate, documented exception (see engineContainerSpecFor's
 // "mock" case doc): it keeps no transcripts at all
 // (internal/lm/backends.NewMock wires &NilSessionHistory{}), so "" is the
 // CORRECT value there, not an oversight the loop above should catch. It gets
 // its own explicit assertion instead of being silently excluded from the
 // names list, so a future change that gives mock a non-empty root (or
 // accidentally empties some other engine's) is visible either way.
-func TestContainerProfileFor_EveryProfileMapsATranscriptStore(t *testing.T) {
+func TestEngineContainerSpecFor_EverySpecMapsATranscriptStore(t *testing.T) {
 	names := append(composableEngines(), "", "no-such-engine")
 	for _, name := range names {
-		p := containerProfileFor(name)
+		p := engineContainerSpecFor(name)
 		assert.NotEmpty(t, p.transcriptStoreRel,
 			"backend %q must map a native transcript store root; an empty one silently drops the transcript mount in sessionStateMounts", name)
 	}
-	assert.Empty(t, containerProfileFor("mock").transcriptStoreRel,
+	assert.Empty(t, engineContainerSpecFor("mock").transcriptStoreRel,
 		"mock keeps no transcripts (NilSessionHistory) — an empty store root is the correct, deliberate value here")
 }

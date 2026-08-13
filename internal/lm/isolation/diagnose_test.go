@@ -147,7 +147,7 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 // question and is escalated separately; the guidance must at minimum SAY which
 // case produced the false.
 func TestDiagnoseStaleness_NamesTheNotCheckedCases(t *testing.T) {
-	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
+	spec := engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")}
 
 	t.Run("user-owned override is never inspected", func(t *testing.T) {
 		c := Container{
@@ -169,12 +169,12 @@ func TestDiagnoseStaleness_NamesTheNotCheckedCases(t *testing.T) {
 		t.Cleanup(func() { resolveSelfExe = orig })
 
 		c := Container{
-			runtime: fakeRuntime{name: "docker", binary: "true", available: true},
-			image:   "ctxloom-agent-diagnose-unverifiable:latest",
-			profile: profile,
+			runtime:    fakeRuntime{name: "docker", binary: "true", available: true},
+			image:      "ctxloom-agent-diagnose-unverifiable:latest",
+			engineSpec: spec,
 		}
 		sources, devBase, _ := c.containerBuildSources("")
-		require.NotEmpty(t, sources, "precondition: a composable profile has build sources")
+		require.NotEmpty(t, sources, "precondition: a composable spec has build sources")
 
 		d := &Diagnosis{ImagePresent: true}
 		diagnoseStaleness(context.Background(), c, "kiro", sources, devBase, d)

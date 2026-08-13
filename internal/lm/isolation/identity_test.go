@@ -167,7 +167,7 @@ func TestPrepareContainerScratch_GatesRunAsIsIdentity(t *testing.T) {
 	// there is no probe gate left in this call path to stub around.
 
 	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img")
-	c.profile.resolveAuth = func(string, string) (containerAuth, bool) { return containerAuth{}, true }
+	c.engineSpec.resolveAuth = func(string, string) (containerAuth, bool) { return containerAuth{}, true }
 
 	mark := strictness.Checkpoint()
 	sc, err := c.prepareContainerScratch(context.Background())

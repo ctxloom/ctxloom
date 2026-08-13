@@ -25,21 +25,21 @@ import (
 // silently leaving a containerized engine with no MCP surface.
 const mcpSocketEnvVar = "CTXLOOM_MCP_SOCKET"
 
-// containerProfileBackend maps ACPConfig.AgentEngine's kiro/claude/codex
-// vocabulary (see its doc comment above) onto isolation's container-profile
+// isolationBackendFor maps ACPConfig.AgentEngine's kiro/claude/codex
+// vocabulary (see its doc comment above) onto isolation's container-spec
 // backend-registry keys ("claude-code" / "kiro" / "codex" / "opencode" —
-// see internal/lm/isolation/profile.go's containerProfileFor doc): the two
+// see internal/lm/isolation/enginespec.go's engineContainerSpecFor doc): the two
 // vocabularies were never unified. Names already shared between them (kiro,
 // codex, opencode) pass through unchanged; an unrecognized/empty engine name
-// ALSO passes through unchanged — containerProfileFor treats an
-// unrecognized key as its default (claude-oriented) profile, the same
+// ALSO passes through unchanged — engineContainerSpecFor treats an
+// unrecognized key as its default (claude-oriented) spec, the same
 // fallback an unconfigured agent_engine gets elsewhere in this driver
 // (chatArgv's --agent-engine is likewise only-appended-when-set). "agy" is
-// one such unrecognized name post-0.7.0: antigravity's own container profile
+// one such unrecognized name post-0.7.0: antigravity's own container spec
 // was removed with the engine, so it now falls through to the same default
-// every other unmapped name gets, rather than routing to a profile that no
+// every other unmapped name gets, rather than routing to a spec that no
 // longer exists.
-func containerProfileBackend(agentEngine string) string {
+func isolationBackendFor(agentEngine string) string {
 	switch strings.ToLower(agentEngine) {
 	case claudeEngineName:
 		return "claude-code"
@@ -85,7 +85,7 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 		return nil, fmt.Errorf("acp: agent %q needs runtime:container but no container runtime is reachable (docker or podman CLI on PATH with its daemon up) — install/start docker or podman, or switch this agent's runtime to host", engine)
 	}
 
-	pol := isolation.NewContainerFor(rt, containerProfileBackend(b.agentEngine))
+	pol := isolation.NewContainerFor(rt, isolationBackendFor(b.agentEngine))
 	if b.containerImage != "" {
 		pol = pol.WithImage(b.containerImage)
 	}

@@ -151,7 +151,7 @@ type ACP struct {
 	// carries no per-event time). Injected for deterministic tests; nil = time.Now.
 	now func() time.Time
 
-	// containerImage, when non-empty, overrides the container profile's
+	// containerImage, when non-empty, overrides the container spec's
 	// resolved image (isolation.Container.WithImage) instead of the
 	// engine's real one. Test-only seam: the docker-gated container
 	// transport proof points this at a minimal harness image instead of a

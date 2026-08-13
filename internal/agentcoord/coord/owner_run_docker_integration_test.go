@@ -59,7 +59,7 @@ func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]s
 	// The session harp drives the session-state mounts (transcript survival),
 	// exactly as the host resolves it into the runner spawn env.
 	stateEnv := map[string]string{"CTXLOOM_SESSION_HARP": s.harp}
-	pol := isolation.NewContainer(rt, s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
+	pol := isolation.NewContainerFor(rt, "mock").WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, s.harp)
 	if err != nil {
 		return nil, err

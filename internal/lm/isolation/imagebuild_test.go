@@ -83,11 +83,11 @@ func TestEnsureImage_PresentIsNoop(t *testing.T) {
 	assert.NoError(t, c.ensureImage(context.Background()))
 }
 
-// TestEnsureImage_AbsentWithoutRecipeDegrades: an absent image on a profile with
-// no embedded Containerfile (the default profile / explicit-image path) errors so
+// TestEnsureImage_AbsentWithoutRecipeDegrades: an absent image on a spec with
+// no embedded Containerfile (the default spec / explicit-image path) errors so
 // the caller degrades — exactly the pre-build-support behaviour.
 func TestEnsureImage_AbsentWithoutRecipeDegrades(t *testing.T) {
-	c := NewContainer(fakeRuntime{name: "docker", binary: "false", available: true}, "img")
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "mock").WithImage("img")
 	err := c.ensureImage(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not present")
@@ -106,35 +106,35 @@ func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
 }
 
 // TestBuildSources_NonComposableHasNoRecipe pins the NON-COMPOSABLE shape (no
-// engineInstall — an unknown/unprofiled backend, e.g. containerProfileFor's
+// engineInstall — an unknown/unmapped backend, e.g. engineContainerSpecFor's
 // `default` arm): there is no local-build recipe at all, so buildSources
 // yields nothing regardless of the base-Containerfile/devcontainer options —
 // UNLESS an explicit base-image override is given, which still wins outright
-// (the caller asserts the client already lives there; no profile lookup is
+// (the caller asserts the client already lives there; no spec lookup is
 // needed to overlay onto it).
 //
 // A prior fix deleted the LEGACY officialImage/user-Containerfile/embedded-
-// Containerfile fallback this profile shape used to fall through to: no
-// profile, registered or hypothetical, ever populated those fields (rg over
+// Containerfile fallback this spec shape used to fall through to: no
+// spec, registered or hypothetical, ever populated those fields (rg over
 // the whole repo found zero assignments), so the fallback's three append
 // blocks could never produce a source — this test used to exercise them only
-// via a synthetic containerProfile{officialImage: ..., containerfile: ...}
+// via a synthetic engineContainerSpec{officialImage: ..., containerfile: ...}
 // literal built by nothing in production.
 func TestBuildSources_NonComposableHasNoRecipe(t *testing.T) {
-	p := containerProfileFor("no-such-engine")
-	require.Nil(t, p.engineInstall, "precondition: an unprofiled backend is the non-composable default profile")
+	p := engineContainerSpecFor("no-such-engine")
+	require.Nil(t, p.engineInstall, "precondition: an unmapped backend is the non-composable default spec")
 
-	assert.Empty(t, buildSources(p, buildSourcesOptions{}), "no recipe for an unprofiled/non-composable backend")
+	assert.Empty(t, buildSources(p, buildSourcesOptions{}), "no recipe for an unmapped/non-composable backend")
 	assert.Empty(t, buildSources(p, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base"}),
 		"a user base Containerfile alone still yields nothing without an engineInstall fragment to layer onto it")
 
 	override := buildSources(p, buildSourcesOptions{baseOverride: "my-base:latest"})
-	require.Len(t, override, 1, "an explicit base override wins outright, even for a non-composable profile")
+	require.Len(t, override, 1, "an explicit base override wins outright, even for a non-composable spec")
 	assert.Contains(t, override[0].desc, "my-base:latest")
 	assert.Nil(t, override[0].base)
 }
 
-// TestBuildSources_Composable pins the COMPOSABLE profile shape
+// TestBuildSources_Composable pins the COMPOSABLE spec shape
 // (claude-code/codex/kiro/opencode — engineInstall != nil): the SAME
 // generated multi-engine Containerfile builds onto each candidate base in
 // precedence order (explicit user base > auto-detected devcontainer >
@@ -142,7 +142,7 @@ func TestBuildSources_NonComposableHasNoRecipe(t *testing.T) {
 // exactly like the legacy shape.
 func TestBuildSources_Composable(t *testing.T) {
 	for _, backend := range []string{"claude-code", "codex", "kiro", "opencode"} {
-		p := containerProfileFor(backend)
+		p := engineContainerSpecFor(backend)
 		require.NotNil(t, p.engineInstall, "backend %q must be composable", backend)
 
 		got := buildSources(p, buildSourcesOptions{})
@@ -175,17 +175,17 @@ func TestBuildSources_Composable(t *testing.T) {
 	}
 }
 
-// TestBuildSources_MockIsComposable pins that mock's own profile now has a
+// TestBuildSources_MockIsComposable pins that mock's own spec now has a
 // local-build recipe: `ctxloom container build mock` used to fail outright
-// ("no local build recipe for this engine") because containerProfileFor fell
-// through to the non-composable default for any unrecognized/unprofiled
+// ("no local build recipe for this engine") because engineContainerSpecFor fell
+// through to the non-composable default for any unrecognized/unmapped
 // name, mock included. mockInstallFragment being non-nil is what flips
 // buildSources from empty to composableBuildSources' output — this pins the
 // OUTCOME (buildSources itself), not just the fragment's non-nilness, so a
 // future change that sets engineInstall but breaks buildSources' composable
 // branch for it would still be caught here.
 func TestBuildSources_MockIsComposable(t *testing.T) {
-	p := containerProfileFor("mock")
+	p := engineContainerSpecFor("mock")
 	require.NotNil(t, p.engineInstall, "precondition: mock is composable")
 
 	got := buildSources(p, buildSourcesOptions{})
@@ -271,15 +271,15 @@ func TestOverlayContainerfile(t *testing.T) {
 
 // TestBuildSources_OverrideWithoutValidateWarns pins that
 // the overlay Containerfile emits its client-validation `RUN` only
-// when the profile HAS a validate command, and the default (unprofiled)
-// profile has none. `ctxloom container build <unprofiled> --base-image X`
+// when the spec HAS a validate command, and the default (unmapped)
+// spec has none. `ctxloom container build <unmapped> --base-image X`
 // therefore shipped an agent image whose engine was never proven to exist —
 // it builds, tags, passes every ctxloom/companion gate, and fails at run time
 // with the engine binary simply absent. The rendering is correct (there is no
 // command to run); the silence about it was not.
 func TestBuildSources_OverrideWithoutValidateWarns(t *testing.T) {
-	p := containerProfileFor("no-such-engine")
-	require.Empty(t, p.validate, "precondition: the default profile has no client validate command")
+	p := engineContainerSpecFor("no-such-engine")
+	require.Empty(t, p.validate, "precondition: the default spec has no client validate command")
 
 	buf := captureWarnings(t)
 	sources := buildSources(p, buildSourcesOptions{baseOverride: "my-base:latest"})
@@ -291,14 +291,14 @@ func TestBuildSources_OverrideWithoutValidateWarns(t *testing.T) {
 	assert.Contains(t, warning, "client-validation", "the warning names the missing client-validation gate")
 }
 
-// TestBuildSources_OverrideWithValidateIsSilent: a profiled backend's override
+// TestBuildSources_OverrideWithValidateIsSilent: a mapped backend's override
 // DOES get its validate gate, so it must not draw the missing-client-validation warning.
 func TestBuildSources_OverrideWithValidateIsSilent(t *testing.T) {
 	buf := captureWarnings(t)
-	sources := buildSources(containerProfileFor("claude-code"), buildSourcesOptions{baseOverride: "my-base:latest"})
+	sources := buildSources(engineContainerSpecFor("claude-code"), buildSourcesOptions{baseOverride: "my-base:latest"})
 	require.Len(t, sources, 1)
 	assert.Contains(t, string(sources[0].containerfile), "RUN claude --version\n")
-	assert.Empty(t, buf.String(), "a profile that CAN validate its client warns about nothing")
+	assert.Empty(t, buf.String(), "a spec that CAN validate its client warns about nothing")
 }
 
 // TestOverlayUserGate_FailsTheBuildWithAFixIt: a base that cannot grow the
@@ -389,8 +389,8 @@ func TestComputeProvenanceDigest_TracksBinaryContent(t *testing.T) {
 // staleness or rebuilt — the user owns its lifecycle.
 func TestEnsureImage_UserOwnedOverrideRunsAsIs(t *testing.T) {
 	// fakeRuntime binary "true": `true image inspect …` exits 0 → present; the
-	// default profile for an image-only override has no build sources.
-	c := NewContainer(fakeRuntime{name: "docker", binary: "true", available: true}, "user/own:img")
+	// default spec for an image-only override has no build sources.
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "mock").WithImage("user/own:img")
 	assert.NoError(t, c.ensureImage(context.Background()),
 		"present + no recipe → run as-is, no staleness gate")
 }
@@ -474,9 +474,9 @@ func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T)
 	t.Cleanup(func() { resolveSelfExe = orig })
 
 	c := Container{
-		runtime: fakeRuntime{name: "docker", binary: script, available: true},
-		image:   "ctxloom-agent-stale-unbuildable-test:latest",
-		profile: containerProfile{engineInstall: []byte("RUN echo fake-install\n")},
+		runtime:    fakeRuntime{name: "docker", binary: script, available: true},
+		image:      "ctxloom-agent-stale-unbuildable-test:latest",
+		engineSpec: engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 	}
 	require.NoError(t, c.ensureImage(context.Background()),
 		"the stale image still launches — unbuildable-from-this-binary must never take the container axis down")
@@ -497,7 +497,7 @@ func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T)
 // sources at all, rather than a green recipe for an empty image.
 func TestComposableBuildSources_EmptyEnginesFailsLoud(t *testing.T) {
 	resetStrictness(t)
-	p := containerProfile{engineInstall: []byte("RUN something\n")}
+	p := engineContainerSpec{engineInstall: []byte("RUN something\n")}
 	sources := composableBuildSources(p, buildSourcesOptions{engines: []string{"totally-unknown-engine"}})
 	assert.Nil(t, sources, "no build source at all for a resolved-empty engine set")
 
@@ -517,7 +517,7 @@ func TestTailLines(t *testing.T) {
 // through ensureImage for the SAME absent tag concurrently — exactly one
 // FLIGHT must run (2 build invocations: the shared base stage, then the agent
 // stage FROM it — buildFromSource's shape for any source with a non-nil
-// base, which every composable profile carries), every caller sharing its
+// base, which every composable spec carries), every caller sharing its
 // outcome (pre-dedup, each member raced its own build and a mid-build untag
 // could flake another's post-build recheck). A later, non-overlapping ensure
 // re-checks presence instead of rebuilding, and a DIFFERENT tag still builds
@@ -528,24 +528,24 @@ func TestEnsureImage_ParallelCallersShareOneBuild(t *testing.T) {
 
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "builds.log")
-	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
+	spec := engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")}
 	// The fake runtime reports the just-built image's provenance label as
 	// current, so a caller landing after the flight re-checks cheaply instead
-	// of rebuilding. This profile is COMPOSABLE (engineInstall != nil), so its
+	// of rebuilding. This spec is COMPOSABLE (engineInstall != nil), so its
 	// real provenance comes from composedIdentity (content+engine-keyed),
 	// never the legacy HostProvenanceDigest — computed here with the same
 	// nil devBase/nil engines ensureImage itself resolves for this Container
 	// (appRoot == "" short-circuits devcontainer auto-detection to nil).
-	_, provenance, ok := composedIdentity(profile, "", nil, nil)
-	require.True(t, ok, "precondition: a composable profile always resolves a provenance")
+	_, provenance, ok := composedIdentity(spec, "", nil, nil)
+	require.True(t, ok, "precondition: a composable spec always resolves a provenance")
 	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
 	script := filepath.Join(dir, "fake-docker")
 	writeFakeRuntimeScript(t, script, logFile, dir, labels)
 
 	c := Container{
-		runtime: fakeRuntime{name: "docker", binary: script, available: true},
-		image:   "ctxloom-agent-dedup-test:latest",
-		profile: profile,
+		runtime:    fakeRuntime{name: "docker", binary: script, available: true},
+		image:      "ctxloom-agent-dedup-test:latest",
+		engineSpec: spec,
 	}
 
 	const n = 8
@@ -782,9 +782,9 @@ func TestEnsureImage_UnverifiableProvenanceIsNotCurrent(t *testing.T) {
 	t.Cleanup(func() { resolveSelfExe = orig })
 
 	c := Container{
-		runtime: fakeRuntime{name: "docker", binary: script, available: true},
-		image:   "ctxloom-agent-unverifiable-provenance-test:latest",
-		profile: containerProfile{engineInstall: []byte("RUN echo fake-install\n")},
+		runtime:    fakeRuntime{name: "docker", binary: script, available: true},
+		image:      "ctxloom-agent-unverifiable-provenance-test:latest",
+		engineSpec: engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 	}
 	require.NoError(t, c.ensureImage(context.Background()),
 		"an unverifiable image still launches — this must never take the container axis down")
@@ -812,9 +812,9 @@ func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
 		// A baked provenance that will never match the host digest → STALE.
 		writeInspectOKBuildFailScript(t, script, `{"ctxloom.provenance":"stale-nomatch"}`)
 		return Container{
-			runtime: fakeRuntime{name: "docker", binary: script, available: true},
-			image:   "ctxloom-agent-stale-test:latest",
-			profile: containerProfile{engineInstall: []byte("RUN echo fake-install\n")},
+			runtime:    fakeRuntime{name: "docker", binary: script, available: true},
+			image:      "ctxloom-agent-stale-test:latest",
+			engineSpec: engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 		}
 	}
 
@@ -858,7 +858,7 @@ func TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded(t *testing.T) {
 			runtime:           fakeRuntime{name: "docker", binary: script, available: true},
 			image:             "ctxloom-agent-userbase-test:latest",
 			baseContainerfile: base,
-			profile:           containerProfile{engineInstall: []byte("RUN echo fake-install\n")},
+			engineSpec:        engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 		}
 	}
 
@@ -1024,8 +1024,8 @@ func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
 	dir := t.TempDir()
-	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
-	_, provenance, ok := composedIdentity(profile, "", nil, nil)
+	spec := engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")}
+	_, provenance, ok := composedIdentity(spec, "", nil, nil)
 	require.True(t, ok)
 	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
 
@@ -1040,8 +1040,8 @@ func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
 	podmanRT, podmanLog := newRuntime("podman")
 
 	image := "ctxloom-agent-flightkey-test:latest"
-	require.NoError(t, (Container{runtime: dockerRT, image: image, profile: profile}).ensureImage(context.Background()))
-	require.NoError(t, (Container{runtime: podmanRT, image: image, profile: profile}).ensureImage(context.Background()))
+	require.NoError(t, (Container{runtime: dockerRT, image: image, engineSpec: spec}).ensureImage(context.Background()))
+	require.NoError(t, (Container{runtime: podmanRT, image: image, engineSpec: spec}).ensureImage(context.Background()))
 
 	assert.Len(t, buildInvocations(t, dockerLog), 2, "the first daemon builds base + agent stage")
 	assert.Len(t, buildInvocations(t, podmanLog), 2,
@@ -1066,12 +1066,12 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 	path := filepath.Join(dir, "Containerfile.base")
 	require.NoError(t, os.WriteFile(path, []byte("FROM debian:13\n"), 0o644))
 
-	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
+	spec := engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")}
 	stage := userBaseStage(path)
 
 	firstContent, err := stage.content()
 	require.NoError(t, err)
-	firstAgentTag, firstProvenance, ok := composedIdentity(profile, path, nil, nil)
+	firstAgentTag, firstProvenance, ok := composedIdentity(spec, path, nil, nil)
 	require.True(t, ok)
 	firstBaseTag := baseImageTagFor(firstContent)
 
@@ -1079,7 +1079,7 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 
 	secondContent, err := stage.content()
 	require.NoError(t, err)
-	secondAgentTag, secondProvenance, ok := composedIdentity(profile, path, nil, nil)
+	secondAgentTag, secondProvenance, ok := composedIdentity(spec, path, nil, nil)
 	require.True(t, ok)
 
 	assert.NotEqual(t, firstBaseTag, baseImageTagFor(secondContent),

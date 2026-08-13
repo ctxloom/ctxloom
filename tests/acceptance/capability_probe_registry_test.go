@@ -249,6 +249,17 @@ func TestProbeRegistry_TagsSurviveTheGherkinParser(t *testing.T) {
 // deferred) must be exactly the cells that feature declares — in both
 // directions. A row in the table with no scenario is a claim nobody can run; a
 // scenario with no row is a cell whose expected state nobody recorded.
+//
+// THE COMPARISON IS ON THE FULL CELL IDENTITY, VARIANT INCLUDED, and that is
+// not a detail. Two rungs discriminate cells by variant rather than by axis —
+// P1 pins four context APPROACHES on the same engine/host/none, and P4 pairs
+// every plan cell with a bypass CONTROL on the same axes — so a key that stops
+// at engine/runtime/workspace collapses ten P1 rows onto four and all eight P4
+// rows onto four. Under that collapsed key, deleting P4's control row (the
+// rung's honesty anchor: without it an unchanged sentinel is equally consistent
+// with a posture that refused and a run that never tried) left the shared gate
+// perfectly green, because the plan row beside it still answered for the key.
+// Keying on probeCellID makes each arm answer for itself.
 func TestProbeRegistry_WiredProbesMatchTheirFeatureFile(t *testing.T) {
 	for _, p := range probeRegistry {
 		if p.Feature == "" {
@@ -263,7 +274,7 @@ func TestProbeRegistry_WiredProbesMatchTheirFeatureFile(t *testing.T) {
 			doc, err := gherkin.ParseGherkinDocument(f, (&messages.Incrementing{}).NewId)
 			require.NoError(t, err, "%s does not parse", path)
 
-			inFeature := featureCellKeys(doc)
+			inFeature := featureCellKeys(t, path, doc)
 			require.NotEmpty(t, inFeature, "%s declared no engine/runtime/workspace Examples rows — this check would compare against nothing and pass vacuously", path)
 
 			// Which registry rows the feature MUST carry an Examples row for:
@@ -273,10 +284,10 @@ func TestProbeRegistry_WiredProbesMatchTheirFeatureFile(t *testing.T) {
 			// gated-out-by-absence cells must NOT appear — a scenario for a
 			// capability the engine declares gone would skip forever and read
 			// as coverage.
-			inRegistry := map[string]bool{}
-			mustBeAbsent := map[string]bool{}
+			inRegistry := map[probeCellID]bool{}
+			mustBeAbsent := map[probeCellID]bool{}
 			for _, c := range p.Cells {
-				k := cellKey(c.Engine, c.Runtime, c.Workspace)
+				k := cellKey(c.Engine, c.Runtime, c.Workspace, c.Variant)
 				switch {
 				case c.Status == probeGatedOut && c.GateAtRuntime:
 					inRegistry[k] = true
@@ -306,15 +317,43 @@ func TestProbeRegistry_WiredProbesMatchTheirFeatureFile(t *testing.T) {
 	}
 }
 
-func cellKey(engine, runtime, workspace string) string {
-	return fmt.Sprintf("%s/%s/%s", engine, runtime, workspace)
+// cellKey is the identity both sides of the drift check are reduced to. Probe
+// is left empty: the comparison happens inside a per-probe subtest, and the
+// probe name is already in the subtest's name and in every message.
+func cellKey(engine, runtime, workspace, variant string) probeCellID {
+	return probeCellID{Engine: engine, Runtime: runtime, Workspace: workspace, Variant: variant}
 }
+
+// variantTagPrefix is how a variant is ADDRESSED — probeCell.Tags emits it, and
+// ACCEPTANCE_TAGS selects on it, so it is also the honest place to read a
+// feature row's variant back out of.
+const variantTagPrefix = "@var-"
 
 // featureCellKeys collects every Examples row of doc that carries engine,
 // runtime and workspace columns. Column-name driven rather than positional, so
 // a reordered table does not silently compare the wrong things.
-func featureCellKeys(doc *messages.GherkinDocument) map[string]bool {
-	out := map[string]bool{}
+//
+// WHY COLUMN PRESENCE STILL DECIDES WHAT COUNTS. A probe's cells may share a
+// feature file with scenarios that are not probe cells at all: J002300's own
+// per-engine delegation floor tabulates | engine | marker | beside P6's outline
+// in the same file. It carries no runtime and no workspace column, so it is
+// skipped here and contributes nothing — that skip is the whole reason the two
+// can coexist, and it must survive any change to this function.
+//
+// WHY THE VARIANT COMES FROM THE TAG AND NOT FROM A COLUMN. The variant-bearing
+// probes do not agree on a column name — P1 tabulates `variant`, P4 tabulates
+// `posture`, because P4's discriminator is also the value its steps bind — but
+// they agree exactly on the TAG, because the tag is the address: probeCell.Tags
+// generates `@var-<variant>` and that string is what selects the cell on the
+// command line. Reading the address is also what makes the check meaningful; a
+// row keyed by a column the runner never looks at could be selected by nothing.
+//
+// When a block does carry a literal `variant` column, its rows must agree with
+// the tag. That pairing is what a step reads to decide which arm it is running,
+// so a disagreement means the right cell is addressed and the wrong one runs.
+func featureCellKeys(t *testing.T, path string, doc *messages.GherkinDocument) map[probeCellID]bool {
+	t.Helper()
+	out := map[probeCellID]bool{}
 	if doc == nil || doc.Feature == nil {
 		return out
 	}
@@ -336,19 +375,54 @@ func featureCellKeys(doc *messages.GherkinDocument) map[string]bool {
 			if !eok || !rok || !wok {
 				continue
 			}
+
+			variant, err := examplesVariant(ex)
+			if err != nil {
+				t.Errorf("%s: %v", path, err)
+				continue
+			}
+			vi, hasVariantCol := col["variant"]
+
 			for _, row := range ex.TableBody {
 				if len(row.Cells) <= ei || len(row.Cells) <= ri || len(row.Cells) <= wi {
 					continue
+				}
+				if hasVariantCol && len(row.Cells) > vi {
+					if got := strings.TrimSpace(row.Cells[vi].Value); got != variant {
+						t.Errorf("%s: an Examples row tabulates variant %q while its block is tagged %q — the tag is what SELECTS the cell and the column is what the step binds, so the wrong arm would run under the right address",
+							path, got, variantTagPrefix+variant)
+					}
 				}
 				out[cellKey(
 					strings.TrimSpace(row.Cells[ei].Value),
 					strings.TrimSpace(row.Cells[ri].Value),
 					strings.TrimSpace(row.Cells[wi].Value),
+					variant,
 				)] = true
 			}
 		}
 	}
 	return out
+}
+
+// examplesVariant reads the block's @var-<variant> tag, or "" when it has none
+// (the ordinary case: most cells have no intra-cell discriminator). Two such
+// tags on one block is an error rather than a pick, because the block would be
+// selected by either and reported as one.
+func examplesVariant(ex *messages.Examples) (string, error) {
+	variant := ""
+	for _, tag := range ex.Tags {
+		name := strings.TrimSpace(tag.Name)
+		if !strings.HasPrefix(name, variantTagPrefix) {
+			continue
+		}
+		v := strings.TrimPrefix(name, variantTagPrefix)
+		if variant != "" && v != variant {
+			return "", fmt.Errorf("an Examples block carries two variant tags (%s%s and %s) — it would be selected by either and can be recorded as only one", variantTagPrefix, variant, name)
+		}
+		variant = v
+	}
+	return variant, nil
 }
 
 // TestProbeRegistry_ReportsItsOwnCost prints the ladder, and refuses runaway

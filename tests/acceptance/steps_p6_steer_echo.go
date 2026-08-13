@@ -228,17 +228,34 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 						body, _ := m["body"].(string)
 						seen = append(seen, body)
 					}
-					if err := p6AssertEcho(v, p6.harp, seen); err == nil {
-						w.docStepMaterialized = fmt.Sprintf("agent_recv — %s echoed the steer harp %s over the bus:\n  %s",
-							name, p6.harp, strings.Join(seen, "\n  ---\n  "))
-						return nil
-					}
+				}
+				// ONE evaluation per pass, and the SAME verdict decides both
+				// whether to stop and what to report. An earlier draft re-ran the
+				// assert in the expiry branch, which had a real hole in it: the
+				// echo could arrive between the two calls, and the step would then
+				// fail carrying a wrapped nil ("%!w(<nil>)") instead of either
+				// passing or naming a shape. The mutation run that was supposed to
+				// prove the assertion bites is what surfaced it — which is the
+				// argument for running mutations on the error path too, not only
+				// on the happy one.
+				verdict := p6AssertEcho(v, p6.harp, seen)
+				if verdict == nil {
+					evidence := fmt.Sprintf("agent_recv — %s echoed the steer harp %s over the bus:\n  %s",
+						name, p6.harp, strings.Join(seen, "\n  ---\n  "))
+					w.docStepMaterialized = evidence
+					// LOUD ON GREEN, not only on red. A live cell that passes in
+					// seconds is indistinguishable, in a lane log, from one that
+					// found what it wanted for the wrong reason; printing the
+					// bodies that satisfied it is how a reader checks the pass
+					// rather than trusting it.
+					fmt.Printf("NOTE %s: %s\n", v.Cell, evidence)
+					return nil
 				}
 				if time.Now().After(deadline) {
 					// The verdict, not the timeout, is the report: it names the
 					// shape (silent no-op / credential failure / BUS-DELIVERY)
 					// and quotes every body verbatim.
-					return fmt.Errorf("p6: %ds elapsed — %w", budgetSec, p6AssertEcho(v, p6.harp, seen))
+					return fmt.Errorf("p6: %ds elapsed — %w", budgetSec, verdict)
 				}
 			}
 		})
@@ -265,6 +282,14 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("p6: delegation.spool_delivery was switched on in this cell's HOME config, so the child's spool must exist: %w", err)
 			}
 			w.docStepMaterialized = census.String()
-			return p6AssertSpoolEvidence(p6Verdict(p6.cell), census, p6.harp)
+			if err := p6AssertSpoolEvidence(p6Verdict(p6.cell), census, p6.harp); err != nil {
+				return err
+			}
+			// The soak's evidence, printed on green for the same reason the echo
+			// is: the whole point of this step is that a switch being ON and the
+			// substrate having WRITTEN something are different facts, and only
+			// the census shows the second one.
+			fmt.Printf("NOTE %s: %s\n", p6.cell, census)
+			return nil
 		})
 }

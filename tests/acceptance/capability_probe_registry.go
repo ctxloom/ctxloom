@@ -35,10 +35,13 @@
 // it. The container rows were the worked example: added red under the 2026-08-12
 // ruling because containerized delegation had never been demonstrably correct,
 // then flipped to live-verified on 2026-08-13 once container auth keying landed
-// and all eight were run. Only one red map is left standing (kiro host/none's
-// ANSI-decoration finding). Flipping one is a one-line edit per cell that the
-// completeness gate forces somebody to make consciously — which is the entire
-// reason the shapes are written down instead of assumed.
+// and all eight were run. Two red maps stand today, and both are product
+// findings rather than expectations: P0's kiro host/none (ANSI decoration leaking
+// into a non-interactive capture) and P1's claude-code hook cell (the hook
+// context route delivering nothing — see the note under the P1 rows, which is
+// also where the minted-harp ruling earns its keep). Flipping one is a one-line
+// edit per cell that the completeness gate forces somebody to make consciously —
+// which is the entire reason the shapes are written down instead of assumed.
 package acceptance
 
 import (
@@ -280,15 +283,19 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells: []probeCell{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "system-prompt",
-				Status: probeWired, Reason: "agent.ApproachSystemPrompt is claude-only (--append-system-prompt-file); no test selected it live before this cell"},
+				Status: probeLiveVerified, Reason: "agent.ApproachSystemPrompt (--append-system-prompt-file) is claude-only, and no test had ever selected it live. Measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 5.3s, harp \"fond-ugly-cycle\" planted in a profile bundle fragment and echoed back exactly, no degrade warning on stderr. Inventory row 4 moves from claimed to proven."},
+			// THE ONE RED IN P1, AND IT IS A PRODUCT FINDING. See the long note
+			// below the table: claude's hook context route delivers nothing.
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probeWired, Reason: "claude's SessionStart inject-context route. A green here also means the vendor binary EXECUTED a ctxloom-written hook — inventory row 7's own proof is P3's job, but this cell cannot pass without it."},
+				Status: probeWired, ExpectedFailure: channelComposedContext.Shape,
+				ExpectedFailureNote: "measured 2026-08-13, THREE consecutive runs, three freshly minted harps, same shape every time: the run exits 0 with well-formed JSON that carries nothing of the nonce. Verbatim stdout, in order: {\"hello\":\"2467643947\"} (harp \"vast-racy-pound\"), {\"hello\":\"bumpy-stony-sixth\"} (harp \"near-green-parka\"), {\"hello\":\"mere-teal-jet\"} (harp \"free-rich-jet\"). Two of the three answers are that run's OWN SESSION HARP, which ctxloom had just printed in its start-session banner — see the note below the table for why that detail is the finding rather than a curiosity. No degrade marker appeared on stderr, so the pin WAS honoured; the same stderr also reports \"context: 2 fragment(s), ~336 tokens\", so the context was assembled. The failure is between assembly and the model, in the hook route itself.",
+				Reason: "claude's SessionStart inject-context route. A green here would also have meant the vendor binary EXECUTED a ctxloom-written hook — inventory row 7's own proof is P3's job, and P3 should now expect to find something."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "unsafe-file-shared",
-				Status: probeWired, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion; the worktree axis is where that matters"},
+				Status: probeLiveVerified, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion, and the worktree axis is where that matters. Measured 2026-08-13: 1 scenario / 3 steps green in 5.5s, harp \"snug-void-rebel\", no degrade warning. CLAUDE.md into an isolated checkout delivers."},
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probeWired, Reason: "must settle the 2026-07-14 finding recorded on liveAgents[\"codex\"]: profile fragments dropped from the hook's cache file. This cell either reconfirms it or records that it is fixed."},
+				Status: probeLiveVerified, Reason: "THE 2026-07-14 FINDING IS FIXED, and this cell is the measurement that says so. That finding (recorded on liveAgents[\"codex\"]) was that codex's run-path context cache file — the one its SessionStart hook actually reads — carried only companion fragments and DROPPED the active profile's own bundle fragments. This cell's nonce lives in exactly such a fragment. Measured 2026-08-13: 1 scenario / 3 steps green in 17.3s, harp \"funny-bats-wife\" echoed back exactly, no degrade warning. Inventory row 5 is proven for codex."},
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "unsafe-file",
-				Status: probeWired, Reason: "codex's AGENTS.md route is compositional with its hook; the cell proves the turn carries the nonce under the pinned approach, and is the CONTROL for the hook row above"},
+				Status: probeLiveVerified, Reason: "codex's AGENTS.md route, and the CONTROL for the hook row above: same engine, same axes, same nonce channel, different mechanism. Measured 2026-08-13: 1 scenario / 3 steps green in 7.0s, harp \"smug-fatal-rush\". With both codex rows green the differential says the hook route is healthy rather than merely untested."},
 			// These two named the HOOKS surface's symbols (kiro.WithContextHook,
 			// noHooksReason) — which is P3's gate, a different claim. What
 			// declares the absence for a CONTEXT-DELIVERY probe is the engine's
@@ -584,6 +591,47 @@ func p0Cells() []probeCell {
 // what they test — but they have not been re-observed. If one of them reds with
 // a CONTEXT-DELIVERY failure while the engine is plainly healthy, the nonce is
 // still the first thing to rule out, and matrixBundleYAML is where to look.
+
+// P1's FINDING, 2026-08-13: CLAUDE'S HOOK CONTEXT ROUTE DELIVERS NOTHING — AND
+// THE MINTED-HARP RULING IS WHAT CAUGHT IT.
+//
+// The cell is claude-code host/none at agent.ApproachHook: the agent binding
+// pins `surfaces: {context: hook}`, so context should reach the model through
+// the SessionStart inject-context hook ctxloom writes into .claude/settings.json
+// and the vendor binary then executes. Three consecutive runs, three freshly
+// minted harps, one shape: exit 0, well-formed JSON, no trace of the nonce.
+//
+// WHAT IT IS NOT. It is not a degrade: no degrade marker appeared on stderr, so
+// operations.ResolveAgent validated the pin and internal/cli/run.go carried it to
+// the wire (approachPinHonoured is the check that can tell these apart, and this
+// is the case it was written for). It is not an empty assembly either — the same
+// stderr reports "context: 2 fragment(s), ~336 tokens". The context was composed
+// and the mechanism was selected; what did not happen is the model seeing it. It
+// is also not the output contract: the JSON was perfect every time. Every other
+// approach on both engines that declares one — claude system-prompt, claude
+// unsafe-file, codex hook, codex unsafe-file — went green on the same fixture in
+// the same hour.
+//
+// NOW THE PART THAT MATTERS BEYOND THIS CELL. Two of the three runs answered
+// with that run's OWN SESSION HARP — {"hello":"bumpy-stony-sixth"} and
+// {"hello":"mere-teal-jet"} — a value ctxloom had just printed in its
+// start-session banner and exports as CTXLOOM_SESSION_HARP. The model, asked for
+// "the nonce string that appears in the additional context", had no context,
+// found a plausible three-word phraselet in its ambient environment, and returned
+// that.
+//
+// Under the PRE-RULING design, where the planted nonce WAS the session's own
+// harp, this cell would have gone green. It would have reported that claude's
+// hook route delivers context, on the strength of the engine reading a value the
+// hook never carried. That is precisely the ambient-channel false green the
+// 2026-08-12 minted-harp ruling was made to rule out (probe_assert.go's header
+// argues it a priori; this is the measurement). The ruling has now paid for
+// itself once, on the second probe to use it.
+//
+// The cell stays exactly as strict as it is, tagged @wip in the feature with the
+// same evidence. Untag it when a hook-pinned claude run echoes its own minted
+// harp. Do NOT relax it to accept a run whose context arrived some other way:
+// this cell's whole subject is which way.
 
 // setCell applies fn to the one cell matching engine/runtime/workspace. It
 // PANICS when the cell is not there: this runs at package init, and a silent

@@ -218,6 +218,17 @@ profiles:
 	// axis is real and correct), but is NOT YET a proven context-delivering
 	// live row — do not add a J000400 @live Examples row for codex until this is
 	// fixed, or it would be red (or falsely green on a weakened assertion).
+	//
+	// THAT FINDING IS CLOSED, MEASURED 2026-08-13. The paragraph above is kept
+	// because it is the history and the diagnosis, but its prohibition no longer
+	// holds. P1's codex hook cell (capability_context_approaches.feature,
+	// @var-hook) plants a minted harp in a PROFILE BUNDLE FRAGMENT — exactly the
+	// content the 2026-07-14 defect dropped — pins the delivery approach to the
+	// hook so nothing else can be carrying it, and went green: the harp came back
+	// exactly, in 17.3s, with no degrade warning. Its AGENTS.md sibling cell went
+	// green too, so the hook route is healthy rather than merely bypassed. codex
+	// IS a proven context-delivering live row now, by both of its declared
+	// approaches, and the registry row records the evidence.
 	"codex": {
 		binary:     "codex",
 		apiKeyEnvs: []string{"OPENAI_API_KEY", "CODEX_API_KEY"},

@@ -90,12 +90,38 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
       | engine      | runtime | workspace | approach      | variant       |
       | claude-code | host    | none      | system-prompt | system-prompt |
 
-    # claude's hook route: context arrives through a SessionStart inject-context
-    # hook that ctxloom writes into .claude/settings.json and the vendor binary
-    # then EXECUTES. This cell is therefore also the first live evidence that
-    # claude runs a ctxloom-written hook at all — inventory row 7 is P3's to
-    # prove properly, but a green here cannot happen without it.
-    @claude-code @host @ws-none @var-hook
+    # @wip — RED, MEASURED 2026-08-13, AND THE FINDING IS A PRODUCT ONE.
+    # claude's hook route should carry context through a SessionStart
+    # inject-context hook ctxloom writes into .claude/settings.json and the
+    # vendor binary then executes. Three consecutive runs, three freshly minted
+    # harps, one shape — exit 0, well-formed JSON, no trace of the nonce:
+    #
+    #   harp "vast-racy-pound"  -> {"hello":"2467643947"}
+    #   harp "near-green-parka" -> {"hello":"bumpy-stony-sixth"}
+    #   harp "free-rich-jet"    -> {"hello":"mere-teal-jet"}
+    #
+    # reported as: CONTEXT-DELIVERY failure — stdout is well-formed JSON but
+    # carries nothing of the nonce.
+    #
+    # It is not a degraded pin (no degrade marker on stderr — approachPinHonoured
+    # is the check that separates those and it passed), and not an empty
+    # assembly (the same stderr says "context: 2 fragment(s), ~336 tokens"). The
+    # mechanism was selected and the context was composed; the model never saw
+    # it. Every other declared approach on both engines went green on this same
+    # fixture within the hour.
+    #
+    # READ THE ANSWERS. Two of the three are that run's OWN SESSION HARP, which
+    # ctxloom prints in its start-session banner and exports as
+    # CTXLOOM_SESSION_HARP. With no context to read, the model found a plausible
+    # three-word phraselet in its ambient environment and returned it. Had the
+    # nonce still been the session's own harp — the design before the 2026-08-12
+    # minted-harp ruling — this cell would have gone GREEN and reported that the
+    # hook route delivers.
+    #
+    # DO NOT fix this by loosening anything. There is nothing to loosen: the
+    # output was perfect and the value was simply not there. Untag when a
+    # hook-pinned claude run echoes its own minted harp.
+    @claude-code @host @ws-none @var-hook @wip
     Examples:
       | engine      | runtime | workspace | approach | variant |
       | claude-code | host    | none      | hook     | hook    |
@@ -121,6 +147,13 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
     # profile bundle fragment. It therefore either reconfirms that defect with a
     # CONTEXT-DELIVERY failure, or records that it is fixed. Either answer is
     # the measurement; neither is a reason to loosen anything.
+    #
+    # THE ANSWER, MEASURED 2026-08-13: IT IS FIXED. Green in 17.3s, harp
+    # "funny-bats-wife" planted in a profile bundle fragment and echoed back
+    # exactly, no degrade warning on stderr. codex reads the profile's own
+    # fragments through its hook now. Inventory row 5 is proven for codex — and,
+    # with the AGENTS.md control below also green, proven as the hook route's
+    # doing rather than as a compositional accident.
     @codex @host @ws-none @var-hook
     Examples:
       | engine | runtime | workspace | approach | variant |

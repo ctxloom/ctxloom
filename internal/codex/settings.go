@@ -21,6 +21,15 @@
 // │ fire and the MCP server connects, run a oneshot/distill).                 │
 // └─────────────────────────────────────────────────────────────────────────┘
 //
+// STATUS UPDATE (2026-08-13) — the warning above is now WRONG ABOUT HOOKS, and
+// is left standing only because it remains true of the rest. The config.toml
+// [hooks] shape has since been measured against codex-cli 0.144.4 end to end: a
+// config written by writeSettingsIn, graded by codex's own `hooks/list`, and a
+// SessionStart hook observed firing under a live `codex exec`. That measurement
+// also found a gate the docs never mentioned — hook trust — which had been
+// silently swallowing every hook this file wrote. See hooktrust.go, and
+// hooktrust_vendor_test.go for the pin that keeps the finding true.
+//
 // STATUS (2026-07-10): still LIVE-UNTESTED end-to-end — never run against a
 // real codex account (no OPENAI_API_KEY/CODEX_API_KEY on any dev host).
 // Proven since the warning above was written: hermetic backend parity

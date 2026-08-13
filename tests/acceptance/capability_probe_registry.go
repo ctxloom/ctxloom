@@ -324,12 +324,37 @@ var probeRegistry = []probeSpec{
 		Title:        "MCP tool round trip: a fixture stdio server whose get_nonce tool is the ONLY place the harp exists",
 		Capabilities: []int{8},
 		Channel:      channelMCPToolResult,
+		Feature:      "capability_mcp_round_trip.feature",
 		Paid:         true,
+		// ALL FOUR CELLS WERE RUN, 2026-08-13, one at a time on this box, against
+		// real engines on real subscriptions. Three went green and one went red,
+		// and the red is the interesting one — see kiro below.
+		//
+		// What every row shares is the delivery path under test: config.yaml
+		// `mcp.servers` (the ungated production surface — a bundle's MCP block
+		// passes the executable trust gate, and a withheld server would red as an
+		// MCP-delivery failure that is really a trust decision) → ManagedConfig.MCP
+		// → that engine's own native file. Nothing in the fixture writes an engine
+		// file, so a green row is ctxloom's delivery working, not a file we wrote
+		// being read back.
 		Cells: []probeCell{
-			hostCell("claude-code", probePlanned, ""),
-			hostCell("codex", probePlanned, ""),
-			hostCell("kiro", probePlanned, ""),
-			hostCell("opencode", probePlanned, ""),
+			hostCell("claude-code", probeLiveVerified,
+				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 9.9s, harp \"messy-plump-exit\", served only by the fixture server's get_nonce tool and echoed back exactly. Path: config mcp.servers → ManagedConfig.MCP → claude's --mcp-config scratch file (shared cell; layered rather than strict, so a user's own .mcp.json still loads). FIRST proof anywhere that a non-forwarder MCP server reaches a real engine through ctxloom and gets called."),
+			hostCell("codex", probeLiveVerified,
+				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 89s, harp \"lunar-soft-navy\". Path: config mcp.servers → ManagedConfig.MCP → codex's folded config.toml [mcp_servers] table (codex advertises no distinct SurfaceMCP — MCP folds into its config surface)."),
+			// KIRO IS RED, AND THE RED IS PRECISE. The fixture server's own call
+			// log — the evidence this probe exists to collect — says registration
+			// and DISCOVERY both worked and only INVOCATION did not. That is a
+			// much narrower finding than "kiro's MCP is broken", and it is only
+			// available because the server records what it was asked.
+			{Engine: "kiro", Runtime: "host", Workspace: "none", Status: probeWired,
+				Reason:          "delivery path under test: config mcp.servers → ManagedConfig.MCP → .kiro/settings/mcp.json, written through the shared MCPFileConfig reconciler",
+				ExpectedFailure: channelMCPToolResult.Shape,
+				ExpectedFailureNote: "measured 2026-08-13, twice. The fixture server's call log read: start request(initialize) request(notifications/initialized) request(tools/list) eof — so ctxloom's registration DID reach kiro, kiro DID spawn the server, complete the handshake and enumerate its tools, and then never called get_nonce. Registration and discovery work; invocation does not. kiro's own stderr looped on `Tool validation failed: No tool with \"dummy\" is found` for six minutes before giving up, and the model's answer was the string \"non-verbatim placeholder - tool not found\" — kiro believed no such tool existed while having just listed it. " +
+					"DIAGNOSTIC NOTE for whoever picks this up: the first attempt reported OUTPUT-FORMAT instead, because kiro's separate ANSI-decoration defect (P0's kiro host/none row owns that one) reds the form check, and the form check used to run first. mcpProbeAssert now asks the tool-path question ahead of the form question for exactly this reason. Do not read the two findings as one: the decoration defect is ctxloom-side and cosmetic to this probe, the invocation failure is not.",
+			},
+			hostCell("opencode", probeLiveVerified,
+				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 56s, harp \"petty-ratty-study\". The call log carries the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call / notifications/cancelled / eof — so this row evidences discovery AND invocation, not just the echo. Path: config mcp.servers → ManagedConfig.MCP → opencode.json's mcp block (folded into opencode's settings surface)."),
 			{Engine: "claude-code", Runtime: "container", Workspace: "none", Status: probeDeferred,
 				Reason: "container MCP reach-back is undesigned — the endpoint DISCOVERY gap, not the transport (cross-container-comms finding). Deferred rather than red so an undesigned thing is not measured as a defect."},
 			{Engine: "codex", Runtime: "container", Workspace: "none", Status: probeDeferred,

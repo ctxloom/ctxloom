@@ -286,36 +286,64 @@ func TestClearRecoveryMessage(t *testing.T) {
 // TestCurrentSessionRecoverable covers the rotation-lineage gate behind the
 // /clear recovery nudge: claude-code's /clear starts a fresh, necessarily
 // EMPTY transcript file, so "is the current transcript non-empty" (the old
-// check) can never fire right after a clear — the fix is checking whether the
-// harp's index entry carries rotation history instead (see the production
-// doc comment for the measured premise this replaces).
+// check) can never fire right after a clear — the fix checks the harp's
+// index entry instead (see the production doc comment for the measured
+// premise this replaces).
+//
+// Two entry shapes both mean "recoverable", and the reason there are two is
+// hook ORDERING: claude.go's ctxloomMachineCallbacks runs inject-context
+// BEFORE session-bind. On the FIRST /clear in a session, session-bind (which
+// appends the displaced binding to Rotations) has not run yet — the index
+// still holds only the pre-clear SessionID, no rotation recorded. On a
+// SECOND /clear in the same session, a rotation from the FIRST one already
+// exists. Both must read as recoverable, or the very first clear a user ever
+// makes would get no nudge at all.
 func TestCurrentSessionRecoverable(t *testing.T) {
 	testsupport.Isolate(t)
 
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
+
+	// Shape 1: a PRIOR clear already recorded a rotation (a second-or-later
+	// clear in this session). Recoverable regardless of what the incoming
+	// payload's session id is.
 	rotated, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(rotated.HarpName, "pre-clear-id", "/pre-clear.jsonl"))
 	require.NoError(t, mgr.BindSession(rotated.HarpName, "post-clear-id", "/post-clear.jsonl"))
 
-	neverRotated, err := mgr.AssignHarp("/proj", "claude-code")
+	// Shape 2: bound once, no rotation recorded yet (the FIRST clear in this
+	// session — session-bind for THIS clear hasn't run). The incoming payload
+	// carries a NEW id that differs from the entry's current binding: that
+	// disagreement IS the not-yet-recorded displacement.
+	displaced, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
-	require.NoError(t, mgr.BindSession(neverRotated.HarpName, "only-id", "/t.jsonl"))
+	require.NoError(t, mgr.BindSession(displaced.HarpName, "pre-clear-id", "/pre-clear.jsonl"))
 
-	assert.True(t, currentSessionRecoverable("clear", rotated.HarpName),
-		"clear-source + rotation history present -> recoverable")
-	assert.False(t, currentSessionRecoverable("clear", neverRotated.HarpName),
-		"clear-source + no rotation history -> nothing to recover")
+	// Shape 3: bound to the SAME id the incoming payload carries — an
+	// idempotent rebind (e.g. a duplicate hook fire), not a displacement.
+	// Nothing was thrown away.
+	sameID, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(sameID.HarpName, "only-id", "/t.jsonl"))
+
+	assert.True(t, currentSessionRecoverable("clear", rotated.HarpName, "post-clear-id"),
+		"clear-source + rotation history present -> recoverable, regardless of the incoming payload id")
+	assert.True(t, currentSessionRecoverable("clear", displaced.HarpName, "new-post-clear-id"),
+		"clear-source + bound entry whose current id differs from the incoming payload id -> the displacement about to be recorded is itself the recoverable signal")
+	assert.False(t, currentSessionRecoverable("clear", sameID.HarpName, "only-id"),
+		"clear-source + entry already bound to the SAME id the payload carries -> nothing displaced, nothing to recover")
 
 	for _, src := range []string{"startup", "resume", "compact", ""} {
-		assert.False(t, currentSessionRecoverable(src, rotated.HarpName),
+		assert.False(t, currentSessionRecoverable(src, rotated.HarpName, "post-clear-id"),
 			"source %q is not a /clear, even with rotation history present -> not recoverable", src)
+		assert.False(t, currentSessionRecoverable(src, displaced.HarpName, "new-post-clear-id"),
+			"source %q is not a /clear, even with a displaced binding present -> not recoverable", src)
 	}
 
-	assert.False(t, currentSessionRecoverable("clear", ""),
+	assert.False(t, currentSessionRecoverable("clear", "", "any-id"),
 		"an empty harp name is never recoverable")
-	assert.False(t, currentSessionRecoverable("clear", "no-such-harp-in-the-index"),
+	assert.False(t, currentSessionRecoverable("clear", "no-such-harp-in-the-index", "any-id"),
 		"a harp the index has never heard of is never recoverable")
 }
 

@@ -48,16 +48,38 @@ func hookSystemMessage(w *World) (string, error) {
 
 // liveTranscriptPath is where these steps park the still-growing transcript, so
 // the "session start" steps below can hand the hook a real path to stat without
-// the feature file having to spell one out.
+// the feature file having to spell one out. No longer what decides
+// recoverability (see j000900SessionIDAfterClear's doc comment) — kept as
+// realistic scene-setting for the hookInput.TranscriptPath field a host
+// engine always sends.
 const liveTranscriptRel = "live-session-transcript.jsonl"
+
+// j000900Harp is the harp these scenarios bind their session-index fixture
+// entries to. CTXLOOM_SESSION_HARP is how currentSessionRecoverable finds the
+// entry (the same env var production reads — internal/shared/agent.
+// SessionHarpEnv), so every scenario that wants a specific recoverability
+// outcome must set it via SetChildEnv (a plain SetEnv is stripped — see
+// steps_session_hooks.go's comment on the ambient-session scrub list).
+const j000900Harp = "dana-context-exhaustion"
+
+// j000900SessionIDAfterClear is the session id startSessionAfter's payload
+// always carries — the NEW id claude-code's /clear reports on its
+// SessionStart. currentSessionRecoverable's gate (post rotation-lineage fix)
+// reads the session INDEX, not the transcript file: at inject-context time
+// the index still holds Dana's PRE-clear binding, because claude.go's
+// ctxloomMachineCallbacks runs inject-context BEFORE session-bind — the bind
+// that would append the rotation and re-point SessionID to this value hasn't
+// run yet. So recoverability turns on whether the index entry's CURRENT
+// SessionID differs from this one (a displacement about to happen), not on
+// any transcript file's content.
+const j000900SessionIDAfterClear = "vendor-session-j000900"
 
 // startSessionAfter runs the SessionStart hook the way a host engine does:
 // input on stdin, naming why the session started. transcript is the path the
-// engine reports for the conversation — the file ctxloom stats to decide
-// whether there is anything to recover.
+// engine reports for the conversation.
 func startSessionAfter(w *World, source, transcript string) error {
 	payload, err := json.Marshal(map[string]string{
-		"session_id":      "vendor-session-j000900",
+		"session_id":      j000900SessionIDAfterClear,
 		"hook_event_name": "SessionStart",
 		"source":          source,
 		"transcript_path": transcript,
@@ -71,25 +93,38 @@ func startSessionAfter(w *World, source, transcript string) error {
 	return w.env.RunWithStdin(string(payload), "hook", "inject-context", "no-such-context")
 }
 
+// seedJ000900IndexBinding writes a session-index entry for j000900Harp,
+// bound to sessionID, and points CTXLOOM_SESSION_HARP at it — the fixture
+// shape currentSessionRecoverable actually reads.
+func seedJ000900IndexBinding(w *World, sessionID string) error {
+	w.env.SetChildEnv("CTXLOOM_SESSION_HARP", j000900Harp)
+	entry := fmt.Sprintf("sessions:\n"+
+		"  - harp_name: %s\n"+
+		"    backend: mock\n"+
+		"    project_dir: %s\n"+
+		"    session_id: %s\n"+
+		"    started_at: 2026-03-14T00:00:00Z\n", j000900Harp, w.env.ProjectDir, sessionID)
+	return w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", entry)
+}
+
 func registerJ000900RecoverSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Dana has been working long enough that her context is nearly full$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// Real conversation bytes, not a placeholder: the hook's decision is
-		// "is there anything here worth recovering", and it reads the file.
-		body := `{"type":"user","content":"why is the worktree layout the way it is"}` + "\n" +
-			`{"type":"assistant","content":"because one worktree is one branch is one merge"}` + "\n"
-		if err := w.env.WriteFile(liveTranscriptRel, body); err != nil {
-			return err
-		}
-		return nil
+		// The index entry carries Dana's PRE-clear session id — a different id
+		// from the one the clear payload below will carry
+		// (j000900SessionIDAfterClear). That difference IS the recoverable
+		// signal at inject-context time (see j000900SessionIDAfterClear's doc
+		// comment): a bound entry whose current SessionID differs from the
+		// incoming one is a displacement about to be recorded.
+		return seedJ000900IndexBinding(w, "vendor-session-j000900-preclear")
 	})
 
 	ctx.Step(`^Dana's session has recorded nothing worth recovering$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// Present but empty — the case that separates "there is nothing to
-		// offer" from "the transcript is missing". Both must stay quiet, and a
-		// fixture that simply omitted the file could not tell them apart.
-		return w.env.WriteFile(liveTranscriptRel, "")
+		// Bound, but to the SAME id the clear payload will carry — an
+		// idempotent rebind, not a displacement. Nothing was thrown away, so
+		// there is nothing to offer to bring back.
+		return seedJ000900IndexBinding(w, j000900SessionIDAfterClear)
 	})
 
 	ctx.Step(`^her assistant starts a fresh turn after she clears the context$`, func(c context.Context) error {

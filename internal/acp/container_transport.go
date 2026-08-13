@@ -31,14 +31,19 @@ const mcpSocketEnvVar = "CTXLOOM_MCP_SOCKET"
 // see internal/lm/isolation/profile.go's containerProfileFor doc): the two
 // vocabularies were never unified. Names already shared between them (kiro,
 // codex, opencode) pass through unchanged; an unrecognized/empty engine name
-// ALSO passes through unchanged — containerProfileFor treats an
-// unrecognized key as its default (claude-oriented) profile, the same
-// fallback an unconfigured agent_engine gets elsewhere in this driver
-// (chatArgv's --agent-engine is likewise only-appended-when-set). "agy" is
-// one such unrecognized name post-0.7.0: antigravity's own container profile
-// was removed with the engine, so it now falls through to the same default
-// every other unmapped name gets, rather than routing to a profile that no
-// longer exists.
+// ALSO passes through unchanged — and containerProfileFor's default arm now
+// FAILS CLOSED on auth (noContainerAuthProfile), so an unmapped name does not
+// get a working generic profile: PrepareWorkspace aborts with "no
+// container-auth profile is registered for this engine". That is deliberate —
+// the default used to hand the user's Anthropic credentials to whatever engine
+// happened to be unrecognized — but it means a containerized run of an unmapped
+// engine is not a degraded run, it is no run at all. "agy" is one such
+// unrecognized name post-0.7.0: antigravity's own container profile was removed
+// with the engine, so a containerized "agy" now fails loudly here rather than
+// routing to a profile that no longer exists. The generic "acp" backend
+// registered in internal/lm/backends is in the same position: registered and
+// selectable, but with no container-auth profile, so it cannot run
+// containerized until one is added in containerProfileFor.
 func containerProfileBackend(agentEngine string) string {
 	switch strings.ToLower(agentEngine) {
 	case claudeEngineName:

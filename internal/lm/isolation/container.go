@@ -137,7 +137,12 @@ func NewContainer(rt Runtime, image string) Container {
 // backend's container profile picks the agent image, the auth resolver, the
 // managed-config overlay set, and the build sources that let ensureImage build
 // the image locally when it is absent. Unknown/empty names get the default
-// profile (the generic agent image + claude auth, no local build).
+// profile: the generic agent image, no local build, and an auth resolver that
+// FAILS CLOSED (noContainerAuthProfile) rather than inheriting claude's. So a
+// policy built with an unknown or empty backend name cannot PrepareWorkspace at
+// all — it aborts with "no container-auth profile is registered for this
+// engine". Callers that have a real backend name must pass it; passing "" is
+// only correct where the policy is never used to prepare a workspace.
 func NewContainerFor(rt Runtime, backend string) Container {
 	p := containerProfileFor(backend)
 	return Container{

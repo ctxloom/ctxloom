@@ -104,11 +104,18 @@ func (b worktreeBase) prepareBase(ctx context.Context, rt Runtime, projectDir, a
 func NewContainerWorktree(rt Runtime, image string, g git.Git) Container {
 	c := NewContainer(rt, image)
 	// backend "": this generic constructor carries no backend context (only
-	// callers today are tests fixing an explicit image). Harmless — the
-	// wrapped Worktree's Env()/credential-seeding never runs here anyway (see
-	// the package doc above: the unified containerWorkspace never implements
-	// EnvWorkspace), but passing "" keeps NewWorktree's contract explicit at
-	// every call site rather than special-casing this one.
+	// callers today are tests fixing an explicit image). NOT harmless for a
+	// policy that will actually prepare a workspace: "" resolves to
+	// containerProfileFor's default arm, whose auth resolver fails closed, so
+	// PrepareWorkspace aborts with "no container-auth profile is registered for
+	// this engine". Production never reaches that — it builds this policy
+	// through NewContainerWorktreeFor with a real backend name (isolation.go's
+	// policy chain) — but a docker-backed test that calls PrepareWorkspace on
+	// THIS constructor will fail for that reason and not for anything it meant
+	// to assert. The wrapped Worktree's Env()/credential-seeding is separately
+	// unreachable here (see the package doc above: the unified
+	// containerWorkspace never implements EnvWorkspace), which is why passing
+	// "" to NewWorktree keeps its contract explicit at every call site.
 	c.base = worktreeBase{wt: NewWorktree(g, "")}
 	return c
 }

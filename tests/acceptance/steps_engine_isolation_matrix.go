@@ -50,6 +50,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -150,6 +151,77 @@ func matrixConfigYAML(a liveAgent, llmKey, runtime string) string {
 	return b.String()
 }
 
+// matrixRotatingCredentialEngines are the engines whose host credential is a
+// SINGLE-USE, ROTATING OAuth refresh token: whenever any holder refreshes, the
+// provider mints a replacement and invalidates the spent one. Copying such a
+// file into a throwaway HOME is a one-way trip — the engine refreshes inside
+// the copy, the provider consumes the host's token server-side, and the human
+// is left needing a manual re-login. That is not hypothetical: it is exactly
+// the 401 refresh_token_reused this repo has already been bitten by, and it is
+// why the standing policy is that credentials reach a live run by API-key env
+// var or by MAPPING, never by copy.
+//
+// The other two engines are not in this class. opencode's auth.json is a
+// provider API key wrapped in JSON (documented in liveAgents' own entry) and
+// does not rotate at all; kiro's credential is a subscription sqlite with no
+// config-home var that could map it, so copyCreds is already its ONLY
+// mechanism everywhere in this suite.
+var matrixRotatingCredentialEngines = map[string]bool{"claude": true, "codex": true}
+
+// errMatrixCredentialPolicy is returned when an axis can only be fed by copying
+// a rotating credential — a cell that must be refused rather than run.
+var errMatrixCredentialPolicy = errors.New("credential policy")
+
+// matrixSeedCredentials puts this cell's credentials where the axis under test
+// will actually look for them, which is NOT the same place on all three axes —
+// and getting this wrong produces a red cell that looks like a product defect
+// and is not one.
+//
+// MEASURED, and the reason this function exists at all: a host cell is fed by
+// MAPPING (seedLiveCredentials points CLAUDE_CONFIG_DIR/CODEX_HOME/
+// XDG_DATA_HOME at the real host directories), and that works because the
+// engine subprocess inherits those vars. The worktree and container axes do
+// their OWN credential seeding — worktree.go's seedCredentials and
+// internal/lm/isolation/auth.go's resolveXContainerAuth — and both source from
+// hostHomeDir(), i.e. $HOME, overriding the mapped var on the way through. In
+// this harness $HOME is the scenario's isolated temp home, so a mapped cell
+// reaches those axes with nothing to seed and aborts:
+//
+//	ctxloom: aborting startup: 1 fatal finding(s)
+//	  - [isolation] worktree isolation for agent "...": no ANTHROPIC_API_KEY and
+//	    no host claude credentials found to seed the per-agent config-home —
+//	    the agent would start logged out
+//
+// That is the HARNESS's fault, not the product's: on a real box $HOME is real
+// and the seeding finds the file. So those two axes need the credential in
+// $HOME, which means a copy — and for a rotating credential a copy is exactly
+// what policy forbids. The split is therefore by credential KIND, not by
+// convenience:
+//
+//   - API key in the environment: nothing to do, on any axis.
+//   - host axis: MAP (the policy-preferred path).
+//   - worktree/container axis, non-rotating credential: copy into the isolated
+//     HOME, the same thing isolation_probe.go does for the same reason.
+//   - worktree/container axis, ROTATING credential: REFUSE, loudly. The cell is
+//     gated out with the policy named, not quietly run in a way that could
+//     consume the human's login. Setting that engine's API-key env var is the
+//     supported way to fill the cell.
+func matrixSeedCredentials(w *World, key string, a liveAgent, runtime, workspace string) error {
+	if envSet(a.apiKeyEnvs) {
+		return nil
+	}
+	if runtime != "container" && workspace != "worktree" {
+		return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
+	}
+	if matrixRotatingCredentialEngines[key] {
+		return errMatrixCredentialPolicy
+	}
+	if a.copyCreds == nil {
+		return fmt.Errorf("engine-matrix: %s has no credential copier, so this axis cannot be fed from the isolated HOME it seeds from", key)
+	}
+	return a.copyCreds(realHomeDir, w.env.HomeDir)
+}
+
 // matrixSkip prints the cell's own reason and skips. Never silent, and always
 // naming the engine and both axes, because a matrix whose blanks have no
 // reasons attached is indistinguishable from a matrix nobody ran.
@@ -242,12 +314,19 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 			if err := w.env.GitCommit("engine-matrix fixture: " + engine + " " + runtime + "/" + workspace); err != nil {
 				return err
 			}
-			// Subscription path: MAP the engine at its real credential
-			// directory (erased-collar), never copy. On the CONTAINER axis this
-			// is not the whole story — production's own resolveXContainerAuth
-			// decides what a container can see — and this floor deliberately
-			// does not second-guess it: it reports the outcome.
-			return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
+			// Per-axis credential delivery — see matrixSeedCredentials for why
+			// the three axes cannot share one mechanism, and why a rotating
+			// credential is refused rather than copied.
+			if err := matrixSeedCredentials(w, key, a, runtime, workspace); err != nil {
+				if errors.Is(err, errMatrixCredentialPolicy) {
+					return matrixSkip(engine, runtime, workspace,
+						"this axis seeds credentials from $HOME, which in this harness is an isolated temp home, so filling it would mean COPYING "+key+
+							"'s single-use rotating OAuth refresh token — refused by policy (a copy that refreshes consumes the human's login server-side). "+
+							"Set "+strings.Join(a.apiKeyEnvs, " or ")+" to run this cell.")
+				}
+				return err
+			}
+			return nil
 		})
 
 	// --- the run ------------------------------------------------------------

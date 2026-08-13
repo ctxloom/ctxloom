@@ -162,13 +162,9 @@ func mcpProbeConfigYAML(a liveAgent, llmKey, interpreter, scriptPath string) str
 	return b.String()
 }
 
-// mcpProbeSkip prints the cell's own reason and skips. Never silent, always
-// naming the engine, because a matrix whose blanks have no reasons attached is
-// indistinguishable from a matrix nobody ran.
-func mcpProbeSkip(engine, reason string) error {
-	fmt.Printf("SKIP probe-p2-mcp cell [engine=%s runtime=host workspace=none]: %s\n", engine, reason)
-	return godog.ErrSkip
-}
+// mcpProbeFamily is this probe's name in a skip line, a failure message and the
+// evidence sidecar. One constant so the three cannot disagree.
+const mcpProbeFamily = "probe-p2-mcp"
 
 func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 	// --- the cell's gate and fixture ---------------------------------------
@@ -189,17 +185,9 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 				runtime, workspace)
 		}
 
-		key := backendTypeToLiveKey(engine)
-		a, ok := liveAgents[key]
-		if !ok {
-			return fmt.Errorf("probe-p2-mcp: %q (resolved key %q) is not registered in liveAgents (known: %v) — a row naming an unregistered engine would skip forever and look like coverage",
-				engine, key, liveAgentOrder)
-		}
-
-		status := probeEngine(key, a, realHomeDir, resolveOptIn())
-		w.docStepMaterialized = formatLiveEngineReport([]engineStatus{status})
-		if !status.available {
-			return mcpProbeSkip(engine, status.reason)
+		a, key, err := probeCellGate(c, w, mcpProbeFamily, m.cell())
+		if err != nil {
+			return err
 		}
 
 		// The fixture's own dependency, gated BEFORE a paid turn and named. A
@@ -208,7 +196,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 		// one would put a fixture fault in the engine's column of the matrix.
 		interpreter, why := probeMCPInterpreterAvailable()
 		if interpreter == "" {
-			return mcpProbeSkip(engine, why)
+			return probeCellSkip(mcpProbeFamily, m.cell(), why)
 		}
 
 		nonce, err := probeHarps.Mint(m.cell())
@@ -286,12 +274,11 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 		cmd := w.env.Command(nil, "run", "--agent", mcpProbeAgent,
 			"--workspace", "none", "--one-shot", mcpProbePrompt())
 		// Production's own credential machinery, resolving against the REAL host
-		// home — the same reasoning as the floor's matrixHostCredentialEnv, whose
-		// doc comment carries the full argument.
-		if realHomeDir == "" {
-			return fmt.Errorf("probe-p2-mcp: no real HOME was captured, so this cell cannot exercise production's own credential resolution")
+		// home — see probeHostCredentialEnv, whose doc comment carries the full
+		// argument.
+		if err := probeCellCredentialEnv(mcpProbeFamily, cmd); err != nil {
+			return err
 		}
-		cmd.Env = matrixHostCredentialEnv(cmd.Env, realHomeDir)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 

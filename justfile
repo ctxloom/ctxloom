@@ -902,6 +902,9 @@ capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \
     ACCEPTANCE_PATHS=features/{{FEATURE}} \
     ACCEPTANCE_TAGS="@live && @probe-{{PROBE}} && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
+    CTXLOOM_ACCEPTANCE_LIVE=1 \
+    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
 # Run ONE cell of the plan-sentinel probe (P4 of the capability ladder,
 # features/capability_plan_sentinel.feature): does `permissions: plan` actually
 # stop a write. POSTURE is control|plan, or "pair" to run BOTH — and pair is

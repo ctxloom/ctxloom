@@ -525,6 +525,24 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// TestRenderConfigWriteResult_RecordLine covers renderConfigWriteResult's
+// text-mode Record line in both states: present when a JSON apply wrote one,
+// absent (not a blank/zero-value line — the whole line) when it didn't.
+func TestRenderConfigWriteResult_RecordLine(t *testing.T) {
+	var withRecord bytes.Buffer
+	require.NoError(t, renderConfigWriteResult(&withRecord, configWriteResult{
+		File: "/x/settings.json", Filetype: "json", Verified: true,
+		Record: "/home/user/.ctxloom/records/x.hew-record.yaml",
+	}))
+	assert.Contains(t, withRecord.String(), "application record: /home/user/.ctxloom/records/x.hew-record.yaml")
+
+	var noRecord bytes.Buffer
+	require.NoError(t, renderConfigWriteResult(&noRecord, configWriteResult{
+		File: "/x/config.toml", Filetype: "toml", Verified: true,
+	}))
+	assert.NotContains(t, noRecord.String(), "application record", "a TOML result with no Record must not print the line at all")
+}
+
 // TestRunConfigWrite_TOMLPatch_NoApplicationRecord states explicitly what
 // this slice does NOT do: hew ships only a JSON applier today (task brief,
 // unit 2), so a TOML target keeps the old deep-merge path untouched and

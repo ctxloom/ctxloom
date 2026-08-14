@@ -25,7 +25,7 @@ require (
 	// replace directive below for why the code that actually satisfies this
 	// requirement is a fork, and what removes the redirect.
 	github.com/coder/acp-go-sdk v0.13.5
-	github.com/cucumber/godog v0.15.1
+	github.com/cucumber/godog v0.16.0
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/gofrs/flock v0.13.0
@@ -78,9 +78,15 @@ require (
 )
 
 require (
+	github.com/cucumber/gherkin/go/v42 v42.0.0 // indirect
+	github.com/cucumber/messages/go/v34 v34.2.0 // indirect
+)
+
+require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
+	github.com/benjaminabbitt/hew v0.0.0-00010101000000-000000000000
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260525132238-948f4557a654 // indirect
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
@@ -91,8 +97,8 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
-	github.com/cucumber/gherkin/go/v26 v26.2.0 // indirect
-	github.com/cucumber/messages/go/v21 v21.0.1 // indirect
+	github.com/cucumber/gherkin/go/v26 v26.2.0
+	github.com/cucumber/messages/go/v21 v21.0.1
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -106,7 +112,7 @@ require (
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
-	github.com/hashicorp/go-memdb v1.3.4 // indirect
+	github.com/hashicorp/go-memdb v1.3.5 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
@@ -146,3 +152,24 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+// LOCAL REPLACE, FLAGGED FOR HUMAN ATTENTION (P5 slice 1, 2026-08-14): hew's
+// published repo layout does not resolve with a plain `go get`. The Go
+// module lives in the repo's go/ subdirectory, but that subdirectory's
+// go.mod declares its module path as `github.com/benjaminabbitt/hew` (no
+// "/go" suffix) — the same path as the repo root, which has no go.mod and no
+// .go files at all. So `go get .../hew/go@main` fails outright ("module
+// declares its path as: github.com/benjaminabbitt/hew but was required as:
+// .../hew/go"), and `go get .../hew@main` "succeeds" but silently fetches
+// the wrong, empty module (the repo root — no Go source, since a go.mod
+// inside go/ makes go/ a SEPARATE nested module Go excludes from the
+// parent's zip, even though both declare the identical path). Neither
+// resolves to real source. This replace points straight at the local
+// checkout instead, whose go.mod path (github.com/benjaminabbitt/hew)
+// matches the require line below exactly, sidestepping the ambiguity.
+// REMOVAL CONDITION: hew fixes its go.mod's module path to actually match
+// its physical location (either `github.com/benjaminabbitt/hew/go`, kept in
+// go/, or move go.mod+sources to the repo root) AND cuts a tag — this
+// replace drops at hew's FIRST TAG, whichever fix lands, not before (no tag
+// exists yet as of this writing: `git tag` on the hew repo is empty).
+replace github.com/benjaminabbitt/hew => /home/babbitt/workspace/hew/go

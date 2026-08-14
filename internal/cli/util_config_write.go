@@ -108,6 +108,19 @@ type configWriteResult struct {
 // runConfigWrite performs the guarded merge-write end to end. Extracted from
 // RunE (and taking fs explicitly) so it is testable without cobra or the real
 // filesystem.
+//
+// The read-modify-write span against file — readExisting through
+// verifyConfigWrite — runs under agent.WithFileLock: config-write is, by its
+// own doc, "the ONE tested command that performs the dangerous filesystem
+// mechanics of editing a THIRD-PARTY config file correctly", and until this
+// fix (D7 remainder, N3 in the fs-consolidation closing verification) it was
+// the one settings-family RMW that wasn't actually locked, racing any
+// concurrent write to the same target from ctxloom's own SettingsWriter
+// family. Everything upstream (validating --file, resolving the filetype,
+// reading and decoding the stdin patch) touches neither file nor its lock, so
+// it stays outside the critical section — this is one process, one
+// invocation, start to finish, so there is no cross-process-boundary gap for
+// the lock to need to span.
 func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (configWriteResult, error) {
 	var result configWriteResult
 
@@ -130,25 +143,31 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 		return result, err
 	}
 
-	base, existed, err := readExisting(fs, file, ft)
-	result.Created = !existed
-	if err != nil {
-		return result, err
-	}
+	lockErr := agent.WithFileLock(fs, file, func() error {
+		base, existed, err := readExisting(fs, file, ft)
+		result.Created = !existed
+		if err != nil {
+			return err
+		}
 
-	out, err := encodeConfigFile(deepMergeConfigMaps(base, patch), ft)
-	if err != nil {
-		return result, fmt.Errorf("config-write: encode %s: %w", file, err)
-	}
-	if err := writeConfigFile(fs, file, out); err != nil {
-		return result, err
-	}
-	result.Merged = sortedKeys(patch)
+		out, err := encodeConfigFile(deepMergeConfigMaps(base, patch), ft)
+		if err != nil {
+			return fmt.Errorf("config-write: encode %s: %w", file, err)
+		}
+		if err := writeConfigFile(fs, file, out); err != nil {
+			return err
+		}
+		result.Merged = sortedKeys(patch)
 
-	if err := verifyConfigWrite(fs, file, ft, patch); err != nil {
-		return result, err
+		if err := verifyConfigWrite(fs, file, ft, patch); err != nil {
+			return err
+		}
+		result.Verified = true
+		return nil
+	})
+	if lockErr != nil {
+		return result, lockErr
 	}
-	result.Verified = true
 
 	return result, nil
 }

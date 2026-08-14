@@ -57,7 +57,24 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 			clidiag.Warn("ctxloom", "could not load config to distill %s: %v", e.HarpName, cErr)
 			continue
 		}
-		if _, dErr := operations.CompactEntry(cmd.Context(), e, cfg, "", progress); dErr != nil {
+		// eager-trash unification, ruled sub-choice #2 (stale-gated, not
+		// every row): the staleness gate above already decided this row
+		// needs distilling, so the heal cost is paid only for rows that
+		// looked stale or title-less — never for every row in the sweep
+		// (RefreshVendorTranscript's own doc: "a sweep across an index must
+		// not" pay the heal unconditionally).
+		src, herr := operations.ResolveAndHeal(cmd.Context(), e.HarpName, operations.LivenessUnknown)
+		if herr != nil {
+			clidiag.Warn("ctxloom", "could not resolve %s: %v", e.HarpName, herr)
+			continue
+		}
+		if src.HealErr != nil {
+			clidiag.Warn("ctxloom", "could not refresh transcript for %s: %v", e.HarpName, src.HealErr)
+		}
+		if src.Entry == nil {
+			src.Entry = e
+		}
+		if _, dErr := operations.DistillEntry(cmd.Context(), src, cfg, "", progress); dErr != nil {
 			clidiag.Warn("ctxloom", "could not distill %s: %v", e.HarpName, dErr)
 		}
 	}

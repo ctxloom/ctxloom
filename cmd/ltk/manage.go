@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -123,6 +125,16 @@ func newInstallCmd() *cobra.Command {
 // runInstall is newInstallCmd's RunE. A METHOD on *manageFlags because the
 // command literal is built inside the factory and its body reads that call's
 // own flag struct.
+//
+// The read-modify-write against path (readIfExists through writeFile) runs
+// under agent.WithFileLock, closing lively-skillet: `ltk manage install`
+// writes the SAME engine settings files (~/.claude/settings.json, a
+// project's .mcp.json, ...) ctxloom's own SettingsWriter family locks via the
+// identical helper (C6, and the D7-remainder sites this fix's other units
+// close) — an unlocked ltk was the one companion binary racing that lock
+// from outside it. --print is included in the locked span too: a preview
+// that raced a concurrent install could show content that was never
+// actually on disk at any single instant.
 func (f *manageFlags) runInstall(cmd *cobra.Command, _ []string) error {
 	eng, path, err := f.resolve()
 	if err != nil {
@@ -141,26 +153,28 @@ func (f *manageFlags) runInstall(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 	}
-	existing, err := readIfExists(path)
-	if err != nil {
-		return err
-	}
-	merged, note, err := eng.Install(existing, command)
-	if err != nil {
-		return err
-	}
-	if note != "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), progName+": %s\n", note)
-	}
-	if f.printOnly {
-		_, err := cmd.OutOrStdout().Write(merged)
-		return err
-	}
-	if err := writeFile(path, merged); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.ErrOrStderr(), progName+": installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
-	return nil
+	return agent.WithFileLock(afero.NewOsFs(), path, func() error {
+		existing, err := readIfExists(path)
+		if err != nil {
+			return err
+		}
+		merged, note, err := eng.Install(existing, command)
+		if err != nil {
+			return err
+		}
+		if note != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), progName+": %s\n", note)
+		}
+		if f.printOnly {
+			_, err := cmd.OutOrStdout().Write(merged)
+			return err
+		}
+		if err := writeFile(path, merged); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), progName+": installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
+		return nil
+	})
 }
 
 func newUninstallCmd() *cobra.Command {
@@ -176,43 +190,45 @@ func newUninstallCmd() *cobra.Command {
 }
 
 // runUninstall is newUninstallCmd's RunE; a method for the same reason
-// runInstall is.
+// runInstall is. Same locked-span reasoning as runInstall's doc.
 func (f *manageFlags) runUninstall(cmd *cobra.Command, _ []string) error {
 	eng, path, err := f.resolve()
 	if err != nil {
 		return err
 	}
 	command := eng.HookCommand(f.bin, f.hookRulesPath())
-	existing, err := readIfExists(path)
-	if err != nil {
-		return err
-	}
-	if existing == nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), progName+": nothing to uninstall (%s not found)\n", path)
+	return agent.WithFileLock(afero.NewOsFs(), path, func() error {
+		existing, err := readIfExists(path)
+		if err != nil {
+			return err
+		}
+		if existing == nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), progName+": nothing to uninstall (%s not found)\n", path)
+			return nil
+		}
+		updated, removed, err := eng.Uninstall(existing, command)
+		if err != nil {
+			return err
+		}
+		if f.printOnly {
+			_, err := cmd.OutOrStdout().Write(updated)
+			return err
+		}
+		// No matching hook (e.g. installed under different --bin/--config flags
+		// than these): don't rewrite the user's settings file or claim a removal
+		// that didn't happen. Rewriting would re-serialize the user's whole
+		// settings document — key order, indentation and all — for a removal
+		// that never took place.
+		if !removed {
+			fmt.Fprintf(cmd.ErrOrStderr(), progName+": no matching hook found in %s (nothing removed)\n", path)
+			return nil
+		}
+		if err := writeFile(path, updated); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), progName+": removed hook for %s from %s\n", eng.Name(), path)
 		return nil
-	}
-	updated, removed, err := eng.Uninstall(existing, command)
-	if err != nil {
-		return err
-	}
-	if f.printOnly {
-		_, err := cmd.OutOrStdout().Write(updated)
-		return err
-	}
-	// No matching hook (e.g. installed under different --bin/--config flags
-	// than these): don't rewrite the user's settings file or claim a removal
-	// that didn't happen. Rewriting would re-serialize the user's whole
-	// settings document — key order, indentation and all — for a removal
-	// that never took place.
-	if !removed {
-		fmt.Fprintf(cmd.ErrOrStderr(), progName+": no matching hook found in %s (nothing removed)\n", path)
-		return nil
-	}
-	if err := writeFile(path, updated); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.ErrOrStderr(), progName+": removed hook for %s from %s\n", eng.Name(), path)
-	return nil
+	})
 }
 
 // scaffoldConfig writes a starter rules file. An existing file is NOT

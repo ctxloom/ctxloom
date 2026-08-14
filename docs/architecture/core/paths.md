@@ -121,7 +121,7 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 |---|---|
 | Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `LogFileName`, `TriggersDir`, `CompanionConsentFileName`, `CoordDirName`, `CoordEndpointFileName` |
 | Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `RefusedAdvancesFileName`, `ProjectIDFileName` |
-| Local state tier | `StateDir`, `LocksDir`, `DirtyTreeCommitAckFileName`, `SessionHomeDirName` |
+| Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `DirtyTreeCommitAckFileName`, `SessionHomeDirName` |
 | Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
 
 ## Key functions
@@ -202,10 +202,16 @@ legitimately has none of them yet.
 which resolves each row against the root `Entry.Root` names and reports any
 absent `PresenceMustExist` `TierLocal` row using that entry's `Lost` text;
 a `PresenceIfUsed` row is reported only when PRESENT, never when absent. The
-seven `RootHome` rows (sessions, approvals, allowed/distrusted signers,
-trigger cache, coord, companion consent) and their per-row reasoning are
-documented in full in [layout.md](../../layout.md)'s "The home tree" table —
-this page states the mechanism, that page states the list.
+eight `RootHome` rows (sessions, approvals, allowed/distrusted signers,
+trigger cache, coord, companion consent, locks) and their per-row reasoning
+are documented in full in [layout.md](../../layout.md)'s "The home tree"
+table — this page states the mechanism, that page states the list. The
+`locks` row (`HomeLocksDirName`) has no dedicated `Home*` resolver function
+the way its siblings do: `filelock.HomePathFor` derives
+`~/.ctxloom/locks/<flattened-absolute-target>.lock` itself, carrying its own
+internal copy of the `"locks"` leaf name rather than depending on this
+package for it — see `HomeLocksDirName`'s doc comment for why (the
+path-authority gate flags exactly the alternative).
 
 ## Invariants
 

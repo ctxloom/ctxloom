@@ -279,6 +279,29 @@ const (
 	// gone; see operations.RefreshVendorTranscript), so it gets its own root.
 	SegmentsDirName = "segments"
 
+	// HomeLocksDirName is the home-rooted directory holding advisory-lock
+	// sidecars for FOREIGN files a ctxloom-family binary (ctxloom, ltk,
+	// taskloom) does not own — see filelock.HomePathFor. It shares its
+	// STRING VALUE with LocksDir (both are "locks"), but the two constants
+	// name DIFFERENT directories at different roots and must not be
+	// collapsed into one: this one sits directly under ~/.ctxloom
+	// (RootHome, see Layout's HomeLocksDirName row below); LocksDir sits
+	// under a PROJECT .ctxloom's state/ (RootProject, via
+	// filelock.ProjectPathFor/LocksPath).
+	//
+	// filelock is documented as a zero-internal-import leaf package
+	// (docs/architecture/shared/filesystem-io.md) and, independent of that,
+	// referencing this constant from inside filelock.HomePathFor's own
+	// filepath.Join call would trip tests/arch's path-authority gate (which
+	// flags a Join call mixing a "paths.X" selector with a bare local
+	// segment) — so filelock carries its OWN internal copy of this same
+	// value (homeLocksLeaf, filelock.go) rather than importing it from here.
+	// THE TWO MUST BE KEPT IN SYNC BY HAND: filelock's own lockSuffix doc
+	// names an un-synced duplicate spelling of one resource's name as that
+	// package's worst failure mode; this is that same hazard spanning a
+	// package boundary instead of one call site.
+	HomeLocksDirName = "locks"
+
 	// EngineTranscriptLinkPrefix names the leaf every per-vendor-log
 	// convenience symlink at a harp dir's ROOT starts with (see
 	// HarpEngineTranscriptLinkPath). A harp accumulates one vendor transcript
@@ -1105,6 +1128,12 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, CompanionConsentFileName+".yaml"), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
 			Lost: "the record of which companion binaries you agreed ctxloom may execute; you are asked again",
+		},
+		// Added by the home-lock-dir fix (fs-consolidation N1/undated-bronco
+		// closeout), same C13 shape as the seven RootHome rows above it.
+		{
+			Rel: filepath.Join(AppDirName, HomeLocksDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "cross-binary lock sidecars for foreign engine-settings files (filelock.HomePathFor); harmless — a lock file carries no data and is recreated on next use, though a write in flight when it disappears loses its mutual exclusion for that one operation",
 		},
 	}
 }

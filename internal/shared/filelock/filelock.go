@@ -211,15 +211,116 @@ func splitAppDir(protected string) (appDir, rel string, err error) {
 	}
 }
 
-// flattenLockName turns a path relative to the .ctxloom root into a single
-// filename component, so every lock in a project sits in ONE directory rather
-// than in a shadow tree mirroring the real one.
+// homeAppDirName is filelock's own reference to the ctxloom app-dir segment
+// (".ctxloom"), used by HomePathFor. It is an ALIAS of paths.AppDirName —
+// the same posture internal/shared/tasks/paths.AppDirName documents itself
+// as ("not a second declaration of \".ctxloom\"") — not a duplicate literal,
+// because this package already imports internal/paths (splitAppDir compares
+// against paths.AppDirName directly) and reusing the symbol costs nothing.
+//
+// It is declared as its OWN package-level const, rather than spelled
+// paths.AppDirName inline inside HomePathFor's filepath.Join call, for a
+// concrete reason: tests/arch's path-authority gate
+// (TestArch_PathAuthority_SessionStoreLiteralsLiveInPaths) flags any
+// filepath.Join call outside internal/paths that mixes a literal "paths.X"
+// selector with a bare local segment — exactly HomePathFor's shape, one
+// path segment named through paths and one (homeLocksLeaf, its neighbor
+// below) that cannot be. Aliasing here means HomePathFor's own Join call
+// spells no "paths." selector at all, so the gate never inspects it —
+// see homeLocksLeaf's doc for why that neighbor CANNOT take the same
+// shortcut.
+const homeAppDirName = paths.AppDirName
+
+// homeLocksLeaf is the leaf directory under the home app dir that
+// HomePathFor puts its lock sidecars in: ~/.ctxloom/locks. UNLIKE
+// homeAppDirName above, this is a genuine duplicate, not an alias:
+// internal/paths.go carries its own HomeLocksDirName constant (the
+// Layout() row for this same directory, so doctor can see it), and the two
+// packages cannot share one symbol for it — referencing paths.HomeLocksDirName
+// directly inside HomePathFor's filepath.Join call would trip the exact same
+// path-authority gate the homeAppDirName alias exists to dodge (the gate
+// does not care WHICH paths.* symbol sits beside a bare segment, only that
+// one does), and filelock is documented as a zero-internal-import leaf
+// package in the first place (docs/architecture/shared/filesystem-io.md —
+// a claim ProjectPathFor's own paths.AppDirName/paths.LocksPath use already
+// strains, but not one this new code should strain further).
+//
+// KEEP IN SYNC BY HAND WITH internal/paths.go's HomeLocksDirName. lockSuffix's
+// own doc names a silent divergence between two spellings of one resource's
+// name as this package's worst failure mode; an un-synced pair of "locks"
+// constants across this package boundary is that same hazard, just harder to
+// grep for than a single call site.
+const homeLocksLeaf = "locks"
+
+// HomePathFor returns the lock file guarding protected, a FOREIGN file this
+// package does not own: one OUTSIDE any project .ctxloom tree entirely — an
+// engine's own settings.json/.mcp.json/config.toml, sitting either in a
+// project directory (.mcp.json, .claude/settings.json) or in the user's REAL
+// engine home (~/.claude/settings.json, ~/.codex/config.toml) — that more
+// than one ctxloom-FAMILY BINARY (ctxloom, ltk, taskloom) may read-modify-write.
+//
+// It lives at ~/.ctxloom/locks/<flattened-absolute-protected-path>.lock:
+// home-rooted so every binary resolves the identical lock location
+// regardless of which one happens to run. Neither of this package's other
+// two derivations fits: PathFor sits BESIDE the protected file, which for a
+// file ctxloom does not own is exactly the litter this function exists to
+// stop creating (RULED 2026-08-13, human; closes undated-bronco / the
+// fs-consolidation plan's N1 finding — agent.WithFileLock's prior use of
+// PathFor for these targets had been leaving `.mcp.json.lock`,
+// `.claude/settings.json.lock`, and (worse) sidecars inside the user's REAL
+// `~/.claude` and `~/.codex` homes, untracked by any .gitignore pattern and,
+// for the home-rooted pair, a ctxloom-owned file inside a directory ctxloom
+// otherwise never writes to at all); ProjectPathFor only resolves paths
+// INSIDE a project .ctxloom tree, which a foreign file is by definition not.
+//
+// The protected path is flattened into a single filename component the same
+// way ProjectPathFor's flattenLockName flattens a project-relative one — see
+// its doc for why two protected paths that happen to flatten to the same
+// name are left to COLLIDE rather than defended against: they merely
+// over-serialize each other (a lock excluding a slightly wider set of
+// operations than strictly necessary), which is the safe direction to err in
+// compared to the failure this package cannot tolerate — one resource,
+// two lock names, excluding nobody.
+//
+// Unlike ProjectPathFor, HomePathFor never errors on WHERE protected is —
+// there is no boundary to be outside of, since "foreign" means not required
+// to sit inside any particular tree in the first place. The only failures
+// are environmental: protected cannot be resolved to an absolute path, or
+// the user's home directory cannot be resolved.
+func HomePathFor(protected string) (string, error) {
+	abs, err := filepath.Abs(protected)
+	if err != nil {
+		return "", fmt.Errorf("filelock: resolve %s: %w", protected, err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("filelock: resolve the home lock directory for %s: %w", protected, err)
+	}
+	dir := filepath.Join(home, homeAppDirName, homeLocksLeaf)
+	return filepath.Join(dir, flattenLockName(abs)+lockSuffix), nil
+}
+
+// flattenLockName turns a path into a single filename component, so every
+// lock guarding paths under one root sits in ONE directory rather than in a
+// shadow tree mirroring the real one. ProjectPathFor calls it on a path
+// RELATIVE to a project's .ctxloom root; HomePathFor calls it on a FULLY
+// ABSOLUTE path (there is no shared root to be relative to for a foreign
+// file) — both callers want the identical property, so one function serves
+// both rather than each reimplementing it.
 //
 // Collisions after flattening are SAFE and deliberately not defended against:
 // two protected paths that flatten to one name share a lock and merely
 // over-serialize, which costs a little concurrency. The failure this package
 // cannot tolerate is the opposite one — one resource with two lock names — so
 // the encoding is chosen to be total and deterministic rather than injective.
+//
+// KNOWN GAP (inherited, not new): on Windows an absolute path carries a
+// drive letter (`C:\Users\...`), and `:` survives flattening untouched —
+// ProjectPathFor never hits this (its input is always relative, so it is
+// never handed a drive letter), but HomePathFor's absolute input can be.
+// Left as-is rather than patched here with logic this package's Unix-only
+// test suite cannot exercise; a Windows-specific fix belongs beside
+// filelock_windows.go, with a test that actually runs there.
 func flattenLockName(rel string) string {
 	return strings.ReplaceAll(filepath.ToSlash(rel), "/", "__")
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/stretchr/testify/assert"
@@ -177,7 +178,17 @@ func TestCodex_HomeKeyedSurfaces_RefuseTheRealHostHome(t *testing.T) {
 
 	entries, err := os.ReadDir(home)
 	require.NoError(t, err)
-	assert.Empty(t, entries, "ctxloom created something inside the user's real home: %v", entries)
+	// paths.AppDirName (~/.ctxloom) is the ONE tolerated entry: this Setup's
+	// managed AGENTS.md write goes through agent.WriteManagedContext, which
+	// (as of the home-lock-dir fix) takes filelock.HomePathFor's lock around
+	// every managed-file RMW regardless of the TARGET's own location — the
+	// lock's home is ctxloom's own ~/.ctxloom, never the engine's ~/.codex,
+	// so its existence here proves nothing about the invariant this test
+	// actually guards (ctxloom writes NOTHING into the user's real ~/.codex).
+	for _, e := range entries {
+		assert.Equal(t, paths.AppDirName, e.Name(),
+			"ctxloom created something inside the user's real home besides its own %s (the home lock dir any WithFileLock acquisition touches): %v", paths.AppDirName, entries)
+	}
 
 	assert.Contains(t, out, "config_home: project", "the refusal names the fix")
 	assert.Contains(t, out, filepath.Join(home, ConfigDirName), "and the home it refused to write")

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/afero"
 
@@ -57,15 +58,45 @@ func isOSBackedFs(fs afero.Fs) bool {
 // already waits out), so proceeding unlocked on that failure would silently
 // discard the one guarantee this function exists to provide. The target file
 // is left untouched on that path — fn never runs.
+//
+// The lock lives at filelock.HomePathFor(target), not filelock.PathFor(target)
+// beside it — RULED 2026-08-13 (human), closing undated-bronco (fs-consolidation
+// N1): a beside-the-file sidecar for a file this package does NOT own left
+// untracked `.mcp.json.lock`/`.claude/settings.json.lock` litter in every
+// project, and — worse — a ctxloom-owned file inside the user's REAL
+// `~/.claude`/`~/.codex` home, a directory ctxloom otherwise never writes to
+// at all. See filelock.HomePathFor's doc for the full reasoning.
 func WithFileLock(fs afero.Fs, target string, fn func() error) error {
 	if !isOSBackedFs(fs) {
 		return fn()
 	}
-	lockPath := filelock.PathFor(target)
+	lockPath, err := filelock.HomePathFor(target)
+	if err != nil {
+		return fmt.Errorf("agent: deriving home lock path for %s: %w", target, err)
+	}
 	unlock, err := filelock.Lock(lockPath)
 	if err != nil {
 		return fmt.Errorf("agent: acquiring settings lock for %s: %w", target, err)
 	}
 	defer unlock()
+	cleanupLegacySidecar(target)
 	return fn()
+}
+
+// cleanupLegacySidecar best-effort removes the beside-file sidecar
+// (filelock.PathFor(target)) C6 left behind before this fix moved
+// cross-binary locking to the home lock dir (undated-bronco, fs-consolidation
+// N1). It runs AFTER the real lock is held, never before, so it cannot race
+// this call's own critical section.
+//
+// Best-effort and silent on purpose: removing litter must never fail a write
+// that would otherwise succeed, and a lock file carries no data — losing the
+// race with another process's identical cleanup, or finding nothing there at
+// all (the common case, once every process on the machine has run this once),
+// are both unremarkable. os.Remove on a path another process still has open
+// is safe on POSIX (unlink does not invalidate an open fd's flock); Windows'
+// mandatory locking may leave the legacy sidecar behind if something else
+// still holds it, which self-heals the next time nobody does.
+func cleanupLegacySidecar(target string) {
+	_ = os.Remove(filelock.PathFor(target))
 }

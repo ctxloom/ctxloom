@@ -17,8 +17,15 @@
 // time is grandfathered into writeDisciplineAllowed with a reason, and none
 // of them is migrated here (that is C3/C10's job, sweep by sweep). What the
 // gate buys immediately is that the set cannot grow silently — a new raw
-// call anywhere in internal/ outside the exempt packages fails the build
-// until it either routes through iox or earns its own reviewed entry.
+// call anywhere in internal/ or cmd/ outside the exempt packages fails the
+// build until it either routes through iox or earns its own reviewed entry.
+//
+// SCOPE EXTENDED TO cmd/ (home-lock-dir fix, closing N4): the original scan
+// covered internal/ only, so cmd/ltk and cmd/taskloom — the two companion
+// binaries this fix also brought under agent.WithFileLock — were invisible
+// to the ratchet even though they read-modify-write the identical engine
+// settings files the internal/ side is governed for. A raw write there is
+// exactly as ungoverned as one in internal/.
 //
 // Detection is purely syntactic (go/ast, no go/types), the same technique
 // doc_comment_test.go uses for a full-body sweep rather than the
@@ -95,10 +102,12 @@ import (
 	"testing"
 )
 
-// writeDisciplineScope is the subtree this gate looks at: production code
-// only, per the fs-consolidation plan's C1 scope. Test files never enter the
-// scan (fsWalkNonTest below skips _test.go the same way scan() does).
-const writeDisciplineScope = "internal"
+// writeDisciplineScopes are the subtrees this gate looks at: production code
+// only, per the fs-consolidation plan's C1 scope (originally just
+// "internal"; "cmd" joined it closing N4 — see this file's header doc). Test
+// files never enter the scan (fsWalkNonTest below skips _test.go the same
+// way scan() does).
+var writeDisciplineScopes = []string{"internal", "cmd"}
 
 // writeDisciplineExemptDirs are the packages that ARE the write library (or
 // the lock primitive beside it) and so are structurally, not provisionally,
@@ -249,12 +258,12 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/sessions/index.go#linkEngineTranscript":                         "per-vendor-log symlink create (fs-consolidation plan C12, Q2 RULED) — iox writes byte CONTENT and has no symlink primitive; the first-sighting os.Symlink here is the create-once path",
 	"internal/sessions/index.go#atomicSymlink":                                "per-vendor-log symlink ATOMIC replace, the session-id-reuse anomaly path only (fs-consolidation plan C12, Q2 RULED) — unique-temp-name+rename mirrors iox's own algorithm, hand-applied because iox's primitives write byte content and have no symlink surface to delegate to",
 	"internal/shared/agent/contextfile.go#WriteContextFile":                   "pre-ratchet baseline — internal/shared/agent is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
-	"internal/shared/agent/packagefiles.go#WriteManagedPackageFiles":          "pre-ratchet baseline — internal/shared/agent is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
+	"internal/shared/agent/packagefiles.go#WriteManagedPackageFiles":          "C11's DELIBERATE render-to-temp-then-swap design (fs-consolidation plan D8), not un-swept legacy: afero.WriteFile renders each file into a sibling afero.TempDir tree, then fs.Rename swaps each into place as a single atomic per-file replace — this IS the fix humorless-factor/dutiful-water required, and the flagged calls are its two working parts, not a queued migration (fs-consolidation closing verification, stale-reason finding: the original baseline predates C11's rewrite of this function)",
 	"internal/shared/agent/rendezvous.go#writeMarker":                         "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/shared/agent/settings_io.go#RefuseCorrupt":                      "pre-ratchet baseline — internal/shared/agent is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
 	"internal/shared/logsink/logsink.go#Open":                                 "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/shared/logsink/logsink.go#rollIfOversized":                      "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/shared/tasks/log.go#eventLog.append":                            "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
+	"internal/shared/tasks/log.go#eventLog.append":                            "O_APPEND write of one event line onto a log that must never lose prior entries — already runs under filelock.Lock (eventLog.lock, callers hold it across append) with its own f.Sync() (appendLine). NOT a 'migrate to iox' candidate: iox's whole family is REPLACE-file-contents (unique temp + rename over the target), and has no append primitive to migrate an O_APPEND writer onto — this entry is a legitimate, permanent exemption, not a queued fix (fs-consolidation closing verification, stale-reason finding)",
 	"internal/shared/tasks/taskstest/gitfixture.go#RealGitWorktreeFixture":    "test fixture package, not shipped production code — pre-ratchet baseline (fs-consolidation plan C10)",
 	"internal/testsupport/containercell/containercell.go#Runtime.buildImage":  "test harness, never linked into a binary — pre-ratchet baseline (fs-consolidation plan C10)",
 	"internal/testsupport/containercell/containercell.go#buildBinary":         "test harness, never linked into a binary — pre-ratchet baseline (fs-consolidation plan C10)",
@@ -275,56 +284,58 @@ func (v writeDisciplineViolation) key() string {
 	return v.file + "#" + v.symbol
 }
 
-// scanWriteDiscipline walks every non-test .go file under writeDisciplineScope
-// (skipping writeDisciplineExemptDirs) and returns every raw-fs-write call
-// site it finds, full-body parsed rather than imports-only — the same
-// technique doc_comment_test.go uses — because the subject here is call
-// expressions, not the import graph.
+// scanWriteDiscipline walks every non-test .go file under each of
+// writeDisciplineScopes (skipping writeDisciplineExemptDirs) and returns
+// every raw-fs-write call site it finds, full-body parsed rather than
+// imports-only — the same technique doc_comment_test.go uses — because the
+// subject here is call expressions, not the import graph.
 func scanWriteDiscipline(t *testing.T) []writeDisciplineViolation {
 	t.Helper()
 	root := moduleRoot(t)
-	scopeRoot := filepath.Join(root, writeDisciplineScope)
 	fset := token.NewFileSet()
 	var out []writeDisciplineViolation
 	var filesScanned int
 
-	err := filepath.WalkDir(scopeRoot, func(p string, d fs.DirEntry, err error) error {
-		switch {
-		case err != nil:
-			return err
-		case d.IsDir() && skippedDir(d.Name()):
-			return filepath.SkipDir
-		case d.IsDir():
-			return nil
-		case !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go"):
-			return nil
-		}
-		rel, rerr := filepath.Rel(root, p)
-		if rerr != nil {
-			return rerr
-		}
-		rel = filepath.ToSlash(rel)
-		dir := filepath.ToSlash(filepath.Dir(rel))
-		if writeDisciplineDirExempt(dir) {
-			return nil
-		}
+	for _, scope := range writeDisciplineScopes {
+		scopeRoot := filepath.Join(root, scope)
+		err := filepath.WalkDir(scopeRoot, func(p string, d fs.DirEntry, err error) error {
+			switch {
+			case err != nil:
+				return err
+			case d.IsDir() && skippedDir(d.Name()):
+				return filepath.SkipDir
+			case d.IsDir():
+				return nil
+			case !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go"):
+				return nil
+			}
+			rel, rerr := filepath.Rel(root, p)
+			if rerr != nil {
+				return rerr
+			}
+			rel = filepath.ToSlash(rel)
+			dir := filepath.ToSlash(filepath.Dir(rel))
+			if writeDisciplineDirExempt(dir) {
+				return nil
+			}
 
-		f, perr := parser.ParseFile(fset, p, nil, 0)
-		if perr != nil {
-			t.Errorf("parse %s: %v", rel, perr)
+			f, perr := parser.ParseFile(fset, p, nil, 0)
+			if perr != nil {
+				t.Errorf("parse %s: %v", rel, perr)
+				return nil
+			}
+			filesScanned++
+			out = append(out, scanFileForRawWrites(fset, f, rel)...)
 			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", scope, err)
 		}
-		filesScanned++
-		out = append(out, scanFileForRawWrites(fset, f, rel)...)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk %s: %v", writeDisciplineScope, err)
 	}
 	// Anti-vacuity: a walk that silently stopped matching files would make
 	// every assertion below pass for the wrong reason.
 	if filesScanned < 200 {
-		t.Fatalf("scanned only %d non-test files under %s — the walk is broken, not the tree", filesScanned, writeDisciplineScope)
+		t.Fatalf("scanned only %d non-test files under %v — the walk is broken, not the tree", filesScanned, writeDisciplineScopes)
 	}
 	return out
 }

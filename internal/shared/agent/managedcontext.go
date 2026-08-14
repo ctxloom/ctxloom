@@ -34,7 +34,31 @@ const (
 // Idempotent: applying the same content twice produces byte-identical output —
 // the second write reads back its own markers, strips them, and reinserts the
 // same section.
-func WriteManagedContext(fs afero.Fs, path, rel, content, desc string) (ContextReport, error) {
+//
+// The whole read-splice-write(-or-remove) cycle runs under WithFileLock: this
+// is a genuine D7 gap the fs-consolidation plan's closing verification found
+// (N2) — claude.ClaudeCodeHookWriter.WriteContext, codex, and
+// backends.mock_surfaces all call this on the SAME managed files (CLAUDE.md /
+// AGENTS.md) C6 already locks their OTHER settings writes for
+// (claude.writeSettingsFile, codex's config writers, ...), so leaving this one
+// unlocked left a lock taken in one sibling call and not the next, inside the
+// very same packages. See WithFileLock's own doc for the fail-closed/
+// skip-for-non-OS-fs contract this inherits unchanged.
+func WriteManagedContext(fs afero.Fs, path, rel, content, desc string) (report ContextReport, err error) {
+	err = WithFileLock(fs, path, func() error {
+		var lockedErr error
+		report, lockedErr = writeManagedContextLocked(fs, path, rel, content, desc)
+		return lockedErr
+	})
+	return report, err
+}
+
+// writeManagedContextLocked is WriteManagedContext's body, run under its
+// caller's lock. Split out rather than inlined into the WithFileLock closure
+// so the merge logic below reads exactly as it did before this fix — every
+// return in it is a return FROM THE CLOSURE, not from WriteManagedContext
+// itself, which local `return`s inside a closure sometimes hide.
+func writeManagedContextLocked(fs afero.Fs, path, rel, content, desc string) (ContextReport, error) {
 	existing, err := afero.ReadFile(fs, path)
 	if err != nil && !os.IsNotExist(err) {
 		return ContextReport{}, fmt.Errorf("failed to read %s: %w", path, err)

@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/taskloom/engine"
 )
@@ -108,22 +110,35 @@ func manageInstall(name, dir string, global, printOnly bool, errOut io.Writer) e
 		if err != nil {
 			return err
 		}
-		existing, err := readIfExists(path)
+		// The read-modify-write against path (readIfExists through
+		// writeConfig) runs under agent.WithFileLock, closing lively-skillet:
+		// `taskloom manage install` writes the SAME engine config files
+		// ctxloom's own SettingsWriter family locks via the identical
+		// helper — an unlocked taskloom was the other companion binary
+		// racing that lock from outside it. One lock per engine's own path,
+		// since each engine in this loop targets a DIFFERENT file.
+		err = agent.WithFileLock(afero.NewOsFs(), path, func() error {
+			existing, err := readIfExists(path)
+			if err != nil {
+				return err
+			}
+			merged, err := e.Install(existing, engine.TaskloomName, server)
+			if err != nil {
+				return fmt.Errorf("%s: %w", e.Name(), err)
+			}
+			if printOnly {
+				fmt.Fprintf(errOut, "# %s → %s\n%s", e.Name(), path, merged)
+				return nil
+			}
+			if err := writeConfig(path, merged); err != nil {
+				return fmt.Errorf("%s: %w", e.Name(), err)
+			}
+			fmt.Fprintf(errOut, "taskloom: registered MCP server for %s\n  config: %s\n", e.Name(), path)
+			return nil
+		})
 		if err != nil {
 			return err
 		}
-		merged, err := e.Install(existing, engine.TaskloomName, server)
-		if err != nil {
-			return fmt.Errorf("%s: %w", e.Name(), err)
-		}
-		if printOnly {
-			fmt.Fprintf(errOut, "# %s → %s\n%s", e.Name(), path, merged)
-			continue
-		}
-		if err := writeConfig(path, merged); err != nil {
-			return fmt.Errorf("%s: %w", e.Name(), err)
-		}
-		fmt.Fprintf(errOut, "taskloom: registered MCP server for %s\n  config: %s\n", e.Name(), path)
 	}
 	return nil
 }
@@ -146,33 +161,40 @@ func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		existing, err := readIfExists(path)
+		// Same locked-span reasoning as manageInstall's loop above.
+		err = agent.WithFileLock(afero.NewOsFs(), path, func() error {
+			existing, err := readIfExists(path)
+			if err != nil {
+				return err
+			}
+			if existing == nil {
+				return nil
+			}
+			// Only a config that actually carries the entry is rewritten. Without
+			// this, "removed MCP server from <engine>" is printed for a backend
+			// that never had it — a success message for a no-op — and the user's
+			// config is reformatted by a write that changes nothing.
+			installed, err := e.Installed(existing, engine.TaskloomName)
+			if err != nil {
+				return fmt.Errorf("%s: %w", e.Name(), err)
+			}
+			if !installed {
+				fmt.Fprintf(errOut, "taskloom: not registered with %s, nothing to remove\n  config: %s\n", e.Name(), path)
+				return nil
+			}
+			cleaned, err := e.Uninstall(existing, engine.TaskloomName)
+			if err != nil {
+				return fmt.Errorf("%s: %w", e.Name(), err)
+			}
+			if err := writeConfig(path, cleaned); err != nil {
+				return fmt.Errorf("%s: %w", e.Name(), err)
+			}
+			fmt.Fprintf(errOut, "taskloom: removed MCP server from %s\n  config: %s\n", e.Name(), path)
+			return nil
+		})
 		if err != nil {
 			return err
 		}
-		if existing == nil {
-			continue
-		}
-		// Only a config that actually carries the entry is rewritten. Without
-		// this, "removed MCP server from <engine>" is printed for a backend
-		// that never had it — a success message for a no-op — and the user's
-		// config is reformatted by a write that changes nothing.
-		installed, err := e.Installed(existing, engine.TaskloomName)
-		if err != nil {
-			return fmt.Errorf("%s: %w", e.Name(), err)
-		}
-		if !installed {
-			fmt.Fprintf(errOut, "taskloom: not registered with %s, nothing to remove\n  config: %s\n", e.Name(), path)
-			continue
-		}
-		cleaned, err := e.Uninstall(existing, engine.TaskloomName)
-		if err != nil {
-			return fmt.Errorf("%s: %w", e.Name(), err)
-		}
-		if err := writeConfig(path, cleaned); err != nil {
-			return fmt.Errorf("%s: %w", e.Name(), err)
-		}
-		fmt.Fprintf(errOut, "taskloom: removed MCP server from %s\n  config: %s\n", e.Name(), path)
 	}
 	return nil
 }

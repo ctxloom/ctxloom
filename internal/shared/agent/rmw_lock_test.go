@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // rmwDoc is the tiny JSON shape the tests below read-modify-write, standing
@@ -45,7 +46,7 @@ func writeRMWDoc(t *testing.T, path string, d rmwDoc) {
 // ~/.claude/settings.json, .mcp.json, and codex's config.toml.
 //
 // The seam is deterministic, not wall-clock: writer A holds the EXACT same
-// sidecar lock WithFileLock itself takes (filelock.PathFor(target)),
+// home lock WithFileLock itself takes (filelock.HomePathFor(target)),
 // acquired directly, before writer B's real WithFileLock call is ever
 // spawned. That physically prevents B's call from completing until A
 // releases, regardless of goroutine scheduling — the only place a small
@@ -59,6 +60,7 @@ func writeRMWDoc(t *testing.T, path string, d rmwDoc) {
 // blocks it), tripping the "B completed while A still held the lock"
 // assertion below, deterministically within the grace window.
 func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
+	testsupport.Isolate(t)
 	dir := t.TempDir()
 	target := filepath.Join(dir, "settings.json")
 	require.NoError(t, os.WriteFile(target, []byte(`{"managed":[]}`), 0o644))
@@ -73,9 +75,10 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 		})
 	}
 
-	// Writer A: take the real sidecar lock directly, standing in for
+	// Writer A: take the real home lock directly, standing in for
 	// WithFileLock already being mid-critical-section.
-	lockPath := filelock.PathFor(target)
+	lockPath, err := filelock.HomePathFor(target)
+	require.NoError(t, err)
 	aUnlock, err := filelock.Lock(lockPath)
 	require.NoError(t, err)
 
@@ -115,21 +118,23 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 // on exactly the environmental-fault path where writing unlocked is least
 // safe.
 //
-// The lock sidecar path is made impossible to open as a lock file by
-// pre-creating it as a DIRECTORY: os.OpenFile(..., O_RDWR) on a directory
-// fails deterministically (EISDIR) on every platform this runs on, with no
+// The lock path is made impossible to open as a lock file by pre-creating it
+// as a DIRECTORY: os.OpenFile(..., O_RDWR) on a directory fails
+// deterministically (EISDIR) on every platform this runs on, with no
 // permission tricks needed.
 func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
+	testsupport.Isolate(t)
 	dir := t.TempDir()
 	target := filepath.Join(dir, "settings.json")
 	original := []byte(`{"hello":"world"}`)
 	require.NoError(t, os.WriteFile(target, original, 0o644))
 
-	lockPath := filelock.PathFor(target)
+	lockPath, err := filelock.HomePathFor(target)
+	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(lockPath, 0o755))
 
 	called := false
-	err := WithFileLock(afero.NewOsFs(), target, func() error {
+	err = WithFileLock(afero.NewOsFs(), target, func() error {
 		called = true
 		return nil
 	})
@@ -140,6 +145,34 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 	after, readErr := os.ReadFile(target)
 	require.NoError(t, readErr)
 	assert.Equal(t, original, after, "the protected file must be byte-identical after a failed lock acquisition")
+}
+
+// TestWithFileLock_RemovesLegacyBesideFileSidecar pins the cleanup half of
+// the home-lock-dir fix: a `<target>.lock` sidecar C6 left behind (via the
+// old filelock.PathFor-based WithFileLock) must be gone after the FIRST call
+// through the new, home-rooted WithFileLock — not because anything still
+// reads it, but because leaving it behind means every subsequent run repeats
+// the exact untracked-litter/foreign-home-write problem this fix exists to
+// close (undated-bronco, fs-consolidation N1), forever.
+//
+// MUTATION KILL: delete (or no-op) the cleanupLegacySidecar call inside
+// WithFileLock, and this test goes red — the pre-seeded legacy sidecar is
+// still on disk after the call.
+func TestWithFileLock_RemovesLegacyBesideFileSidecar(t *testing.T) {
+	testsupport.Isolate(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "settings.json")
+	require.NoError(t, os.WriteFile(target, []byte(`{"managed":[]}`), 0o644))
+
+	legacySidecar := filelock.PathFor(target)
+	require.NoError(t, os.WriteFile(legacySidecar, []byte{}, 0o644))
+
+	err := WithFileLock(afero.NewOsFs(), target, func() error { return nil })
+	require.NoError(t, err)
+
+	_, statErr := os.Stat(legacySidecar)
+	assert.True(t, os.IsNotExist(statErr),
+		"the legacy beside-file sidecar must be removed by the first call through the home-rooted WithFileLock")
 }
 
 // TestWithFileLock_SkipsLockingForNonOSBackedFs pins the guard that keeps

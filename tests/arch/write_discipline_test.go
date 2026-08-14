@@ -216,7 +216,6 @@ func aferoFsMethodCall(sel *ast.SelectorExpr) bool {
 // temp name, a lock's own file, a test fixture that is itself the exempt
 // case, or a C10 sweep's classification).
 var writeDisciplineAllowed = map[string]string{
-	"internal/acp/session.go#chatSession.handleFsWrite":                       "C10 acp/acpagent sweep: unsafe os.WriteFile serving fs/write_text_file (workspace-confined). NOT mechanical — iox.WriteFileAtomicFs always chmods to the passed perm, but os.WriteFile only sets perm on CREATE and preserves an existing file's mode, so migrating would silently strip an executable bit off any script edited through this ACP handler; iox's default empty-over-existing refusal would also break a legitimate 'clear this file' edit. Needs a mode-preserving write primitive (agent.AtomicWriteFile already has one, built for exactly this) before this can migrate — escalated, not fixed here.",
 	"internal/agentcoord/coord/artifactstore.go#artifactStore.publish":        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/coord/homeartifacts.go#Home.DownloadArtifact":        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/coord/httpserver.go#coordServing.saveEndpointLocked": "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",

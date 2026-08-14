@@ -325,6 +325,54 @@ func TestFsWrite_AllowsPathInsideWorkspace(t *testing.T) {
 	closeChat(t, h, events)
 }
 
+// TestFsWrite_PreservesExistingFileMode: rewriting a file an agent could have
+// made executable (a script) through this handler must not silently strip
+// that bit. os.WriteFile always chmods to its fixed literal on every call,
+// create or not; the handler must instead preserve an EXISTING file's mode
+// (agent.AtomicWriteFile's contract) and only default a mode for a brand-new
+// file.
+func TestFsWrite_PreservesExistingFileMode(t *testing.T) {
+	f := newFsFixture(t)
+	dest := filepath.Join(f.root, "script.sh")
+	require.NoError(t, os.WriteFile(dest, []byte("#!/bin/sh\necho old\n"), 0o755))
+
+	h, events := startConfinedChat(t, f)
+
+	resp := l0CallClient(h.fa, api.ClientMethodFsWriteTextFile, map[string]any{
+		"path": dest, "content": "#!/bin/sh\necho new\n",
+	})
+	require.Nil(t, resp.Error, "a rewrite of an existing file must still work")
+	info, err := os.Stat(dest)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "the file's existing mode must survive the rewrite")
+	body, err := os.ReadFile(dest)
+	require.NoError(t, err)
+	assert.Equal(t, "#!/bin/sh\necho new\n", string(body))
+
+	closeChat(t, h, events)
+}
+
+// TestFsWrite_AllowsEmptyContentOverExistingFile: a legitimate "clear this
+// file" edit must succeed, not trip a zero-byte-over-existing guard. iox's
+// AllowEmptyWrite option is what buys this.
+func TestFsWrite_AllowsEmptyContentOverExistingFile(t *testing.T) {
+	f := newFsFixture(t)
+	dest := filepath.Join(f.root, "notes.txt")
+	require.NoError(t, os.WriteFile(dest, []byte("stale notes\n"), 0o644))
+
+	h, events := startConfinedChat(t, f)
+
+	resp := l0CallClient(h.fa, api.ClientMethodFsWriteTextFile, map[string]any{
+		"path": dest, "content": "",
+	})
+	require.Nil(t, resp.Error, "clearing an existing file to empty must be allowed")
+	body, err := os.ReadFile(dest)
+	require.NoError(t, err)
+	assert.Equal(t, "", string(body), "the file must actually be emptied")
+
+	closeChat(t, h, events)
+}
+
 // --- the fs-upstream (editor-chained) branch ---
 
 // TestFsUpstream_ConfinesBeforeChainingToEditor: the confinement decision

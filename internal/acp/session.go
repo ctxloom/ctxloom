@@ -1341,6 +1341,16 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 // is where symlink resolution earns its keep: os.WriteFile follows a
 // dangling link out of the workspace and CREATES the target, the same
 // primitive recorded against copyCredentialFile.
+//
+// The local-disk write routes through agent.AtomicWriteFile rather than a
+// bare os.WriteFile: an agent editing a file through this handler must not
+// have its mode silently narrowed to a fixed default (AtomicWriteFile
+// preserves an EXISTING file's mode, defaulting only a brand-new one — see
+// its doc), and a legitimate clear-to-empty edit must succeed rather than
+// trip a zero-byte guard (AllowEmptyWrite). Both properties are exactly what
+// this handler needs and neither is the settings-file default, so both are
+// requested explicitly rather than assumed from AtomicWriteFile's own
+// default policy.
 func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.WriteTextFileRequest
 	if err := json.Unmarshal(params, &req); err != nil {
@@ -1358,7 +1368,7 @@ func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error
 		}
 		return api.WriteTextFileResponse{}, nil
 	}
-	if err := os.WriteFile(safePath, []byte(req.Content), 0o644); err != nil {
+	if err := agent.AtomicWriteFile(agent.GetFS(nil), safePath, []byte(req.Content), "fs/write_text_file", agent.AllowEmptyWrite()); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
 	}
 	return api.WriteTextFileResponse{}, nil

@@ -1275,7 +1275,10 @@ func (m *Manager) saveLocked(idx *Index) error {
 	if err != nil {
 		return fmt.Errorf("marshal index: %w", err)
 	}
-	if err := iox.WriteFileAtomic(m.path, data, 0o644); err != nil {
+	// Durable: the session index is this store's only record of every
+	// session's rotation lineage (see index_upgrade.go); a rename that
+	// silently reverts after a crash loses that lineage with no signal.
+	if err := iox.WriteFileAtomic(m.path, data, 0o644, iox.Durable()); err != nil {
 		return err
 	}
 	// The file is now canonical, so any upgrade staged by the load that preceded

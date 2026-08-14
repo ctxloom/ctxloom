@@ -25,6 +25,23 @@ func SyncDir(dir string) error {
 // every Durable() caller shares one seam instead of each carrying its own.
 var syncDirFn = syncDir
 
+// SetSyncDirForTesting overrides the parent-directory fsync Durable() calls,
+// process-wide, until the returned restore func runs.
+//
+// This package's own tests reach syncDirFn directly; this exported twin
+// exists for a CONSUMER package's site-level test — one that wants to prove
+// "our call still passes iox.Durable()" from outside this package. That is
+// otherwise unobservable: the resolved writeConfig is private, and a durable
+// write produces byte-identical output to a non-durable one, so a mutation
+// that silently drops the Durable() option from a specific call site would
+// pass every ordinary content assertion. Swap this hook, make the call,
+// assert the hook fired.
+func SetSyncDirForTesting(fn func(string) error) func() {
+	prev := syncDirFn
+	syncDirFn = fn
+	return func() { syncDirFn = prev }
+}
+
 // isOSBackedFs reports whether fs is the real operating-system filesystem, as
 // opposed to a test double (afero.MemMapFs, a ReadOnlyFs wrapping one, ...).
 // A directory fsync needs a real file descriptor for the directory itself,

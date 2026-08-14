@@ -136,6 +136,20 @@ func TestCoordProjectStateDir_UnderHomeCoordDir(t *testing.T) {
 	assert.Equal(t, filepath.Join(root, "proj-key"), got)
 }
 
+// TestHomeLocksDir_HomeRootedLocksSegment pins ~/.ctxloom/locks — the
+// directory the isolation package's container lock-path fix mounts whole
+// into a container (internal/lm/isolation's sessionStateMounts), and the
+// directory filelock.HomePathFor derives its lock sidecars under. The
+// literal "locks" (not HomeLocksDirName) is deliberate, mirroring
+// TestHomeCoordDir_HomeRootedCoordSegment: a mutation to the constant's
+// VALUE must still fail this.
+func TestHomeLocksDir_HomeRootedLocksSegment(t *testing.T) {
+	home := testsupport.Isolate(t)
+	got, err := HomeLocksDir()
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, AppDirName, "locks"), got)
+}
+
 // =============================================================================
 // Default Path Tests
 // =============================================================================

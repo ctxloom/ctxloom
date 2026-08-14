@@ -325,6 +325,23 @@ func TestArch_PathAuthority_AllowlistIsLive(t *testing.T) {
 		live[v.key()] = true
 	}
 
+	// ANTI-VACUITY GUARD (fs-consolidation closing verification, N5):
+	// pathAuthorityAllowed is empty today — the goal state, per this file's
+	// own header (C8+C9 emptied it) — but an empty map makes every iteration
+	// below a no-op, so the test would pass for a reason indistinguishable
+	// from "this check never ran". t.Log makes the zero state VISIBLE
+	// instead of silently vacuous: only the forward gate
+	// (TestArch_PathAuthority_SessionStoreLiteralsLiveInPaths) is doing live
+	// work while the map stays empty, and a reader of `go test -v` output
+	// should be able to see that fact stated, not infer it from an absence.
+	if len(pathAuthorityAllowed) == 0 {
+		t.Log("pathAuthorityAllowed is empty: the staleness loop below has nothing to verify. " +
+			"That is the goal state, not a defect — see this test's own doc — but it means this " +
+			"twin currently proves nothing about the allowlist-staleness MECHANISM itself; only the " +
+			"forward gate is exercised until a reviewed exception is added back.")
+		return
+	}
+
 	keys := make([]string, 0, len(pathAuthorityAllowed))
 	for k := range pathAuthorityAllowed {
 		keys = append(keys, k)

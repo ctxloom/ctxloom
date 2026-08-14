@@ -49,6 +49,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -190,11 +191,32 @@ func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, mcp *wire.MCP
 		removeManagedHooks(cfg)
 		removeManagedMCP(cfg)
 
+		// SurfaceMCP ledger (R6, closing config-patching-review.md caveat C1):
+		// [mcp_servers] ownership here used to be STRUCTURAL ONLY —
+		// removeManagedMCP recognizes ctxloom's own well-known entry and
+		// anything whose command resolves to ctxloom, but a bundle- or
+		// unified-config server can name ANY executable, so a server ctxloom
+		// declared under one name and then renamed left its OLD entry behind
+		// forever: nothing here ever knew that old name was ctxloom's to
+		// remove. The ledger closes that the same way agent.MCPFileConfig's
+		// ledger does for the JSON engines: it records the exact name set this
+		// function is ABOUT to write, so the NEXT call can drop precisely
+		// those names regardless of what they were renamed to or whether their
+		// command still resolves to ctxloom. Engine-owns-bytes holds: the
+		// ledger only ever records names; codex's own TOML document model
+		// (removeManagedMCP / addMCPServers) still does every byte-level edit.
+		led := ledger.Ledger{FS: fs, Dir: filepath.Dir(settingsPath), Warn: agent.Warn}
+		prevMCP, err := led.Read(ledger.SurfaceMCP)
+		if err != nil {
+			return err
+		}
+		removeLedgeredMCPServers(cfg, prevMCP)
+
 		addUnifiedHooks(cfg, hooks.Unified)
 		if backendHooks, ok := hooks.Plugins["codex"]; ok {
 			addBackendHooks(cfg, backendHooks)
 		}
-		addMCPServers(cfg, mcp, bundleMCP, w.MCPCommandOverride)
+		managedMCP := addMCPServers(cfg, mcp, bundleMCP, w.MCPCommandOverride)
 		// Both of codex's trust gates are answered here, on the SAME axis and for
 		// the same reason (hooktrust.go's header): workspace trust for the cwd, hook
 		// trust for each hook command. Answering only the first was measurably not
@@ -211,7 +233,14 @@ func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, mcp *wire.MCP
 			warnHookTrustUnseeded(settingsPath, n)
 		}
 
-		return w.save(settingsPath, cfg, false)
+		if err := w.save(settingsPath, cfg, false); err != nil {
+			return err
+		}
+		// Record exactly what was written so the NEXT reconcile removes THOSE
+		// and nothing else — current state, never an append-only history, so a
+		// server ctxloom stops declaring is withdrawn from the ledger too, not
+		// just from the file.
+		return led.Write(ledger.SurfaceMCP, managedMCP)
 	})
 }
 
@@ -325,13 +354,28 @@ func (w *CodexHookWriter) removeSettingsIn(codexProjectDir string) error {
 		}
 		removeManagedHooks(cfg)
 		removeManagedMCP(cfg)
+
+		// Same SurfaceMCP ledger as writeSettingsIn: drop every name it ever
+		// recorded, not just what the structural check still recognizes, then
+		// clear the ledger itself — an uninstall must withdraw the RECORD as
+		// completely as the bytes.
+		led := ledger.Ledger{FS: fs, Dir: filepath.Dir(settingsPath), Warn: agent.Warn}
+		prevMCP, err := led.Read(ledger.SurfaceMCP)
+		if err != nil {
+			return err
+		}
+		removeLedgeredMCPServers(cfg, prevMCP)
+
 		// The trust records go with the hooks they vouched for. They could not
 		// grant trust to anything else if left (the recorded hash is what codex
 		// matches, so a different hook landing on the same positional key reads as
 		// `modified` and is skipped), but a revert that leaves ctxloom's answers to
 		// a security prompt lying in the user's file is not a revert.
 		removeHookTrust(cfg, settingsPath)
-		return w.save(settingsPath, cfg, true)
+		if err := w.save(settingsPath, cfg, true); err != nil {
+			return err
+		}
+		return led.Write(ledger.SurfaceMCP, nil)
 	})
 }
 
@@ -579,6 +623,16 @@ func removeExactCommand(hooks map[string]any, eventName, cmd, matcher string) {
 // removeManagedMCP drops ctxloom-managed servers from [mcp_servers]: the
 // well-known "ctxloom" auto-server and any entry whose command resolves to
 // ctxloom. Bundle/unified servers are re-added by name (the map overwrites).
+//
+// STRUCTURAL ONLY — this is defense in depth, not the complete ownership
+// record. A bundle- or unified-config server can name any executable at all,
+// so a server ctxloom declared under one name and then renamed leaves its OLD
+// entry invisible to this check forever (config-patching-review.md caveat
+// C1). The two call sites in this file pair this with the SurfaceMCP LEDGER
+// (removeLedgeredMCPServers) for that reason; this function alone is kept for
+// the case the ledger cannot cover — a config.toml written by a version of
+// ctxloom that never wrote one — and for the self-healing case where the
+// ledger marker itself was lost.
 func removeManagedMCP(cfg map[string]any) {
 	servers := asMap(cfg["mcp_servers"])
 	if servers == nil {
@@ -594,15 +648,42 @@ func removeManagedMCP(cfg map[string]any) {
 	}
 }
 
-// addMCPServers adds MCP servers from config and bundles to [mcp_servers].
+// removeLedgeredMCPServers drops every [mcp_servers] entry named in names —
+// the SurfaceMCP ledger's record of what ctxloom wrote last time — regardless
+// of whether its command still resolves to ctxloom or whether it is even
+// present (an absent name is a no-op). This is what removeManagedMCP's
+// purely structural, command-based check cannot do: recognize a renamed or
+// third-party-command managed server BY IDENTITY rather than by shape. See
+// removeManagedMCP's doc for the split between the two.
+func removeLedgeredMCPServers(cfg map[string]any, names []string) {
+	servers := asMap(cfg["mcp_servers"])
+	if servers == nil {
+		return
+	}
+	for _, name := range names {
+		delete(servers, name)
+	}
+	if len(servers) == 0 {
+		delete(cfg, "mcp_servers")
+	}
+}
+
+// addMCPServers adds MCP servers from config and bundles to [mcp_servers] and
+// returns the full set of names it added — every server this call makes
+// ctxloom-managed. The caller writes this list to the SurfaceMCP ledger, so
+// the NEXT reconcile's removeLedgeredMCPServers knows exactly what to drop
+// even if a server named here gets renamed or removed from ctxloom's own
+// config before the next write (R6, config-patching-review.md caveat C1).
+//
 // override replaces agent.CtxloomCommand() for the ctxloom-managed entry when
 // non-empty (see agent.ResolveMCPCommand) — set ONLY for an isolated-
 // container cell.
-func addMCPServers(cfg map[string]any, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, override string) {
+func addMCPServers(cfg map[string]any, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, override string) []string {
 	servers := asMap(cfg["mcp_servers"])
 	if servers == nil {
 		servers = map[string]any{}
 	}
+	var names []string
 
 	// Auto-register ctxloom's own MCP server unless disabled. Command names
 	// the self-exec absolute path (agent.CtxloomCommand) so this session's
@@ -610,25 +691,30 @@ func addMCPServers(cfg map[string]any, mcp *wire.MCPConfig, bundleMCP map[string
 	// unless override substitutes the in-container path.
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
 		servers[agent.MCPServerName] = mcpServerToTOMLEntry(wire.MCPServer{Command: agent.ResolveMCPCommand(override), Args: agent.CtxloomMCPArgs})
+		names = append(names, agent.MCPServerName)
 	}
 
 	// Profile-bundle servers (loaded first, can be overridden).
 	for name, server := range bundleMCP {
 		servers[name] = mcpServerToTOMLEntry(server)
+		names = append(names, name)
 	}
 
 	if mcp != nil {
 		for name, server := range mcp.Servers {
 			servers[name] = mcpServerToTOMLEntry(server)
+			names = append(names, name)
 		}
 		for name, server := range mcp.Plugins["codex"] {
 			servers[name] = mcpServerToTOMLEntry(server)
+			names = append(names, name)
 		}
 	}
 
 	if len(servers) > 0 {
 		cfg["mcp_servers"] = servers
 	}
+	return names
 }
 
 // mcpServerToTOMLEntry builds a Codex [mcp_servers.NAME] table value

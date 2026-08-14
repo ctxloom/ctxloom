@@ -63,6 +63,14 @@ func (MCPRegistrar) ConfigPath(dir string, global bool) (string, error) {
 
 // Install merges the named server into the config bytes. Idempotent; foreign
 // tables and keys are preserved.
+//
+// A PRESENT "mcp_servers" of the wrong TOML type (a string, an array, ...) is
+// REFUSED rather than silently replaced with a fresh empty table — matching
+// its JSON twin, agent.InstallMCPServerJSON (M5 asymmetry, R6/config-patching-
+// review.md bypass B6). Before this, only an ABSENT key took the fresh-table
+// path; "present but wrong type" fell through the same `!ok` branch and got
+// clobbered, destroying whatever the user (or a hand-edited config.toml) had
+// there. Only "absent" earns the fresh table now.
 func (MCPRegistrar) Install(config []byte, name string, server wire.MCPServer) ([]byte, error) {
 	doc, err := mcpTOMLDoc(config)
 	if err != nil {
@@ -70,6 +78,9 @@ func (MCPRegistrar) Install(config []byte, name string, server wire.MCPServer) (
 	}
 	servers, ok := doc["mcp_servers"].(map[string]any)
 	if !ok {
+		if existing, present := doc["mcp_servers"]; present {
+			return nil, fmt.Errorf("mcp_servers is %T, not a table — refusing to overwrite it", existing)
+		}
 		servers = map[string]any{}
 		doc["mcp_servers"] = servers
 	}

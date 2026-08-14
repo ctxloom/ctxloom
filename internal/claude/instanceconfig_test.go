@@ -228,6 +228,29 @@ func TestWriteInstanceConfig_NeverWritesTheHostHome(t *testing.T) {
 	assert.Len(t, entries, 1, "generation added files to the user's own home")
 }
 
+// TestWriteInstanceConfig_PropagatesTheLockedClosuresError pins the
+// agent.WithFileLock wrap (R6, config-patching-review.md bypass B5): a real
+// fault inside the locked closure — here, an existing instance file that will
+// not parse — must come back out of WriteInstanceConfig as a non-nil error,
+// not be swallowed by the wrapper.
+//
+// MUTATION TARGET: flip WriteInstanceConfig's `if err != nil { return rep,
+// err }` (the one wrapping the agent.WithFileLock call) to `if err == nil`
+// and this goes red — the error path falls through to the trailing `return
+// rep, nil`, reporting success over a config file that was never written.
+func TestWriteInstanceConfig_PropagatesTheLockedClosuresError(t *testing.T) {
+	instance := t.TempDir()
+	dest := filepath.Join(instance, inTreeConfigLeaf, InstanceConfigFileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o700))
+	require.NoError(t, os.WriteFile(dest, []byte(`{not valid json`), 0o600))
+
+	_, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+		HostHome: t.TempDir(), InstanceHome: instance, WorkDir: t.TempDir(),
+	})
+	require.Error(t, err, "an unparseable pre-existing instance file must fail loud, not be silently replaced")
+	assert.Contains(t, err.Error(), "cannot read")
+}
+
 // TestWriteInstanceConfig_OwnerOnly: the instance file records this run's trust
 // answer and sits beside live credential bytes; it is owner-only, never
 // world-readable.

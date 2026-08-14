@@ -127,9 +127,30 @@ var _ agent.InstanceConfigWriter = (*claudeInstanceConfig)(nil)
 // session instance (a coordinator and its in-tree delegated child), and claude
 // itself writes into this file while it runs. Loading it first means a second
 // run refreshes the three classes above and preserves everything claude
-// accumulated, instead of resetting the instance under a live engine. The
-// caller holds the project filelock across this, so the load-modify-write
-// cannot interleave with the other run's.
+// accumulated, instead of resetting the instance under a live engine.
+//
+// LOCKING (R6, ruled 2026-08-14): this file is ctxloom-EXCLUSIVELY-owned
+// inside a foreign engine's directory tree, which the ruling treats as "locked
+// and ledgered like a shared file — full discipline, one rule, no per-site
+// judgment" rather than "exclusive ownership is enough". The whole
+// load-modify-write cycle below runs inside its OWN agent.WithFileLock, at
+// dest (the .claude.json path itself) — NOT reliance on a caller's lock.
+//
+// This does NOT double-acquire with isolation.CopyAmbient's caller-side lock
+// (isolation.lockInstanceHome): that lock is filelock.ProjectPathFor(instanceHome)
+// — a DIFFERENT lock namespace (project-tree-relative) at a DIFFERENT path
+// (InstanceHome itself, not InstanceHome/claude/.claude.json) than the
+// filelock.HomePathFor(dest) this function's own WithFileLock takes. flock is
+// per-inode; two distinct paths in two distinct lock trees never contend, so
+// nesting is safe. It is also NOT redundant: lockInstanceHome silently
+// no-ops when InstanceHome is not inside any .ctxloom tree (the harpless
+// worktree fallback — see its doc), while filelock.HomePathFor always
+// resolves (it only needs the real OS home directory), so this function's own
+// lock is the ONLY guarantee in that fallback case. No ledger is added here:
+// unlike a shared settings.json, ctxloom owns the WHOLE file, so there is no
+// foreign content to distinguish from ctxloom's own and nothing for a ledger
+// to record beyond "this file exists" — see the CopyAmbient/InstanceConfigWriter
+// doc's ONE WAY invariant.
 func (w *claudeInstanceConfig) WriteInstanceConfig(req agent.InstanceConfigRequest) (agent.InstanceConfigReport, error) {
 	var rep agent.InstanceConfigReport
 	if req.InstanceHome == "" {
@@ -139,39 +160,45 @@ func (w *claudeInstanceConfig) WriteInstanceConfig(req agent.InstanceConfigReque
 	dir := filepath.Join(req.InstanceHome, inTreeConfigLeaf)
 	dest := filepath.Join(dir, InstanceConfigFileName)
 
-	cfg, err := loadJSONObject(fs, dest)
+	err := agent.WithFileLock(fs, dest, func() error {
+		cfg, err := loadJSONObject(fs, dest)
+		if err != nil {
+			// The instance file is ctxloom's own; one we cannot read is a real
+			// fault, not a reason to replace the running engine's state with a
+			// fresh table.
+			return fmt.Errorf("claude instance config: cannot read %s: %w", dest, err)
+		}
+
+		rep.Warnings = append(rep.Warnings, w.applyAmbient(fs, req.HostHome, cfg)...)
+		for name, value := range hardenedConfigKeys {
+			cfg[name] = value
+		}
+		if warn := applyProjectTrust(cfg, req.WorkDir); warn != "" {
+			rep.Warnings = append(rep.Warnings, warn)
+		}
+
+		data, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			return fmt.Errorf("claude instance config: encode %s: %w", dest, err)
+		}
+		data = append(data, '\n')
+		if err := fs.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("claude instance config: create %s: %w", dir, err)
+		}
+		if err := agent.AtomicWriteFile(fs, dest, data, InstanceConfigFileName); err != nil {
+			return fmt.Errorf("claude instance config: write %s: %w", dest, err)
+		}
+		rep.Wrote = append(rep.Wrote, dest)
+
+		if shadow, _ := afero.Exists(fs, filepath.Join(dir, precedenceConfigFileName)); shadow {
+			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
+				"a %s sits beside %s in %s and claude reads it in preference; the onboarding and trust answers just written there will not take effect",
+				precedenceConfigFileName, InstanceConfigFileName, dir))
+		}
+		return nil
+	})
 	if err != nil {
-		// The instance file is ctxloom's own; one we cannot read is a real
-		// fault, not a reason to replace the running engine's state with a
-		// fresh table.
-		return rep, fmt.Errorf("claude instance config: cannot read %s: %w", dest, err)
-	}
-
-	rep.Warnings = append(rep.Warnings, w.applyAmbient(fs, req.HostHome, cfg)...)
-	for name, value := range hardenedConfigKeys {
-		cfg[name] = value
-	}
-	if warn := applyProjectTrust(cfg, req.WorkDir); warn != "" {
-		rep.Warnings = append(rep.Warnings, warn)
-	}
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return rep, fmt.Errorf("claude instance config: encode %s: %w", dest, err)
-	}
-	data = append(data, '\n')
-	if err := fs.MkdirAll(dir, 0o700); err != nil {
-		return rep, fmt.Errorf("claude instance config: create %s: %w", dir, err)
-	}
-	if err := agent.AtomicWriteFile(fs, dest, data, InstanceConfigFileName); err != nil {
-		return rep, fmt.Errorf("claude instance config: write %s: %w", dest, err)
-	}
-	rep.Wrote = append(rep.Wrote, dest)
-
-	if shadow, _ := afero.Exists(fs, filepath.Join(dir, precedenceConfigFileName)); shadow {
-		rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-			"a %s sits beside %s in %s and claude reads it in preference; the onboarding and trust answers just written there will not take effect",
-			precedenceConfigFileName, InstanceConfigFileName, dir))
+		return rep, err
 	}
 	return rep, nil
 }

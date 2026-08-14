@@ -302,6 +302,20 @@ const (
 	// package boundary instead of one call site.
 	HomeLocksDirName = "locks"
 
+	// HomeRecordsDirName is the home-rooted directory holding hew §9.7
+	// application records: one file per successful `util config-write`
+	// apply against a JSON target, naming what changed, to what bytes,
+	// from which patch (see internal/cli/util_config_write.go's record
+	// builder). It is the audit trail distinct-bullpen's "config-write has
+	// no recovery path for a foreign file" asked for, to the degree hew's
+	// v0 library currently supports (a full `hew revert` is future work per
+	// the spec's §9.7, not built here). Siblings HomeLocksDirName under
+	// RootHome for the same reason: a record about a FOREIGN file — one
+	// ctxloom does not own and so must never write ctxloom-internal state
+	// beside — belongs in ctxloom's own home tree, not next to the file it
+	// describes.
+	HomeRecordsDirName = "records"
+
 	// EngineTranscriptLinkPrefix names the leaf every per-vendor-log
 	// convenience symlink at a harp dir's ROOT starts with (see
 	// HarpEngineTranscriptLinkPath). A harp accumulates one vendor transcript
@@ -650,6 +664,17 @@ func HomeLocksDir() (string, error) {
 		return "", fmt.Errorf("resolve the home lock directory ~/%s/%s: %w", AppDirName, HomeLocksDirName, err)
 	}
 	return filepath.Join(home, AppDirName, HomeLocksDirName), nil
+}
+
+// HomeRecordsDir returns ~/.ctxloom/records — the home-rooted directory
+// holding hew §9.7 application records for FOREIGN files `util
+// config-write` merges into (see HomeRecordsDirName's doc).
+func HomeRecordsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve the home records directory ~/%s/%s: %w", AppDirName, HomeRecordsDirName, err)
+	}
+	return filepath.Join(home, AppDirName, HomeRecordsDirName), nil
 }
 
 // CachePath returns the cache subdirectory path for the given app path.
@@ -1147,6 +1172,14 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, HomeLocksDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
 			Lost: "cross-binary lock sidecars for foreign engine-settings files (filelock.HomePathFor); harmless — a lock file carries no data and is recreated on next use, though a write in flight when it disappears loses its mutual exclusion for that one operation",
+		},
+		// Added alongside `util config-write`'s hew adoption (P5 slice 1):
+		// same RootHome/PresenceIfUsed shape as the locks row above it, for
+		// the parallel reason — this is state ABOUT a foreign file, so it
+		// cannot live beside that file.
+		{
+			Rel: filepath.Join(AppDirName, HomeRecordsDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "the audit trail of what `util config-write` changed in foreign JSON config files (hew §9.7 application records) — the files themselves are unaffected; only the record of having changed them is gone",
 		},
 	}
 }

@@ -28,6 +28,16 @@ plus ctxloom's own eight mechanisms; the catalog's *IR record* rows define the t
 schema (§9.6); the schema defines the Go signatures (Appendix A). Never the reverse — a future
 catalog entry extends the IR by construction.
 
+**Reduction.** The survey is exhaustive; the normative set is not. 52 catalogued operations
+reduce to **five IR primitives** (`test`, `add`, `remove`, `replace`, `copy`) plus addressing
+and a minimal qualifier set — *the IR is essentially ASM*. Everything else is either sugar the
+parser compiles away or an explicit `OUT` with a reason (§11.10).
+
+**Tolerance.** `patch(1)`'s fuzz is the wrong benchmark. SP addresses nodes by path, so
+reordered keys, reordered keyed arrays, reformatting, and unrelated edits are **invisible** to
+a patch — while value drift, missing nodes and ambiguous matches fail loudly and by name. The
+normative table is §6.4.
+
 **The corpus is the standard.** Where this prose and `tests/spcorpus/` disagree, the corpus
 wins, and the disagreement is a spec bug to be fixed here. The Go implementation (P2/P3) and
 the later Rust port (P6) are conformant exactly insofar as they pass the same corpus.
@@ -41,7 +51,7 @@ the later Rust port (P6) are conformant exactly insofar as they pass the same co
 3. [Margins: the six column-1 characters](#3-margins)
 4. [SP paths: the address grammar](#4-sp-paths)
 5. [Hunk semantics: the two projections](#5-hunk-semantics-the-two-projections)
-6. [Context, position, and exhaustiveness](#6-context-position-and-exhaustiveness)
+6. [Context, position, exhaustiveness — and the tolerance model](#6-context-position-and-exhaustiveness)
 7. [Annotations: `?` assertions and `!` directives](#7-annotations)
 8. [Per-format binding: what a body line *is*](#8-per-format-binding)
 9. [The transform list: SP's IR, and the four components around it](#9-the-transform-list)
@@ -348,6 +358,22 @@ and the ordinal counts **within that kind, within that section**. Markdown block
 keys of any sort, so this is the one place a path carries a number that is not an array
 index; see [O7](#open-questions-for-ratification).
 
+### 4.5b Comment segments
+
+Comments are nodes in JSONC, YAML, TOML and HCL (§8), so they need addresses. Two forms:
+
+```
+/server/#0                 the first standalone comment node inside "server"
+/server/#2                 the third
+/server/timeout/#t         the trailing comment on the "timeout" member
+```
+
+`#<n>` is kind-scoped within the container, exactly like a Markdown block ordinal. `#t` is the
+trailing comment attached to the preceding member. Comment addresses are what let a comment be
+removed or replaced as a node (OP-32, OP-33) and are why the mirror grammar's
+comment-attachment spelling (OP-31) needs no IR qualifier of its own — it desugars into an
+`add` at a comment address.
+
 ### 4.6 Relative paths in annotations
 
 Inside a hunk, an annotation's path may begin with `.` meaning "relative to the enclosing
@@ -521,6 +547,112 @@ quoting. A changed scalar keeps the *container's* formatting and adopts the patc
 for the new value. This is the byte-preservation contract every backend must meet, and the
 corpus enforces it by byte-exact comparison of expected output (§13.4).
 
+### 6.4 The tolerance model — what drift a patch survives
+
+Normative, and the section to read if you are coming from `patch(1)`.
+
+**`patch(1)`'s fuzz is the wrong benchmark.** Fuzz relocates a hunk *textually*: it searches
+nearby line offsets and, with `--fuzz`, drops context lines until something matches. It
+tolerates the drift it can find by scanning, and it silently mis-applies when the scan lands
+somewhere plausible but wrong. SP has no fuzz (§1) — and yet it tolerates *more* real-world
+drift than fuzz does, because it does not match by position at all.
+
+> **SP addresses nodes by path. Reordering is invisible to a path.** A user who reorganized
+> their `settings.json` has not broken any SP patch against it. Under `patch(1)` the same
+> reorganization breaks every hunk.
+
+#### 6.4.1 Map and object asserts are order-insensitive
+
+A mirror context line for a sibling key compiles to a `test` on that key's **presence and
+value** (§9.0) — never on its position. This is normative for every mapping-shaped node in
+all six formats: JSON/JSONC objects, YAML mappings, TOML tables, HCL bodies, and the child
+sets of Markdown sections.
+
+```
+@@ /server @@
+  host: localhost
+- timeout: 30
++ timeout: 60
+```
+
+applies unchanged whether the target reads `host, port, timeout`, `timeout, port, host`, or
+has gained six new keys in between. The one place order re-enters is **insertion position**
+(§6.2), and that is an instruction about where to *write*, not a condition on what must be
+true — a `+` whose context has moved is placed relative to where that context now is.
+
+#### 6.4.2 Keyed arrays are addressed by identity
+
+`/mcpServers/name=github` (§4.2) and `/tags/=gamma` survive reordering of the sequence, because
+neither address mentions a position. This is why §9.4-R4 requires the differ to *prefer*
+identity addressing, and it is the strategic-merge lesson made general: SMP's merge-by-key
+behavior was the right idea trapped behind a schema registry, and SP's answer is to put the
+key in the address where the patch itself declares it.
+
+**"A usable key"**, normatively, for both the differ and a human author:
+
+1. The field is present on **every** element of the sequence, and
+2. its value is a **scalar** (not a map or sequence), and
+3. the values are **unique** across the sequence.
+
+If no field satisfies all three, the sequence has no identity and SP addresses it positionally
+— honestly, and with the consequences in §6.4.3.
+
+#### 6.4.3 The two order-sensitive spots, named
+
+| Spot | Why | Mitigation |
+|---|---|---|
+| **Plain positional arrays** (`/tags/0`) | The elements have no identity; position is genuinely all there is. | Prefer the `=value` address (§4.2) for scalar lists — `/tags/=gamma` is identity addressing for a list that has no key field. Only fall back to `/tags/0` when the list has duplicates. |
+| **HCL repeated-label blocks** (`! match ord=1`) | Two `provider "aws"` blocks are indistinguishable by path; an inserted earlier sibling shifts every later ordinal. | §7.2, tightened below. |
+
+**Normative mitigation for ordinals** (strengthening §7.2, and adopting ytt's
+`overlay.subset()` idiom): an ordinal is the **last resort**, not the first tool.
+
+1. If the block has a distinguishing child attribute, **address it by that attribute
+   instead** of by ordinal — an SP path may descend into the block and assert
+   (`? expect ./alias = "east"`).
+2. **An ordinal-addressed transform MUST carry at least one distinguishing assert** — a
+   context line or a `? expect` on a child that differs between the same-label siblings. A
+   patch that carries `! match ord=` with no distinguishing assert is `SP001`. The reason is
+   the whole tolerance model in one sentence: *if the ordinal shifts, the patch must fail
+   loudly rather than silently edit the wrong block.*
+3. If the siblings are genuinely indistinguishable in every child, the ordinal stands alone —
+   and that is the one construct in SP that can silently patch the wrong node. The corpus
+   pins the diagnostic, and [O25](#open-questions-for-ratification) asks whether such a patch
+   should be refused outright.
+
+#### 6.4.4 Two different things called "move"
+
+Spec language keeps these apart, because conflating them is how a reader concludes SP is
+either too strict or too loose:
+
+| Term | Meaning | SP's stance |
+|---|---|---|
+| **Target drift** | The *user* reordered or relocated nodes in the file since the patch was written. | **Tolerated, and invisible** — node addressing does not see it (§6.4.1, §6.4.2). |
+| **Move as an operation** | The *patch* relocates a node from one path to another (OP-21). | Not expressible in the mirror grammar; written as a transform list (§9.6, Appendix C.1). |
+
+"This patch survives a move" means the first. "This patch performs a move" means the second.
+
+#### 6.4.5 The tolerance table
+
+Normative. Each row is corpus-case material (§13), one per format family.
+
+| Target changed how | SP's response | Why |
+|---|---|---|
+| Keys reordered within a map | **Survives** | Path addressing; no positional assert (§6.4.1) |
+| Keyed-array elements reordered | **Survives** | Identity addressing (§6.4.2) |
+| Whitespace, indentation, line wrapping changed | **Survives** | Matching compares values, not bytes (§6.3) |
+| Quoting style changed (`'x'` → `"x"`, bare → quoted) | **Survives** | Same |
+| YAML block ↔ flow style changed | **Survives** | Same |
+| Comments added, edited, or removed elsewhere | **Survives** | Comments are nodes; unasserted nodes are unconstrained (§6.1) |
+| Unrelated keys added anywhere | **Survives** | Subset matching (§6.1) — unless `? exhaustive` was asserted, which is the point of asserting it |
+| Unrelated keys removed elsewhere | **Survives** | Same |
+| An asserted node's **value** changed | **`SP010` stale-target** | The assert is the contract |
+| An addressed node is **missing** | **`SP013` no-match** | Never a silent no-op (§1) |
+| A key-match or heading now matches **two** nodes | **`SP012` ambiguous-match** | Drift SP will not resolve by guessing |
+| The patch was **already applied** | **`SP010`**, unless `! idempotent` (§7.5) | [O3](#open-questions-for-ratification) |
+| Plain-array elements reordered | **`SP010`** if a positional address was used | The one honest failure; use `=value` addressing |
+| An earlier same-label HCL block was inserted | **`SP010`/`SP011`** via the required distinguishing assert (§6.4.3) | Loud, not silent |
+
 ---
 
 ## 7. Annotations
@@ -629,12 +761,14 @@ Grammar: `! match [label=[<label>, …]] ord=<n>`.
 - An ordinal is only legal where the path is genuinely ambiguous. `! match` on a path that
   resolves to exactly one node is `SP001` — an unnecessary ordinal is a latent misapply
   waiting for the file to grow a sibling, and SP refuses it rather than tolerating it.
-- **Every hunk using `! match ord=` should also carry distinguishing context or a
-  `? expect`.** The `alias = "east"` context line above is what makes the second example safe:
-  if the two blocks are ever reordered, the ordinal still selects block 1 but the context no
-  longer matches, and the apply fails by name instead of editing the wrong provider. The spec
-  cannot require this (a block may have no distinguishing attribute at all), but the corpus
-  pins the failure behavior when it is present.
+- **Every hunk using `! match ord=` MUST carry at least one distinguishing assert** — a
+  context line or a `? expect` on a child that differs between the same-label siblings. A
+  hunk with `! match ord=` and no distinguishing assert is `SP001`. The `alias = "east"`
+  context line above is what makes the second example safe: if a third `provider "aws"` block
+  is inserted earlier, the ordinal still selects index 1 but the context no longer matches,
+  and the apply fails by name instead of editing the wrong provider. See §6.4.3 for the
+  tolerance rationale, and prefer addressing by the distinguishing attribute outright when one
+  exists.
 
 ### 7.3 `! anchor` and `! surface`
 
@@ -1212,27 +1346,55 @@ transforms:
 A multi-target transform list is a multi-document YAML stream (`---`-separated), one document
 per target, applied in order under §10.5's per-file atomicity.
 
-**Transform record**
+**Transform record — the reduced core**
+
+The IR is **ASM**: few primitives, stable, composable. Richness lives in the notation and in
+the compiler (the parser), never in the IR. The derivation that produced this set is §11.10.
+
+**Five operations.** RFC 6902's six, minus `move`, which is a lossless composition
+(`copy` + `remove`) and therefore desugars.
+
+| `op` | Meaning | Why it cannot be composed away |
+|---|---|---|
+| `test` | Assert. | The only assertion primitive; every context line compiles here (§9.0). |
+| `add` | Create a node. | The only creation primitive. |
+| `remove` | Delete a node. | The only deletion primitive. |
+| `replace` | Swap a node's value **in place**. | `remove` + `add` provably loses the node's attached comments (§8.2) and re-derives its position. Not the same operation. |
+| `copy` | Create a node from the value at another **path in the target**. | The only primitive that takes its value *by reference*. An `add` would have to restate the value, which requires reading the target and would break the IR's target-independence. |
+
+**Fields.**
 
 | Field | Applies to | Meaning |
 |---|---|---|
-| `op` | all | `add` \| `remove` \| `replace` \| `move` \| `copy` \| `test` |
-| `path` | all | SP path (§4). Abstract form: key-match segments are permitted and preferred. |
+| `op` | all | One of the five above. |
+| `path` | all | SP path (§4), abstract form. **All addressing richness lives here** — key-match, `=value`, labels, headings, blocks, comments, markers, `[n]` ordinal selectors. |
+| `from` | `copy` | Source SP path. |
 | `value` | `add`, `replace`, `test` | The value, in YAML. |
-| `from` | `move`, `copy` | Source SP path. |
-| `after` / `before` | `add`, `move`, `copy` | Relative placement (§9.1 step 5). Mutually exclusive; absence means append at end. |
-| `absent` | `test` | Assert non-existence. Mutually exclusive with `value`. |
-| `exhaustive` | `test` | `value` is the container's complete child set. |
+| `before` / `after` | `add`, `copy` | Placement (§6.2). Mutually exclusive; absence means append at end. |
+| `on_conflict` | `add` | `fail` (default, OP-02) \| `keep` (OP-04) \| `replace` (OP-03). |
+| `absent` | `test` | Assert non-existence. |
 | `count` | `test` | Assert child count. |
 | `kind` | `test` | Assert node kind. |
-| `ord` | any | Ordinal selector for the last path segment (§7.2). |
-| `anchor` | any | `rewrite` \| `fork` (§8.3). |
-| `surface` | any | `table` \| `dotted` (§8.4). |
-| `idempotent` | any | §7.5. |
-| `optional` | `remove`, `test` | §7.6. |
-| `on_conflict` | `add` | `fail` (default, OP-02) \| `keep` (OP-04, defaulting) \| `replace` (OP-03, upsert). |
-| `comment` | `add`, `replace` | `{leading: <text>, trailing: <text>}` — a comment attached to the node (OP-31). |
-| `line` | any | Provenance back into a `.sp` file. **Emitted, ignored on input.** |
+| `anchor` | any | `rewrite` \| `fork` — YAML alias policy (§8.3). |
+| `surface` | `add` | `table` \| `dotted` — TOML placement (§8.4). |
+| `optional` | `remove`, `test` | Tolerate absence (§7.6). |
+| `idempotent` | `add`, `remove`, `replace` | Tolerate an already-applied state (§7.5). |
+| `line` | any | Provenance into the `.sp` file. **Emitted, ignored on input.** |
+
+Exactly one of `value` / `absent` / `count` / `kind` on a `test`. `on_conflict` is the only
+conditional on `add`; `optional` and `idempotent` are the two tolerance flags, and there are
+no others.
+
+**What is NOT in the record, and where it went.** These were in earlier drafts and were
+removed by the reduction; each is now produced by the parser as a composition:
+
+| Removed | Desugars to |
+|---|---|
+| `exhaustive` | `test`+`count` on the container, plus one `test`+`value` per listed child (OP-26). |
+| `comment: {leading, trailing}` | A separate `add` of a comment node at a comment address (§4.5b), placed with `before`/`after` (OP-31). |
+| `ord` | A `[n]` selector on the path's last segment — addressing, not operation (OP-37). |
+| `labels` | Nothing. The labels are already the path's label segments; the parser checks the redundant `label=[…]` spelling and drops it. |
+| `move` | `copy` + `remove` (OP-21). |
 
 An unknown `op` or an unknown field is `SP001`. Fields whose combination is meaningless
 (`value` with `absent`, `from` on `add`) are `SP001`.
@@ -1247,8 +1409,9 @@ format has* and ctxloom's own managed writers require. **A future catalog entry 
 new qualifier extends this schema by construction**, and a qualifier with no catalog entry is
 a spec bug.
 
-**Move and copy.** These are the two operations the mirror grammar cannot express, and this
-is where they live:
+**Move and copy.** These are the operations the mirror grammar cannot express, and this is
+where they live. A move is written as its two core records — which is also exactly what the
+`.sp` mirror grammar could never have expressed as one gesture:
 
 ```yaml
 sp-transforms: 1
@@ -1258,15 +1421,21 @@ transforms:
   - op: test
     path: /server/host
     value: localhost
-  - op: move
+  - op: copy
     from: /server/host
     path: /network/host
+  - op: remove
+    path: /server/host
 ```
 
-An applier MUST implement all six operations, including `move` and `copy`, and MUST preserve
-the moved subtree's source bytes and attached comments where its format's editor library
-allows. That requirement exists precisely so that a move is *worth* reaching for the IR form
-instead of writing delete-and-add in the mirror grammar.
+An applier MUST implement all five core operations, and `copy` MUST preserve the source
+subtree's bytes and attached comments where its format's editor library allows. That
+requirement is what makes the copy-then-remove pair a *move* rather than a transcription, and
+it is why reaching for the IR form beats writing delete-and-add in the mirror grammar.
+
+A reader who prefers the word may write `op: move` with `from:`/`path:`: it is accepted on
+input as sugar and is normalized to the two core records on the way in. It never appears in an
+emitted transform list, and the corpus pins that.
 
 **What the serialized IR is not.** It is not a review artifact. A pull request containing a
 `.spt` file where a `.sp` file would do is a review-quality regression, and a project may
@@ -1375,6 +1544,11 @@ Each entry states:
 
 - **Status** — `v0` (normative and corpus-covered), `deferred` (named, not in v0, with the
   condition for adding it), `rejected` (deliberately never, with the reason).
+- **Disp** — the disposition against the reduced core (§11.10):
+  - `CORE` — reaches the IR as one core op plus addressing and core qualifiers.
+  - `SUGAR` — a notation spelling that the **parser desugars** into a composition of core
+    records. **The IR never carries it.** Richness in the compiler, not the ASM.
+  - `OUT` — not in the normative set: rejected or deferred, with the reason stated.
 - **Sources** — where in the survey the operation was found.
 - **Absent/empty behavior** — the silent-no-op discipline, per operation: what happens when
   the target node is missing, or the container is empty. Every `v0` entry answers this.
@@ -1418,7 +1592,7 @@ Format column key: `✓` supported · `—` not applicable to this format's data
 ### 11.2 Mapping and key operations
 
 #### OP-01 `set-scalar` — replace the value of an existing key
-**Status** v0 · **Sources** 6902 `replace`, 7386, ytt default, go-patch, jd, M3/M6/M7
+**Status** v0 · **Disp** `CORE` — `replace` · **Sources** 6902 `replace`, 7386, ytt default, go-patch, jd, M3/M6/M7
 **Absent/empty** Key absent → `SP013`. Never creates. Value equal to the target already → the
 `-` line still matches, the op is a no-op replace, exit 0.
 **Mirror**
@@ -1432,7 +1606,7 @@ Format column key: `✓` supported · `—` not applicable to this format's data
 **Errors** `SP010` `SP013` · **Corpus** `json/set-scalar`, `yaml/set-scalar`, `toml/set-scalar-dotted`, `hcl/set-attribute`
 
 #### OP-02 `add-key` — create a key that must not exist
-**Status** v0 · **Sources** 6902 `add`, ytt `@overlay/match missing_ok=True` + insert
+**Status** v0 · **Disp** `CORE` — `add` · **Sources** 6902 `add`, ytt `@overlay/match missing_ok=True` + insert
 **Absent/empty** Key already present → `SP014 already-exists`. This is the strict default:
 adding over an existing key is a drift signal, not a convenience.
 **Mirror**
@@ -1446,7 +1620,7 @@ adding over an existing key is a drift signal, not a convenience.
 **Errors** `SP014` · **Corpus** `json/add-key`, `hcl/add-attribute`
 
 #### OP-03 `upsert-key` — add, or replace whatever is there
-**Status** v0 · **Sources** go-patch trailing `?`, ytt `missing_ok`, M5 install
+**Status** v0 · **Disp** `CORE` — `add` + `on_conflict: replace` · **Sources** go-patch trailing `?`, ytt `missing_ok`, M5 install
 **Absent/empty** Absent → created. Present → replaced regardless of current value. **This
 operation deliberately does not assert the prior state**, so it is the one mapping write that
 cannot detect drift; use it only where ctxloom owns the key outright (M5's exact case).
@@ -1461,7 +1635,7 @@ cannot detect drift; use it only where ctxloom owns the key outright (M5's exact
 **Errors** — (this op has no failure of its own) · **Corpus** `toml/upsert-key`
 
 #### OP-04 `default-key` — add only if absent, leave an existing value alone
-**Status** v0 · **Sources** ytt `missing_ok=True` without replace; jsonnet `+:` for absent fields
+**Status** v0 · **Disp** `CORE` — `add` + `on_conflict: keep` · **Sources** ytt `missing_ok=True` without replace; jsonnet `+:` for absent fields
 **Absent/empty** Absent → created. Present → **untouched**, zero ops, exit 0. The
 "defaulting" operation: seeding a config key without stomping a user's choice.
 **Mirror** — `! default`, line-scoped:
@@ -1475,7 +1649,7 @@ cannot detect drift; use it only where ctxloom owns the key outright (M5's exact
 **Errors** — · **Corpus** `yaml/default-key-present`, `yaml/default-key-absent`
 
 #### OP-05 `remove-key`
-**Status** v0 · **Sources** 6902 `remove`, 7386 `null`, SMP `$patch: delete`, ytt
+**Status** v0 · **Disp** `CORE` — `remove` · **Sources** 6902 `remove`, 7386 `null`, SMP `$patch: delete`, ytt
 `@overlay/remove`, spruce `(( delete ))`, jsonnet `::`, M3/M7
 **Absent/empty** Absent → `SP013`. Present but unequal to the `-` line's value → `SP010`.
 Removing the last child leaves an empty container; it does **not** cascade-delete the parent
@@ -1490,7 +1664,7 @@ Removing the last child leaves an empty container; it does **not** cascade-delet
 **Errors** `SP010` `SP013` · **Corpus** `json/delete-key`, `jsonc/delete-key-with-comment`
 
 #### OP-06 `remove-key-if-present`
-**Status** v0, **discouraged** · **Sources** ytt `expects="0+"`, patch(1) tolerance
+**Status** v0, **discouraged** · **Disp** `CORE` — `remove` + `optional` · **Sources** ytt `expects="0+"`, patch(1) tolerance
 **Absent/empty** Absent → no-op, exit 0. **This is the only construct in SP that can silently
 do nothing**, which is why §7.6 requires a justifying comment and a linter warning.
 **Mirror**
@@ -1504,16 +1678,16 @@ do nothing**, which is why §7.6 requires a justifying comment and a linter warn
 **Formats** all six as OP-05 · **Errors** — · **Corpus** `yaml/remove-optional-absent`
 
 #### OP-07 `rename-key`
-**Status** v0, **IR-only** · **Sources** 6902 `move` within a container
+**Status** v0, **IR-only** · **Disp** `SUGAR` — → `copy` + `remove` · **Sources** 6902 `move` within a container
 **Absent/empty** Source absent → `SP013`. Destination present → `SP014`.
 **Mirror** IR-only. The mirror form (`- old: v` / `+ new: v`) is a delete-and-add and loses
 the node's comments and source bytes — see [O16](#open-questions-for-ratification).
-**IR** `{op: move, from: /server/timeout, path: /server/timeout_seconds}`
+**IR** `{op: copy, from: /server/timeout, path: /server/timeout_seconds}` then `{op: remove, path: /server/timeout}`
 **Formats** json ✓ · jsonc ✓ · yaml ✓ · toml ✓ · hcl ✓ · markdown —
 **Errors** `SP013` `SP014` · **Corpus** `yaml/ir-rename-key`
 
 #### OP-08 `replace-container-wholesale`
-**Status** v0 · **Sources** 7386 (its only array mode), SMP `$patch: replace`, M6 (arrays
+**Status** v0 · **Disp** `CORE` — `replace` at the container path · **Sources** 7386 (its only array mode), SMP `$patch: replace`, M6 (arrays
 replace wholesale)
 **Absent/empty** Container absent → `SP013`. Replacing with an empty container is legal and
 **not** treated as a no-op — an explicit empty is a real value, and SP will not second-guess
@@ -1529,7 +1703,7 @@ it the way a merge tool would.
 **Errors** `SP010` `SP013` · **Corpus** `json/replace-array-wholesale`
 
 #### OP-09 `deep-merge-container`
-**Status** **rejected** · **Sources** 7386, SMP `$patch: merge`, jsonnet `+:`, spruce, M6
+**Status** **rejected** · **Disp** `OUT` · **Sources** 7386, SMP `$patch: merge`, jsonnet `+:`, spruce, M6
 **Why not.** A deep merge is exactly the operation whose result you cannot read off the patch
 — the survey's central finding, and ctxloom's own `config-write` (M6) is the local proof: its
 deep merge has no ownership record, replaces arrays wholesale without saying so, and cannot be
@@ -1539,7 +1713,7 @@ overlay, applies as something else" gap that motivated the format.
 **Migration for M6** — `config-write`'s patch object becomes a generated transform list.
 
 #### OP-10 `null-as-delete`
-**Status** **rejected** · **Sources** RFC 7386, jsonnet `::`
+**Status** **rejected** · **Disp** `OUT` · **Sources** RFC 7386, jsonnet `::`
 **Why not.** `null` is a legal JSON/YAML *value*. A format in which setting a key to null and
 deleting a key are the same keystroke cannot express "set this to null", and every 7386
 consumer has this bug. SP has an explicit `-` margin and an explicit `remove` op; `+ x: null`
@@ -1550,7 +1724,7 @@ sets null.
 ### 11.3 Sequence operations
 
 #### OP-11 `append-element`
-**Status** v0 · **Sources** 6901 `-` token, ytt `@overlay/append`, spruce `(( append ))`, jsonnet `+:`
+**Status** v0 · **Disp** `CORE` — `add`, placement omitted · **Sources** 6901 `-` token, ytt `@overlay/append`, spruce `(( append ))`, jsonnet `+:`
 **Absent/empty** Sequence absent → `SP013` (use OP-03 to create it). Empty sequence → appends
 as the only element, legal.
 **Mirror** — a `+` line with no following context sibling:
@@ -1564,7 +1738,7 @@ as the only element, legal.
 **Errors** `SP013` · **Corpus** `yaml/list-append`, `json/array-append`
 
 #### OP-12 `prepend-element`
-**Status** v0 · **Sources** spruce `(( prepend ))`, RFC 5261 `pos="prepend"`
+**Status** v0 · **Disp** `CORE` — `add` + `before` · **Sources** spruce `(( prepend ))`, RFC 5261 `pos="prepend"`
 **Absent/empty** As OP-11.
 **Mirror** — a `+` line whose only sibling context follows it:
 ```
@@ -1576,7 +1750,7 @@ as the only element, legal.
 **Formats** as OP-11 · **Errors** `SP013` · **Corpus** `yaml/list-prepend`
 
 #### OP-13 `insert-before` / `insert-after`
-**Status** v0 · **Sources** ytt `@overlay/insert before=/after=`, spruce `(( insert after ))`, RFC 5261 `pos=`
+**Status** v0 · **Disp** `CORE` — `add` + `before`/`after` · **Sources** ytt `@overlay/insert before=/after=`, spruce `(( insert after ))`, RFC 5261 `pos=`
 **Absent/empty** The reference sibling must exist and match, or `SP010`. This is the operation
 that makes context lines load-bearing rather than decorative (§9.0).
 **Mirror** — position falls out of the surrounding context (§6.2), with no keyword at all:
@@ -1590,7 +1764,7 @@ that makes context lines load-bearing rather than decorative (§9.0).
 **Formats** as OP-11 · **Errors** `SP010` `SP013` · **Corpus** `yaml/list-insert-middle`
 
 #### OP-14 `remove-element-by-index`
-**Status** v0 · **Sources** 6902 (its only array removal), jd
+**Status** v0 · **Disp** `CORE` — `remove`, index address · **Sources** 6902 (its only array removal), jd
 **Absent/empty** Index out of range → `SP013`. The element's value must match the `-` line.
 **Mirror**
 ```
@@ -1602,7 +1776,7 @@ that makes context lines load-bearing rather than decorative (§9.0).
 **Formats** as OP-11 · **Errors** `SP010` `SP013` · **Corpus** `json/array-remove-element`
 
 #### OP-15 `remove-element-by-value` (primitive lists)
-**Status** v0 · **Sources** SMP `$deleteFromPrimitiveList`
+**Status** v0 · **Disp** `CORE` — `remove`, `=value` address · **Sources** SMP `$deleteFromPrimitiveList`
 **Absent/empty** No element equals the value → `SP013`. More than one equal element →
 `SP012` (a duplicated scalar in a list is drift; SP names it rather than picking the first).
 **Mirror** identical to OP-14 — the author writes `- - beta` and the *parser* chooses a
@@ -1614,7 +1788,7 @@ meaning "the element that equals this".
 **Corpus** `yaml/list-remove-by-value`, `yaml/list-remove-by-value-duplicate` (error)
 
 #### OP-16 `add-or-replace-keyed-element` — the headline operation
-**Status** v0 · **Sources** go-patch `name=value` + `?`, SMP merge-key semantics, spruce
+**Status** v0 · **Disp** `CORE` — `add` + `on_conflict`, key-match address · **Sources** go-patch `name=value` + `?`, SMP merge-key semantics, spruce
 `(( merge on ))`, ytt `overlay.subset()`, **and ctxloom M3/M5** (every engine's MCP-server
 registration is exactly this)
 **Absent/empty** With `?` on the anchor: absent → inserted at the position the body's context
@@ -1632,7 +1806,7 @@ implies. Without `?`: absent → `SP013`. Two elements with the same key → `SP
 **Errors** `SP012` `SP013` `SP014` · **Corpus** `yaml/keyed-array-add`, `json/keyed-array-add`, `toml/array-of-tables-add`
 
 #### OP-17 `remove-keyed-element`
-**Status** v0 · **Sources** SMP `$patch: delete` with merge key, M3 `removeManagedMCP`
+**Status** v0 · **Disp** `CORE` — `remove`, key-match address · **Sources** SMP `$patch: delete` with merge key, M3 `removeManagedMCP`
 **Absent/empty** Absent → `SP013`; ambiguous → `SP012`.
 **Mirror**
 ```
@@ -1643,7 +1817,7 @@ implies. Without `?`: absent → `SP013`. Two elements with the same key → `SP
 **Formats** as OP-16 · **Errors** `SP012` `SP013` · **Corpus** `json/keyed-array-remove`
 
 #### OP-18 `patch-inside-keyed-element`
-**Status** v0 · **Sources** go-patch `/instance_groups/name=zookeeper/instances`
+**Status** v0 · **Disp** `CORE` — any core op, key-match address · **Sources** go-patch `/instance_groups/name=zookeeper/instances`
 **Absent/empty** As OP-16 for the selector; then per the inner operation.
 **Mirror** — anchor the hunk at the element:
 ```
@@ -1656,14 +1830,14 @@ implies. Without `?`: absent → `SP013`. Two elements with the same key → `SP
 **Formats** as OP-16 · **Errors** `SP010` `SP012` `SP013` · **Corpus** `yaml/keyed-element-inner-add`
 
 #### OP-19 `reorder-sequence` / `set-element-order`
-**Status** **deferred** · **Sources** SMP `$setElementOrder`
+**Status** **deferred** · **Disp** `OUT` · **Sources** SMP `$setElementOrder`
 **Why not in v0.** No mechanism in M1–M8 reorders a list; ctxloom's own ledger sorts on
 render (M1) so ordering is derived, not patched. Expressible today as a series of IR `move`
 ops, verbosely. **Condition to add:** a named case where the order of a config list is
 semantically load-bearing *and* changes independently of its contents.
 
 #### OP-20 `set` / `multiset` sequence semantics
-**Status** **rejected** · **Sources** jd's `-set`/`-mset` modes
+**Status** **rejected** · **Disp** `OUT` · **Sources** jd's `-set`/`-mset` modes
 **Why not.** Treating a sequence as unordered changes what "the same document" means, and it
 would silently make OP-12/OP-13 meaningless. SP sequences are ordered. A user who wants set
 semantics wants `? exhaustive` plus key-match addressing, which SP has.
@@ -1673,22 +1847,22 @@ semantics wants `? exhaustive` plus key-match addressing, which SP has.
 ### 11.4 Move and copy
 
 #### OP-21 `move-node`
-**Status** v0, **IR-only** · **Sources** RFC 6902 `move`
+**Status** v0, **IR-only** · **Disp** `SUGAR` — → `copy` + `remove` · **Sources** RFC 6902 `move`
 **Absent/empty** Source absent → `SP013`. Destination present → `SP014`. Destination inside
 the source subtree → `SP001` (6902's own prohibition).
 **Mirror** IR-only. §9.6 is the authoring surface; Appendix C.1 is the rationale.
-**IR** `{op: move, from: /server/host, path: /network/host}`
+**IR** `{op: copy, from: /server/host, path: /network/host}` then `{op: remove, path: /server/host}`
 **Formats** json ✓ · jsonc ✓ (comments travel) · yaml ✓ · toml ✓ · hcl ✓ · markdown ✓ (a block or section)
 **Errors** `SP001` `SP013` `SP014` · **Corpus** `yaml/ir-move-node`, `markdown/ir-move-section`
 
 #### OP-22 `copy-node`
-**Status** v0, **IR-only** · **Sources** RFC 6902 `copy`
+**Status** v0, **IR-only** · **Disp** `CORE` — `copy` · **Sources** RFC 6902 `copy`
 **Absent/empty** As OP-21, minus the containment prohibition.
 **IR** `{op: copy, from: /defaults, path: /service_c}`
 **Formats** as OP-21 · **Errors** `SP013` `SP014` · **Corpus** `json/ir-copy-node`
 
 #### OP-23 `copy-value-between-fields`
-**Status** v0, **IR-only** · **Sources** kustomize `replacements`
+**Status** v0, **IR-only** · **Disp** `CORE` — `copy` · **Sources** kustomize `replacements`
 Same record as OP-22 with a scalar source. Cataloged separately because kustomize treats it
 as a distinct feature and a reader coming from kustomize will look for it by that name.
 **Corpus** covered by `json/ir-copy-node`.
@@ -1698,7 +1872,7 @@ as a distinct feature and a reader coming from kustomize will look for it by tha
 ### 11.5 Assertions
 
 #### OP-24 `test-value`
-**Status** v0 · **Sources** 6902 `test`, ytt `@overlay/assert`, CUE's unification conflict
+**Status** v0 · **Disp** `CORE` — `test` + `value` · **Sources** 6902 `test`, ytt `@overlay/assert`, CUE's unification conflict
 **Absent/empty** Node absent → `SP011` (distinct from `SP013`: an assertion that a node holds
 a value fails *as an assertion* when it is missing).
 **Mirror** a context line, or `? expect`. **Both compile to the same transform** (§9.0).
@@ -1706,32 +1880,32 @@ a value fails *as an assertion* when it is missing).
 **Formats** all six · **Errors** `SP011` · **Corpus** `yaml/assert-expect-ok`, `yaml/assert-expect-fail`
 
 #### OP-25 `assert-absent`
-**Status** v0 · **Sources** ytt `expects="0"`, no 6902 equivalent (a real gap in 6902)
+**Status** v0 · **Disp** `CORE` — `test` + `absent` · **Sources** ytt `expects="0"`, no 6902 equivalent (a real gap in 6902)
 **IR** `{op: test, path: /env/API_KEY, absent: true}` · **Mirror** `? absent /env/API_KEY`
 **Formats** all six · **Errors** `SP011` · **Corpus** `jsonc/assert-absent-fail`
 
 #### OP-26 `assert-exhaustive`
-**Status** v0 · **Sources** implicit in 7386/SMP whole-array replace; explicit nowhere
+**Status** v0 · **Disp** `SUGAR` — → `test`+`count` and one `test`+`value` per listed child · **Sources** implicit in 7386/SMP whole-array replace; explicit nowhere
 **Semantics** The listed children are the container's complete child set (§6.1). **This is the
 operation that makes Merge Patch's expensive accident cheap and deliberate.**
-**IR** `{op: test, path: /permissions, exhaustive: true, value: {...}}` · **Mirror** `? exhaustive`
+**IR** desugars to `{op: test, path: /permissions, count: 2}` plus one `{op: test, …, value: …}` per listed child · **Mirror** `? exhaustive`
 **Formats** json ✓ · jsonc ✓ · yaml ✓ · toml ✓ · hcl ✓ · markdown ✓ (a section's block list)
 **Errors** `SP011` · **Corpus** `json/assert-exhaustive-fail`
 
 #### OP-27 `assert-count`
-**Status** v0 · **Sources** ytt `expects="1"`, `expects="0+"`, `expects="1+"`
+**Status** v0 · **Disp** `CORE` — `test` + `count` · **Sources** ytt `expects="1"`, `expects="0+"`, `expects="1+"`
 **IR** `{op: test, path: /mcpServers, count: 3}` · **Mirror** `? count /mcpServers = 3`
 **Formats** all six · **Errors** `SP011` · **Corpus** `yaml/assert-count-fail`
 
 #### OP-28 `assert-kind`
-**Status** v0 · **Sources** no direct source; derived from `agent.InstallMCPServerJSON`'s
+**Status** v0 · **Disp** `CORE` — `test` + `kind` · **Sources** no direct source; derived from `agent.InstallMCPServerJSON`'s
 measured refusal of an `mcpServers` key "present but of the wrong type" (and B6, the codex
 twin that lacks the guard)
 **IR** `{op: test, path: /mcpServers, kind: map}` · **Mirror** `? kind /mcpServers = map`
 **Formats** all six · **Errors** `SP011` · **Corpus** `json/assert-kind-fail`
 
 #### OP-29 `computed` / `pattern` assertions
-**Status** **rejected** · **Sources** ytt `@overlay/replace via=lambda`, Coccinelle
+**Status** **rejected** · **Disp** `OUT` · **Sources** ytt `@overlay/replace via=lambda`, Coccinelle
 metavariables, jq/starlark expressions in adjacent tools
 **Why not.** A patch format with an expression language is a template engine, and a `.sp` file
 that computes its own values is no longer readable as "the document with a diff on it" — the
@@ -1746,7 +1920,7 @@ spec, resolving the brief's open point): a patch CAN carry a comment for a node 
 Two forms, both v0.
 
 #### OP-30 `add-comment-node` — a standalone comment
-**Status** v0 · **Sources** none of the surveyed patch formats can do this at all; it is
+**Status** v0 · **Disp** `CORE` — `add` at a comment address · **Sources** none of the surveyed patch formats can do this at all; it is
 required by ctxloom's own managed-marker practice (M1/M2 both write explanatory comments)
 **Absent/empty** Position follows §6.2 like any other node.
 **Mirror**
@@ -1755,12 +1929,12 @@ required by ctxloom's own managed-marker practice (M1/M2 both write explanatory 
 + # ctxloom-managed — regenerate with `ctxloom apply`
   timeout: 60
 ```
-**IR** `{op: add, path: /server, before: /server/timeout, value: {comment: "ctxloom-managed — …"}}`
+**IR** `{op: add, path: /server/#0, before: /server/timeout, value: {comment: "ctxloom-managed — …"}}`
 **Formats** json ✗ (`SP020`) · jsonc ✓ · yaml ✓ · toml ✓ · hcl ✓ · markdown ✓ (HTML comment block)
 **Errors** `SP020` · **Corpus** `toml/add-comment-line`, `json/comment-inexpressible` (error)
 
 #### OP-31 `attach-comment-to-added-node`
-**Status** v0 · **Sources** §8.2's anchoring rule, applied to added nodes
+**Status** v0 · **Disp** `SUGAR` — → two `add` records (comment node, then member) · **Sources** §8.2's anchoring rule, applied to added nodes
 **Semantics** A `+` comment line immediately preceding a `+` member becomes that member's
 **leading** comment and travels with it (moves on OP-21, deletes on OP-05). This is the
 mirror form; the IR carries it as a qualifier so an applier need not reconstruct adjacency.
@@ -1771,12 +1945,12 @@ mirror form; the IR carries it as a qualifier so an applier need not reconstruct
 + [mcp_servers.taskloom]
 + command = "taskloom"
 ```
-**IR** `{op: add, path: /mcp_servers/taskloom, value: {...}, comment: {leading: "added by taskloom manage install"}}`
+**IR** desugars to `{op: add, path: /mcp_servers/#0, value: {comment: "added by taskloom manage install"}, before: /mcp_servers/taskloom}` plus `{op: add, path: /mcp_servers/taskloom, value: {...}}`
 **Formats** json ✗ · jsonc ✓ · yaml ✓ · toml ✓ · hcl ✓ · markdown —
 **Errors** `SP020` · **Corpus** `jsonc/add-with-leading-comment`
 
 #### OP-32 `remove-comment` · #### OP-33 `replace-comment-text`
-**Status** v0 · Comments are matched by exact text (§6.1) and removed/replaced like any node.
+**Status** v0 · **Disp** `CORE` — `remove`, comment address · Comments are matched by exact text (§6.1) and removed/replaced like any node.
 **Mirror** `- # old note` / `+ # new note`
 **IR** `{op: replace, path: <comment path>, value: {comment: "new note"}}`
 **Formats** as OP-30 · **Errors** `SP010` `SP020` · **Corpus** `yaml/replace-comment`
@@ -1786,48 +1960,48 @@ mirror form; the IR carries it as a qualifier so an applier need not reconstruct
 ### 11.7 Format-specific operations
 
 #### OP-34 `hcl-block-create` · #### OP-35 `hcl-block-remove`
-**Status** v0 · **Sources** HCL's block/attribute duality (§8.5); `hclwrite`'s DOM API
+**Status** v0 · **Disp** `CORE` — `add`, label address · **Sources** HCL's block/attribute duality (§8.5); `hclwrite`'s DOM API
 **Absent/empty** Create over an existing identical tuple → `SP014` unless the intent is a
 second sibling, which requires `! match ord=` on neither line (a genuinely new sibling is an
 `add` at the body level, and the corpus pins that it does not accidentally target the
 existing one).
 **Mirror** a `+`/`-` run covering the whole block including its braces (§8.5).
-**IR** `{op: add, path: /provider, value: {__block__: ["aws"], region: "us-west-1"}}`
+**IR** `{op: add, path: /provider/"aws", value: {region: "us-west-1"}}` — the label is in the address, never in the value
 **Formats** hcl ✓ only · **Errors** `SP012` `SP014` · **Corpus** `hcl/add-block`, `hcl/remove-block`
 
 #### OP-36 `hcl-block-relabel`
-**Status** v0, **IR-only** · A relabel is a `move` between label tuples (OP-21).
-**IR** `{op: move, from: /provider/"aws", path: /provider/"aws-legacy"}`
+**Status** v0, **IR-only** · **Disp** `SUGAR` — → `copy` + `remove` · A relabel is a `move` between label tuples (OP-21).
+**IR** `{op: copy, from: /provider/"aws", path: /provider/"aws-legacy"}` then `{op: remove, path: /provider/"aws"}`
 **Errors** `SP012` `SP013` `SP014` · **Corpus** `hcl/ir-relabel-block`
 
 #### OP-37 `select-repeated-block` (ordinal selector)
-**Status** v0 · Not an operation but a **selector**, cataloged because the survey's HCL check
+**Status** v0 · **Disp** `CORE` — addressing mode, not an op · Not an operation but a **selector**, cataloged because the survey's HCL check
 treated it as a missing capability. §7.2 `! match [label=[…]] ord=<n>`.
 **Formats** hcl ✓ · others — (no format else permits repeated identical keys)
 **Errors** `SP001` (unnecessary ordinal) `SP011` (label cross-check) `SP012` `SP013`
 **Corpus** `hcl/repeated-label-ordinal`, `hcl/repeated-label-ambiguous` (error), `hcl/ordinal-context-guard` (error)
 
 #### OP-38 `toml-surface-placement-on-add`
-**Status** v0 · **Sources** the TOML dotted/table wrinkle (§8.4)
+**Status** v0 · **Disp** `CORE` — `surface` qualifier · **Sources** the TOML dotted/table wrinkle (§8.4)
 **Semantics** `! surface table|dotted` chooses the surface form for a **creation** only.
 **IR** `{op: add, path: /a/b/c, value: 1, surface: table}`
 **Formats** toml ✓ only · **Errors** `SP041` · **Corpus** `toml/surface-directive-table`, `toml/surface-ambiguous` (error)
 
 #### OP-39 `toml-surface-migration`
-**Status** **deferred** · Rewriting `[a.b]` ↔ `a.b = {…}` (§8.4 rule 4, Appendix C.4).
+**Status** **deferred** · **Disp** `OUT` · Rewriting `[a.b]` ↔ `a.b = {…}` (§8.4 rule 4, Appendix C.4).
 `SP020` today. **Condition to add:** a named case where the surface itself, not the value, is
 what needs to change — most plausibly a formatter, which is a different tool.
 
 #### OP-40 `yaml-anchor-rewrite` · #### OP-41 `yaml-alias-fork`
-**Status** v0 · **Sources** the YAML anchor wrinkle (§8.3); no surveyed format addresses it
+**Status** v0 · **Disp** `CORE` — `anchor: rewrite` qualifier · **Sources** the YAML anchor wrinkle (§8.3); no surveyed format addresses it
 **Absent/empty** Editing at an alias site with neither directive → `SP040`, always. There is
 no default, deliberately: both answers are destructive in one direction.
-**IR** `{op: replace, path: /service_a/timeout, value: 60, anchor: fork}`
+**IR** `{op: replace, path: /service_a/timeout, value: 60, anchor: fork}` — one core op, one core qualifier
 **Formats** yaml ✓ only · **Errors** `SP040` `SP013` (merge-inherited key)
 **Corpus** `yaml/anchor-rewrite`, `yaml/alias-fork`, `yaml/alias-ambiguous` (error), `yaml/merge-key-remove` (error)
 
 #### OP-42 `md-replace-block` · #### OP-43 `md-insert-section` · #### OP-44 `md-remove-section`
-**Status** v0 · **Sources** ctxloom's own Markdown surfaces (CLAUDE.md, AGENTS.md, steering files)
+**Status** v0 · **Disp** `CORE` — `replace`, block address · **Sources** ctxloom's own Markdown surfaces (CLAUDE.md, AGENTS.md, steering files)
 **Absent/empty** Section absent → `SP013`; duplicate heading → `SP012`. Inserting a section
 uses §6.2 placement against sibling sections.
 **Mirror** per §8.6 — whole-block margins.
@@ -1836,7 +2010,7 @@ uses §6.2 placement against sibling sections.
 **Corpus** `markdown/replace-code-block`, `markdown/insert-section-after`, `markdown/remove-section`, `markdown/duplicate-heading` (error)
 
 #### OP-45 `md-replace-managed-region`
-**Status** v0 · **Sources** ctxloom M2 verbatim (`agent.WriteManagedContext`)
+**Status** v0 · **Disp** `CORE` — `replace` + `idempotent`, marker address · **Sources** ctxloom M2 verbatim (`agent.WriteManagedContext`)
 **Absent/empty** Begin marker present without end → `SP002` (refuse, never repair). Region
 absent entirely → `SP013`; **creating** the region is `! upsert` on the marker path. The
 markers are never part of the node's value, so no operation can destroy them (§8.6).
@@ -1844,12 +2018,12 @@ markers are never part of the node's value, so no operation can destroy them (§
 **Formats** markdown ✓ only · **Errors** `SP002` `SP013` · **Corpus** `markdown/managed-region-replace`
 
 #### OP-46 `md-sub-block-edit`
-**Status** **rejected** · Editing one line of a paragraph (Appendix C.3). `SP020`.
+**Status** **rejected** · **Disp** `OUT` · Editing one line of a paragraph (Appendix C.3). `SP020`.
 **Why not.** Sub-block addressing means addressing prose by offset, which is the exact
 fragility structural patching exists to escape.
 
 #### OP-47 `md-heading-level-change`
-**Status** **deferred** · Promoting `##` to `#` restructures the section tree; expressible
+**Status** **deferred** · **Disp** `OUT` · Promoting `##` to `#` restructures the section tree; expressible
 today only as remove + add of the whole section. **Condition to add:** a named case.
 
 ---
@@ -1875,15 +2049,87 @@ mechanisms SP is meant to serve unaccounted for.
 | Status | Count | Entries |
 |---|---|---|
 | **v0-normative** | 36 | OP-01–08, 11–18, 21–28, 30–38, 40–45, 52 |
-| **v0, IR-only** | 5 | OP-07, 21, 22, 23, 36 |
 | **deferred** | 6 | OP-19, 39, 47, 48, 49, 50 |
 | **rejected** | 5 | OP-09, 10, 20, 29, 46 |
 | **out of scope** | 1 | OP-51 |
+
+| Disposition | Count | Entries |
+|---|---|---|
+| **CORE** | 31 | everything v0 except the five below |
+| **SUGAR** (parser desugars; never in the IR) | 5 | OP-07 rename, OP-21 move, OP-26 exhaustive, OP-31 comment-attachment, OP-36 relabel |
+| **OUT** | 12 | the deferred, rejected and out-of-scope rows above |
 
 Every rejected entry names the property it would break. Every deferred entry names the
 condition that would revive it. That is what "exhaustive" is for: a future reader arguing for
 `$setElementOrder` should be arguing against OP-19's stated condition, not rediscovering the
 question.
+
+### 11.10 The reduced core — how 52 operations became five
+
+**The rule (human, 2026-08-14): the survey is exhaustive; the normative set is not.** The IR
+reduces to the smallest orthogonal core that comfortably describes every `v0` row. No
+duplication. No sugar that could be spelled another way. *The IR is essentially ASM* — few
+primitives, stable, composable — and every bit of richness lives in the notation and the
+parser that compiles it.
+
+**The promotion test.** A surveyed verb becomes a core op **only if** no composition of
+existing core ops plus addressing produces the same observable result. "Observable" includes
+byte preservation and attached comments, because those are contract in this format (§6.3).
+
+**What survived, and what it displaced:**
+
+| Core op | Displaces (surveyed verbs that compile to it) |
+|---|---|
+| `test` | 6902 `test`; ytt `@overlay/assert` and every `expects=`; CUE's unification conflict; `? expect`/`? absent`/`? count`/`? kind`/`? exhaustive`; **every context line in the mirror grammar** |
+| `add` | 6902 `add`; 7386 implicit set; ytt `@overlay/append` / `insert before=` / `insert after=` / `missing_ok`; spruce `(( append ))` / `(( prepend ))` / `(( insert after ))`; RFC 5261 `pos="prepend"/"before"/"after"`; jsonnet `+:`; M5 install |
+| `remove` | 6902 `remove`; 7386 `null`; SMP `$patch: delete` and `$deleteFromPrimitiveList`; ytt `@overlay/remove`; spruce `(( delete ))`; jsonnet `::`; M3 withdraw |
+| `replace` | 6902 `replace`; SMP `$patch: replace`; ytt `@overlay/replace`; M1/M7 rewrite |
+| `copy` | 6902 `copy`; kustomize `replacements`; **and half of `move`** |
+
+**The four reductions, each with its proof obligation:**
+
+1. **`move` → `copy` + `remove`.** Observably identical: `copy` is defined to carry the source
+   node's bytes and attached comments, so removing the source afterwards leaves exactly what a
+   `move` would. 6902's six become five. `op: move` is accepted on input and normalized away.
+2. **`exhaustive` → `count` + per-child `test`.** "These are all the children" is exactly "the
+   child count is N" conjoined with "each of these N is present and equal", both of which are
+   already core. The qualifier bought nothing but a shorter record.
+3. **`comment: {leading, trailing}` → an `add` at a comment address.** This one required a
+   *change elsewhere*: comments needed addresses (§4.5b) — which they needed anyway for OP-32
+   and OP-33. Once they had them, the qualifier was redundant. This is the reduction working
+   as intended: it forced the node model to become uniform instead of letting a qualifier
+   paper over a gap.
+4. **`ord` / `labels` → addressing.** An ordinal is an addressing mode, not an operation. It
+   belongs on the path in the IR, exactly as it belongs *off* the path in the notation (§4.3,
+   §7.2). The notation keeps ordinals visible as annotations because a human should see the
+   fragility; the ASM puts them in the address because that is what they are.
+
+**The case examined hardest: ordering-sensitive inserts (OP-11, OP-12, OP-13).**
+
+The temptation is four ops — `append`, `prepend`, `insert-before`, `insert-after` — because
+four surveyed systems spell them that way (ytt, spruce, RFC 5261, and 6901's `-` token). They
+compile to **one** core op with a placement qualifier:
+
+| Surveyed spelling | Core form |
+|---|---|
+| ytt `@overlay/append`, spruce `(( append ))`, 6901 `/tags/-` | `add`, no placement (default: end) |
+| spruce `(( prepend ))`, RFC 5261 `pos="prepend"` | `add`, `before: <first sibling>` |
+| ytt `insert before=`, RFC 5261 `pos="before"` | `add`, `before: <sibling>` |
+| ytt `insert after=`, spruce `(( insert after ))`, RFC 5261 `pos="after"` | `add`, `after: <sibling>` |
+
+**Could placement itself be reduced further — to the path?** This was the closest call in the
+reduction. `add path: /tags/-` (append) and `add path: /tags/0` (prepend) are pure addressing
+and need no qualifier at all. But an identity-based insert — "after the element named
+github" — has no path spelling that is not an index, and an index is precisely the fragility
+§6.4 exists to avoid. So placement stays, as **two fields expressing one concept**, and
+`before`/`after` cannot collapse into one: `before: X` is not `after: <predecessor of X>`
+when X is first, and naming a predecessor requires knowing one exists.
+
+**The overlap that was kept deliberately.** `replace` and `add`+`on_conflict: replace` produce
+the same bytes when the node exists. They are not duplicates: `replace` **requires** the node
+(`SP013` if absent), `add`+`on_conflict: replace` does not. The difference is a precondition,
+which is orthogonal to the effect — see [O26](#open-questions-for-ratification), because a
+reviewer could reasonably call this the one piece of redundancy that survived.
 
 ---
 
@@ -2127,34 +2373,33 @@ func MarshalTransforms(tl TransformList) ([]byte, error)
 // notation surface.
 func UnmarshalTransforms(src []byte) (TransformList, error)
 
-// Transform is one record. Every field traces to a catalog entry; see the field table
-// in spec §9.6 for the source of each.
+// Transform is one record of the reduced core (spec §11.10). Five ops, one address,
+// and the minimum qualifier set. Sugar (move, exhaustive, comment attachment, ord)
+// is desugared by the parser and never reaches this type.
 type Transform struct {
     Op    OpKind
-    Path  Path  // SP path, abstract form: key-match segments intact
-    From  Path  // OpMove, OpCopy                                    (OP-21, OP-22)
+    Path  Path  // abstract SP path; ALL addressing richness lives here
+    From  Path  // OpCopy only
     Value Value // OpAdd, OpReplace, OpTest
 
     // Placement (OP-11 … OP-13). Abstract, never a numeric index: the parser has no
-    // target to count against.
+    // target to count against. Mutually exclusive; both zero means append at end.
     Before Path
     After  Path
 
-    // Test qualifiers (OP-24 … OP-28).
-    Absent     bool
-    Exhaustive bool
-    Count      *int
-    NodeKind   *NodeKind
+    // Exactly one of these four selects the assertion mode on OpTest.
+    // Value (above) | Absent | Count | NodeKind
+    Absent   bool
+    Count    *int
+    NodeKind *NodeKind
 
-    // Application qualifiers.
-    OnConflict OnConflict // OP-02 / OP-03 / OP-04
-    Ord        *int       // OP-37, HCL repeated-label selector
-    Labels     []string   // OP-37, optional cross-check
-    Anchor     AnchorMode // OP-40 / OP-41, YAML
-    Surface    Surface    // OP-38, TOML
-    Comment    *Comment   // OP-31
-    Idempotent bool       // §7.5
-    Optional   bool       // OP-06
+    OnConflict OnConflict // OpAdd only: OP-02 / OP-03 / OP-04
+    Anchor     AnchorMode // OP-40 / OP-41, YAML alias policy
+    Surface    Surface    // OP-38, TOML placement
+
+    // The two tolerance flags, and there are no others.
+    Optional   bool // OP-06
+    Idempotent bool // §7.5
 
     PatchLine int // provenance into the .sp file; emitted, ignored on input
 }
@@ -2162,12 +2407,13 @@ type Transform struct {
 type OpKind string
 
 const (
+    OpTest    OpKind = "test"
     OpAdd     OpKind = "add"
     OpRemove  OpKind = "remove"
     OpReplace OpKind = "replace"
-    OpMove    OpKind = "move"
     OpCopy    OpKind = "copy"
-    OpTest    OpKind = "test"
+    // There is no OpMove: "move" is accepted on input and normalized to
+    // OpCopy + OpRemove (spec §11.10 reduction 1).
 )
 
 type OnConflict string
@@ -2180,8 +2426,6 @@ const (
 
 type AnchorMode string // "", "rewrite", "fork"
 type Surface    string // "", "table", "dotted"
-
-type Comment struct{ Leading, Trailing string }
 
 // Resolve projects the abstract list onto the RFC 6901 form (spec §9.2) against a
 // specific document: key-match segments become indices, placements become indices,
@@ -2669,6 +2913,10 @@ these are the ones a reviewer should overturn deliberately rather than discover 
 | **O23** | Comment attachment on added nodes (OP-30, OP-31). | **Yes** — a patch can carry a comment for the node it adds, and `SP020` for JSON which has no comments. | No surveyed patch format can do this, so there is no prior art to copy and no compatibility argument either way. The cost is that every applier must implement comment attachment, which is the hardest part of `yaml.v3` node surgery. The alternative is comments-as-context-only (readable, unwritable). |
 | **O24** | Catalog completeness. | 52 entries; §11.9 claims exhaustiveness over the surveyed systems. | The claim is only as good as the survey, and the survey itself records two gaps: no TOML notation candidate existed in any surveyed tool, and no format-prevalence census was obtainable. If a reviewer knows of a verb in a system not in §11.1's table, that is the bug to report. |
 | **O17** | Should `! optional` exist at all? | Yes, with a linter warning (§7.6). | It is the one construct in SP that reintroduces the silent no-op the format was built to eliminate. The argument for it is real files with genuinely conditional content; the argument against is that every escape hatch is used more than its designer expects. |
+| **O25** | An HCL ordinal with no distinguishing assert available (genuinely identical sibling blocks). | The ordinal stands alone and the patch can silently target the wrong block (§6.4.3 rule 3). | The alternative is to refuse such a patch outright (`SP001`), which is consistent with the rest of the format but leaves a legal HCL file unpatchable by SP at all. |
+| **O26** | `replace` vs `add`+`on_conflict: replace` overlap. | Both kept: they differ in precondition, not effect (§11.10). | A reviewer could call this the one surviving redundancy in an IR whose stated goal is zero duplication. Removing `replace` would make the most common operation a two-record composition. |
+| **O27** | Two tolerance flags (`optional`, `idempotent`) rather than one. | Both kept — they tolerate different conditions (absent node vs already-applied state). | A single `tolerate: absent\|applied\|both` field would be tighter ASM at the cost of a less obvious spelling. |
+| **O28** | Comment addresses (`/x/#0`, `/x/timeout/#t`). | Introduced (§4.5b) so that comment attachment could desugar. | Kind-scoped ordinals on comments are positional and drift when a comment is inserted earlier — the exact fragility §6.4 warns about, now present in a corner of the address grammar. Alternative: comments addressable only relative to the member they attach to, giving up standalone comment editing. |
 
 ### Deliberately not specified in v0
 

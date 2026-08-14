@@ -639,6 +639,19 @@ func CoordProjectStateDir(projectKey string) (string, error) {
 	return filepath.Join(dir, projectKey), nil
 }
 
+// HomeLocksDir returns ~/.ctxloom/locks — the home-rooted directory holding
+// advisory-lock sidecars for FOREIGN files a ctxloom-family binary does not
+// own (see filelock.HomePathFor and HomeLocksDirName's doc; filelock keeps
+// its own copy of the "locks" leaf name rather than importing this constant,
+// for the path-authority-gate reason HomeLocksDirName's own doc explains).
+func HomeLocksDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve the home lock directory ~/%s/%s: %w", AppDirName, HomeLocksDirName, err)
+	}
+	return filepath.Join(home, AppDirName, HomeLocksDirName), nil
+}
+
 // CachePath returns the cache subdirectory path for the given app path.
 // Cache contains regeneratable content: bundles, vendor, context, memory.
 func CachePath(appPath string) string {

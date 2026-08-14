@@ -83,6 +83,35 @@ func safePathSegment(s string) bool {
 //	    business reading — let alone appending to — another project's task
 //	    log. Which project it is comes from the CTXLOOM_PROJECT_ID the run env
 //	    pins.
+//	~/.ctxloom/locks → the same leaf under the container home
+//	    (c.home/.ctxloom/locks). RULED 2026-08-14 (human): an engine-settings
+//	    file this run's config-overlay write mounts expose (.claude/
+//	    settings.json, .mcp.json, and their kiro/codex/opencode counterparts)
+//	    is bind-mounted host↔container at an IDENTICAL absolute path, but
+//	    filelock.HomePathFor resolves its lock sidecar against EACH SIDE'S OWN
+//	    $HOME — the host's real home on one side, the container's fresh
+//	    defaultContainerHome on the other. Same protected path, same flattened
+//	    lock name, two DIFFERENT files: host and container flocks land on
+//	    disjoint inodes and exclude nobody. Mounting the whole locks
+//	    directory (not a per-file mount, which nothing here can enumerate —
+//	    the set of foreign files a run's engine may lock is not known until
+//	    it runs) puts every lock sidecar either side ever creates for THIS
+//	    run's identical-path files under the same directory, so the shared
+//	    flattened name resolves to the same file on both sides. The
+//	    blanket-~/.ctxloom-mount rationale this doc's own opening paragraph
+//	    warns against (cache/bundles/config/every-other-session exposure)
+//	    does not apply to this one directory: a lock file carries no data
+//	    (docs/layout.md) — there is nothing in ~/.ctxloom/locks for a
+//	    container to read that tells it anything about any other session,
+//	    project, or bundle.
+//
+//	    Every registered engineContainerSpec ships a non-empty overlayDirs
+//	    today (defaultOverlayDirs/kiroOverlayDirs/codexOverlayDirs/
+//	    opencodeOverlayDirs/mockOverlayDirs — enginespec.go), so every
+//	    container this method runs for already carries the write mounts this
+//	    lock protects; there is no narrower engine spec to condition on, so
+//	    the mount rides unconditionally like the facets above rather than
+//	    behind a per-spec check.
 //
 // VM-FS append hazard on the log: host and container both APPEND to it. On
 // native Linux a bind mount is the same inode, so O_APPEND keeps concurrent
@@ -170,6 +199,23 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 			))
 		}
 	}
+	// The locks-dir mount is unconditional (see the doc above): every
+	// registered engine spec's overlayDirs is non-empty, so every container
+	// this method runs for already has an engine-settings write mount whose
+	// lock needs to cross the boundary. Host-side directory, created before
+	// `run` the same way the other bind sources above are.
+	locksDir, err := paths.HomeLocksDir()
+	if err != nil {
+		return nil, fmt.Errorf("container lock-dir mount: %w", err)
+	}
+	if err := os.MkdirAll(locksDir, 0o755); err != nil {
+		return nil, fmt.Errorf("container lock-dir mount: %w", err)
+	}
+	mounts = append(mounts, c.runtime.Expose(
+		locksDir,
+		filepath.Join(c.home, paths.AppDirName, paths.HomeLocksDirName),
+		false,
+	))
 	return mounts, nil
 }
 

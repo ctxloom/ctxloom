@@ -256,16 +256,24 @@ func saveOpencodeConfig(fs afero.Fs, path string, cfg map[string]json.RawMessage
 // every foreign key), and writes it back atomically. Both the live chat path
 // (model + mcp + read-only permission) and the settings writer / surfaces
 // (mcp + instructions) go through it.
+//
+// Locked on path, same as the four SettingsWriter entry points below
+// (WriteSettings/WriteContext/removeMCP/RemoveSettings): this is the SAME
+// opencode.json, and the live chat/interactive launch path (chat.go,
+// interactive.go) races those methods otherwise — the exact hazard
+// agent.WithFileLock's doc describes.
 func writeOpencodeConfig(fs afero.Fs, workDir string, m managedConfig) error {
 	path := filepath.Join(workDir, ConfigFileName)
-	cfg, err := loadOpencodeConfig(fs, path)
-	if err != nil {
-		return err
-	}
-	if _, err := applyManaged(cfg, m); err != nil {
-		return err
-	}
-	return saveOpencodeConfig(fs, path, cfg)
+	return agent.WithFileLock(fs, path, func() error {
+		cfg, err := loadOpencodeConfig(fs, path)
+		if err != nil {
+			return err
+		}
+		if _, err := applyManaged(cfg, m); err != nil {
+			return err
+		}
+		return saveOpencodeConfig(fs, path, cfg)
+	})
 }
 
 // snapshotOpencodeConfig captures opencode.json's current bytes (or its absence)
@@ -273,15 +281,23 @@ func writeOpencodeConfig(fs afero.Fs, workDir string, m managedConfig) error {
 // leaving the user's project file as it was — in particular NOT leaving a plan
 // run's read-only `permission` behind to silently lock the project. The returned
 // closure restores the original bytes, or removes the file if we created it.
+//
+// The restore closure is locked on path too, same reason as writeOpencodeConfig:
+// it is the SAME file the four SettingsWriter entry points read-modify-write,
+// and restoring the pre-overlay bytes unlocked could race a concurrent settings
+// write into a lost update on the file this whole overlay is meant to leave
+// untouched.
 func snapshotOpencodeConfig(fs afero.Fs, workDir string) (func() error, error) {
 	path := filepath.Join(workDir, ConfigFileName)
 	exists, _ := afero.Exists(fs, path)
 	if !exists {
 		return func() error {
-			if e, _ := afero.Exists(fs, path); e {
-				return fs.Remove(path)
-			}
-			return nil
+			return agent.WithFileLock(fs, path, func() error {
+				if e, _ := afero.Exists(fs, path); e {
+					return fs.Remove(path)
+				}
+				return nil
+			})
 		}, nil
 	}
 	data, err := afero.ReadFile(fs, path)
@@ -289,7 +305,9 @@ func snapshotOpencodeConfig(fs afero.Fs, workDir string) (func() error, error) {
 		return nil, fmt.Errorf("snapshot %s: %w", path, err)
 	}
 	return func() error {
-		return agent.AtomicWriteFile(fs, path, data, ConfigFileName)
+		return agent.WithFileLock(fs, path, func() error {
+			return agent.AtomicWriteFile(fs, path, data, ConfigFileName)
+		})
 	}, nil
 }
 
@@ -401,35 +419,46 @@ func stripManagedSkillPath(cfg map[string]json.RawMessage, path string) bool {
 // `skills.paths`, preserving every foreign key. See managedConfig.skillPaths
 // for why this is explicitness rather than a load-bearing discovery
 // requirement.
+//
+// Locked on path, same reason as writeOpencodeConfig: it is the SAME
+// opencode.json every other managed surface (mcp, instructions) reads-
+// modifies-writes, and reconcileSkillsSurface (this function's only caller)
+// runs on the same live chat/interactive path writeOpencodeConfig does.
 func registerSkillsPath(fs afero.Fs, projectDir string) error {
 	path := filepath.Join(projectDir, ConfigFileName)
-	cfg, err := loadOpencodeConfig(fs, path)
-	if err != nil {
-		return err
-	}
-	if _, err := applyManaged(cfg, managedConfig{skillPaths: []string{opencodeSkillDir}}); err != nil {
-		return err
-	}
-	return saveOpencodeConfig(fs, path, cfg)
+	return agent.WithFileLock(fs, path, func() error {
+		cfg, err := loadOpencodeConfig(fs, path)
+		if err != nil {
+			return err
+		}
+		if _, err := applyManaged(cfg, managedConfig{skillPaths: []string{opencodeSkillDir}}); err != nil {
+			return err
+		}
+		return saveOpencodeConfig(fs, path, cfg)
+	})
 }
 
 // unregisterSkillsPath removes ctxloom's opencodeSkillDir entry from
 // opencode.json's `skills.paths`, leaving any other registered path (and any
 // absent config file) untouched.
+//
+// Locked on path: see registerSkillsPath.
 func unregisterSkillsPath(fs afero.Fs, projectDir string) error {
 	path := filepath.Join(projectDir, ConfigFileName)
-	exists, _ := afero.Exists(fs, path)
-	if !exists {
+	return agent.WithFileLock(fs, path, func() error {
+		exists, _ := afero.Exists(fs, path)
+		if !exists {
+			return nil
+		}
+		cfg, err := loadOpencodeConfig(fs, path)
+		if err != nil {
+			return err
+		}
+		if stripManagedSkillPath(cfg, opencodeSkillDir) {
+			return saveOpencodeConfig(fs, path, cfg)
+		}
 		return nil
-	}
-	cfg, err := loadOpencodeConfig(fs, path)
-	if err != nil {
-		return err
-	}
-	if stripManagedSkillPath(cfg, opencodeSkillDir) {
-		return saveOpencodeConfig(fs, path, cfg)
-	}
-	return nil
+	})
 }
 
 // composeManagedServers builds the materializable server set the settings writer

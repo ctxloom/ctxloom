@@ -25,7 +25,7 @@ require (
 	// replace directive below for why the code that actually satisfies this
 	// requirement is a fork, and what removes the redirect.
 	github.com/coder/acp-go-sdk v0.13.5
-	github.com/cucumber/godog v0.15.1
+	github.com/cucumber/godog v0.16.0
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/gofrs/flock v0.13.0
@@ -66,6 +66,7 @@ require (
 	charm.land/bubbles/v2 v2.1.1
 	charm.land/bubbletea/v2 v2.0.7
 	charm.land/lipgloss/v2 v2.0.4
+	github.com/benjaminabbitt/hew/go v0.1.0
 	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260722013940-10300d4f7632
 	github.com/creack/pty v1.1.24
 	github.com/expr-lang/expr v1.17.8
@@ -75,6 +76,11 @@ require (
 	github.com/knadh/koanf/v2 v2.3.5
 	github.com/spf13/pflag v1.0.10
 	modernc.org/sqlite v1.54.0
+)
+
+require (
+	github.com/cucumber/gherkin/go/v42 v42.0.0 // indirect
+	github.com/cucumber/messages/go/v34 v34.2.0 // indirect
 )
 
 require (
@@ -91,8 +97,8 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
-	github.com/cucumber/gherkin/go/v26 v26.2.0 // indirect
-	github.com/cucumber/messages/go/v21 v21.0.1 // indirect
+	github.com/cucumber/gherkin/go/v26 v26.2.0
+	github.com/cucumber/messages/go/v21 v21.0.1
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -106,7 +112,7 @@ require (
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
-	github.com/hashicorp/go-memdb v1.3.4 // indirect
+	github.com/hashicorp/go-memdb v1.3.5 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect

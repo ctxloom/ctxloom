@@ -145,6 +145,7 @@ func TestLayout_HomeRowsNameStoreRootsOnly(t *testing.T) {
 		filepath.Join(AppDirName, CoordDirName):                     true,
 		filepath.Join(AppDirName, CompanionConsentFileName+".yaml"): true,
 		filepath.Join(AppDirName, HomeLocksDirName):                 true,
+		filepath.Join(AppDirName, HomeRecordsDirName):               true,
 	}
 	for _, e := range Layout() {
 		if e.Root != RootHome {

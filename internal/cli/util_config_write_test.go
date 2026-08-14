@@ -2,17 +2,21 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // configWriteTestCmd builds a bare command wired the way the real
@@ -313,4 +317,294 @@ func TestConfigWriteCmd_RunE_EndToEnd(t *testing.T) {
 	dated, gerr := filepath.Glob(path + ".bak.*")
 	require.NoError(t, gerr)
 	assert.Empty(t, dated, "no dated backup sibling may be left in a third-party config dir")
+}
+
+// --- P5 slice 1: JSON path rides hew ---
+
+// TestRunConfigWrite_JSONPatch_ModePreserved locks in that hew's byte-
+// preserving apply did not disturb AtomicWriteFile's existing "reuse the
+// file's own mode" behavior (settings_io.go's AtomicWriteFile doc): the
+// write path itself is unchanged by this slice, only how the OUT bytes it
+// receives are computed, but that is exactly the kind of thing a refactor
+// can break by accident if a new branch bypassed the shared write helper.
+func TestRunConfigWrite_JSONPatch_ModePreserved(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	require.NoError(t, afero.WriteFile(fs, path, []byte(`{"foreign":"keep"}`), 0640))
+
+	cmd, _ := configWriteTestCmd(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err)
+	assert.True(t, result.Verified)
+
+	info, err := fs.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0640), info.Mode().Perm(), "a pre-existing file's mode must survive the hew-based JSON write untouched")
+}
+
+// TestRunConfigWrite_JSONPatch_BytePreservingFormatting is the parity
+// measurement the task called for: hew is a byte-preserving STRUCTURAL
+// applier (only the byte ranges a transform touches change; every other
+// byte of the source is copied verbatim), unlike the retired
+// json.MarshalIndent(deepMergeConfigMaps(...)) path, which re-serialized the
+// WHOLE file — alphabetized keys, 2-space indent — on every write. This test
+// pins that difference precisely rather than leaving it implicit: an
+// untouched region keeps its EXACT original bytes (odd spacing, key order,
+// single-line — whatever the source had), while the touched region is
+// spliced with hew's own compact JSON style, not re-indented to match.
+func TestRunConfigWrite_JSONPatch_BytePreservingFormatting(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	// Deliberately odd, non-canonical formatting and out-of-alphabetical key
+	// order: "zeta" before "alpha", single-line, no space after ":". The old
+	// re-serializing path would have alphabetized and 2-space-indented this
+	// on ANY merge; hew must not.
+	original := `{"zeta":"last","alpha":"first"}`
+	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0644))
+
+	cmd, _ := configWriteTestCmd(`{"beta":"new"}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err)
+	assert.True(t, result.Verified)
+
+	out, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	// The untouched "zeta" and "alpha" members must survive byte-for-byte,
+	// odd formatting and original order included — proof this is a splice,
+	// not a re-serialization.
+	assert.Contains(t, string(out), `"zeta":"last"`)
+	assert.Contains(t, string(out), `"alpha":"first"`)
+	assert.True(t, strings.Index(string(out), "zeta") < strings.Index(string(out), "alpha"),
+		"source key order must survive; a re-serializing merge would alphabetize")
+	// The added member arrives in hew's own compact house style, not
+	// 2-space-indented — this line is the "IS a behavior change" the task
+	// asked to measure rather than assume: it fails the moment hew's
+	// formatting choice changes underneath this pin.
+	assert.Contains(t, string(out), `"beta": "new"`, "hew's JSON encoder spaces after ':'; the retired path's json.MarshalIndent also did, but on the WHOLE file, not just the edited member")
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(out, &got))
+	assert.Equal(t, "first", got["alpha"])
+	assert.Equal(t, "last", got["zeta"])
+	assert.Equal(t, "new", got["beta"])
+}
+
+// TestRunConfigWrite_JSONPatch_NullDeletesKey pins the deliberate semantic
+// upgrade this slice makes: a null patch value now DELETES the target key
+// (RFC 7386 merge-patch semantics), where the retired deepMergeConfigMaps
+// had no delete semantics at all and would have written a literal JSON null.
+func TestRunConfigWrite_JSONPatch_NullDeletesKey(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	require.NoError(t, afero.WriteFile(fs, path, []byte(`{"keep":"yes","drop":"me"}`), 0644))
+
+	cmd, _ := configWriteTestCmd(`{"drop":null}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err)
+	assert.True(t, result.Verified)
+
+	out, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(out, &got))
+	assert.Equal(t, "yes", got["keep"])
+	_, stillThere := got["drop"]
+	assert.False(t, stillThere, "a null patch value must delete the key, not write a literal null")
+}
+
+// TestRunConfigWrite_JSONPatch_NullOnAbsentKey_NoOp proves the delete is
+// Optional: deleting a key that was never there is a no-op, matching RFC
+// 7386 (removing something absent is not an error) rather than the HEW013
+// no-match failure a non-optional remove would raise.
+func TestRunConfigWrite_JSONPatch_NullOnAbsentKey_NoOp(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	require.NoError(t, afero.WriteFile(fs, path, []byte(`{"keep":"yes"}`), 0644))
+
+	cmd, _ := configWriteTestCmd(`{"never-existed":null}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err, "deleting an absent key must not error")
+	assert.True(t, result.Verified)
+
+	out, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"keep":"yes"}`, string(out))
+}
+
+// TestRunConfigWrite_JSONPatch_NestedMergePreservesSiblingsBeyondOneLevel
+// extends the existing nested-merge parity case one level deeper: hew's
+// `add` can only create ONE missing path segment per transform
+// (hewjson.planInsert requires the immediate parent to already resolve), so
+// appendJSONPatch must stop recursing and emit one whole-subtree add the
+// moment the target doesn't already hold a like-shaped object — this proves
+// that boundary lands at the RIGHT level for a two-deep new key, not one
+// level too shallow (which would 500 on "parent is not an object" / a
+// resolve failure) or one level too deep (which would silently drop a
+// sibling the boundary should have protected).
+func TestRunConfigWrite_JSONPatch_NestedMergePreservesSiblingsBeyondOneLevel(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	original := `{"agent_servers":{"other-client":{"command":"other","nested":{"already":"here"}}}}`
+	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0644))
+
+	patch := `{"agent_servers":{"other-client":{"nested":{"added":"now"}}}}`
+	cmd, _ := configWriteTestCmd(patch)
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err)
+	assert.True(t, result.Verified)
+
+	out, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(out, &got))
+	nested := got["agent_servers"].(map[string]any)["other-client"].(map[string]any)["nested"].(map[string]any)
+	assert.Equal(t, "here", nested["already"], "a sibling two levels deep must survive the merge")
+	assert.Equal(t, "now", nested["added"])
+}
+
+// TestRunConfigWrite_JSONPatch_ApplicationRecord_WrittenWithContent is the
+// payload assertion the record needs (silent-no-op discipline applies to
+// the record just as much as to the primary write — a Record field pointing
+// at nothing, or at an empty file, would be worse than no field at all): a
+// successful JSON apply must produce a real §9.7 record file, and its
+// content — before/after digests matching the ACTUAL bytes, and the
+// resolved transform this patch executed — must be verifiable, not just
+// present.
+func TestRunConfigWrite_JSONPatch_ApplicationRecord_WrittenWithContent(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	// agent_servers already exists as an object, so the patch's "dev" key
+	// resolves to a LEAF-level pointer (/agent_servers/dev) — the case that
+	// actually exercises hew.Resolve doing path resolution, versus a
+	// brand-new top-level key, which would resolve to itself trivially.
+	original := []byte(`{"foreign":"keep","agent_servers":{"other":{"command":"other"}}}`)
+	require.NoError(t, afero.WriteFile(fs, path, original, 0644))
+
+	patchBytes := []byte(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
+	cmd, _ := configWriteTestCmd(string(patchBytes))
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err)
+	require.True(t, result.Verified)
+	require.NotEmpty(t, result.Record, "a successful JSON apply must report where its application record went")
+
+	after, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+
+	recordBytes, err := afero.ReadFile(fs, result.Record)
+	require.NoError(t, err)
+	require.NotEmpty(t, recordBytes, "the record file must not be empty — an empty record is the silent-no-op failure mode applied to the audit trail")
+
+	var rec map[string]any
+	require.NoError(t, yaml.Unmarshal(recordBytes, &rec))
+	assert.EqualValues(t, 1, rec["hew-record"])
+	assert.NotEmpty(t, rec["applied_at"])
+
+	patchNode := rec["patch"].(map[string]any)
+	assert.Equal(t, "sha256:"+sha256Hex(patchBytes), patchNode["digest"])
+
+	targets, ok := rec["targets"].([]any)
+	require.True(t, ok)
+	require.Len(t, targets, 1)
+	target := targets[0].(map[string]any)
+	assert.Equal(t, path, target["target"])
+	assert.Equal(t, "json", target["format"])
+	assert.Equal(t, "sha256:"+sha256Hex(original), target["before"], "before digest must match the bytes as READ, not some other snapshot")
+	assert.Equal(t, "sha256:"+sha256Hex(after), target["after"], "after digest must match the bytes actually WRITTEN")
+	assert.True(t, target["committed"].(bool))
+
+	transforms, ok := target["transforms"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, transforms, "the record must carry the RESOLVED transform list that actually executed, not an empty stand-in")
+	op := transforms[0].(map[string]any)
+	assert.Equal(t, "add", op["op"])
+	assert.Equal(t, "/agent_servers/dev", op["path"], "the resolved op's path must be the concrete RFC 6901 pointer hew actually wrote to")
+}
+
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// TestRenderConfigWriteResult_RecordLine covers renderConfigWriteResult's
+// text-mode Record line in both states: present when a JSON apply wrote one,
+// absent (not a blank/zero-value line — the whole line) when it didn't.
+func TestRenderConfigWriteResult_RecordLine(t *testing.T) {
+	var withRecord bytes.Buffer
+	require.NoError(t, renderConfigWriteResult(&withRecord, configWriteResult{
+		File: "/x/settings.json", Filetype: "json", Verified: true,
+		Record: "/home/user/.ctxloom/records/x.hew-record.yaml",
+	}))
+	assert.Contains(t, withRecord.String(), "application record: /home/user/.ctxloom/records/x.hew-record.yaml")
+
+	var noRecord bytes.Buffer
+	require.NoError(t, renderConfigWriteResult(&noRecord, configWriteResult{
+		File: "/x/config.toml", Filetype: "toml", Verified: true,
+	}))
+	assert.NotContains(t, noRecord.String(), "application record", "a TOML result with no Record must not print the line at all")
+}
+
+// TestRunConfigWrite_TOMLPatch_NoApplicationRecord states explicitly what
+// this slice does NOT do: hew ships only a JSON applier today (task brief,
+// unit 2), so a TOML target keeps the old deep-merge path untouched and
+// gets no application record at all — Record stays "".
+func TestRunConfigWrite_TOMLPatch_NoApplicationRecord(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/nori/config.toml"
+	require.NoError(t, afero.WriteFile(fs, path, []byte("[foreign]\nkeep = \"yes\"\n"), 0644))
+
+	cmd, _ := configWriteTestCmd(`{"added":"value"}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err)
+	assert.True(t, result.Verified)
+	assert.Empty(t, result.Record, "TOML has no hew applier yet; config-write must not claim a record it did not write")
+}
+
+// --- appendJSONPatch: the conversion's recursion boundary, in isolation ---
+
+func TestAppendJSONPatch_RecursionBoundary(t *testing.T) {
+	base := map[string]any{
+		"existing_obj": map[string]any{"sibling": "survives"},
+		"scalar_key":   "old",
+	}
+	patch := map[string]any{
+		"existing_obj":  map[string]any{"added": "new"},                // must recurse (base has a like-shaped object)
+		"brand_new_obj": map[string]any{"a": map[string]any{"b": "c"}}, // must NOT recurse (base has nothing here)
+		"scalar_key":    "new",                                         // plain replace
+		"to_delete":     nil,                                           // remove
+	}
+	tl := buildJSONTransformList("/x/settings.json", base, patch)
+	require.NotEmpty(t, tl.Transform)
+
+	byPath := map[string]hew.Transform{}
+	for _, tr := range tl.Transform {
+		byPath[tr.Path.String()] = tr
+	}
+
+	// existing_obj recursed: the transform touches the LEAF ("added"), not
+	// the whole object, so "sibling" is never in the edit's blast radius.
+	added, ok := byPath["/existing_obj/added"]
+	require.True(t, ok, "existing_obj must recurse to its leaf, not become one whole-object replace")
+	assert.Equal(t, hew.OpAdd, added.Op)
+	assert.Equal(t, hew.ConflictReplace, added.OnConflict)
+	_, sawWholeObjectReplace := byPath["/existing_obj"]
+	assert.False(t, sawWholeObjectReplace, "recursing into an existing object must not ALSO emit a whole-object transform")
+
+	// brand_new_obj: base has nothing there, so it must be ONE atomic add of
+	// the whole subtree, never a leaf-level add three-deep (which would
+	// require a parent — /brand_new_obj/a — that does not exist yet).
+	whole, ok := byPath["/brand_new_obj"]
+	require.True(t, ok, "a brand-new nested object must be one whole-subtree add, not decomposed to non-existent parents")
+	assert.Equal(t, hew.OpAdd, whole.Op)
+	_, sawLeafThreeDeep := byPath["/brand_new_obj/a/b"]
+	assert.False(t, sawLeafThreeDeep)
+
+	scalar, ok := byPath["/scalar_key"]
+	require.True(t, ok)
+	assert.Equal(t, hew.OpAdd, scalar.Op)
+	assert.Equal(t, hew.ConflictReplace, scalar.OnConflict)
+
+	del, ok := byPath["/to_delete"]
+	require.True(t, ok)
+	assert.Equal(t, hew.OpRemove, del.Op)
+	assert.True(t, del.Optional, "a delete must be optional so removing an absent key is a no-op, not HEW013")
 }

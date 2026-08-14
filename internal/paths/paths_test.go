@@ -150,6 +150,17 @@ func TestHomeLocksDir_HomeRootedLocksSegment(t *testing.T) {
 	assert.Equal(t, filepath.Join(home, AppDirName, "locks"), got)
 }
 
+// TestHomeRecordsDir_HomeRootedRecordsSegment mirrors
+// TestHomeLocksDir_HomeRootedLocksSegment for HomeRecordsDir's identical
+// shape (P5 slice 1): the literal "records" is deliberate for the same
+// reason — a mutation to HomeRecordsDirName's VALUE must still fail this.
+func TestHomeRecordsDir_HomeRootedRecordsSegment(t *testing.T) {
+	home := testsupport.Isolate(t)
+	got, err := HomeRecordsDir()
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, AppDirName, "records"), got)
+}
+
 // =============================================================================
 // Default Path Tests
 // =============================================================================

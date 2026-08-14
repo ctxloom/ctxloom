@@ -855,9 +855,9 @@ func TestAppendRotations_SkipsSessionIDAlreadyInLineage(t *testing.T) {
 	// Rotations = [id-1], current = id-2.
 
 	require.NoError(t, m.AppendRotations(entry.HarpName, []Rotation{
-		{SessionID: "id-1", TranscriptPath: "/t1", RotatedAt: time.Now().UTC()},  // already in Rotations
-		{SessionID: "id-2", TranscriptPath: "/t2", RotatedAt: time.Now().UTC()},  // the current binding
-		{SessionID: "id-3", TranscriptPath: "/t3", RotatedAt: time.Now().UTC()},  // genuinely new
+		{SessionID: "id-1", TranscriptPath: "/t1", RotatedAt: time.Now().UTC()}, // already in Rotations
+		{SessionID: "id-2", TranscriptPath: "/t2", RotatedAt: time.Now().UTC()}, // the current binding
+		{SessionID: "id-3", TranscriptPath: "/t3", RotatedAt: time.Now().UTC()}, // genuinely new
 	}))
 
 	found, err := m.Find(entry.HarpName)

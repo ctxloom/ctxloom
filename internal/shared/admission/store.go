@@ -391,6 +391,14 @@ func (s *Store[K, R]) List() ([]Record[K], error) {
 // (List) and the write side (write, ahead of serializing) so a human reading
 // the YAML file with `cat` sees the same order `list` prints, and so the two
 // call sites cannot drift into two different orderings of "sorted".
+//
+// This is the extraction reprise's inconsistent-update finding against
+// List/write asked for (the sort comparator used to be pasted verbatim in
+// both). Past this call the two diverge completely — List returns the sorted
+// slice to a reader, write hands it to a YAML marshaler and an atomic
+// filesystem write — so a residual "both call sortByScopeThenKey" shape in a
+// future scan is the ordinary look of two callers sharing one helper, not a
+// second copy to extract.
 func (s *Store[K, R]) sortByScopeThenKey(recs []Record[K]) {
 	sort.SliceStable(recs, func(i, j int) bool {
 		si, sj := s.scope(recs[i].Key), s.scope(recs[j].Key)

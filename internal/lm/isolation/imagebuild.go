@@ -21,6 +21,7 @@ import (
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -1216,25 +1217,26 @@ func runImageBuild(ctx context.Context, rt Runtime, image, file, contextDir stri
 // explicit Chmod is load-bearing: O_CREATE's mode is umask-narrowed, and a
 // narrowed binary (0700) still passes the root-run in-image build gates but
 // cannot exec for the dropped ctxloom-user at runtime.
+// copyExecutable streams src to dst atomically (via iox.NewAtomicFile: a
+// unique temp file in dst's directory, fsynced, then chmod 0o755 EXACTLY and
+// renamed into place — see TestCopyExecutable_Forces0755 for why the exact
+// chmod matters even over a pre-narrowed file) rather than truncating dst in
+// place, so a reader can never observe a half-copied binary.
 func copyExecutable(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	out, err := iox.NewAtomicFile(dst, 0o755)
 	if err != nil {
 		return err
 	}
-	if err := out.Chmod(0o755); err != nil {
-		_ = out.Close()
-		return err
-	}
 	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
+		_ = out.Abort()
 		return err
 	}
-	return out.Close()
+	return out.Commit()
 }
 
 // tailLines returns the last n lines of s — enough build-failure context to

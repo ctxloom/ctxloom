@@ -245,3 +245,19 @@ func FwarnOnce(w io.Writer, prog, format string, args ...any) {
 func WarnOnce(prog, format string, args ...any) {
 	FwarnOnce(warnSink(), prog, format, args...)
 }
+
+// ResetWarnOnce clears onceSeen, WarnOnce/FwarnOnce's process-wide dedup
+// memory. Test seam only: production code relies on the dedup surviving for
+// the whole process, exactly the "once per process" WarnOnce documents
+// itself as providing, so nothing but a test calls this. Without it, a test
+// that pins WarnOnce's once-per-message behavior is only reliable the FIRST
+// time its process runs it — `go test -count=2` (and any other harness that
+// re-executes a test function inside one process) reuses the memory from the
+// first run, so an identical warning fired on the second run is silently
+// deduped away and a sink-content assertion sees nothing. Same shape as
+// strictness.Reset's onceRecorded clear.
+func ResetWarnOnce() {
+	onceMu.Lock()
+	defer onceMu.Unlock()
+	onceSeen = map[string]struct{}{}
+}

@@ -248,6 +248,81 @@ func TestSessionStoreContract_RotationLineage(t *testing.T) {
 	}
 }
 
+// TestSessionStoreContract_AppendRotations holds BOTH adapters to the same
+// rule `session adopt` depends on: appended rotations are deduplicated by
+// SessionID against both the current binding and existing Rotations, and the
+// resulting slice stays sorted by RotatedAt ascending — oldest first,
+// regardless of call order — since the harp-lifetime canonical rebuild
+// (operations.convertVendorTranscript) concatenates Rotations in array
+// order. MemStore is the fake every operations-level adopt test runs
+// against, so a fake that left the slice in call order instead of
+// RotatedAt order would make that whole test suite pass against a
+// meaningfully different behavior than the real Manager gives production.
+func TestSessionStoreContract_AppendRotations(t *testing.T) {
+	adapters := []struct {
+		name string
+		make func(t *testing.T) Store
+	}{
+		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
+		{"Manager", func(t *testing.T) Store {
+			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			return m
+		}},
+	}
+
+	for _, a := range adapters {
+		t.Run(a.name, func(t *testing.T) {
+			s := a.make(t)
+			e, err := s.AssignHarp("/proj", "claude-code")
+			if err != nil {
+				t.Fatalf("AssignHarp: %v", err)
+			}
+			if err := s.BindSession(e.HarpName, "id-2", "/t2"); err != nil {
+				t.Fatalf("BindSession: %v", err)
+			}
+			if err := s.BindSession(e.HarpName, "id-3", "/t3"); err != nil {
+				t.Fatalf("BindSession (rotation): %v", err)
+			}
+			// Rotations = [id-2], current = id-3.
+
+			older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			if err := s.AppendRotations(e.HarpName, []Rotation{
+				{SessionID: "id-1", TranscriptPath: "/t1", RotatedAt: older},
+				{SessionID: "id-2", TranscriptPath: "/t2", RotatedAt: time.Now().UTC()}, // dup: already in Rotations
+			}); err != nil {
+				t.Fatalf("AppendRotations: %v", err)
+			}
+
+			got, err := s.Find(e.HarpName)
+			if err != nil || got == nil {
+				t.Fatalf("Find: %v, %v", got, err)
+			}
+			if len(got.Rotations) != 2 {
+				t.Fatalf("%s: Rotations = %+v, want 2 entries (dup id-2 skipped)", a.name, got.Rotations)
+			}
+			if got.Rotations[0].SessionID != "id-1" || got.Rotations[1].SessionID != "id-2" {
+				t.Fatalf("%s: Rotations = %+v, want [id-1 id-2] sorted by RotatedAt", a.name, got.Rotations)
+			}
+			if got.SessionID != "id-3" {
+				t.Fatalf("%s: current binding = %q, want untouched id-3", a.name, got.SessionID)
+			}
+
+			// Empty input is a no-op.
+			if err := s.AppendRotations(e.HarpName, nil); err != nil {
+				t.Fatalf("AppendRotations(nil): %v", err)
+			}
+
+			// Unknown harp errors.
+			if err := s.AppendRotations("no-such-harp", []Rotation{{SessionID: "x", RotatedAt: time.Now()}}); err == nil {
+				t.Fatalf("%s: AppendRotations on an unknown harp should error", a.name)
+			}
+		})
+	}
+}
+
 // TestSessionStoreContract_RenameRefusesUnsafeNames holds BOTH adapters to
 // the same safe-rename rule. It lives in the contract suite deliberately: MemStore is
 // the fake every other package's tests run against, so a fake that accepts a

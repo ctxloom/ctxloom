@@ -813,3 +813,108 @@ func TestFindBySessionID_UnknownIDReturnsNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, found, "an empty id must resolve to nothing, not the first entry")
 }
+
+// TestAppendRotations_InsertsBeforeExistingByRotatedAt pins the case
+// `session adopt` exists for: an orphaned vendor transcript that predates
+// EVERY rotation already on record (the ordinary shape for a pre-lineage-fix
+// /clear, task escapable-vanity's e4cd4c8a case) must land FIRST in
+// Rotations, not appended after the newest one — the harp-lifetime rebuild
+// (operations.convertVendorTranscript) concatenates Rotations in array
+// order, so an out-of-order slice would splice this segment into the
+// conversation at the wrong point.
+func TestAppendRotations_InsertsBeforeExistingByRotatedAt(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.BindSession(entry.HarpName, "id-2", "/t2"))
+	require.NoError(t, m.BindSession(entry.HarpName, "id-3", "/t3"))
+	// After the two rebinds: Rotations = [id-2], current = id-3.
+
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, m.AppendRotations(entry.HarpName, []Rotation{
+		{SessionID: "id-1", TranscriptPath: "/t1", RotatedAt: older},
+	}))
+
+	found, err := m.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Len(t, found.Rotations, 2)
+	assert.Equal(t, "id-1", found.Rotations[0].SessionID, "the adopted, chronologically-earliest rotation must sort first")
+	assert.Equal(t, "id-2", found.Rotations[1].SessionID)
+	assert.Equal(t, "id-3", found.SessionID, "the live binding is untouched")
+}
+
+// TestAppendRotations_SkipsSessionIDAlreadyInLineage pins the dedup guard: a
+// caller that re-runs adopt over a harp it already touched (or races a live
+// rebind) must not duplicate a rotation whose SessionID is already the
+// current binding or already recorded.
+func TestAppendRotations_SkipsSessionIDAlreadyInLineage(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.BindSession(entry.HarpName, "id-1", "/t1"))
+	require.NoError(t, m.BindSession(entry.HarpName, "id-2", "/t2"))
+	// Rotations = [id-1], current = id-2.
+
+	require.NoError(t, m.AppendRotations(entry.HarpName, []Rotation{
+		{SessionID: "id-1", TranscriptPath: "/t1", RotatedAt: time.Now().UTC()}, // already in Rotations
+		{SessionID: "id-2", TranscriptPath: "/t2", RotatedAt: time.Now().UTC()}, // the current binding
+		{SessionID: "id-3", TranscriptPath: "/t3", RotatedAt: time.Now().UTC()}, // genuinely new
+	}))
+
+	found, err := m.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Len(t, found.Rotations, 2, "only the genuinely new rotation is appended")
+	ids := []string{found.Rotations[0].SessionID, found.Rotations[1].SessionID}
+	assert.ElementsMatch(t, []string{"id-1", "id-3"}, ids)
+}
+
+// TestAppendRotations_UnknownHarpErrors mirrors BindSession's unknown-harp
+// behavior: a caller naming a harp the index has never heard of gets a clear
+// error, not a silently-created row.
+func TestAppendRotations_UnknownHarpErrors(t *testing.T) {
+	m := newManager(t)
+	err := m.AppendRotations("no-such-harp", []Rotation{{SessionID: "x", RotatedAt: time.Now()}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no-such-harp")
+}
+
+// TestAppendRotations_EmptyIsANoOp mirrors BindSession's empty-args
+// short-circuit: an empty rotations slice must never acquire the file lock
+// or touch the on-disk index, so a caller that computed nothing to adopt
+// (every candidate skipped) costs nothing to call through.
+func TestAppendRotations_EmptyIsANoOp(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.AppendRotations(entry.HarpName, nil))
+
+	found, err := m.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Empty(t, found.Rotations)
+}
+
+// TestAppendRotations_SurvivesManagerReload pins that the append is a real
+// persisted write, not an in-memory-only mutation: a fresh Manager opened
+// over the same path must see it.
+func TestAppendRotations_SurvivesManagerReload(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.yaml")
+	m1, err := Open(path)
+	require.NoError(t, err)
+	entry, err := m1.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, m1.BindSession(entry.HarpName, "id-2", "/t2"))
+
+	require.NoError(t, m1.AppendRotations(entry.HarpName, []Rotation{
+		{SessionID: "id-1", TranscriptPath: "/t1", RotatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+	}))
+
+	m2, err := Open(path)
+	require.NoError(t, err)
+	found, err := m2.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Len(t, found.Rotations, 1)
+	assert.Equal(t, "id-1", found.Rotations[0].SessionID)
+	assert.Equal(t, "/t1", found.Rotations[0].TranscriptPath)
+}

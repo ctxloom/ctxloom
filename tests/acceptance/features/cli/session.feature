@@ -20,6 +20,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session edit <harp> --name <new>
     ctxloom session remove <harp> [--yes]
     ctxloom session distill <harp>
+    ctxloom session adopt <harp> [--apply]
     ctxloom session search <word>...
     ctxloom session transcript              (bare: lists)
     ctxloom session transcript list [<harp>]
@@ -105,6 +106,45 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session edit no-such-harp --name bright-keen-hawk"
       Then the command fails
       And the output contains "no-such-harp"
+
+  Rule: Adopt re-indexes orphaned vendor transcripts into a harp's lineage
+
+    A rotation the index never recorded — chiefly a claude-code /clear
+    before the rotation-lineage fix — can leave a vendor transcript on disk
+    with no index row and no rotation record. `session adopt` scans the
+    same claude project directory as the harp's current transcript for
+    files like that, and reports which ones belong in this harp's lineage.
+
+    Without --apply this only reports; nothing on disk or in the session
+    index changes. --apply seeds the harp's Rotations through the session
+    store.
+
+    Scenario: A dry run reports the orphan and changes nothing
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl" with a claude vendor transcript spanning "2026-04-10T00:00:00Z" to "2026-04-10T01:00:00Z"
+      And an orphaned claude vendor transcript "orphan-one" for "amber-swift-owl" spanning "2026-04-05T00:00:00Z" to "2026-04-05T01:00:00Z"
+      When I run "ctxloom session adopt amber-swift-owl"
+      Then the command succeeds
+      And the output contains "orphan-one"
+      And the output contains "would adopt"
+
+    Scenario: --apply seeds the lineage through the store
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl" with a claude vendor transcript spanning "2026-04-10T00:00:00Z" to "2026-04-10T01:00:00Z"
+      And an orphaned claude vendor transcript "orphan-one" for "amber-swift-owl" spanning "2026-04-05T00:00:00Z" to "2026-04-05T01:00:00Z"
+      When I run "ctxloom session adopt amber-swift-owl --apply"
+      Then the command succeeds
+      And the output contains "orphan-one"
+
+    # Only claude-code is supported today; every other backend refuses by
+    # name rather than silently scanning nothing.
+    Scenario: An unsupported backend refuses by name
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl" for backend "codex"
+      When I run "ctxloom session adopt amber-swift-owl"
+      Then the command fails
+      And the output contains "codex"
+      And the output contains "not supported yet"
 
   Rule: The transcript is a population of its own
 

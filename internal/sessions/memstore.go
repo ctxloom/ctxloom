@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -192,6 +193,47 @@ func (m *MemStore) BindSession(harpName, sessionID, transcriptPath string) error
 		return nil
 	}
 	return fmt.Errorf("harp not found in index: %q", harpName)
+}
+
+// AppendRotations matches *Manager.AppendRotations: dedup-append then
+// re-sort the whole Rotations slice by RotatedAt ascending, so a fake used
+// by an operations-level test observes the same lineage-ordering guarantee
+// the real store gives `session adopt`.
+func (m *MemStore) AppendRotations(harpName string, rotations []Rotation) error {
+	if len(rotations) == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName != harpName {
+			continue
+		}
+		existing := make(map[string]struct{}, len(m.sessions[i].Rotations)+1)
+		if m.sessions[i].SessionID != "" {
+			existing[m.sessions[i].SessionID] = struct{}{}
+		}
+		for _, r := range m.sessions[i].Rotations {
+			existing[r.SessionID] = struct{}{}
+		}
+		changed := false
+		for _, r := range rotations {
+			if _, dup := existing[r.SessionID]; dup {
+				continue
+			}
+			m.sessions[i].Rotations = append(m.sessions[i].Rotations, r)
+			existing[r.SessionID] = struct{}{}
+			changed = true
+		}
+		if !changed {
+			return nil
+		}
+		sort.SliceStable(m.sessions[i].Rotations, func(a, b int) bool {
+			return m.sessions[i].Rotations[a].RotatedAt.Before(m.sessions[i].Rotations[b].RotatedAt)
+		})
+		return nil
+	}
+	return fmt.Errorf("harp not found: %q", harpName)
 }
 
 // MarkEnded stamps EndedAt on the named entry. Idempotent.

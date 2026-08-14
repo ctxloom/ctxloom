@@ -83,6 +83,11 @@ type compactSessionResult struct {
 	Reduction       string `json:"reduction"`
 	Duration        string `json:"duration"`
 	OutputPath      string `json:"output_path"`
+	// WasCached reports a cache hit: the eager-trash unification gave
+	// compact_session a cache check it never had (it used to always
+	// recompact). ChunksProcessed/TokensIn/TokensOut/Duration are zero on a
+	// cache hit — there was no fresh compaction run to report metrics for.
+	WasCached bool `json:"was_cached,omitempty"`
 }
 
 // sessionSummary is one row of list_sessions: the harp name to pass to
@@ -195,11 +200,7 @@ func withDistillBudget(ctx context.Context) (context.Context, context.CancelFunc
 }
 
 func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolRequest, in compactSessionInput) (*mcp.CallToolResult, *compactSessionResult, error) {
-	plugin := s.cfg.GetCompactionLLM()
-	model := in.Model
-	if model == "" {
-		model = s.cfg.GetCompactionModel()
-	}
+	model := operations.CompactionModelFor(s.cfg, in.Model)
 
 	backend := in.Backend
 	if backend == "" {
@@ -214,39 +215,78 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 	ctx, cancel := withDistillBudget(ctx)
 	defer cancel()
 
-	sessionsDir := paths.ProjectSessionsDir(s.cfg.GetAppDir())
+	// The CALLER's harp (credential-derived on the coordinator's HTTP
+	// surface) — never the compactor's ambient env fallback, which would key
+	// a child's compaction under the host process's session.
+	harp := s.self.Harp
 
-	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		LLM:       plugin,
-		Model:     model,
-		Backend:   backend,
-		ChunkSize: s.cfg.GetCompactionChunkSize(),
-		SessionID: in.SessionID,
-		WorkDir:   workDir,
-		OutputDir: sessionsDir,
-		// The CALLER's harp (credential-derived on the coordinator's HTTP
-		// surface) — never the compactor's ambient env fallback, which would
-		// key a child's compaction under the host process's session.
-		HarpName: s.self.Harp,
+	// eager-trash unification: this used to always recompact unconditionally,
+	// with no heal and no cache check, and re-implemented the model-default
+	// rule (operations.CompactionModelFor) inline instead of sharing it. Heal
+	// and the cache check run INSIDE the singleflight (not before it) so two
+	// concurrent compact_session calls for the same harp don't each pay for
+	// their own redundant heal.
+	res, err := s.singleflightCompact(harp+"\x00compact\x00"+model, func() (*compactSessionResult, error) {
+		src, herr := operations.ResolveAndHeal(ctx, harp, operations.LivenessUnknown)
+		if herr != nil {
+			return nil, fmt.Errorf("resolve session %s: %w", harp, herr)
+		}
+		if data, rerr := operations.ReadHarpEssence(harp); rerr == nil {
+			if current, known := operations.EssenceCurrent(src, data); current || !known {
+				return &compactSessionResult{SessionID: harp, WasCached: true}, nil
+			}
+		}
+		if src.Entry != nil {
+			result, derr := operations.DistillEntry(ctx, src, s.cfg, model, io.Discard)
+			if derr != nil {
+				return nil, fmt.Errorf("compaction failed: %w", derr)
+			}
+			return &compactSessionResult{
+				SessionID:       result.SessionID,
+				ChunksProcessed: result.ChunksCreated,
+				TokensIn:        result.TotalTokensIn,
+				TokensOut:       result.TotalTokensOut,
+				Reduction:       reductionPct(result.TotalTokensIn, result.TotalTokensOut),
+				Duration:        result.Duration.String(),
+				OutputPath:      result.DistilledPath,
+			}, nil
+		}
+		// No index entry for this harp (e.g. a bare in.SessionID against an
+		// ambient backend with no BindSession yet): nothing for
+		// ResolveAndHeal/DistillEntry to resolve, so this falls back to the
+		// pre-unification shape, keyed directly off the caller's input.
+		sessionsDir := paths.ProjectSessionsDir(s.cfg.GetAppDir())
+		compactor, cerr := memory.NewCompactor(memory.CompactionConfig{
+			LLM:       s.cfg.GetCompactionLLM(),
+			Model:     model,
+			Backend:   backend,
+			ChunkSize: s.cfg.GetCompactionChunkSize(),
+			SessionID: in.SessionID,
+			WorkDir:   workDir,
+			OutputDir: sessionsDir,
+			HarpName:  harp,
+		})
+		if cerr != nil {
+			return nil, fmt.Errorf("create compactor: %w", cerr)
+		}
+		result, derr := compactor.Compact(ctx)
+		if derr != nil {
+			return nil, fmt.Errorf("compaction failed: %w", derr)
+		}
+		return &compactSessionResult{
+			SessionID:       result.SessionID,
+			ChunksProcessed: result.ChunksCreated,
+			TokensIn:        result.TotalTokensIn,
+			TokensOut:       result.TotalTokensOut,
+			Reduction:       reductionPct(result.TotalTokensIn, result.TotalTokensOut),
+			Duration:        result.Duration.String(),
+			OutputPath:      result.DistilledPath,
+		}, nil
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("create compactor: %w", err)
+		return nil, nil, err
 	}
-
-	result, err := compactor.Compact(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("compaction failed: %w", err)
-	}
-
-	return nil, &compactSessionResult{
-		SessionID:       result.SessionID,
-		ChunksProcessed: result.ChunksCreated,
-		TokensIn:        result.TotalTokensIn,
-		TokensOut:       result.TotalTokensOut,
-		Reduction:       reductionPct(result.TotalTokensIn, result.TotalTokensOut),
-		Duration:        result.Duration.String(),
-		OutputPath:      result.DistilledPath,
-	}, nil
+	return nil, res, nil
 }
 
 // handleListSessions returns the harp-session menu a caller picks from before
@@ -578,24 +618,6 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 		}, nil
 	}
 
-	// Cached path: reuse the essence unless the source transcript has grown past
-	// the size stamped at distill time. SourceStale compares against the
-	// canonical transcript (enriched onto the entry by operations.GetSession/
-	// Find), the same file compactEntry distills from.
-	if data, rerr := operations.ReadHarpEssence(harp); rerr == nil {
-		stale, known := entry.SourceStale()
-		knownStale := known && stale
-		if !knownStale {
-			return nil, &loadSessionResult{
-				Loaded:    true,
-				SessionID: entry.SessionID, // empty for ACP; not load-bearing
-				Content:   string(data),
-				WasCached: true,
-				CreatedAt: entry.StartedAt.Format("2006-01-02 15:04:05"),
-			}, nil
-		}
-	}
-
 	// Bound the work so a wedged LLM subprocess can't hold the singleflight
 	// entry open forever (see withDistillBudget).
 	ctx, cancel := withDistillBudget(ctx)
@@ -605,7 +627,45 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 	// DIFFERENT models must not collapse into one distill and hand both callers
 	// a result from whichever model happened to win.
 	res, err := s.singleflightDistill(harp+"\x00canonical\x00"+model, func() (*loadSessionResult, error) {
-		if _, derr := operations.CompactEntry(ctx, entry, s.cfg, model, io.Discard); derr != nil {
+		// Heal before checking the cache (eager-trash unification): a harp
+		// that has been /clear'd has a canonical transcript frozen at
+		// whatever moment a live /recover last ran, and this path used to
+		// never heal it, so `get_previous_session`-by-harp distilled a
+		// prefix and reported success. The startTime resolved above may now
+		// be stale post-heal (a fresh conversion can change
+		// CanonicalTranscriptPath), so use the ResolvedSource's entry, not
+		// the outer one, from here on.
+		src, herr := operations.ResolveAndHeal(ctx, harp, operations.LivenessUnknown)
+		if herr != nil {
+			return &loadSessionResult{
+				Loaded:  false,
+				Message: fmt.Sprintf("Couldn't resolve previous session %s: %v", harp, herr),
+			}, nil
+		}
+		resolvedEntry := entry
+		if src.Entry != nil {
+			resolvedEntry = src.Entry
+		}
+
+		// Cached path: reuse the essence unless it is stale relative to the
+		// (just-healed) source, mirroring the archived bias load_session and
+		// get_previous_session apply elsewhere — a finished session rarely
+		// changes, so an INDETERMINATE staleness result is trusted rather
+		// than spent on a redistill.
+		if data, rerr := operations.ReadHarpEssence(harp); rerr == nil {
+			current, known := operations.EssenceCurrent(src, data)
+			if current || !known {
+				return &loadSessionResult{
+					Loaded:    true,
+					SessionID: resolvedEntry.SessionID, // empty for ACP; not load-bearing
+					Content:   string(data),
+					WasCached: true,
+					CreatedAt: resolvedEntry.StartedAt.Format("2006-01-02 15:04:05"),
+				}, nil
+			}
+		}
+
+		if _, derr := operations.DistillEntry(ctx, src, s.cfg, model, io.Discard); derr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
 				Message: fmt.Sprintf("Couldn't distill previous session %s: %v", harp, derr),
@@ -620,10 +680,10 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 		}
 		return &loadSessionResult{
 			Loaded:    true,
-			SessionID: entry.SessionID,
+			SessionID: resolvedEntry.SessionID,
 			Content:   string(data),
 			WasCached: false,
-			CreatedAt: entry.StartedAt.Format("2006-01-02 15:04:05"),
+			CreatedAt: resolvedEntry.StartedAt.Format("2006-01-02 15:04:05"),
 		}, nil
 	})
 	return nil, res, err
@@ -729,12 +789,12 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	refreshFailed := false
 	if policy.LiveTranscript {
 		if harp := sessionHarpForID(sessionID); harp != "" {
-			if _, herr := healCanonicalTranscript(ctx, harp, true); herr != nil {
+			if src, _ := operations.ResolveAndHeal(ctx, harp, operations.LivenessLive); src.HealErr != nil {
 				// The stored transcript may still be readable; a refresh failure
 				// costs freshness, not the recovery. It does cost the right to
 				// call the cached essence current, though — see the cache branch.
 				refreshFailed = true
-				clidiag.Warn("ctxloom", "refresh canonical transcript for %s: %v", harp, herr)
+				clidiag.Warn("ctxloom", "refresh canonical transcript for %s: %v", harp, src.HealErr)
 			}
 		}
 	}
@@ -753,8 +813,15 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		// lost the context in which to act on it.
 		var noCanon *transcript.NoCanonicalTranscriptError
 		if errors.As(err, &noCanon) {
-			healed, herr := healCanonicalTranscript(ctx, noCanon.Harp, policy.LiveTranscript)
-			if !healed {
+			live := operations.LivenessFinished
+			if policy.LiveTranscript {
+				live = operations.LivenessLive
+			}
+			src, herr := operations.ResolveAndHeal(ctx, noCanon.Harp, live)
+			if herr == nil {
+				herr = src.HealErr
+			}
+			if !src.Healed {
 				return nil, &loadSessionResult{
 					Loaded:  false,
 					Message: noCaptureMessage(sessionID, noCanon.Harp, err, herr),
@@ -827,30 +894,6 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	// gRPC transcript read is self-situated and ignores it.
 	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
 	return nil, result, err
-}
-
-// healCanonicalTranscript converts harp's vendor-native transcript into the
-// canonical one the session readers expect, so a caller never has to run
-// a manual vendor-transcript import first.
-//
-// live selects WHICH conversion. A finished session gets the idempotent one,
-// which is a no-op once a canonical transcript exists; a live session gets the
-// refreshing one, which replaces it, because its source keeps growing. Reported
-// as (converted, err) rather than swallowed: the caller distinguishes "nothing
-// could be converted" (an unregistered backend, no locatable vendor store) from
-// "conversion was attempted and failed", and those need different messages.
-func healCanonicalTranscript(ctx context.Context, harp string, live bool) (bool, error) {
-	if harp == "" {
-		return false, nil
-	}
-	entry, err := operations.GetSession(harp)
-	if err != nil || entry == nil {
-		return false, err
-	}
-	if live {
-		return operations.RefreshVendorTranscript(ctx, *entry)
-	}
-	return operations.ConvertVendorTranscript(ctx, *entry)
 }
 
 // noCaptureMessage explains a session that could not be read even after a
@@ -944,6 +987,24 @@ func (s *ctxServer) singleflightDistill(key string, fn func() (*loadSessionResul
 		return nil, err
 	}
 	res, _ := v.(*loadSessionResult)
+	return res, nil
+}
+
+// singleflightCompact is singleflightDistill's compact_session-shaped twin —
+// same dedupe mechanism, different result type. It shares s.distill (the
+// same underlying group) rather than owning a second one; each call site's
+// key is prefixed distinctly (see handleCompactSession's "\x00compact\x00"
+// versus distillSession's "\x00"+backendName+"\x00") so the two never
+// collide on the same key by accident.
+func (s *ctxServer) singleflightCompact(key string, fn func() (*compactSessionResult, error)) (*compactSessionResult, error) {
+	if s.distill == nil {
+		return fn()
+	}
+	v, err, _ := s.distill.Do(key, func() (any, error) { return fn() })
+	if err != nil {
+		return nil, err
+	}
+	res, _ := v.(*compactSessionResult)
 	return res, nil
 }
 

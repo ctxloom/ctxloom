@@ -134,7 +134,7 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 	// This is the shim's own discovery call (mcp_server.go's second tier),
 	// invoked exactly as ServeStdio invokes it, with no env var in
 	// play at all.
-	sock, derr := probeWellKnownRunner(cellDir)
+	sock, _, derr := probeWellKnownRunner(cellDir)
 	require.NoError(t, derr)
 	require.NotEmpty(t, sock, "well-known discovery must find the runner with NO env var set")
 	assert.Equal(t, endpoint.SocketPath, sock, "discovered socket must be the REAL runner's own socket")
@@ -185,7 +185,7 @@ func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
 		require.NoError(t, err)
 		defer endpoint.Close()
 
-		sock, derr := probeWellKnownRunner(workDir)
+		sock, _, derr := probeWellKnownRunner(workDir)
 		require.NoError(t, derr)
 		assert.Empty(t, sock, "keyed off the runner's own cwd, the marker must NOT be found from the worktree's cwd")
 	})
@@ -207,7 +207,7 @@ func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
 		// simulate that exactly, without ever touching the runner process's
 		// real cwd.
 		requireRunnerAcceptReady(t, endpoint.SocketPath)
-		sock, derr := probeWellKnownRunner(workDir)
+		sock, _, derr := probeWellKnownRunner(workDir)
 		require.NoError(t, derr)
 		require.NotEmpty(t, sock, "the shim probing from the worktree's cwd must find the runner via the anchored key")
 		assert.Equal(t, endpoint.SocketPath, sock, "discovered socket must be the real runner's own socket")
@@ -271,7 +271,7 @@ func TestMCPDiscovery_StandaloneSessionGetsLocalMode(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	cellDir := t.TempDir()
 
-	sock, derr := probeWellKnownRunner(cellDir)
+	sock, _, derr := probeWellKnownRunner(cellDir)
 	assert.NoError(t, derr, "a genuinely standalone session must not fail loud")
 	assert.Empty(t, sock, "no marker anywhere means local mode is correct, not forward mode")
 
@@ -287,13 +287,167 @@ func TestMCPDiscovery_StandaloneSessionGetsLocalMode(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(markerPath, raw, 0o600))
 
-		sock, derr := probeWellKnownRunner(cellDir)
+		sock, _, derr := probeWellKnownRunner(cellDir)
 		assert.NoError(t, derr, "a dead runner's leftover marker must not fail loud")
 		assert.Empty(t, sock, "no LIVE runner claims this workspace: standalone/local is correct")
 
 		_, statErr := os.Stat(markerPath)
 		assert.True(t, os.IsNotExist(statErr), "the stale marker should be cleaned up (self-heal)")
 	})
+}
+
+// TestMCPDiscovery_ForeignIdentityMarkerIsSkippedAndReaped is the behaviour
+// proof for graceful-egomaniac unit 3 (marker keying): a marker whose owner
+// pid is alive and whose socket would even answer is still not "ours" if it
+// claims a DIFFERENT session's harp than this caller's own
+// CTXLOOM_SESSION_HARP. Before this fix, probeWellKnownRunner had no way to
+// tell that apart from a legitimately-discovered runner — trusting it is
+// exactly the measured hijack (adopting a foreign runner's identity via the
+// cwd-keyed marker collision, since a workspace:none child shares its
+// parent's cwd and so derives the identical marker key). The marker's own
+// socket is deliberately bogus/unbound here: the identity check must fire
+// BEFORE any network dial, so a real socket is not even needed to prove it.
+func TestMCPDiscovery_ForeignIdentityMarkerIsSkippedAndReaped(t *testing.T) {
+	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET/CTXLOOM_SESSION_HARP (t.Setenv-based, auto-restores)
+	t.Setenv("CTXLOOM_SESSION_HARP", "this-session-harp")
+	runtimeDir := shortRuntimeDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	cellDir := t.TempDir()
+
+	markerDir := filepath.Join(runtimeDir, "ctxloom")
+	require.NoError(t, os.MkdirAll(markerDir, 0o700))
+	name, ok := discoveryMarkerName(socketKindHostRuntime, cellDir)
+	require.True(t, ok)
+	markerPath := filepath.Join(markerDir, name)
+	marker := runnerDiscoveryMarker{
+		Socket: filepath.Join(t.TempDir(), "unbound-and-irrelevant.sock"),
+		Pid:    os.Getpid(), // alive by construction — the identity check must fire regardless
+		Harp:   "someone-elses-harp",
+	}
+	raw, err := json.Marshal(marker)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(markerPath, raw, 0o600))
+
+	sock, _, derr := probeWellKnownRunner(cellDir)
+	assert.NoError(t, derr, "a foreign-identity marker must not fail loud — it is not 'ours', not 'broken'")
+	assert.Empty(t, sock, "must never resolve to a runner claiming a different session's identity")
+
+	_, statErr := os.Stat(markerPath)
+	assert.True(t, os.IsNotExist(statErr), "the foreign-identity marker must be reaped, same as a dead one")
+}
+
+// TestMCPDiscovery_MatchingIdentityMarkerIsNotDisturbed is the negative
+// control for the test above: a marker whose claimed harp AGREES with this
+// caller's own CTXLOOM_SESSION_HARP must survive the identity pre-check
+// untouched (proves the check compares, not just always-reaps), and an
+// absent CTXLOOM_SESSION_HARP (nothing to compare against) must not disturb
+// ANY marker on identity grounds either — matching probeWellKnownRunner's
+// hedge for a harness that dropped the env, or a genuinely bare shim.
+func TestMCPDiscovery_MatchingIdentityMarkerIsNotDisturbed(t *testing.T) {
+	testsupport.Isolate(t)
+	runtimeDir := shortRuntimeDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	cellDir := t.TempDir()
+
+	// cellWorkDir=cellDir anchors the runner's marker key to cellDir
+	// explicitly (fix/host-discovery-anchor's mechanism — see
+	// TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap) rather than
+	// depending on this test process's own os.Getwd().
+	endpoint, err := ServeRunnerMCP(testConfig(), "shared-harp", testHome(t), false, cellDir)
+	require.NoError(t, err)
+	t.Cleanup(endpoint.Close)
+	requireRunnerAcceptReady(t, endpoint.SocketPath)
+
+	markerDir := filepath.Join(runtimeDir, "ctxloom")
+	name, ok := discoveryMarkerName(socketKindHostRuntime, cellDir)
+	require.True(t, ok)
+	markerPath := filepath.Join(markerDir, name)
+
+	t.Run("caller harp matches the marker's: resolved, not reaped", func(t *testing.T) {
+		t.Setenv("CTXLOOM_SESSION_HARP", "shared-harp")
+		sock, mpath, derr := probeWellKnownRunner(cellDir)
+		require.NoError(t, derr)
+		assert.Equal(t, endpoint.SocketPath, sock, "a matching-identity marker must still resolve")
+		assert.Equal(t, markerPath, mpath, "the resolved marker path must be reported")
+		_, statErr := os.Stat(markerPath)
+		assert.NoError(t, statErr, "a matching marker must not be reaped")
+	})
+
+	t.Run("caller has no harp expectation: resolved, not reaped", func(t *testing.T) {
+		sock, _, derr := probeWellKnownRunner(cellDir)
+		require.NoError(t, derr)
+		assert.Equal(t, endpoint.SocketPath, sock, "with no CTXLOOM_SESSION_HARP set there is nothing to mismatch against")
+		_, statErr := os.Stat(markerPath)
+		assert.NoError(t, statErr, "a marker must not be reaped on an unset caller expectation")
+	})
+}
+
+// TestReapStaleDiscoveryMarkers is the direct behaviour proof for
+// graceful-egomaniac/habitable-cape unit 4: a confirmed-dead owner pid's
+// marker is removed, a still-alive owner's marker survives (guards against
+// an over-broad reap that would delete a live runner's only discovery
+// route), and a non-marker file sharing the directory (a real runner's own
+// mcp-<pid>.sock listener) is never touched.
+func TestReapStaleDiscoveryMarkers(t *testing.T) {
+	dir := t.TempDir()
+	deadPid := deadProcessPID(t)
+
+	writeRawMarker := func(t *testing.T, path string, m runnerDiscoveryMarker) {
+		t.Helper()
+		raw, err := json.Marshal(m)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, raw, 0o600))
+	}
+
+	stalePath := filepath.Join(dir, "cell-aaaaaaaaaaaaaaaaaaaa.json")
+	writeRawMarker(t, stalePath, runnerDiscoveryMarker{Socket: "/nowhere/x.sock", Pid: deadPid, Harp: "long-gone"})
+
+	alivePath := filepath.Join(dir, "cell-bbbbbbbbbbbbbbbbbbbb.json")
+	writeRawMarker(t, alivePath, runnerDiscoveryMarker{Socket: "/nowhere/y.sock", Pid: os.Getpid(), Harp: "still-here"})
+
+	currentPath := filepath.Join(dir, "current.json")
+	writeRawMarker(t, currentPath, runnerDiscoveryMarker{Socket: "/nowhere/z.sock", Pid: deadPid, Harp: "container-tier-gone"})
+
+	sockPath := filepath.Join(dir, "mcp-999999999.sock")
+	require.NoError(t, os.WriteFile(sockPath, []byte("not a marker, a listener would live at this name"), 0o600))
+
+	removed := reapStaleDiscoveryMarkers(dir)
+	assert.Equal(t, 2, removed, "both dead-pid markers (host and container tier) must be reaped")
+
+	_, err := os.Stat(stalePath)
+	assert.True(t, os.IsNotExist(err), "the dead host-tier marker must be removed")
+	_, err = os.Stat(currentPath)
+	assert.True(t, os.IsNotExist(err), "the dead container-tier marker must be removed")
+	_, err = os.Stat(alivePath)
+	assert.NoError(t, err, "the live owner's marker must survive")
+	_, err = os.Stat(sockPath)
+	assert.NoError(t, err, "the reaper must never touch a non-marker file sharing the directory")
+}
+
+// TestServeRunnerMCP_ReapsStaleMarkersAtStartup is the integration proof
+// that a runner's own startup performs the habitable-cape sweep — the
+// "first post-fix startup clears the backlog" requirement — through the
+// real entry point (ServeRunnerMCP), not just the leaf reaper function.
+func TestServeRunnerMCP_ReapsStaleMarkersAtStartup(t *testing.T) {
+	testsupport.Isolate(t)
+	runtimeDir := shortRuntimeDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	markerDir := filepath.Join(runtimeDir, "ctxloom")
+	require.NoError(t, os.MkdirAll(markerDir, 0o700))
+
+	deadPid := deadProcessPID(t)
+	stale := runnerDiscoveryMarker{Socket: "/nowhere.sock", Pid: deadPid, Harp: "long-gone-session"}
+	raw, err := json.Marshal(stale)
+	require.NoError(t, err)
+	stalePath := filepath.Join(markerDir, "cell-cccccccccccccccccccc.json")
+	require.NoError(t, os.WriteFile(stalePath, raw, 0o600))
+
+	endpoint, err := ServeRunnerMCP(testConfig(), "fresh-harp", testHome(t), false, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(endpoint.Close)
+
+	_, statErr := os.Stat(stalePath)
+	assert.True(t, os.IsNotExist(statErr), "a stale marker from a confirmed-dead pid must be reaped by the very next runner's startup")
 }
 
 // TestDiscoveryMarkerName_ContainerTierIsDeliberatelyCwdIndependent refutes

@@ -101,8 +101,11 @@ func sessionInstructions(harp string) string {
 // cli.ExitError — the type cli's Execute() recognises for the exit-3
 // fatal-findings contract — which is a cli-layer concern this package must
 // not import. A non-nil return aborts before any tool is served; a nil gate
-// skips the check. Neither forward path reaches it: those processes run no
-// startup, so they collect no findings to fail on.
+// skips the check. An ACCEPTED forward never reaches it: that process runs
+// no startup, so it collects no findings to fail on. A REFUSED forward
+// (graceful-egomaniac unit 2: identity/stamp mismatch) is different — it
+// falls back to local startup exactly like a session that was never
+// forward-triggered at all, so it DOES reach gate.
 func ServeStdio(ctx context.Context, cwd string, gate func() error) error {
 	// FORWARD MODE (agentcoord B1.6): when the harness-inherited env names
 	// the runner's MCP socket, this whole server is a stdio↔HTTP-over-unix
@@ -111,21 +114,31 @@ func ServeStdio(ctx context.Context, cwd string, gate func() error) error {
 	// process holds neither. (The B1 forward-to-coordinator HTTP mode is
 	// DELETED: CTXLOOM_COORD_URL/CRED are consumed only by the runner now.)
 	if sock := os.Getenv(coord.EnvMCPSocket); sock != "" {
-		return runMCPForward(ctx, sock)
-	}
-
-	// HOST-CONTROLLED DISCOVERY (fix/host-controlled-mcp-discovery): the env
-	// var above rides a VENDOR-CONTROLLED channel (ACP mcpServers.env) that
-	// at least one real adapter drops (codex-acp: honors name/command/args,
-	// discards env). Probe the well-known marker a runner publishes
-	// UNCONDITIONALLY before ever considering local mode — additive to the
-	// env fast path above, never a replacement of it. See mcp_discovery.go
-	// for exactly how this tells "should have a runner, fail loud" apart
-	// from "legitimately standalone, local is correct".
-	if sock, derr := probeWellKnownRunner(cwd); derr != nil {
+		trigger := forwardTrigger{Kind: "env var", Name: coord.EnvMCPSocket}
+		if outcome, ferr := runMCPForward(ctx, trigger, sock); outcome == forwardOutcomeServed {
+			return ferr
+		}
+		// forwardOutcomeRefused: identity/stamp verification refused this
+		// target (graceful-egomaniac unit 2) and already printed why — fall
+		// through to local startup below instead of returning.
+	} else if sock, markerPath, derr := probeWellKnownRunner(cwd); derr != nil {
+		// HOST-CONTROLLED DISCOVERY (fix/host-controlled-mcp-discovery): the
+		// env var above rides a VENDOR-CONTROLLED channel (ACP
+		// mcpServers.env) that at least one real adapter drops (codex-acp:
+		// honors name/command/args, discards env). Probe the well-known
+		// marker a runner publishes UNCONDITIONALLY before ever considering
+		// local mode — additive to the env fast path above, never a
+		// replacement of it. See mcp_discovery.go for exactly how this
+		// tells "should have a runner, fail loud" apart from "legitimately
+		// standalone, local is correct" apart from "foreign marker, not
+		// mine" (graceful-egomaniac unit 3).
 		return derr
 	} else if sock != "" {
-		return runMCPForward(ctx, sock)
+		trigger := forwardTrigger{Kind: "discovery marker", Name: markerPath}
+		if outcome, ferr := runMCPForward(ctx, trigger, sock); outcome == forwardOutcomeServed {
+			return ferr
+		}
+		// forwardOutcomeRefused: same fall-through as the env-var trigger.
 	}
 
 	s := &ctxServer{self: selfIdentityFromEnv(cwd)}

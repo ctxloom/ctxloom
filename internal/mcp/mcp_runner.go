@@ -110,10 +110,20 @@ func ServeRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool
 		cleanupSocket()
 		return nil, fmt.Errorf("runner MCP socket %s: %w", path, err)
 	}
+	// habitable-cape / graceful-egomaniac unit 4: reap this dir's stale
+	// markers (confirmed-dead owner pid) BEFORE publishing our own — cheap,
+	// best-effort, and this is what clears the 12,334-marker backlog the
+	// finding measured on the very first runner launch after this fix, and
+	// keeps it from reaccumulating on every launch after that.
+	if n := reapStaleDiscoveryMarkers(dir); n > 0 {
+		fmt.Fprintf(os.Stderr, "ctxloom: runner MCP: reaped %d stale discovery marker(s) in %s\n", n, dir)
+	}
 	cwd := resolveCellWorkDir(cellWorkDir)
 	cleanupMarker, merr := writeDiscoveryMarker(dir, kind, cwd, runnerDiscoveryMarker{
 		Socket: path,
 		Pid:    os.Getpid(),
+		Harp:   harp,
+		Stamp:  version.Version,
 	})
 	if merr != nil {
 		clidiag.Warn("ctxloom", "runner MCP discovery marker: %v (the shim will still find this runner via %s)", merr, coord.EnvMCPSocket)
@@ -259,7 +269,16 @@ func resolveCellWorkDir(cellWorkDir string) string {
 
 func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*mcp.Server, error) {
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "ctxloom",
+		Name: "ctxloom",
+		// Title carries this runner's session harp across the initialize
+		// handshake — graceful-egomaniac unit 2's identity check
+		// (mcp_forward.go's forwardTargetIdentity/verifyForwardTarget). This
+		// is an INTERNAL extension of the client<->runner handshake only:
+		// the stdio server this package exposes to the real external MCP
+		// client (buildForwardServer, mcp_forward.go) builds its own
+		// separate Implementation with no Title, so nothing about the
+		// wire protocol an editor sees changes.
+		Title:   harp,
 		Version: version.Version,
 	}, &mcp.ServerOptions{Instructions: sessionInstructions(harp)})
 

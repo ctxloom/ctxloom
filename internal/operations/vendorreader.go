@@ -19,6 +19,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -115,6 +117,43 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 		return "", false
 	}
 	return e.TranscriptPath, true
+}
+
+// vendorSourceClock returns a transcript.WithClock function for converting
+// src, derived from src's own on-disk state rather than wall-clock
+// time.Now(). Conversion must be a pure function of the source bytes —
+// reconversion is now routine (RefreshVendorTranscript, the pty-exit
+// refresh-once heal), and the canonical bytes it produces feed staleness
+// fingerprints and byte-exact fixture assertions, so re-converting an
+// UNCHANGED vendor transcript must yield the SAME canonical bytes every
+// time. A wall-clock TS breaks that: it stamps whatever instant the
+// conversion happened to run at, not anything about src, so two conversions
+// of identical source bytes get two different (and differently-WIDE, since
+// RFC3339Nano trims trailing fractional zeros) timestamps.
+//
+// The source file's own mtime is the fix: it does not change unless src
+// itself is rewritten, so every record of every conversion of an unchanged
+// file gets the identical TS, run after run. src is a bare file path for
+// every registered engine except kiro, whose locate func
+// (locateKiroConversation) returns kiroreader.Locator's composite
+// "<db-path>#<conversation-id>" (kiro.go's own documented convention) — the
+// conversation lives inside that db file, so the db's mtime is the right
+// proxy for "this source changed" there too, hence the split before Stat.
+//
+// A stat failure falls back to time.Now: it only degrades the clock, never
+// blocks the conversion attempt (an unreadable/vanished src fails
+// adapter.Convert itself moments later, on its own, real error).
+func vendorSourceClock(src string) func() time.Time {
+	path := src
+	if i := strings.LastIndex(src, "#"); i >= 0 {
+		path = src[:i]
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return func() time.Time { return time.Now().UTC() }
+	}
+	ts := info.ModTime().UTC()
+	return func() time.Time { return ts }
 }
 
 // ConvertVendorTranscript imports harp e's vendor-native transcript into
@@ -327,7 +366,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 		// hatch). Commit below stats the temp file's actual on-disk size, so
 		// bytes Recorder writes here are covered by the same empty-guard as
 		// anything written through af.Write.
-		rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(tmp))
+		rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(tmp), transcript.WithClock(vendorSourceClock(liveSrc)))
 		if rerr != nil {
 			_ = af.Abort()
 			return true, fmt.Errorf("open recorder for %s: %w", e.HarpName, rerr)
@@ -415,7 +454,7 @@ func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapt
 		}
 		// Same path-based escape hatch as the live conversion in
 		// convertVendorTranscript — see its comment.
-		rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(segAF.TempPath()))
+		rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(segAF.TempPath()), transcript.WithClock(vendorSourceClock(rot.TranscriptPath)))
 		if rerr != nil {
 			_ = segAF.Abort()
 			return fmt.Errorf("open segment recorder for %s/%s: %w", e.HarpName, rot.SessionID, rerr)

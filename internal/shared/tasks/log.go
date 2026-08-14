@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
@@ -378,7 +379,12 @@ func (l *eventLog) append(ev Event) error {
 		// leave a confirmed event in a file with no name. Done BEFORE the
 		// event is written so a failure here is unambiguous: nothing was
 		// appended, and the caller's error means exactly that.
-		if err := syncDir(dir); err != nil {
+		//
+		// iox.SyncDir, not the Durable() Option: this append is O_APPEND onto
+		// a file that may already exist, never an atomic rename, so
+		// WriteFileAtomic's Option shape does not fit here — only the raw
+		// directory-fsync primitive underneath it does.
+		if err := iox.SyncDir(dir); err != nil {
 			return closeAfter(f, fmt.Errorf("sync task log directory %s: %w", dir, err))
 		}
 	}

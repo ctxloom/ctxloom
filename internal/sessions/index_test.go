@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -917,4 +918,24 @@ func TestAppendRotations_SurvivesManagerReload(t *testing.T) {
 	require.Len(t, found.Rotations, 1)
 	assert.Equal(t, "id-1", found.Rotations[0].SessionID)
 	assert.Equal(t, "/t1", found.Rotations[0].TranscriptPath)
+}
+
+// TestSaveLocked_UsesDurableWrite pins the ruled site (taskloom
+// unbounded-bacon): saveLocked must pass iox.Durable() so a crash cannot
+// silently revert the session index — this store's only record of every
+// session's rotation lineage — back to naming a stale prior version.
+// AssignHarp is the simplest public entry point that reaches saveLocked.
+func TestSaveLocked_UsesDurableWrite(t *testing.T) {
+	m := newManager(t)
+
+	var synced []string
+	restore := iox.SetSyncDirForTesting(func(d string) error {
+		synced = append(synced, d)
+		return nil
+	})
+	defer restore()
+
+	_, err := m.AssignHarp("/proj", "claude")
+	require.NoError(t, err)
+	assert.NotEmpty(t, synced, "saveLocked must pass iox.Durable(): a reverted index after a crash loses rotation lineage with no signal")
 }

@@ -549,7 +549,12 @@ func (s *Store[K, R]) write(recs []Record[K]) error {
 	if mkErr := s.fs.MkdirAll(filepath.Dir(s.path), 0o700); mkErr != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(s.path), mkErr)
 	}
-	if werr := iox.WriteFileAtomicFs(s.fs, s.path, data, 0o600); werr != nil {
+	// Durable: this records a human's admission decision — the one
+	// unrecoverable class this store exists for (see the package doc's
+	// ssh known_hosts comparison) — and a rename that silently reverts
+	// after a crash would re-open a door a human closed with no signal
+	// that it happened.
+	if werr := iox.WriteFileAtomicFs(s.fs, s.path, data, 0o600, iox.Durable()); werr != nil {
 		return fmt.Errorf("write %s: %w", s.path, werr)
 	}
 	return nil

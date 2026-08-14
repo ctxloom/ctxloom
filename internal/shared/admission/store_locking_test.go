@@ -25,6 +25,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // TestStore_ConcurrentSetsUnderRaceSurviveDistinctKeys proves N goroutines
@@ -154,4 +155,29 @@ func TestStore_LockAcquisitionFailureFailsClosedFileUntouched(t *testing.T) {
 	after, rerr := afero.ReadFile(fs, path)
 	require.NoError(t, rerr)
 	assert.Equal(t, before, after, "a failed lock acquisition must leave the records file byte-for-byte untouched")
+}
+
+// TestStore_Write_UsesDurableWrite pins the ruled site (taskloom
+// unbounded-bacon): Store.write must pass iox.Durable() so a crash cannot
+// silently revert an admission decision — the store's whole purpose, per
+// its package doc's ssh known_hosts comparison, is a record that once made
+// is never silently un-made. This test belongs in this file, not
+// admission_test.go's MemMapFs-backed tests, for the same reason those
+// exist: Durable() is a no-op on a non-OS-backed filesystem, so only a real
+// one gives the seam anything to fire on.
+func TestStore_Write_UsesDurableWrite(t *testing.T) {
+	fs := afero.NewOsFs()
+	path := filepath.Join(t.TempDir(), "decisions.yaml")
+	s := admission.NewStore(fs, path, keyOf, testReasons(), admission.WithScope(scopeOf))
+
+	var synced []string
+	restore := iox.SetSyncDirForTesting(func(d string) error {
+		synced = append(synced, d)
+		return nil
+	})
+	defer restore()
+
+	_, err := s.Set(testKey{Scope: "bin", Fine: "sha"}, true)
+	require.NoError(t, err)
+	assert.NotEmpty(t, synced, "Store.write must pass iox.Durable(): a reverted admission decision after a crash re-opens a door a human closed")
 }

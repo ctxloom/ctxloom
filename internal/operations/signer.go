@@ -263,8 +263,10 @@ func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
 
 	// This is the trust root — a crash or concurrent read mid-write must
 	// never observe a truncated/partial allowed_signers file. Atomic write
-	// via a same-dir temp file + rename (dir already created above).
-	if err := iox.WriteFileAtomicFs(fs, path, []byte(b.String()), 0o600); err != nil {
+	// via a same-dir temp file + rename (dir already created above). Durable:
+	// a human's trust decision is unrecoverable if the rename silently
+	// reverts after a crash — there is no other record of it.
+	if err := iox.WriteFileAtomicFs(fs, path, []byte(b.String()), 0o600, iox.Durable()); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
@@ -542,8 +544,11 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 	// root must never be observed half-rewritten. Removing the LAST entry
 	// legitimately empties this file (kept == nil, out == ""): AllowEmpty is
 	// required here, not a bug being masked — the alternative is a "remove"
-	// that refuses to ever remove the final principal.
-	if err := iox.WriteFileAtomicFs(fs, path, []byte(out), 0o600, iox.AllowEmpty()); err != nil {
+	// that refuses to ever remove the final principal. Durable: same
+	// unrecoverable-human-decision reasoning as the append side — a
+	// distrust that silently reverts after a crash is worse than one that
+	// never happened, because nothing tells the human it needs re-doing.
+	if err := iox.WriteFileAtomicFs(fs, path, []byte(out), 0o600, iox.AllowEmpty(), iox.Durable()); err != nil {
 		return 0, fmt.Errorf("write %s: %w", path, err)
 	}
 	return removed, nil

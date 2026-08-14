@@ -37,7 +37,14 @@ func TestAtomicWriters_Parity(t *testing.T) {
 		data       []byte
 		perm       os.FileMode
 		opts       []Option
-		wantErr    bool
+		// durable, when set, adds Durable() to the write and asserts that the
+		// parent-directory sync seam fired exactly once, on the write's own
+		// directory, for BOTH writers — see the per-writer loop below. Kept
+		// separate from opts (rather than just appending Durable() into a
+		// case's opts) because the seam assertion below needs to know intent,
+		// not just replay whatever opts happen to contain.
+		durable bool
+		wantErr bool
 	}{
 		{name: "create new", data: []byte("hello"), perm: 0o644},
 		{name: "create new restrictive", data: []byte("secret"), perm: 0o600},
@@ -46,6 +53,7 @@ func TestAtomicWriters_Parity(t *testing.T) {
 		{name: "empty payload over existing is refused", pre: []byte("live"), prePerm: 0o644, data: []byte{}, perm: 0o644, wantErr: true},
 		{name: "empty payload over existing with AllowEmpty proceeds", pre: []byte("live"), prePerm: 0o644, data: []byte{}, perm: 0o644, opts: []Option{AllowEmpty()}},
 		{name: "missing parent dir", missingDir: true, data: []byte("x"), perm: 0o644, wantErr: true},
+		{name: "durable option syncs the parent directory", data: []byte("durable"), perm: 0o644, durable: true},
 	}
 
 	for _, tc := range cases {
@@ -56,6 +64,16 @@ func TestAtomicWriters_Parity(t *testing.T) {
 				mode  os.FileMode
 				// strays counts leftover files in the directory besides the target.
 				strays int
+				// syncedCount is how many times the parent-directory sync seam
+				// fired for this write. Compared across writers by the
+				// got["WriteFileAtomic"] == got["WriteFileAtomicFs"] assertion
+				// below, so a Durable() that fires on one entry point but not
+				// the other goes red here — the literal directory path is
+				// deliberately NOT part of this struct, since each writer gets
+				// its own t.TempDir() and would never compare equal; the count
+				// (and the exact-directory check right below) is where that's
+				// verified instead.
+				syncedCount int
 			}
 			got := map[string]outcome{}
 
@@ -69,8 +87,29 @@ func TestAtomicWriters_Parity(t *testing.T) {
 					require.NoError(t, os.WriteFile(target, tc.pre, tc.prePerm))
 				}
 
-				err := w(dir, target, tc.data, tc.perm, tc.opts...)
-				o := outcome{err: err != nil}
+				opts := tc.opts
+				if tc.durable {
+					opts = append(append([]Option{}, opts...), Durable())
+				}
+
+				var synced []string
+				origSyncDir := syncDirFn
+				syncDirFn = func(d string) error {
+					synced = append(synced, d)
+					return nil
+				}
+				err := w(dir, target, tc.data, tc.perm, opts...)
+				syncDirFn = origSyncDir
+
+				if tc.durable {
+					assert.Equal(t, []string{dir}, synced,
+						"%s: Durable() must sync exactly the write's own parent directory", wname)
+				} else {
+					assert.Empty(t, synced,
+						"%s: the parent directory must not be synced unless Durable() is passed", wname)
+				}
+
+				o := outcome{err: err != nil, syncedCount: len(synced)}
 				if err == nil {
 					b, rerr := os.ReadFile(target)
 					require.NoError(t, rerr)
@@ -100,6 +139,10 @@ func TestAtomicWriters_Parity(t *testing.T) {
 				"the two atomic writers must produce identical outcomes")
 			assert.Equal(t, tc.wantErr, got["WriteFileAtomic"].err)
 			assert.Zero(t, got["WriteFileAtomic"].strays, "no temp file may survive the write")
+			if tc.durable {
+				assert.Equal(t, 1, got["WriteFileAtomic"].syncedCount,
+					"a durable write must sync the parent directory exactly once")
+			}
 		})
 	}
 }

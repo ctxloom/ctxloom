@@ -995,3 +995,33 @@ func blockLockPath(t *testing.T, path string) {
 		t.Fatalf("the shared lock at %s was acquired; this test no longer exercises the fallback", path)
 	}
 }
+
+// TestAppend_CreatesLogInAFreshDirectory is the characterization half of
+// append()'s directory-sync-on-create step (see iox.SyncDir's call site in
+// log.go): moved here from the now-collapsed syncdir_unix_test.go, whose
+// own low-level primitive test (TestSyncDir) lives in package iox now,
+// where the primitive itself lives. This pins that the added directory
+// flush does not change what append() does on the happy path — a first
+// event into a not-yet-existing nested directory still lands and still
+// folds back.
+func TestAppend_CreatesLogInAFreshDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "deeper", "taskloom.jsonl")
+	s, err := OpenLog(path, "sess")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := s.AddWithTrigger("first event", "", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("log not written at %s: %v", path, err)
+	}
+	if !strings.Contains(string(raw), "first event") {
+		t.Fatalf("log does not carry the event: %q", string(raw))
+	}
+	got, err := s.List(nil, "")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("list = %+v, err = %v", got, err)
+	}
+}

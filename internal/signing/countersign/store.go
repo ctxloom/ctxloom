@@ -279,7 +279,11 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 	// existing guard can never legitimately fire here; if it ever did, that
 	// would mean signing.Sign returned nothing, which should fail loud rather
 	// than silently drop a record that reports success.
-	return iox.WriteFileAtomicFs(s.fs, path, armored, 0o644)
+	//
+	// Durable: a countersignature is rotation lineage — the human review
+	// record a verifier trusts — and unrecoverable if the rename silently
+	// reverts to naming nothing after a crash.
+	return iox.WriteFileAtomicFs(s.fs, path, armored, 0o644, iox.Durable())
 }
 
 // WriteApprove signs and stores a ref-scoped, form-scoped approve
@@ -690,7 +694,12 @@ func (s *Store) writeIndex(entries []IndexEntry) error {
 	if err := s.fs.MkdirAll(s.dir, 0o755); err != nil {
 		return err
 	}
-	return iox.WriteFileAtomicFs(s.fs, s.indexPath(), data, 0o644)
+	// Durable: the index is what labels an item UPDATE vs first-time and
+	// supplies the diff base (see AppendIndex's doc) — rotation lineage that
+	// a silently-reverted rename after a crash would corrupt back to a
+	// truncated view, exactly the failure AppendIndex's own refusal-on-bad-
+	// read guards against on the way in.
+	return iox.WriteFileAtomicFs(s.fs, s.indexPath(), data, 0o644, iox.Durable())
 }
 
 // LatestApprove returns the most recently appended approve index entry for

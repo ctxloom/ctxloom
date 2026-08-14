@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
@@ -597,6 +598,56 @@ func (f strictMkdirFs) MkdirAll(path string, perm os.FileMode) error {
 		return fmt.Errorf("mkdir %s: no such file or directory", path)
 	}
 	return f.Fs.MkdirAll(path, perm)
+}
+
+// TestAppendAllowedSignersLine_UsesDurableWrite pins the ruled site (taskloom
+// unbounded-bacon): the trust root's append must pass iox.Durable() so a
+// crash cannot silently revert who is trusted back to "nobody was just
+// added". Durable is a no-op on afero.MemMapFs (see iox.Durable's doc), so
+// this needs a real OS filesystem for the seam to have anything to fire on.
+func TestAppendAllowedSignersLine_UsesDurableWrite(t *testing.T) {
+	fs := afero.NewOsFs()
+	path := filepath.Join(t.TempDir(), "allowed_signers")
+
+	var synced []string
+	restore := iox.SetSyncDirForTesting(func(d string) error {
+		synced = append(synced, d)
+		return nil
+	})
+	defer restore()
+
+	require.NoError(t, appendAllowedSignersLine(fs, path, "first@example.com ssh-ed25519 AAAA"))
+	assert.NotEmpty(t, synced, "appendAllowedSignersLine must pass iox.Durable(): the trust root is a human decision, unrecoverable if the rename silently reverts")
+}
+
+// TestRemoveFromAllowedSignersFile_UsesDurableWrite is the append side's
+// twin: distrusting a principal is just as unrecoverable a decision as
+// trusting one, and must carry the same durability guarantee.
+func TestRemoveFromAllowedSignersFile_UsesDurableWrite(t *testing.T) {
+	fs := afero.NewOsFs()
+	path := filepath.Join(t.TempDir(), "allowed_signers")
+
+	signer := testSigner(t)
+	line, err := allowedsigners.FormatEntry(allowedsigners.Entry{
+		Principals: []string{"drop@example.com"},
+		Namespaces: []string{signing.NamespaceApprove},
+		KeyType:    signer.PublicKey().Type(),
+		PublicKey:  signer.PublicKey(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, afero.WriteFile(fs, path, []byte(line+"\n"), 0o600))
+
+	var synced []string
+	restore := iox.SetSyncDirForTesting(func(d string) error {
+		synced = append(synced, d)
+		return nil
+	})
+	defer restore()
+
+	removed, err := removeFromAllowedSignersFile(fs, path, "drop@example.com")
+	require.NoError(t, err)
+	require.Equal(t, 1, removed)
+	assert.NotEmpty(t, synced, "removeFromAllowedSignersFile must pass iox.Durable(): a reverted distrust after a crash re-opens a door a human closed")
 }
 
 // TestAppendAllowedSignersLine_ParentDirs: the parent directory

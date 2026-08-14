@@ -15,7 +15,17 @@ import (
 // it — the hooks were written nowhere and warned nowhere, and the user's
 // configured hook was simply inert. Declaring the gap makes the drop deliberate
 // AND visible.
+//
+// RouteUnifiedHooks warns through clidiag.WarnOnce, whose dedup memory is
+// process-wide and never expires — by design, so a warning fired once at
+// startup doesn't spam on every later hit. That means this test's own
+// warning is only observable the FIRST time its process ever emits it: under
+// `go test -count=2` (which reuses one process for the whole package), the
+// second run's byte-identical warning is deduped away by the first run's
+// memory, and the sink-content assertions below see nothing. ResetWarnOnce
+// clears that memory so each run of this test starts clean.
 func TestRouteUnifiedHooks_UnsupportedKindWarns(t *testing.T) {
+	clidiag.ResetWarnOnce()
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
 	defer restore()

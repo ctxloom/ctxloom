@@ -66,6 +66,7 @@ require (
 	charm.land/bubbles/v2 v2.1.1
 	charm.land/bubbletea/v2 v2.0.7
 	charm.land/lipgloss/v2 v2.0.4
+	github.com/benjaminabbitt/hew/go v0.1.0
 	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260722013940-10300d4f7632
 	github.com/creack/pty v1.1.24
 	github.com/expr-lang/expr v1.17.8
@@ -86,7 +87,6 @@ require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
-	github.com/benjaminabbitt/hew v0.0.0-00010101000000-000000000000
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260525132238-948f4557a654 // indirect
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
@@ -152,24 +152,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-// LOCAL REPLACE, FLAGGED FOR HUMAN ATTENTION (P5 slice 1, 2026-08-14): hew's
-// published repo layout does not resolve with a plain `go get`. The Go
-// module lives in the repo's go/ subdirectory, but that subdirectory's
-// go.mod declares its module path as `github.com/benjaminabbitt/hew` (no
-// "/go" suffix) — the same path as the repo root, which has no go.mod and no
-// .go files at all. So `go get .../hew/go@main` fails outright ("module
-// declares its path as: github.com/benjaminabbitt/hew but was required as:
-// .../hew/go"), and `go get .../hew@main` "succeeds" but silently fetches
-// the wrong, empty module (the repo root — no Go source, since a go.mod
-// inside go/ makes go/ a SEPARATE nested module Go excludes from the
-// parent's zip, even though both declare the identical path). Neither
-// resolves to real source. This replace points straight at the local
-// checkout instead, whose go.mod path (github.com/benjaminabbitt/hew)
-// matches the require line below exactly, sidestepping the ambiguity.
-// REMOVAL CONDITION: hew fixes its go.mod's module path to actually match
-// its physical location (either `github.com/benjaminabbitt/hew/go`, kept in
-// go/, or move go.mod+sources to the repo root) AND cuts a tag — this
-// replace drops at hew's FIRST TAG, whichever fix lands, not before (no tag
-// exists yet as of this writing: `git tag` on the hew repo is empty).
-replace github.com/benjaminabbitt/hew => /home/babbitt/workspace/hew/go

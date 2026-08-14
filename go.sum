@@ -23,6 +23,8 @@ github.com/aymanbagabas/go-udiff v0.4.1 h1:OEIrQ8maEeDBXQDoGCbbTTXYJMYRCRO1fnodZ
 github.com/aymanbagabas/go-udiff v0.4.1/go.mod h1:0L9PGwj20lrtmEMeyw4WKJ/TMyDtvAoK9bf2u/mNo3w=
 github.com/benjaminabbitt/acp-go-sdk v0.13.6-0.20260722031316-48f638c79f55 h1:8NkS2IJ//E0yENlfc8LE7OH9eL2D9TbvC78zJRMsRV8=
 github.com/benjaminabbitt/acp-go-sdk v0.13.6-0.20260722031316-48f638c79f55/go.mod h1:yKzM/3R9uELp4+nBAwwtkS0aN1FOFjo11CNPy37yFko=
+github.com/benjaminabbitt/hew/go v0.1.0 h1:cNAw9pxlV2ooBMtOtgJDSmePNYPreJoGMX2begUPSs4=
+github.com/benjaminabbitt/hew/go v0.1.0/go.mod h1:8Da0HllBVs7mXR7KKanD9QNBW/EjcyKB+DIr67nSfsA=
 github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260722013940-10300d4f7632 h1:PQ9dOCaNWkfEVQXLbrLGI3YbZHXK2mfG5m//WDMg58c=
 github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260722013940-10300d4f7632/go.mod h1:Vk2gDTQ9CKv6LcaYBSWz0qX5pCZ3PvVBIJxAJ0hZBFQ=
 github.com/bmatcuk/doublestar/v4 v4.10.0 h1:zU9WiOla1YA122oLM6i4EXvGW62DvKZVxIe6TYWexEs=

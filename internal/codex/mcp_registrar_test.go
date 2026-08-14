@@ -137,6 +137,21 @@ func TestCodexPathVocabularyIsSingleSourced(t *testing.T) {
 	assert.Equal(t, filepath.Join(resolved, ConfigDirName, SkillsDirName), cellScopedSkillsDir(resolved))
 }
 
+// TestMCPRegistrar_Install_WrongTypeMcpServersRefuses pins the M5-asymmetry
+// fix (R6/config-patching-review.md bypass B6): Install used to silently
+// REPLACE a present-but-wrong-TOML-type "mcp_servers" value (a string, an
+// array — however it got there, e.g. a hand-edited config.toml) with a fresh
+// empty table, destroying whatever was under that key with no signal. Its
+// JSON twin, agent.InstallMCPServerJSON, already refuses this shape
+// (TestInstallMCPServerJSON_WrongTypeMcpServersRefuses); this pins the same
+// contract for the TOML writer.
+func TestMCPRegistrar_Install_WrongTypeMcpServersRefuses(t *testing.T) {
+	original := []byte("mcp_servers = 'not a table'\n")
+	_, err := (MCPRegistrar{}).Install(original, "ctxloom", wire.MCPServer{Command: "ctxloom"})
+	require.Error(t, err, "a present-but-wrong-type mcp_servers value must be reported, not silently replaced")
+	assert.Contains(t, err.Error(), "mcp_servers")
+}
+
 func TestMCPRegistrar_InstallPreservesForeignTables(t *testing.T) {
 	existing := `[hooks]
 [[hooks.SessionStart]]

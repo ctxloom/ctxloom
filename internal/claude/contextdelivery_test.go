@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,6 +67,41 @@ func TestAppendFlagDelivery_Deterministic(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, d1.Path(), d2.Path())
+}
+
+// TestAppendFlagDelivery_DeliverContext_PreservesExistingMode pins the switch
+// from a raw afero.WriteFile(..., 0o644) to agent.AtomicWriteFile: the latter
+// preserves an EXISTING destination file's mode across the rewrite, while a
+// raw afero.WriteFile with a hardcoded 0o644 would silently reset it every
+// time. The deterministic hash filename means a second delivery of the SAME
+// framed content lands at the SAME path, so pre-seeding that exact path with
+// a non-default mode and re-delivering the identical context is how this
+// distinguishes the two write paths without reaching into AtomicWriteFile's
+// own internals.
+//
+// MUTATION KILL: revert DeliverContext's write to afero.WriteFile(d.fs, path,
+// []byte(framed), 0o644) and this goes red — the mode comes back 0o644
+// instead of the pre-seeded 0o640.
+func TestAppendFlagDelivery_DeliverContext_PreservesExistingMode(t *testing.T) {
+	dir := t.TempDir()
+	const ctx = "# Rules\nthe secret color is vermilion"
+	framed := agent.FrameProjectContext(ctx)
+	sum := sha256.Sum256([]byte(framed))
+	name := hex.EncodeToString(sum[:8]) + agent.SCMFramedContextSuffix
+	path := filepath.Join(dir, name)
+
+	// Pre-seed the exact deterministic destination with a mode a raw
+	// afero.WriteFile(..., 0o644) call could never produce as ITS result.
+	require.NoError(t, os.WriteFile(path, []byte("stale"), 0o640))
+
+	d := newAppendFlagDelivery(fakePlacement{dir: dir}, nil)
+	_, err := d.DeliverContext(ctx)
+	require.NoError(t, err)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm(),
+		"AtomicWriteFile preserves an existing file's mode across the rewrite; a raw afero.WriteFile(...,0o644) would reset it")
 }
 
 // TestAppendFlagDelivery_EmptyContextIsNoop verifies empty context frames to ""

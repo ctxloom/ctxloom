@@ -50,6 +50,17 @@ func (d *appendFlagDelivery) Path() string { return d.path }
 // deterministic sha256 prefix over the framed bytes, so identical context yields
 // an identical filename. Empty context frames to "" (nothing to deliver): no
 // file is written, Path stays "", and a no-op handle is returned.
+//
+// The write itself routes through agent.AtomicWriteFile (unique temp + fsync
+// + rename via iox), not a raw afero.WriteFile — this was the one claude
+// writer still bypassing it (survey D15 / write-discipline baseline entry
+// "contextdelivery.go#appendFlagDelivery.DeliverContext", now removed: see
+// tests/arch/write_discipline_test.go). No agent.WithFileLock wraps this:
+// the deterministic hash name means two concurrent deliveries of identical
+// content write identical bytes (idempotent, no lost update to guard), and
+// two DIFFERENT contents land at two DIFFERENT paths, so there is no
+// read-modify-write here to serialize — AtomicWriteFile's rename alone is
+// enough to make the write itself atomic.
 func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, error) {
 	framed := agent.FrameProjectContext(context)
 	if framed == "" {
@@ -68,7 +79,7 @@ func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, er
 	name := hex.EncodeToString(sum[:8]) + agent.SCMFramedContextSuffix
 	path := filepath.Join(dir, name)
 
-	if err := afero.WriteFile(d.fs, path, []byte(framed), 0o644); err != nil {
+	if err := agent.AtomicWriteFile(d.fs, path, []byte(framed), name); err != nil {
 		d.path = ""
 		return nil, fmt.Errorf("write framed context file: %w", err)
 	}

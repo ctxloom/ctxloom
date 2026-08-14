@@ -353,7 +353,30 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	} else {
 		progress.Printf("ctxloom: distilling %s (by transcript path, no session_id bound)...\n", harpName)
 	}
-	result, err := operations.CompactEntry(cmd.Context(), entry, cfg, "", progress)
+
+	// eager-trash unification, ruled sub-choice #1 (adopt): `session distill`
+	// now HEALS before distilling — a harp that was `/clear`ed has a
+	// canonical transcript frozen at whatever moment a live /recover last
+	// ran, and this command used to distill that frozen prefix and report
+	// success. A one-shot CLI process genuinely cannot tell whether the
+	// session it was pointed at is still growing elsewhere, so it heals
+	// unconditionally (LivenessUnknown) every call — slower, and truthful.
+	src, herr := operations.ResolveAndHeal(cmd.Context(), harpName, operations.LivenessUnknown)
+	if herr != nil {
+		return herr
+	}
+	if src.HealErr != nil {
+		// The stored transcript may still be readable; a refresh failure
+		// costs freshness, not the distill — warn and fall through to
+		// distilling whatever is on disk rather than refusing outright.
+		progress.Printf("ctxloom: could not refresh transcript for %s before distilling: %v\n", harpName, src.HealErr)
+	}
+	if src.Entry != nil {
+		entry = src.Entry
+	} else {
+		src.Entry = entry
+	}
+	result, err := operations.DistillEntry(cmd.Context(), src, cfg, "", progress)
 	if err != nil {
 		return err
 	}

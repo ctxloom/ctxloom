@@ -277,7 +277,11 @@ func scaffoldConfig(path string, withDefaults, force bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	// content is always non-empty here: it is one of the two go:embed'd
+	// templates (defaults.go), and the rule-count check above already
+	// refused an empty defaultRules — so iox's default empty-over-existing
+	// refusal never applies, and no AllowEmpty escape hatch is needed.
+	if err := iox.WriteFileAtomic(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write rules file %s: %w", path, err)
 	}
 	fmt.Fprintf(os.Stderr, "%s: wrote rules file %s (edit it to taste)\n", progName, path)
@@ -289,10 +293,17 @@ func scaffoldConfig(path string, withDefaults, force bool) error {
 //
 // The mode is carried across because the backup is a copy of the USER's rules
 // file: writing it at a hardcoded 0o644 republishes a config the user
-// deliberately restricted to 0600 as world-readable. os.WriteFile is not
-// enough on its own — its mode applies only when it CREATES the file, and it
-// is masked by the process umask — so dst's mode is set explicitly, which also
-// tightens a wider backup left by an earlier run.
+// deliberately restricted to 0600 as world-readable. iox.WriteFileAtomic
+// applies perm EXACTLY via its own explicit Chmod (ignoring umask, per its
+// doc), so — unlike the os.WriteFile this replaces — nothing further is
+// needed after the write to get dst's mode right.
+//
+// iox.AllowEmpty(): this is a byte-for-byte MIRROR of src, and src's own
+// existence was just confirmed by the caller's Stat — but src's SIZE is not
+// guaranteed non-zero (a user's rules file legitimately can be, per
+// minimalRules' own "valid but empty config" contract). A backup that
+// silently refused to reproduce an empty source would stop matching the
+// thing it is a backup OF.
 func copyFile(src, dst string) error {
 	b, err := os.ReadFile(src)
 	if err != nil {
@@ -302,10 +313,7 @@ func copyFile(src, dst string) error {
 	if fi, err := os.Stat(src); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	if err := os.WriteFile(dst, b, mode); err != nil {
-		return err
-	}
-	return os.Chmod(dst, mode)
+	return iox.WriteFileAtomic(dst, b, mode, iox.AllowEmpty())
 }
 
 func readIfExists(path string) ([]byte, error) {

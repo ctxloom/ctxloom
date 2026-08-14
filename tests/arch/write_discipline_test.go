@@ -17,8 +17,15 @@
 // time is grandfathered into writeDisciplineAllowed with a reason, and none
 // of them is migrated here (that is C3/C10's job, sweep by sweep). What the
 // gate buys immediately is that the set cannot grow silently — a new raw
-// call anywhere in internal/ outside the exempt packages fails the build
-// until it either routes through iox or earns its own reviewed entry.
+// call anywhere in internal/ or cmd/ outside the exempt packages fails the
+// build until it either routes through iox or earns its own reviewed entry.
+//
+// SCOPE EXTENDED TO cmd/ (home-lock-dir fix, closing N4): the original scan
+// covered internal/ only, so cmd/ltk and cmd/taskloom — the two companion
+// binaries this fix also brought under agent.WithFileLock — were invisible
+// to the ratchet even though they read-modify-write the identical engine
+// settings files the internal/ side is governed for. A raw write there is
+// exactly as ungoverned as one in internal/.
 //
 // Detection is purely syntactic (go/ast, no go/types), the same technique
 // doc_comment_test.go uses for a full-body sweep rather than the
@@ -95,10 +102,12 @@ import (
 	"testing"
 )
 
-// writeDisciplineScope is the subtree this gate looks at: production code
-// only, per the fs-consolidation plan's C1 scope. Test files never enter the
-// scan (fsWalkNonTest below skips _test.go the same way scan() does).
-const writeDisciplineScope = "internal"
+// writeDisciplineScopes are the subtrees this gate looks at: production code
+// only, per the fs-consolidation plan's C1 scope (originally just
+// "internal"; "cmd" joined it closing N4 — see this file's header doc). Test
+// files never enter the scan (fsWalkNonTest below skips _test.go the same
+// way scan() does).
+var writeDisciplineScopes = []string{"internal", "cmd"}
 
 // writeDisciplineExemptDirs are the packages that ARE the write library (or
 // the lock primitive beside it) and so are structurally, not provisionally,
@@ -275,56 +284,58 @@ func (v writeDisciplineViolation) key() string {
 	return v.file + "#" + v.symbol
 }
 
-// scanWriteDiscipline walks every non-test .go file under writeDisciplineScope
-// (skipping writeDisciplineExemptDirs) and returns every raw-fs-write call
-// site it finds, full-body parsed rather than imports-only — the same
-// technique doc_comment_test.go uses — because the subject here is call
-// expressions, not the import graph.
+// scanWriteDiscipline walks every non-test .go file under each of
+// writeDisciplineScopes (skipping writeDisciplineExemptDirs) and returns
+// every raw-fs-write call site it finds, full-body parsed rather than
+// imports-only — the same technique doc_comment_test.go uses — because the
+// subject here is call expressions, not the import graph.
 func scanWriteDiscipline(t *testing.T) []writeDisciplineViolation {
 	t.Helper()
 	root := moduleRoot(t)
-	scopeRoot := filepath.Join(root, writeDisciplineScope)
 	fset := token.NewFileSet()
 	var out []writeDisciplineViolation
 	var filesScanned int
 
-	err := filepath.WalkDir(scopeRoot, func(p string, d fs.DirEntry, err error) error {
-		switch {
-		case err != nil:
-			return err
-		case d.IsDir() && skippedDir(d.Name()):
-			return filepath.SkipDir
-		case d.IsDir():
-			return nil
-		case !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go"):
-			return nil
-		}
-		rel, rerr := filepath.Rel(root, p)
-		if rerr != nil {
-			return rerr
-		}
-		rel = filepath.ToSlash(rel)
-		dir := filepath.ToSlash(filepath.Dir(rel))
-		if writeDisciplineDirExempt(dir) {
-			return nil
-		}
+	for _, scope := range writeDisciplineScopes {
+		scopeRoot := filepath.Join(root, scope)
+		err := filepath.WalkDir(scopeRoot, func(p string, d fs.DirEntry, err error) error {
+			switch {
+			case err != nil:
+				return err
+			case d.IsDir() && skippedDir(d.Name()):
+				return filepath.SkipDir
+			case d.IsDir():
+				return nil
+			case !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go"):
+				return nil
+			}
+			rel, rerr := filepath.Rel(root, p)
+			if rerr != nil {
+				return rerr
+			}
+			rel = filepath.ToSlash(rel)
+			dir := filepath.ToSlash(filepath.Dir(rel))
+			if writeDisciplineDirExempt(dir) {
+				return nil
+			}
 
-		f, perr := parser.ParseFile(fset, p, nil, 0)
-		if perr != nil {
-			t.Errorf("parse %s: %v", rel, perr)
+			f, perr := parser.ParseFile(fset, p, nil, 0)
+			if perr != nil {
+				t.Errorf("parse %s: %v", rel, perr)
+				return nil
+			}
+			filesScanned++
+			out = append(out, scanFileForRawWrites(fset, f, rel)...)
 			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", scope, err)
 		}
-		filesScanned++
-		out = append(out, scanFileForRawWrites(fset, f, rel)...)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk %s: %v", writeDisciplineScope, err)
 	}
 	// Anti-vacuity: a walk that silently stopped matching files would make
 	// every assertion below pass for the wrong reason.
 	if filesScanned < 200 {
-		t.Fatalf("scanned only %d non-test files under %s — the walk is broken, not the tree", filesScanned, writeDisciplineScope)
+		t.Fatalf("scanned only %d non-test files under %v — the walk is broken, not the tree", filesScanned, writeDisciplineScopes)
 	}
 	return out
 }

@@ -14,8 +14,8 @@ import (
 
 	"path/filepath"
 
-	hew "github.com/benjaminabbitt/hew"
-	"github.com/benjaminabbitt/hew/hewjson"
+	hew "github.com/benjaminabbitt/hew/go"
+	"github.com/benjaminabbitt/hew/go/hewjson"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
@@ -524,6 +524,33 @@ type recordOp struct {
 	Value      *yamlv3.Node `yaml:"value,omitempty"`
 }
 
+// resolveAppliedTransforms resolves tl's transforms one at a time rather
+// than as a single hew.Resolve(tl, doc) call, because hew.Resolve does not
+// know about Transform.Optional — an Optional OpRemove whose key was never
+// there is a legitimate zero-edit no-op to hewjson.Apply (planRemove checks
+// Optional itself), but the SAME transform makes Resolve return HEW013
+// no-match, since resolving a plain "does this address exist" question has
+// no tolerance flag of its own to consult. Resolving transform-by-transform
+// lets this function apply that tolerance itself: an Optional transform
+// that fails to resolve produced no edit (nothing for the record to state
+// happened), so it is dropped from the resolved list rather than aborting
+// the whole record over an op that, correctly, did nothing.
+func resolveAppliedTransforms(tl hew.TransformList, doc hew.Document, target string) ([]hew.ResolvedOp, error) {
+	var ops []hew.ResolvedOp
+	for _, t := range tl.Transform {
+		single := hew.TransformList{Target: tl.Target, Format: tl.Format, Transform: []hew.Transform{t}}
+		resolved, err := hew.Resolve(single, doc)
+		if err != nil {
+			if t.Optional {
+				continue
+			}
+			return nil, fmt.Errorf("resolve the applied transforms against %s: %w", target, err)
+		}
+		ops = append(ops, resolved...)
+	}
+	return ops, nil
+}
+
 // buildAndWriteApplicationRecord resolves tl against before (the exact bytes
 // hewjson.Apply just walked — see hew.Resolve's doc: "the pre-image is the
 // right document to resolve against") and writes one hew §9.7 application
@@ -546,9 +573,9 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, tl hew.Transform
 	if err != nil {
 		return "", fmt.Errorf("parse %s's pre-image to resolve the applied transforms: %w", target, err)
 	}
-	ops, err := hew.Resolve(tl, doc)
+	ops, err := resolveAppliedTransforms(tl, doc, target)
 	if err != nil {
-		return "", fmt.Errorf("resolve the applied transforms against %s: %w", target, err)
+		return "", err
 	}
 
 	rec := applicationRecord{
@@ -637,6 +664,16 @@ func sha256Digest(b []byte) string {
 // int64) would otherwise compare unequal for the same logical number.
 func containsConfigPatch(data, patch map[string]any) bool {
 	for k, pv := range patch {
+		if pv == nil {
+			// A null patch value is a delete on the JSON/hew path
+			// (appendJSONPatch's OpRemove) — verification for that key must
+			// be "now absent", the mirror image of every other key's
+			// "now present with this value", not a literal-null lookup.
+			if _, stillThere := data[k]; stillThere {
+				return false
+			}
+			continue
+		}
 		dv, ok := data[k]
 		if !ok {
 			return false

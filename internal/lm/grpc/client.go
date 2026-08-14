@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/go-plugin/runner"
 
 	"github.com/ctxloom/ctxloom/internal/selfexec"
+	"github.com/ctxloom/ctxloom/internal/version"
 )
 
 // ContainerRunnerFunc is go-plugin's RunnerFunc shape: given the (env-populated)
@@ -355,10 +356,52 @@ func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 		return nil, fmt.Errorf("unexpected plugin type: %T", raw)
 	}
 
+	// Version handshake (exposable-rental unit 1): a `llm serve`/`llm host`
+	// plugin process can persist well past the CLI invocation that spawned it
+	// — a long-lived structured-chat connection is held open for a whole
+	// conversation, sometimes days — and every call over it keeps running
+	// whatever behavior was compiled in at connect time, even as the on-disk
+	// binary is rebuilt and reinstalled underneath it. Measured live: two
+	// binding thefts and a rotations-strip were traced to `llm serve`
+	// daemons still resident from an Aug-10/12 install answering Aug-13
+	// calls. Ask the daemon its own build stamp right here, before this
+	// runner is handed to any caller, and refuse it outright on a mismatch
+	// rather than silently running turns against stale compiled-in code.
+	if info, ierr := grpcClient.Info(context.Background()); ierr != nil {
+		conn.Kill()
+		return nil, fmt.Errorf("llm serve: version handshake failed: %w", ierr)
+	} else if info != nil {
+		if verr := checkDaemonVersion(info.CtxloomVersion); verr != nil {
+			conn.Kill()
+			return nil, verr
+		}
+	}
+
 	return &LLMRunner{
 		conn:       conn,
 		GRPCClient: grpcClient,
 	}, nil
+}
+
+// checkDaemonVersion refuses daemonVersion when it names a ctxloom build
+// other than this process's own (version.Version) — see runnerFromConn's
+// doc for the daemon-staleness defect this closes. Either side reporting no
+// usable stamp — "" or "dev" (a bare `go build` bypassing the task runner's
+// ldflags stamp) — has nothing to compare, so that is "cannot verify" and
+// passes: refusing every unstamped dev build would break local iteration
+// outright, and the whole point is to catch a REAL mismatch, not to demand
+// a stamp exists.
+func checkDaemonVersion(daemonVersion string) error {
+	if version.Version == "" || version.Version == "dev" || daemonVersion == "" || daemonVersion == "dev" {
+		return nil
+	}
+	if daemonVersion != version.Version {
+		return fmt.Errorf(
+			"llm serve: stale daemon — it reports ctxloom %s, this client is %s; a plugin process from an earlier install is still answering instead of the current binary. Refusing to run against compiled-in behavior that predates this install: stop the stale `ctxloom llm serve`/`llm host` process (or let it exit) and retry",
+			daemonVersion, version.Version,
+		)
+	}
+	return nil
 }
 
 // NewContainerClient creates a plugin client whose backend server runs INSIDE a

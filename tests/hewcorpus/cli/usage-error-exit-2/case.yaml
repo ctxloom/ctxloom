@@ -1,0 +1,13 @@
+name: cli/usage-error-exit-2
+seams: [cli]
+kind: cli
+format: yaml
+argv: ["apply", "--transforms", "move.hewt", "patch.hew"]
+exit: 2
+stderr_contains: ["--transforms", "mutually exclusive"]
+target_unchanged: true
+why: |
+  Exit 2 is trouble, distinct from exit 1's "did not apply". `--transforms` and a
+  positional .hew are mutually exclusive because they are two spellings of the same
+  input and accepting both would make the precedence invisible.
+spec: "Appendix B.1, B.3"

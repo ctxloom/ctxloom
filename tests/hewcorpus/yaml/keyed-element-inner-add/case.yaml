@@ -1,0 +1,10 @@
+name: yaml/keyed-element-inner-add
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-18]
+why: |
+  Anchoring the hunk AT the keyed element (go-patch's
+  /instance_groups/name=zookeeper/instances idiom) means the body mirrors only
+  that element's children — the shallowest readable body for this edit.
+spec: "§2.3, §4.2, §11 OP-18"

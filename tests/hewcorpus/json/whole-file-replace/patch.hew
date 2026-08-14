@@ -1,0 +1,11 @@
+hew: 1
+
+--- target.json format=json
+
+@@ / @@
+? exhaustive
+- generated: "by ctxloom"
+- version: 1
++ generated: "by ctxloom 0.7"
++ version: 2
++ agents: ["coordinator"]

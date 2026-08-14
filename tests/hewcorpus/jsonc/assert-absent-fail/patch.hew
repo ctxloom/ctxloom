@@ -1,0 +1,7 @@
+hew: 1
+
+--- target.jsonc format=jsonc
+
+@@ / @@
+? absent /env/ANTHROPIC_API_KEY
+  env: {}

@@ -1,0 +1,14 @@
+name: yaml/reapply-not-idempotent
+seams: [e2e]
+kind: error
+format: yaml
+error: HEW010
+error_seam: apply-ir
+error_path: /server/timeout
+patch_line: 6
+message_contains: ["stale-target", "30", "60"]
+ops: [OP-01]
+why: |
+  The same target as yaml/idempotent-reapply WITHOUT the directive. Re-applying is
+  an error by default (§1). The pair is the whole of O3 in two directories.
+spec: "§1, §7.5"

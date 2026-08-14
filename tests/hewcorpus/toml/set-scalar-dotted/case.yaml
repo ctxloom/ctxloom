@@ -1,0 +1,10 @@
+name: toml/set-scalar-dotted
+seams: [e2e]
+kind: ok
+format: toml
+ops: [OP-01, OP-38]
+why: |
+  THE TOML wrinkle, first half: /tool/ctxloom/timeout is written here as a DOTTED
+  key, not a table header. The edit lands at whichever surface the target actually
+  uses; hew never adds a second surface for an existing path.
+spec: "§8.4 rule 1, §11 OP-01"

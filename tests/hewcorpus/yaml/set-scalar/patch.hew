@@ -1,0 +1,9 @@
+hew: 1
+
+--- target.yaml format=yaml
+
+@@ /server @@
+  # ports below 1024 need CAP_NET_BIND_SERVICE
+  port: 8080
+- timeout: 30
++ timeout: 60

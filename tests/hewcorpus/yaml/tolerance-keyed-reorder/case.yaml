@@ -1,0 +1,11 @@
+name: yaml/tolerance-keyed-reorder
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-16, OP-18]
+why: |
+  TOLERANCE ROW: keyed-array elements reordered. The user moved `github` above
+  `filesystem`. Identity addressing (`name=github`) does not mention a position,
+  so nothing breaks — the strategic-merge merge-key lesson, made general and put
+  in the address where the patch declares it.
+spec: "§6.4.2, §6.4.5"

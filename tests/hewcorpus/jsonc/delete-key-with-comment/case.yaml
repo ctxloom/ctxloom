@@ -1,0 +1,11 @@
+name: jsonc/delete-key-with-comment
+seams: [e2e]
+kind: ok
+format: jsonc
+ops: [OP-05, OP-32]
+why: |
+  §8.2's anchoring rule made observable: a comment immediately preceding a member,
+  with no blank line, is that member's LEADING comment and is deleted with it.
+  The free comment at the top of the container is bound to the container and
+  survives.
+spec: "§8.2, §11 OP-05"

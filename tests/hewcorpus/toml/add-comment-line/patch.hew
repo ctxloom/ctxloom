@@ -1,0 +1,7 @@
+hew: 1
+
+--- target.toml format=toml
+
+@@ /hooks @@
++ # ctxloom-managed — regenerate with `ctxloom apply`
+  on_start = "ctxloom apply"

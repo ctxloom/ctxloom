@@ -1,0 +1,7 @@
+hew: 1
+
+--- target.toml format=toml
+
+@@ /tool/ctxloom @@
+- timeout = 30
++ timeout = 60

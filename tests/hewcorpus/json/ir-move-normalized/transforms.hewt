@@ -1,0 +1,10 @@
+hew-transforms: 1
+target: target.json
+format: json
+transforms:
+  - op: test
+    path: /server/host
+    value: localhost
+  - op: move
+    from: /server/host
+    path: /network/host

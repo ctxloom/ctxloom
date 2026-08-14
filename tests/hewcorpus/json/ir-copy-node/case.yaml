@@ -1,0 +1,10 @@
+name: json/ir-copy-node
+seams: [apply-ir]
+kind: ok
+format: json
+ops: [OP-22, OP-23]
+why: |
+  `copy` takes its value by reference to the target, which no `add` can express
+  without reading the target. This case has no patch.hew: copy is not expressible
+  in the mirror grammar and is authored as a transform list (Appendix C.2).
+spec: "§9.6, §11 OP-22, Appendix C.2"

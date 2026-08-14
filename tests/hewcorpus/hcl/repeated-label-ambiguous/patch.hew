@@ -1,0 +1,7 @@
+hew: 1
+
+--- target.tf format=hcl
+
+@@ /provider/"aws" @@
+- region = "us-east-1"
++ region = "us-east-2"

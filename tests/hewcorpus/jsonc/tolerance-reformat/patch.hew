@@ -1,0 +1,8 @@
+hew: 1
+
+--- target.jsonc format=jsonc
+
+@@ /server @@
+  "port": 8080
+- "timeout": 30
++ "timeout": 60

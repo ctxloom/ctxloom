@@ -1,0 +1,10 @@
+name: toml/upsert-key
+seams: [e2e]
+kind: ok
+format: toml
+ops: [OP-03]
+why: |
+  `! upsert` is the one mapping write that asserts nothing about the prior state,
+  so it cannot detect drift. It exists for the case where ctxloom owns the key
+  outright — agent.InstallMCPServerJSON's exact semantics.
+spec: "§7.7, §11 OP-03"

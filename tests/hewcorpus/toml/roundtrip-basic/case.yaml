@@ -1,0 +1,9 @@
+name: toml/roundtrip-basic
+seams: [diff, render, parse, apply-ir, e2e]
+kind: ok
+format: toml
+ops: [OP-01, OP-02]
+why: |
+  RT1 for TOML. Also pins that the differ does not restructure surfaces: the dotted
+  key stays dotted and the table stays a table (§8.4 rule 1, OP-39 deferred).
+spec: "§9.4, §13.5"

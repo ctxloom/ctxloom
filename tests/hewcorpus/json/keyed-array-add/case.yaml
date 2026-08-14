@@ -1,0 +1,11 @@
+name: json/keyed-array-add
+seams: [parse, apply-ir, e2e]
+kind: ok
+format: json
+ops: [OP-16]
+why: |
+  The headline operation. The context element is written as ONE field (`name`),
+  not the whole element — subset matching (§5.1) is what keeps a keyed-array
+  context line one line long instead of eight, and it is the largest readability
+  win over RFC 7386, which must restate every untouched element.
+spec: "§4.2, §5.1, §11 OP-16"

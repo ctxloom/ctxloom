@@ -1,0 +1,11 @@
+name: json/add-key
+seams: [parse, apply-ir, e2e]
+kind: ok
+format: json
+ops: [OP-02]
+why: |
+  A bare `+` line creates a key that must not already exist, and the surrounding
+  context lines place it between `host` and `port` — position no op-list notation
+  can express without a numeric index (§6.2). The body writes bare keys and no
+  trailing commas; the backend emits correct separators (§8.1).
+spec: "§6.2, §8.1, §11 OP-02"

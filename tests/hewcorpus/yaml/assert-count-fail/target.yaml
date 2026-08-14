@@ -1,0 +1,4 @@
+mcpServers:
+  - name: filesystem
+  - name: github
+  - name: stray

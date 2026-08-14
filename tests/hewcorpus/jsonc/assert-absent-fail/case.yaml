@@ -1,0 +1,15 @@
+name: jsonc/assert-absent-fail
+seams: [e2e]
+kind: error
+format: jsonc
+error: HEW011
+error_seam: apply-ir
+error_path: /env/ANTHROPIC_API_KEY
+patch_line: 6
+message_contains: ["assertion-failed", "absent"]
+ops: [OP-25]
+why: |
+  `? absent` has no RFC 6902 equivalent — a real gap in 6902, since `test` can
+  only assert a value. Here it catches a credential that should not be in a
+  checked-in settings file.
+spec: "§7.1, §11 OP-25"

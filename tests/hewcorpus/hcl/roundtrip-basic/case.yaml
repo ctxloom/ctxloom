@@ -1,0 +1,10 @@
+name: hcl/roundtrip-basic
+seams: [diff, render, parse, apply-ir, e2e]
+kind: ok
+format: hcl
+ops: [OP-01, OP-02]
+why: |
+  RT1 for HCL. The differ must address by label tuple, not by block index, and must
+  not emit an ordinal for a tuple that occurs once (an unnecessary ordinal is
+  HEW001, O8).
+spec: "§9.4, §13.5"

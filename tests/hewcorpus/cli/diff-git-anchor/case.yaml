@@ -1,0 +1,23 @@
+name: cli/diff-git-anchor
+seams: [cli]
+kind: cli
+format: yaml
+argv: ["diff", "HEAD:config.yaml", "config.yaml"]
+exit: 0
+stdout: expected.hew
+requires: git-fixture
+fixture: |
+  The runner initialises a throwaway git repository in the scratch copy of this
+  directory, commits `committed.yaml` as `config.yaml`, then overwrites the
+  working-tree `config.yaml` with `worktree.yaml`. No fixture repository is stored
+  in the corpus — a committed .git directory is unreviewable and unportable.
+    git init -q . && git add config.yaml && git commit -qm base
+    cp worktree.yaml config.yaml
+ops: [OP-01]
+why: |
+  The canonical invocation. Both arguments are SOURCE DESCRIPTORS, not paths; the
+  REV:path form follows git's own <tree-ish>:<path> convention and is resolved by
+  invoking git plumbing as a subprocess. The library core never sees a repository.
+  If git is not on PATH this is exit 2, never a silent fallback to treating the
+  descriptor as a filename.
+spec: "§9.5, Appendix A.7, Appendix B.2"

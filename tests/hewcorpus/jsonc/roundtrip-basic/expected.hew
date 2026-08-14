@@ -1,0 +1,9 @@
+hew: 1
+
+--- new.jsonc format=jsonc
+
+@@ /server @@
+- "timeout": 30
++ "timeout": 60
++ // slow upstream
++ "retries": 5

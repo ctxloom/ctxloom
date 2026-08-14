@@ -1,0 +1,7 @@
+mcpServers:
+  - name: filesystem
+    command: npx
+  - name: github
+    command: npx
+    env:
+      GITHUB_TOKEN: ${GITHUB_TOKEN}

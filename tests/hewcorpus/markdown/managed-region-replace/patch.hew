@@ -1,0 +1,10 @@
+hew: 1
+
+--- target.md format=markdown
+
+@@ /@ctxloom:context @@
+! idempotent
+- Old managed content.
++ New managed content.
++
++ With a second block.

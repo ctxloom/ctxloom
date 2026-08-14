@@ -1,0 +1,7 @@
+hew: 1
+
+--- target.toml format=toml
+
+@@ /mcp_servers/taskloom @@
+! upsert
++ command = "taskloom"

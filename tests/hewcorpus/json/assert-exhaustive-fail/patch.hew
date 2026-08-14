@@ -1,0 +1,8 @@
+hew: 1
+
+--- target.json format=json
+
+@@ /permissions @@
+? exhaustive
+  allow: ["Bash(git *)"]
+  deny: ["Bash(rm -rf *)"]

@@ -1,0 +1,11 @@
+name: json/tolerance-key-reorder
+seams: [e2e]
+kind: ok
+format: json
+ops: [OP-01]
+why: |
+  TOLERANCE ROW: keys reordered within a map. The user moved `timeout` above
+  `host` and added `retries` since the patch was written. Under patch(1) every
+  hunk would break; under Hew nothing changed, because a map context line asserts
+  presence and value, never position.
+spec: "§6.4.1, §6.4.5"

@@ -1,0 +1,9 @@
+name: json/replace-array-wholesale
+seams: [e2e]
+kind: ok
+format: json
+ops: [OP-08]
+why: |
+  Replacing a container with an explicit empty one. Emptiness is a real value here
+  and is NOT treated as a no-op — the silent-no-op discipline cuts both ways.
+spec: "§11 OP-08"

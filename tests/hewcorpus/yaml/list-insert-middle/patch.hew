@@ -1,0 +1,8 @@
+hew: 1
+
+--- target.yaml format=yaml
+
+@@ /tags @@
+  - alpha
++ - alpha2
+  - beta

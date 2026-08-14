@@ -1,0 +1,6 @@
+[new_section]
+added = "since"
+
+[server]
+timeout = 30
+port = 8080

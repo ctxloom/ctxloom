@@ -1,0 +1,10 @@
+name: hcl/ir-relabel-block
+seams: [apply-ir]
+kind: ok
+format: hcl
+ops: [OP-36]
+why: |
+  A relabel is a move between label tuples: copy + remove, authored as a transform
+  list because the mirror grammar cannot express a correspondence between two
+  distant regions (Appendix C.1).
+spec: "§9.6, §11 OP-36"

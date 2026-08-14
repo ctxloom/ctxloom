@@ -1,0 +1,4 @@
+tool.ctxloom.timeout = 30
+
+[tool.ctxloom]
+timeout = 45

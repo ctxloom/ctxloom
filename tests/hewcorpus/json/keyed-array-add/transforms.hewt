@@ -1,0 +1,13 @@
+hew-transforms: 1
+target: target.json
+format: json
+transforms:
+  - op: test
+    path: /servers/name=github/name
+    value: github
+  - op: add
+    path: /servers
+    after: /servers/name=github
+    value:
+      name: ctxloom
+      command: ctxloom

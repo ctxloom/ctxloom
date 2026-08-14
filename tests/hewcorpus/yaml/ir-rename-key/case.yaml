@@ -1,0 +1,11 @@
+name: yaml/ir-rename-key
+seams: [apply-ir]
+kind: ok
+format: yaml
+ops: [OP-07]
+why: |
+  A rename is a move within a container, which the mirror grammar cannot express
+  (Appendix C.1). Authored as a transform list; note it desugars to copy + remove,
+  so the moved node keeps its attached comment — the exact thing the delete-and-add
+  mirror substitute would lose.
+spec: "§9.6, §11 OP-07, Appendix C.1"

@@ -1,0 +1,12 @@
+name: hcl/repeated-label-ordinal
+seams: [parse, apply-ir, e2e]
+kind: ok
+format: hcl
+ops: [OP-37, OP-02]
+why: |
+  The survey's design-A HCL rendering, made normative. `! match label=[...] ord=N`
+  selects among same-tuple siblings IN PLACE, beside the block it selects. The
+  redundant `label=` is checked and dropped by the parser; the ordinal becomes a
+  `[n]` selector on the path in the IR, because an ordinal is an addressing mode
+  and belongs with the address once it is out of human hands.
+spec: "§7.2, §11 OP-37, §11.10"

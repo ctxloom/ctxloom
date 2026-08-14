@@ -1,0 +1,8 @@
+hew: 1
+
+--- target.jsonc format=jsonc
+
+@@ / @@
+  "port": 8080
++ // added by taskloom manage install
++ "telemetry": false

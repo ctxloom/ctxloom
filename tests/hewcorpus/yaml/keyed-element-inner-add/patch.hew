@@ -1,0 +1,8 @@
+hew: 1
+
+--- target.yaml format=yaml
+
+@@ /mcpServers/name=github @@
+  command: npx
++ env:
++   GITHUB_TOKEN: ${GITHUB_TOKEN}

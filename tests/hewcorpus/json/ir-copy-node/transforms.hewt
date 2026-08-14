@@ -1,0 +1,10 @@
+hew-transforms: 1
+target: target.json
+format: json
+transforms:
+  - op: test
+    path: /defaults/timeout
+    value: 30
+  - op: copy
+    from: /defaults
+    path: /service_b

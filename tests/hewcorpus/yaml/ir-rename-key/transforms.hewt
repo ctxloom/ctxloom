@@ -1,0 +1,13 @@
+hew-transforms: 1
+target: target.yaml
+format: yaml
+transforms:
+  - op: test
+    path: /server/timeout
+    value: 30
+  - op: copy
+    from: /server/timeout
+    path: /server/timeout_seconds
+    before: /server/port
+  - op: remove
+    path: /server/timeout

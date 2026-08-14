@@ -1,0 +1,10 @@
+name: json/ir-move-normalized
+seams: [apply-ir]
+kind: ok
+format: json
+ops: [OP-21]
+why: |
+  `op: move` is accepted on input as sugar and normalized to `copy` + `remove`
+  (§11.10 reduction 1). This case pins that the sugar spelling applies and that an
+  emitted transform list would carry the two core records instead.
+spec: "§9.6, §11.10, §11 OP-21"

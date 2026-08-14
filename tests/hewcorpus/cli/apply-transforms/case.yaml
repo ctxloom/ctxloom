@@ -1,0 +1,13 @@
+name: cli/apply-transforms
+seams: [cli, apply-ir]
+kind: cli
+format: yaml
+argv: ["apply", "--transforms", "move.hewt"]
+exit: 0
+expected: expected.yaml
+ops: [OP-21]
+why: |
+  The IR input path — the authoring surface for moves and copies (Appendix C.1).
+  It reuses the applier the mirror grammar uses, so this CLI mode inherits the
+  whole apply-ir seam's conformance coverage for free.
+spec: "§9.6, Appendix B.1"

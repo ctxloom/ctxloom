@@ -1,0 +1,10 @@
+hew: 1
+
+--- target.toml format=toml
+
+@@ /plugin @@
+  [[plugin]]
+  name = "beta"
++ [[plugin]]
++ name = "gamma"
++ enabled = true

@@ -1,0 +1,5 @@
+[
+  { "op": "test", "path": "/server/port", "value": 8080 },
+  { "op": "test", "path": "/server/timeout", "value": 30 },
+  { "op": "replace", "path": "/server/timeout", "value": 60 }
+]

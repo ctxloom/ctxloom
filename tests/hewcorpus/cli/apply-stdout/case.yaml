@@ -1,0 +1,13 @@
+name: cli/apply-stdout
+seams: [cli]
+kind: cli
+format: yaml
+argv: ["apply", "-o", "-", "patch.hew"]
+exit: 0
+stdout: expected.yaml
+target_unchanged: true
+ops: [OP-01]
+why: |
+  `-o -` writes the result to stdout and leaves the target alone. Stdout carries
+  results; stderr carries human diagnostics; never both on stdout.
+spec: "Appendix B.1, B.3"

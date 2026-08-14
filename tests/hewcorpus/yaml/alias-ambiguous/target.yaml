@@ -1,0 +1,8 @@
+defaults: &defaults
+  timeout: 30
+service_a:
+  <<: *defaults
+  port: 8080
+service_b:
+  <<: *defaults
+  port: 8081

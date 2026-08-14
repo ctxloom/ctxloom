@@ -1,0 +1,8 @@
+hew: 1
+
+--- target.yaml format=yaml
+
+@@ /server @@
+# seed a timeout only if the user has not chosen one
+! default
++ timeout: 30

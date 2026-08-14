@@ -1,0 +1,8 @@
+hew: 1
+
+--- target.yaml format=yaml
+
+@@ /server @@
+- # TODO: revisit this
++ # raised 2026-08 for the slow upstream
+  timeout: 30

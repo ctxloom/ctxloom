@@ -1,0 +1,11 @@
+name: yaml/assert-only
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-24, OP-25, OP-28]
+why: |
+  An assert-only patch: context and `?` lines, no `+`/`-`. It changes nothing,
+  writes nothing, and exits 0. This is what the ops hatch was going to be needed
+  for and is not — the mirror body supplies the shape, so a precondition patch
+  reads exactly like the patches around it.
+spec: "§7.4"

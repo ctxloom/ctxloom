@@ -1,0 +1,10 @@
+name: yaml/anchor-rewrite
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-40]
+why: |
+  `! anchor rewrite` edits the anchor DEFINITION, so every alias site observes the
+  change. Paired with yaml/alias-fork, which is the same patch with the opposite
+  intent, and yaml/alias-ambiguous, which is what happens with neither.
+spec: "§8.3, §11 OP-40"

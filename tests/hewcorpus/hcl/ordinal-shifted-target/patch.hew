@@ -1,0 +1,9 @@
+hew: 1
+
+--- target.tf format=hcl
+
+@@ /provider/"aws" @@
+! match ord=1
+  alias  = "east"
+  region = "us-east-1"
++ profile = "ctxloom"

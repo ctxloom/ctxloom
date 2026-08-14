@@ -1,0 +1,10 @@
+name: yaml/tolerance-unrelated-edits
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-01]
+why: |
+  TOLERANCE ROW: unrelated keys added and removed elsewhere, comments edited. Only
+  the asserted nodes are constrained; everything else is free. This is subset
+  matching (§6.1) doing the work that `? exhaustive` opts out of.
+spec: "§6.1, §6.4.5"

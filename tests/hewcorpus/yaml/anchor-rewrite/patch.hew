@@ -1,0 +1,8 @@
+hew: 1
+
+--- target.yaml format=yaml
+
+@@ /service_a @@
+! anchor rewrite
+- timeout: 30
++ timeout: 60

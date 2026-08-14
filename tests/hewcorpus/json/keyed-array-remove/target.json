@@ -1,0 +1,6 @@
+{
+  "servers": [
+    { "name": "legacy", "command": "old" },
+    { "name": "github", "command": "npx" }
+  ]
+}

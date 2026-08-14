@@ -1,0 +1,14 @@
+name: cli/empty-patch-exit-2
+seams: [cli, parse]
+kind: cli
+format: yaml
+argv: ["apply", "-i", "patch.hew"]
+exit: 2
+stderr_contains: ["HEW001", "no hunks"]
+target_unchanged: true
+why: |
+  cli.runConfigWrite's refuse-empty-patch rule, promoted to the format. A file
+  section with no hunks is HEW001 at the PARSER seam — an empty patch is a mistake,
+  never a successful no-op. This is the silent-no-op discipline applied to the
+  patch itself rather than to the target.
+spec: "§10.2"

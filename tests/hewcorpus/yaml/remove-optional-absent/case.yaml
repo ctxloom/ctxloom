@@ -1,0 +1,10 @@
+name: yaml/remove-optional-absent
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-06]
+why: |
+  The ONE construct in hew that can silently do nothing, opted into explicitly and
+  with a justifying comment. A linter should warn on every use of `! optional`;
+  this case exists so the warning has something to fire on.
+spec: "§7.6, §11 OP-06"

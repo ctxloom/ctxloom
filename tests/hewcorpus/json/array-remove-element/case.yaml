@@ -1,0 +1,9 @@
+name: json/array-remove-element
+seams: [e2e]
+kind: ok
+format: json
+ops: [OP-14, OP-15]
+why: |
+  A `-` element in a scalar sequence. The parser addresses it by value
+  (`/tags/=beta`), not by index, so the patch survives reordering (§6.4.2).
+spec: "§4.2, §6.4, §11 OP-15"

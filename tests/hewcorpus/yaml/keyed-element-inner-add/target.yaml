@@ -1,0 +1,5 @@
+mcpServers:
+  - name: filesystem
+    command: npx
+  - name: github
+    command: npx

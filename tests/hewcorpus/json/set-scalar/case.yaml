@@ -1,0 +1,11 @@
+name: json/set-scalar
+seams: [parse, apply-ir, e2e]
+kind: ok
+format: json
+ops: [OP-01]
+why: |
+  A scalar under a `-`/`+` pair is replaced in place. The sibling context line
+  compiles to a `test`, so a drifted neighbour would fail (see json/stale-context).
+  Untouched members keep their exact source bytes, including the 2-space indent
+  and the key order.
+spec: "§5, §9.0, §11 OP-01"

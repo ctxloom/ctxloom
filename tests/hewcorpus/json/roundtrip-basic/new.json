@@ -1,0 +1,10 @@
+{
+  "name": "myapp",
+  "server": {
+    "port": 8080,
+    "timeout": 60,
+    "tls": true
+  },
+  "tags": ["alpha", "beta"],
+  "keep": true
+}

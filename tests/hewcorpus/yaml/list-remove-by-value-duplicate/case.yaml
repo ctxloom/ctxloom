@@ -1,0 +1,14 @@
+name: yaml/list-remove-by-value-duplicate
+seams: [e2e]
+kind: error
+format: yaml
+error: HEW012
+error_seam: apply-ir
+error_path: /tags/=beta
+patch_line: 6
+message_contains: ["ambiguous-match", "beta"]
+ops: [OP-15]
+why: |
+  A duplicated scalar in a list is drift. Hew names it rather than picking the
+  first match — the addressing half of the loud-staleness discipline.
+spec: "§4.2, §11 OP-15"

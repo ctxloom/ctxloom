@@ -1,0 +1,10 @@
+name: yaml/alias-fork
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-41]
+why: |
+  `! anchor fork` materializes the value at THIS site only. service_b still sees
+  30. Note the merge key survives and the new key shadows it — hew does not
+  dissolve the merge, it shadows into it.
+spec: "§8.3, §11 OP-41"

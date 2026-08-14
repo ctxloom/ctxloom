@@ -1,0 +1,18 @@
+hew: 1
+
+--- target.yaml format=yaml
+
+@@ /server @@
+- host: localhost
+  port: 8080
+- timeout: 30
++ timeout: 60
+
+@@ /tags @@
+  - beta
++ - gamma
+
+@@ /mcpServers @@
+  - name: github
++ - name: ctxloom
++   command: ctxloom

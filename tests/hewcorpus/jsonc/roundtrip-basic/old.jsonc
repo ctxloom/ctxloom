@@ -1,0 +1,6 @@
+{
+  // ctxloom settings
+  "server": {
+    "timeout": 30
+  }
+}

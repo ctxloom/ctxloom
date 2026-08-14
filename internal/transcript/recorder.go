@@ -95,6 +95,26 @@ func WithRawPolicy(p RawPolicy) RecorderOption {
 	return func(r *fileRecorder) { r.policy = normalizeRawPolicy(p) }
 }
 
+// WithClock overrides the clock a Recorder stamps onto Record.TS, which
+// otherwise defaults to time.Now().UTC() at each Record call (see Record's
+// doc comment: TS is normally RECEIPT time, the one clock a LIVE capture can
+// trust). This exists for the one caller where "receipt time" is the wrong
+// concept entirely: a vendor-transcript CONVERSION reads an already-written
+// file in bulk, long after the fact — there is no live "receipt" moment per
+// line, only whatever instant the conversion happens to run at. Stamping
+// that wall-clock instant makes Convert's output depend on WHEN it ran
+// rather than only on the source bytes, so re-converting an unchanged vendor
+// transcript (routine now — see operations.RefreshVendorTranscript) produces
+// a canonical file that differs run to run even though nothing about the
+// source did. A nil now is ignored (NewRecorder's default stands).
+func WithClock(now func() time.Time) RecorderOption {
+	return func(r *fileRecorder) {
+		if now != nil {
+			r.now = now
+		}
+	}
+}
+
 // WithPath overrides the file a Recorder writes to, which otherwise is always
 // paths.HarpCanonicalTranscriptPath(harp).
 //

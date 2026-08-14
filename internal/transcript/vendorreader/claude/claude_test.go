@@ -45,10 +45,12 @@ func repoRoot(t *testing.T) string {
 
 // runConvert runs the Adapter against testdata/<fixture> into a fresh,
 // isolated Recorder and returns the Records it wrote, in file order. Every
-// TS is zeroed before returning: NewRecorder stamps TS from wall-clock time
-// with no injectable clock, so a byte-stable golden comparison must
-// normalize it out rather than pin it. seq, by contrast, IS deterministic
-// (0..N in the src file's own order) and is asserted verbatim.
+// TS is zeroed before returning: this deliberately takes NewRecorder's
+// DEFAULT wall clock (transcript.WithClock exists but is not passed here),
+// so a byte-stable golden comparison must normalize TS out rather than pin
+// it. seq, by contrast, IS deterministic (0..N in the src file's own order)
+// and is asserted verbatim. See determinism_test.go in this package for the
+// pin that DOES fix the clock (transcript.WithClock) to assert on TS too.
 func runConvert(t *testing.T, fixture string) []transcript.Record {
 	t.Helper()
 	testsupport.Isolate(t)

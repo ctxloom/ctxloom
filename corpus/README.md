@@ -16,10 +16,14 @@ One directory per case, named `<format>/<case-name>/`. Every case carries a `cas
 manifest and the fixtures its declared seams need.
 
 ```
-tests/hewcorpus/
+corpus/
   README.md
   json/      jsonc/     yaml/     toml/     hcl/     markdown/     cli/
 ```
+
+The corpus lives at the **repository root**, not under `tests/` — it is consumed by every
+implementation as a peer, including the Rust port, and `tests/` would imply Go-test-only
+ownership (spec O15).
 
 ## The five seams
 
@@ -86,6 +90,35 @@ CLI cases add `argv`, `exit`, and optionally `stdout` / `stderr_contains` /
    one case's `ops:` list. All 40 are covered today; a new v0 operation with no case is a gap
    the runner must name.
 
+## The skip registry
+
+An implementation under construction cannot pass a corpus that pins components it has not
+built. The dishonest answer is to run a subset. The honest one is a **skip registry**, and a
+conformant runner must carry one with three properties:
+
+1. Every skip is a rule with a **recorded reason** — a milestone that has not landed, or an
+   open spec question. No unexplained skips.
+2. **A rule that matches nothing fails the build.** The table can only shrink truthfully; when
+   a milestone lands, its rule stops matching and must be deleted.
+3. **`HEW_CORPUS_NO_SKIPS=1` disallows the registry entirely** — every case a rule would have
+   skipped instead fails. This is the end-state gate, and an implementation is conformant when
+   it passes under it (`just corpus-go-strict`).
+
+The `markdown/*` rule is the one entry expected to outlive the milestones: it is gated on
+spec §8.7 / O29, not on work in progress.
+
+## Acceptance criteria and the quality bar
+
+`features/` expresses these obligations as language-agnostic Cucumber criteria, bound by the
+Go implementation with godog at `go/conformance` (`TestFeatures`, `just accept-go`). They are
+not a second corpus — they are this corpus's obligations written as criteria, with these cases
+as their examples.
+
+**Mutation testing is the bar for corpus quality itself.** `just mutate-go-acceptance` runs
+the corpus and acceptance suites as mutant killers. A surviving mutant is a **corpus gap** — a
+behaviour the standard claims to pin and does not — and the fix belongs here, not in the
+implementation's own tests.
+
 ## Two case families that are not about one operation
 
 **Tolerance** (`*/tolerance-*`) — one per format family, pinning spec §6.4's table: keys
@@ -117,11 +150,18 @@ fixture, so dropping the dialect is the removal of one directory.
 
 | Directory | Cases |
 |---|---|
-| `json/` | 17 |
+| `json/` | 18 |
 | `jsonc/` | 5 |
-| `yaml/` | 22 |
+| `yaml/` | 24 |
 | `toml/` | 8 |
 | `hcl/` | 9 |
 | `markdown/` | 7 (severable) |
-| `cli/` | 8 |
-| **total** | **76** |
+| `cli/` | 12 |
+| **total** | **83** |
+
+Three families pin the human's 2026-08-14 rulings specifically: the reapply pair
+(`yaml/reapply-not-idempotent`, `json/reapply-add-exists`) and the pragma pair
+(`yaml/pragma-idempotent-file`, `yaml/pragma-strict-override`) for O3; the multi-target pair
+(`cli/multi-target-atomic`, `cli/multi-target-commit`) for O12, differing in one byte of input
+so they isolate the all-or-nothing rule; and `cli/apply-record` +
+`cli/apply-no-record-by-default` for O14.

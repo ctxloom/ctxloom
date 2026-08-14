@@ -1,0 +1,13 @@
+name: yaml/pragma-idempotent-file
+seams: [parse, e2e]
+kind: ok
+format: yaml
+ops: [OP-01, OP-02]
+why: |
+  RULED O3: the `idempotent: true` preamble pragma applies convergence to every
+  hunk, so a generating tool emits one line instead of stamping a directive onto
+  each hunk — and the choice stays VISIBLE at the top of the file rather than
+  being a property of how the applier was invoked. Both hunks here are already
+  applied; both are satisfied; the file is byte-identical and the exit code is 0.
+  The `parse` seam is declared because the pragma is a property of the patch text.
+spec: "§2.1, §7.5"

@@ -1,0 +1,15 @@
+name: yaml/pragma-strict-override
+seams: [e2e]
+kind: error
+format: yaml
+error: HEW011
+error_seam: apply-ir
+error_path: /server/timeout
+patch_line: 9
+message_contains: ["already applied", "strict"]
+ops: [OP-01]
+why: |
+  `! strict` opts a single hunk back out of a file-level `idempotent: true`
+  pragma. Precedence is hunk directive beats file pragma beats the strict default
+  (§7.5), and this case is what pins the middle link of that chain.
+spec: "§2.1, §7.5"

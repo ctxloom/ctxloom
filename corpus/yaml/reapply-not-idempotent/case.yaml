@@ -1,0 +1,17 @@
+name: yaml/reapply-not-idempotent
+seams: [e2e]
+kind: error
+format: yaml
+error: HEW011
+error_seam: apply-ir
+error_path: /server/timeout
+patch_line: 6
+message_contains: ["already applied", "! idempotent"]
+ops: [OP-01]
+why: |
+  RULED O3: strict is the default, so re-applying fails loudly. The code is
+  HEW011, NOT HEW010 — the after-image holds in full, so this is "already
+  applied", not "drifted" (§10.6). The distinction is load-bearing: conflating
+  them is how a convergent tool talks itself into re-applying against a file it
+  does not understand. The message names the remedy.
+spec: "§1, §7.5, §10.6"

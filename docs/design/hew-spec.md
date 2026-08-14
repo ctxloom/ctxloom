@@ -1,7 +1,7 @@
 # Hew: a structured patch format — specification, v0 draft
 
 **Status: DRAFT for human review (P1 gate).** Nothing here is implemented. No parser,
-no backend, no CLI exists. This document plus `tests/hewcorpus/` is the deliverable.
+no backend, no CLI exists. This document plus `corpus/` is the deliverable.
 
 **Name (human, 2026-08-14, final): the tool and the standard are `hew`.** Binary `hew`,
 extension `.hew`, transform lists `.hewt`, CLI verbs `hew apply` and `hew diff`. *Structured
@@ -42,7 +42,7 @@ reordered keys, reordered keyed arrays, reformatting, and unrelated edits are **
 a patch — while value drift, missing nodes and ambiguous matches fail loudly and by name. The
 normative table is §6.4.
 
-**The corpus is the standard.** Where this prose and `tests/hewcorpus/` disagree, the corpus
+**The corpus is the standard.** Where this prose and `corpus/` disagree, the corpus
 wins, and the disagreement is a spec bug to be fixed here. The Go implementation (P2/P3) and
 the later Rust port (P6) are conformant exactly insofar as they pass the same corpus.
 
@@ -66,7 +66,7 @@ the later Rust port (P6) are conformant exactly insofar as they pass the same co
 14. [Appendix A — proposed Go API surface](#appendix-a--proposed-go-api-surface)
 15. [Appendix B — proposed CLI surface](#appendix-b--proposed-cli-surface)
 16. [Appendix C — operations the mirror grammar cannot express](#appendix-c--operations-the-mirror-grammar-cannot-express-non-normative)
-17. [Open questions for ratification](#open-questions-for-ratification)
+17. [Decisions and residual open questions](#decisions-and-residual-open-questions)
 
 ---
 
@@ -95,11 +95,14 @@ people who expect `patch(1)`:
   apply fails.
 - **Atomic per target file.** Either every hunk against a file applies or none does. There
   are no `.rej` files and no partially-patched output. (§10.5)
-- **Already-applied is a failure, not a success** — by default. A `-` line whose node is
-  absent is `HEW010 stale-target` even if the corresponding `+` line's node is already
-  present. The `! idempotent` directive (§7.5) opts a hunk into treating that case as
-  satisfied; see [O3](#open-questions-for-ratification), because ctxloom's own managed-file
-  mechanisms are idempotent by construction and will want it.
+- **Already-applied is a failure, not a success.** **Ruled (human, 2026-08-14): strict is the
+  default.** An unannotated hunk has `patch(1)` semantics — re-applying it fails loudly
+  (`HEW014` / `HEW011`, §10.6). `! idempotent` (§7.5) opts a hunk into convergence, and the
+  `idempotent:` preamble pragma (§2.1) sets it patch-wide for a generating tool. **The
+  rationale is the discipline itself: loud failure is the default because it is the property
+  the format exists to provide; convergence is a legitimate need and is therefore a *visible
+  choice*, present in the patch text where a reviewer sees it.** A tool that wants convergent
+  patches says so once, in the preamble, and the reader knows before the first hunk.
 
 **And the second property, from the v0 notation ruling:** there is exactly one way to write a
 patch. A reader of a `.hew` file never has to learn a second grammar, and a reviewer never has
@@ -110,22 +113,25 @@ price is paid in Appendix C, honestly and in one place.
 
 ## 2. File format
 
-An Hew file is UTF-8 text, LF-terminated lines. A trailing newline on the last line is
+A hew file is UTF-8 text, LF-terminated lines. A trailing newline on the last line is
 optional. The file is **line-oriented at the top level**: the first character of every line
 is structural.
 
 ```
 patchfile   := preamble filesection+
 preamble    := ( comment | blank | directive )*
-directive   := key ":" Hew value LF
+directive   := key ":" WSP value LF
 filesection := targetline ( hunk | comment | blank )+
-targetline  := "--- " path [ Hew attrlist ] LF
+targetline  := "--- " path [ WSP attrlist ] LF
 hunk        := hunkheader bodyline*
-hunkheader  := "@@ " address " @@" [ Hew attrlist ] LF
-bodyline    := margin Hew text LF | comment | blank
-comment     := "#" [ Hew text ] LF
-attrlist    := attr ( Hew attr )*
+hunkheader  := "@@ " address " @@" [ WSP attrlist ] LF
+bodyline    := margin WSP text LF | comment | blank
+comment     := "#" [ WSP text ] LF
+attrlist    := attr ( WSP attr )*
 attr        := key "=" value
+
+WSP         := one space character (0x20)
+LF          := one line feed (0x0A)
 ```
 
 ### 2.1 Preamble
@@ -140,9 +146,22 @@ format: yaml
   version integer. This document specifies `1`. A reader seeing an unknown version MUST fail
   with `HEW002` rather than attempt a best-effort parse.
 - `format:` — optional default format for every file section that does not declare its own.
+- `idempotent:` — optional boolean pragma, default `false`. **`idempotent: true` applies
+  `! idempotent` (§7.5) to every hunk in the file.** A single hunk opts back out with
+  `! strict` (§7.5). This exists so that a *generating* tool — ctxloom's own managed-file
+  writers, every one of which is idempotent by construction — can emit convergent patches
+  without stamping a directive onto each hunk, while the choice stays visible in one place
+  at the top of the file rather than being a property of the applier's invocation.
+
+```
+# ctxloom-generated; safe to re-apply
+hew: 1
+idempotent: true
+format: json
+```
 
 No other preamble keys are defined in v0. An unknown preamble key is `HEW001` (fail loud;
-forward-compatible ignoring is deliberately not offered — see [O9](#open-questions-for-ratification)).
+forward-compatible ignoring is deliberately not offered — see [O9](#decisions-and-residual-open-questions)).
 
 ### 2.2 File sections — the `---` target line
 
@@ -225,7 +244,7 @@ Column 1 is the margin. Column 2 is a mandatory single space. The body text begi
 | `+` | **add** | This node is created. It must not already exist (unless `! idempotent`). |
 | `?` | **assert** | An annotation line carrying an assertion (§7.1, §7.4). Not part of either projection. |
 | `!` | **directive** | An annotation line changing how application works (§7.2, §7.3, §7.5). Not part of either projection. |
-| `#` | **comment** | An Hew comment. Ignored entirely. Not part of either projection. |
+| `#` | **comment** | A hew comment. Ignored entirely. Not part of either projection. |
 
 A completely blank line (zero characters, or whitespace only) is **insignificant**: it is a
 visual separator and is ignored. To express a blank line in the *target*, see §8.6 — only
@@ -252,7 +271,7 @@ The Hew margin `#` and the target's `#` never collide because the target's lives
 
 ## 4. Hew paths
 
-An Hew path addresses a node. It is **RFC 6901 JSON Pointer plus four extensions**, chosen so
+A hew path addresses a node. It is **RFC 6901 JSON Pointer plus four extensions**, chosen so
 that the common config edit is expressible without positional indices.
 
 ```
@@ -274,7 +293,7 @@ about identity and never about position in the file.
 
 Escapes: `~0` = `~`, `~1` = `/`, **and Hew adds `~2` = `=`** so that an object key containing
 a literal `=` cannot be mistaken for a key-match segment. (Extending RFC 6901's escape set is
-a compatibility decision — [O5](#open-questions-for-ratification).)
+a compatibility decision — [O5](#decisions-and-residual-open-questions).)
 
 ### 4.2 Key-match segments — `name=value`
 
@@ -294,7 +313,7 @@ only proven answer to keyed-array addressing:
 - Values are compared **after decoding**: `port=8080` matches the number `8080` and the string
   `"8080"` is written `port="8080"`. Booleans and null are bare tokens `true`/`false`/`null`.
 - Only equality is defined in v0. No regex, no substring, no numeric comparison
-  ([O6](#open-questions-for-ratification)).
+  ([O6](#decisions-and-residual-open-questions)).
 
 **The empty-field form — `/tags/=gamma`.** With no field name, the segment matches the
 element that *is* the value, addressing scalar sequences by content rather than by index:
@@ -360,7 +379,7 @@ same parent are `HEW012 ambiguous-match`.
 Block segments are `<kind>:<ordinal>` where kind ∈ `para | code | list | table | quote | html`
 and the ordinal counts **within that kind, within that section**. Markdown blocks have no
 keys of any sort, so this is the one place a path carries a number that is not an array
-index; see [O7](#open-questions-for-ratification).
+index; see [O7](#decisions-and-residual-open-questions).
 
 ### 4.5b Comment segments
 
@@ -483,7 +502,7 @@ And the derived op list (§9):
 ```
 
 Note what the `test` ops are: **every context line and every removal becomes an assertion.**
-That is where loud staleness lives in the lowered form, and it is why an Hew patch is
+That is where loud staleness lives in the lowered form, and it is why a hew patch is
 down-compilable to 6902 without losing its safety property.
 
 ### 5.1 Partial elements in a match
@@ -612,7 +631,7 @@ If no field satisfies all three, the sequence has no identity and Hew addresses 
 `overlay.subset()` idiom): an ordinal is the **last resort**, not the first tool.
 
 1. If the block has a distinguishing child attribute, **address it by that attribute
-   instead** of by ordinal — an Hew path may descend into the block and assert
+   instead** of by ordinal — a hew path may descend into the block and assert
    (`? expect ./alias = "east"`).
 2. **An ordinal-addressed transform MUST carry at least one distinguishing assert** — a
    context line or a `? expect` on a child that differs between the same-label siblings. A
@@ -621,7 +640,7 @@ If no field satisfies all three, the sequence has no identity and Hew addresses 
    loudly rather than silently edit the wrong block.*
 3. If the siblings are genuinely indistinguishable in every child, the ordinal stands alone —
    and that is the one construct in Hew that can silently patch the wrong node. The corpus
-   pins the diagnostic, and [O25](#open-questions-for-ratification) asks whether such a patch
+   pins the diagnostic, and [O25](#residual--genuinely-open) asks whether such a patch
    should be refused outright.
 
 #### 6.4.4 Two different things called "move"
@@ -653,7 +672,7 @@ Normative. Each row is corpus-case material (§13), one per format family.
 | An asserted node's **value** changed | **`HEW010` stale-target** | The assert is the contract |
 | An addressed node is **missing** | **`HEW013` no-match** | Never a silent no-op (§1) |
 | A key-match or heading now matches **two** nodes | **`HEW012` ambiguous-match** | Drift Hew will not resolve by guessing |
-| The patch was **already applied** | **`HEW010`**, unless `! idempotent` (§7.5) | [O3](#open-questions-for-ratification) |
+| The patch was **already applied** | **`HEW014`/`HEW011`** (§10.6), unless `! idempotent` or the `idempotent:` pragma (§7.5) | Ruled O3: strict default |
 | Plain-array elements reordered | **`HEW010`** if a positional address was used | The one honest failure; use `=value` addressing |
 | An earlier same-label HCL block was inserted | **`HEW010`/`HEW011`** via the required distinguishing assert (§6.4.3) | Loud, not silent |
 
@@ -673,7 +692,7 @@ among. Annotations fall into three attachment classes:
 |---|---|---|
 | **Free-standing** | `? expect`, `? absent`, `? count`, `? kind` | Nothing — they carry their own path. |
 | **Container-scoped** | `? exhaustive`, `! surface` | The container whose children are at this indentation (the anchor, for top-level body lines). |
-| **Line-scoped** | `! match`, `! anchor`, `! optional`, `! idempotent`, `! upsert`, `! default` | The immediately following body line; or the **anchor** if the annotation is the first body line of the hunk. |
+| **Line-scoped** | `! match`, `! anchor`, `! optional`, `! idempotent`, `! strict`, `! upsert`, `! default` | The immediately following body line; or the **anchor** if the annotation is the first body line of the hunk. |
 
 A line-scoped annotation not followed by a body line, and not first in the hunk, is `HEW001`.
 
@@ -804,10 +823,21 @@ hew: 1
 Note that the mirror body is still a mirror — the shape is what supplies the context — so an
 assert-only patch reads exactly like the patches around it. It has no second grammar.
 
-### 7.5 `! idempotent`
+### 7.5 `! idempotent` and `! strict`
 
-Attached to a hunk (as the first body line) or to a single `+`/`-` line. It changes the
-failure rule to:
+**Ruled (human, 2026-08-14): strict is the default and convergence is opt-in.** Three
+spellings of one boolean, in precedence order — hunk directive beats file pragma beats the
+strict default:
+
+| Spelling | Scope | Effect |
+|---|---|---|
+| *(nothing)* | default | Strict. Re-applying fails loudly (§10.6). |
+| `idempotent: true` | preamble (§2.1) | Every hunk in the file is convergent. |
+| `! idempotent` | hunk or line | This hunk (or line) is convergent. |
+| `! strict` | hunk or line | This hunk is strict, overriding a file pragma. |
+
+`! idempotent` attached to a hunk (as the first body line) or to a single `+`/`-` line
+changes the failure rule to:
 
 > If the before-image does not match **but the after-image does**, the hunk is satisfied and
 > contributes zero ops.
@@ -817,10 +847,16 @@ is still `HEW010 stale-target`, which is exactly the dangerous case a naive "jus
 tool papers over.
 
 This is the directive ctxloom's own managed-file writers (M1–M8 in the config-patching
-review) will reach for immediately, since every one of them is idempotent by construction.
-It is specified normatively here and flagged for ratification as
-[O3](#open-questions-for-ratification) because "re-running a patch is an error" is a defensible
-alternative default.
+review) will reach for immediately, since every one of them is idempotent by construction —
+which is exactly why the *file pragma* exists rather than only the per-hunk form.
+
+**Why strict remains the default even though ctxloom's own writers want the opposite.** A
+convergent-by-default format cannot tell "this patch has already been applied" from "this
+patch was written against a file that has since drifted into looking applied". The first is
+benign; the second is the misapply this format was built to prevent, and only the strict
+default makes them distinguishable. Making convergence the default would optimize for the
+generating tool at the expense of the hand-authored patch — and the hand-authored patch, read
+in a pull request, is the artifact the whole notation exists for.
 
 ### 7.6 `! optional`
 
@@ -868,7 +904,7 @@ format-agnostic.
 | Format | Extensions | Notes |
 |---|---|---|
 | `json` | `.json` | Also the default for `.json` files known to forbid comments (`package.json`). |
-| `jsonc` | `.jsonc`, well-known names | `settings.json`, `tasks.json`, `launch.json`, `tsconfig.json`, `.mcp.json` are JSONC by convention despite the extension. The well-known-name list is data, not spec — [O4](#open-questions-for-ratification). |
+| `jsonc` | `.jsonc`, well-known names | `settings.json`, `tasks.json`, `launch.json`, `tsconfig.json`, `.mcp.json` are JSONC by convention despite the extension. The well-known-name list is data, not spec — [O4](#decisions-and-residual-open-questions). |
 | `yaml` | `.yaml`, `.yml` | |
 | `toml` | `.toml` | |
 | `hcl` | `.tf`, `.hcl`, `.tfvars`, `.nomad`, `.pkr.hcl` | `.tf.json` is `json`, not `hcl`. |
@@ -1000,7 +1036,7 @@ different surface forms.
    end of the document.
 4. `! surface table` / `! surface dotted` overrides rule 3 for a creation. It is **not**
    permitted to rewrite an existing path's surface — surface migration is not a patch
-   operation in v0 ([O10](#open-questions-for-ratification)).
+   operation in v0 ([O10](#decisions-and-residual-open-questions)).
 
 ```
 --- ~/.codex/config.toml format=toml
@@ -1168,7 +1204,7 @@ score where each fails.
 The dialect is already structurally severable and must stay that way while the question is
 open:
 
-- All Markdown corpus cases live in **`tests/hewcorpus/markdown/`** and nowhere else, so a
+- All Markdown corpus cases live in **`corpus/markdown/`** and nowhere else, so a
   drop is `git rm -r` on one directory plus §8.6 and §4.5.
 - **No rule in §§1–7 or §9–§11 depends on Markdown.** The block and heading segments (§4.5)
   and the comment/section node kinds are the only cross-references, and each is guarded by a
@@ -1176,7 +1212,7 @@ open:
 - Markdown is the only format whose `NodeKind` set includes `KindSection`; nothing else reads
   it.
 
-Tracked as [O29](#open-questions-for-ratification).
+Tracked as [O29](#residual--genuinely-open).
 
 ---
 
@@ -1356,7 +1392,7 @@ field, because a positional address drifts the moment the user reorders the list
 usable when it is present on every element, scalar, and unique across the sequence. Candidate
 fields are tried in order: `name`, `id`, `key`, then any single field satisfying the
 condition. If more than one field qualifies and none is a candidate, the differ uses indices
-and emits an Hew comment saying so. See [O18](#open-questions-for-ratification) — a hardcoded
+and emits a hew comment saying so. See [O18](#decisions-and-residual-open-questions) — a hardcoded
 candidate list in a standard is exactly the kind of thing that ages badly.
 
 **R5 — Rendering values.** An added node is rendered from the *new* document's own source
@@ -1367,7 +1403,7 @@ author's formatting rather than re-emitting canonical form.
 (Appendix C), the differ fails with `HEW020` naming the change. It MUST NOT silently degrade —
 a differ that emits delete-and-add for a detected move without saying so would make Appendix
 C.1's honest limitation into a silent data-shape change. (Note the asymmetry with the *apply*
-side, which does not detect moves at all: [O16](#open-questions-for-ratification).)
+side, which does not detect moves at all: [O16](#decisions-and-residual-open-questions).)
 
 ### 9.5 Source descriptors (CLI layer only)
 
@@ -1397,7 +1433,7 @@ git's own rule.
 Normative. The IR's serialized form is a **YAML document** (and therefore also readable as
 JSON, since JSON is a YAML subset — one reader serves both). Extension `.hewt`, media type
 `application/vnd.ctxloom.hew-transforms+yaml`. Name and extension flagged as
-[O21](#open-questions-for-ratification).
+[O21](#decisions-and-residual-open-questions).
 
 ```yaml
 hew-transforms: 1
@@ -1532,6 +1568,81 @@ boundaries, and the author's chosen anchors are notation-side and do not survive
 trip (§13.5 pins `render → parse == identity on the IR`, not `parse → render == identity on
 the text`).
 
+### 9.7 The application record
+
+**Ruled (human, 2026-08-14): v0 specifies the record; `hew revert` and ledger integration are
+future work built on it.** The record is the durable answer to "what did this tool do to my
+file", and it is the artifact that makes withdrawal possible later without designing
+withdrawal now.
+
+`hew apply --record <path>` writes one after a successful apply. It is `.hewt`-shaped — same
+YAML document model, same transform vocabulary — because the thing worth recording *is* a
+transform list, and inventing a second schema for it would be exactly the duplication §11.10
+spent the reduction avoiding.
+
+```yaml
+hew-record: 1
+applied_at: 2026-08-14T09:31:07Z
+patch:
+  source: migrate-0.8.hew
+  digest: sha256:9f2c…                 # of the patch bytes, as read
+targets:
+  - target: .mcp.json
+    format: json
+    before: sha256:4ab1…               # target bytes as read
+    after:  sha256:7d30…               # target bytes as written
+    committed: true
+    transforms:                        # the RESOLVED list, exactly as executed
+      - op: test
+        path: /mcpServers/ctxloom/command
+        value: ctxloom
+      - op: add
+        path: /mcpServers/taskloom
+        value: {command: taskloom, args: [mcp]}
+  - target: .claude/settings.json
+    format: jsonc
+    before: sha256:11cc…
+    after:  sha256:2e88…
+    committed: true
+```
+
+**Fields**
+
+| Key | Meaning |
+|---|---|
+| `hew-record` | Version integer. `1` here. Must be first. |
+| `applied_at` | RFC 3339 UTC. |
+| `patch.source` | The patch's path or `-`. Informational. |
+| `patch.digest` | `sha256:` of the patch bytes **as read**, so a record can be tied to the exact patch that produced it. |
+| `targets[].before` / `.after` | `sha256:` of the target bytes as read and as written. **These are what make the record verifiable**: a later tool can tell whether the file still holds what hew left, or whether a human has edited it since. |
+| `targets[].committed` | `true` once the rename succeeded. Present and `false` only in the crash-prefix case (§10.5) if a record is written incrementally. |
+| `targets[].transforms` | The **resolved** transform list (§9.2) actually executed — indices concrete, key-matches resolved. Not the abstract form: the record states what happened to *this* file, not what the patch said in general. |
+
+**What the record is for, and what it is not.**
+
+- It **is** an audit trail: what changed, in what order, to what bytes, from which patch.
+- It **is** the input a future `hew revert` would invert. Recording the resolved list and both
+  digests is precisely what an inverter needs; recording the abstract list would not be.
+- It **is** the shape of an ownership record. ctxloom's `config-write` (review B2,
+  `distinct-bullpen`) cannot withdraw what it added because nothing recorded that ctxloom
+  added it. A record whose `transforms` are `add`s against a foreign file *is* that missing
+  statement of ownership.
+- It is **not** a lock, a ledger, or a claim of exclusivity. It records; it does not reserve.
+- It is **not** written by default. No `--record`, no record — hew does not litter.
+
+**Future work, named and deliberately not designed here:**
+
+- `hew revert <record.hewt>` — invert the resolved transforms, guarded by the `after` digests
+  so a file edited since is refused rather than clobbered. The inversion rules (what is the
+  inverse of an `add` with `on_conflict: keep`?) are a design task, not an implementation
+  detail, and they are not in v0.
+- **Ledger integration.** ctxloom's `ledger.Ledger` records *names* it owns per surface; a hew
+  record records *transforms* it applied per target. The former is a set to reconcile, the
+  latter a history to invert. Whether one subsumes the other is a P5 question, and answering
+  it early would bind the standard to one host project's ownership model — the thing the
+  spec-first structure exists to avoid.
+
+
 ---
 
 ## 10. Error taxonomy
@@ -1584,7 +1695,22 @@ error on stdout. (ctxloom's diagnostic channel split, applied to the CLI.)
 ### 10.4 First error wins
 
 Application stops at the first error. There is no "collect all failures" mode in v0
-([O11](#open-questions-for-ratification)).
+([O11](#decisions-and-residual-open-questions)).
+
+### 10.6 Already-applied: which code, and why it is not `HEW010`
+
+A hunk fails in one of two distinguishable ways, and hew names them differently because the
+remedies differ:
+
+| Situation | Code | What the author should do |
+|---|---|---|
+| **The after-image holds in full** — the patch has already been applied | `HEW014 already-exists` when the hunk's failing line is a `+` whose node now exists; `HEW011 assertion-failed` when a `-` or context assert fails while the after-image otherwise holds | Nothing, or add `! idempotent` / the `idempotent:` pragma if re-running is expected |
+| **Neither image holds** — the target drifted somewhere else | `HEW010 stale-target` | Re-author the patch against the current file |
+
+The distinction is load-bearing. "Already applied" and "drifted" look identical to a tool that
+only checks whether the before-image matched, and conflating them is how a convergent tool
+talks itself into re-applying against a file it does not understand. An implementation MUST
+evaluate the after-image before choosing the code.
 
 ### 10.5 Atomicity
 
@@ -1594,9 +1720,34 @@ an atomic temp-and-rename, and a failed apply leaves the target byte-identical. 
 `iox.WriteFileAtomicFs`'s contract and the deliberate no-backup ruling, restated as a format
 property so the Rust port inherits it.)
 
-Across *multiple* target files in one patch, v0 is **not** transactional: files are applied in
-file-section order and a later failure does not roll back an earlier file. The CLI prints
-which files were written. [O12](#open-questions-for-ratification) asks whether it should be.
+**Ruled (human, 2026-08-14): across multiple targets, all-or-nothing too.** A multi-target
+apply is two phases:
+
+1. **Stage.** Every file section is parsed, matched and applied *in memory*, producing the
+   complete result bytes for every target. Any failure anywhere aborts here, and **not one
+   byte has been written.**
+2. **Commit.** Only once every section has staged successfully are the results written, each
+   through the atomic temp-and-rename of phase 1.
+
+This is what exit 1 already promised — "nothing happened, and here is why" (Appendix B.3). A
+patch touching `.mcp.json` and `settings.json` cannot half-apply, which matters precisely
+because keeping several engines' configs consistent is hew's motivating use case: a
+half-applied cross-engine patch leaves the engines disagreeing, which is worse than leaving
+them all stale.
+
+**The honest residual: a crash during the commit phase can leave a prefix.** Once staging has
+succeeded, hew renames the staged results one at a time. A power loss or `SIGKILL` between the
+first and last rename leaves the earlier targets written and the later ones not. hew does not
+journal, does not write a two-phase-commit log, and does not attempt recovery — those are
+filesystem-transaction machinery, and a patch tool that ships half of one is more dangerous
+than a patch tool that ships none.
+
+What hew does instead: the commit window is as small as it can be (pure renames, no parsing,
+no matching, no I/O beyond the rename itself), and the **application record** (§9.7) names
+every target that was committed, so the state after a crash is *discoverable* rather than
+merely unknown. A caller that needs true multi-file transactionality needs a filesystem or a
+VCS that provides it; hew's contract is that every failure it can detect leaves everything
+untouched, and that the one failure it cannot detect is recorded rather than hidden.
 
 ---
 
@@ -1666,13 +1817,13 @@ Format column key: `✓` supported · `—` not applicable to this format's data
 | **CUE** | unification; **no delete** | Not an op vocabulary. Its missing delete is why Hew is not a unification language. |
 | **jsonnet** | `+:` deep merge, `::` hide-from-output | OP-09 (rejected), OP-05. |
 | **Coccinelle SmPL** | `-`/`+` margins in-shape, metavariables | §3 margins; metavariables not adopted (no pattern variables in v0 — OP-29). |
-| **ctxloom M1 ledger** | record-owned-names, withdraw-then-re-add | OP-51 (out of scope: ownership, [O14](#open-questions-for-ratification)). |
+| **ctxloom M1 ledger** | record-owned-names, withdraw-then-re-add | OP-51 (out of scope: ownership, [O14](#decisions-and-residual-open-questions)). |
 | **ctxloom M2 managed section** | splice block, strip section, remove file when empty, never create absent file | OP-45, OP-49 (deferred), OP-48 (deferred). |
 | **ctxloom M3 structural merge** | remove-owned-by-name then add current set | OP-16, OP-17. |
 | **ctxloom M4 package files** | render-then-swap, delete stale tracked files, empty-render guard | File-level; OP-52, OP-49. |
 | **ctxloom M5 byte-level MCP** | install/uninstall one server, installed? | OP-16, OP-17, OP-24. |
 | **ctxloom M6 `config-write`** | deep merge, arrays replace wholesale, refuse empty patch | OP-09 (rejected), OP-08, §10.2. |
-| **ctxloom M7 `config.yaml`** | node-tree patch preserving unchanged sections, drop removed keys, append new keys sorted | OP-01, OP-05, OP-02 — and it is the closest existing thing to an Hew applier. |
+| **ctxloom M7 `config.yaml`** | node-tree patch preserving unchanged sections, drop removed keys, append new keys sorted | OP-01, OP-05, OP-02 — and it is the closest existing thing to a hew applier. |
 | **ctxloom M8 gitignore** | append-only idempotent block, content-match idempotency | OP-50 (deferred: needs a line-oriented text binding). |
 
 ---
@@ -1769,7 +1920,7 @@ do nothing**, which is why §7.6 requires a justifying comment and a linter warn
 **Status** v0, **IR-only** · **Disp** `SUGAR` — → `copy` + `remove` · **Sources** 6902 `move` within a container
 **Absent/empty** Source absent → `HEW013`. Destination present → `HEW014`.
 **Mirror** IR-only. The mirror form (`- old: v` / `+ new: v`) is a delete-and-add and loses
-the node's comments and source bytes — see [O16](#open-questions-for-ratification).
+the node's comments and source bytes — see [O16](#decisions-and-residual-open-questions).
 **IR** `{op: copy, from: /server/timeout, path: /server/timeout_seconds}` then `{op: remove, path: /server/timeout}`
 **Formats** json ✓ · jsonc ✓ · yaml ✓ · toml ✓ · hcl ✓ · markdown —
 **Errors** `HEW013` `HEW014` · **Corpus** `yaml/ir-rename-key`
@@ -2125,9 +2276,9 @@ mechanisms Hew is meant to serve unaccounted for.
 | # | Operation | Source | Status | Where it lives instead |
 |---|---|---|---|---|
 | OP-48 | `create-file-if-absent` | M2 (never creates), M4 (does create) | **deferred** | The CLI's `--create` would own it. The IR is per-target and assumes the target exists. Named because M2's "an absent file is never created" is a *deliberate* behavior Hew must be able to express. |
-| OP-49 | `delete-file-when-empty` | M2 (removes the file when nothing user-authored remains), M4 (deletes stale tracked files) | **deferred** | Same. Note this is the one place ctxloom's own discipline requires a file-level effect *derived from* a node-level result. [O22](#open-questions-for-ratification). |
+| OP-49 | `delete-file-when-empty` | M2 (removes the file when nothing user-authored remains), M4 (deletes stale tracked files) | **deferred** | Same. Note this is the one place ctxloom's own discipline requires a file-level effect *derived from* a node-level result. [O22](#residual--genuinely-open). |
 | OP-50 | `append-only-idempotent-block` | M8 (`.gitignore`) | **deferred** | Needs a line-oriented `text` binding, which is not one of the six. Expressible as OP-45 once such a binding exists. |
-| OP-51 | `ledger-recorded-withdrawal` | M1 (`.ctxloom-managed`) | **out of scope** | Ownership records are not a patch operation. But see [O14](#open-questions-for-ratification): an applied `.hew` file is itself a candidate ownership record, which would make `hew revert` the withdrawal story. |
+| OP-51 | `ledger-recorded-withdrawal` | M1 (`.ctxloom-managed`) | **out of scope** | Ownership records are not a patch operation. But see [O14](#decisions-and-residual-open-questions): an applied `.hew` file is itself a candidate ownership record, which would make `hew revert` the withdrawal story. |
 | OP-52 | `whole-file-replace` | M4, kiro's dedicated files | v0 | `{op: replace, path: /, value: {...}}` — a replace at the root anchor. Legal and boring; listed so nobody invents a file-level op for it. |
 
 ---
@@ -2216,7 +2367,7 @@ when X is first, and naming a predecessor requires knowing one exists.
 **The overlap that was kept deliberately.** `replace` and `add`+`on_conflict: replace` produce
 the same bytes when the node exists. They are not duplicates: `replace` **requires** the node
 (`HEW013` if absent), `add`+`on_conflict: replace` does not. The difference is a precondition,
-which is orthogonal to the effect — see [O26](#open-questions-for-ratification), because a
+which is orthogonal to the effect — see [O26](#decisions-and-residual-open-questions), because a
 reviewer could reasonably call this the one piece of redundancy that survived.
 
 ---
@@ -2259,7 +2410,7 @@ shape-mirroring answer and is the reason XML is document-only.
 
 ## 13. The conformance corpus
 
-`tests/hewcorpus/` is the normative artifact. The Go implementation and the Rust port run the
+`corpus/` is the normative artifact. The Go implementation and the Rust port run the
 same directory. **The corpus pins the pipeline at three independent seams, not just
 end-to-end** — an end-to-end-only corpus cannot tell a parser bug from an applier bug, and the
 two are written by different people in different languages.
@@ -2288,7 +2439,7 @@ Two further seams exist for the P4 differ:
 ### 13.2 Layout
 
 ```
-tests/hewcorpus/
+corpus/                        (repo root — ratified O15)
   README.md                    how a runner consumes this directory
   json/<case>/
   jsonc/<case>/
@@ -2412,6 +2563,54 @@ A conformant runner MUST:
    a skip. Silent skips are how a conformance suite lies.
 7. Report the catalog coverage: every `OP-nn` in §11 marked `v0` must appear in at least one
    case's `ops:` list. An uncovered v0 operation is a corpus gap, and the runner names it.
+
+### 13.7 The skip registry, and the gate that retires it
+
+An implementation under construction cannot pass a corpus that pins components it has not
+built. The dishonest answer is to run a subset; the honest one is a **skip registry** — and
+the conventions below are the ones the human set directly in the standalone repository's
+`justfile`, recorded here so that the Rust port inherits them rather than reinventing them.
+
+**A conformant runner MUST carry a skip registry with these properties:**
+
+1. **Every skip is a rule with a recorded reason.** A rule names a case glob, a seam, and a
+   sentence saying *why* — a milestone that has not landed, or a spec question that is open.
+   No unexplained skips, ever.
+2. **A rule that matches nothing is a failure.** The registry can only shrink truthfully: when
+   a milestone lands and its rule stops matching, the build breaks until the rule is deleted.
+   This is the property that stops a skip table from becoming a graveyard.
+3. **The strict gate turns every match into a failure.** With `HEW_CORPUS_NO_SKIPS=1` set, the
+   registry is disallowed: any case a rule would have skipped instead fails. This is the
+   end-state conformance gate, and an implementation is conformant when it passes under it.
+
+The Go implementation binds these as `just corpus-go` (registry honoured) and
+`just corpus-go-strict` (`HEW_CORPUS_NO_SKIPS=1`). The `markdown/*` rule is the one entry
+expected to outlive the milestones: it is gated on [O29](#residual--genuinely-open), not on
+work in progress, and it will be deleted or the family removed when §8.7 is evaluated.
+
+### 13.8 Acceptance criteria and the quality bar
+
+**The corpus states the obligations; `features/` states them as acceptance criteria.** A
+Cucumber feature set at the repository root expresses what any implementation must satisfy —
+language-agnostic, so the Go and Rust implementations are held to the same text. The Go
+binding runs them with godog at `go/conformance`, entry point `TestFeatures`
+(`just accept-go`). The features are not a second corpus: they are the corpus's obligations
+written as criteria, with the corpus cases as their examples.
+
+**Mutation testing is the conformance-quality bar.** A corpus can be passed by an
+implementation whose assertions do not actually check anything, and the way that is caught is
+to mutate the implementation and confirm the suite notices. Two levels, both bound in the
+justfile:
+
+| Level | What kills the mutants | When |
+|---|---|---|
+| `just mutate-go` | Unit tests only; slow suites skipped | Inner loop, per change |
+| `just mutate-go-acceptance` | The corpus and acceptance suites as killers | Milestone exit gate |
+
+The second is the one that matters for this standard: it measures whether **the corpus itself**
+detects an implementation defect. A mutant that survives `mutate-go-acceptance` is a corpus
+gap — a behaviour the standard claims to pin and does not — and the fix belongs in `corpus/`,
+not in the implementation's own tests.
 
 ---
 
@@ -2538,7 +2737,7 @@ type ResolvedOp struct {
 ### A.2 Parser — notation → IR
 
 ```go
-// Parse reads an Hew patch document. It performs NO I/O, opens no target, and knows
+// Parse reads a hew patch document. It performs NO I/O, opens no target, and knows
 // no format mechanics. Its output is fully determined by the patch text.
 func Parse(src []byte) (*Patch, error)
 
@@ -2723,6 +2922,30 @@ package hewfs // may import ctxloom
 // iox.WriteFileAtomicFs, honoring §10.5 atomicity.
 func ApplyFile(fsys afero.Fs, root string, p *hew.Patch, opt hew.Options) ([]FileResult, error)
 
+// Record is the application record (spec §9.7): what was executed, against which
+// bytes. It is the input a future `hew revert` inverts, and the shape of the
+// ownership record ctxloom's config-write lacks.
+type Record struct {
+    Version   int
+    AppliedAt time.Time
+    Patch     RecordPatch
+    Targets   []RecordTarget
+}
+
+type RecordPatch struct{ Source, Digest string }
+
+type RecordTarget struct {
+    Target     string
+    Format     FormatID
+    Before     string // "sha256:..." of the bytes as read
+    After      string // "sha256:..." of the bytes as written
+    Committed  bool
+    Transforms []hew.ResolvedOp
+}
+
+func MarshalRecord(r Record) ([]byte, error)
+func UnmarshalRecord(src []byte) (Record, error)
+
 // ApplyTransforms is the same path for a hand-authored or generated .hewt document —
 // the `hew apply --transforms` entry point, and the seam the corpus pins as `apply-ir`.
 func ApplyTransforms(fsys afero.Fs, root string, tls []hew.TransformList, opt hew.Options) ([]FileResult, error)
@@ -2799,7 +3022,7 @@ func AsError(err error) (*Error, bool)
 ### A.10 Corpus runner (test-only)
 
 ```go
-package hewcorpus // tests/hewcorpus is data; this is the Go runner
+package hewcorpus // corpus is data; this is the Go runner
 
 type Seam string
 
@@ -2834,7 +3057,7 @@ func CoverageReport(cases []Case) (uncovered []string)
 **Shape ruling still open** (P0 left it so): standalone companion binary `hew` (family
 precedent: `ltk`, `taskloom`, `harp`; the natural shape for a general-purpose tool and for the
 Rust port) versus a `ctxloom patch` subcommand. This appendix specifies the standalone shape;
-a subcommand would carry the same verbs and codes. [O1](#open-questions-for-ratification).
+a subcommand would carry the same verbs and codes. [O1](#decisions-and-residual-open-questions).
 
 ### B.1 `hew apply`
 
@@ -2850,7 +3073,8 @@ hew apply --transforms <file.hewt>...           apply a transform list directly
 | `-i, --in-place` | Write the result back to the target. Default when the patch declares a target and no `-o` is given. |
 | `-o, --output FILE` | Write the result here instead. Requires a single file section. `-o -` writes to stdout. |
 | `-R, --root DIR` | Resolve target paths under DIR. Default: cwd. |
-| `--transforms FILE` | Read a canonical transform list (§9.6) instead of `.hew` notation. **This is the authoring path for moves and copies** (Appendix C) and the only way to reach OP-21/OP-22/OP-07/OP-36. Mutually exclusive with positional `.hew` arguments. Flag name at [O21](#open-questions-for-ratification). |
+| `--transforms FILE` | Read a canonical transform list (§9.6) instead of `.hew` notation. **This is the authoring path for moves and copies** (Appendix C) and the only way to reach OP-21/OP-22/OP-07/OP-36. Mutually exclusive with positional `.hew` arguments. Flag name at [O21](#decisions-and-residual-open-questions). |
+| `--record FILE` | Write an application record (§9.7) after a successful apply: the resolved transforms actually executed, plus before/after digests per target. Not written by default. |
 | `--dry-run` | Do everything including matching; write nothing; exit as if written. |
 | `--ops` | Print the **resolved** RFC 6901 op list (§9.2) to stdout and write nothing. |
 | `--transforms-out FILE` | Write the **abstract** transform list (§9.6) and write no target. The parser seam, exposed. |
@@ -2936,7 +3160,7 @@ attached comments (§9.6), which is exactly what the mirror-grammar substitute c
 **The mirror-grammar substitute is legal and lossy.** A `-` at the old path and a `+` at the
 new path applies fine — it just means delete-and-add. Comments attached to the removed node
 are lost, byte-exact formatting is lost, and a large subtree must be restated in full. Hew does
-**not** detect the pattern and does not warn: see [O16](#open-questions-for-ratification) for
+**not** detect the pattern and does not warn: see [O16](#decisions-and-residual-open-questions) for
 why that was decided rather than assumed.
 
 **Why the mirror grammar was not extended instead.** The config-patching review inventoried
@@ -2961,7 +3185,7 @@ The IR cannot express it either. `HEW020`.
 
 Rewriting `[a.b]` into `a.b = {…}` or vice versa (§8.4 rule 4). Deferred, and **not** reachable
 via the IR — Hew edits values at whichever surface exists; restructuring surfaces is a
-formatter's job. `HEW020`, and see [O10](#open-questions-for-ratification).
+formatter's job. `HEW020`, and see [O10](#decisions-and-residual-open-questions).
 
 ### C.5 Cross-file operations
 
@@ -2969,47 +3193,68 @@ Moving a key from one file to another, or asserting a relationship between two t
 transform list names one target (§9.6) and each file section is independent (§10.5). This is
 the largest of the five and the one most likely to be requested first, since ctxloom's real
 job is keeping five engines' configs consistent. Not reachable via the IR today;
-[O12](#open-questions-for-ratification) and [O13](#open-questions-for-ratification) are its
+[O12](#decisions-and-residual-open-questions) and [O13](#decisions-and-residual-open-questions) are its
 prerequisites.
 
 ---
 
-## Open questions for ratification
+## Decisions and residual open questions
 
-Every fork below was resolved by judgment while drafting. The spec states a decision for each;
-these are the ones a reviewer should overturn deliberately rather than discover later.
+Every fork resolved by judgment while drafting was listed here for ratification. **The
+coordinator ratified 26 of them on 2026-08-14**, and the human ruled the three headline
+questions directly. What remains open is four items, listed last — each genuinely needs
+evidence that does not exist yet.
 
-| # | Question | What the draft does | Why it might be wrong |
-|---|---|---|---|
-| **O1** | Standalone `hew` binary vs `ctxloom patch` subcommand. | Appendix B specifies standalone. | P0 left it explicitly open. Standalone means a fourth companion binary to build, sign, and install; the ctxloom subcommand is free but ties a general-purpose standard to one host. |
-| **O2** | Doc filename convention. | `docs/design/hew-spec.md`, per the brief. | The directory's existing convention is `<name>.design.md`; `docs/` also has `signature-envelope.spec.md`. Once ratified this is a *spec*, not a design, so `docs/hew.spec.md` may be the right home. |
-| **O3** | Is re-applying a patch an error? | Yes by default (`HEW010`); `! idempotent` (§7.5) opts out per hunk. | Every ctxloom managed-file writer is idempotent by construction, so `! idempotent` may end up on ~every hunk ctxloom itself writes — an argument for inverting the default, or for a file-level `idempotent: true` preamble key. |
-| **O4** | JSONC-by-well-known-name. | §8.0 carries a name list (`settings.json`, `tsconfig.json`, `.mcp.json`, …). | A hard-coded name list in a *standard* ages badly. Alternatives: always require `format=` for `.json`, or default `.json` to JSONC-tolerant reading and only emit comments when asked. |
-| **O5** | Extending RFC 6901's escape set with `~2` for `=`. | Adopted (§4.1). | It makes Hew paths not-quite-JSON-Pointers even when they look like one. Alternative: require quoting the whole segment (`/"a=b"`), reusing the label-segment syntax. |
-| **O6** | Key-match comparison operators. | Equality only (§4.2). | go-patch has only equality too, but real config has compound identity. Regex or multi-field match (`name=x,scope=y`) may be needed sooner than v1. |
-| **O7** | Markdown kind-scoped block ordinals (`code:0`) in a path. | Allowed (§4.5). | It is the only number in the address grammar that is not an array index, and it is positional — the exact fragility `! match ord=` was made an annotation to keep *out* of paths. Alternative: make Markdown block selection an annotation too (`! match kind=code ord=0`), which would be more consistent and more verbose. |
-| **O8** | `! match ord=` on an unambiguous path. | `HEW001 parse-error` (§7.2). | Strict, and it means a patch breaks when the file *stops* being ambiguous (someone deletes the duplicate block). The alternative — tolerate a redundant ordinal — means an ordinal can silently become meaningless. |
-| **O9** | Unknown preamble keys and unknown `!` directives. | Hard failure `HEW001`. | Fail-loud is this project's discipline, but it means Hew v1 readers reject every v1.1 patch, so the version field carries the whole forward-compat burden. |
-| **O10** | TOML surface migration (`[a.b]` → `a.b = {…}`). | Not a patch operation (`HEW020`, §8.4 rule 4, Appendix C.4). | It is a real thing people want to do, and refusing it pushes them to a text editor — where they will drift. |
-| **O11** | Collect-all-failures mode. | No: first error wins (§10.4). | A patch with six stale hunks reports one, and the author fixes them one round-trip at a time. A `--all-errors` diagnostic mode would not weaken the apply contract. |
-| **O12** | Multi-file atomicity. | Per-file atomic, not cross-file (§10.5). | A patch touching `.mcp.json` and `settings.json` can half-apply. Cross-file atomicity is implementable (stage all, then rename all) and this project's config writers are exactly the case that wants it. |
-| **O13** | Should `--- ` target lines support globs or multiple paths? | No — one literal path per section. | ctxloom's real use ("apply this to every engine's MCP registry") would want it. Deliberately deferred to keep v0's target model trivial. |
-| **O14** | Where does the ledger meet Hew? | Nowhere in v0: the spec has no ownership-record concept. | `config-write`'s missing ownership record (review B2, `distinct-bullpen`) is the mechanism Hew is meant to serve. An Hew patch is a natural *record* of what ctxloom added — an `hew revert` from the same file could be the withdrawal story the ledger currently provides. That may deserve a spec section rather than an adapter. |
-| **O15** | Corpus location. | `tests/hewcorpus/`, sibling to `tests/acceptance` etc. | The corpus is meant to be consumed by a *different repository* (the Rust port). A top-level `hewcorpus/` or a dedicated repo may be right; `tests/` implies Go-test-only ownership. |
-| **O16** | **Is delete-and-add acceptable semantics for a move?** | Yes — the spec does not detect the pattern, does not error on it, and Appendix C.1 records it as the substitute. | The alternative was to detect "a `-` and a `+` of an equal subtree at different paths" and raise `HEW020 inexpressible` pointing at Appendix C. That was rejected because the detection is a heuristic (how equal is equal? does a one-key change break it?), because a false positive would block a legitimate delete-and-add, and because Hew has no way to know whether the author *meant* a move. **The cost is real and named:** comments attached to the removed node are lost, byte-exact formatting of the moved subtree is lost, and a large subtree must be restated in full. If a reviewer wants moves detected rather than silently degraded, that is a deliberate reversal and Appendix C.1 changes with it. |
-| **O18** | Differ identity-field candidates (`name`, `id`, `key`). | Hardcoded default list, `--key-fields` override (§9.4-R4). | A hardcoded list in a *standard* is the same aging problem as O4's JSONC name list. Alternatives: no default (indices unless told), or a per-format default (HCL has labels, TOML has `[[x]]` keys). |
-| **O19** | Default context radius = 1 sibling. | §9.4-R2. | Unified diff chose 3 lines. One sibling is the smallest radius that still pins insertion position (§6.2). But because context compiles into assertions (§9.0), the default is also the default *strictness*, and a stricter default (3, or `all`) may be the right bias for a format built around loud staleness. |
-| **O20** | Git anchors via subprocess, not a linked library. | §9.5, Appendix A.7. | Ruled by the human. Recorded here because it has a real cost: `hew` in a container without `git` silently loses `REV:path` support, and the error is a usage error at the CLI rather than a capability probe. |
-| **O21** | Name and extension of the serialized IR: `.hewt`, `hew apply --transforms`. | §9.6, Appendix B.1. | Alternatives: `.hew.yaml` (signals "this is YAML"), `.spops`, or `hew apply --ir`. Also: should `hew apply` sniff the input and accept either form on the positional argument, rather than requiring a flag? |
-| **O22** | File-level effects derived from node-level results (OP-48, OP-49). | Deferred; not in the IR. | ctxloom's M2 genuinely does this: it *removes the file* when nothing user-authored remains, and never creates an absent one. If Hew is to replace M2, either the IR grows file-level effects or the adapter keeps owning them — and the second answer means Hew does not actually replace M2. |
-| **O23** | Comment attachment on added nodes (OP-30, OP-31). | **Yes** — a patch can carry a comment for the node it adds, and `HEW020` for JSON which has no comments. | No surveyed patch format can do this, so there is no prior art to copy and no compatibility argument either way. The cost is that every applier must implement comment attachment, which is the hardest part of `yaml.v3` node surgery. The alternative is comments-as-context-only (readable, unwritable). |
-| **O24** | Catalog completeness. | 52 entries; §11.9 claims exhaustiveness over the surveyed systems. | The claim is only as good as the survey, and the survey itself records two gaps: no TOML notation candidate existed in any surveyed tool, and no format-prevalence census was obtainable. If a reviewer knows of a verb in a system not in §11.1's table, that is the bug to report. |
-| **O17** | Should `! optional` exist at all? | Yes, with a linter warning (§7.6). | It is the one construct in Hew that reintroduces the silent no-op the format was built to eliminate. The argument for it is real files with genuinely conditional content; the argument against is that every escape hatch is used more than its designer expects. |
-| **O25** | An HCL ordinal with no distinguishing assert available (genuinely identical sibling blocks). | The ordinal stands alone and the patch can silently target the wrong block (§6.4.3 rule 3). | The alternative is to refuse such a patch outright (`HEW001`), which is consistent with the rest of the format but leaves a legal HCL file unpatchable by Hew at all. |
-| **O26** | `replace` vs `add`+`on_conflict: replace` overlap. | Both kept: they differ in precondition, not effect (§11.10). | A reviewer could call this the one surviving redundancy in an IR whose stated goal is zero duplication. Removing `replace` would make the most common operation a two-record composition. |
-| **O27** | Two tolerance flags (`optional`, `idempotent`) rather than one. | Both kept — they tolerate different conditions (absent node vs already-applied state). | A single `tolerate: absent\|applied\|both` field would be tighter ASM at the cost of a less obvious spelling. |
-| **O28** | Comment addresses (`/x/#0`, `/x/timeout/#t`). | Introduced (§4.5b) so that comment attachment could desugar. | Kind-scoped ordinals on comments are positional and drift when a comment is inserted earlier — the exact fragility §6.4 warns about, now present in a corner of the address grammar. Alternative: comments addressable only relative to the member they attach to, giving up standalone comment editing. |
-| **O29** | **Is Markdown in the implement tier at all?** | Kept in the draft as designed, with its fate deferred to the §8.7 evaluation. | Ruled open by the human: Markdown may be better served by plain `patch(1)`. The tolerance model's asymmetry is the crux — reorder-blindness is Hew's largest win over `patch(1)` and it is worth nothing for prose, where order *is* the content. Three outcomes are on the table (keep / drop to documented-only / narrow to managed-marker regions only), and the third is the one to beat. |
+### Ruled by the human, 2026-08-14
+
+| # | Question | Ruling |
+|---|---|---|
+| **O3** | Is re-applying a patch an error? | **Strict default.** An unannotated hunk has `patch(1)` semantics and re-applying fails loudly (`HEW014`/`HEW011`, §10.6). `! idempotent` opts a hunk into convergence; the `idempotent:` preamble pragma (§2.1) sets it patch-wide for a generating tool; `! strict` opts a single hunk back out. Loud failure is the core discipline; convergence is a **visible choice** in the patch text, never a property of how the applier was invoked. |
+| **O12** | Multi-file atomicity. | **All-or-nothing across targets** (§10.5). Every section stages in memory; the commit phase runs only if all staged successfully. Any detectable failure leaves every target byte-identical — which is what exit 1 already promised. The crash-mid-commit prefix is documented as the honest residual, with the application record (§9.7) making the resulting state discoverable rather than unknown. |
+| **O14** | Where does the ledger meet hew? | **Spec the application record, defer revert** (§9.7). `hew apply --record <path>` emits a `.hewt`-shaped record: the resolved transforms actually executed plus before/after digests per target. `hew revert` and ledger integration are named as future work built on the record, not v0 — answering them now would bind the standard to one host project's ownership model. |
+| **O20** | Git anchors via subprocess, not a linked library. | **Subprocess** (§9.5, Appendix A.7). Ruled directly; the cost — no `REV:path` in a container without `git`, surfacing as a usage error — is accepted and stated. |
+
+### Ratified by the coordinator, 2026-08-14
+
+Each was a stated lean or provisional decision in the draft; each is now decided, with the
+reason that decided it.
+
+| # | Question | Decision and rationale |
+|---|---|---|
+| **O1** | Standalone `hew` binary vs `ctxloom patch` subcommand. | **Standalone.** Settled by construction: the human created `~/workspace/hew` as its own repository with `go/` and `rust/` trees and a corpus-driven justfile. A standard intended to outlive its host project cannot ship as that host's subcommand. |
+| **O2** | Doc filename convention. | **`docs/hew-spec.md`** at the standalone repo root. Settled by the same repository. This is a spec, not a design note, so it does not take the `*.design.md` convention of ctxloom's `docs/design/`. |
+| **O4** | JSONC-by-well-known-name. | **The mechanism is normative; the list is binding data.** §8.0 specifies that a binding carries a `DetectRule` with extensions and well-known names; the names themselves ship with the binding and are always overridable by an explicit `format=`. A hard-coded name list in the *standard* would age badly; one in an implementation's detection table is just a default. |
+| **O5** | Extending RFC 6901's escape set with `~2` for `=`. | **Adopted.** One character, unambiguous, and it keeps segments readable. The alternative — quoting the whole segment — collides with the label-segment syntax HCL needs (§4.3), which would make the address grammar ambiguous exactly where it must not be. |
+| **O6** | Key-match comparison operators. | **Equality only in v0.** go-patch, the one proven prior art for this idiom, has only equality. Regex or multi-field match is a compatible future extension to the segment grammar; shipping it now would mean designing a match language against zero measured demand. |
+| **O7** | Markdown kind-scoped block ordinals (`code:0`) in a path. | **Allowed, and scoped to Markdown's fate.** Markdown has no keys at all, so the dialect is unusable without them. Revisited only if [O29](#residual--genuinely-open) keeps Markdown in the implement tier; if Markdown drops, this question drops with it. |
+| **O8** | `! match ord=` on an unambiguous path. | **`HEW001`.** Consistent with §6.4.3's MUST: an unnecessary ordinal is a latent misapply waiting for the file to grow a sibling. A patch that breaks when the file *stops* being ambiguous is a patch that told you something changed, which is the contract. |
+| **O9** | Unknown preamble keys and unknown `!` directives. | **Hard failure `HEW001`.** Fail-loud is the project's discipline and the format's whole premise. The version field carries the forward-compat burden deliberately: a reader that silently ignores what it does not understand is a reader that silently misapplies. |
+| **O10** | TOML surface migration (`[a.b]` ↔ `a.b = {…}`). | **Not a patch operation** (`HEW020`, §8.4 rule 4, Appendix C.4). Restructuring surfaces without changing values is a formatter's job. hew edits at whichever surface exists and never adds a second one. |
+| **O11** | Collect-all-failures mode. | **First error wins for apply** (§10.4). A later `--all-errors` *diagnostic* flag is compatible and would not weaken the apply contract, since apply is all-or-nothing regardless; it is simply not v0. |
+| **O13** | Globs or multiple paths on `--- ` target lines. | **No — one literal path per section.** With O12's cross-target atomicity, listing targets explicitly is cheap and the patch says exactly what it touches. A glob makes the set of affected files depend on the filesystem at apply time, which is precisely the kind of invisible input this format refuses elsewhere. |
+| **O15** | Corpus location. | **`corpus/` at the standalone repo root.** Settled by the human's repository; `tests/` would have implied Go-test-only ownership of an artifact the Rust port consumes as a peer. |
+| **O16** | Is delete-and-add acceptable semantics for a move? | **Yes, undetected.** hew does not pattern-match a `-`/`+` pair into a move: the detection is a heuristic, a false positive would block a legitimate delete-and-add, and hew cannot know what the author meant. The cost is named in Appendix C.1 — lost comments, lost byte-exact formatting, full restatement — and the remedy is the transform list, which is one flag away. |
+| **O17** | Should `! optional` exist at all? | **Yes, with a linter warning** (§7.6). Real files have genuinely conditional content. It is the one construct that reintroduces the silent no-op, so it is discouraged in the spec, warned on by a conformant linter, and pinned by a corpus case so the warning has something to fire on. |
+| **O18** | Differ identity-field candidates. | **Same treatment as O4:** the *preference rule* is normative (§9.4-R4 — present on every element, scalar, unique), the candidate list is binding data with a `--key-fields` override. The rule is what conformance turns on; the list is a default. |
+| **O19** | Default context radius = 1 sibling. | **1.** The smallest radius that still pins insertion position (§6.2), which is the property context must carry. Unified diff's 3 is a line-oriented number with no structural meaning here. Because context compiles into assertions (§9.0), a larger default would silently make every generated patch stricter than its author asked for; `-U` raises it deliberately. |
+| **O21** | Name and extension of the serialized IR. | **`.hewt`, `hew apply --transforms`.** The extension mirrors `.hew` so the pair reads as one family; the flag names the concept rather than the file type. Sniffing the positional argument was rejected — two input grammars with invisible precedence is how a tool starts guessing. |
+| **O23** | Comment attachment on added nodes. | **Yes** (OP-30, OP-31), `HEW020` for JSON which has no comments. No surveyed patch format can do this, and ctxloom's own managed writers require it — every managed region carries an explanatory header. The implementation cost lands on the appliers, which is the right place for it. |
+| **O25** | *(moved to residual — see below)* | |
+| **O26** | `replace` vs `add`+`on_conflict: replace` overlap. | **Both kept.** They differ in *precondition*, not effect: `replace` requires the node (`HEW013` if absent), `add` does not. A precondition is orthogonal to an effect, so this is not the duplication the reduction forbids. Removing `replace` would make the most common operation a two-record composition. |
+| **O27** | Two tolerance flags rather than one. | **Both kept.** `optional` tolerates an absent node; `idempotent` tolerates an already-applied state. Different conditions, and a single `tolerate:` enum would spell them less obviously while saving one field. |
+| **O28** | Comment addresses (`/x/#0`, `/x/timeout/#t`). | **Kept.** They had to exist for OP-32/OP-33 regardless, and their existence is what let the comment-attachment qualifier reduce away entirely (§11.10). The positional-drift hazard is real and bounded: a comment address is only used by a patch that is editing that comment, and such a patch asserts the comment's text, so a shifted ordinal fails loudly rather than editing the wrong comment. |
+| **O22, O24, O29** | *(residual — see below)* | |
+
+### Residual — genuinely open
+
+Four. Each needs evidence that does not exist yet; none blocks implementation of the rest.
+
+| # | Question | What would settle it |
+|---|---|---|
+| **O22** | File-level effects derived from node-level results (OP-48 `create-file-if-absent`, OP-49 `delete-file-when-empty`). | The P5 ctxloom-adoption slice. M2 genuinely removes the file when nothing user-authored remains and never creates an absent one. If hew is to replace M2, either the IR grows file-level effects or the adapter keeps owning them — and the second answer means hew does not actually replace M2. Deciding before attempting the migration would be guessing. |
+| **O24** | Catalog completeness (§11.9 claims exhaustiveness over the surveyed systems). | A reviewer who knows a verb in a system absent from §11.1's table. The claim is only as good as the survey, and the survey records two of its own gaps: no TOML notation candidate existed in any surveyed tool, and no format-prevalence census was obtainable. This is a standing invitation to falsify, not a decision awaiting a decider. |
+| **O25** | An HCL ordinal with no distinguishing assert available — genuinely identical sibling blocks. | Real HCL. §6.4.3 rule 3 currently lets the ordinal stand alone, which is the one construct in hew that can silently patch the wrong node; refusing it outright would leave legal HCL files unpatchable by hew at all. Nobody has measured how often truly indistinguishable sibling blocks occur in practice, and the answer decides which cost is worse. |
+| **O29** | Is Markdown in the implement tier at all? | The §8.7 evaluation — a rendered side-by-side of six scenarios against plain `patch(1)`, scored. The crux is already stated: reorder-blindness is hew's largest win over `patch(1)` and it is worth approximately nothing for prose, where order *is* the content. The corpus's skip registry already encodes the deferral (`markdown/*` is skipped with a recorded reason, §13.7), and the family is severable. |
 
 ### Deliberately not specified in v0
 
@@ -3025,4 +3270,4 @@ these are the ones a reviewer should overturn deliberately rather than discover 
 - **A second human-authoring notation.** The v0 ruling is one grammar. The transform list
   (§9.6) is an accepted *input*, but it is machine-first by design and a `.hewt` file where a
   `.hew` file would do is a review-quality regression.
-- **Reverting an applied patch** (`hew revert`). Sketched only in [O14](#open-questions-for-ratification).
+- **Reverting an applied patch** (`hew revert`). Sketched only in [O14](#decisions-and-residual-open-questions).

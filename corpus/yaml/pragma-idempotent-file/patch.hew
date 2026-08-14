@@ -1,0 +1,13 @@
+# ctxloom-generated; safe to re-apply
+hew: 1
+idempotent: true
+
+--- target.yaml format=yaml
+
+@@ /server @@
+- timeout: 30
++ timeout: 60
+
+@@ /server @@
+  timeout: 60
++ tls: true

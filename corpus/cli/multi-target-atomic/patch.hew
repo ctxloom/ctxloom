@@ -1,0 +1,13 @@
+hew: 1
+
+--- first.json format=json
+
+@@ /server @@
+- timeout: 30
++ timeout: 60
+
+--- second.json format=json
+
+@@ /server @@
+- timeout: 30
++ timeout: 60

@@ -1,0 +1,18 @@
+name: cli/apply-record
+seams: [cli]
+kind: cli
+format: json
+argv: ["apply", "-i", "--record", "out.hewt", "patch.hew"]
+exit: 0
+expected: expected.json
+expected_record: expected-record.hewt
+record_digest_fields: [patch.digest, targets.0.before, targets.0.after]
+ops: [OP-16]
+why: |
+  RULED O14. `--record` emits the application record (§9.7): the RESOLVED
+  transforms actually executed — key-match segments already collapsed to indices —
+  plus before/after digests. Recording the resolved list and both digests is
+  precisely what a future `hew revert` needs to invert safely, and it is the
+  statement of ownership that ctxloom's config-write (review B2) lacks. The runner
+  compares every field except the digests, which it recomputes from the fixtures.
+spec: "§9.2, §9.7"

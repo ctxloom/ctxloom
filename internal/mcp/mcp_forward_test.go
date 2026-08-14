@@ -12,7 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/version"
 )
+
+// captureStderr (this package's shared test helper — see testhelpers_test.go)
+// redirects the real os.Stderr for the duration of fn and returns everything
+// written to it: the diagnostics under test here (clidiag.Warn,
+// fmt.Fprintf(os.Stderr, ...)) write to the real fd, not to any buffer a
+// *cobra.Command might own.
 
 // TestForward_UnixSocketRoundTrip drives the shim's forward transport
 // end-to-end against a live runner MCP endpoint: serve on a unix socket,
@@ -175,3 +184,162 @@ func TestForward_TCPFallbackRoundTrip(t *testing.T) {
 		assert.True(t, ok, "forwarded surface (over the TCP fallback) is missing %q", name)
 	}
 }
+
+// TestPrepareForward_EmitsPreForwardDiagnostic is the behaviour proof for
+// graceful-egomaniac unit 1 ("forwarding is never silent"): on an ACCEPTED
+// forward, prepareForward must print a stderr diagnostic naming what
+// triggered it, the socket, and the target runner's identity — BEFORE
+// returning a session ready to proxy tool traffic. The measured incident
+// this fixes was three silent hijacks in one day (once via the env var,
+// twice via the discovery marker) with zero diagnostic either way.
+func TestPrepareForward_EmitsPreForwardDiagnostic(t *testing.T) {
+	testsupport.Isolate(t) // no CTXLOOM_SESSION_HARP set: nothing to mismatch, forward is accepted
+	// Race guard: testHome's coord.Home runs a background reconnect-loop
+	// goroutine that calls clidiag.WarnOnce, which falls back to reading the
+	// bare os.Stderr var when no sink is installed — racing captureStderr's
+	// os.Stderr reassignment below. Installing a sink first routes that
+	// goroutine's warnings away from os.Stderr for the rest of the test.
+	captureWarnings(t)
+	endpoint, err := ServeRunnerMCP(testConfig(), "diagnostic-harp", testHome(t), false, "")
+	require.NoError(t, err)
+	t.Cleanup(endpoint.Close)
+
+	trigger := forwardTrigger{Kind: "env var", Name: "CTXLOOM_MCP_SOCKET"}
+	var cs *mcp.ClientSession
+	var outcome forwardOutcome
+	captured := captureStderr(t, func() {
+		cs, outcome, err = prepareForward(context.Background(), trigger, endpoint.SocketPath)
+	})
+	require.NoError(t, err)
+	require.NotNil(t, cs)
+	t.Cleanup(func() { _ = cs.Close() })
+	assert.Equal(t, forwardOutcomeServed, outcome)
+
+	assert.Contains(t, captured, "env var", "diagnostic must name WHICH trigger kind fired")
+	assert.Contains(t, captured, "CTXLOOM_MCP_SOCKET", "diagnostic must name the trigger by name")
+	assert.Contains(t, captured, endpoint.SocketPath, "diagnostic must name the socket path")
+	assert.Contains(t, captured, "diagnostic-harp", "diagnostic must name the target runner's identity")
+}
+
+// TestPrepareForward_RefusesOnSessionIdentityMismatch is the behaviour proof
+// for graceful-egomaniac unit 2's harp axis: when THIS session has its own
+// CTXLOOM_SESSION_HARP and it disagrees with the connected runner's, the
+// forward must be REFUSED (forwardOutcomeRefused, nil error, cs already
+// closed) rather than silently adopting the foreign runner's identity — the
+// measured hijack this whole fix exists to close.
+func TestPrepareForward_RefusesOnSessionIdentityMismatch(t *testing.T) {
+	testsupport.Isolate(t)
+	t.Setenv("CTXLOOM_SESSION_HARP", "this-session-harp")
+	// warnings is BOTH the race guard (see TestPrepareForward_EmitsPreForwardDiagnostic)
+	// AND where the refusal itself lands: prepareForward's refusal line goes
+	// through clidiag.Warn, which this redirect routes to warnings rather
+	// than os.Stderr — so it will NOT appear in captureStderr's capture below.
+	warnings := captureWarnings(t)
+	endpoint, err := ServeRunnerMCP(testConfig(), "someone-elses-harp", testHome(t), false, "")
+	require.NoError(t, err)
+	t.Cleanup(endpoint.Close)
+
+	trigger := forwardTrigger{Kind: "discovery marker", Name: "/fake/marker/path.json"}
+	var cs *mcp.ClientSession
+	var outcome forwardOutcome
+	captureStderr(t, func() {
+		cs, outcome, err = prepareForward(context.Background(), trigger, endpoint.SocketPath)
+	})
+	require.NoError(t, err, "a refusal is not itself an error")
+	assert.Nil(t, cs, "a refused connection must already be closed, not handed back")
+	assert.Equal(t, forwardOutcomeRefused, outcome)
+
+	refusal := warnings.String()
+	assert.Contains(t, refusal, "refusing", "the refusal must be loud, not silent")
+	assert.Contains(t, refusal, "this-session-harp")
+	assert.Contains(t, refusal, "someone-elses-harp")
+}
+
+// TestPrepareForward_RefusesOnBuildStampMismatch is unit 2's stamp axis: a
+// runner built from a different revision than this process is refused even
+// when identity matches (or is unset) — a mixed-build session (e.g. a
+// runner left running across a `just build`) is exactly the kind of
+// silently-wrong state this fix exists to surface rather than paper over.
+func TestPrepareForward_RefusesOnBuildStampMismatch(t *testing.T) {
+	testsupport.Isolate(t) // no CTXLOOM_SESSION_HARP: isolates this test to the stamp axis alone
+	// warnings is BOTH the race guard (see TestPrepareForward_EmitsPreForwardDiagnostic)
+	// AND where the refusal itself lands (clidiag.Warn, not os.Stderr).
+	warnings := captureWarnings(t)
+	origVersion := version.Version
+	t.Cleanup(func() { version.Version = origVersion })
+
+	version.Version = "stamp-A"
+	endpoint, err := ServeRunnerMCP(testConfig(), "same-harp", testHome(t), false, "")
+	require.NoError(t, err)
+	t.Cleanup(endpoint.Close)
+
+	// Simulate THIS process having been rebuilt since the runner launched —
+	// the runner's Implementation.Version was already captured as "stamp-A"
+	// at ServeRunnerMCP construction time above; only this process's own
+	// version.Version changes now.
+	version.Version = "stamp-B"
+
+	trigger := forwardTrigger{Kind: "env var", Name: "CTXLOOM_MCP_SOCKET"}
+	var cs *mcp.ClientSession
+	var outcome forwardOutcome
+	captureStderr(t, func() {
+		cs, outcome, err = prepareForward(context.Background(), trigger, endpoint.SocketPath)
+	})
+	require.NoError(t, err)
+	assert.Nil(t, cs)
+	assert.Equal(t, forwardOutcomeRefused, outcome)
+	refusal := warnings.String()
+	assert.Contains(t, refusal, "stamp-A")
+	assert.Contains(t, refusal, "stamp-B")
+}
+
+// TestVerifyForwardTarget is the pure-function table test pinning
+// verifyForwardTarget's exact decision surface, independent of any
+// networking: both axes matching (or unset where there is nothing to
+// compare) accept; either axis disagreeing refuses.
+func TestVerifyForwardTarget(t *testing.T) {
+	origVersion := version.Version
+	t.Cleanup(func() { version.Version = origVersion })
+	version.Version = "this-build"
+
+	cases := []struct {
+		name         string
+		callerHarp   string
+		runnerHarp   string
+		runnerStamp  string
+		wantAccepted bool
+	}{
+		{"matching harp, matching stamp: accepted", "h", "h", "this-build", true},
+		{"caller has no harp expectation: accepted regardless of runner harp", "", "anything", "this-build", true},
+		{"runner reports no harp: accepted (nothing to compare)", "h", "", "this-build", true},
+		{"mismatched harp: refused", "h1", "h2", "this-build", false},
+		{"matching harp, mismatched stamp: refused", "h", "h", "other-build", false},
+		{"runner reports no stamp: accepted (nothing to compare)", "h", "h", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(agent.SessionHarpEnv, tc.callerHarp)
+			reason := verifyForwardTarget(tc.runnerHarp, tc.runnerStamp)
+			if tc.wantAccepted {
+				assert.Empty(t, reason, "expected acceptance, got refusal reason %q", reason)
+			} else {
+				assert.NotEmpty(t, reason, "expected a refusal reason")
+			}
+		})
+	}
+}
+
+// CAUTION FOR FUTURE TESTS: do not drive ServeStdio's real local-startup
+// path (a REFUSED or absent forward falling through into ctxServer.startup)
+// from this package. loadStartupConfig calls config.Load() directly with no
+// injectable-loader seam (unlike loadStartupConfigWith), so a test cannot
+// substitute a stub config — and a real resolved config here can enable
+// runStartupSync's remote-reference walk, a live, unbounded network call.
+// Measured directly: `go test -timeout 30s` on such a test had to be killed
+// by its own timeout rather than finishing. Coverage for ServeStdio's
+// forward-trigger/fall-through wiring stays at the safe layer instead:
+// runMCPForward's forwardOutcome contract (this file) and
+// probeWellKnownRunner's marker-path decisions (mcp_discovery_test.go) —
+// the remaining glue in ServeStdio itself is a short, directly readable
+// diff. A real integration test here needs loadStartupConfig to accept an
+// injected loader first.

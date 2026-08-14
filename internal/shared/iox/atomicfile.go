@@ -18,8 +18,10 @@ import (
 // destination directory (same "."+base+".*.tmp" pattern, so a concurrent
 // writer can never clobber this one's in-flight bytes), Write appends to it,
 // and Commit fsyncs, chmods exactly to perm, and renames it over path —
-// atomically VISIBLE, not durable, exactly like the whole-file entry points.
-// Abort discards the temp file without ever touching path.
+// atomically VISIBLE, not durable by default, exactly like the whole-file
+// entry points; pass Durable() to NewAtomicFile to also fsync the parent
+// directory on Commit (see Durable's doc). Abort discards the temp file
+// without ever touching path.
 //
 // One AtomicFile is used once. Write after Commit or Abort, and a second
 // Commit or Abort, are all refused rather than silently ignored: a caller
@@ -81,7 +83,11 @@ func (a *AtomicFile) Write(p []byte) (int, error) {
 
 // Commit installs the temp file at path: stats it (the empty-guard below),
 // fsyncs it, chmods it to perm exactly (not masked by the umask — see
-// WriteFileAtomicFs), and renames it over path.
+// WriteFileAtomicFs), and renames it over path. If Durable() was passed to
+// NewAtomicFile, it then also fsyncs path's parent directory, upgrading the
+// rename from atomically visible to visible-plus-durably-named (see
+// Durable's doc); a failure of that step is still reported as a Commit
+// error, on the same reasoning WriteFileAtomicFs's rename-then-sync applies.
 //
 // A zero-byte commit over an EXISTING path is refused unless the AllowEmpty
 // option was passed to NewAtomicFile — the same guard WriteFileAtomicFs
@@ -129,6 +135,11 @@ func (a *AtomicFile) Commit() error {
 	if err := a.fs.Rename(a.tmpName, a.path); err != nil {
 		_ = a.fs.Remove(a.tmpName)
 		return fmt.Errorf("atomic file %s: rename temp file into place: %w", a.path, err)
+	}
+	if a.cfg.durable && isOSBackedFs(a.fs) {
+		if err := syncDirFn(filepath.Dir(a.path)); err != nil {
+			return fmt.Errorf("atomic file %s: sync parent directory: %w", a.path, err)
+		}
 	}
 	return nil
 }

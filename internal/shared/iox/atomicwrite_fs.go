@@ -15,12 +15,14 @@ import (
 // previous content or the whole new content, never a mix. The parent directory
 // must already exist.
 //
-// The guarantee is ATOMIC VISIBILITY, not durability of the replacement. The
-// parent directory is not fsynced after the rename, so after a power loss the
-// directory entry may still name the previous file; what the temp-file fsync
-// buys is that the rename can never become visible ahead of the data behind
-// it. A caller that needs the new content to survive a crash must arrange that
-// itself.
+// The guarantee is ATOMIC VISIBILITY, not durability of the replacement, by
+// default: the parent directory is not fsynced after the rename, so after a
+// power loss the directory entry may still name the previous file; what the
+// temp-file fsync buys is that the rename can never become visible ahead of
+// the data behind it. A caller that needs the new content's NAME to survive a
+// crash passes Durable() (see its doc), which fsyncs the parent directory too
+// — still not full journaling, just the one gap this function otherwise
+// leaves open.
 //
 // Zero-length data is refused when path already exists and neither opts nor
 // the caller passed AllowEmpty(): silently succeeding would truncate a live
@@ -76,6 +78,16 @@ func WriteFileAtomicFs(fs afero.Fs, path string, data []byte, perm os.FileMode, 
 	if err := fs.Rename(tmpName, path); err != nil {
 		_ = fs.Remove(tmpName)
 		return fmt.Errorf("atomic write %s: rename temp file into place: %w", path, err)
+	}
+	// The rename is already visible at this point; a failure here reports
+	// that the NAME is not yet durable, not that the write failed — but it is
+	// still returned as an error, because Durable() is a caller asserting it
+	// needs that guarantee and a silent downgrade to visibility-only would
+	// make the option a no-op nobody could detect.
+	if cfg.durable && isOSBackedFs(fs) {
+		if err := syncDirFn(dir); err != nil {
+			return fmt.Errorf("atomic write %s: sync parent directory %s: %w", path, dir, err)
+		}
 	}
 	return nil
 }

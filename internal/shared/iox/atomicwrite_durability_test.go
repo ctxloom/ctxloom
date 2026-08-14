@@ -18,11 +18,13 @@ import (
 // and can never observe a mix of old and new bytes.
 //
 // Durability of the rename is a different property and is deliberately NOT
-// claimed: neither writer fsyncs the parent directory, so after a power loss
-// the directory entry may still name the old file (the doc used to
-// say "the new content survives a crash", which the code does not deliver).
-// This test guards the guarantee that remains, and goes red the moment the
-// rename is replaced by an in-place write.
+// claimed BY DEFAULT: neither writer fsyncs the parent directory unless the
+// caller passes Durable() (see its doc and durable_test.go), so with no
+// options a power loss can still leave the directory entry naming the old
+// file (the doc used to say "the new content survives a crash", which the
+// code did not deliver). This test guards the guarantee that remains without
+// opting in, and goes red the moment the rename is replaced by an in-place
+// write.
 func TestAtomicWriters_ReplaceByRename_NotInPlace(t *testing.T) {
 	writers := map[string]func(path string, data []byte, perm os.FileMode) error{
 		"WriteFileAtomic": func(path string, data []byte, perm os.FileMode) error {

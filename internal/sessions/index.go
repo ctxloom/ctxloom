@@ -434,6 +434,83 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 	return fmt.Errorf("harp not found in index: %q", harpName)
 }
 
+// AppendRotations adds rotations to harpName's lineage OUTSIDE the live
+// rebind path — for `ctxloom session adopt`, which discovers vendor
+// transcripts a rotation the index never recorded (pre-lineage-fix /clears,
+// commit bd6b3baf) left orphaned, and needs to seed them into Rotations
+// without a rebind ever happening. BindSession's own Rotations append (see
+// its doc comment) only fires as the side effect of a LIVE rebind; this is
+// the same append shape offered directly, for a caller that already knows
+// the exact Rotation records to add.
+//
+// Each incoming rotation is skipped, not erred on, when its SessionID is
+// already the entry's current binding or already present in Rotations — the
+// same "alreadyRecorded" idempotency BindSession's rebind uses, so a repeat
+// adopt run over a harp it already touched is a safe no-op rather than a
+// duplicate-lineage hazard.
+//
+// The surviving rotations are appended and the WHOLE slice is then
+// RE-SORTED by RotatedAt ascending — not left in call order. Rotations is
+// documented (and the harp-lifetime canonical rebuild, operations.
+// convertVendorTranscript, depends on it) as oldest-first array order; a
+// caller adopting a vendor file that predates every rotation already on
+// record — the ordinary shape for a pre-fix orphan, which by construction
+// is OLDER than everything the index has ever known about this harp — must
+// land BEFORE them, not after. Sorting by RotatedAt (already the field that
+// carries each rotation's chronological position, set at real rebind time
+// for an existing entry and computed by the caller to mean the same thing
+// for an adopted one) gets every caller — insert-before, insert-between,
+// insert-after — right with one rule instead of the caller having to find
+// its own splice index.
+func (m *Manager) AppendRotations(harpName string, rotations []Rotation) error {
+	if len(rotations) == 0 {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	unlock, err := m.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	idx, err := m.loadLocked()
+	if err != nil {
+		return err
+	}
+	for i := range idx.Sessions {
+		if idx.Sessions[i].HarpName != harpName {
+			continue
+		}
+		existing := make(map[string]struct{}, len(idx.Sessions[i].Rotations)+1)
+		if idx.Sessions[i].SessionID != "" {
+			existing[idx.Sessions[i].SessionID] = struct{}{}
+		}
+		for _, r := range idx.Sessions[i].Rotations {
+			existing[r.SessionID] = struct{}{}
+		}
+		changed := false
+		for _, r := range rotations {
+			if _, dup := existing[r.SessionID]; dup {
+				continue
+			}
+			idx.Sessions[i].Rotations = append(idx.Sessions[i].Rotations, r)
+			existing[r.SessionID] = struct{}{}
+			changed = true
+		}
+		if !changed {
+			return nil
+		}
+		sort.SliceStable(idx.Sessions[i].Rotations, func(a, b int) bool {
+			return idx.Sessions[i].Rotations[a].RotatedAt.Before(idx.Sessions[i].Rotations[b].RotatedAt)
+		})
+		return m.saveLocked(idx)
+	}
+	return fmt.Errorf("harp not found in index: %q", harpName)
+}
+
 // linkEngineTranscript creates
 // ~/.ctxloom/sessions/<harp>/engine-transcript-<engine>-<sessionID>.jsonl
 // (paths.HarpEngineTranscriptLinkPath) as a symlink to the backend's vendor

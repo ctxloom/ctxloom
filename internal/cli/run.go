@@ -1644,26 +1644,30 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 	return nil
 }
 
-// convertVendorTranscriptOnExit runs the vendor-transcript reader
-// (operations.ConvertVendorTranscript) for an interactive-pty session that
-// just exited. Extracted to its own small, directly-unit-testable function
-// (no goplugin/pty involved) rather than inlined at the call site above,
+// convertVendorTranscriptOnExit runs the vendor-transcript heal
+// (operations.ResolveAndHeal) for an interactive-pty session that just
+// exited. Extracted to its own small, directly-unit-testable function (no
+// goplugin/pty involved) rather than inlined at the call site above,
 // mirroring how transcript.RecordOneshot itself is a standalone function the
 // oneshot branch just calls. A blank harp (no session identity — e.g.
 // AssignSession failed earlier and the run proceeded unharped) or an
-// unindexed harp are silent no-ops; any other lookup/convert failure is
-// warned, never returned, so a transcript-import hiccup can never fail an
-// otherwise-successful interactive run.
+// unindexed harp are silent no-ops; any other lookup/heal failure is warned,
+// never returned, so a transcript-import hiccup can never fail an otherwise-
+// successful interactive run.
+//
+// eager-trash unification, path H (the pty-exit defect, reformed-skimming):
+// this used to call operations.ConvertVendorTranscript directly, whose
+// presence guard makes it a PERMANENT NO-OP once any canonical transcript
+// exists for the harp. A session where the user ran /recover mid-flight
+// materializes exactly such a canonical file — so every session that used
+// /recover got NO final capture at exit, and everything after that /recover
+// was invisible to every later distill: silent no-op, exit 0, looks
+// complete. LivenessFinished now means refresh once, unconditionally — this
+// IS the one call site that semantic change exists for (see
+// operations.Liveness's doc): a canonical file existing here is not evidence
+// it is complete.
 func convertVendorTranscriptOnExit(harp string) {
 	if harp == "" {
-		return
-	}
-	entry, err := operations.GetSession(harp)
-	if err != nil {
-		clidiag.Warn("ctxloom", "vendor transcript import: look up %s: %v", harp, err)
-		return
-	}
-	if entry == nil {
 		return
 	}
 	// A FRESH background context, deliberately NOT the run's own ctx: that
@@ -1671,11 +1675,19 @@ func convertVendorTranscriptOnExit(harp string) {
 	// := signal.NotifyContext(...)`), so it is already Done() by the time
 	// this runs whenever the interactive session ended via the same Ctrl-C
 	// that stops most interactive TUIs — arguably the MOST common clean-exit
-	// path. Reusing it would make Convert abort immediately
+	// path. Reusing it would make the heal abort immediately
 	// (vendorreader.VendorAdapter implementations check ctx.Err() up front) on
 	// exactly the sessions this hook most needs to capture.
-	if _, cerr := operations.ConvertVendorTranscript(context.Background(), *entry); cerr != nil {
-		clidiag.Warn("ctxloom", "vendor transcript import: %v", cerr)
+	src, err := operations.ResolveAndHeal(context.Background(), harp, operations.LivenessFinished)
+	if err != nil {
+		clidiag.Warn("ctxloom", "vendor transcript import: look up %s: %v", harp, err)
+		return
+	}
+	if src.Entry == nil {
+		return
+	}
+	if src.HealErr != nil {
+		clidiag.Warn("ctxloom", "vendor transcript import: %v", src.HealErr)
 	}
 }
 

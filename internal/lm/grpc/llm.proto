@@ -417,8 +417,15 @@ message Empty {}
 
 message LLMInfo {
   string name = 1;
-  string version = 2;
+  string version = 2; // the BACKEND ENGINE's own version (e.g. claude's), not ctxloom's
   repeated ExecutionMode supported_modes = 3;
+  // ctxloom_version is the SERVING PROCESS's own ctxloom build stamp
+  // (internal/version.Version), distinct from `version` above. A client
+  // compares this against its own build stamp right after connecting
+  // (runnerFromConn's version handshake) and refuses a mismatched daemon
+  // rather than silently running turns against stale compiled-in behavior —
+  // see exposable-rental unit 1.
+  string ctxloom_version = 4;
 }
 
 // RunInput is one message on the bidirectional Run stream. The first MUST be a

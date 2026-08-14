@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/version"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -58,6 +59,11 @@ func (s *GRPCServer) Info(ctx context.Context, _ *Empty) (*LLMInfo, error) {
 		Name:           s.Impl.Name(),
 		Version:        s.Impl.Version(),
 		SupportedModes: pbModes,
+		// The SERVING PROCESS's own build stamp — read fresh on every call
+		// (never cached at plugin.Serve startup) so a client's version
+		// handshake sees this exact process's compiled-in behavior, not
+		// whatever version.Version happened to read at boot.
+		CtxloomVersion: version.Version,
 	}, nil
 }
 

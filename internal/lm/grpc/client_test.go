@@ -16,6 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/ctxloom/ctxloom/internal/version"
 )
 
 // fakeLLMClient implements LLMClient for unit-testing
@@ -371,6 +373,81 @@ func TestRunnerFromConn_HappyPath(t *testing.T) {
 	// LLMRunner.Kill delegates to the connection.
 	pc.Kill()
 	assert.Equal(t, 1, fake.killCalls)
+}
+
+// TestRunnerFromConn_VersionMismatchTriggersKill pins exposable-rental unit
+// 1's daemon-staleness gate: a daemon reporting a DIFFERENT ctxloom build
+// stamp than this process's own must be refused outright, not silently
+// used — the whole point of the handshake. Flip the SkipSetup-equivalent
+// gate here (checkDaemonVersion's `!=` comparison) and this goes red.
+func TestRunnerFromConn_VersionMismatchTriggersKill(t *testing.T) {
+	orig := version.Version
+	version.Version = "v1.2.3-abcdef-20260101T000000"
+	t.Cleanup(func() { version.Version = orig })
+
+	grpcClient := &GRPCClient{client: &fakeLLMClient{
+		infoResp: &LLMInfo{CtxloomVersion: "v1.0.0-stale00-20260101T000000"},
+	}}
+	fake := &fakeLLMConnection{
+		clientResult: &fakeClientProtocol{dispenseResult: grpcClient},
+	}
+
+	_, err := runnerFromConn(fake)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stale daemon")
+	assert.Equal(t, 1, fake.killCalls, "a version-mismatched daemon must be killed, never handed to a caller")
+}
+
+// TestRunnerFromConn_VersionMatchSucceeds is the control: identical stamps
+// on both sides must NOT be refused.
+func TestRunnerFromConn_VersionMatchSucceeds(t *testing.T) {
+	orig := version.Version
+	version.Version = "v1.2.3-abcdef-20260101T000000"
+	t.Cleanup(func() { version.Version = orig })
+
+	grpcClient := &GRPCClient{client: &fakeLLMClient{
+		infoResp: &LLMInfo{CtxloomVersion: version.Version},
+	}}
+	fake := &fakeLLMConnection{
+		clientResult: &fakeClientProtocol{dispenseResult: grpcClient},
+	}
+
+	pc, err := runnerFromConn(fake)
+	require.NoError(t, err)
+	require.NotNil(t, pc)
+	assert.Equal(t, 0, fake.killCalls)
+}
+
+// TestRunnerFromConn_InfoErrorTriggersKill: the handshake call itself
+// failing (not just a mismatched answer) is refused too — a daemon that
+// cannot even answer Info is not one to trust with a real turn.
+func TestRunnerFromConn_InfoErrorTriggersKill(t *testing.T) {
+	grpcClient := &GRPCClient{client: &fakeLLMClient{infoErr: errors.New("boom")}}
+	fake := &fakeLLMConnection{
+		clientResult: &fakeClientProtocol{dispenseResult: grpcClient},
+	}
+
+	_, err := runnerFromConn(fake)
+	require.Error(t, err)
+	assert.Equal(t, 1, fake.killCalls)
+}
+
+// TestCheckDaemonVersion pins the unstamped-build safety valve directly:
+// "" and "dev" on either side are "cannot verify", never a refusal — a bare
+// `go build` (bypassing the task runner's ldflags stamp) must not brick
+// every daemon dial for local iteration.
+func TestCheckDaemonVersion(t *testing.T) {
+	orig := version.Version
+	t.Cleanup(func() { version.Version = orig })
+
+	version.Version = "v1.0.0"
+	assert.NoError(t, checkDaemonVersion("v1.0.0"), "identical stamps must pass")
+	assert.Error(t, checkDaemonVersion("v0.9.0"), "a different stamp must be refused")
+	assert.NoError(t, checkDaemonVersion(""), "an unstamped daemon (predates this field) cannot be verified, so it passes")
+	assert.NoError(t, checkDaemonVersion("dev"), "a bare-`go build` daemon cannot be verified either")
+
+	version.Version = "dev"
+	assert.NoError(t, checkDaemonVersion("v9.9.9"), "an unstamped CLIENT cannot verify a daemon either, regardless of the daemon's own stamp")
 }
 
 // TestNewContainerClient_ThreadsRunnerFuncAndSocketDir characterizes the whole

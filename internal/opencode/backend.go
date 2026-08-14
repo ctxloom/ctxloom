@@ -162,12 +162,24 @@ func (b *Opencode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdou
 	// and no diagnostic for a textless turn (exit 0, zero bytes, silent) —
 	// reprise flagged it byte-for-byte identical to internal/acp/execute.go's
 	// Execute. Both now share this one plumbing.
+	//
+	// req.SkipSetup is an INTERNAL invocation (distillation/compaction —
+	// see internal/acp/execute.go's identical fix for the full defect this
+	// closes: an internal Chat-routed Execute used to leak the caller's own
+	// CTXLOOM_SESSION_HARP down to the spawned `opencode acp` adapter, whose
+	// SessionStart hook then rebound the caller's real session). Scrub it so
+	// the hook still fires but binds nothing; a real delegated child or an
+	// interactive session never sets SkipSetup, so it is unaffected.
+	env := req.Env
+	if req.SkipSetup {
+		env = agent.ScrubInternalIdentityEnv(env)
+	}
 	return agent.RunOneshotTurn(req.Prompt, modelInfo, req.Verbosity, stdout, stderr,
 		func(in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
 			return b.Chat(ctx, agent.ChatRequest{
 				WorkDir:     workDir,
 				Model:       req.Model,
-				Env:         req.Env,
+				Env:         env,
 				Permissions: req.Permissions,
 				MCPServers:  b.ManagedChatMCPServers(req.Env[agent.MCPCommandOverrideEnv]),
 			}, in, out)

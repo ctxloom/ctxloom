@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -566,20 +567,46 @@ func startHostStdio(cmd *exec.Cmd) (io.WriteCloser, io.Reader, *stderrtail.Ring,
 }
 
 // spawnEnv builds the spawned agent's environment: the inherited base minus
-// the configured StripEnv variables, then the per-launch overlay appended
-// (os/exec dedupes on key, last wins). Stripping happens on the BASE only: an
+// the configured StripEnv variables, with the per-launch overlay taking
+// priority for any key it names. Stripping happens on the BASE only: an
 // overlay entry always lands, even for a stripped key — the caller set it
-// deliberately.
+// deliberately (including forcing it EMPTY, the internal-invocation scrub's
+// own shape — see agent.ScrubInternalIdentityEnv).
+//
+// Overlay entries replace their base counterpart in place rather than being
+// appended after it: a naive append left two envp entries for the same key
+// when the process already inherited it (exactly CTXLOOM_SESSION_HARP's
+// case — every session sets it ambiently), and os/exec does NOT dedupe on
+// exec — the underlying C runtime's getenv on a duplicate key is
+// implementation-defined (typically FIRST match, not last), so a caller
+// relying on "the overlay wins" could silently get the base value back. A
+// key present ONLY in the overlay is appended, in a SORTED tail so two calls
+// with the same inputs produce byte-identical output regardless of Go's
+// randomized map iteration order.
 func spawnEnv(base, strip []string, overlay map[string]string) []string {
+	seen := make(map[string]bool, len(overlay))
 	out := make([]string, 0, len(base)+len(overlay))
 	for _, kv := range base {
 		k, _, _ := strings.Cut(kv, "=")
-		if !slices.Contains(strip, k) {
-			out = append(out, kv)
+		if slices.Contains(strip, k) {
+			continue
+		}
+		if v, ok := overlay[k]; ok {
+			out = append(out, k+"="+v)
+			seen[k] = true
+			continue
+		}
+		out = append(out, kv)
+	}
+	extra := make([]string, 0, len(overlay))
+	for k := range overlay {
+		if !seen[k] {
+			extra = append(extra, k)
 		}
 	}
-	for k, v := range overlay {
-		out = append(out, k+"="+v)
+	sort.Strings(extra)
+	for _, k := range extra {
+		out = append(out, k+"="+overlay[k])
 	}
 	return out
 }

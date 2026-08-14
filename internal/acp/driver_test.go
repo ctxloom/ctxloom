@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -62,6 +63,30 @@ func TestSpawnEnv_StripAndOverlay(t *testing.T) {
 	assert.Equal(t, base, spawnEnv(base, nil, nil), "no strip, no overlay → base unchanged")
 	assert.Contains(t, spawnEnv(base, []string{"CLAUDECODE"}, map[string]string{"CLAUDECODE": "1"}),
 		"CLAUDECODE=1", "a deliberate overlay wins over its own strip")
+}
+
+// TestSpawnEnv_OverlayReplacesAmbientDuplicate pins the fix for a live defect
+// (exposable-rental unit 2): an overlay key ALREADY present in the inherited
+// base used to be appended a second time rather than replacing it, leaving
+// two envp entries for the same key — os/exec does not dedupe on exec, and
+// the C runtime's getenv on a duplicate is implementation-defined (typically
+// first match, not last), so a caller trusting "the overlay wins" (the
+// internal-invocation harp scrub, ScrubInternalIdentityEnv) could silently
+// still hand the child the AMBIENT value.
+func TestSpawnEnv_OverlayReplacesAmbientDuplicate(t *testing.T) {
+	base := []string{"CTXLOOM_SESSION_HARP=real-harp", "PATH=/usr/bin"}
+	env := spawnEnv(base, nil, map[string]string{"CTXLOOM_SESSION_HARP": ""})
+
+	assert.Contains(t, env, "CTXLOOM_SESSION_HARP=", "overlay's empty value reaches the spawn")
+	assert.NotContains(t, env, "CTXLOOM_SESSION_HARP=real-harp", "the ambient value must not survive alongside it")
+
+	count := 0
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "CTXLOOM_SESSION_HARP=") {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "exactly one entry for the key — never a duplicate")
 }
 
 // TestConfigure_StripEnv pins that StripEnv survives Configure onto the driver.

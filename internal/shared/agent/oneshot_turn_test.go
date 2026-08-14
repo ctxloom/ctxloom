@@ -15,6 +15,21 @@ import (
 // bytes written and no diagnostic, the project's characteristic silent-noop
 // shape.
 
+// TestScrubInternalIdentityEnv pins the internal-invocation env scrub
+// (exposable-rental unit 2): SessionHarpEnv is forced empty regardless of
+// whether the caller's map already carried a (real) value, an unrelated
+// value, or was nil — the caller's own map is never mutated.
+func TestScrubInternalIdentityEnv(t *testing.T) {
+	in := map[string]string{SessionHarpEnv: "real-harp", "OTHER": "kept"}
+	out := ScrubInternalIdentityEnv(in)
+
+	assert.Equal(t, "", out[SessionHarpEnv], "the harp must be scrubbed to empty")
+	assert.Equal(t, "kept", out["OTHER"], "unrelated entries pass through unchanged")
+	assert.Equal(t, "real-harp", in[SessionHarpEnv], "the caller's own map must not be mutated")
+
+	assert.Equal(t, "", ScrubInternalIdentityEnv(nil)[SessionHarpEnv], "a nil input still yields a scrubbed key")
+}
+
 func TestRunOneshotTurn_EmptyPromptIsRefused(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	called := false

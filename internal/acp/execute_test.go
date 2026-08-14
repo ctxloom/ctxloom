@@ -98,6 +98,77 @@ func TestExecute_InjectsManagedMCPServersAtSessionNew(t *testing.T) {
 	assert.Equal(t, []string{"mcp"}, got.McpServers[1].Args)
 }
 
+// executeHarnessCapturingEnv is executeHarness plus a channel carrying the
+// transportRequest.env every openTransport call actually received — the
+// seam exposable-rental unit 2's fix runs at, one layer below the
+// ChatRequest Execute builds.
+func executeHarnessCapturingEnv(t *testing.T, b *ACP) (*fakeAgent, <-chan map[string]string) {
+	t.Helper()
+	c2aR, c2aW := io.Pipe()
+	a2cR, a2cW := io.Pipe()
+	envs := make(chan map[string]string, 1)
+
+	b.openTransport = func(_ context.Context, req transportRequest) (*transport, error) {
+		envs <- req.env
+		return &transport{
+			stdin:  c2aW,
+			stdout: a2cR,
+			close: func() error {
+				_ = c2aW.Close()
+				_ = a2cR.Close()
+				return nil
+			},
+		}, nil
+	}
+	return newFakeAgent(c2aR, a2cW), envs
+}
+
+// TestExecute_SkipSetupScrubsSessionHarp pins exposable-rental unit 2: an
+// INTERNAL invocation (SkipSetup — distillation/compaction's only caller
+// today) must not let the caller's own CTXLOOM_SESSION_HARP reach the
+// spawned adapter, because that adapter's own SessionStart hook
+// (`ctxloom hook session-bind`) reads exactly that env var and rebinds
+// the caller's REAL session to the throwaway distiller conversation. A
+// mismatched/leaked stamp here is the mutation this test kills: flip the
+// SkipSetup gate off (or drop the scrub call) and this goes red.
+func TestExecute_SkipSetupScrubsSessionHarp(t *testing.T) {
+	b := NewACP()
+	fa, envs := executeHarnessCapturingEnv(t, b)
+	captureSessionNew(fa)
+
+	_, err := b.Execute(context.Background(), &agent.ExecuteRequest{
+		Mode:      agent.ModeOneshot,
+		Prompt:    &agent.Fragment{Content: "distill this"},
+		SkipSetup: true,
+		Env:       map[string]string{"CTXLOOM_SESSION_HARP": "real-harp-in-flight"},
+	}, io.Discard, io.Discard)
+	require.NoError(t, err)
+
+	env := <-envs
+	assert.Equal(t, "", env["CTXLOOM_SESSION_HARP"], "an internal invocation must scrub the caller's session harp before spawning the engine")
+}
+
+// TestExecute_UserInvocationKeepsSessionHarp pins the other half: a
+// non-internal call (SkipSetup false — every user-initiated / delegated-
+// child chat) must NOT be scrubbed. A real delegated child needs its own
+// harp to reach the engine so its SessionStart hook binds it correctly;
+// scrubbing here unconditionally would be its own regression.
+func TestExecute_UserInvocationKeepsSessionHarp(t *testing.T) {
+	b := NewACP()
+	fa, envs := executeHarnessCapturingEnv(t, b)
+	captureSessionNew(fa)
+
+	_, err := b.Execute(context.Background(), &agent.ExecuteRequest{
+		Mode:   agent.ModeOneshot,
+		Prompt: &agent.Fragment{Content: "hi"},
+		Env:    map[string]string{"CTXLOOM_SESSION_HARP": "real-harp-in-flight"},
+	}, io.Discard, io.Discard)
+	require.NoError(t, err)
+
+	env := <-envs
+	assert.Equal(t, "real-harp-in-flight", env["CTXLOOM_SESSION_HARP"], "a user-initiated/delegated invocation must keep its own session harp")
+}
+
 // TestExecute_NoSetupInjectsNothing: without a Setup-merged managed payload
 // (the skip-setup fan-out), Execute injects no servers — mirroring the
 // settings write that never happened.

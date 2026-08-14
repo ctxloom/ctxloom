@@ -45,12 +45,27 @@ func (b *ACP) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, st
 	// this used to inline its own send/drain loop with no empty-prompt check
 	// and no diagnostic for a textless turn (exit 0, zero bytes, silent).
 	// Both now share this one plumbing.
+	//
+	// req.SkipSetup is an INTERNAL invocation (distillation/compaction is the
+	// only caller today, via memory.Compactor.runDistill's SkipSetup RunStart)
+	// — unlike claude-code's native buildArgs, this Chat-routed Execute had no
+	// scrub at all for that case: the spawned adapter kept the caller's own
+	// CTXLOOM_SESSION_HARP (ambient, never explicit in req.Env) and its
+	// SessionStart hook rebound the caller's REAL session to the throwaway
+	// distiller conversation. ScrubInternalIdentityEnv forces the harp empty
+	// so the hook still fires but binds nothing, matching the --print path's
+	// posture. A real delegated child or an interactive session never sets
+	// SkipSetup, so its own harp still reaches the engine unchanged.
+	env := req.Env
+	if req.SkipSetup {
+		env = agent.ScrubInternalIdentityEnv(env)
+	}
 	return agent.RunOneshotTurn(req.Prompt, modelInfo, req.Verbosity, stdout, stderr,
 		func(in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
 			return b.Chat(ctx, agent.ChatRequest{
 				WorkDir:     workDir,
 				Model:       req.Model,
-				Env:         req.Env,
+				Env:         env,
 				Permissions: req.Permissions,
 				// The managed MCP set (ctxloom context server, builtin taskloom,
 				// config/profile servers) merged by Setup rides session/new — the

@@ -3,8 +3,38 @@ package agent
 import (
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 )
+
+// ScrubInternalIdentityEnv returns a copy of env with SessionHarpEnv forced
+// empty. It is the ONE lever available on the StructuredChat-backed oneshot
+// Execute path (internal/acp's ACP.Execute, internal/opencode's
+// Opencode.Execute) to neutralize a ctxloom-authored SessionStart hook
+// (session-bind, inject-context) that the spawned engine's OWN settings
+// still register: unlike claude-code's native buildArgs (minimalSettings,
+// `--settings '{"hooks":{}}'`), this path spawns a real ACP adapter whose
+// settings ctxloom does not control — ACP's own CellDelivery writes nothing
+// (NewACP's doc), so there is no settings file to override. Every
+// ctxloom-authored hook keys off SessionHarpEnv and no-ops when it reads it
+// empty (session_bind.go's `if harp == "" { return nil }`), so the hook
+// still fires but produces no lineage-observable effect — the same outcome
+// claude's minimalSettings reaches by removing the hook registration
+// outright.
+//
+// Callers apply this ONLY for an internal, non-user-initiated invocation
+// (ExecuteRequest.SkipSetup — distillation/compaction is the only caller
+// today). A real delegated child (agent_run) or an interactive `ctxloom acp`
+// session must keep its own harp reaching the engine, so this must never run
+// unconditionally on the Chat path. env is never mutated; the returned map
+// is a fresh copy so the caller's own map (often shared, e.g. req.Env) is
+// unaffected.
+func ScrubInternalIdentityEnv(env map[string]string) map[string]string {
+	out := make(map[string]string, len(env)+1)
+	maps.Copy(out, env)
+	out[SessionHarpEnv] = ""
+	return out
+}
 
 // RunOneshotTurn drives one complete oneshot ACP-shaped chat turn — the drain/
 // render plumbing internal/acp's Execute and internal/opencode's Execute both

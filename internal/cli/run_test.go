@@ -86,17 +86,18 @@ func TestResumeFullContext_EmptyExistingContext(t *testing.T) {
 	assert.Contains(t, got, "Resumed session swift-amber-falcon")
 }
 
-// TestResumeDistillEnv_SkipsDistillWhenEssenceExists covers the idempotency
-// idempotency check: an already-distilled harp must not
-// pay for a redundant distill before resuming.
-func TestResumeDistillEnv_SkipsDistillWhenEssenceExists(t *testing.T) {
+// TestResumeDistillEnv_SkipsDistillWhenEssenceExistsAndCurrent covers the
+// idempotency check: an already-distilled, NOT stale harp must not pay for a
+// redundant distill before resuming.
+func TestResumeDistillEnv_SkipsDistillWhenEssenceExistsAndCurrent(t *testing.T) {
 	distillCalled := false
 	env := resumeDistillEnv("swift-amber-falcon",
 		func(string) ([]byte, error) { return []byte("essence"), nil },
+		func(string) bool { return false },
 		func(context.Context, string) error { distillCalled = true; return nil },
 	)
 
-	assert.False(t, distillCalled, "an existing essence must not be redistilled")
+	assert.False(t, distillCalled, "an existing, current essence must not be redistilled")
 	assert.Equal(t, "swift-amber-falcon", env["CTXLOOM_RESUMED_FROM"])
 	assert.Equal(t, "session", env["CTXLOOM_RESUMED_PARTS"], "PARTS must include \"session\" so resumePartsIncludeSession's essence gate opens")
 }
@@ -104,15 +105,37 @@ func TestResumeDistillEnv_SkipsDistillWhenEssenceExists(t *testing.T) {
 // TestResumeDistillEnv_DistillsOnDemandWhenMissing covers the "not yet
 // distilled" branch --distill promises: essence missing -> distill via the
 // SAME `session distill` compactor path (shellOutDistill in production)
-// before returning the env pair.
+// before returning the env pair. staleFn is never even consulted: there is
+// nothing to compare staleness against yet.
 func TestResumeDistillEnv_DistillsOnDemandWhenMissing(t *testing.T) {
 	var distilledHarp string
+	staleFnCalled := false
 	env := resumeDistillEnv("swift-amber-falcon",
 		func(string) ([]byte, error) { return nil, errors.New("no essence yet") },
+		func(string) bool { staleFnCalled = true; return false },
 		func(_ context.Context, h string) error { distilledHarp = h; return nil },
 	)
 
 	assert.Equal(t, "swift-amber-falcon", distilledHarp, "distill-on-demand runs for the resumed harp")
+	assert.False(t, staleFnCalled, "staleness is irrelevant when there is no essence to compare against")
+	assert.Equal(t, "swift-amber-falcon", env["CTXLOOM_RESUMED_FROM"])
+	assert.Equal(t, "session", env["CTXLOOM_RESUMED_PARTS"])
+}
+
+// TestResumeDistillEnv_RedistillsWhenEssenceIsStale is the eager-trash fix:
+// path C used to treat "an essence exists" as "the essence is current",
+// resuming a /clear'd session from whatever was distilled BEFORE the clear
+// forever, as long as some essence file was ever written. A stale essence
+// must trigger the same on-demand distill a missing one does.
+func TestResumeDistillEnv_RedistillsWhenEssenceIsStale(t *testing.T) {
+	var distilledHarp string
+	env := resumeDistillEnv("swift-amber-falcon",
+		func(string) ([]byte, error) { return []byte("essence from before the clear"), nil },
+		func(string) bool { return true },
+		func(_ context.Context, h string) error { distilledHarp = h; return nil },
+	)
+
+	assert.Equal(t, "swift-amber-falcon", distilledHarp, "a stale essence must be redistilled, not silently resumed from")
 	assert.Equal(t, "swift-amber-falcon", env["CTXLOOM_RESUMED_FROM"])
 	assert.Equal(t, "session", env["CTXLOOM_RESUMED_PARTS"])
 }
@@ -126,6 +149,7 @@ func TestResumeDistillEnv_DistillFailureStillReturnsEnv(t *testing.T) {
 	assert.NotPanics(t, func() {
 		env := resumeDistillEnv("swift-amber-falcon",
 			func(string) ([]byte, error) { return nil, errors.New("no essence yet") },
+			func(string) bool { return false },
 			func(context.Context, string) error { return errors.New("distill boom") },
 		)
 		assert.Equal(t, "swift-amber-falcon", env["CTXLOOM_RESUMED_FROM"], "the env pair is still returned despite the distill failure")

@@ -179,15 +179,25 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 // "tasks" — task restoration was removed along with the picker and is not
 // coming back here) so resumePartsIncludeSession's essence gate opens.
 //
-// essenceFn/distillFn are injected (production: operations.ReadHarpEssence/
-// shellOutDistill — the `session distill` compactor path, session_cmd.go's
-// runSessionDistill/operations.CompactEntry/memory.NewCompactor) so distill-on-demand
-// is unit-testable
-// without shelling out. A distill failure warns rather than blocking launch;
-// the SessionStart hook's own readHarpEssence call then simply finds nothing
-// and omits the essence block.
-func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), distillFn func(context.Context, string) error) map[string]string {
-	if _, err := essenceFn(harp); err != nil {
+// essenceFn/staleFn/distillFn are injected (production: operations.
+// ReadHarpEssence/resumeEssenceStale/shellOutDistill — the `session distill`
+// compactor path, session_cmd.go's runSessionDistill/operations.CompactEntry/
+// memory.NewCompactor) so distill-on-demand is unit-testable without
+// shelling out. A distill failure warns rather than blocking launch; the
+// SessionStart hook's own readHarpEssence call then simply finds nothing and
+// omits the essence block.
+//
+// eager-trash unification, path C: this used to distill only when the
+// essence was MISSING, never when it was merely stale — so `run --session
+// <harp> --distill` against a harp that had been /clear'd since its last
+// distill silently resumed from a frozen prefix as long as SOME essence
+// existed. staleFn (nil-safe: a nil func means "never stale", matching the
+// pre-unification behavior for callers that don't wire one) closes that.
+func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), staleFn func(string) bool, distillFn func(context.Context, string) error) map[string]string {
+	_, err := essenceFn(harp)
+	missing := err != nil
+	stale := !missing && staleFn != nil && staleFn(harp)
+	if missing || stale {
 		// Unbounded context.Background(): this runs before the session's
 		// terminal is handed to the user, so there is no shell to unblock yet.
 		if dErr := distillFn(context.Background(), harp); dErr != nil {
@@ -198,6 +208,20 @@ func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), disti
 		"CTXLOOM_RESUMED_FROM":  harp,
 		"CTXLOOM_RESUMED_PARTS": "session",
 	}
+}
+
+// resumeEssenceStale is resumeDistillEnv's production staleFn: whether harp's
+// essence is out of date relative to its source transcript, via the same
+// predicate `session list --distill`'s sweep gates on (Entry.SourceStale()).
+// An unresolvable harp is not reported stale — resumeDistillEnv's own
+// essence-missing check already covers "nothing to compare against".
+func resumeEssenceStale(harp string) bool {
+	entry, err := operations.GetSession(harp)
+	if err != nil || entry == nil {
+		return false
+	}
+	stale, known := entry.SourceStale()
+	return known && stale
 }
 
 // seedTaskIntoSession marks the task with harpID In Progress (or the given
@@ -993,7 +1017,7 @@ func (st *runState) openSession() func() {
 func (st *runState) applyResumeEnv() {
 	switch {
 	case runResumeSession != "" && runResumeDistill:
-		for k, v := range resumeDistillEnv(runResumeSession, operations.ReadHarpEssence, shellOutDistill) {
+		for k, v := range resumeDistillEnv(runResumeSession, operations.ReadHarpEssence, resumeEssenceStale, shellOutDistill) {
 			st.runEnv[k] = v
 		}
 		fmt.Fprintf(os.Stderr, "ctxloom: resuming distilled essence from %s\n", runResumeSession)
@@ -1620,26 +1644,30 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 	return nil
 }
 
-// convertVendorTranscriptOnExit runs the vendor-transcript reader
-// (operations.ConvertVendorTranscript) for an interactive-pty session that
-// just exited. Extracted to its own small, directly-unit-testable function
-// (no goplugin/pty involved) rather than inlined at the call site above,
+// convertVendorTranscriptOnExit runs the vendor-transcript heal
+// (operations.ResolveAndHeal) for an interactive-pty session that just
+// exited. Extracted to its own small, directly-unit-testable function (no
+// goplugin/pty involved) rather than inlined at the call site above,
 // mirroring how transcript.RecordOneshot itself is a standalone function the
 // oneshot branch just calls. A blank harp (no session identity — e.g.
 // AssignSession failed earlier and the run proceeded unharped) or an
-// unindexed harp are silent no-ops; any other lookup/convert failure is
-// warned, never returned, so a transcript-import hiccup can never fail an
-// otherwise-successful interactive run.
+// unindexed harp are silent no-ops; any other lookup/heal failure is warned,
+// never returned, so a transcript-import hiccup can never fail an otherwise-
+// successful interactive run.
+//
+// eager-trash unification, path H (the pty-exit defect, reformed-skimming):
+// this used to call operations.ConvertVendorTranscript directly, whose
+// presence guard makes it a PERMANENT NO-OP once any canonical transcript
+// exists for the harp. A session where the user ran /recover mid-flight
+// materializes exactly such a canonical file — so every session that used
+// /recover got NO final capture at exit, and everything after that /recover
+// was invisible to every later distill: silent no-op, exit 0, looks
+// complete. LivenessFinished now means refresh once, unconditionally — this
+// IS the one call site that semantic change exists for (see
+// operations.Liveness's doc): a canonical file existing here is not evidence
+// it is complete.
 func convertVendorTranscriptOnExit(harp string) {
 	if harp == "" {
-		return
-	}
-	entry, err := operations.GetSession(harp)
-	if err != nil {
-		clidiag.Warn("ctxloom", "vendor transcript import: look up %s: %v", harp, err)
-		return
-	}
-	if entry == nil {
 		return
 	}
 	// A FRESH background context, deliberately NOT the run's own ctx: that
@@ -1647,11 +1675,19 @@ func convertVendorTranscriptOnExit(harp string) {
 	// := signal.NotifyContext(...)`), so it is already Done() by the time
 	// this runs whenever the interactive session ended via the same Ctrl-C
 	// that stops most interactive TUIs — arguably the MOST common clean-exit
-	// path. Reusing it would make Convert abort immediately
+	// path. Reusing it would make the heal abort immediately
 	// (vendorreader.VendorAdapter implementations check ctx.Err() up front) on
 	// exactly the sessions this hook most needs to capture.
-	if _, cerr := operations.ConvertVendorTranscript(context.Background(), *entry); cerr != nil {
-		clidiag.Warn("ctxloom", "vendor transcript import: %v", cerr)
+	src, err := operations.ResolveAndHeal(context.Background(), harp, operations.LivenessFinished)
+	if err != nil {
+		clidiag.Warn("ctxloom", "vendor transcript import: look up %s: %v", harp, err)
+		return
+	}
+	if src.Entry == nil {
+		return
+	}
+	if src.HealErr != nil {
+		clidiag.Warn("ctxloom", "vendor transcript import: %v", src.HealErr)
 	}
 }
 

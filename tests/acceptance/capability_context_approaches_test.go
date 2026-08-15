@@ -77,7 +77,7 @@ func TestApproachAssert_RefusesARunThatDegradedOffThePin(t *testing.T) {
 	// The real warning lines production emits, so the substrings are matched
 	// against the shape they actually appear in rather than against themselves.
 	lines := map[string]string{
-		"default delivery": "ctxloom: warning: agent \"hello\": surfaces context=hook: claude-code does not support it (supports: unsafe-file) — using claude-code's default delivery\n",
+		"default delivery":                         "ctxloom: warning: agent \"hello\": surfaces context=hook: claude-code does not support it (supports: unsafe-file) — using claude-code's default delivery\n",
 		"launching without managed hooks/commands": "ctxloom: warning: config load failed; launching without managed hooks/commands: open .ctxloom/config.yaml: no such file or directory\n",
 	}
 

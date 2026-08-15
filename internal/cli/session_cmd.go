@@ -371,9 +371,11 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		// distilling whatever is on disk rather than refusing outright.
 		progress.Printf("ctxloom: could not refresh transcript for %s before distilling: %v\n", harpName, src.HealErr)
 	}
-	if src.Entry != nil {
-		entry = src.Entry
-	} else {
+	// Only the fallback direction carries information: when resolve produced no
+	// entry, hand it the one already read above. The mirrored assignment that
+	// used to sit here (entry = src.Entry) wrote a local nothing reads again —
+	// entry is last read before this block — so it was dead, not symmetric.
+	if src.Entry == nil {
 		src.Entry = entry
 	}
 	result, err := operations.DistillEntry(cmd.Context(), src, cfg, "", progress)

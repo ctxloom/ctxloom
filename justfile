@@ -538,7 +538,16 @@ test-integration-run PATTERN: build _ensure-gotmpdir
 # was concealing). Re-measure on a QUIET box and compare against 179s; do not
 # infer anything from a run taken under load.
 test-acceptance: build _ensure-gotmpdir
+    #!/usr/bin/env bash
+    # No `set -e`: the exit code is captured so a red run can skip the sweep and
+    # still propagate its own status.
+    set -uo pipefail
+    marker="{{go_tmp}}/.cache-sweep.$$"
+    : > "$marker"
     GOTMPDIR="{{go_tmp}}" go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    status=$?
+    if [ "$status" -eq 0 ]; then just _sweep-cache "$marker"; else rm -f "$marker"; fi
+    exit "$status"
 
 # Build a coverage-instrumented ctxloom.
 build-cover: dev-image
@@ -995,9 +1004,13 @@ test-mutation-pkg PKG *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
+    trap 'rm -rf "{{mutation_tmp}}"/gremlins-* "{{mutation_tmp}}"/.cache-sweep.*' EXIT
+    marker="{{mutation_tmp}}/.cache-sweep.$$"
+    : > "$marker"
     pkg="$1"; shift
     TMPDIR="{{mutation_tmp}}" gremlins unleash "./$pkg" "$@"
+    # `set -e` above means this line is reached only on a green run.
+    just _sweep-cache "$marker"
 
 # Run mutation tests against the ACCEPTANCE/journey suite
 # (.gremlins.acceptance.yaml), not the unit suite .gremlins.yaml normally
@@ -1028,7 +1041,9 @@ test-mutation-acceptance *ARGS: build
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
+    trap 'rm -rf "{{mutation_tmp}}"/gremlins-* "{{mutation_tmp}}"/.cache-sweep.*' EXIT
+    marker="{{mutation_tmp}}/.cache-sweep.$$"
+    : > "$marker"
     export CTXLOOM_BINARY="$(pwd)/ctxloom"
     export GOFLAGS="-run=TestAcceptance"
     set +e
@@ -1050,6 +1065,8 @@ test-mutation-acceptance *ARGS: build
         echo "       \`just test-mutation-cucumber\` is the harness that actually works — it rebuilds the binary from each mutant." >&2
         exit 1
     fi
+    # Past every "this measured nothing" guard, so the run is genuinely green.
+    just _sweep-cache "$marker"
 
 # Install gremlins
 test-mutation-install:
@@ -1115,6 +1132,10 @@ test-mutation-container:
 test-mutation-cucumber *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
+    mkdir -p "{{mutation_tmp}}"
+    marker="{{mutation_tmp}}/.cache-sweep.$$"
+    : > "$marker"
+    trap 'rm -f "$marker"' EXIT
     set +e
     # -v is LOAD-BEARING, not a debugging convenience. ooze prints its per-mutant
     # diffs and its summary box to STDOUT, and `go test` swallows a PASSING test's
@@ -1156,6 +1177,9 @@ test-mutation-cucumber *ARGS:
     echo
     echo "=== mutation summary ==="
     grep -E 'Total:|Killed:|Survived:|Score:' <<<"$output" || true
+    # Past the no-score guard, so a real score was produced: sweep what the
+    # per-mutant recompiles just added.
+    just _sweep-cache "$marker"
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).
 # Per-entry is the recommended way to run this: the full table is ~111 minutes,
@@ -1252,6 +1276,45 @@ cache-report LIMIT_GB="40":
         find "$gbc" -type f \( -name '*-a' -o -name '*-d' \) -mmin +"$mins" -delete 2>/dev/null
     done
     echo "after:      $(size_gb "$gbc") GB"
+
+# Evict the build-cache entries a GREEN gate just created, given a MARKER file
+# stamped immediately before the run.
+#
+# ONLY the acceptance and mutation gates call this. They are what produce the
+# tens of GB: acceptance compiles the whole tree under `-tags "acceptance
+# integration"`, and the mutation lanes recompile it once per mutant. The fast
+# unit lanes (test-default, test-pkg) deliberately keep their cache warm —
+# sweeping those would just make iteration slower for no meaningful disk win.
+#
+# ONLY ON SUCCESS. A red run leaves every entry in place so the next attempt
+# recompiles nothing and the failure can be re-run immediately; the disk cost
+# of a failing gate is bounded by how long it stays failing.
+#
+# Attribution is by mtime window, the same age mechanism cache-report and Go's
+# own trim use, because a cache entry carries no record of which run produced
+# it. GOCACHE is shared (host, gopls, every worktree, every `just _run`
+# container), so this can also evict entries a CONCURRENT run in another tree
+# created. That is a cache miss for that run and nothing worse — a missing
+# entry is never a wrong build.
+#
+# This only COMPENSATES for the duplication. -trimpath on the test path is the
+# real fix and is already decided; it is blocked on 44 runtime.Caller(0) sites
+# across 25 test files that derive a path from their own source location, which
+# a trimmed path rewrites to a module path that does not exist on disk. Four
+# tests and `just cover` fail immediately without that prerequisite. Do not read
+# this sweep as closing that out — see taskloom obtuse-equinox.
+_sweep-cache MARKER:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    gbc="$(go env GOCACHE 2>/dev/null || echo "$HOME/.cache/go-build")"
+    { [ -d "$gbc" ] && [ -f "{{MARKER}}" ]; } || exit 0
+    size_kb() { du -sk "$1" 2>/dev/null | awk '{print $1}'; }
+    before="$(size_kb "$gbc")"
+    find "$gbc" -type f \( -name '*-a' -o -name '*-d' \) -newer "{{MARKER}}" -delete 2>/dev/null
+    after="$(size_kb "$gbc")"
+    rm -f "{{MARKER}}"
+    awk -v b="${before:-0}" -v a="${after:-0}" \
+        'BEGIN{printf "swept %.1f GB of gate build cache (run was green)\n", (b-a)/1048576}'
 
 # Prune ephemeral docker images this repo's tooling produces — per-agent-run
 # images (ctxloom-agent:<hash>), integration-test images (ctxloom-*-itest,

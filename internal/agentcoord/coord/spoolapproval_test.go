@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Tests for the APPROVAL LADDER's relay leg under the cutover: the hop between
@@ -309,4 +309,3 @@ func mustMarshal(t *testing.T, v any) []byte {
 	require.NoError(t, err)
 	return raw
 }
-

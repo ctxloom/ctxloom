@@ -35,7 +35,7 @@ type fakeEngineHome struct {
 	}
 	sink        func(*agentcoordpb.PeerMessage) bool
 	spoolSweeps int
-	exited []struct {
+	exited      []struct {
 		Code      int
 		SessionID string
 	}

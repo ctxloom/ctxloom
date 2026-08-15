@@ -75,6 +75,7 @@ type agentCase struct {
 //     path-based assertions (WriteSettings/AtomicWriteBackup/
 //     RemovePreservesUser all read/write ONE file at SettingsPath) redesigned
 //     for a multi-file writer first — not a one-line table addition.
+//
 //   - opencode's WriteSettings explicitly IGNORES the hooks argument (it "has
 //     no ctxloom-style hook mechanism", see opencode/settings.go's own doc
 //     comment) — TestConformance_HookEventCoverage would fail immediately,

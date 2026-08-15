@@ -15,7 +15,13 @@ import (
 	"path/filepath"
 
 	hew "github.com/benjaminabbitt/hew/go"
-	"github.com/benjaminabbitt/hew/go/hewjson"
+	// hew moved its format bindings to ext/<format> (O48), and registration is
+	// import-for-effect: a format this file does not import is a format this
+	// build cannot apply. Both are blank imports because everything reaches
+	// them through hew.Lookup rather than by calling the package directly —
+	// which is what lets one code path serve every format.
+	_ "github.com/benjaminabbitt/hew/go/ext/json"
+	_ "github.com/benjaminabbitt/hew/go/ext/toml"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
@@ -35,6 +41,33 @@ const (
 	configWriteFiletypeJSON = "json"
 	configWriteFiletypeTOML = "toml"
 )
+
+// hewFormatFor maps config-write's filetype to hew's FormatID, and REFUSES a
+// filetype hew cannot apply rather than silently falling back to some other
+// write path. A fallback here would be the silent no-op in its most damaging
+// form: the file changes, but by a mechanism that leaves no §9.7 record, so
+// the evidence needed to undo it never exists.
+func hewFormatFor(ft string) (hew.FormatID, error) {
+	switch ft {
+	case configWriteFiletypeJSON:
+		return hew.FormatJSON, nil
+	case configWriteFiletypeTOML:
+		return hew.FormatTOML, nil
+	default:
+		return "", fmt.Errorf("config-write: no hew binding for filetype %q", ft)
+	}
+}
+
+// emptyTargetFor is the empty document of a format, used as the pre-image when
+// the target file does not exist yet. It is format-specific and deliberately
+// not one shared literal: "{}" is an empty JSON object, but in TOML it is a
+// parse error — an empty TOML document is zero bytes.
+func emptyTargetFor(format hew.FormatID) []byte {
+	if format == hew.FormatJSON {
+		return []byte("{}")
+	}
+	return nil
+}
 
 var (
 	configWriteFile     string
@@ -110,10 +143,11 @@ type configWriteResult struct {
 	Created  bool     `json:"created"`
 	Merged   []string `json:"mergedKeys"`
 	Verified bool     `json:"verified"`
-	// Record is the path of the hew §9.7 application record this apply
-	// wrote (~/.ctxloom/records/…), or "" for a TOML target — hew has no
-	// TOML applier yet, so a TOML write still takes the old deep-merge path
-	// and produces no record. See buildAndWriteApplicationRecord.
+	// Record is the path of the hew §9.7 application record this apply wrote
+	// (~/.ctxloom/records/…). Every format config-write applies produces one —
+	// JSON and TOML alike — because the record is the only durable evidence of
+	// what changed in a file ctxloom does not own. See
+	// buildAndWriteApplicationRecord.
 	Record string `json:"record,omitempty"`
 }
 
@@ -164,32 +198,48 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 
 		var out []byte
 		var tl hew.TransformList
+		format, ferr := hewFormatFor(ft)
+		if ferr != nil {
+			return ferr
+		}
 		// target is the pre-image hew resolves and edits against: rawBefore
-		// as read, or a synthetic empty object for a file that does not
-		// exist yet (same starting point the old base=map[string]any{} gave
-		// deepMergeConfigMaps). It is also the record's "before" image
+		// as read, or this format's EMPTY DOCUMENT for a file that does not
+		// exist yet. Empty is format-specific and cannot be one shared
+		// literal — "{}" is an empty JSON object but a parse error in TOML,
+		// where empty is zero bytes. It is also the record's "before" image
 		// (§9.7): the bytes the applier actually walked, not a fiction.
 		target := rawBefore
 		if !existed {
-			target = []byte("{}")
+			target = emptyTargetFor(format)
 		}
-		switch ft {
-		case configWriteFiletypeJSON:
-			// hew is a byte-preserving structural applier (§6.3): it edits
-			// only the byte ranges a transform touches and copies every
-			// other byte of target verbatim, unlike the old
-			// json.MarshalIndent(deepMergeConfigMaps(...)) path this
-			// replaces, which re-serialized the WHOLE file (alphabetized
-			// keys, 2-space indent) on every write.
-			tl = buildJSONTransformList(file, base, patch)
-			out, err = hewjson.Apply(target, tl)
-			if err != nil {
-				return fmt.Errorf("config-write: hew apply to %s: %w", file, err)
+		// ONE path for every format hew can apply — JSON and TOML alike. hew
+		// is a byte-preserving structural applier (§6.3): it edits only the
+		// byte ranges a transform touches and copies every other byte of
+		// target verbatim, unlike the re-serialize-the-whole-file merge this
+		// replaces, which alphabetized keys and reindented on every write.
+		//
+		// The fluent document API (§A.0) is the authoring surface: edits are
+		// RECORDED against an opened Doc and hew lowers them to the §9.2 IR
+		// itself, rather than this file hand-assembling a TransformList.
+		// Doc.Transforms() yields that same ordinary IR, which is what the
+		// §9.7 record below resolves.
+		doc, derr := hew.OpenBytes(file, target, hew.As(format))
+		if derr != nil {
+			return fmt.Errorf("config-write: open %s for hew: %w", file, derr)
+		}
+		// A patch whose every leaf recurses away (e.g. {"a":{}} where base
+		// already holds an object at "a") records NOTHING. The authoring
+		// surface treats an un-operated Doc as a caller bug and Transforms()
+		// errors on it, so the no-op is caught HERE — writing target back
+		// unchanged, which is what an empty transform list used to do.
+		if recordConfigPatch(doc, hew.RootPath(), base, patch) == 0 {
+			out = target
+		} else {
+			if tl, err = doc.Transforms(); err != nil {
+				return fmt.Errorf("config-write: lower %s's patch to hew transforms: %w", file, err)
 			}
-		default:
-			out, err = encodeConfigFile(deepMergeConfigMaps(base, patch), ft)
-			if err != nil {
-				return fmt.Errorf("config-write: encode %s: %w", file, err)
+			if out, err = doc.Bytes(); err != nil {
+				return fmt.Errorf("config-write: hew apply to %s: %w", file, err)
 			}
 		}
 		if err := writeConfigFile(fs, file, out); err != nil {
@@ -202,13 +252,15 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 		}
 		result.Verified = true
 
-		if ft == configWriteFiletypeJSON {
-			recordPath, rerr := buildAndWriteApplicationRecord(fs, file, tl, patchBytes, target, out)
-			if rerr != nil {
-				return fmt.Errorf("config-write: %s was written and verified, but its hew §9.7 application record could not be written (retrying config-write is safe — every transform here is OnConflict:replace or an optional remove, so re-applying the same patch is a no-op): %w", file, rerr)
-			}
-			result.Record = recordPath
+		// Every format hew applies gets a §9.7 record, TOML included — the
+		// record is the only durable evidence of what was changed in a file
+		// ctxloom does not own, so a format that writes without one is
+		// exactly the recovery gap this path exists to close.
+		recordPath, rerr := buildAndWriteApplicationRecord(fs, file, format, tl, patchBytes, target, out)
+		if rerr != nil {
+			return fmt.Errorf("config-write: %s was written and verified, but its hew §9.7 application record could not be written (retrying config-write is safe — every transform here is OnConflict:replace or an optional remove, so re-applying the same patch is a no-op): %w", file, rerr)
 		}
+		result.Record = recordPath
 		return nil
 	})
 	if lockErr != nil {
@@ -376,58 +428,20 @@ func decodeConfigFile(data []byte, ft string) (map[string]any, error) {
 	return m, nil
 }
 
-// encodeConfigFile serializes m in the given filetype.
-func encodeConfigFile(m map[string]any, ft string) ([]byte, error) {
-	switch ft {
-	case configWriteFiletypeJSON:
-		out, err := json.MarshalIndent(m, "", "  ")
-		if err != nil {
-			return nil, err
-		}
-		return append(out, '\n'), nil
-	case configWriteFiletypeTOML:
-		var buf bytes.Buffer
-		if err := toml.NewEncoder(&buf).Encode(m); err != nil {
-			return nil, err
-		}
-		return buf.Bytes(), nil
-	default:
-		return nil, fmt.Errorf("unsupported filetype %q", ft)
-	}
-}
+// encodeConfigFile and deepMergeConfigMaps used to live here: the TOML path
+// merged decoded maps and re-serialized the whole file. Both are gone now that
+// every format goes through hew's byte-preserving applier — re-serializing was
+// what reordered keys and reindented files ctxloom does not own, and it left no
+// §9.7 record behind. recordConfigPatch below is their replacement.
 
-// deepMergeConfigMaps merges patch into base in place and returns it: nested
-// objects merge key by key (recursively), and any other value in patch
-// replaces base's value wholesale. Every base key patch doesn't mention is
-// left untouched — this is rule 3's "never truncate."
-func deepMergeConfigMaps(base, patch map[string]any) map[string]any {
-	for k, pv := range patch {
-		if bv, ok := base[k]; ok {
-			if bMap, ok1 := bv.(map[string]any); ok1 {
-				if pMap, ok2 := pv.(map[string]any); ok2 {
-					base[k] = deepMergeConfigMaps(bMap, pMap)
-					continue
-				}
-			}
-		}
-		base[k] = pv
-	}
-	return base
-}
-
-// buildJSONTransformList converts patch (an RFC 7386 JSON-merge-patch-shaped
-// object, decodeConfigPatch's output) into the hew TransformList
-// hewjson.Apply executes against target's JSON content. It is the JSON
-// path's equivalent of deepMergeConfigMaps, expressed as edits instead of a
-// merged map — see appendJSONPatch for the recursion rule that keeps the two
-// semantically aligned (rule 3's "preserve every foreign key").
-func buildJSONTransformList(target string, base, patch map[string]any) hew.TransformList {
-	tl := hew.TransformList{Target: target, Format: hew.FormatJSON}
-	appendJSONPatch(&tl, hew.RootPath(), base, patch)
-	return tl
-}
-
-// appendJSONPatch walks patch and appends one Transform per leaf it reaches.
+// recordConfigPatch walks patch (an RFC 7386 JSON-merge-patch-shaped object,
+// decodeConfigPatch's output) and RECORDS one operation per leaf it reaches
+// onto doc, hew's fluent authoring surface (§A.0). hew lowers those recorded
+// steps to the §9.2 IR itself — this file no longer assembles a
+// TransformList by hand. It is the JSON path's equivalent of
+// deepMergeConfigMaps, expressed as edits instead of a merged map; the
+// recursion rule below is what keeps the two semantically aligned (rule 3's
+// "preserve every foreign key").
 //
 //   - A null patch value is a delete: OpRemove, Optional (RFC 7386's own
 //     "null means absent" semantics — removing an already-absent key is a
@@ -446,7 +460,7 @@ func buildJSONTransformList(target string, base, patch map[string]any) hew.Trans
 //     does not (base has no such key yet, so it becomes one atomic add).
 //     Recursion has to stop the moment base doesn't already hold a
 //     like-shaped object, because hew's `add` can create exactly one
-//     missing path segment at a time (hewjson.planInsert requires the
+//     missing path segment at a time (ext/json planInsert requires the
 //     PARENT to already resolve) — it cannot auto-vivify a multi-level
 //     path the way deepMergeConfigMaps' map assignment could.
 //   - Anything else (a scalar, an array, or an object base has no match
@@ -454,34 +468,42 @@ func buildJSONTransformList(target string, base, patch map[string]any) hew.Trans
 //     replaces the node if it exists, creates it if it doesn't, so the same
 //     transform shape covers both of deepMergeConfigMaps' "key exists" and
 //     "key is new" branches.
-func appendJSONPatch(tl *hew.TransformList, prefix hew.Path, base, patch map[string]any) {
+//
+// It returns how many operations it recorded, which the caller needs because
+// a patch can legitimately record NONE (every leaf recursed away) and the
+// authoring surface rejects an un-operated Doc.
+//
+// Addressing goes through AtPath, not At's pattern string: a config key is
+// arbitrary user data and may contain the characters a pattern parses (dots,
+// quotes, brackets). Building the Path segment-wise cannot misread one.
+func recordConfigPatch(doc *hew.Doc, prefix hew.Path, base, patch map[string]any) int {
+	recorded := 0
 	for _, k := range sortedKeys(patch) { // stable order: a deterministic transform list and record
 		pv := patch[k]
 		path := prefix.Append(hew.Segment{Kind: hew.SegKey, Name: k})
 		if pv == nil {
-			tl.Transform = append(tl.Transform, hew.Transform{Op: hew.OpRemove, Path: path, Optional: true})
+			// Optional is RFC 7386's "null means absent": removing an
+			// already-absent key is a no-op, not an error. It qualifies THIS
+			// op because each key gets its own Sel.
+			doc.AtPath(path).Remove().Optional()
+			recorded++
 			continue
 		}
 		if pMap, ok := pv.(map[string]any); ok {
 			if bMap, ok2 := base[k].(map[string]any); ok2 {
-				appendJSONPatch(tl, path, bMap, pMap)
+				recorded += recordConfigPatch(doc, path, bMap, pMap)
 				continue
 			}
 		}
-		v, err := hew.ValueOf(pv)
-		if err != nil {
-			// pv is always something encoding/json.Unmarshal produced into
-			// `any` — nil, bool, float64, string, []any or map[string]any —
-			// and hew.ValueOf (a thin wrapper over yaml.Node.Encode) accepts
-			// every one of those. Not reachable from decodeConfigPatch's
-			// output; a panic here would mean this invariant broke, not a
-			// bad patch.
-			panic(fmt.Sprintf("config-write: encode patch value at %s: %v", path.String(), err))
-		}
-		tl.Transform = append(tl.Transform, hew.Transform{
-			Op: hew.OpAdd, Path: path, Value: v, OnConflict: hew.ConflictReplace,
-		})
+		// Set is OpAdd + OnConflict:replace — hew's upsert, covering both
+		// "key exists" and "key is new". The value is handed over as a plain
+		// `any`: the Doc encodes it and, per §10.4, parks any failure on the
+		// document for Transforms() to report, so this no longer needs
+		// ValueOf and its unreachable panic.
+		doc.AtPath(path).Set(pv)
+		recorded++
 	}
+	return recorded
 }
 
 // applicationRecord is hew's §9.7 application record, in Go structs
@@ -508,6 +530,21 @@ type recordTarget struct {
 	After      string     `yaml:"after"`
 	Committed  bool       `yaml:"committed"`
 	Transforms []recordOp `yaml:"transforms"`
+	// Inverse is the op list that turns the AFTER image back into the BEFORE
+	// image — what a caller applies to undo this application.
+	//
+	// It is stored rather than derived later because deriving it later needs
+	// the before-image, and the record deliberately keeps only a DIGEST of
+	// that: these records describe FOREIGN files, and the files config-write
+	// edits include MCP server configs whose env blocks carry API keys, so a
+	// verbatim copy would put secrets in an unencrypted directory. An inverse
+	// op list carries only what an op actually replaced.
+	//
+	// Reversing an application that CREATED the file yields removes, leaving
+	// an empty document rather than an absent one. That is honest — the record
+	// states what it can undo — and the caller that wants the file gone can
+	// see Before was the empty document.
+	Inverse []recordOp `yaml:"inverse,omitempty"`
 }
 
 // recordOp is one §9.2 RESOLVED op — the record's "transforms" field must
@@ -524,29 +561,18 @@ type recordOp struct {
 	Value      *yamlv3.Node `yaml:"value,omitempty"`
 }
 
-// resolveAppliedTransforms resolves tl's transforms one at a time rather
-// than as a single hew.Resolve(tl, doc) call, because hew.Resolve does not
-// know about Transform.Optional — an Optional OpRemove whose key was never
-// there is a legitimate zero-edit no-op to hewjson.Apply (planRemove checks
-// Optional itself), but the SAME transform makes Resolve return HEW013
-// no-match, since resolving a plain "does this address exist" question has
-// no tolerance flag of its own to consult. Resolving transform-by-transform
-// lets this function apply that tolerance itself: an Optional transform
-// that fails to resolve produced no edit (nothing for the record to state
-// happened), so it is dropped from the resolved list rather than aborting
-// the whole record over an op that, correctly, did nothing.
+// resolveAppliedTransforms projects tl onto the pre-image, producing the
+// resolved list §9.7 requires — concrete indices, key-matches collapsed.
+//
+// This used to resolve one transform at a time so it could catch and drop an
+// optional remove whose key was never there: that is a zero-edit no-op to the
+// applier, but Resolve rejected it as HEW013. hew.Resolve honors Optional
+// itself now (OP-06), skipping a missing optional address, so the tolerance
+// lives once in hew rather than in every caller that resolves what it applied.
 func resolveAppliedTransforms(tl hew.TransformList, doc hew.Document, target string) ([]hew.ResolvedOp, error) {
-	var ops []hew.ResolvedOp
-	for _, t := range tl.Transform {
-		single := hew.TransformList{Target: tl.Target, Format: tl.Format, Transform: []hew.Transform{t}}
-		resolved, err := hew.Resolve(single, doc)
-		if err != nil {
-			if t.Optional {
-				continue
-			}
-			return nil, fmt.Errorf("resolve the applied transforms against %s: %w", target, err)
-		}
-		ops = append(ops, resolved...)
+	ops, err := hew.Resolve(tl, doc)
+	if err != nil {
+		return nil, fmt.Errorf("resolve the applied transforms against %s: %w", target, err)
 	}
 	return ops, nil
 }
@@ -568,8 +594,21 @@ func resolveAppliedTransforms(tl hew.TransformList, doc hew.Document, target str
 // recovery path for a foreign file" only up to "the evidence needed for a
 // human or a future tool to recover exists on disk" — not up to "ctxloom
 // can undo it."
-func buildAndWriteApplicationRecord(fs afero.Fs, target string, tl hew.TransformList, patchBytes, before, after []byte) (string, error) {
-	doc, err := hewjson.Document(before)
+func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.FormatID, tl hew.TransformList, patchBytes, before, after []byte) (string, error) {
+	// The reader comes from the REGISTRY, not from a named ext package: one
+	// code path serves every format, and which formats it can serve is decided
+	// by this file's blank imports rather than by a switch. A binding with no
+	// Document is a HALF binding — it can apply but not read — and a §9.7
+	// record needs the read side, so refuse rather than write a record that
+	// states nothing.
+	binding, ok := hew.Lookup(format)
+	if !ok || binding.Document == nil {
+		return "", fmt.Errorf("hew has no document reader for %q, so the applied transforms cannot be resolved into a §9.7 record", format)
+	}
+	// target is hew's diagnostics LABEL here, not a path it opens — Document
+	// does no I/O. Passing the real path means a parse failure names the file
+	// in hew's own error as well as in the wrap below.
+	doc, err := binding.Document(target, before)
 	if err != nil {
 		return "", fmt.Errorf("parse %s's pre-image to resolve the applied transforms: %w", target, err)
 	}
@@ -578,17 +617,24 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, tl hew.Transform
 		return "", err
 	}
 
+	inverse, err := inverseOps(binding, format, target, after, before)
+	if err != nil {
+		return "", err
+	}
+
+	at := time.Now().UTC()
 	rec := applicationRecord{
 		Record:    1,
-		AppliedAt: time.Now().UTC().Format(time.RFC3339),
+		AppliedAt: at.Format(time.RFC3339),
 		Patch:     recordPatch{Source: "-", Digest: sha256Digest(patchBytes)},
 		Targets: []recordTarget{{
 			Target:     target,
-			Format:     string(hew.FormatJSON),
+			Format:     string(format),
 			Before:     sha256Digest(before),
 			After:      sha256Digest(after),
 			Committed:  true,
 			Transforms: resolvedOpsToRecord(ops),
+			Inverse:    resolvedOpsToRecord(inverse),
 		}},
 	}
 
@@ -604,11 +650,71 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, tl hew.Transform
 	if err := fs.MkdirAll(recordsDir, 0755); err != nil {
 		return "", fmt.Errorf("create %s: %w", recordsDir, err)
 	}
-	recordPath := filepath.Join(recordsDir, applicationRecordFilename(target))
+	recordPath, err := freeRecordPath(fs, recordsDir, target, at)
+	if err != nil {
+		return "", err
+	}
 	if err := agent.AtomicWriteFile(fs, recordPath, out, filepath.Base(recordPath)); err != nil {
 		return "", fmt.Errorf("write %s: %w", recordPath, err)
 	}
 	return recordPath, nil
+}
+
+// inverseOps is the op list that turns after back into before — what a caller
+// applies to undo this application.
+//
+// hew.Invert owns the derivation, including the direction. This used to
+// assemble it here by calling hew's differ with the arguments swapped, which
+// worked but put a silently-reversible decision in a consumer: Diff(before,
+// after) and Diff(after, before) are both well-formed and only one undoes
+// anything. hew decides it once now.
+//
+// Resolved against the AFTER image because that is the document an undo would
+// be applied to: the pointers have to name positions in the file as it stands
+// now, not as it stood before the write. That obligation is the caller's —
+// Invert returns the abstract list, as DiffTrees does.
+func inverseOps(b hew.Binding, format hew.FormatID, target string, after, before []byte) ([]hew.ResolvedOp, error) {
+	if b.Document == nil {
+		return nil, fmt.Errorf("hew cannot read %q, so this application records no way to undo itself", format)
+	}
+	tl, err := hew.Invert(format, before, after, hew.DiffOptions{Target: target})
+	if err != nil {
+		return nil, fmt.Errorf("derive the inverse of the application to %s: %w", target, err)
+	}
+	doc, err := b.Document(target, after)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s's post-image to resolve the inverse: %w", target, err)
+	}
+	return hew.Resolve(tl, doc)
+}
+
+// freeRecordPath is the record path that does not already exist, disambiguating
+// with a counter when it does.
+//
+// AtomicWriteFile OVERWRITES, so the timestamp alone was the whole defence and
+// it was not one: at second resolution two applies against the same target in
+// the same second produced the same name and the second silently destroyed the
+// first — the exact evidence the §9.7 record exists to preserve, gone on a
+// success path with a success message. Nanoseconds make that vanishingly
+// unlikely; this loop makes it IMPOSSIBLE, which is the difference between an
+// invariant and a hope.
+//
+// It disambiguates rather than refusing because refusing also loses a record:
+// the point is that no apply goes unrecorded, not that a particular filename
+// is available.
+func freeRecordPath(fs afero.Fs, dir, target string, at time.Time) (string, error) {
+	base := applicationRecordFilename(target, at)
+	path := filepath.Join(dir, base)
+	for n := 2; ; n++ {
+		exists, err := afero.Exists(fs, path)
+		if err != nil {
+			return "", fmt.Errorf("check %s: %w", path, err)
+		}
+		if !exists {
+			return path, nil
+		}
+		path = filepath.Join(dir, strings.TrimSuffix(base, recordFileSuffix)+fmt.Sprintf("-%d", n)+recordFileSuffix)
+	}
 }
 
 // applicationRecordFilename flattens target the same way
@@ -620,10 +726,20 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, tl hew.Transform
 // the coupling. Suffixed with a sortable UTC timestamp because a record is
 // an audit trail entry, not a mutable sidecar: two applies against the same
 // target must not overwrite each other's record.
-func applicationRecordFilename(target string) string {
+//
+// NANOSECONDS, not seconds. The format is still lexically sortable, and the
+// clock is a parameter so the collision case is reachable from a test — with
+// time.Now() inlined here, two applies could only be made to collide by
+// running them inside the same second, which is a race a test cannot state.
+// freeRecordPath is what actually enforces the no-overwrite invariant.
+func applicationRecordFilename(target string, at time.Time) string {
 	flat := strings.ReplaceAll(filepath.ToSlash(target), "/", "__")
-	return flat + "__" + time.Now().UTC().Format("20060102T150405Z") + ".hew-record.yaml"
+	return flat + "__" + at.UTC().Format("20060102T150405.000000000Z") + recordFileSuffix
 }
+
+// recordFileSuffix is the record's extension, named once because
+// freeRecordPath has to split a filename on it to insert its counter.
+const recordFileSuffix = ".hew-record.yaml"
 
 // resolvedOpsToRecord adapts hew.ResolvedOp (the library's form) to recordOp
 // (this file's yaml-tagged mirror of it) — see recordOp's doc for why the
@@ -666,7 +782,7 @@ func containsConfigPatch(data, patch map[string]any) bool {
 	for k, pv := range patch {
 		if pv == nil {
 			// A null patch value is a delete on the JSON/hew path
-			// (appendJSONPatch's OpRemove) — verification for that key must
+			// (recordConfigPatch OpRemove) — verification for that key must
 			// be "now absent", the mirror image of every other key's
 			// "now present with this value", not a literal-null lookup.
 			if _, stillThere := data[k]; stillThere {

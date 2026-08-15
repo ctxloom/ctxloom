@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/pelletier/go-toml/v2"
@@ -434,8 +435,8 @@ func TestRunConfigWrite_JSONPatch_NullOnAbsentKey_NoOp(t *testing.T) {
 // TestRunConfigWrite_JSONPatch_NestedMergePreservesSiblingsBeyondOneLevel
 // extends the existing nested-merge parity case one level deeper: hew's
 // `add` can only create ONE missing path segment per transform
-// (hewjson.planInsert requires the immediate parent to already resolve), so
-// appendJSONPatch must stop recursing and emit one whole-subtree add the
+// (ext/json planInsert requires the immediate parent to already resolve), so
+// recordConfigPatch must stop recursing and emit one whole-subtree add the
 // moment the target doesn't already hold a like-shaped object — this proves
 // that boundary lands at the RIGHT level for a two-deep new key, not one
 // level too shallow (which would 500 on "parent is not an object" / a
@@ -547,21 +548,261 @@ func TestRenderConfigWriteResult_RecordLine(t *testing.T) {
 // this slice does NOT do: hew ships only a JSON applier today (task brief,
 // unit 2), so a TOML target keeps the old deep-merge path untouched and
 // gets no application record at all — Record stays "".
-func TestRunConfigWrite_TOMLPatch_NoApplicationRecord(t *testing.T) {
+// TOML used to take a deep-merge path that re-serialized the whole file and
+// wrote NO application record — this test pinned that absence. Now that hew
+// ships a TOML document reader, TOML resolves and records exactly as JSON does,
+// so the pin is inverted: the record must EXIST and state what happened.
+//
+// The digests are the load-bearing part. Asserting only that a record file
+// exists would pass against a record describing some other write, which is the
+// audit-trail form of this project's silent no-op.
+func TestRunConfigWrite_TOMLPatch_WritesApplicationRecord(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	path := "/home/user/.config/nori/config.toml"
-	require.NoError(t, afero.WriteFile(fs, path, []byte("[foreign]\nkeep = \"yes\"\n"), 0644))
+	// agent_servers.other already exists, so the patch's "dev" key resolves to
+	// a LEAF pointer rather than a trivially self-resolving top-level key —
+	// the case that actually exercises resolution against the TOML tree.
+	original := []byte("[foreign]\nkeep = \"yes\"\n\n[agent_servers.other]\ncommand = \"other\"\n")
+	require.NoError(t, afero.WriteFile(fs, path, original, 0644))
 
-	cmd, _ := configWriteTestCmd(`{"added":"value"}`)
+	patchBytes := []byte(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
+	cmd, _ := configWriteTestCmd(string(patchBytes))
 	result, err := runConfigWrite(fs, cmd, path, "")
 	require.NoError(t, err)
-	assert.True(t, result.Verified)
-	assert.Empty(t, result.Record, "TOML has no hew applier yet; config-write must not claim a record it did not write")
+	require.True(t, result.Verified)
+	require.NotEmpty(t, result.Record, "a successful TOML apply must report where its application record went")
+
+	after, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+
+	recordBytes, err := afero.ReadFile(fs, result.Record)
+	require.NoError(t, err)
+	require.NotEmpty(t, recordBytes, "an empty record is the silent-no-op failure mode applied to the audit trail")
+
+	var rec map[string]any
+	require.NoError(t, yaml.Unmarshal(recordBytes, &rec))
+	assert.EqualValues(t, 1, rec["hew-record"])
+
+	targets, ok := rec["targets"].([]any)
+	require.True(t, ok)
+	require.Len(t, targets, 1)
+	target := targets[0].(map[string]any)
+	assert.Equal(t, path, target["target"])
+	assert.Equal(t, "toml", target["format"], "the record must state the format actually applied, not a hardcoded json")
+	assert.Equal(t, "sha256:"+sha256Hex(original), target["before"], "before digest must match the bytes as READ")
+	assert.Equal(t, "sha256:"+sha256Hex(after), target["after"], "after digest must match the bytes actually WRITTEN")
+
+	transforms, ok := target["transforms"].([]any)
+	require.True(t, ok, "the record must carry the RESOLVED transforms, which is what needed a TOML document reader")
+	require.NotEmpty(t, transforms)
 }
 
-// --- appendJSONPatch: the conversion's recursion boundary, in isolation ---
+// Creating a file that does not exist yet is the case where the EMPTY DOCUMENT
+// is format-specific: "{}" is an empty JSON object but a parse error in TOML,
+// where empty is zero bytes. Every other test here pre-writes its target, so
+// without this one a shared "{}" literal would sail through — the mutation of
+// emptyTargetFor that collapses both formats to "{}" survived until this
+// existed.
+func TestRunConfigWrite_CreatesMissingFile_PerFormatEmptyDocument(t *testing.T) {
+	for _, c := range []struct {
+		name, path, wantSubstr string
+	}{
+		{"toml", "/home/user/.config/nori/config.toml", `command = "ctxloom"`},
+		{"json", "/home/user/.config/zed/settings.json", `"command"`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			cmd, _ := configWriteTestCmd(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
 
-func TestAppendJSONPatch_RecursionBoundary(t *testing.T) {
+			result, err := runConfigWrite(fs, cmd, c.path, "")
+			require.NoError(t, err, "creating a missing %s target must succeed", c.name)
+			assert.True(t, result.Created, "the report must say the file was created")
+			require.True(t, result.Verified)
+
+			out, err := afero.ReadFile(fs, c.path)
+			require.NoError(t, err)
+			require.NotEmpty(t, out, "a created file with zero bytes is the silent no-op")
+			assert.Contains(t, string(out), c.wantSubstr,
+				"the patched value must be present in the created file")
+		})
+	}
+}
+
+// The foreign-key guarantee, now that TOML rides a byte-preserving applier
+// rather than a re-serializing merge: a table the patch never mentions must
+// survive with its bytes intact, comments and layout included. The old path
+// could not have passed this — it rebuilt the file from a decoded map.
+func TestRunConfigWrite_TOMLPatch_PreservesUnrelatedBytes(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/nori/config.toml"
+	original := []byte("# keep this comment\n[foreign]\nkeep   =    \"yes\"   # and this alignment\n\n[agent_servers.other]\ncommand = \"other\"\n")
+	require.NoError(t, afero.WriteFile(fs, path, original, 0644))
+
+	cmd, _ := configWriteTestCmd(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err)
+	require.True(t, result.Verified)
+
+	after, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	out := string(after)
+
+	assert.Contains(t, out, "# keep this comment", "a comment the patch never touched must survive")
+	assert.Contains(t, out, `keep   =    "yes"   # and this alignment`,
+		"the untouched line's exact spacing and trailing comment must survive byte-for-byte")
+	assert.Contains(t, out, `command = "ctxloom"`, "the patched value must actually be present")
+}
+
+// The record's whole point is that a write can be UNDONE, so the test is the
+// round trip: apply what the record calls the inverse and the file must come
+// back byte-for-byte. Asserting merely that an `inverse:` key exists would pass
+// against an inverse that undoes the wrong thing, or nothing.
+func TestApplicationRecord_InverseRestoresTheOriginalBytes(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	// A foreign key, and an existing entry the patch REPLACES — the replace is
+	// the case a naive inverse gets wrong, because undoing it means restoring
+	// the old value, not deleting the key.
+	original := []byte(`{"foreign":"keep","agent_servers":{"other":{"command":"other"}}}`)
+	require.NoError(t, afero.WriteFile(fs, path, original, 0o644))
+
+	cmd, _ := configWriteTestCmd(`{"agent_servers":{"other":{"command":"replaced"},"dev":{"command":"ctxloom"}}}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Record)
+
+	after, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	require.NotEqual(t, string(original), string(after), "the write must actually have changed the file")
+
+	recordBytes, err := afero.ReadFile(fs, result.Record)
+	require.NoError(t, err)
+	var rec struct {
+		Targets []struct {
+			Inverse []struct {
+				Op    string    `yaml:"op"`
+				Path  string    `yaml:"path"`
+				Value yaml.Node `yaml:"value"`
+			} `yaml:"inverse"`
+		} `yaml:"targets"`
+	}
+	require.NoError(t, yaml.Unmarshal(recordBytes, &rec))
+	require.Len(t, rec.Targets, 1)
+	require.NotEmpty(t, rec.Targets[0].Inverse, "the record must carry an inverse, or nothing can undo this write")
+
+	// Rebuild the inverse as a transform list and apply it to the CURRENT file.
+	var transforms []hew.Transform
+	for _, op := range rec.Targets[0].Inverse {
+		p, perr := hew.ParsePath(op.Path)
+		require.NoError(t, perr, "a recorded inverse path must parse")
+		tr := hew.Transform{Op: hew.OpKind(op.Op), Path: p}
+		if op.Value.Kind != 0 {
+			v := op.Value
+			tr.Value = hew.NodeValue(&v)
+		}
+		if tr.Op == hew.OpAdd {
+			tr.OnConflict = hew.ConflictReplace
+		}
+		transforms = append(transforms, tr)
+	}
+	binding, ok := hew.Lookup(hew.FormatJSON)
+	require.True(t, ok)
+	undone, err := binding.Applier(after, hew.TransformList{
+		Target: path, Format: hew.FormatJSON, Transform: transforms,
+	})
+	require.NoError(t, err, "the recorded inverse must apply cleanly to the file it describes")
+
+	var gotBack, want map[string]any
+	require.NoError(t, json.Unmarshal(undone, &gotBack))
+	require.NoError(t, json.Unmarshal(original, &want))
+	assert.Equal(t, want, gotBack,
+		"applying the inverse must restore the document the write started from")
+}
+
+// A §9.7 record is an audit-trail entry, and AtomicWriteFile overwrites — so
+// the filename is the only thing standing between two applies and the loss of
+// the first one's record. At second resolution it was not enough: two applies
+// against the same target in the same second produced the same name, and the
+// evidence needed to back out the first write was destroyed on a success path.
+//
+// The clock is fixed here deliberately. With time.Now() inlined, this case
+// could only be provoked by racing two applies inside one second, which is not
+// something a test can state.
+func TestFreeRecordPath_NeverOverwritesAnExistingRecord(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/home/user/.ctxloom/records"
+	require.NoError(t, fs.MkdirAll(dir, 0o755))
+	target := "/home/user/.config/zed/settings.json"
+	at := time.Date(2026, 8, 14, 22, 19, 51, 123456789, time.UTC)
+
+	first, err := freeRecordPath(fs, dir, target, at)
+	require.NoError(t, err)
+	require.NoError(t, afero.WriteFile(fs, first, []byte("first record\n"), 0o644))
+
+	second, err := freeRecordPath(fs, dir, target, at)
+	require.NoError(t, err)
+	assert.NotEqual(t, first, second,
+		"a second apply at the SAME instant must not be handed the first record's path")
+
+	require.NoError(t, afero.WriteFile(fs, second, []byte("second record\n"), 0o644))
+
+	// The effect, not the report: both records are on disk with their own
+	// content. Asserting only that the paths differ would pass against a
+	// scheme that returned a fresh name and then clobbered anyway.
+	got1, err := afero.ReadFile(fs, first)
+	require.NoError(t, err)
+	assert.Equal(t, "first record\n", string(got1), "the first record must survive the second apply")
+	got2, err := afero.ReadFile(fs, second)
+	require.NoError(t, err)
+	assert.Equal(t, "second record\n", string(got2))
+
+	// A third at the same instant keeps climbing rather than reusing -2.
+	third, err := freeRecordPath(fs, dir, target, at)
+	require.NoError(t, err)
+	assert.NotEqual(t, first, third)
+	assert.NotEqual(t, second, third)
+}
+
+// The timestamp must carry sub-second precision, and must stay lexically
+// sortable — a record set is read in apply order.
+func TestApplicationRecordFilename_IsNanosecondAndSortable(t *testing.T) {
+	target := "/home/user/.config/zed/settings.json"
+	base := time.Date(2026, 8, 14, 22, 19, 51, 0, time.UTC)
+
+	early := applicationRecordFilename(target, base.Add(1*time.Nanosecond))
+	late := applicationRecordFilename(target, base.Add(2*time.Nanosecond))
+
+	assert.NotEqual(t, early, late,
+		"two applies one nanosecond apart must not share a filename")
+	assert.Less(t, early, late,
+		"record filenames must sort in apply order, so the timestamp has to stay lexical")
+}
+
+// hew's Document takes the target as a diagnostics LABEL (it does no I/O with
+// it). Passing the real path is only worth anything if it actually reaches the
+// message, and ctxloom's own wrap names the file too — so asserting "the error
+// mentions the path" would pass even when the label is dropped. This asserts
+// hew's OWN rendering instead, "hew: <target>:", which is empty of the target
+// when the label is not passed through.
+//
+// The branch is unreachable end to end (readExisting has already parsed the
+// pre-image by the time a record is written), so it is driven directly.
+func TestBuildAndWriteApplicationRecord_UnparseablePreImageNamesTheTargetToHew(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+
+	_, err := buildAndWriteApplicationRecord(fs, path, hew.FormatJSON,
+		hew.TransformList{Target: path, Format: hew.FormatJSON},
+		[]byte(`{"a":1}`), []byte("{not json"), []byte(`{"a":1}`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "hew: "+path+":",
+		"the target must reach hew's own diagnostic as its label, not only ctxloom's surrounding wrap")
+}
+
+// --- recordConfigPatch: the conversion's recursion boundary, in isolation ---
+
+func TestRecordJSONPatch_RecursionBoundary(t *testing.T) {
 	base := map[string]any{
 		"existing_obj": map[string]any{"sibling": "survives"},
 		"scalar_key":   "old",
@@ -572,7 +813,17 @@ func TestAppendJSONPatch_RecursionBoundary(t *testing.T) {
 		"scalar_key":    "new",                                         // plain replace
 		"to_delete":     nil,                                           // remove
 	}
-	tl := buildJSONTransformList("/x/settings.json", base, patch)
+	// Drive hew's fluent authoring surface exactly as runConfigWrite does:
+	// record onto an opened Doc, then read back the IR hew lowered. The
+	// source mirrors `base` because the recorded reads resolve against it.
+	doc, derr := hew.OpenBytes("/x/settings.json",
+		[]byte(`{"existing_obj":{"sibling":"survives"},"scalar_key":"old"}`),
+		hew.As(hew.FormatJSON))
+	require.NoError(t, derr)
+	require.Equal(t, 4, recordConfigPatch(doc, hew.RootPath(), base, patch),
+		"one op per leaf: existing_obj recurses to one, plus brand_new_obj, scalar_key and to_delete")
+	tl, terr := doc.Transforms()
+	require.NoError(t, terr)
 	require.NotEmpty(t, tl.Transform)
 
 	byPath := map[string]hew.Transform{}

@@ -406,10 +406,10 @@ func TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel(t *testing.T) {
 	home, err := NewHome(ctx, HomeConfig{
 		// An address nothing serves: NewHome never fails hard, so the
 		// channel loops just keep reconnecting and no doorbell is possible.
-		URL:                "http://127.0.0.1:1/mcp",
-		Token:              "unused",
-		RunID:              "run-cold",
-		Harness:            "mock",
+		URL:           "http://127.0.0.1:1/mcp",
+		Token:         "unused",
+		RunID:         "run-cold",
+		Harness:       "mock",
 		Harp:          harp,
 		SpoolDelivery: true,
 		// The PRODUCTION cadence, deliberately: at 30s nothing but the

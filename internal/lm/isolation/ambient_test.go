@@ -20,9 +20,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// assertProjectorErr is the sentinel a fakeCredentialProjector returns to prove
+// errAssertProjector is the sentinel a fakeCredentialProjector returns to prove
 // a projection failure fails the copy.
-var assertProjectorErr = errors.New("projector refused this credential")
+var errAssertProjector = errors.New("projector refused this credential")
 
 // recordingInstanceConfig is a stand-in engine config writer: it records every
 // request it is handed so a test can prove the ENGINE was actually reached with
@@ -167,7 +167,7 @@ func TestCopyAmbient_ProjectorErrorFailsTheCopy(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	writeCreds(t, home, false)
 
-	proj := &fakeCredentialProjector{err: assertProjectorErr}
+	proj := &fakeCredentialProjector{err: errAssertProjector}
 	withCredentialProjector(t, "claude-code", proj)
 	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
 

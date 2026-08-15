@@ -39,6 +39,14 @@ run:
     - arch
     - conformance
     - docker_integration
+    # The acceptance suite is 80 tag-gated files. Without these two it was never
+    # linted at all, and the untagged fixtures its tagged steps consume (
+    # capability_probe_fixture.go, probe_p6_steer_echo.go) read as dead code
+    # because only their definitions were visible. Neither tag has a `!tag`
+    # counterpart, so unlike docsgen/schemagen above, adding them opens files
+    # rather than swapping which one builds.
+    - acceptance
+    - integration
 
 # Report EVERY instance, not a sample of each.
 #

@@ -356,6 +356,14 @@ func (s *SurfaceSelection) preferSharedRealization(kind SurfaceKind) {
 // SessionStart injection hook — Provide the raw cache file and append the injection
 // hook to the shared merged hooks, which the not-yet-delivered settings surface
 // then writes — rather than launching a context-less session.
+// req is NON-NIL: the sole caller has already dereferenced it (req.Fragments,
+// req.Managed.BundleMCP, req.CellKind) to build the set it passes here, so a nil
+// req would have panicked well before this call. Two `req != nil` guards used to
+// sit either side of the CellKindShared block below, which dereferences req
+// unconditionally — staticcheck read that ordering as "the author thinks this can
+// be nil, and then derefs it anyway" (SA5011). Guarding the middle block would
+// have encoded a contract the caller cannot honor; stating the contract is the
+// truthful fix.
 func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	// Launch delivers the WHOLE surface set, so it drives the builder over the same
 	// full selection materialize/apply use — the builder is the single selection
@@ -365,7 +373,7 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	// cell/placement choice.
 	sel := Select(set).WithEverything()
 	explicit := map[SurfaceKind]bool{}
-	if req != nil && req.Managed != nil {
+	if req.Managed != nil {
 		for kind := range req.Managed.Surfaces {
 			explicit[kind] = true
 		}
@@ -391,7 +399,7 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	// launch has the argv sink system-prompt needs, which is exactly why this
 	// belongs on the agent rather than in the engine's table (an at-rest
 	// DeliverUnder inheriting it would fail for want of one).
-	if req != nil && req.Managed != nil {
+	if req.Managed != nil {
 		for kind, approach := range req.Managed.Surfaces {
 			sel = sel.WithApproach(kind, approach)
 		}

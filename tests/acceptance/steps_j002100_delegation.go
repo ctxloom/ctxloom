@@ -329,7 +329,7 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			j002100.specs[name] = &j002100AgentSpec{
 				Name: name, Profile: "review-profile", Bundle: "bundle-review",
 				Server: "docs-lookup", Command: "docs-server", SecretArg: "DOCS-SECRET-7e1d44",
-				LLM:   "forwarding",
+				LLM: "forwarding",
 				// plan, not bypass: bypass auto-accepts every kind at the
 				// first rung and no ladder is ever walked. The explicit
 				// escalation block REPLACES the plan preset entirely

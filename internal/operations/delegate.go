@@ -1219,7 +1219,7 @@ func (p *PreparedAgentChat) startOneshot(ctx context.Context) *AgentChatLaunch {
 				Profiles:       rs.Profiles,
 				Gate:           p.req.Gate,
 				Factory:        p.req.Factory,
-				ExtraEnv: p.req.Env,
+				ExtraEnv:       p.req.Env,
 				// The oneshot FALLBACK for a delegated child is still a
 				// delegated child: same agent binding, same EFFECTIVE
 				// config_home as the structured-chat path bindIsolatedSpawn

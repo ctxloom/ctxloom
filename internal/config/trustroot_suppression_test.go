@@ -233,7 +233,7 @@ func TestTrustRoot_UnreadableRevocationListDoesNotResurrectTrust(t *testing.T) {
 		if revoked {
 			require.NoError(t, afero.WriteFile(base, path, []byte("ben+ctxloom@abbitt.me\n"), 0o600))
 		}
-		var fs afero.Fs = base
+		fs := base
 		if !readable {
 			fs = &unreadableFs{Fs: base, openErr: map[string]error{path: errors.New("permission denied")}}
 		}

@@ -186,7 +186,7 @@ func TestResolveAgent_ConfigHome(t *testing.T) {
 		"typo":       {LLM: "fast", Profiles: []string{"p1"}, ConfigHome: "projectt"},
 	})
 	cases := map[string]string{
-		"undeclared": agents.ConfigHomeHost,    // MUTATION TARGET m1's unit-layer twin
+		"undeclared": agents.ConfigHomeHost, // MUTATION TARGET m1's unit-layer twin
 		"project":    agents.ConfigHomeProject,
 		"host":       agents.ConfigHomeHost,
 		"typo":       agents.ConfigHomeHost, // warn+default, never fatal

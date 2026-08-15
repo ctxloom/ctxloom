@@ -152,6 +152,52 @@ retracted:
 		assert.Contains(t, out.String(), "UNKNOWN AGE")
 	})
 
+	// The warning must not NAME a cause it cannot know. An Unknown verdict is
+	// ambiguous by construction (CheckRetracted's doc): "this remote publishes
+	// no manifest" — the ordinary case — is indistinguishable from an outage.
+	// Asserting "could not reach" sent users hunting a network fault that did
+	// not exist; the production fetcher reads a LOCAL clone, so on that path
+	// the claimed cause cannot apply at all. Both fallback branches are
+	// checked: the stale-age one worded the cause identically and would
+	// otherwise regress on its own.
+	t.Run("the fallback warning does not assert the remote was unreachable", func(t *testing.T) {
+		now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+		for _, tc := range []struct {
+			name  string
+			entry *LockEntry
+		}{
+			{"unknown age", &LockEntry{
+				SHA: "abc123", URL: "https://github.com/trent/company",
+				Retracted: true, RetractedReason: "shipped an incorrect deploy step",
+			}},
+			{"stale age", &LockEntry{
+				SHA: "abc123", URL: "https://github.com/trent/company",
+				Retracted:           true,
+				RetractedReason:     "shipped an incorrect deploy step",
+				RetractionCheckedAt: now.Add(-30 * 24 * time.Hour),
+			}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				p := newPuller(t, now, tc.entry)
+
+				var out bytes.Buffer
+				restore := clidiag.SetSink(&out)
+				defer restore()
+
+				_, _, _, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName)
+				require.NoError(t, err)
+
+				warning := out.String()
+				require.Contains(t, warning, "warning",
+					"this case must actually warn, or the assertions below pass over an empty buffer")
+				assert.NotContains(t, warning, "could not reach",
+					"the warning must not state unreachability as the cause: an Unknown verdict cannot tell an outage from a remote that simply publishes no manifest")
+				assert.Contains(t, warning, "no retraction manifest",
+					"the warning must offer the ordinary cause (no manifest published) alongside the unreadable one")
+			})
+		}
+	})
+
 	// With NOTHING recorded at all (first-ever check for this ref), there is
 	// no verdict to fall back to and nothing whose age could be reported. This
 	// is overwhelmingly the ordinary "this remote publishes no manifest" case

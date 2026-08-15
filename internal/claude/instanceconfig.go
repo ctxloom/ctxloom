@@ -214,8 +214,8 @@ func (w *claudeInstanceConfig) applyAmbient(fs afero.Fs, hostHome string, cfg ma
 	var warnings []string
 	var host map[string]any
 
-	switch {
-	case hostHome == "":
+	switch hostHome {
+	case "":
 		warnings = append(warnings, fmt.Sprintf(
 			"the host home could not be resolved, so no %s onboarding answers were carried into this run; claude may re-run its onboarding", InstanceConfigFileName))
 	default:

@@ -806,7 +806,7 @@ func CredentialSeedHomeVars(engine string) []CredentialSeedHomeVar {
 	}
 	out := make([]CredentialSeedHomeVar, len(spec.HomeVars))
 	for i, hv := range spec.HomeVars {
-		out[i] = CredentialSeedHomeVar{EnvVar: hv.EnvVar, Subdir: hv.Subdir, GatedOnCreds: hv.GatedOnCreds}
+		out[i] = CredentialSeedHomeVar(hv)
 	}
 	return out
 }

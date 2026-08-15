@@ -493,14 +493,22 @@ func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, 
 	unknownAge := entry.RetractionCheckedAt.IsZero()
 	age := p.now().Sub(entry.RetractionCheckedAt)
 	if unknownAge || age > RetractionStaleAfter {
+		// Do NOT assert unreachability here. An Unknown verdict is ambiguous by
+		// construction (see CheckRetracted's doc): "this remote publishes no
+		// manifest" — the ordinary case, most do not — is indistinguishable at
+		// that seam from a genuine outage. Naming only the outage sent users
+		// hunting a network fault that did not exist: a fresh init emitted one
+		// of these per lock entry while `git ls-remote` reached both remotes
+		// fine, and the production fetcher reads a local clone with no network
+		// I/O at all, so the claimed cause could not even apply on that path.
 		if unknownAge {
 			clidiag.Warn("ctxloom",
-				"could not reach %s/%s to re-check whether %s is retracted; falling back to a previously recorded verdict of UNKNOWN AGE (recorded before this project tracked check times) — its retraction status may be out of date",
-				owner, repo, localName)
+				"could not re-check whether %s is retracted against %s/%s (that remote may publish no retraction manifest, or it could not be read); falling back to a previously recorded verdict of UNKNOWN AGE (recorded before this project tracked check times) — its retraction status may be out of date",
+				localName, owner, repo)
 		} else {
 			clidiag.Warn("ctxloom",
-				"could not reach %s/%s to re-check whether %s is retracted; falling back to the verdict last confirmed %s ago (older than the %s freshness window) — its retraction status may be out of date",
-				owner, repo, localName, age.Round(time.Hour), RetractionStaleAfter)
+				"could not re-check whether %s is retracted against %s/%s (that remote may publish no retraction manifest, or it could not be read); falling back to the verdict last confirmed %s ago (older than the %s freshness window) — its retraction status may be out of date",
+				localName, owner, repo, age.Round(time.Hour), RetractionStaleAfter)
 		}
 	}
 	return entry.Retracted, entry.RetractedReason, entry.RetractionCheckedAt, nil

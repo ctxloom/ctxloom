@@ -170,98 +170,98 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 	// --- the cell's gate and fixture ---------------------------------------
 	ctx.Step(`^the MCP round-trip probe targets "([^"]*)" under runtime "([^"]*)" and workspace "([^"]*)"$`,
 		func(c context.Context, engine, runtime, workspace string) error {
-		w := worldFrom(c)
-		m := mcpProbeOf(w)
-		m.engine = engine
+			w := worldFrom(c)
+			m := mcpProbeOf(w)
+			m.engine = engine
 
-		// The axes are read from the table and CHECKED rather than ignored. P2's
-		// runnable cells are host/none only — the container rows are registry-
-		// deferred because MCP reach-back from inside a container is undesigned —
-		// so a row that quietly claimed another axis would run this cell's
-		// host/none fixture while its tags, its registry row and its evidence all
-		// said something else. Refusing here makes the columns load-bearing.
-		if runtime != "host" || workspace != "none" {
-			return fmt.Errorf("probe-p2-mcp: this probe's runnable cells are host/none only, got runtime=%q workspace=%q. The container rows are DEFERRED in the probe registry (container MCP reach-back is the undesigned endpoint-discovery gap); a worktree row was never designed. Add the axis to the registry first, or the cell would run a host fixture under another cell's name.",
-				runtime, workspace)
-		}
+			// The axes are read from the table and CHECKED rather than ignored. P2's
+			// runnable cells are host/none only — the container rows are registry-
+			// deferred because MCP reach-back from inside a container is undesigned —
+			// so a row that quietly claimed another axis would run this cell's
+			// host/none fixture while its tags, its registry row and its evidence all
+			// said something else. Refusing here makes the columns load-bearing.
+			if runtime != "host" || workspace != "none" {
+				return fmt.Errorf("probe-p2-mcp: this probe's runnable cells are host/none only, got runtime=%q workspace=%q. The container rows are DEFERRED in the probe registry (container MCP reach-back is the undesigned endpoint-discovery gap); a worktree row was never designed. Add the axis to the registry first, or the cell would run a host fixture under another cell's name.",
+					runtime, workspace)
+			}
 
-		a, key, err := probeCellGate(c, w, mcpProbeFamily, m.cell())
-		if err != nil {
-			return err
-		}
+			a, key, err := probeCellGate(c, w, mcpProbeFamily, m.cell())
+			if err != nil {
+				return err
+			}
 
-		// The fixture's own dependency, gated BEFORE a paid turn and named. A
-		// missing interpreter must skip and never red: an MCP-DELIVERY failure
-		// has to mean MCP delivery failed, and reporting a missing python3 as
-		// one would put a fixture fault in the engine's column of the matrix.
-		interpreter, why := probeMCPInterpreterAvailable()
-		if interpreter == "" {
-			return probeCellSkip(mcpProbeFamily, m.cell(), why)
-		}
+			// The fixture's own dependency, gated BEFORE a paid turn and named. A
+			// missing interpreter must skip and never red: an MCP-DELIVERY failure
+			// has to mean MCP delivery failed, and reporting a missing python3 as
+			// one would put a fixture fault in the engine's column of the matrix.
+			interpreter, why := probeMCPInterpreterAvailable()
+			if interpreter == "" {
+				return probeCellSkip(mcpProbeFamily, m.cell(), why)
+			}
 
-		nonce, err := probeHarps.Mint(m.cell())
-		if err != nil {
-			return err
-		}
-		m.nonce = nonce
+			nonce, err := probeHarps.Mint(m.cell())
+			if err != nil {
+				return err
+			}
+			m.nonce = nonce
 
-		// OUTSIDE the project, checked here rather than assumed: the script
-		// carries the harp as a literal, and a script the agent could read would
-		// satisfy this probe through a channel it does not test.
-		fixtureDir := filepath.Join(filepath.Dir(w.env.ProjectDir), mcpProbeFixtureDirName)
-		if within, err := filepath.Rel(w.env.ProjectDir, fixtureDir); err == nil && !strings.HasPrefix(within, "..") {
-			return fmt.Errorf("probe-p2-mcp: the fixture MCP server directory %s is INSIDE the cell's workspace %s — the script holds the minted harp, so the agent could read the answer without ever calling the tool and the cell would false-green",
-				fixtureDir, w.env.ProjectDir)
-		}
-		m.fixture, err = probeMCPWriteFixture(fixtureDir, nonce)
-		if err != nil {
-			return err
-		}
+			// OUTSIDE the project, checked here rather than assumed: the script
+			// carries the harp as a literal, and a script the agent could read would
+			// satisfy this probe through a channel it does not test.
+			fixtureDir := filepath.Join(filepath.Dir(w.env.ProjectDir), mcpProbeFixtureDirName)
+			if within, err := filepath.Rel(w.env.ProjectDir, fixtureDir); err == nil && !strings.HasPrefix(within, "..") {
+				return fmt.Errorf("probe-p2-mcp: the fixture MCP server directory %s is INSIDE the cell's workspace %s — the script holds the minted harp, so the agent could read the answer without ever calling the tool and the cell would false-green",
+					fixtureDir, w.env.ProjectDir)
+			}
+			m.fixture, err = probeMCPWriteFixture(fixtureDir, nonce)
+			if err != nil {
+				return err
+			}
 
-		// Evidence. The sidecar goes to CTXLOOM_DOC_CAPTURE_DIR, outside the
-		// cell's workspace; the printed line goes to the test runner's stdout,
-		// which the engine under test cannot read (the cell's own stdout is
-		// captured into a buffer). Without the print, a GREEN cell would leave no
-		// record of which harp it used — and the harp's second job is to be the
-		// thing a human greps for across transcripts and spools.
-		w.docStepMaterialized += fmt.Sprintf("\nprobe-p2-mcp %s: minted nonce harp %q, served only by %s\n",
-			m.cell(), m.nonce, m.fixture.Script)
-		fmt.Printf("MINT probe-p2-mcp %s: nonce harp %q (served by %s)\n", m.cell(), m.nonce, m.fixture.Script)
+			// Evidence. The sidecar goes to CTXLOOM_DOC_CAPTURE_DIR, outside the
+			// cell's workspace; the printed line goes to the test runner's stdout,
+			// which the engine under test cannot read (the cell's own stdout is
+			// captured into a buffer). Without the print, a GREEN cell would leave no
+			// record of which harp it used — and the harp's second job is to be the
+			// thing a human greps for across transcripts and spools.
+			w.docStepMaterialized += fmt.Sprintf("\nprobe-p2-mcp %s: minted nonce harp %q, served only by %s\n",
+				m.cell(), m.nonce, m.fixture.Script)
+			fmt.Printf("MINT probe-p2-mcp %s: nonce harp %q (served by %s)\n", m.cell(), m.nonce, m.fixture.Script)
 
-		if err := w.env.InitGitRepo(); err != nil {
-			return err
-		}
-		if err := w.env.WriteFile(".ctxloom/content/bundles/bundle-"+mcpProbeAgent+".yaml", mcpProbeBundleYAML()); err != nil {
-			return err
-		}
-		if err := w.env.WriteFile(".ctxloom/profiles/"+mcpProbeAgent+"-profile.yaml",
-			"bundles:\n  - ctxloom:local@bundles/bundle-"+mcpProbeAgent+"\n"); err != nil {
-			return err
-		}
-		if err := w.env.WriteFile(".ctxloom/config.yaml",
-			mcpProbeConfigYAML(a, key, interpreter, m.fixture.Script)); err != nil {
-			return err
-		}
-		// Committed, like the floor's fixture and for the same reason: every
-		// cell then runs against a byte-identical tree, so a difference between
-		// cells is the engine and never the fixture's cleanliness.
-		if err := w.env.GitCommit("probe-p2-mcp fixture: " + engine); err != nil {
-			return err
-		}
+			if err := w.env.InitGitRepo(); err != nil {
+				return err
+			}
+			if err := w.env.WriteFile(".ctxloom/content/bundles/bundle-"+mcpProbeAgent+".yaml", mcpProbeBundleYAML()); err != nil {
+				return err
+			}
+			if err := w.env.WriteFile(".ctxloom/profiles/"+mcpProbeAgent+"-profile.yaml",
+				"bundles:\n  - ctxloom:local@bundles/bundle-"+mcpProbeAgent+"\n"); err != nil {
+				return err
+			}
+			if err := w.env.WriteFile(".ctxloom/config.yaml",
+				mcpProbeConfigYAML(a, key, interpreter, m.fixture.Script)); err != nil {
+				return err
+			}
+			// Committed, like the floor's fixture and for the same reason: every
+			// cell then runs against a byte-identical tree, so a difference between
+			// cells is the engine and never the fixture's cleanliness.
+			if err := w.env.GitCommit("probe-p2-mcp fixture: " + engine); err != nil {
+				return err
+			}
 
-		// A LAST CHECK BEFORE PAYING FOR A TURN: the harp must not be anywhere in
-		// the workspace. This is the probe's channel claim, asserted rather than
-		// asserted-about — a fixture change that started writing the nonce into
-		// the bundle, the config or the profile would otherwise turn every cell
-		// green while proving nothing, and it would look exactly like success.
-		if leaked, err := mcpProbeWorkspaceCarriesNonce(w.env.ProjectDir, m.nonce); err != nil {
-			return err
-		} else if leaked != "" {
-			return fmt.Errorf("probe-p2-mcp %s: the minted harp %q appears in the cell's own workspace at %s. The nonce must exist ONLY in the fixture MCP server's tool result; a workspace copy is a channel this probe does not test, and the cell would pass without a round trip",
-				m.cell(), m.nonce, leaked)
-		}
-		return nil
-	})
+			// A LAST CHECK BEFORE PAYING FOR A TURN: the harp must not be anywhere in
+			// the workspace. This is the probe's channel claim, asserted rather than
+			// asserted-about — a fixture change that started writing the nonce into
+			// the bundle, the config or the profile would otherwise turn every cell
+			// green while proving nothing, and it would look exactly like success.
+			if leaked, err := mcpProbeWorkspaceCarriesNonce(w.env.ProjectDir, m.nonce); err != nil {
+				return err
+			} else if leaked != "" {
+				return fmt.Errorf("probe-p2-mcp %s: the minted harp %q appears in the cell's own workspace at %s. The nonce must exist ONLY in the fixture MCP server's tool result; a workspace copy is a channel this probe does not test, and the cell would pass without a round trip",
+					m.cell(), m.nonce, leaked)
+			}
+			return nil
+		})
 
 	// --- the run ------------------------------------------------------------
 	ctx.Step(`^it asks the engine to call the fixture MCP tool in one turn$`, func(c context.Context) error {

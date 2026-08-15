@@ -79,24 +79,44 @@ type Result struct {
 	Changed bool
 }
 
-// Apply runs the loop against one target: reverse what ctxloom applied last
-// time, apply want, and write one record describing it.
+// Build records the caller's ops against the RESTORED document — the user's
+// file with ctxloom's previous entries already taken back out.
 //
-// want is a hew.TransformList — the caller builds its own ops. Callers that
-// find that tedious should NOT reach around this function to write the file
-// directly; the record is the whole point, and a write without one is the
-// silent no-op this package exists to prevent.
+// It receives the document rather than returning a prebuilt TransformList
+// because ops cannot be built without one: addressing a nested path whose
+// parent is absent is HEW013 no-match, so a caller has to know whether the
+// container it writes into exists, and only the restored document can say.
+//
+// cur is that same content as a READ view (hew.Document). Sel exposes no
+// existence query, so cur.Root().Member(name) is how a caller asks "is this
+// container there?" before addressing into it.
+//
+// It returns the number of ops it recorded: an un-operated Doc is a caller bug
+// to hew and Transforms() errors on it, so "I deliberately recorded nothing"
+// has to be sayable — it is the ordinary case when ctxloom's desired set is
+// empty and the reversal alone is the whole change.
+type Build func(doc *hew.Doc, cur hew.Document) (recorded int, err error)
+
+// Apply runs the loop against one target: reverse what ctxloom applied last
+// time, apply what build records, and write one record describing it.
+//
+// Callers that find building ops tedious should NOT reach around this function
+// to write the file directly; the record is the whole point, and a write
+// without one is the silent no-op this package exists to prevent.
 //
 // Nothing is written unless every step succeeds. In particular, a reversal that
 // will not apply FAILS the whole call rather than being skipped: a reversal
 // that no longer fits means the user edited the region ctxloom manages, and
 // applying the new set on top of that would clobber their edit. Refusing is the
 // documented behaviour hew's own staleness guard exists to produce.
-func (s *Store) Apply(targetFS afero.Fs, target string, want hew.TransformList) (Result, error) {
+func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, error) {
 	var res Result
 
 	if targetFS == nil {
 		return res, errors.New("confpatch: nil target filesystem")
+	}
+	if build == nil {
+		return res, errors.New("confpatch: nil build function")
 	}
 	if strings.TrimSpace(target) == "" {
 		return res, errors.New("confpatch: empty target path")
@@ -141,13 +161,42 @@ func (s *Store) Apply(targetFS afero.Fs, target string, want hew.TransformList) 
 		}
 		res.Restored = restored
 
-		// 3. Apply the newly computed set.
-		after, err := binding.Applier(restored, want)
+		// 3. Apply the newly computed set, recorded against the RESTORED
+		// document so the caller addresses the user's file as it will actually
+		// be written, not as it stood with ctxloom's old entries still in it.
+		doc, err := hew.OpenBytes(target, restored, hew.As(format))
 		if err != nil {
-			return fmt.Errorf("confpatch: apply ctxloom's changes to %s: %w", target, err)
+			return fmt.Errorf("confpatch: open %s for hew: %w", target, err)
+		}
+		cur, err := binding.Document(target, restored)
+		if err != nil {
+			return fmt.Errorf("confpatch: parse %s to build against: %w", target, err)
+		}
+		recorded, err := build(doc, cur)
+		if err != nil {
+			return fmt.Errorf("confpatch: build the changes for %s: %w", target, err)
+		}
+
+		var want hew.TransformList
+		after := restored
+		if recorded > 0 {
+			if want, err = doc.Transforms(); err != nil {
+				return fmt.Errorf("confpatch: lower %s's changes to hew transforms: %w", target, err)
+			}
+			if after, err = doc.Bytes(); err != nil {
+				return fmt.Errorf("confpatch: apply ctxloom's changes to %s: %w", target, err)
+			}
 		}
 		res.After = after
 		res.Changed = string(after) != string(before)
+
+		// A write that changes nothing writes nothing — no target, no record.
+		// The prior record still describes the file accurately, so replacing it
+		// with an identical one would grow the audit trail without adding a
+		// fact to it.
+		if !res.Changed {
+			return nil
+		}
 
 		// 4. Derive this application's reversal from the two images, render it
 		// as patch text, and write the record BEFORE the target: a record

@@ -26,10 +26,6 @@ import (
 // type/url/headers shape is how the MCP spec spells a REMOTE server, which
 // ctxloom models nowhere (see taskloom unelected-clutter).
 func TestWriteMCPConfig_PreservesForeignTopLevelKeys(t *testing.T) {
-	t.Skip("characterizes the defect unsalted-cocoa fixes: unskip when writeMCPConfig " +
-		"moves to reverse-then-apply. Left as a runnable specification rather than " +
-		"deleted, because the measurement is the point.")
-
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
 	path := filepath.Join(dir, MCPFileName)
@@ -52,10 +48,6 @@ func TestWriteMCPConfig_PreservesForeignTopLevelKeys(t *testing.T) {
 }
 
 func TestWriteMCPConfig_PreservesUnmodelledServerFields(t *testing.T) {
-	t.Skip("characterizes the defect unsalted-cocoa fixes: unskip when writeMCPConfig " +
-		"moves to reverse-then-apply. Left as a runnable specification rather than " +
-		"deleted, because the measurement is the point.")
-
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
 	path := filepath.Join(dir, MCPFileName)

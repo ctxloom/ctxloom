@@ -8,10 +8,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	hew "github.com/benjaminabbitt/hew/go"
+	_ "github.com/benjaminabbitt/hew/go/ext/json"
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/confpatch"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -579,40 +584,130 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPCo
 
 	// See writeSettingsFile: the lock spans load through save, the whole RMW
 	// cycle a concurrent writer of the SAME .mcp.json could otherwise race.
-	return agent.WithFileLock(w.getFS(), mcpPath, func() error {
-		// Ensure the target directory exists, as writeSettingsFile does for
-		// .claude/. .mcp.json sits directly in projectDir, so this writer used to
-		// depend on someone else having created it — and for an out-of-cwd delivery
-		// that someone was whichever surface happened to be delivered first. When
-		// the context surface delivered nothing (no context configured), the
-		// per-session scratch directory was never created and this write failed with
-		// a bare ENOENT about a temp file.
-		if err := w.getFS().MkdirAll(projectDir, 0o755); err != nil {
-			return fmt.Errorf("failed to create MCP config directory: %w", err)
-		}
+	// .mcp.json sits directly in projectDir, so this writer used to depend on
+	// someone else having created it — and for an out-of-cwd delivery that
+	// someone was whichever surface happened to be delivered first. When the
+	// context surface delivered nothing, the per-session scratch directory was
+	// never created and this write failed with a bare ENOENT about a temp file.
+	if err := w.getFS().MkdirAll(projectDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create MCP config directory: %w", err)
+	}
 
-		// Load existing MCP config
-		mcpConfig, err := w.loadMCPConfig(mcpPath)
+	// .mcp.json is the USER'S file. ctxloom's servers go in through confpatch,
+	// which reverses what ctxloom put there last time before writing what it
+	// wants there now — so an entry ctxloom no longer registers goes away
+	// without ctxloom ever asking the user's file which entries are its own.
+	//
+	// That question is what the old code asked, by marker and by command
+	// inspection, and it was the wrong question: the round trip through
+	// claudeCodeMCPConfig it required models one field whose values model five,
+	// so a hand-authored remote server ({"type","url","headers"}) came back as
+	// {"command": ""} — every unmodelled field destroyed and an invalid empty
+	// command invented, on a success path with a success message.
+	desired, err := w.desiredMCPServers(mcp, bundleMCP)
+	if err != nil {
+		return err
+	}
+	return w.applyMCP(mcpPath, desired)
+}
+
+// desiredMCPServers is the set of servers ctxloom wants present, as generic
+// values. It reuses addMCPServersToConfig against an EMPTY config so the
+// desired set is computed exactly once, in one place, from the same code that
+// always computed it — the user's own servers are never part of it.
+//
+// The JSON round trip is what honours claudeCodeMCPServer's json tags,
+// including omitempty: hew encodes whatever Go value it is handed, and handing
+// it the struct directly would spell the keys by their Go field names.
+func (w *ClaudeCodeHookWriter) desiredMCPServers(mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) (map[string]any, error) {
+	empty := &claudeCodeMCPConfig{MCPServers: map[string]claudeCodeMCPServer{}}
+	w.addMCPServersToConfig(empty, mcp, bundleMCP)
+
+	out := make(map[string]any, len(empty.MCPServers))
+	for name, server := range empty.MCPServers {
+		raw, err := json.Marshal(server)
 		if err != nil {
-			return fmt.Errorf("failed to load existing .mcp.json: %w", err)
+			return nil, fmt.Errorf("failed to encode MCP server %q: %w", name, err)
 		}
+		var generic map[string]any
+		if err := json.Unmarshal(raw, &generic); err != nil {
+			return nil, fmt.Errorf("failed to encode MCP server %q: %w", name, err)
+		}
+		out[name] = generic
+	}
+	return out, nil
+}
 
-		// Remove old ctxloom-managed MCP servers. We match the same way as
-		// hooks: the SCM marker covers bundle/unified servers (arbitrary
-		// commands like `npx …`), and isCtxloomManaged covers ctxloom's own
-		// auto-registered server even if its marker ever drifts.
-		for name, server := range mcpConfig.MCPServers {
-			if server.SCM != "" || agent.IsManaged(server.Command, "ctxloom") {
-				delete(mcpConfig.MCPServers, name)
+// applyMCP writes the desired server set into .mcp.json through the record.
+// An EMPTY desired set is the uninstall: the reversal alone runs, and the user
+// is left with exactly the file they wrote.
+func (w *ClaudeCodeHookWriter) applyMCP(mcpPath string, desired map[string]any) error {
+	store, err := w.recordStore()
+	if err != nil {
+		return err
+	}
+	_, err = store.Apply(w.getFS(), mcpPath, func(doc *hew.Doc, cur hew.Document) (int, error) {
+		if len(desired) == 0 {
+			return 0, nil
+		}
+		// Addressing /mcpServers/<name> against a file that has no mcpServers
+		// is HEW013 no-match, so state the container whole when it is absent.
+		if _, ok := cur.Root().Member(mcpServersKey); !ok {
+			p, perr := hew.ParsePathIn(doc.Format(), "/"+mcpServersKey)
+			if perr != nil {
+				return 0, perr
+			}
+			doc.AtPath(p).Set(desired)
+			return 1, nil
+		}
+		recorded := 0
+		for _, name := range sortedNames(desired) { // stable order: a deterministic record
+			p, perr := hew.ParsePathIn(doc.Format(), "/"+mcpServersKey+"/"+name)
+			if perr != nil {
+				return 0, perr
+			}
+			doc.AtPath(p).Set(desired[name])
+			recorded++
+		}
+		return recorded, nil
+	})
+	if err != nil {
+		// An unparseable .mcp.json reaches here as a hew open failure, and the
+		// user is owed more than a refusal: the file is BACKED UP before
+		// ctxloom declines, exactly as the pre-hew loader did. Refusing already
+		// guarantees nothing is destroyed — the backup is what makes the
+		// original recoverable if the user cannot see what broke it.
+		if data, rerr := afero.ReadFile(w.getFS(), mcpPath); rerr == nil {
+			var probe claudeCodeMCPConfig
+			if jerr := json.Unmarshal(data, &probe); jerr != nil {
+				return w.corruptSettings(mcpPath, data, MCPFileName, jerr,
+					"to avoid deleting the MCP servers already in it")
 			}
 		}
+		return fmt.Errorf("failed to write %s: %w", mcpPath, err)
+	}
+	return nil
+}
 
-		// Add MCP servers
-		w.addMCPServersToConfig(mcpConfig, mcp, bundleMCP)
+// recordStore is the home-rooted §9.7 record store this writer applies through.
+func (w *ClaudeCodeHookWriter) recordStore() (*confpatch.Store, error) {
+	dir, err := paths.HomeRecordsDir()
+	if err != nil {
+		return nil, err
+	}
+	return confpatch.NewStore(w.getFS(), dir)
+}
 
-		// Write MCP config back
-		return w.saveMCPConfig(mcpPath, mcpConfig)
-	})
+// mcpServersKey is the one container ctxloom writes into in .mcp.json.
+const mcpServersKey = "mcpServers"
+
+func sortedNames(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ensureStatusLine configures the ctxloom HUD statusline if not already set by the user.
@@ -1058,26 +1153,18 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 func (w *ClaudeCodeHookWriter) removeMCPConfig(projectDir string) error {
 	fs := w.getFS()
 	mcpPath := w.MCPConfigPath(projectDir)
-	// See writeMCPConfig: same file, same lock, same race to close.
-	return agent.WithFileLock(fs, mcpPath, func() error {
-		exists, err := configExists(fs, mcpPath)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			return nil
-		}
-		mcpConfig, err := w.loadMCPConfig(mcpPath)
-		if err != nil {
-			return fmt.Errorf("failed to load existing .mcp.json: %w", err)
-		}
-		for name, server := range mcpConfig.MCPServers {
-			if server.SCM != "" {
-				delete(mcpConfig.MCPServers, name)
-			}
-		}
-		return w.saveMCPConfig(mcpPath, mcpConfig)
-	})
+	exists, err := configExists(fs, mcpPath)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	// Uninstall is the empty desired set: the record's reversal removes exactly
+	// what ctxloom applied, leaving the user with the file they wrote. It no
+	// longer strips "everything carrying a marker", which could not distinguish
+	// an entry ctxloom created from one a user copied out of ctxloom's.
+	return w.applyMCP(mcpPath, nil)
 }
 
 // Status implements SettingsWriter for Claude Code.

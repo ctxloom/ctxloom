@@ -28,17 +28,35 @@ const foreign = `{
   }
 }`
 
-// want builds the transform list a caller hands to Apply: set one server entry.
-func want(t *testing.T, src []byte, name string, entry map[string]any) hew.TransformList {
-	t.Helper()
-	doc, err := hew.OpenBytes("mcp.json", src, hew.As(hew.FormatJSON))
-	require.NoError(t, err)
-	p, err := hew.ParsePathIn(hew.FormatJSON, "/mcpServers/"+name)
-	require.NoError(t, err)
-	doc.AtPath(p).Set(entry)
-	tl, err := doc.Transforms()
-	require.NoError(t, err)
-	return tl
+// setServer is the Build a caller hands to Apply: put one server entry under
+// /mcpServers.
+//
+// Addressing /mcpServers/<name> against a file with no /mcpServers is HEW013
+// no-match, so the container is stated whole when it is absent — that is what
+// the read view is for.
+func setServer(name string, entry map[string]any) Build {
+	return func(doc *hew.Doc, cur hew.Document) (int, error) {
+		if _, ok := cur.Root().Member("mcpServers"); !ok {
+			p, err := hew.ParsePathIn(doc.Format(), "/mcpServers")
+			if err != nil {
+				return 0, err
+			}
+			doc.AtPath(p).Set(map[string]any{name: entry})
+			return 1, nil
+		}
+		p, err := hew.ParsePathIn(doc.Format(), "/mcpServers/"+name)
+		if err != nil {
+			return 0, err
+		}
+		doc.AtPath(p).Set(entry)
+		return 1, nil
+	}
+}
+
+// recordNothing is the deliberate no-op: ctxloom's desired set is empty, so the
+// reversal alone is the whole change.
+func recordNothing() Build {
+	return func(*hew.Doc, hew.Document) (int, error) { return 0, nil }
 }
 
 func newStore(t *testing.T) (*Store, afero.Fs) {
@@ -54,7 +72,7 @@ func TestApplyPreservesForeignContent(t *testing.T) {
 	const target = "/proj/mcp.json"
 	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
 
-	tl := want(t, []byte(foreign), "ctxloom", map[string]any{"command": "ctxloom", "args": []any{"mcp", "serve"}})
+	tl := setServer("ctxloom", map[string]any{"command": "ctxloom", "args": []any{"mcp", "serve"}})
 	res, err := s.Apply(fs, target, tl)
 	require.NoError(t, err)
 	assert.True(t, res.Changed)
@@ -82,7 +100,7 @@ func TestSecondApplyReversesTheFirst(t *testing.T) {
 	const target = "/proj/mcp.json"
 	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
 
-	first, err := s.Apply(fs, target, want(t, []byte(foreign), "ctxloom", map[string]any{"command": "old-binary"}))
+	first, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "old-binary"}))
 	require.NoError(t, err)
 	require.NotEmpty(t, first.RecordPath)
 
@@ -90,7 +108,7 @@ func TestSecondApplyReversesTheFirst(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(mid), "old-binary")
 
-	second, err := s.Apply(fs, target, want(t, mid, "ctxloom", map[string]any{"command": "new-binary"}))
+	second, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "new-binary"}))
 	require.NoError(t, err)
 	assert.True(t, second.Reversed, "the prior application must have been reversed")
 
@@ -114,13 +132,10 @@ func TestReversalRestoresTheUsersBytesExactly(t *testing.T) {
 	const target = "/proj/mcp.json"
 	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
 
-	_, err := s.Apply(fs, target, want(t, []byte(foreign), "ctxloom", map[string]any{"command": "x"}))
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
 
-	after, err := afero.ReadFile(fs, target)
-	require.NoError(t, err)
-
-	second, err := s.Apply(fs, target, want(t, after, "ctxloom", map[string]any{"command": "y"}))
+	second, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "y"}))
 	require.NoError(t, err)
 
 	require.NotEmpty(t, second.Restored, "comparing against an empty restored image would be trivially true")
@@ -133,7 +148,7 @@ func TestApplyWritesOneRecordCarryingAParseableReversal(t *testing.T) {
 	const target = "/proj/mcp.json"
 	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
 
-	res, err := s.Apply(fs, target, want(t, []byte(foreign), "ctxloom", map[string]any{"command": "x"}))
+	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
 
 	entries, err := afero.ReadDir(fs, "/home/u/.ctxloom/records")
@@ -167,7 +182,7 @@ func TestDriftRefusesAndLeavesTheTargetUntouched(t *testing.T) {
 	const target = "/proj/mcp.json"
 	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
 
-	_, err := s.Apply(fs, target, want(t, []byte(foreign), "ctxloom", map[string]any{"command": "x"}))
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
 
 	// The user edits ctxloom's entry by hand.
@@ -175,7 +190,7 @@ func TestDriftRefusesAndLeavesTheTargetUntouched(t *testing.T) {
 	require.Contains(t, edited, "MINE", "the fixture must actually have been edited")
 	require.NoError(t, afero.WriteFile(fs, target, []byte(edited), 0o644))
 
-	_, err = s.Apply(fs, target, want(t, []byte(edited), "ctxloom", map[string]any{"command": "z"}))
+	_, err = s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "z"}))
 	require.Error(t, err, "a drifted target must be refused")
 	assert.Contains(t, err.Error(), "drifted")
 
@@ -191,15 +206,7 @@ func TestApplyCreatesAMissingTarget(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/nested/mcp.json"
 
-	doc, err := hew.OpenBytes("mcp.json", []byte("{}"), hew.As(hew.FormatJSON))
-	require.NoError(t, err)
-	p, err := hew.ParsePathIn(hew.FormatJSON, "/mcpServers")
-	require.NoError(t, err)
-	doc.AtPath(p).Set(map[string]any{"ctxloom": map[string]any{"command": "x"}})
-	tl, err := doc.Transforms()
-	require.NoError(t, err)
-
-	res, err := s.Apply(fs, target, tl)
+	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
 	require.NoError(t, err)
 	assert.True(t, res.Changed)
 
@@ -208,9 +215,49 @@ func TestApplyCreatesAMissingTarget(t *testing.T) {
 	assert.NotEmpty(t, res.RecordPath, "creating a file is an application and must be recorded")
 }
 
+// The empty desired set: ctxloom wants no servers at all, so the reversal alone
+// is the change. The user's file must come back exactly as they wrote it.
+func TestEmptyDesiredSetRemovesCtxloomAndRestoresTheUser(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
+	require.NoError(t, err)
+	require.Contains(t, mustRead(t, fs, target), "ctxloom")
+
+	res, err := s.Apply(fs, target, recordNothing())
+	require.NoError(t, err)
+	assert.True(t, res.Reversed)
+
+	assert.Equal(t, foreign, mustRead(t, fs, target),
+		"with nothing desired, the user is left with exactly the file they wrote")
+}
+
+// A write that changes nothing writes nothing.
+func TestUnchangedApplyWritesNoNewRecord(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
+	require.NoError(t, err)
+	before := mustRead(t, fs, target)
+
+	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
+	require.NoError(t, err)
+	assert.False(t, res.Changed, "re-applying the same set changes nothing")
+	assert.Empty(t, res.RecordPath, "an unchanged apply must not grow the audit trail")
+
+	entries, err := afero.ReadDir(fs, "/home/u/.ctxloom/records")
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "still exactly one record")
+	assert.Equal(t, before, mustRead(t, fs, target))
+}
+
 func TestApplyRefusesAFormatHewCannotName(t *testing.T) {
 	s, fs := newStore(t)
-	_, err := s.Apply(fs, "/proj/settings.unknownext", hew.TransformList{})
+	_, err := s.Apply(fs, "/proj/settings.unknownext", recordNothing())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not recognize")
 }

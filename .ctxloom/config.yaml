@@ -17,6 +17,13 @@ agents:
             - default
             - developer-escalation
         runtime: container
+    developer-host:
+        llm: claude-code
+        permissions: bypass
+        profiles:
+            - default
+            - developer-escalation
+        runtime: host
     finder:
         llm: claude-fast
         permissions: plan

@@ -1,15 +1,22 @@
 version: "1.0.0"
-description: "Local default coding profile scaffolded by `ctxloom init`: your project's primary heavy-implementer context. Inherits the ctxloom-default baseline (conduct + sequential-thinking) and developer practices. Edit it freely; the agents bound during setup (coordinator, containerized developer, cheap finder, ...) compose it — `ctxloom init prompt` re-enters that interview any time."
+description: "Local default coding profile scaffolded by `ctxloom init`: your project's primary heavy-implementer context. Inherits ctxloom-default's developer practices. Edit it freely; the agents bound during setup (coordinator, containerized developer, cheap finder, ...) compose it — `ctxloom init prompt` re-enters that interview any time."
 tags:
   - default
 # A LOCAL profile (owned and editable in this project's .ctxloom), not a bare
-# remote reference. It composes ctxloom-default's `default` and `developer`
-# bundle profiles (baseline conduct/practice + developer coding practices), so
-# the seeded default is a real coding profile you can extend, set as the
-# orchestrating/developer member, or split into tighter per-role profiles.
+# remote reference. It composes ctxloom-default's `developer` bundle profile
+# (developer coding practices), so the seeded default is a real coding profile
+# you can extend, set as the orchestrating/developer member, or split into
+# tighter per-role profiles.
+#
+# It used to also inherit `bundles/default#profiles/default`. That bundle was
+# split into `conduct` upstream on 2026-08-07 and no longer exists at any
+# commit; the ref survived here only because it kept resolving out of the stale
+# repo cache, so a fresh clone would have aborted on a bundle nothing publishes.
+# There is no rename to make — `conduct` ships fragments, not profiles — and the
+# current seed template drops the parent rather than repointing it, so this
+# matches what `ctxloom init` emits today.
 parents:
   - project-base
-  - https://github.com/ctxloom/ctxloom-default@bundles/default@branch:main#profiles/default
   - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer@branch:main#profiles/developer
 bundles:
   # Language: upstream Go practices plus the personal composition on top.

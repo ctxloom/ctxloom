@@ -524,12 +524,24 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 		t.Fatal("expected 'ctxloom' MCP server")
 	}
 
-	if _, ok := ctxloomServer["_ctxloom"]; !ok {
-		t.Error("ctxloom MCP server should have _ctxloom marker")
+	// Ownership rides the §9.7 record, NOT a marker key in the user's file.
+	// .mcp.json is the user's document; ctxloom leaves no bookkeeping in it.
+	if _, ok := ctxloomServer["_ctxloom"]; ok {
+		t.Error("ctxloom must not write a _ctxloom marker into the user's .mcp.json")
 	}
 
 	if ctxloomServer["command"] == "" {
 		t.Error("ctxloom MCP server should have command")
+	}
+
+	// The record is what Status reads back, so it is what ownership MEANS
+	// now: with servers applied, the writer must recognize its own work.
+	status, err := writer.Status(tmpDir)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !status.MCPPresent {
+		t.Error("Status must report MCPPresent from the record after servers are applied")
 	}
 
 	// Verify settings.json does NOT contain mcpServers

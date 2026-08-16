@@ -147,12 +147,21 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, er
 		res.Before = before
 
 		// 1+2. Reverse what ctxloom applied here last time.
+		//
+		// Only when the target still EXISTS. The record store is home-rooted
+		// and outlives the file it describes, so an absent target with a live
+		// record is ordinary (a regenerated `--target` directory), not
+		// suspicious: reversing into the empty document standing in for the
+		// missing file fails no-match, and that read as drift — refusing the
+		// write entirely. A file that is not there cannot be clobbered and
+		// holds no ctxloom entries to take back out, so the previous
+		// application is already reversed and the apply goes forward.
 		restored := before
 		prev, found, err := s.Last(target)
 		if err != nil {
 			return err
 		}
-		if found && len(prev.Reversal) > 0 {
+		if existed && found && len(prev.Reversal) > 0 {
 			restored, err = applyPatchText(binding, before, prev.Reversal, target)
 			if err != nil {
 				return fmt.Errorf("confpatch: %s has drifted since ctxloom last wrote it, so the previous application could not be reversed; refusing to write rather than clobber the change: %w", target, err)

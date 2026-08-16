@@ -104,7 +104,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
       Examples: a file of its own
         | engine      | mcp_surface              | server_key   | launch_marker |
-        | claude-code | .mcp.json                | ctxloom-auto | ${CLAUDE_PROJECT_DIR} |
+        | claude-code | .mcp.json                | mcpServers   | ${CLAUDE_PROJECT_DIR} |
         | kiro        | .kiro/settings/mcp.json  | mcpServers   | mcp           |
 
       # codex folds its servers into a config the engine owns too — but into

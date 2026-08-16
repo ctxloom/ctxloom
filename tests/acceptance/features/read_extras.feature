@@ -32,12 +32,15 @@ Feature: Additional read and configuration commands
     Given an initialized ctxloom project
     When I run "ctxloom manage hooks install"
     Then the command succeeds
-    And the file ".mcp.json" contains "ctxloom-auto"
+    # cwd is set ONLY on the auto-registered ctxloom server, so it tracks that
+    # one entry. The old token here was the _ctxloom marker, which ctxloom no
+    # longer writes into the user's file — ownership rides the §9.7 record.
+    And the file ".mcp.json" contains "${CLAUDE_PROJECT_DIR}"
     When I run "ctxloom mcp unregister"
     Then the command succeeds
     When I run "ctxloom manage hooks install"
     Then the command succeeds
-    And the file ".mcp.json" does not contain "ctxloom-auto"
+    And the file ".mcp.json" does not contain "${CLAUDE_PROJECT_DIR}"
     When I run "ctxloom mcp register"
     Then the command succeeds
     When I run "ctxloom manage hooks install"

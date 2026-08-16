@@ -255,6 +255,37 @@ func TestUnchangedApplyWritesNoNewRecord(t *testing.T) {
 	assert.Equal(t, before, mustRead(t, fs, target))
 }
 
+// A target that no longer EXISTS has not drifted. The record is home-rooted and
+// outlives the file it describes, so a regenerated target directory (`profile
+// materialize --target out`) routinely presents an absent file against a live
+// record. Reversing into the empty document stands in for it fails HEW010
+// no-match, and ctxloom used to turn that into a refusal to write at all —
+// exit 3, "aborting startup", with a fix: line that re-runs the same failure.
+//
+// Nothing can be clobbered in a file that is not there: the previous
+// application is already reversed, vacuously, so the apply proceeds forward.
+func TestApplyRecreatesATargetDeletedSinceTheRecordWasWritten(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
+	require.NoError(t, err)
+
+	// The target directory is regenerated out from under the record.
+	require.NoError(t, fs.Remove(target))
+
+	res, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
+	require.NoError(t, err, "an absent target must not read as drift")
+	assert.True(t, res.Changed)
+	assert.False(t, res.Reversed, "there was nothing on disk to reverse out of")
+
+	got := mustRead(t, fs, target)
+	assert.Contains(t, got, `"ctxloom"`, "the desired set is written afresh")
+	assert.NotContains(t, got, "taskloom",
+		"the deleted file's foreign content is NOT resurrected from the record")
+}
+
 func TestApplyRefusesAFormatHewCannotName(t *testing.T) {
 	s, fs := newStore(t)
 	_, err := s.Apply(fs, "/proj/settings.unknownext", recordNothing())

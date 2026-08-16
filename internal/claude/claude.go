@@ -133,9 +133,8 @@ type claudeCodeMCPConfig struct {
 type claudeCodeMCPServer struct {
 	Command string            `json:"command"`
 	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`      // Environment variables for the server
-	Cwd     string            `json:"cwd,omitempty"`      // Working directory for the server
-	SCM     string            `json:"_ctxloom,omitempty"` // Marker identifying ctxloom-managed servers
+	Env     map[string]string `json:"env,omitempty"` // Environment variables for the server
+	Cwd     string            `json:"cwd,omitempty"` // Working directory for the server
 }
 
 // claudeCodeHookMatcher represents a hook matcher entry in Claude Code format.
@@ -424,7 +423,7 @@ func (w *ClaudeCodeHookWriter) parsePermissions(path string, data []byte, raw js
 // corruptSettings is this writer's binding of agent.RefuseCorrupt (see its
 // doc): back the original bytes up, then return an error so the caller aborts
 // before touching the file. Every partial-parse failure in loadSettings and
-// loadMCPConfig routes through here precisely so no future field can be added
+// applyMCP routes through here precisely so no future field can be added
 // with a warn-and-continue branch — a warning is not a guard, and each of the
 // paths that had one (permissions, permissions.deny, .mcp.json) was
 // destroying user data behind it.
@@ -528,53 +527,6 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	}
 
 	return agent.AtomicWriteFile(w.getFS(), path, data, "settings")
-}
-
-// loadMCPConfig loads existing .mcp.json, or an empty config for a missing
-// file — which is the only case that legitimately means "no servers yet".
-//
-// It is deliberately NOT fault-tolerant on a parse failure: its result is
-// written straight back by writeMCPConfig, so "tolerating" an unreadable file
-// meant deleting every server in it. See corruptSettings.
-func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig, error) {
-	mcpConfig := &claudeCodeMCPConfig{
-		MCPServers: make(map[string]claudeCodeMCPServer),
-	}
-
-	fs := w.getFS()
-	data, err := afero.ReadFile(fs, path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return mcpConfig, nil
-		}
-		return nil, err
-	}
-
-	if err := json.Unmarshal(data, mcpConfig); err != nil {
-		// Returning the empty config here handed writeMCPConfig a blank slate
-		// it then filled with ctxloom's servers and SAVED — deleting every
-		// server the user had. The old warning conceded as much ("existing
-		// MCP servers may not be preserved"); a warning is not a guard. This
-		// now mirrors loadSettings, which was hardened for exactly this.
-		return nil, w.corruptSettings(path, data, ".mcp.json", err, "to avoid deleting the MCP servers already in it")
-	}
-
-	if mcpConfig.MCPServers == nil {
-		mcpConfig.MCPServers = make(map[string]claudeCodeMCPServer)
-	}
-
-	return mcpConfig, nil
-}
-
-// saveMCPConfig writes MCP config to .mcp.json.
-// Uses backup and atomic write for safety (see saveSettings).
-func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeMCPConfig) error {
-	data, err := agent.CanonicalJSON(mcpConfig)
-	if err != nil {
-		return fmt.Errorf("failed to marshal .mcp.json: %w", err)
-	}
-
-	return agent.AtomicWriteFile(w.getFS(), path, data, ".mcp.json")
 }
 
 // writeMCPConfig writes MCP servers to .mcp.json.
@@ -764,11 +716,11 @@ func ctxloomStatusLineCommand() string {
 // RemoveSettings/uninstall (removeSettingsFile does not touch Permissions at
 // all).
 //
-// This is a deliberate asymmetry from the hooks/MCP-server reconcile pattern
-// (removeCtxloomHooks / writeMCPConfig's SCM-marker prune), which is safe to
-// remove-then-readd because each entry carries an ownership marker (SCM /
-// the command string itself). A plain string in a JSON deny array carries no
-// such marker — Claude Code's settings schema has no room to attach one (the
+// This is a deliberate asymmetry from the reconcile patterns either side of
+// it. Hooks (removeCtxloomHooks) are safe to remove-then-readd because each
+// entry carries an ownership marker; .mcp.json is safe because its record
+// says what ctxloom applied. A plain string in a JSON deny array has neither
+// -- no marker — Claude Code's settings schema has no room to attach one (the
 // same strict-schema constraint documented on claudeCodeHook.SCM) — so
 // ctxloom cannot distinguish "a denial IT added" from "a denial the user
 // hand-wrote" well enough to safely retract just its own. Erring toward
@@ -1040,7 +992,6 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 			Command: agent.ResolveMCPCommand(w.mcpCommandOverride),
 			Args:    agent.CtxloomMCPArgs,
 			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findAppDir works
-			SCM:     "ctxloom-auto",          // Marker for auto-registered ctxloom server
 		}
 	}
 
@@ -1050,7 +1001,6 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 			Command: server.Command,
 			Args:    server.Args,
 			Env:     server.Env,
-			SCM:     server.SCM, // Already marked ctxloom with bundle source
 		}
 	}
 
@@ -1064,7 +1014,6 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 			Command: server.Command,
 			Args:    server.Args,
 			Env:     server.Env,
-			SCM:     agent.ComputeMCPServerHash(server), // Marker for ctxloom-managed
 		}
 	}
 
@@ -1075,7 +1024,6 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 				Command: server.Command,
 				Args:    server.Args,
 				Env:     server.Env,
-				SCM:     agent.ComputeMCPServerHash(server),
 			}
 		}
 	}
@@ -1193,16 +1141,22 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 		return status, err
 	}
 	if mcpExists {
-		mcpConfig, err := w.loadMCPConfig(mcpPath)
-		if err != nil {
-			return status, fmt.Errorf("failed to load existing .mcp.json: %w", err)
+		// Ask the RECORD what ctxloom put here, not the file. Scanning the
+		// user's file for a marker could not tell an entry ctxloom created
+		// from one a user copied out of ctxloom's, and the marker is gone.
+		//
+		// An uninstall leaves a record whose applied set is EMPTY (the
+		// reversal alone ran), which is what distinguishes "ctxloom installed
+		// servers here" from "ctxloom took its servers back out".
+		store, serr := w.recordStore()
+		if serr != nil {
+			return status, serr
 		}
-		for _, server := range mcpConfig.MCPServers {
-			if server.SCM != "" {
-				status.MCPPresent = true
-				break
-			}
+		rec, found, rerr := store.Last(mcpPath)
+		if rerr != nil {
+			return status, rerr
 		}
+		status.MCPPresent = found && len(rec.Targets) > 0 && len(rec.Targets[0].Transforms) > 0
 	}
 	return status, nil
 }

@@ -135,14 +135,6 @@ func ComputeHookHash(h wire.Hook) string {
 	return hex.EncodeToString(hash[:8]) // first 8 bytes for brevity
 }
 
-// ComputeMCPServerHash returns a short, stable hash of an MCP server's defining
-// fields, used as the `_ctxloom` marker on managed servers.
-func ComputeMCPServerHash(s wire.MCPServer) string {
-	parts := append([]string{s.Command}, s.Args...)
-	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
-	return hex.EncodeToString(hash[:8])
-}
-
 // AtomicWriteFile writes data to path atomically: it backs up any existing file
 // through iox.WriteFileAtomicFs (unique temp
 // in the destination directory, fsync, rename). There is no non-atomic

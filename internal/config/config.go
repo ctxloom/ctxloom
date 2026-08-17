@@ -291,13 +291,26 @@ type Config struct {
 	// fake companion output.
 	//
 	// Held by POINTER, not as a value sync.Once field: Config is copied by
-	// value in existing callers (e.g. table-driven tests ranging over a
-	// []struct{... config Config ...}), and a struct containing a sync.Once
-	// value must never be copied (govet copylocks) — a value field here
-	// would break every one of those callers. companionSeedInitMu (a
-	// package-level lock, not a Config field, so copying Config is still
-	// cheap and safe) guards the lazy allocation of the pointer; the actual
-	// probe is still memoized exactly once via the pointee's sync.Once.
+	// value by existing callers, and a struct containing a sync.Once value must
+	// never be copied (govet copylocks), so a value field here would not
+	// compile-clean.
+	//
+	// The copy that DECIDES this is operations.installProfileDefs, which does
+	// `*cfg = *rebuilt` — a test double that must make a profile definition
+	// appear MID-RUN, in a Config the sync loop is already holding. Rebuilding
+	// in place is the point: assigning into a returned map would be exactly the
+	// silent no-op that test exists to catch. It cannot be refactored away, and
+	// an in-place replace method is not the escape hatch it looks like — Config
+	// has 34 fields and NewFixture already enumerates all of them, so a second
+	// enumeration would silently diverge the first time someone adds a field.
+	//
+	// (A table-driven test also copies a Config, but that one IS trivially
+	// fixable and is not the constraint. Do not read it as the reason.)
+	//
+	// companionSeedInitMu (a package-level lock, not a Config field, so copying
+	// Config is still cheap and safe) guards the lazy allocation of the pointer;
+	// the actual probe is still memoized exactly once via the pointee's
+	// sync.Once.
 	companionSeed *companionSeedState
 
 	// companionProbe overrides companion-loadout discovery; nil means the real

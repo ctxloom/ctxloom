@@ -199,9 +199,11 @@ func TestDriftRefusesAndLeavesTheTargetUntouched(t *testing.T) {
 }
 
 // Creating a missing target: the caller must build ops that create the PARENT
-// too. Setting a nested path whose parent is absent is HEW013 no-match — the
-// fluent API has no create-or-open yet (hew task reclusive-grazing), so a
-// caller writing a file from nothing states the whole container.
+// too. Setting a nested path whose parent is absent is HEW013 no-match, and
+// ops within one Doc do not compose — each resolves against the document as
+// opened, so a container an earlier op created is invisible to a later one
+// addressing into it. A caller writing a file from nothing therefore states
+// the whole container in a single op.
 func TestApplyCreatesAMissingTarget(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/nested/mcp.json"
@@ -355,9 +357,8 @@ func TestRecordRoundTripsAnArrayValued(t *testing.T) {
 // ctxloom meant to overwrite a user's value, seed one, or refuse — which is the
 // difference between the audit statement §9.7 asks for and a note.
 //
-// hew.ResolvedOp carried no OnConflict until hew task alienable-flatterer
-// fixed it; this asserts ctxloom actually reads the field now rather than
-// still discarding it.
+// hew.ResolvedOp did not always carry OnConflict; this asserts ctxloom reads
+// the field rather than discarding it.
 func TestRecordCarriesTheAddPolicy(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"

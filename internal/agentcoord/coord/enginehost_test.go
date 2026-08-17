@@ -778,22 +778,14 @@ func TestEngineHost_ForwardsPermissionAsApprovalRequest(t *testing.T) {
 	assert.Equal(t, "ls", approval.GetPayload().GetFields()["command"].GetStringValue())
 
 	// The InteractionRecorded item journaled the resolution's detail.
-	require.Eventually(t, func() bool {
-		for _, ev := range home.events {
-			if ev.GetInteraction() != nil {
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, 10*time.Millisecond, "an InteractionRecorded event must be emitted")
-	home.mu.Lock()
-	defer home.mu.Unlock()
-	var interaction *agentcoordpb.InteractionRecorded
-	for _, ev := range home.events {
-		if ir := ev.GetInteraction(); ir != nil {
-			interaction = ir
-		}
-	}
+	//
+	// Reach the journal through interactions(), never home.events directly:
+	// emitEvent appends to that slice from the host's own goroutine, so a poll
+	// that ranges it unguarded races the write it is waiting for.
+	require.Eventually(t, func() bool { return len(home.interactions()) > 0 },
+		5*time.Second, 10*time.Millisecond, "an InteractionRecorded event must be emitted")
+	journaled := home.interactions()
+	interaction := journaled[len(journaled)-1]
 	require.NotNil(t, interaction)
 	assert.Equal(t, "approval", interaction.GetKind())
 	assert.Equal(t, agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED, interaction.GetResolution())

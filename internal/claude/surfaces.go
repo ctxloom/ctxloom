@@ -88,6 +88,26 @@ func (s *contextSurface) DeliverIsolated() (agent.Delivered, error) {
 	return s.appendD.DeliverContext(s.context)
 }
 
+// State implements agent.StateReader: it reports what CLAUDE.md currently
+// carries in its managed section, via the shared read-side helper
+// (agent.ReadManagedContext) — the same core WriteContext's write side
+// merges through (ClaudeCodeHookWriter.WriteContext), so the read and write
+// paths cannot disagree about where the managed section lives or how it is
+// framed. An absent file or an absent managed section reports
+// FileDeliveryState with Found/HasSection false; Currency then turns that
+// into the missing verdict. This is claude's half of the engine-delivery
+// seam's read side (docs/design/engine-delivery-seam.design.md step 3),
+// mirroring the mock backend's mockContextSurface.State.
+func (s *contextSurface) State(dir string) (agent.DeliveryState, error) {
+	fs := agent.GetFS(s.fs)
+	w := &ClaudeCodeHookWriter{FS: fs}
+	state, err := agent.ReadManagedContext(fs, w.ContextPath(dir), ContextFileName)
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
 // Path returns the framed <hash>.sysprompt.md written by DeliverIsolated (for
 // --append-system-prompt-file), or "" whenever no file stands behind it: before
 // delivery, for empty context, and after a FAILED delivery.
@@ -377,8 +397,9 @@ func (s Surfaces) SharedRealization(kind agent.SurfaceKind, a agent.Approach) (f
 // by SharedRealization above) — commands has none, so a SHARED-cwd delivery of it
 // always falls back to the loud well-known write (proved in surfaces_test.go).
 var (
-	_ agent.Delivery  = (*contextSurface)(nil)
-	_ agent.Delivery  = (*mcpSurface)(nil)
+	_ agent.Delivery    = (*contextSurface)(nil)
+	_ agent.StateReader = (*contextSurface)(nil)
+	_ agent.Delivery    = (*mcpSurface)(nil)
 	_ agent.Delivery  = (*settingsSurface)(nil)
 	_ agent.Delivery  = (*commandsSurface)(nil)
 	_ agent.Delivery  = (*agent.ManagedSkillPackagesDelivery)(nil)

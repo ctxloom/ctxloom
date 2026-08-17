@@ -110,15 +110,42 @@ type HarnessStatusResult struct {
 	// root. The single source of truth for the not-a-stable-root warning, shared
 	// by `ctxloom run` and the VSCode companion's title-bar warning.
 	RootFallback bool `json:"root_fallback"`
+	// Surfaces reports delivery currency for the native context files
+	// (CLAUDE.md and its per-backend analogues) that are ACTUALLY materialized
+	// on disk under WorkDir — see SurfaceCurrency. This is the read half of the
+	// engine-delivery seam (docs/design/engine-delivery-seam.design.md): the
+	// hop wiring alone (Backends, above) cannot answer, because "hooks
+	// present" says nothing about whether a materialized native file's
+	// CONTENT still matches what the project's default profiles currently
+	// compose (J001900's B6 finding — this command used to report on WIRING
+	// only, never on DELIVERY, so a stale `profile materialize` output was
+	// invisible to it). A backend with no read half yet, or with nothing
+	// materialized here, is simply absent from this list — never reported as
+	// an implicit "missing", which would be a false alarm for the (default)
+	// hook-delivered case.
+	Surfaces []SurfaceCurrency `json:"surfaces,omitempty"`
 	// Errors records per-backend status-read failures; non-empty means the
 	// report is partial. One backend's corrupt/unreadable settings.json no
 	// longer blacks out the status of every other backend.
 	Errors []string `json:"errors,omitempty"`
 }
 
+// SurfaceCurrency reports one backend's native context-surface delivery
+// currency: whether a file already materialized on disk (CLAUDE.md,
+// MOCK_CONTEXT.md, …) still carries what the project's default profiles
+// currently compose. Route/Status/Detail mirror agent.DeliveryState's
+// Route()/Currency() verbatim — this is that read half rendered for a report,
+// not a second judgment about what the surface holds.
+type SurfaceCurrency struct {
+	Backend string `json:"backend"`
+	Route   string `json:"route"`
+	Status  string `json:"status"`
+	Detail  string `json:"detail,omitempty"`
+}
+
 // HarnessStatus reports which ctxloom-managed artifacts are wired into each
 // settings-supporting backend, plus the MCP auto-registration setting.
-func HarnessStatus(_ context.Context, cfg *config.Config, req HarnessStatusRequest) (*HarnessStatusResult, error) {
+func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusRequest) (*HarnessStatusResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
 	opts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
@@ -150,7 +177,84 @@ func HarnessStatus(_ context.Context, cfg *config.Config, req HarnessStatusReque
 			MCPPresent:     status.MCPPresent,
 		})
 	}
+
+	surfaces, surfaceErrs := surfaceCurrencies(ctx, cfg, fs, workDir)
+	result.Surfaces = surfaces
+	for _, e := range surfaceErrs {
+		clidiag.Warn("ctxloom", "%s", e)
+	}
+	result.Errors = append(result.Errors, surfaceErrs...)
+
 	return result, nil
+}
+
+// surfaceCurrencies walks every registered backend's context surface and
+// reports delivery currency for the ones that (a) offer a read half
+// (agent.StateReader — today: claude-code and mock, see
+// docs/design/engine-delivery-seam.design.md step 3) and (b) actually have
+// something materialized under workDir. A backend with no read half yet is
+// structurally absent from the result rather than reported as unreadable; a
+// backend whose surface was never materialized (Currency == StatusMissing) is
+// likewise omitted — a project that delivers context purely through the
+// SessionStart hook (the default) has nothing here to report, and reporting
+// it anyway would be exactly the false-alarm noise that trains a user to
+// ignore this command.
+//
+// The composed ("intended") context is assembled AT MOST ONCE, lazily, and
+// only once a materialized surface is actually found on disk — a read-only
+// status command has no business running full context assembly (with its
+// withheld-content advisories) when nothing on disk needs comparing against
+// it. It reads via the existing AssembleContext, never regenerateContext:
+// this is the read half the design doc calls out — "a status command that
+// rewrites the surface it inspects is its own bug" — so it must never write.
+func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, workDir string) (surfaces []SurfaceCurrency, errs []string) {
+	var intended string
+	var composed bool
+
+	for _, name := range backends.List() {
+		set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
+		approach, ok := set.DefaultApproach(agent.SurfaceContext)
+		if !ok {
+			continue
+		}
+		delivery, err := set.SurfaceFor(agent.SurfaceContext, approach)
+		if err != nil {
+			continue
+		}
+		reader, ok := delivery.(agent.StateReader)
+		if !ok {
+			continue
+		}
+		state, err := reader.State(workDir)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("failed to read %s's materialized context surface: %v", name, err))
+			continue
+		}
+		// Cheap existence probe: Currency's not-found/no-managed-section cases
+		// ignore the argument entirely, so this costs no extra I/O (State
+		// already read the file) and, critically, no AssembleContext call for
+		// the common case where this backend has nothing materialized here.
+		if state.Currency("").Status == agent.StatusMissing {
+			continue
+		}
+		if !composed {
+			asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: cfg.DefaultAgentProfiles()})
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("failed to compose the current context to compare materialized surfaces against: %v", err))
+				return surfaces, errs
+			}
+			intended = asm.Context
+			composed = true
+		}
+		cur := state.Currency(intended)
+		surfaces = append(surfaces, SurfaceCurrency{
+			Backend: name,
+			Route:   state.Route(),
+			Status:  string(cur.Status),
+			Detail:  cur.Detail,
+		})
+	}
+	return surfaces, errs
 }
 
 // SetStatuslineRequest contains parameters for toggling the ctxloom HUD statusline.

@@ -271,6 +271,15 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 	})
 }
 
+// ContextPath returns the path to Claude Code's native context file
+// (<projectDir>/CLAUDE.md). Sibling of SettingsPath/MCPConfigPath, added for
+// the read half (contextSurface.State in surfaces.go) so it shares the exact
+// path the write half (WriteContext, below) uses rather than a second
+// filepath.Join literal.
+func (w *ClaudeCodeHookWriter) ContextPath(projectDir string) string {
+	return filepath.Join(projectDir, ContextFileName)
+}
+
 // WriteContext implements agent.ContextWriter for Claude Code: it merges the
 // assembled context (req.Context) into the ctxloom-managed section of
 // <projectDir>/CLAUDE.md, preserving any hand-authored content outside the
@@ -289,7 +298,7 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 // ported from antigravity's original .agents/AGENTS.md implementation so every
 // backend that owns a human-editable context file shares one merge.
 func (w *ClaudeCodeHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
-	path := filepath.Join(req.ProjectDir, ContextFileName)
+	path := w.ContextPath(req.ProjectDir)
 	return agent.WriteManagedContext(w.getFS(), path, ContextFileName, req.Context, ContextFileName)
 }
 

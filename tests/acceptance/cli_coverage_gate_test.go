@@ -77,7 +77,6 @@ var coverageExemptLeaves = map[string]string{
 	"ctxloom llm host":             "go-plugin host callback; reached only by a plugin handshake",
 	"ctxloom llm turn":             "go-plugin turn callback; reached only by a plugin handshake",
 	"ctxloom container provenance": "hidden diagnostic reading image labels; needs a built image",
-	"ctxloom util config-write":    "hidden machine callback for config writes from a subprocess",
 }
 
 // coverBlock is one entry of a textfmt coverage profile: the statements

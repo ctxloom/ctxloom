@@ -77,10 +77,7 @@ func (s flagSite) where() string {
 // difference in EITHER direction, so an entry that starts being covered has to
 // come out — and, additionally, an entry naming a site the census no longer
 // finds fails too, so a rename or a file move cannot leave a silencer behind.
-var flagCoverageExempt = map[string]string{
-	"internal/cli/root.go:--degraded": "its only exerciser self-skips wherever a container runtime is reachable, " +
-		"so on a developer machine it can never run; tracked as taskloom antiviral-rebirth",
-}
+var flagCoverageExempt = map[string]string{}
 
 // unmeasurableShape describes why a Changed() call cannot be credited from
 // coverage. Each is a real limit of the technique, not a category of site that

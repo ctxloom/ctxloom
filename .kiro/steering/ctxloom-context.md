@@ -897,3 +897,97 @@ credentials/state to a global path regardless.
 A bad or missing agent name silently degrades to `host`+`none` with only
 a stderr warning, discarding the runtime and permissions you asked for —
 confirm the name resolves before trusting the isolation you requested.
+
+---
+
+# llm-tool-killer (ltk)
+
+This project may run **ltk**, a pre-tool hook that inspects each shell
+command before it executes and redirects it when a rule matches. Where
+ctxloom shapes the context you see, ltk guides the commands you run.
+
+## What it does
+
+ltk parses the real command (resolving variables, unwrapping trivial
+wrappers and sub-shells) and matches it against the project's rules in
+`.ltk/config.yaml`. The first matching `deny` wins and returns a
+`message`/`suggest` telling you what to run instead. Example:
+
+    go test ./...   ->   blocked: "Run tests through the task runner."
+                    ->   retry with `just test`
+
+## How to work with it
+
+- Treat a redirect as guidance, not a failure: read the suggestion and
+  retry the command the way the rule asks.
+- Prefer the project's task runner (e.g. `just <target>`) over invoking
+  build/test/lint tools directly.
+- **Agents do not cut releases.** ltk blocks `git tag` and release
+  commands. Prepare the version bump and PR; a human (or CI) cuts the tag.
+
+## What it is not
+
+ltk is a cooperative redirect, not a sandbox. If explicitly instructed
+to work around a rule the agent can, so it makes the easy, accidental
+path the right one rather than enforcing hard isolation. For strict
+"never" boundaries, run the agent in a container.
+
+---
+
+# taskloom
+
+Persistent task tracking. Tasks live in a per-project append-only log
+(~/.ctxloom/tasks/<project-id>.jsonl) and are keyed by harp IDs
+(e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
+`Deferred`, `Done`, `Archived`.
+
+## MCP tools (served by `taskloom mcp`)
+
+- `task_list({statuses?, term?, include_completed?, include_summary?})`
+  — list/filter tasks. Set `include_summary: true` to also get
+  per-status counts plus the in-progress harp IDs.
+- `task_add({text, status?, trigger?})` — add a task with a fresh
+  harp ID. Default status is `"To Do"`; `"Deferred"` requires a
+  `trigger` (the condition that should revive it).
+- `task_set_status({harp_id, status, trigger?})` — move a task
+  between statuses.
+- `task_edit({harp_id, text})` — replace a task's text in place.
+
+Tasks are created and updated only through these tools (or the
+`taskloom` CLI). The harp ID appears in `task_list` output so you can
+reference a specific task in later calls.
+
+Write `text` subject-first: the first line is what the task IS
+(~80 characters or fewer — list views show only that line,
+truncated there). Put provenance like dates or session names on a
+later line, not the first.
+
+## Check the log before you start, and again before you finish
+
+**Before starting work**, look for open tasks that touch what you are
+about to change. One may already hold the root cause, a decision
+someone already made, or a constraint you would otherwise rediscover
+the hard way — and it may show that someone else is mid-flight in the
+same files. Search by AREA, not just by title, since a task about your
+code may be named for its symptom:
+
+    taskloom list --term <symbol, path, or error string>
+    taskloom list --tag-query <area>
+
+**Before finishing**, scan again for tasks in the same area. If your
+change satisfies one, say so and offer to close it — quote what the
+task asked for and what you actually did, so the reader can judge
+rather than take your word. If it satisfies a task only in part, edit
+the task to record what is now done and what remains, instead of
+leaving it whole and letting the next person redo the finished half.
+
+Both halves matter for the same reason: a task nobody rereads gets
+solved twice, and a task silently satisfied but left open is
+indistinguishable from work never done.
+
+## Plan stamping
+
+When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+`docs/*-plan.md`), the active session's harp name is auto-stamped
+into the file's YAML frontmatter `sessions:` list. Plans and
+sessions cross-reference without a separate database.

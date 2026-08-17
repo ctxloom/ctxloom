@@ -5,7 +5,7 @@
         "mcp",
         "serve"
       ],
-      "command": "/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom"
+      "command": "/home/babbitt/go/bin/ctxloom"
     },
     "sequential-thinking": {
       "args": [
@@ -24,6 +24,12 @@
         "false"
       ],
       "command": "serena"
+    },
+    "taskloom": {
+      "args": [
+        "mcp"
+      ],
+      "command": "taskloom"
     }
   }
 }

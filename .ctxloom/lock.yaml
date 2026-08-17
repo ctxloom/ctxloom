@@ -1,5 +1,5 @@
 version: 1
-locked_at: 2026-08-16T03:55:25.814635826Z
+locked_at: 2026-08-17T13:50:26.002031764Z
 bundles:
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/agent-ensemble:
         sha: 4d37c0469f3a8aec9f8ad95cf7ccd29d052854e8
@@ -163,11 +163,6 @@ bundles:
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/conduct:
-        sha: 62b6ed56c8f47c6129cc673b8a47938b44de7436
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-    https://github.com/ctxloom/ctxloom-default@bundles/default:
         sha: 62b6ed56c8f47c6129cc673b8a47938b44de7436
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch

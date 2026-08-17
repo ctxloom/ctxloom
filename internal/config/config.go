@@ -304,6 +304,13 @@ type Config struct {
 	// land on disk and the next read lists them through a fresh loader.
 	companionSeed companionSeedState
 
+	// bundleLoader memoizes the default-shape read-path loader for this
+	// Config's lifetime; see BundleLoader and InvalidateBundleLoader. A value
+	// mutex is safe here because Config is non-copyable (companionSeed's
+	// sync.Once makes it so, and govet copylocks enforces it).
+	bundleLoaderMu sync.Mutex
+	bundleLoader   *bundles.Loader
+
 	// companionProbe overrides companion-loadout discovery; nil means the real
 	// ProbeCompanionLoadouts. The real probe execs whatever companion binaries
 	// happen to be on the HOST's PATH, so any test that sets AppPaths (the only
@@ -2251,6 +2258,47 @@ func WithBundleVersionResolver(resolver bundles.BundleVersionResolver) BundleLoa
 // (docs/design/engine-delivery-seam.design.md), so a caller that reads content
 // names the form it wants at the read itself — see ShouldUseDistilled.
 func (c *Config) BundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
+	// Memoized for the DEFAULT shape only. This factory was called 16 times
+	// across the tree and `ctxloom doctor` went through 22 loader builds in one
+	// run, each re-walking the bundle directories and re-parsing every bundle to
+	// produce the same answer.
+	//
+	// Only the no-option shape is shared, and that is not a compromise: exactly
+	// ONE production caller passes an option at all (operations/hooks.go, which
+	// overrides the filesystem). An option-bearing call asks for a DIFFERENT set
+	// of sources, so it builds its own — and the option fields are a func and a
+	// slice, neither usable as a cache key, so keying on them is not merely
+	// unnecessary but impossible.
+	//
+	// Anything that changes what is on disk must call InvalidateBundleLoader.
+	// A fresh loader used to pick up such a change BY ACCIDENT, because it
+	// re-read; sharing one removes the accident and makes the obligation
+	// explicit.
+	if len(opts) == 0 {
+		c.bundleLoaderMu.Lock()
+		defer c.bundleLoaderMu.Unlock()
+		if c.bundleLoader == nil {
+			c.bundleLoader = c.buildBundleLoader()
+		}
+		return c.bundleLoader
+	}
+	return c.buildBundleLoader(opts...)
+}
+
+// InvalidateBundleLoader drops the memoized loader so the next BundleLoader
+// re-reads every source.
+//
+// Callers are the paths that CHANGE what the readers would see: a bundle
+// written or deleted locally, and a remote pull landing new pinned content. A
+// missed call yields stale content with exit 0, which is this codebase's
+// characteristic failure, so each caller carries a test.
+func (c *Config) InvalidateBundleLoader() {
+	c.bundleLoaderMu.Lock()
+	defer c.bundleLoaderMu.Unlock()
+	c.bundleLoader = nil
+}
+
+func (c *Config) buildBundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
 	var lc bundleLoaderConfig
 	for _, opt := range opts {
 		opt(&lc)

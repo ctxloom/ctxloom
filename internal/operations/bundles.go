@@ -384,7 +384,48 @@ func bundleStore(cfg *config.Config, injected bundles.Store) bundles.Store {
 	if injected != nil {
 		return injected
 	}
-	return bundles.NewFSStore(nil, cfg.GetBundleDirs())
+	return invalidatingStore{
+		Store: bundles.NewFSStore(nil, cfg.GetBundleDirs()),
+		cfg:   cfg,
+	}
+}
+
+// invalidatingStore drops the Config's memoized bundle loader after a write.
+//
+// The Config-level loader is shared for the process's life, so a bundle written
+// or deleted through this store would otherwise stay invisible to every
+// subsequent read in the same command — `bundle create` followed by anything
+// that lists, `fragment add` followed by an assemble. A fresh loader used to
+// pick the change up BY ACCIDENT because it re-read; sharing one removes the
+// accident.
+//
+// It wraps at the ONE place stores are constructed rather than asking each of
+// the dozen-plus Save/Delete call sites to remember. A missed invalidation is
+// invisible — stale content, exit 0, no error — which is exactly the failure
+// mode this codebase is shaped by, so the obligation is discharged where it
+// cannot be forgotten instead of documented where it can.
+//
+// fsStore already invalidates its OWN embedded loader; that one is a different
+// instance and says nothing about the Config's.
+type invalidatingStore struct {
+	bundles.Store
+	cfg *config.Config
+}
+
+func (s invalidatingStore) Save(b *bundles.Bundle) error {
+	if err := s.Store.Save(b); err != nil {
+		return err
+	}
+	s.cfg.InvalidateBundleLoader()
+	return nil
+}
+
+func (s invalidatingStore) Delete(name string) error {
+	if err := s.Store.Delete(name); err != nil {
+		return err
+	}
+	s.cfg.InvalidateBundleLoader()
+	return nil
 }
 
 // applyScalarEdits applies the single-value description/version edits, appending

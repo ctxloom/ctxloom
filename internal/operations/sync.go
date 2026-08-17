@@ -163,7 +163,15 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		if req.Puller == nil {
 			refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(refs))
 		}
-		return syncRefs(ctx, puller, refs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result)
+		if err := syncRefs(ctx, puller, refs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result); err != nil {
+			return err
+		}
+		// A pull lands new pinned content, so anything the Config's shared
+		// bundle loader already resolved is now incomplete. Post-sync steps read
+		// bundles immediately (lockfile, hook materialization), and a later pass
+		// may resolve a profile that only became loadable because of this pull.
+		cfg.InvalidateBundleLoader()
+		return nil
 	}
 
 	converged, err := syncToFixedPoint(ctx, bundleRefs, collect, pullBatch)

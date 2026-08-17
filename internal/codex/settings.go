@@ -21,7 +21,7 @@
 // │ fire and the MCP server connects, run a oneshot/distill).                 │
 // └─────────────────────────────────────────────────────────────────────────┘
 //
-// STATUS UPDATE (2026-08-13) — the warning above is now WRONG ABOUT HOOKS, and
+// STATUS UPDATE — the warning above is now WRONG ABOUT HOOKS, and
 // is left standing only because it remains true of the rest. The config.toml
 // [hooks] shape has since been measured against codex-cli 0.144.4 end to end: a
 // config written by writeSettingsIn, graded by codex's own `hooks/list`, and a
@@ -30,7 +30,7 @@
 // silently swallowing every hook this file wrote. See hooktrust.go, and
 // hooktrust_vendor_test.go for the pin that keeps the finding true.
 //
-// STATUS (2026-07-10): still LIVE-UNTESTED end-to-end — never run against a
+// STATUS: still LIVE-UNTESTED end-to-end — never run against a
 // real codex account (no OPENAI_API_KEY/CODEX_API_KEY on any dev host).
 // Proven since the warning above was written: hermetic backend parity
 // (TestStartRun_BackendParity) and CLI/JSON-RPC-level probing (codex-acp
@@ -246,7 +246,7 @@ func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, mcp *wire.MCP
 
 // addProjectTrust sets `[projects."<absPath>"] trust_level = "trusted"` in
 // cfg — the EXACT key/section codex itself appends after a user answers its
-// interactive trust prompt (live-verified 2026-07-15 against codex-cli
+// interactive trust prompt (live-verified against codex-cli
 // 0.144.4's own ~/.codex/config.toml). Idempotent: overwrites any existing
 // entry for absPath, preserving its other keys.
 func addProjectTrust(cfg map[string]any, absPath string) {

@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// TestChatACPConfig_ModelConfigKey pins the Wave C3 finding: codex-acp
+// TestChatACPConfig_ModelConfigKey pins the finding that codex-acp
 // 0.16.0 has NO --model flag (verified live — it exits 2, "unexpected
 // argument '--model' found", a hard spawn failure), so codex's structured
 // chat delivers the model through codex-acp's own `-c key=value` config

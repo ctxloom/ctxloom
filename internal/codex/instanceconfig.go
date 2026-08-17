@@ -25,7 +25,7 @@ import (
 //     own interactive sessions. An agent run that inherits it executes the
 //     human's commands on the agent's schedule, with the agent's cwd.
 //
-// D5, ruled 2026-08-11. Everything ELSE the user set — model,
+// Everything ELSE the user set — model,
 // approval_policy, sandbox, profiles — is exactly what makes copying the file
 // worth doing: those preferences then apply to every agent session for free.
 var elidedHostSections = []string{"mcp_servers", "hooks"}

@@ -134,8 +134,8 @@ func TestSetup_RealHostHomeIsNeverWritten(t *testing.T) {
 	assert.Empty(t, entries, "Setup created something inside the user's real home: %v", entries)
 }
 
-// TestLegacyProjectHome_IsGone is D3 (ruled 2026-08-11: DROP IT). The
-// pre-relocation <WorkDir>/.codex gets NO handling — no migration, no copy-in
+// TestLegacyProjectHome_IsGone pins the ruling to DROP legacy handling entirely.
+// The pre-relocation <WorkDir>/.codex gets NO handling — no migration, no copy-in
 // source, no symlink refusal. The machinery that moved it was written the same
 // morning and its premise (a DURABLE destination to move into) no longer
 // exists. This test is the standing statement that nothing reintroduced it: a

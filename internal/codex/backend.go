@@ -169,8 +169,8 @@ func NewCodex() *Codex {
 //     below, landing on the bind-mounted PROJECT dir instead — empty, no
 //     auth.json, hence the 401 mismatch).
 //   - anything else (None/shared-cwd, or no backend context) resolves to the
-//     user's REAL ~/.codex — codexHomeRealHost. This is the D2 ruling
-//     (2026-08-11): codex reads config_home like claude and kiro, and no
+//     user's REAL ~/.codex — codexHomeRealHost. This is the ruling that
+//     codex reads config_home like claude and kiro, and no
 //     binding / an undeclared binding / an explicit `host` all keep the real
 //     home. codex used to relocate CODEX_HOME here unconditionally, which was
 //     defensible only while the relocation target was DURABLE; a disposable

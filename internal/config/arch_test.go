@@ -203,12 +203,24 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"workspace: worktree\n",
 		},
 		{
-			"top-level runtime default (agent axis)",
-			"runtime: container\n",
+			"top-level runtime default (agent axis, rootless)",
+			"runtime: container-rootless\n",
 		},
 		{
-			"agent-level runtime override",
-			"agents:\n  reviewer:\n    llm: fast\n    profiles: [review]\n    runtime: container\n",
+			// Both ownership modes are asserted because the schema enumerates
+			// them separately: a fixture naming only one would still pass while
+			// the schema silently rejected the other, and no compiler sees a
+			// value that lives in a YAML string.
+			"top-level runtime default (agent axis, rootful)",
+			"runtime: container-rootful\n",
+		},
+		{
+			"agent-level runtime override (rootless)",
+			"agents:\n  reviewer:\n    llm: fast\n    profiles: [review]\n    runtime: container-rootless\n",
+		},
+		{
+			"agent-level runtime override (rootful)",
+			"agents:\n  reviewer:\n    llm: fast\n    profiles: [review]\n    runtime: container-rootful\n",
 		},
 		{
 			"llm config entry with permissions posture",

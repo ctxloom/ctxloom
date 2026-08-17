@@ -67,6 +67,7 @@ ARG VERSIONATOR_VERSION
 ARG GORELEASER_VERSION
 ARG LIZARD_VERSION
 ARG JUST_VERSION
+ARG GOPLS_VERSION
 
 RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-image', which reads .devcontainer/tool-versions.env}" \
     && : "${UPX_VERSION:?missing --build-arg UPX_VERSION — see .devcontainer/tool-versions.env}" \
@@ -79,7 +80,8 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${VERSIONATOR_VERSION:?missing --build-arg VERSIONATOR_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GORELEASER_VERSION:?missing --build-arg GORELEASER_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LIZARD_VERSION:?missing --build-arg LIZARD_VERSION — see .devcontainer/tool-versions.env}" \
-    && : "${JUST_VERSION:?missing --build-arg JUST_VERSION — see .devcontainer/tool-versions.env}"
+    && : "${JUST_VERSION:?missing --build-arg JUST_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${GOPLS_VERSION:?missing --build-arg GOPLS_VERSION — see .devcontainer/tool-versions.env}"
 
 # Install Go
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xzf -
@@ -174,6 +176,39 @@ ENV GOMODCACHE="/go/pkg/mod"
 ENV GOCACHE="/go/cache/build"
 ENV GOTOOLCHAIN="local"
 RUN mkdir -p "${GOMODCACHE}" "${GOCACHE}" && chmod -R 0777 /go
+
+# serena — the code-intelligence MCP server (find_symbol,
+# find_referencing_symbols, the symbol-edit tools). It is here as well as in
+# container/base/Containerfile because THIS repo never uses that base: an
+# auto-detected devcontainer wins in resolveDevBase's candidate order, so an
+# agent on `runtime: container-rootless` here builds from this file. A
+# container-bound agent without serena loses those tools SILENTLY — it does not
+# know they are missing and falls back to grep.
+#
+# gopls is the actual dependency, not an extra: serena's Go support shells
+# `go version` AND `gopls version` and refuses to start its language server
+# without both. Without it serena errors loudly rather than answering from a
+# degraded index — safe, but useless on a Go repo. It is a plain `go install`
+# here because the Go toolchain is already present above; that is precisely why
+# this image was chosen over ctxloom's shared base, which has no Go.
+RUN go install golang.org/x/tools/gopls@v${GOPLS_VERSION}
+
+# uv is copied from its own published image rather than curl-piped, so the
+# installer version is pinned. It is pinned INLINE, not via a build ARG like the
+# tools above: BuildKit rejects variable expansion in `COPY --from`, so an ARG
+# here would be a pin that does not bind. serena-agent itself is unpinned,
+# matching container/base/Containerfile.
+COPY --from=ghcr.io/astral-sh/uv:0.9.22 /uv /usr/local/bin/uv
+
+# The tool venv and its shims go under /opt + /usr/local/bin, not a user home:
+# this image is run under several uids and anything under /root would be
+# unreachable by the process that actually runs the engine.
+# The gate is `serena --help`, which imports the package and exits 0 — a shim
+# that merely EXISTS proves nothing.
+ENV UV_TOOL_DIR=/opt/uv/tools \
+    UV_TOOL_BIN_DIR=/usr/local/bin
+RUN UV_NO_CACHE=1 uv tool install --python python3 serena-agent \
+    && serena --help >/dev/null
 
 # Set working directory
 WORKDIR /workspace

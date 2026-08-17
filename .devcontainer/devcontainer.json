@@ -23,7 +23,8 @@
       "VERSIONATOR_VERSION": "0.2.1",
       "GORELEASER_VERSION": "2.16.0",
       "LIZARD_VERSION": "1.22.2",
-      "JUST_VERSION": "1.40.0"
+      "JUST_VERSION": "1.40.0",
+      "GOPLS_VERSION": "0.21.0"
     }
   },
   "customizations": {

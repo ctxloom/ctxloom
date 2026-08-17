@@ -3,9 +3,9 @@
 // EVERY WRITER OF A HARP'S SESSION BINDING MUST ROUTE THROUGH
 // sessions.Manager.BindSession (or sessions.MemStore.BindSession).
 //
-// exposable-rental unit 3: a live incident displaced harp ugly-icy-squid's
-// binding (409a57fc -> a27bcbb4) WITHOUT appending the displaced id to
-// Entry.Rotations, which is exactly the lineage-loss bug BindSession's own
+// exposable-rental unit 3: a live incident displaced a harp's session
+// binding WITHOUT appending the displaced id to Entry.Rotations, which is
+// exactly the lineage-loss bug BindSession's own
 // displacement-append (see sessions/index.go's doc comment) exists to
 // prevent. Manager.BindSession and MemStore.BindSession are themselves
 // unit-pinned (internal/sessions' own tests) to append correctly — the

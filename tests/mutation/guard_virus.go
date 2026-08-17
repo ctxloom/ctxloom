@@ -25,7 +25,7 @@ import (
 // identifier that did not exist anywhere in the file — promoted to a real
 // package-level var so the name is real.
 //
-// DRIFT, 2026-08-07: the keys "req.Ref.IsLocal" and "req.Ref.IsBuiltin" were
+// DRIFT: the keys "req.Ref.IsLocal" and "req.Ref.IsBuiltin" were
 // here until AssertAllTargetsMatched caught that neither text appears in
 // trust.go any more. Steps 3 and 4 were not deleted — they were MERGED. The
 // cascade now decides first-party posture once,

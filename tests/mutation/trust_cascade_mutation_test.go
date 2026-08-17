@@ -94,7 +94,7 @@ type mutationTarget struct {
 }
 
 // trustCascadeTarget is the entry with a MEASURED result: 132 mutants, 81
-// killed, 51 survived, score 0.61 (63 minutes, 2026-08-07). It is named
+// killed, 51 survived, score 0.61 (63 minutes). It is named
 // separately because the guard-virus test below and
 // TestGuardNegate_MatchesRealTrustGo both aim at trust.go specifically
 // rather than at whatever happens to be first in the table.

@@ -296,12 +296,18 @@ var probeRegistry = []probeSpec{
 		Cells: []probeCell{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "system-prompt",
 				Status: probeLiveVerified, Reason: "agent.ApproachSystemPrompt (--append-system-prompt-file) is claude-only, and no test had ever selected it live. Measured 2026-08-13: 1 scenario / 3 steps green in 5.3s, harp \"fond-ugly-cycle\" echoed back exactly, no degrade warning. SIDE-CHANNEL-CONTROLLED, by the only two arguments available: the DELIVERY writes out of cwd (claude's system-prompt realization is the ladder's one context delivery that puts no nonce bytes in the workspace — TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace), and the workspace-search channel that remains — the fixture's own bundle YAML in the project tree — is ruled out by the NEGATIVE CONTROL sitting next to it: the claude hook cell has that identical tree, identical tools and identical prompt, and comes back with no nonce. An engine that was reading the fixture off disk would have passed both. Inventory row 4 moves from claimed to proven."},
-			// THE ONE RED IN P1, AND IT IS A PRODUCT FINDING. See the long note
-			// below the table: claude's hook context route delivers nothing.
+			// FIXED 2026-08-16 — was THE ONE RED IN P1, a PRODUCT FINDING. See the
+			// long note below the table for the full history (RE-ATTRIBUTED
+			// 2026-08-13, then FIXED/RESOLVED 2026-08-16): claude's hook context
+			// route delivered nothing because agent.LaunchBackend.deliverSet's
+			// SharedCell loop never installed the SessionStart injection hook on
+			// a successful (nil-error) noop context write — only on a write
+			// FAILURE. Fixed by having deliverSet also install the hook
+			// (agent.LaunchBackend.installContextInjectionHook) whenever a
+			// SharedCell resolves SurfaceContext at ApproachHook.
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "hook",
-				Status: probeWired, ExpectedFailure: channelComposedContext.Shape,
-				ExpectedFailureNote: "measured 2026-08-13, THREE consecutive runs, three freshly minted harps, same shape every time: the run exits 0 with well-formed JSON that carries nothing of the nonce. Verbatim stdout, in order: {\"hello\":\"2467643947\"} (harp \"vast-racy-pound\"), {\"hello\":\"bumpy-stony-sixth\"} (harp \"near-green-parka\"), {\"hello\":\"mere-teal-jet\"} (harp \"free-rich-jet\"). Two of the three answers are that run's OWN SESSION HARP, which ctxloom had just printed in its start-session banner — see the note below the table for why that detail is the finding rather than a curiosity. No degrade marker appeared on stderr, so the pin WAS honoured; the same stderr also reports \"context: 2 fragment(s), ~336 tokens\", so the context was assembled. The failure is between assembly and the model, in the hook route itself.",
-				Reason:              "RE-ATTRIBUTED 2026-08-13: this is not a broken hook route, it is an EMPTY one. claude's Surfaces.SurfaceFor resolves (context, ApproachHook) to noopContextDelivery — a documented no-op, on the reasoning that claude's APPLY path carries context through the settings-borne inject hook plus a regenerated cache file. On a LAUNCH that reasoning does not hold: the context surface is what would have written that cache file, and at this approach it writes nothing (TestClaudeHookApproach_DeliversNothing). So a user-selectable config key elects a delivery of zero bytes and the session starts anyway, reporting success. Doubles as the negative control for the system-prompt cell's side channel."},
+				Status: probeLiveVerified,
+				Reason: "measured 2026-08-16 after the deliverSet fix landed: 1 scenario / 3 steps green, nonce harp \"obese-hilly-gusto\" echoed back exactly, no degrade warning. MUTATION-CONFIRMED: reverting the fix reproduces the exact pre-fix shape live — CONTEXT-DELIVERY failure, well-formed JSON carrying none of a freshly minted nonce (\"aloof-dire-reach\") — and restoring it goes green again. Doubles as the negative control for the system-prompt cell's side channel."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "unsafe-file-shared",
 				Status: probeLiveVerified, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion, and the worktree axis is where that matters. Measured 2026-08-13: 1 scenario / 3 steps green in 5.5s, harp \"snug-void-rebel\", no degrade warning. CLAUDE.md into an isolated checkout delivers."},
 			// RETRACTED 2026-08-13, same day, after S4's hook-firing probe
@@ -744,10 +750,39 @@ func p0Cells() []probeCell {
 // argues it a priori; this is the measurement). The ruling has now paid for
 // itself once, on the second probe to use it.
 //
-// The cell stays exactly as strict as it is, tagged @wip in the feature with the
-// same evidence. Untag it when a hook-pinned claude run echoes its own minted
-// harp. Do NOT relax it to accept a run whose context arrived some other way:
-// this cell's whole subject is which way.
+// The cell stays exactly as strict as it is. It was NOT relaxed to accept a
+// run whose context arrived some other way: this cell's whole subject is
+// which way.
+//
+// RESOLVED 2026-08-16. Root cause, read from production rather than guessed:
+// agent.LaunchBackend.deliverSet's SharedCell delivery loop only installed the
+// SessionStart injection hook (recoverContextViaHook) when a surface's write
+// returned a non-nil error. claude's ApproachHook context surface
+// (noopContextDelivery) "succeeds" with a nil error and a nil handle BY
+// DESIGN, so nothing on the success path ever installed the hook — the
+// mechanism selected, the context composed, the hook fired (S4's P3 probe),
+// and still nothing reached the model, exactly as measured. Fixed by
+// factoring the hash-materialize-and-append-hook logic into
+// installContextInjectionHook and calling it from deliverSet whenever a
+// SharedCell resolves SurfaceContext at ApproachHook, mirroring the existing
+// failure-triggered fallback. Measured 2026-08-16: green with nonce harp
+// "obese-hilly-gusto" echoed exactly; mutation-confirmed by reverting the fix
+// and reproducing the identical CONTEXT-DELIVERY shape live (nonce
+// "aloof-dire-reach", well-formed JSON, no trace of it) before restoring it.
+//
+// A CORRECTION to the "ambient environment" reading above. A later re-run
+// against the still-broken code produced a FOURTH shape:
+// {"hello":"prone-wide-deity"} for nonce harp "pale-young-getup" — a string
+// that is not any nonce minted in that run and appears nowhere ctxloom
+// emitted it. The model INVENTED a harp-shaped value unprompted; it did not
+// need to read one from its ambient environment. So "found a plausible
+// phraselet in its ambient environment" explains only the two answers above
+// that were verifiably that run's own CTXLOOM_SESSION_HARP — it is not the
+// general mechanism. Two consequences: a future matcher must check the EXACT
+// minted value, never harp SHAPE alone (a shape check would have been
+// vacuously green on the invented answer too); and the false-green risk this
+// cell's minted-harp design closes remains real for the session-harp leak
+// channel specifically, which the two matching answers still demonstrate.
 
 // setCell applies fn to the one cell matching engine/runtime/workspace. It
 // PANICS when the cell is not there: this runs at package init, and a silent

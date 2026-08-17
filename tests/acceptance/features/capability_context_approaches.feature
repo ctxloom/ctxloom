@@ -120,11 +120,12 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
       | engine      | runtime | workspace | approach      | variant       |
       | claude-code | host    | none      | system-prompt | system-prompt |
 
-    # @wip — RED, MEASURED 2026-08-13, AND THE FINDING IS A PRODUCT ONE.
-    # claude's hook route should carry context through a SessionStart
-    # inject-context hook ctxloom writes into .claude/settings.json and the
-    # vendor binary then executes. Three consecutive runs, three freshly minted
-    # harps, one shape — exit 0, well-formed JSON, no trace of the nonce:
+    # FIXED 2026-08-16 (was RED, MEASURED 2026-08-13, AND THE FINDING WAS A
+    # PRODUCT ONE). claude's hook route should carry context through a
+    # SessionStart inject-context hook ctxloom writes into .claude/settings.json
+    # and the vendor binary then executes. Three consecutive pre-fix runs,
+    # three freshly minted harps, one shape — exit 0, well-formed JSON, no
+    # trace of the nonce:
     #
     #   harp "vast-racy-pound"  -> {"hello":"2467643947"}
     #   harp "near-green-parka" -> {"hello":"bumpy-stony-sixth"}
@@ -133,25 +134,46 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
     # reported as: CONTEXT-DELIVERY failure — stdout is well-formed JSON but
     # carries nothing of the nonce.
     #
-    # It is not a degraded pin (no degrade marker on stderr — approachPinHonoured
-    # is the check that separates those and it passed), and not an empty
-    # assembly (the same stderr says "context: 2 fragment(s), ~336 tokens"). The
-    # mechanism was selected and the context was composed; the model never saw
-    # it. Every other declared approach on both engines went green on this same
-    # fixture within the hour.
+    # It was not a degraded pin (no degrade marker on stderr —
+    # approachPinHonoured is the check that separates those and it passed),
+    # and not an empty assembly (the same stderr says "context: 2 fragment(s),
+    # ~336 tokens"). The mechanism was selected and the context was composed;
+    # the model never saw it. Every other declared approach on both engines
+    # went green on this same fixture within the hour.
     #
-    # READ THE ANSWERS. Two of the three are that run's OWN SESSION HARP, which
-    # ctxloom prints in its start-session banner and exports as
-    # CTXLOOM_SESSION_HARP. With no context to read, the model found a plausible
-    # three-word phraselet in its ambient environment and returned it. Had the
-    # nonce still been the session's own harp — the design before the 2026-08-12
-    # minted-harp ruling — this cell would have gone GREEN and reported that the
-    # hook route delivers.
+    # ROOT CAUSE: agent.LaunchBackend.deliverSet's SharedCell delivery loop
+    # only installed the SessionStart injection hook (recoverContextViaHook)
+    # when a surface's write returned a non-nil error. claude's ApproachHook
+    # context surface (claude.noopContextDelivery) "succeeds" with a nil error
+    # and a nil handle BY DESIGN — it is a documented no-op write on the
+    # premise that the settings-carried SessionStart hook itself carries the
+    # context. Nothing actually installed that hook on the success path, so a
+    # run pinned to context delivery "hook" launched with zero context while
+    # Setup reported success. FIX: deliverSet now also installs the hook
+    # (agent.LaunchBackend.installContextInjectionHook, factored out of
+    # recoverContextViaHook) whenever a SharedCell resolves SurfaceContext at
+    # ApproachHook, whether or not the surface write itself errored.
     #
-    # DO NOT fix this by loosening anything. There is nothing to loosen: the
-    # output was perfect and the value was simply not there. Untag when a
-    # hook-pinned claude run echoes its own minted harp.
-    @claude-code @host @ws-none @var-hook @wip
+    # A CORRECTION TO THE ORIGINAL READING ABOVE, folded in 2026-08-16 after a
+    # re-run against the still-broken code measured a fourth shape:
+    # {"hello":"prone-wide-deity"} for nonce harp "pale-young-getup". That
+    # string is not any nonce minted in that run and appears nowhere ctxloom
+    # emitted it — the model INVENTED a harp-shaped value unprompted, it did
+    # not need to read one from its ambient environment. So "the model found a
+    # plausible phraselet in its ambient environment" is not the general
+    # mechanism; it only explains the two answers above that were verifiably
+    # this run's own CTXLOOM_SESSION_HARP. Two consequences: (1) the model
+    # emitting harp-shaped strings unprompted means a future matcher must
+    # check the EXACT minted value, never harp SHAPE alone — a shape check
+    # would be vacuously green here; (2) the historical false-green risk this
+    # cell's minted-harp design closes is still real for the session-harp leak
+    # channel specifically (had the nonce still been the session's own harp —
+    # the design before the 2026-08-12 minted-harp ruling — this cell could
+    # have gone GREEN on a leaked value rather than a delivered one).
+    #
+    # DO NOT fix a recurrence of this by loosening anything. There is nothing
+    # to loosen: the output was perfect and the value was simply not there.
+    @claude-code @host @ws-none @var-hook
     Examples:
       | engine      | runtime | workspace | approach | variant |
       | claude-code | host    | none      | hook     | hook    |

@@ -146,28 +146,12 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		Status: "completed",
 	}
 
-	// Sync to a FIXED POINT, not in a single pass. collectRemoteReferences can
-	// only see the refs of profiles that currently resolve: a profile whose
-	// remote parent is not yet installed fails to load and contributes NOTHING
-	// — not even the bundles it references directly (collectProfileReferences
-	// swallows the loader error). Installing that parent makes the profile
-	// loadable, revealing refs the first pass could not have known about. So
-	// re-collect after each pass and pull whatever is newly visible, until the
-	// reference set stops growing. Collecting once leaves part of the graph
-	// unpinned while still exiting 0, which forces the user to re-run
-	// `deps pull` until it happens to converge.
-	synced := collections.NewSet[string]()
-	for pass := 0; pass < maxSyncPasses; pass++ {
-		var pending []string
-		for _, ref := range bundleRefs {
-			if !synced.Has(ref) {
-				pending = append(pending, ref)
-			}
-		}
-		if len(pending) == 0 {
-			break
-		}
+	// The loop's two dependencies, named as arguments rather than reached for
+	// through cfg. Building them here — and nowhere else — is what keeps
+	// syncToFixedPoint free of any knowledge that a Config exists.
+	collect := func() ([]string, error) { return collectRemoteReferences(cfg, req.Profiles) }
 
+	pullBatch := func(ctx context.Context, refs []string) error {
 		// Refresh each referenced clone to its live tip before pulling. A first
 		// install resolves an unpinned ref to the default-branch HEAD, and the
 		// cache serves an existing clone as-is (ensureClone never fetches — only
@@ -177,38 +161,19 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		// Skipped when a Puller is injected (tests drive a mock fetcher with no
 		// real clone to advance); per-URL failures warn and continue.
 		if req.Puller == nil {
-			refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(pending))
+			refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(refs))
 		}
-
-		if err := syncRefs(ctx, puller, pending, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result); err != nil {
-			return result, err
-		}
-		for _, ref := range pending {
-			synced.Add(ref)
-		}
-
-		// Re-collect: the pulls above may have made previously-unresolvable
-		// profiles loadable. A collect failure here is not fatal — keep the
-		// items already synced (CLAUDE.md fault tolerance).
-		next, err := collectRemoteReferences(cfg, req.Profiles)
-		if err != nil {
-			clidiag.Warn("ctxloom", "failed to re-collect references after sync pass: %v", err)
-			break
-		}
-		bundleRefs = next
+		return syncRefs(ctx, puller, refs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result)
 	}
 
-	// Only warn when the graph is GENUINELY still unconverged — the final
-	// re-collect surfaced refs nothing has synced. Checking this inside the
-	// loop fired whenever the loop merely REACHED the last pass, including
-	// when that pass converged the graph.
-	for _, ref := range bundleRefs {
-		if !synced.Has(ref) {
-			clidiag.Warn("ctxloom",
-				"dependency graph still revealing new references after %d sync passes; "+
-					"run 'ctxloom deps pull' again to continue converging", maxSyncPasses)
-			break
-		}
+	converged, err := syncToFixedPoint(ctx, bundleRefs, collect, pullBatch)
+	if err != nil {
+		return result, err
+	}
+	if !converged {
+		clidiag.Warn("ctxloom",
+			"dependency graph still revealing new references after %d sync passes; "+
+				"run 'ctxloom deps pull' again to continue converging", maxSyncPasses)
 	}
 
 	runSyncPostSteps(ctx, cfg, req, result, fs)
@@ -221,6 +186,77 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		result.Total, result.Installed, result.Updated, len(result.Skipped), len(result.Retracted), result.Errors)
 
 	return result, nil
+}
+
+// RefCollector reports every remote ref currently visible.
+//
+// The fixed-point loop calls it once per PASS, and naming it as a dependency is
+// the point of this type existing. The loop used to hold a *config.Config and
+// re-interrogate it, which made its real requirement — a fresh read of the
+// filesystem after every pull — invisible in the signature and easy to break:
+// memoizing any resolved state behind that Config would have frozen the ref set,
+// and sync would exit 0 having silently left part of the graph unpinned.
+type RefCollector func() ([]string, error)
+
+// PullBatch pulls one batch of refs, recording outcomes wherever the caller
+// chose to record them.
+type PullBatch func(ctx context.Context, refs []string) error
+
+// syncToFixedPoint pulls until the visible ref set stops growing, reporting
+// whether the graph converged.
+//
+// A single pass is not enough. collect can only see the refs of profiles that
+// currently RESOLVE: a profile whose remote parent is not yet installed fails to
+// load and contributes nothing — not even the bundles it references directly
+// (collectProfileReferences swallows the loader error). Installing that parent
+// makes the profile loadable, revealing refs the first pass could not have known
+// about. Collecting once leaves part of the graph unpinned while still exiting
+// 0, forcing the user to re-run `deps pull` until it happens to converge.
+//
+// It holds no Config and touches no filesystem: everything it needs is an
+// argument, so what it depends on is exactly what its signature says.
+func syncToFixedPoint(ctx context.Context, initial []string, collect RefCollector, pull PullBatch) (converged bool, err error) {
+	refs := initial
+	synced := collections.NewSet[string]()
+
+	for pass := 0; pass < maxSyncPasses; pass++ {
+		var pending []string
+		for _, ref := range refs {
+			if !synced.Has(ref) {
+				pending = append(pending, ref)
+			}
+		}
+		if len(pending) == 0 {
+			break
+		}
+
+		if err := pull(ctx, pending); err != nil {
+			return false, err
+		}
+		for _, ref := range pending {
+			synced.Add(ref)
+		}
+
+		// Re-collect: the pulls above may have made previously-unresolvable
+		// profiles loadable. A collect failure here is not fatal — keep the
+		// items already synced (CLAUDE.md fault tolerance).
+		next, cerr := collect()
+		if cerr != nil {
+			clidiag.Warn("ctxloom", "failed to re-collect references after sync pass: %v", cerr)
+			break
+		}
+		refs = next
+	}
+
+	// Converged means the graph is settled, NOT that the loop finished early.
+	// Reporting on the pass counter warned whenever the loop merely REACHED the
+	// last pass, including when that pass converged the graph.
+	for _, ref := range refs {
+		if !synced.Has(ref) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // resolveSyncDeps returns the registry and puller for a sync, preferring

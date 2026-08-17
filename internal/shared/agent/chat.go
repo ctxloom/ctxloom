@@ -90,9 +90,11 @@ type ChatRequest struct {
 	// exactly as before this field existed.
 	TranscriptRawPolicy string
 	// Runtime asks the backend to run the underlying engine SUBPROCESS inside
-	// a container instead of directly on the host: RuntimeContainer
-	// containerizes it, "" (or anything else) means host — today's behavior,
-	// unchanged. It carries the AGENT BINDING's resolved runtime axis (see
+	// a container instead of directly on the host: either of
+	// RuntimeContainerRootless / RuntimeContainerRootful containerizes it,
+	// "" (or anything else) means host — today's behavior,
+	// unchanged. Ask IsContainerRuntime rather than comparing against one
+	// const. It carries the AGENT BINDING's resolved runtime axis (see
 	// isolation.RuntimeAxis / ResolvedAgent.Runtime) into a structured chat,
 	// which the axis could not reach before (ISO1): this package sits below
 	// internal/lm/isolation in the import graph (isolation -> lm/grpc ->
@@ -136,11 +138,31 @@ type ModelDeliveryQuirk struct {
 	AdapterVersions []string
 }
 
-// RuntimeContainer is the ChatRequest.Runtime value asking a StructuredChat
-// backend to run its engine subprocess inside a container. Mirrors
-// isolation.RuntimeContainer's string value byte-for-byte (see Runtime's doc
-// for why this is a duplicated literal, not an import).
-const RuntimeContainer = "container"
+// RuntimeContainerRootless and RuntimeContainerRootful are the two
+// ChatRequest.Runtime values asking a StructuredChat backend to run its engine
+// subprocess inside a container. They mirror isolation.RuntimeContainerRootless
+// and isolation.RuntimeContainerRootful byte-for-byte (see Runtime's doc for
+// why these are duplicated literals, not an import; the agreement is pinned by
+// a test in internal/lm/isolation, which CAN import this package).
+//
+// There is deliberately no single "container" value: rootless and rootful
+// differ in UID mapping, and which one a run got is not a detail a config may
+// leave to the host. Nothing in THIS package cares which one it is — every
+// consumer here asks IsContainerRuntime — but the distinction has to survive
+// the trip through this string, so a backend that later does care can read it.
+const (
+	RuntimeContainerRootless = "container-rootless"
+	RuntimeContainerRootful  = "container-rootful"
+)
+
+// IsContainerRuntime reports whether a ChatRequest.Runtime value asks for a
+// container in EITHER ownership mode. Every "is the engine containerized?"
+// gate asks this, never an equality test against one const: an equality test
+// silently answers "host" for the other ownership mode, which is exactly the
+// bug that splitting the value in two exists to prevent.
+func IsContainerRuntime(runtime string) bool {
+	return runtime == RuntimeContainerRootless || runtime == RuntimeContainerRootful
+}
 
 // ACPTransportKind names how a backend's StructuredChat implementation
 // actually reaches an ACP-speaking process: the engine's OWN CLI speaks ACP
@@ -195,10 +217,10 @@ type ACPTransport struct {
 }
 
 // RequireOnHost is the ONE gate every ACPAdapter engine's Chat() runs before
-// spawning its adapter: for a HOST-runtime chat (runtime != RuntimeContainer)
+// spawning its adapter: for a HOST-runtime chat (!IsContainerRuntime(runtime))
 // it LookPath()s Binary and fails loud, naming InstallCmd, if it's absent —
-// a runtime:container chat is EXEMPT (the agent image carries its own
-// adapter; this process's PATH is irrelevant there — see
+// a containerized chat in EITHER ownership mode is EXEMPT (the agent image
+// carries its own adapter; this process's PATH is irrelevant there — see
 // internal/lm/isolation's container-runtime axis). A native or bespoke
 // transport (Kind != ACPAdapter) always reports nil: there is nothing on
 // PATH for those to look up. engineLabel names the engine in the error text
@@ -210,7 +232,7 @@ type ACPTransport struct {
 // itself, not just the underlying binary/InstallCmd data, a single
 // declaration every ACPAdapter engine shares.
 func (t ACPTransport) RequireOnHost(runtime, engineLabel string) error {
-	if runtime == RuntimeContainer || t.Kind != ACPAdapter {
+	if IsContainerRuntime(runtime) || t.Kind != ACPAdapter {
 		return nil
 	}
 	if _, err := exec.LookPath(t.Binary); err != nil {

@@ -235,9 +235,27 @@ const (
 	// RuntimeHost runs the engine directly on the host (the default; also
 	// the meaning of an empty value after defaulting).
 	RuntimeHost RuntimeAxis = "host"
-	// RuntimeContainer runs the engine inside a container.
-	RuntimeContainer RuntimeAxis = "container"
+	// RuntimeContainerRootless runs the engine inside a container on a
+	// runtime that maps the container's root to the INVOKING HOST USER.
+	RuntimeContainerRootless RuntimeAxis = "container-rootless"
+	// RuntimeContainerRootful runs the engine inside a container on a
+	// runtime whose container-root is REAL root, with the image entrypoint
+	// remapping to the launching uid/gid (identityEnvArgs).
+	RuntimeContainerRootful RuntimeAxis = "container-rootful"
 )
+
+// IsContainerRuntimeAxis reports whether v is one of the two CONTAINER runtime
+// axis values — the "is a container boundary requested at all?" question,
+// which is a DIFFERENT question from "which ownership mode?".
+//
+// There is deliberately no "any container" axis value. Rootless and rootful
+// differ in UID mapping, so a workload can genuinely require one, and a config
+// that cannot say which one silently gets whichever the host happens to offer.
+// Every "did we keep the boundary?" check asks this predicate; every
+// SELECTION asks for a specific value.
+func IsContainerRuntimeAxis(v RuntimeAxis) bool {
+	return v == RuntimeContainerRootless || v == RuntimeContainerRootful
+}
 
 // Axes is a fully-defaulted isolation request. The two axes are declared at
 // DIFFERENT levels and meet only here: the runtime axis is an AGENT trait
@@ -252,8 +270,11 @@ const (
 //
 //	{none, host}          → None
 //	{worktree, host}      → Worktree
-//	{none, container}     → Container{hostBase} (the LIVE project dir mounted in)
-//	{worktree, container} → Container{worktreeBase} (name "container-worktree")
+//	{none, container-*}     → Container{hostBase} (the LIVE project dir mounted in)
+//	{worktree, container-*} → Container{worktreeBase} (name "container-worktree")
+//
+// Both container-* values map onto the same POLICY: ownership decides which
+// RUNTIME may serve the request (SelectRuntime), not which policy realizes it.
 type Axes struct {
 	Workspace WorkspaceAxis
 	Runtime   RuntimeAxis
@@ -263,9 +284,9 @@ type Axes struct {
 // (empty, "none", unknown) is the shared project dir.
 func (a Axes) WantsWorktree() bool { return a.Workspace == WorkspaceWorktree }
 
-// WantsContainer reports the runtime axis asks for a container; anything else
-// (empty, "host", unknown) is the host.
-func (a Axes) WantsContainer() bool { return a.Runtime == RuntimeContainer }
+// WantsContainer reports the runtime axis asks for a container in EITHER
+// ownership mode; anything else (empty, "host", unknown) is the host.
+func (a Axes) WantsContainer() bool { return IsContainerRuntimeAxis(a.Runtime) }
 
 // Zero reports no isolation on either axis (shared project dir, host).
 // Callers use it to skip isolation-only work (e.g. the fan-out's shared
@@ -281,7 +302,7 @@ func WorkspaceNames() []string {
 
 // RuntimeNames returns the recognized runtime-axis values.
 func RuntimeNames() []string {
-	return []string{string(RuntimeHost), string(RuntimeContainer)}
+	return []string{string(RuntimeHost), string(RuntimeContainerRootless), string(RuntimeContainerRootful)}
 }
 
 // noRuntimeHint appends devcontainer-specific guidance to the no-runtime
@@ -311,7 +332,7 @@ func warnUnknownAxes(a Axes) {
 	if a.Workspace != "" && a.Workspace != WorkspaceShared && a.Workspace != WorkspaceWorktree {
 		clidiag.Warn("ctxloom", "unknown workspace axis %q (known: %s); treating as %q", a.Workspace, strings.Join(WorkspaceNames(), "|"), WorkspaceShared)
 	}
-	if a.Runtime != "" && a.Runtime != RuntimeHost && a.Runtime != RuntimeContainer {
+	if a.Runtime != "" && a.Runtime != RuntimeHost && !IsContainerRuntimeAxis(a.Runtime) {
 		strictness.Fail(strictness.ClassIsolation,
 			"set the runtime axis to one of "+strings.Join(RuntimeNames(), "|")+" (fix the config/flag typo), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox",
 			"unknown runtime axis %q (known: %s); this run would land on the HOST without a container boundary (NOT sandboxed) — treating as %q", a.Runtime, strings.Join(RuntimeNames(), "|"), RuntimeHost)
@@ -353,6 +374,11 @@ type ImageConfig struct {
 // hermetically — SelectRuntime probes the REAL host (docker/podman CLIs +
 // daemons), which a unit test must never depend on. Mirrors the sharedFSCheck
 // seam in sharedfs.go.
+//
+// It carries the DEMANDED runtime axis, not just a runtime-name preference:
+// selection must reject a runtime whose container ownership is not the one
+// asked for, because handing back the other ownership mode is the silent
+// substitution the two container values exist to prevent.
 var selectRuntimeProbe = SelectRuntime
 
 // chainFor builds the ordered degrade chain for the requested axes. The
@@ -369,7 +395,14 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 	warnUnknownAxes(axes)
 
 	if axes.WantsContainer() {
-		rt := selectRuntimeProbe("")
+		// The demanded OWNERSHIP rides into selection: a rootful request is
+		// served only by a rootful runtime and vice versa. An ownership
+		// mismatch comes back as Host{} — indistinguishable here from "no
+		// runtime at all", and deliberately so: both mean this run cannot get
+		// the boundary it asked for, and both take the SAME fatal path below.
+		// Substituting the other ownership mode is never an option, in strict
+		// mode or under --degraded.
+		rt := selectRuntimeProbe("", axes.Runtime)
 		if _, isHost := rt.(Host); !isHost {
 			if axes.WantsWorktree() {
 				return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil, backend), None{}}
@@ -377,16 +410,19 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 			return []Policy{containerFor(rt, backend, img), None{}}
 		}
 		// Runtime axis degrades alone: the workspace request below is untouched.
-		// A container was EXPLICITLY requested (WantsContainer) but no runtime is
-		// reachable, so this run would land UNSANDBOXED on the host — a
-		// fail-loudly finding (ClassIsolation) the choke owner aborts on unless
-		// --degraded downgrades it back to the warn-and-continue degrade.
+		// A container was EXPLICITLY requested (WantsContainer) but no runtime
+		// providing the demanded ownership is reachable, so this run would land
+		// UNSANDBOXED on the host — a fail-loudly finding (ClassIsolation) the
+		// choke owner aborts on unless --degraded downgrades it back to the
+		// warn-and-continue degrade. --degraded falls back to the HOST, never
+		// to the other ownership mode: that would be the same silent
+		// substitution wearing a flag.
 		if axes.WantsWorktree() {
 			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
-				"runtime: container requested but no container runtime is available; keeping the worktree on the host%s", noRuntimeHint())
+				"runtime: %s requested but no container runtime is available with that ownership; keeping the worktree on the host%s", axes.Runtime, noRuntimeHint())
 		} else {
 			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
-				"runtime: container requested but no container runtime is available; running on the host%s", noRuntimeHint())
+				"runtime: %s requested but no container runtime is available with that ownership; running on the host%s", axes.Runtime, noRuntimeHint())
 		}
 	}
 	if axes.WantsWorktree() {

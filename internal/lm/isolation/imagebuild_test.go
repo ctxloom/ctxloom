@@ -890,7 +890,7 @@ func TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded(t *testing.T) {
 // prefer) accepts whatever is reachable and only errors when none is.
 func TestSelectBuildRuntime_ExplicitPreferMustBeHonored(t *testing.T) {
 	t.Run("explicit prefer not selected → error (no silent wrong-daemon build)", func(t *testing.T) {
-		stubRuntimeProbe(t, Docker{})
+		stubBuildRuntimeProbe(t, Docker{})
 		_, err := selectBuildRuntime("podman")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "podman", "names what was requested")
@@ -898,32 +898,65 @@ func TestSelectBuildRuntime_ExplicitPreferMustBeHonored(t *testing.T) {
 	})
 
 	t.Run("explicit prefer honored → ok", func(t *testing.T) {
-		stubRuntimeProbe(t, Docker{})
+		stubBuildRuntimeProbe(t, Docker{})
 		rt, err := selectBuildRuntime("docker")
 		require.NoError(t, err)
 		assert.Equal(t, "docker", rt.Name())
 	})
 
 	t.Run("auto (empty prefer) accepts whatever is reachable", func(t *testing.T) {
-		stubRuntimeProbe(t, Docker{})
+		stubBuildRuntimeProbe(t, Docker{})
 		rt, err := selectBuildRuntime("")
 		require.NoError(t, err)
 		assert.Equal(t, "docker", rt.Name())
 	})
 
 	t.Run("no runtime reachable → error", func(t *testing.T) {
-		stubRuntimeProbe(t, Host{})
+		stubBuildRuntimeProbe(t, Host{})
 		_, err := selectBuildRuntime("podman")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no container runtime")
 	})
 
 	t.Run("an unknown prefer falls through to auto and is rejected as a mismatch", func(t *testing.T) {
-		stubRuntimeProbe(t, Docker{})
+		stubBuildRuntimeProbe(t, Docker{})
 		_, err := selectBuildRuntime("containerd")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "containerd")
 	})
+}
+
+// stubBuildRuntimeProbe swaps the BUILD path's runtime probe for one returning
+// rt. Deliberately a separate helper from stubRuntimeProbe: a build and a run
+// go through different seams (buildRuntimeProbe / selectRuntimeProbe) because
+// only the run carries an ownership demand, and stubbing the wrong one leaves
+// the real probe in place — which on a developer box with a live daemon looks
+// GREEN while asserting nothing about the code under test.
+func stubBuildRuntimeProbe(t *testing.T, rt Runtime) {
+	t.Helper()
+	prev := buildRuntimeProbe
+	buildRuntimeProbe = func(string) Runtime { return rt }
+	t.Cleanup(func() { buildRuntimeProbe = prev })
+}
+
+// TestSelectBuildRuntime_IsNotOwnershipFiltered pins that a build accepts a
+// runtime in EITHER container ownership.
+//
+// An image is a rootless/rootful-agnostic artifact and a build commits no run
+// to an isolation boundary, so filtering here would refuse to build on the only
+// daemon present for no benefit. This is why buildRuntimeProbe is ProbeRuntime
+// and not SelectRuntime; pointing it at the run path's seam turns this red.
+func TestSelectBuildRuntime_IsNotOwnershipFiltered(t *testing.T) {
+	for _, owns := range []RuntimeAxis{RuntimeContainerRootless, RuntimeContainerRootful} {
+		stubRuntimeCandidates(t, ownedBy("docker", owns))
+		prev := buildRuntimeProbe
+		buildRuntimeProbe = ProbeRuntime
+		t.Cleanup(func() { buildRuntimeProbe = prev })
+
+		rt, err := selectBuildRuntime("")
+		require.NoError(t, err, "ownership %q must not block a build", owns)
+		assert.Equal(t, "docker", rt.Name())
+	}
 }
 
 // selfLinuxExe is the third answer in this repo to "where is the running
@@ -984,9 +1017,9 @@ func TestBuildAgentImage_Characterization(t *testing.T) {
 	})
 
 	t.Run("no reachable runtime is refused before any build", func(t *testing.T) {
-		orig := selectRuntimeProbe
-		selectRuntimeProbe = func(string) Runtime { return Host{} }
-		t.Cleanup(func() { selectRuntimeProbe = orig })
+		orig := buildRuntimeProbe
+		buildRuntimeProbe = func(string) Runtime { return Host{} }
+		t.Cleanup(func() { buildRuntimeProbe = orig })
 
 		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{})
 		require.Error(t, err)
@@ -998,11 +1031,11 @@ func TestBuildAgentImage_Characterization(t *testing.T) {
 		dir := t.TempDir()
 		script := filepath.Join(dir, "fake-docker")
 		writeAbsentBuildFailScript(t, script)
-		orig := selectRuntimeProbe
-		selectRuntimeProbe = func(string) Runtime {
+		orig := buildRuntimeProbe
+		buildRuntimeProbe = func(string) Runtime {
 			return fakeRuntime{name: "docker", binary: script, available: true}
 		}
-		t.Cleanup(func() { selectRuntimeProbe = orig })
+		t.Cleanup(func() { buildRuntimeProbe = orig })
 
 		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{})
 		require.Error(t, err)

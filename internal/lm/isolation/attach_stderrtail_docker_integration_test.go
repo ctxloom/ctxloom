@@ -31,7 +31,7 @@ import (
 // logs` on a still-live container and vanished on teardown.
 func TestRunAttached_StderrTailSurvivesTeardown(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the stderr-tail survival integration test")
-	rt := SelectRuntime("docker")
+	rt := ProbeRuntime("docker")
 	require.Equal(t, "docker", rt.Name())
 
 	const dyingWords = "SyntaxError: Unexpected token WITH (node module loader died)"

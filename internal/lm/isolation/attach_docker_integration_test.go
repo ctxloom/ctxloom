@@ -37,7 +37,7 @@ import (
 func TestRunAttached_SamePathMountAndTeardown(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container attach integration test")
 
-	rt := SelectRuntime("docker")
+	rt := ProbeRuntime("docker")
 	require.Equal(t, "docker", rt.Name())
 
 	projectDir := t.TempDir()

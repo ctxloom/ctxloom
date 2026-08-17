@@ -55,11 +55,14 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 	d := Diagnosis{Markers: containerMarkers(), SharedFS: "unprobed: no runtime"}
 	d.InContainer = len(d.Markers) > 0
 
-	rt := SelectRuntime("")
+	// ProbeRuntime, not SelectRuntime: a diagnosis reports what is REACHABLE,
+	// so it must not filter by an ownership mode nobody asked for here. The
+	// report names the runtime; the ownership demand belongs to a run.
+	rt := ProbeRuntime("")
 	if _, isHost := rt.(Host); isHost {
 		d.Runtime = "none"
 		d.Guidance = append(d.Guidance,
-			"no container runtime is reachable: `runtime: container` agents abort startup (exit 3) unless --degraded, which runs them on the host"+noRuntimeHint())
+			"no container runtime is reachable: `runtime: container-rootless` / `runtime: container-rootful` agents abort startup (exit 3) unless --degraded, which runs them on the host"+noRuntimeHint())
 		return d
 	}
 	d.Runtime = rt.Name()

@@ -36,7 +36,7 @@ func TestContainerPolicy_TransportEndToEnd(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container transport integration test")
 	buildIntegrationImage(t)
 
-	rt := SelectRuntime("docker")
+	rt := ProbeRuntime("docker")
 	require.Equal(t, "docker", rt.Name(), "docker must be selected when available")
 	pol := NewContainerFor(rt, "mock").WithImage(integrationImage)
 

@@ -132,13 +132,34 @@ func TestACPTransport_RequireOnHost_AdapterMissing(t *testing.T) {
 }
 
 // TestACPTransport_RequireOnHost_ContainerRuntimeExempt pins the container
-// exemption: RuntimeContainer means the AGENT IMAGE carries its own adapter,
-// so this host process's PATH is irrelevant — RequireOnHost must return nil
-// even though the binary genuinely resolves nowhere on this PATH.
+// exemption: a container runtime value means the AGENT IMAGE carries its own
+// adapter, so this host process's PATH is irrelevant — RequireOnHost must
+// return nil even though the binary genuinely resolves nowhere on this PATH.
+//
+// BOTH ownership modes are asserted. The exemption is about the image, which
+// is identical either way, so a gate written as an equality test against one
+// const would fail the other mode with a PATH error about a binary that was
+// never going to be used — the reason the gate asks IsContainerRuntime.
 func TestACPTransport_RequireOnHost_ContainerRuntimeExempt(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	transport := ACPTransport{Kind: ACPAdapter, Binary: "definitely-not-a-real-binary-xyz", InstallCmd: "npm install -g whatever"}
-	assert.NoError(t, transport.RequireOnHost(RuntimeContainer, "testengine"))
+	for _, runtime := range []string{RuntimeContainerRootless, RuntimeContainerRootful} {
+		assert.NoError(t, transport.RequireOnHost(runtime, "testengine"), "runtime %q", runtime)
+	}
+}
+
+// TestIsContainerRuntime pins the predicate every containerization gate in
+// this package funnels through: exactly the two container values, and nothing
+// else. "container" in particular is NOT one of them — the pre-split value was
+// renamed rather than aliased, deliberately, because an ownership mode is not
+// something a config may leave to whatever the host happens to offer.
+func TestIsContainerRuntime(t *testing.T) {
+	for _, v := range []string{RuntimeContainerRootless, RuntimeContainerRootful} {
+		assert.True(t, IsContainerRuntime(v), "%q is a container runtime", v)
+	}
+	for _, v := range []string{"", "host", "container", "Container-Rootless", "rootless"} {
+		assert.False(t, IsContainerRuntime(v), "%q is not a container runtime", v)
+	}
 }
 
 // TestACPTransport_RequireOnHost_NativeAndBespokeNeverGate pins that a

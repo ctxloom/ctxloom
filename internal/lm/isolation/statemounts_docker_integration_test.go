@@ -41,7 +41,7 @@ import (
 func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container lock-path mount integration test")
 
-	rt := SelectRuntime("docker")
+	rt := ProbeRuntime("docker")
 	require.Equal(t, "docker", rt.Name())
 
 	testsupport.Isolate(t) // fake $HOME: filelock/paths resolve here, never the real user's ~/.ctxloom

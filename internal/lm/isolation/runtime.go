@@ -605,8 +605,11 @@ func dockerIsRootless() bool {
 // identity probe runs only when the daemon is REACHABLE: an unreachable
 // docker is never selected (Available gates selection), so probing it would
 // only manufacture a spurious identity finding on docker-less or daemon-down
-// hosts where podman serves the run.
-func newDockerRuntime(reachable func(string) bool) Runtime {
+// hosts where podman serves the run. It returns the CONCRETE Docker so the
+// candidate table can read the probed rootless-ness straight off it rather
+// than re-deriving ownership downstream, where it could drift from the flag
+// the run argv is actually built with.
+func newDockerRuntime(reachable func(string) bool) Docker {
 	if !reachable("docker") {
 		return Docker{}
 	}
@@ -639,32 +642,109 @@ func inContainerFrom(stat func(string) error, readFile func(string) ([]byte, err
 	return containerprobe.MarkersFrom(stat, readFile, getenv)
 }
 
-// SelectRuntime picks the container runtime by config preference then detection.
-// prefer is an explicit runtime name ("docker" | "podman"); empty means auto. It
-// returns the first launchable runtime (prefer, else docker, else podman) with
-// rootless detected for docker, or Host{} when none can launch. SelectRuntime
-// itself never errors — a runtime that cannot launch is simply not selected;
-// the caller decides the consequence: an EXPLICITLY-requested container that
-// lands on Host is a fatal finding (ClassIsolation) it aborts on unless
-// --degraded, while an ambient default degrades silently to the host.
-func SelectRuntime(prefer string) Runtime {
-	newDocker := func() Runtime { return newDockerRuntime(runtimeReachable) }
-	byName := map[string]func() Runtime{
-		"docker": newDocker,
-		"podman": func() Runtime { return Podman{rootless: podmanIsRootless()} },
+// ownershipAxis maps a PROBED rootless-ness onto the runtime-axis value that
+// runtime satisfies. The single mapping site: ownership is recorded where it
+// is probed (dockerIsRootless / podmanIsRootless), never re-derived later from
+// a runtime's type or name, where it could drift from the very flag its run
+// argv is built with (Docker.RunArgs / Podman.RunArgs both branch on it).
+func ownershipAxis(rootless bool) RuntimeAxis {
+	if rootless {
+		return RuntimeContainerRootless
+	}
+	return RuntimeContainerRootful
+}
+
+// runtimeCandidate is one selectable container runtime: the name a config
+// preference names it by, and a probe that constructs it AND reports the
+// container ownership it provides. probe shells out to the runtime CLI, so it
+// is called lazily — only until a candidate is accepted.
+type runtimeCandidate struct {
+	name  string
+	probe func() (Runtime, RuntimeAxis)
+}
+
+// runtimeCandidates is the ORDERED auto-detection list (docker, then podman).
+// A package var, and a func rather than a slice literal, so tests drive
+// selection — including the ownership filter — hermetically: the real probes
+// exec `docker info` / `podman info` against live daemons, which a unit test
+// must never depend on. Mirrors the dockerSecurityOptions / sharedFSCheck /
+// selectRuntimeProbe seams.
+var runtimeCandidates = func() []runtimeCandidate {
+	return []runtimeCandidate{
+		{"docker", func() (Runtime, RuntimeAxis) {
+			d := newDockerRuntime(runtimeReachable)
+			return d, ownershipAxis(d.rootless)
+		}},
+		{"podman", func() (Runtime, RuntimeAxis) {
+			p := Podman{rootless: podmanIsRootless()}
+			return p, ownershipAxis(p.rootless)
+		}},
+	}
+}
+
+// selectRuntimeWhere walks the candidates — config preference first, then
+// detection order — and returns the first that is launchable AND accepted by
+// ok, or Host{} when none is. It never errors: a runtime that cannot serve is
+// simply not selected, and the caller decides the consequence (chainFor makes
+// an EXPLICITLY-requested container that lands on Host a fatal ClassIsolation
+// finding unless --degraded). SelectRuntime and ProbeRuntime differ ONLY in ok.
+func selectRuntimeWhere(prefer string, ok func(owns RuntimeAxis) bool) Runtime {
+	candidates := runtimeCandidates()
+	pick := func(c runtimeCandidate) Runtime {
+		rt, owns := c.probe()
+		if rt.Available() && ok(owns) {
+			return rt
+		}
+		return nil
 	}
 	if prefer != "" {
-		if mk, ok := byName[prefer]; ok {
-			if rt := mk(); rt.Available() {
-				return rt
+		for _, c := range candidates {
+			if c.name == prefer {
+				if rt := pick(c); rt != nil {
+					return rt
+				}
 			}
 		}
-		// An unknown or unavailable preference falls through to auto-detection.
+		// An unknown, unavailable, or ownership-mismatched preference falls
+		// through to auto-detection.
 	}
-	for _, mk := range []func() Runtime{newDocker, byName["podman"]} {
-		if rt := mk(); rt.Available() {
+	for _, c := range candidates {
+		if rt := pick(c); rt != nil {
 			return rt
 		}
 	}
 	return Host{}
+}
+
+// SelectRuntime picks the container runtime that can serve a run DEMANDING the
+// want ownership. prefer is an explicit runtime name ("docker" | "podman");
+// empty means auto-detect (docker, then podman).
+//
+// A candidate is selectable only when it is launchable AND its probed
+// ownership IS want. A rootful request on a host offering only a rootless
+// runtime returns Host{}, not the rootless runtime — handing back the other
+// ownership mode is the exact silent substitution the two container axis
+// values exist to prevent, and it stays forbidden under --degraded, which
+// falls back to the HOST (chainFor) rather than to the other mode.
+//
+// want that is not a container axis value ("", "host", a typo) demands no
+// container at all, so none is selected: Host{}. That totality is deliberate —
+// a caller that forgot to thread the demand can never accidentally receive a
+// container. The genuinely unconstrained question ("what runtime is reachable
+// on this host?") is ProbeRuntime, which has to be asked for by name.
+func SelectRuntime(prefer string, want RuntimeAxis) Runtime {
+	if !IsContainerRuntimeAxis(want) {
+		return Host{}
+	}
+	return selectRuntimeWhere(prefer, func(owns RuntimeAxis) bool { return owns == want })
+}
+
+// ProbeRuntime picks the first launchable container runtime with NO ownership
+// demand — the "what container runtime is reachable here?" question asked by
+// diagnostics (`container check`) and by an image BUILD, neither of which
+// commits a run to a boundary. A RUN must never use this: it would take
+// whichever ownership the host happens to offer, which is what SelectRuntime's
+// filter exists to stop. Returns Host{} when nothing can launch.
+func ProbeRuntime(prefer string) Runtime {
+	return selectRuntimeWhere(prefer, func(RuntimeAxis) bool { return true })
 }

@@ -47,7 +47,7 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 	// host-user-owned and the WIP-safe teardown (and t.TempDir cleanup) can remove
 	// them. Under a ROOTFUL daemon the writes are ROOT-owned and both teardowns
 	// fail, LEAKING root-owned files — so gate on rootless, not merely Available().
-	rt := SelectRuntime("docker")
+	rt := ProbeRuntime("docker")
 	if d, ok := rt.(Docker); !ok || !d.rootless {
 		dockergate.SkipCapability(t, "rootful docker root-owns worktree files the host-user teardown cannot remove; needs rootless docker")
 	}

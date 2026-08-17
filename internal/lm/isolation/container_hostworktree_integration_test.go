@@ -41,7 +41,7 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	// writes the managed-config overlay scratch and reads worktree admin files
 	// the container may touch; only rootless docker maps container-root to the
 	// launching user so cleanup can remove anything the container wrote.
-	rt := SelectRuntime("docker")
+	rt := ProbeRuntime("docker")
 	if d, ok := rt.(Docker); !ok || !d.rootless {
 		dockergate.SkipCapability(t, "rootful docker root-owns files the host-user teardown cannot remove; needs rootless docker")
 	}

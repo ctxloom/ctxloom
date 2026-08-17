@@ -151,14 +151,14 @@ func TestChainFor_Container(t *testing.T) {
 	resetStrictness(t)
 	stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
 
-	both := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+	both := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 	require.Len(t, both, 3)
 	assert.IsType(t, Container{}, both[0], "{worktree, container} leads with a container (worktree base)")
 	assert.Equal(t, "container-worktree", both[0].Name(), "the worktree-base container reports the composed name")
 	assert.IsType(t, Worktree{}, both[1], "the runtime axis degrades first; the worktree survives")
 	assert.IsType(t, None{}, both[2], "then none")
 
-	live := chainFor(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+	live := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 	require.Len(t, live, 2)
 	assert.IsType(t, Container{}, live[0], "{none, container} mounts the LIVE project dir")
 	assert.IsType(t, None{}, live[1], "and degrades to none — never into an unrequested worktree")

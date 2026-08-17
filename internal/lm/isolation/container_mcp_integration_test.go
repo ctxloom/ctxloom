@@ -75,7 +75,7 @@ func TestContainerPolicy_MCPCommandOverride_EndToEnd(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container MCP-surface integration test")
 	buildClaudeStubImage(t)
 
-	rt := SelectRuntime("docker")
+	rt := ProbeRuntime("docker")
 	require.Equal(t, "docker", rt.Name(), "docker must be selected when available")
 	pol := NewContainerFor(rt, "mock").WithImage(claudeStubIntegrationImage)
 

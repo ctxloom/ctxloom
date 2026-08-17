@@ -146,7 +146,7 @@ func TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign(t *testing.T) {
 
 	t.Run("recognized and empty axis values are silent", func(t *testing.T) {
 		resetStrictness(t)
-		warnUnknownAxes(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer})
+		warnUnknownAxes(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootless})
 		warnUnknownAxes(Axes{}) // the ambient default must never fire
 		assert.Empty(t, strictness.All())
 	})
@@ -236,11 +236,36 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 // stubRuntimeProbe swaps chainFor's runtime probe for one returning rt, and
 // restores the real SelectRuntime on cleanup. Hermetic: the real probe shells
 // out to docker/podman on the host.
+//
+// It answers rt for EVERY demanded ownership, which deliberately bypasses the
+// ownership filter — that filter lives inside the real SelectRuntime, so tests
+// that exercise it drive the runtimeCandidates seam instead (see
+// stubRuntimeCandidates) and leave this seam alone.
 func stubRuntimeProbe(t *testing.T, rt Runtime) {
 	t.Helper()
 	prev := selectRuntimeProbe
-	selectRuntimeProbe = func(string) Runtime { return rt }
+	selectRuntimeProbe = func(string, RuntimeAxis) Runtime { return rt }
 	t.Cleanup(func() { selectRuntimeProbe = prev })
+}
+
+// stubRuntimeCandidates replaces the candidate table the REAL SelectRuntime
+// walks, so the ownership filter itself runs under test. Each entry pairs an
+// available runtime with the ownership its probe reports — the pairing the
+// production table derives from dockerIsRootless()/podmanIsRootless(), which
+// shell out and would otherwise make every ownership assertion a report on
+// whatever daemon this machine happens to run.
+func stubRuntimeCandidates(t *testing.T, cands ...runtimeCandidate) {
+	t.Helper()
+	prev := runtimeCandidates
+	runtimeCandidates = func() []runtimeCandidate { return cands }
+	t.Cleanup(func() { runtimeCandidates = prev })
+}
+
+// ownedBy builds a candidate whose probe reports an available runtime named
+// name owned in mode owns.
+func ownedBy(name string, owns RuntimeAxis) runtimeCandidate {
+	rt := fakeRuntime{name: name, binary: name, available: true}
+	return runtimeCandidate{name: name, probe: func() (Runtime, RuntimeAxis) { return rt, owns }}
 }
 
 // TestChainFor_NoRuntime_FatalUnlessDegraded pins chainFor's no-runtime fatal
@@ -254,14 +279,16 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
 
-		chain := chainFor(Axes{Workspace: WorkspaceShared, Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+		chain := chainFor(Axes{Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1)
 		assert.IsType(t, None{}, chain[0], "no runtime → the container tier never enters the chain")
 
 		findings := strictness.All()
 		require.Len(t, findings, 1, "runtime-unreachable on an explicit container request is exactly one fatal finding")
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "no container runtime is available")
+		assert.Contains(t, findings[0].Message, "no container runtime is available with that ownership")
+		assert.Contains(t, findings[0].Message, string(RuntimeContainerRootless),
+			"the finding must name the runtime axis that was actually demanded")
 		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
 	})
 
@@ -269,7 +296,7 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
 
-		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 		require.NotEmpty(t, chain)
 		assert.IsType(t, Worktree{}, chain[0], "the runtime axis degrades ALONE; the requested worktree stays")
 
@@ -284,7 +311,7 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 		strictness.SetDegraded(true)
 		stubRuntimeProbe(t, Host{})
 
-		chain := chainFor(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+		chain := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1)
 		assert.IsType(t, None{}, chain[0])
 		assert.Empty(t, strictness.All())
@@ -309,26 +336,35 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 // to answer the diagnostic question rather than inheriting the silent
 // fall-through.
 func TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution(t *testing.T) {
-	var seen []string
+	type probed struct {
+		prefer string
+		want   RuntimeAxis
+	}
+	var seen []probed
 	prev := selectRuntimeProbe
-	selectRuntimeProbe = func(prefer string) Runtime {
-		seen = append(seen, prefer)
+	selectRuntimeProbe = func(prefer string, want RuntimeAxis) Runtime {
+		seen = append(seen, probed{prefer, want})
 		return Docker{}
 	}
 	t.Cleanup(func() { selectRuntimeProbe = prev })
 
 	for _, axes := range []Axes{
-		{Workspace: WorkspaceShared, Runtime: RuntimeContainer},
-		{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer},
+		{Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless},
+		{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootful},
 	} {
 		chainFor(axes, "claude-code", ImageConfig{})
 	}
 
-	require.NotEmpty(t, seen, "the container tiers must actually probe for a runtime")
-	for _, prefer := range seen {
-		assert.Empty(t, prefer,
+	require.Len(t, seen, 2, "the container tiers must actually probe for a runtime")
+	for _, p := range seen {
+		assert.Empty(t, p.prefer,
 			"the run path must probe with auto-detect; a preference expressed here would be silently substituted by SelectRuntime's fall-through, which only selectBuildRuntime guards against")
 	}
+	// The OWNERSHIP demand, by contrast, must ride through: it is the whole
+	// point of the two container values, and a run that probes with anything
+	// but the axis it was asked for can be handed the other mode.
+	assert.Equal(t, RuntimeContainerRootless, seen[0].want)
+	assert.Equal(t, RuntimeContainerRootful, seen[1].want)
 }
 
 // TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName pins that the

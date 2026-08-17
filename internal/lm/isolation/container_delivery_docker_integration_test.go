@@ -237,7 +237,7 @@ func containerRunRuntime(t *testing.T, what string) Runtime {
 	require.NoError(t, probe.EnsureRunPolicyImage(ctx),
 		"the hermetic run-policy image must build (FROM scratch + one static ctxloom + the probe cat)")
 
-	rt := SelectRuntime(probe.Command)
+	rt := ProbeRuntime(probe.Command)
 	require.Equal(t, probe.Command, rt.Name(),
 		"the isolation runtime must be the one the cell probed (%s), not a fallback", probe.Command)
 	return rt

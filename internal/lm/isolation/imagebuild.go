@@ -1022,16 +1022,25 @@ type ImageBuildOptions struct {
 	Output io.Writer
 }
 
+// buildRuntimeProbe is the unit-test seam for build-time runtime selection.
+//
+// It is ProbeRuntime, NOT the ownership-filtered SelectRuntime that a RUN
+// goes through: an image is a rootless/rootful-agnostic artifact, and a build
+// has no run whose isolation boundary it could weaken by picking either. The
+// two seams are separate so that a future ownership demand on a run can never
+// silently start filtering builds.
+var buildRuntimeProbe = ProbeRuntime
+
 // selectBuildRuntime resolves the container runtime for an agent-image build,
 // failing loud when an EXPLICITLY-requested runtime (opts.Runtime / --runtime)
-// is not the one selected. SelectRuntime silently substitutes a DIFFERENT daemon
+// is not the one selected. Selection silently substitutes a DIFFERENT daemon
 // when the requested one is unavailable — which would build the image into a
 // daemon the user never asked for (and a later run, which auto-selects, may then
 // not find it there). Auto-detect (empty prefer) has nothing to honor and only
-// fails when NO runtime is reachable. Uses the selectRuntimeProbe seam so the
+// fails when NO runtime is reachable. Uses the buildRuntimeProbe seam so the
 // choice is unit-testable without a live daemon.
 func selectBuildRuntime(prefer string) (Runtime, error) {
-	rt := selectRuntimeProbe(prefer)
+	rt := buildRuntimeProbe(prefer)
 	if _, isHost := rt.(Host); isHost {
 		return nil, fmt.Errorf("no container runtime (docker/podman) is available to build with")
 	}

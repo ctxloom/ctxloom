@@ -3,8 +3,8 @@
 // the descriptor→JSON-Schema projection rules, and the checked-in generated
 // schemas (goldens, embedded for runtime registration).
 //
-// PROTOBUF IS THE CANONICAL REPRESENTATION (topology-reversal decision,
-// 2026-07-09): tool names are stable UX, but every input/output shape is a
+// PROTOBUF IS THE CANONICAL REPRESENTATION (topology-reversal decision):
+// tool names are stable UX, but every input/output shape is a
 // projection of the contract in internal/agentcoord/coordination.proto.
 // Generation is BUILD-TIME (go:generate / `just gen-mcp-schemas`): proto
 // comments live in SourceCodeInfo, which protoc-gen-go strips from the

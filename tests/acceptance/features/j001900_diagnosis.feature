@@ -456,11 +456,19 @@ Feature: The day the assistant goes blind
   # profile is changed, so this is two real deliveries being compared, not one
   # file read twice.
   #
-  # UNTAG WHEN: a surface compares two delivered contexts and names what differs.
-  # Shape deliberately unspecified — the scenario probes three plausible
-  # spellings and asserts only that SOMETHING answers, so whichever design wins
-  # can satisfy it without this file having pre-decided the flag.
-  @wip
+  # UNTAGGED 2026-08-16: `ctxloom profile materialize <profile>... --diff
+  # <file>` is the surface. Of the three spellings this scenario probes
+  # (`profile show --compare`, `doctor --compare`, `profile materialize
+  # --diff`), materialize already owns assembling a profile's delivered
+  # context (the same operations.AssembleContext call MaterializeProfile makes
+  # for the context surface) — comparing that assembled payload against an
+  # already-delivered file elsewhere is a read-only extension of exactly that,
+  # not a new responsibility bolted onto `show` (declared config, not
+  # delivered payload) or `doctor` (system-health checks with no profile
+  # argument). --diff makes --target optional and prints/returns a unified
+  # diff (difflib, the same library `review` already uses) between the two
+  # delivered contexts, naming every line present on one side and not the
+  # other.
   Scenario: His assistant has the guidance and hers does not, and something compares the two
     Given Bob's checkout of the same project delivers the deploy guidance and Alice's does not
     When Alice asks ctxloom to compare her delivered context with Bob's

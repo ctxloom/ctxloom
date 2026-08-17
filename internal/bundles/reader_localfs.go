@@ -286,7 +286,33 @@ func (r *localFSReader) readBundle(path, name string) (BundleRead, error) {
 
 	facts := r.signatureFactsFor(path, data)
 	facts.stamp(bundle)
-	return newRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
+	return newRead(r.resolutionRef(name), bundle, r.provenance, TrustCtxLocal, facts), nil
+}
+
+// resolutionRef qualifies a builtin's resolution identity and leaves every other
+// class alone.
+//
+// Project and builtin bundles are read by the SAME localFSReader, so both used
+// to mint a bare path-relative ref. Composed into one loader — which is what
+// admitting the builtin reader to Config.BundleLoader does — a project bundle
+// named `isolation` and the builtin `isolation` collided on one map key, and
+// whichever reader came last silently won. One of the two became unreachable
+// with no diagnostic.
+//
+// Qualifying the builtin makes them COEXIST: `builtin:isolation` addresses the
+// builtin exactly, `ctxloom:local@bundles/isolation` the project's, and a bare
+// ask still resolves (Loader.lookup falls back to the builtin form), preferring
+// the project bundle so naming one after a builtin remains a deliberate
+// override rather than an error.
+//
+// The string matches bundle.sourceRef, stamped just above, so the loader route
+// and the injection route continue to produce ONE trust identity — the property
+// TestBuiltinFragment_RejectViaLoaderRoute_WithholdsInjectionRoute pins.
+func (r *localFSReader) resolutionRef(name string) string {
+	if r.provenance == ProvenanceBuiltin {
+		return trust.BuiltinSourcePrefix + name
+	}
+	return name
 }
 
 // signatureFactsFor resolves the signature axes from the sibling `.sig`.

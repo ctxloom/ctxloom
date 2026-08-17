@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // lookPath is the PATH-resolution seam for tests.
@@ -246,7 +245,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 func resolveBuiltinBundleMCPServers(gate bundles.Authorizer) map[string]wire.MCPServer {
 	out := make(map[string]wire.MCPServer)
 	eachBuiltinBundle(func(read bundles.BundleRead) {
-		for serverName, server := range extractMCPFromBundle(read, trust.BuiltinSourcePrefix+read.Ref(), gate) {
+		for serverName, server := range extractMCPFromBundle(read, read.Ref(), gate) {
 			// Builtin bundles wire in standalone companion binaries; a
 			// missing one degrades to no entry (and one install hint)
 			// rather than a broken server in every backend.
@@ -569,7 +568,7 @@ func resolveCompanionCommandsWith(pipe *bundles.Pipeline, loader *bundles.Loader
 func resolveBuiltinBundleHooks(gate bundles.Authorizer) wire.UnifiedHooks {
 	var out wire.UnifiedHooks
 	eachBuiltinBundle(func(read bundles.BundleRead) {
-		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(read, trust.BuiltinSourcePrefix+read.Ref(), gate)))
+		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(read, read.Ref(), gate)))
 	})
 	return out
 }
@@ -640,7 +639,7 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 		// circular — spec §4.5). The "builtin:" ref prefix is what routes it
 		// to the decision function's builtin step, which sits BELOW
 		// rejection so a user can still reject a builtin.
-		out = fragmentsFromBundle(out, read, trust.BuiltinSourcePrefix+read.Ref(), preferDistilled, gate)
+		out = fragmentsFromBundle(out, read, read.Ref(), preferDistilled, gate)
 	})
 
 	// Companion loadouts (S8): unconditional like a builtin fragment (the

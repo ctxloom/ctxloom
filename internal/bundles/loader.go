@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Loader composes Readers into one addressable view of everything this session
@@ -308,6 +309,15 @@ func (l *Loader) lookup(name string) (BundleRead, bool) {
 		if read, ok := l.byRef[ref.Path]; ok {
 			return read, true
 		}
+	}
+	// A builtin resolves by its qualified ref, so a BARE ask reaches it only
+	// here — and deliberately LAST. When a project bundle and a builtin share a
+	// name, both are addressable by their qualified refs, and the bare name
+	// keeps resolving to the project's: naming a bundle after a builtin is an
+	// override, not a collision. Before builtins carried a qualified ref the two
+	// shared one map key and whichever reader ran last silently won.
+	if read, ok := l.byRef[trust.BuiltinSourcePrefix+name]; ok {
+		return read, true
 	}
 	return BundleRead{}, false
 }

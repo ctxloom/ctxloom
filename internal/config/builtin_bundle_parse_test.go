@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -72,7 +73,11 @@ func TestEachBuiltinBundle_ParsesEveryEmbeddedBundle(t *testing.T) {
 	})
 
 	for _, name := range names {
-		assert.True(t, seen[name],
+		// A builtin's resolution ref is QUALIFIED ("builtin:<name>"), which is
+		// what lets a project bundle of the same name coexist with it instead of
+		// silently shadowing it on a shared map key. Asserting the qualified
+		// form keeps this gate exact rather than loosening it to a suffix match.
+		assert.True(t, seen[trust.BuiltinSourcePrefix+name],
 			"builtin bundle %q did not survive bundles.ParseBundle — every surface that reads builtin bundles would silently withhold everything it ships", name)
 	}
 }

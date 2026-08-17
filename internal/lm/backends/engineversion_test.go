@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The three `--version` output shapes MEASURED on this project's dev host,
-// 2026-08-07. They are three genuinely different shapes — version-first,
-// name-first, bare — which is why per-engine parsing lives in the descriptor
-// and not in one shared regex. If a future refactor collapses them, this table
-// is the evidence that it cannot be done.
+// The three `--version` output shapes MEASURED on this project's dev host.
+// They are three genuinely different shapes — version-first, name-first,
+// bare — which is why per-engine parsing lives in the descriptor and not in
+// one shared regex. If a future refactor collapses them, this table is the
+// evidence that it cannot be done.
 func TestVersionParsers_MatchMeasuredEngineOutput(t *testing.T) {
 	cases := []struct {
 		engine string

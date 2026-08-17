@@ -18,7 +18,7 @@ func TestMock_History(t *testing.T) {
 // TestEnforcesReadOnlyPlan pins which backends map PermissionPlan to a genuine
 // read-only, non-prompting mode. claude-code (--permission-mode plan), codex
 // (--sandbox read-only --ask-for-approval never), and kiro (--trust-tools=
-// fs_read, LIVE VERIFIED 2026-07-15) do; acp only distinguishes bypass.
+// fs_read, LIVE VERIFIED) do; acp only distinguishes bypass.
 func TestEnforcesReadOnlyPlan(t *testing.T) {
 	assert.True(t, EnforcesReadOnlyPlan("claude-code"), "claude enforces read-only plan")
 	assert.True(t, EnforcesReadOnlyPlan("codex"), "codex enforces read-only plan")

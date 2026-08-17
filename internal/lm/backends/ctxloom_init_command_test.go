@@ -1,6 +1,6 @@
 // ctxloom-init command tests are the LOAD-BEARING proof for init-as-skill
 // slice 3's "seed the setup skill into ALL sessions, invocable-not-always-on"
-// requirement (plan ADDITION, 2026-07-17): the five-phase setup body
+// requirement: the five-phase setup body
 // (resources/commands/ctxloom-init.md) must be present in an ORDINARY
 // session's command catalog with no profile wiring at all (it's a builtin,
 // like check-triggers/discover/recover — see builtinCommands), yet it must

@@ -432,7 +432,7 @@ var (
 // OAuth for "ordinary use of Claude Code and other native Anthropic applications", bars
 // tools that "misrepresent their identity to Anthropic's servers" or "route third-party
 // traffic against subscription limits", and directs anyone building on the Agent SDK to
-// API keys instead (support article 13189465, updated 2026-05-19; code.claude.com
+// API keys instead (support article 13189465; code.claude.com
 // legal-and-compliance). Lifting a subscription token into our own HTTP client is the
 // prohibited act — it is precisely the identity misrepresentation named above. Launching
 // the vendor's signed-in binary as a child process is not: the genuine binary makes the
@@ -479,7 +479,7 @@ func init() {
 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseClaudeCodeVersion},
 		// claude's project settings.json (claude.ProjectSettingsPath) collapses
 		// onto its user-global one (claude.GlobalSettingsPath) exactly when
-		// workDir == $HOME — found live 2026-07-14 (`manage
+		// workDir == $HOME — found live (`manage
 		// hooks install` run from $HOME silently went global).
 		hookGlobalScopePaths: func(workDir string) (string, string, error) {
 			global, err := claude.GlobalSettingsPath()
@@ -562,7 +562,7 @@ func init() {
 		// that could land in the user's global home; and the run path has its
 		// own, stronger guard — codex.IsHostCodexHome refuses the real home
 		// outright, whatever the workDir.
-		// D2 (RULED 2026-08-11): codex reads config_home like claude and kiro,
+		// D2 (RULED): codex reads config_home like claude and kiro,
 		// through THIS seam and no other. An in-tree run whose binding declares
 		// `config_home: project` gets this session's own CODEX_HOME,
 		// copy-seeded with the host's auth.json; every other in-tree run keeps
@@ -620,7 +620,7 @@ func init() {
 		newSurfaces:       func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
 		exports:           kiroExports,
 		skillExports:      kiroSkillExports,
-		// LIVE VERIFIED 2026-07-15 (authenticated kiro-cli 2.12.1):
+		// LIVE VERIFIED (authenticated kiro-cli 2.12.1):
 		// `--trust-tools=fs_read` genuinely denies a headless fs_write — a
 		// sentinel-file overwrite left the file byte-unchanged and kiro-cli
 		// printed "Command fs_write is rejected because it matches one or
@@ -719,7 +719,7 @@ func init() {
 		// to route the six unified events onto, and OpencodeWriter.WriteSettings
 		// accepts a *wire.HooksConfig it cannot do anything with. Declared here
 		// so `profile materialize` can SAY so instead of writing four true
-		// "wrote" lines over a silently dropped guardrail (whiny-exclusive).
+		// "wrote" lines over a silently dropped guardrail.
 		noHooksReason: "opencode has no hook mechanism",
 	})
 
@@ -745,7 +745,7 @@ func init() {
 		// session_start hook has no settings surface to land on and reaches no
 		// file. Declared for the same reason opencode's noHooksReason is —
 		// UncarriedSurfaces can only report a loss that is DECLARED, and an
-		// undeclared one reads as silence (whiny-exclusive). When mock gains a
+		// undeclared one reads as silence. When mock gains a
 		// settings/hook surface (tracked separately), delete this line; the
 		// hook sentinel will then need a real destination instead.
 		noHooksReason: "mock has no settings/hook surface",

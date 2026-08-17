@@ -87,10 +87,10 @@ func TestMockChat_NoRecordFileWritesNothing(t *testing.T) {
 	assert.Empty(t, entries, "no record file was requested, so none may be written")
 }
 
-// TestMockChat_RecordFileWriteFailurePropagates mirrors Execute's own contract
-// (TestMock_Execute_RecordFileWriteFailurePropagates): a swallowed write
-// failure lets a later assertion read a STALE record from a previous run and
-// call it a pass. recordFile is a directory, so the write must fail.
+// TestMockChat_RecordFileWriteFailurePropagates mirrors Execute's own record
+// write contract: a swallowed write failure lets a later assertion read a
+// STALE record from a previous run and call it a pass. recordFile is a
+// directory, so the write must fail.
 func TestMockChat_RecordFileWriteFailurePropagates(t *testing.T) {
 	err := chatOneTurn(t, agent.ChatRequest{
 		Env: map[string]string{"CTXLOOM_MOCK_RECORD_FILE": t.TempDir()},

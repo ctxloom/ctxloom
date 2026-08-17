@@ -17,7 +17,8 @@
 # the CLI no longer vendors its own), curl + ca-certificates (fetches, the kiro
 # installer), unzip (installer archives), jq (ubiquitous in hook scripts),
 # strace (the read-observation isolation probe wraps the engine exec in it —
-# harmless without CAP_SYS_PTRACE, which only the probe run grants).
+# harmless without CAP_SYS_PTRACE, which only the probe run grants),
+# python3 (the runtime serena's MCP server needs; see the serena layer below).
 FROM node:22-slim
 
 # Default TERM so interactive agent runs get color/ANSI. The runtime starts
@@ -30,5 +31,25 @@ ENV TERM=xterm-256color \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        git ripgrep curl ca-certificates unzip jq strace \
+        git ripgrep curl ca-certificates unzip jq strace python3 \
     && rm -rf /var/lib/apt/lists/*
+
+# serena — the code-intelligence MCP server (find_symbol,
+# find_referencing_symbols, the symbol-edit tools). It ships in the BASE, not in
+# one engine layer, because a container-bound agent cannot see a host-installed
+# serena and loses those tools SILENTLY: it does not know they are missing and
+# falls back to grep. uv is copied from its own published image rather than
+# curl-piped, so the installer version is pinned the way the FROM tag is;
+# serena-agent itself is unpinned, matching the engine layers' `npm install -g`
+# (always-current tool, no lockstep with this file).
+COPY --from=ghcr.io/astral-sh/uv:0.9.22 /uv /usr/local/bin/uv
+
+# The tool venv and its shims go under /opt + /usr/local/bin, NOT root's home:
+# the entrypoint remaps the run user (PUID/PGID), so anything installed into
+# /root would be unreachable by the process that actually runs the engine.
+ENV UV_TOOL_DIR=/opt/uv/tools \
+    UV_TOOL_BIN_DIR=/usr/local/bin
+
+RUN uv tool install --python python3 serena-agent \
+    && serena --help >/dev/null
+

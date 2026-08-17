@@ -9,9 +9,9 @@
 // shares no code with iox and no compiler-enforced link to it: it can drop
 // the fsync, keep a fixed (not unique) temp name that a concurrent writer
 // can clobber, or leave a half-renamed file behind a crash. The
-// fs-consolidation plan (`ugly-icy-squid/fs-consolidation.plan.md`, C1) calls
-// this out as the write-discipline half of "one atomic-write implementation,
-// one lock idiom, one path-derivation chokepoint."
+// fs-consolidation plan (C1) calls this out as the write-discipline half of
+// "one atomic-write implementation, one lock idiom, one path-derivation
+// chokepoint."
 //
 // This gate is a RATCHET, not a fix: every call this scan found at authoring
 // time is grandfathered into writeDisciplineAllowed with a reason, and none
@@ -20,7 +20,7 @@
 // call anywhere in internal/ or cmd/ outside the exempt packages fails the
 // build until it either routes through iox or earns its own reviewed entry.
 //
-// SCOPE EXTENDED TO cmd/ (home-lock-dir fix, closing N4): the original scan
+// SCOPE EXTENDED TO cmd/ (home-lock-dir fix): the original scan
 // covered internal/ only, so cmd/ltk and cmd/taskloom — the two companion
 // binaries this fix also brought under agent.WithFileLock — were invisible
 // to the ratchet even though they read-modify-write the identical engine
@@ -37,8 +37,8 @@
 // identifier that happens to be named `os` would be misread as the stdlib
 // package; nothing in this module does that.
 //
-// AFERO COVERAGE (added fs-consolidation C10, 2026-08-13): the original scan
-// only matched the `os` package, so countersign.Store.writeIndex's bare
+// AFERO COVERAGE: the original scan only matched the `os` package, so
+// countersign.Store.writeIndex's bare
 // `s.fs.Rename` evaded it entirely — an afero-mediated raw write is exactly
 // as ungoverned as an os.* one, since afero.OsFs's methods bottom out in the
 // same os.* calls this gate already forbids at that layer. Two more shapes
@@ -104,7 +104,7 @@ import (
 
 // writeDisciplineScopes are the subtrees this gate looks at: production code
 // only, per the fs-consolidation plan's C1 scope (originally just
-// "internal"; "cmd" joined it closing N4 — see this file's header doc). Test
+// "internal"; "cmd" joined it later — see this file's header doc). Test
 // files never enter the scan (fsWalkNonTest below skips _test.go the same
 // way scan() does).
 var writeDisciplineScopes = []string{"internal", "cmd"}
@@ -195,21 +195,21 @@ func aferoFsMethodCall(sel *ast.SelectorExpr) bool {
 // Generated MECHANICALLY by running this gate with an empty map and
 // transcribing every reported violation. Two generations so far:
 //
-//   - 2026-08-13, base bd6b3baf, os.*-only scan: 45 entries, nothing migrated
-//     as part of that slice (C1) — that was C3's job (the three named
-//     strays: countersign.writeIndex, gitignore, operations.ConvertVendorTranscript,
-//     since landed) and C10's (per-area sweeps).
-//   - 2026-08-13, base db2f36cc, RE-generated after the afero coverage
-//     extension (fs-consolidation plan C10, this slice): 34 new entries
-//     surfaced (afero.WriteFile/TempFile and afero.Fs-method call sites the
-//     os-only scan could never see), for 79 total. This IS the ratchet
-//     growing honestly — the gate got stricter and the baseline records
-//     exactly what it now sees. C10 migrates the two named stragglers
-//     (bundles.fsStore.Save, countersign.Store.write/writeUnsigned) in the
-//     same slice, so those three entries are already gone again by the time
-//     this lands; every other new entry carries a reason naming whether it
-//     was swept (classified, and migrated or left with a specific reason) or
-//     is out of this slice's five swept areas and deferred whole.
+//   - The first, an os.*-only scan: 45 entries, nothing migrated in that
+//     generation — three named strays (countersign.writeIndex, gitignore,
+//     operations.ConvertVendorTranscript) and the rest were migrated later,
+//     by per-area sweeps.
+//   - The second, RE-generated after the afero coverage extension: 34 new
+//     entries surfaced (afero.WriteFile/TempFile and afero.Fs-method call
+//     sites the os-only scan could never see), for 79 total. This IS the
+//     ratchet growing honestly — the gate got stricter and the baseline
+//     records exactly what it now sees. The two remaining stragglers
+//     (bundles.fsStore.Save, countersign.Store.write/writeUnsigned) were
+//     migrated in the same generation, so those three entries are already
+//     gone again by the time this lands; every other new entry carries a
+//     reason naming whether it was swept (classified, and migrated or left
+//     with a specific reason) or is out of the swept areas and deferred
+//     whole.
 //
 // Most entries carry the generic baseline reason. A handful carry a more
 // specific one where the fix is already obvious from the call site (a fixed

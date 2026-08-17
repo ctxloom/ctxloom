@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 	// behind a sync.Once and is shared by every scenario, so its ~30MB
 	// directory can only be dropped here, after the whole suite has finished —
 	// not in a per-scenario Cleanup. os.Exit skips defers, so this is an
-	// explicit statement rather than `defer`. See task smashing-olive.
+	// explicit statement rather than `defer`.
 	testenv.RemoveTaskloomBinary()
 	os.Exit(code)
 }

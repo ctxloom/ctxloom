@@ -304,7 +304,7 @@ func TestLiveAgentOrderMatchesRegistry(t *testing.T) {
 // the old authCheckCodex stub ("codex has no live authentication probe
 // implemented (declared but unavailable)") — codex now has a real probe, a
 // real credential copier, and a real pinned-cheap-model config, confirmed
-// live 2026-07-14 against an authenticated `codex login status`.
+// live against an authenticated `codex login status`.
 func TestCodexRegistryEntry_IsWiredNotStub(t *testing.T) {
 	a, ok := liveAgents["codex"]
 	assert.True(t, ok, "codex must remain a registered live agent")

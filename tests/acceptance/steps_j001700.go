@@ -1,13 +1,13 @@
 //go:build acceptance
 
 // J001700: the "incident" journey (j001700_incident.feature) — a bad command ships and
-// must be pulled. RESCOPED 2026-07-14: J001500 (j001500_corporate_signed.feature)
+// must be pulled. J001500 (j001500_corporate_signed.feature)
 // already has LOCKED, green scenarios for single-developer retraction and
 // company-key revocation, so this journey keeps only the two things J001500
 // cannot express — retraction propagating across MORE THAN ONE
 // already-installed developer, and ctxloom's own go:embed'd publisher key:
-// UPDATED 2026-07-15 from "irrevocable and invisible" to
-// "visible, and locally revocable" — the key is now surfaced by `signer
+// though it might look irrevocable and invisible, the key is
+// visible, and locally revocable — it is surfaced by `signer
 // list`/`show` (tagged embedded/not-removable) and `signer remove` aimed at
 // it persists a real local suppression TrustRoot() honors, though the
 // compiled-in bytes themselves still only change via a new binary (see the

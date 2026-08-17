@@ -503,7 +503,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// The exact refutation of the vulnerability (taskloom rocky-motto): the
+	// The exact refutation of the vulnerability: the
 	// bug was "reject the fragment -> corrupt the store -> the rejected
 	// fragment REAPPEARS in the assembled context, exit 0, no warning". Post
 	// -fix, the assembled context (out/CLAUDE.md, rewritten every run) is

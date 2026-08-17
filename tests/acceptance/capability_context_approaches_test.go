@@ -109,7 +109,7 @@ func TestApproachAssert_RefusesARunThatDegradedOffThePin(t *testing.T) {
 
 // codexHookNotWrittenWarning is the VERBATIM stderr line that made P1's first
 // codex finding false. Kept exactly as production emitted it (captured
-// 2026-08-13 from the codex hook cell's own run) so the guard is matched against
+// from the codex hook cell's own run) so the guard is matched against
 // the real thing rather than against a paraphrase of it.
 const codexHookNotWrittenWarning = "ctxloom: warning: codex hooks and MCP servers were NOT written: codex settings/prompts/skills are delivered per-session at launch; no durable project home exists — see config_home. They are delivered into this session's own CODEX_HOME when an agent whose binding declares `config_home: project` launches; there is no durable project file to materialize. codex's cwd-keyed AGENTS.md context is unaffected and was still written.\n"
 
@@ -118,7 +118,7 @@ const codexHookNotWrittenWarning = "ctxloom: warning: codex hooks and MCP server
 // false test.
 //
 // The original codex hook cell went green, and P1 recorded on that basis that
-// the 2026-07-14 fragment-drop finding was fixed. It was not: the run's stderr
+// the fragment-drop finding was fixed. It was not: the run's stderr
 // said the hook surface had not been written at all, so the nonce had arrived
 // through codex's natively-read AGENTS.md and the cell's subject — the hook —
 // had never existed in that session. stdout looked identical either way, which

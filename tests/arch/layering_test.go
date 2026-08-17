@@ -1,6 +1,6 @@
 //go:build arch
 
-// T18/T11 (seedy-grout): the missing architecture linter, and the six real
+// T18/T11: the missing architecture linter, and the six real
 // import-cycle-shaped relationships this repo carries today.
 //
 // T11 found six pairs of packages that are only NOT a production import
@@ -23,11 +23,10 @@
 // The Go compiler already refuses a real cycle, but only once BOTH edges
 // exist in production code — which means the developer who adds the SECOND
 // edge gets the signal, and the one who added the first (the actual
-// direction-reversing change) got none. Verified 2026-07-26 against
-// 5cbc853c: `go vet ./...` is clean and none of these four production
-// dependencies has a production-file reverse edge today, so this is
-// prevention, not repair — the six relationships stay this shape rather than
-// closing into a real cycle.
+// direction-reversing change) got none. `go vet ./...` is clean and none of
+// these four production dependencies has a production-file reverse edge
+// today, so this is prevention, not repair — the six relationships stay this
+// shape rather than closing into a real cycle.
 //
 // T18 separately found no depguard or architecture linter exists at all.
 // Rather than stand up a second mechanism next to it, layeringRules extends

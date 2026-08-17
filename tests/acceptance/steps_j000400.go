@@ -248,7 +248,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		rel := filepath.Join(j000400.target, file)
 		// Deliberately more than one line, and deliberately including prose
 		// that carries no marker of its own: the P0 this scenario guards
-		// (lanky-plop) is CONTENT LOSS, and content loss does not politely
+		// is CONTENT LOSS, and content loss does not politely
 		// confine itself to the one line a test happens to grep for. The
 		// heading and the two comment lines are exactly what a merge bug
 		// dropped while leaving the marker line intact.

@@ -19,7 +19,7 @@
 // inspector: whether the vendor engine actually READ the file ctxloom handed
 // it happens inside a process ctxloom does not own, and no inspector will
 // ever cross that boundary. Its scenario does not assert that impossible
-// capability — inverted 2026-08-05 to assert instead that ctxloom SAYS it
+// capability — inverted to assert instead that ctxloom SAYS it
 // cannot know, which is testable and stays green. See that scenario's own
 // comment in the .feature file for the decision and the mutation that backs
 // it.
@@ -516,7 +516,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		// that never advances a pin never reaches the attestation boundary at
 		// all.
 		//
-		// MEASURED 2026-08-05, and the reason this line exists: bare `remote
+		// MEASURED, and the reason this line exists: bare `remote
 		// update` is a DRY CHECK that ends in "Run with --apply to update all
 		// items", and `deps pull` answers "Skipped (kept at their locked
 		// commit): 1 — Pull never moves an existing pin. Run 'ctxloom remote
@@ -804,7 +804,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// STRENGTHENED 2026-08-05. This asserted only that "default" appeared
+	// STRENGTHENED. This asserted only that "default" appeared
 	// SOMEWHERE in `agent show default`'s output — and the agent in this
 	// fixture is ITSELF named "default", so the assertion was satisfied by the
 	// echoed argument and could not tell the agent's own name from the profile

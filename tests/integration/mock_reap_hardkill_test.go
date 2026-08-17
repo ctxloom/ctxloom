@@ -30,8 +30,8 @@ const hardKillPollInterval = 25 * time.Millisecond
 // run down, `go test`'s own process dying, an OOM kill, or a worktree deleted
 // out from under a live run. Every one of those produced orphans until
 // isolateRunner started arming PR_SET_PDEATHSIG (internal/lm/grpc/
-// pdeath_linux.go) — 208 in one incident, 36 more on 2026-07-24 across three
-// checkouts, some running unattended for over 36 hours.
+// pdeath_linux.go) — real orphaned processes across multiple checkouts, some
+// running unattended for over 36 hours.
 //
 // This test USED to assert the opposite as its premise ("the plugin child is
 // now an orphan") and then prove testenv.KillPids could collect it. That
@@ -40,8 +40,8 @@ const hardKillPollInterval = 25 * time.Millisecond
 // PTYSession.Close and MCPClient.Close and still exercised by this test's own
 // t.Cleanup(sess.Close)) was a harness-side workaround for a product-side
 // leak, and could only ever protect processes this harness itself spawned.
-// Nothing protected `ctxloom run` in a developer's terminal — which is where
-// 12 of the 36 came from.
+// Nothing protected `ctxloom run` in a developer's terminal — a real source
+// of these leaks.
 //
 // This is the payload assertion the task asked for: process-table absence,
 // not "the reap function returned without error".

@@ -43,7 +43,7 @@
 // assertion below names which of the two it found rather than reporting a bare
 // mismatch.
 //
-// THE NONCE IS A FRESHLY MINTED HARP (human ruling, 2026-08-12), not a hex
+// THE NONCE IS A FRESHLY MINTED HARP (human ruling), not a hex
 // blob and emphatically not the session's own harp — see probe_assert.go's
 // header for the full argument. Two properties this floor gets from the change:
 // the value is greppable by a human reading a spool or a transcript by eye, and

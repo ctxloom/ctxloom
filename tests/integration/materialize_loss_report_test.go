@@ -13,9 +13,9 @@ import (
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
-// This file covers the USER-FACING half of whiny-exclusive: `profile
-// materialize` telling someone, at the terminal, that the engine they picked
-// cannot carry part of what they just materialized.
+// This file covers the USER-FACING half of the silent-hook-drop finding:
+// `profile materialize` telling someone, at the terminal, that the engine
+// they picked cannot carry part of what they just materialized.
 //
 // The unit tests (internal/operations) prove the loss reaches the result; these
 // drive the real binary, because the finding was never that the data was
@@ -23,8 +23,8 @@ import (
 // the same silence with extra steps.
 
 // lossFixtureConfig is a project whose config-level session_start hook is a
-// team guardrail: the shape whiny-exclusive was filed about, where the hook
-// silently fails to follow the profile onto an engine with no hook mechanism.
+// team guardrail: the shape where the hook silently fails to follow the
+// profile onto an engine with no hook mechanism.
 const lossFixtureConfig = `version: 6
 config:
   use_distilled: true

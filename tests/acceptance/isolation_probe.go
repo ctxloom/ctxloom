@@ -111,7 +111,7 @@ const (
 
 // probeCensusEntry is one file's identity in a census: never its content.
 // ModTime is included deliberately, not just Size+SHA256: a live,
-// independently reproduced measurement (2026-07-22) found kiro-cli's
+// independently reproduced measurement found kiro-cli's
 // `whoami` — a nominally read-only auth probe — advances
 // ~/.local/share/kiro-cli/data.sqlite3's mtime with its SIZE UNCHANGED, a
 // genuine write a size/hash-only census would miss entirely. Two "isolated"
@@ -239,7 +239,7 @@ func probeCensusRoots(backendType string) ([]string, error) {
 // plain file reads (via copyCreds into a throwaway scratch dir). This is not
 // an arbitrary style choice: liveAgents["kiro"].authCheck shells out to
 // `kiro-cli whoami`, which is NOT side-effect-free — a live, independently
-// reproduced measurement (2026-07-22: before/after mtime on
+// reproduced measurement (before/after mtime on
 // ~/.local/share/kiro-cli/data.sqlite3 across a session whose only kiro
 // command was `whoami`) showed the file's mtime advance with its size
 // unchanged, a genuine WRITE from a nominally read-only probe. Calling it
@@ -515,7 +515,7 @@ func dockerDiff(runtimeBin, name string) ([]string, error) {
 // start — /etc/hostname, /etc/hosts, /etc/resolv.conf carry the container's
 // network identity, stamped by the runtime before any entrypoint code runs.
 // A path under this list is not evidence of anything the engine did.
-// Live-observed against docker 29.3.0, 2026-07-22 — re-verify if this
+// Live-observed against docker 29.3.0 — re-verify if this
 // allowlist ever needs widening (a new runtime version adding another
 // bootstrap file is possible; see the isolation-probe doc page).
 var containerBootstrapAllowlist = []string{

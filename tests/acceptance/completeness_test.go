@@ -62,7 +62,7 @@ var knownUncoveredTools = []string{
 // agent_fetch_artifact are named in scripts/gendocs/main.go's mcpIntro as
 // existing only on this surface, which is exactly why they need a list of
 // their own: the standalone-surface census cannot see them at all, so without
-// this list they are invisible rather than red. Backfill: task spry-niece.
+// this list they are invisible rather than red. Backfill still needed.
 var knownUncoveredRunnerOnlyTools = []string{
 	"agent_fetch_artifact",
 	"agent_report",

@@ -341,7 +341,7 @@ func TestMCPProbeAssert_AcceptsOnlyTheRoundTrip(t *testing.T) {
 			"putting the tool-path rung first must not swallow a genuine output-contract finding: the tool WAS called here, so the form check gets to speak. Loosening this to strip fences would delete the signal the whole ladder shares.")
 	})
 
-	// The kiro run of 2026-08-13, in miniature. Under the floor's check order
+	// The kiro run, in miniature. Under the floor's check order
 	// this reported OUTPUT-FORMAT — terminal decoration — while the model's own
 	// answer said the tool was not found, and the shape a sweep diffs named the
 	// wrong subsystem entirely.

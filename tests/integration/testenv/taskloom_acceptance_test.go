@@ -23,9 +23,9 @@ func restoreTaskloomBuildState(t *testing.T) {
 }
 
 // TestRemoveTaskloomBinary_DeletesTheBuildDirectory asserts the DIRECTORY IS
-// GONE, not that a remover was called: the leak this fixes was 304 orphaned
-// build dirs / 8.5G, and a teardown that merely forgets the path leaks exactly
-// as much as no teardown at all. See task smashing-olive.
+// GONE, not that a remover was called: the leak this fixes accumulated
+// hundreds of orphaned build dirs and gigabytes of disk, and a teardown that
+// merely forgets the path leaks exactly as much as no teardown at all.
 func TestRemoveTaskloomBinary_DeletesTheBuildDirectory(t *testing.T) {
 	restoreTaskloomBuildState(t)
 

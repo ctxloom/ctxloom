@@ -14,8 +14,8 @@
 //     the BINARY to probe (not necessarily the engine's own name — kiro's is
 //     kiro-cli), how to tell INSTALLED apart from AUTHENTICATED, the
 //     credential material an isolated run needs, and one cheap pinned model
-//     (claude, kiro, codex). codex's authCheck and credential copier are real
-//     as of 2026-07-14, but a direct (non-suite) live run found its run-path
+//     (claude, kiro, codex). codex's authCheck and credential copier are real,
+//     but a direct (non-suite) live run found its run-path
 //     context delivery broken — see the codex entry's own comment; it is NOT
 //     yet a proven context-delivering row.
 //  2. computeLiveEngineReport / formatLiveEngineReport: what actually ran vs.
@@ -125,9 +125,9 @@ type liveAgent struct {
 // liveAgentOrder is the availability report's fixed display order, matching
 // the Examples tables' own convention (claude, kiro) plus codex
 // and opencode last — codex now genuinely authenticates on a box with a real
-// `codex` on PATH (confirmed 2026-07-14), so it is no longer a
-// permanently-unavailable row; opencode joined 2026-07-22 (isolation-probe
-// task) once its own local-credential-file authCheck existed. Both stay last
+// `codex` on PATH, so it is no longer a
+// permanently-unavailable row; opencode joined once its own
+// local-credential-file authCheck existed. Both stay last
 // as the newest/most-recently-wired entries. Kept separate from the map
 // because map iteration order is unspecified and this report's whole point
 // is to be predictable and diffable across runs.
@@ -187,7 +187,7 @@ profiles:
 	// OAuth) or an OPENAI_API_KEY/CODEX_API_KEY env var for headless
 	// (internal/codex/backend.go:102's own comment names the latter; not
 	// live-verified here, so both are offered as candidates rather than
-	// asserted). Confirmed live 2026-07-14 on this box: `codex login status`
+	// asserted). Confirmed live on this box: `codex login status`
 	// → "Logged in using ChatGPT" (real probe, see authCheckCodex).
 	//
 	// CODEX'S HOME IS A LANDMINE: codex resolves BOTH its config surface and
@@ -201,9 +201,9 @@ profiles:
 	// credentialSeedSpecs["codex"] now applies to a worktree-isolated run's
 	// config-home (a COPY, replacing the former linkUserCodexAuth symlink).
 	//
-	// PRODUCT BUG FOUND while proving this live (2026-07-14, direct
+	// PRODUCT BUG FOUND while proving this live (direct
 	// `ctxloom run --one-shot` against a real authenticated codex, NOT via this
-	// suite — see the codex-live-proof session): codex's run-path composed
+	// suite): codex's run-path composed
 	// context cache file (.ctxloom/cache/context/<hash>.md, written by the
 	// RawContext Setup step) carries ONLY companion-contributed fragments
 	// (ltk/taskloom docs) and DROPS the active profile's own bundle
@@ -219,21 +219,21 @@ profiles:
 	// live row — do not add a J000400 @live Examples row for codex until this is
 	// fixed, or it would be red (or falsely green on a weakened assertion).
 	//
-	// STATUS 2026-08-13, after one false start — read both paragraphs, they say
+	// STATUS, after one false start — read both paragraphs, they say
 	// different things.
 	//
-	// THE 2026-07-14 FINDING ABOVE IS STILL OPEN. P1 briefly recorded it closed,
+	// THE FRAGMENT-DROP FINDING ABOVE IS STILL OPEN. P1 briefly recorded it closed,
 	// on a green hook-pinned codex cell. That was wrong and has been retracted:
 	// ctxloom wrote no codex hook in that session at all (it warns "codex hooks
 	// and MCP servers were NOT written ... no durable project home exists — see
 	// config_home"), and codex's SurfaceFor resolves (context, Hook) to a
 	// COMPOSED delivery that also writes the native AGENTS.md. The nonce arrived
-	// by AGENTS.md. Nothing touched the cache file the 2026-07-14 defect is
+	// by AGENTS.md. Nothing touched the cache file the fragment-drop defect is
 	// about, so nothing re-measured it. See the retraction note in
 	// capability_probe_registry.go.
 	//
 	// WHAT IS PROVEN: codex delivers context live through AGENTS.md. P1's
-	// unsafe-file cell is green (2026-08-13, harp "smug-fatal-rush"), as are
+	// unsafe-file cell is green (harp "smug-fatal-rush"), as are
 	// codex's P0 rows. So the prohibition above — no live codex context row —
 	// is lifted for the AGENTS.md route specifically, and NOT for the hook
 	// route, which remains unproven and unprobed. Note also that this green is
@@ -502,7 +502,7 @@ func authCheckClaude(realHome string) (bool, string) {
 // local-credential-file heuristic authCheckOpencode below is stuck with
 // (opencode exposes no equivalent status subcommand at all).
 //
-// CAVEAT — this probe is NOT side-effect-free: measured 2026-07-22
+// CAVEAT — this probe is NOT side-effect-free: measured
 // (reproduced independently), a bare `kiro-cli whoami` with no login/logout
 // involved advances ~/.local/share/kiro-cli/data.sqlite3's mtime while its
 // size stays unchanged. That means calling this authCheck INSIDE a
@@ -526,7 +526,7 @@ func authCheckKiro(realHome string) (bool, string) {
 }
 
 // authCheckCodex runs `codex login status`, a local, non-interactive status
-// read confirmed live 2026-07-14 (~0.1s, no network stall observed): exit 0
+// read confirmed live (~0.1s, no network stall observed): exit 0
 // with "Logged in using ChatGPT" on the subscription path, exit 1 with "Not
 // logged in" otherwise — a genuine authenticated/not-authenticated probe, the
 // same INSTALLED-vs-AUTHENTICATED distinction authCheckClaude/authCheckKiro
@@ -534,7 +534,7 @@ func authCheckKiro(realHome string) (bool, string) {
 // old hardcoded "codex has no live authentication probe implemented" stub
 // that reported unavailable regardless of reality.
 //
-// MEASURED LIMIT, 2026-08-12 — this probe distinguishes INSTALLED from
+// MEASURED LIMIT — this probe distinguishes INSTALLED from
 // AUTHENTICATED, but NOT authenticated from STILL-VALID. `codex login status`
 // is a local read of auth.json's stored mode; it never attempts a refresh, so
 // it prints "Logged in using ChatGPT" and exits 0 even when the stored refresh
@@ -823,8 +823,8 @@ func copyKiroCredentials(realHome, fakeHome string) error {
 
 // copyCodexCredentials copies the ONE file codex's subscription auth lives
 // in: ~/.codex/auth.json (auth_mode + id/access/refresh tokens; confirmed
-// live against a real `codex login status` → "Logged in using ChatGPT" on
-// 2026-07-14) — never the rest of ~/.codex, which on this box holds 472MB of
+// live against a real `codex login status` → "Logged in using ChatGPT")
+// — never the rest of ~/.codex, which on this box holds 472MB of
 // sessions, memories, logs, goals, a model-list cache, and plugins, all
 // mixed with config under the SAME $CODEX_HOME codex uses for its credential
 // lookup (confirmed: pointing CODEX_HOME at a project dir once made codex

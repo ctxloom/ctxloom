@@ -51,9 +51,8 @@ var misWidened = regexp.MustCompile(`^j\d+.*\.feature$`)
 //     scheme exists to allow.
 //
 // What it still cannot check is whether a journey sits at the RIGHT position.
-// That judgement lives in journey-usability-order.plan.md and is not derivable
-// from the files: a journey inserted at j001250 passes this and may still be in
-// the wrong place.
+// That judgement is not derivable from the files: a journey inserted at
+// j001250 passes this and may still be in the wrong place.
 func TestJourneyNumbers_AreSpacedFixedWidthAndUnique(t *testing.T) {
 	seen := map[int]string{}
 	for _, dir := range []string{"features", filepath.Join("features", "journeys")} {

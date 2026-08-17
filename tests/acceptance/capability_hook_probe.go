@@ -484,7 +484,7 @@ const hookProbeCarriagePollInterval = 200 * time.Millisecond
 // hookProbeCarriageWatcher scans REPEATEDLY WHILE THE ENGINE RUNS, because a
 // scan afterwards cannot see the answer.
 //
-// MEASURED 2026-08-13, and this is the whole reason the type exists. ctxloom
+// MEASURED, and this is the whole reason the type exists. ctxloom
 // delivers claude's hooks into an ephemeral per-session directory and SCRUBS
 // that file at session teardown: immediately after a run whose hook demonstrably
 // fired, the delivered settings.json on disk is the three bytes `{}`. So a

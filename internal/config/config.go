@@ -2265,7 +2265,24 @@ func (c *Config) BundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
 	// Order is precedence: a later reader wins a name collision, so pinned
 	// remote content still shadows a stale extracted copy on disk, and a
 	// companion's own ref (which nothing else can claim) is last.
+	//
+	// The builtin reader's presence here is what makes a builtin bundle
+	// resolvable BY REF — a profile naming `isolation#fragments/isolation-axes`
+	// reaches it through the ordinary loader rather than only through the
+	// unconditional injection route. It cannot collide with a project bundle of
+	// the same name: a builtin resolves by its qualified `builtin:<name>` ref,
+	// and a bare ask still prefers the project's (see
+	// localFSReader.resolutionRef and Loader.lookup).
+	//
+	// It goes AFTER the project reader, and that is not cosmetic. Loader.FS()
+	// returns the first reader that has a filesystem, and the builtin reader has
+	// one — the EMBEDDED fs. Listing it first made FS() report the embedded
+	// filesystem, so every project skill's trust preimage was derived from a
+	// tree that does not exist there and the skill was silently withheld. That
+	// is precisely the hazard Loader.FS()'s own doc warns about, reached by
+	// reader order alone.
 	readers := []bundles.Reader{bundles.NewProjectReader(fsys, c.GetBundleDirs(), bundles.WithTrustRoot(c.TrustRoot()))}
+	readers = append(readers, bundles.NewBuiltinReader(bundles.WithTrustRoot(c.TrustRoot())))
 	readers = append(readers, c.remoteBundleReaders()...)
 	readers = append(readers, c.companionReader())
 	readers = append(readers, lc.extraReaders...)

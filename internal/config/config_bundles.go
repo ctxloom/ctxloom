@@ -389,27 +389,39 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 // contributed" is a fact on the record instead of a second discovery pass that
 // could answer differently — and it does not exec anything a second time.
 func companionRefs(loader *bundles.Loader) []string {
-	var out []string
+	reads := readsWithProvenance(loader, bundles.ProvenanceCompanion)
+	out := make([]string, 0, len(reads))
+	for _, read := range reads {
+		out = append(out, read.Ref())
+	}
+	return out
+}
+
+// readsWithProvenance returns the loader's reads of one provenance class in a
+// deterministic order.
+//
+// It replaces three hand-rolled copies of the same filter (companionRefs,
+// companionReads, and the builtin walk) that differed only in what they
+// projected out of the read — reprise flagged the first two as an exact
+// duplicate. Filtering a resolved set by provenance needs nothing but the read
+// itself: no trust gate, no wire types. When the resolved set becomes a named
+// value this moves onto it as a method, which is where it belongs; keeping it
+// here now is what stops a fourth copy being written in the meantime.
+func readsWithProvenance(loader *bundles.Loader, prov bundles.ProvenanceClass) []bundles.BundleRead {
+	var out []bundles.BundleRead
 	for _, read := range loader.Reads() {
-		if read.Provenance == bundles.ProvenanceCompanion {
-			out = append(out, read.Ref())
+		if read.Provenance == prov {
+			out = append(out, read)
 		}
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref() < out[j].Ref() })
 	return out
 }
 
 // companionReads returns the loader's companion loadout reads in the same
 // deterministic order, for the one caller that needs the bundles themselves.
 func companionReads(loader *bundles.Loader) []bundles.BundleRead {
-	var out []bundles.BundleRead
-	for _, read := range loader.Reads() {
-		if read.Provenance == bundles.ProvenanceCompanion {
-			out = append(out, read)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Ref() < out[j].Ref() })
-	return out
+	return readsWithProvenance(loader, bundles.ProvenanceCompanion)
 }
 
 // resolveProfileScope returns the profile set a bundle-resolution call should

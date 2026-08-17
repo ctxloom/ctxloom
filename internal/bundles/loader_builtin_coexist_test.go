@@ -28,11 +28,10 @@ func TestBuiltinAndProjectBundleOfOneName_Coexist(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, "/bundles/"+shared+".yaml",
 		[]byte("version: 1.0.0\ndescription: the PROJECT one\n"), 0o644))
 
-	// Builtin first so that, on a bare ask, "later reader wins" would hand back
-	// the project bundle even without the qualified ref. The point of the
-	// assertions below is that BOTH survive indexing — a shared key would have
-	// discarded one outright, whatever the order.
-	l := NewLoader(NewBuiltinReader(), NewProjectReader(fs, []string{"/bundles"}))
+	// Project reader FIRST — the production order, and load-bearing: see the
+	// FS() subtest below. The assertions here are that BOTH survive indexing,
+	// which a shared resolution key would have prevented whatever the order.
+	l := NewLoader(NewProjectReader(fs, []string{"/bundles"}), NewBuiltinReader())
 
 	t.Run("both survive indexing", func(t *testing.T) {
 		var refs []string
@@ -57,6 +56,20 @@ func TestBuiltinAndProjectBundleOfOneName_Coexist(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "the PROJECT one", b.Description,
 			"naming a bundle after a builtin is an override: the bare name keeps resolving to the project's")
+	})
+
+	t.Run("FS stays the project filesystem, not the embedded one", func(t *testing.T) {
+		// Loader.FS() returns the FIRST reader that has a filesystem, and the
+		// builtin reader has one — the EMBEDDED fs. Composing it ahead of the
+		// project reader therefore makes FS() report the embedded filesystem,
+		// and since a skill's trust preimage is derived from the tree at that
+		// fs, every project skill hashes against a tree that does not exist
+		// there and is silently withheld. Measured, not hypothesised: it broke
+		// two skill-resolution tests the moment the builtin reader was listed
+		// first.
+		require.Same(t, fs, l.FS(),
+			"a loader carrying the builtin reader must still read skills from the PROJECT filesystem; "+
+				"reader order alone can redirect it to the embedded one and silently withhold every skill")
 	})
 
 	t.Run("a bare ask still reaches a builtin nothing shadows", func(t *testing.T) {

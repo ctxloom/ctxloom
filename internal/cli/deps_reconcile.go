@@ -235,19 +235,29 @@ func reconcileInstalled(ctx context.Context, cfg *config.Config, out io.Writer) 
 
 // upstreamProbes builds the production pair.
 //
-// REACH is GetDefaultBranch: the cheapest call that cannot succeed without
-// actually reading the repository, so an expired credential, a deleted
-// repository and a dead host all fail it — which is the point. A probe that
-// could be satisfied from a local cache would prove nothing, so it goes through
-// the fetcher rather than through the clone cache's stored state.
+// REACH is a live UpdateRepo against the repository: a clone if the local
+// cache holds nothing for it yet, otherwise a `git fetch` against the actual
+// remote. Either shape touches the network on every call, so an expired
+// credential, a deleted repository and a dead host all fail it — which is the
+// point. GetDefaultBranch was tried here first and rejected: routed through
+// the cached fetcher it resolves via RepoCache.EnsureRef, which returns an
+// EXISTING local clone without touching the network at all — a remote whose
+// bare repo had been renamed away still answered reachable from the stale
+// clone, and reconcile reported nothing. A probe that a local cache can
+// satisfy proves nothing about the remote, which is why this one goes through
+// UpdateRepo instead of through the fetcher's cached read path.
 //
 // CONTENT is a fetch of ONE reference's own path, with the directory form
 // checked when the single file is absent, mirroring how a pull resolves a
 // bundle (remote.Puller.fetchItemBytes). Only when BOTH shapes report not-found
 // is the bundle absent — a publisher who migrated a single-file bundle to its
-// directory form has not withdrawn anything.
+// directory form has not withdrawn anything. It is safe to read through the
+// cached fetcher because it only ever runs after REACH has already proved,
+// this run, that the repository is live — by which point the clone UpdateRepo
+// just produced is current.
 func upstreamProbes(cfg *config.Config) (reachProbe, contentProbe) {
 	factory := operations.NewCachedFetcherFactory(cfg)
+	cache := operations.NewRepoCache(cfg)
 	auth := remote.LoadAuth(projectAppDir(cfg))
 
 	fetcherFor := func(repoURL string) (remote.Fetcher, string, string, error) {
@@ -265,11 +275,11 @@ func upstreamProbes(cfg *config.Config) (reachProbe, contentProbe) {
 	}
 
 	reach := func(ctx context.Context, repoURL string) error {
-		f, owner, repo, err := fetcherFor(repoURL)
+		forgeType, _, err := remote.DetectForge(repoURL)
 		if err != nil {
 			return err
 		}
-		if _, err := f.GetDefaultBranch(ctx, owner, repo); err != nil {
+		if _, err := cache.UpdateRepo(ctx, repoURL, forgeType); err != nil {
 			return err
 		}
 		return nil

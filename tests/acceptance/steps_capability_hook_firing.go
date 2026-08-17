@@ -218,7 +218,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// Started BEFORE the run, and this is not an optimisation: ctxloom
 		// scrubs delivered settings at session teardown, so a scan afterwards
 		// reports "no carriage" on a cell where carriage worked perfectly.
-		// Measured 2026-08-13 — see hookProbeCarriageWatcher.
+		// Measured — see hookProbeCarriageWatcher.
 		watcher := hookProbeWatchCarriage(hookProbeCarriage{
 			Needle:    h.scriptPath,
 			Roots:     []string{w.env.ProjectDir, filepath.Join(realHomeDir, ".ctxloom", "sessions")},
@@ -336,7 +336,7 @@ func hookProbeConfigYAML(a liveAgent, llmKey, engine string) string {
 // to declare `config_home: project` before ctxloom will deliver its hooks AT
 // ALL — and it is codex, for a reason measured rather than assumed.
 //
-// MEASURED 2026-08-13. codex resolves $CODEX_HOME to the user's REAL ~/.codex
+// MEASURED. codex resolves $CODEX_HOME to the user's REAL ~/.codex
 // for any binding that does not declare `config_home: project` (the D2 ruling,
 // registry.go's codex descriptor), and codex's own delivery refuses to write a
 // host-owned home: internal/codex's deliveryHome returns homeIsHostOwned and

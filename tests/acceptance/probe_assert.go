@@ -10,7 +10,7 @@
 //
 // TWO THINGS LIVE HERE.
 //
-//  1. THE MINT. Human ruling, 2026-08-12: a probe's nonce is a FRESHLY MINTED
+//  1. THE MINT. Human ruling: a probe's nonce is a FRESHLY MINTED
 //     HARP per probe per cell — harp.GenerateName(), the "swift-amber-falcon"
 //     form — and never the session's own harp. The distinction is the whole
 //     honesty argument. The session's harp is AMBIENT: it is in

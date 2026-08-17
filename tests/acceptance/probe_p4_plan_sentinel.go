@@ -12,7 +12,7 @@
 // WHAT THIS PROBE IS FOR. Four backends declare enforcesReadOnlyPlan TRUE, which
 // is a promise that `permissions: plan` is a GENUINE read-only posture rather
 // than a label. Until this rung, that promise was proven by hand twice and never
-// at all twice: claude-code and kiro were verified ad hoc on 2026-07-15 by a
+// at all twice: claude-code and kiro were verified ad hoc by a
 // human in a terminal who then closed it (the evidence survives only as prose
 // comments at each descriptor's enforcesReadOnlyPlan field), and codex's
 // `--sandbox read-only` and opencode's written `permission {edit:deny,bash:deny}`
@@ -55,7 +55,7 @@
 // as channelSentinelFile's Where: the sentinel's PERSISTENCE, not its echo, is
 // the assertion.
 //
-// WHY NOTHING HERE READS THE ENGINE'S PROSE. The 2026-07-15 ad hoc proofs leaned
+// WHY NOTHING HERE READS THE ENGINE'S PROSE. The ad hoc proofs leaned
 // on vendor refusal messages ("Command fs_write is rejected because it matches
 // one or more rules on the denied list"). Those are the first thing a vendor
 // release renumbers, rewords or localises, and the design's own counter-argument

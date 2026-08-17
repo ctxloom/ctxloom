@@ -53,7 +53,7 @@
 // j002200_isolation.doc.md for the full accounting of what is and is not proven
 // where.
 //
-// RE-VERIFIED 2026-07-26: an earlier review claimed "the Examples table still
+// RE-VERIFIED: an earlier review claimed "the Examples table still
 // lists opencode alongside four engines whose payload is checked" — re-checked
 // against features/j002200_isolation.feature as it stands today and that is no
 // longer true. The ONE Examples table that asserts on spy payload ("A
@@ -178,7 +178,7 @@ const (
 )
 
 // isoFixtureClaudeCred is the host ~/.claude/.credentials.json fixture: valid
-// JSON in claude's live claudeAiOauth shape (probe-verified 2026-08-12). It is
+// JSON in claude's live claudeAiOauth shape (probe-verified). It is
 // JSON, not a bare marker, because claude's credential projector PARSES it to
 // strip the refresh token — a bare marker would fail that parse loud, which is
 // the projector's correct posture (an unparseable credential cannot be proven

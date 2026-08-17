@@ -43,7 +43,7 @@ import (
 //
 // cwd and workdir deliberately play no part: the container mounts the project
 // at the SAME absolute path by design, so both are byte-identical across the
-// two legs (measured 2026-08-06) and would make a vacuous assertion.
+// two legs (measured) and would make a vacuous assertion.
 type j002400Record struct {
 	Hostname string
 	Markers  string

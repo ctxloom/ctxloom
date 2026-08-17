@@ -1,7 +1,7 @@
 //go:build acceptance
 
-// Agent Skill journeys (skill.feature): the true SKILL.md package surface
-// (Part B, skill-command-split.plan.md), distinct from the renamed slash
+// Agent Skill journeys (skill.feature): the true SKILL.md package surface,
+// distinct from the renamed slash
 // "command" surface command.feature already covers. Every scenario here
 // drives the real `ctxloom skill` CLI and asserts real, on-disk payload
 // (bundle.yaml manifest bytes, materialized files with their POSIX modes,
@@ -235,8 +235,7 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 			w.docStepMaterialized = fmt.Sprintf(".ctxloom/content/bundles/%s/bundle.yaml -> skills.%s.files\n%s",
 				bundle, name, strings.Join(evidence, "\n"))
 			// scripts/ entries are executables — the mode's exec bit is
-			// load-bearing (skill-command-split.plan.md §3.1) and must be
-			// recorded, not merely present.
+			// load-bearing and must be recorded, not merely present.
 			if skill.Files[scriptPath].Mode != "0755" {
 				return fmt.Errorf("skills.%s.files[%q].mode = %q, want \"0755\"", name, scriptPath, skill.Files[scriptPath].Mode)
 			}

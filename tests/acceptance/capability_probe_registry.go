@@ -32,9 +32,9 @@
 // RED-MAPPED CELLS ARE CELLS, NOT ABSENCES. A cell expected to fail records its
 // EXPECTED failure shape, so a sweep can DIFF shapes rather than count failures
 // — a red cell that starts failing a new way is signal, and a counter cannot see
-// it. The container rows were the worked example: added red under the 2026-08-12
-// ruling because containerized delegation had never been demonstrably correct,
-// then flipped to live-verified on 2026-08-13 once container auth keying landed
+// it. The container rows were the worked example: added red under the ruling
+// because containerized delegation had never been demonstrably correct,
+// then flipped to live-verified once container auth keying landed
 // and all eight were run. Two red maps stand today, and both are product
 // findings rather than expectations: P0's kiro host/none (ANSI decoration leaking
 // into a non-interactive capture) and P1's claude-code hook cell (the hook
@@ -296,9 +296,8 @@ var probeRegistry = []probeSpec{
 		Cells: []probeCell{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "system-prompt",
 				Status: probeLiveVerified, Reason: "agent.ApproachSystemPrompt (--append-system-prompt-file) is claude-only, and no test had ever selected it live. Measured 2026-08-13: 1 scenario / 3 steps green in 5.3s, harp \"fond-ugly-cycle\" echoed back exactly, no degrade warning. SIDE-CHANNEL-CONTROLLED, by the only two arguments available: the DELIVERY writes out of cwd (claude's system-prompt realization is the ladder's one context delivery that puts no nonce bytes in the workspace — TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace), and the workspace-search channel that remains — the fixture's own bundle YAML in the project tree — is ruled out by the NEGATIVE CONTROL sitting next to it: the claude hook cell has that identical tree, identical tools and identical prompt, and comes back with no nonce. An engine that was reading the fixture off disk would have passed both. Inventory row 4 moves from claimed to proven."},
-			// FIXED 2026-08-16 — was THE ONE RED IN P1, a PRODUCT FINDING. See the
-			// long note below the table for the full history (RE-ATTRIBUTED
-			// 2026-08-13, then FIXED/RESOLVED 2026-08-16): claude's hook context
+			// FIXED — was THE ONE RED IN P1, a PRODUCT FINDING. See the
+			// long note below the table for the full history: claude's hook context
 			// route delivered nothing because agent.LaunchBackend.deliverSet's
 			// SharedCell loop never installed the SessionStart injection hook on
 			// a successful (nil-error) noop context write — only on a write
@@ -310,9 +309,9 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-08-16 after the deliverSet fix landed: 1 scenario / 3 steps green, nonce harp \"obese-hilly-gusto\" echoed back exactly, no degrade warning. MUTATION-CONFIRMED: reverting the fix reproduces the exact pre-fix shape live — CONTEXT-DELIVERY failure, well-formed JSON carrying none of a freshly minted nonce (\"aloof-dire-reach\") — and restoring it goes green again. Doubles as the negative control for the system-prompt cell's side channel."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "unsafe-file-shared",
 				Status: probeLiveVerified, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion, and the worktree axis is where that matters. Measured 2026-08-13: 1 scenario / 3 steps green in 5.5s, harp \"snug-void-rebel\", no degrade warning. CLAUDE.md into an isolated checkout delivers."},
-			// RETRACTED 2026-08-13, same day, after S4's hook-firing probe
+			// RETRACTED after S4's hook-firing probe
 			// forced a re-adjudication. This cell WAS recorded live-verified
-			// with "the 2026-07-14 finding is fixed". It was not fixed; the cell
+			// with "the codex hook finding is fixed". It was not fixed; the cell
 			// never touched the hook. See the retraction note below the table.
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "hook",
 				Status: probeDeferred, Reason: "NO SELECTABLE CONFIGURATION ISOLATES CODEX'S HOOK CONTEXT CHANNEL, so an attributing cell cannot be built here yet — deferred rather than left standing as a green that measures something else. Two independent reasons, both pinned hermetically in capability_context_channels_test.go: (1) codex's Surfaces.SurfaceFor resolves (context, Hook) to a COMPOSED delivery that also writes the native AGENTS.md, which codex reads by itself with no hook involved (TestCodexHookApproach_AlsoWritesAGENTSMD); (2) on this fixture ctxloom writes codex no hook AT ALL — it warns \"codex hooks and MCP servers were NOT written ... no durable project home exists — see config_home\" — so the channel is absent from the session entirely. An attributing cell needs a binding with `config_home: project` (so a hook is written), plus S4's stamp-file discipline (so hook EXECUTION is observed rather than inferred), plus a way to suppress the AGENTS.md leg. approachRequiredSurfaceDelivered now reds any hook cell whose hook was not written, so this cannot silently come back."},
@@ -344,7 +343,7 @@ var probeRegistry = []probeSpec{
 		Channel:      channelMCPToolResult,
 		Feature:      "capability_mcp_round_trip.feature",
 		Paid:         true,
-		// ALL FOUR CELLS WERE RUN, 2026-08-13, one at a time on this box, against
+		// ALL FOUR CELLS WERE RUN, one at a time on this box, against
 		// real engines on real subscriptions. Three went green and one went red,
 		// and the red is the interesting one — see kiro below.
 		//
@@ -552,11 +551,11 @@ var probeRegistry = []probeSpec{
 // The two evidenced exceptions are written out rather than generated, because
 // they carry MEASURED findings and a generated row cannot hold one.
 func p0Cells() []probeCell {
-	// THE CONTAINER ROWS ARE NO LONGER RED-MAPPED. The 2026-08-12 ruling put
+	// THE CONTAINER ROWS ARE NO LONGER RED-MAPPED. The ruling put
 	// them here red on purpose — containerized delegation had never been
 	// demonstrably correct, and the map of which cells failed and how was the
-	// measure of the container-auth work. That work landed at this base
-	// (303881ee, "container auth keys on the engine"), and the coordinator then
+	// measure of the container-auth work. That work landed ("container auth
+	// keys on the engine"), and the coordinator then
 	// ran all eight container cells serially: claude-code, codex and opencode
 	// went GREEN on both container axes against real engines through the
 	// real-home read-write credential mount; kiro's two gated, loudly, on its
@@ -608,8 +607,8 @@ func p0Cells() []probeCell {
 		})
 	}
 
-	// kiro host/none: RED, and the finding is NOT about the model. Measured
-	// 2026-08-13: kiro produced the requested object byte-perfectly and ctxloom
+	// kiro host/none: RED, and the finding is NOT about the model. Measured:
+	// kiro produced the requested object byte-perfectly and ctxloom
 	// handed it back wrapped in TERMINAL DECORATION (an ANSI colour sequence
 	// and an interactive "> " prompt marker), so a one-shot kiro run's stdout is
 	// not machine-readable. That is a ctxloom-side channel defect, not an engine
@@ -619,7 +618,7 @@ func p0Cells() []probeCell {
 		c.ExpectedFailureNote = "measured 2026-08-13: stdout was \\x1b[38;5;141m> \\x1b[0m{\"hello\":\"...\"}\\x1b[0m — the interactive prompt echo leaking into a non-interactive capture. DO NOT fix by stripping ANSI in the assertion: the contract under test is \"stdout IS the JSON\", and a matcher that launders the stream would report success here while every real consumer still breaks."
 	})
 	// opencode host/worktree: passes, but FLAKY, recorded rather than smoothed
-	// over — two consecutive attempts 2026-08-13, first failed, second passed.
+	// over — two consecutive attempts, first failed, second passed.
 	setCell(cells, "opencode", "host", "worktree", func(c *probeCell) {
 		c.Status = probeLiveVerified
 		c.Reason = "measured 2026-08-13 (with the PRE-HARP hex nonce — see the note below): green in 100s on the second of two consecutive attempts. The failing attempt dialled 127.0.0.1:1 — a placeholder reach-back address, not a live one (same family as the standup-death silence fixed at 2725325e). If this cell reds in a lane, check the dial address before blaming the engine."
@@ -632,17 +631,17 @@ func p0Cells() []probeCell {
 
 	// claude-code host/worktree: never individually annotated before — the
 	// generated row above carried Status probeWired and no Reason of its own.
-	// Measured 2026-08-16 on the subscription lane, same sweep as host/none.
+	// Measured on the subscription lane, same sweep as host/none.
 	setCell(cells, "claude-code", "host", "worktree", func(c *probeCell) {
 		c.Status = probeLiveVerified
 		c.Reason = "measured 2026-08-16 on the subscription lane, part of the same four-cell claude sweep as host/none (run right after the matrix narrowed to claude-only active rows): `just engine-matrix claude-code host worktree` passed in ~5.5s."
 	})
 
-	// claude-code's two container cells already carry the 2026-08-13
+	// claude-code's two container cells already carry the
 	// coordinator-chain evidence (containerEvidence, above), which codex and
 	// opencode's container cells share verbatim. Append claude's own
-	// 2026-08-16 re-verification here rather than edit the shared constant,
-	// since codex and opencode were not re-run on 2026-08-16 and their
+	// re-verification here rather than edit the shared constant,
+	// since codex and opencode were not re-run at the same time and their
 	// existing evidence must not be touched.
 	setCell(cells, "claude-code", "container", "none", func(c *probeCell) {
 		c.Reason += " RE-VERIFIED 2026-08-16 on the subscription lane, part of the same four-cell claude sweep: passed in 57s including the image build."
@@ -662,7 +661,7 @@ func p0Cells() []probeCell {
 // matter" is not a measurement, and this table's discipline is that a green
 // claim names what was actually observed.
 //
-// So it was measured: claude-code host/none, on this branch, 2026-08-13. The
+// So it was measured: claude-code host/none, on this branch. The
 // cell ran (1 scenario, 3 steps, no skip), the harp reached the engine through
 // composed context, and the engine echoed it back exactly. That closes the
 // question for the delivery path every probe in the ladder shares.
@@ -673,10 +672,10 @@ func p0Cells() []probeCell {
 // a CONTEXT-DELIVERY failure while the engine is plainly healthy, the nonce is
 // still the first thing to rule out, and matrixBundleYAML is where to look.
 
-// RETRACTION, 2026-08-13: P1's CODEX HOOK FINDING WAS WRONG, AND THE WAY IT WAS
+// RETRACTION: P1's CODEX HOOK FINDING WAS WRONG, AND THE WAY IT WAS
 // WRONG IS THE MOST USEFUL THING THIS PROBE HAS PRODUCED.
 //
-// P1 first recorded, against the codex hook cell: "THE 2026-07-14 FINDING IS
+// P1 first recorded, against the codex hook cell: "THE CODEX HOOK FINDING IS
 // FIXED, and this cell is the measurement that says so." The cell was green, the
 // pin validated, no degrade warning. Every word of the evidence was true and the
 // conclusion did not follow. S4's hook-firing probe forced the re-check by
@@ -702,7 +701,7 @@ func p0Cells() []probeCell {
 //     anything to the hook.
 //  2. On this fixture no codex hook is written at all.
 //
-// So the 2026-07-14 fragment-drop finding is REOPENED. It was never re-measured;
+// So the fragment-drop finding is REOPENED. It was never re-measured;
 // a different channel answered and the answer was credited to the wrong one. The
 // cell is deferred with what an attributing version would require.
 //
@@ -726,7 +725,7 @@ func p0Cells() []probeCell {
 // stronger claim than they can support, and P0's header currently makes it.
 // Recorded here for S9/S11 rather than edited into P0's file mid-wave.
 //
-// P1's SURVIVING FINDING, 2026-08-13: CLAUDE'S HOOK CONTEXT APPROACH IS AN EMPTY
+// P1's SURVIVING FINDING: CLAUDE'S HOOK CONTEXT APPROACH IS AN EMPTY
 // DELIVERY — AND THE MINTED-HARP RULING IS WHAT CAUGHT IT.
 //
 // The cell is claude-code host/none at agent.ApproachHook: the agent binding
@@ -767,7 +766,7 @@ func p0Cells() []probeCell {
 // harp, this cell would have gone green. It would have reported that claude's
 // hook route delivers context, on the strength of the engine reading a value the
 // hook never carried. That is precisely the ambient-channel false green the
-// 2026-08-12 minted-harp ruling was made to rule out (probe_assert.go's header
+// minted-harp ruling was made to rule out (probe_assert.go's header
 // argues it a priori; this is the measurement). The ruling has now paid for
 // itself once, on the second probe to use it.
 //
@@ -775,7 +774,7 @@ func p0Cells() []probeCell {
 // run whose context arrived some other way: this cell's whole subject is
 // which way.
 //
-// RESOLVED 2026-08-16. Root cause, read from production rather than guessed:
+// RESOLVED. Root cause, read from production rather than guessed:
 // agent.LaunchBackend.deliverSet's SharedCell delivery loop only installed the
 // SessionStart injection hook (recoverContextViaHook) when a surface's write
 // returned a non-nil error. claude's ApproachHook context surface
@@ -786,7 +785,7 @@ func p0Cells() []probeCell {
 // factoring the hash-materialize-and-append-hook logic into
 // installContextInjectionHook and calling it from deliverSet whenever a
 // SharedCell resolves SurfaceContext at ApproachHook, mirroring the existing
-// failure-triggered fallback. Measured 2026-08-16: green with nonce harp
+// failure-triggered fallback. Measured: green with nonce harp
 // "obese-hilly-gusto" echoed exactly; mutation-confirmed by reverting the fix
 // and reproducing the identical CONTEXT-DELIVERY shape live (nonce
 // "aloof-dire-reach", well-formed JSON, no trace of it) before restoring it.
@@ -866,7 +865,7 @@ func p4Cells() []probeCell {
 	}
 
 	// THE CLAUDE-CODE PAIR HAS BEEN RUN, AS A PAIR, AND THAT IS THE ONLY WAY IT
-	// COUNTS. Verified 2026-08-13 on this branch: `just plan-sentinel
+	// COUNTS. Verified on this branch: `just plan-sentinel
 	// claude-code pair`, 2 scenarios / 6 steps passed, no skip, control 12.9s
 	// then plan 8.1s in one process — so the plan cell read a control record
 	// rather than printing its PROVISIONAL note, which is itself the observable

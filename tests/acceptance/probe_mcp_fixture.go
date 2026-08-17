@@ -44,7 +44,7 @@
 // the tool NAME and never the returned value, so the log itself can never become
 // a second channel to the nonce.
 //
-// THAT CLAIM WAS MUTATION-TESTED, hermetically and live, 2026-08-13. Live: the
+// THAT CLAIM WAS MUTATION-TESTED, hermetically and live. Live: the
 // harp was planted in composed context, the MCP registration was removed so the
 // server could not start, and the workspace leak guard was disabled so the
 // assertion would actually be reached. The claude-code cell RED, on the tool
@@ -396,7 +396,7 @@ type mcpProbeRun struct {
 // channel deliver, is it the right object. P2 puts THE TOOL PATH ahead of form,
 // and the reason is measured rather than aesthetic.
 //
-// Run against kiro on 2026-08-13, the floor's order reported an OUTPUT-FORMAT
+// Run against kiro, the floor's order reported an OUTPUT-FORMAT
 // failure — kiro's already-known ANSI-decoration defect, which P0's own kiro
 // host/none row exists to carry — and the interesting finding was underneath it,
 // visible only because the raw stdout happened to be printed: the model had

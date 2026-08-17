@@ -303,7 +303,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	// A directory profile carrying deny_tools, written directly (no CLI surface
 	// sets deny_tools at creation time). This is the launch-flow's T2 regression
 	// fixture: deny_tools/skills were silently dropped crossing
-	// internal/lm/grpc's proto wire (fixed at 40b49a7f/48eedc61), and this step
+	// internal/lm/grpc's proto wire, and this step
 	// plus "the mock recorded input contains" is what lets a scenario prove the
 	// field survives ctxloom run end to end, not just the unit-level proto
 	// round-trip.

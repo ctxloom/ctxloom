@@ -42,7 +42,7 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// without reproducing one. Written straight to the harp's own persist dir
 	// — no session-index entry. The scenario calls recover_session with
 	// session_id SET TO THE HARP ITSELF: CanonicalFallbackSource.GetSession
-	// tries id-as-harp FIRST (early-crane), so this resolves directly and, on
+	// tries id-as-harp FIRST, so this resolves directly and, on
 	// the save side, agent.Session.ID ends up equal to the harp too — keeping
 	// the essence's save path (session.ID-keyed) and this handler's later
 	// read-back path (the ORIGINAL sessionID argument) the SAME string.

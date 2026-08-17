@@ -50,7 +50,7 @@
 //
 // It is worth being precise about how much that costs, because it is less than
 // it sounds: for codex the mechanisms are genuinely separable by OUTCOME. Its
-// hook route is the one the 2026-07-14 finding indicts (profile fragments
+// hook route is the one the codex hook finding indicts (profile fragments
 // dropped from the cache file the hook actually reads, recorded on
 // liveAgents["codex"]), and its AGENTS.md route is not. If that defect is still
 // live, the hook cell reds with a CONTEXT-DELIVERY failure while the unsafe-file
@@ -205,7 +205,7 @@ var approachDegradeMarkers = []approachDegradeMarker{
 // production announced that it did NOT write the hook surface.
 //
 // THIS CHECK EXISTS BECAUSE ITS ABSENCE COST A FALSE FINDING. P1's first live
-// pass recorded "the 2026-07-14 codex hook finding is fixed" on the strength of
+// pass recorded "the codex hook finding is fixed" on the strength of
 // a green hook-pinned codex cell. The run's own stderr — captured, saved, and
 // not read — said:
 //

@@ -137,7 +137,7 @@ func probeCellDecide(status engineStatus) (report, skip string) {
 // cost is stated plainly: a cell writes session state under the real ~/.ctxloom
 // and lets the engine refresh its own credential in place, which is precisely
 // what a real run does and precisely what makes claude's rotating token safe
-// here (merge 07072acf: the container credential mount shares the real store
+// here (the container credential mount shares the real store
 // read-write, so a refresh lands in the live chain rather than dying in a copy).
 //
 // The fake entries are REMOVED before the real ones are appended, never merely

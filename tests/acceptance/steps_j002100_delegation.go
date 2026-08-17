@@ -292,7 +292,7 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			return w.env.WriteFile(".ctxloom/config.yaml", j002100RenderConfig(j002100))
 		})
 
-	// --- The "nobody ever decided" fixture (wiry-judge) ---------------------
+	// --- The "nobody ever decided" fixture ---------------------
 	//
 	// A THIRD agent, added on top of the Background's two, whose escalation
 	// ladder is ONE relay_to_role rung with a short timeout and nothing

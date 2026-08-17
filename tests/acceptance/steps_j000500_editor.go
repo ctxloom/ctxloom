@@ -17,7 +17,7 @@
 //   - `acp list` must emit agent blocks that are genuinely pasteable, which
 //     means real JSON naming a real binary, not a prose description of one;
 //   - a flag a command ACCEPTS and then DISCARDS is worse than one it rejects,
-//     because the user's intent silently evaporates (task broken-sage);
+//     because the user's intent silently evaporates;
 //   - the differentiator's hole: an agent onboarded as bare ACP config
 //     inherits none of the materialized context, hooks or history that make
 //     ctxloom worth using, and nothing says so.
@@ -127,7 +127,7 @@ func registerJ000500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^ctxloom refuses rather than accepting flags it will discard$`, func(c context.Context) error {
 		w := worldFrom(c)
 		out := w.env.LastOutput()
-		// FILED (task broken-sage): the bare `ctxloom acp` parent registers
+		// FILED: the bare `ctxloom acp` parent registers
 		// --agent/--llm/--profile/--workspace and then does nothing with them.
 		// A flag that is REJECTED teaches the user their command was wrong; a
 		// flag that is ACCEPTED and ignored teaches them it was right. Dana

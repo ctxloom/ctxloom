@@ -218,8 +218,9 @@ so it's fine to point it out again on a later reconfigure too.
 ## Phase 4 — Agents
 
 Bind **ctxloom agents** — named, LOCAL bindings of an **engine** (LLM
-backend/model) to one or more **profiles**, optionally a **runtime**
-(host | container) — right after phase 3, same conversation. `ctxloom run
+backend/model) to one or more **profiles** and a **runtime**
+(host | container-rootless | container-rootful) — right after phase 3, same
+conversation. `ctxloom run
 --agent <name>` drives one directly; a running coordinator fans work across
 several by spawning them as children with the `agent_run` MCP tool. Agents
 live only in this project's `.ctxloom` — never shipped in bundles or
@@ -227,6 +228,14 @@ remotes; engine choice is always the user's, you facilitate. (Workspace
 isolation is a separate, per-invocation choice — `--workspace worktree` on
 `run`/`acp`, or the `workspace` field on an `agent_run` spawn — not an agent
 property.) Work this the same shape as phase 3: **SCAN → DISCUSS → SET**.
+
+**The runtime is asked per agent, and never assumed.** There is no container
+default and no host default: an agent created without `--runtime` inherits the
+project's `runtime:` key, and an inherited value is a default rather than a
+decision — exactly what the isolation guidance tells every agent not to rely
+on. So every agent you create in this interview carries an axis its author
+picked, out loud, at the moment it was created. See 4b-runtime below for the
+question; ask it for every agent, including the ones in 4d.
 
 ### 4a. Scan
 
@@ -238,13 +247,28 @@ bundle declares tooling needs, `ctxloom container tooling` shows the proposed
 Containerfile diff — apply only what's approved, then `ctxloom container
 build`.
 
+Two DIFFERENT things gate a container runtime, and you need both before you
+can ask 4b-runtime honestly:
+
+- **Is a container runtime reachable on this machine at all?** `ctxloom
+  container check`. If not, containers are unavailable here for every engine
+  — say so, and don't offer them.
+- **Can THIS engine authenticate inside a container?** Per engine, and not
+  every engine can: `ctxloom llm list` reports a `runtimes:` line per label
+  with exactly the values that engine may be given, plus a `no container
+  runtime:` line saying why when the container axes are absent. Read it; do
+  not carry your own list of "engines that support containers" and do not
+  guess from the engine's name. An engine with no container auth is REFUSED
+  by `agent create --runtime container-rootless` at write time, so offering
+  it would just collect a choice the next command throws away.
+
 ### 4b. Discuss
 
 Lead with the standard trio, bound to the phase-3 profiles:
 - **coordinator** — the session the user drives, delegating to children via
   `agent_run`. Most powerful engine.
 - **developer** — the implementer the coordinator delegates to. Powerful
-  engine, `--runtime container`, plus an escalation-discipline fragment
+  engine, plus an escalation-discipline fragment
   (ctxloom-default ships `agent-roles#fragments/developer-escalation`, or
   author an equivalent) so structural/interface changes get escalated back
   up rather than decided alone.
@@ -269,18 +293,79 @@ proposes one big do-everything agent. As a rule of thumb: cheap engine →
 finders and breadth review; powerful → coordinator/developers; per-lens →
 code review (often cheaper than the developer).
 
+### 4b-runtime. Ask each agent's runtime, one agent at a time
+
+For EVERY agent you are about to create — the trio, the review ensemble, the
+open palette, and 4d's distiller and triage alike — ask where its engine
+process runs, and wait for an answer. Ask it as its own question, per agent,
+right where that agent is being decided: "same as the last one?" is fine as
+the user's ANSWER and never as your assumption.
+
+Name the agent, then ask this (your own voice, but keep every consequence
+below — each names a real cost the user cannot re-derive later):
+
+> Where should **<name>**'s engine process run?
+>
+> 1. **host** — runs directly on your machine, as you, with your logins, your
+>    PATH and your installed tools. Nothing to build, everything works
+>    immediately. It is **not an isolation boundary**: this agent can read
+>    anything you can, including your credentials and other agents' state, so
+>    "it only has the files it needs" is not true on host.
+> 2. **container-rootless** — runs inside a container owned by your own user
+>    account. A real boundary: the agent sees the workspace and what the image
+>    ships, and not your host. The costs are real too — it needs an image
+>    built for its engine (`ctxloom container build`), and tools you installed
+>    on the host are simply not in there unless the image carries them, so a
+>    container agent can fail at a command that works fine in your shell.
+> 3. **container-rootful** — the same boundary, on a root-owned container
+>    daemon. Pick this only if that is the container runtime you actually
+>    have; otherwise prefer rootless.
+>
+> There is no default here — I write down whichever you pick.
+
+Rules for asking it:
+
+- **Offer 2 and 3 only when they are really available for THAT agent's
+  engine**, per 4a: a reachable container runtime on this machine, AND that
+  engine's `runtimes:` line in `ctxloom llm list` listing them.
+- **When you cannot offer them, say why — do not quietly present a shorter
+  menu.** Give the reason back in the user's terms: "this engine has no way
+  to authenticate inside a container, so ctxloom would refuse a containerized
+  binding for it" (the `no container runtime:` line from `ctxloom llm list`
+  is that reason, verbatim enough to quote), or "no container runtime is
+  reachable on this machine at all". A user who is never told why a boundary
+  was unavailable will assume ctxloom chose not to offer one.
+- **Record the answer explicitly**: pass `--runtime <chosen>` on the `agent
+  create` for that agent, every time, including when the answer is `host`.
+  Never leave it off to "inherit the project default".
+- The common shape, offered as a suggestion and not applied for them: the
+  **coordinator** on `host` — it is the session the user drives and it needs
+  their own environment — and every agent it delegates to on
+  **container-rootless**, because those are the ones running work nobody is
+  watching. Say it, then still ask.
+- If a user declines to choose for a particular agent, don't invent one: skip
+  creating that agent and say it's skipped, or ask again with the trade-off
+  restated. An agent nobody chose a runtime for is the thing this question
+  exists to prevent.
+
 ### 4c. Set
 
 Write what's agreed:
 
 ```
-ctxloom agent create <name> --engine <engine> --profiles <p1,p2,...> --runtime host|container
+ctxloom agent create <name> --engine <engine> --profiles <p1,p2,...> --runtime host|container-rootless|container-rootful
 ```
 
+`--runtime` is not optional in this interview: pass the value 4b-runtime
+collected for THAT agent, even when it is `host`. Omitting it writes no
+runtime key, which leaves the agent inheriting a project default nobody chose
+for it.
+
 (`ctxloom agent create --help` has the full flag list.) Worth knowing beyond
-the syntax: `--profiles` composes several into one context; `--runtime
-container` needs a reachable container runtime, else fall back to host and
-say why; change an existing one with `agent edit <name>`, drop one with
+the syntax: `--profiles` composes several into one context; a
+`--runtime container-*` value needs both a reachable container runtime and an
+engine that can authenticate inside one, else fall back to host and say why;
+change an existing one with `agent edit <name>`, drop one with
 `agent remove <name> --yes`. Confirm
 with `ctxloom agent list`, then tell the user how to use what they built
 (`ctxloom run --agent coordinator`, which fans the review ensemble out via
@@ -298,9 +383,11 @@ anything above, and the two that matter are:
 
 - `--engine` — these run often and on cheap work, so a small fast model is
   usually right; the user chooses, you explain the trade-off.
-- `--runtime` — they honour the runtime axis like any agent. Say so plainly:
-  if the user containerises their work agents and leaves these on the host,
-  ctxloom's own calls run on the host.
+- `--runtime` — they honour the runtime axis like any agent, so ask 4b-runtime
+  for each of them too rather than copying what the developer got. Say the
+  consequence plainly: if the user containerises their work agents and leaves
+  these on the host, ctxloom's OWN LLM calls — over session transcripts and
+  bundle content — run on the host with no boundary.
 
 Their `--profiles` are a real choice, not a formality. Behavioural guidance
 (write tests first, use this linter) is noise to a summariser and can distort

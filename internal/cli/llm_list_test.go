@@ -12,7 +12,7 @@ import (
 )
 
 func TestLLMListEntries_MarksDefaultLabel(t *testing.T) {
-	entries := llmListEntries([]string{"antigravity", "claude-code", "codex"}, "claude-code", nil)
+	entries := llmListEntries([]string{"antigravity", "claude-code", "codex"}, "claude-code", nil, nil)
 
 	assert.Equal(t, []llmEntry{
 		{Label: "antigravity"},
@@ -23,7 +23,7 @@ func TestLLMListEntries_MarksDefaultLabel(t *testing.T) {
 
 func TestLLMListEntries_NoDefaultWhenLabelEmpty(t *testing.T) {
 	// Config-unavailable degradation: names enumerate, nothing is default.
-	entries := llmListEntries([]string{"claude-code", "codex"}, "", nil)
+	entries := llmListEntries([]string{"claude-code", "codex"}, "", nil, nil)
 
 	for _, e := range entries {
 		assert.False(t, e.Default, "no entry should be default without a primary label")
@@ -40,9 +40,9 @@ func TestLLMListEntries_MarksAuthoredFromPredicate(t *testing.T) {
 	assert.Equal(t, []llmEntry{
 		{Label: "codex"},
 		{Label: "mine", Default: true, Authored: true},
-	}, llmListEntries([]string{"codex", "mine"}, "mine", authored))
+	}, llmListEntries([]string{"codex", "mine"}, "mine", authored, nil))
 
-	for _, e := range llmListEntries([]string{"codex", "mine"}, "mine", nil) {
+	for _, e := range llmListEntries([]string{"codex", "mine"}, "mine", nil, nil) {
 		assert.False(t, e.Authored, "%s: a nil predicate authors nothing", e.Label)
 	}
 }
@@ -127,7 +127,7 @@ func TestRunLLMList_WholeRegistryFallbackIsNeverAuthored(t *testing.T) {
 // misreading this listing was added to prevent, and worst exactly when the
 // config is broken and the reader is already trying to work out what is real.
 func TestLLMList_DegradedConfigAuthorsNothing(t *testing.T) {
-	entries := llmListEntries([]string{"claude-code", "codex"}, "", noneAuthored)
+	entries := llmListEntries([]string{"claude-code", "codex"}, "", noneAuthored, nil)
 
 	require.Len(t, entries, 2, "the built-in names still list")
 	for _, e := range entries {

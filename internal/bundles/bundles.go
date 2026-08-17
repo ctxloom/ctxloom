@@ -18,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -987,9 +988,20 @@ func ParseBundle(data []byte) (*Bundle, error) {
 		return nil, err
 	}
 
+	// STRICT: a key the Bundle schema does not model is refused, not dropped.
+	// The default unmarshal ignored it, so `hoooks:` or `promts:` loaded
+	// clean and shipped a bundle quietly missing whatever its author wrote
+	// under that key — this codebase's characteristic bug (exit 0, success
+	// message, nothing happened). strictDecodeError names the key, where it
+	// sat, and what it probably meant; the FILE comes from the caller's wrap.
+	//
+	// This runs AFTER bundleUpgrades above, and the order is load-bearing: an
+	// older bundle's legacy `prompts:` key is migrated to `commands:` first,
+	// so strictness refuses only keys that are wrong TODAY and never keys a
+	// past schema generation made legal.
 	var bundle Bundle
-	if err := yaml.Unmarshal(data, &bundle); err != nil {
-		return nil, fmt.Errorf("invalid bundle YAML: %w", err)
+	if err := yamlx.DecodeStrict(data, &bundle); err != nil {
+		return nil, strictDecodeError(err)
 	}
 
 	// Initialize maps if nil

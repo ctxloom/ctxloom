@@ -10,6 +10,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/keymatch"
 )
 
 // The config schema is authored with additionalProperties:false at every level,
@@ -201,7 +202,7 @@ func unknownKeyMessage(configPath, instanceLocation, key string, validator *sche
 	// the same schemaChild walk); KnownKeys is its enumeration counterpart,
 	// unioning across every branch instead of stopping at the first match.
 	known := validator.KnownKeys(sectionSegments(section))
-	if suggestion := nearestKey(key, known); suggestion != "" {
+	if suggestion := keymatch.Nearest(key, known); suggestion != "" {
 		fmt.Fprintf(&b, " — did you mean `%s`?", suggestion)
 	}
 	if len(known) > 0 {
@@ -230,48 +231,7 @@ func dottedPath(instanceLocation string) string {
 	return strings.Join(parts, ".")
 }
 
-// nearestKey returns the known key closest to the offending one, when it is
-// close enough to be a plausible typo (edit distance ≤ 2, and never more than a
-// third of the key's length — so `sync` doesn't "suggest" `ui`). Empty when
-// nothing is near.
-func nearestKey(key string, known []string) string {
-	best, bestDist := "", 1<<30
-	budget := len(key) / 3
-	if budget > 2 {
-		budget = 2
-	}
-	if budget < 1 {
-		budget = 1
-	}
-	for _, k := range known {
-		if d := editDistance(key, k); d < bestDist {
-			best, bestDist = k, d
-		}
-	}
-	if bestDist > budget {
-		return ""
-	}
-	return best
-}
-
-// editDistance is the Levenshtein distance between a and b (two-row DP).
-func editDistance(a, b string) int {
-	ar, br := []rune(a), []rune(b)
-	prev := make([]int, len(br)+1)
-	curr := make([]int, len(br)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(ar); i++ {
-		curr[0] = i
-		for j := 1; j <= len(br); j++ {
-			cost := 1
-			if ar[i-1] == br[j-1] {
-				cost = 0
-			}
-			curr[j] = min(min(curr[j-1]+1, prev[j]+1), prev[j-1]+cost)
-		}
-		prev, curr = curr, prev
-	}
-	return prev[len(br)]
-}
+// The did-you-mean calibration this file used to carry (nearestKey +
+// editDistance) now lives in internal/shared/keymatch, because the bundle
+// loader's strict YAML decode asks the same question of the same kind of
+// mistake and the two answers must be identical.

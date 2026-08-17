@@ -261,7 +261,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "skilled.yaml"),
 		[]byte("name: skilled\nbundles:\n  - skill-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "skill-bundle", "bundle.yaml"),
-		[]byte("name: skill-bundle\nversion: \"1.0\"\nskills:\n  humanize:\n"), 0644))
+		[]byte("version: \"1.0\"\nskills:\n  humanize:\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: humanize\ndescription: Removes AI writing tells.\n---\n\nInstructions body.\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"),
@@ -319,7 +319,7 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), skillMD, 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"), script, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "skill-bundle", "bundle.yaml"),
-		[]byte("name: skill-bundle\nversion: \"1.0\"\nskills:\n  reviewer:\n    files:\n"+
+		[]byte("version: \"1.0\"\nskills:\n  reviewer:\n    files:\n"+
 			"      SKILL.md:\n        sha256: "+sha256Of(skillMD)+"\n        mode: \"0644\"\n"+
 			"      scripts/run.sh:\n        sha256: "+sha256Of(script)+"\n        mode: \"0755\"\n"), 0644))
 

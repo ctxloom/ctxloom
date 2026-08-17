@@ -40,7 +40,7 @@ func newRefusal(t *testing.T) refusal {
 	_, err := LockDependencies(ctx, r.cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
 	require.NoError(t, err)
 
-	r.proposed = addFileToLocalRepo(t, r.src, ".ctxloom/content/bundles/demo.yaml", "name: demo\nversion: \"2.0.0\"\n")
+	r.proposed = addFileToLocalRepo(t, r.src, ".ctxloom/content/bundles/demo.yaml", "version: \"2.0.0\"\n")
 	require.NotEqual(t, r.kept, r.proposed)
 
 	res, err := UpgradeDependencies(ctx, r.cfg)
@@ -87,7 +87,7 @@ func TestRefusals_ASuccessfulAdvanceClearsTheRecord(t *testing.T) {
 
 	// Carol finally re-signs and republishes.
 	const bundlePath = ".ctxloom/content/bundles/demo.yaml"
-	body := "name: demo\nversion: \"3.0.0\"\n"
+	body := "version: \"3.0.0\"\n"
 	addFileToLocalRepo(t, r.src, bundlePath, body)
 	sig, err := signing.Sign([]byte(body), r.signer, signing.NamespacePublish)
 	require.NoError(t, err)

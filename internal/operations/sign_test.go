@@ -335,11 +335,11 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "gamma"), 0o755))
 	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "nested", "delta"), 0o755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "gamma", "bundle.yaml"),
-		[]byte("name: gamma\nversion: 0.1.0\n"), 0o644))
+		[]byte("version: 0.1.0\n"), 0o644))
 	// Nested directory-form bundle — the loader walks recursively, so --all
 	// must reach this too.
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "nested", "delta", "bundle.yaml"),
-		[]byte("name: delta\nversion: 0.1.0\n"), 0o644))
+		[]byte("version: 0.1.0\n"), 0o644))
 
 	names, err := ListLocalBundleNames(cfg, fs)
 	require.NoError(t, err)

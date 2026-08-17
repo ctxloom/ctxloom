@@ -29,7 +29,7 @@ func TestConfig_ResolveBundleSkills_FromDirectoryProfile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 		[]byte("name: dev\nbundles:\n  - skill-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "skill-bundle", "bundle.yaml"),
-		[]byte("name: skill-bundle\nversion: \"1.0\"\nskills:\n  humanize:\n    llm:\n      claude-code:\n        enabled: true\n"), 0644))
+		[]byte("version: \"1.0\"\nskills:\n  humanize:\n    llm:\n      claude-code:\n        enabled: true\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: humanize\ndescription: Removes AI writing tells.\n---\n\nInstructions.\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"),
@@ -70,7 +70,7 @@ func TestConfig_ResolveBundleSkills_ScopedToSelectedProfile(t *testing.T) {
 		dir := filepath.Join(bundlesDir, bundleName, "skills", skillName)
 		require.NoError(t, os.MkdirAll(dir, 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, bundleName, "bundle.yaml"),
-			[]byte("name: "+bundleName+"\nversion: \"1.0\"\nskills:\n  "+skillName+":\n"), 0644))
+			[]byte("version: \"1.0\"\nskills:\n  "+skillName+":\n"), 0644))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"),
 			[]byte("---\nname: "+skillName+"\ndescription: A skill.\n---\n\nBody.\n"), 0644))
 	}

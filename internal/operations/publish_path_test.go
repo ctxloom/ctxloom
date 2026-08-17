@@ -42,7 +42,7 @@ func writeDirFormBundleFixture(t *testing.T, cfg *config.Config, name string) st
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "greet"), 0o755))
 	manifest := filepath.Join(dir, "bundle.yaml")
 	require.NoError(t, os.WriteFile(manifest, []byte(
-		"version: 1.0.0\nskills:\n  greet:\n    description: say hello\n"), 0o644))
+		"version: 1.0.0\nskills:\n  greet:\n    notes: say hello\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "greet", "SKILL.md"),
 		[]byte("# greet\n\nSay hello.\n"), 0o644))
 	return manifest

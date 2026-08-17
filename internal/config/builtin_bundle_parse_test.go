@@ -35,7 +35,7 @@ import (
 // this row is about, shown rather than asserted: the canonical parser applies
 // the schema upgrade and the raw unmarshal silently drops the renamed key.
 func TestParseBundle_DivergesFromRawUnmarshalOnLegacySchema(t *testing.T) {
-	legacy := []byte(`name: legacy
+	legacy := []byte(`
 prompts:
   greet:
     content: hello

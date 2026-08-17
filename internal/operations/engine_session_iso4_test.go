@@ -95,7 +95,7 @@ func writeMinimalSkillBundle(t *testing.T, fs afero.Fs, appDir, bundleName, skil
 	t.Helper()
 	bundlesDir := paths.LocalBundlesPath(appDir)
 	bundleDir := bundlesDir + "/" + bundleName
-	bundleYAML := "name: " + bundleName + "\nversion: \"1.0\"\nskills:\n  " + skillName + ": {}\n"
+	bundleYAML := "version: \"1.0\"\nskills:\n  " + skillName + ": {}\n"
 	require.NoError(t, afero.WriteFile(fs, bundleDir+"/bundle.yaml", []byte(bundleYAML), 0644))
 	skillDir := bundleDir + "/skills/" + skillName
 	skillMD := "---\nname: " + skillName + "\ndescription: A test skill.\n---\n\n# " + skillName + "\n\nBody.\n"

@@ -87,10 +87,10 @@ func TaskloomBinary() (string, error) {
 // yank the binary out from under later scenarios.
 //
 // Without this the directory outlived the process forever, once per test
-// BINARY (not per test): 304 orphans / 8.5G of /tmp measured on this machine,
-// which took a 16G tmpfs to 90% and made `just test-acceptance` fail with
+// BINARY (not per test): the orphaned build directories accumulate in /tmp
+// until they exhaust disk space, and `just test-acceptance` fails with
 // "link: mapping output file failed: no space left on device" reported as a
-// container build defect. See task smashing-olive.
+// container build defect.
 //
 // Idempotent, and deliberately silent on failure: a suite that goes red
 // because it could not unlink a temp directory is worse than the leak. A

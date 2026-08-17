@@ -79,8 +79,8 @@ func editAfterSigning(t *testing.T, env *testenv.TestEnvironment) {
 
 // TestLocalBundle_NoSignature_Delivers is the baseline: unsigned local content
 // is delivered, with no trust warning. This is the state the ctxloom-project
-// bundle was deliberately reduced to (commit 2775db45) and is the regression
-// witness for the whole rule.
+// bundle was deliberately reduced to, and is the regression witness for the
+// whole rule.
 func TestLocalBundle_NoSignature_Delivers(t *testing.T) {
 	env, mockLM := setupLocalSigEnv(t)
 	require.False(t, env.FileExists(localSigBundlePath+".sig"), "precondition: no signature on disk")

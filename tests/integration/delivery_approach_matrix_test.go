@@ -551,7 +551,7 @@ func TestDeliveryApproach_UndeclaredApproachFailsTheBuilder(t *testing.T) {
 //   - selecting unsafe-file and delivering into a SHARED cwd now writes the
 //     NATIVE CLAUDE.md the caller actually asked for — honored, with the
 //     existing "unsafe: ... races concurrent agents" warning (the
-//     honor-with-warning fork DECIDED for U100-F05) — never silently upgraded
+//     honor-with-warning fork was the one chosen) — never silently upgraded
 //     to the scratch the caller did not name.
 //   - selecting system-prompt and delivering at rest is still refused outright
 //     (DeliverUnder has no argv sink; unaffected by this fix) — and the raw
@@ -608,9 +608,9 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 		// NATIVE file — a structural fact about SurfaceFor resolving the SAME
 		// dual-capable object unsafe-file resolves to (SurfaceFor decides WHICH
 		// object answers a pair, not what its well-known Deliver does). This is
-		// not the U100-F05 defect: the real out-of-cwd destination this pair
-		// promises is reached only through SharedRealization (DeliverIsolated),
-		// which this raw call never invokes.
+		// not the SharedRealization approach-keying defect described above: the
+		// real out-of-cwd destination this pair promises is reached only through
+		// SharedRealization (DeliverIsolated), which this raw call never invokes.
 		d, err := surfaces.SurfaceFor(agent.SurfaceContext, agent.ApproachSystemPrompt)
 		require.NoError(t, err)
 		_, err = d.Deliver("/raw")
@@ -626,7 +626,7 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 
 // TestDeliveryApproach_ClaudeSystemPromptScratchPlacement is the
 // scratch-placement-aware variant matrixSpecs' "elsewhere" entry for
-// claude-code/context/system-prompt promises (U100-F05 un-skip). Unlike every
+// claude-code/context/system-prompt promises, now un-skipped. Unlike every
 // other matrix cell, this pair's payload is not reached through
 // SurfaceFor(kind, approach).Deliver(root) — that resolves to the SAME
 // dual-capable contextSurface every context approach shares, whose well-known
@@ -635,7 +635,7 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 // half). The out-of-cwd scratch this approach promises is reached through
 // SharedRealization(context, system-prompt) — the exact call
 // agent.ResolvedSelection.deliverOneShared makes for a real shared-cwd
-// launch — which the pair-keyed re-key (U100-F05) makes trustworthy to assert
+// launch — which the pair-keyed re-key makes trustworthy to assert
 // on here: it fires ONLY for this pair, never for unsafe-file.
 func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -685,7 +685,7 @@ func (p scratchPlacement) Dir() string { return p.dir }
 // mechanism at all, so a profile's session_start hook is dropped. The delivery
 // report itself CANNOT show that — it lists what landed, and every one of its
 // lines is true — so the loss is read from the declaration instead, alongside
-// it (whiny-exclusive).
+// it.
 //
 // This test used to assert the opposite: that the drop happened with nothing
 // said about it, with an untag condition naming exactly this fix. The delivered

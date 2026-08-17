@@ -18,7 +18,7 @@ import (
 
 // A bundle that ships both an MCP server and a hook. The bug class under test
 // silently dropped a bundle's MCP server / hooks when the bundle was reachable
-// only through profile inheritance (spotty-unstirred-anatomist).
+// only through profile inheritance.
 const applyDemoBundleYAML = `name: demo
 version: "1.0"
 mcp:
@@ -111,7 +111,7 @@ func TestBundleApply_DirectProfile(t *testing.T) {
 
 // TestBundleApply_InheritedProfile: the demo bundle is referenced only by a
 // parent profile; the default ("child") merely inherits it. This is the
-// spotty-unstirred-anatomist regression driven end-to-end through ApplyHooks:
+// inherited-bundle-drop regression driven end-to-end through ApplyHooks:
 // before the fix, inherited bundles' MCP servers and hooks were silently dropped.
 func TestBundleApply_InheritedProfile(t *testing.T) {
 	mcpJSON, kiroMCPJSON, claudeJSON := applyHooksForProfile(t, "child", map[string]string{

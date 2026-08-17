@@ -54,9 +54,9 @@ import (
 // listening socket, no leaked goroutine, and no stray file. It is safe to call
 // more than once, so a caller can defer it unconditionally.
 //
-// The signature departs from the sketch in docs/journey-coverage-gaps.md
-// (`StartSSHAgent(signer) (sockPath string, stop func())`) in three ways, each
-// load-bearing: dir, because a unix socket needs a filesystem home and the
+// An earlier sketch had `StartSSHAgent(signer) (sockPath string, stop
+// func())`. This signature departs from it in three ways, each load-bearing:
+// dir, because a unix socket needs a filesystem home and the
 // scenario's temp root is the only one that gets cleaned up; an error return,
 // because net.Listen genuinely fails (a too-long socket path is the classic);
 // and variadic identities, because "exactly one key in the agent" versus "two"

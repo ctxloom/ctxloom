@@ -6,7 +6,9 @@ document was verified by running `--help` against a binary built from this tree
 exhaustively; 108 visible leaves plus the hidden `hook`/`llm`/`plan`/`util`
 plumbing.
 
-**Supersedes `docs/journey-coverage-gaps.md`.** That document is a coverage
+**Supersedes `docs/journey-coverage-gaps.md`, which has since been REMOVED
+(2026-08-16) rather than kept as a dangling pre-reorg record.** That document
+was a coverage
 document written before the verb-spine reorg, against a 43-item allowlist that
 is now 22 items and shrank by a mechanism the document could not anticipate.
 Correcting its spellings in place would have left a document whose *thesis* —

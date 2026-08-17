@@ -10,7 +10,7 @@
 // were written empty, or if `--all` silently signed nothing, every existing
 // trust scenario would still have passed.
 //
-// SEAM WITH J001500 (docs/journey-coverage-gaps.md §J001600, "one thing to decide"):
+// SEAM WITH J001500:
 // J001500 owns the ADVERSARY. J001600 owns the PRODUCTION of the artifacts J001500 assumes —
 // the signature, the trust root, the stores on disk, the relocation. Nothing
 // here re-proves tamper detection.

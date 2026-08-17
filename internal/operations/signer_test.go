@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -851,4 +853,33 @@ func TestRemoveSigner_AbsentStore_StaysAQuietNoop(t *testing.T) {
 	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "nobody@example.com", Project: true, FS: afero.NewOsFs()})
 	require.NoError(t, err)
 	assert.Equal(t, 0, res.Removed)
+}
+
+// An unreadable line left in the store is reported to the operator by name, and
+// the report has to name a command that exists: the CLI registers
+// `signer untrust`, never `signer remove`. A warning naming a verb cobra will
+// not resolve sends the reader to a dead end at the exact moment their trust
+// store is half-readable.
+//
+// Both a removable entry AND an unreadable line are required: when nothing was
+// removed the function returns an error instead, so the warning path is only
+// reachable with one of each.
+func TestRemoveFromAllowedSignersFile_WarnsNamingTheRegisteredVerb(t *testing.T) {
+	_, keyLine := testKeyLine(t)
+	fs := afero.NewMemMapFs()
+	const path = "/allowed_signers"
+	content := "alice@example.com " + keyLine + "\nthis line is not an allowed_signers entry\n"
+	require.NoError(t, afero.WriteFile(fs, path, []byte(content), 0o600))
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	removed, err := removeFromAllowedSignersFile(fs, path, "alice@example.com")
+	require.NoError(t, err)
+	require.Equal(t, 1, removed, "the valid entry must actually be removed, or the warning path is never reached and this test proves nothing")
+
+	require.NotEmpty(t, buf.String(), "an unreadable line must warn, not pass in silence")
+	assert.Contains(t, buf.String(), "signer untrust:")
+	assert.NotContains(t, buf.String(), "signer remove")
 }

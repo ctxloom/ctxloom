@@ -512,7 +512,7 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 	}
 	if removed == 0 {
 		// A dropped line contributes no entry, so the principal LOOKS absent
-		// — and `signer remove` would report "no entry for X", telling an
+		// — and `signer untrust` would report "no entry for X", telling an
 		// operator a key is untrusted while a line they cannot see stays in
 		// the file. Nothing removed because the store could not be read in
 		// full is not the same as nothing to remove. (When something WAS
@@ -525,7 +525,9 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 		return 0, nil
 	}
 	for _, pe := range store.ParseErrors() {
-		clidiag.Warn("ctxloom", "signer remove: %s line %d could not be read and was left in place: %v", path, pe.Line, pe.Err)
+		// Named for the verb an operator can actually run: the CLI registers
+		// `signer untrust`, and there is no `remove`.
+		clidiag.Warn("ctxloom", "signer untrust: %s line %d could not be read and was left in place: %v", path, pe.Line, pe.Err)
 	}
 
 	var kept []string

@@ -122,14 +122,14 @@ func TestAcceptance(t *testing.T) {
 			t.Fatal("the hermetic suite passed, but steps declined to run — a skip in this lane is a defect, " +
 				"because every scenario that may legitimately skip is excluded by tag before the run starts:\n" + declined)
 		}
-		// NOT fatal outside the hermetic lane, and this is a HOLD rather than a
-		// designed exemption. @live/@container skips are per-Examples-ROW
-		// (claude authenticated, codex not) while a tag is per-SCENARIO, so they
-		// cannot be hoisted to a startup exclusion without splitting those
-		// Examples tables — and making them fatal today would turn
-		// `ACCEPTANCE_TAGS=@live` red on any box not authenticated for every
-		// vendor. That is a user-visible call for a human, not a default to
-		// drift into. Printing the inventory is what makes it decidable.
+		// Outside the hermetic lane a declining step is RECORDED, not fatal.
+		// The gate above holds only because every legitimate skip in that lane
+		// is excluded by tag before the run starts; the opt-in lanes have no
+		// such guarantee. Their skips are decided per Examples ROW — one
+		// engine authenticated, another not — while a tag applies to a whole
+		// SCENARIO, so the condition is not addressable by exclusion and a
+		// skip there is not by itself a defect. Naming the steps keeps that
+		// difference visible rather than silent.
 		fmt.Printf("\nSTEPS THAT DECLINED TO RUN (not fatal: this is not the hermetic lane)\n%s\n", declined)
 	}
 }

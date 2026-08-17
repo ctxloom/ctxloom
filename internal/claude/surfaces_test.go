@@ -359,7 +359,7 @@ func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 // DeliverShared over a PLAIN WithEverything() selection (no default-derivation —
 // that lever lives only at the launch site, launch_backend.go's deliverSet, not
 // in the builder itself) resolves context to its TABLE default, UnsafeFile.
-// SharedRealization is now pair-keyed (U100-F05): only (context, SystemPrompt)
+// SharedRealization is pair-keyed: only (context, SystemPrompt)
 // realizes, so a raw WithEverything selection's UnsafeFile context does NOT
 // convert — it falls back to the loud well-known write exactly like
 // commands/skills (neither of which has ANY realization). MCP and settings
@@ -484,7 +484,7 @@ func TestSurfaceFor_UnsupportedApproachErrors(t *testing.T) {
 	assert.Error(t, err, "claude's MCP surface has no system-prompt approach")
 }
 
-// SharedRealization is PAIR-keyed (U100-F05), not kind-alone: context realizes
+// SharedRealization is PAIR-keyed, not kind-alone: context realizes
 // ONLY at ApproachSystemPrompt (ApproachUnsafeFile is the caller's explicit
 // native-file request, honored by the DeliverShared fallback instead — see
 // TestSharedCell_AcceptsClaudeRaceSafeSurfaces — and ApproachHook is the

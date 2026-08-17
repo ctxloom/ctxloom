@@ -287,7 +287,7 @@ func sessionNameArgs(env map[string]string) []string {
 // leaves the engine's normal prompting and adds nothing.
 //
 // plan ALSO gets a conservative --disallowedTools belt-and-suspenders
-// (LIVE VERIFIED 2026-07-15, authenticated claude 2.1.210: `--permission-mode
+// (LIVE VERIFIED against authenticated claude 2.1.210: `--permission-mode
 // plan --disallowedTools "Bash,Edit,Write,NotebookEdit"` denied a
 // sentinel-file overwrite — byte-unchanged, model explicitly cited BOTH
 // plan mode and the missing write tools). --permission-mode plan is

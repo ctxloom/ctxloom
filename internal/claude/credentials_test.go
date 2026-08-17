@@ -9,7 +9,7 @@ import (
 )
 
 // realCredentialJSON is the live .credentials.json shape, probe-verified
-// 2026-08-12 against a subscription login: every token field nests under
+// against a subscription login: every token field nests under
 // claudeAiOauth. accessToken/expiresAt/scopes/subscriptionType/rateLimitTier
 // authenticate a run; refreshToken/refreshTokenExpiresAt are the single-use
 // rotating half that must NEVER reach a disposable copy.

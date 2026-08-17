@@ -152,7 +152,7 @@ func writeRenderedHomeCommand(t *testing.T, homeDir string, cmd agent.CommandExp
 
 // TestFileTemplateDelivery_DeliverCommands_DedupsIdenticalHomeCopy verifies the
 // wiring added to close the WithDedupHomeDir gap (never called in production
-// before this fix, per bb0e42f's unwired option): a project delivery skips a
+// before this fix, which left the option unwired): a project delivery skips a
 // command whose rendered bytes are byte-identical to the same-named file already
 // in the user-global ~/.claude/commands (here faked via $HOME), and the skip
 // is not manifest-tracked, while a project-unique command still lands normally.

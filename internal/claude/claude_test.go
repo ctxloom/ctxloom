@@ -997,7 +997,7 @@ func TestClaudeCodeHookWriter_DenyTools_PreservesUserAllowAsk(t *testing.T) {
 // retract a previously-written deny, on the grounds that "a denial is safe to
 // keep, never safe to silently drop".
 //
-// That was changed deliberately (user, 2026-08-06): deny entries now reconcile
+// That was changed deliberately: deny entries now reconcile
 // like every other surface, so an entry ctxloom stops declaring is withdrawn
 // instead of leaking into the user's settings forever. Retraction is safe
 // BECAUSE it is keyed on the ledger — only entries ctxloom recorded writing are

@@ -365,12 +365,12 @@ func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.De
 
 // SharedRealization reports claude's out-of-cwd scratch conversion for the
 // (kind, approach) pair — the ONLY backend with one (commands/skills have no
-// out-of-cwd flag). It is PAIR-keyed, not kind-alone (U100-F05): context is the
+// out-of-cwd flag). It is PAIR-keyed, not kind-alone: context is the
 // one multi-approach kind claude realizes, and only ApproachSystemPrompt does —
 // ApproachUnsafeFile is the caller's explicit request for the native CLAUDE.md
 // write, so it reports no realization and deliverOneShared falls to the
-// well-known write (loudly warned; the honor-with-warning fork DECIDED for
-// U100-F05). ApproachHook resolves to the documented no-op, which never carries
+// well-known write (loudly warned; this is the honor-with-warning fork of
+// that decision). ApproachHook resolves to the documented no-op, which never carries
 // DeliverIsolated, so deliverOneShared's isolatedDelivery guard never even
 // reaches this switch for it. mcp/settings have exactly one approach each
 // (ApproachUnsafeFile), and it is the one that realizes — the pair-key changes

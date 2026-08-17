@@ -496,6 +496,33 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+
+	// The negative half, which only means anything PAIRED with the positive one:
+	// a scenario proves the engine received X INSTEAD OF Y, never merely that it
+	// did not receive Y.
+	//
+	// The empty guard is the whole reason this is not a two-line step. An absent
+	// marker is trivially absent from an empty read, so without it a launch that
+	// never happened — the exit-0-and-zero-bytes shape — satisfies this
+	// assertion. Requiring the recording to be non-empty first is what makes the
+	// absence evidence rather than silence.
+	ctx.Step(`^the mock recorded input does not contain "([^"]*)"$`, func(c context.Context, marker string) error {
+		w := worldFrom(c)
+		if w.mock == nil {
+			return fmt.Errorf(`no mock LLM configured for this scenario (missing a "the mock LLM responds" step)`)
+		}
+		recorded, err := w.mock.GetRecordedInput()
+		if err != nil {
+			return fmt.Errorf("read mock recorded input: %w", err)
+		}
+		if strings.TrimSpace(recorded) == "" {
+			return fmt.Errorf("mock recorded NO input at all, so %q is only vacuously absent — the engine never received anything to assert about", marker)
+		}
+		if strings.Contains(recorded, marker) {
+			return fmt.Errorf("mock recorded input contains %q and must not; recorded:\n%s", marker, recorded)
+		}
+		return nil
+	})
 }
 
 // runFixture executes a setup command and fails the scenario if it does not

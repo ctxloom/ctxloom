@@ -167,6 +167,34 @@ Feature: The archaeologist — what did we decide in March?
     When I run "ctxloom run --session amber-quiet-heron --distill --dry-run -p default"
     Then the assembled context carries the distilled essence and not the raw conversation
 
+  # The payoff row above proves the transcript reaches the ASSEMBLED CONTEXT.
+  # This one proves it reaches the MODEL, which is a different claim: a context
+  # that assembles correctly and is then dropped on the way to the engine looks
+  # identical from the preview. The assertion reads what the engine actually
+  # received, not what the CLI reported having sent.
+  #
+  # Asserted in both directions. "Carries the transcript" alone is satisfied by a
+  # mode that carries everything, so the essence must be absent for the claim to
+  # mean "resumed via the transcript" rather than "resumed via something". The
+  # negative half requires the recording to be non-empty, so a launch that never
+  # happened cannot pass by having no marker in it.
+  #
+  # NO --distill TWIN HERE, deliberately. The two modes reach the model by
+  # structurally different routes: full resume folds into the assembled context,
+  # while --distill rides CTXLOOM_RESUMED_FROM/PARTS and a SessionStart hook and
+  # never passes through the launch payload at all. So the mock's recorded input
+  # — which captures that payload — is the wrong instrument for the distilled
+  # half, and a row asserting it there fails for a reason that says nothing about
+  # --distill. The distilled half needs `the hook's additionalContext contains`
+  # (session_hooks.feature) driven with those env vars set, which no step can do
+  # yet.
+  Scenario: Resuming without --distill puts the conversation in front of the model, not the conclusion
+    Given the mock LLM responds "MOCK-REPLY"
+    When I run "ctxloom run --one-shot --session amber-quiet-heron -p default Remind me what we concluded."
+    Then the command succeeds
+    And the mock recorded input contains "J001200-TRANSCRIPT-ONLY-MARKER"
+    And the mock recorded input does not contain "J001200-ESSENCE-WORKTREE-NAMING-DECISION"
+
   # A FILED DEFECT (task diffusive-dazzler), reproduced here at the surface a
   # user actually touches. A harp is three random words; mistyping one is the
   # single most ordinary error available on this command. An unknown harp used

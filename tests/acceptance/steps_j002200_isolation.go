@@ -67,8 +67,10 @@ func j002200Of(w *World) *j002200State {
 
 // j002200ConfigYAML renders the PROJECT half of config.yaml for J002200's fixture: one
 // "fast" mock LLM label and two agent bindings — "mock" (host runtime, the
-// default) for the workspace-axis scenarios, and "mock-container" (runtime:
-// container) for the runtime-axis degrade scenario. Static (no per-run
+// default) for the workspace-axis scenarios, and "mock-container"
+// (runtime: container-rootless) for the runtime-axis degrade scenario. The
+// ownership mode is arbitrary here: the scenario asserts the CANNOT-launch
+// contract, which either container value reaches identically. Static (no per-run
 // record path), so it is written once; j002200HomeConfigYAML carries the part
 // that changes per run (mirrors j002100RenderConfig's direct config.yaml
 // authoring rather than the MockLM helper, which does not preserve an
@@ -98,7 +100,7 @@ agents:
   mock-container:
     llm: fast
     profiles: []
-    runtime: container
+    runtime: container-rootless
 `
 }
 
@@ -124,7 +126,11 @@ const (
 	// j002200RuntimeGateFinding is chainFor's runtime-unreachable finding
 	// (internal/lm/isolation/isolation.go): no docker/podman resolves, so no
 	// container policy is ever selected. This row's subject.
-	j002200RuntimeGateFinding = "container requested but no container runtime is available"
+	// The ownership clause is load-bearing, not incidental: it is what
+	// distinguishes chainFor's RUNTIME gate from prepareChain's START gate now
+	// that a runtime can be reachable in the WRONG ownership mode. A substring
+	// without it would go green on an abort that never consulted ownership.
+	j002200RuntimeGateFinding = "no container runtime is available with that ownership"
 	// j002200StartGateFinding is prepareChain's could-not-START finding: a
 	// container policy WAS selected and then failed (image absent, shared-fs
 	// probe, unresolvable auth). A different contract, asserted elsewhere.

@@ -11,7 +11,7 @@
 // evidence.
 //
 // The fixture is J002200's, reused rather than copied: the same two agent bindings
-// ("mock" on the host, "mock-container" with runtime: container) over the same
+// ("mock" on the host, "mock-container" with runtime: container-rootless) over the same
 // mock LLM label. Only the record file's LOCATION differs and it has to: J002200
 // writes records beside the project, while a containerized engine can only
 // write somewhere the container can see, so J002400's records live INSIDE the

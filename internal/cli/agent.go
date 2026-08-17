@@ -305,8 +305,12 @@ var (
 // pages cannot drift about what they mean.
 const agentWriteLong = `The engine (optional) overrides the profiles' own llm; omit it to use the project
 default. Profiles compose into one assembled context. Runtime (optional:
-host|container) sets WHERE this agent's engine process executes; omit it to
-inherit the project's 'runtime:' default. The workspace axis (worktree vs shared
+host|container-rootless|container-rootful) sets WHERE this agent's engine
+process executes; omit it to inherit the project's 'runtime:' default — which
+is a default rather than a decision, so 'ctxloom init' always writes one
+explicitly. Not every engine can take a container axis: one with no way to
+authenticate inside a container is refused here, and 'ctxloom llm list' reports
+per engine which values it can be given. The workspace axis (worktree vs shared
 dir) is NOT set here — it is a session trait chosen at invocation time
 (run/acp --workspace, or an agent_run spawn's workspace field). Driving
 (optional: conversational|oneshot) sets
@@ -339,7 +343,7 @@ agent — change an existing one with 'ctxloom agent edit'.
 
 Examples:
   ctxloom agent create finder --engine claude-fast --profiles finder
-  ctxloom agent create dev --engine claude-code --profiles default,go-developer --runtime container
+  ctxloom agent create dev --engine claude-code --profiles default,go-developer --runtime container-rootless
   ctxloom agent create reviewer --profiles cr-correctness-golang   # default engine`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAgentCreate,
@@ -353,7 +357,7 @@ var agentEditCmd = &cobra.Command{
 'ctxloom agent create'.
 
 Only the flags you pass are applied; every unnamed field keeps its current
-value, so 'ctxloom agent edit dev --runtime container' does not wipe dev's
+value, so 'ctxloom agent edit dev --runtime container-rootless' does not wipe dev's
 llm, profiles, posture or escalation ladder. An explicitly-supplied empty
 value (--llm "") clears that field.
 
@@ -364,7 +368,7 @@ the same thing, and the two spellings drift.
 ` + agentWriteLong + `
 
 Examples:
-  ctxloom agent edit dev --runtime container
+  ctxloom agent edit dev --runtime container-rootless
   ctxloom agent edit reviewer --profiles cr-correctness-golang,cr-security`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAgentEdit,
@@ -656,7 +660,7 @@ func init() {
 func registerAgentWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&agentSetLLM, "llm", "", "llm.configs label to bind (overrides the profiles' llm; empty = project default)")
 	cmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
-	cmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
+	cmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container-rootless|container-rootful; empty = project default). `ctxloom llm list` reports which of these each engine can be given")
 	cmd.Flags().StringArrayVar(&agentSetSurfaces, "surface", nil,
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")

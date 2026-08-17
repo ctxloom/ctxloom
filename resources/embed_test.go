@@ -281,7 +281,12 @@ func TestGetBuiltinCommandBody_CtxloomInit(t *testing.T) {
 		"coordinator",
 		"developer",
 		"finder",
-		"--runtime container",
+		// The runtime axis is asked per agent and recorded explicitly —
+		// `host|container` was the retired two-value spelling, and an
+		// interview that stops asking is the regression this token guards.
+		"--runtime container-rootless",
+		"4b-runtime",
+		"ctxloom llm list",
 		"--workspace worktree",
 		"ctxloom container check",
 		"ctxloom agent create",

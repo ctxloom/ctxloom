@@ -16,7 +16,7 @@ import (
 
 // `ctxloom session adopt` re-indexes vendor transcripts a rotation the index
 // never recorded left ORPHANED — chiefly claude-code's /clear before the
-// rotation-lineage fix (commit bd6b3baf): the index used to clobber the old
+// rotation-lineage fix: the index used to clobber the old
 // binding on rebind instead of preserving it in Entry.Rotations, so every
 // pre-fix /clear left a vendor file on disk with no index row, no rotation
 // record, and no path FindBySessionID could ever walk back to. This file is

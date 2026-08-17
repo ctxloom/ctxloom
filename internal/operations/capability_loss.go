@@ -9,7 +9,7 @@ import (
 // CapabilityLoss reports, for one resolved engine binding, which parts of the
 // named profiles' hooks configuration that engine has no structural place
 // for — the SAME backends.UncarriedSurfaces read MaterializeProfile already
-// performs and reports as "NOT carried" (whiny-exclusive), now available to a
+// performs and reports as "NOT carried", now available to a
 // caller that names an engine binding without materializing anything at all:
 // `agent show`, `doctor`, `manage check`, `acp list` (trusting-ambiguity).
 //

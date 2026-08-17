@@ -68,7 +68,7 @@ func TestMergeWorkspaceEnv(t *testing.T) {
 }
 
 // TestTopLevelRunIsolationEnv_WorktreeDeliversConfigHomeEnv is the wiring
-// regression test for aged-clasp: `ctxloom run --workspace worktree` at the
+// regression test: `ctxloom run --workspace worktree` at the
 // TOP LEVEL never merged isolation.WorkspaceEnv into the wire
 // RunOptions.Env, so a worktree-isolated claude or kiro run silently kept
 // reading the GLOBAL ~/.claude.json / kiro config instead of the per-agent

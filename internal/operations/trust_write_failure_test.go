@@ -15,15 +15,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// This file closes GAP3c (oval-stamp): trust.go's SetItemTrust/SetBlacklist
+// This file closes GAP3c: trust.go's SetItemTrust/SetBlacklist
 // each check the error a countersignature write returns
 // (store.WriteApprove / store.WriteRefReject / the writeContentReject
 // closure), but nothing in the suite ever made one of those writes actually
 // FAIL — so inverting any of those checks (treating a failed persist as a
-// success) left the whole suite green (44-survivor mutation run, ooze
-// 2026-07-14). "No scenario notices, because every scenario only checks the
-// downstream materialized payload — never that the decision was actually
-// persisted." These tests inject a real write failure and assert the
+// success) left the whole suite green. No scenario notices, because every
+// scenario only checks the downstream materialized payload — never that the
+// decision was actually persisted. These tests inject a real write failure and assert the
 // CALLER'S OWN REPORT of what got persisted is truthful, not merely that
 // some exit code was zero.
 

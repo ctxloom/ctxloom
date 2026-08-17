@@ -301,7 +301,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)
 	}
 
-	// OWNERSHIP PROBE (easeful-dial): a refresh REBUILDS a canonical
+	// OWNERSHIP PROBE: a refresh REBUILDS a canonical
 	// transcript that may already be growing under a live
 	// transcript.Recorder — the structured/ACP host seams hold a SHARED
 	// lock on this exact path for as long as they are appending to it (see

@@ -163,7 +163,7 @@ func TestMaterializeProfile_FoldsProfileInlineMCP(t *testing.T) {
 }
 
 // materializeHookFixture is materializeFixture plus a config-level session_start
-// hook — the "team ships a guardrail" shape whiny-exclusive was filed about.
+// hook — the "team ships a guardrail" shape a prior defect was filed about.
 func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 	t.Helper()
 	cfg, target = materializeFixture(t, "HOOKED-CONTENT")
@@ -174,7 +174,7 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 	return config.NewFixture(f), target
 }
 
-// TestMaterializeProfile_ReportsHooksAnEngineCannotCarry is the whiny-exclusive
+// TestMaterializeProfile_ReportsHooksAnEngineCannotCarry is the
 // characterization: opencode has no hook mechanism at all, so a profile's
 // session_start hook lands NOWHERE — and pre-fix the report said only "wrote
 // context / settings / commands / skills", every line true and the loss absent
@@ -293,7 +293,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 // It exists because eight rows of J001400's delivery matrix assert
 // skills/reviewer/SKILL.md at 0644 and skills/reviewer/scripts/run.sh at 0755
 // at a path an agent can read, and `profile materialize --backend mock` is the
-// vehicle those rows retarget onto (taskloom unlikable-comma). Without a mock
+// vehicle those rows retarget onto. Without a mock
 // skills surface there was no hermetic way to run them at all.
 //
 // The manifest here is AUTHORED (bundle.yaml's `files:`), not derived: 0755 on

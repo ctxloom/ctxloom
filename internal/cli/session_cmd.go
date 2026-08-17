@@ -354,7 +354,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		progress.Printf("ctxloom: distilling %s (by transcript path, no session_id bound)...\n", harpName)
 	}
 
-	// eager-trash unification, ruled sub-choice #1 (adopt): `session distill`
+	// Ruled sub-choice #1 (adopt): `session distill`
 	// now HEALS before distilling — a harp that was `/clear`ed has a
 	// canonical transcript frozen at whatever moment a live /recover last
 	// ran, and this command used to distill that frozen prefix and report

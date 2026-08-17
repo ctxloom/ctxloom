@@ -146,7 +146,7 @@ func runAgentShow(cmd *cobra.Command, args []string) error {
 		// backends.UncarriedSurfaces call) — so switching an agent's engine
 		// binding names what the NEW engine cannot carry that the resolved
 		// profiles' hooks configuration actually uses, instead of `agent show`
-		// reporting only the swap succeeded (trusting-ambiguity, j002000).
+		// reporting only the swap succeeded (trusting-ambiguity).
 		payload.CapabilityLoss = operations.CapabilityLoss(cfg, resolved.Backend, resolved.Profiles)
 	}
 	return emit(cmd, payload, func() error {

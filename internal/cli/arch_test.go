@@ -21,7 +21,7 @@ import (
 // entry variant dropped EIGHT agent fields (Sidechain, ToolCallID, ToolKind,
 // ToolLocations, ToolContent, ContentBlocks, SystemKind, Plan) and the session
 // variant dropped two (SessionID, Resumable). No finding row named it; it was
-// found by the U144 remediation work, not by the review corpus.
+// found by later remediation work, not by the review corpus.
 //
 // The gate is the same engine the transcript pair rides
 // (internal/testsupport/parity), extended to these pairs rather than rebuilt —

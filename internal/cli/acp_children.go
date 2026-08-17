@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 )
 
-// D3 (manly-grant (2), Wave D playbook) production wiring: adapts the
+// D3 (manly-grant (2)) production wiring: adapts the
 // coordinator's D1 watch API onto acpagent.EngineChat.WatchChildren's
 // abstract shape. Unlike internal/operations/sessionfeed.go's twin adapter
 // (a SEPARATE process dialing ConsumerService over gRPC — this package

@@ -93,8 +93,7 @@ func runProfileMaterialize(cmd *cobra.Command, args []string) error {
 		}
 		// The loss lines sit with the wrote lines, not in a separate pass at the
 		// end: they are the same report. A reader who scans only the top of the
-		// output must not come away with "wrote four things" as the whole story
-		// (whiny-exclusive).
+		// output must not come away with "wrote four things" as the whole story.
 		for _, loss := range res.NotCarried {
 			w.Printf("  NOT carried: %s\n", loss)
 		}

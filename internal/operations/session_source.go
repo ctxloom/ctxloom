@@ -19,9 +19,8 @@ import (
 // that is exactly what made pty-exit capture (cli.convertVendorTranscriptOnExit)
 // a permanent no-op once ANY canonical transcript existed: a mid-session
 // /recover materializes one, and everything the session did afterward was
-// silently lost at exit (reformed-skimming). A canonical file existing is
-// not evidence it is COMPLETE. Ruled 2026-08-14 (eager-trash, "adopt the
-// bundle"): LivenessFinished means refresh once, never skip on presence.
+// silently lost at exit. A canonical file existing is
+// not evidence it is COMPLETE: LivenessFinished means refresh once, never skip on presence.
 //
 // The three values stay distinct — rather than collapsing to one — because
 // they document DIFFERENT REASONS a caller is asking (a session still being

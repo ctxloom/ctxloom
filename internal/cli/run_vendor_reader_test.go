@@ -97,9 +97,9 @@ func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 	// Re-running the exit seam a second time (e.g. a resumed `ctxloom run`
 	// against the same harp exiting again) must not LOSE what the first call
 	// captured. This is deliberately no longer a byte-identical assertion
-	// (eager-trash unification, path H): the pre-fix behavior was a
+	// (path H): the pre-fix behavior was a
 	// presence-guarded no-op on the second call, which is exactly the bug
-	// this fix removes (reformed-skimming) — a second call now genuinely
+	// this fix removes — a second call now genuinely
 	// re-converts, on purpose, so it may legitimately produce MORE than the
 	// first (see TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionRecover
 	// for the case that matters — a source that grew between calls). What
@@ -118,7 +118,7 @@ func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 }
 
 // TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionRecover is
-// the filed defect's exact scenario (reformed-skimming), pinned: a canonical
+// the filed defect's exact scenario, pinned: a canonical
 // transcript already exists — because the user ran /recover mid-session,
 // which materializes one — and the session then kept going. The pre-fix
 // behavior called operations.ConvertVendorTranscript directly, whose

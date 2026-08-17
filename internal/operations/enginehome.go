@@ -91,8 +91,8 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // user's to take away. That held only while the relocation target was DURABLE.
 // A per-session instance is disposable, so relocating an unbound interactive
 // run onto one WOULD take something real: its token refreshes, its accumulated
-// trust answers and its session state, every session. D2 (ruled 2026-08-11)
-// ended the asymmetry — codex reads config_home HERE, through this function,
+// trust answers and its session state, every session. D2 (ruled) ended the
+// asymmetry — codex reads config_home HERE, through this function,
 // exactly like claude and kiro, and its own resolver treats the contributed
 // CODEX_HOME as isolation-provided (already prepared, nothing further to do).
 //

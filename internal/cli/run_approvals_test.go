@@ -94,12 +94,12 @@ func TestValidatePermissionFlag(t *testing.T) {
 	assert.Error(t, validatePermissionFlag("yolo"))
 }
 
-// TestWarnPlanOneshotCancels pins task shifty-scroll: after resolvePermissionMode's
+// TestWarnPlanOneshotCancels pins the invariant: after resolvePermissionMode's
 // ONESHOT floor, plan is the only SafeHeadless posture that still gates a
 // mutating call on a human (bypass never asks; default/acceptEdits already
 // floored up to bypass by this point) — so a --one-shot run that resolved to
 // plan must warn loudly at startup that no human is reachable, since the engine
-// cancels any gated call outright (wiry-judge, merge 6a8eb2d5) rather than
+// cancels any gated call outright rather than
 // hanging or running it. bypass+ONESHOT (nothing gates) and plan+INTERACTIVE (a
 // human IS reachable) must both stay silent.
 func TestWarnPlanOneshotCancels(t *testing.T) {

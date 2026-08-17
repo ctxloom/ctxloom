@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// worst-pony: seedTaskIntoSession warned-and-returned on ANY task-store error,
+// seedTaskIntoSession warned-and-returned on ANY task-store error,
 // so a corrupt or unreadable task log at session launch was swallowed into a
 // raw stderr line — at exactly the kind of startup choke point that must route
 // through strictness. --seed-task is an EXPLICIT ask ("start this session on

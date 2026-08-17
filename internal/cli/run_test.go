@@ -122,7 +122,7 @@ func TestResumeDistillEnv_DistillsOnDemandWhenMissing(t *testing.T) {
 	assert.Equal(t, "session", env["CTXLOOM_RESUMED_PARTS"])
 }
 
-// TestResumeDistillEnv_RedistillsWhenEssenceIsStale is the eager-trash fix:
+// TestResumeDistillEnv_RedistillsWhenEssenceIsStale pins a fix:
 // path C used to treat "an essence exists" as "the essence is current",
 // resuming a /clear'd session from whatever was distilled BEFORE the clear
 // forever, as long as some essence file was ever written. A stale essence

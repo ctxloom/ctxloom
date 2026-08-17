@@ -304,7 +304,7 @@ func TestOpenEngineSession_UnisolatedAnnouncesOnce(t *testing.T) {
 // regression proof, now covering the AUTO-BOUND default agent.
 //
 // An EXPLICIT `--agent <typo>` no longer degrades at all — it refuses the
-// session (sandy-boxer; see engine_session_iso2_test.go). But a project whose
+// session (see engine_session_iso2_test.go). But a project whose
 // cfg.DefaultAgent names a missing agent still degrades, because the editor
 // never asked for that binding and hard-breaking every plain session over a
 // stale config setting would punish a choice the user did not make here. That

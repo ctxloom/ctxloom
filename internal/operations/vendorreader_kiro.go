@@ -184,7 +184,7 @@ func locateKiroConversationInDB(ctx context.Context, dbPath string, e sessions.E
 // an unisolated (host-mode) kiro run but NOT for an isolated (worktree)
 // one — see candidateKiroDBPaths, which checks the isolated per-agent db
 // FIRST and falls back to this host-ambient one only when no isolated db
-// was found (dizzy-zoom). Returns "" when even $HOME can't be resolved.
+// was found. Returns "" when even $HOME can't be resolved.
 func kiroDBPath() string {
 	if dataHome := os.Getenv("XDG_DATA_HOME"); dataHome != "" {
 		return filepath.Join(dataHome, "kiro-cli", "data.sqlite3")

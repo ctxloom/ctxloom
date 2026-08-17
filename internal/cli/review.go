@@ -527,8 +527,8 @@ func printReviewItemBody(w io.Writer, item operations.ReviewItem) {
 // printReviewAlternateForm shows the item's OTHER form when it has one.
 // Accepting countersigns both the raw and the distilled bytes, so a reviewer
 // shown only the currently-exposed form would bless content they never read —
-// and flipping use_distilled would then serve it without re-gating
-// (boned-stole). The header names both forms so it is unambiguous which bytes
+// and flipping use_distilled would then serve it without re-gating.
+// The header names both forms so it is unambiguous which bytes
 // the decision covers.
 func printReviewAlternateForm(w io.Writer, item operations.ReviewItem) {
 	if item.AlternateContent == "" {

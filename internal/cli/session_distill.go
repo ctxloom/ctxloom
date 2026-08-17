@@ -57,7 +57,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 			clidiag.Warn("ctxloom", "could not load config to distill %s: %v", e.HarpName, cErr)
 			continue
 		}
-		// eager-trash unification, ruled sub-choice #2 (stale-gated, not
+		// Ruled sub-choice #2 (stale-gated, not
 		// every row): the staleness gate above already decided this row
 		// needs distilling, so the heal cost is paid only for rows that
 		// looked stale or title-less — never for every row in the sweep

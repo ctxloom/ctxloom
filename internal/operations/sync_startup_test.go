@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-// TestSyncOnStartup_RefreshesClonesBeforeProbe pins the shut-flail fix: the
+// TestSyncOnStartup_RefreshesClonesBeforeProbe pins a fix: the
 // referenced-clone refresh runs BEFORE the missing-dependency probe, so a
 // steady-state startup (everything installed → Count 0 → "up_to_date"
 // short-circuit) still advances the clone cache. Previously the only refresh

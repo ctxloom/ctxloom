@@ -389,10 +389,6 @@ func isoMatrixOf(w *World) *isoMatrixState {
 	return w.isoMatrix
 }
 
-// isoMatrixSanitizedPATH returns "<spyDir>:/usr/bin:/bin" — rebuilt from
-// scratch, never merely prepended to the inherited PATH. See the package
-// doc for why this exact shape is the load-bearing safety property of every
-// scenario in this file.
 // isoSanitizedPATH joins dirs into a PATH value built FROM SCRATCH — the one
 // mechanic every PATH-masking fixture in J002200 shares. A sanitized PATH is
 // only sanitized because the inherited value contributes NOTHING to it: the
@@ -403,6 +399,10 @@ func isoSanitizedPATH(dirs ...string) string {
 	return strings.Join(dirs, string(os.PathListSeparator))
 }
 
+// isoMatrixSanitizedPATH returns "<spyDir>:/usr/bin:/bin" — rebuilt from
+// scratch, never merely prepended to the inherited PATH. See the package
+// doc for why this exact shape is the load-bearing safety property of every
+// scenario in this file.
 func isoMatrixSanitizedPATH(spyDir string) string {
 	return isoSanitizedPATH(spyDir, "/usr/bin", "/bin")
 }

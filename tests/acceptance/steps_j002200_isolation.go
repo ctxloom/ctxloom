@@ -136,12 +136,6 @@ const (
 // map / runtimeReachable). Masking means: none of these resolves.
 var j002200RuntimeCLIs = []string{"docker", "podman"}
 
-// j002200HostToolsNeeded are the host binaries a `ctxloom run` still has to be
-// able to find once PATH has been rebuilt — kept as a short, explicit
-// allowlist so the mask is a decision about what is REMOVED (the runtimes)
-// rather than an accident of what happened to be inherited.
-var j002200HostToolsNeeded = []string{"git"}
-
 // j002200MaskContainerRuntime rebuilds PATH so no container runtime resolves
 // for the rest of the scenario, reproducing the fail-loud row's precondition
 // — a REQUESTED container that genuinely cannot launch — instead of stubbing
@@ -153,10 +147,18 @@ var j002200HostToolsNeeded = []string{"git"}
 // runtimeReachable calls exec.LookPath. No package var is substitutable across
 // that subprocess boundary, so PATH is the seam.
 //
-// The mask is a scenario-private dir ALONE, holding symlinks to
-// j002200HostToolsNeeded. Filtering the inherited PATH would not do: docker
-// ships in /usr/bin on an ordinary Linux box, the same directory git ships in,
-// so there is no directory to drop.
+// The mask is a scenario-private dir ALONE, and it is EMPTY. Filtering the
+// inherited PATH would not do: docker ships in /usr/bin on an ordinary Linux
+// box, the same directory git ships in, so there is no directory to drop.
+//
+// Empty is not an oversight, it is the measured answer: these rows abort at
+// STARTUP, on the isolation gate, before `run` reaches anything that shells
+// out, so no host binary has to survive the mask (verified by emptying an
+// earlier "git" allowlist and re-running — 32/32, still on the runtime gate).
+// The child still finds ctxloom itself because TestEnvironment.Run execs an
+// absolute AppBinary rather than resolving a name. Should that ever stop
+// holding, the row fails loud with an executable-not-found error, which is the
+// signal we want and not a silent fallback.
 //
 // It FAILS rather than proceeding when a runtime still resolves. Without that,
 // a mask that quietly stopped working would hand the row back to the auth gate
@@ -165,19 +167,6 @@ func j002200MaskContainerRuntime(w *World) error {
 	binDir := filepath.Join(w.env.Root, "j002200-no-runtime-bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("create runtime-masked bin dir: %w", err)
-	}
-	for _, tool := range j002200HostToolsNeeded {
-		src, err := exec.LookPath(tool)
-		if err != nil {
-			return fmt.Errorf("j002200 runtime mask needs %q on the host PATH: %w", tool, err)
-		}
-		link := filepath.Join(binDir, tool)
-		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("clear stale %s link: %w", tool, err)
-		}
-		if err := os.Symlink(src, link); err != nil {
-			return fmt.Errorf("symlink %s into the runtime-masked bin dir: %w", tool, err)
-		}
 	}
 	w.env.SetEnv("PATH", isoSanitizedPATH(binDir))
 	for _, cli := range j002200RuntimeCLIs {

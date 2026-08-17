@@ -16,8 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
-// This file pins the easeful-dial fix (taskloom easeful-dial, fs-consolidation
-// plan slice C7): a live transcript.Recorder holds a SHARED filelock on the
+// This file pins a fix: a live transcript.Recorder holds a SHARED filelock on the
 // canonical transcript's default path for its whole lifetime
 // (fileRecorder.ensureFile), and RefreshVendorTranscript's rebuild takes the
 // matching EXCLUSIVE filelock.TryLock before replacing that same file
@@ -27,7 +26,7 @@ import (
 // recorded afterward, exit 0, no error — now backs off instead.
 
 // TestRefreshVendorTranscript_SkipsRebuildWhileALiveRecorderOwnsTheCanonicalTranscript
-// is the easeful-dial scenario end to end: a live default-path Recorder is
+// exercises that fix end to end: a live default-path Recorder is
 // open on harp's canonical transcript when a refresh races in. The rebuild
 // must skip (not error), the recorder's inode must survive untouched, and
 // events recorded AFTER the skipped rebuild must still land in that exact
@@ -62,7 +61,7 @@ func TestRefreshVendorTranscript_SkipsRebuildWhileALiveRecorderOwnsTheCanonicalT
 	require.NoError(t, err)
 
 	// The recover path's refresh races in while the recorder is still open
-	// — the exact collision easeful-dial reported (operations.
+	// — the exact collision this test guards against (operations.
 	// RefreshVendorTranscript vs. the live O_APPEND fd).
 	converted, err := RefreshVendorTranscript(context.Background(), e)
 	require.NoError(t, err, "a skipped rebuild is not an error — the caller must proceed against the existing canonical")

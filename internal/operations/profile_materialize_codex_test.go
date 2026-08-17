@@ -19,7 +19,7 @@ import (
 // The LOSS half: codex's settings (hooks + MCP servers), prompts and skills
 // live only in $CODEX_HOME, and the only $CODEX_HOME ctxloom writes is the
 // per-session one an agent launch creates — so a harpless materialize writes
-// none of them and must SAY so. Silence here is the exact shape whiny-exclusive
+// none of them and must SAY so. Silence here is the exact shape a prior fix
 // closed for opencode: four true "wrote" lines and a team's guardrail dropped
 // with no line anywhere.
 //

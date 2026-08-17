@@ -170,7 +170,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 		// ctxloom out of the loop. Deduping commands against THIS (materializing)
 		// machine's ~/.claude/commands would silently drop any command that
 		// happens to already exist here — wrong, since the launch environment
-		// won't have it. So materialize alone opts out of that dedup (sour-feed).
+		// won't have it. So materialize alone opts out of that dedup.
 		SelfContainedCommands: true,
 		Skills:                skills,
 		SelfContainedSkills:   true,
@@ -182,7 +182,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// built from. res.Wrote can only ever list what landed — every line true —
 	// so a surface this engine has no place for is invisible in it by
 	// construction: materializing a team profile onto opencode dropped the
-	// team's session_start guardrail and said nothing (whiny-exclusive).
+	// team's session_start guardrail and said nothing.
 	// Reported, not fatal: the rest of the tree is still worth having, and the
 	// decision to ship it anyway belongs to whoever now knows.
 	res.NotCarried = backends.UncarriedSurfaces(backend, inputs)

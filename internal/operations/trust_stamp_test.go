@@ -105,7 +105,7 @@ func TestTrustStamper_ForRef_TrustedSigner(t *testing.T) {
 	}
 }
 
-// TestTrustStamper_ForRef_DistilledFormSelection closes GAP4 (oval-stamp):
+// TestTrustStamper_ForRef_DistilledFormSelection closes GAP4:
 // the trust model's own comment on EffectiveTrustRequest.Form ("an approval
 // only allows when it covers THIS form") had never been exercised against
 // TrustStamper.ForRef/computeItemPayload — the code that actually backs

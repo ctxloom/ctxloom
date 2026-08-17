@@ -218,7 +218,7 @@ func TestRefreshVendorTranscript_LeavesNoRebuildArtifact(t *testing.T) {
 	// temp were leaking under the new name — list the persist dir directly and
 	// require it hold nothing but the canonical file and its ownership-probe
 	// lock sidecar (filelock.PathFor(dest) — see convertVendorTranscript's
-	// TryLock probe, easeful-dial). The lock file is a legitimate, permanent
+	// TryLock probe). The lock file is a legitimate, permanent
 	// fixture beside the path it guards, not a leftover temp: filelock
 	// creates it once and reuses it on every future acquisition, exactly
 	// like every other beside-the-file lock in this codebase.

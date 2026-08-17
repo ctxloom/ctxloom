@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-// sandy-boxer: `ctxloom acp --agent <unknown>` silently degraded to a generic
+// `ctxloom acp --agent <unknown>` silently degraded to a generic
 // session. An agent binding carries engine, profiles, RUNTIME (host vs
 // container) and PERMISSIONS, so substituting a generic session drops all of
 // it — a typo'd `--agent codr` for an agent declared `runtime: container`

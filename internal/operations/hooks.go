@@ -291,7 +291,7 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 // force downgrades every collision to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
 //
-// Found live 2026-07-14: `manage hooks install` run from
+// Found live: `manage hooks install` run from
 // $HOME silently went global, injecting context into every project and
 // duplicating the /clear banner; home entries were removed by hand as a
 // stopgap. The codex/kiro guards above are completions of the

@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// legal-olive: a profile whose content the review gate withholds ENTIRELY
+// A profile whose content the review gate withholds ENTIRELY
 // assembled to a stub and exited 0. The per-item withheld advisory names items
 // but never the PROFILE, so `run -p coordinator` on a virgin machine emitted a
 // generic pending-review line and produced a context with the coordinator's

@@ -332,7 +332,7 @@ func TestInTreeAgentHomeEnv_NilPolicyContributesNothing(t *testing.T) {
 	assert.Nil(t, InTreeAgentHomeEnv(InTreeAgentHome{Backend: "claude-code", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject}))
 }
 
-// D2 (RULED 2026-08-11) — codex IS contributed here now, and this is the ONE
+// D2 (RULED) — codex IS contributed here now, and this is the ONE
 // decision point for all three engines. codex used to own its home resolution
 // on every axis and relocate unconditionally; a per-session, DISPOSABLE
 // instance made that a taking (token refreshes, accumulated trust, session

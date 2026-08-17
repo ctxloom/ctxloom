@@ -976,7 +976,7 @@ func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProces
 // call here) and are owned by different, actively-changing packages
 // (agentcoord/coord vs. operations), so a future retune of one must not have
 // to touch the other. 5 minutes matches runnerAwaitTimeout's just-recalibrated
-// value (2026-07-24, fix/launch-retry-budget) because nothing here suggests
+// value (fix/launch-retry-budget) because nothing here suggests
 // this path's spawn latency differs from that one's: both exclude image
 // build/pull (staged earlier — PrepareAgentChat's own isolation.Prepare call
 // for this path, StartEngine's for that one) and both are bounding "process/
@@ -1012,11 +1012,8 @@ const defaultChatDialTimeout = 5 * time.Minute
 // documented, intentional cases: (a) a StructuredChat backend outside the
 // coordinator's ViaStartRun allowlist (coord/spawner.go's
 // viaStartRunBackends) — which, since the spool cutover's S3b slice migrated
-// opencode onto StartRun, is the "mock" test backend ALONE. (The 2026-07-24
-// correction this comment used to carry — that opencode was a fully
-// registered PRODUCTION backend riding this dial on every ordinary
-// non-degraded agent_run — was true until S3b and is what S3b removed; no
-// production backend reaches this dial by backend identity any more.)
+// opencode onto StartRun, is the "mock" test backend ALONE; no production
+// backend reaches this dial by backend identity any more.
 // And (b) C1's documented degraded-mode no-reach-back spawn
 // fallback (a StartRun-eligible backend launched with CTXLOOM_DEGRADED=1 and
 // no coordinator endpoint reachable — the runner could never dial home, so

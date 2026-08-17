@@ -1094,8 +1094,7 @@ func sessionIsolationLine(in sessionInitSummaryInputs) string {
 // the requested binding's runtime and permissions. A cfg.DefaultAgent naming
 // a missing agent still degrades — the editor never asked for that binding —
 // and this is what keeps that surviving degrade impossible to miss in the
-// chat itself rather than one buried stderr line, per the
-// ctxloom-acp-2026-07-16 incident.
+// chat itself rather than one buried stderr line.
 func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 	if in.requestedAgent != "" && in.currentAgent == "" {
 		return fmt.Sprintf(

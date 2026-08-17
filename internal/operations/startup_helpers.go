@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// SweepOrphanedWorktrees runs the startup per-agent-worktree reaper
-// (bony-carry bug #2): a crashed/killed run's worktree checkout is never
+// SweepOrphanedWorktrees runs the startup per-agent-worktree reaper: a
+// crashed/killed run's worktree checkout is never
 // reaped by anything else — teardown()'s WIP-safe removal only ever runs on a
 // GRACEFUL Cleanup(), so without this sweep every crashed member left an
 // orphaned checkout (and a stale `git worktree list` registration in its

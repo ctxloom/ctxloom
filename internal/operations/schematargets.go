@@ -9,7 +9,7 @@ import (
 )
 
 // SchemaTargets lists the JSON output structs in this package that publish a
-// JSON Schema (vexed-cloak). Build-tagged so it and its reflection import stay
+// JSON Schema. Build-tagged so it and its reflection import stay
 // out of the production binary; consumed only by cmd/gen-schemas (-tags schemagen).
 func SchemaTargets() []schemagen.Target {
 	return []schemagen.Target{

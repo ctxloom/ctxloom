@@ -14,10 +14,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// This file implements the stark-wheat "project devcontainer as agent-image
-// BASE" resolver (locked decisions, task stark-wheat, 2026-07-14): the
-// project's .devcontainer/devcontainer.json — when present and not opted out
-// — becomes an auto-detected local-build BASE (stage 1) that composed engine
+// This file implements the "project devcontainer as agent-image BASE"
+// resolver: the project's .devcontainer/devcontainer.json — when present and
+// not opted out — becomes an auto-detected local-build BASE (stage 1) that composed engine
 // fragments (enginespec.go, imagebuild.go's composeAgentContainerfile) layer
 // onto, exactly like the embedded default base or an explicit
 // isolation_base_containerfile.

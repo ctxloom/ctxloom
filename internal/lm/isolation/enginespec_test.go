@@ -244,7 +244,7 @@ func TestResolveKiroContainerAuth_AWSRidesAlongOnlyWhenTriggered(t *testing.T) {
 }
 
 // TestEveryComposableEngineGatesItsACPSurfaceByExecution is the generalization
-// of the 2026-07-24 container-delegation defect (task minty-wilt): NO composable
+// of a container-delegation defect (task minty-wilt): NO composable
 // engine's install fragment may validate its structured-chat surface by PATH
 // presence, or by a `--version` that exercises a DIFFERENT code path from the
 // one delegation actually spawns.

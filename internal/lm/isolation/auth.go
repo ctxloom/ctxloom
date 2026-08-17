@@ -385,7 +385,7 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 // read-write, with NO intervening copy.
 //
 // This deliberately REVERSES the earlier copy-then-mount design for the
-// container axis (RULED 2026-08-12). claude refreshes its OAuth token in place,
+// container axis (RULED). claude refreshes its OAuth token in place,
 // and that refresh token is SINGLE-USE and ROTATING: any COPY of the credential
 // that refreshes mints a new token and INVALIDATES every other holder —
 // including the host's own login. A read-write copy kept the refresh off the
@@ -594,7 +594,7 @@ type seedFile struct {
 //     otherwise. Its KIRO_HOME entry stays unconditional — it carries no
 //     creds, so isolating it can never log an agent out.
 //
-//     KIRO_HOME's SCOPE, corrected 2026-08-11: this file used to describe it
+//     KIRO_HOME's SCOPE, corrected: this file used to describe it
 //     as relocating "sessions only" / "session jsonl only". That was true of
 //     an older kiro-cli and is now wrong — since kiro-cli 2.3.0 KIRO_HOME
 //     relocates the FULL home: global agents, prompts, skills, steering,
@@ -784,8 +784,8 @@ func CredentialSeedEngineNames() []string {
 }
 
 // CredentialSeedHomeVar is a read-only copy of one homeVar entry, exported so
-// tests/arch's engine-layout gate (TestArch_EngineLayoutAgreement) can check
-// credentialSeedSpecs' env-var-name and subdir literals against the owning
+// tests/arch's engine-layout gate can check credentialSeedSpecs' env-var-name
+// and subdir literals against the owning
 // engine package's own exported constants. This package cannot import
 // claude/codex/kiro/opencode in production (each of them imports
 // internal/acp, which imports this package — a real cycle), so those tables

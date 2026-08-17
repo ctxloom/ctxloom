@@ -461,7 +461,7 @@ func TestEnsureImage_UnbuildableBinaryDegrades(t *testing.T) {
 // degrading the isolation boundary to a stale, possibly pre-entrypoint
 // (root-running) image. It must now record the SAME fatal ClassIsolation
 // finding the parallel "rebuild attempted and failed" branch already
-// produces for the identical outcome (TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded).
+// produces for the identical outcome.
 func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T) {
 	resetStrictness(t)
 	forceProvenance(t)
@@ -767,8 +767,7 @@ func clearProvenanceCache(t *testing.T) {
 // Containerfile — imageStale answers "not stale", and accepting that as
 // "current" let ANY present image, however old, satisfy a container request
 // with no warning and no finding. It also made the unbuildable-stale finding
-// (TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding) unreachable
-// in production: an unresolvable binary is exactly what empties the digest, so
+// unreachable in production: an unresolvable binary is exactly what empties the digest, so
 // the gate returned before that branch could ever run.
 func TestEnsureImage_UnverifiableProvenanceIsNotCurrent(t *testing.T) {
 	resetStrictness(t)

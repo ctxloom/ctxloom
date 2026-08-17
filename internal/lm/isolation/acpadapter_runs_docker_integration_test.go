@@ -1,6 +1,6 @@
 //go:build docker_integration
 
-// The 2026-07-24 container-delegation defect's regression gate.
+// A container-delegation defect's regression gate.
 //
 // EVERY containerized claude-code agent's structured chat was dead: the agent
 // image built GREEN, `claude-code-acp` was on PATH, and the adapter then
@@ -130,7 +130,7 @@ func stubEngineLayer(client, acpBehaviour string) string {
 		"'" + acpBehaviour + "' > /usr/local/bin/" + client + " && chmod +x /usr/local/bin/" + client + "\n"
 }
 
-// The two REAL broken-engine shapes, measured live 2026-07-24 by running the
+// The two REAL broken-engine shapes, measured live by running the
 // host's own kiro-cli and opencode with an unrecognized subcommand:
 //
 //   - kiro-cli (clap) rejects it: `error: unrecognized subcommand 'acpXX'`, exit 2.

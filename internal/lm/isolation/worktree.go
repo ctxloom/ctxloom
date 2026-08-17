@@ -327,7 +327,7 @@ func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) 
 // unless --degraded — matching how the container path treats unresolvable auth
 // (resolveClaudeContainerAuth / container.go).
 // It routes through isolation.CopyAmbient — the ONE one-way ambient copy-in,
-// shared with the in-tree axis (D8, ruled 2026-08-11). Sharing the mechanism is
+// shared with the in-tree axis (D8, ruled). Sharing the mechanism is
 // what makes the D4/D5 rulings — claude's field-scoped .claude.json, codex's
 // [mcp_servers]/[hooks] elision — apply to a fan-out member for free, instead
 // of being an in-tree-only privilege the worktree axis silently missed. The

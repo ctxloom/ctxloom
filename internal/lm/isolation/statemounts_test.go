@@ -450,9 +450,8 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	// scratchRoot: the composed worktree base's own config-home
 	// (provisionConfigHome, real even under git.Fake — see cleanupConfigHome's
 	// doc) is buried behind the opaque baseCleanup closure with no typed way
-	// to reach it from here. It's never mounted/used inside the container
-	// (TestContainerWorktreeWorkspace_NoConfigHomeEnv), so sweep it by its
-	// deterministic prefix rather than leaving it to whatever mutant hits
+	// to reach it from here. It's never mounted/used inside the container,
+	// so sweep it by its deterministic prefix rather than leaving it to whatever mutant hits
 	// w.Cleanup()'s removal logic.
 	t.Cleanup(func() {
 		matches, _ := filepath.Glob(filepath.Join(os.TempDir(), "ctxloom-cfg-member-x-*"))

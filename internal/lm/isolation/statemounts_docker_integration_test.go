@@ -1,13 +1,12 @@
 //go:build docker_integration
 
-// The live-container proof of the container lock-path fix (RULED 2026-08-14,
+// The live-container proof of the container lock-path fix (RULED,
 // human — see statemounts.go's sessionStateMounts doc, the ~/.ctxloom/locks
-// paragraph). TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir
-// (statemounts_test.go) already pins the pure path arithmetic without a
-// docker daemon; this file is the actual cross-boundary proof alongside this
-// package's other docker-gated tests (attach_docker_integration_test.go's
-// TestRunAttached_SamePathMountAndTeardown is the same shape one level down
-// — same-path project mount instead of the locks-dir mount). Build-tagged so
+// paragraph). A statemounts_test.go unit test already pins the pure path
+// arithmetic without a docker daemon; this file is the actual cross-boundary
+// proof alongside this package's other docker-gated tests (one of which
+// covers the same shape one level down — same-path project mount instead of
+// the locks-dir mount). Build-tagged so
 // `just test` never compiles it; run with:
 //
 //	GOWORK=off just test-pkg ./internal/lm/isolation/... -tags docker_integration -run TestContainerLockMount_

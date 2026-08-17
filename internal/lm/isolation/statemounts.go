@@ -84,7 +84,7 @@ func safePathSegment(s string) bool {
 //	    log. Which project it is comes from the CTXLOOM_PROJECT_ID the run env
 //	    pins.
 //	~/.ctxloom/locks → the same leaf under the container home
-//	    (c.home/.ctxloom/locks). RULED 2026-08-14 (human): an engine-settings
+//	    (c.home/.ctxloom/locks). RULED (human): an engine-settings
 //	    file this run's config-overlay write mounts expose (.claude/
 //	    settings.json, .mcp.json, and their kiro/codex/opencode counterparts)
 //	    is bind-mounted host↔container at an IDENTICAL absolute path, but

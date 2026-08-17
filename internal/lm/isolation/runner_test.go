@@ -101,7 +101,7 @@ func TestRemoveReportsGone(t *testing.T) {
 //
 //   - The remove is the REAL stop and it is not silent — a remove that does
 //     not confirm the container is gone streams a named, fix-it-carrying
-//     warning (TestKill_SurfacesLeakOnRemoveFailure). go-plugin, by contrast,
+//     warning. go-plugin, by contrast,
 //     can act on nothing: its two call sites Debug-log the error (discarded at
 //     our default verbosity) and discard it outright.
 //   - The trailing cmd.Process.Kill only reaps our own `run` CLI, which the

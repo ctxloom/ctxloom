@@ -36,9 +36,9 @@ import (
 //     construction put it out of reach of any process-group signal. After the
 //     host is gone the kernel is the only party that still remembers the
 //     relationship — hence PR_SET_PDEATHSIG rather than more userspace
-//     bookkeeping. Without it, orphaned runners accumulate: 208 `llm serve
-//     mock` processes in one incident, 36 more on 2026-07-24 across three
-//     different checkouts, some running unattended for over 36 hours.
+//     bookkeeping. Without it, orphaned runners accumulate: `llm serve mock`
+//     processes have been found piling up across multiple checkouts, some
+//     running unattended for over 36 hours.
 //
 // The signal is SIGTERM, not SIGKILL, so the runner gets to reap its own
 // descendants before it goes — see InstallRunnerTeardown, which is the

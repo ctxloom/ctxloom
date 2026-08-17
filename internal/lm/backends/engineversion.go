@@ -6,7 +6,7 @@
 // the descriptor table, with the rest of what ctxloom knows about each engine.
 //
 // The three parsers below are three DIFFERENT shapes, measured on this
-// project's dev host on 2026-08-07, not three copies of one guess:
+// project's dev host, not three copies of one guess:
 //
 //	claude    --version  ->  "2.1.225 (Claude Code)"   version first, name in parens
 //	codex     --version  ->  "codex-cli 0.144.4"       name first, then version
@@ -69,14 +69,14 @@ func ProbeEngineVersion(ctx context.Context, engine string) (string, error) {
 }
 
 // parseClaudeCodeVersion reads claude-code's `--version` output.
-// MEASURED 2026-08-07: "2.1.225 (Claude Code)" — the version leads, the
+// MEASURED: "2.1.225 (Claude Code)" — the version leads, the
 // product name follows in parentheses.
 func parseClaudeCodeVersion(output string) (string, error) {
 	return engineversion.TokenAt(output, 0)
 }
 
 // parseCodexVersion reads codex's `--version` output.
-// MEASURED 2026-08-07: "codex-cli 0.144.4" — the binary name leads, so the
+// MEASURED: "codex-cli 0.144.4" — the binary name leads, so the
 // version is the SECOND token. A parser that took the first token here would
 // refuse every working codex install.
 func parseCodexVersion(output string) (string, error) {
@@ -84,7 +84,7 @@ func parseCodexVersion(output string) (string, error) {
 }
 
 // parseOpencodeVersion reads opencode's `--version` output.
-// MEASURED 2026-08-07: a bare "1.18.4" — no name, no decoration.
+// MEASURED: a bare "1.18.4" — no name, no decoration.
 func parseOpencodeVersion(output string) (string, error) {
 	return engineversion.TokenAt(output, 0)
 }

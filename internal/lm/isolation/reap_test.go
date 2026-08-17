@@ -15,13 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Process-reaping gate (fix/container-launch-reap-and-stop). A container
+// Process-reaping gate. A container
 // launch spawns a `docker run` CHILD of this process. Go's os/exec only
 // releases that child's kernel process entry when Wait() is called: a
 // Start()ed-and-Kill()ed process that is never Waited stays a ZOMBIE
 // (`[docker] <defunct>`) for the parent's whole lifetime. A retry loop then
-// converts a container-launch bug into slow PID exhaustion — 846 defunct
-// docker children accumulated in 49 minutes in the 2026-07-24 incident.
+// converts a container-launch bug into slow PID exhaustion — defunct
+// docker children have accumulated by the hundreds within under an hour.
 //
 // These tests assert against the PROCESS TABLE (/proc), not against an API
 // return value: the leak is invisible to every return code in the launch
@@ -168,8 +168,8 @@ func TestStartDirectRunner_ReapsRunProcessAfterKill(t *testing.T) {
 // TestProbeOneRoot_ReapsProbeProcess is the fs-probe half of the same
 // question. probeExec runs the probe container via exec.CommandContext.Output(),
 // which does call Wait internally — so this test MEASURES whether the probe
-// path leaks rather than assuming it does. The 2026-07-24 incident named
-// `ctxloom-fsprobe-*` as the leak site; this pins the answer either way.
+// path leaks rather than assuming it does. `ctxloom-fsprobe-*` was named as
+// a leak site; this pins the answer either way.
 func TestProbeOneRoot_ReapsProbeProcess(t *testing.T) {
 	base := zombieBaseline()
 

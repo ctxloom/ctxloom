@@ -24,8 +24,7 @@ func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 	common := t.TempDir() // stand-in .git common dir so the exclude write succeeds
 	f := &git.Fake{CommonDirValue: common}
 	// A real backend is needed so Env() (now driven by credentialSeedSpecs,
-	// per-engine-isolation-home plan §6) has a spec to resolve HomeVars from —
-	// see TestWorktree_HomeVars_PerBackend for the per-engine var-count guard.
+	// per-engine-isolation-home plan §6) has a spec to resolve HomeVars from.
 	ws, err := NewWorktree(f, "claude-code").PrepareWorkspace(context.Background(), "/proj", "member-a")
 	require.NoError(t, err)
 	// Safety net registered BEFORE any assertion below can fail/panic and skip

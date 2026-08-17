@@ -156,9 +156,9 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 // than re-typed literals, so a roster gap like the one this doc used to
 // carry — opencode's XDG_CONFIG_HOME/XDG_DATA_HOME were missing despite this
 // comment claiming to mirror EnvWorkspace — cannot recur silently.
-// tests/arch's engine-layout gate (TestArch_EngineLayoutAgreement) pins this
-// roster equal to the full set of env vars internal/lm/isolation's
-// credentialSeedSpecs HomeVars name across every engine.
+// tests/arch's engine-layout gate pins this roster equal to the full set of
+// env vars internal/lm/isolation's credentialSeedSpecs HomeVars name across
+// every engine.
 var configHomeEnvKeys = []string{
 	claude.ConfigDirEnv,
 	codex.CodexHomeEnv,

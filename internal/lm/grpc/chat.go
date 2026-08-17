@@ -413,10 +413,10 @@ type chatRecvStream interface {
 // Those two producers used to call rec.Record (directly, or via
 // transcript.RecordUserText/Tee) from their own independent goroutines — safe
 // from data corruption (fileRecorder's own mutex) but with no coordination over
-// record ORDER beyond raw mutex-acquisition scheduling (found via the H1b
-// door-equivalence work, 2026-07-16: the same scripted conversation's
-// transcript.jsonl could put the Session record before or after the first user
-// turn across repeated runs of the identical script). A
+// record ORDER beyond raw mutex-acquisition scheduling (found via
+// door-equivalence work: the same scripted conversation's transcript.jsonl
+// could put the Session record before or after the first user turn across
+// repeated runs of the identical script). A
 // transcript.CoordinatedRecorder owns rec exclusively: both producers Submit to
 // it instead of calling Record themselves, so there is exactly one caller into
 // the Recorder's seq counter, not two racing it. This does not (and safely

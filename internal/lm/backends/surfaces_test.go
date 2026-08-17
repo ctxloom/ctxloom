@@ -16,8 +16,8 @@ import (
 // backend with no native config format (acp) and an unregistered name both
 // return an EmptySurfaceSet, so a caller (materialize) can iterate
 // Deliveries() unconditionally and simply deliver nothing. mock is NOT one of
-// these any more — see TestBuildSurfaces_Mock: it registers a real
-// (context-only) SurfaceSet so hermetic delivery tests have somewhere to look.
+// these any more — it registers a real (context-only) SurfaceSet so hermetic
+// delivery tests have somewhere to look.
 func TestBuildSurfaces_OptOutBackends(t *testing.T) {
 	for _, name := range []string{"acp", "does-not-exist"} {
 		t.Run(name, func(t *testing.T) {

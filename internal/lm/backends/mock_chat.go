@@ -26,12 +26,11 @@ var _ agent.StructuredChat = (*Mock)(nil)
 //     arrives, then completes with StopReason "cancelled" — the per-turn cancel
 //     seam, exercised without a real engine.
 //   - "TOOLS": the turn emits the FULL entry vocabulary a real engine produces
-//     — thinking, tool_use, tool_result, assistant — before completing. Added
-//     for the container-progress assertion (light-foe): a liveness check that
-//     asserts entry-type VARIETY is only meaningful against a stub that can
-//     actually produce more than one type, and the echo default cannot. Every
-//     entry carries the turn's text so the payload still proves exactly what
-//     was delivered to the engine.
+//     — thinking, tool_use, tool_result, assistant — before completing. A
+//     container-progress liveness check asserts entry-type VARIETY, which is
+//     only meaningful against a stub that can actually produce more than one
+//     type, and the echo default cannot. Every entry carries the turn's text
+//     so the payload still proves exactly what was delivered to the engine.
 func (b *Mock) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
 	defer close(out)
 	send := func(ev agent.ChatEvent) bool {

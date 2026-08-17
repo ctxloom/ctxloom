@@ -161,8 +161,9 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 // reapRunProcess Waits a started *exec.Cmd exactly once, in the background,
 // and returns an accessor that blocks for that one outcome.
 //
-// This is the fix for the 2026-07-24 PID leak (846 `[docker] <defunct>`
-// children in 49 minutes). A Start()ed process is only released from the
+// This is the fix for a PID leak (defunct `[docker]` zombie children
+// accumulating by the hundreds within under an hour). A Start()ed process is
+// only released from the
 // kernel process table by Wait, and NOTHING in the production call graph ever
 // called RunnerHandle.Wait — Kill force-removed the container and signalled
 // the `run` CLI, then dropped it. Every launch attempt therefore leaked one

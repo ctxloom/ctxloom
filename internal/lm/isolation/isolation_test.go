@@ -302,7 +302,7 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 //     empty auto-detect preference, so there is nothing to silently substitute;
 //   - `container build --runtime` does, and selectBuildRuntime REFUSES the
 //     substitution loudly rather than building into a daemon the user never
-//     asked for (see TestSelectBuildRuntime_ExplicitPreferMustBeHonored).
+//     asked for.
 //
 // This pins the first half, which nothing else asserts: wiring a configured
 // runtime preference into the run path turns this red, forcing whoever does it

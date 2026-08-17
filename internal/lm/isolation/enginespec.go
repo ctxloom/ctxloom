@@ -171,7 +171,7 @@ var mockInstallFragment = []byte(`RUN command -v cat >/dev/null 2>&1 \
 // nodeFloorFragment is the shared prereq every ACP-adapter install depends on:
 // a node the adapter can actually PARSE.
 //
-// The 2026-07-24 container-delegation defect lived here. The old prereq was
+// A container-delegation defect lived here. The old prereq was
 // `command -v npm || apt-get install -y nodejs npm || true` — "best-effort",
 // version-blind. On an Ubuntu 24.04 base that resolves to Node 18.19.1, which
 // predates import attributes (`import x from "./p.json" with {type:"json"}`,
@@ -210,7 +210,7 @@ const nodeFloorFragment = `RUN set -e \
 // surface:
 //
 //   - the NODE MODULE LOADER (SyntaxError … ERR_UNKNOWN_BUILTIN_MODULE): the
-//     2026-07-24 claude-code defect (see nodeFloorFragment), where the adapter
+//     claude-code defect nodeFloorFragment guards against, where the adapter
 //     was installed on an image whose node could not parse it.
 //   - the CLIENT'S OWN ARGUMENT PARSER plus the dynamic loader (unrecognized
 //     subcommand … symbol lookup error): a client binary that landed but whose
@@ -221,7 +221,7 @@ const nodeFloorFragment = `RUN set -e \
 // condition and is deliberately listed: opencode does not reject an
 // unrecognized first argument, it adopts it as the working directory — so an
 // opencode with no `acp` command reports `Error: Failed to change directory to
-// <cwd>/acp` AND EXITS ZERO. Measured live 2026-07-24. That is precisely why
+// <cwd>/acp` AND EXITS ZERO. Measured live. That is precisely why
 // these gates match on TEXT rather than exit status.
 const acpProbeFailurePatterns = `SyntaxError|Cannot find module|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_BUILTIN_MODULE|` +
 	`unrecognized subcommand|unknown subcommand|unknown command|unexpected argument|` +
@@ -279,7 +279,7 @@ func adapterRunGate(adapter string) string {
 // first cause. `--version` is not a substitute: it exercises a different code
 // path from the one that has to work.
 //
-// Measured live 2026-07-24: a healthy `kiro-cli acp </dev/null` and a healthy
+// Measured live: a healthy `kiro-cli acp </dev/null` and a healthy
 // `opencode acp </dev/null` each exit 0 having printed NOTHING, so a
 // well-behaved image passes this silently.
 func nativeACPRunGate(client, sub string) string {
@@ -356,7 +356,7 @@ var kiroInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-g
 // chat spawns. opencode is the sharpest case for gating on TEXT rather than
 // status — with no `acp` command it adopts "acp" as a directory, prints
 // `Error: Failed to change directory to <cwd>/acp`, and EXITS ZERO
-// (measured live 2026-07-24).
+// (measured live).
 var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*) || true) \
     && curl -fsSL https://opencode.ai/install | bash \
     && { command -v opencode >/dev/null 2>&1 \
@@ -599,8 +599,8 @@ func ContainerAuthEngines() []string {
 // ContainerOverlayDirsFor returns a copy of engineContainerSpecFor(backend)'s
 // overlayDirs — the project-relative managed-config directories a
 // containerized run of backend shadows. Exported read-only so tests/arch's
-// engine-layout gate (TestArch_EngineLayoutAgreement) can check this
-// package's defaultOverlayDirs/kiroOverlayDirs/codexOverlayDirs/
+// engine-layout gate can check this package's
+// defaultOverlayDirs/kiroOverlayDirs/codexOverlayDirs/
 // opencodeOverlayDirs/mockOverlayDirs literals against each owning engine
 // package's own ConfigDirName constant, the same import-cycle reasoning as
 // ComposableEngines/CredentialSeedEngineNames above applies here too.

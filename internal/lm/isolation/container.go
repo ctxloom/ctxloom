@@ -935,8 +935,8 @@ func rootishUser(user string) bool {
 }
 
 // runAsIsIdentityProblem describes why a user-owned image would START with the
-// WRONG identity under the given runtime ("" = the contract holds). 2da1e34
-// replaced rootful docker's blanket `--user uid:gid` (which owned ALL images)
+// WRONG identity under the given runtime ("" = the contract holds). A prior
+// change replaced rootful docker's blanket `--user uid:gid` (which owned ALL images)
 // with the PUID env + baked-entrypoint remap; that governs only images that
 // RUN the entrypoint, so a run-as-is image needs this static contract check —
 // the one pre-start signal, since a wrong-identity container launches cleanly.

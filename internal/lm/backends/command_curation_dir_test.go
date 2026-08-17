@@ -187,8 +187,8 @@ func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
 // downgraded to the unpinned HEAD. The seed carries an (unpinned) "review", so a
 // path that ignored "@c1" would export it; instead the pin routes to
 // GetPromptAtVersion, which the local production resolver can't serve for a fake
-// commit, so it is warned-and-skipped (fault-tolerant fail-closed) — exactly the
-// b626431 "version fetch failure → withheld" semantics, on the directory path.
+// commit, so it is warned-and-skipped (fault-tolerant fail-closed): a
+// version fetch failure means withheld, on the directory path too.
 func TestLoadCommandExports_DirProfileCuratedPinRoutedAndFailClosed(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"x"}, map[string]string{
 		"x": "commands:\n  - \"dev-tools#commands/review@c1\"\n",

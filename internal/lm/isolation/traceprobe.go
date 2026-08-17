@@ -52,7 +52,7 @@ import (
 // strace wrap and all. The gate is therefore not a boundary against a process
 // that can already choose ctxloom's environment; what it must never be is
 // SILENT, so traceProbeFromEnv announces every activation and names the
-// variable to unset (TestTraceProbeFromEnv_ActivationIsNeverSilent).
+// variable to unset.
 type TraceProbe struct {
 	HostDir        string // host dir bind-mounted out so the trace survives --rm teardown
 	ContainerDir   string // in-container mount target the trace file is written under

@@ -59,8 +59,8 @@ func fakeLtkOnPath(t *testing.T, bundleYAML string) func() {
 
 // companionCfg builds a bare Config with a real (temp-dir) AppPaths entry —
 // companionBundleSeed's probe guard requires a project directory to fire at
-// all (see TestSeededBundleLoader_NoAppPaths_SkipsCompanionProbing) — and HOME
-// isolated so the trust root read doesn't touch the real developer machine.
+// all — and HOME isolated so the trust root read doesn't touch the real
+// developer machine.
 func companionCfg(t *testing.T) *config.Config {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())

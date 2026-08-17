@@ -20,14 +20,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRunAttached_StderrTailSurvivesTeardown is the incident's core claim,
-// proven against a REAL container: a process that writes a distinctive line
+// TestRunAttached_StderrTailSurvivesTeardown proves the core claim against a
+// REAL container: a process that writes a distinctive line
 // to stderr and dies must have that line recoverable from the attached
 // handle's StderrTail EVEN AFTER Close force-removes the container — because
 // the tail was streamed into a host-side ring as the bytes arrived, not read
-// back from a container that no longer exists. This is exactly the shape of
-// the 2026-07-24 incident, where the decisive evidence
-// ("SyntaxError: Unexpected token 'with'") was reachable only via `docker
+// back from a container that no longer exists. This guards against exactly
+// the shape of failure where decisive evidence
+// (e.g. "SyntaxError: Unexpected token 'with'") was reachable only via `docker
 // logs` on a still-live container and vanished on teardown.
 func TestRunAttached_StderrTailSurvivesTeardown(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the stderr-tail survival integration test")

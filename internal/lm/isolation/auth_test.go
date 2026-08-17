@@ -855,9 +855,9 @@ func TestHostCredentialSeed_TightensAPreExistingSeedDir(t *testing.T) {
 // caller's "no credentials found to authenticate this run — run `codex login`"
 // — advice that cannot possibly help, for a cause never named.
 //
-// The RESULT deliberately stays seedNoSource with no hard error: an existing pin
-// (TestHostCredentialSeed_UnresolvableHostHome) fixes that this must degrade
-// rather than abort provisioning. What changes is that the cause is no longer
+// The RESULT deliberately stays seedNoSource with no hard error: an existing
+// pin fixes that this must degrade rather than abort provisioning. What
+// changes is that the cause is no longer
 // silent, matching provisionCuratedHome's handling of the identical failure.
 func TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced(t *testing.T) {
 	orig := hostHomeDir

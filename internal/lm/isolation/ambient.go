@@ -212,7 +212,7 @@ func credentialProjectorFor(engine string) agent.CredentialProjector {
 
 // CopyAmbient performs THE ambient copy-in — the one one-way transfer from the
 // user's real host home into an instance config home, shared by both axes that
-// have one (D8, ruled 2026-08-11: share the MECHANISM, keep the locations
+// have one (D8, ruled: share the MECHANISM, keep the locations
 // split — worktree homes stay home-rooted under
 // ~/.ctxloom/sessions/<harp>/ephemeral/, in-tree instances live at
 // <project>/.ctxloom/state/<harp>/home).

@@ -283,7 +283,7 @@ func chatMessageFromInputOrFail(t *testing.T) func(*ChatInput) agent.ChatMessage
 
 // TestArch_ProtoConverters_MirrorEveryStructField sweeps EVERY hand-mirrored converter pair in this package.
 // Adding a converter pair without adding it here is the one gap this design
-// cannot close by reflection — see TestArch_ProtoConverters_EveryPairIsSwept.
+// cannot close by reflection.
 func TestArch_ProtoConverters_MirrorEveryStructField(t *testing.T) {
 	hits := parityHits
 

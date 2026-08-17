@@ -66,7 +66,7 @@ func (wellKnownPlacement) Dir() string { return "" }
 // a run's assembled loadout the named backend has NO structural place for. A
 // delivery report can only list what it wrote — every line of it true — so the
 // loss is invisible in it by construction; this is where a caller gets the other
-// half (whiny-exclusive).
+// half.
 //
 // It reports a loss ONLY when the inputs actually carry the thing that cannot be
 // delivered. A capability gap nobody asked to use costs nothing and stays quiet,

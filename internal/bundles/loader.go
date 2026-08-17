@@ -145,7 +145,15 @@ func (l *Loader) index() {
 			// it is the difference between "you have no bundles" and "we could
 			// not find out what bundles you have"; the reads it did produce
 			// before failing are kept.
-			strictness.Fail(strictness.ClassBundle, "check the source named in the error, then re-run",
+			//
+			// ONCE, because this index is memoized per LOADER and a process
+			// builds many: Config.BundleLoader composes a fresh one per call
+			// site, so a source that fails deterministically — a malformed
+			// bundle file, which cannot start parsing between two reads in one
+			// process — reports once per loader built rather than once per
+			// fault. The finding still re-records in a later checkpoint window,
+			// so strict mode cannot be talked out of aborting by a repeat.
+			strictness.FailOnce(strictness.ClassBundle, "check the source named in the error, then re-run",
 				"a bundle source could not be read in full; some content may be missing: %v", err)
 		}
 		for _, read := range reads {

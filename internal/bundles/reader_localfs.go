@@ -128,6 +128,15 @@ func (r *localFSReader) FS() afero.Fs { return r.fsys }
 // strictness (fatal-class in strict mode, warn-and-continue in degraded): an
 // empty list with a nil error is how a permissions problem reaches the user as
 // "your fragment does not exist".
+//
+// Each is reported ONCE per process, and the reason is structural: this walk is
+// memoized per LOADER, but a process builds many (Config.BundleLoader composes a
+// fresh one per call site — `ctxloom doctor` went through 22). Every fault below
+// is a property of the filesystem, so it cannot resolve itself between two
+// builds inside one process, and reporting per build turned a single malformed
+// bundle into a screenful of identical lines that buried the one filename
+// needing a fix. The FINDING still records per checkpoint window, so strict mode
+// cannot be talked out of aborting by a repeat.
 func (r *localFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 	var out []BundleRead
 	seen := collections.NewSet[string]()
@@ -137,7 +146,7 @@ func (r *localFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 		}
 		exists, err := afero.DirExists(r.fsys, dir)
 		if err != nil {
-			strictness.Fail(strictness.ClassBundle, "check the permissions on your bundles directory",
+			strictness.FailOnce(strictness.ClassBundle, "check the permissions on your bundles directory",
 				"cannot read bundles directory %s: %v", dir, err)
 			continue
 		}
@@ -158,7 +167,7 @@ func (r *localFSReader) readDir(dir string, out []BundleRead, seen collections.S
 		if err != nil {
 			// Per-entry walk failure: report and keep walking, so one unreadable
 			// subdirectory cannot hide every other bundle.
-			strictness.Fail(strictness.ClassBundle, "check the permissions on your bundles directory",
+			strictness.FailOnce(strictness.ClassBundle, "check the permissions on your bundles directory",
 				"skipping unreadable bundle path %s: %v", path, err)
 			return nil
 		}
@@ -172,7 +181,7 @@ func (r *localFSReader) readDir(dir string, out []BundleRead, seen collections.S
 			// A local bundle that fails to load is fatal-class in strict mode
 			// (fail-loudly); degraded mode keeps warn-and-skip so a corrupt
 			// bundle never silently vanishes from a listing.
-			strictness.Fail(strictness.ClassBundle, "fix or remove the bundle file",
+			strictness.FailOnce(strictness.ClassBundle, "fix or remove the bundle file",
 				"skipping bundle %s: %v", manifest, rerr)
 			return nil
 		}
@@ -183,7 +192,7 @@ func (r *localFSReader) readDir(dir string, out []BundleRead, seen collections.S
 	if walkErr != nil {
 		// Walk itself gave up: the root could not be opened at all, and the
 		// callback never ran for it.
-		strictness.Fail(strictness.ClassBundle, "check the permissions on your bundles directory",
+		strictness.FailOnce(strictness.ClassBundle, "check the permissions on your bundles directory",
 			"cannot walk bundles directory %s: %v", dir, walkErr)
 	}
 	return out

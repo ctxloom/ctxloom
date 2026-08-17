@@ -427,8 +427,30 @@ func printHarnessStatus(r *operations.HarnessStatusResult) {
 		}
 		fmt.Printf("  %s: hooks=%v statusline=%v mcp=%v\n", b.Backend, b.HooksPresent, b.StatusLine, b.MCPPresent)
 	}
+	printSurfaceCurrencies(r.Surfaces)
 	fmt.Println()
 	printCompanionStatus()
+}
+
+// printSurfaceCurrencies renders the DELIVERY half of the wiring report — see
+// operations.SurfaceCurrency's doc: whether a materialized native context
+// file's content still matches what the project's default profiles currently
+// compose. Prints nothing at all when Surfaces is empty (no backend both
+// offers a read half and has anything materialized here), matching the "no
+// false alarms" rule the field itself already applies — a bare, unlabeled
+// section would be worse than no section.
+func printSurfaceCurrencies(surfaces []operations.SurfaceCurrency) {
+	if len(surfaces) == 0 {
+		return
+	}
+	fmt.Println("\nMaterialized surfaces:")
+	for _, s := range surfaces {
+		if s.Detail != "" {
+			fmt.Printf("  %s (%s): %s — %s\n", s.Route, s.Backend, s.Status, s.Detail)
+			continue
+		}
+		fmt.Printf("  %s (%s): %s\n", s.Route, s.Backend, s.Status)
+	}
 }
 
 // --- manage hooks -----------------------------------------------------------

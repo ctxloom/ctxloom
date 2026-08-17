@@ -371,21 +371,32 @@ Feature: The day the assistant goes blind
   # `doctor`. Verdict OK in the boundary table — this scenario tests the
   # staleness half specifically, which is the half a user actually hits.
   #
-  # MEASURED: RED, and a finding against B6's "OK" verdict. `manage check`
-  # reports the project path, whether MCP auto-registration and the statusline
-  # are on, one "not configured" line per engine, and the companion binaries it
-  # found. It never mentions a materialized surface at all — so it cannot
-  # report one as stale, fresh, or missing. B6's inspector reports on WIRING,
-  # not on DELIVERY, and the boundary table credits it with a hop it does not
-  # actually watch.
+  # WAS RED, and a finding against B6's "OK" verdict: `manage check` reported
+  # the project path, whether MCP auto-registration and the statusline are on,
+  # one "not configured" line per engine, and the companion binaries it found —
+  # never a materialized surface, so it could not report one as stale, fresh,
+  # or missing. B6's inspector reported on WIRING, not on DELIVERY.
   #
   # The fixture proves the divergence is real before the inspector ever runs:
   # it asserts the surface on disk holds last week's bytes and NOT this week's.
-  # So the red here is a product answer, not a harness artifact.
+  # So the red here was a product answer, not a harness artifact.
   #
-  # UNTAG WHEN: `manage check` (or doctor) reports a materialized surface whose
-  # content no longer matches what the profile composes.
-  @wip
+  # FIXED: `manage check` now walks the engine-delivery seam's read half
+  # (docs/design/engine-delivery-seam.design.md step 3 —
+  # agent.StateReader/agent.DeliveryState) over every backend's native context
+  # surface that is actually materialized under the project root
+  # (operations.surfaceCurrencies, internal/cli/manage.go's
+  # printSurfaceCurrencies). claude-code's CLAUDE.md gained the read half
+  # (claude.contextSurface.State) alongside the mock backend's, which already
+  # had one. A surface with nothing materialized stays silent (no false
+  # "missing" alarm for the default hook-delivered case); one whose managed
+  # section no longer matches the freshly-composed context (read-only, via the
+  # existing AssembleContext — this never re-writes the surface it inspects)
+  # is named "stale" in a new "Materialized surfaces:" section of the report.
+  #
+  # UNTAGGED 2026-08-16, confirmed to pass as written AND to bite: reverting
+  # claude.contextSurface.State to always report agent.StatusDelivered (never
+  # comparing against the composed context) turns this scenario red.
   Scenario: The composed context moved on and the engine's file did not, and the wiring report says so
     Given the runbook is composed into Alice's profile
     And the engine's own surface on disk still holds last week's copy

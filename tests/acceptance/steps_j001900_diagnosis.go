@@ -841,17 +841,27 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the engine's own surface on disk still holds last week's copy$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// Materialize once (so the surface exists and is genuinely ctxloom's),
-		// then let the CONTENT move on underneath it without re-materializing.
-		// That is exactly "stale materialization": the composed context and the
-		// file the engine will actually read have diverged.
-		if _, err := j001900Delivered(w); err != nil {
+		// Materialize onto the PROJECT ROOT itself (target "."), not the
+		// portable "out" tree j001900Delivered uses everywhere else in this
+		// journey. That "out" convention exists for scenarios that only ever
+		// READ the delivered payload back through the SAME command — it is a
+		// stand-in for "wherever the assembled bytes end up", and nothing else
+		// in the product ever looks there. `manage check`'s new staleness
+		// report (operations.surfaceCurrencies) reads claude-code's NATIVE
+		// context surface at the project root (CLAUDE.md via
+		// contextSurface.State) — the real-world shape of a user who chose
+		// claude's static-file context delivery over the SessionStart hook.
+		// Materializing there is what makes "the engine's own surface on disk"
+		// a surface `manage check` can actually observe, matching the
+		// production code this scenario exists to exercise rather than an
+		// export tree nothing inspects.
+		if _, err := materializeDefault(w, "."); err != nil {
 			return err
 		}
 		if err := j001900WriteAuthored(w, j001900RevisedMarker); err != nil {
 			return err
 		}
-		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
+		body, err := w.env.ReadFile("CLAUDE.md")
 		if err != nil {
 			return fmt.Errorf("read the materialized surface: %w", err)
 		}
@@ -861,6 +871,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		if strings.Contains(body, j001900RevisedMarker) {
 			return fmt.Errorf("the materialized surface already carries this week's copy — nothing re-materialized it, so the fixture is wrong; it holds:\n%s", body)
 		}
+		w.docStepMaterialized = "CLAUDE.md (project root, before `manage check` runs):\n" + body
 		return nil
 	})
 

@@ -1059,26 +1059,97 @@ func doctorCheckContentTrust(cfg *config.Config, cfgErr error) doctorCheck {
 	if cfgErr != nil {
 		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
-	infos, err := cfg.BundleLoader().List()
-	if err != nil {
-		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "could not list bundles: " + err.Error()}
-	}
-	var unsigned []string
-	for _, info := range infos {
-		if info.Deleted || info.Signer != "" || !doctorIsRemoteBundle(info.Name) {
+	// The READS, not the listing. Both come from the same loader, but a
+	// BundleInfo carries only a signer string, so this check used to collapse
+	// three different facts into one word — "unsigned" — and then guess between
+	// them in a parenthetical. The reader has already established which of the
+	// three it is, and why; reporting from the read means doctor says what the
+	// read path knows rather than an approximation of it.
+	var facts []contentTrustFact
+	for _, read := range cfg.BundleLoader().Reads() {
+		if !doctorIsRemoteBundle(read.Ref()) {
 			continue
 		}
-		unsigned = append(unsigned, info.Name)
+		facts = append(facts, contentTrustFact{
+			Ref:       read.Ref(),
+			Signature: read.Signature(),
+			Signer:    read.Signer(),
+			Detail:    read.SignatureDetail(),
+		})
 	}
-	if len(unsigned) == 0 {
+	return classifyContentTrust(marker, facts)
+}
+
+// contentTrustFact is one remote bundle's trust facts AS THE READER ESTABLISHED
+// THEM. It exists so the classification below can be tested: the axes on a
+// BundleRead are unexported and settable only by a reader — deliberately, so no
+// call site can mint trusted-looking content — which also means no test outside
+// internal/bundles can construct the three cases directly.
+type contentTrustFact struct {
+	Ref       string
+	Signature bundles.Signature
+	Signer    bundles.Signer
+	Detail    string
+}
+
+// classifyContentTrust turns the readers' facts into the check, keeping the
+// three situations APART.
+//
+// They are not variations on "unsigned": a signature that does not cover its
+// bytes is indistinguishable from tampering and is not fixed by trusting a key,
+// whereas an untrusted key usually just needs recognising. Reporting them as one
+// list buried the serious case in the routine one and forced the message to
+// guess which had happened.
+func classifyContentTrust(marker string, facts []contentTrustFact) doctorCheck {
+	var invalid, untrusted, unsigned []string
+	details := map[string]string{}
+
+	for _, f := range facts {
+		switch {
+		case f.Signature == bundles.SignatureInvalid:
+			invalid = append(invalid, f.Ref)
+			if f.Detail != "" {
+				details[f.Ref] = f.Detail
+			}
+		case f.Signer == bundles.SignerUntrusted:
+			untrusted = append(untrusted, f.Ref)
+		case f.Signature == bundles.SignatureNone:
+			unsigned = append(unsigned, f.Ref)
+		}
+	}
+
+	if len(invalid)+len(untrusted)+len(unsigned) == 0 {
 		return doctorCheck{Marker: marker, Status: doctorOK,
 			Detail: "every remote bundle's content is attributable to a publisher this machine trusts"}
 	}
-	sort.Strings(unsigned)
+
+	var parts []string
+	if len(invalid) > 0 {
+		sort.Strings(invalid)
+		named := make([]string, 0, len(invalid))
+		for _, ref := range invalid {
+			if d := details[ref]; d != "" {
+				named = append(named, fmt.Sprintf("%s (%s)", ref, d))
+				continue
+			}
+			named = append(named, ref)
+		}
+		parts = append(parts, fmt.Sprintf("%d with a signature that does NOT cover their bytes — treat as tampered until the publisher explains it, and do not trust a key to make this go away: %s",
+			len(invalid), strings.Join(named, ", ")))
+	}
+	if len(untrusted) > 0 {
+		sort.Strings(untrusted)
+		parts = append(parts, fmt.Sprintf("%d signed by a key this machine does not trust (`ctxloom signer trust` if you recognise the publisher): %s",
+			len(untrusted), strings.Join(untrusted, ", ")))
+	}
+	if len(unsigned) > 0 {
+		sort.Strings(unsigned)
+		parts = append(parts, fmt.Sprintf("%d carrying no signature at all (ask the publisher to sign): %s",
+			len(unsigned), strings.Join(unsigned, ", ")))
+	}
+
 	return doctorCheck{Marker: marker, Status: doctorWarn,
-		Detail: fmt.Sprintf("%d remote bundle(s) are UNSIGNED to this machine, so their content is withheld from your assistant: %s "+
-			"(the publisher never signed these bytes, or signed with a key you do not trust — `ctxloom signer trust` to trust the key, or ask the publisher to sign)",
-			len(unsigned), strings.Join(unsigned, ", "))}
+		Detail: "remote content is withheld from your assistant — " + strings.Join(parts, "; ")}
 }
 
 // doctorCheckUpstreamSignatures names every revision `deps upgrade` REFUSED

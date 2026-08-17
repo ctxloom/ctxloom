@@ -627,7 +627,28 @@ func p0Cells() []probeCell {
 	// The ONE cell measured with the minted-harp nonce — see the note below.
 	setCell(cells, "claude-code", "host", "none", func(c *probeCell) {
 		c.Status = probeLiveVerified
-		c.Reason = "the cheapest cell and the ladder's canary. Measured 2026-08-13 on this branch with the MINTED-HARP nonce: `just engine-matrix claude-code host none`, 1 scenario / 3 steps passed in 46s, no skip. Previously green on the j002300 per-engine live floor 2026-08-12 with the pre-harp hex nonce."
+		c.Reason = "the cheapest cell and the ladder's canary. Measured 2026-08-13 on this branch with the MINTED-HARP nonce: `just engine-matrix claude-code host none`, 1 scenario / 3 steps passed in 46s, no skip. Previously green on the j002300 per-engine live floor 2026-08-12 with the pre-harp hex nonce. RE-VERIFIED 2026-08-16 on the subscription lane, as one of a full four-cell claude sweep run right after the matrix narrowed to claude-only active rows (the other three engines moved to @wip in the feature, unchanged otherwise): passed in ~5.5s."
+	})
+
+	// claude-code host/worktree: never individually annotated before — the
+	// generated row above carried Status probeWired and no Reason of its own.
+	// Measured 2026-08-16 on the subscription lane, same sweep as host/none.
+	setCell(cells, "claude-code", "host", "worktree", func(c *probeCell) {
+		c.Status = probeLiveVerified
+		c.Reason = "measured 2026-08-16 on the subscription lane, part of the same four-cell claude sweep as host/none (run right after the matrix narrowed to claude-only active rows): `just engine-matrix claude-code host worktree` passed in ~5.5s."
+	})
+
+	// claude-code's two container cells already carry the 2026-08-13
+	// coordinator-chain evidence (containerEvidence, above), which codex and
+	// opencode's container cells share verbatim. Append claude's own
+	// 2026-08-16 re-verification here rather than edit the shared constant,
+	// since codex and opencode were not re-run on 2026-08-16 and their
+	// existing evidence must not be touched.
+	setCell(cells, "claude-code", "container", "none", func(c *probeCell) {
+		c.Reason += " RE-VERIFIED 2026-08-16 on the subscription lane, part of the same four-cell claude sweep: passed in 57s including the image build."
+	})
+	setCell(cells, "claude-code", "container", "worktree", func(c *probeCell) {
+		c.Reason += " RE-VERIFIED 2026-08-16 on the subscription lane, part of the same four-cell claude sweep: passed in 8s."
 	})
 	return cells
 }

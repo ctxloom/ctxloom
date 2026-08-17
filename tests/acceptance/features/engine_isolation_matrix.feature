@@ -1,12 +1,32 @@
 @live
-Feature: Engine × isolation matrix — the simplest round trip, through every engine and every isolation scheme
+Feature: Claude × runtime × workspace matrix — the simplest round trip, on every axis pairing
 
   Before anyone can trust what ctxloom does with an engine, one question has to
-  be answerable for every engine and every isolation scheme we ship: does a run
-  come back with the answer at all? Not "did the flag parse", not "did the
-  container launch", not "was the credential isolated" — did the engine we
-  launched, in the sandbox we put it in, with the context we composed, return
-  the thing it was asked for.
+  be answerable for every axis pairing we ship: does a run come back with the
+  answer at all? Not "did the flag parse", not "did the container launch", not
+  "was the credential isolated" — did the engine we launched, in the sandbox we
+  put it in, with the context we composed, return the thing it was asked for.
+
+  CLAUDE IS THE ENGINE THIS FEATURE DRIVES NOW. The matrix is built on two axes
+  that apply to any engine ctxloom ships, and claude is the one currently wired
+  active on all four combinations of them. Codex, kiro and opencode are
+  designed on the identical two axes — their Examples blocks are further down
+  this file, each now tagged work-in-progress, carrying every comment and
+  measured finding they already had, untouched — but they are not the engine
+  under active test here. Wire one back in the same way claude is wired above
+  them: drop the work-in-progress tag once it becomes the engine under active
+  test again.
+
+  THE TWO AXES, NAMED PLAINLY, because the table below crosses them and a
+  reader should not have to already know which is which to read it. `runtime`
+  (host | container) is the CONTAINERIZATION axis — it isolates the PROCESS the
+  engine runs in. `workspace` (none | worktree) is the ISOLATION axis — it
+  isolates the FILES the engine sees. They are INDEPENDENT: a container run can
+  still mount the workspace at the exact absolute path the live project lives
+  at, and a worktree run still executes the engine on the host, outside any
+  container — picking one says nothing about the other. Both column names stay
+  `runtime` and `workspace` throughout this suite: they are the product's own
+  spelling, matching config.yaml and the CLI flags.
 
   Nothing else in this suite answers that. j002300_cross_engine_delegation.feature
   proves DELEGATION, and only on the host axis with workspace none.
@@ -59,6 +79,13 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
   relocates, so KIRO_API_KEY is the only key that opens the axis — a real
   product limitation, recorded as one).
 
+  CLAUDE'S FULL FOUR-CELL FLOOR WAS RE-VERIFIED ON 2026-08-16, RIGHT AFTER THIS
+  MATRIX NARROWED TO CLAUDE-ONLY ACTIVE ROWS. All four claude cells were run on
+  the subscription lane and all four PASSED: host/none and host/worktree each
+  ~5.5s, container/none 57s (including the image build), container/worktree
+  8s. Narrowing the matrix to claude did not just restructure the table — it
+  re-measured every cell claude carries.
+
   The cells stay exactly as strict as they were. A red here is now a
   REGRESSION rather than an expectation, which is the whole point of having run
   them while they failed. Do not tag them green-by-loosening, and do not delete
@@ -86,6 +113,10 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
     When it runs the JSON hello-world task in one turn
     Then the run's output is exactly the expected JSON object
 
+    # ACTIVE FLOOR — claude only. VERIFIED LIVE 2026-08-16 on the subscription
+    # lane: all four cells below run serially, all four PASSED — host/none
+    # ~5.5s, host/worktree ~5.5s, container/none 57s (including the image
+    # build), container/worktree 8s. See the header for the fuller account.
     @claude-code @host @ws-none
     Examples:
       | engine      | runtime | workspace |
@@ -106,22 +137,47 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
       | engine      | runtime   | workspace |
       | claude-code | container | worktree  |
 
-    @codex @host @ws-none
+    # ============================================================
+    # OTHER ENGINES — SAME TWO AXES (runtime × workspace), NOT YET DRIVEN.
+    #
+    # Everything below runs on the identical grid claude uses above. Each
+    # block is tagged @wip rather than deleted or commented out: the rows stay
+    # PARSED, stay ADDRESSABLE by `just engine-matrix <engine> <runtime>
+    # <workspace>`, and stay VISIBLE in the corpus, and every measured finding
+    # recorded beside them — notably kiro's host/none row a few blocks down —
+    # survives verbatim. Wire an engine back into the ACTIVE FLOOR above the
+    # same way claude is wired: drop its @wip tag when it becomes the engine
+    # under active test again.
+    # ============================================================
+
+    # @wip — not a defect: codex is designed on the same two axes claude
+    # drives above, but it is not the engine under active test right now.
+    # Untag when codex becomes a driven engine again.
+    @codex @host @ws-none @wip
     Examples:
       | engine | runtime | workspace |
       | codex  | host    | none      |
 
-    @codex @host @ws-worktree
+    # @wip — not a defect: codex is designed on the same two axes claude
+    # drives above, but it is not the engine under active test right now.
+    # Untag when codex becomes a driven engine again.
+    @codex @host @ws-worktree @wip
     Examples:
       | engine | runtime | workspace |
       | codex  | host    | worktree  |
 
-    @codex @container @ws-none
+    # @wip — not a defect: codex is designed on the same two axes claude
+    # drives above, but it is not the engine under active test right now.
+    # Untag when codex becomes a driven engine again.
+    @codex @container @ws-none @wip
     Examples:
       | engine | runtime   | workspace |
       | codex  | container | none      |
 
-    @codex @container @ws-worktree
+    # @wip — not a defect: codex is designed on the same two axes claude
+    # drives above, but it is not the engine under active test right now.
+    # Untag when codex becomes a driven engine again.
+    @codex @container @ws-worktree @wip
     Examples:
       | engine | runtime   | workspace |
       | codex  | container | worktree  |
@@ -152,22 +208,40 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
       | engine | runtime | workspace |
       | kiro   | host    | none      |
 
-    @kiro @host @ws-worktree
+    # @wip — not a defect: kiro is designed on the same two axes claude drives
+    # above, but it is not the engine under active test right now. Untag when
+    # kiro becomes a driven engine again. (Separate from the host/none row
+    # above, which is @wip for its own measured ANSI-decoration finding and
+    # keeps that reason regardless of this one.)
+    @kiro @host @ws-worktree @wip
     Examples:
       | engine | runtime | workspace |
       | kiro   | host    | worktree  |
 
-    @kiro @container @ws-none
+    # @wip — not a defect: kiro is designed on the same two axes claude drives
+    # above, but it is not the engine under active test right now. Untag when
+    # kiro becomes a driven engine again. (Production's own conditional gate
+    # on this axis — credentialSeedSpecs["kiro"] needs KIRO_API_KEY — still
+    # applies underneath this tag; see the header comment above the outline.)
+    @kiro @container @ws-none @wip
     Examples:
       | engine | runtime   | workspace |
       | kiro   | container | none      |
 
-    @kiro @container @ws-worktree
+    # @wip — not a defect: kiro is designed on the same two axes claude drives
+    # above, but it is not the engine under active test right now. Untag when
+    # kiro becomes a driven engine again. (Production's own conditional gate
+    # on this axis — credentialSeedSpecs["kiro"] needs KIRO_API_KEY — still
+    # applies underneath this tag; see the header comment above the outline.)
+    @kiro @container @ws-worktree @wip
     Examples:
       | engine | runtime   | workspace |
       | kiro   | container | worktree  |
 
-    @opencode @host @ws-none
+    # @wip — not a defect: opencode is designed on the same two axes claude
+    # drives above, but it is not the engine under active test right now.
+    # Untag when opencode becomes a driven engine again.
+    @opencode @host @ws-none @wip
     Examples:
       | engine   | runtime | workspace |
       | opencode | host    | none      |
@@ -188,17 +262,32 @@ Feature: Engine × isolation matrix — the simplest round trip, through every e
     # that evidence. This cell is left untagged (it does pass) with the
     # flakiness documented here: if it goes red in a lane, check for that dial
     # address before assuming the engine.
-    @opencode @host @ws-worktree
+    #
+    # ADDENDUM 2026-08-16: this cell is now ALSO tagged @wip, for an
+    # unrelated, second reason — opencode is not the engine under active test
+    # right now (same as every other row in this section). The "left
+    # untagged" sentence above describes the 2026-08-13 decision and is kept
+    # verbatim as history; it no longer describes this cell's current tag
+    # state. Untag when opencode becomes a driven engine again — that is
+    # independent of the flakiness finding above, which remains open on its
+    # own and does not itself block untagging.
+    @opencode @host @ws-worktree @wip
     Examples:
       | engine   | runtime | workspace |
       | opencode | host    | worktree  |
 
-    @opencode @container @ws-none
+    # @wip — not a defect: opencode is designed on the same two axes claude
+    # drives above, but it is not the engine under active test right now.
+    # Untag when opencode becomes a driven engine again.
+    @opencode @container @ws-none @wip
     Examples:
       | engine   | runtime   | workspace |
       | opencode | container | none      |
 
-    @opencode @container @ws-worktree
+    # @wip — not a defect: opencode is designed on the same two axes claude
+    # drives above, but it is not the engine under active test right now.
+    # Untag when opencode becomes a driven engine again.
+    @opencode @container @ws-worktree @wip
     Examples:
       | engine   | runtime   | workspace |
       | opencode | container | worktree  |

@@ -82,6 +82,35 @@ func TestEachBuiltinBundle_ParsesEveryEmbeddedBundle(t *testing.T) {
 	}
 }
 
+// TestEachBuiltinBundle_ParsesOncePerProcess pins the memo.
+//
+// Builtin bundles are compiled into the binary, so their bytes cannot change
+// while it runs — the one source in this package for which caching across calls
+// is unconditionally safe. Four surfaces read them (MCP servers, hooks,
+// fragments, companion bins) and each call used to re-walk the embedded
+// filesystem and re-run ParseBundle over every builtin to produce a
+// byte-identical answer.
+//
+// Pointer identity is the assertion because it is the only thing that
+// distinguishes "one parse, shared" from "two parses that happen to be equal" —
+// a deep-equality check would pass either way and prove nothing.
+func TestEachBuiltinBundle_ParsesOncePerProcess(t *testing.T) {
+	collect := func() map[string]*bundles.Bundle {
+		out := map[string]*bundles.Bundle{}
+		eachBuiltinBundle(func(read bundles.BundleRead) { out[read.Ref()] = read.Bundle })
+		return out
+	}
+
+	first, second := collect(), collect()
+	require.NotEmpty(t, first, "the binary must embed at least one builtin, or this proves nothing")
+
+	for ref, b := range first {
+		require.Same(t, b, second[ref],
+			"builtin %q was parsed again on the second call: the embedded bytes cannot change "+
+				"mid-process, so every re-read is pure waste and risks two surfaces disagreeing", ref)
+	}
+}
+
 // TestBuiltinBundleReaders_UseTheCanonicalParser states the consistency
 // invariant as a structural fact the four surfaces now share: they read
 // builtin bundles through exactly one function. A fifth surface that grows its

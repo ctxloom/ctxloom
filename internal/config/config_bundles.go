@@ -891,13 +891,32 @@ func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.A
 // filesystem — is what makes "a builtin bundle" one definition rather than four,
 // and what keeps a builtin's trust facts established the same way everything
 // else's are.
-func eachBuiltinBundle(fn func(read bundles.BundleRead)) {
+// The read is memoized for the life of the PROCESS, which is safe here in a way
+// it would not be for any other reader: builtin bundles are compiled into the
+// binary, so their bytes cannot change while it runs. Every other source can,
+// which is why nothing else in this package caches across calls.
+//
+// It matters because the callers are not rare — four surfaces, and `doctor`
+// alone reached them repeatedly — and each call re-walked the embedded
+// filesystem and re-ran ParseBundle over every builtin to produce a byte-identical
+// answer.
+//
+// This does NOT collapse the two routes a builtin reaches a session by: ref
+// selection through Config.BundleLoader, and the unconditional injection below.
+// Both are deliberate — the ingest identity rule exists precisely to collapse
+// one item arriving by both — and the memo makes them provably agree by giving
+// them one parse instead of two.
+var builtinReads = sync.OnceValue(func() []bundles.BundleRead {
 	reads, err := bundles.NewBuiltinReader().Read(context.Background())
 	if err != nil {
 		clidiag.Warn("ctxloom", "read builtin bundles: %v", err)
-		return
+		return nil
 	}
-	for _, read := range reads {
+	return reads
+})
+
+func eachBuiltinBundle(fn func(read bundles.BundleRead)) {
+	for _, read := range builtinReads() {
 		fn(read)
 	}
 }

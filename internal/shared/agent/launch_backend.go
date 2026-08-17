@@ -424,24 +424,6 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 				}
 				return fmt.Errorf("failed to deliver surface into shared cwd: %w", err)
 			}
-			// A caller-selected ApproachHook context surface delivers successfully
-			// as a documented no-op WRITE (noopContextDelivery: err==nil, d==nil) —
-			// the design intent is that the settings-carried SessionStart hook
-			// itself carries the context, but nothing installs that hook unless
-			// something does so here. Without this, the err==nil branch above never
-			// runs recoverContextViaHook (it fires only on a write FAILURE), so a
-			// deliberately-pinned hook approach silently launched a context-less
-			// session while Setup reported success — CONTEXT-DELIVERY was
-			// measured empty though assembly and hook-firing both succeeded.
-			// Scoped to SharedCell/SurfaceContext/ApproachHook exactly like the
-			// failure fallback above; !b.delivery.RawContext guards a future
-			// RawContext-and-Hook backend, whose setupViaCells pre-step already
-			// installed the hook, from a double append.
-			if rs.kind == SurfaceContext && rs.approach == ApproachHook && !b.delivery.RawContext {
-				if !b.installContextInjectionHook(req) {
-					return fmt.Errorf("failed to install the context-injection hook for surface %s", rs.kind)
-				}
-			}
 			if d != nil { // a no-op delivery (wrote nothing) holds no cleanup handle
 				b.delivered = append(b.delivered, d)
 			}
@@ -467,20 +449,24 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	return nil
 }
 
-// installContextInjectionHook materializes the raw context cache file (via
-// Provide) and appends the SessionStart injection hook keyed to its hash
-// directly onto the shared merged hooks — the very *wire.HooksConfig the
-// settings surface (delivered next in the same SharedCell loop) will write.
-// It is the one mechanism that actually gets hook-carried context to a
-// flag-context backend (claude): both recoverContextViaHook's failure
-// fallback and a deliberately-selected ApproachHook context surface (a
-// documented no-op WRITE — see noopContextDelivery — that otherwise installs
-// nothing at all) route through here. It appends ONLY the injection hook
-// (never re-runs MergeManaged, which would clobber the statusline state).
-// Reports whether the install took hold.
-func (b *LaunchBackend) installContextInjectionHook(req *SetupRequest) bool {
+// recoverContextViaHook is the SharedCell context-delivery fallback for a
+// flag-context backend (claude): when the out-of-cwd context surface fails to
+// write its scratch file, materialize the raw cache file via Provide and append
+// the SessionStart injection hook keyed to its hash directly onto the shared
+// merged hooks — the very *wire.HooksConfig the settings surface (delivered next
+// in the same loop) will write. The session then launches with context via the
+// legacy hook rather than losing it to a scratch-write hiccup. It appends ONLY the
+// injection hook (never re-runs MergeManaged, which would clobber the statusline
+// state). Reports whether the fallback took hold (the caller then skips the failed
+// context handle and continues delivering the remaining surfaces). cause is the
+// error that triggered the fallback — it used to be discarded, and the
+// warning went straight to os.Stderr rather than this package's own Warn/clidiag
+// sink — the mechanism a session that owns the terminal uses to keep a warning
+// from corrupting a live TUI frame it is painting.
+func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest, cause error) bool {
+	Warn("context delivery failed (%v); keeping the injection hook", cause)
 	if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
-		Warn("context-injection hook install: Provide failed: %v", err)
+		Warn("context-recovery fallback's own Provide failed: %v", err)
 		return false
 	}
 	hash := b.context.GetContextHash()
@@ -489,27 +475,12 @@ func (b *LaunchBackend) installContextInjectionHook(req *SetupRequest) bool {
 	}
 	hooks, _, ok := b.mergedState()
 	if !ok || hooks == nil {
-		Warn("context-injection hook install: could not read the merged hooks state")
+		Warn("context-recovery fallback could not read the merged hooks state")
 		return false
 	}
 	hooks.Unified.SessionStart = append(hooks.Unified.SessionStart,
 		NewContextInjectionHooks(hash, b.WorkDir())...)
 	return true
-}
-
-// recoverContextViaHook is the SharedCell context-delivery fallback for a
-// flag-context backend (claude): when the out-of-cwd context surface fails to
-// write its scratch file, fall back to installContextInjectionHook instead of
-// losing the user's context to a scratch-write hiccup. Reports whether the
-// fallback took hold (the caller then skips the failed context handle and
-// continues delivering the remaining surfaces). cause is the error that
-// triggered the fallback — it used to be discarded, and the warning went
-// straight to os.Stderr rather than this package's own Warn/clidiag sink —
-// the mechanism a session that owns the terminal uses to keep a warning from
-// corrupting a live TUI frame it is painting.
-func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest, cause error) bool {
-	Warn("context delivery failed (%v); keeping the injection hook", cause)
-	return b.installContextInjectionHook(req)
 }
 
 // mergedState reads the lifecycle's merged hooks + MCP so the delivery seam can

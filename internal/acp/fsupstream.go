@@ -8,7 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 )
 
-// This file is B5's engine-conversation half (gap G14): dialing the local
+// This file is the engine-conversation half of fs reach-back: dialing the local
 // fs-reach-back socket internal/acpagent's fs-upstream listener stands up
 // (internal/acpagent/fsupstream.go), so chatSession's handleFsRead/
 // handleFsWrite (session.go) can chain to the connected editor on the HOST

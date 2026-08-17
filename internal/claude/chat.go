@@ -142,8 +142,8 @@ func withThinkingEnv(env map[string]string, level agent.ThinkingLevel) map[strin
 
 // claudeModelSelectionQuirk is CO1's D-CO-QUIRK escape hatch: the ONE
 // sanctioned fix for the live bug where every claude ACP session silently ran
-// claude-opus-4-6 regardless of the requested model. Verified live (2026-07,
-// controlled experiment): claude-code-acp 0.16.2's SettingsManager reads only
+// claude-opus-4-6 regardless of the requested model. Verified live (controlled
+// experiment): claude-code-acp 0.16.2's SettingsManager reads only
 // ~/.claude/settings.json (never ANTHROPIC_MODEL — the env var
 // chatACPConfig's ModelEnvVar sets, and which this quirk does NOT replace,
 // only supplements, since some future adapter release might start honoring

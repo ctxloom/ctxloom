@@ -36,7 +36,7 @@ import (
 // resource's text; `resource_link` blocks become a labeled reference line —
 // so "add context" content reaches the engine instead of vanishing.
 //
-// B2 (gap G3): image/audio blocks, and a `resource` block carrying only a
+// image/audio blocks, and a `resource` block carrying only a
 // binary blob (no text), have no text projection — but they are no longer
 // SILENTLY dropped here: each renders a labeled placeholder line (kind, mime
 // type, byte count) so a text-only backend's model at least sees that
@@ -87,16 +87,15 @@ func promptParts(blocks []api.ContentBlock) []string {
 }
 
 // mediaPlaceholderLine renders the visible, non-silent placeholder for an
-// image/audio block flattened to plain text (see promptText's B2 note).
+// image/audio block flattened to plain text (see promptText's doc comment).
 func mediaPlaceholderLine(kind, mimeType string, dataLen int) string {
 	return fmt.Sprintf("[%s content received (mimeType=%s, %d bytes) — this flattened text channel cannot render it; a structured-content-aware backend receives it via ContentBlocks instead]", kind, mimeType, dataLen)
 }
 
 // binaryResourcePlaceholder renders the visible placeholder for an embedded
 // `resource` block carrying only a binary blob (embeddedResourceText returns
-// "" for one) — B2's fix for the pre-existing silent drop this path used to
-// have (see TestPromptText_ResourceBlocks's history: a blob resource used to
-// vanish with no trace at all).
+// "" for one) — the fix for the pre-existing silent drop this path used to
+// have: a blob resource used to vanish with no trace at all.
 func binaryResourcePlaceholder(r *api.ContentBlockResource) string {
 	if r == nil || r.Resource.BlobResourceContents == nil {
 		return ""
@@ -156,11 +155,11 @@ func resourceLinkText(l *api.ContentBlockResourceLink) string {
 }
 
 // contentBlocksFromACP projects a session/prompt's content blocks onto the
-// IR2 structured form (agent.ContentBlock: Kind/Text/Raw) — the AGENT-role
+// IR's structured form (agent.ContentBlock: Kind/Text/Raw) — the AGENT-role
 // mirror of internal/acp/mapping.go's blockToIR (CLIENT-role intake from an
 // ENGINE's own updates). Every variant's FULL bytes ride in Raw regardless of
 // kind, so image/audio/resource are carried losslessly all the way to a
-// backend that can act on them (B2, gap G3) — this is what makes
+// backend that can act on them — this is what makes
 // handleInitialize's promptCapabilities.image/audio: true honest: this layer
 // never drops the bytes, whatever a specific downstream engine later decides
 // to do with them (internal/acp/session.go's buildPromptBlocks degrades that
@@ -202,7 +201,7 @@ func contentBlocksFromACP(blocks []api.ContentBlock) []agent.ContentBlock {
 
 // mcpServersFromACP maps the client's session mcpServers onto the engine chat
 // request shape (env/header list → map). Stdio is the protocol's
-// unconditional baseline, always accepted. Http/Sse (B3, gap G11) are now
+// unconditional baseline, always accepted. Http/Sse are now
 // accepted too — ctxloom's own initialize advertises both true (see
 // handleInitialize) — and carried onward as agent.ChatMCPServer with
 // Transport/URL/Headers set; whether the SESSION'S chosen engine can

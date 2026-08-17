@@ -24,14 +24,14 @@ import (
 //	tool_call             → EntryTypeToolUse      (title/kind → ToolName, rawInput →
 //	                                               ToolInput, toolCallId → ToolCallID,
 //	                                               kind → ToolKind, locations →
-//	                                               ToolLocations — IR2)
+//	                                               ToolLocations)
 //	tool_call_update      → EntryTypeToolResult   (only once it carries output or a
 //	                                               terminal status; failed → IsError;
-//	                                               same IR2 richness as tool_call, plus
+//	                                               same richness as tool_call, plus
 //	                                               content → ToolContent structurally)
 //	plan                  → EntryTypeSystem        (SystemKind=SystemKindPlan; Plan
 //	                                               carries the STRUCTURED entries —
-//	                                               IR2's fix for the conformance
+//	                                               the fix for the conformance
 //	                                               audit's headline finding: a prior
 //	                                               revision flattened this into
 //	                                               Content alone, which the outbound
@@ -42,7 +42,7 @@ import (
 //	                                               a fallback for any consumer that
 //	                                               only reads text.)
 //	available_commands_update,
-//	current_mode_update    → ChatEvent{Raw: ...}  (IR3: no IR entry type of their
+//	current_mode_update    → ChatEvent{Raw: ...}  (no IR entry type of their
 //	                                               own, forwarded on the curated raw
 //	                                               passthrough allowlist instead of
 //	                                               being silently dropped — see
@@ -52,7 +52,7 @@ import (
 //	                         don't model)
 //
 // Additionally, ANY of the variants above that carries a non-empty ACP `_meta`
-// object attaches it to the emitted ChatEvent's Raw field (IR3's third
+// object attaches it to the emitted ChatEvent's Raw field (the third
 // allowlist entry) — see metaRaw below.
 //
 // Each update yields 0..1 entries. Chunks are emitted one entry apiece (a frontend
@@ -81,7 +81,7 @@ func mapSessionUpdate(u *api.SessionUpdate) []agent.ChatEvent {
 	case u.UserMessageChunk != nil:
 		return nil // don't duplicate the user's own message
 	case u.AvailableCommandsUpdate != nil, u.CurrentModeUpdate != nil:
-		// IR3: no IR entry type exists for these (ctxloom itself doesn't
+		// No IR entry type exists for these (ctxloom itself doesn't
 		// consume/mediate them), but they're on the curated raw-passthrough
 		// allowlist rather than silently dropped like a true unknown variant.
 		// api.SessionUpdate.MarshalJSON reconstructs the properly-tagged
@@ -97,7 +97,7 @@ func mapSessionUpdate(u *api.SessionUpdate) []agent.ChatEvent {
 	}
 }
 
-// rawOnlyEvent marshals u (expected to have exactly one of the IR3-allowlisted
+// rawOnlyEvent marshals u (expected to have exactly one of the allowlisted
 // variants set) into a raw-only ChatEvent — Entry/Complete/Session/Permission
 // all nil, only Raw populated. A marshal failure drops the frame rather than
 // panicking or fabricating a malformed one, and says so: the drop is otherwise
@@ -113,7 +113,7 @@ func rawOnlyEvent(u *api.SessionUpdate) []agent.ChatEvent {
 }
 
 // metaRaw wraps a variant's `_meta` object (when non-empty) as the small Raw
-// envelope `{"_meta": ...}` IR3's allowlist forwards it as. Returns nil for an
+// envelope `{"_meta": ...}` the allowlist forwards it as. Returns nil for an
 // empty/absent meta so a ChatEvent with nothing else to report doesn't
 // acquire an empty, meaningless Raw field.
 func metaRaw(meta map[string]any) json.RawMessage {
@@ -132,7 +132,7 @@ func metaRaw(meta map[string]any) json.RawMessage {
 // textEntry emits a single content entry of the given type, or nothing when the
 // content block carries no text (a content-less chunk is not surfaced — unlike a
 // thinking marker, an empty ACP text chunk has nothing to show). meta is the
-// containing update's `_meta`, forwarded via Raw when present (IR3).
+// containing update's `_meta`, forwarded via Raw when present.
 func textEntry(t agent.SessionEntryType, block api.ContentBlock, meta map[string]any) []agent.ChatEvent {
 	text := contentBlockText(block)
 	if text == "" {
@@ -146,7 +146,7 @@ func textEntry(t agent.SessionEntryType, block api.ContentBlock, meta map[string
 
 // mapToolCall turns a new tool_call into a tool_use entry: the human-readable
 // title (falling back to the tool kind) names the tool, and rawInput carries the
-// arguments. IR2: the engine-native toolCallId, kind, and locations are carried
+// arguments. The engine-native toolCallId, kind, and locations are carried
 // through so a re-emission (internal/acpagent/mapping.go) can reuse the SAME id
 // instead of generating one keyed only by tool name.
 func mapToolCall(tc *api.SessionUpdateToolCall) []agent.ChatEvent {
@@ -173,7 +173,7 @@ func mapToolCall(tc *api.SessionUpdateToolCall) []agent.ChatEvent {
 // mapToolCallUpdate turns a tool_call_update into a tool_result entry once it has
 // something to report — completed/failed status, or produced content/output.
 // Bare in-progress ticks (no output) yield nothing: they're status noise, not a
-// result. A failed status marks the entry as an error. IR2: toolCallId/kind/
+// result. A failed status marks the entry as an error. toolCallId/kind/
 // locations carry through as mapToolCall does, and Content is ALSO kept
 // structurally (ToolContent) alongside the flattened ToolOutput string.
 func mapToolCallUpdate(tu *api.SessionToolCallUpdate) []agent.ChatEvent {
@@ -220,7 +220,7 @@ func mapToolCallUpdate(tu *api.SessionToolCallUpdate) []agent.ChatEvent {
 	}}
 }
 
-// mapPlan carries the agent's execution plan through STRUCTURALLY (IR2): Plan
+// mapPlan carries the agent's execution plan through STRUCTURALLY: Plan
 // holds the entries verbatim (content/priority/status) so a re-emission can
 // rebuild a real ACP `plan` update, and SystemKind marks this as a plan entry
 // (not the delegated-turn-failure notice, EntryTypeSystem's other producer —
@@ -259,8 +259,8 @@ func mapPlan(p *api.SessionUpdatePlan) []agent.ChatEvent {
 // --- accounting update variants ---
 
 // usage_update is a real spec SessionUpdate variant (api.UsageUpdate) as of
-// schema-v1.19.0 — H1 confirmed ctxloom's prior hand-rolled shape already
-// matched it exactly, so it is now decoded straight into the real type
+// schema-v1.19.0 — confirmed to already match ctxloom's prior hand-rolled
+// shape exactly, so it is now decoded straight into the real type
 // instead of a bespoke usageUpdateWire. It is intercepted here, before the
 // strict api.SessionUpdate union ever sees it, because it feeds turn
 // ACCOUNTING rather than an emitted entry — protocol v1 itself carries no
@@ -268,7 +268,7 @@ func mapPlan(p *api.SessionUpdatePlan) []agent.ChatEvent {
 // stopReason alone), so this is the ONLY usage data any ACP agent delivers
 // today.
 //
-// G13 (decomposing IR4): ctxloom's own session-info extension used to also
+// ctxloom's own session-info extension used to also
 // be intercepted here (a "session_info_update"-discriminated frame carrying
 // model/contextWindow in `_meta.ctxloom_session_info`), extracted into
 // s.infoModel/s.infoWindow for completeMeta to fold into TurnMeta. That
@@ -283,13 +283,12 @@ func mapPlan(p *api.SessionUpdatePlan) []agent.ChatEvent {
 // api.SessionUpdate decode below and lands in mapSessionUpdate's default
 // case — dropped as an unmodeled variant, exactly the same harmless no-op
 // outcome session_info_update already had for anything it didn't recognize
-// pre-G13 (see TestChat_ForeignSessionInfoUpdateIgnored). This does NOT
+// before this change (see TestChat_ForeignSessionInfoUpdateIgnored). This does NOT
 // newly propagate PermissionMode/MCPServers into agent.ChatSessionInfo for a
-// nested ctxloom-driving-ctxloom hop — that was ALREADY unread pre-G13 ("the
-// frame also carries permissionMode/mcpServers, not yet read here"), and
-// stays that way; not this slice's mission (G13 is foreign-client
-// rendering, not nested-delegation header propagation) — see the G13 report's
-// deferred-work list.
+// nested ctxloom-driving-ctxloom hop — that was ALREADY unread before this
+// change ("the frame also carries permissionMode/mcpServers, not yet read
+// here"), and stays that way: propagating it is out of scope here, which is
+// about foreign-client rendering, not nested-delegation header propagation.
 const usageUpdateVariant = "usage_update"
 
 // updateDiscriminator reads a raw update's sessionUpdate type tag without
@@ -392,7 +391,7 @@ func contentBlockText(block api.ContentBlock) string {
 	return ""
 }
 
-// blockToIR projects one ACP content block onto the IR2 structured form: Kind/
+// blockToIR projects one ACP content block onto the IR's structured form: Kind/
 // Text for a consumer that only needs to know what it is, Raw verbatim for
 // anything richer (image/audio/resource — multimodal intake, a later slice).
 // A marshal failure leaves Raw empty (never expected: block was itself just
@@ -415,7 +414,7 @@ func blockToIR(block api.ContentBlock) agent.ContentBlock {
 	return agent.ContentBlock{Kind: kind, Text: text, Raw: raw}
 }
 
-// locationsToIR projects ACP tool-call locations onto the IR2 form.
+// locationsToIR projects ACP tool-call locations onto the IR form.
 func locationsToIR(locs []api.ToolCallLocation) []agent.ToolLocation {
 	if len(locs) == 0 {
 		return nil
@@ -432,7 +431,7 @@ func locationsToIR(locs []api.ToolCallLocation) []agent.ToolLocation {
 }
 
 // toolContentToIR projects a tool call's structured content collection (ACP
-// ToolCallContent union) onto the IR2 form, alongside toolContentText's
+// ToolCallContent union) onto the IR form, alongside toolContentText's
 // flattened string projection (both are populated; neither replaces the
 // other).
 func toolContentToIR(content []api.ToolCallContent) []agent.ToolContentBlock {

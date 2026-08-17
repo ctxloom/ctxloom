@@ -12,7 +12,7 @@ import (
 
 // oauthObjectKey is the single top-level object claude wraps its OAuth
 // subscription credential in inside .credentials.json — probe-verified
-// 2026-08-12 against a live subscription login: the file is
+// against a live subscription login: the file is
 // `{"claudeAiOauth":{...}}` and every token field lives under it.
 const oauthObjectKey = "claudeAiOauth"
 
@@ -21,7 +21,7 @@ const oauthObjectKey = "claudeAiOauth"
 // else: accessToken, expiresAt, scopes, subscriptionType and rateLimitTier all
 // stay, so the copy authenticates for the life of its access token.
 //
-// WHY THE STRIP EXISTS (ruled 2026-08-12, easiest-stomp, after a live
+// WHY THE STRIP EXISTS (easiest-stomp, after a live
 // experiment): claude's refresh token is SINGLE-USE and ROTATING — the moment
 // any holder refreshes, the old refresh token is invalidated for EVERY other
 // holder, including the human's own host login. A copied instance home that

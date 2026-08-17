@@ -67,7 +67,7 @@ func (f *fakeFsUpstream) HandleRequest(_ context.Context, method string, params 
 
 func (f *fakeFsUpstream) HandleNotification(context.Context, string, json.RawMessage) {}
 
-// TestChat_FsUpstream_ReadChainsToEditor is B5's (gap G14) headline proof: on
+// TestChat_FsUpstream_ReadChainsToEditor is the headline proof: on
 // the host axis (req.Env carries fsUpstreamEnvVar), fs/read_text_file returns
 // the CONNECTED EDITOR's answer — standing in for an unsaved buffer's live
 // content — NOT local disk, even though a file exists on disk at the exact

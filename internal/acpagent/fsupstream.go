@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// This file is B5's agent-role half (gap G14): standing up the local
+// This file is the agent-role half of fs reach-back: standing up the local
 // reach-back listener that lets a HOST-axis session's engine conversation
 // chain fs/read_text_file and fs/write_text_file UPSTREAM to the connected
 // editor, instead of local disk. See operations.OpenRequest.FsUpstreamAddr's
@@ -196,7 +196,7 @@ func (h *fsUpstreamHandler) HandleNotification(ctx context.Context, method strin
 	clidiag.Warn("ctxloom", "acp agent: fs-upstream socket: dropping unexpected notification %q", method)
 }
 
-// openSessionWithFsUpstream wraps openSession with B5's fs-upstream setup:
+// openSessionWithFsUpstream wraps openSession with fs-upstream setup:
 // it stands up the listener (nil when unavailable/unneeded — see
 // startFsUpstream), threads its address into the OpenRequest so
 // OpenEngineSession can decide per-axis whether to actually forward it (see

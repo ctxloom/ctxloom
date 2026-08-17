@@ -80,9 +80,9 @@ func warnUndelivered(surface string, why homeRefusal) {
 // indistinguishable from one that missed the file, so it says so — and names
 // the one directory a user may still find on disk and wonder about.
 //
-// The pre-relocation <workDir>/.codex is NOT ctxloom's to clean (D3, ruled
-// 2026-08-11: the legacy directory gets no handling at all — no migration, no
-// copy-in, no removal). Saying whose it is costs one clause and stops the
+// The pre-relocation <workDir>/.codex is NOT ctxloom's to clean: the legacy
+// directory gets no handling at all — no migration, no copy-in, no removal.
+// Saying whose it is costs one clause and stops the
 // obvious wrong fix.
 func warnNothingToRemove(workDir string) {
 	clidiag.Warn("ctxloom", "codex: nothing home-keyed to remove — %s, so a static install never wrote hooks, MCP servers, prompts or skills anywhere under %s. If a %s/.codex directory exists it predates this model and is yours: ctxloom did not create it and does not remove it.", LaunchOnlySettingsReason, workDir, workDir)

@@ -52,10 +52,10 @@ func TestMapEvent_SystemEntryEmptyContentDropped(t *testing.T) {
 	require.Nil(t, updates)
 }
 
-// TestMapEvent_PlanEntryEmitsRealPlanFrame is the IR2 headline fix: a system
+// TestMapEvent_PlanEntryEmitsRealPlanFrame pins the headline fix: a system
 // entry carrying SystemKind==SystemKindPlan and structured Plan entries now
 // re-emits a REAL ACP `plan` update with the structured PlanEntry list
-// intact — not the Q1 text fallback (see
+// intact — not the flattened text fallback (see
 // TestMapEvent_SystemEntryEmitsVisibleFrame above, which still covers the
 // OTHER EntryTypeSystem producer: the delegated-turn-failure notice, whose
 // SystemKind is the zero value and therefore takes that same fallback path
@@ -135,7 +135,7 @@ func TestMapEvent_ToolCallIDPreserved(t *testing.T) {
 
 // TestMapEvent_ToolCallIDFallback pins backward compatibility: a backend that
 // supplies NO ToolCallID (every non-ACP-native producer today) still gets
-// the pre-IR2 generated-id/FIFO-pairing behavior byte-for-byte.
+// the original generated-id/FIFO-pairing behavior byte-for-byte.
 func TestMapEvent_ToolCallIDFallback(t *testing.T) {
 	sess := &session{openCall: make(map[string][]api.ToolCallId)}
 
@@ -149,7 +149,7 @@ func TestMapEvent_ToolCallIDFallback(t *testing.T) {
 	assert.Equal(t, genID, resultUpdates[0].ToolCallUpdate.ToolCallId)
 }
 
-// TestMapEvent_RawOnlyPassthrough is IR3's outbound half: a raw-only
+// TestMapEvent_RawOnlyPassthrough pins the outbound half: a raw-only
 // ChatEvent (Entry nil, Raw set — internal/acp/mapping.go's
 // available_commands_update/current_mode_update forwarding) re-decodes and
 // re-emits, while a non-allowlisted or malformed Raw payload is dropped —

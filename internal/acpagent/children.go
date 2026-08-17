@@ -7,7 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// D3 (manly-grant (2)): Tier A push — a delegated child's
+// Tier A push (manly-grant item 2) — a delegated child's
 // live activity surfaces in the connected editor's transcript as it happens,
 // not only via agent_recv/roster polling. This file is deliberately
 // decoupled from internal/agentcoord/coord (the same layering EngineChat
@@ -43,7 +43,8 @@ const (
 // dedicated sub-agent update variant, so this reuses the same channel the
 // session's OWN output rides (mapping.go's EntryTypeAssistant case). A nil
 // WatchChildren (no coordinator hosted, or delegation degraded) means this
-// never starts — the session behaves exactly as it did pre-D3.
+// never starts — the session behaves exactly as it did before this feature
+// existed.
 func (s *Server) pushChildUpdates(sess *session) {
 	if sess.engine.WatchChildren == nil {
 		return

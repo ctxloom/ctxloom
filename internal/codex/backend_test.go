@@ -273,8 +273,8 @@ func TestCodex_buildArgs_NoModelWhenEmpty(t *testing.T) {
 // (container fresh-$HOME) for the two axes the isolation package never sees.
 // =============================================================================
 
-// TestResolveCodexProjectDir_NoControlledHome_UsesTheRealHostHome is D2's core
-// case (ruled 2026-08-11). With no isolation-provided CODEX_HOME and no
+// TestResolveCodexProjectDir_NoControlledHome_UsesTheRealHostHome pins the
+// core case of the no-relocation ruling. With no isolation-provided CODEX_HOME and no
 // container cell, codex uses the user's OWN ~/.codex — it no longer relocates
 // unconditionally. It relocated for years on the reasoning that the target was
 // durable and nothing of the user's was being taken; a per-session, disposable

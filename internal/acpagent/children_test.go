@@ -25,8 +25,8 @@ func (c *testClient) waitUpdate() frame {
 	}
 }
 
-// TestServe_ChildUpdatePush is D3's hermetic acceptance (Wave D playbook,
-// manly-grant (2)): a frontend-shaped test observes a delegated child's
+// TestServe_ChildUpdatePush is the hermetic acceptance test for Tier A push
+// (manly-grant item 2): a frontend-shaped test observes a delegated child's
 // event arrive by PUSH — no session/prompt in flight, no polling. The CLI's
 // real WatchChildren (backed by ConsumerService.WatchRuns) is not exercised
 // here; this pins the acpagent-side wiring (EngineChat.WatchChildren ->
@@ -85,8 +85,8 @@ func TestServe_ChildUpdatePush(t *testing.T) {
 }
 
 // TestServe_ChildUpdatePush_NilIsANoop pins the degraded/no-coordinator
-// posture (D3's own scoping note): a session with no WatchChildren behaves
-// exactly as it did pre-D3 — no push goroutine, no panic.
+// posture: a session with no WatchChildren behaves
+// exactly as it did before this feature existed — no push goroutine, no panic.
 func TestServe_ChildUpdatePush_NilIsANoop(t *testing.T) {
 	eng := newFakeEngine()
 	go eng.pump()

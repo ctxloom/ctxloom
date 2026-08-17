@@ -12,8 +12,8 @@ import (
 )
 
 // InstanceConfigFileName is claude's top-level config file, the one it reads
-// from $CLAUDE_CONFIG_DIR when that variable is set. PROBE-VERIFIED (2026-08-12,
-// claude 2.1.228, stable across 226/227/228): the relocated file sits DIRECTLY
+// from $CLAUDE_CONFIG_DIR when that variable is set. PROBE-VERIFIED against
+// claude 2.1.228 (stable across 226/227/228): the relocated file sits DIRECTLY
 // in the config dir as `<CLAUDE_CONFIG_DIR>/.claude.json`, not nested under a
 // `.claude` leaf inside it.
 const InstanceConfigFileName = ".claude.json"
@@ -54,9 +54,8 @@ type ambientConfigKey struct {
 // ambientConfigKeys is claude's ambient set: the onboarding answers, and
 // nothing else.
 //
-// WHY THESE AND NOTHING ELSE (D4, ruled 2026-08-11; key names probe-verified
-// 2026-08-12 against claude 2.1.228 and the vendor's own headless fixture
-// inside it): under `config_home: project` the instance is thrown away at
+// WHY THESE AND NOTHING ELSE: key names probe-verified against claude 2.1.228
+// and the vendor's own headless fixture inside it. Under `config_home: project` the instance is thrown away at
 // session end, so an onboarding answer given inside one dies with it and the
 // dialog re-prompts every interactive session. Copying the host file wholesale
 // would fix that and re-open the leak above; copying these keys by name fixes
@@ -129,10 +128,10 @@ var _ agent.InstanceConfigWriter = (*claudeInstanceConfig)(nil)
 // run refreshes the three classes above and preserves everything claude
 // accumulated, instead of resetting the instance under a live engine.
 //
-// LOCKING (R6, ruled 2026-08-14): this file is ctxloom-EXCLUSIVELY-owned
-// inside a foreign engine's directory tree, which the ruling treats as "locked
-// and ledgered like a shared file — full discipline, one rule, no per-site
-// judgment" rather than "exclusive ownership is enough". The whole
+// LOCKING: this file is ctxloom-EXCLUSIVELY-owned inside a foreign engine's
+// directory tree, and is treated as "locked and ledgered like a shared file —
+// full discipline, one rule, no per-site judgment" rather than "exclusive
+// ownership is enough". The whole
 // load-modify-write cycle below runs inside its OWN agent.WithFileLock, at
 // dest (the .claude.json path itself) — NOT reliance on a caller's lock.
 //

@@ -10,14 +10,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// This file is B4's commands region (gap G5): ctxloom's OWN command system
+// This file is ctxloom's OWN command system
 // (internal/operations/commands.go's ListCommands/GetCommand — the same
 // bundle "commands" surface `ctxloom run --command <name>` and the MCP
 // commands resource already read) advertised to the connected editor as ACP's
 // available_commands_update, plus the inbound half — recognizing one of those
 // commands invoked inside an ordinary session/prompt.
 //
-// This is entirely separate from IR3's engine-side passthrough: when the
+// This is entirely separate from the engine-side passthrough: when the
 // CONNECTED ENGINE (not ctxloom) emits its own available_commands_update
 // (e.g. claude-code-acp advertising its own slash commands), that already
 // forwards verbatim through ChatEvent.Raw's curated allowlist —
@@ -26,7 +26,7 @@ import (
 // right here in the agent role) — see mapEvent's dispatch (ev.Entry == nil →
 // rawOnlyUpdates(ev.Raw)). Nothing in THIS file duplicates that: a session can
 // legitimately advertise both ctxloom's commands (this file) and the
-// engine's own (IR3's lane) — they are not alternatives, and an editor sees
+// engine's own (via the passthrough lane above) — they are not alternatives, and an editor sees
 // the union of whatever available_commands_update frames arrive.
 
 // emitAvailableCommands sends the session's ctxloom commands as an
@@ -73,7 +73,7 @@ func availableCommandsUpdateWire(commands *SessionCommands) any {
 // system configured for this session), text doesn't start with "/", or the
 // leading token doesn't match any advertised command name — the middle
 // bool is the caller's signal for whether an expansion actually happened
-// (see B2/B4 merge note on handlePrompt's call site: string EQUALITY is not
+// (see handlePrompt's call site: string EQUALITY is not
 // a safe substitute for this, since a resolved command body could in
 // principle collide with its own raw invocation text). Returns a jsonrpc
 // error only when the leading token DID match a real command but resolving
@@ -114,7 +114,7 @@ func expandCommand(ctx context.Context, commands *SessionCommands, text string) 
 }
 
 // expandedCommandBlocks rebuilds a prompt's structured ContentBlocks after
-// expandCommand replaced its flattened text (B4/B2 parity — see
+// expandCommand replaced its flattened text (see
 // handlePrompt's call site): every ORIGINAL text-kind block — the raw
 // "/<name> ..." invocation promptText flattened FROM — is dropped and
 // replaced by ONE new text block carrying the identical expanded string,
@@ -122,11 +122,12 @@ func expandCommand(ctx context.Context, commands *SessionCommands, text string) 
 // resource, resource_link) are preserved UNTOUCHED, in their original
 // relative order: expanding a command must never discard an attachment
 // riding alongside it. This is what keeps a ContentBlocks consumer
-// (internal/acp's CLIENT-role driver, B2) seeing the SAME expanded command a
+// (internal/acp's CLIENT-role driver) seeing the SAME expanded command a
 // Text-only consumer sees, instead of silently forwarding the raw,
 // unexpanded slash text through the structured path while only the
 // flattened text got the expansion — exactly the kind of divergence a naive
-// keep-both merge of B2 and B4 would otherwise have produced.
+// keep-both merge of structural intake and command expansion would
+// otherwise have produced.
 func expandedCommandBlocks(blocks []agent.ContentBlock, expanded string) []agent.ContentBlock {
 	out := make([]agent.ContentBlock, 0, len(blocks)+1)
 	out = append(out, agent.ContentBlock{Kind: "text", Text: expanded})

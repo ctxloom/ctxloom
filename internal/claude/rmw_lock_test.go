@@ -15,9 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestWriteInstanceConfig_SerializesAgainstConcurrentWriter pins R6 (ruled
-// 2026-08-14, config-patching-review.md bypass B5): claudeInstanceConfig.
-// WriteInstanceConfig used to rely entirely on ITS CALLER's project filelock
+// TestWriteInstanceConfig_SerializesAgainstConcurrentWriter pins the invariant
+// that claudeInstanceConfig.WriteInstanceConfig used to rely entirely on ITS CALLER's project filelock
 // (isolation.CopyAmbient's lockInstanceHome) — a second, unenforced lock
 // idiom over an engine config file, invisible to anyone reading this writer
 // in isolation and silently absent for any OTHER caller. It now takes its

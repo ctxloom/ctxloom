@@ -408,14 +408,7 @@ func companionRefs(loader *bundles.Loader) []string {
 // value this moves onto it as a method, which is where it belongs; keeping it
 // here now is what stops a fourth copy being written in the meantime.
 func readsWithProvenance(loader *bundles.Loader, prov bundles.ProvenanceClass) []bundles.BundleRead {
-	var out []bundles.BundleRead
-	for _, read := range loader.Reads() {
-		if read.Provenance == prov {
-			out = append(out, read)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Ref() < out[j].Ref() })
-	return out
+	return loader.Catalog().Scoped(prov).Reads()
 }
 
 // companionReads returns the loader's companion loadout reads in the same

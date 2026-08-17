@@ -5,15 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"sync"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
-	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Loader composes Readers into one addressable view of everything this session
@@ -35,8 +31,7 @@ type Loader struct {
 
 	mu     sync.RWMutex
 	loaded bool
-	reads  []BundleRead          // every read, in resolution order
-	byRef  map[string]BundleRead // resolution identity → read
+	cat    Catalog // the resolved set; see Resolve
 
 	// versionResolver materializes a specific historical commit-version of a
 	// bundle (multi-version coexistence, trust rework, TR5). nil = no per-version
@@ -124,6 +119,13 @@ func (l *Loader) FS() afero.Fs {
 // resolution cheap and what keeps a companion probe (an EXEC per companion)
 // from running per lookup. A write through fsStore invalidates it, so a
 // save-then-read within one command sees the new bytes.
+// index resolves every reader once and memoizes the result for this loader's
+// life, which is what makes repeated resolution cheap and what keeps a companion
+// probe (an EXEC per companion) from running per lookup. A write through fsStore
+// invalidates it, so a save-then-read within one command sees the new bytes.
+//
+// The reading itself lives in Resolve, which holds no loader state: this method
+// is now only the memo around it.
 func (l *Loader) index() {
 	l.mu.RLock()
 	loaded := l.loaded
@@ -137,79 +139,17 @@ func (l *Loader) index() {
 	if l.loaded {
 		return
 	}
-	byRef := make(map[string]BundleRead)
-	var order []string
-	for _, r := range l.readers {
-		reads, err := r.Read(context.Background())
-		if err != nil {
-			// A source that could not be read is NOT an empty source. Reporting
-			// it is the difference between "you have no bundles" and "we could
-			// not find out what bundles you have"; the reads it did produce
-			// before failing are kept.
-			//
-			// ONCE, because this index is memoized per LOADER and a process
-			// builds many: Config.BundleLoader composes a fresh one per call
-			// site, so a source that fails deterministically — a malformed
-			// bundle file, which cannot start parsing between two reads in one
-			// process — reports once per loader built rather than once per
-			// fault. The finding still re-records in a later checkpoint window,
-			// so strict mode cannot be talked out of aborting by a repeat.
-			strictness.FailOnce(strictness.ClassBundle, "check the source named in the error, then re-run",
-				"a bundle source could not be read in full; some content may be missing: %v", err)
-		}
-		for _, read := range reads {
-			if !l.admit(read) {
-				continue
-			}
-			if _, seen := byRef[read.ref]; !seen {
-				order = append(order, read.ref)
-			}
-			byRef[read.ref] = read
-		}
-	}
-	sort.Strings(order)
-	l.reads = make([]BundleRead, 0, len(order))
-	for _, ref := range order {
-		l.reads = append(l.reads, byRef[ref])
-	}
-	l.byRef, l.loaded = byRef, true
+	l.cat, l.loaded = Resolve(context.Background(), l.readers...), true
 }
 
-// admit decides whether one read becomes addressable content, and is the ONLY
-// place in the read path that can answer no.
-//
-// It holds exactly ONE rule, and that rule is not a policy about content: an
-// UNCLAIMED read — one whose axes were never populated — is not content with
-// unknown trust, it is a value nobody established anything about. Zero means
-// unset and unset means withhold, or a struct literal would read as "local,
-// unsigned, no signer".
-//
-// It stays HERE rather than moving to the Authorizer with the rest, and the
-// asymmetry is deliberate. Every other rule decides about CONTENT and belongs to
-// the process stage, where one verdict can serve the gate and the report alike.
-// This one decides about a structurally invalid VALUE: there is no honest
-// verdict to render for it, no user action it implies, and no reader that emits
-// one. Keeping it in the loader means such a value can never become addressable
-// at ALL — a strictly stronger guarantee than withholding it at exposure, which
-// would leave it resolvable by every management and listing path in between —
-// and it costs nothing, because production can never reach it.
-//
-// Every other content rule decides at the Authorizer instead:
-//
-//   - remote | invalid (tamper) withholds there (ReasonTampered), where the
-//     caller can be told WHY and where a review listing sees the same verdict
-//     the delivery path saw.
-//   - local | invalid (a stale sidecar) ADMITS there with a warning riding the
-//     verdict (ReasonStaleLocalSignature), the decision table's
-//     `local | invalid | *` row.
-func (l *Loader) admit(read BundleRead) bool {
-	if !read.Claimed() {
-		strictness.Fail(strictness.ClassTrust, "report this: a bundle reached the loader without established provenance",
-			"withholding a bundle read that established no trust facts (provenance %s, context %s, signature %s, signer %s)",
-			read.Provenance, read.trustCtx, read.signature, read.signer)
-		return false
-	}
-	return true
+// Catalog returns the resolved set, reading the sources on first use. Callers
+// that only QUERY should prefer this over holding the loader: a Catalog cannot
+// re-read the world, which is precisely the property the loader lacks.
+func (l *Loader) Catalog() Catalog {
+	l.index()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.cat
 }
 
 // isSyntheticPath reports whether a Bundle.Path is one of the non-filesystem
@@ -229,19 +169,14 @@ func isSyntheticPath(path string) bool {
 func (l *Loader) invalidate() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.loaded, l.reads, l.byRef = false, nil, nil
+	l.loaded, l.cat = false, Catalog{}
 }
 
 // Reads returns every bundle this loader can see, with the trust facts its
 // reader established. It is the honest shape of the read stage — content plus
 // facts, nothing dropped on policy grounds — and the seam the process stage
 // will decide on.
-func (l *Loader) Reads() []BundleRead {
-	l.index()
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return append([]BundleRead(nil), l.reads...)
-}
+func (l *Loader) Reads() []BundleRead { return l.Catalog().Reads() }
 
 // Read resolves a bundle by name to the READ a reader produced for it — the
 // content plus the trust facts that reader established.
@@ -294,32 +229,7 @@ func (l *Loader) missing(name string) error {
 // canonical key (a ref carrying a content version resolves to the pinned one),
 // then the local-canonical form's plain path.
 func (l *Loader) lookup(name string) (BundleRead, bool) {
-	l.index()
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	if read, ok := l.byRef[name]; ok {
-		return read, true
-	}
-	if key, ok := remote.CanonicalKey(name); ok && key != name {
-		if read, ok := l.byRef[key]; ok {
-			return read, true
-		}
-	}
-	if ref, err := remote.ParseReference(name); err == nil && ref.IsLocal && ref.ItemType == remote.ItemTypeBundle {
-		if read, ok := l.byRef[ref.Path]; ok {
-			return read, true
-		}
-	}
-	// A builtin resolves by its qualified ref, so a BARE ask reaches it only
-	// here — and deliberately LAST. When a project bundle and a builtin share a
-	// name, both are addressable by their qualified refs, and the bare name
-	// keeps resolving to the project's: naming a bundle after a builtin is an
-	// override, not a collision. Before builtins carried a qualified ref the two
-	// shared one map key and whichever reader ran last silently won.
-	if read, ok := l.byRef[trust.BuiltinSourcePrefix+name]; ok {
-		return read, true
-	}
-	return BundleRead{}, false
+	return l.Catalog().Lookup(name)
 }
 
 // Find locates the FILE backing a bundle. It exists for the two callers that
@@ -342,11 +252,9 @@ func (l *Loader) Find(name string) (string, error) {
 
 // List returns every bundle this loader can see, as listing metadata.
 func (l *Loader) List() ([]*BundleInfo, error) {
-	l.index()
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	out := make([]*BundleInfo, 0, len(l.reads))
-	for _, read := range l.reads {
+	cat := l.Catalog()
+	out := make([]*BundleInfo, 0, cat.Len())
+	for _, read := range cat.reads {
 		b := read.Bundle
 		out = append(out, &BundleInfo{
 			Name:          read.ref,

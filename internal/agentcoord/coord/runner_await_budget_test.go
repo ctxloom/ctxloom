@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Dial-home readiness budget (fix/launch-retry-budget, 2026-07-24 retune).
+// Dial-home readiness budget.
 //
 // issueStartRun's actx/acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)
 // (children.go) is the ONLY per-attempt deadline on a container launch's
@@ -21,7 +21,7 @@ import (
 //
 // A too-tight deadline here cannot be told apart, from the coordinator's
 // side, from a genuinely broken launch: both end in "runner never dialed
-// home". The 2026-07-24 incident's operator complaint was exactly this
+// home". A real operator complaint was exactly this
 // class of problem ("starting a container can take some time") — these
 // tests pin the fix at both ends: the production default is measured
 // generous, and the injected-Options.RunnerAwaitTimeout seam is proven to

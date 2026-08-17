@@ -17,7 +17,7 @@ import (
 // reads CTXLOOM_MCP_SOCKET where it does. The runner's own MCP endpoint does
 // not exist when NewEngineHost is called: standUpRunner builds the host,
 // THEN stands the endpoint up and exports its path, and only then calls
-// BindHome — the "BIND LAST" ordering (icy-value) that exists because a
+// BindHome — the "BIND LAST" ordering that exists because a
 // hosted child's shim keys entirely off this variable and stands up a rogue
 // local coordinator without it.
 //

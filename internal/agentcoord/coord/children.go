@@ -720,7 +720,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 // RunnerAwaitTimeout (coordinator.go), which is what issueStartRun actually
 // reads (c.runnerAwaitTimeout).
 //
-// Widened from an original 60s (2026-07-24 retune, fix/launch-retry-budget):
+// Widened from an original 60s:
 // 60s was tight enough that a genuinely slow-but-successful container start
 // under host contention (loaded Docker daemon, DinD nesting, a busy bridge
 // network) could be declared a launch FAILURE while the runner was still on
@@ -1945,7 +1945,8 @@ func (c *Coordinator) reapEndedRuns() {
 // step after it, runs under the harp's CANCELLABLE launch context, and the
 // stop flag is re-checked at each point the attempt can still turn back: an
 // attempt armed BEFORE an agent_stop must not carry on behind it, which is
-// exactly how the 2026-07-24 loop outlived every stop issued against it.
+// exactly how an unbounded relaunch loop can outlive every stop issued
+// against it.
 func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay time.Duration) {
 	settled := false
 	defer func() {

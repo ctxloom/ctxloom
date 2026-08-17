@@ -12,10 +12,10 @@ import (
 // noteLaunchAttached — so a child that ATTACHES and then dies without ever
 // consuming its mail resets the budget on every cycle. terminateRun's tail
 // sees pendingCount > 0, nextRelaunch answers (backoff(0)=0, true), and the
-// loop closes with no counter and no delay: the 2026-07-24 incident shape
-// (846 zombies, ~2 container launches/sec for 49 minutes) through a different
-// door, and precisely the observed `runtime:container` "starts, gets nothing,
-// exits" behaviour.
+// loop closes with no counter and no delay: the same unbounded-relaunch hazard
+// (846 zombies, ~2 container launches/sec for 49 minutes, observed once) through
+// a different door, and precisely the observed `runtime:container` "starts,
+// gets nothing, exits" behaviour.
 //
 // The bound that actually holds is on RELAUNCH ATTEMPTS, reset only when the
 // harp demonstrably CONSUMED mail — attaching is not progress, draining is.

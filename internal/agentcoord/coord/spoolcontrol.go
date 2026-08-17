@@ -257,7 +257,7 @@ func (c *Coordinator) ControlSummarize(ctx context.Context, by ControlInitiator,
 // ORDER IS THE CONTRACT: mint the id, register the waiter, THEN publish the
 // file. A reply can only arrive after the file is observable, which is
 // strictly after registration — so there is no window in which an answer
-// arrives to a table that does not know about it (pulpy-whiff).
+// arrives to a table that does not know about it.
 func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp, kind, text string) (AskAnswer, error) {
 	if _, err := c.controlTarget(by, harp); err != nil {
 		return AskAnswer{}, err

@@ -32,8 +32,8 @@ type fakeEngine struct {
 	oneshot bool
 	// sessionID, when set, scripts this fake as a LEGACY (non-viaStartRun)
 	// backend that emits a native ChatEvent.Session on its first turn — the
-	// production shape a legacy go-plugin-dial backend can take, which Slice 0
-	// (wooly-stove) fixes handleChildEvent to stop dropping. Lets a test
+	// production shape a legacy go-plugin-dial backend can take. handleChildEvent
+	// must not drop it. Lets a test
 	// prove the coordinator CAPTURES a legacy backend's native session id
 	// (previously silently discarded — no ev.Session case existed).
 	sessionID string
@@ -551,8 +551,8 @@ func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, co
 // messages of the given kind.
 //
 // Selecting by kind (rather than assuming the mailbox holds one thing) is
-// required since the automatic result bridge landed (blunt-whiff,
-// children.go's bridgeTurnResult): every child turn now also delivers the
+// required because of the automatic result bridge
+// (children.go's bridgeTurnResult): every child turn also delivers the
 // child's own output to its parent as `kind: "result"`, so a test pinning a
 // SPECIFIC conversation — an approval relay, an injection mirror, one
 // agent_send — must say which conversation it means.

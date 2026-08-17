@@ -217,18 +217,14 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 	h.crash()
 	sp := c.spawner.(*fakeSpawner)
 
-	// This assertion used to be ONE
+	// This assertion is split into two stages rather than ONE
 	// require.Eventually spanning the FULL crash→loss-detect→terminateRun→
 	// goTracked resumeChild→spawner.Resolve→enqueueRun→new engine spawn→new
-	// Home dial-home→HelloAck→redeliver pipeline against a wall-clock guess
-	// (crashRedeliverWait, widened to 20s on 2026-07-21 after it
-	// flaked at 5s under real host contention). That band-aid is now
-	// REMOVED: the real fix is the SAME S3 pattern already proven in
-	// TestStartRun_ResumeUsesJournaledHarnessSessionID — replace the
-	// wall-clock guess over the goroutine-scheduling-dependent PART of the
-	// chain with awaitChildUp, which blocks on the tracked resumeChild
-	// goroutine's OWN progress signal (armLaunch/markAttached) instead of
-	// guessing how long scheduling takes under contention.
+	// Home dial-home→HelloAck→redeliver pipeline against a single wall-clock
+	// guess: a fixed budget flakes under real host contention. awaitChildUp
+	// instead blocks on the tracked resumeChild goroutine's OWN progress
+	// signal (armLaunch/markAttached), deterministic regardless of how long
+	// scheduling takes under contention.
 	//
 	// Two stages, because awaitChildUp itself needs the resume to already
 	// be ARMED (c.launchArmed[harp] populated, or a fresh rt.attached) to
@@ -526,12 +522,12 @@ func TestReleaseRunChan_AfterSeverChanIsANoOp(t *testing.T) {
 // common case: a busy child, not a dying one) that is permanent silent loss of
 // a message agent_send already reported delivered.
 //
-// releaseRunChan's unconditional un-reserve (ff151a53) only rescues
+// releaseRunChan's unconditional un-reserve only rescues
 // the message if the channel DIES; it is not a fix for this one.
 //
 // The channel is synthetic and its pump is UNBUFFERED with no reader, which is
 // the saturated-pump condition stated exactly. The role is synthetic too, so no
-// real child's turn loop competes for the mail (the failure mode batch 5 hit).
+// real child's turn loop competes for the mail.
 func TestPushMail_SaturatedPumpReleasesTheDroppedReservation(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, researcherSpawner(), nil)
@@ -683,14 +679,14 @@ func TestServePeerSend_UnmarshalableStructuredIsRefused(t *testing.T) {
 }
 
 // TestServeStopRun_CancelsLaunch is plane-2 agent_stop's twin of
-// Coordinator.AgentStop's own fix for the 2026-07-24 incident: a stop that
+// Coordinator.AgentStop's own launch-cancellation fix: a stop that
 // only ends the run record cannot stop a LAUNCHER — an armed relaunch or an
 // in-flight container prepare (a seconds-wide window) carries on behind a
 // response that already said "stopped". The host-side AgentStop verb calls
-// cancelLaunch "on BOTH paths" with a comment naming that incident; plane-2's
+// cancelLaunch "on BOTH paths"; plane-2's
 // serveStopRun (the path a coordinator-capable CHILD uses to stop its own
-// grandchild) did not call it at all — `rg cancelLaunch` found exactly the
-// one call site before this fix.
+// grandchild) must call it too — a launcher reachable from either surface
+// must be cancellable from either surface.
 func TestServeStopRun_CancelsLaunch(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, researcherSpawner(), nil)
@@ -711,8 +707,8 @@ func TestServeStopRun_CancelsLaunch(t *testing.T) {
 			"response that already said \"stopped\"")
 }
 
-// TestServeStopRun_CancelsLaunch_EvenWhenAlreadyEnded reproduces the EXACT
-// 2026-07-24 incident shape on the plane-2 surface: a stop landing on a run
+// TestServeStopRun_CancelsLaunch_EvenWhenAlreadyEnded reproduces the exact
+// hazard shape on the plane-2 surface: a stop landing on a run
 // that has ALREADY ended, with a relaunch armed behind it (simulated here by
 // clearLaunchGate — exactly what a fresh agent_send/inject delivery to an
 // ended child does). The already-ended early return must still cancel the

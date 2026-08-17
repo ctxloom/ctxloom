@@ -1051,9 +1051,9 @@ func (c *Coordinator) serveStopRun(caller Identity, req *agentcoordpb.StopRun) *
 	}
 	// Cancel the LAUNCH before anything else, on BOTH agent_stop
 	// surfaces — this is plane-2's twin of Coordinator.AgentStop's own fix
-	// for the 2026-07-24 incident (coordinator.go), where a stop landed on
+	// (coordinator.go), where a stop can land on
 	// an already-ended run with a relaunch already armed behind it,
-	// reported success, and the loop spun on for another 40 minutes. A stop
+	// report success, and leave the loop spinning on indefinitely. A stop
 	// that only ends the run record cannot stop a launcher: this marks the
 	// harp stopped (an armed-but-not-yet-enqueued relaunch turns back) and
 	// cancels the context of any attempt currently in flight (a container

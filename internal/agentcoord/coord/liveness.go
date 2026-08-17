@@ -12,11 +12,10 @@ import (
 // ---------------------------------------------------------------------------
 // Liveness monitoring — the coordinator's adapter onto internal/liveness.
 //
-// On 2026-07-24 two delegated agents ran for the better part of an hour doing
-// nothing, and every signal THIS type produced said they were fine: AgentRun
-// returned valid ids, Roster reported state "executing", the worktree existed,
-// the transcript existed and was growing. Nothing here could tell "working"
-// from "looping".
+// A delegated agent can loop indefinitely while every signal THIS type
+// produces says it is fine: AgentRun returns valid ids, Roster reports state
+// "executing", the worktree exists, the transcript exists and is growing.
+// Nothing here could tell "working" from "looping".
 //
 // This file adds the missing question without changing any answer that already
 // exists: it READS the folds and the runner registry, and reports. It never

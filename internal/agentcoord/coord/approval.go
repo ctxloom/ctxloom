@@ -269,8 +269,7 @@ func (c *Coordinator) finishParkedRung(caller Identity, rec RunRecord, kind agen
 // child recorded as RESOLUTION_DENIED was journaled here as "granted" — two
 // audit trails contradicting each other, which for a product whose thesis is
 // signed, trustworthy context matters well beyond its blast radius. It is an
-// INTEGRITY defect, not a privilege-escalation one: no grant ever leaked
-// (oily-morse).
+// INTEGRITY defect, not a privilege-escalation one: no grant ever leaked.
 func approvalResolution(d agentcoordpb.ApprovalDecision_Decision) string {
 	switch interactionResolution(d) {
 	case agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED:
@@ -316,7 +315,7 @@ func (c *Coordinator) relayApproval(rec RunRecord, req *agentcoordpb.ApprovalReq
 	// parent could drain, decide and reply before c.approvals held the id;
 	// resolveApprovalReply then missed, the reply degraded to ordinary mail,
 	// and this rung sat until its timeout and fell through to DECLINE. A
-	// human's approval silently became a denial (pulpy-whiff).
+	// human's approval silently became a denial.
 	//
 	// So the id is minted up front and the pendingApproval is registered
 	// while the mail does not yet exist: a reply can only arrive after the
@@ -362,7 +361,7 @@ func (c *Coordinator) relayApproval(rec RunRecord, req *agentcoordpb.ApprovalReq
 }
 
 // surfaceApprovalToHuman is ActionSurfaceToHuman's sibling to relayApproval:
-// SAME register-before-publish discipline (pulpy-whiff), SAME (decision,
+// SAME register-before-publish discipline, SAME (decision,
 // timedOut) contract, SAME audit keys (finishParkedRung handles those,
 // identically for both). The difference is what it parks ON and how it
 // becomes observable: relayApproval addresses a parent ROLE and its
@@ -406,8 +405,8 @@ func (c *Coordinator) surfaceApprovalToHuman(rec RunRecord, req *agentcoordpb.Ap
 		timeout = defaultRelayTimeout
 	}
 
-	// REGISTER BEFORE PUBLISHING — the same discipline relayApproval documents
-	// (pulpy-whiff), applied to this rung's own publish moment: a human
+	// REGISTER BEFORE PUBLISHING — the same discipline relayApproval documents,
+	// applied to this rung's own publish moment: a human
 	// answering the INSTANT they observe the OnPendingApproval callback must
 	// find the pendingApproval already registered, or the reply falls through
 	// to ordinary mail and this rung sits until its timeout. So both the
@@ -483,7 +482,7 @@ func (c *Coordinator) resolveApprovalReply(caller Identity, inReplyTo string, st
 	}
 	c.mu.Unlock()
 
-	// DECODE BEFORE CONSUME (legal-jelly). This used to delete the pending
+	// DECODE BEFORE CONSUME. This used to delete the pending
 	// approval FIRST and decode second, with no restore on the error path —
 	// so ONE unusable reply permanently burned the correlation. The retry
 	// then found nothing registered, fell through to ordinary chat mail and
@@ -666,7 +665,7 @@ func decisionFromStructured(structured json.RawMessage) (*agentcoordpb.ApprovalD
 	// proto3 enums are OPEN: protojson accepts {"decision": 99} without
 	// error, which used to sail through, journal itself as "granted" at the
 	// coordinator and be enforced as a denial at the child. A value outside
-	// the declared vocabulary is rejected at the boundary (oily-morse).
+	// the declared vocabulary is rejected at the boundary.
 	if _, ok := agentcoordpb.ApprovalDecision_Decision_name[int32(d.GetDecision())]; !ok {
 		return nil, fmt.Errorf("decision %d is outside the declared vocabulary — %s", int32(d.GetDecision()), decisionShape())
 	}

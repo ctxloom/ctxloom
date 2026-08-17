@@ -24,7 +24,7 @@ import (
 //   - the sole caller (resumeChild) read ok==false as "no mail", skipped the
 //     first turn, and drove the child with NO PROMPT — markAttached,
 //     driveChild, exit 0, roster "executing", zero bytes delivered. That is
-//     this project's characteristic silent no-op, in the one place the 2026-07
+//     this project's characteristic silent no-op, in the one place the
 //     container-delegation incident already proved it is invisible to every
 //     cheap signal.
 //

@@ -15,7 +15,7 @@ import (
 // TestAdvertiseHostFor pins the per-(GOOS, container-runtime) dial-home
 // decision from ensureWide's doc: darwin/windows advertise the Docker-
 // Desktop/Podman-Machine magic hostname against the existing loopback
-// listener (brisk-mango); any other GOOS (Linux today) falls back to the
+// listener; any other GOOS (Linux today) falls back to the
 // bridge-gateway/primary-outbound-IP path, signaled by "".
 func TestAdvertiseHostFor(t *testing.T) {
 	cases := []struct {

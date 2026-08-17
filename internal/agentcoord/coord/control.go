@@ -22,8 +22,8 @@ import (
 // RunChannel reconnect, and the DRAIN SEAM where a request queued under one run
 // is re-validated before it is handed to another.
 //
-// ONE OBJECT, ONE LIFECYCLE (human ruling, 2026-07-30, findings F1/F2). The
-// instruction body rides the REQUEST — it is not also queued as coordinator
+// ONE OBJECT, ONE LIFECYCLE (human ruling). The instruction body rides the
+// REQUEST — it is not also queued as coordinator
 // mail. An earlier design had one steer produce two in-flight objects (a
 // request on the wire and a durable mail record) with no ordering or atomicity
 // between them, which made five distinct desynchronisations reachable, two of
@@ -405,7 +405,7 @@ func (c *Coordinator) controlTarget(by ControlInitiator, harp string) (*RunRecor
 
 // ControlSteer delivers an instruction into a running target.
 //
-// It is ONE object end to end (ruling F1/F2): the body rides the request, the
+// It is ONE object end to end: the body rides the request, the
 // runner parks it in its own recv buffer and injects only a reminder, and the
 // agent pulls the body with agent_recv. There is no second in-flight copy, so
 // there is nothing that can still be delivered after this call reports a

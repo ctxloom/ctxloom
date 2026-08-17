@@ -13,15 +13,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// Launch-retry gate (fix/container-launch-reap-and-stop).
+// Launch-retry gate.
 //
 // terminateRun's leftover-mail tail relaunches a harp whose mailbox is
 // non-empty. When the LAUNCH itself is what fails, that tail is a hot,
 // unbounded, backoff-free loop: launch fails → failChild → terminateRun
 // (CauseLaunchFailed) → the mail is still queued (the child never came up to
-// drain it) → resume → launch fails → … In the 2026-07-24 incident this
-// spun at roughly two container launches per second for 49 minutes, and
-// agent_stop reported success while it kept spinning underneath.
+// drain it) → resume → launch fails → … Left unbounded this can spin at
+// roughly two container launches per second for 49 minutes, and agent_stop
+// reported success while it kept spinning underneath.
 //
 // These tests assert on PROGRESS: the number of launch attempts the spawner
 // actually observes. A test that only checked "agent_stop returned nil" is
@@ -45,7 +45,7 @@ type failingLaunchSpawner struct {
 	// resolves counts Resolve calls; resolveGate (when non-nil) blocks the
 	// FIRST resume's Resolve — call 1 is the original agent_run, call 2 is
 	// the relaunch. Holding the relaunch there parks the harp in exactly the
-	// state the 2026-07-24 incident's agent_stop observed: the run record
+	// state an agent_stop can observe mid-hazard: the run record
 	// says ENDED and the roster agrees, while a relaunch is already in
 	// flight and about to mint a fresh run. Without this the window is
 	// microseconds wide and the test is a coin flip.

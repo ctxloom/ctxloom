@@ -18,7 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// LIVE-PATH REPRODUCTION (icy-value). Every other approval test in this
+// LIVE-PATH REPRODUCTION. Every other approval test in this
 // package scripts the engine (scriptedChat) — a Go double that hands the
 // EngineHost a ChatEvent.Permission directly and reads its answer straight
 // off `in`. That proves the coordinator's half of the ladder but skips the
@@ -34,7 +34,7 @@ import (
 // two — EngineHost, Home, gRPC RunChannel, Coordinator, ladder, journals —
 // is production code.
 //
-// The hang j002300 reported live is exactly what this reproduces when the path
+// A hang on this path is exactly what this reproduces when the path
 // is broken: the child's turn never completes, so its roster state never
 // leaves Executing and the marker never lands.
 
@@ -273,7 +273,7 @@ func TestACPLivePath_ChildResultBridgesToParentMailbox(t *testing.T) {
 // TestInjectMCPSocketEnv covers the codex-child reach-back fix: the ctxloom
 // forwarder MCP entry gets the runner's socket in its OWN declared env, so
 // delivery does not depend on the engine adapter propagating ambient env
-// (codex-acp does not — j002300 @live).
+// (codex-acp does not).
 func TestInjectMCPSocketEnv(t *testing.T) {
 	servers := []agent.ChatMCPServer{
 		{Name: agent.MCPServerName, Command: "ctxloom", Args: []string{"mcp"}},

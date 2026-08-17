@@ -91,8 +91,7 @@ func TestGiveUpLaunching_StaysSilentForAnOperatorStop(t *testing.T) {
 // healthy child spends the gap between turns with an ENDED current run, so
 // AgentStop takes the rec.Ended branch, and BEFORE the fix that branch returned
 // without touching the launch gate: the stop reported something and stopped
-// nothing, while a relaunch armed behind it minted a fresh run and carried on
-// (the 2026-07-24 incident's second half).
+// nothing, while a relaunch armed behind it minted a fresh run and carried on.
 //
 // AgentStop now calls cancelLaunch BEFORE the Ended check, on both paths, so a
 // stop that lands on an ended run still marks the harp stopped. That is the

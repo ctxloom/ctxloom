@@ -30,7 +30,7 @@ func (d *deafChat) Chat(ctx context.Context, _ agent.ChatRequest, _ <-chan agent
 // the briefing. A review row read the eager RecordUserText as a transcript that
 // "claims a user turn the engine never saw" and wanted the record moved into
 // the delivery goroutine's success arm. That trade is not free in either
-// direction and the current choice is the deliberate one (edgy-ivory):
+// direction and the current choice is the deliberate one:
 //
 //   - Recorded eagerly, the briefing is the FIRST line of the transcript, in
 //     the order a reader expects — the engine's own Session event arrives

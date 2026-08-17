@@ -873,7 +873,7 @@ func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation
 //     harmless projectDir/nil), so this function conservatively still
 //     refuses to chain — a missed optimization in that corner, never a
 //     wrong-content bug.
-//   - runtimeAxis == agent.RuntimeContainer (ISO1 containerized the
+//   - agent.IsContainerRuntime(runtimeAxis) (ISO1 containerized the
 //     ENGINE's own subprocess): ISO1's same-path mount already makes
 //     local disk correct — this "ctxloom llm serve" subprocess (where
 //     internal/acp/session.go's fs handlers actually run) is ALWAYS on
@@ -1019,7 +1019,7 @@ const sessionPermissionsLine = "every tool call is forwarded to your editor for 
 // mapping rather than asserting the two paths equal in prose.
 func sessionIsolationLine(in sessionInitSummaryInputs) string {
 	isolatedWorktree := in.aw != nil && in.aw.announce != ""
-	isolatedContainer := in.runtimeAxis == agent.RuntimeContainer
+	isolatedContainer := agent.IsContainerRuntime(in.runtimeAxis)
 	if !isolatedWorktree && !isolatedContainer {
 		return fmt.Sprintf("HOST process (no container); working directory %s (no worktree) — NOT isolated on either axis", in.workDir)
 	}

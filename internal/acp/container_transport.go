@@ -71,22 +71,28 @@ func isolationBackendFor(agentEngine string) string {
 // now replaced by actually honoring the axis. So PrepareWorkspace's error
 // (or any error below it) is always returned AS the session-open failure —
 // there is deliberately no --degraded escape hatch on this path.
-func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[string]string, workDir string) (*transport, error) {
+func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[string]string, workDir, runtimeAxis string) (*transport, error) {
 	engine := b.agentEngine
 	if engine == "" {
 		engine = b.command
 	}
 
-	rt := isolation.SelectRuntime("")
+	// The DEMANDED ownership rides into selection. Rootless and rootful
+	// containers differ in UID mapping, so a runtime in the other mode is not
+	// a substitute for the one this session asked for — and satisfying the
+	// request with it is exactly the lie the fail-loud contract above exists
+	// to prevent, just one level deeper than a host fallback.
+	rt := isolation.SelectRuntime("", isolation.RuntimeAxis(runtimeAxis))
 	// SelectRuntime never reports "unavailable" via a sentinel value: on no
-	// launchable docker/podman it falls back to Host{}, whose Available()
-	// is UNCONDITIONALLY true (Host can always run a bare subprocess — the
-	// fault-tolerant floor other isolation policies rely on). A type check
-	// against Host is the only way to tell "no real container runtime" apart
-	// from "found one" — the exact test isolation.go's own chainFor uses for
-	// the identical decision (see its rt.(Host) check).
+	// launchable docker/podman IN THE DEMANDED OWNERSHIP it falls back to
+	// Host{}, whose Available() is UNCONDITIONALLY true (Host can always run
+	// a bare subprocess — the fault-tolerant floor other isolation policies
+	// rely on). A type check against Host is the only way to tell "no usable
+	// container runtime" apart from "found one" — the exact test
+	// isolation.go's own chainFor uses for the identical decision (see its
+	// rt.(Host) check).
 	if _, isHost := rt.(isolation.Host); isHost {
-		return nil, fmt.Errorf("acp: agent %q needs runtime:container but no container runtime is reachable (docker or podman CLI on PATH with its daemon up) — install/start docker or podman, or switch this agent's runtime to host", engine)
+		return nil, fmt.Errorf("acp: agent %q needs runtime:%s but no container runtime with that ownership is reachable (docker or podman CLI on PATH with its daemon up) — install/start one, or switch this agent's runtime to host", engine, runtimeAxis)
 	}
 
 	pol := isolation.NewContainerFor(rt, isolationBackendFor(b.agentEngine))

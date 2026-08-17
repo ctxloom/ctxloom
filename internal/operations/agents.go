@@ -281,7 +281,7 @@ func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest)
 	if runtime == "" {
 		runtime = cfg.GetRuntime()
 	}
-	if runtime != string(isolation.RuntimeContainer) {
+	if !isolation.IsContainerRuntimeAxis(isolation.RuntimeAxis(runtime)) {
 		return nil
 	}
 

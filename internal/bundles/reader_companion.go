@@ -102,10 +102,15 @@ func (r *companionReader) Read(ctx context.Context) ([]BundleRead, error) {
 
 // read turns one companion's loadout bytes into a read, establishing its
 // signature facts and saying out loud what they were when they are not clean.
+//
+// All three diagnostics dedup, for the reason the sibling readers do: the probe
+// behind them is memoized once per process, so every later loader build re-parses
+// the SAME loadout bytes and re-checks the SAME signature. Nothing it could say
+// differs between builds, and a process builds many loaders.
 func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 	b, err := ParseBundle(lo.Bundle)
 	if err != nil {
-		r.cfg.warn("companion %q: unparseable loadout bundle, withholding: %v", lo.Bin, err)
+		r.cfg.warnOnce("companion %q: unparseable loadout bundle, withholding: %v", lo.Bin, err)
 		return BundleRead{}, false
 	}
 	ref := companionRefPrefix + lo.Bin
@@ -115,7 +120,7 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 	facts := readSignatureFacts(lo.Bundle, lo.Signature, r.cfg.root)
 	switch {
 	case facts.signature == SignatureInvalid:
-		r.cfg.warn("companion %q: its loadout signature does not verify over its own bytes — most likely a stale or "+
+		r.cfg.warnOnce("companion %q: its loadout signature does not verify over its own bytes — most likely a stale or "+
 			"mismatched signature in the companion's release, so report it to the companion's authors; "+
 			"delivering the content anyway, unattributed (%s)", lo.Bin, facts.detail)
 	case facts.signer == SignerUntrusted:

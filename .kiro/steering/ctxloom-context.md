@@ -589,9 +589,37 @@ revisable steps BEFORE you act or delegate.
 
 ---
 
-# Problem Solving
+# Workarounds and Problem Solving
 
-Find the root cause first; fix problems at their source. Never create workarounds without asking. If a simple problem seems to need a complex fix, stop and ask. When asking, present options — proper fix (effort estimate), workaround (trade-offs), temporary test disable (why), alternatives — with cost/benefit (tech debt, maintainability, time), and document the decision taken.
+**Root cause first.** Fix at source, never workaround without asking.
+
+## When Encountering Failing Functionality
+
+1. Find root cause — investigate actual source.
+2. If simple problem needs complex fix, ask before proceeding.
+3. Present options: proper fix (effort), workaround (trade-offs), test disable (why), alternatives.
+4. Cost/benefit: tech debt, maintainability, time per option.
+5. Document decision and reasoning.
+
+## Workaround Comment = Unfiled Bug
+
+Comment explaining WHY a workaround exists = defect diagnosis. Comments aren't reports; they become tombstones others read as settled. Cause survives unaddressed.
+
+**Red flags:** arbitrary limits with justifying comments; retry/sleep/poll around deterministic things; "without this, X breaks"; thresholds tuned to silence gates; fallbacks masking real failures.
+
+## Three Steps to Land a Workaround
+
+1. Escalate: name the bug, locate it.
+2. File root cause as task (with diagnosis). Unfiled = agreed to forget.
+3. Comment states invariant, not history. No invariant = scar, not fix.
+
+## Tuned-Silent Gates Measure Nothing
+
+Never tune thresholds/timeouts/coverage to silence gates. Silenced gates = false confidence. Fix gates deliberately.
+
+## "Works in CI" ≠ "Works"
+
+CI ≠ local hides bugs (clean checkouts, no TTY, etc). Chase environmental differences; don't paper over them.
 
 ---
 
@@ -710,6 +738,54 @@ Parses real command (resolving variables, unwrapping wrappers) → matches again
 ## What it is not
 
 Cooperative redirect, not a sandbox. Explicit workarounds are possible; for strict boundaries use a container.
+
+---
+
+# serena: address code by symbol, not by file and line
+
+Serena puts a language server behind MCP tools that name SYMBOLS.
+Prefer them over Read/Grep/Edit whenever the question or the change
+is about a symbol.
+
+## Reach for these first
+
+- `get_symbols_overview` — what is in this file? The first call on
+  an unfamiliar one.
+- `find_symbol` — locate a definition by name path (`Type/method`).
+  `include_body: true` reads ONE symbol instead of a whole file.
+- `find_referencing_symbols` — every caller of a symbol. That is the
+  blast-radius question, and grep answers it with false positives
+  and misses aliased or qualified uses.
+- `replace_symbol_body`, `insert_before_symbol`,
+  `insert_after_symbol`, `rename_symbol`, `safe_delete_symbol` —
+  edit by identity. `safe_delete_symbol` refuses while references
+  remain, which a string edit cannot check.
+
+## Why this is stated here
+
+Serena's own registration injects an INDIRECTION — "call
+`initial_instructions` before starting a coding task". An agent that
+skips that call never learns the tools exist, and skipping it is the
+normal outcome rather than the exception. This says it inline so the
+guidance does not depend on a tool call nobody makes.
+
+## Where they do not help
+
+Non-code files (YAML, Markdown, JSON), whole-file reads you actually
+need, and languages with no server configured. Read and Edit stay
+correct there, as does a line-oriented edit INSIDE a symbol body
+once you have located it.
+
+## Delegating
+
+Name the symbol tools in sub-agent briefs. An implementer told to
+"read before you write" reaches for Read unless told otherwise.
+
+## Containers
+
+An agent bound to `runtime: container` cannot see a host-installed
+serena. Either install serena in the image, or keep serena on
+host-runtime agents.
 
 ---
 

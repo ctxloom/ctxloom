@@ -1,46 +1,40 @@
 {
   "hooks": {
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "ltk evaluate",
-            "type": "command"
-          }
-        ],
-        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
-      }
-    ],
     "SessionStart": [
       {
         "hooks": [
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 6 e9a5d2a2dca75ff3",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 7 bd3ce36d91dfab5d",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 6 e9a5d2a2dca75ff3",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 7 bd3ce36d91dfab5d",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 6 e9a5d2a2dca75ff3",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 7 bd3ce36d91dfab5d",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 6 e9a5d2a2dca75ff3",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 7 bd3ce36d91dfab5d",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 6 e9a5d2a2dca75ff3",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 7 bd3ce36d91dfab5d",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 6 --of 6 e9a5d2a2dca75ff3",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 6 --of 7 bd3ce36d91dfab5d",
+            "timeout": 60,
+            "type": "command"
+          },
+          {
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 7 --of 7 bd3ce36d91dfab5d",
             "timeout": 60,
             "type": "command"
           }

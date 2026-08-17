@@ -2,7 +2,8 @@
   "mcpServers": {
     "ctxloom": {
       "args": [
-        "mcp"
+        "mcp",
+        "serve"
       ],
       "command": "/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom"
     },

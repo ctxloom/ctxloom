@@ -31,11 +31,15 @@ type Record struct {
 	// entries back out.
 	//
 	// It is stored as TEXT, not as a resolved op list, because text is what hew
-	// can hand back to its own parser. A resolved list cannot be replayed
-	// faithfully: ResolvedOp carries no OnConflict, so an `add` in it has lost
-	// whether it meant replace, keep or fail (hew task alienable-flatterer),
-	// and reconstructing that needs the inversion rules §9.7 explicitly defers.
-	// Text sidesteps the question entirely.
+	// can hand back to its own parser: rendering it here and re-parsing it in
+	// applyPatchText proves the undo is usable at the moment it is written.
+	//
+	// The original reason was stronger — a resolved list could not be replayed
+	// at all, because ResolvedOp dropped OnConflict and an `add` in it had lost
+	// whether it meant replace, keep or fail. Upstream fixed that, and RecordOp
+	// now carries the policy, so the resolved form is no longer lossy. Text
+	// stays because it also sidesteps the inversion rules §9.7 explicitly
+	// defers, which a replayed op list would still need.
 	//
 	// It is not a duplicate of Targets[].Inverse. That field is the §9.7
 	// audit statement in the resolved form the spec requires; this is the
@@ -74,6 +78,15 @@ type RecordOp struct {
 	Count      *int         `yaml:"count,omitempty"`
 	Kind       string       `yaml:"kind,omitempty"`
 	Exhaustive bool         `yaml:"exhaustive,omitempty"`
+
+	// OnConflict is the add policy the transform carried. hew's OP-02/03/04 all
+	// resolve to `add` and differ ONLY here — fail, replace, keep — so a record
+	// that drops it says "something was added" without saying whether ctxloom
+	// meant to overwrite a user's value, seed one, or refuse if present. That is
+	// the difference between §9.7's audit statement and a note, and it is the
+	// same distinction whose mishandling corrupted an array in hew's own
+	// applier. hew.ResolvedOp carried no OnConflict until upstream added it.
+	OnConflict string `yaml:"on_conflict,omitempty"`
 
 	// Value is a VALUE, not a *Node, and that is load-bearing: gopkg.in/yaml.v3
 	// cannot DECODE a scalar or a sequence into a *yaml.Node — only into a
@@ -274,6 +287,7 @@ func ResolvedOpsToRecord(ops []hew.ResolvedOp) []RecordOp {
 			Absent:     op.Absent,
 			Count:      op.Count,
 			Exhaustive: op.Exhaustive,
+			OnConflict: string(op.OnConflict),
 		}
 		if op.NodeKind != nil {
 			out[i].Kind = string(*op.NodeKind)

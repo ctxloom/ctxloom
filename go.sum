@@ -31,6 +31,8 @@ github.com/benjaminabbitt/hew/go v0.1.1-0.20260814233921-77c744c88cb9 h1:IzwwtE1
 github.com/benjaminabbitt/hew/go v0.1.1-0.20260814233921-77c744c88cb9/go.mod h1:4ltsDoJvXawRdDrfO+viyPO3F04a5L2iUMjaJ7PHzAs=
 github.com/benjaminabbitt/hew/go v0.1.1-0.20260815005343-65bbf0b42038 h1:Dt84WSxwoGXv17bDwrqs0iqKWHTy9cUcx/sCXF+4FhI=
 github.com/benjaminabbitt/hew/go v0.1.1-0.20260815005343-65bbf0b42038/go.mod h1:4ltsDoJvXawRdDrfO+viyPO3F04a5L2iUMjaJ7PHzAs=
+github.com/benjaminabbitt/hew/go v0.1.1-0.20260817013130-457c7163f1e3 h1:AcRztQCA4TqYChlawUrLQXFEmZqUMKFihBrWYd90P5k=
+github.com/benjaminabbitt/hew/go v0.1.1-0.20260817013130-457c7163f1e3/go.mod h1:4ltsDoJvXawRdDrfO+viyPO3F04a5L2iUMjaJ7PHzAs=
 github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260722013940-10300d4f7632 h1:PQ9dOCaNWkfEVQXLbrLGI3YbZHXK2mfG5m//WDMg58c=
 github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260722013940-10300d4f7632/go.mod h1:Vk2gDTQ9CKv6LcaYBSWz0qX5pCZ3PvVBIJxAJ0hZBFQ=
 github.com/bmatcuk/doublestar/v4 v4.10.0 h1:zU9WiOla1YA122oLM6i4EXvGW62DvKZVxIe6TYWexEs=

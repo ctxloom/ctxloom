@@ -33,32 +33,33 @@ Feature: util — writing into config files ctxloom does not own
     # without changing a field, so the record being re-read always held mapping
     # values. The leaf-valued record was never built by any scenario.
     #
-    # @wip — RED at write TWO, and the finding is a DATA-CORRUPTION defect in
-    # hew, not in ctxloom's caller. hew's Sel.Set is documented as an upsert
-    # (OpAdd + OnConflict:replace) and behaves that way for a scalar, but on a
-    # path whose existing value is a SEQUENCE it appends the new sequence as a
-    # nested element instead of replacing the node. Reduced to hew alone:
+    # WRITE TWO IS WHERE THIS EARNED ITS KEEP. It caught a data-corruption
+    # defect in hew: Sel.Set is OP-03 upsert, documented "present -> replaced
+    # regardless of current value", and it behaved that way for a scalar but on
+    # a path holding a SEQUENCE it appended the new sequence as a nested element
+    # instead of replacing the node. Reduced to hew alone:
     #
     #   in:   {"s": {"args": ["a", "b"], "cmd": "old"}}
     #   Set /s/args = ["a","b","c"];  Set /s/cmd = "new"
     #   out:  {"s": {"args": ["a", "b", ["a", "b", "c"]], "cmd": "new"}}
     #
-    # Through config-write that surfaces as
-    #   "args": ["mcp", "serve", ["mcp", "serve"]]
-    # and the command's own payload verification catches it and exits non-zero —
-    # which is the system working — but the CORRUPTED file is left on disk.
+    # Through config-write that was `"args": ["mcp", "serve", ["mcp", "serve"]]`.
+    # The command's payload verification caught it and exited non-zero — the
+    # system working — but the corrupted file was left on disk.
     #
-    # Reached only by a caller that recurses to leaves. util config-write does
-    # (recordConfigPatch descends into nested maps); the .mcp.json writer does
-    # not, because confpatch reverses the whole entry out before re-adding it,
-    # so the array is never Set over an existing one. That is why .mcp.json
-    # looks fine and this does not.
+    # Only a caller that recurses to leaves reached it: recordConfigPatch
+    # descends into nested maps, while the .mcp.json writer reverses the whole
+    # entry out before re-adding, so it never Set an array over an existing one.
+    # That is why .mcp.json looked healthy while this did not.
     #
-    # DO NOT fix this by making the scenario avoid arrays. Every MCP server
-    # ctxloom writes has an `args` array; an assertion that dodges the shape
-    # would report success while the defect ships.
-    # UNTAG WHEN: hew's Set REPLACES an existing sequence node.
-    @wip
+    # Fixed upstream (hew: each format's planInsert/planAdd disambiguated
+    # sequence-append from map-add by asking only "does this path resolve to a
+    # sequence?", never consulting on_conflict, so an upsert took the append
+    # branch). Untagged once ctxloom's pin carried the fix.
+    #
+    # DO NOT rewrite this to avoid arrays. Every MCP server ctxloom writes has an
+    # `args` array; an assertion that dodges the shape would report success while
+    # the defect ships.
     Scenario: A third write still replaces ctxloom's entry after one field changed
       Given an initialized ctxloom project
       And the project already has the file "vendor-tool.json":
@@ -106,9 +107,13 @@ Feature: util — writing into config files ctxloom does not own
       # REPLACED, not accumulated: exactly one ctxloom command survives, and it
       # is the newest. Asserting only that the new value is present would pass
       # just as well on a file carrying all three.
+      #
+      # Counted on the COMMAND VALUE, not on "ctxloom" — that bare substring is
+      # legitimately present twice (the server key, and again inside the command
+      # path), so counting it asserts a coincidence rather than the claim.
       And the file "vendor-tool.json" does not contain "/first/ctxloom"
       And the file "vendor-tool.json" does not contain "/second/ctxloom"
-      And the file "vendor-tool.json" contains "ctxloom" exactly 1 times
+      And the file "vendor-tool.json" contains "/third/ctxloom" exactly 1 times
 
       # And the vendor's own content is still byte-for-byte theirs, through all
       # three writes. This is the claim the whole command exists to keep.

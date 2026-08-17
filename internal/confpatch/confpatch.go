@@ -235,17 +235,20 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, er
 // renderReversal diffs after back to restored and renders the result as .hew
 // patch text — the durable artifact the record keeps.
 //
-// Preamble is REQUIRED, not cosmetic: hew's parser refuses a document without
-// the "hew: 1" line (§2.1), so a reversal rendered without it is unparseable
-// and the record would carry an undo nothing can apply. Rendering it here and
-// re-parsing it in applyPatchText is what proves the record's reversal is
-// usable at the moment it is written rather than years later when it is needed.
+// The preamble is REQUIRED, not cosmetic: hew's parser refuses a document
+// without the "hew: 1" line (§2.1), so a reversal rendered without it is
+// unparseable and the record would carry an undo nothing can apply. It used to
+// need an explicit RenderOptions{Preamble: true}; hew's zero value now emits it
+// unconditionally, precisely because a zero-value Render that produced output
+// its own ParseSingle rejected was a trap. Rendering here and re-parsing in
+// applyPatchText is what proves the record's reversal is usable at the moment
+// it is written rather than years later when it is needed.
 func renderReversal(format hew.FormatID, before, after []byte, target string) ([]byte, error) {
 	tl, err := hew.Invert(format, before, after, hew.DiffOptions{Target: target})
 	if err != nil {
 		return nil, fmt.Errorf("confpatch: derive how to undo the write to %s: %w", target, err)
 	}
-	out, err := hew.Render(tl, hew.RenderOptions{Preamble: true})
+	out, err := hew.Render(tl, hew.RenderOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("confpatch: render the reversal of the write to %s: %w", target, err)
 	}

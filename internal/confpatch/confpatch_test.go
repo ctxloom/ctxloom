@@ -349,6 +349,41 @@ func TestRecordRoundTripsAnArrayValued(t *testing.T) {
 	assert.NotContains(t, mustRead(t, fs, target), "/old/ctxloom")
 }
 
+// The record must say WHICH add it was. hew's OP-02/03/04 all resolve to
+// `add`, and they differ only by on_conflict: fail, replace, keep. A record
+// that drops it says "something was added here" and cannot answer whether
+// ctxloom meant to overwrite a user's value, seed one, or refuse — which is the
+// difference between the audit statement §9.7 asks for and a note.
+//
+// hew.ResolvedOp carried no OnConflict until hew task alienable-flatterer
+// fixed it; this asserts ctxloom actually reads the field now rather than
+// still discarding it.
+func TestRecordCarriesTheAddPolicy(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+
+	// setServer uses Sel.Set — OP-03 upsert, add + on_conflict: replace.
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{"command": "x"}))
+	require.NoError(t, err)
+
+	rec, found, err := s.Last(target)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.NotEmpty(t, rec.Targets[0].Transforms)
+
+	var sawAdd bool
+	for _, op := range rec.Targets[0].Transforms {
+		if op.Op != "add" {
+			continue
+		}
+		sawAdd = true
+		assert.Equal(t, "replace", op.OnConflict,
+			"an upsert recorded as a bare `add` cannot be told from a fail-if-present add")
+	}
+	require.True(t, sawAdd, "fixture must record an add, or it proves nothing")
+}
+
 func TestApplyRefusesAFormatHewCannotName(t *testing.T) {
 	s, fs := newStore(t)
 	_, err := s.Apply(fs, "/proj/settings.unknownext", recordNothing())

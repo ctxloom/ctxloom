@@ -163,7 +163,7 @@ func TestApplyWritesOneRecordCarryingAParseableReversal(t *testing.T) {
 	require.NotEmpty(t, rec.Reversal, "a record with no reversal cannot undo anything")
 	// The stored reversal must be a REAL patch: hew's own parser has to accept
 	// it, and it has to name the entry it would remove.
-	tl, err := hew.ParseSingle(rec.Reversal)
+	tl, err := hew.ParseSingle([]byte(rec.Reversal))
 	require.NoError(t, err, "the stored reversal must be parseable by hew")
 	assert.NotEmpty(t, tl.Transform, "a reversal with no transforms undoes nothing")
 	assert.Contains(t, string(rec.Reversal), "ctxloom")
@@ -284,6 +284,69 @@ func TestApplyRecreatesATargetDeletedSinceTheRecordWasWritten(t *testing.T) {
 	assert.Contains(t, got, `"ctxloom"`, "the desired set is written afresh")
 	assert.NotContains(t, got, "taskloom",
 		"the deleted file's foreign content is NOT resurrected from the record")
+}
+
+// The record must survive the round trip for the shape ctxloom ACTUALLY writes:
+// an MCP server body carries an `args` ARRAY, not just scalars. Store.Last is
+// the production read path — every Apply calls it to find the prior
+// application — so a record that cannot be re-read turns the SECOND write to a
+// target into a refusal, permanently. Observed against a real .mcp.json:
+// "parse record ...: cannot unmarshal !!seq into yaml.Node", after which
+// ctxloom declined to manage the file at all.
+func TestRecordRoundTripsAnArrayValued(t *testing.T) {
+	s, fs := newStore(t)
+	const target = "/proj/mcp.json"
+	require.NoError(t, afero.WriteFile(fs, target, []byte(foreign), 0o644))
+
+	// Seed the server, so the NEXT apply changes fields in place rather than
+	// adding a whole mapping. That distinction is the whole bug: an inverse
+	// built from a whole-entry add is a MAPPING, which decodes into a *Node
+	// fine; an inverse built from changed leaves is scalars and sequences,
+	// which does not.
+	_, err := s.Apply(fs, target, setServer("ctxloom", map[string]any{
+		"command": "/old/ctxloom",
+		"args":    []any{"mcp", "serve"},
+	}))
+	require.NoError(t, err)
+
+	// Change the leaves. This record's inverse carries `value: "/old/ctxloom"`
+	// and `value: ["mcp", "serve"]` — a scalar and a sequence.
+	_, err = s.Apply(fs, target, setServer("ctxloom", map[string]any{
+		"command": "/new/ctxloom",
+		"args":    []any{"mcp", "serve", "--verbose"},
+	}))
+	require.NoError(t, err)
+
+	rec, found, err := s.Last(target)
+	require.NoError(t, err, "confpatch must be able to re-read the record it just wrote")
+	require.True(t, found)
+	require.NotEmpty(t, rec.Reversal)
+
+	// FIDELITY, not just absence-of-error. Through a *yaml.Node field a MAPPING
+	// value decodes with no error at all and yields null — the silent half of
+	// this bug, and the half a "did Last() return an error?" assertion sails
+	// straight past. Re-marshal what came back and require the content.
+	var sawValue bool
+	for _, op := range rec.Targets[0].Inverse {
+		if op.Value.IsZero() {
+			continue
+		}
+		sawValue = true
+		round, merr := yamlv3.Marshal(&op.Value)
+		require.NoError(t, merr)
+		assert.NotEqual(t, "null\n", string(round),
+			"op %s %s: the record's value read back as null — it was silently dropped", op.Op, op.Path)
+	}
+	require.True(t, sawValue, "fixture must produce at least one valued inverse op, or it proves nothing")
+
+	// And the write that has to re-read that record must still go through.
+	_, err = s.Apply(fs, target, setServer("ctxloom", map[string]any{
+		"command": "/newer/ctxloom",
+		"args":    []any{"mcp", "serve"},
+	}))
+	require.NoError(t, err, "a write that must re-read a valued record is refused")
+	assert.Contains(t, mustRead(t, fs, target), "/newer/ctxloom")
+	assert.NotContains(t, mustRead(t, fs, target), "/old/ctxloom")
 }
 
 func TestApplyRefusesAFormatHewCannotName(t *testing.T) {

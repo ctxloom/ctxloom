@@ -40,7 +40,12 @@ type Record struct {
 	// It is not a duplicate of Targets[].Inverse. That field is the §9.7
 	// audit statement in the resolved form the spec requires; this is the
 	// executable undo. Both describe the same change; only one can be applied.
-	Reversal []byte `yaml:"reversal,omitempty"`
+	//
+	// STRING, not []byte: gopkg.in/yaml.v3 emits a []byte as a sequence of
+	// integers, one per line, so the patch arrived on disk as 266 lines of
+	// decimal bytes — a record nobody can read defeats the point of writing an
+	// auditable one. As a string it round-trips as the block of patch text it is.
+	Reversal string `yaml:"reversal,omitempty"`
 }
 
 type RecordPatch struct {
@@ -69,7 +74,15 @@ type RecordOp struct {
 	Count      *int         `yaml:"count,omitempty"`
 	Kind       string       `yaml:"kind,omitempty"`
 	Exhaustive bool         `yaml:"exhaustive,omitempty"`
-	Value      *yamlv3.Node `yaml:"value,omitempty"`
+
+	// Value is a VALUE, not a *Node, and that is load-bearing: gopkg.in/yaml.v3
+	// cannot DECODE a scalar or a sequence into a *yaml.Node — only into a
+	// yaml.Node. It decodes a mapping into either, which is what made the bug
+	// look selective: `transforms` values are mappings and round-tripped, while
+	// `inverse` values are scalars and sequences and did not, so every record
+	// carrying one became unreadable to the Store.Last that has to re-read it.
+	// omitempty still suppresses the field for a valueless op (remove).
+	Value yamlv3.Node `yaml:"value,omitempty"`
 }
 
 // recordFileSuffix is the record's extension, named once because freeRecordPath
@@ -160,10 +173,10 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 			Before:     sha256Digest(before),
 			After:      sha256Digest(after),
 			Committed:  true,
-			Transforms: resolvedOpsToRecord(ops),
-			Inverse:    resolvedOpsToRecord(inverse),
+			Transforms: ResolvedOpsToRecord(ops),
+			Inverse:    ResolvedOpsToRecord(inverse),
 		}},
-		Reversal: reversal,
+		Reversal: string(reversal),
 	}
 
 	out, err := yamlv3.Marshal(rec)
@@ -247,11 +260,11 @@ func flattenTarget(target string) string {
 	return strings.ReplaceAll(filepath.ToSlash(target), "/", "__")
 }
 
-// resolvedOpsToRecord adapts hew.ResolvedOp (the library's form) to RecordOp
+// ResolvedOpsToRecord adapts hew.ResolvedOp (the library's form) to RecordOp
 // (this package's yaml-tagged mirror of it): hew.ResolvedOp carries no yaml
 // tags of its own, being built for hewcli's hand-rolled node marshaling rather
 // than gopkg.in/yaml.v3's struct path.
-func resolvedOpsToRecord(ops []hew.ResolvedOp) []RecordOp {
+func ResolvedOpsToRecord(ops []hew.ResolvedOp) []RecordOp {
 	out := make([]RecordOp, len(ops))
 	for i, op := range ops {
 		out[i] = RecordOp{
@@ -266,7 +279,9 @@ func resolvedOpsToRecord(ops []hew.ResolvedOp) []RecordOp {
 			out[i].Kind = string(*op.NodeKind)
 		}
 		if !op.Value.IsZero() {
-			out[i].Value = op.Value.Node()
+			if n := op.Value.Node(); n != nil {
+				out[i].Value = *n
+			}
 		}
 	}
 	return out

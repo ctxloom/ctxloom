@@ -33,3 +33,11 @@ bundles:
   - https://github.com/ctxloom/ctxloom-default@bundles/reprise
   - https://github.com/benjaminabbitt/ctxloom-personal@bundles/containers
   - https://github.com/benjaminabbitt/ctxloom-personal@bundles/github
+  # serena, for the same reason as the rest of this group: an implementer that
+  # does not know the tool reaches past it. Measured — a full session read whole
+  # files and edited by string match with serena registered the entire time,
+  # because serena's own registration only injects "call initial_instructions"
+  # and nothing ever makes that call. Note its --context claude-code prompt
+  # declares native Read forbidden for discovery; accepted deliberately here so
+  # the symbolic tools actually get used.
+  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/serena

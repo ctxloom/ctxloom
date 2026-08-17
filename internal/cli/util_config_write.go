@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 
 	hew "github.com/benjaminabbitt/hew/go"
+
+	"github.com/ctxloom/ctxloom/internal/confpatch"
 	// hew moved its format bindings to ext/<format> (O48), and registration is
 	// import-for-effect: a format this file does not import is a format this
 	// build cannot apply. Both are blank imports because everything reaches
@@ -524,12 +526,12 @@ type recordPatch struct {
 }
 
 type recordTarget struct {
-	Target     string     `yaml:"target"`
-	Format     string     `yaml:"format"`
-	Before     string     `yaml:"before"`
-	After      string     `yaml:"after"`
-	Committed  bool       `yaml:"committed"`
-	Transforms []recordOp `yaml:"transforms"`
+	Target     string               `yaml:"target"`
+	Format     string               `yaml:"format"`
+	Before     string               `yaml:"before"`
+	After      string               `yaml:"after"`
+	Committed  bool                 `yaml:"committed"`
+	Transforms []confpatch.RecordOp `yaml:"transforms"`
 	// Inverse is the op list that turns the AFTER image back into the BEFORE
 	// image — what a caller applies to undo this application.
 	//
@@ -544,21 +546,7 @@ type recordTarget struct {
 	// an empty document rather than an absent one. That is honest — the record
 	// states what it can undo — and the caller that wants the file gone can
 	// see Before was the empty document.
-	Inverse []recordOp `yaml:"inverse,omitempty"`
-}
-
-// recordOp is one §9.2 RESOLVED op — the record's "transforms" field must
-// hold the resolved list (indices concrete, key-matches collapsed), not the
-// abstract patch, per §9.7: "the record states what happened to THIS file."
-type recordOp struct {
-	Op         string       `yaml:"op"`
-	From       string       `yaml:"from,omitempty"`
-	Path       string       `yaml:"path"`
-	Absent     bool         `yaml:"absent,omitempty"`
-	Count      *int         `yaml:"count,omitempty"`
-	Kind       string       `yaml:"kind,omitempty"`
-	Exhaustive bool         `yaml:"exhaustive,omitempty"`
-	Value      *yamlv3.Node `yaml:"value,omitempty"`
+	Inverse []confpatch.RecordOp `yaml:"inverse,omitempty"`
 }
 
 // resolveAppliedTransforms projects tl onto the pre-image, producing the
@@ -633,8 +621,8 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.Forma
 			Before:     sha256Digest(before),
 			After:      sha256Digest(after),
 			Committed:  true,
-			Transforms: resolvedOpsToRecord(ops),
-			Inverse:    resolvedOpsToRecord(inverse),
+			Transforms: confpatch.ResolvedOpsToRecord(ops),
+			Inverse:    confpatch.ResolvedOpsToRecord(inverse),
 		}},
 	}
 
@@ -740,33 +728,6 @@ func applicationRecordFilename(target string, at time.Time) string {
 // recordFileSuffix is the record's extension, named once because
 // freeRecordPath has to split a filename on it to insert its counter.
 const recordFileSuffix = ".hew-record.yaml"
-
-// resolvedOpsToRecord adapts hew.ResolvedOp (the library's form) to recordOp
-// (this file's yaml-tagged mirror of it) — see recordOp's doc for why the
-// record needs its own struct rather than marshaling hew.ResolvedOp
-// directly (that type carries no yaml tags of its own; it is built for
-// hewcli's internal hand-rolled node marshaling, not for gopkg.in/yaml.v3's
-// struct path).
-func resolvedOpsToRecord(ops []hew.ResolvedOp) []recordOp {
-	out := make([]recordOp, len(ops))
-	for i, op := range ops {
-		out[i] = recordOp{
-			Op:         string(op.Op),
-			From:       op.From,
-			Path:       op.Path,
-			Absent:     op.Absent,
-			Count:      op.Count,
-			Exhaustive: op.Exhaustive,
-		}
-		if op.NodeKind != nil {
-			out[i].Kind = string(*op.NodeKind)
-		}
-		if !op.Value.IsZero() {
-			out[i].Value = op.Value.Node()
-		}
-	}
-	return out
-}
 
 func sha256Digest(b []byte) string {
 	sum := sha256.Sum256(b)

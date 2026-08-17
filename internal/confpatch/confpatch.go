@@ -162,7 +162,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build) (Result, er
 			return err
 		}
 		if existed && found && len(prev.Reversal) > 0 {
-			restored, err = applyPatchText(binding, before, prev.Reversal, target)
+			restored, err = applyPatchText(binding, before, []byte(prev.Reversal), target)
 			if err != nil {
 				return fmt.Errorf("confpatch: %s has drifted since ctxloom last wrote it, so the previous application could not be reversed; refusing to write rather than clobber the change: %w", target, err)
 			}

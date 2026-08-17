@@ -76,13 +76,13 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) string {
 	return ""
 }
 
-// TestKillSession_ReapsOrphanedGrandchild is damp-pupil 3's regression test:
-// a go-plugin runner spawned via isolateRunner, then HARD-killed directly (exactly
+// TestKillSession_ReapsOrphanedGrandchild is a regression test: a go-plugin
+// runner spawned via isolateRunner, then HARD-killed directly (exactly
 // go-plugin's raw cmd.Process.Kill() fallback in github.com/hashicorp/go-plugin, or
 // an operator's/OOM-killer's kill -9 on the runner pid — the graceful RPC
 // path never runs either way) orphans a grandchild it isolated into its own
-// process group, mirroring internal/acp's setpgid'd claude-code-acp
-// (moral-scorn). A plain single-pid kill of the runner never reaches that
+// process group, mirroring internal/acp's setpgid'd claude-code-acp.
+// A plain single-pid kill of the runner never reaches that
 // grandchild — proven below BEFORE killSession is invoked, so the failure
 // mode is on the record, not assumed. killSession, given the runner's pid
 // (== its session id, since it was spawned via isolateRunner), reaps it.
@@ -147,11 +147,10 @@ func TestHelperRunnerHost(t *testing.T) {
 }
 
 // TestIsolateRunner_RunnerDiesWithItsHost is the regression test for the
-// leaked-runner defect: 36 `ctxloom llm serve mock --label mock` processes
-// found reparented to init on 2026-07-24, some running unattended for over
-// 36 hours, from three different checkouts (one of them a git worktree that
-// had since been deleted, one still live, one the main checkout) — a
-// recurrence of the 208-process incident before it.
+// leaked-runner defect: `ctxloom llm serve mock --label mock` processes have
+// been found reparented to init, some running unattended for over 36 hours,
+// across checkouts including deleted git worktrees — a recurring failure
+// mode, not a one-off.
 //
 // The host dies WITHOUT running its own teardown — a SIGKILL here, which is
 // equally `go test -timeout`'s escalation, an OOM kill, a killed shell that

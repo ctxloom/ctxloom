@@ -27,25 +27,56 @@ type Store interface {
 
 var _ Store = (*fsStore)(nil)
 
-// fsStore is the filesystem Store adapter. It reads through an embedded Loader
-// and writes/deletes through that Loader's afero.Fs, so reads and writes share
-// one filesystem (the old Bundle.Save wrote via os while the Loader read via
-// afero — a latent split this closes).
+// fsStore is the filesystem Store adapter. It reads through a Loader and
+// writes/deletes through that Loader's own afero.Fs, so reads and writes cannot
+// drift onto two filesystems (the old Bundle.Save wrote via os while the Loader
+// read via afero — a latent split this closes).
 type fsStore struct {
 	*Loader
 	fs afero.Fs
 }
 
-// NewFSStore returns a filesystem-backed bundle Store over dirs, reading
-// through a project reader on fsys and writing back through that same fsys —
-// so a store's reads and writes cannot drift onto two filesystems. Like
-// NewLoader it carries no form preference: a store yields every form it holds
-// and the caller names the one it wants at the point of the read.
+// NewStore returns a Store over an EXISTING loader: it reads that loader's
+// resolved set and writes through the filesystem that loader read from.
+//
+// Taking the loader rather than building one is the point. A store that
+// resolved its own sources held a SECOND view of the same bundles, so a write
+// through the store and a read through the session's loader disagreed until
+// something re-read by luck — two caches of one thing, reconciled by accident.
+// Sharing the loader makes the store's Save invalidate the very set every other
+// reader consults.
+//
+// It also settles which filesystem a write lands on: loader.FS() is the one the
+// content was READ from, so a caller that injected a filesystem no longer has
+// its reads honoured and its writes sent to the OS.
+func NewStore(loader *Loader) Store {
+	return &fsStore{Loader: loader, fs: loader.FS()}
+}
+
+// NewFSStore returns a Store over its own project reader, for the callers that
+// have no session loader to share (a standalone distill over an explicit dir).
+// Prefer NewStore wherever a loader already exists.
 func NewFSStore(fsys afero.Fs, dirs []string) Store {
 	if fsys == nil {
 		fsys = afero.NewOsFs()
 	}
-	return &fsStore{Loader: NewLoader(NewProjectReader(fsys, dirs)), fs: fsys}
+	return NewStore(NewLoader(NewProjectReader(fsys, dirs)))
+}
+
+// Load resolves a bundle this project AUTHORED, and only that.
+//
+// The narrowing is the store's central invariant: Save writes back to
+// Bundle.Path, so a name that resolved to remote, builtin or companion content
+// would let a write land on something this project does not own. Expressing it
+// as a scope over the shared set — rather than by giving the store its own
+// project-only reader — is what lets the store share one resolved view with
+// everything else without widening what it may write.
+func (s *fsStore) Load(name string) (*Bundle, error) {
+	read, ok := s.Loader.Catalog().Scoped(ProvenanceProject).Lookup(name)
+	if !ok {
+		return nil, s.Loader.missing(name)
+	}
+	return read.Bundle, nil
 }
 
 // Save writes the bundle back to its Path (which the caller sets — to the
@@ -80,7 +111,7 @@ func (s *fsStore) Save(b *Bundle) error {
 	// The bytes on disk changed, so the loader's memoized read of them is now a
 	// lie. Dropping it is what makes a save-then-read within one command see
 	// what was just written.
-	s.invalidate()
+	s.Invalidate()
 	return s.invalidateStaleSignature(b.Path, data)
 }
 
@@ -144,6 +175,6 @@ func (s *fsStore) Delete(name string) error {
 	if err := s.fs.Remove(path); err != nil {
 		return err
 	}
-	s.invalidate()
+	s.Invalidate()
 	return nil
 }

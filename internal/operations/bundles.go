@@ -384,48 +384,13 @@ func bundleStore(cfg *config.Config, injected bundles.Store) bundles.Store {
 	if injected != nil {
 		return injected
 	}
-	return invalidatingStore{
-		Store: bundles.NewFSStore(nil, cfg.GetBundleDirs()),
-		cfg:   cfg,
-	}
-}
-
-// invalidatingStore drops the Config's memoized bundle loader after a write.
-//
-// The Config-level loader is shared for the process's life, so a bundle written
-// or deleted through this store would otherwise stay invisible to every
-// subsequent read in the same command — `bundle create` followed by anything
-// that lists, `fragment add` followed by an assemble. A fresh loader used to
-// pick the change up BY ACCIDENT because it re-read; sharing one removes the
-// accident.
-//
-// It wraps at the ONE place stores are constructed rather than asking each of
-// the dozen-plus Save/Delete call sites to remember. A missed invalidation is
-// invisible — stale content, exit 0, no error — which is exactly the failure
-// mode this codebase is shaped by, so the obligation is discharged where it
-// cannot be forgotten instead of documented where it can.
-//
-// fsStore already invalidates its OWN embedded loader; that one is a different
-// instance and says nothing about the Config's.
-type invalidatingStore struct {
-	bundles.Store
-	cfg *config.Config
-}
-
-func (s invalidatingStore) Save(b *bundles.Bundle) error {
-	if err := s.Store.Save(b); err != nil {
-		return err
-	}
-	s.cfg.InvalidateBundleLoader()
-	return nil
-}
-
-func (s invalidatingStore) Delete(name string) error {
-	if err := s.Store.Delete(name); err != nil {
-		return err
-	}
-	s.cfg.InvalidateBundleLoader()
-	return nil
+	// The SESSION's loader, not a private one. A store that resolved its own
+	// sources held a second view of the same bundles, so a write through the
+	// store and a read through cfg.BundleLoader() disagreed until something
+	// re-read by luck. Sharing it means Save invalidates the very set every
+	// other reader consults, and the earlier decorator that reconciled the two
+	// caches from the outside is gone with the disjointness that required it.
+	return bundles.NewStore(cfg.BundleLoader())
 }
 
 // applyScalarEdits applies the single-value description/version edits, appending

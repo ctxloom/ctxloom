@@ -163,10 +163,16 @@ func isSyntheticPath(path string) bool {
 	return false
 }
 
-// invalidate drops the memoized read so the next resolution re-reads every
-// source. fsStore calls it after a write: a save followed by a read within one
-// command must see the bytes that were just written.
-func (l *Loader) invalidate() {
+// Invalidate drops the memoized read so the next resolution re-reads every
+// source.
+//
+// It is EXPORTED because the obligation is no longer local: one loader is now
+// shared for a Config's life, so anything that changes what the readers would
+// see — a bundle written through the store, a pull landing new pinned content —
+// must say so. It invalidates IN PLACE rather than replacing the loader, so
+// every holder of this pointer sees the same fresh view; swapping the object
+// would leave a store reading a loader nothing else refers to any more.
+func (l *Loader) Invalidate() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.loaded, l.cat = false, Catalog{}

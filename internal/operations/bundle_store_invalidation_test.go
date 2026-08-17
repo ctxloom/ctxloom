@@ -56,3 +56,44 @@ func TestBundleStore_SaveIsVisibleToTheNextRead(t *testing.T) {
 			"loader is shared for the life of the process, so a write that does not invalidate it "+
 			"leaves every later read in this command serving the pre-write view, with exit 0 and no error")
 }
+
+// TestBundleStore_FirstBundleInAFreshProjectIsVisible pins the OTHER half of
+// sharing one loader, and this one is easy to miss because invalidation does not
+// fix it.
+//
+// A reader keeps the directories it was constructed with. Invalidation drops the
+// memoized READS and never rebuilds the readers, so if the bundles directory did
+// not exist when the loader was first built, the project reader holds an empty
+// search path FOREVER — and `bundle create` in a fresh project is exactly that
+// case. It only worked before because every caller built a new store, which
+// re-evaluated the directory list each time.
+//
+// The fix is that the reader is handed the CONFIGURED directories rather than
+// only the ones that happened to exist; localFSReader already skips an absent
+// one.
+func TestBundleStore_FirstBundleInAFreshProjectIsVisible(t *testing.T) {
+	// Deliberately do NOT create the bundles directory: this is a fresh project.
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	// Resolve first, while the bundles dir is still absent — this is what fixes
+	// the reader's search path in place.
+	_, existsBefore := cfg.BundleLoader().Read("first-ever")
+	require.False(t, existsBefore, "sanity: nothing exists in a fresh project")
+
+	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
+	store := bundleStore(cfg, nil)
+	require.NoError(t, store.Save(&bundles.Bundle{
+		Name:    "first-ever",
+		Version: "1.0.0",
+		Path:    filepath.Join(paths.LocalBundlesPath(appDir), "first-ever.yaml"),
+	}))
+
+	_, existsAfter := cfg.BundleLoader().Read("first-ever")
+	require.True(t, existsAfter,
+		"the first bundle created in a project must be visible afterwards: a reader built before the "+
+			"bundles directory existed would otherwise hold an empty search path that no invalidation "+
+			"can repair, since invalidation drops reads and never rebuilds readers")
+}

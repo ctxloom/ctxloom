@@ -2046,6 +2046,30 @@ func (c *Config) GetBundleDirs() []string {
 	return dirs
 }
 
+// bundleReaderDirs returns the project's authored bundle directories WITHOUT
+// filtering on whether they exist yet.
+//
+// GetBundleDirs filters, and that is right for its callers: they check a path is
+// safely under a real directory, or report which directories were searched. It
+// is wrong for the READER, because the loader is now built once per Config and
+// its readers keep whatever dirs they were handed. A project whose bundles
+// directory did not exist at first resolve — `bundle create` in a fresh project
+// is exactly that — would give the reader an empty search path that no
+// invalidation could repair, since invalidation drops the memoized READS and
+// never rebuilds the readers.
+//
+// Passing the configured dirs unconditionally costs nothing: localFSReader.Read
+// already skips a directory that is not there.
+func (c *Config) bundleReaderDirs() []string {
+	fs := c.getFS()
+	dirs := make([]string, 0, len(c.appPaths))
+	for _, appPath := range c.appPaths {
+		c.legacyCacheBundlesSignpost(fs, appPath)
+		dirs = append(dirs, paths.LocalBundlesPath(appPath))
+	}
+	return dirs
+}
+
 // legacyCacheBundlesSignpost records a fatal ClassMigration finding when
 // .ctxloom/cache/bundles still holds AUTHORED bundles — bundles written there
 // by the pre-content-tree `bundle create`, which the authored read/write path
@@ -2295,7 +2319,13 @@ func (c *Config) BundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
 func (c *Config) InvalidateBundleLoader() {
 	c.bundleLoaderMu.Lock()
 	defer c.bundleLoaderMu.Unlock()
-	c.bundleLoader = nil
+	if c.bundleLoader != nil {
+		// IN PLACE, keeping the pointer. The bundle store now reads and writes
+		// through this same loader, so replacing the object would leave the
+		// store holding one nothing else refers to — reintroducing, quietly,
+		// the two-views-of-one-thing split that sharing it removed.
+		c.bundleLoader.Invalidate()
+	}
 }
 
 func (c *Config) buildBundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
@@ -2329,7 +2359,7 @@ func (c *Config) buildBundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
 	// tree that does not exist there and the skill was silently withheld. That
 	// is precisely the hazard Loader.FS()'s own doc warns about, reached by
 	// reader order alone.
-	readers := []bundles.Reader{bundles.NewProjectReader(fsys, c.GetBundleDirs(), bundles.WithTrustRoot(c.TrustRoot()))}
+	readers := []bundles.Reader{bundles.NewProjectReader(fsys, c.bundleReaderDirs(), bundles.WithTrustRoot(c.TrustRoot()))}
 	readers = append(readers, bundles.NewBuiltinReader(bundles.WithTrustRoot(c.TrustRoot())))
 	readers = append(readers, c.remoteBundleReaders()...)
 	readers = append(readers, c.companionReader())

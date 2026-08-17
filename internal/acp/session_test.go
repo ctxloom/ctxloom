@@ -154,7 +154,7 @@ func TestChat_FullTurn(t *testing.T) {
 // ctxloom's own acp agent emits; protocol v1 itself delivers no usage
 // anywhere else — folds into the turn's Complete meta instead of being
 // dropped as malformed, and the turn duration is self-measured off the
-// clock. G13 (correcting IR4): a ctxloom-emitted session_info_update's
+// clock. A ctxloom-emitted session_info_update's
 // `_meta.ctxloom_session_info` blob no longer carries model/contextWindow at
 // all (those ride CO1's SessionConfigOption and usage_update's `size`
 // instead — see consumeMetaUpdate's doc comment), so this test no longer
@@ -248,7 +248,7 @@ func TestChat_TurnMetaCarriesCumulativeUsageAcrossTurns(t *testing.T) {
 // TestChat_ForeignSessionInfoUpdateIgnored: a "session_info_update" frame —
 // whether it's ctxloom's OWN residual PermissionMode/MCPServers `_meta`
 // payload, or a genuinely foreign engine's real title/timestamp update — is
-// harmlessly absorbed as a no-op by the client (G13: consumeMetaUpdate no
+// harmlessly absorbed as a no-op by the client (consumeMetaUpdate no
 // longer special-cases this discriminator at all; it falls through to the
 // strict api.SessionUpdate decode and lands in mapSessionUpdate's default
 // case). It must NOT crash or drop the turn, and must NOT fabricate a
@@ -975,7 +975,7 @@ func TestChat_MCPServersAtSessionNew(t *testing.T) {
 }
 
 // TestChat_MCPServersHttpSse_EngineSupports proves an editor-supplied http/sse
-// MCP server (B3, gap G11) actually REACHES the engine: when the connected
+// MCP server actually REACHES the engine: when the connected
 // engine's own initialize response advertises mcpCapabilities.http/sse,
 // mcpServersToACP forwards both in the spec's discriminated-union shape
 // (verified from the RAW wire bytes, not just the decoded Go struct) and no
@@ -1275,7 +1275,7 @@ func TestChat_SessionNewError_NotAuthRequired(t *testing.T) {
 // advertises image/audio/embeddedContext support, an outbound ChatMessage's
 // ContentBlocks deliver as REAL ACP content blocks (not a flattened
 // placeholder) — the payload proof that an image/audio block reaches the
-// engine (B2, gap G3).
+// engine.
 func TestChat_MultimodalDelivery_CapableEngine(t *testing.T) {
 	h := startChat(t, agent.ChatRequest{})
 
@@ -1405,7 +1405,7 @@ func TestChat_MultimodalDelivery_NoContentBlocks_Unchanged(t *testing.T) {
 	assert.Equal(t, "hello", got.Prompt[0].Text.Text)
 }
 
-// TestChat_TerminalDeclined_Honestly: B1 (gap G6) — ctxloom's client role
+// TestChat_TerminalDeclined_Honestly: ctxloom's client role
 // never advertises the terminal capability (no cross-process broker channel
 // to the real editor exists yet — see setup's doc comment), and an engine
 // that calls terminal/create anyway (ignoring the advertised false, or

@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// leakingAgentScript emulates codex-acp's moral-scorn leak: it backgrounds a
+// leakingAgentScript emulates codex-acp's double-fork leak: it backgrounds a
 // worker WITHOUT setsid (so the worker stays in the SAME process group as
 // this script, exactly like the real leak — it is not a full daemonize into
 // a new session), writes the worker's pid to $1 for the test to observe, and
@@ -90,7 +90,7 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) string {
 	return ""
 }
 
-// TestSpawnTransport_CloseReapsDetachedWorker is moral-scorn's regression
+// TestSpawnTransport_CloseReapsDetachedWorker is the regression
 // test: spawnTransport's close must kill NOT ONLY the immediate child but
 // also a worker that child backgrounds without setsid — a plain
 // cmd.Process.Kill() (the pre-fix behavior) never reaches that worker,
@@ -104,7 +104,7 @@ func TestSpawnTransport_CloseReapsDetachedWorker(t *testing.T) {
 	pidFile := filepath.Join(dir, "worker.pid")
 
 	// Grace period set SHORT and explicit: this test's own concern (does
-	// close() reap a detached worker) is orthogonal to tidy-gush's flush
+	// close() reap a detached worker) is orthogonal to the async-flush
 	// grace period, and leakingAgentScript never reacts to stdin closing at
 	// all — the default grace would always fully elapse here, needlessly
 	// slowing the test down.
@@ -128,13 +128,13 @@ func TestSpawnTransport_CloseReapsDetachedWorker(t *testing.T) {
 		"close() must reap the WHOLE process group, including a worker the immediate child detached without setsid (moral-scorn) — a plain Process.Kill on just the child leaves this process running")
 }
 
-// flushingAgentScript emulates claude-code-acp's ASYNC transcript flush
-// (tidy-gush): it doesn't exit the instant stdin closes — `cat >/dev/null`
+// flushingAgentScript emulates claude-code-acp's ASYNC transcript flush:
+// it doesn't exit the instant stdin closes — `cat >/dev/null`
 // blocks reading stdin until EOF, then it sleeps briefly (standing in for
 // "writing its own native session transcript to disk") before writing a
 // marker file and exiting cleanly. A teardown that force-kills the process
 // group the instant stdin closes, with no grace period, races this and the
-// marker is never written — exactly the shape tidy-gush found against the
+// marker is never written — exactly the shape found against the
 // real claude-code-acp binary (a 1-line native transcript with no assistant
 // records), reproduced here hermetically with a throwaway shell script.
 const flushingAgentScript = `#!/bin/sh
@@ -144,7 +144,7 @@ echo flushed > "$1"
 exit 0
 `
 
-// TestSpawnTransport_CloseGivesFlushGracePeriod pins tidy-gush's fix: close()
+// TestSpawnTransport_CloseGivesFlushGracePeriod pins the fix: close()
 // must give the spawned agent a bounded grace period to exit ON ITS OWN
 // after stdin EOF — long enough for a real async flush to land — before
 // force-killing the process group. Before the fix, close() killed

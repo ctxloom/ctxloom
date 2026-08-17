@@ -121,7 +121,7 @@ func TestMapSessionUpdate_ToolCallUpdate(t *testing.T) {
 	})
 }
 
-// TestMapSessionUpdate_Plan pins plan → a system checklist entry, AND (IR2)
+// TestMapSessionUpdate_Plan pins plan → a system checklist entry, AND
 // the structured entries surviving into SessionEntry.Plan with the
 // SystemKindPlan discriminator — the fix for the conformance audit's
 // headline finding: a prior revision only kept the flattened text, which the
@@ -138,7 +138,7 @@ func TestMapSessionUpdate_Plan(t *testing.T) {
 	assert.Equal(t, agent.PlanEntry{Content: "Do Y", Priority: "medium", Status: "in_progress"}, e.Plan[1])
 }
 
-// TestMapSessionUpdate_ToolCallIDPreserved pins IR2's tool-call id fix: the
+// TestMapSessionUpdate_ToolCallIDPreserved pins the tool-call id fix: the
 // engine's own toolCallId (and kind/locations) survive into the IR instead of
 // being dropped at the flatten boundary — this is what lets the outbound
 // re-emission reuse the SAME id instead of generating one keyed only by tool
@@ -157,10 +157,10 @@ func TestMapSessionUpdate_ToolCallIDPreserved(t *testing.T) {
 	assert.Equal(t, "body", r.ToolContent[0].Text)
 }
 
-// TestMapSessionUpdate_RawPassthrough pins IR3: available_commands_update and
-// current_mode_update have no IR entry type of their own, but are forwarded
-// on the ChatEvent.Raw side channel instead of silently dropped (the
-// conformance audit's gap G9) — and a `_meta` supplement on an otherwise
+// TestMapSessionUpdate_RawPassthrough pins the invariant that
+// available_commands_update and current_mode_update have no IR entry type of
+// their own, but are forwarded on the ChatEvent.Raw side channel instead of
+// silently dropped — and a `_meta` supplement on an otherwise
 // fully-mapped entry rides alongside it.
 func TestMapSessionUpdate_RawPassthrough(t *testing.T) {
 	t.Run("available_commands_update forwarded as a raw-only event", func(t *testing.T) {
@@ -208,8 +208,7 @@ func TestMapSessionUpdate_Dropped(t *testing.T) {
 	})
 
 	t.Run("unknown sessionUpdate variant never crashes the stream", func(t *testing.T) {
-		// RESTORED (acp-go-sdk fork commit 48f638c): the
-		// hand-rolled union this SDK replaced rejected any unmodeled
+		// RESTORED: the hand-rolled union the acp-go-sdk fork replaced rejected any unmodeled
 		// discriminator outright — a decode error the live handler turned
 		// into a logged warning. The fork's GENERATED SessionUpdate.
 		// UnmarshalJSON regressed that: once its discriminator switch and

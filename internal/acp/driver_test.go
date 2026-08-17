@@ -155,12 +155,12 @@ func TestChat_ModelEnvVar(t *testing.T) {
 	assert.NotContains(t, <-gotEnv2, "ANTHROPIC_MODEL")
 }
 
-// TestConfigure_ClaudeAgentEngineDefaultsModelEnvVar pins Wave C3's sibling of
+// TestConfigure_ClaudeAgentEngineDefaultsModelEnvVar pins the sibling of
 // the CLAUDECODE strip (TestConfigure_ClaudeAgentEngineStripsCLAUDECODE): a
 // generic acp entry driving claude (agent_engine: claude) also needs
 // ANTHROPIC_MODEL delivery for the same reason claude-code's own backend
-// carries it (claude-code-acp silently ignores --model argv) — c5917a6's
-// mauve-plop item 2 sibling.
+// carries it (claude-code-acp silently ignores --model argv) —
+// mauve-plop item 2's sibling.
 func TestConfigure_ClaudeAgentEngineDefaultsModelEnvVar(t *testing.T) {
 	drv := NewChatDriver(ACPConfig{Command: "claude-code-acp", AgentEngine: "claude"})
 	assert.Equal(t, "ANTHROPIC_MODEL", drv.modelEnvVar)
@@ -178,7 +178,7 @@ func TestConfigure_ClaudeAgentEngineDefaultsModelEnvVar(t *testing.T) {
 	assert.Empty(t, drv4.modelEnvVar)
 }
 
-// TestChatArgv_ModelConfigKey pins Wave C3's codex-acp finding: an adapter
+// TestChatArgv_ModelConfigKey pins the codex-acp finding: an adapter
 // that has NO --model flag (codex-acp 0.16.0 rejects it outright, verified
 // live — exit 2, "unexpected argument") delivers the model through a
 // `-c key=value` config-override flag instead, quoted so the adapter's own

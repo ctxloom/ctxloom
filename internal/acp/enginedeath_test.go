@@ -16,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
-// dyingAgentScript reproduces the 2026-07-24 incident shape: the ACP adapter
+// dyingAgentScript reproduces a real incident's shape: the ACP adapter
 // dies in its MODULE LOADER, printing the one decisive diagnostic on STDERR
 // and exiting before it ever answers `initialize`. The real message was
 // `SyntaxError: Unexpected token 'with'` from a Node 18 that could not load

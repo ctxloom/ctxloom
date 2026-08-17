@@ -16,10 +16,10 @@
 //
 // THIS WAS RE-DECIDED TWICE. Originally we vendored
 // github.com/joshgarnett/agent-client-protocol-go/acp/api for the wire types.
-// That module turned out to be frozen: no commits to main since 2025-09-02,
-// ~10 months stale against the spec. An unmerged side branch DID update the
+// That module turned out to be frozen: no commits to main in a long while,
+// stale against the spec. An unmerged side branch DID update the
 // schema, but sat with no open PR for 8+ months and was, itself, already
-// stale against the CURRENT spec. The SDK1 slice (2026-07-16) reacted to
+// stale against the CURRENT spec. The SDK1 slice reacted to
 // that by hand-authoring ~1,040 lines of ACP types directly from the
 // vendored current spec — a stopgap with no generator and no regeneration
 // path, which was itself a mistake: ACP's types are DEFINED BY its JSON

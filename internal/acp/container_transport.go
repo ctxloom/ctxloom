@@ -192,8 +192,8 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 // self-invoke with no runner dial-home behind it, which already degrades the
 // same way (mcp_server.go's forward mode is a no-op without the var set).
 //
-// OFF-LINUX FALLBACK (this reach-back was broken there until now — verified
-// 2026-07-22): the mount above is the identical-path-bind-mount crossing
+// OFF-LINUX FALLBACK (this reach-back was broken there until now — verified):
+// the mount above is the identical-path-bind-mount crossing
 // isolation.NewContainerFor's every OTHER mount already relies on, which
 // only works because Linux shares ONE kernel between host and container. On
 // macOS/Windows Docker Desktop the container runs inside a Linux VM, so a

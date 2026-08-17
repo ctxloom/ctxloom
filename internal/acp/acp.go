@@ -72,8 +72,8 @@ type ACPConfig struct {
 	ModelEnvVar string `mapstructure:"model_env_var"`
 	// ModelConfigKey, when set, delivers the request's model via a
 	// `-c <key>=<value>` config-override flag INSTEAD OF the generic
-	// `--model` flag (mutually exclusive with it — see chatArgv). Wave C3
-	// finding: codex-acp 0.16.0 has NO `--model` flag at all — verified
+	// `--model` flag (mutually exclusive with it — see chatArgv). codex-acp
+	// 0.16.0 has NO `--model` flag at all — verified
 	// live, it REJECTS the argv outright at CLI parse (exit 2, "unexpected
 	// argument '--model' found"), which would break every codex chat spawn
 	// with a non-empty model, not just leave it silently ignored like
@@ -162,7 +162,8 @@ type ACP struct {
 
 	// shutdownGrace bounds how long a transport's close() waits for the spawned
 	// agent to exit ON ITS OWN (after stdin EOF) before force-killing it — its
-	// process group on the host, the container itself under runtime:container. tidy-gush: claude-code-acp writes its own
+	// process group on the host, the container itself under runtime:container.
+	// claude-code-acp writes its own
 	// NATIVE session transcript asynchronously; a zero-grace immediate kill
 	// (the pre-fix behavior) raced that flush and truncated it — reproduced
 	// by bypassing ctxloom entirely and hitting the identical symptom
@@ -177,7 +178,7 @@ type ACP struct {
 // container transport applies the same bound to the container's teardown
 // (isolation.AttachedContainer.ShutdownGrace, whose own default matches this
 // one). Long
-// enough to cover an async native-transcript flush (tidy-gush's manual
+// enough to cover an async native-transcript flush (manual
 // repro: "sleep a few seconds" before terminate let the flush complete
 // cleanly every time); short enough that a hung/misbehaving agent doesn't
 // meaningfully delay teardown.
@@ -279,8 +280,8 @@ func (b *ACP) Configure(cfg agent.BackendConfig) {
 		if !slices.Contains(b.stripEnv, claudeGuardEnv) {
 			b.stripEnv = append(b.stripEnv, claudeGuardEnv)
 		}
-		// Wave C3 sibling of the strip above (mauve-plop item 2 / c5917a6
-		// precedent): a generic entry driving claude needs the SAME
+		// The sibling of the strip above (mauve-plop item 2): a generic entry
+		// driving claude needs the SAME
 		// ANTHROPIC_MODEL delivery claude-code's own chatACPConfig sets,
 		// for the identical reason (claude-code-acp 0.16.2 silently
 		// ignores --model argv). Only DEFAULTS it — an explicit
@@ -314,7 +315,7 @@ func (b *ACP) clock() func() time.Time {
 // direct-CLI flags. They are a pragmatic first cut: real ACP agents vary in which
 // flags they accept, so per-engine flag mapping (keyed on agent_engine) is a
 // later refinement. An agent that rejects an unknown flag would fail to spawn —
-// hence they are only appended when set. Confirmed live per Wave C3: kiro-cli
+// hence they are only appended when set. Confirmed live: kiro-cli
 // acp accepts --agent/--model/--agent-engine at CLI-parse (its own documented
 // flags); codex-acp accepts NONE of the three — it exits 2 ("unexpected
 // argument") on any of them — which is exactly why ModelConfigKey exists
@@ -393,8 +394,7 @@ type transport struct {
 	// killed by the OOM killer, never writes a JSON-RPC frame at all, so
 	// every error this driver can otherwise report ("acp: connection
 	// closed", "write |1: file already closed") names the symptom and not
-	// one byte of the cause. The 2026-07-24 incident was exactly that shape
-	// and took 49 minutes.
+	// one byte of the cause.
 	//
 	// Nil for a test transport that spawns no process (engineStderrTail
 	// tolerates it).
@@ -467,7 +467,7 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 	cmd.Env = spawnEnv(os.Environ(), b.stripEnv, env)
 	// setpgid puts the spawned agent in its OWN, fresh process group so
 	// close's killProcessGroup can reap the whole tree — not just the
-	// immediate child — on teardown. codex-acp (moral-scorn) double-forks a
+	// immediate child — on teardown. codex-acp double-forks a
 	// worker that survives a plain Process.Kill on just the spawned pid
 	// (the worker reparents to PPID=1 but stays in the same process group);
 	// see procgroup_unix.go/procgroup_windows.go.
@@ -500,7 +500,7 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 		close: func() error {
 			_ = stdin.Close()
 			if cmd.Process != nil {
-				// tidy-gush: give the agent a bounded grace period to exit ON
+				// Give the agent a bounded grace period to exit ON
 				// ITS OWN after stdin EOF — long enough to cover an async
 				// native-transcript flush — before force-killing. Killing the
 				// instant stdin closes (the pre-fix behavior) raced exactly
@@ -509,8 +509,8 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 				case <-processDone:
 					// exited on its own within the grace period.
 				case <-time.After(grace):
-					// Kill the WHOLE process group (not just cmd.Process) —
-					// this is the moral-scorn fix: a plain Process.Kill here
+					// Kill the WHOLE process group (not just cmd.Process):
+					// a plain Process.Kill here
 					// left codex-acp's detached worker running indefinitely
 					// after every Chat().
 					_ = killProcessGroup(cmd)

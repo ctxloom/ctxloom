@@ -82,7 +82,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	// else about them stays per-kind.
 	sess.perm = newPendingBroker[agent.PermissionAnswer](req.ForwardPermissions, "perm-", "permission", &sess.forwardGoroutines)
 	sess.term = newPendingBroker[agent.TerminalResponse](req.ForwardTerminal, "term-", "terminal", &sess.forwardGoroutines)
-	// B5 (gap G14): req.Env[fsUpstreamEnvVar] is set ONLY on the fully
+	// req.Env[fsUpstreamEnvVar] is set ONLY on the fully
 	// unisolated HOST axis (see operations.OpenEngineSession's gate, and
 	// operations.OpenRequest.FsUpstreamAddr's doc for the full rule) — when
 	// present, handleFsRead/handleFsWrite chain to the connected editor
@@ -151,7 +151,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		teardown()
 	}
 
-	// mcpDropped (B3, gap G11) names any editor-supplied http/sse MCP server
+	// mcpDropped names any editor-supplied http/sse MCP server
 	// THIS engine's own advertised mcpCapabilities couldn't take (see
 	// mcpServersToACP) — folded into the session's one-time info so a client
 	// sees "configured but not delivered" rather than nothing at all. nil
@@ -161,7 +161,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	// (caps.LoadSession) so a coordinator can decide — LIVE, before the first
 	// turn boundary — whether tearing this engine down and resuming it by
 	// SessionID (session/load) is actually safe, or whether it must keep the
-	// process warm (one-shot-resume plan, Slice 4 / Fork 3). The same bit that
+	// process warm (the one-shot-resume plan). The same bit that
 	// gates the session/load call itself above.
 	if !sess.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: string(sessionID), Resumable: caps.LoadSession, MCPServers: mcpDropped}}) {
 		abort()
@@ -175,14 +175,14 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	var (
 		turnDone    chan turnResult     // non-nil while a turn is in flight
 		turnStarted time.Time           // when the in-flight turn's prompt was written
-		queued      []agent.ChatMessage // messages that arrived mid-turn, in order (B2: full message, not just Text — ContentBlocks rides along)
+		queued      []agent.ChatMessage // messages that arrived mid-turn, in order (full message, not just Text — ContentBlocks rides along)
 		queueWarned bool                // queueDepthWarnAt already reported; once per conversation
 		inChan      = in                // nil'd once the caller closes input
 	)
 	// startTurn WRITES the session/prompt frame synchronously (so a CancelTurn
 	// processed later by this loop is guaranteed to reach the agent after the
-	// prompt it cancels), then awaits the turn's response off the loop. B2:
-	// the outbound content blocks are built (and capability-gated against the
+	// prompt it cancels), then awaits the turn's response off the loop.
+	// The outbound content blocks are built (and capability-gated against the
 	// connected engine — see buildPromptBlocks) from the FULL queued message,
 	// not just its flattened Text.
 	startTurn := func(msg agent.ChatMessage) {
@@ -311,7 +311,7 @@ func (b *ACP) envOverlay(req agent.ChatRequest) map[string]string {
 // CLIENT of the chosen engine reads what that specific engine actually
 // offers, so callers can degrade per-session instead of guessing.
 //
-// B2 (multimodal content, gap G3): Prompt.Image/Audio/EmbeddedContext is the
+// Prompt.Image/Audio/EmbeddedContext is the
 // FIRST real consumer — buildPromptBlocks/deliverBlock gate every outbound
 // image/audio/resource block against it, flattening to a visible warning
 // instead of a silent drop when the connected engine didn't advertise
@@ -366,7 +366,7 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 			// auth_required handling below), so it must not invite an engine to
 			// offer a terminal-shaped auth method it could never answer.
 			//
-			// Terminal (B1, gap G6): the bidirectional carrier symmetric to
+			// Terminal: the bidirectional carrier symmetric to
 			// Permission's (ChatEvent.Terminal up / ChatMessage.Terminal down,
 			// both proto-mirrored — internal/shared/agent/chat.go's
 			// TerminalRequest/TerminalResponse, internal/lm/grpc/llm.proto's
@@ -384,7 +384,7 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 			// actually possible — never unconditionally true, which would
 			// promise brokering to an engine whose upstream editor never
 			// agreed to answer terminal/* at all (the same advertise-then-drop
-			// lie B2 guards against for promptCapabilities.image/audio). A
+			// lie guarded against for promptCapabilities.image/audio). A
 			// caller with no upstream editor (e.g. a delegated child agent,
 			// agentcoord's HarnessSpec) leaves ForwardTerminal false, so this
 			// stays false there too — honest, not a regression.
@@ -549,9 +549,10 @@ type quirkSetModelParams struct {
 // mcpCapabilities (caps, read from this engine's initialize response —
 // see setup). Stdio is the protocol's unconditional baseline (every ACP
 // agent MUST support it — McpCapabilities has no "stdio" flag), so a stdio
-// entry is always forwarded unconditionally, exactly as before B3.
+// entry is always forwarded unconditionally, exactly as before this gate
+// was added.
 //
-// Http/Sse (B3, gap G11) are forwarded ONLY when this specific engine
+// Http/Sse are forwarded ONLY when this specific engine
 // advertised the matching capability at initialize — the spec is explicit
 // that these variants are "only available when the Agent capabilities
 // indicate" them, so sending one to an engine that never claimed it would
@@ -611,7 +612,7 @@ func headersToACP(headers map[string]string) []api.HttpHeader {
 // turn ends, yielding the stop reason. The turn's session/update stream is
 // consumed concurrently by the read loop (chatSession.HandleNotification),
 // which forwards mapped entries to `out` before the response arrives.
-// blocks is the already-built (and, per B2, already capability-gated — see
+// blocks is the already-built (and already capability-gated — see
 // chatSession.buildPromptBlocks) outbound content-block array; the caller
 // decides its shape, this function only ships it.
 func (b *ACP) promptAsync(conn *jsonrpc.Conn, sessionID api.SessionId, blocks []api.ContentBlock) (func(context.Context) (string, error), error) {
@@ -632,10 +633,10 @@ func (b *ACP) promptAsync(conn *jsonrpc.Conn, sessionID api.SessionId, blocks []
 	}, nil
 }
 
-// --- B2: multimodal prompt delivery (CLIENT role) ---
+// --- multimodal prompt delivery (CLIENT role) ---
 
 // buildPromptBlocks renders one outbound ChatMessage as the ACP content-block
-// array actually delivered to the connected engine. msg.ContentBlocks (IR2's
+// array actually delivered to the connected engine. msg.ContentBlocks (the
 // structured carrier, landed for exactly this) is used when the caller
 // populated it — today, only acpagent's session/prompt intake does (see
 // internal/acpagent/server.go's handlePrompt); every OTHER caller (`run
@@ -960,7 +961,7 @@ type chatSession struct {
 
 	// turn accounting fed by the real usage_update variant — see
 	// consumeMetaUpdate. Guarded by metaMu: updates arrive on the read loop
-	// while completeMeta runs on the Chat loop. G13: this used to also carry
+	// while completeMeta runs on the Chat loop. This used to also carry
 	// infoModel/infoWindow extracted from ctxloom's own session-info `_meta`
 	// extension; that extraction is gone (see consumeMetaUpdate's doc
 	// comment) now that Model/ContextWindow ride CO1's SessionConfigOption
@@ -969,7 +970,7 @@ type chatSession struct {
 	usage  *api.UsageUpdate // latest usage report (cumulative; freshest wins)
 
 	// fsUpstream, when non-nil, is this conversation's local fs reach-back
-	// link to the connected editor (B5, gap G14) — handleFsRead/
+	// link to the connected editor — handleFsRead/
 	// handleFsWrite relay through it instead of reading/writing local disk.
 	// nil is the overwhelmingly common case: every launch path OTHER than
 	// an ACP-hosted, fully-unisolated (host axis) session — interactive pty,
@@ -1007,7 +1008,7 @@ func (s *chatSession) HandleNotification(ctx context.Context, method string, par
 		return
 	}
 	// The real usage_update variant folds into the turn meta instead of
-	// running through mapSessionUpdate as an entry (G13: session_info_update
+	// running through mapSessionUpdate as an entry (session_info_update
 	// no longer needs a special case here — see consumeMetaUpdate's doc
 	// comment).
 	if s.consumeMetaUpdate(raw) {
@@ -1027,11 +1028,11 @@ func (s *chatSession) HandleNotification(ctx context.Context, method string, par
 
 // consumeMetaUpdate absorbs the real spec usage_update variant into the turn
 // accounting rather than mapping it to an entry (now decoded straight into
-// api.UsageUpdate — H1 confirmed it already matches the spec exactly).
+// api.UsageUpdate, confirmed to already match the spec exactly).
 // Returns true when the update was usage_update (there is no entry to emit);
 // a malformed usage_update is warned and dropped, never crashing the stream.
 //
-// G13 (decomposing IR4): this used to ALSO special-case ctxloom's own
+// This used to ALSO special-case ctxloom's own
 // "session_info_update"-discriminated frame, extracting Model/ContextWindow
 // from its `_meta.ctxloom_session_info` object into s.infoModel/s.infoWindow.
 // That case is REMOVED, not left as a no-op guard: the emitter
@@ -1045,12 +1046,12 @@ func (s *chatSession) HandleNotification(ctx context.Context, method string, par
 // api.SessionUpdate decode in HandleNotification and lands in
 // mapSessionUpdate's default case (dropped as an unmodeled variant): the
 // exact same harmless outcome an unrecognized session_info_update already
-// had before G13 (see TestChat_ForeignSessionInfoUpdateIgnored). This does
+// had before this change (see TestChat_ForeignSessionInfoUpdateIgnored). This does
 // NOT propagate PermissionMode/MCPServers into agent.ChatSessionInfo for a
 // nested ctxloom-driving-ctxloom hop — that was ALREADY unread before this
-// slice ("the frame also carries permissionMode/mcpServers, not yet read
-// here"), and stays that way; out of scope for G13's foreign-client-render
-// mission (see the G13 report's deferred-work list).
+// change ("the frame also carries permissionMode/mcpServers, not yet read
+// here"), and stays that way: propagating it is out of scope here, which is
+// about foreign-client rendering, not nested-delegation header propagation.
 func (s *chatSession) consumeMetaUpdate(raw json.RawMessage) bool {
 	if updateDiscriminator(raw) != usageUpdateVariant {
 		return false
@@ -1067,7 +1068,7 @@ func (s *chatSession) consumeMetaUpdate(raw json.RawMessage) bool {
 }
 
 // completeMeta assembles one turn's completion accounting: the wire-sourced
-// stop reason; the requested model (G13: no longer overridable by ctxloom's
+// stop reason; the requested model (no longer overridable by ctxloom's
 // own session-info echo — see consumeMetaUpdate's doc comment; the model a
 // foreign client renders as "current" comes from CO1's SessionConfigOption
 // instead); the latest usage the agent reported (cumulative session state,
@@ -1167,7 +1168,7 @@ func (s *chatSession) inputClosed() {
 	s.term.closeInput()
 }
 
-// handleTerminal answers one terminal/* request (B1, gap G6). Under
+// handleTerminal answers one terminal/* request. Under
 // ForwardTerminal (the upstream editor advertised the capability) it
 // surfaces the request as a ChatEvent.Terminal and parks (off the read loop)
 // until the caller's TerminalResponse resolves it — exactly handlePermission's
@@ -1259,7 +1260,7 @@ func stripSessionID(params json.RawMessage) (json.RawMessage, error) {
 	return out, nil
 }
 
-// handleFsRead serves fs/read_text_file (B5, gap G14 — THE ONE RULE: fs
+// handleFsRead serves fs/read_text_file (THE ONE RULE: fs
 // follows the engine's authoritative workspace):
 //
 //   - HOST axis, fs-upstream dialed (s.fsUpstream != nil): the connected

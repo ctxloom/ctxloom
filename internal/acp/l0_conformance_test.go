@@ -1,8 +1,8 @@
 package acp
 
 // L0 — frame schema validation against the CURRENT ACP spec (internal/acptest,
-// vendored schema-v1.19.0), deliberately newer than the pinned SDK
-// (2025-09-02). This file is the CLIENT-role twin of
+// vendored schema-v1.19.0), deliberately newer than the pinned SDK, which is
+// frozen (see doc.go's SDK decision section). This file is the CLIENT-role twin of
 // internal/acpagent/l0_conformance_test.go: it captures every distinct frame
 // shape ctxloom emits as an ACP CLIENT (internal/acp — driving another
 // engine's `<agent> acp`) via the SAME in-process fakeAgent harness
@@ -40,7 +40,7 @@ type l0ClientCapture struct {
 // l0ClientKnownDivergences — see internal/acpagent/l0_conformance_test.go's
 // l0KnownDivergences for the shared policy this mirrors.
 //
-// SDK1 (2026-07-16) fixed the L0 checklist's A1 (fs/write_text_file used to
+// SDK1 fixed the L0 checklist's A1 (fs/write_text_file used to
 // return a bare nil, rendering as JSON `null`, which failed the spec's
 // `"type":"object"` WriteTextFileResponse — see
 // internal/acp/session.go's handleFsWrite, which now returns
@@ -149,7 +149,7 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 			Permissions: agent.PermissionBypass, // auto-decide (not forwarded) so the permission capture below doesn't need a live upstream consumer
 			MCPServers: []agent.ChatMCPServer{
 				{Name: "tools", Command: "/bin/tools"},
-				// B3 (gap G11): an http entry, accepted because the fake
+				// An http entry, accepted because the fake
 				// agent's initialize response below advertises
 				// mcpCapabilities.http — this proves mcpServersToACP's
 				// constructed McpServerHttpInline is schema-valid, not just
@@ -229,7 +229,7 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 	}
 }
 
-// TestL0_ClientEmittedFrames_Multimodal is B2's L0 proof: when the connected
+// TestL0_ClientEmittedFrames_Multimodal is the L0 proof: when the connected
 // engine advertises image/audio/embeddedContext support, the session/prompt
 // request ctxloom actually SENDS carries real ImageBlock/AudioBlock/Resource
 // content (buildPromptBlocks/deliverBlock) — and that request is still a

@@ -15,7 +15,7 @@ import (
 // agents) double-forks a worker process that survives its immediate parent
 // (PPID reparents to 1) while staying in the SAME process group (it does not
 // itself call setsid) — a plain Process.Kill on just the spawned pid never
-// reaches that worker, leaking it for the lifetime of the host (moral-scorn).
+// reaches that worker, leaking it for the lifetime of the host.
 func setpgid(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}

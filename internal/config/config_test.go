@@ -657,7 +657,7 @@ func TestResolveProfile_ExclusionsPreserved(t *testing.T) {
 func TestConfig_GetEditorCommand(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   Config
+		config   *Config
 		visual   string
 		editor   string
 		wantCmd  string
@@ -665,7 +665,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 	}{
 		{
 			name:     "config takes precedence",
-			config:   Config{editor: EditorConfig{Command: "vim", Args: []string{"-n"}}},
+			config:   &Config{editor: EditorConfig{Command: "vim", Args: []string{"-n"}}},
 			visual:   "code",
 			editor:   "nano",
 			wantCmd:  "vim",
@@ -673,7 +673,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 		},
 		{
 			name:     "VISUAL fallback",
-			config:   Config{},
+			config:   &Config{},
 			visual:   "code",
 			editor:   "nano",
 			wantCmd:  "code",
@@ -681,7 +681,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 		},
 		{
 			name:     "EDITOR fallback",
-			config:   Config{},
+			config:   &Config{},
 			visual:   "",
 			editor:   "emacs",
 			wantCmd:  "emacs",
@@ -689,7 +689,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 		},
 		{
 			name:     "default to nano",
-			config:   Config{},
+			config:   &Config{},
 			visual:   "",
 			editor:   "",
 			wantCmd:  "nano",
@@ -699,14 +699,14 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 			// "code --wait" must split into binary + flag, not be exec'd as
 			// one binary named "code --wait" (which never exists).
 			name:     "EDITOR with flags is split",
-			config:   Config{},
+			config:   &Config{},
 			editor:   "code --wait",
 			wantCmd:  "code",
 			wantArgs: []string{"--wait"},
 		},
 		{
 			name:     "VISUAL with flags wins over EDITOR",
-			config:   Config{},
+			config:   &Config{},
 			visual:   "emacsclient -t",
 			editor:   "nano",
 			wantCmd:  "emacsclient",
@@ -716,7 +716,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 			// A multi-word config command splits too, with editor.args
 			// appended after the inline flags.
 			name:     "config command with flags plus args",
-			config:   Config{editor: EditorConfig{Command: "code --wait", Args: []string{"-n"}}},
+			config:   &Config{editor: EditorConfig{Command: "code --wait", Args: []string{"-n"}}},
 			editor:   "vim",
 			wantCmd:  "code",
 			wantArgs: []string{"--wait", "-n"},
@@ -725,7 +725,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 			// A blank (whitespace-only) config command is no choice at all and
 			// falls through to the environment.
 			name:     "blank config command falls back to env",
-			config:   Config{editor: EditorConfig{Command: "   "}},
+			config:   &Config{editor: EditorConfig{Command: "   "}},
 			editor:   "vim",
 			wantCmd:  "vim",
 			wantArgs: nil,

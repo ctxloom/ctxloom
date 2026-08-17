@@ -149,15 +149,22 @@ func withProfileDefs(cfg *config.Config, defs map[string]config.Profile) *config
 	return config.NewFixture(f)
 }
 
-// installProfileDefs is withProfileDefs for the case where the config is
-// already held by the code under test (a mid-run test double that must make a
-// definition appear): it rebuilds in place, re-injecting fs since a Fixture
-// does not carry one.
-func installProfileDefs(cfg *config.Config, fs afero.Fs, defs map[string]config.Profile) {
-	rebuilt := withProfileDefs(cfg, defs)
-	rebuilt.SetFS(fs)
-	*cfg = *rebuilt
-}
+// installProfileDefs is DELETED. It rebuilt a Config in place (`*cfg =
+// *rebuilt`) so a mid-run test double could make a profile definition appear in
+// a config the sync loop was already holding.
+//
+// That simulated a channel production cannot use: config-defined profiles are
+// fixed when the config loads, since nothing rewrites .ctxloom/config.yaml
+// during a sync. Real revelation happens because a pull writes BYTES TO DISK
+// and the next collect pass lists the profiles directory again through a fresh
+// loader. The doubles now write the file (see revealProfileOnDisk in
+// sync_test.go), which is both faithful and what their own doc comments always
+// claimed they did.
+//
+// Deleting it also removed the last value-copy of Config outside a trivial
+// table test, which is what lets companionSeed be a value sync.Once field —
+// making Config non-copyable, so `go vet` now REFUSES to let this pattern
+// return.
 
 // ========== Loader-based integration tests ==========
 

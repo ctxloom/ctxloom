@@ -290,28 +290,19 @@ type Config struct {
 	// tests construct fresh Configs and must never observe another test's
 	// fake companion output.
 	//
-	// Held by POINTER, not as a value sync.Once field: Config is copied by
-	// value by existing callers, and a struct containing a sync.Once value must
-	// never be copied (govet copylocks), so a value field here would not
-	// compile-clean.
+	// A VALUE field, and that makes Config NON-COPYABLE — which is the point,
+	// not a side effect. govet copylocks now refuses any attempt to copy a
+	// Config, so the pass-by-pointer rule this codebase already follows
+	// everywhere is enforced by a tool instead of by convention.
 	//
-	// The copy that DECIDES this is operations.installProfileDefs, which does
-	// `*cfg = *rebuilt` — a test double that must make a profile definition
-	// appear MID-RUN, in a Config the sync loop is already holding. Rebuilding
-	// in place is the point: assigning into a returned map would be exactly the
-	// silent no-op that test exists to catch. It cannot be refactored away, and
-	// an in-place replace method is not the escape hatch it looks like — Config
-	// has 34 fields and NewFixture already enumerates all of them, so a second
-	// enumeration would silently diverge the first time someone adds a field.
-	//
-	// (A table-driven test also copies a Config, but that one IS trivially
-	// fixable and is not the constraint. Do not read it as the reason.)
-	//
-	// companionSeedInitMu (a package-level lock, not a Config field, so copying
-	// Config is still cheap and safe) guards the lazy allocation of the pointer;
-	// the actual probe is still memoized exactly once via the pointee's
-	// sync.Once.
-	companionSeed *companionSeedState
+	// It was previously a pointer guarded by a package-level mutex, because a
+	// test double rebuilt a Config in place (`*cfg = *rebuilt`) to make a
+	// profile definition appear mid-run. That simulated a channel production
+	// cannot use — config-defined profiles are fixed at load, since nothing
+	// rewrites .ctxloom/config.yaml during a run — so it was the test that was
+	// wrong, not this field. Production reveals new state exactly one way: bytes
+	// land on disk and the next read lists them through a fresh loader.
+	companionSeed companionSeedState
 
 	// companionProbe overrides companion-loadout discovery; nil means the real
 	// ProbeCompanionLoadouts. The real probe execs whatever companion binaries
@@ -2323,13 +2314,11 @@ func (c *Config) companionProber() bundles.CompanionProber {
 	if len(c.appPaths) == 0 {
 		return nil
 	}
-	companionSeedInitMu.Lock()
-	if c.companionSeed == nil {
-		c.companionSeed = &companionSeedState{}
-	}
-	state := c.companionSeed
+	// No lazy allocation and no package-level lock: the state is a value field,
+	// so it exists as soon as the Config does, and its own sync.Once is the only
+	// synchronization the probe needs.
+	state := &c.companionSeed
 	probe := c.companionProbe
-	companionSeedInitMu.Unlock()
 
 	// Otherwise a Config's own override (the test seam) wins over the real probe,
 	// so a parallel test can pin its own fixture without touching the global.
@@ -2372,19 +2361,13 @@ func (c *Config) SetCompanionProbeForTesting(probe bundles.CompanionProber) {
 }
 
 // companionSeedState is the memoized result of one Config's companion-loadout
-// probe, held by pointer from Config.companionSeed — see that field's doc for
-// why this can't be a value sync.Once field on Config directly.
+// probe, held as a VALUE on Config.companionSeed. Its sync.Once is the whole
+// synchronization story: the state exists as soon as the Config does, so there
+// is no allocation to guard and no second lock.
 type companionSeedState struct {
 	once  sync.Once
 	cache []bundles.CompanionLoadout
 }
-
-// companionSeedInitMu guards ONLY the lazy allocation of a Config's
-// companionSeed pointer (a handful of instructions); the actual probe work
-// stays memoized via companionSeedState's own sync.Once, unlocked. A
-// package-level lock rather than a Config field, so it never participates in
-// a struct copy.
-var companionSeedInitMu sync.Mutex
 
 // bundleVersionResolver returns a bundles.BundleVersionResolver that materializes
 // a bundle at a specific commit and parses the bytes into a Bundle. It dispatches

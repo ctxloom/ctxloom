@@ -39,6 +39,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -1492,24 +1493,34 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 // refs the initial pass never saw. Here, pulling `reveals` writes the
 // previously-unloadable profile into the profiles dir.
 type revealingPuller struct {
-	cfg         *config.Config
-	fs          afero.Fs // re-injected when cfg is rebuilt; a Fixture carries no fs
+	fs          afero.Fs // where the pull lands its bytes, exactly as a real pull does
 	reveals     string   // pulling this ref makes the revealed profile resolvable
 	revealedRef string   // the bundle that newly-resolvable profile references
 	pulled      []string
 }
 
+// revealProfileOnDisk writes a profile file into the profiles dir — what a real
+// pull does, and the ONLY channel through which production reveals anything.
+//
+// The earlier version rebuilt the Config's in-memory profile DEFINITIONS in
+// place. That simulated a channel production cannot use: config-defined
+// profiles are fixed when the config loads, because nothing rewrites
+// .ctxloom/config.yaml during a sync. Real revelation happens because a pull
+// puts bytes on disk and the NEXT collect pass calls cfg.GetProfileLoader()
+// fresh, listing the directory again. Writing the file is therefore not a
+// convenience — it is the difference between pinning the fixed-point contract
+// and pinning the way the loop happens to be implemented.
+func revealProfileOnDisk(fs afero.Fs, name, bundleRef string) error {
+	body := fmt.Sprintf("bundles:\n    - %s\n", bundleRef)
+	return afero.WriteFile(fs, paths.ProfilesPath(testBaseDir)+"/"+name+".yaml", []byte(body), 0o644)
+}
+
 func (p *revealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOptions) (*remote.PullResult, error) {
 	p.pulled = append(p.pulled, refStr)
 	if refStr == p.reveals {
-		// Every read of a Config's profiles is copy-on-read — ToFixture
-		// included — so making a definition appear mid-run
-		// means rebuilding the config the sync loop is holding. Assigning into
-		// a returned map would be exactly the silent no-op this test exists to
-		// catch, just relocated into the test double.
-		installProfileDefs(p.cfg, p.fs, map[string]config.Profile{
-			"revealed": {Bundles: []string{p.revealedRef}},
-		})
+		if err := revealProfileOnDisk(p.fs, "revealed", p.revealedRef); err != nil {
+			return nil, err
+		}
 	}
 	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/revealed.yaml"}, nil
 }
@@ -1546,7 +1557,7 @@ remotes:
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
-	puller := &revealingPuller{cfg: cfg, fs: fs, reveals: rootRef, revealedRef: revealedRef}
+	puller := &revealingPuller{fs: fs, reveals: rootRef, revealedRef: revealedRef}
 
 	_, err = SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
 		FS: fs, Registry: registry, Puller: puller,
@@ -1565,8 +1576,7 @@ remotes:
 // re-collect after it reveals nothing — the graph converged on the final
 // permitted pass.
 type chainRevealingPuller struct {
-	cfg    *config.Config
-	fs     afero.Fs          // re-injected when cfg is rebuilt; a Fixture carries no fs
+	fs     afero.Fs          // where the pull lands its bytes, exactly as a real pull does
 	next   map[string]string // ref -> the ref pulling it reveals ("" = reveals nothing)
 	pulled []string
 }
@@ -1574,11 +1584,19 @@ type chainRevealingPuller struct {
 func (p *chainRevealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOptions) (*remote.PullResult, error) {
 	p.pulled = append(p.pulled, refStr)
 	if revealed := p.next[refStr]; revealed != "" {
-		installProfileDefs(p.cfg, p.fs, map[string]config.Profile{
-			revealed: {Bundles: []string{revealed}},
-		})
+		// A profile NAMED for the ref it reveals, so each link needs its own
+		// file — same reason as revealProfileOnDisk's doc: disk is the channel.
+		if err := revealProfileOnDisk(p.fs, profileFileNameFor(revealed), revealed); err != nil {
+			return nil, err
+		}
 	}
 	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/chain.yaml"}, nil
+}
+
+// profileFileNameFor turns a bundle ref into a filesystem-safe profile name.
+// The chain test used the ref itself as a map key, which a file path cannot be.
+func profileFileNameFor(ref string) string {
+	return strings.NewReplacer("/", "_", ":", "_", "@", "_", ".", "_").Replace(ref)
 }
 
 // TestSyncDependencies_NoUnconvergedWarningWhenLastPassConverges:
@@ -1619,7 +1637,7 @@ remotes:
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
-	puller := &chainRevealingPuller{cfg: cfg, fs: fs, next: next}
+	puller := &chainRevealingPuller{fs: fs, next: next}
 
 	var warnings bytes.Buffer
 	restore := clidiag.SetSink(&warnings)

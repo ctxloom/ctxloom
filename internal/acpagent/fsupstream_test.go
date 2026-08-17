@@ -42,7 +42,7 @@ func (noopHandler) HandleRequest(_ context.Context, method string, _ json.RawMes
 func (noopHandler) HandleNotification(context.Context, string, json.RawMessage) {}
 
 // TestServe_FsUpstream_OfferedWhenClientDeclaresFs proves the acpagent-role
-// half of B5 (gap G14) end to end: when the connected editor declares
+// half of fs reach-back end to end: when the connected editor declares
 // fs/read_text_file at initialize, session/new stands up a real local
 // listener, hands its address to the ChatOpener via OpenRequest.
 // FsUpstreamAddr, and a request dialed against that address really reaches

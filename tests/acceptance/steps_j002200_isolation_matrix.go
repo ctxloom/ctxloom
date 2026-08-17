@@ -393,8 +393,18 @@ func isoMatrixOf(w *World) *isoMatrixState {
 // scratch, never merely prepended to the inherited PATH. See the package
 // doc for why this exact shape is the load-bearing safety property of every
 // scenario in this file.
+// isoSanitizedPATH joins dirs into a PATH value built FROM SCRATCH — the one
+// mechanic every PATH-masking fixture in J002200 shares. A sanitized PATH is
+// only sanitized because the inherited value contributes NOTHING to it: the
+// callers below (a spy dir that must shadow every real engine binary, and a
+// bin dir that must contain no container runtime at all) both depend on that,
+// and prepending would defeat either one.
+func isoSanitizedPATH(dirs ...string) string {
+	return strings.Join(dirs, string(os.PathListSeparator))
+}
+
 func isoMatrixSanitizedPATH(spyDir string) string {
-	return spyDir + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
+	return isoSanitizedPATH(spyDir, "/usr/bin", "/bin")
 }
 
 // installIsoSpy writes the spy script once and symlinks it under each of

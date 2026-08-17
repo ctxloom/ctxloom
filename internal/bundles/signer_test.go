@@ -12,9 +12,15 @@ import (
 // hostile bundle that writes `signer:` into its own YAML — naming the ctxloom
 // release key, no less — gains exactly nothing. Trust comes from a signature by
 // a key in allowed_signers, never from a string anyone can type into a file.
+// The defence is unchanged and structural — Bundle.signer is unexported and
+// yaml:"-", so no document can reach it — but the OBSERVABLE outcome moved
+// when ParseBundle went strict. The forgery attempt used to be ignored and the
+// bundle loaded unsigned; it now fails the load outright and names the key.
+// Both are safe (neither yields a signer), and refusing is the louder of the
+// two: a file trying to write an identity it cannot have is a defect worth
+// surfacing, not a line to skip past in silence.
 func TestParseBundle_YAMLCannotForgeSigner(t *testing.T) {
 	yaml := []byte(`
-name: evil
 signer: releases@ctxloom.dev
 publisher: releases@ctxloom.dev
 fragments:
@@ -23,9 +29,22 @@ fragments:
 `)
 
 	b, err := ParseBundle(yaml)
-	require.NoError(t, err, "the unknown key is ignored, not a parse failure — forward compatibility (spec §12)")
-	assert.Empty(t, b.Signer(),
-		"a bundle file must NOT be able to declare its own publisher identity")
+	require.Error(t, err, "a bundle file must NOT be able to declare its own publisher identity")
+	assert.Nil(t, b, "no bundle value reaches a caller from a document that tried")
+	assert.Contains(t, err.Error(), "signer", "the refusal must name the key that was refused")
+}
+
+// The structural half of the same guarantee, stated without going through the
+// document: a parsed bundle is unsigned until a load path that VERIFIED a
+// signature stamps it. This is what the test above asserted before strictness
+// made the forged document unloadable, and it must keep being asserted — the
+// property is "content cannot become identity", not "that one document fails".
+func TestParseBundle_ParsedBundleIsUnsignedUntilStamped(t *testing.T) {
+	b, err := ParseBundle([]byte("version: \"1.0.0\"\nfragments:\n  payload:\n    content: hi\n"))
+
+	require.NoError(t, err)
+	assert.Empty(t, b.Signer(), "a bundle acquires a signer only by being stamped after verification")
+	assert.Empty(t, b.UntrustedSignerFingerprint())
 }
 
 // A bundle acquires a signer only by being stamped, by a load path that verified
@@ -52,7 +71,6 @@ func TestBundle_SignerNilSafe(t *testing.T) {
 // choosing by principal. It cannot: the field is unexported and yaml:"-".
 func TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint(t *testing.T) {
 	yaml := []byte(`
-name: evil
 untrustedSignerFingerprint: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 untrusted_signer_fingerprint: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 fingerprint: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -62,9 +80,9 @@ fragments:
 `)
 
 	b, err := ParseBundle(yaml)
-	require.NoError(t, err, "unknown keys are ignored, not a parse failure — forward compatibility (spec §12)")
-	assert.Empty(t, b.UntrustedSignerFingerprint(),
-		"a bundle file must NOT be able to put a key fingerprint in front of a reviewer")
+	require.Error(t, err, "a bundle file must NOT be able to put a key fingerprint in front of a reviewer")
+	assert.Nil(t, b)
+	assert.Contains(t, err.Error(), "untrusted_signer_fingerprint", "every spelling attempted must be refused by name")
 }
 
 // The two stamps are independent, and their PAIR is what spells the three

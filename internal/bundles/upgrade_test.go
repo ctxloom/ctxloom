@@ -13,7 +13,7 @@ import (
 // prompt→skill→command; the one-hop rewrite now retargets straight to
 // `commands:`).
 func TestParseBundle_MigratesPromptsKeyToCommands(t *testing.T) {
-	old := []byte("name: legacy\nversion: \"1.0\"\nprompts:\n  review:\n    description: d\n    content: c\n")
+	old := []byte("version: \"1.0\"\nprompts:\n  review:\n    description: d\n    content: c\n")
 	b, err := ParseBundle(old)
 	require.NoError(t, err)
 	require.Contains(t, b.Commands, "review", "legacy prompts: key must migrate into Commands")
@@ -24,7 +24,7 @@ func TestParseBundle_MigratesPromptsKeyToCommands(t *testing.T) {
 // TestParseBundle_CommandsKeyUnchanged confirms a current bundle (already using
 // `commands:`) loads unchanged — the migration is idempotent.
 func TestParseBundle_CommandsKeyUnchanged(t *testing.T) {
-	cur := []byte("name: cur\nversion: \"1.0\"\ncommands:\n  review:\n    content: c\n")
+	cur := []byte("version: \"1.0\"\ncommands:\n  review:\n    content: c\n")
 	b, err := ParseBundle(cur)
 	require.NoError(t, err)
 	require.Contains(t, b.Commands, "review")
@@ -35,7 +35,7 @@ func TestParseBundle_CommandsKeyUnchanged(t *testing.T) {
 // edge: a bundle carrying both keys keeps the current `commands:` and drops
 // the legacy `prompts:` rather than producing a duplicate-key parse error.
 func TestParseBundle_CommandsWinsOverLegacyPrompts(t *testing.T) {
-	both := []byte("name: both\nversion: \"1.0\"\ncommands:\n  new:\n    content: n\nprompts:\n  old:\n    content: o\n")
+	both := []byte("version: \"1.0\"\ncommands:\n  new:\n    content: n\nprompts:\n  old:\n    content: o\n")
 	b, err := ParseBundle(both)
 	require.NoError(t, err)
 	assert.Contains(t, b.Commands, "new")
@@ -49,7 +49,7 @@ func TestParseBundle_CommandsWinsOverLegacyPrompts(t *testing.T) {
 // must fail the load with a loud, actionable error rather than being silently
 // dropped (default YAML unmarshal ignores unknown keys) or misparsed.
 func TestParseBundle_LegacySkillsKeyErrsLoud(t *testing.T) {
-	legacy := []byte("name: legacy\nversion: \"1.0\"\nskills:\n  review:\n    description: d\n    content: c\n")
+	legacy := []byte("version: \"1.0\"\nskills:\n  review:\n    description: d\n    content: c\n")
 	_, err := ParseBundle(legacy)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "skills:")
@@ -64,7 +64,7 @@ func TestParseBundle_LegacySkillsKeyErrsLoud(t *testing.T) {
 // Bundle.Skills, never error. Shape alone (presence/absence of `content:`)
 // is what detectLegacySkillsKey uses to tell the two apart deterministically.
 func TestParseBundle_NewShapeSkillsKeyParsesAsSkill(t *testing.T) {
-	future := []byte("name: future\nversion: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n    tags: [writing]\n")
+	future := []byte("version: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n    tags: [writing]\n")
 	b, err := ParseBundle(future)
 	require.NoError(t, err)
 	require.Contains(t, b.Skills, "humanize")
@@ -76,7 +76,7 @@ func TestParseBundle_NewShapeSkillsKeyParsesAsSkill(t *testing.T) {
 // explicit `path:` still parses (the default skills/<name> resolution is a
 // loader-time concern via ResolveSkillDir, not a parse-time requirement).
 func TestParseBundle_NewShapeSkillsKeyDefaultsPath(t *testing.T) {
-	minimal := []byte("name: minimal\nversion: \"1.0\"\nskills:\n  humanize:\n    notes: a note\n")
+	minimal := []byte("version: \"1.0\"\nskills:\n  humanize:\n    notes: a note\n")
 	b, err := ParseBundle(minimal)
 	require.NoError(t, err)
 	require.Contains(t, b.Skills, "humanize")
@@ -89,7 +89,7 @@ func TestParseBundle_NewShapeSkillsKeyDefaultsPath(t *testing.T) {
 // new-shape one must still fail loud on the legacy entry specifically — the
 // new-shape sibling does not "vote" the legacy entry into being accepted.
 func TestParseBundle_SkillsKeyLegacyEntryAmongNewShapeStillErrs(t *testing.T) {
-	mixed := []byte("name: mixed\nversion: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n  oldcmd:\n    content: c\n")
+	mixed := []byte("version: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n  oldcmd:\n    content: c\n")
 	_, err := ParseBundle(mixed)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "oldcmd")

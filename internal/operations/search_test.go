@@ -395,7 +395,7 @@ func TestSearchContent_SearchSkills(t *testing.T) {
 	bundleDir := bundlesDir + "/skill-bundle"
 	require.NoError(t, fsys.MkdirAll(bundleDir+"/skills/humanize", 0755))
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml",
-		[]byte("name: skill-bundle\nversion: \"1.0\"\nskills:\n  humanize:\n"), 0644))
+		[]byte("version: \"1.0\"\nskills:\n  humanize:\n"), 0644))
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/skills/humanize/SKILL.md",
 		[]byte("---\nname: humanize\ndescription: Rewrites text to sound less like an AI wrote it.\n---\n\n# humanize\n\nBody.\n"), 0644))
 

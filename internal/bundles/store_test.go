@@ -58,7 +58,7 @@ func TestFSStore_Delete_DirectoryFormBundleLeavesItsSubtreesOnDisk(t *testing.T)
 	fsys := afero.NewMemMapFs()
 	dir := "/bundles"
 	require.NoError(t, afero.WriteFile(fsys, dir+"/kit/bundle.yaml",
-		[]byte("name: kit\nversion: \"1.0\"\n"), 0o644))
+		[]byte("version: \"1.0\"\n"), 0o644))
 	require.NoError(t, afero.WriteFile(fsys, dir+"/kit/fragments/notes.md", []byte("authored\n"), 0o644))
 	require.NoError(t, afero.WriteFile(fsys, dir+"/kit/skills/humanize/SKILL.md",
 		[]byte("---\nname: humanize\ndescription: d\n---\nbody\n"), 0o644))

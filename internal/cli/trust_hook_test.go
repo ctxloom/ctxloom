@@ -25,7 +25,7 @@ func seedLocalHookBundle(t *testing.T, appDir, bundle string, hook bundles.Bundl
 	t.Helper()
 	dir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	yaml := "name: " + bundle + "\nversion: \"1.0\"\nhooks:\n  pre_tool:\n" +
+	yaml := "version: \"1.0\"\nhooks:\n  pre_tool:\n" +
 		"    - matcher: " + hook.Matcher + "\n" +
 		"      command: " + hook.Command + "\n" +
 		"      type: " + hook.Type + "\n"

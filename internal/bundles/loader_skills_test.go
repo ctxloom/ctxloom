@@ -35,7 +35,7 @@ func writeSkillBundle(t *testing.T, fsys afero.Fs, bundlesDir, bundleName, skill
 	if !llmEnabled {
 		enabledYAML = "false"
 	}
-	bundleYAML := "name: " + bundleName + "\nversion: \"1.0\"\nskills:\n  " + skillName + ":\n    llm:\n      claude-code:\n        enabled: " + enabledYAML + "\n"
+	bundleYAML := "version: \"1.0\"\nskills:\n  " + skillName + ":\n    llm:\n      claude-code:\n        enabled: " + enabledYAML + "\n"
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(bundleYAML), 0644))
 	return writeSkillFixture(t, fsys, bundleDir+"/skills/"+skillName, skillName)
 }
@@ -104,7 +104,7 @@ func TestSkillsFromBundleRef_TamperedManifestWithheld(t *testing.T) {
 
 	// Author a bundle.yaml whose recorded manifest hash for SKILL.md does NOT
 	// match what's actually on disk — simulating a script edited after signing.
-	bundleYAML := `name: skill-bundle
+	bundleYAML := `
 version: "1.0"
 skills:
   humanize:
@@ -187,7 +187,7 @@ func TestListAllSkills_WithheldSkillOmittedNotErrored(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
 	bundleDir := bundlesDir + "/bundle-a"
-	bundleYAML := `name: bundle-a
+	bundleYAML := `
 version: "1.0"
 skills:
   aaa-blocked:

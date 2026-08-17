@@ -66,7 +66,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "mcp-bundle.yaml"), []byte(
-		"name: mcp-bundle\nversion: \"1.0\"\n"+
+		"version: \"1.0\"\n"+
 			"fragments:\n  rules:\n    content: \"ONESHOT-RULE-BODY\"\n"+
 			"mcp:\n"+
 			"  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"+

@@ -1748,7 +1748,12 @@ func TestParseBundle_RejectsADocumentThatDeclaresNothing(t *testing.T) {
 		"document separator only": "---\n",
 		"explicit null":           "null\n",
 		"empty mapping":           "{}\n",
-		"metadata but no content": "name: orphan\ndescription: says nothing\n",
+		// Metadata only. The keys are ones the schema DOES model, so the
+		// strict decode passes them and declaresNothing is what refuses the
+		// document — which is the rule under test. A key the schema does not
+		// model would fail earlier, for a different reason, and stop testing
+		// this at all.
+		"metadata but no content": "author: someone\ndescription: says nothing\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			b, err := ParseBundle([]byte(doc))

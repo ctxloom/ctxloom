@@ -69,7 +69,7 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	require.Equal(t, verified, e0.SHA, "the project starts pinned to the commit whose signature verifies")
 
 	// The publisher edits and pushes; the stale .sig rides along unchanged.
-	edited := addFileToLocalRepo(t, src, ".ctxloom/content/bundles/demo.yaml", "name: demo\nversion: \"2.0.0\"\n")
+	edited := addFileToLocalRepo(t, src, ".ctxloom/content/bundles/demo.yaml", "version: \"2.0.0\"\n")
 	require.NotEqual(t, verified, edited)
 
 	res, err := UpgradeDependencies(ctx, cfg)
@@ -103,7 +103,7 @@ func TestUpgrade_AdvancesOntoReSignedContent(t *testing.T) {
 	require.NoError(t, err)
 
 	const bundlePath = ".ctxloom/content/bundles/demo.yaml"
-	revised := "name: demo\nversion: \"2.0.0\"\n"
+	revised := "version: \"2.0.0\"\n"
 	addFileToLocalRepo(t, src, bundlePath, revised)
 	sig, err := signing.Sign([]byte(revised), signer, signing.NamespacePublish)
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestUpgrade_UnsignedContentStillAdvances(t *testing.T) {
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
 	require.NoError(t, err)
 
-	c2 := addFileToLocalRepo(t, src, ".ctxloom/content/bundles/demo.yaml", "name: demo\nversion: \"2.0.0\"\n")
+	c2 := addFileToLocalRepo(t, src, ".ctxloom/content/bundles/demo.yaml", "version: \"2.0.0\"\n")
 	require.NotEqual(t, c1, c2)
 
 	res, err := UpgradeDependencies(ctx, cfg)

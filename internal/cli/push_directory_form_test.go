@@ -43,7 +43,7 @@ func writeDirFormBundle(t *testing.T, cfg *config.Config, name string) string {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "greet"), 0o755))
 	manifest := filepath.Join(dir, "bundle.yaml")
 	require.NoError(t, os.WriteFile(manifest, []byte(
-		"version: 1.0.0\nskills:\n  greet:\n    description: say hello\n"), 0o644))
+		"version: 1.0.0\nskills:\n  greet:\n    notes: say hello\n"), 0o644))
 	// The skill body: a real file in the tree, and the thing a reader of this
 	// test will assume travels with the bundle.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "greet", "SKILL.md"),

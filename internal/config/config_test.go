@@ -1563,7 +1563,7 @@ func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "local.yaml"),
-		[]byte("name: local\nversion: \"1.0\"\nfragments:\n  onboarding:\n    content: hi\n"), 0644))
+		[]byte("version: \"1.0\"\nfragments:\n  onboarding:\n    content: hi\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "p.yaml"),
 		[]byte("name: p\nbundles:\n  - local#fragments/onboarding\n"), 0644))
 
@@ -1626,7 +1626,7 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "child.yaml"),
 		[]byte("name: child\nparents:\n  - parent\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "seq-bundle.yaml"),
-		[]byte("name: seq-bundle\nversion: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n"), 0644))
+		[]byte("version: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n"), 0644))
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}},
@@ -1651,7 +1651,7 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 		[]byte("name: dev\nbundles:\n  - mcp-bundle\nexclude_mcp:\n  - noisy-server\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "mcp-bundle.yaml"),
-		[]byte("name: mcp-bundle\nversion: \"1.0\"\nmcp:\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"), 0644))
+		[]byte("version: \"1.0\"\nmcp:\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"), 0644))
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
@@ -1682,9 +1682,9 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "finder.yaml"),
 		[]byte("name: finder\nbundles:\n  - finder-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev-bundle.yaml"),
-		[]byte("name: dev-bundle\nversion: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\ncommands:\n  dev-skill:\n    description: d\n    content: c\n"), 0644))
+		[]byte("version: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\ncommands:\n  dev-skill:\n    description: d\n    content: c\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "finder-bundle.yaml"),
-		[]byte("name: finder-bundle\nversion: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\ncommands:\n  finder-skill:\n    description: f\n    content: c\n"), 0644))
+		[]byte("version: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\ncommands:\n  finder-skill:\n    description: f\n    content: c\n"), 0644))
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"developer"}}},
@@ -1714,7 +1714,7 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 // hookBundleYAML is a bundle that ships one hook per several event types, used
 // to assert the profile-gated ResolveBundleHooks path surfaces bundle hooks
 // tagged with the bundle's SCM marker.
-const hookBundleYAML = `name: hook-bundle
+const hookBundleYAML = `
 version: "1.0"
 hooks:
   pre_tool:
@@ -1841,7 +1841,6 @@ func TestLoadMCPFromBundleRef_LocalBundle(t *testing.T) {
 
 	// Create a test bundle
 	bundleContent := `
-name: test-bundle
 version: "1.0"
 mcp:
   test-server:
@@ -1897,7 +1896,6 @@ func TestLoadHooksFromBundleRef_LocalBundle(t *testing.T) {
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	bundleContent := `
-name: with-hooks
 version: "1.0"
 hooks:
   post_tool:
@@ -1930,7 +1928,6 @@ func TestLoadHooksFromBundleRef_NoHooksField(t *testing.T) {
 
 	// A bundle without any hooks should produce a zero-valued UnifiedHooks.
 	bundleContent := `
-name: no-hooks
 version: "1.0"
 mcp:
   some-server:

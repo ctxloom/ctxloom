@@ -188,7 +188,7 @@ func TestSkillsFromBundleRef_ManifestLessTamperIsWithheld(t *testing.T) {
 	require.NoError(t, fsys.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755))
 
 	// A bundle.yaml with NO files: manifest — the post-`skill create` shape.
-	bundleYAML := "name: skill-bundle\nversion: \"1.0\"\nskills:\n  humanize: {}\n"
+	bundleYAML := "version: \"1.0\"\nskills:\n  humanize: {}\n"
 	require.NoError(t, afero.WriteFile(fsys, filepath.Join(bundleDir, "bundle.yaml"), []byte(bundleYAML), 0o644))
 	require.NoError(t, afero.WriteFile(fsys, filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: humanize\ndescription: Does a thing well.\n---\n\n# humanize\n\nBenign.\n"), 0o644))

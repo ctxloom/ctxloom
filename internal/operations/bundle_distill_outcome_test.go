@@ -112,7 +112,6 @@ func TestDistillBundleFile_InvalidatesPriorApproval(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mybundle.yaml")
 	bundleYAML := `version: 1.0.0
-name: mybundle
 fragments:
   rules:
     content: "fresh content the stale distillation no longer matches"
@@ -154,7 +153,6 @@ func TestDistillBundleFile_NoInvalidationWhenNeverApproved(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mybundle.yaml")
 	bundleYAML := `version: 1.0.0
-name: mybundle
 fragments:
   rules:
     content: "fresh content the stale distillation no longer matches"

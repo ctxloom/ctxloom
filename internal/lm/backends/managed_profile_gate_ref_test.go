@@ -135,7 +135,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(""+
-		"name: kit\nversion: \"1.0\"\n"+
+		"version: \"1.0\"\n"+
 		"profiles:\n  dev:\n    hooks:\n      unified:\n        pre_tool:\n          - command: bundle-shipped-hook\n            type: command\n"),
 		0o644))
 
@@ -178,7 +178,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(""+
-		"name: kit\nversion: \"1.0\"\n"+
+		"version: \"1.0\"\n"+
 		"profiles:\n  dev:\n    hooks:\n      unified:\n        pre_tool:\n          - command: bundle-shipped-hook\n            type: command\n"),
 		0o644))
 

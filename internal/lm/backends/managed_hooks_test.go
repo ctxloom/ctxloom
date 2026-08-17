@@ -97,7 +97,7 @@ func TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles(t *te
 	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(
-		"name: kit\nversion: \"1.0\"\nhooks:\n  pre_tool:\n    - command: from-bundle\n      type: command\n"), 0o644))
+		"version: \"1.0\"\nhooks:\n  pre_tool:\n    - command: from-bundle\n      type: command\n"), 0o644))
 	profilesDir := paths.ProfilesPath(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(

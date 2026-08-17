@@ -128,7 +128,7 @@ func localBundleProfileCfg(t *testing.T, bundleHooks string) *config.Config {
 	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hooked.yaml"),
-		[]byte("name: hooked\nversion: \"1.0\"\n"+bundleHooks), 0o644))
+		[]byte("version: \"1.0\"\n"+bundleHooks), 0o644))
 	profilesDir := paths.ProfilesPath(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "withbundle.yaml"),
@@ -152,7 +152,7 @@ func bundleShippedProfileCfg(t *testing.T, gate bundles.Authorizer) *config.Conf
 	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(""+
-		"name: kit\nversion: \"1.0\"\n"+
+		"version: \"1.0\"\n"+
 		"profiles:\n  dev:\n    hooks:\n      unified:\n        pre_tool:\n"+
 		"          - command: bundle-shipped-hook\n            type: command\n"+
 		"          - command: bundle-shipped-second\n            type: command\n"),

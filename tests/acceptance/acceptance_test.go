@@ -3,9 +3,11 @@
 package acceptance
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -60,6 +62,11 @@ func TestAcceptance(t *testing.T) {
 	}
 
 	tags := os.Getenv("ACCEPTANCE_TAGS")
+	// Whether THIS run is the hermetic lane decides whether a runtime skip is
+	// fatal below. ACCEPTANCE_PATHS deliberately does not affect it: narrowing
+	// to one feature file is still the hermetic lane, so `just test-acceptance`
+	// with ACCEPTANCE_PATHS set stays gated.
+	hermetic := tags == ""
 	if tags == "" {
 		// out (real init clones the default remote). Both are opt-in.
 		// @future: behavior this suite deliberately does not implement yet (see
@@ -81,9 +88,13 @@ func TestAcceptance(t *testing.T) {
 	if p := os.Getenv("ACCEPTANCE_PATHS"); p != "" {
 		paths = strings.Split(p, ",")
 	}
+	skips := &skipLedger{}
 	suite := godog.TestSuite{
-		Name:                "ctxloom-acceptance",
-		ScenarioInitializer: InitializeScenario,
+		Name: "ctxloom-acceptance",
+		ScenarioInitializer: func(ctx *godog.ScenarioContext) {
+			InitializeScenario(ctx)
+			skips.attach(ctx)
+		},
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    paths,
@@ -96,4 +107,82 @@ func TestAcceptance(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("acceptance suite failed")
 	}
+
+	// THE SKIP GATE. godog files an all-skipped scenario under PASSED and
+	// reports no scenario-level skipped count, so "571 passed" cannot be told
+	// apart from "571, some of which quietly declined to run". Everything above
+	// has already established the run was GREEN; this asks the second question.
+	//
+	// It is only reached on green, and that is what keeps it readable: once any
+	// step returns non-nil, godog marks every REMAINING step in that scenario
+	// Skipped too, so on a red run the ledger would be mostly wreckage from the
+	// failure rather than steps that declined.
+	if declined := skips.report(); declined != "" {
+		if hermetic {
+			t.Fatal("the hermetic suite passed, but steps declined to run — a skip in this lane is a defect, " +
+				"because every scenario that may legitimately skip is excluded by tag before the run starts:\n" + declined)
+		}
+		// NOT fatal outside the hermetic lane, and this is a HOLD rather than a
+		// designed exemption. @live/@container skips are per-Examples-ROW
+		// (claude authenticated, codex not) while a tag is per-SCENARIO, so they
+		// cannot be hoisted to a startup exclusion without splitting those
+		// Examples tables — and making them fatal today would turn
+		// `ACCEPTANCE_TAGS=@live` red on any box not authenticated for every
+		// vendor. That is a user-visible call for a human, not a default to
+		// drift into. Printing the inventory is what makes it decidable.
+		fmt.Printf("\nSTEPS THAT DECLINED TO RUN (not fatal: this is not the hermetic lane)\n%s\n", declined)
+	}
+}
+
+// skipLedger records the step that DECLINED in each scenario, so a skip can be
+// named rather than merely counted.
+//
+// Only the FIRST skipped step of a scenario is kept. godog's after-step hook
+// fires for every step including skipped ones, and a scenario that skips at
+// step 3 reports steps 4..n as skipped as well; the first one is the only one
+// that made a decision, and the rest are its shadow.
+type skipLedger struct {
+	mu      sync.Mutex
+	seen    map[string]bool
+	entries []string
+}
+
+// skipLedgerScenarioKey carries the running scenario into the after-step hook,
+// which is handed the step but not the scenario it belongs to. A context value
+// rather than a field because godog may run scenarios concurrently.
+type skipLedgerScenarioKey struct{}
+
+func (l *skipLedger) attach(ctx *godog.ScenarioContext) {
+	ctx.Before(func(c context.Context, sc *godog.Scenario) (context.Context, error) {
+		return context.WithValue(c, skipLedgerScenarioKey{}, sc), nil
+	})
+	ctx.StepContext().After(func(c context.Context, st *godog.Step, status godog.StepResultStatus, _ error) (context.Context, error) {
+		if status != godog.StepSkipped {
+			return c, nil
+		}
+		sc, ok := c.Value(skipLedgerScenarioKey{}).(*godog.Scenario)
+		if !ok {
+			return c, nil
+		}
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if l.seen == nil {
+			l.seen = map[string]bool{}
+		}
+		if l.seen[sc.Id] {
+			return c, nil
+		}
+		l.seen[sc.Id] = true
+		l.entries = append(l.entries, fmt.Sprintf("  %s: %s\n    declined at step: %s", sc.Uri, sc.Name, st.Text))
+		return c, nil
+	})
+}
+
+func (l *skipLedger) report() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.entries) == 0 {
+		return ""
+	}
+	return strings.Join(l.entries, "\n")
 }

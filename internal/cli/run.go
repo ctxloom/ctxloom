@@ -187,7 +187,7 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 // SessionStart hook's own readHarpEssence call then simply finds nothing and
 // omits the essence block.
 //
-// eager-trash unification, path C: this used to distill only when the
+// Path C: this used to distill only when the
 // essence was MISSING, never when it was merely stale — so `run --session
 // <harp> --distill` against a harp that had been /clear'd since its last
 // distill silently resumed from a frozen prefix as long as SOME essence
@@ -1224,7 +1224,7 @@ func (st *runState) warnPermissionCollapse() {
 // bypass) — so plan surviving into a ONESHOT run means read-only intent is
 // real, but so is the empty chair: any gated (mutating) call has nobody to ask.
 // The engine-side answer to an unanswerable gate is to CANCEL it outright, not
-// deny it (wiry-judge, merge 6a8eb2d5), so mutating steps silently do not run
+// deny it, so mutating steps silently do not run
 // unless this is called out loudly up front.
 func (st *runState) warnPlanOneshotCancels() {
 	if st.mode == pb.ExecutionMode_ONESHOT && st.permMode == agent.PermissionPlan {
@@ -1655,8 +1655,7 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 // never returned, so a transcript-import hiccup can never fail an otherwise-
 // successful interactive run.
 //
-// eager-trash unification, path H (the pty-exit defect, reformed-skimming):
-// this used to call operations.ConvertVendorTranscript directly, whose
+// Path H (the pty-exit defect): this used to call operations.ConvertVendorTranscript directly, whose
 // presence guard makes it a PERMANENT NO-OP once any canonical transcript
 // exists for the harp. A session where the user ran /recover mid-flight
 // materializes exactly such a canonical file — so every session that used

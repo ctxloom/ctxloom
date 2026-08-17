@@ -118,7 +118,7 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 		clidiag.Warn("ctxloom", "session-bind: harp %q: SessionStart hook payload did not parse as JSON: %v — harp<->session_id bind skipped", harp, err)
 		return nil
 	}
-	// Confirmed live 2026-07-21 against real kiro-cli 2.12.1:
+	// Confirmed live against real kiro-cli 2.12.1:
 	// kiro's agentSpawn hook stdin payload carries NO session identifier at
 	// all ({"hook_event_name":"agentSpawn","cwd":...,"prompt":...} — no
 	// session_id/conversation_id field), unlike Claude/Codex's

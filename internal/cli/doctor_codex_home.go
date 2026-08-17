@@ -21,8 +21,7 @@ const doctorCodexHomeMarker = "DOCTOR-CHECK-CODEXHOME-n4"
 // creates and nothing else in this report can: "my hooks and MCP servers are
 // not in my project — so WHERE are they?"
 //
-// It reports BOTH homes, because the honest answer is two places (D6, ruled
-// 2026-08-11):
+// It reports BOTH homes, because the honest answer is two places (D6, ruled):
 //
 //	(a) the REAL host home ($CODEX_HOME, else ~/.codex). This is the more
 //	    useful half: `host` is the default, so an agent with no binding, an

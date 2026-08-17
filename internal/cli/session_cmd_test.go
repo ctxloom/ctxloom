@@ -148,7 +148,7 @@ func TestBindSessionFromPayload(t *testing.T) {
 	t.Run("kiro_agentSpawn_payload_falls_back_to_KIRO_SESSION_ID_env", func(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
 
-		// Live-verified against real kiro-cli 2.12.1 (2026-07-21):
+		// Live-verified against real kiro-cli 2.12.1:
 		// kiro's agentSpawn hook stdin payload carries NO session identifier
 		// at all — {"hook_event_name":"agentSpawn","cwd":"...","prompt":"..."}
 		// — but kiro-cli sets KIRO_SESSION_ID in the hook subprocess's OWN

@@ -17,7 +17,7 @@ import (
 // internal/mcp/coord_host.go: the runtime coordinator's state-dir key (an
 // exclusive owner.pid lock) must never merge across worktrees, or two
 // concurrent worktree sessions collide and the loser silently degrades to an
-// ephemeral state dir (task brown-canal, 2026-07-09/10). "tasks aren't
+// ephemeral state dir. "tasks aren't
 // context" is the whole rationale for redirecting HERE and nowhere else.
 //
 // A redirect failure (a stale worktree pointer, or an unreadable .git file)

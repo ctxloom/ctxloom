@@ -1072,9 +1072,15 @@ func TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore(t *testing
 // client, and a container runtime are all on PATH (required)"), but ctxloom runs
 // engines on the host by default: a project with no container agents needs no
 // container runtime, and warning it does trains the user to ignore the report.
+//
+// Both ownership modes appear on both the per-agent and the project-default
+// path on purpose: the check asks "is this containerized AT ALL", so an
+// equality test against a single mode would still pass a rootless-only table
+// while doctor silently stopped counting rootful agents.
 func TestDoctorContainerRuntimeRequired(t *testing.T) {
 	hostAgent := agents.Agent{LLM: "claude-code", Runtime: "host"}
-	containerAgent := agents.Agent{LLM: "claude-code", Runtime: "container"}
+	rootlessAgent := agents.Agent{LLM: "claude-code", Runtime: "container-rootless"}
+	rootfulAgent := agents.Agent{LLM: "claude-code", Runtime: "container-rootful"}
 	inheritingAgent := agents.Agent{LLM: "claude-code"}
 
 	for _, tc := range []struct {
@@ -1084,10 +1090,15 @@ func TestDoctorContainerRuntimeRequired(t *testing.T) {
 	}{
 		{"no config at all", config.Fixture{}, false},
 		{"host agents only", config.Fixture{Agents: map[string]agents.Agent{"a": hostAgent}}, false},
-		{"one container agent", config.Fixture{Agents: map[string]agents.Agent{"a": hostAgent, "b": containerAgent}}, true},
-		{"project default is container", config.Fixture{Runtime: "container"}, true},
-		{"agent inherits a container project default", config.Fixture{
-			Runtime: "container", Agents: map[string]agents.Agent{"a": inheritingAgent},
+		{"one rootless container agent", config.Fixture{Agents: map[string]agents.Agent{"a": hostAgent, "b": rootlessAgent}}, true},
+		{"one rootful container agent", config.Fixture{Agents: map[string]agents.Agent{"a": hostAgent, "b": rootfulAgent}}, true},
+		{"project default is a rootless container", config.Fixture{Runtime: "container-rootless"}, true},
+		{"project default is a rootful container", config.Fixture{Runtime: "container-rootful"}, true},
+		{"agent inherits a rootless container project default", config.Fixture{
+			Runtime: "container-rootless", Agents: map[string]agents.Agent{"a": inheritingAgent},
+		}, true},
+		{"agent inherits a rootful container project default", config.Fixture{
+			Runtime: "container-rootful", Agents: map[string]agents.Agent{"a": inheritingAgent},
 		}, true},
 		{"agent overrides a container project default back to host", config.Fixture{
 			Runtime: "host", Agents: map[string]agents.Agent{"a": inheritingAgent},
@@ -1124,22 +1135,28 @@ func TestDoctorCheckDeps_NoContainerAgents_RuntimeIsRecommendedNotRequired(t *te
 
 // TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired is the control: the
 // project that DOES run containers keeps the hard-dependency reading.
+// Both ownership modes are controls: EITHER one is a container that has to be
+// launched, so a runtime missing from PATH is a hard dependency for both.
 func TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired(t *testing.T) {
-	dir := t.TempDir()
-	for _, bin := range []string{"ssh", "ssh-keygen", "git", "claude"} {
-		writeFakeExecutable(t, dir, bin)
+	for _, mode := range []string{"container-rootless", "container-rootful"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, bin := range []string{"ssh", "ssh-keygen", "git", "claude"} {
+				writeFakeExecutable(t, dir, bin)
+			}
+			t.Setenv("PATH", dir) // no docker, no podman
+
+			check := doctorCheckDeps(config.NewFixture(config.Fixture{
+				Agents: map[string]agents.Agent{"a": {LLM: "claude-code", Runtime: mode}},
+			}))
+
+			assert.Equal(t, doctorWarn, check.Status)
+			required, _, _ := strings.Cut(check.Detail, "; missing (recommended")
+			assert.Contains(t, required, "missing (required)")
+			assert.Contains(t, required, "container runtime",
+				"a project that runs container agents genuinely needs one:\n%s", check.Detail)
+		})
 	}
-	t.Setenv("PATH", dir) // no docker, no podman
-
-	check := doctorCheckDeps(config.NewFixture(config.Fixture{
-		Agents: map[string]agents.Agent{"a": {LLM: "claude-code", Runtime: "container"}},
-	}))
-
-	assert.Equal(t, doctorWarn, check.Status)
-	required, _, _ := strings.Cut(check.Detail, "; missing (recommended")
-	assert.Contains(t, required, "missing (required)")
-	assert.Contains(t, required, "container runtime",
-		"a project that runs container agents genuinely needs one:\n%s", check.Detail)
 }
 
 // TestDoctorStatus_WireValuesAreUnchanged pins the constraint: the three

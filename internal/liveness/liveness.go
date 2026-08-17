@@ -109,7 +109,8 @@ type Target struct {
 	Harp string
 	// Agent is the configured agent name, for the human-readable reason only.
 	Agent string
-	// Runtime is the agent's runtime axis ("host", "container", ""). It
+	// Runtime is the agent's runtime axis ("host", "container-rootless",
+	// "container-rootful", ""). It
 	// selects which Probe(s) apply — evidence of life differs between a host
 	// process and a container, which is why the process layer is an interface
 	// and not a function.

@@ -15,8 +15,9 @@ import (
 // TestChat_ContainerRuntimeUnavailable_FailsLoud is ISO1's fail-loud proof
 // for "container runtime unavailable" — the FIRST of the three non-negotiable
 // invariants (see acp.go/container_transport.go doc). PATH is stripped
-// (t.Setenv), so isolation.SelectRuntime finds neither docker nor podman on
-// ANY host, deterministically, regardless of what is actually installed —
+// (t.Setenv), so isolation.SelectRuntime finds neither docker nor podman in
+// EITHER ownership mode on ANY host, deterministically, regardless of what is
+// actually installed —
 // unlike the docker-gated tests, this needs no container runtime to run and
 // belongs in the normal `just test` suite. It asserts the actual, actionable
 // error text reaches the caller (never a silent host fallback): Chat must
@@ -40,13 +41,19 @@ func TestChat_ContainerRuntimeUnavailable_FailsLoud(t *testing.T) {
 
 	err := b.Chat(ctx, agent.ChatRequest{
 		WorkDir: t.TempDir(),
-		Runtime: agent.RuntimeContainer,
+		Runtime: agent.RuntimeContainerRootless,
 	}, in, out)
 
 	require.Error(t, err, "no docker/podman on PATH must fail the session open, never silently fall back to the host")
-	assert.Contains(t, err.Error(), "no container runtime is reachable", "the error names WHAT is missing")
-	assert.Contains(t, err.Error(), "install/start docker or podman", "the error names the fix, matching the adapter-missing error's quality bar")
+	assert.Contains(t, err.Error(), "no container runtime with that ownership is reachable", "the error names WHAT is missing")
+	assert.Contains(t, err.Error(), "docker or podman", "the error names the runtimes it looked for")
+	assert.Contains(t, err.Error(), "install/start one", "the error names the fix, matching the adapter-missing error's quality bar")
 	assert.Contains(t, err.Error(), "claude", "the error names the agent so a multi-agent editor session can tell which one failed")
+	// Since the axis split in two, "no container runtime" is an ambiguous
+	// diagnosis on a box that HAS one in the other ownership mode: the demand
+	// itself has to appear, or the user cannot tell an absent daemon from a
+	// mismatched one.
+	assert.Contains(t, err.Error(), string(agent.RuntimeContainerRootless), "the error names WHICH ownership mode was demanded")
 
 	// out must still be closed exactly once per the StructuredChat contract
 	// (session.go's Chat defers close(out) unconditionally) — a caller
@@ -95,7 +102,7 @@ func TestSpawnTransport_RoutesOnTheLaunchNotOnLeftoverBackendState(t *testing.T)
 	b.command = "some-agent-acp"
 	b.BinaryPath = filepath.Join(t.TempDir(), "no-such-agent-acp")
 
-	_ = b.chatArgv(agent.ChatRequest{Runtime: agent.RuntimeContainer})
+	_ = b.chatArgv(agent.ChatRequest{Runtime: agent.RuntimeContainerRootless})
 
 	_, err := b.spawnTransport(context.Background(), transportRequest{workDir: t.TempDir()})
 	require.Error(t, err, "the binary does not exist, so the host spawn must fail")

@@ -104,7 +104,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfigWithDefault(root, map[string]agents.Agent{
-		"default": {LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Permissions: "plan"},
+		"default": {LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container-rootless", Permissions: "plan"},
 	}, "default")
 
 	// The "default profile set" every non-run consumer reads matches the agent.
@@ -117,7 +117,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	assert.Contains(t, res.Context, "FRAG-ONE")
 	assert.Contains(t, res.Context, "FRAG-TWO")
 	assert.Equal(t, "slow", res.Label)
-	assert.Equal(t, "container", res.Runtime, "the default agent's runtime rides the bare launch")
+	assert.Equal(t, "container-rootless", res.Runtime, "the default agent's runtime rides the bare launch")
 	assert.Equal(t, "plan", res.Permissions, "the default agent's permissions ride the bare launch")
 }
 

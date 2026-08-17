@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/liveness"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -623,7 +624,11 @@ func (c *Coordinator) adopt() {
 			if r.Ended {
 				continue
 			}
-			stale = append(stale, pending{runID: id, credHash: r.CredHash, container: r.Runtime == "container"})
+			// EITHER ownership mode gets the runner-loss grace below: what
+			// earns it is that the run's engine outlives the coordinator
+			// process, which is true of a container regardless of who owns
+			// its daemon.
+			stale = append(stale, pending{runID: id, credHash: r.CredHash, container: agent.IsContainerRuntime(r.Runtime)})
 		}
 	})
 	for _, p := range stale {

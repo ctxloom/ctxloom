@@ -100,7 +100,7 @@ type runEnqueued struct {
 	// spawned directly by the plugin-hosted top-level session, whose own
 	// credential carries no run id at all.
 	ParentRunID string `json:"parent_run_id,omitempty"`
-	Runtime     string `json:"runtime,omitempty"` // resolved runtime axis ("", "host", "container", …)
+	Runtime     string `json:"runtime,omitempty"` // resolved runtime axis ("", "host", "container-rootless", "container-rootful")
 	CredHash    string `json:"cred_hash"`         // hex SHA-256 of the bearer token — never the token
 	Depth       int    `json:"depth"`
 	// OneShot mirrors this run's own SpawnPlan.ResumeMode ==

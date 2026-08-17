@@ -216,8 +216,8 @@ type OpenRequest struct {
 // G14). internal/acp/fsupstream.go mirrors this EXACT string literal rather
 // than importing this package: internal/acp cannot import operations, because
 // operations pulls in internal/lm/backends, which registers acp.NewACP() and
-// so imports acp back. (agent.RuntimeContainer/isolation.RuntimeContainer are
-// two literal copies of one string for the identical reason — see that const's
+// so imports acp back. (agent.RuntimeContainerRootless/Rootful and their
+// isolation counterparts are literal copies for the identical reason — see that const's
 // doc in internal/shared/agent/chat.go.)
 //
 // The copies are NOT unbound. internal/acp/constants_binding_test.go

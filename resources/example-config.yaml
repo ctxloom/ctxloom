@@ -35,7 +35,7 @@ version: 6
 # agents:
 #   default:
 #     engine: big          # LLM config label; overrides the profiles' llm
-#     runtime: host        # host | container
+#     runtime: host        # host | container-rootless | container-rootful
 #     profiles:
 #       - ctxloom-default/go-developer
 #       - ctxloom-default/python-developer

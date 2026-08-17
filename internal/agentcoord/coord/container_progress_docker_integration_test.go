@@ -153,7 +153,7 @@ func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env,
 	if s.mode == progressSpawnDark {
 		return s.startDark(ctx, plan, env)
 	}
-	rt := isolation.SelectRuntime("docker")
+	rt := isolation.ProbeRuntime("docker")
 	// Auth keys on the plan's engine, never on plan.AgentName — see
 	// containerAuthBackend.
 	pol := isolation.NewContainerFor(rt, containerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))

@@ -12,7 +12,7 @@ import (
 // TestRuntimeForPolicy: a container policy exposes its launch runtime for the
 // docker-exec launcher; none/worktree carry none (nil).
 func TestRuntimeForPolicy(t *testing.T) {
-	rt := isolation.SelectRuntime("docker") // Host{} when no daemon — still a Runtime
+	rt := isolation.ProbeRuntime("docker") // Host{} when no daemon — still a Runtime
 	c := isolation.NewContainerFor(rt, "mock").WithImage("img")
 	assert.NotNil(t, RuntimeForPolicy(c), "a container policy carries its runtime")
 
@@ -22,7 +22,7 @@ func TestRuntimeForPolicy(t *testing.T) {
 // TestContainerPersistDirForPolicy: a container policy reports the in-container,
 // home-rebased persist path (where the turn reads the handoff); none returns "".
 func TestContainerPersistDirForPolicy(t *testing.T) {
-	c := isolation.NewContainerFor(isolation.SelectRuntime("docker"), "mock").WithImage("img")
+	c := isolation.NewContainerFor(isolation.ProbeRuntime("docker"), "mock").WithImage("img")
 	got := ContainerPersistDirForPolicy(c, "regal-rash-dash")
 	assert.True(t, strings.HasSuffix(got, "/.ctxloom/sessions/regal-rash-dash/persist"),
 		"in-container persist path under the fresh container HOME, got %q", got)

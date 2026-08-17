@@ -263,7 +263,7 @@ func doctorContainerRuntimeRequired(cfg *config.Config) bool {
 		return false
 	}
 	projectDefault := cfg.GetRuntime()
-	if projectDefault == agent.RuntimeContainer {
+	if agent.IsContainerRuntime(projectDefault) {
 		return true
 	}
 	for _, a := range cfg.GetConfiguredAgents() {
@@ -271,7 +271,7 @@ func doctorContainerRuntimeRequired(cfg *config.Config) bool {
 		if runtime == "" {
 			runtime = projectDefault
 		}
-		if runtime == agent.RuntimeContainer {
+		if agent.IsContainerRuntime(runtime) {
 			return true
 		}
 	}
@@ -561,7 +561,7 @@ func gitIdentityGapDetail(nameSet, emailSet bool) string {
 // Read-only, never blocks: like SIGNKEY-k1/GITIDENT-l2 beside it, a missing
 // adapter is advisory only, and specifically NOT a problem for every agent:
 // a runtime:container agent's image carries its own adapter (chat.go's
-// `req.Runtime != agent.RuntimeContainer` gate — the host process's PATH is
+// `agent.IsContainerRuntime(req.Runtime)` gate — the host process's PATH is
 // never consulted for a containerized run), so the warn below says so
 // explicitly rather than reading as a universal blocker.
 func doctorCheckACPAdapter(cfg *config.Config) doctorCheck {

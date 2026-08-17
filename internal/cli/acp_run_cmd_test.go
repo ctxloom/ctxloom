@@ -372,7 +372,7 @@ func TestRunACPSession_CarriesTheProjectRuntimeAxis(t *testing.T) {
 	acpRunFactory = acpRunStubFactory(stub)
 
 	cfg := config.NewFixture(config.Fixture{
-		Runtime: agent.RuntimeContainer,
+		Runtime: agent.RuntimeContainerRootless,
 		LM: config.LMConfig{
 			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp", Permissions: "bypass"}}, // headless-safe: this test is about the runtime axis, not permission resolution
 			Defaults: config.RoleDefaults{Primary: "acp-kiro"},
@@ -384,7 +384,7 @@ func TestRunACPSession_CarriesTheProjectRuntimeAxis(t *testing.T) {
 
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
-	assert.Equal(t, agent.RuntimeContainer, stub.chatReq.Runtime,
+	assert.Equal(t, agent.RuntimeContainerRootless, stub.chatReq.Runtime,
 		"the project's runtime axis rides the conversation")
 }
 

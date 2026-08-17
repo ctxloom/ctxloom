@@ -123,7 +123,7 @@ func TestBuildSessionInitSummary_ContainerOnly_ConfiguredImage(t *testing.T) {
 		requestedAgent: "coder",
 		currentAgent:   "coder",
 		label:          "claude-sonnet",
-		runtimeAxis:    agent.RuntimeContainer,
+		runtimeAxis:    agent.RuntimeContainerRootless,
 		workDir:        "/home/user/project",
 	})
 	want := "ctxloom: session initialization summary\n" +
@@ -146,7 +146,7 @@ func TestBuildSessionInitSummary_ContainerOnly_NoConfiguredImage(t *testing.T) {
 		requestedAgent: "coder",
 		currentAgent:   "coder",
 		label:          "claude-sonnet",
-		runtimeAxis:    agent.RuntimeContainer,
+		runtimeAxis:    agent.RuntimeContainerRootless,
 		workDir:        "/home/user/project",
 	})
 	want := "ctxloom: session initialization summary\n" +
@@ -171,7 +171,7 @@ func TestBuildSessionInitSummary_ContainerAndWorktree(t *testing.T) {
 		requestedAgent: "coder",
 		currentAgent:   "coder",
 		label:          "claude-sonnet",
-		runtimeAxis:    agent.RuntimeContainer,
+		runtimeAxis:    agent.RuntimeContainerRootless,
 		workDir:        "/tmp/fake-worktree",
 		aw:             aw,
 	})
@@ -343,7 +343,20 @@ func TestOpenEngineSession_UnknownAgentAnnouncementIsLoud(t *testing.T) {
 // shown on both sides: an agent declaring `runtime: container` gets a
 // first-turn message naming the container posture, even though its
 // workspace stays the shared project dir (no worktree requested).
+//
+// Both ownership modes are exercised because the announcement is gated on the
+// any-container predicate (engine_session.go's isolatedContainer): a rootful
+// agent that got NO container warning would be told it was running on the
+// host while it was not, which is the one thing this summary exists to
+// prevent.
 func TestOpenEngineSession_ContainerRuntimeAnnounces(t *testing.T) {
+	for _, mode := range []string{"container-rootless", "container-rootful"} {
+		t.Run(mode, func(t *testing.T) { openEngineSessionContainerAnnounces(t, mode) })
+	}
+}
+
+func openEngineSessionContainerAnnounces(t *testing.T, mode string) {
+	t.Helper()
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	repo := initTestRepo(t)
@@ -361,7 +374,7 @@ func TestOpenEngineSession_ContainerRuntimeAnnounces(t *testing.T) {
 	// ordinary project-declared agent, engine and runtime both in the same
 	// (committed) file, same as before this change.
 	body := "version: 5\n" +
-		"agents:\n  builder:\n    llm: mock\n    runtime: container\n"
+		"agents:\n  builder:\n    llm: mock\n    runtime: " + mode + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))
 
 	client := &fakeACPEngineClient{}
@@ -373,7 +386,7 @@ func TestOpenEngineSession_ContainerRuntimeAnnounces(t *testing.T) {
 	require.NotNil(t, chat)
 
 	require.NotNil(t, client.gotReq)
-	assert.Equal(t, agent.RuntimeContainer, client.gotReq.Runtime, "sanity: the runtime axis actually reached the ChatRequest")
+	assert.Equal(t, mode, client.gotReq.Runtime, "sanity: the runtime axis actually reached the ChatRequest")
 
 	assert.Contains(t, chat.InitSummary, `agent "builder"`)
 	assert.Contains(t, chat.InitSummary, "RUNTIME isolated inside a container")

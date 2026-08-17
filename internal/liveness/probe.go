@@ -31,10 +31,13 @@ type ProcState struct {
 // probes anything directly; it asks whichever probes claim the target's
 // runtime, so adding a runtime is adding a Probe, not editing a ladder.
 type Probe interface {
-	// Runtime names the axis this probe serves ("host", "container"). The
-	// empty string means UNIVERSAL — applies to every target regardless of
-	// runtime (the runner-heartbeat probe is the motivating case: a runner
-	// dials home from inside a container exactly as it does from the host).
+	// Runtime names the axis this probe serves ("host",
+	// "container-rootless", "container-rootful"). Matching is EXACT, so a
+	// probe meant for containers at large needs one registration per
+	// ownership mode. The empty string means UNIVERSAL — applies to every
+	// target regardless of runtime (the runner-heartbeat probe is the
+	// motivating case: a runner dials home from inside a container exactly
+	// as it does from the host).
 	Runtime() string
 	// Inspect reports what this probe can see. It must return Observed:false
 	// rather than a guess when it cannot see the target — a probe that

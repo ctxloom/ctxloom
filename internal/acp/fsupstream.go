@@ -19,7 +19,7 @@ import (
 // fsUpstreamEnvVar mirrors operations.FsUpstreamEnvVar's EXACT string
 // literal. internal/acp sits BELOW internal/operations in the import graph
 // (the ACP client driver must not import back up to it — the same
-// constraint agent.RuntimeContainer/isolation.RuntimeContainer already
+// constraint the agent/isolation container-runtime constants already
 // document for req.Runtime), so this is a second literal copy of the same
 // constant, not an import. It is BOUND to the original by
 // constants_binding_test.go (an external test package, which is not in that

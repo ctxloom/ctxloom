@@ -53,7 +53,7 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	require.NoError(t, err)
 
 	// The user changes ONE axis.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Runtime: ptr("container")})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Runtime: ptr("container-rootless")})
 	require.NoError(t, err)
 
 	// Read back via readAgentFromDisk (ParseConfig, no layering) rather than a
@@ -63,7 +63,7 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	// ParseConfig verifies independent of that load-time policy.
 	got, ok := readAgentFromDisk(t, appDir, "dev")
 	require.True(t, ok)
-	assert.Equal(t, "container", got.Runtime, "the named field must change")
+	assert.Equal(t, "container-rootless", got.Runtime, "the named field must change")
 	assert.Equal(t, "claude-code", got.LLM, "engine must survive an unrelated set")
 	assert.Equal(t, []string{"go-developer"}, got.Profiles, "profiles must survive an unrelated set")
 	assert.Equal(t, "acceptEdits", got.Permissions, "permissions must survive an unrelated set")

@@ -41,13 +41,13 @@ func TestPrepareAgentChat_RuntimeAxisChosen(t *testing.T) {
 
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container"},
+		Resolved: &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container-rootless"},
 		WorkDir:  t.TempDir(),
 	})
 	require.NoError(t, err)
 	defer p.Abort()
 
-	assert.Equal(t, isolation.RuntimeAxis("container"), gotAxes.Runtime, "the agent's runtime axis drives the chain")
+	assert.Equal(t, isolation.RuntimeAxis("container-rootless"), gotAxes.Runtime, "the agent's runtime axis drives the chain")
 	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "the project workspace default is the session trait")
 }
 
@@ -198,7 +198,7 @@ func TestPrepareAgentChat_ExplicitNoneStillNone_CallerOverride(t *testing.T) {
 // never a silent host degrade — and proceeds on the degraded workspace only
 // under degraded mode.
 func TestPrepareAgentChat_ContainerDegradeGate(t *testing.T) {
-	rs := &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container"}
+	rs := &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container-rootless"}
 
 	t.Run("strict: the child is refused with the finding text", func(t *testing.T) {
 		resetStrictness(t)
@@ -262,7 +262,7 @@ func TestPrepareAgentChat_MCPCommandOverride_PatchesManagedEntry(t *testing.T) {
 	t.Cleanup(func() { prepareIsolation = prev })
 
 	p, err := PrepareAgentChat(context.Background(), &config.Config{}, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container"},
+		Resolved: &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container-rootless"},
 		WorkDir:  t.TempDir(),
 		MCPServers: []agent.ChatMCPServer{
 			{Name: agent.MCPServerName, Command: "/usr/local/bin/ctxloom", Args: agent.CtxloomMCPArgs},

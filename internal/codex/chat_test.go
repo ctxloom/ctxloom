@@ -111,7 +111,7 @@ func TestChat_ACPTransportGate_ContainerRuntimeExempt(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- b.Chat(ctx, agent.ChatRequest{Runtime: agent.RuntimeContainer}, in, out)
+		done <- b.Chat(ctx, agent.ChatRequest{Runtime: agent.RuntimeContainerRootless}, in, out)
 	}()
 	go func() { //nolint:revive // drain so Chat never blocks on a send
 		for range out {

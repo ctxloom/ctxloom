@@ -16,7 +16,7 @@ agents:
         profiles:
             - default
             - developer-escalation
-        runtime: container
+        runtime: container-rootless
     developer-host:
         llm: claude-code
         permissions: bypass

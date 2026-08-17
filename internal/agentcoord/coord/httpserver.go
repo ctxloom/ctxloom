@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -203,7 +204,10 @@ func (c *Coordinator) ReachURL(runtimeAxis string) (string, error) {
 	if srv == nil {
 		return "", errors.New("coordinator listeners are not up")
 	}
-	if runtimeAxis != "container" {
+	// EITHER ownership mode is a container, and both need the widened
+	// listener: loopback inside a container is the container's own loopback,
+	// so handing one back is not a degraded URL, it is an unreachable one.
+	if !agent.IsContainerRuntime(runtimeAxis) {
 		return srv.loopURL, nil
 	}
 	return srv.ensureWide()

@@ -55,7 +55,7 @@ type dockerOwnerRunStarter struct {
 }
 
 func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]string) (func(), error) {
-	rt := isolation.SelectRuntime("docker")
+	rt := isolation.ProbeRuntime("docker")
 	// The session harp drives the session-state mounts (transcript survival),
 	// exactly as the host resolves it into the runner spawn env.
 	stateEnv := map[string]string{"CTXLOOM_SESSION_HARP": s.harp}

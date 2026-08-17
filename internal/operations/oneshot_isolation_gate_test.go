@@ -86,7 +86,7 @@ func TestRunResolvedAgent_ContainerDegradeFailsMemberInStrict(t *testing.T) {
 			Label:       "claude-fast",
 			Backend:     "claude-code",
 			Permissions: "bypass", // headless-safe: this test is about the isolation gate, not permission resolution
-			Axes:        isolation.Axes{Runtime: isolation.RuntimeContainer},
+			Axes:        isolation.Axes{Runtime: isolation.RuntimeContainerRootless},
 			AgentID:     "m1",
 			Factory:     nil, // the isolation path — the seam under test
 		})
@@ -109,7 +109,7 @@ func TestRunResolvedAgent_ContainerDegradeFailsMemberInStrict(t *testing.T) {
 			Label:       "claude-fast",
 			Backend:     "claude-code",
 			Permissions: "bypass", // headless-safe: this test is about the isolation gate, not permission resolution
-			Axes:        isolation.Axes{Runtime: isolation.RuntimeContainer},
+			Axes:        isolation.Axes{Runtime: isolation.RuntimeContainerRootless},
 			AgentID:     "m1",
 			Factory:     nil,
 		})

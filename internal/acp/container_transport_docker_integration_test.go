@@ -84,7 +84,7 @@ func TestACPContainerTransport_RealTurn(t *testing.T) {
 	go func() {
 		errCh <- b.Chat(ctx, agent.ChatRequest{
 			WorkDir:     workDir,
-			Runtime:     agent.RuntimeContainer,
+			Runtime:     agent.RuntimeContainerRootless,
 			Permissions: agent.PermissionBypass,
 		}, in, out)
 	}()

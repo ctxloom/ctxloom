@@ -177,7 +177,7 @@ func TestRunCommand_Integration(t *testing.T) {
 // compared the prepared name against exactly "container", so a SUCCESSFUL
 // container-worktree run warned "running with bypass on the host" — false.
 func TestWarnBypassOnLostContainer(t *testing.T) {
-	containerAxes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeContainer}
+	containerAxes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeContainerRootless}
 
 	t.Run("successful container-worktree run does not warn", func(t *testing.T) {
 		assert.False(t, warnBypassOnLostContainer(containerAxes, "container-worktree", agent.PermissionBypass, "codex"),

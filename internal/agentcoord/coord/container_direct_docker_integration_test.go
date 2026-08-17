@@ -94,7 +94,7 @@ func (s *directBusSpawner) Launch(context.Context, *SpawnPlan, string, string, m
 // Container.StartRunner (docker-direct `ctxloom llm host mock`). The session
 // harp on env drives the session-state mounts (transcript survival).
 func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
-	rt := isolation.SelectRuntime("docker")
+	rt := isolation.ProbeRuntime("docker")
 	// Container auth keys on the ENGINE, resolved PER CALL from the plan
 	// (containerAuthBackend — the same Backend field StarterForWorkspace below
 	// already reads). The harness image is unrelated to the engine, so it is

@@ -300,7 +300,7 @@ var claudeCodeInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @
 // script; npm is used here to mirror claude's prereq/validate shape and keep
 // the fragment self-contained), PLUS the codex-acp adapter ctxloom's
 // structured chat needs on the container-runtime axis (internal/codex/
-// chat.go's `req.Runtime != agent.RuntimeContainer` gate is what makes this
+// chat.go's `agent.IsContainerRuntime(req.Runtime)` gate is what makes this
 // image-time install load-bearing instead of merely convenient — without it
 // a containerized codex agent's structured chat fails at LookPath, exactly
 // the CodexACPAdapter-missing error the host-PATH gate would report, just

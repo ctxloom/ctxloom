@@ -63,7 +63,7 @@ func TestDockerExecInteractive_TurnEchoesNoListener(t *testing.T) {
 	harp := "dockerexec-itest-" + randSuffix()
 	env := map[string]string{"CTXLOOM_SESSION_HARP": harp, "CTXLOOM_PROJECT_ID": "dockerexec-itest"}
 
-	rt := isolation.SelectRuntime("docker")
+	rt := isolation.ProbeRuntime("docker")
 	pol := isolation.NewContainerFor(rt, "mock").WithImage(image).WithSessionState(isolation.SessionStateFromEnv(env))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)

@@ -294,10 +294,11 @@
     },
     "runtime": {
       "type": "string",
-      "description": "Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` \u2014 the two axes are never bound together.",
+      "description": "Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container-rootless' and 'container-rootful' run it inside the backend's agent image, and name WHO OWNS the container runtime daemon \u2014 they are not interchangeable, because a rootful daemon maps the engine's writes to a different uid than a rootless one, so a run that picked the wrong one produces files the other side cannot edit. There is deliberately no bare 'container': it could only be satisfied by guessing an ownership mode. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` \u2014 the two axes are never bound together.",
       "enum": [
         "host",
-        "container"
+        "container-rootless",
+        "container-rootful"
       ]
     },
     "permissions": {
@@ -385,10 +386,11 @@
           },
           "runtime": {
             "type": "string",
-            "description": "Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/acp --workspace, or an agent_run spawn's workspace field), never declared on an agent.",
+            "description": "Runtime axis for this agent: where its engine process executes. The two container values name WHO OWNS the container runtime daemon and are not interchangeable \u2014 see the top-level `runtime` default for why there is no bare 'container'. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/acp --workspace, or an agent_run spawn's workspace field), never declared on an agent.",
             "enum": [
               "host",
-              "container"
+              "container-rootless",
+              "container-rootful"
             ]
           },
           "permissions": {

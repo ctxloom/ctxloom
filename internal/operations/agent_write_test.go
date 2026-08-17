@@ -197,13 +197,13 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 		Name:     "developer",
 		LLM:      ptr("claude-code"),
 		Profiles: ptr([]string{"default"}),
-		Runtime:  ptr("container"),
+		Runtime:  ptr("container-rootless"),
 	})
 	require.NoError(t, err)
 
 	sub, ok := readAgentFromDisk(t, appDir, "developer")
 	require.True(t, ok)
-	assert.Equal(t, "container", sub.Runtime)
+	assert.Equal(t, "container-rootless", sub.Runtime)
 
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -390,7 +390,7 @@ agents:
 	require.Len(t, list[0].Escalation, 1, "ListAgents must surface it too")
 
 	// A write that doesn't name Escalation must not wipe it.
-	_, err = SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Runtime: ptr("container")})
+	_, err = SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Runtime: ptr("container-rootless")})
 	require.NoError(t, err)
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -592,29 +592,38 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 //
 // The message is asserted as a PAYLOAD, not just as an error: a refusal that
 // does not name the engines that DO work sends the user back to guessing.
+//
+// It runs against BOTH ownership modes because the rule is keyed on "is this
+// containerized at all" — credentials are missing from a rootful container for
+// exactly the reason they are missing from a rootless one. A single-mode table
+// would stay green while the gate quietly stopped covering half the axis.
 func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
+	for _, mode := range []string{"container-rootless", "container-rootful"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg, appDir := loadConfigDir(t, llmLabelsFixture)
 
-	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
-		Name:     "editor",
-		LLM:      ptr("acp"),
-		Profiles: ptr([]string{"default"}),
-		Runtime:  ptr("container"),
-	})
-	require.Error(t, err, "`backend: acp` + `runtime: container` has no way to authenticate the engine and must be refused at write time")
-	msg := err.Error()
-	assert.Contains(t, msg, "editor", "the refusal must name the agent it refused")
-	assert.Contains(t, msg, "acp", "the refusal must name the engine that cannot be containerized")
-	assert.Contains(t, msg, "container auth", "the refusal must say WHAT is missing, not just that something is wrong")
-	for _, supported := range isolation.ContainerAuthEngines() {
-		assert.Containsf(t, msg, supported, "the refusal must name the supported set, including %q", supported)
+			_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+				Name:     "editor",
+				LLM:      ptr("acp"),
+				Profiles: ptr([]string{"default"}),
+				Runtime:  ptr(mode),
+			})
+			require.Errorf(t, err, "`backend: acp` + `runtime: %s` has no way to authenticate the engine and must be refused at write time", mode)
+			msg := err.Error()
+			assert.Contains(t, msg, "editor", "the refusal must name the agent it refused")
+			assert.Contains(t, msg, "acp", "the refusal must name the engine that cannot be containerized")
+			assert.Contains(t, msg, "container auth", "the refusal must say WHAT is missing, not just that something is wrong")
+			for _, supported := range isolation.ContainerAuthEngines() {
+				assert.Containsf(t, msg, supported, "the refusal must name the supported set, including %q", supported)
+			}
+			assert.Contains(t, msg, "runtime: host", "the refusal must name the way out")
+
+			reloaded, err := config.Load(config.WithAppDir(appDir))
+			require.NoError(t, err)
+			_, ok := reloaded.Agent("editor")
+			assert.False(t, ok, "a refused SetAgent call must persist nothing")
+		})
 	}
-	assert.Contains(t, msg, "runtime: host", "the refusal must name the way out")
-
-	reloaded, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	_, ok := reloaded.Agent("editor")
-	assert.False(t, ok, "a refused SetAgent call must persist nothing")
 }
 
 // TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn is the edit half,
@@ -624,48 +633,52 @@ func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testin
 // preference above follows), from either direction, and a live binding is never
 // left half-updated into a shape that cannot launch.
 func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
-	mgr := managerFor(appDir)
+	for _, mode := range []string{"container-rootless", "container-rootful"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg, appDir := loadConfigDir(t, llmLabelsFixture)
+			mgr := managerFor(appDir)
 
-	// An acp agent on the host is perfectly legal.
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{
-		Name:    "editor",
-		LLM:     ptr("acp"),
-		Runtime: ptr("host"),
-	})
-	require.NoError(t, err)
+			// An acp agent on the host is perfectly legal.
+			_, err := SetAgent(mgr, cfg, SetAgentRequest{
+				Name:    "editor",
+				LLM:     ptr("acp"),
+				Runtime: ptr("host"),
+			})
+			require.NoError(t, err)
 
-	// Adding runtime: container to it is not — the recorded engine is read.
-	reloaded, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "editor", Runtime: ptr("container")})
-	require.Error(t, err, "the recorded engine must be read when only the runtime is set")
-	assert.Contains(t, err.Error(), "acp")
+			// Adding a container runtime to it is not — the recorded engine is read.
+			reloaded, err := config.Load(config.WithAppDir(appDir))
+			require.NoError(t, err)
+			_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "editor", Runtime: ptr(mode)})
+			require.Error(t, err, "the recorded engine must be read when only the runtime is set")
+			assert.Contains(t, err.Error(), "acp")
 
-	final, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	sub, ok := final.Agent("editor")
-	require.True(t, ok, "the existing agent must survive a refused edit")
-	assert.Equal(t, "acp", sub.LLM, "a refused edit must not corrupt the binding it was editing")
+			final, err := config.Load(config.WithAppDir(appDir))
+			require.NoError(t, err)
+			sub, ok := final.Agent("editor")
+			require.True(t, ok, "the existing agent must survive a refused edit")
+			assert.Equal(t, "acp", sub.LLM, "a refused edit must not corrupt the binding it was editing")
 
-	// And a mapped engine takes the same runtime happily — the accepting side,
-	// which a too-broad refusal would break.
-	for _, engine := range []string{"claude-code", "claude-fast", "mock"} {
-		reloaded, err := config.Load(config.WithAppDir(appDir))
-		require.NoError(t, err)
-		_, err = SetAgent(mgr, reloaded, SetAgentRequest{
-			Name:    "worker",
-			LLM:     ptr(engine),
-			Runtime: ptr("container"),
+			// And a mapped engine takes the same runtime happily — the accepting side,
+			// which a too-broad refusal would break.
+			for _, engine := range []string{"claude-code", "claude-fast", "mock"} {
+				reloaded, err := config.Load(config.WithAppDir(appDir))
+				require.NoError(t, err)
+				_, err = SetAgent(mgr, reloaded, SetAgentRequest{
+					Name:    "worker",
+					LLM:     ptr(engine),
+					Runtime: ptr(mode),
+				})
+				require.NoErrorf(t, err, "engine %q has container auth, so `runtime: %s` must be accepted", engine, mode)
+			}
+
+			// An agent with NO engine on the binding is left alone: its engine comes
+			// from the composed profiles' llm and the project default at resolve time,
+			// so there is no knowable pair to refuse here.
+			reloaded, err = config.Load(config.WithAppDir(appDir))
+			require.NoError(t, err)
+			_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "unbound", Runtime: ptr(mode)})
+			require.NoError(t, err, "an engineless binding has no pair to judge at write time")
 		})
-		require.NoErrorf(t, err, "engine %q has container auth, so `runtime: container` must be accepted", engine)
 	}
-
-	// An agent with NO engine on the binding is left alone: its engine comes
-	// from the composed profiles' llm and the project default at resolve time,
-	// so there is no knowable pair to refuse here.
-	reloaded, err = config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "unbound", Runtime: ptr("container")})
-	require.NoError(t, err, "an engineless binding has no pair to judge at write time")
 }

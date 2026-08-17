@@ -221,7 +221,7 @@ func TestComposeAgentContainerfile_EngineOrderAndGates(t *testing.T) {
 // this ACP-transport generalization found: codexInstallFragment previously
 // installed the `codex` client only, never the `codex-acp` adapter, so a
 // containerized codex agent's structured chat (internal/codex/chat.go's
-// Chat(), gated by req.Runtime != agent.RuntimeContainer, trusts the IMAGE
+// Chat(), gated by agent.IsContainerRuntime(req.Runtime), trusts the IMAGE
 // to already carry the adapter) silently had no adapter to spawn. Mirrors
 // claude's fragment, which has always installed BOTH claude and
 // claude-code-acp in one npm line.

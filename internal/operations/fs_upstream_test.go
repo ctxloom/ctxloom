@@ -33,15 +33,21 @@ func TestShouldChainFsUpstream(t *testing.T) {
 			want:        false,
 		},
 		{
-			name:        "container axis: never chains, even with no worktree",
+			name:        "rootless container axis: never chains, even with no worktree",
 			aw:          nil,
-			runtimeAxis: agent.RuntimeContainer,
+			runtimeAxis: agent.RuntimeContainerRootless,
+			want:        false,
+		},
+		{
+			name:        "rootful container axis: never chains, even with no worktree",
+			aw:          nil,
+			runtimeAxis: agent.RuntimeContainerRootful,
 			want:        false,
 		},
 		{
 			name:        "worktree AND container: still never chains",
 			aw:          &acpWorkspace{dir: "/some/worktree"},
-			runtimeAxis: agent.RuntimeContainer,
+			runtimeAxis: agent.RuntimeContainerRootless,
 			want:        false,
 		},
 	}

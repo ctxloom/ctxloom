@@ -329,6 +329,16 @@ func zedAgentServersJSON(out string) (map[string]zedAgentServerEntry, error) {
 
 func runCLI(c context.Context, cmdline, stdin string) error {
 	w := worldFrom(c)
+	// $PROJECT_DIR is the scenario's own project path. Some commands REQUIRE an
+	// already-resolved absolute path and deliberately refuse to expand "~" or
+	// guess a location (`util config-write --file` says so in its help), so a
+	// feature cannot spell those invocations with a relative path. Expanding
+	// here keeps the real command visible in the feature text instead of hiding
+	// it behind a step that builds the path privately.
+	//
+	// Not "{{...}}" (the fragment templater's syntax) and not "<...>" (Gherkin's
+	// Scenario Outline placeholder) — both would be claimed by something else.
+	cmdline = strings.ReplaceAll(cmdline, "$PROJECT_DIR", w.env.ProjectDir)
 	args, err := ctxloomArgs(cmdline)
 	if err != nil {
 		return err

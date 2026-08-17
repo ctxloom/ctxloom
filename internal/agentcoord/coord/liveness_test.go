@@ -25,9 +25,10 @@ func livenessTestHome(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 }
 
-// stuckChildTranscript reproduces the 2026-07-24 loop for harp: a relaunch per
-// delivery (a fresh transcript.Recorder, hence seq restarting at 0 against the
-// same O_APPEND file), the same composed context every time, no turn ever.
+// stuckChildTranscript reproduces the stuck-loop failure mode for harp: a
+// relaunch per delivery (a fresh transcript.Recorder, hence seq restarting at
+// 0 against the same O_APPEND file), the same composed context every time, no
+// turn ever.
 func stuckChildTranscript(t *testing.T, harp string, deliveries int) {
 	t.Helper()
 	for i := 0; i < deliveries; i++ {

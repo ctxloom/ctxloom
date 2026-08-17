@@ -154,8 +154,8 @@ func TestLadder_JournalRoundTrip(t *testing.T) {
 // (the common case) gets a relay rung that waits 24 HOURS before falling
 // through, not the old 5-minute human-SLA default. The whole point is that a
 // busy coordinator that hasn't called agent_recv yet must not have its
-// child's request auto-DENIED out from under it — see the 2026-07-24
-// approval-drop cluster this default caused.
+// child's request auto-DENIED out from under it — see the approval-drop
+// cluster this default caused.
 func TestBuildLadder_NoEscalationConfigDefaultsRelayTo24Hours(t *testing.T) {
 	l, err := buildLadder("a", nil, agent.PermissionPlan)
 	require.NoError(t, err)

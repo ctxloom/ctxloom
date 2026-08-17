@@ -16,8 +16,8 @@ import (
 // non-empty — correct when the ENGINE died mid-conversation, but a hot
 // unbounded loop when it is the LAUNCH that fails: the launch fails, the run
 // ends, the mail is still queued (the child never came up to drain it), so a
-// relaunch is armed at once, which fails, which re-arms. On 2026-07-24 this
-// span for 49 minutes at roughly two container launches per second, and
+// relaunch is armed at once, which fails, which re-arms. Left unbounded this
+// can span for 49 minutes at roughly two container launches per second, and
 // agent_stop could not stop it: the stop found an ENDED run (the loop's own
 // terminal), reported success, and a relaunch already armed behind it minted
 // a fresh run and carried on.
@@ -72,7 +72,7 @@ const (
 	// daemon) sooner. An unset, empty, non-positive, or unparseable value
 	// falls back to the default WITH A LOUD WARNING — never to zero, which
 	// would resurrect the pre-fix unbounded-retry spin (49 minutes at ~2
-	// launches/sec, 2026-07-24).
+	// launches/sec).
 	EnvLaunchMaxAttempts = "CTXLOOM_LAUNCH_MAX_ATTEMPTS"
 	// EnvLaunchBackoffBase overrides defaultLaunchBackoffBase: the delay
 	// before the FIRST retry, Go duration syntax (e.g. "500ms"); each
@@ -154,9 +154,9 @@ type launchState struct {
 	// relaunchForLeftoverMail. It exists because `fails` bounds LAUNCH
 	// FAILURES only: a child that ATTACHES and then dies without
 	// draining its mailbox resets `fails` on every cycle (noteLaunchAttached),
-	// so terminateRun's tail re-arms forever at zero backoff — the 2026-07-24
-	// incident shape through a different door, and precisely the observed
-	// `runtime:container` "starts, gets nothing, exits" behaviour.
+	// so terminateRun's tail re-arms forever at zero backoff — the same
+	// unbounded-relaunch hazard through a different door, and precisely the
+	// observed `runtime:container` "starts, gets nothing, exits" behaviour.
 	//
 	// The decisive difference is what clears it: attaching does NOT, because
 	// attaching is not progress. Only CONSUMING mail (noteMailConsumed, wired

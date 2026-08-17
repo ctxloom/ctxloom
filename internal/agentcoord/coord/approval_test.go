@@ -263,7 +263,7 @@ func TestApproval_RelayRoundTrip_BackendParity(t *testing.T) {
 // journal shows both hops: "timed_out" on the relay rung, then "cancelled"
 // at the bottom.
 //
-// CANCEL, not DECLINE (wiry-judge): reaching the bottom means NO rung
+// CANCEL, not DECLINE: reaching the bottom means NO rung
 // resolved — every one of them timed out or failed. Nobody decided anything,
 // so the engine is told the request was cancelled. A DECLINE here was
 // ctxloom's own refusal wearing the operator's face: claude-code-acp renders

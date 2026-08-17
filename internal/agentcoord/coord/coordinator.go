@@ -255,7 +255,7 @@ type Coordinator struct {
 	// must reuse the in-flight dispatch, never start a second one. Load-bearing
 	// for approvals — a duplicate dispatch mints a second relay/ladder walk and
 	// a human ACCEPT answered on the dead channel while the live channel bottoms
-	// out at DECLINE (fix/approval-reconnect-race). Cleaned per-role at terminal
+	// out at DECLINE. Cleaned per-role at terminal
 	// (clearReqTrack); lazily initialized.
 	reqTrack map[reqKey]*inflightReq
 	// downTrack is reqTrack's mirror in the DOWN direction: outstanding
@@ -268,18 +268,18 @@ type Coordinator struct {
 	downTrack map[reqKey]*downReq
 	// onApprovalMailQueued, when set, is called by relayApproval immediately
 	// after the relay mail becomes OBSERVABLE to the parent. It is the test
-	// seam for the register-before-publish ordering (pulpy-whiff): the whole
+	// seam for the register-before-publish ordering: the whole
 	// correctness argument is that a reply arriving at this exact instant
 	// still resolves, and only a hook at this instant can assert it
 	// deterministically rather than by racing an Eventually. Nil in
 	// production.
 	onApprovalMailQueued func(msgID string)
-	// onPendingApproval (C2/human-surface) is the OnPendingApproval callback,
+	// onPendingApproval is the human-surface OnPendingApproval callback,
 	// nil until a caller registers one. Read/written under c.mu; ALWAYS
 	// invoked outside it (notifyPendingApproval captures, unlocks, calls) —
 	// see OnPendingApproval's doc comment for why.
 	onPendingApproval func(PendingApproval, bool)
-	// sessionAccepts (C2) is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
+	// sessionAccepts is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
 	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
 	// asks holds the outstanding correlated asks (spoolcontrol.go) — question
 	// and summarize — keyed by the id their request file carries as origin_id,
@@ -348,9 +348,9 @@ type Coordinator struct {
 	// production (zero cost).
 	execGaugeHook func(executing int)
 	// drainHook, if set (tests only, same package), runs synchronously at
-	// the start of drainTerminalTail's wait (D4, runchannel.go) — the
+	// the start of drainTerminalTail's wait (runchannel.go) — the
 	// deterministic seam for reproducing the terminal-tail drop race
-	// (damp-pupil 1: a RunCompleted item flushed exactly during this window
+	// (a RunCompleted item flushed exactly during this window
 	// must survive to the items fold) without depending on real scheduler
 	// timing.
 	drainHook func(role string)
@@ -655,7 +655,7 @@ func (c *Coordinator) adopt() {
 // children are killed via their launch close (the run process is their
 // lifetime).
 //
-// Order (flaky-agentcoord S1): seal the tracked group (goTracked stops
+// Order: seal the tracked group (goTracked stops
 // Add()ing, so nothing can race the join below) → cancel baseCtx (every ctx-aware
 // tracked goroutine starts unwinding) → kill live attachments (best-effort;
 // a goroutine still mid-launch may not have published rt.close yet — that is
@@ -796,7 +796,7 @@ func (c *Coordinator) Roster() []RosterEntry {
 
 // AgentSend delivers a message per §6a delivery-by-state. Children address
 // only their parent (hub-and-spoke); the session owner addresses its
-// children by harp. structured/inReplyTo are Wave C2's escalation-ladder
+// children by harp. structured/inReplyTo are the escalation-ladder
 // vocabulary — see peerSend for the in_reply_to interception this enables
 // (a parent answering a relayed approval_request).
 func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
@@ -883,7 +883,7 @@ func (c *Coordinator) childSend(caller Identity, to, kind, body string, structur
 		return "", false, "", ErrPeerRouting
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-	// NO DOUBLE DELIVERY (blunt-whiff): this child reported to its parent in
+	// NO DOUBLE DELIVERY: this child reported to its parent in
 	// its own words, so the automatic turn-boundary bridge (children.go's
 	// bridgeTurnResult) must not report the same turn again. Marked here — the
 	// one place a child→parent send is accepted — rather than at either call
@@ -969,13 +969,13 @@ func (c *Coordinator) AgentStop(caller Identity, harp string) (string, error) {
 		return "", fmt.Errorf("agent_stop: unknown session %q: not a child of this session", harp)
 	}
 	// Cancel the LAUNCH before anything else, and do it on BOTH paths below.
-	// A stop that only ends the run record cannot stop a launcher: the
-	// 2026-07-24 incident's stop landed on an already-ended run (the retry
-	// loop's own terminal) with a relaunch already armed behind it, reported
-	// success, and the loop span on for another 40 minutes. This marks the
-	// harp stopped — so an armed-but-not-yet-enqueued relaunch turns back —
-	// and cancels the context of any attempt currently in flight, which a
-	// container prepare makes a seconds-wide window.
+	// A stop that only ends the run record cannot stop a launcher: a stop can
+	// land on an already-ended run (the retry loop's own terminal) with a
+	// relaunch already armed behind it, report success, and leave the retry
+	// loop spinning on indefinitely. This marks the harp stopped — so an
+	// armed-but-not-yet-enqueued relaunch turns back — and cancels the context
+	// of any attempt currently in flight, which a container prepare makes a
+	// seconds-wide window.
 	c.cancelLaunch(harp)
 	if rec.Ended {
 		return fmt.Sprintf("child %s had already ended (%s); any pending relaunch is cancelled", harp, rec.Cause), nil

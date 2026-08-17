@@ -14,9 +14,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// marauding-hacksaw (ruled 2026-08-11): presetLadder's plan preset used to
+// marauding-hacksaw: presetLadder's plan preset used to
 // relay a COMMAND_EXECUTION approval straight to the parent ROLE, so the
-// terminal approval surface that shipped today (surround-bar ⚠N + BEL +
+// terminal approval surface (surround-bar ⚠N + BEL +
 // overlay y/s/n view, answering via AgentSend -> resolveApprovalReply) was
 // reachable only through an explicit escalation: block. Measured evidence:
 // 24/24 preset relay_to_role approvals over a month timed out unanswered —

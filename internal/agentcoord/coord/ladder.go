@@ -53,8 +53,8 @@ type Ladder []LadderRung
 // defaultRelayTimeout bounds a relay_to_role/surface_to_human rung that
 // declares no explicit timeout.
 //
-// 24 HOURS, not a short human-SLA-shaped number: the 2026-07-24
-// approval-drop cluster was children auto-DENIED after a 5-minute default
+// 24 HOURS, not a short human-SLA-shaped number: a real approval-drop
+// cluster was children auto-DENIED after a 5-minute default
 // while a busy COORDINATOR AGENT — not a human at a terminal — simply
 // hadn't called agent_recv yet. A coordinator can legitimately be deep in
 // its own multi-hour turn before it drains its mailbox, so a relay rung
@@ -68,16 +68,15 @@ const defaultRelayTimeout = 24 * time.Hour
 
 // presetSurfaceTimeout bounds the ActionSurfaceToHuman rung presetLadder now
 // puts ahead of every preset's relay rung for a kind that used to relay
-// straight to the parent ROLE (marauding-hacksaw, ruled 2026-08-11).
+// straight to the parent ROLE (marauding-hacksaw).
 //
 // TEN MINUTES, not defaultRelayTimeout's 24 hours — deliberately a
 // different number for a different reason. defaultRelayTimeout's 24h exists
 // for a RELAY, parked on a possibly-busy COORDINATOR AGENT that may be deep
 // in its own multi-hour turn before it drains agent_recv; waiting matters
 // more than answering fast. This rung instead parks on a HUMAN at a live
-// terminal — the surround-bar ⚠N + BEL + overlay y/s/n view that shipped
-// today — who either answers within minutes or is not at the keyboard right
-// now. A short park either gets answered or falls through fast to the
+// terminal — the surround-bar ⚠N + BEL + overlay y/s/n view — who either
+// answers within minutes or is not at the keyboard right now. A short park either gets answered or falls through fast to the
 // relay rung beneath it, exactly the fallback an away human needs; a 24h
 // park here would only delay that fallback, not help anyone.
 //

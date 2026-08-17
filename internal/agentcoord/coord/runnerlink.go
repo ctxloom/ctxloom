@@ -72,7 +72,7 @@ type RunnerLink struct {
 	// spawning call's own return (heartbeatLoop, receiveLoop itself, and one
 	// serveRequest per coordinator-initiated RunnerRequest). Shutdown joins it
 	// before closing the underlying conn — mirrors the Coordinator's, Home's and
-	// EngineHost's groups (flaky-agentcoord S1/S2, deaf-rut): an unjoined
+	// EngineHost's groups: an unjoined
 	// serveRequest racing Shutdown's conn.Close could still be mid-Send on a
 	// torn-down transport.
 	tracked trackedGroup
@@ -302,7 +302,7 @@ func (l *RunnerLink) Done() <-chan struct{} { return l.done }
 
 // Shutdown sends a best-effort RunExited (docker-stop usually gives no
 // chance; the coordinator's synthesis is the load-bearing path), joins
-// every tracked goroutine (deaf-rut — heartbeatLoop, receiveLoop, and any
+// every tracked goroutine (heartbeatLoop, receiveLoop, and any
 // in-flight serveRequest), then closes the link.
 func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 	if l.runID != "" { // a session-owner runner has no run to report exited

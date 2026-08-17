@@ -130,7 +130,7 @@ func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 // happens in runChild the instant slots.acquire returns, BEFORE the engine
 // turn) while A holds the only cap-1 slot parked — not by racing B's full
 // engine-turn completion latency against a wall-clock deadline. That earlier
-// shape flaked under full-suite load (gusty-flap): B's *result* rides a whole
+// shape flaked under full-suite load: B's *result* rides a whole
 // in-process gRPC turn (Home dial + Chat + bridge) whose tail latency spikes
 // under scheduler contention, so a 5s budget on the result occasionally timed
 // out even though the slot had been yielded in microseconds. The mechanism

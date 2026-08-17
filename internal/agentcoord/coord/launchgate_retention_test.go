@@ -23,10 +23,10 @@ import (
 //     is its harp's CURRENT run, so every run it may reap belongs to a harp that
 //     already has a NEWER one. Nothing in the folds ever says "this harp will
 //     never run again".
-//   - launchState.stopped deliberately OUTLIVES the run terminal. The 2026-07-24
-//     incident was an agent_stop landing on an already-ended run with a relaunch
-//     armed behind it; the run record alone could not express "and do not bring it
-//     back". Deleting the entry at a reap would drop that bit and reopen it.
+//   - launchState.stopped deliberately OUTLIVES the run terminal. An agent_stop
+//     can land on an already-ended run with a relaunch armed behind it; the run
+//     record alone could not express "and do not bring it back". Deleting the
+//     entry at a reap would drop that bit and reopen it.
 //
 // So: the bit survives a terminal AND a reap, and only an explicit new delivery
 // lifts it.

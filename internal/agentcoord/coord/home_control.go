@@ -16,7 +16,7 @@ import (
 // coordinator-initiated control requests, and the CAPABILITY BACKSTOP that
 // makes the whole arrangement safe.
 //
-// RECEIVER-NORMATIVE (human ruling, 2026-07-29). The guarantee that a run never
+// RECEIVER-NORMATIVE (human ruling). The guarantee that a run never
 // executes a request kind it did not advertise is the RECEIVER's, not the
 // sender's. Capabilities ride each Hello, which is to say each RUN: a resumed
 // or relaunched run can advertise differently, so only the far end, at delivery

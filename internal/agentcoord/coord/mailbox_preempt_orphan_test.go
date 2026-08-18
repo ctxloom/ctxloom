@@ -55,8 +55,7 @@ func TestRecvPreempted_DeliveryToAnOrphanedPollIsNotLost(t *testing.T) {
 	c.polls[role] = p
 	c.mu.Unlock()
 
-	msg := Message{ID: "m1", From: "parent", To: role, Kind: "task", Body: "do the thing"}
-	if !assert.True(t, c.deliverToPoll(role, msg), "precondition: the delivery wins the parked poll") {
+	if !assert.True(t, c.deliverToPoll(role), "precondition: the wake reaches the parked poll") {
 		return
 	}
 

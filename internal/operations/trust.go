@@ -1317,22 +1317,35 @@ func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) Effectiv
 // mirroring the exec choke. It resolves the hook's executable surface
 // (BundleHook.ContentPayload) through the decision function.
 //
-// The source ref (canonical for a cloned bundle, the local name for a project
-// bundle) is parsed so IsLocal/RepoURL are honest, and the bundle's verified
-// SIGNER is resolved through the shared (cached) loader — because the stamp must
-// agree with the gate. config.extractHooksFromBundle gates this same hook with
-// the bundle's signer in hand; a stamp that omitted it would report "pending"
-// for a hook the gate actually exposes, which is a lie in a security display.
+// source is the bundle ASK — the same local-or-canonical name printBundleHookTrust
+// resolves any other bundle item by — and is used, unparsed, to look the read
+// up through the shared (cached) loader. The trust identity itself is minted
+// from that READ's own typed source (BundleRead.SourceRef, through the
+// canonical bundle-reference grammar's item selector), never by reparsing
+// source: the read is WHERE the bundle was actually found, which is honest by
+// construction, while source is only how it was asked for — the two can
+// diverge (an alias, a short name) and only the read's own answer is safe to
+// key trust on. This mirrors reviewEnumerator.classify's identical fix.
+//
+// The bundle's verified SIGNER is resolved through the same shared loader —
+// because the stamp must agree with the gate. config.extractHooksFromBundle
+// gates this same hook with the bundle's signer in hand; a stamp that omitted
+// it would report "pending" for a hook the gate actually exposes, which is a
+// lie in a security display.
 func (ts *TrustStamper) ForHook(source string, entry bundles.HookEntry) EffectiveTrustResult {
-	tRef, loadRef, _, err := trust.ParseItemRef(source + "#hooks/" + entry.ID())
-	if err != nil {
-		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
-	}
 	payload, perr := entry.Hook.ContentPayload()
 	if perr != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	return ts.resolve(tRef, ts.readFor(loadRef), payload, string(bundles.FormRaw), ts.signerFor(loadRef))
+	read := ts.readFor(source)
+	br, err := read.SourceRef().WithItem(trust.KindHook, entry.ID())
+	if err != nil {
+		// The read's source could not be addressed (unresolved bundle, or a
+		// mint that failed) — nothing to stamp trust against.
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
+	}
+	tRef := trust.RefFromBundleRef(br)
+	return ts.resolve(tRef, read, payload, string(bundles.FormRaw), ts.signerFor(source))
 }
 
 // readFor returns the READ of the bundle at loadRef — the trust facts its reader

@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // TestCatalogInfos_ListsTheResolvableRefNotTheLeafName pins the listing's
@@ -65,6 +67,44 @@ func TestCatalogScoped_ExcludesBuiltinsAndKeepsAcquiredContent(t *testing.T) {
 	assert.Contains(t, got, "https://example.test/repo@bundles/pinned", "pinned remote content must still be listed")
 	assert.Contains(t, got, companionRefPrefix+"ltk", "companion content must still be listed")
 	assert.Len(t, got, 3, "scoping drops the builtin and nothing else")
+}
+
+// TestCatalogLookupBundleRef_ResolvesByTypedSourceIdentity proves the typed
+// counterpart to Lookup(name): a caller holding a structured trust.BundleRef
+// (LocalRef("kit"), the identity a real project bundle's SourceRef carries)
+// resolves the same read Lookup("kit") does, and Lookup itself is unchanged.
+func TestCatalogLookupBundleRef_ResolvesByTypedSourceIdentity(t *testing.T) {
+	loader := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n"))
+	cat := loader.Catalog()
+
+	byName, ok := cat.Lookup("kit")
+	require.True(t, ok, "Lookup(name) must still resolve the bare name")
+
+	want, err := trust.LocalRef("kit")
+	require.NoError(t, err)
+	byTyped, ok := cat.LookupBundleRef(want)
+	require.True(t, ok, "LookupBundleRef must resolve the typed identity Lookup(name) resolves")
+
+	assert.Equal(t, byName.Ref(), byTyped.Ref(), "both must resolve to the SAME read")
+
+	// br's own item selector is ignored — LookupBundleRef resolves the BUNDLE
+	// the item lives in, not the item. A ref carrying "#fragments/x" must
+	// still resolve the same bundle read as the bundle-level ref: this is
+	// what pins BundleIdentity() (item-stripped) as the actual index key
+	// rather than Identity() (item-carrying) — the two coincide for a
+	// bundle-level query, so only an item-qualified query can catch a
+	// regression back to Identity().
+	itemQualified, err := want.WithItem(trust.KindFragment, "x")
+	require.NoError(t, err)
+	byItemQualified, ok := cat.LookupBundleRef(itemQualified)
+	require.True(t, ok, "an item-qualified BundleRef must still resolve its owning bundle")
+	assert.Equal(t, byName.Ref(), byItemQualified.Ref())
+
+	// An identity nothing was resolved under misses cleanly, no panic.
+	other, err := trust.LocalRef("no-such-bundle")
+	require.NoError(t, err)
+	_, ok = cat.LookupBundleRef(other)
+	assert.False(t, ok, "an identity nothing was resolved under must miss")
 }
 
 func namesOf(infos []*BundleInfo) []string {

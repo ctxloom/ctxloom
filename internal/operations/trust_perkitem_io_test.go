@@ -94,8 +94,8 @@ func TestContentGate_ReadsTheLockfilePerItem(t *testing.T) {
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records(), fs: fs}
 
 	before := fs.readsOf(lockPath)
-	admitExec(t, g, execRead(t, ""), solidRef, pbytes("a"), rawForm)
-	admitExec(t, g, execRead(t, ""), solidRef, pbytes("b"), rawForm)
+	admitExec(t, g, execRead(t, ""), solidDecideRef, pbytes("a"), rawForm)
+	admitExec(t, g, execRead(t, ""), solidDecideRef, pbytes("b"), rawForm)
 
 	assert.Equal(t, 2, fs.readsOf(lockPath)-before,
 		"the gate re-reads lock.yaml per gated item; only its review-records store is built once")

@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -178,7 +179,11 @@ func TestExposureWithheld_Characterization_ReviewStates(t *testing.T) {
 	_, err = p.command(charGateBundle + "#commands/rejected")
 	assert.True(t, errors.Is(err, errs.ErrCommandWithheld), "a rejected command must be withheld, got %v", err)
 
-	assert.ElementsMatch(t, []string{charGateRejCmdGateRef, charGateRejectedRef, charGatePendingRef}, p.withheld(),
+	assert.ElementsMatch(t, []string{
+		canonicalWithheldRef(t, charGateRejCmdGateRef),
+		canonicalWithheldRef(t, charGateRejectedRef),
+		canonicalWithheldRef(t, charGatePendingRef),
+	}, p.withheld(),
 		"exactly the denied refs are tallied, content-free, under their gate refs")
 }
 
@@ -202,7 +207,7 @@ func TestExposureWithheld_Characterization_AssemblyAndTooling(t *testing.T) {
 	assert.NotContains(t, res.FragmentsLoaded, charGatePendingRef)
 
 	assert.Empty(t, p.tooling(), "an unreviewed tooling command must not be collected")
-	assert.Contains(t, p.withheld(), charGateToolingGateRef,
+	assert.Contains(t, p.withheld(), canonicalWithheldRef(t, charGateToolingGateRef),
 		"the withheld tooling command is tallied under its prompts-kind gate ref")
 }
 
@@ -232,7 +237,7 @@ func TestExposureWithheld_Characterization_BuiltinSignerNeverLaunders(t *testing
 	_, err := p.fragment(charGateApprovedRef)
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld),
 		"the synthetic builtin signer on a remote bundle must not launder into a trusted publisher, got %v", err)
-	assert.Contains(t, p.withheld(), charGateApprovedRef)
+	assert.Contains(t, p.withheld(), canonicalWithheldRef(t, charGateApprovedRef))
 }
 
 // TestExposureWithheld_Characterization_ResolveErrorWithholds is the first of
@@ -267,8 +272,17 @@ func TestExposureWithheld_Characterization_ResolveErrorWithholds(t *testing.T) {
 
 	assert.Empty(t, p.tooling(), "an unaddressable tooling command must not be collected")
 
+	// The producer cannot mint a canonical ref for a source it could not
+	// parse (read.SourceRef() is the zero BundleRef here), so it degrades to
+	// a stable, well-formed, non-colliding address — see bundles.itemRefFor's
+	// unaddressable fallback. kind/item are appended to that degraded
+	// address, or the fragment and the command would collide onto ONE
+	// withheld key and only one of the two would ever be tallied.
 	assert.ElementsMatch(t,
-		[]string{unaddressable + "#fragments/frag", unaddressable + "#prompts/tooling"},
+		[]string{
+			fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", trust.BundleRef{}, trust.KindFragment.Dir(), "frag"),
+			fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", trust.BundleRef{}, trust.KindPrompt.Dir(), "tooling"),
+		},
 		p.withheld(),
 		"every unaddressable ref is tallied — a withhold nothing recorded is a withhold nothing can report")
 }
@@ -319,7 +333,12 @@ func TestExposureWithheld_Characterization_StoreErrorWithholdsEverything(t *test
 	assert.ElementsMatch(t,
 		// The always-on BUILTIN fragment is in this set too: builtin is its own
 		// allow step, and the store fault sits above every allow step.
-		[]string{"localdev#fragments/keep", charGateApprovedRef, charGateToolingGateRef, builtinIsolationFragmentRef},
+		[]string{
+			canonicalWithheldRef(t, "localdev#fragments/keep"),
+			canonicalWithheldRef(t, charGateApprovedRef),
+			canonicalWithheldRef(t, charGateToolingGateRef),
+			builtinIsolationFragmentRef,
+		},
 		p.withheld(),
 		"every item consulted under a broken store is tallied as withheld — including the builtin, whose own allow step the fault outranks")
 }

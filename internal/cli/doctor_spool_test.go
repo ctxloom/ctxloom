@@ -201,3 +201,98 @@ func TestDoctorCheckSpoolBacklog_RightState_MalformedFileDoesNotCountAsStuck(t *
 	assert.NotContains(t, check.Detail, "0 spool entr(ies) sat unconsumed")
 	assert.NotContains(t, check.Detail, "sat unconsumed")
 }
+
+// --- in/failed/: spool.Fail's terminal directory, wired into this check ----
+
+// TestDoctorCheckSpoolBacklog_RightState_NoFailedDirIsNormal proves the
+// common case — no session has ever refused a message, so no in/failed/
+// directory exists anywhere — reads as an explicit, distinct sentence in an
+// otherwise-clean OK, not silence and not an error. in/failed/ is created
+// lazily on the first refusal (spool.Fail's doc), so its absence here must
+// never be mistaken for "we never looked".
+func TestDoctorCheckSpoolBacklog_RightState_NoFailedDirIsNormal(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "no session has an in/failed/ directory")
+	assert.NotContains(t, check.Detail, "checked, all empty",
+		"an absent in/failed/ dir must not be worded as an existing-but-empty one")
+}
+
+// TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent
+// proves the other clean state: an in/failed/ directory that DOES exist
+// (e.g. a prior refusal that was since cleaned up by hand) but currently
+// holds nothing is reported as "checked, all empty" — a different sentence
+// from "no session has an in/failed/ directory" so a reader can tell
+// "existing and empty" apart from "never created".
+func TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	root, err := spool.Root(mapper, harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "in", "failed"), 0o755))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "1 in/failed/ director(ies) checked, all empty")
+	assert.NotContains(t, check.Detail, "no session has an in/failed/ directory")
+}
+
+// TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry constructs a
+// REAL refusal via spool.Fail — the same call coord/spooldelivery.go's
+// failSpoolEntry makes — and proves the resulting in/failed/ entry is named
+// in a warn, worded as a fourth, distinct condition from stuck, malformed,
+// and sweep-I/O-error: it must say the message was REFUSED, never "sat
+// unconsumed" (it wasn't waiting) and never "malformed" (it parsed fine). A
+// second, live entry in in/ (never failed) is asserted absent from the
+// report so the check cannot pass by flagging everything under in/.
+func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+
+	failedRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 1, "coord", time.Now())
+	require.NoError(t, spool.Fail(mapper, failedRef))
+
+	live := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 2, "coord", time.Now())
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "1 spool entr(ies) were REFUSED into in/failed/")
+	assert.Contains(t, check.Detail, harp+":in/failed/"+failedRef.Name, "the refused entry must be named by harp and filename")
+	assert.Contains(t, check.Detail, "GIVEN this message and REFUSED to deliver it, permanently")
+	assert.NotContains(t, check.Detail, "sat unconsumed",
+		"a refused entry was actively rejected, not left waiting — must not read as stuck")
+	assert.NotContains(t, check.Detail, "are malformed",
+		"a refused entry parsed fine as a message — must not read as malformed")
+	assert.NotContains(t, check.Detail, "could not be swept",
+		"a refused entry is a deliberate classification, not an I/O failure reading the directory")
+	assert.NotContains(t, check.Detail, live.Name, "the still-live in/ entry must not be reported at all")
+}
+
+// TestDoctorCheckSpoolBacklog_CapsFailedListWithCount proves the failed-entry
+// list is bounded by the SAME doctorSpoolStuckMaxNamed the stuck and
+// malformed lists use, rather than a second, separately-tuned cap.
+func TestDoctorCheckSpoolBacklog_CapsFailedListWithCount(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+
+	for i := range 8 {
+		ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano()+int64(i), uint64(i+1), "coord", time.Now())
+		require.NoError(t, spool.Fail(mapper, ref))
+	}
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "8 spool entr(ies) were REFUSED")
+	assert.Contains(t, check.Detail, "more")
+}

@@ -51,6 +51,18 @@ type parkedPoll struct {
 	ch   chan pollResult
 }
 
+// pollResult is what completes a parked poll's channel.
+//
+// msgs is set ONLY by deliverTerminalFallback — the one path that hands a
+// message down a poll's channel directly, because it is deliberately
+// non-durable (queueMail already failed) and so has no fold entry for a claim
+// to find. Every DURABLE delivery (deliverToPoll) sends a bare wake
+// (msgs==nil, err==nil): the payload lives in the mailbox fold, and
+// tryClaimDeliverable — called by whichever goroutine is actually about to
+// hand messages back to a still-live caller — is the one place a claim on it
+// is ever made. That is what keeps "woken" and "received" from being
+// conflated: a wake sent to a poll nobody drains reserves nothing, so it
+// costs nothing and the next recv finds the mail exactly where it left it.
 type pollResult struct {
 	msgs []Message
 	err  error
@@ -126,7 +138,7 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	// enabled, it never fails this delivery, and it changes nothing about what
 	// follows: reads still come from the mailbox in S4.
 	c.teeMailToRun(to, msg)
-	if c.deliverToPoll(to, msg) {
+	if c.deliverToPoll(to) {
 		return msg.ID, true, nil
 	}
 	// Push-down: a recipient whose runner-side recv is parked gets the mail
@@ -148,12 +160,20 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	return msg.ID, false, nil
 }
 
-// deliverToPoll hands msg to the role's parked poll if one is waiting,
-// reserving the message id in the runtime delivery ledger (it stays pending
-// in the fold until a subsequent recv acks it — at-least-once). Completion
-// (including the unpark slot re-acquisition) runs asynchronously so the
-// sender never blocks on the recipient's slot.
-func (c *Coordinator) deliverToPoll(role string, msg Message) bool {
+// deliverToPoll WAKES role's parked poll if one is waiting — it does not
+// reserve anything and does not hand the payload through the channel. The
+// wake means "your mail is in the fold, go claim it"; tryClaimDeliverable is
+// the one place a claim (and so a reservation) is ever made, by whichever
+// goroutine is actually about to return it to a still-live caller.
+//
+// This is deliberate: reserving HERE, at hand-off, would mark the message
+// ack-eligible for a channel that a preempting recv, or an MCP client that
+// simply stopped listening without cancelling anything, may never drain —
+// exactly the shape that let ackDelivered journal a message consumed before
+// anyone had received it (B2). Completion (including the unpark slot
+// re-acquisition) runs asynchronously so the sender never blocks on the
+// recipient's slot.
+func (c *Coordinator) deliverToPoll(role string) bool {
 	c.mu.Lock()
 	p := c.polls[role]
 	if p == nil || p.done {
@@ -162,13 +182,31 @@ func (c *Coordinator) deliverToPoll(role string, msg Message) bool {
 	}
 	p.done = true
 	delete(c.polls, role)
-	c.delivered[role] = append(c.delivered[role], msg.ID)
 	c.mu.Unlock()
 	go func() {
 		c.onRoleUnpark(role)
-		p.ch <- pollResult{msgs: []Message{msg}}
+		p.ch <- pollResult{}
 	}()
 	return true
+}
+
+// tryClaimDeliverable reserves and returns role's currently deliverable mail,
+// if any — the ONE place a hand-off to a live caller becomes real. It is what
+// a wake (deliverToPoll) is redeemed against, and it is what the top of every
+// recvMail call checks first. ok=false means there is nothing to claim right
+// now: either genuinely no mail, or another claim already won the race (a
+// second wake for the same delivery, or an overlapping recv).
+func (c *Coordinator) tryClaimDeliverable(role string) ([]Message, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	msgs := c.undeliveredLocked(role)
+	if len(msgs) == 0 {
+		return nil, false
+	}
+	for _, m := range msgs {
+		c.delivered[role] = append(c.delivered[role], m.ID)
+	}
+	return msgs, true
 }
 
 // deliverTerminalFallback completes role's parked agent_recv poll with msg
@@ -331,18 +369,13 @@ func (c *Coordinator) recvMail(ctx context.Context, role string, wait time.Durat
 		return nil, err
 	}
 
-	c.mu.Lock()
-	if msgs := c.undeliveredLocked(role); len(msgs) > 0 {
-		for _, m := range msgs {
-			c.delivered[role] = append(c.delivered[role], m.ID)
-		}
-		c.mu.Unlock()
+	if msgs, ok := c.tryClaimDeliverable(role); ok {
 		return msgs, nil
 	}
 	if wait <= 0 {
-		c.mu.Unlock()
 		return nil, ErrRecvTimeout
 	}
+	c.mu.Lock()
 	prev := c.polls[role]
 	fresh := prev == nil || prev.done
 	if !fresh {
@@ -363,7 +396,7 @@ func (c *Coordinator) recvMail(ctx context.Context, role string, wait time.Durat
 	defer timer.Stop()
 	select {
 	case r := <-p.ch:
-		return r.msgs, r.err
+		return c.resolvePollWake(role, r)
 	case <-timer.C:
 		// The timer expiring does not end the CALLER: it is still waiting for
 		// this call's return value, so a delivery that won the race is handed
@@ -374,6 +407,25 @@ func (c *Coordinator) recvMail(ctx context.Context, role string, wait time.Durat
 		// received — so a delivery that won the race has to be released.
 		return c.abandonPoll(role, p, ctx.Err(), true)
 	}
+}
+
+// resolvePollWake turns a completed poll's result into what THIS call
+// returns, and is the one place a bare wake (deliverToPoll) gets redeemed
+// into an actual claim — the call receiving it is, by construction, still
+// live (it is mid-select on this very channel), so a claim made here is a
+// genuine hand-off, safe for the next recv's ackDelivered to trust.
+func (c *Coordinator) resolvePollWake(role string, r pollResult) ([]Message, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if len(r.msgs) > 0 {
+		return r.msgs, nil // deliverTerminalFallback's non-durable direct payload
+	}
+	if msgs, ok := c.tryClaimDeliverable(role); ok {
+		return msgs, nil
+	}
+	// Woken, but something else (another claim) already took the mail.
+	return nil, ErrRecvTimeout
 }
 
 // abandonPoll resolves the timeout/cancel race against a concurrent delivery:
@@ -395,15 +447,30 @@ func (c *Coordinator) abandonPoll(role string, p *parkedPoll, err error, callerG
 	if p.done {
 		c.mu.Unlock()
 		r := <-p.ch
-		if callerGone && len(r.msgs) > 0 {
-			ids := make([]string, 0, len(r.msgs))
-			for _, m := range r.msgs {
-				ids = append(ids, m.ID)
+		if r.err != nil {
+			return nil, r.err
+		}
+		if len(r.msgs) > 0 {
+			// deliverTerminalFallback's non-durable direct payload: never
+			// reserved, so a gone caller simply never sees it — there is
+			// nothing to release.
+			if callerGone {
+				return nil, err
 			}
-			c.unreserve(role, ids)
+			return r.msgs, nil
+		}
+		// A bare wake (deliverToPoll): claiming is the ONLY thing that
+		// reserves anything, so a caller that is gone must not claim on its
+		// behalf — that would reserve (and let the next recv's ackDelivered
+		// journal as consumed) a message nobody was left to receive. Leaving
+		// it unclaimed is what keeps it deliverable.
+		if callerGone {
 			return nil, err
 		}
-		return r.msgs, r.err
+		if msgs, ok := c.tryClaimDeliverable(role); ok {
+			return msgs, nil
+		}
+		return nil, err
 	}
 	p.done = true
 	if c.polls[role] == p {

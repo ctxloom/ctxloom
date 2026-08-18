@@ -33,17 +33,18 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 		return
 	}
 
-	// Park a poll exactly as recvMail does, then let a delivery WIN it.
+	// Park a poll exactly as recvMail does, then let a delivery WIN it — a
+	// bare wake now (B2): deliverToPoll no longer reserves anything, so the
+	// message stays fully pending until something actually CLAIMS it.
 	p := &parkedPoll{ch: make(chan pollResult, 1)}
 	c.mu.Lock()
 	c.polls[role] = p
 	c.mu.Unlock()
 
-	msg := Message{ID: "m1", From: "parent", To: role, Kind: "task", Body: "do the thing"}
-	if !assert.True(t, c.deliverToPoll(role, msg), "precondition: the delivery wins the parked poll") {
+	if !assert.True(t, c.deliverToPoll(role), "precondition: the wake reaches the parked poll") {
 		return
 	}
-	if !assert.Equal(t, 0, c.pendingCount(role), "precondition: the delivery reserved the id") {
+	if !assert.Equal(t, 1, c.pendingCount(role), "precondition: a bare wake does not reserve anything") {
 		return
 	}
 
@@ -53,7 +54,7 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 	assert.Empty(t, msgs, "nothing may be handed to a caller that is gone")
 	assert.ErrorIs(t, err, context.Canceled, "the cancellation must be reported, not masked by the delivery")
 	assert.Equal(t, 1, c.pendingCount(role),
-		"a delivery whose caller had already gone must release its reservation — otherwise the next "+
+		"a caller that is gone must not CLAIM the wake on its own behalf — otherwise the next "+
 			"recv's cursor-ack journals a consume for a message nobody ever received")
 
 	// And it really is deliverable again: a fresh recv returns it.
@@ -72,9 +73,9 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 // recv's documented bounded `wait` unbounded, and implied the wait should
 // simply expire.
 //
-// It must NOT. Once deliverToPoll has flipped p.done it has RESERVED the
-// message id for this poll: no other recv and no turn-boundary take can see it
-// any more. A timeout that returned ErrRecvTimeout at that point would strand
+// It must NOT. Once deliverToPoll has flipped p.done this poll OWNS the wake:
+// abandonPoll's job is to redeem it into an actual claim before reporting the
+// timeout. A timeout that returned ErrRecvTimeout at that point would strand
 // the message in exactly the way the take-fail path documented. The overshoot is the
 // execution-slot cap doing its job — a parked child may not resume an
 // EXECUTING turn without a slot — so the invariant is that a delivery which won
@@ -87,13 +88,16 @@ func TestRecvTimeout_DeliveryThatWonTheRaceIsStillDelivered(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	const role = "child-b"
+	if _, _, err := c.queueMailPayloadID("m9", "parent", role, "task", "already yours", nil, ""); !assert.NoError(t, err) {
+		return
+	}
+
 	p := &parkedPoll{ch: make(chan pollResult, 1)}
 	c.mu.Lock()
 	c.polls[role] = p
 	c.mu.Unlock()
 
-	msg := Message{ID: "m9", From: "parent", To: role, Kind: "task", Body: "already yours"}
-	if !assert.True(t, c.deliverToPoll(role, msg)) {
+	if !assert.True(t, c.deliverToPoll(role)) {
 		return
 	}
 

@@ -76,7 +76,7 @@ func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 	assertNoMailKind(t, c, KindExited, 200*time.Millisecond)
 
 	// A later send RESUMES the harp by its captured native session key.
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "carry on", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "carry on", nil, "")
 	require.NoError(t, err)
 	awaitCtx, awaitCancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer awaitCancel()
@@ -302,7 +302,7 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 
 	const resumes = 6
 	for i := 1; i <= resumes; i++ {
-		_, err := c.AgentSend(ownerIdentity(), out.Harp, "", "turn", nil, "")
+		_, err := c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "turn", nil, "")
 		require.NoError(t, err)
 		awaitCtx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 		require.NoError(t, c.awaitChildUp(awaitCtx, out.Harp))
@@ -343,7 +343,7 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 
 	// A second turn is handled by the SAME engine process (no resume, no new
 	// chat spawned).
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "again", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "again", nil, "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)

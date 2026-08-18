@@ -396,7 +396,7 @@ func TestControlSteer_ReceiverRefusalRoutesToTheMailboxExactlyOnce(t *testing.T)
 	gate <- struct{}{}
 	require.Eventually(t, func() bool {
 		texts := sp.chat(0).recordedTexts()
-		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, "", "mid-turn note")
+		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, KindSteer, "mid-turn note")
 	}, conformanceWait, 10*time.Millisecond, "the fallback delivered the body")
 
 	// One copy, not two: the plane-2 attempt queued no mail of its own, and the

@@ -376,11 +376,9 @@ func TestSpoolAsk_TurnOutputIsNotTheAnswer(t *testing.T) {
 
 	// The child reports its turn the way the bridge does: kind result, no
 	// correlation at all.
-	structured, err := structpb.NewStruct(map[string]any{"kind": KindResult})
-	require.NoError(t, err)
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole: ParentAddress, Text: "unrelated turn output", Structured: structured,
+			ToRole: ParentAddress, Text: "unrelated turn output", Kind: agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
 		}},
 	})
 	require.NoError(t, err)

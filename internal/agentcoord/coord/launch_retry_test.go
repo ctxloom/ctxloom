@@ -107,7 +107,7 @@ func spinUpRetryLoop(t *testing.T, c *Coordinator, sp *failingLaunchSpawner) str
 
 	// Mail for a child that is down is what arms the relaunch (§6a: an ended
 	// child resumes with the message as its next turn).
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "ping", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "ping", nil, "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 3 }, 10*time.Second, 10*time.Millisecond,
@@ -145,7 +145,7 @@ func stopDuringArmedRelaunch(t *testing.T, viaStartRun bool) {
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond)
 
 	// Queued mail arms the relaunch, which then parks in Resolve.
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "ping", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "ping", nil, "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.resolves.Load() >= 2 }, 10*time.Second, 10*time.Millisecond,
 		"precondition: a relaunch must be in flight (parked in Resolve)")

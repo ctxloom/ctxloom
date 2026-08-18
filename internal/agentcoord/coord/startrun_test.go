@@ -320,7 +320,7 @@ func TestStartRun_ResumeUsesJournaledHarnessSessionID(t *testing.T) {
 	// synchronously before that dispatch, so this call cannot race it) —
 	// keyed on the goroutine's own progress, not a 5s guess that flakes
 	// under CPU starvation.
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "carry on", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "carry on", nil, "")
 	require.NoError(t, err)
 	awaitCtx, awaitCancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer awaitCancel()

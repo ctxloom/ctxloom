@@ -864,29 +864,36 @@ func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.Agent
 // servePeerSend is agent_send: children address to_role "parent"; the owner
 // addresses children by to_agent_id (harp).
 //
-// `kind` has two sources, and this is the ONE place that reconciles them.
-// req.GetKind() is the typed MessageKind field (coordination.proto's field 7)
-// — the current, documented surface, populated by protojson-decoding the
-// runner's plane-2 tool call straight into this message. structured["kind"]
-// is the RETIRED free-string convention the proto comment says the typed
-// field replaces.
+// `kind` has exactly ONE source: req.GetKind(), the typed MessageKind field
+// (coordination.proto's field 7). The proto is explicit that this REPLACES
+// the retired structured["kind"] free-string convention, and this function now
+// makes that true — structured is carried as an opaque companion and is never
+// inspected for a "kind" key.
 //
-// Until now this function read ONLY the retired convention: req.GetKind()
-// was decoded off the wire onto this struct and then never once inspected —
-// ValidateMessageKind and LegacyKindName (messagekind.go) had no caller
-// anywhere in the tree. A sender that set the documented field
-// (kind: MESSAGE_KIND_MESSAGE, say) got it silently discarded: `kind` stayed
-// "", which is a legal value (KindUnset) that projects onto the spool
-// frontmatter as literally "unkinded" (mailkind.go's SpoolKindForMail) —
-// a message sent WITH a kind, delivered classified as if it had none.
+// It used to be the other way around: req.GetKind() was decoded off the wire
+// onto this struct and then never once inspected — ValidateMessageKind and
+// LegacyKindName (messagekind.go) had no caller anywhere in the tree, and
+// `kind` fell back to structured["kind"] unconditionally, including for an
+// absent value (the zero value MESSAGE_KIND_UNSPECIFIED silently became
+// KindUnset, a message projecting onto the spool frontmatter as literally
+// "unkinded").
 //
-// The typed field wins when the sender sets it: it is validated (refusing an
-// unrecognised or coordinator-reserved value — the same spoof this refused
-// via structured["kind"] before, now also closed on the field that used to
-// bypass the check entirely) and translated to the legacy spelling `peerSend`
-// still speaks. UNSPECIFIED (the zero value, meaning "the sender didn't set
-// this field") falls back to structured["kind"], so every existing caller
-// that only ever used the retired convention is unaffected.
+// The typed-field check below stays CONDITIONAL on the field actually being
+// set (mirroring the pre-existing shape, not merely inherited from it): an
+// explicitly-set unrecognised or coordinator-reserved value is refused HERE,
+// synchronously, before any routing. An UNSET field is deliberately NOT
+// refused at this layer — it falls through to peerSend below, unvalidated,
+// because peerSend's own chokepoint (SenderMailKind) sits AFTER the
+// approval/ask-reply correlation check: a reply to a relayed approval_request
+// carries its answer in `structured` and never needs a kind at all ("kind
+// rides alongside the decision and is ignored" — coordinator.go's peerSend).
+// Pre-refusing an unset kind here, unconditionally, would reject that reply
+// before peerSend ever got a chance to recognise it as one, which is exactly
+// what an earlier version of this change did and broke
+// (TestSpoolApproval_RelayRidesFilesAndAuditsIdentically). An ORDINARY send
+// with an unset kind still ends up refused — just one frame deeper, at
+// peerSend's SenderMailKind("") — which now refuses "" instead of accepting
+// it.
 func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendRequest) *agentcoordpb.CoordinatorResponse {
 	to := req.GetToAgentId()
 	if role := req.GetToRole(); role != "" {
@@ -901,20 +908,14 @@ func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendR
 	if req.GetText() == "" {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_send: text is required")}
 	}
-	kind := ""
 	if typed := req.GetKind(); typed != agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED {
 		if err := agentcoordpb.ValidateMessageKind(typed); err != nil {
 			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
 		}
-		kind = agentcoordpb.LegacyKindName(typed)
 	}
+	kind := agentcoordpb.LegacyKindName(req.GetKind())
 	var structured json.RawMessage
 	if s := req.GetStructured(); s != nil {
-		if kind == "" {
-			if v, ok := s.GetFields()["kind"]; ok {
-				kind = v.GetStringValue()
-			}
-		}
 		// Refuse rather than silently truncate. This used to be
 		// `if merr == nil { structured = raw }` with merr never inspected, so a
 		// Struct that could not be marshalled left `structured` nil and the

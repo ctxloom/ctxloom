@@ -584,7 +584,7 @@ func TestLegacyChild_UnaffectedByMigratedSiblingApprovalLadder(t *testing.T) {
 		assert.Zero(t, c.itemsF.countsFor(legacyOut.RunID)["interaction"],
 			"the legacy child never rides the plane-1 approval item journal")
 	})
-	_, err = c.AgentSend(ownerIdentity(), legacyOut.Harp, "", "second turn", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), legacyOut.Harp, KindMessage, "second turn", nil, "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return len(sp.engine(0).recordedTexts()) == 2

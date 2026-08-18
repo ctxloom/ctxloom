@@ -521,11 +521,20 @@ func (c *Coordinator) steerPlaneTwo(ctx context.Context, by ControlInitiator, se
 // and unconditional, so initiator B loses nothing on any target. The body is
 // queued as ordinary mail HERE and only here — the plane-2 route never queues
 // mail, so the two can never both hold a copy.
+//
+// The mail is kinded KindSteer — the SAME reserved kind steerViaSpool's
+// cutover route already uses (spoolcontrol.go), for the identical reason: this
+// is "an instruction injected into a running target" (mailkind.go's KindSteer
+// doc), not an anonymous message, and a sender could never have minted this
+// kind itself (it is coordinator-reserved) so there is no forgery risk in
+// using it here. It used to be KindUnset: this was the single largest source
+// of unkinded mail on the wire, and unkinded is no longer a legal thing for
+// this route — or any route — to produce.
 func (c *Coordinator) steerFallback(sender, harp, text string) (SteerOutcome, error) {
-	// The UNKINDED mail this route has always queued, and the id deliberately
-	// dropped: a mailbox message cannot be withdrawn, so handing back a handle
-	// WithdrawSteer would refuse is worse than handing back none.
-	_, outcome, err := c.steerAsMail(sender, harp, KindUnset, text)
+	// The id is deliberately dropped, same as before: a mailbox message
+	// cannot be withdrawn, so handing back a handle WithdrawSteer would
+	// refuse is worse than handing back none.
+	_, outcome, err := c.steerAsMail(sender, harp, KindSteer, text)
 	return outcome, err
 }
 

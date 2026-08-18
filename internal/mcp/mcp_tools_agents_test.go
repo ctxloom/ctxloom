@@ -84,7 +84,7 @@ func TestAgentToolHandlers_PlumbTheDelegation(t *testing.T) {
 		"the child's first turn must carry the real composed fragment content, not an empty/placeholder context")
 
 	// agent_send to the spawned child resolves through the handler.
-	_, sendOut, err := s.handleAgentSend(context.Background(), nil, agentSendInput{To: runOut.Harp, Body: "more"})
+	_, sendOut, err := s.handleAgentSend(context.Background(), nil, agentSendInput{To: runOut.Harp, Body: "more", Kind: coord.KindMessage})
 	require.NoError(t, err)
 	assert.NotEmpty(t, sendOut.Disposition)
 

@@ -275,7 +275,7 @@ func init() {
 	// config.InstallOverridesFromFlags (called from PersistentPreRun below)
 	// reads it via confload.Product.ReadOverrides.
 	rootCmd.PersistentFlags().StringArray(confload.ConfigSetFlagName, nil,
-		"override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)")
+		"override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)")
 
 	// Config is loaded via internal/config.Load() which handles the hierarchy:
 	// 1. Project .ctxloom/config.yaml

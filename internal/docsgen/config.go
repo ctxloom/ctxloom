@@ -340,12 +340,12 @@ func overrideChainSection(topProps map[string]any, envPrefix string) string {
 	b.WriteString("the field's dotted path with each segment upper-cased and joined by `_` ")
 	fmt.Fprintf(&b, "(e.g. `agents.mycoder.runtime` becomes `%sAGENTS_MYCODER_RUNTIME`). ", envPrefix)
 	b.WriteString("A CLI override uses the repeatable `--config-set <dotted.path>=<value>` flag ")
-	b.WriteString("(`--config-set agents.mycoder.runtime=container`) — never a per-field flag of its own, ")
+	b.WriteString("(`--config-set agents.mycoder.runtime=container-rootless`) — never a per-field flag of its own, ")
 	b.WriteString("since a command's OWN flags (`--format`, `--bundle`, ...) are not config overrides. ")
 	b.WriteString("Both forms are matched case-insensitively against whatever your config file ")
 	b.WriteString("already has, adopting its casing; unlike an environment variable's name, `--config-set`'s ")
 	b.WriteString("path preserves whatever case you type, so it can also CREATE a new case-sensitive ")
-	b.WriteString("key (e.g. `--config-set agents.MyCoder.runtime=container`), which an environment variable ")
+	b.WriteString("key (e.g. `--config-set agents.MyCoder.runtime=container-rootless`), which an environment variable ")
 	b.WriteString("cannot do.\n\n")
 
 	if name, ok := pickScalarExampleField(topProps); ok {

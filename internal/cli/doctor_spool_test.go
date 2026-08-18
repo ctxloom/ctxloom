@@ -78,6 +78,8 @@ func TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck(t *testing.
 	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "1 session spool(s) checked")
 	assert.Contains(t, check.Detail, "0 entries stuck")
+	assert.Contains(t, check.Detail, "0 malformed entries",
+		"a clean spool must say so explicitly, distinguishably from a spool that was never examined")
 }
 
 // TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry is this check's
@@ -120,4 +122,82 @@ func TestDoctorCheckSpoolBacklog_CapsNamedListWithCount(t *testing.T) {
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "8 spool entr(ies)")
 	assert.Contains(t, check.Detail, "more")
+}
+
+// --- malformed entries: spool.Sweep's Problem, wired into this check -------
+
+// writeRawSpoolFile drops an arbitrary-named file straight into a spool
+// directory, bypassing spool.Writer AND spool.ParseName/spool.Parse's
+// grammar entirely, so a test can construct exactly the "not a message at
+// all" shape spool.Sweep reports as a Problem rather than an Entry.
+func writeRawSpoolFile(t *testing.T, mapper spool.PathMapper, harp string, dir spool.Dir, name string, content string) string {
+	t.Helper()
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	dirPath, err := spool.DirPath(mapper, harp, dir)
+	require.NoError(t, err)
+	full := filepath.Join(dirPath, name)
+	require.NoError(t, os.WriteFile(full, []byte(content), 0o600))
+	return full
+}
+
+// TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedFilename proves a
+// filename outside the "<unixnano>.<seq>.<writer>.md" grammar is reported
+// BY NAME, and worded distinctly from a stuck-but-valid entry (it must never
+// say "sat unconsumed" — no amount of waiting turns a bad filename into a
+// deliverable message). A fresh, validly-named entry in the same session's
+// in/ is asserted absent from the report, so the check cannot pass by
+// flagging everything it sees.
+func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedFilename(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	writeRawSpoolFile(t, mapper, harp, spool.DirOut, "not-a-spool-message.txt", "whatever, not a message")
+
+	fresh := time.Now()
+	_ = writeRawSpoolMessage(t, mapper, harp, spool.DirIn, fresh.UnixNano(), 1, "coord", fresh)
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
+	assert.Contains(t, check.Detail, "not-a-spool-message.txt", "the malformed entry must be named")
+	assert.Contains(t, check.Detail, harp+":out/", "malformed entries are located by harp and direction")
+	assert.NotContains(t, check.Detail, "sat unconsumed",
+		"a malformed filename is not a stuck-but-valid entry and must not be worded as one")
+}
+
+// TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedContent proves the
+// OTHER Problem path: a filename that DOES parse against the grammar, but
+// whose content spool.Parse refuses (no YAML frontmatter at all here) is
+// still reported by name — distinct from both a stuck entry and a bad
+// filename.
+func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedContent(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	name := spool.Name{Nanos: time.Now().UnixNano(), Seq: 1, Writer: "coord"}
+	writeRawSpoolFile(t, mapper, harp, spool.DirIn, name.String(), "no frontmatter here, just a body\n")
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
+	assert.Contains(t, check.Detail, name.String(), "the malformed entry must be named")
+	assert.NotContains(t, check.Detail, "sat unconsumed",
+		"malformed content is not a stuck-but-valid entry and must not be worded as one")
+}
+
+// TestDoctorCheckSpoolBacklog_RightState_MalformedFileDoesNotCountAsStuck
+// proves the flip side of the two tests above: a spool holding ONLY a
+// malformed entry (no stuck ones) must not be reported as having any stuck
+// entries — the two lists are independent, not one bucket wearing two
+// labels.
+func TestDoctorCheckSpoolBacklog_RightState_MalformedFileDoesNotCountAsStuck(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	writeRawSpoolFile(t, mapper, harp, spool.DirOut, "garbage.md.bak", "irrelevant")
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.NotContains(t, check.Detail, "0 spool entr(ies) sat unconsumed")
+	assert.NotContains(t, check.Detail, "sat unconsumed")
 }

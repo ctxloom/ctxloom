@@ -85,13 +85,26 @@ type Bundle struct {
 	// through FSDir, which refuses the non-filesystem values instead of
 	// silently yielding "." (see FSDir's doc for what that cost).
 	Path string `yaml:"-"` // File path for saving; see FSDir before using as one
-	// sourceRef is the bundle's canonical ref when it did not come from the
-	// project's own tree: the lockfile key shape for a remote (cloned) source,
-	// e.g. "https://…@bundles/x" (set at seed time, WithSeededBundles), or
-	// "builtin:<name>" for a bundle embedded in the binary (set by
-	// localFSReader.readBundle when its provenance is ProvenanceBuiltin). It is
-	// empty for a project (fs) bundle — contentSourceRef falls back to Name for
-	// that case, which is what lets project content auto-trust.
+	// sourceRef is the bundle's LOCATION-DERIVED canonical ref, and it is the
+	// sole input to contentSourceRef — the content trust key. Every shape it
+	// takes is decided by WHERE the bundle was found, never by what it says
+	// about itself: the lockfile key for a remote (cloned) source, e.g.
+	// "https://…@bundles/x" (set at seed time, WithSeededBundles, and by the
+	// repofs reader), "builtin:<name>" for a bundle embedded in the binary,
+	// "ctxloom:companion@<bin>" for a companion loadout, and the path-relative
+	// resolution name ("lang/go") for a bundle in the project's own tree. The
+	// last of those is a bare token, which trust.ParseItemRef keys IsLocal —
+	// that is what lets project content auto-trust.
+	//
+	// newRead stamps the resolution ref here whenever a reader left it empty,
+	// so it is never empty on a read a reader emitted. That backstop is a
+	// SECURITY property, not tidiness: Bundle.Name is declared in the bundle's
+	// own YAML (`name:`), so falling back to it would let the content being
+	// judged choose its own trust key — a project bundle declaring
+	// `name: builtin:isolation` would claim the builtin's trust identity, and
+	// a bundle that renamed itself would move off its own recorded decisions.
+	// The declared name is CONTENT: covered by the signature and by review, and
+	// therefore never an input to the decision that establishes that trust.
 	sourceRef string `yaml:"-"`
 
 	// signer is the VERIFIED publisher identity of this bundle's file bytes: the
@@ -193,21 +206,26 @@ func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
 
 // contentSourceRef returns the bundle's honest source ref for content trust
 // gating: the canonical ref of a seeded (cloned) bundle, the "builtin:<name>"
-// ref of a bundle embedded in the binary, or the local bundle.Name for a
-// project (fs) bundle. Locality/builtin-ness flows from this into the trust
-// cascade, so a clone's TEXT gates like its executables, a builtin's TEXT
-// carries the SAME identity whether it was selected by ref through the loader
-// or injected unconditionally (trust rework: a builtin read through
-// localFSReader used to fall through to the bare-Name case below and key as
-// LOCAL, a different trust identity than the "builtin:<name>" ref injection
-// uses for the identical item — a rejection via one route did not withhold the
-// other; see crispy-scoop), and a project bundle's text auto-trusts. "Text to
-// an LLM is executable."
+// ref of a bundle embedded in the binary, the "ctxloom:companion@<bin>" ref of
+// a companion loadout, or the path-relative resolution name of a project (fs)
+// bundle. Locality/builtin-ness flows from this into the trust cascade, so a
+// clone's TEXT gates like its executables, a builtin's TEXT carries the SAME
+// identity whether it was selected by ref through the loader or injected
+// unconditionally (a builtin read through localFSReader once keyed as LOCAL, a
+// different trust identity than the "builtin:<name>" ref injection uses for
+// the identical item — a rejection via one route did not withhold the other;
+// see crispy-scoop), and a project bundle's bare token keys IsLocal and
+// auto-trusts. "Text to an LLM is executable."
+//
+// It reads sourceRef and NOTHING ELSE. In particular it must never fall back
+// to Bundle.Name: Name is DECLARED in the bundle's own YAML, so a fallback
+// would make the content being judged an input to its own trust key — a
+// project bundle declaring `name: builtin:isolation` would key as the builtin
+// and inherit its grants. newRead stamps the location-derived resolution ref
+// into sourceRef for every read a reader emits, so there is nothing for a
+// fallback to do but reopen that hole (outdated-recoil).
 func (b *Bundle) contentSourceRef() string {
-	if b.sourceRef != "" {
-		return b.sourceRef
-	}
-	return b.Name
+	return b.sourceRef
 }
 
 // nonFilesystemPathPrefixes are the synthetic Bundle.Path sentinels. None of

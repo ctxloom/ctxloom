@@ -255,7 +255,25 @@ func (r BundleRead) Claimed() bool {
 // newRead builds a read with its axes set. Unexported by design: it is the
 // only way the axes are ever populated, so every value on them came from a
 // reader that established it.
+//
+// It also STAMPS the content trust key (Bundle.sourceRef) from ref when a
+// reader left it empty, which makes that key location-derived for every read
+// without exception. ref is the bundle's RESOLUTION identity, and resolution
+// identity is decided by where the bundle was found — the path-relative name
+// under the project tree, the lockfile's canonical ref, the companion's
+// ctxloom:companion ref — never by the document's own `name:`. Without this,
+// contentSourceRef fell back to Bundle.Name, which a bundle DECLARES, so the
+// content being judged supplied an input to its own trust key: a project
+// bundle declaring `name: builtin:isolation` keyed as that builtin
+// (outdated-recoil).
+//
+// Only-when-empty, so a ref a reader already established deliberately wins:
+// WithSeededBundles' lockfile ref, the repofs reader's, the companion
+// reader's, and localFSReader's "builtin:<name>" for embedded content.
 func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts signatureFacts) BundleRead {
+	if b != nil && b.sourceRef == "" {
+		b.sourceRef = ref
+	}
 	return BundleRead{
 		Bundle:               b,
 		ref:                  ref,

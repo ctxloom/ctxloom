@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,13 +12,20 @@ import (
 )
 
 // TestZeroRef_AddressesButIsInertAndUnreachable pins why a zero-valued
-// trust.Ref producing a syntactically well-formed store address is not a
+// trust.Ref producing a deterministic countersign-store address is not a
 // silent no-op.
 //
-// The address really is well-formed — Key() is "#/", CanonicalURL() is empty,
-// and countersignRef therefore yields "|#/" — and nothing on the addressing
-// path refuses it. Three separate properties are what make that harmless, and
-// each is asserted below rather than argued:
+// U3 changed WHAT that address looks like: countersignRef used to compose
+// CanonicalURL()+"|"+Key() unconditionally, so the zero Ref's well-formed-
+// looking "|#/" needed its own harmlessness argument. It now bridges through
+// Ref.AsBundleRef onto trust.BundleRef's stricter grammar, which refuses an
+// empty bundle name (see bundleref_test.go, "minters refuse an empty name"),
+// so the zero Ref no longer converts — countersignRef falls back to a
+// %#v-of-the-Ref address instead (see countersignRef's doc for why that
+// fallback can never collide with a real BundleRef.Identity()). The address
+// is still DETERMINISTIC and still addresses nothing meaningful, so the same
+// three properties still make it harmless, and each is asserted below rather
+// than argued:
 //
 //  1. INERT at the countersignature seam. The empty kind derives no
 //     attestation form, so nothing can be approved or content-rejected under
@@ -28,17 +36,12 @@ import (
 //  3. UNREACHABLE anyway. The zero Ref is produced by exactly one thing,
 //     trust.ParseItemRef's failure arms, and it is produced only ALONGSIDE an
 //     error that every caller checks before using the value.
-//
-// Hardening the addressing layer instead — refusing to compute an address for
-// an under-specified Ref — would trade a fail-closed denial for an error on a
-// path that already denies, so this test is also what should red if that
-// change is ever attempted without a reason.
 func TestZeroRef_AddressesButIsInertAndUnreachable(t *testing.T) {
 	zero := trust.Ref{}
 
 	assert.Equal(t, "#/", zero.Key())
 	assert.Empty(t, zero.CanonicalURL())
-	assert.Equal(t, "|#/", countersignRef(zero))
+	assert.Equal(t, fmt.Sprintf("ctxloom+unaddressable:%#v", zero), countersignRef(zero))
 
 	// 1. Nothing can be countersigned at that address.
 	_, err := attestationFormFor(zero.Kind, signing.FormRaw)

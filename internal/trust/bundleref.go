@@ -237,6 +237,18 @@ func (r *BundleRef) parseExternal(u *url.URL) error {
 		// RFC 3986 §6.2.2.1: the host is case-INSENSITIVE, so folding it is
 		// the conformant normalization, not a special case like R2 below.
 		r.Host = strings.ToLower(u.Host)
+		// A "www." host is REFUSED, not folded off. The retired
+		// trust.CanonicalRepoURL folded it only on a short list of known
+		// forges, which meant "www.git.example.com" and "git.example.com"
+		// stayed two identities everywhere else — exactly the silent-collapse
+		// hazard this grammar exists to close. Refusing costs nothing real: a
+		// forge does not require the "www." subdomain for its API/clone
+		// traffic, so the fix is always to drop it, never to keep two
+		// spellings alive.
+		if strings.HasPrefix(r.Host, "www.") {
+			return fmt.Errorf("%w: host %q carries a decorative \"www.\" prefix; write %q",
+				ErrRefSyntax, r.Host, strings.TrimPrefix(r.Host, "www."))
+		}
 	} else if u.Host != "" {
 		return fmt.Errorf("%w: %sfile takes no host (use %sfile:///<abs-path>)", ErrRefSyntax, schemePrefix, schemePrefix)
 	}
@@ -276,6 +288,16 @@ func (r *BundleRef) parseExternal(u *url.URL) error {
 	}
 	if repoPath == "" || repoPath == "/" {
 		return fmt.Errorf("%w: empty repository path", ErrRefSyntax)
+	}
+	// A ".git" suffix is REFUSED, not stripped. It is a clone-URL cosmetic —
+	// the same repository is reachable with or without it — so two spellings
+	// that differ only in this suffix must not become two identities. Folding
+	// it off (the retired trust.CanonicalRepoURL's approach, http(s) only)
+	// works, but a silent fold is one more place a caller can stop trusting
+	// what the grammar accepted; refusing tells them once, at the door.
+	if strings.HasSuffix(repoPath, ".git") {
+		return fmt.Errorf("%w: repository path %q carries a decorative \".git\" suffix; write %q",
+			ErrRefSyntax, repoPath, strings.TrimSuffix(repoPath, ".git"))
 	}
 
 	// R2. This is a SPECIAL CASE FORCED BY EXTERNAL NON-CONFORMANCE, not a
@@ -458,8 +480,19 @@ func removeDotSegments(p string) string {
 	for _, seg := range strings.Split(strings.TrimPrefix(p, "/"), "/") {
 		switch seg {
 		case "", ".":
-			// An empty segment here can only come from a trailing slash,
-			// which R1 drops.
+			// An empty segment here is safe to drop ONLY because this
+			// function never sees the "//" repo/bundle separator —
+			// resolveDotSegmentsEachSide splits that off first, so the one
+			// other source of an empty segment (a second "//" inside a
+			// single half) cannot reach this loop. That invariant rests on
+			// bundle paths being FILESYSTEM paths: on that domain "a/b" and
+			// "a//b" name the same place, so collapsing the empty segment is
+			// a no-op, not a merge. If a bundle path ever became a
+			// non-filesystem lookup key, "evil//bundles/x" and
+			// "evil/bundles/x" would stop being two spellings of one
+			// resource and become a genuine collision between two — the
+			// empty-segment collapse would be doing the merging instead of
+			// resolveDotSegmentsEachSide's separator split.
 		case "..":
 			if len(out) > 0 {
 				out = out[:len(out)-1]

@@ -134,6 +134,37 @@ func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 	return out
 }
 
+// Infos projects the set to listing metadata, in resolution order.
+//
+// It lives on Catalog rather than on Loader so a SCOPED listing is one call
+// (Scoped(...).Infos()) instead of a hand-rolled loop per call site: BundleInfo
+// deliberately carries no provenance, so narrowing after the projection is
+// impossible and every narrowing caller would otherwise re-derive this loop.
+//
+// Name is the read's REF, not Bundle.Name, and the difference is load-bearing:
+// a listing is a menu of handles the user types back at `bundle show`/`remove`,
+// and only the ref resolves. They diverge for any bundle outside the top level —
+// lang/go.yaml resolves as "lang/go" while Bundle.Name is the leaf "go".
+func (c Catalog) Infos() []*BundleInfo {
+	out := make([]*BundleInfo, 0, len(c.reads))
+	for _, read := range c.reads {
+		b := read.Bundle
+		out = append(out, &BundleInfo{
+			Name:          read.ref,
+			Path:          b.Path,
+			Version:       b.Version,
+			Description:   b.Description,
+			Tags:          b.Tags,
+			FragmentCount: b.FragmentCount(),
+			CommandCount:  b.CommandCount(),
+			MCPCount:      b.MCPCount(),
+			ProfileCount:  b.ProfileCount(),
+			Signer:        b.Signer(),
+		})
+	}
+	return out
+}
+
 // admit decides whether one read becomes addressable content, and is the ONLY
 // place in the read path that can answer no.
 //

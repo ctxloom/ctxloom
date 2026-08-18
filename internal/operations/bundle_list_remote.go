@@ -28,6 +28,14 @@ import (
 //     — come from the Resolver/VCS history walk and are flagged Deleted so the
 //     user sees a dependency has vanished upstream.
 //
+// BUILTINS ARE EXCLUDED, and that is the listing's contract rather than a
+// preference: `bundle list` says it lists what is installed — local content
+// under .ctxloom/content/bundles plus the remotes pinned in the lockfile — and a
+// builtin ships INSIDE the binary. It was never installed and cannot be removed,
+// so counting it under "Installed bundles (N)" states something false and makes
+// `bundle remove` name a bundle the user has no way to act on. Companion and
+// remote content stays: both are things this machine actually acquired.
+//
 // Fault-tolerant per CLAUDE.md: the seeded loader already degrades a bad
 // lockfile/remote to a warning, and the deleted-item walk is best-effort.
 func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.BundleInfo, error) {
@@ -35,10 +43,9 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	infos, err := cfg.BundleLoader().List()
-	if err != nil {
-		return nil, err
-	}
+	infos := cfg.BundleLoader().Catalog().
+		Scoped(bundles.ProvenanceProject, bundles.ProvenanceRemote, bundles.ProvenanceCompanion).
+		Infos()
 
 	seen := make(map[string]bool, len(infos))
 	for _, info := range infos {

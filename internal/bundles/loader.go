@@ -257,25 +257,12 @@ func (l *Loader) Find(name string) (string, error) {
 }
 
 // List returns every bundle this loader can see, as listing metadata.
+//
+// A listing that wants a NARROWER set asks the resolved Catalog for it
+// (Catalog.Scoped(...).Infos()) rather than filtering this result: BundleInfo
+// carries no provenance, so a filter applied out here has nothing to filter on.
 func (l *Loader) List() ([]*BundleInfo, error) {
-	cat := l.Catalog()
-	out := make([]*BundleInfo, 0, cat.Len())
-	for _, read := range cat.reads {
-		b := read.Bundle
-		out = append(out, &BundleInfo{
-			Name:          read.ref,
-			Path:          b.Path,
-			Version:       b.Version,
-			Description:   b.Description,
-			Tags:          b.Tags,
-			FragmentCount: b.FragmentCount(),
-			CommandCount:  b.CommandCount(),
-			MCPCount:      b.MCPCount(),
-			ProfileCount:  b.ProfileCount(),
-			Signer:        b.Signer(),
-		})
-	}
-	return out, nil
+	return l.Catalog().Infos(), nil
 }
 
 // BundleInfo holds metadata about a bundle without loading full content.

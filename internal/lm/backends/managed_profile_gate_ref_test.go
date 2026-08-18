@@ -72,7 +72,7 @@ func TestGateProfileHooks_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
 	out := gateProfileHooks(ref, hooks, denyGate)
 	assert.Empty(t, out.Unified.PreTool, "a denied remote-sourced profile hook must be WITHHELD from the produced hook set")
 	require.Len(t, gotRefs, 1)
-	assert.Equal(t, "https://github.com/acme/tools@bundles/kit#hooks/pre_tool/0", gotRefs[0],
+	assert.Equal(t, "ctxloom+git://github.com/acme/tools//bundles/kit#hooks/pre_tool/0", gotRefs[0],
 		"the gate must be consulted with the profile's SOURCE ref, not a bare display name — and with exactly one '#'")
 
 	allowGate := testAuthorizer(true)
@@ -93,7 +93,7 @@ func TestGateProfileMCP_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
 	out := gateProfileMCP(ref, mcp, denyGate)
 	assert.NotContains(t, out.Servers, "evil-server", "a denied remote-sourced profile MCP server must be WITHHELD")
 	require.Len(t, gotRefs, 1)
-	assert.Equal(t, "https://github.com/acme/tools@bundles/kit#mcp/evil-server", gotRefs[0])
+	assert.Equal(t, "ctxloom+git://github.com/acme/tools//bundles/kit#mcp/evil-server", gotRefs[0])
 }
 
 // TestGateProfileHooks_LocalProfile_StillFlowsThroughGate contrasts the
@@ -111,7 +111,7 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 	out := gateProfileHooks(ref, hooks, gate)
 	require.Len(t, out.Unified.PreTool, 1)
 	require.Len(t, gotRefs, 1)
-	assert.Equal(t, "my-local-profile#hooks/pre_tool/0", gotRefs[0])
+	assert.Equal(t, "ctxloom+local:my-local-profile#hooks/pre_tool/0", gotRefs[0])
 }
 
 // TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed is the
@@ -163,7 +163,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	// bare bundle name: "ctxloom:local@bundles/kit" and "kit" are the same
 	// identity by construction (trust.Ref.CanonicalURL maps both onto
 	// remote.LocalSource), and the qualified spelling carries no extra fact.
-	assert.Equal(t, "kit#hooks/pre_tool/0", gotRefs[0],
+	assert.Equal(t, "ctxloom+local:kit#hooks/pre_tool/0", gotRefs[0],
 		"the composed ref must carry exactly one '#' and resolve to the local bundle (uncut-grub fixed)")
 	require.Len(t, assembled.Wire().Unified.PreTool, 1, "an ALLOWED bundle-shipped profile hook must reach the managed set")
 	assert.Equal(t, "bundle-shipped-hook", assembled.Wire().Unified.PreTool[0].Command)

@@ -63,8 +63,8 @@ func TestExtractMCPFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	// executable-surface hash of the exact server.
 	alpha := b.MCP["alpha"]
 	beta := b.MCP["beta"]
-	assert.Equal(t, alpha.ComputeContentHash(), seen["remote/tools#mcp/alpha"])
-	assert.Equal(t, beta.ComputeContentHash(), seen["remote/tools#mcp/beta"])
+	assert.Equal(t, alpha.ComputeContentHash(), seen["ctxloom+local:remote/tools#mcp/alpha"])
+	assert.Equal(t, beta.ComputeContentHash(), seen["ctxloom+local:remote/tools#mcp/beta"])
 }
 
 // TestExtractMCPFromBundle_FailClosed proves a gate that denies everything
@@ -119,9 +119,9 @@ func TestExtractHooksFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	h0 := b.Hooks.PreTool[0]
 	h1 := b.Hooks.PreTool[1]
 	hc := b.Hooks.PostFileEdit[0]
-	assert.Equal(t, h0.ComputeContentHash(), seen["remote/tools#hooks/pre_tool/0"])
-	assert.Equal(t, h1.ComputeContentHash(), seen["remote/tools#hooks/pre_tool/1"])
-	assert.Equal(t, hc.ComputeContentHash(), seen["remote/tools#hooks/post_file_edit/0"])
+	assert.Equal(t, h0.ComputeContentHash(), seen["ctxloom+local:remote/tools#hooks/pre_tool/0"])
+	assert.Equal(t, h1.ComputeContentHash(), seen["ctxloom+local:remote/tools#hooks/pre_tool/1"])
+	assert.Equal(t, hc.ComputeContentHash(), seen["ctxloom+local:remote/tools#hooks/post_file_edit/0"])
 }
 
 // TestExtractHooksFromBundle_FailClosed proves a deny-all gate withholds every

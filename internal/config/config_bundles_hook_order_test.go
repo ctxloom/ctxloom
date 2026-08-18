@@ -103,7 +103,7 @@ func TestExtractHooksFromBundle_GateRefsStayAuthoredIndex(t *testing.T) {
 	authored0 := bundles.BundleHook{Type: "command", Command: "runs-last", Order: hookOrderP(900)}
 	payload, err := authored0.ContentPayload()
 	require.NoError(t, err)
-	assert.Equal(t, bundles.HashPayload(payload), seen["remote/tools#hooks/pre_tool/0"],
+	assert.Equal(t, bundles.HashPayload(payload), seen["ctxloom+local:remote/tools#hooks/pre_tool/0"],
 		"the gate ref must key on AUTHORED index, not resolved position, or every recorded hook grant detaches")
 }
 

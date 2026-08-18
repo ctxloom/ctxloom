@@ -12,6 +12,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // TreeFS is the pinned-tree seam a repofs reader reads through: LIST a
@@ -92,6 +94,32 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 	return []BundleRead{read}, nil
 }
 
+// sourceRefTyped mints this reader's structured source ref from r.ref, its
+// already-canonical lockfile identity ("<url>@bundles/<path>" or a bare local
+// name), through the SAME Ref -> BundleRef bridge (trust.Ref.AsBundleRef)
+// that trust.ParseItemRef's own base-ref parse feeds for the identical string
+// shape — reusing that conversion rather than re-deriving host/path from the
+// ref a second, competing way. remote.ParseReference here is not a second
+// parser: it is the one parser this ref's grammar has, the same one
+// loader_version.go's versionRead already calls on a canonical ref of this
+// exact shape.
+func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
+	parsed, err := remote.ParseReference(r.ref)
+	if err != nil {
+		return trust.BundleRef{}
+	}
+	br, err := trust.Ref{
+		RepoURL:     parsed.URL,
+		Bundle:      parsed.Path,
+		IsLocal:     parsed.IsLocal,
+		IsCompanion: parsed.IsCompanion,
+	}.AsBundleRef()
+	if err != nil {
+		return trust.BundleRef{}
+	}
+	return br
+}
+
 // leaf is the last segment of the ref — the name the bundle answers to inside
 // the tree it was handed, whether that is a document ("<leaf>.yaml") or a
 // directory-form bundle's own directory ("<leaf>/").
@@ -146,6 +174,7 @@ func (r *repoFSReader) readDocument() (BundleRead, error) {
 		b.Name = r.ref
 	}
 	b.sourceRef = r.ref
+	b.sourceRefTyped = r.sourceRefTyped()
 	// A document in a pinned tree has no directory of its own, so Path is the
 	// synthetic sentinel FSDir refuses rather than a filesystem path it would
 	// resolve against the process working directory.
@@ -227,6 +256,7 @@ func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 		b.Name = r.ref
 	}
 	b.sourceRef = r.ref
+	b.sourceRefTyped = r.sourceRefTyped()
 	// Path points at the tree's own envelope so FSDir resolves to the installed
 	// directory — which is what makes a tree bundle's SKILL packages loadable.
 	// Without an installed directory there is nothing on a filesystem to point

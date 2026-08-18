@@ -131,6 +131,26 @@ func TestBundleRef_R1_NormalizationAtParseBoundary(t *testing.T) {
 			want: "ctxloom+file:///srv/we%7Cird//bundles/a%7Cb",
 		},
 		{
+			// The case above does NOT exercise upperHex: a repo/bundle path is
+			// stored DECODED and re-encoded by url.URL, whose encoder already
+			// emits uppercase hex. Version is the one field kept escaped and
+			// emitted verbatim, so §6.2.2.2 reaches it only via upperHex —
+			// neutering upperHex is invisible everywhere else and visible here.
+			name: "lowercase percent hex is uppercased in a version",
+			in:   "ctxloom+git://github.com/acme/repo//bundles/x@v1%7cx",
+			want: "ctxloom+git://github.com/acme/repo//bundles/x@v1%7Cx",
+		},
+		{
+			name: "unreserved escape in a version is decoded",
+			in:   "ctxloom+git://github.com/acme/repo//bundles/x@v1%2Ex",
+			want: "ctxloom+git://github.com/acme/repo//bundles/x@v1.x",
+		},
+		{
+			name: "raw pipe in a version is percent-encoded",
+			in:   "ctxloom+git://github.com/acme/repo//bundles/x@v1|x",
+			want: "ctxloom+git://github.com/acme/repo//bundles/x@v1%7Cx",
+		},
+		{
 			name: "scheme is lowercased",
 			in:   "CTXLOOM+GIT://github.com/acme/repo//bundles/x",
 			want: "ctxloom+git://github.com/acme/repo//bundles/x",
@@ -385,6 +405,36 @@ func TestBundleRef_R3_SameFoldCollisionsRefused(t *testing.T) {
 // makes it fail: path.Clean collapses "//" into "/", merging the repository
 // path into the bundle path.
 func TestBundleRef_R4_SeparatorSurvivesDotSegments(t *testing.T) {
+	// A repository whose own path contains a segment literally named
+	// "bundles". The separator is the EMPTY SEGMENT, never the marker word, so
+	// a rewrite that resolves the two halves as one string and then re-splits
+	// by searching for "bundles/" must not cut here. Searching forwards cuts
+	// at /srv and calls "bundles/repo//bundles/x" the bundle path — a second,
+	// different reference that still parses.
+	t.Run("a literal bundles segment in the repo half is not the separator", func(t *testing.T) {
+		got, err := ParseBundleRef("ctxloom+file:///srv/bundles/repo//bundles/x")
+		require.NoError(t, err)
+
+		assert.Equal(t, "/srv/bundles/repo", got.RepoPath)
+		assert.Equal(t, "x", got.Bundle)
+		assert.Equal(t, "ctxloom+file:///srv/bundles/repo//bundles/x", got.String())
+	})
+
+	// The mirror image: a bundle whose own path contains a segment named
+	// "bundles". Searching BACKWARD through a merged path cuts at the second
+	// marker, moving "a" into the repository path and leaving "b" as the
+	// bundle — again a different reference that still parses. Together with
+	// the case above, the two pin the separator to the empty segment: neither
+	// end of a marker search is a legal substitute for it.
+	t.Run("a literal bundles segment in the bundle half is not the separator", func(t *testing.T) {
+		got, err := ParseBundleRef("ctxloom+file:///srv/repo//bundles/a/bundles/b")
+		require.NoError(t, err)
+
+		assert.Equal(t, "/srv/repo", got.RepoPath)
+		assert.Equal(t, "a/bundles/b", got.Bundle)
+		assert.Equal(t, "ctxloom+file:///srv/repo//bundles/a/bundles/b", got.String())
+	})
+
 	t.Run("the separator survives a reference with no dot segments at all", func(t *testing.T) {
 		got, err := ParseBundleRef("ctxloom+git://github.com/acme/repo//bundles/lang/go")
 		require.NoError(t, err)

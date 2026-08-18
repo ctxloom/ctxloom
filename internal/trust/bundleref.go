@@ -204,10 +204,13 @@ func ParseBundleRef(raw string) (BundleRef, error) {
 	if u.RawQuery != "" {
 		return BundleRef{}, fmt.Errorf("%w: query string is not part of a bundle reference", ErrRefSyntax)
 	}
-	// An EMPTY query ("…?") is dropped rather than refused: it carries no
-	// user intent to discard, and ForceQuery would otherwise render a
-	// trailing "?" into the canonical string (R1).
-	u.ForceQuery = false
+	// An EMPTY query ("…?") is dropped rather than refused: it carries no user
+	// intent to discard. The drop needs no statement here and must not grow
+	// one: render builds a FRESH url.URL from the parsed fields, so nothing
+	// from u — query, ForceQuery, userinfo, opaque — can reach the canonical
+	// string except by being copied across deliberately. That is the invariant
+	// R1 rests on; preserve it by extending render's field list, never by
+	// rendering u.
 
 	ref := BundleRef{Class: class}
 	if err := ref.parseSelector(u.Fragment); err != nil {

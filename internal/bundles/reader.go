@@ -320,11 +320,12 @@ func (r BundleRead) Claimed() bool {
 // construction, a genuinely local resolution ref — the companion, repofs and
 // builtin call sites all stamp sourceRef (string AND typed) themselves before
 // calling newRead, so the only ones left empty here are localFSReader's
-// project-provenance bundles and ProjectAuthoredRead's synthetic ones. The
-// typed stamp below is minted with trust.LocalRef accordingly, not
-// re-derived by inspecting prov/tctx: a fifth reader that reached this
-// fallback for a non-local ref would be a bug in THAT reader, not something
-// this function could detect from its own arguments.
+// project-provenance bundles and the package's other exported constructor for
+// project-authored (non-Reader) content above. The typed stamp below is
+// minted with trust.LocalRef accordingly, not re-derived by inspecting
+// prov/tctx: a fifth reader that reached this fallback for a non-local ref
+// would be a bug in THAT reader, not something this function could detect
+// from its own arguments.
 func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts signatureFacts) BundleRead {
 	if b != nil && b.sourceRef == "" {
 		b.sourceRef = ref

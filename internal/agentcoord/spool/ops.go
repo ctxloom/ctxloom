@@ -119,14 +119,29 @@ func Fail(m PathMapper, ref Ref) error {
 		return err
 	}
 	to := filepath.Join(root, filepath.FromSlash(string(FailedDirName)), ref.Name)
+	if err := renameInto(from, to); err != nil {
+		return fmt.Errorf("spool: moving %s to %s: %w", ref, FailedDirName, err)
+	}
+	return nil
+}
+
+// renameInto is the ONE raw-filesystem move in this package: create the
+// destination directory, rename, then fsync the directory so the rename is
+// durable. Every spool transition (consume, withdraw, fail) is a rename, so
+// they all land here — a second copy of this sequence would be a second place
+// for the durability fsync to be forgotten.
+//
+// It reports a missing source as ErrAlreadyGone: another sweep winning the
+// race is ordinary, not a fault.
+func renameInto(from, to string) error {
 	if err := os.MkdirAll(filepath.Dir(to), dirPerm); err != nil {
-		return fmt.Errorf("spool: create %s: %w", filepath.Dir(to), err)
+		return fmt.Errorf("create %s: %w", filepath.Dir(to), err)
 	}
 	if err := os.Rename(from, to); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("spool: moving %s to %s: %w", ref, FailedDirName, ErrAlreadyGone)
+			return ErrAlreadyGone
 		}
-		return fmt.Errorf("spool: moving %s to %s: %w", ref, FailedDirName, err)
+		return err
 	}
 	return syncDir(filepath.Dir(to))
 }
@@ -142,17 +157,8 @@ func moveTo(m PathMapper, ref Ref, dir Dir) (Ref, error) {
 	if err != nil {
 		return Ref{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(to), dirPerm); err != nil {
-		return Ref{}, fmt.Errorf("spool: create %s: %w", filepath.Dir(to), err)
-	}
-	if err := os.Rename(from, to); err != nil {
-		if os.IsNotExist(err) {
-			return Ref{}, fmt.Errorf("spool: moving %s to %s: %w", ref, dir, ErrAlreadyGone)
-		}
+	if err := renameInto(from, to); err != nil {
 		return Ref{}, fmt.Errorf("spool: moving %s to %s: %w", ref, dir, err)
-	}
-	if err := syncDir(filepath.Dir(to)); err != nil {
-		return Ref{}, err
 	}
 	return dst, nil
 }

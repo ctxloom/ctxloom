@@ -102,7 +102,11 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// it (fragmentRead, commandRead, the skill loader) would silently
 	// withhold every item this path serves.
 	b.sourceRef = canonical
-	b.sourceRefTyped = canonicalBundleRefTyped(canonical)
+	typed, terr := canonicalBundleRefTyped(canonical)
+	if terr != nil {
+		warnUnmintableSource(canonical, terr)
+	}
+	b.sourceRefTyped = typed
 	b.Name = canonical
 	b.Path = fmt.Sprintf("<remote-version>:%s@%s", canonical, commit)
 

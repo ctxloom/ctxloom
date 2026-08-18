@@ -2,7 +2,6 @@ package backends
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -15,52 +14,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// bundleRefForSource resolves source — profileGateRef.Base, the profile's own
-// SOURCE ref string (canonical for a bundle-shipped profile, the bare display
-// name for a project-authored one; see profileGateRefFor) — into a
-// bundle-level trust.BundleRef.
-//
-// It is deliberately over ref.Base, NEVER ref.Read.SourceRef(), even though
-// gateProfileExec is handed ref.Read as its trust POSTURE: ref.Read is
-// UNCLAIMED whenever cfg is nil or the origin bundle does not resolve (see
-// profileGateRefFor and TestProfileGateRefFor_BundleShippedUsesSourceRef),
-// and every adjacent test in this package constructs a bare
-// profileGateRef{Base: ...} with Read left zero on purpose — Base is this
-// package's only reliable identity input, exactly the reason config's
-// bundleRefForSource(source) reads config's OWN source parameter rather than
-// a read.
-//
-// It replays trust.ParseItemRef's own base-ref resolution (remote.
-// ParseReference, the "builtin:" prefix, the bare-local-name fallback) via a
-// throwaway selector rather than re-implementing those rules a second,
-// competing way — the exact hazard Ref.AsBundleRef's own doc warns against.
-// Degrades to the zero BundleRef on failure, never guesses.
-func bundleRefForSource(source string) trust.BundleRef {
-	tRef, _, _, err := trust.ParseItemRef(source + "#" + trust.KindFragment.Dir() + "/x")
-	if err != nil {
-		return trust.BundleRef{}
-	}
-	tRef.Kind, tRef.Name = "", ""
-	br, err := tRef.AsBundleRef()
-	if err != nil {
-		return trust.BundleRef{}
-	}
-	return br
-}
-
-// itemRefFor mints the canonical "<source>#<kind>/<item>" reference a
-// profile-declared executable's gate ref is built from — this package's own
-// twin of bundles'/config's unexported itemRefFor, over
-// bundleRefForSource(ref.Base) rather than a hand-concatenation of it.
-// Degrades to a stable, well-formed, non-colliding address when the source
-// cannot be resolved, mirroring operations.CountersignRef's identical
-// fallback for the identical unreachable case.
+// itemRefFor mints the canonical "<source>#<kind>/<item>" reference this
+// file's executable-surface producers key their gate on, and REPORTS a source
+// it cannot address. The grammar lives in trust.ItemRefFromSource; what is
+// local here is the diagnostic, because an unaddressable item is withheld from
+// delivery and a silent degrade reports vanished content as success.
 func itemRefFor(source string, kind trust.ItemKind, item string) string {
-	br, err := bundleRefForSource(source).WithItem(kind, item)
+	ref, err := trust.ItemRefFromSource(source, kind, item)
 	if err != nil {
-		return fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", source, kind.Dir(), item)
+		clidiag.Warn("ctxloom", "cannot address source %q: %v — items under it will be withheld", source, err)
 	}
-	return br.String()
+	return ref
 }
 
 // This file is the HOST side of the setup seam: ctxloom owns config and bundles

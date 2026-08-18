@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"fmt"
 	"os/exec"
 	"sort"
 	"strings"
@@ -17,48 +16,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// bundleRefForSource resolves source — the honest bundle identity string every
-// executable-surface producer in this file receives (a builtin/companion
-// caller's own read.TrustSourceRef(), or the literal bundle-ref ask string a
-// profile/companion-loop caller resolved through loadMCPFromBundleRef /
-// loadHooksFromBundleRef) — into a bundle-level trust.BundleRef.
-//
-// It replays trust.ParseItemRef's own base-ref resolution (remote.
-// ParseReference, then the "builtin:" prefix, then the bare-local-name
-// fallback) by handing it a throwaway selector and discarding the parsed
-// Kind/Name before minting, rather than re-implementing those same rules a
-// second, competing way — the exact hazard Ref.AsBundleRef's own doc warns
-// against for a fresh conversion path. It degrades to the zero BundleRef on
-// failure, never guesses; itemRefFor is what turns that into a well-formed,
-// non-colliding address.
-func bundleRefForSource(source string) trust.BundleRef {
-	tRef, _, _, err := trust.ParseItemRef(source + "#" + trust.KindFragment.Dir() + "/x")
-	if err != nil {
-		return trust.BundleRef{}
-	}
-	tRef.Kind, tRef.Name = "", ""
-	br, err := tRef.AsBundleRef()
-	if err != nil {
-		return trust.BundleRef{}
-	}
-	return br
-}
-
-// itemRefFor mints the canonical "<source>#<kind>/<item>" reference an
-// executable-surface item's gate ref is built from — the config-package twin
-// of bundles' unexported itemRefFor (a different package, so a separate
-// mint), over bundleRefForSource(source) instead of a read's own SourceRef
-// (see bundleRefForSource's doc for why: source, not the read, is this
-// file's honest identity input). Degrades to a stable, well-formed,
-// non-colliding address when source cannot be resolved, mirroring
-// operations.CountersignRef's identical fallback for the identical
-// unreachable case.
+// itemRefFor mints the canonical "<source>#<kind>/<item>" reference this
+// file's executable-surface producers key their gate on, and REPORTS a source
+// it cannot address. The grammar lives in trust.ItemRefFromSource; what is
+// local here is the diagnostic, because an unaddressable item is withheld from
+// delivery and a silent degrade reports vanished content as success.
 func itemRefFor(source string, kind trust.ItemKind, item string) string {
-	br, err := bundleRefForSource(source).WithItem(kind, item)
+	ref, err := trust.ItemRefFromSource(source, kind, item)
 	if err != nil {
-		return fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", source, kind.Dir(), item)
+		clidiag.Warn("ctxloom", "cannot address source %q: %v — items under it will be withheld", source, err)
 	}
-	return br.String()
+	return ref
 }
 
 // lookPath is the PATH-resolution seam for tests.

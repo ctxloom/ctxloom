@@ -98,7 +98,12 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 // already-canonical lockfile identity ("<url>@bundles/<path>" or a bare local
 // name), through canonicalBundleRefTyped.
 func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
-	return canonicalBundleRefTyped(r.ref)
+	br, err := canonicalBundleRefTyped(r.ref)
+	if err != nil {
+		warnUnmintableSource(r.ref, err)
+		return trust.BundleRef{}
+	}
+	return br
 }
 
 // canonicalBundleRefTyped mints the structured trust.BundleRef for a canonical
@@ -115,14 +120,19 @@ func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
 // loader_version.go's versionRead already calls on a canonical ref of this
 // exact shape.
 //
-// It degrades to the zero BundleRef on either failure — never guesses — the
-// same fail-closed shape AsBundleRef's own doc describes: BundleRead.SourceRef
-// reports the zero value AS-IS, and it is the CALLER's job to decide what an
-// unaddressable read means, never this mint's.
-func canonicalBundleRefTyped(canonical string) trust.BundleRef {
+// It returns the ERROR rather than the zero BundleRef alone, and that return is
+// load-bearing. A caller that cannot mint here degrades to an unaddressable ref,
+// and an unaddressable ref is WITHHELD from delivery — so a swallowed failure
+// here is not a missing field, it is content silently vanishing. That is
+// exactly how a universal ".git" refusal in the grammar withheld 402 items
+// while every package test stayed green: six sites discarded this error, so the
+// only surviving evidence was a %#v of a zero struct that named nothing.
+// Callers must report what could not be minted; warnUnmintableSource is the
+// shared way to do it.
+func canonicalBundleRefTyped(canonical string) (trust.BundleRef, error) {
 	parsed, err := remote.ParseReference(canonical)
 	if err != nil {
-		return trust.BundleRef{}
+		return trust.BundleRef{}, fmt.Errorf("parse %q: %w", canonical, err)
 	}
 	br, err := trust.Ref{
 		RepoURL:     parsed.URL,
@@ -131,9 +141,9 @@ func canonicalBundleRefTyped(canonical string) trust.BundleRef {
 		IsCompanion: parsed.IsCompanion,
 	}.AsBundleRef()
 	if err != nil {
-		return trust.BundleRef{}
+		return trust.BundleRef{}, fmt.Errorf("convert %q: %w", canonical, err)
 	}
-	return br
+	return br, nil
 }
 
 // leaf is the last segment of the ref — the name the bundle answers to inside

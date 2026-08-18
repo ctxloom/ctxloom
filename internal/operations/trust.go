@@ -1304,14 +1304,7 @@ func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) Effectiv
 	if err != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	// Bundle is the RESERVED trust.ConfigDeclaredBundle spelling, not "" — an
-	// empty bundle name cannot mint a BundleRef at all (every minter refuses
-	// it), which used to leave this ref's CountersignRef key falling back to
-	// an unstable %#v-of-the-Ref address (see that constant's doc for why that
-	// is a fail-OPEN hazard on the rejection path). The item's TRUST POSTURE
-	// is unchanged by this: IsLocal still carries it, and step 3's exemption
-	// still allows it exactly as before — only how it is ADDRESSED moved.
-	ref := trust.Ref{Bundle: trust.ConfigDeclaredBundle, Kind: trust.KindMCP, Name: name, IsLocal: true}
+	ref := trust.Ref{Kind: trust.KindMCP, Name: name, IsLocal: true}
 	// The posture is stated, not looked up: a config.yaml MCP server is a line
 	// the user typed into this project's own configuration. There is no bundle
 	// to read it from and never was — the old path asserted the same thing by

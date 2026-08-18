@@ -139,11 +139,21 @@ launch (`isolation.Axes`), and both are defined in `internal/config/config.go`.
 | Axis | Level | Values | Set by | Governs |
 |---|---|---|---|---|
 | `workspace` | session | `none` \| `worktree` | `run`/`acp --workspace`, an `agent_run` spawn's workspace field, or the `workspace` config key | where a session's working directory lives |
-| `runtime` | agent | `host` \| `container` | an agent binding's `runtime:`, or the `runtime` config key | where an agent's engine process executes |
+| `runtime` | agent | `host` \| `container-rootless` \| `container-rootful` | an agent binding's `runtime:`, or the `runtime` config key | where an agent's engine process executes |
 
 They are two axes rather than one "isolation" setting because they belong to
 different things. Needing a private working directory is a property of how a
-session is launched; needing a container is a property of the agent.
+session is launched; needing a container is a property of the agent. There is
+deliberately no "any container" runtime value: rootless and rootful differ in
+UID mapping, so a workload can genuinely require one, and an ownership
+mismatch is a fatal finding rather than a silent substitution of the other
+mode.
+
+`host` is a value on the runtime axis, not a security boundary: a host-runtime
+agent's coordinator credential is readable by any other same-uid process
+(`/proc/<pid>/environ`), and that credential is identity. Containers are the
+actual boundary — see [Isolation](architecture/engines/isolation.md) and
+[the trust model](trust-model.md).
 
 ## Sources
 

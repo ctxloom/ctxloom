@@ -523,6 +523,17 @@ rather than destroying anything WIP-bearing.
 
 **Claims that overstate the boundary**
 
+- **Host runtime is not a security boundary between agents.** Two agents
+  launched with `runtime: host` run as the same OS user, and the coordinator
+  credential (`CTXLOOM_COORD_CRED`) that `Coordinator.Identify`
+  (`agentcoord/coord/coordinator.go:777`) accepts as sole proof of caller
+  identity is exec-time environment: `/proc/<pid>/environ` exposes it to any
+  other same-uid process for that process's entire lifetime, unsetting it
+  after read does not scrub the kernel's snapshot, and where
+  `ptrace_scope` permits same-uid ptrace a determined process can lift the
+  same bytes out of memory even past that. `internal/shared/procsec` raises
+  the cost of the file-read path but says so itself: "THIS IS BAR-RAISING,
+  NOT A BOUNDARY … The isolation boundary is a container" (`procsec.go:12-17`).
 - **`gitCommonDirMount` mounts the entire git common dir read-write** (`container.go:807`). The accepted risk is recorded in an implementation comment (`:779-797`) and not in the user-facing isolation claim or `docs/trust-model.md`. A member can therefore rewrite main's refs/objects/index and other agents' worktree admin dirs.
 - **`containerHandshakeEnv` promises "ONLY the go-plugin handshake vars" but prefix-matches `PLUGIN_*` across the full host env** (`runner.go:331-333`); `SkipHostEnv` is set nowhere, so any host `PLUGIN_*` variable crosses the boundary and lands in world-readable argv.
 - **`TraceProbe`'s doc claims the loosened seccomp profile is structurally unreachable from a normal run**, but the gate is a plain `os.Getenv` (`traceprobe.go:95-99`) — any parent exporting `CTXLOOM_ISOLATION_PROBE_TRACE_DIR` makes every container run in that process ptrace-permitted and strace-wrapped.

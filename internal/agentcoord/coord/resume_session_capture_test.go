@@ -59,7 +59,7 @@ func TestHandleChildEvent_CapturesLegacySessionID_AndThreadsOnResume(t *testing.
 	// clean (mirrors TestAgentSend_ResumesEndedChild).
 	_, _ = c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond)
 
-	disp, err := c.AgentSend(ownerIdentity(), out.Harp, "", "one more thing", nil, "")
+	disp, err := c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, disp, "resuming")
 
@@ -75,6 +75,6 @@ func TestHandleChildEvent_CapturesLegacySessionID_AndThreadsOnResume(t *testing.
 
 	require.Eventually(t, func() bool { return len(resumed.recordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
 	resumedFirst := resumed.recordedTexts()[0]
-	assert.Equal(t, frameCoordinatorDelivery(ownerIdentity().Harp, "", "one more thing"), resumedFirst,
+	assert.Equal(t, frameCoordinatorDelivery(ownerIdentity().Harp, KindMessage, "one more thing"), resumedFirst,
 		"a native-id resume carries only the mail's provenance frame — never a rendered-transcript replay — on the first turn")
 }

@@ -232,7 +232,7 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 
 	for i := 1; i <= 3; i++ {
-		disp, serr := c.AgentSend(ownerIdentity(), out.Harp, "", fmt.Sprintf("follow-up %d", i), nil, "")
+		disp, serr := c.AgentSend(ownerIdentity(), out.Harp, KindMessage, fmt.Sprintf("follow-up %d", i), nil, "")
 		require.NoError(t, serr)
 		assert.Contains(t, disp, "queued")
 	}
@@ -256,11 +256,11 @@ func TestAgentSend_UnknownRecipient(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
 
-	_, err := c.AgentSend(ownerIdentity(), "nonexistent-harp", "", "hello", nil, "")
+	_, err := c.AgentSend(ownerIdentity(), "nonexistent-harp", KindMessage, "hello", nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown recipient")
 
-	_, err = c.AgentSend(ownerIdentity(), ParentAddress, "", "hello", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), ParentAddress, KindMessage, "hello", nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "has no parent")
 }
@@ -279,7 +279,7 @@ func TestChildSend_ParentOnly(t *testing.T) {
 
 	_, err = c.AgentSend(child, ParentAddress, "result", "finding A", nil, "")
 	require.NoError(t, err)
-	_, err = c.AgentSend(child, "some-sibling-harp", "", "psst", nil, "")
+	_, err = c.AgentSend(child, "some-sibling-harp", KindMessage, "psst", nil, "")
 	require.ErrorIs(t, err, ErrPeerRouting)
 
 	msgs := recvBody(t, c, "finding A", time.Second)
@@ -308,7 +308,7 @@ func TestAgentSend_ResumesEndedChild(t *testing.T) {
 	// Drain the synthesized terminal notice so the resume assertion is clean.
 	_, _ = c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond)
 
-	disp, err := c.AgentSend(ownerIdentity(), out.Harp, "", "one more thing", nil, "")
+	disp, err := c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, disp, "resuming")
 
@@ -507,7 +507,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 		texts := sp.engine(0).recordedTexts()
 		// Provenance-framed (frameCoordinatorDelivery): the injected body is the
 		// turn's content, the header names the user as its sender.
-		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, "", "mid-turn note")
+		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, KindSteer, "mid-turn note")
 	}, conformanceWait, 10*time.Millisecond)
 
 	_, err = c.Inject("foreign-session-harp", "hello?")
@@ -571,7 +571,7 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		texts := sp.engine(0).recordedTexts()
-		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, "", "wake up")
+		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, KindSteer, "wake up")
 	}, conformanceWait, 10*time.Millisecond)
 
 	// The O3 mirror fires for every delivery mode, this one included.

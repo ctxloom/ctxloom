@@ -96,7 +96,8 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 // SetAgentRequest is the input for SetAgent: the binding to add or update
 // under the local `agents:` config key. Engine is optional (empty = project
 // default / the composed profiles' llm); Profiles compose into one context;
-// Runtime is optional (host | container; empty inherits the project
+// Runtime is optional (one of isolation.RuntimeNames — host |
+// container-rootless | container-rootful; empty inherits the project
 // `runtime:` default); Permissions is optional (default|acceptEdits|plan|bypass;
 // empty inherits the engine label's default). The workspace axis is deliberately
 // NOT settable here — it is a session trait chosen at invocation time, never
@@ -110,7 +111,12 @@ type SetAgentRequest struct {
 	// the project default.
 	LLM      *string   `json:"llm,omitempty"`
 	Profiles *[]string `json:"profiles,omitempty"`
-	Runtime  *string   `json:"runtime,omitempty"`
+	// Runtime is optional (one of isolation.RuntimeNames — host |
+	// container-rootless | container-rootful). An unknown non-empty value is
+	// REJECTED (SetAgent returns an error, nothing is persisted) — see
+	// validateAgentAxes's doc for why this axis breaks rather than degrades.
+	// Empty CLEARS the override, inheriting the project `runtime:` default.
+	Runtime *string `json:"runtime,omitempty"`
 	// Surfaces sets the binding's delivery preference (kind -> approach). It is
 	// validated against the engine this write RESULTS IN — the requested one if
 	// the same call sets it, otherwise the one already recorded — so a pair is
@@ -145,12 +151,18 @@ func orKeep[T any](set *T, existing T) T {
 // advisory half, validateAgentAxes the refusing half; SetAgent runs both before
 // it opens its write transaction.
 //
-// warnAgentAxisTypos covers the axes whose unknown values still resolve to a
-// working default at run time (Runtime → host, Permissions → the default
-// posture), so they are stored as written per fault tolerance — but warned about
-// NOW, so a typo surfaces at write time rather than at the first run. The
-// shadowed-definition notice rides along: it is likewise about where a
-// definition lives, not about whether the binding works.
+// warnAgentAxisTypos covers the axis whose unknown value still resolves to a
+// working default at run time (Permissions → the default posture), so it is
+// stored as written per fault tolerance — but warned about NOW, so a typo
+// surfaces at write time rather than at the first run. The shadowed-definition
+// notice rides along: it is likewise about where a definition lives, not about
+// whether the binding works.
+//
+// Runtime used to live here too (warn-and-store, "it will run on the host").
+// It does not anymore: an unknown runtime doesn't just degrade, it silently
+// SUBSTITUTES the isolation boundary the user asked for with none at all, and
+// the substituted config then fails schema validation at the next load — see
+// validateAgentAxes for the refusal.
 func warnAgentAxisTypos(cfg *config.Config, name string, req SetAgentRequest) {
 	// A directory-sourced agent of the same name would be shadowed by this
 	// config-key entry (config wins, see config.LoadAgents). Surface it so the
@@ -159,12 +171,6 @@ func warnAgentAxisTypos(cfg *config.Config, name string, req SetAgentRequest) {
 		clidiag.Warn("ctxloom",
 			"agent %q is also defined in %s; the config.yaml entry written now takes precedence",
 			name, existing.Source)
-	}
-
-	if req.Runtime != nil && *req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), *req.Runtime) {
-		clidiag.Warn("ctxloom",
-			"agent %q declares unknown runtime %q (known: %s); it will run on the host",
-			name, *req.Runtime, strings.Join(isolation.RuntimeNames(), "|"))
 	}
 
 	if req.Permissions != nil && *req.Permissions != "" {
@@ -186,6 +192,20 @@ func warnAgentAxisTypos(cfg *config.Config, name string, req SetAgentRequest) {
 //     this codebase treats as a bug rather than a shortcut.
 //   - Driving: it changes execution semantics (whether the child's engine
 //     process survives a turn boundary). Reasoning in agents.ValidateDriving.
+//   - Runtime: an unknown value is a security-relevant SUBSTITUTION, not a
+//     degrade. `agent create dev --runtime container` used to warn "unknown
+//     runtime ... it will run on the host", persist `runtime: container`
+//     anyway, and print it back in the success line as if it had been
+//     honored — so the user who asked for a container boundary silently got
+//     none, the config then failed schema validation at the next `ctxloom
+//     run` (exit 3), and the project stopped working until they hand-edited
+//     the file. isolation.warnUnknownAxes already refuses this same value at
+//     launch time (a fatal ClassIsolation finding) rather than substitute —
+//     refusing it here too means the CLI catches its own typo instead of
+//     writing a value that only explodes later, one layer down. There is
+//     deliberately no "any container" alias to fall back to (see
+//     isolation.IsContainerRuntimeAxis's doc): rootless and rootful differ in
+//     UID mapping, so silently picking one would itself be a substitution.
 //
 // The engine membership set is AvailableLLMNames — registered backends UNION
 // the labels this config declares — because an agent's engine is a LABEL
@@ -203,6 +223,11 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 			return fmt.Errorf("agent %q: unknown engine %q; valid engines: %s",
 				name, *req.LLM, strings.Join(available, ", "))
 		}
+	}
+
+	if req.Runtime != nil && *req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), *req.Runtime) {
+		return fmt.Errorf("agent %q: unknown runtime %q; valid runtimes: %s",
+			name, *req.Runtime, strings.Join(isolation.RuntimeNames(), ", "))
 	}
 
 	if req.Driving != nil {

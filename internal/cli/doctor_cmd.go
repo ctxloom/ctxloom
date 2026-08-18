@@ -218,6 +218,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckGitignorePosture(cfg, cfgErr),
 			doctorCheckForeignWorktrees(ctx, git.NewExec(), doctorProjectDir(cfg)),
 			doctorCheckHarpDurability(),
+			doctorCheckSpoolBacklog(),
 		}
 	}
 	report := doctorReport{Checks: checks}

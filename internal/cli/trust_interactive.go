@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -192,7 +193,14 @@ func warnPromptFault(cmd *cobra.Command, err error) {
 func printBundleItemTrust(w io.Writer, stamper *operations.TrustStamper, bundle string, kind trust.ItemKind, name string) {
 	ref := bundle + "#" + kind.Dir() + "/" + name
 	res := stamper.ForRef(ref)
-	fmt.Fprintf(w, "  %s/%s: %s\n", kind.Dir(), name, stampedTrust(res))
+	// name is bundle-authored and reaches this print RAW; ForRef normalizes
+	// its own copy for the trust decision (via trust.ParseItemRef), but never
+	// hands the cleaned string back. Strip (not NormalizeRef) so a malicious
+	// name cannot repaint this terminal line without a second, redundant
+	// warning on top of the one ForRef's ingest already emitted for the
+	// same bytes.
+	cleanName, _ := remote.StripRefControlChars(name)
+	fmt.Fprintf(w, "  %s/%s: %s\n", kind.Dir(), cleanName, stampedTrust(res))
 }
 
 // printBundleHookTrust stamps one bundle hook by its (bundle, entry) identity and
@@ -202,7 +210,11 @@ func printBundleItemTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 // address — and the posture comes from the hook-aware TrustStamper.ForHook.
 func printBundleHookTrust(w io.Writer, stamper *operations.TrustStamper, bundle string, entry bundles.HookEntry) {
 	res := stamper.ForHook(bundle, entry)
-	fmt.Fprintf(w, "  hooks/%s: %s\n", entry.ID(), stampedTrust(res))
+	// entry.ID() is bundle-authored ("<event>/<index>", but the event name
+	// comes straight from the bundle's hooks config) — same rationale as
+	// printBundleItemTrust above.
+	cleanID, _ := remote.StripRefControlChars(entry.ID())
+	fmt.Fprintf(w, "  hooks/%s: %s\n", cleanID, stampedTrust(res))
 }
 
 // reviewLocalMCPTrust is the TTY-gated trust review for `manage mcp servers show

@@ -202,3 +202,31 @@ func TestRefIngest_CleanRefsAreUntouched(t *testing.T) {
 		}
 	}
 }
+
+// TestStripRefControlChars_ExhaustiveC0AndDEL is the audit this file's other
+// tests sample: every one of the 33 code points isRefControlChar names (the
+// full C0 range 0x00-0x1F, plus DEL 0x7F) must be stripped, and every OTHER
+// byte in 0x00-0xFF — printable ASCII, the C1 range 0x80-0x9F, and the rest of
+// the Latin-1 byte range — must survive untouched. This is the parity claim
+// the audit exists to pin: trust.isRefControlRune uses the identical formula
+// (r < 0x20 || r == 0x7f), so a test that nails this range down for
+// StripRefControlChars nails it down for both.
+//
+// A single stray byte is embedded mid-string rather than standalone, so the
+// assertion also catches a mapper that only special-cases whole-string or
+// leading/trailing occurrences.
+func TestStripRefControlChars_ExhaustiveC0AndDEL(t *testing.T) {
+	for r := 0; r < 0x100; r++ {
+		r := rune(r)
+		in := "bundle" + string(r) + "name"
+		got, stripped := StripRefControlChars(in)
+		wantStripped := r < 0x20 || r == 0x7f
+		if wantStripped {
+			assert.True(t, stripped, "rune %#U (%d) should have been stripped", r, r)
+			assert.Equal(t, "bundlename", got, "rune %#U (%d) left residue after stripping", r, r)
+		} else {
+			assert.False(t, stripped, "rune %#U (%d) should NOT have been stripped", r, r)
+			assert.Equal(t, in, got, "rune %#U (%d) was altered though it is not a control character", r, r)
+		}
+	}
+}

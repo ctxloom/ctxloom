@@ -2,7 +2,6 @@ package trust
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -322,29 +321,31 @@ func TestBundleRef_ControlCharacters_ExhaustiveRefusal(t *testing.T) {
 	}
 }
 
-// --- R2: repo-path case — reject on folding forges, preserve elsewhere ------
+// --- R2: repo-path case — PRESERVED byte-exact on every host ---------------
 
 func TestBundleRef_R2_RepoPathCase(t *testing.T) {
-	t.Run("uppercase is REJECTED on a case-folding forge, naming the lowercase spelling", func(t *testing.T) {
+	t.Run("uppercase is PRESERVED on a case-folding forge, not refused and not rewritten", func(t *testing.T) {
+		// A forge that serves "Foo/Bar" and "foo/bar" as one repository is
+		// host-specific knowledge this grammar does not have. Folding on it
+		// merges two identities onto one trust key; refusing makes a real
+		// repository unaddressable. Neither: the spelling is preserved.
 		for _, host := range []string{"github.com", "gitlab.com", "bitbucket.org"} {
 			in := "ctxloom+git://" + host + "/Acme/Repo//bundles/x"
 
-			_, err := ParseBundleRef(in)
-			require.Error(t, err, "%s accepted an uppercase repo path", host)
-			assert.ErrorIs(t, err, ErrRefForgeCase)
-			// "naming the lowercase spelling" is the load-bearing half: a bare
-			// refusal leaves the user without the ref they should have typed.
-			assert.Contains(t, err.Error(), "/acme/repo",
-				"%s: error does not name the lowercase spelling", host)
+			got, err := ParseBundleRef(in)
+			require.NoError(t, err, "%s refused an uppercase repo path", host)
+			assert.Equal(t, "/Acme/Repo", got.RepoPath, "%s rewrote the repo path", host)
+			assert.Equal(t, in, got.String(), "%s did not round-trip the spelling", host)
 		}
 	})
 
-	t.Run("uppercase is REJECTED, never silently rewritten", func(t *testing.T) {
-		// A rewrite would be a rewrite of identity, recorded against a ref the
-		// user never typed. Assert no ref comes back at all.
-		got, err := ParseBundleRef("ctxloom+git://github.com/Acme/Repo//bundles/x")
-		require.Error(t, err)
-		assert.Equal(t, BundleRef{}, got, "a rejected ref must not be returned rewritten")
+	t.Run("two case spellings on a case-folding forge are DIFFERENT identities", func(t *testing.T) {
+		upper, err := ParseBundleRef("ctxloom+git://github.com/Acme/Repo//bundles/x")
+		require.NoError(t, err)
+		lower, err := ParseBundleRef("ctxloom+git://github.com/acme/repo//bundles/x")
+		require.NoError(t, err)
+		assert.NotEqual(t, upper.Identity(), lower.Identity(),
+			"two spellings collapsed onto one trust key")
 	})
 
 	t.Run("case is PRESERVED on a case-sensitive git server", func(t *testing.T) {
@@ -740,12 +741,12 @@ func TestBundleRef_MintersProduceParseableRefs(t *testing.T) {
 		assert.Equal(t, "ctxloom+git://github.com/acme/repo//bundles/x#fragments/solid", r.Identity())
 	})
 
-	t.Run("a minter cannot construct a ref the parser would refuse", func(t *testing.T) {
-		// R2's refusal must reach the minting path too, or Go callers would
-		// have a door around it.
-		_, err := GitRef("github.com", "Acme/Repo", "x")
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrRefForgeCase)
+	t.Run("a minter preserves a spelling the parser preserves", func(t *testing.T) {
+		// The minting path and the parse path must agree on what identity a
+		// spelling has, or a Go caller and a typed ref would key differently.
+		r, err := GitRef("github.com", "Acme/Repo", "x")
+		require.NoError(t, err)
+		assert.Equal(t, "ctxloom+git://github.com/Acme/Repo//bundles/x", r.String())
 	})
 
 	t.Run("a minter escapes a hostile name rather than emitting it raw", func(t *testing.T) {
@@ -786,17 +787,11 @@ func TestBundleRef_SyntaxRefusals(t *testing.T) {
 		{"truncated percent escape", "ctxloom+local:too%"},
 		{"invalid percent escape", "ctxloom+local:too%zz"},
 		{"path on an internal class", "ctxloom+builtin://host/x"},
-		{"git suffix on repo path", "ctxloom+git://github.com/acme/repo.git//bundles/x"},
-		{"git suffix on file repo path", "ctxloom+file:///srv/repo.git//bundles/x"},
-		{"www prefix on host", "ctxloom+git://www.github.com/acme/repo//bundles/x"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := ParseBundleRef(tt.in)
 			require.Error(t, err, "accepted %q", tt.in)
-			assert.True(t,
-				strings.Contains(err.Error(), ErrRefSyntax.Error()) ||
-					strings.Contains(err.Error(), ErrRefForgeCase.Error()),
-				"unexpected error for %q: %v", tt.in, err)
+			assert.ErrorIs(t, err, ErrRefSyntax, "unexpected error for %q: %v", tt.in, err)
 		})
 	}
 }

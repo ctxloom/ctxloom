@@ -297,16 +297,6 @@ func (r Ref) CanonicalURL() string {
 	return CanonicalRepoURL(r.RepoURL)
 }
 
-// knownCaseFoldForges are forges whose owner/repo path is case-insensitive, so
-// canonicalization may safely lowercase the whole path. Other hosts (and
-// file:// paths) keep their path case, which can be significant.
-var knownCaseFoldForges = map[string]bool{
-	"github.com":     true,
-	"www.github.com": true,
-	"gitlab.com":     true,
-	"bitbucket.org":  true,
-}
-
 // CanonicalRepoURL canonicalizes a repository URL so that variant spellings of
 // the same repo collapse to one key — otherwise a rejection keyed on one
 // spelling could be escaped by fetching the same repo under another. This is
@@ -319,13 +309,15 @@ var knownCaseFoldForges = map[string]bool{
 // rejection" as an addressed threat; this function is where that claim is
 // either true or false.
 //
-// It builds on remote.NormalizeURL (unifies scheme, rewrites git@ → https,
-// strips a trailing .git for http(s)) and then, for http(s) URLs: normalizes
-// http → https, lowercases the host, folds a www. prefix off known forges,
-// drops userinfo/query/fragment, trims trailing slashes and a .git suffix in
-// that order, and lowercases the owner/repo path on known case-insensitive
-// forges. Empty input, the ctxloom:local token, and the ctxloom:companion
-// token pass through unchanged.
+// It builds on remote.NormalizeURL (unifies scheme, rewrites git@ → https)
+// and then, for http(s) URLs: normalizes http → https, lowercases the host,
+// drops userinfo/query/fragment and trims trailing slashes. Empty input, the
+// ctxloom:local token, and the ctxloom:companion token pass through unchanged.
+//
+// It folds NOTHING ELSE. ".git" suffixes, "www." prefixes and repository-path
+// case are preserved byte-exact, and two spellings are two identities — see
+// ParseBundleRef's doc for the rule and for why the escape this appears to
+// leave open is closed one layer over, by content-hash rejection.
 //
 // Anything ADDED here must be a spelling of the same repository, never a
 // different one: folding two distinct repos onto one key would let a rejection
@@ -374,15 +366,11 @@ func CanonicalRepoURL(raw string) string {
 		return normalized
 	}
 
+	// RFC 3986 §6.2.2.1 case normalization: the host is case-INSENSITIVE, so
+	// lowercasing it is conformant and is knowledge we actually have (DNS is
+	// case-insensitive). A "www." prefix is a DISTINCT registered name and is
+	// preserved — see ParseBundleRef's doc for why no spelling is folded.
 	u.Host = strings.ToLower(u.Host)
-	// www.github.com and github.com are one repo. knownCaseFoldForges already
-	// listed "www.github.com", which proves the variant was considered — but
-	// nothing ever rewrote the host, so the entry only ever lowercased the
-	// path of a URL that still compared unequal to its bare-host twin.
-	// Folding the prefix off is what makes the entry mean something.
-	if strings.HasPrefix(u.Host, "www.") && knownCaseFoldForges[strings.TrimPrefix(u.Host, "www.")] {
-		u.Host = strings.TrimPrefix(u.Host, "www.")
-	}
 
 	// Credentials, query and fragment address a REQUEST, never a repository.
 	// Leaving them in made "…/repo?ref=x" a different trust key from "…/repo".
@@ -392,18 +380,11 @@ func CanonicalRepoURL(raw string) string {
 	u.Fragment = ""
 	u.RawFragment = ""
 
-	// Trim trailing slashes BEFORE stripping .git, and strip .git HERE rather
-	// than relying on remote.NormalizeURL. NormalizeURL's TrimSuffix(".git")
-	// runs before this function ever sees the string, so "…/repo.git/" kept
-	// its ".git" — connascence of order across two packages, where neither
-	// side is wrong on its own. Doing both, in this order, in one place makes
-	// the function total over the suffix spellings.
+	// A trailing slash is RFC 3986 §6.2.3 syntax-based normalization, so it is
+	// trimmed. The path's CASE is not: §6.2.2.1 makes every component other
+	// than scheme and host case-sensitive, so it is preserved on every host,
+	// as is a ".git" suffix. See ParseBundleRef's doc.
 	u.Path = strings.TrimRight(u.Path, "/")
-	u.Path = strings.TrimSuffix(u.Path, ".git")
-	u.Path = strings.TrimRight(u.Path, "/")
-	if knownCaseFoldForges[u.Host] {
-		u.Path = strings.ToLower(u.Path)
-	}
 	return u.String()
 }
 
@@ -424,15 +405,16 @@ func CanonicalRepoURL(raw string) string {
 // on the forges it knows and strips a ".git" suffix unconditionally;
 // ParseBundleRef now REFUSES an unfolded spelling of any of those instead
 // (R2, and the .git/www. refusals added alongside it). A Ref built from one
-// of the many pre-existing spellings CanonicalRepoURL exists to collapse must
-// therefore be cleaned before it ever reaches the stricter grammar, or this
-// conversion would fail on ordinary, previously-working input — a git@
-// remote, a repo.git URL, an upper-case GitHub owner — the moment it shipped.
-// A remaining spelling CanonicalRepoURL itself does not fold (e.g. "www." on
-// a host outside knownCaseFoldForges) still reaches ParseBundleRef unfolded
-// and is refused there; AsBundleRef reports that as an error rather than
-// guessing, and its one caller falls back to an inert, non-colliding address
-// (see countersignRef) rather than panicking or silently mis-keying.
+// of the transport spellings CanonicalRepoURL unifies (a git@ remote, an
+// http URL) must therefore be normalized before it reaches the grammar, or
+// one repository would key two ways depending on how it was cloned.
+//
+// What it does NOT do is fold a merely non-preferred spelling — a ".git"
+// suffix, a "www." host, repository-path case all survive as distinct
+// identities. A refusal here is not a diagnostic the user ever sees: the
+// caller degrades to an inert, non-colliding address (see countersignRef) and
+// the item is silently WITHHELD from delivery, so refusing an ordinary
+// spelling costs content, not just convenience.
 func (r Ref) AsBundleRef() (BundleRef, error) {
 	base, err := r.bundleRefBase()
 	if err != nil {

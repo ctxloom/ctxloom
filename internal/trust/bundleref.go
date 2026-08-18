@@ -49,16 +49,11 @@ const bundleMarker = "bundles/"
 const repoBundleSeparator = "//"
 
 // Errors returned by the bundle-reference grammar. They are sentinels so a
-// caller can tell a syntax error from the two refusals that are policy —
-// ErrRefForgeCase (R2) and ErrRefNameCollision (R3) — with errors.Is.
+// caller can tell a syntax error from the one refusal that is policy —
+// ErrRefNameCollision (R3) — with errors.Is.
 var (
 	// ErrRefSyntax indicates the reference does not match the grammar.
 	ErrRefSyntax = errors.New("malformed bundle reference")
-
-	// ErrRefForgeCase indicates an uppercase repository path was used against
-	// a forge that treats repository paths case-insensitively. See
-	// knownCaseFoldForges and ParseBundleRef's R2 handling.
-	ErrRefForgeCase = errors.New("repository path must be lowercase on this forge")
 
 	// ErrRefNameCollision indicates two references from one source name
 	// bundles or items that differ only by ASCII case. See
@@ -94,8 +89,8 @@ type BundleRef struct {
 	Host string
 
 	// RepoPath is the repository path with a leading "/" and no trailing one,
-	// set for ClassGit and ClassFile. Its case is PRESERVED except where
-	// ParseBundleRef refuses it outright (see ErrRefForgeCase).
+	// set for ClassGit and ClassFile. Its case is PRESERVED, on every host —
+	// RFC 3986 §6.2.2.1 makes a URI path case-sensitive.
 	RepoPath string
 
 	// Bundle is the bundle path within the source ("code-quality",
@@ -127,6 +122,24 @@ type BundleRef struct {
 // publisher signature is not "rejected → pending" but "rejected → ALLOW".
 // CanonicalRepoURL's doc states the same property for the URL it canonicalizes.
 //
+// Normalization here is RFC 3986 §6.2 and NOTHING MORE. ".git" suffixes,
+// "www." prefixes and repository-path case are PRESERVED byte-exact, and two
+// spellings of one repository are two identities. That is deliberate: whether
+// two addresses reach the same repository is host-specific knowledge we do not
+// have, and folding on a guess merges two identities onto one trust key —
+// which would let a rejection of one silently govern the other. The inverse,
+// refusing a non-preferred spelling, is worse still: "https://host/foo.git" IS
+// the real path of a bare repository on a plain git server, where
+// "https://host/foo" often does not exist, so refusing it makes a real
+// repository UNADDRESSABLE.
+//
+// The cross-address case is already handled one layer over: a CONTENT-reject
+// (signing.ContentRejectCountersignPayload) omits the ref by design, so a
+// rejection of these bytes holds wherever they appear. A REF-reject blocks one
+// ADDRESS, which is what it says. Refusal here is reserved for spellings that
+// are MALFORMED — "%2F" forging a separator, a control character, a missing
+// "bundles/" prefix — never for spellings that are merely non-preferred.
+//
 // The rules applied, in order:
 //
 //   - R1 normalization (RFC 3986 §6.2.2): percent-encoded UNRESERVED
@@ -135,8 +148,9 @@ type BundleRef struct {
 //     slash is dropped and an empty query is dropped. A character that is
 //     neither unreserved, sub-delim nor pchar — "|" is the motivating one — is
 //     percent-encoded on output, never passed through.
-//   - R2 repo-path case: REJECTED on a case-folding forge, PRESERVED
-//     everywhere else. See the knownCaseFoldForges branch below.
+//   - R2 repo-path case: PRESERVED byte-exact, on every host. RFC 3986
+//     §6.2.2.1 makes a URI path case-SENSITIVE, and this grammar does not
+//     second-guess it.
 //   - R3 bundle/item name case: PRESERVED byte-exact here; same-fold
 //     collisions across a SET of references are detected by
 //     CheckBundleRefFoldCollisions.
@@ -234,21 +248,11 @@ func (r *BundleRef) parseExternal(u *url.URL) error {
 		if u.Host == "" {
 			return fmt.Errorf("%w: %sgit requires a host", ErrRefSyntax, schemePrefix)
 		}
-		// RFC 3986 §6.2.2.1: the host is case-INSENSITIVE, so folding it is
-		// the conformant normalization, not a special case like R2 below.
+		// RFC 3986 §6.2.2.1: the host is case-INSENSITIVE, so folding its
+		// case is conformant normalization. A "www." prefix is NOT: it is a
+		// distinct host name, preserved byte-exact like every other spelling
+		// this grammar accepts. See ParseBundleRef's doc.
 		r.Host = strings.ToLower(u.Host)
-		// A "www." host is REFUSED, not folded off. The retired
-		// trust.CanonicalRepoURL folded it only on a short list of known
-		// forges, which meant "www.git.example.com" and "git.example.com"
-		// stayed two identities everywhere else — exactly the silent-collapse
-		// hazard this grammar exists to close. Refusing costs nothing real: a
-		// forge does not require the "www." subdomain for its API/clone
-		// traffic, so the fix is always to drop it, never to keep two
-		// spellings alive.
-		if strings.HasPrefix(r.Host, "www.") {
-			return fmt.Errorf("%w: host %q carries a decorative \"www.\" prefix; write %q",
-				ErrRefSyntax, r.Host, strings.TrimPrefix(r.Host, "www."))
-		}
 	} else if u.Host != "" {
 		return fmt.Errorf("%w: %sfile takes no host (use %sfile:///<abs-path>)", ErrRefSyntax, schemePrefix, schemePrefix)
 	}
@@ -289,38 +293,6 @@ func (r *BundleRef) parseExternal(u *url.URL) error {
 	if repoPath == "" || repoPath == "/" {
 		return fmt.Errorf("%w: empty repository path", ErrRefSyntax)
 	}
-	// A ".git" suffix is REFUSED, not stripped. It is a clone-URL cosmetic —
-	// the same repository is reachable with or without it — so two spellings
-	// that differ only in this suffix must not become two identities. Folding
-	// it off (the retired trust.CanonicalRepoURL's approach, http(s) only)
-	// works, but a silent fold is one more place a caller can stop trusting
-	// what the grammar accepted; refusing tells them once, at the door.
-	if strings.HasSuffix(repoPath, ".git") {
-		return fmt.Errorf("%w: repository path %q carries a decorative \".git\" suffix; write %q",
-			ErrRefSyntax, repoPath, strings.TrimSuffix(repoPath, ".git"))
-	}
-
-	// R2. This is a SPECIAL CASE FORCED BY EXTERNAL NON-CONFORMANCE, not a
-	// preference and not a general rule. RFC 3986 §6.2.2.1 makes a URI PATH
-	// case-SENSITIVE; GitHub, GitLab and Bitbucket nevertheless serve
-	// "Foo/Bar" and "foo/bar" as the SAME repository. On those hosts an
-	// uppercase repository path is an ERROR that names the lowercase
-	// spelling — never a silent rewrite, because rewriting a path is
-	// rewriting an identity, and the user would never see which identity
-	// their rejection was recorded against. On every other host the case is
-	// PRESERVED and accepted: a case-sensitive git server is the CONFORMANT
-	// behaviour and must stay addressable.
-	//
-	// knownCaseFoldForges is therefore read here as a list of hosts where
-	// uppercase is an error. It is NOT a rewrite rule and must never be
-	// generalized into one.
-	if r.Class == ClassGit && knownCaseFoldForges[r.Host] {
-		if lower := strings.ToLower(repoPath); lower != repoPath {
-			return fmt.Errorf("%w: %s treats repository paths case-insensitively; write %q, not %q",
-				ErrRefForgeCase, r.Host, lower, repoPath)
-		}
-	}
-
 	bundle, err := url.PathUnescape(name)
 	if err != nil {
 		return fmt.Errorf("%w: bundle name: %v", ErrRefSyntax, err)

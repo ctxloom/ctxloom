@@ -178,8 +178,12 @@ func TestDeclaredName_ProjectBundleKeysByLocationNotByDeclaredName(t *testing.T)
 // a REGRESSION GUARD, not a proof of the outdated-recoil fix. It passes both
 // before and after that fix and no mutation of it can die, because the property
 // it asserts is ref-agnostic by construction — which is exactly the property
-// being pinned. It dies to mutations of the CONTENT-REJECT path (see the
-// mutation recorded for it), and that is the only thing it is entitled to claim.
+// being pinned. It is not a tautology either: it dies to mutations of the
+// CONTENT-REJECT path. Measured — replacing the `if len(payload) == 0` guard in
+// countersignRecords.Rejected with a bare `return false`, so only the ref-level
+// component survives, fails THIS test at the withhold assertion and leaves the
+// other three in this file passing. That is the only thing it is entitled to
+// claim.
 func TestDeclaredName_ContentRejectionSurvivesADeclaredRename(t *testing.T) {
 	const rejectedBody = "REJECTED-BYTES"
 	gate, fx := declaredNameGate(t)

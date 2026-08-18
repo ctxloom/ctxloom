@@ -224,6 +224,12 @@ func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
 // and inherit its grants. newRead stamps the location-derived resolution ref
 // into sourceRef for every read a reader emits, so there is nothing for a
 // fallback to do but reopen that hole (outdated-recoil).
+//
+// That last sentence is measured, not assumed, and it is why NO test can be
+// written that dies to restoring the fallback here on its own: with newRead
+// stamping, the fallback is unreachable. Its removal is trap removal — the
+// stamp is the load-bearing half, and the tests that die are the ones that die
+// when the stamp goes (internal/operations/declared_name_trust_test.go).
 func (b *Bundle) contentSourceRef() string {
 	return b.sourceRef
 }

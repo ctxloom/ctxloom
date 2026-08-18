@@ -308,7 +308,7 @@ func TestSpoolDelivery_ChildSendRidesOutAndReachesAgentRecv(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 
-	structured, err := structpb.NewStruct(map[string]any{"kind": KindResult, "confidence": "high"})
+	structured, err := structpb.NewStruct(map[string]any{"confidence": "high"})
 	require.NoError(t, err)
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
@@ -316,6 +316,7 @@ func TestSpoolDelivery_ChildSendRidesOutAndReachesAgentRecv(t *testing.T) {
 			Text:       "a finding",
 			Structured: structured,
 			InReplyTo:  "corr-2",
+			Kind:       agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
 		}},
 	})
 	require.NoError(t, err)

@@ -313,7 +313,7 @@ func TestSpoolTurnResult_SelfReportSuppressesIt(t *testing.T) {
 	// The child sends its own report, then a turn boundary passes.
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole: ParentAddress, Text: "in my own words",
+			ToRole: ParentAddress, Text: "in my own words", Kind: agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
 		}},
 	})
 	require.NoError(t, err)

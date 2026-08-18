@@ -264,12 +264,15 @@ func TestSpoolTee_CoordinatorMailHasOneSpoolTwinEach(t *testing.T) {
 	structured := json.RawMessage(`{"decision":"allow","tool":"Bash"}`)
 	var want []Message
 
-	// An UNKINDED message: the most common kind on the wire (Inject queues
-	// one on every human injection) and the one with no frontmatter spelling
-	// of its own, so it is first rather than an afterthought.
-	id, _, _, err := c.peerSend(owner, out.Harp, KindUnset, "no kind at all", nil, "")
+	// KindUnset used to be reachable here directly (an unkinded agent_send
+	// was legal, and control.go's Inject minted the single largest share of
+	// it on the wire); both are now refused/renamed, so peerSend's own
+	// SenderMailKind gate refuses "" from an ordinary, uncorrelated send —
+	// there is no longer a legitimate way to construct this case at this
+	// chokepoint. KindError takes its place as the first of the three shapes.
+	id, _, _, err := c.peerSend(owner, out.Harp, KindError, "something went wrong", nil, "")
 	require.NoError(t, err)
-	want = append(want, Message{ID: id, From: owner.Harp, To: out.Harp, Kind: KindUnset, Body: "no kind at all"})
+	want = append(want, Message{ID: id, From: owner.Harp, To: out.Harp, Kind: KindError, Body: "something went wrong"})
 
 	id, _, _, err = c.peerSend(owner, out.Harp, KindMessage, "an instruction", nil, "")
 	require.NoError(t, err)
@@ -342,13 +345,14 @@ func TestSpoolTee_RunnerSendHasOneSpoolTwinEach(t *testing.T) {
 	rings := make(chan spool.Ref, 8)
 	c.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { rings <- ref })
 
-	structured, err := structpb.NewStruct(map[string]any{"kind": KindResult, "confidence": "high"})
+	structured, err := structpb.NewStruct(map[string]any{"confidence": "high"})
 	require.NoError(t, err)
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
 			ToRole:     ParentAddress,
 			Text:       "a finding",
 			Structured: structured,
+			Kind:       agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
 		}},
 	})
 	require.NoError(t, err)
@@ -521,7 +525,7 @@ func TestSpoolTee_NonObjectStructuredRoundTripsUnderTheWrapper(t *testing.T) {
 func TestSpoolTee_KindMappingIsExhaustive(t *testing.T) {
 	kinds := MailKinds()
 	require.NotEmpty(t, kinds, "the exhaustiveness authority itself must not be empty")
-	require.Contains(t, kinds, KindUnset, "the unkinded message is the most common one on the wire")
+	require.Contains(t, kinds, KindUnset, "KindUnset stays a member of the closed vocabulary (a Message whose Kind was never set) even though no sender or coordinator-internal path can produce one anymore")
 
 	seen := make(map[string]string, len(kinds))
 	for _, k := range kinds {

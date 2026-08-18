@@ -52,7 +52,9 @@ func TestCatalogScoped_ExcludesBuiltinsAndKeepsAcquiredContent(t *testing.T) {
 		acquired,
 	)
 
-	const builtinRef = "builtin:isolation"
+	// The BARE name: a builtin's resolution ref carries no source class (I7).
+	// "builtin:isolation" is its TRUST ref and was never a listing handle.
+	const builtinRef = "isolation"
 	require.Contains(t, namesOf(cat.Infos()), builtinRef,
 		"guard: the embedded builtin must be in the unscoped set, or this test proves nothing")
 

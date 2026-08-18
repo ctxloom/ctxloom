@@ -245,7 +245,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 func resolveBuiltinBundleMCPServers(gate bundles.Authorizer) map[string]wire.MCPServer {
 	out := make(map[string]wire.MCPServer)
 	eachBuiltinBundle(func(read bundles.BundleRead) {
-		for serverName, server := range extractMCPFromBundle(read, read.Ref(), gate) {
+		for serverName, server := range extractMCPFromBundle(read, read.TrustSourceRef(), gate) {
 			// Builtin bundles wire in standalone companion binaries; a
 			// missing one degrades to no entry (and one install hint)
 			// rather than a broken server in every backend.
@@ -573,7 +573,7 @@ func resolveCompanionCommandsWith(pipe *bundles.Pipeline, loader *bundles.Loader
 func resolveBuiltinBundleHooks(gate bundles.Authorizer) wire.UnifiedHooks {
 	var out wire.UnifiedHooks
 	eachBuiltinBundle(func(read bundles.BundleRead) {
-		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(read, read.Ref(), gate)))
+		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(read, read.TrustSourceRef(), gate)))
 	})
 	return out
 }
@@ -641,10 +641,16 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 		}
 		// A builtin carries NO signer: it is not signed and must not be
 		// (signing bytes embedded in the binary that verifies them is
-		// circular — spec §4.5). The "builtin:" ref prefix is what routes it
-		// to the decision function's builtin step, which sits BELOW
-		// rejection so a user can still reject a builtin.
-		out = fragmentsFromBundle(out, read, read.Ref(), preferDistilled, gate)
+		// circular — spec §4.5). The "builtin:" prefix on its TRUST ref is
+		// what routes it to the decision function's builtin step, which sits
+		// BELOW rejection so a user can still reject a builtin.
+		//
+		// TrustSourceRef, not Ref: a builtin's RESOLUTION ref is the bare
+		// name, and building the gate ref from that would key this route
+		// IsLocal — a second trust identity for the same item, which is how a
+		// rejection recorded against the loader route stops withholding this
+		// one (crispy-scoop).
+		out = fragmentsFromBundle(out, read, read.TrustSourceRef(), preferDistilled, gate)
 	})
 
 	// Companion loadouts (S8): unconditional like a builtin fragment (the
@@ -656,7 +662,7 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 	// that is precisely the nil-gate/exemption bypass the trust rework
 	// forbids for third-party content.
 	for _, read := range companionReads(c.BundleLoader()) {
-		out = fragmentsFromBundle(out, read, read.Ref(), preferDistilled, gate)
+		out = fragmentsFromBundle(out, read, read.TrustSourceRef(), preferDistilled, gate)
 	}
 	return out
 }

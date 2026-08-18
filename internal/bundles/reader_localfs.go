@@ -259,22 +259,33 @@ func (r *localFSReader) readBundle(path, name string) (BundleRead, error) {
 		bundle.Name = ExtractBundleName(path)
 	}
 
-	// A builtin's content trust identity is stamped HERE, at the read that
-	// knows this bundle is ProvenanceBuiltin, using `name` — the same
-	// path-relative resolution identity newRead below hands out as
-	// BundleRead.ref, which is what config.ResolveBuiltinBundleFragments'
-	// injection route (trust.BuiltinSourcePrefix+read.Ref()) already builds
-	// its ref from. Stamping the SAME "builtin:<name>" string into
-	// bundle.sourceRef makes Bundle.contentSourceRef() (the fragment/prompt/
-	// skill trust ref for the loader-resolved-by-ref route) produce the
-	// identical string, so trust.ParseItemRef resolves both routes to one
-	// Ref{IsBuiltin: true} and one store key. Before this, a builtin read
-	// through this reader left sourceRef empty, contentSourceRef fell back to
-	// the bare bundle.Name, and trust.ParseItemRef's bare-token fallback keyed
+	// A builtin's content TRUST identity is stamped HERE, and it deliberately
+	// DIVERGES from the resolution identity below. The two are different
+	// questions:
+	//
+	//   RESOLUTION ref (BundleRead.ref, `name`) is the handle a profile or a
+	//   user asks by. Source class is not part of it — a bundle is addressed
+	//   by what it declares, not by where it sits (ProvenanceClass's own doc:
+	//   provenance is "a LABEL ... never the axis a gate keys on").
+	//
+	//   TRUST ref (bundle.sourceRef, "builtin:<name>") is ACTUAL LOCATION, and
+	//   trust keys on actual location. Source class belongs here and only here.
+	//
+	// This must run BEFORE newRead, whose stamp is only-if-empty: with sourceRef
+	// already set, the bare resolution ref cannot overwrite it. Were sourceRef
+	// left empty, newRead would stamp the bare `name`, Bundle.contentSourceRef()
+	// (the fragment/prompt/skill trust ref for the loader-resolved-by-ref route)
+	// would yield it, and trust.ParseItemRef's bare-token fallback would key
 	// that route as IsLocal — a second trust identity for the same item, so a
-	// rejection recorded against one route did not withhold the other
-	// (crispy-scoop). A project bundle's sourceRef is untouched (stays ""), so
-	// contentSourceRef's project fallback — and its auto-trust — is unchanged.
+	// rejection recorded against one route would not withhold the other
+	// (crispy-scoop). The injection route in
+	// config.ResolveBuiltinBundleFragments reads the same string through
+	// BundleRead.TrustSourceRef(), so both routes still resolve to ONE
+	// Ref{IsBuiltin: true} and one store key — now structurally, rather than
+	// because two independently-built strings happened to match.
+	//
+	// A project bundle's sourceRef is untouched (stays ""), so newRead stamps
+	// its bare resolution name and its IsLocal auto-trust is unchanged.
 	if r.provenance == ProvenanceBuiltin {
 		bundle.sourceRef = trust.BuiltinSourcePrefix + name
 	}
@@ -290,33 +301,16 @@ func (r *localFSReader) readBundle(path, name string) (BundleRead, error) {
 
 	facts := r.signatureFactsFor(path, data)
 	facts.stamp(bundle)
-	return newRead(r.resolutionRef(name), bundle, r.provenance, TrustCtxLocal, facts), nil
-}
-
-// resolutionRef qualifies a builtin's resolution identity and leaves every other
-// class alone.
-//
-// Project and builtin bundles are read by the SAME localFSReader, so both used
-// to mint a bare path-relative ref. Composed into one loader — which is what
-// admitting the builtin reader to Config.BundleLoader does — a project bundle
-// named `isolation` and the builtin `isolation` collided on one map key, and
-// whichever reader came last silently won. One of the two became unreachable
-// with no diagnostic.
-//
-// Qualifying the builtin makes them COEXIST: `builtin:isolation` addresses the
-// builtin exactly, `ctxloom:local@bundles/isolation` the project's, and a bare
-// ask still resolves (Loader.lookup falls back to the builtin form), preferring
-// the project bundle so naming one after a builtin remains a deliberate
-// override rather than an error.
-//
-// The string matches bundle.sourceRef, stamped just above, so the loader route
-// and the injection route continue to produce ONE trust identity — the property
-// TestBuiltinFragment_RejectViaLoaderRoute_WithholdsInjectionRoute pins.
-func (r *localFSReader) resolutionRef(name string) string {
-	if r.provenance == ProvenanceBuiltin {
-		return trust.BuiltinSourcePrefix + name
-	}
-	return name
+	// The RESOLUTION ref is the bare path-relative name for EVERY class this
+	// reader serves, builtins included. A builtin once minted
+	// "builtin:<name>" here to dodge a map-key collision with a project bundle
+	// of the same name; that pushed the source class into identity, which is
+	// the rule this reader is not allowed to break, and it leaked "builtin:"
+	// into every listing that showed a ref. The collision is now settled where
+	// collisions belong — in Catalog.Resolve, which shadows the builtin, keeps
+	// the project's, and SAYS SO. Source qualification survives only on
+	// bundle.sourceRef, the trust key, stamped above.
+	return newRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
 }
 
 // signatureFactsFor resolves the signature axes from the sibling `.sig`.

@@ -6,7 +6,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Catalog is the RESOLVED bundle set: everything a session can see, read once.
@@ -54,10 +53,13 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 			if !admit(read) {
 				continue
 			}
-			if _, seen := byRef[read.ref]; !seen {
+			prior, seen := byRef[read.ref]
+			if !seen {
 				order = append(order, read.ref)
+				byRef[read.ref] = read
+				continue
 			}
-			byRef[read.ref] = read
+			byRef[read.ref] = resolveCollision(prior, read)
 		}
 	}
 
@@ -67,6 +69,59 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 		reads = append(reads, byRef[ref])
 	}
 	return Catalog{reads: reads, byRef: byRef}
+}
+
+// resolveCollision decides which of two reads sharing ONE resolution ref the
+// catalog keeps, and reports a shadowing the user could not otherwise see.
+//
+// The default is unchanged and stays unchanged deliberately: a LATER reader
+// wins, which is the precedence NewLoader documents and the reason pinned
+// remote content shadows a stale extracted copy on disk. That is an intended
+// override between two sources the user configured, and it stays silent.
+//
+// The ONE exception is a BUILTIN. Since a builtin's resolution ref stopped
+// carrying its source class it can collide with a project bundle of the same
+// name, and the builtin reader is composed AFTER the project reader (it must
+// be — Loader.FS() returns the first reader that has a filesystem, and putting
+// the embedded one first silently withholds every project skill). Plain
+// last-wins would therefore let a bundle compiled into this binary displace a
+// bundle the user wrote, which inverts every other precedence in the loader.
+// So a builtin never displaces anything, and never loses silently:
+//
+//   - the PROJECT bundle wins and the builtin is shadowed
+//   - the shadowing is ANNOUNCED, naming both TRUST refs — which is what still
+//     distinguishes them once the resolution refs are one string — and telling
+//     the user to rename one
+//   - the session PROCEEDS
+//
+// Refusing was considered and rejected: a bundle published in ctxloom-default
+// later adopting a name a project already uses would otherwise break that
+// project on its next deps pull, over a clash the user did not create. Silent
+// precedence was rejected as this project's characteristic silent-no-op shape
+// (taskloom concerned-path, decided by the human 2026-08-17).
+//
+// FailOnce rather than Fail, matching Resolve's sibling report above and for
+// the same measured reason: a process builds MANY catalogs (doctor went
+// through 22), and a name collision is a property of the filesystem and the
+// binary, so it cannot resolve itself between two builds in one process.
+// Reporting per build buries the one line that names the bundle to rename.
+// The FINDING still records per checkpoint window, so strict mode cannot be
+// talked out of aborting by a repeat.
+func resolveCollision(prior, incoming BundleRead) BundleRead {
+	priorBuiltin := prior.Provenance == ProvenanceBuiltin
+	incomingBuiltin := incoming.Provenance == ProvenanceBuiltin
+	if priorBuiltin == incomingBuiltin {
+		return incoming // ordinary last-wins precedence; not a shadowing
+	}
+	winner, shadowed := incoming, prior
+	if incomingBuiltin {
+		winner, shadowed = prior, incoming
+	}
+	strictness.FailOnce(strictness.ClassBundle,
+		"rename one of the two bundles so each has its own name",
+		"bundle %q resolves to two different bundles: %s (used) shadows %s (unreachable)",
+		winner.ref, winner.TrustSourceRef(), shadowed.TrustSourceRef())
+	return winner
 }
 
 // Reads returns every read in resolution order.
@@ -81,14 +136,22 @@ func (c Catalog) Reads() []BundleRead {
 // Len reports how many reads the set holds, without copying it.
 func (c Catalog) Len() int { return len(c.reads) }
 
-// Lookup resolves an ask to a read, accepting every spelling of one identity:
-// the bare name, the remote-qualified and canonical forms, the local canonical
-// form the assembly pipeline carries, and — last — a builtin's qualified ref.
+// Lookup resolves an ask to a read, accepting the spellings of one identity
+// that callers actually author: the bare name, the remote-qualified and
+// canonical forms, and the local canonical form the assembly pipeline carries.
 //
-// The builtin fallback is LAST deliberately. When a project bundle and a builtin
-// share a name both are addressable by their qualified refs, and the bare name
-// keeps resolving to the project's: naming a bundle after a builtin is an
-// override, not a collision.
+// There is no builtin arm, and its absence is the point. It existed to find a
+// builtin whose resolution ref had been minted "builtin:<name>" — a ref that
+// encoded WHERE the bundle sat, which is a trust question, not an addressing
+// one. Nothing mints such a resolution ref any more, so the arm could only ever
+// miss, and `builtin:isolation` is now correctly NOT a bundle handle: it is a
+// TRUST ref (BundleRead.TrustSourceRef), and the two are deliberately different
+// strings. A bare `isolation` reaches the builtin, or the project's bundle of
+// that name when one shadows it (resolveCollision).
+//
+// The three remaining arms are alias spellings of a ref the catalog already
+// keys, not location encodings: remote-qualified "alice/go-tools" and the
+// canonical/local-canonical forms the lockfile and the pipeline author.
 func (c Catalog) Lookup(name string) (BundleRead, bool) {
 	if read, ok := c.byRef[name]; ok {
 		return read, true
@@ -102,9 +165,6 @@ func (c Catalog) Lookup(name string) (BundleRead, bool) {
 		if read, ok := c.byRef[ref.Path]; ok {
 			return read, true
 		}
-	}
-	if read, ok := c.byRef[trust.BuiltinSourcePrefix+name]; ok {
-		return read, true
 	}
 	return BundleRead{}, false
 }

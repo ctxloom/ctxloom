@@ -220,7 +220,34 @@ type BundleRead struct {
 }
 
 // Ref reports this bundle's resolution identity — what a caller asks for it by.
+//
+// It is NOT the trust key, and since a builtin's resolution ref stopped
+// carrying its source class the two genuinely differ: `isolation` resolves the
+// builtin, `builtin:isolation` gates it. Anything building a
+// "<source>#<kind>/<name>" gate ref wants TrustSourceRef below.
 func (r BundleRead) Ref() string { return r.ref }
+
+// TrustSourceRef reports the source component of this bundle's content trust
+// refs — the string a "<source>#<kind>/<name>" gate ref is built from.
+//
+// It exists so the two routes a builtin's content reaches a session by cannot
+// key differently. The loader-resolved route builds its ref from
+// Bundle.contentSourceRef(); the unconditional injection route
+// (config.ResolveBuiltinBundleFragments and its hooks/MCP siblings) used to
+// build its own from BundleRead.Ref(), and that only agreed because a builtin's
+// resolution ref happened to be spelled "builtin:<name>" too. It no longer is,
+// so the injection route reads the trust key HERE rather than reconstructing
+// it. Two constructions of one identity is exactly how a rejection recorded
+// against one route stops withholding the other (crispy-scoop).
+//
+// Location-derived without exception: the readers stamp it, nothing a bundle
+// DECLARES reaches it (outdated-recoil).
+func (r BundleRead) TrustSourceRef() string {
+	if r.Bundle == nil {
+		return ""
+	}
+	return r.Bundle.contentSourceRef()
+}
 
 // TrustCtx reports the only axis a gate keys on.
 func (r BundleRead) TrustCtx() TrustCtx { return r.trustCtx }

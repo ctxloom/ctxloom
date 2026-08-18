@@ -213,6 +213,7 @@ func TestRunBlacklist_RefRejectBindsOneAddress(t *testing.T) {
 
 	t.Run("a non-preferred respelling is a DIFFERENT address, and is NOT bound", func(t *testing.T) {
 		for _, repoURL := range []string{
+			"https://github.com/acme/repo.git",
 			"https://github.com/Acme/Repo",
 			"https://www.github.com/acme/repo",
 		} {
@@ -222,16 +223,4 @@ func TestRunBlacklist_RefRejectBindsOneAddress(t *testing.T) {
 		}
 	})
 
-	// CHARACTERIZATION, not the intended contract. A ".git" suffix still folds,
-	// because remote.NormalizeURL strips it upstream of trust.CanonicalRepoURL
-	// and that function also keys remotes.yaml lookups and lockfile pins, so
-	// finishing the job there is a corpus change rather than a grammar change.
-	// This asserts what the code DOES so the gap cannot be mistaken for
-	// coverage; when NormalizeURL preserves the suffix, this test goes red and
-	// the case moves into the DIFFERENT-address list above.
-	t.Run("KNOWN GAP: a .git respelling still folds onto the rejected address", func(t *testing.T) {
-		ref := trust.Ref{RepoURL: "https://github.com/acme/repo.git", Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
-		assert.True(t, store.HasUnsignedRefReject(countersignRefFor(ref)),
-			"if this is now false, remote.NormalizeURL stopped folding \".git\" — move this case up")
-	})
 }

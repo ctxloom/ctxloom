@@ -361,13 +361,18 @@ func TestNormalizeCloneURL(t *testing.T) {
 		want  string
 	}{
 		{"https://github.com/owner/repo", "https://github.com/owner/repo"},
-		{"https://github.com/owner/repo.git", "https://github.com/owner/repo"},
+		// The suffix is KEPT: it is preserved everywhere else, and a clone
+		// argument that disagrees with the identity about what repository a
+		// string names is the split this file's shared parse exists to end.
+		// `git clone https://host/owner/repo.git` is the spelling forges hand
+		// out, so keeping it costs nothing.
+		{"https://github.com/owner/repo.git", "https://github.com/owner/repo.git"},
 		{"owner/repo", "https://github.com/owner/repo"},
 		// The shorthand check used to run BEFORE the .git suffix
 		// was trimmed, so "owner/repo.git" (which contains a ".") never
 		// qualified as shorthand and was returned bare instead of expanded —
 		// `git clone -- owner/repo <dir>` then treats it as a local path.
-		{"owner/repo.git", "https://github.com/owner/repo"},
+		{"owner/repo.git", "https://github.com/owner/repo.git"},
 	}
 
 	for _, tt := range tests {

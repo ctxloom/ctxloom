@@ -9,11 +9,11 @@ func TestCanonicalRepoURL(t *testing.T) {
 		want string
 	}{
 		{"https passthrough", "https://github.com/acme/repo", "https://github.com/acme/repo"},
-		{"strip .git", "https://github.com/acme/repo.git", "https://github.com/acme/repo"},
+		{".git suffix PRESERVED", "https://github.com/acme/repo.git", "https://github.com/acme/repo.git"},
 		{"repo-path case PRESERVED", "https://github.com/Acme/Repo", "https://github.com/Acme/Repo"},
 		{"lowercase host", "https://GitHub.com/acme/repo", "https://github.com/acme/repo"},
 		{"trailing slash", "https://github.com/acme/repo/", "https://github.com/acme/repo"},
-		{"git@ to https", "git@github.com:acme/repo.git", "https://github.com/acme/repo"},
+		{"git@ to https, suffix intact", "git@github.com:acme/repo.git", "https://github.com/acme/repo.git"},
 		{"git@ preserves repo-path case", "git@github.com:Acme/Repo", "https://github.com/Acme/Repo"},
 		{"shorthand owner/repo", "acme/repo", "https://github.com/acme/repo"},
 		{"empty", "", ""},
@@ -71,6 +71,7 @@ func TestCanonicalRepoURL_ConformantVariantsCollapse(t *testing.T) {
 func TestCanonicalRepoURL_NonPreferredSpellingsStayDISTINCT(t *testing.T) {
 	base := CanonicalRepoURL("https://github.com/acme/repo")
 	for _, tt := range []struct{ name, in string }{
+		{".git suffix", "https://github.com/acme/repo.git"},
 		{"repository-path case", "https://github.com/Acme/Repo"},
 		{"www. host", "https://www.github.com/acme/repo"},
 	} {

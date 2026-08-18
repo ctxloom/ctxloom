@@ -135,12 +135,12 @@ func TestNormalizeURL(t *testing.T) {
 
 		// SSH URLs
 		{"ssh github", "git@github.com:owner/repo", "https://github.com/owner/repo"},
-		{"ssh with .git", "git@github.com:owner/repo.git", "https://github.com/owner/repo"},
-		{"ssh gitlab", "git@gitlab.com:group/project.git", "https://gitlab.com/group/project"},
+		{"ssh with .git", "git@github.com:owner/repo.git", "https://github.com/owner/repo.git"},
+		{"ssh gitlab", "git@gitlab.com:group/project.git", "https://gitlab.com/group/project.git"},
 
 		// HTTPS URLs
 		{"https already good", "https://github.com/owner/repo", "https://github.com/owner/repo"},
-		{"https with .git", "https://github.com/owner/repo.git", "https://github.com/owner/repo"},
+		{"https with .git", "https://github.com/owner/repo.git", "https://github.com/owner/repo.git"},
 		{"http gets kept", "http://github.com/owner/repo", "http://github.com/owner/repo"},
 
 		// No scheme but host-qualified: the first segment carries a ".", so it
@@ -157,7 +157,7 @@ func TestNormalizeURL(t *testing.T) {
 		// content was ever fetchable from it.
 		{"host-qualified, scheme omitted", "github.com/owner/repo", "https://github.com/owner/repo"},
 		{"host-qualified other forge", "gitlab.com/alice/repo", "https://gitlab.com/alice/repo"},
-		{"host-qualified with .git", "gitlab.com/alice/repo.git", "https://gitlab.com/alice/repo"},
+		{"host-qualified with .git", "gitlab.com/alice/repo.git", "https://gitlab.com/alice/repo.git"},
 
 		// ...while a dot in a LATER segment leaves it shorthand. The sibling
 		// normalizeCloneURL rejected shorthand on a dot ANYWHERE, so this one
@@ -195,7 +195,10 @@ func TestNormalizeURL_FinalHTTPSFallbackIsReachable(t *testing.T) {
 			"NormalizeURL(%q) = %q: a bare host must not be routed through the github shorthand arm", input, got)
 	}
 	assert.Equal(t, "https://gitlab.com", NormalizeURL("gitlab.com"))
-	assert.Equal(t, "https://example.com", NormalizeURL("example.com.git"))
+	// A bare host is not a path, so there is no ".git" suffix to speak of here:
+	// "example.com.git" is a HOST NAME. It is preserved for the same reason
+	// every other spelling is — nothing here knows it is not a real host.
+	assert.Equal(t, "https://example.com.git", NormalizeURL("example.com.git"))
 }
 
 func TestNewFetcher(t *testing.T) {

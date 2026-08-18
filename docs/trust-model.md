@@ -817,9 +817,14 @@ Addressed:
   repository unaddressable, and the refusal is not a diagnostic anyone sees: the
   caller degrades to an inert address and the item is silently withheld.
 
-  Known gap: a `.git` suffix still collapses on the git class, because
-  `remote.NormalizeURL` strips it upstream of the reference grammar; that
-  function also keys remotes.yaml lookups and lockfile pins.
+  A `.git` suffix is preserved on every class, so a forge's clone URL and the
+  URL in a browser bar are two addresses. That cost is accepted deliberately: a
+  duplicate approval prompt is recoverable, a merged trust key is not.
+  Transport is the one thing that IS folded — scp, `http` and shorthand all
+  render as `https` — because which transport reached a repository is a
+  statement about the caller's credentials, not about which repository it is,
+  so an approval stays portable between a lead who clones over ssh and a
+  developer who clones over https.
 - **Corrupted rejection records** — a `.sig` in either approvals store that will
   not parse trips the readability gate ahead of step 1, and the resolver denies
   everything. Without that, an unreadable rejection would be an unenforced one.

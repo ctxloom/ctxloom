@@ -47,10 +47,13 @@ func repoURLCases() []repoURLCase {
 		{name: "shorthand with dash", in: "my-org/my-repo",
 			identity: "https://github.com/my-org/my-repo", transport: "https://github.com/my-org/my-repo",
 			cacheDir: "/base/github.com/my-org/my-repo", kind: SourceKindRemote},
-		// ".git" is stripped BEFORE the shorthand test, or the dot it
-		// contributes disqualifies the token and `git clone` reads it as a path.
+		// ".git" is stripped before the shorthand TEST, or the dot it
+		// contributes disqualifies the token and `git clone` reads it as a
+		// path. It is put back for RENDERING: the parse needs it gone, the
+		// identity needs it kept. cacheDir stays stripped so the two spellings
+		// of one repo still share one clone directory.
 		{name: "shorthand with .git", in: "owner/repo.git",
-			identity: "https://github.com/owner/repo", transport: "https://github.com/owner/repo",
+			identity: "https://github.com/owner/repo.git", transport: "https://github.com/owner/repo.git",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
 		// A dot in a LATER segment is part of the repo NAME and must not
 		// disqualify shorthand. normalizeCloneURL used to reject this.
@@ -71,7 +74,7 @@ func repoURLCases() []repoURLCase {
 			identity: "https://github.com/owner/repo", transport: "https://github.com/owner/repo",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
 		{name: "host-qualified with .git", in: "gitlab.com/alice/repo.git",
-			identity: "https://gitlab.com/alice/repo", transport: "https://gitlab.com/alice/repo",
+			identity: "https://gitlab.com/alice/repo.git", transport: "https://gitlab.com/alice/repo.git",
 			cacheDir: "/base/gitlab.com/alice/repo", kind: SourceKindRemote},
 
 		// --- bare host, no path ----------------------------------------------
@@ -81,9 +84,12 @@ func repoURLCases() []repoURLCase {
 		{name: "bare internal host", in: "git.company.internal",
 			identity: "https://git.company.internal", transport: "https://git.company.internal",
 			cacheDir: "/base/git.company.internal", kind: SourceKindRemote},
+		// No path, so this ".git" is part of a HOST NAME — "example.com.git"
+		// is a different DNS name from "example.com", not one repository
+		// spelled twice. Trimming it invented a host nobody named.
 		{name: "bare host with .git", in: "example.com.git",
-			identity: "https://example.com", transport: "https://example.com",
-			cacheDir: "/base/example.com", kind: SourceKindRemote},
+			identity: "https://example.com.git", transport: "https://example.com.git",
+			cacheDir: "/base/example.com.git", kind: SourceKindRemote},
 		{name: "bare token no dot", in: "owner",
 			identity: "https://owner", transport: "https://owner",
 			cacheDir: "/base/owner", kind: SourceKindRemote},
@@ -93,28 +99,28 @@ func repoURLCases() []repoURLCase {
 			identity: "https://github.com/owner/repo", transport: "https://github.com/owner/repo",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
 		{name: "https with .git", in: "https://github.com/owner/repo.git",
-			identity: "https://github.com/owner/repo", transport: "https://github.com/owner/repo",
+			identity: "https://github.com/owner/repo.git", transport: "https://github.com/owner/repo.git",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
 		{name: "https trailing slash", in: "https://github.com/owner/repo/",
 			identity: "https://github.com/owner/repo", transport: "https://github.com/owner/repo",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
-		// Trailing slash AFTER .git: the suffixes have to be stripped in the
-		// order slash -> .git -> slash or one hides the other. NormalizeURL
-		// used to leave ".git/" intact and trust.CanonicalRepoURL compensated
-		// from another package.
+		// Trailing slash AFTER .git: the suffixes have to be recognized in the
+		// order slash -> .git -> slash or one hides the other. The slash is
+		// dropped (RFC 3986 syntax-based normalization); the ".git" comes back.
 		{name: "https .git then trailing slash", in: "https://github.com/owner/repo.git/",
-			identity: "https://github.com/owner/repo", transport: "https://github.com/owner/repo",
+			identity: "https://github.com/owner/repo.git", transport: "https://github.com/owner/repo.git",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
 		{name: "http kept as http", in: "http://github.com/owner/repo",
 			identity: "http://github.com/owner/repo", transport: "http://github.com/owner/repo",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
-		// Uppercase scheme: url.Parse lowercases it for free, which is also why
-		// the ".git" trim now fires (a HasPrefix check on the raw string did not).
+		// Uppercase SCHEME is folded (RFC 3986 6.2.2.1 makes scheme and host
+		// case-insensitive); the host and path case here are NOT, because
+		// every other component is case-sensitive by that same section.
 		{name: "uppercase scheme", in: "HTTPS://GitHub.com/Owner/Repo.git",
-			identity: "https://GitHub.com/Owner/Repo", transport: "https://GitHub.com/Owner/Repo",
+			identity: "https://GitHub.com/Owner/Repo.git", transport: "https://GitHub.com/Owner/Repo.git",
 			cacheDir: "/base/github.com/Owner/Repo", kind: SourceKindRemote},
 		{name: "https with port", in: "https://git.example.com:8443/group/sub/repo.git",
-			identity: "https://git.example.com:8443/group/sub/repo", transport: "https://git.example.com:8443/group/sub/repo",
+			identity: "https://git.example.com:8443/group/sub/repo.git", transport: "https://git.example.com:8443/group/sub/repo.git",
 			// the port names a server, not a repository: one clone dir either way
 			cacheDir: "/base/git.example.com/group/sub/repo", kind: SourceKindRemote},
 		{name: "https with userinfo", in: "https://user:pw@github.com/owner/repo",
@@ -133,12 +139,12 @@ func repoURLCases() []repoURLCase {
 			identity: "https://github.com/owner/repo", transport: "git@github.com:owner/repo",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote, scpTransportDiffers: true},
 		{name: "scp with .git", in: "git@github.com:owner/repo.git",
-			identity: "https://github.com/owner/repo", transport: "git@github.com:owner/repo.git",
+			identity: "https://github.com/owner/repo.git", transport: "git@github.com:owner/repo.git",
 			// the two spellings of one repo share one clone dir; they used to
 			// get two, one of them literally named "…/repo.git"
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote, scpTransportDiffers: true},
 		{name: "scp other forge", in: "git@gitlab.com:group/project.git",
-			identity: "https://gitlab.com/group/project", transport: "git@gitlab.com:group/project.git",
+			identity: "https://gitlab.com/group/project.git", transport: "git@gitlab.com:group/project.git",
 			cacheDir: "/base/gitlab.com/group/project", kind: SourceKindRemote, scpTransportDiffers: true},
 		{name: "scp trailing slash", in: "git@github.com:owner/repo/",
 			identity: "https://github.com/owner/repo", transport: "git@github.com:owner/repo",
@@ -243,15 +249,50 @@ func TestRepoURL_IdentityAndTransportAgree(t *testing.T) {
 func TestRepoURL_ScpDiffersOnlyInTransport(t *testing.T) {
 	parsed, err := ParseRepoURL("git@github.com:owner/repo.git")
 	require.NoError(t, err)
-	assert.Equal(t, "https://github.com/owner/repo", parsed.Normalized())
+	assert.Equal(t, "https://github.com/owner/repo.git", parsed.Normalized())
 	assert.Equal(t, "git@github.com:owner/repo.git", parsed.CloneArg())
 
 	// ...and the https spelling of the same repo agrees on identity, which is
 	// what makes an approval portable between a lead who clones over ssh and a
-	// developer who clones over https (signature-envelope spec 1.4).
-	https, err := ParseRepoURL("https://github.com/owner/repo")
+	// developer who clones over https (signature-envelope spec 1.4). Both
+	// spellings here are CLONE urls, which is what a forge hands out for both
+	// transports and therefore what a user actually pastes; GitHub's ssh and
+	// https clone urls both end ".git".
+	https, err := ParseRepoURL("https://github.com/owner/repo.git")
 	require.NoError(t, err)
-	assert.Equal(t, https.Normalized(), parsed.Normalized())
+	assert.Equal(t, https.Normalized(), parsed.Normalized(),
+		"transport must not be part of identity")
+}
+
+// TestRepoURL_CloneAndBrowserSpellingsAreDifferentIdentities pins the accepted
+// COST of preserving every spelling, so that it is a decision on the record
+// rather than a surprise in a support thread.
+//
+// A forge's clone url ends ".git"; the url in the browser bar does not. Under
+// byte-exact identity those are two addresses, so a user who approved content
+// under one and later pastes the other is prompted again. That is the trade:
+// whether the two reach one repository is host-specific knowledge ctxloom does
+// not have, and a wrong guess is not a duplicate prompt but a merged trust key,
+// where a rejection of one silently governs the other. A duplicate prompt is
+// recoverable; a merged key is not.
+//
+// The cross-address case that MATTERS is still covered, one layer up: a
+// content-reject is signed with the ref omitted, so it follows the bytes.
+func TestRepoURL_CloneAndBrowserSpellingsAreDifferentIdentities(t *testing.T) {
+	clone, err := ParseRepoURL("https://github.com/owner/repo.git")
+	require.NoError(t, err)
+	browser, err := ParseRepoURL("https://github.com/owner/repo")
+	require.NoError(t, err)
+	assert.NotEqual(t, clone.Normalized(), browser.Normalized(),
+		"two spellings collapsed onto one identity — that is a merged trust key, not a convenience")
+
+	// They still share ONE clone directory: the filesystem question is "which
+	// bytes are on disk", and there the two are the same repository.
+	cloneDir, err := clone.CacheSegments()
+	require.NoError(t, err)
+	browserDir, err := browser.CacheSegments()
+	require.NoError(t, err)
+	assert.Equal(t, browserDir, cloneDir, "one repository must not be cloned twice")
 }
 
 // TestRepoURL_NonHTTPPathsAreBytePreserved is the fail-open guard. A file://,

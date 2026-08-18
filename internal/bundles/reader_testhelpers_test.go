@@ -33,13 +33,16 @@ func seedLocal(seeded map[string]*Bundle) Reader {
 		}
 		// The seed key is the bundle's resolution identity; a bundle that does
 		// not carry its own name would compose broken item names ("/<item>"),
-		// so backfill from the key, and record it as the source ref so the
-		// content gate keys by it (honest local-vs-clone locality) rather than
-		// the short bundle name.
+		// so backfill from the key. sourceRef/sourceRefTyped are left UNSET
+		// here so newRead's only-if-empty fallback stamps both together
+		// (string AND typed) from the same ref, exactly as it does for a real
+		// localFSReader project bundle — setting sourceRef directly here, as
+		// this used to, pre-empted that fallback and left sourceRefTyped
+		// permanently zero, which is this test double's own version of the
+		// silent-withholding gap loader_version.go's bundleAtVersion had.
 		if b.Name == "" {
 			b.Name = ref
 		}
-		b.sourceRef = ref
 		reads = append(reads, newRead(ref, b, prov, tctx,
 			signatureFacts{signature: SignatureNone, signer: SignerNone}))
 	}

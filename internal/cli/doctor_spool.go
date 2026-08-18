@@ -143,6 +143,8 @@ func doctorCheckSpoolBacklog() doctorCheck {
 	var stuck []string
 	var sweepErrs []string
 	var malformed []string
+	var failed []string
+	failedDirsSeen := 0
 	var oldest time.Duration
 
 	for _, e := range entries {
@@ -179,16 +181,46 @@ func doctorCheckSpoolBacklog() doctorCheck {
 					harp, dir, filepath.Base(prob.Path), prob.Err))
 			}
 		}
+
+		// in/failed/ is deliberately NOT a member of spool.Dirs() (see
+		// spool.FailedDirName's doc), so it is unreachable through
+		// spool.DirPath or spool.Sweep. Read it directly with os.ReadDir, the
+		// same way spool.Fail writes to it — list only, never rename or
+		// delete.
+		failedDir := filepath.Join(root, filepath.FromSlash(string(spool.FailedDirName)))
+		failedEntries, failedErr := os.ReadDir(failedDir)
+		switch {
+		case failedErr == nil:
+			failedDirsSeen++
+			for _, fe := range failedEntries {
+				if fe.IsDir() {
+					continue
+				}
+				failed = append(failed, fmt.Sprintf("%s:%s/%s", harp, spool.FailedDirName, fe.Name()))
+			}
+		case os.IsNotExist(failedErr):
+			// Normal: in/failed/ is created lazily on the first refusal, so
+			// a session that has never refused a message has no such
+			// directory at all. Absence here must not read as an error.
+		default:
+			sweepErrs = append(sweepErrs, fmt.Sprintf("%s/%s: %v", harp, spool.FailedDirName, failedErr))
+		}
 	}
 
 	if spoolsFound == 0 {
 		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorOK,
 			Detail: "no session has a spool directory; nothing to check"}
 	}
-	if len(stuck) == 0 && len(sweepErrs) == 0 && len(malformed) == 0 {
-		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorOK, Detail: fmt.Sprintf(
+	if len(stuck) == 0 && len(sweepErrs) == 0 && len(malformed) == 0 && len(failed) == 0 {
+		detail := fmt.Sprintf(
 			"%d session spool(s) checked, 0 entries stuck unconsumed past %s, 0 malformed entries",
-			spoolsFound, doctorSpoolStuckAge)}
+			spoolsFound, doctorSpoolStuckAge)
+		if failedDirsSeen == 0 {
+			detail += "; no session has an in/failed/ directory (created lazily on the first refusal, so its absence is normal)"
+		} else {
+			detail += fmt.Sprintf("; %d in/failed/ director(ies) checked, all empty", failedDirsSeen)
+		}
+		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorOK, Detail: detail}
 	}
 
 	var parts []string
@@ -223,6 +255,22 @@ func doctorCheckSpoolBacklog() doctorCheck {
 		parts = append(parts, fmt.Sprintf(
 			"%d spool entr(ies) are malformed (filename does not parse, or content is unreadable/invalid — this is NOT a stuck-but-valid entry, and NOT a recognized message with an unmappable kind): %s",
 			len(malformed), list))
+	}
+	if len(failed) > 0 {
+		sort.Strings(failed)
+		shown := failed
+		var more int
+		if len(shown) > doctorSpoolStuckMaxNamed {
+			shown = shown[:doctorSpoolStuckMaxNamed]
+			more = len(failed) - doctorSpoolStuckMaxNamed
+		}
+		list := strings.Join(shown, ", ")
+		if more > 0 {
+			list += fmt.Sprintf(", … +%d more", more)
+		}
+		parts = append(parts, fmt.Sprintf(
+			"%d spool entr(ies) were REFUSED into in/failed/ (parsed as a message but could not be classified or delivered — not stuck-but-valid, not malformed, not a sweep I/O error: ctxloom was GIVEN this message and REFUSED to deliver it, permanently): %s",
+			len(failed), list))
 	}
 	if len(sweepErrs) > 0 {
 		parts = append(parts, fmt.Sprintf("%d spool director(ies) could not be swept: %s",

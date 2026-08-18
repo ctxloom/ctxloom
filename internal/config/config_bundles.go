@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"sort"
 	"strings"
@@ -13,7 +14,52 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
+
+// bundleRefForSource resolves source — the honest bundle identity string every
+// executable-surface producer in this file receives (a builtin/companion
+// caller's own read.TrustSourceRef(), or the literal bundle-ref ask string a
+// profile/companion-loop caller resolved through loadMCPFromBundleRef /
+// loadHooksFromBundleRef) — into a bundle-level trust.BundleRef.
+//
+// It replays trust.ParseItemRef's own base-ref resolution (remote.
+// ParseReference, then the "builtin:" prefix, then the bare-local-name
+// fallback) by handing it a throwaway selector and discarding the parsed
+// Kind/Name before minting, rather than re-implementing those same rules a
+// second, competing way — the exact hazard Ref.AsBundleRef's own doc warns
+// against for a fresh conversion path. It degrades to the zero BundleRef on
+// failure, never guesses; itemRefFor is what turns that into a well-formed,
+// non-colliding address.
+func bundleRefForSource(source string) trust.BundleRef {
+	tRef, _, _, err := trust.ParseItemRef(source + "#" + trust.KindFragment.Dir() + "/x")
+	if err != nil {
+		return trust.BundleRef{}
+	}
+	tRef.Kind, tRef.Name = "", ""
+	br, err := tRef.AsBundleRef()
+	if err != nil {
+		return trust.BundleRef{}
+	}
+	return br
+}
+
+// itemRefFor mints the canonical "<source>#<kind>/<item>" reference an
+// executable-surface item's gate ref is built from — the config-package twin
+// of bundles' unexported itemRefFor (a different package, so a separate
+// mint), over bundleRefForSource(source) instead of a read's own SourceRef
+// (see bundleRefForSource's doc for why: source, not the read, is this
+// file's honest identity input). Degrades to a stable, well-formed,
+// non-colliding address when source cannot be resolved, mirroring
+// operations.CountersignRef's identical fallback for the identical
+// unreachable case.
+func itemRefFor(source string, kind trust.ItemKind, item string) string {
+	br, err := bundleRefForSource(source).WithItem(kind, item)
+	if err != nil {
+		return fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", source, kind.Dir(), item)
+	}
+	return br.String()
+}
 
 // lookPath is the PATH-resolution seam for tests.
 var lookPath = exec.LookPath
@@ -606,7 +652,7 @@ func filterMissingCompanionHooks(in wire.UnifiedHooks) wire.UnifiedHooks {
 // BuiltinFragment is one always-on fragment shipped by a built-in bundle,
 // ready for unconditional injection into assembled context.
 type BuiltinFragment struct {
-	Name         string // reporting identity ("builtin:<bundle>#fragments/<name>")
+	Name         string // reporting identity, the canonical bundle-reference grammar's item ref (e.g. "ctxloom+builtin:<bundle>#fragments/<name>")
 	Content      string
 	Installation string
 }
@@ -668,12 +714,13 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 }
 
 // fragmentsFromBundle extracts every fragment in b as BuiltinFragment
-// entries in a stable (sorted-by-name) order, applying gate per item
-// (ref = "<source>#fragments/<name>", using the caller-supplied signer) and
-// skipping empty content. Shared by the embedded-builtin loop above (signer
-// "", ref "builtin:<name>") and the companion-loadout loop (signer
-// b.Signer(), ref "ctxloom:companion@<bin>") — the only two callers, which
-// differ solely in source/signer.
+// entries in a stable (sorted-by-name) order, applying gate per item — ref
+// minted through itemRefFor(source, trust.KindFragment, name), the canonical
+// bundle-reference grammar's item selector over source (using the
+// caller-supplied signer) — and skipping empty content. Shared by the
+// embedded-builtin loop above (signer "", source "builtin:<name>") and the
+// companion-loadout loop (signer b.Signer(), source "ctxloom:companion@<bin>")
+// — the only two callers, which differ solely in source/signer.
 func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, source string, preferDistilled bool, gate bundles.Authorizer) []BuiltinFragment {
 	b := read.Bundle
 	fragNames := make([]string, 0, len(b.Fragments))
@@ -687,7 +734,7 @@ func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, source 
 		if strings.TrimSpace(content) == "" {
 			continue
 		}
-		ref := source + "#fragments/" + fragName
+		ref := itemRefFor(source, trust.KindFragment, fragName)
 		payload, form := frag.ContentPayload(preferDistilled)
 		if !bundles.Decide(gate, read, ref, payload, form).Allow {
 			continue // withheld by the trust gate (e.g. rejected, or pending)

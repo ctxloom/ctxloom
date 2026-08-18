@@ -35,10 +35,11 @@ const doctorSpoolBacklogMarker = "DOCTOR-CHECK-SPOOL-BACKLOG-t0"
 const doctorSpoolStuckAge = 5 * 30 * time.Second
 
 // doctorSpoolStuckMaxNamed caps how many entries doctorCheckSpoolBacklog
-// names individually — for stuck entries AND for malformed ones — before
-// summarizing the rest as a count. Same "cap at ~5 with a count" shape
-// doctorCheckHarpDurability and the other listing checks in this package
-// use, shared across both lists rather than duplicated per-list.
+// names individually — for stuck entries, for malformed ones, AND for
+// entries refused into in/failed/ — before summarizing the rest as a count.
+// Same "cap at ~5 with a count" shape doctorCheckHarpDurability and the
+// other listing checks in this package use, shared across all three lists
+// rather than duplicated per-list.
 const doctorSpoolStuckMaxNamed = 5
 
 // doctorCheckSpoolBacklog surfaces spool entries that have sat UNCONSUMED in
@@ -84,6 +85,26 @@ const doctorSpoolStuckMaxNamed = 5
 // check does not touch). The wording below keeps the three apart so a
 // reader knows which one they have.
 //
+// It ALSO surfaces in/failed/: the terminal directory a reader moves an in/
+// entry into when it parsed as a message but could not be classified or
+// delivered (spool.Fail; coord/spooldelivery.go's failSpoolEntry is the one
+// caller today). That move is precisely what closed the visibility gap this
+// check used to cover by accident: before spool.Fail existed, an entry the
+// reader could not handle stayed in in/ and eventually aged past
+// doctorSpoolStuckAge, so this check caught it as "stuck" without ever being
+// told about the refusal. Now the entry leaves in/ within one sweep cycle —
+// almost always well under doctorSpoolStuckAge — so it never trips the stuck
+// check at all, and nothing else looked at in/failed/. This clause is that
+// look. in/failed/ is deliberately NOT one of spool.Dirs()'s closed set (see
+// FailedDirName's doc), so it cannot be reached through spool.DirPath or
+// spool.Sweep; this check reads it directly with os.ReadDir, the same way
+// spool.Fail writes to it, and never renames or deletes what it finds. A
+// failed entry is worded a fourth, distinct way from the other three: it did
+// not "sit unconsumed" (it was actively rejected), it is not "malformed"
+// (the file parsed fine as a message), and it is not a sweep I/O error (the
+// directory itself may not even exist) — it is a message ctxloom was GIVEN
+// and REFUSED to deliver, permanently.
+//
 // Distinguishable outcomes, all doctorOK when nothing is wrong, worded
 // differently on purpose (this project's characteristic defect is a success
 // message over zero bytes examined, and this check exists specifically to
@@ -93,6 +114,13 @@ const doctorSpoolStuckMaxNamed = 5
 //     to check.
 //   - one or more sessions have a spool, all of it was swept, and nothing was
 //     found stuck or malformed: the state actually observed.
+//   - within that: no session has ever created an in/failed/ directory
+//     (the common case — in/failed/ is created lazily, on the first refusal,
+//     so its absence is normal and must not read as an error) versus one or
+//     more in/failed/ directories exist and were read, and were empty (a
+//     rarer but equally clean state) — kept as two different sentences so
+//     neither is mistaken for the other, and so an existing-but-empty
+//     in/failed/ cannot be confused with "we never looked."
 func doctorCheckSpoolBacklog() doctorCheck {
 	sessionsRoot, err := paths.HomeSessionsDir()
 	if err != nil {

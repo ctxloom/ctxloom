@@ -95,8 +95,8 @@ func TestLoaderGate_WithholdsCommand(t *testing.T) {
 	if _, err := l.GetCommand("demo#commands/okprompt"); err != nil {
 		t.Fatalf("GetCommand(okprompt): %v", err)
 	}
-	if w := l.Withheld(); len(w) != 1 || w[0] != "demo#prompts/badprompt" {
-		t.Errorf("Withheld() = %v, want [demo#prompts/badprompt]", w)
+	if w := l.Withheld(); len(w) != 1 || w[0] != "ctxloom+local:demo#prompts/badprompt" {
+		t.Errorf("Withheld() = %v, want [ctxloom+local:demo#prompts/badprompt] (the canonical bundle-reference grammar)", w)
 	}
 }
 

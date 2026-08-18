@@ -64,10 +64,12 @@ type ItemRead struct {
 	// "what have you got", with nothing picked.
 	Forms ContentForms
 
-	// TrustRef is the ref the trust gate keys this item by:
-	// "<source>#fragments/<name>" or "<source>#prompts/<name>", where source is
-	// the bundle's HONEST source ref (canonical for a cloned bundle so its text
-	// gates like an executable, the local name for a project bundle so its text
+	// TrustRef is the ref the trust gate keys this item by: the canonical
+	// bundle-reference grammar's item selector (itemRefFor,
+	// trust.BundleRef.WithItem), "ctxloom+<class>:...#fragments/<name>" or
+	// "...#prompts/<name>", minted from the bundle's HONEST typed source ref
+	// (BundleRead.SourceRef — canonical for a cloned bundle so its text gates
+	// like an executable, the local name for a project bundle so its text
 	// auto-trusts). A read FACT the reader establishes, never a decision.
 	TrustRef string
 	// Signer is the owning bundle's VERIFIED publisher identity, or "" when the
@@ -406,9 +408,10 @@ func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
 }
 
 // commandRead builds the ItemRead for a command. See fragmentRead — the same
-// read facts. TrustRef keeps the "prompts" kind segment (trust.KindPrompt.Dir())
-// even though the load selector is "#commands/", so the item-kind rename does
-// not invalidate existing trust grants.
+// read facts, minted the same way (itemRefFor over the typed SourceRef).
+// TrustRef keeps the "prompts" kind segment (trust.KindPrompt, whose Dir() is
+// "prompts") even though the load selector is "#commands/", so the item-kind
+// rename does not invalidate existing trust grants.
 func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCommand) *ItemRead {
 	bundle := read.Bundle
 	return &ItemRead{
@@ -421,7 +424,7 @@ func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCo
 		DistilledBy:  prompt.DistilledBy,
 		LLM:          prompt.LLM,
 		Forms:        prompt.Forms(),
-		TrustRef:     bundle.contentSourceRef() + "#prompts/" + promptName,
+		TrustRef:     itemRefFor(read.SourceRef(), trust.KindPrompt, promptName),
 		Signer:       bundle.Signer(),
 		Read:         read,
 	}

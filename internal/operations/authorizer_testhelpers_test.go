@@ -31,6 +31,22 @@ func mustParseProducerRef(t *testing.T, ref string) trust.Ref {
 	return trust.RefFromBundleRef(br)
 }
 
+// mustLocalItemRef mints a canonical LOCAL-class item ref for a bare bundle
+// name — the shape bundles.Decide itself now parses, for a hand-built (not
+// producer-derived) fixture ref this package feeds directly to
+// Decide/admitFragment/admitExec.
+func mustLocalItemRef(bundle string, kind trust.ItemKind, item string) string {
+	br, err := trust.LocalRef(bundle)
+	if err != nil {
+		panic(err)
+	}
+	full, err := br.WithItem(kind, item)
+	if err != nil {
+		panic(err)
+	}
+	return full.String()
+}
+
 // canonicalWithheldRef converts an OLD-grammar item ref — the shape a fixture
 // constant built by hand as "<source>#<kind>/<name>" for use as an ASK/seed
 // string (Catalog.Lookup and seedLoader still speak only that grammar; this

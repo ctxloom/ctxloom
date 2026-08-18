@@ -59,6 +59,16 @@ const (
 	swapRef  = acmeBundle + "tooling#fragments/swapped"
 )
 
+// solidDecideRef is solidRef's canonical bundle-reference grammar spelling,
+// for the handful of call sites in this package that feed a fragment ref
+// DIRECTLY to bundles.Decide/admitExec (bypassing the pipeline, which is
+// where a real producer would mint this from a read's own SourceRef).
+// solidRef itself stays old-grammar: every OTHER use of it is as an ASK
+// string (AssembleContextRequest.Fragments, GetFragmentRequest.Name,
+// Pipeline.GetFragment), which the (unmigrated) resolution/lookup layer
+// still expects.
+var solidDecideRef = mustGitItemRef("github.com", "/acme/repo", "tooling", trust.KindFragment, "solid")
+
 // TestExposureGate_AssembleContext_WithholdsDenied proves the assembly surface
 // omits a rejected fragment AND a pending (never-reviewed) one, keeps an
 // accepted sibling, and surfaces the withheld refs content-free via
@@ -83,7 +93,12 @@ func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 	// isolation.yaml) injects unconditionally alongside the loader-resolved
 	// set, through this same gate — it is exempt from review (builtin), not
 	// exempt from appearing.
-	assert.ElementsMatch(t, []string{canonicalWithheldRef(t, solidRef), builtinIsolationFragmentRef}, res.FragmentsLoaded)
+	// FragmentsLoaded's loader-resolved entries echo the ASK string verbatim
+	// (ingestFragmentRefs uses config.FragmentRef.Name, not the producer's
+	// TrustRef) — solidRef, unconverted. The always-on builtin entry is the
+	// INJECTION route's own producer output (config.BuiltinFragment.Name),
+	// which IS canonical grammar.
+	assert.ElementsMatch(t, []string{solidRef, builtinIsolationFragmentRef}, res.FragmentsLoaded)
 
 	withheld := loader.Withheld()
 	assert.ElementsMatch(t, []string{canonicalWithheldRef(t, evilRef), canonicalWithheldRef(t, swapRef)}, withheld,
@@ -332,7 +347,7 @@ func TestContentGate_RecordsEveryDenyWithAReason(t *testing.T) {
 
 	const unaddressable = "garbage-without-selector"
 	require.False(t, admitExec(t, g, execRead(t, ""), unaddressable, pbytes("abc"), rawForm))
-	require.False(t, admitExec(t, g, execRead(t, ""), solidRef, pbytes("never-approved"), rawForm))
+	require.False(t, admitExec(t, g, execRead(t, ""), solidDecideRef, pbytes("never-approved"), rawForm))
 
 	byRef := map[string]bundles.Verdict{}
 	for _, it := range g.withheldItems() {
@@ -340,14 +355,14 @@ func TestContentGate_RecordsEveryDenyWithAReason(t *testing.T) {
 	}
 	require.Contains(t, byRef, unaddressable,
 		"a ref the gate could not even parse must still be tallied — nothing downstream can report a withhold the gate did not record")
-	require.Contains(t, byRef, solidRef)
+	require.Contains(t, byRef, solidDecideRef)
 
 	for ref, v := range byRef {
 		assert.False(t, v.Allow, "only denials are recorded (%s)", ref)
 		assert.NotEqual(t, bundles.ReasonUnset, v.Reason, "a withhold with no reason is a withhold nobody can act on (%s)", ref)
 		assert.NotEmpty(t, v.Reason.Explain(v.Detail), "every withheld item must carry a reason a user can act on (%s)", ref)
 	}
-	assert.ElementsMatch(t, []string{unaddressable, solidRef}, g.withheldRefs(),
+	assert.ElementsMatch(t, []string{unaddressable, solidDecideRef}, g.withheldRefs(),
 		"withheldRefs and withheldItems must describe the same set")
 }
 

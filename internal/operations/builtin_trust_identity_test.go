@@ -69,8 +69,7 @@ func TestBuiltinFragment_RejectViaLoaderRoute_WithholdsInjectionRoute(t *testing
 	items, err := loader.ReadFragment("isolation#fragments/isolation-axes")
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	tRefA, _, _, err := trust.ParseItemRef(items[0].TrustRef)
-	require.NoError(t, err)
+	tRefA := mustParseProducerRef(t, items[0].TrustRef)
 	fx.rejectRef(tRefA)
 
 	// ROUTE A now withholds (expected — same ref rejected).
@@ -109,8 +108,7 @@ func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
 	loader := bundles.NewLoader(bundles.NewBuiltinReader())
 	items, err := loader.ReadFragment("isolation#fragments/isolation-axes")
 	require.NoError(t, err)
-	tRef, _, _, err := trust.ParseItemRef(items[0].TrustRef)
-	require.NoError(t, err)
+	tRef := mustParseProducerRef(t, items[0].TrustRef)
 
 	// Reject once, through a gate built over the fixture's stores. Ref-scoped
 	// only — see the sibling test for why a content-scoped (ref-agnostic)

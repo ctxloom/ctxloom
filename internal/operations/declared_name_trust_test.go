@@ -249,8 +249,7 @@ func TestDeclaredName_SelfRenameDoesNotEscapeAnExistingRejection(t *testing.T) {
 	items, err := original.ReadFragment("mine#fragments/keeper")
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	tRef, _, _, err := trust.ParseItemRef(items[0].TrustRef)
-	require.NoError(t, err)
+	tRef := mustParseProducerRef(t, items[0].TrustRef)
 	fx.rejectRef(tRef)
 
 	_, err = originalPipe.GetFragment("mine#fragments/keeper")

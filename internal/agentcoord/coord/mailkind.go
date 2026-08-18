@@ -58,36 +58,39 @@ var senderMailKinds = []string{KindMessage, KindResult, KindError, KindQuestion}
 var reservedMailKinds = []string{KindApprovalRequest, KindUserInjected, KindExited, KindSteer, KindSummarize}
 
 // ErrSenderMailKind rejects a sender-supplied mail kind outside the
-// sender-allowed vocabulary. Typed so the plane-2 ingress answers
-// INVALID_ARGUMENT (statusFromErr) rather than an opaque internal error.
+// sender-allowed vocabulary — including an absent one. Typed so the plane-2
+// ingress answers INVALID_ARGUMENT (statusFromErr) rather than an opaque
+// internal error.
 var ErrSenderMailKind = errors.New("agent_send: unusable message kind")
 
-// SenderMailKind validates one sender-supplied mail kind. An absent kind stays
-// legal (it is optional, and an unkinded message claims no authority); anything
-// present must be a name from the sender-allowed vocabulary, which the refusal
-// enumerates so the sender can correct itself without guessing.
+// SenderMailKind validates one sender-supplied mail kind. `kind` is REQUIRED:
+// an absent value used to be accepted as "claims no authority", but that made
+// unkinded the single most common thing on the wire and gave every consumer a
+// silent default to fall into. It must now be one of the four names in the
+// sender-allowed vocabulary, which every refusal enumerates so the sender can
+// correct itself without guessing.
 //
 // This is the string-level form of the closed vocabulary; the typed enum whose
-// decode performs the same rejection replaces it, at which point this function
-// has no callers left.
+// decode performs the same rejection (messagekind.go's ValidateMessageKind)
+// replaces it, at which point this function has no callers left.
 func SenderMailKind(kind string) error {
-	if kind == "" {
-		return nil
-	}
 	for _, ok := range senderMailKinds {
 		if kind == ok {
 			return nil
 		}
 	}
 	vocab := strings.Join(senderMailKinds, " | ")
+	if kind == "" {
+		return fmt.Errorf("%w: kind is required; use one of: %s", ErrSenderMailKind, vocab)
+	}
 	for _, reserved := range reservedMailKinds {
 		if kind == reserved {
 			return fmt.Errorf("%w: %q is reserved for the coordinator and cannot be set by a sender "+
-				"(a sender-set %q would let a message borrow the coordinator's authority); use one of: %s, or omit kind",
+				"(a sender-set %q would let a message borrow the coordinator's authority); use one of: %s",
 				ErrSenderMailKind, kind, kind, vocab)
 		}
 	}
-	return fmt.Errorf("%w: %q is not a message kind; use one of: %s, or omit kind",
+	return fmt.Errorf("%w: %q is not a message kind; use one of: %s",
 		ErrSenderMailKind, kind, vocab)
 }
 
@@ -101,9 +104,14 @@ func SenderMailKind(kind string) error {
 // reservedMailKinds and to nothing else must make the mapping test RED, not
 // quietly travel unmapped.
 //
-// The empty string is a member, not an omission: an agent_send with no kind is
-// legal (SenderMailKind accepts it) and control.go's Inject queues one on
-// every human injection, so "" is the single most common kind on the wire.
+// The empty string is a member of the closed vocabulary, not something
+// ingress can ever produce: SenderMailKind refuses it from a sender, and
+// coordinator-internal producers no longer mint it either (control.go's Inject
+// — historically the "" traffic's single biggest source — now names KindSteer
+// on its mailbox fallback). It stays a member because the frontmatter
+// round-trip (SpoolKindForMail/MailKindForSpool below) and knownMailKind need
+// a defined answer for a Message whose Kind field was never set — the Go zero
+// value — rather than a lookup miss on data this build did not itself create.
 func MailKinds() []string {
 	out := make([]string, 0, 1+len(senderMailKinds)+len(reservedMailKinds))
 	out = append(out, KindUnset)
@@ -111,7 +119,13 @@ func MailKinds() []string {
 	return append(out, reservedMailKinds...)
 }
 
-// KindUnset is the mailbox kind of a message whose sender set none.
+// KindUnset is the mailbox kind of a Message whose Kind field was never set —
+// the Go zero value, not something any producer in this build now mints on
+// purpose. It is refused at every sender ingress (SenderMailKind,
+// ValidateMessageKind) and is no longer emitted by any coordinator-internal
+// path either; it remains a declared member of the closed vocabulary only so
+// the spool round-trip and knownMailKind have a defined mapping for it rather
+// than an undefined one.
 const KindUnset = ""
 
 // SpoolKindUnkinded is the FRONTMATTER spelling of KindUnset.

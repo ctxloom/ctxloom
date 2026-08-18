@@ -246,10 +246,11 @@ func (h *Home) SpoolTeeStats() SpoolTeeStats { return h.spoolTeeCount.stats() }
 // comes back on the response.
 //
 // The decoding here deliberately mirrors servePeerSend's, field for field
-// (recipient from to_agent_id OR to_role, kind read out of structured.kind
-// while structured itself is carried whole). A second, subtly different
-// reading of the same request would make the tee's files disagree with the
-// mailbox about what was sent — which is the one thing a shadow must never do.
+// (recipient from to_agent_id OR to_role, kind read off the typed req.GetKind()
+// field while structured itself is carried whole, opaque). A second, subtly
+// different reading of the same request would make the tee's files disagree
+// with the mailbox about what was sent — which is the one thing a shadow must
+// never do.
 func (h *Home) teePeerSendResponse(req *agentcoordpb.AgentRequest, resp *agentcoordpb.CoordinatorResponse) {
 	if !h.SpoolTeeEnabled() {
 		return
@@ -274,12 +275,9 @@ func (h *Home) teePeerSendResponse(req *agentcoordpb.AgentRequest, resp *agentco
 	if role := send.GetToRole(); role != "" {
 		to = role
 	}
-	kind := ""
+	kind := agentcoordpb.LegacyKindName(send.GetKind())
 	var structured json.RawMessage
 	if s := send.GetStructured(); s != nil {
-		if v, ok := s.GetFields()["kind"]; ok {
-			kind = v.GetStringValue()
-		}
 		raw, err := protojson.Marshal(s)
 		if err != nil {
 			h.noteSpoolTeeFailure(result.GetMessageId(), fmt.Errorf("coord: re-encoding the sent structured payload for the spool: %w", err))

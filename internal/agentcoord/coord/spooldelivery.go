@@ -840,10 +840,12 @@ func (h *Home) emitMailConsumed(ids []string) {
 // at all. handled=false leaves the request to the ordinary plane-2 path.
 //
 // The guards duplicated from servePeerSend (a recipient, some text, a kind
-// from the closed sender vocabulary) are duplicated ON PURPOSE: they are the
-// refusals an agent can still be told about synchronously, and losing them to
-// "the coordinator will complain later, by mail" would make a mistyped kind a
-// silently-dropped message instead of an immediate error.
+// from the closed sender vocabulary — read the SAME way, off the typed
+// req.GetKind() field, never structured["kind"]) are duplicated ON PURPOSE:
+// they are the refusals an agent can still be told about synchronously, and
+// losing them to "the coordinator will complain later, by mail" would make a
+// mistyped or absent kind a silently-dropped message instead of an immediate
+// error.
 func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, bool) {
 	if !h.spoolDelivery {
 		return nil, false
@@ -865,21 +867,18 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	if send.GetText() == "" {
 		return spoolSendErr(codes.InvalidArgument, "agent_send: text is required"), true
 	}
-	kind := ""
+	if err := agentcoordpb.ValidateMessageKind(send.GetKind()); err != nil {
+		return spoolSendErr(codes.InvalidArgument, err.Error()), true
+	}
+	kind := agentcoordpb.LegacyKindName(send.GetKind())
 	var structured json.RawMessage
 	if s := send.GetStructured(); s != nil {
-		if v, ok := s.GetFields()["kind"]; ok {
-			kind = v.GetStringValue()
-		}
 		raw, err := protojson.Marshal(s)
 		if err != nil {
 			return spoolSendErr(codes.InvalidArgument,
 				fmt.Sprintf("agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", err)), true
 		}
 		structured = raw
-	}
-	if err := SenderMailKind(kind); err != nil {
-		return spoolSendErr(codes.InvalidArgument, err.Error()), true
 	}
 	ref, err := h.writeOutbound(Message{
 		From: h.cfg.Harp, To: to, Kind: kind,

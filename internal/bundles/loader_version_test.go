@@ -74,9 +74,20 @@ func TestMultiVersion_CoexistGatedIndependently(t *testing.T) {
 	if got[0].Content != "v1 body" {
 		t.Errorf("surviving content = %q, want %q", got[0].Content, "v1 body")
 	}
-	// The withheld v2 is tallied under the version-less ref (content-free).
-	if w := l.Withheld(); len(w) != 1 || w[0] != cqFrag {
-		t.Errorf("Withheld() = %v, want [%s]", w, cqFrag)
+	// The withheld v2 is tallied under the version-less ref (content-free),
+	// in the canonical bundle-reference grammar (Decide's own parse, and
+	// therefore the ref it withholds under) — not cqFrag's old-grammar
+	// spelling, which is still what a caller ASKS for the fragment by.
+	wantWithheld, err := trust.GitRef("github.com", "/acme/b", "cq")
+	if err != nil {
+		t.Fatalf("trust.GitRef: %v", err)
+	}
+	wantWithheldStr, err := wantWithheld.WithItem(trust.KindFragment, "solid")
+	if err != nil {
+		t.Fatalf("WithItem: %v", err)
+	}
+	if w := l.Withheld(); len(w) != 1 || w[0] != wantWithheldStr.String() {
+		t.Errorf("Withheld() = %v, want [%s]", w, wantWithheldStr.String())
 	}
 }
 

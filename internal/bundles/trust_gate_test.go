@@ -145,7 +145,14 @@ func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
 		local = append(local, e.Ref.IsLocal)
 		return admitVerdict()
 	})
-	l := gatedPipe(NewLoader(seedLocal(seed)), authorizer, true)
+	// seedLocal deliberately mints every seed's typed SourceRef as
+	// LocalRef(ref) regardless of what the seed KEY looks like (see its own
+	// doc) — a canonical-URL-shaped key is no longer enough to reach a
+	// non-local trust.Ref through Decide's canonical-grammar parse now that
+	// the parse reads the TYPED SourceRef instead of reparsing the ref
+	// string. seedRemote goes through a REAL repoFSReader instead, so the
+	// class minted is the honest one this test is about.
+	l := gatedPipe(NewLoader(seedRemote(t, seed)...), authorizer, true)
 
 	if _, err := l.GetFragment(canonical + "#fragments/f"); err != nil {
 		t.Fatalf("GetFragment: %v", err)

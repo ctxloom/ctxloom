@@ -1,6 +1,15 @@
 package bundles
 
-import "context"
+import (
+	"context"
+	"path"
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/content"
+)
 
 // staticReader is the in-package seam a test uses to hand the loader content it
 // did not have to write to a filesystem.
@@ -47,4 +56,36 @@ func seedLocal(seeded map[string]*Bundle) Reader {
 			signatureFacts{signature: SignatureNone, signer: SignerNone}))
 	}
 	return staticReader{reads: reads}
+}
+
+// seedRemote presents already-parsed bundles as REMOTE (pinned, repofs-read)
+// content, one real repoFSReader per seed entry, keyed by canonical ref
+// ("https://…@bundles/<name>"). Unlike seedLocal — TrustCtxLocal by design,
+// documented as the wrong tool when a test's premise is specifically about
+// remote-vs-local trust identity — this goes through the REAL reader, so a
+// bundle's typed SourceRef is minted through the actual class minter
+// (ClassGit/ClassFile via canonicalBundleRefTyped), not forced through
+// LocalRef the way seedLocal's newRead fallback would.
+func seedRemote(t *testing.T, seeded map[string]*Bundle) []Reader {
+	t.Helper()
+	var readers []Reader
+	for ref, b := range seeded {
+		if b == nil {
+			continue
+		}
+		if b.Name == "" {
+			b.Name = ref
+		}
+		data, err := yaml.Marshal(b)
+		if err != nil {
+			t.Fatalf("seedRemote: marshal %q: %v", ref, err)
+		}
+		leaf := path.Base(strings.TrimSuffix(ref, "/"))
+		tree, err := content.NewMapTreeFS(map[string][]byte{leaf + ".yaml": data})
+		if err != nil {
+			t.Fatalf("seedRemote: tree for %q: %v", ref, err)
+		}
+		readers = append(readers, NewRepoFSReader(tree, ref))
+	}
+	return readers
 }

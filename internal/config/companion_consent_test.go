@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -527,6 +528,72 @@ func TestProbeCompanions_ReportsRefusalRatherThanAbsence(t *testing.T) {
 	assert.Equal(t, CompanionAdmissionUnconfirmed, acme.Admission)
 	assert.False(t, acme.Executed())
 	assert.Empty(t, execed, "the version probe is an exec too, and must not run without consent")
+}
+
+// TestProbes_NeverExecuteAnUnadmittedCompanion_RealBinary witnesses the same
+// invariant as the two tests above at the OPERATING SYSTEM instead of at a
+// package variable, and that difference is the whole reason it exists.
+//
+// Those two record the exec inside companionVersionOutput /
+// companionLoadoutOutput — seams they have REPLACED with a fake. Such a
+// recorder only sees an exec that still travels through the seam. Any code
+// that runs the binary another way — an inline exec.Command, a new helper, a
+// "cheap pre-check" added ahead of the gate — never consults the fake, so the
+// recorder stays empty and both tests stay green while the binary really ran.
+// That is measured, not supposed: an exec.Command placed in ProbeCompanions'
+// refusal arm leaves both of them passing and fails only this test.
+//
+// So this one plants a REAL executable on PATH, leaves both exec seams at
+// their production bodies, and asserts on a filesystem SENTINEL the binary
+// writes when it runs. Nothing except an actual execution can create it.
+func TestProbes_NeverExecuteAnUnadmittedCompanion_RealBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the sentinel companion is an sh script")
+	}
+	f := newConsentFixture(t)
+	sentinel := filepath.Join(t.TempDir(), "executed")
+	// The script records WHICH probe ran it, so the positive control below can
+	// prove BOTH exec paths reach the binary rather than just one of them.
+	writeFakeCompanion(t, f.elsewhere, "ctxloom-companion-acme", "echo \"$1\" >> "+sentinel)
+	restorePath := setPathDirsForTesting(t, []string{f.elsewhere, f.installDir})
+	defer restorePath()
+
+	// Non-interactive with nothing recorded — the fail-closed shape of every
+	// agent and CI run. Deliberately NO seam overrides: the probes below reach
+	// the real exec.
+	statuses := ProbeCompanions()
+	loadouts, err := ProbeCompanionLoadouts(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, loadouts)
+
+	// The companion has to have been FOUND and REFUSED. Without this the
+	// sentinel assertion would pass just as well against a fixture whose binary
+	// was never discovered at all — absence satisfying absence.
+	var acme CompanionStatus
+	for _, st := range statuses {
+		if st.Bin == "ctxloom-companion-acme" {
+			acme = st
+		}
+	}
+	require.NotEmpty(t, acme.Path, "the refused companion must still be discovered on PATH")
+	require.Equal(t, CompanionAdmissionUnconfirmed, acme.Admission)
+
+	assert.NoFileExists(t, sentinel,
+		"an unadmitted companion must never RUN, whatever the report says about it")
+
+	// POSITIVE CONTROL. Record consent and prove the very same binary, fixture
+	// and sentinel do fire — otherwise the assertion above would prove only
+	// that this test is incapable of executing anything.
+	_, err = SetCompanionConsent("ctxloom-companion-acme", true)
+	require.NoError(t, err)
+	ProbeCompanions()
+	_, err = ProbeCompanionLoadouts(context.Background())
+	require.NoError(t, err)
+
+	ran, rerr := os.ReadFile(sentinel)
+	require.NoError(t, rerr, "with consent recorded the same companion must actually run")
+	assert.Contains(t, string(ran), "version", "ProbeCompanions must reach the real binary once admitted")
+	assert.Contains(t, string(ran), "loadout", "ProbeCompanionLoadouts must reach the real binary once admitted")
 }
 
 // TestAdmitCompanions_PromptFalseNeverAsksEvenInteractively pins the

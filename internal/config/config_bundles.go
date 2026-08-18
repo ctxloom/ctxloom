@@ -881,9 +881,10 @@ func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles
 // decides anything (bundles.Gates — the executable trust gate, TR5), each
 // server's executable surface
 // (Command+Args+Env+Installation) is hashed and run through the cascade keyed
-// "<bundle>#mcp/<name>"; a DENY omits the server entirely — an arbitrary-command
-// executable must never reach settings unevaluated (fail-closed). Builtin
-// callers pass bundles.AdmitAll (in-binary, exempt).
+// on the canonical bundle-reference grammar's item selector over source
+// (itemRefFor(source, trust.KindMCP, name)); a DENY omits the server entirely
+// — an arbitrary-command executable must never reach settings unevaluated
+// (fail-closed). Builtin callers pass bundles.AdmitAll (in-binary, exempt).
 func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.Authorizer) map[string]wire.MCPServer {
 	bundle := read.Bundle
 	result := make(map[string]wire.MCPServer)
@@ -893,7 +894,7 @@ func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.A
 			// Key by the source ref (canonical for a cloned bundle, local name for
 			// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
 			// gate key matches the baseline/grant key. See extractHooksFromBundle.
-			ref := source + "#mcp/" + name
+			ref := itemRefFor(source, trust.KindMCP, name)
 			payload, perr := mcpPreimage(mcp)
 			if perr != nil {
 				// Cannot build the preimage → cannot evaluate → withhold. Fail

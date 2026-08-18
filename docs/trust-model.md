@@ -771,11 +771,16 @@ hashes carry the version dimension. Local items key under the fixed
 `builtin:ctxloom` token; companion items key under the fixed
 `ctxloom:companion` token with the binary's name as the bundle component — all
 three are sentinels, so none of these classes can collide with a real remote
-repo URL, or with each other. Repo URLs are
-canonicalized (scheme, `.git`,
-`git@`, host case; path case only on case-folding forges) on both sides of every
-comparison, so a URL-spelling variant cannot escape a rejection or manufacture a
-match. A moved or renamed item keeps neither its approved state (new ref →
+repo URL, or with each other. Repo URLs are normalized on both sides of every comparison, but only over
+spellings that are the SAME URI — scheme case and `http`/`https`, host case,
+the `git@` transport form, trailing slashes, and the userinfo/query/fragment
+components, which address a request and never a repository. A merely
+non-preferred spelling — a `www.` host, a different repository-path case — is a
+DIFFERENT identity, deliberately: whether two addresses reach one repository is
+host-specific knowledge ctxloom does not have, and folding on a guess would
+merge two identities onto one trust key, letting a rejection of one silently
+govern the other. Cross-address coverage comes from the content-reject
+countersignature instead (below), not from folding. A moved or renamed item keeps neither its approved state (new ref →
 re-gates to pending, safe) nor its ref-level rejection — the content-reject
 countersignature compensates when the content form matches, because it is
 deliberately signed with the ref omitted. Hook identity is positional
@@ -795,14 +800,26 @@ Addressed:
 - **Arbitrary execution via MCP/hooks** — per-item gating at the exec chokes,
   countersigned over the full executable surface (command, args, env, matcher,
   type).
-- **URL-variant / typosquat escape of a rejection** — canonical repo URLs on both
-  comparison sides; the content-reject countersignature is repo- and
-  ref-agnostic (signed with the ref omitted). Canonicalization is total over
-  same-repo spellings: scheme case and `http`/`https`, a `www.` prefix on known
-  forges, userinfo, query, fragment, trailing slashes and a `.git` suffix in
-  either order all collapse to one key, because the store address is
-  `CanonicalURL()+"|"+Key()` and any divergence is not a near miss but a store
-  miss.
+- **URL-variant / typosquat escape of a rejection** — carried by the
+  **content-reject** countersignature, which is repo- and ref-agnostic (signed
+  with the ref omitted), so a rejection of those bytes holds at any address they
+  appear under. This is the load-bearing half, and it is what makes the threat
+  addressed.
+
+  A **ref-reject** blocks one ADDRESS, which is what it says. Normalization
+  collapses same-URI spellings onto that address (scheme case and
+  `http`/`https`, host case, the `git@` form, userinfo, query, fragment,
+  trailing slashes), so those cannot escape it. It does NOT collapse a
+  non-preferred spelling: a `www.` host or a differing repository-path case is a
+  separate address and a ref-reject on one does not bind the other. Refusing
+  such spellings instead was tried and withdrawn — `https://host/foo.git` IS the
+  path of a bare repository on a plain git server, so refusing it makes a real
+  repository unaddressable, and the refusal is not a diagnostic anyone sees: the
+  caller degrades to an inert address and the item is silently withheld.
+
+  Known gap: a `.git` suffix still collapses on the git class, because
+  `remote.NormalizeURL` strips it upstream of the reference grammar; that
+  function also keys remotes.yaml lookups and lockfile pins.
 - **Corrupted rejection records** — a `.sig` in either approvals store that will
   not parse trips the readability gate ahead of step 1, and the resolver denies
   everything. Without that, an unreadable rejection would be an unenforced one.

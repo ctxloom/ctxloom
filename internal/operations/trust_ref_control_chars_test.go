@@ -13,7 +13,7 @@ import (
 // trust.ParseItemRef is the door a trust ref comes through from argv
 // (`ctxloom bundle trust <ref>`), from an MCP argument, and from the gates built over
 // bundle-authored names. Whatever it yields is interpolated verbatim into the
-// countersign preimage by countersignRef, so a control character surviving here
+// countersign preimage by CountersignRef, so a control character surviving here
 // reaches the bytes a human's signature covers — where an LF closes the `ref:`
 // line early and forges the rest of the frame.
 //
@@ -53,7 +53,7 @@ func TestParseTrustItemRef_StripsControlCharacters(t *testing.T) {
 			// The whole point: the countersign preimage's ref field is clean,
 			// so the header the store would sign is one the closed vocabulary
 			// accepts.
-			refStr := countersignRef(tRef)
+			refStr := CountersignRef(tRef)
 			assert.NotContains(t, refStr, "\n")
 			h := signing.CountersignHeader{
 				Assertion: signing.AssertionApprove,

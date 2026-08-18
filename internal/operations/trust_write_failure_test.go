@@ -154,6 +154,6 @@ func TestSetBlacklist_ContentRejectWriteFailure_NotFalselyReported(t *testing.T)
 
 	// The sticky ref-level block itself is unaffected by the later content
 	// write failure — it already landed on write #1.
-	_, refOK := store.VerifiedRefReject(countersignRef(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "dual"}), fx.root, time.Now())
+	_, refOK := store.VerifiedRefReject(CountersignRef(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "dual"}), fx.root, time.Now())
 	assert.True(t, refOK, "the ref-level block succeeded on write #1 and must not be undone by a later, unrelated write failure")
 }

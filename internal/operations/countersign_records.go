@@ -75,7 +75,7 @@ func (c countersignRecords) readable() error {
 // is a search over a small closed vocabulary, not a security weakening — each
 // candidate still must cryptographically verify.
 func (c countersignRecords) Rejected(ref trust.Ref, payload []byte) bool {
-	refStr := countersignRef(ref)
+	refStr := CountersignRef(ref)
 	now := time.Now()
 
 	for _, st := range c.bothStores() {
@@ -130,7 +130,7 @@ func (c countersignRecords) Approved(ref trust.Ref, payload []byte, form string)
 		clidiag.Warn("ctxloom", "trust: %q cannot be approved (%v) — treating it as unapproved", ref.Key(), err)
 		return false
 	}
-	refStr := countersignRef(ref)
+	refStr := CountersignRef(ref)
 	now := time.Now()
 
 	for _, st := range c.bothStores() {
@@ -221,7 +221,7 @@ func attestationFormsFor(kind trust.ItemKind) []signing.AttestationForm {
 	return out
 }
 
-// countersignRef builds the canonical item-ref string a countersignature
+// CountersignRef builds the canonical item-ref string a countersignature
 // binds to.
 //
 // It used to be ref.CanonicalURL()+"|"+ref.Key(): trust.Ref.Key() alone
@@ -249,7 +249,7 @@ func attestationFormsFor(kind trust.ItemKind) []signing.AttestationForm {
 // "unaddressable:"): the pending review path is fail-closed either way, so an
 // unaddressable Ref must key somewhere stable, never silently collide with
 // another unaddressable Ref's address by both flattening to "".
-func countersignRef(ref trust.Ref) string {
+func CountersignRef(ref trust.Ref) string {
 	br, err := ref.AsBundleRef()
 	if err != nil {
 		return fmt.Sprintf("ctxloom+unaddressable:%#v", ref)

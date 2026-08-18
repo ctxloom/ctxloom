@@ -864,7 +864,7 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 		return nil, err
 	}
 
-	refStr := countersignRef(tRef)
+	refStr := CountersignRef(tRef)
 
 	var principal string
 	if !unsigned {
@@ -985,7 +985,7 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 		return nil, err
 	}
 
-	refStr := countersignRef(tRef)
+	refStr := CountersignRef(tRef)
 
 	// Ref-level (sticky) block — the durable guarantee, written even when the
 	// item cannot be resolved (e.g. already deleted).

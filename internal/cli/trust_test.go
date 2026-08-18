@@ -60,10 +60,12 @@ func userApprovalsStore(t *testing.T) *countersign.Store {
 	return countersign.NewStore(home, afero.NewOsFs())
 }
 
-// countersignRefFor mirrors operations.countersignRef (unexported, cross-
-// package): the canonical item-ref string a countersignature binds to.
+// countersignRefFor delegates to the ONE implementation of the countersign
+// item-ref. It is not a reimplementation: a copy of this rule drifts silently
+// the moment the ref grammar changes, and the tests then assert against a key
+// production never writes.
 func countersignRefFor(ref trust.Ref) string {
-	return ref.CanonicalURL() + "|" + ref.Key()
+	return operations.CountersignRef(ref)
 }
 
 // seedLocalFragment writes a local bundle with one fragment to the temp project

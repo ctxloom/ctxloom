@@ -129,9 +129,9 @@ fragments:
 	home, err := paths.HomeApprovalsPath()
 	require.NoError(t, err)
 	store := countersign.NewStore(home, afero.NewOsFs())
-	require.NoError(t, store.WriteUnsignedApprove(countersignRef(ref), signing.AttestFragmentDistilled, []byte("old distilled text")))
+	require.NoError(t, store.WriteUnsignedApprove(CountersignRef(ref), signing.AttestFragmentDistilled, []byte("old distilled text")))
 	require.NoError(t, store.AppendIndex(countersign.IndexEntry{
-		Ref: countersignRef(ref), Kind: string(trust.KindFragment), Form: string(signing.FormDistilled),
+		Ref: CountersignRef(ref), Kind: string(trust.KindFragment), Form: string(signing.FormDistilled),
 		Assertion: string(signing.AssertionApprove), Unsigned: true, PayloadHash: "sha256:old", ReviewedAt: "2026-01-01T00:00:00Z",
 	}))
 

@@ -94,15 +94,15 @@ func builtinTrustRef(t *testing.T) trust.Ref {
 // TestSameNamedBundles_RefRejectDoesNotLeakBetweenSources is the human's HARD
 // CONSTRAINT on the shadowing rule, direction 1.
 //
-// A countersignature is keyed by countersignRef = Ref.CanonicalURL() + "|" +
+// A countersignature is keyed by CountersignRef = Ref.CanonicalURL() + "|" +
 // Ref.Key(). Both halves carry the source class today — CanonicalURL as
 // "ctxloom:builtin" vs "ctxloom:local", Key through its Bundle component
 // ("builtin:isolation" vs "isolation") — and MEASURED, only the FIRST is
 // load-bearing: normalising the "builtin:" prefix out of Key() leaves this
-// test green, while dropping CanonicalURL from countersignRef fails both
+// test green, while dropping CanonicalURL from CountersignRef fails both
 // sub-cases below. So the separation survives on Ref.IsBuiltin, set by
 // ParseItemRef from the qualified TRUST ref, and Key()'s prefix is redundant
-// rather than the guarantee. Do not "simplify" countersignRef to Key() alone.
+// rather than the guarantee. Do not "simplify" CountersignRef to Key() alone.
 //
 // What all of that rests on is that the source class stayed in the trust ref
 // when slice I7 took it out of the RESOLUTION ref. Nothing else separates the

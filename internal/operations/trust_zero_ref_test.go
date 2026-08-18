@@ -15,13 +15,13 @@ import (
 // trust.Ref producing a deterministic countersign-store address is not a
 // silent no-op.
 //
-// U3 changed WHAT that address looks like: countersignRef used to compose
+// U3 changed WHAT that address looks like: CountersignRef used to compose
 // CanonicalURL()+"|"+Key() unconditionally, so the zero Ref's well-formed-
 // looking "|#/" needed its own harmlessness argument. It now bridges through
 // Ref.AsBundleRef onto trust.BundleRef's stricter grammar, which refuses an
 // empty bundle name (see bundleref_test.go, "minters refuse an empty name"),
-// so the zero Ref no longer converts — countersignRef falls back to a
-// %#v-of-the-Ref address instead (see countersignRef's doc for why that
+// so the zero Ref no longer converts — CountersignRef falls back to a
+// %#v-of-the-Ref address instead (see CountersignRef's doc for why that
 // fallback can never collide with a real BundleRef.Identity()). The address
 // is still DETERMINISTIC and still addresses nothing meaningful, so the same
 // three properties still make it harmless, and each is asserted below rather
@@ -41,7 +41,7 @@ func TestZeroRef_AddressesButIsInertAndUnreachable(t *testing.T) {
 
 	assert.Equal(t, "#/", zero.Key())
 	assert.Empty(t, zero.CanonicalURL())
-	assert.Equal(t, fmt.Sprintf("ctxloom+unaddressable:%#v", zero), countersignRef(zero))
+	assert.Equal(t, fmt.Sprintf("ctxloom+unaddressable:%#v", zero), CountersignRef(zero))
 
 	// 1. Nothing can be countersigned at that address.
 	_, err := attestationFormFor(zero.Kind, signing.FormRaw)

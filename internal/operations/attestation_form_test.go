@@ -248,7 +248,7 @@ func writeSupersededApprove(t *testing.T, fx *trustFixture, dir string, ref trus
 	framed := "ctxloom-countersign/1\n" +
 		"assertion: approve\n" +
 		"kind: " + legacyKind + "\n" +
-		"ref: " + countersignRef(ref) + "\n" +
+		"ref: " + CountersignRef(ref) + "\n" +
 		"form: raw\n" +
 		"len: " + strconv.Itoa(len(payload)) + "\n" +
 		"\n" + string(payload)
@@ -271,7 +271,7 @@ func TestSupersededApproval_DoesNotVerifyButIsStillVisibleAsAPriorApproval(t *te
 	// Its display-index entry survives the bump too — written with the kind and
 	// layout labels of its own era.
 	require.NoError(t, fx.user.AppendIndex(countersign.IndexEntry{
-		Ref: countersignRef(ref), Kind: "fragments", Form: "raw",
+		Ref: CountersignRef(ref), Kind: "fragments", Form: "raw",
 		Assertion: string(signing.AssertionApprove), Principal: "fixture@example.com",
 		PayloadHash: bundles.HashPayload(payload), ReviewedAt: "2026-01-01T00:00:00Z",
 	}))
@@ -290,7 +290,7 @@ func TestSupersededApproval_DoesNotVerifyButIsStillVisibleAsAPriorApproval(t *te
 
 	// NOT ABSENT: the prior approval is still discoverable, which is what makes
 	// the item read as an update to re-review.
-	prior, err := records.hadPriorApprove(countersignRef(ref), signing.FormRaw)
+	prior, err := records.hadPriorApprove(CountersignRef(ref), signing.FormRaw)
 	require.NoError(t, err)
 	assert.True(t, prior, "a superseded approval must still be reported as a prior approval")
 }
@@ -304,7 +304,7 @@ func TestPendingReview_SupersededApprovalReadsAsUpdateNotNew(t *testing.T) {
 
 	writeSupersededApprove(t, fx, userApprovalsDir, ref, "fragments", payload)
 	require.NoError(t, fx.user.AppendIndex(countersign.IndexEntry{
-		Ref: countersignRef(ref), Kind: "fragments", Form: "raw",
+		Ref: CountersignRef(ref), Kind: "fragments", Form: "raw",
 		Assertion: string(signing.AssertionApprove), Principal: "fixture@example.com",
 		PayloadHash: bundles.HashPayload(payload), ReviewedAt: "2026-01-01T00:00:00Z",
 	}))

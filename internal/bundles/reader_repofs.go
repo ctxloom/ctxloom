@@ -96,15 +96,31 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 
 // sourceRefTyped mints this reader's structured source ref from r.ref, its
 // already-canonical lockfile identity ("<url>@bundles/<path>" or a bare local
-// name), through the SAME Ref -> BundleRef bridge (trust.Ref.AsBundleRef)
-// that trust.ParseItemRef's own base-ref parse feeds for the identical string
+// name), through canonicalBundleRefTyped.
+func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
+	return canonicalBundleRefTyped(r.ref)
+}
+
+// canonicalBundleRefTyped mints the structured trust.BundleRef for a canonical
+// resolution ref of the "<url>@bundles/<path>" / bare-local-name shape —
+// the ONE grammar shared by a pinned tree's own ref (repoFSReader.
+// sourceRefTyped, both single-file and tree form) and a version-pinned read's
+// version-less canonical ref (loader_version.go's bundleAtVersion, whose
+// commit-addressed reads carry the SAME identity as their unpinned twin). It
+// is the SAME Ref -> BundleRef bridge (trust.Ref.AsBundleRef) that
+// trust.ParseItemRef's own base-ref parse feeds for the identical string
 // shape — reusing that conversion rather than re-deriving host/path from the
 // ref a second, competing way. remote.ParseReference here is not a second
 // parser: it is the one parser this ref's grammar has, the same one
 // loader_version.go's versionRead already calls on a canonical ref of this
 // exact shape.
-func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
-	parsed, err := remote.ParseReference(r.ref)
+//
+// It degrades to the zero BundleRef on either failure — never guesses — the
+// same fail-closed shape AsBundleRef's own doc describes: BundleRead.SourceRef
+// reports the zero value AS-IS, and it is the CALLER's job to decide what an
+// unaddressable read means, never this mint's.
+func canonicalBundleRefTyped(canonical string) trust.BundleRef {
+	parsed, err := remote.ParseReference(canonical)
 	if err != nil {
 		return trust.BundleRef{}
 	}

@@ -117,10 +117,15 @@ type Bundle struct {
 	// what a bundle's source IS, only on how it is spelled. See
 	// BundleRead.SourceRef.
 	//
-	// The zero BundleRef (a mint that failed, or a call site this slice has
-	// not reached yet — see loader_version.go's bundleAtVersion) is not
-	// meaningful on its own; BundleRead.SourceRef reports it as-is rather than
-	// guessing, and nothing in this slice reads it for a decision.
+	// Every call site that sets sourceRef sets this field too — localFSReader
+	// (builtin and project), newRead's local fallback, companionReader,
+	// repoFSReader (single-file and tree form), and loader_version.go's
+	// bundleAtVersion for a version-pinned read. The zero BundleRef therefore
+	// means only a mint that failed (an unfoldable repo-URL spelling — see
+	// Ref.AsBundleRef's doc); BundleRead.SourceRef reports it as-is rather
+	// than guessing, and a producer minting an item ref from it must degrade
+	// to a stable, well-formed address rather than withhold silently (see
+	// operations.CountersignRef's identical fallback).
 	sourceRefTyped trust.BundleRef `yaml:"-"`
 
 	// signer is the VERIFIED publisher identity of this bundle's file bytes: the

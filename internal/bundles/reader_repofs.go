@@ -137,9 +137,14 @@ func (r *repoFSReader) readDocument() (BundleRead, error) {
 	if err != nil {
 		return BundleRead{}, fmt.Errorf("bundles: parsing %s for %q: %w", docPath, r.ref, err)
 	}
-	// Canonical is the sole resolution identity for pinned content: profiles
-	// author canonical refs and resolve straight to this bundle.
-	b.Name = r.ref
+	// Canonical is the sole RESOLUTION identity for pinned content: profiles
+	// author canonical refs and resolve straight to this bundle, so sourceRef
+	// and the read's ref are the canonical ref unconditionally. Name is the
+	// bundle's DECLARED identity and the ref is only its fallback, so a
+	// document that named itself keeps that name.
+	if b.Name == "" {
+		b.Name = r.ref
+	}
 	b.sourceRef = r.ref
 	// A document in a pinned tree has no directory of its own, so Path is the
 	// synthetic sentinel FSDir refuses rather than a filesystem path it would
@@ -216,7 +221,11 @@ func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 	if err != nil {
 		return BundleRead{}, fmt.Errorf("bundles: reading the pinned tree for %q: %w", r.ref, err)
 	}
-	b.Name = r.ref
+	// A declared name wins; the canonical ref is only the fallback identity for
+	// a tree that named nothing (see readDocument).
+	if b.Name == "" {
+		b.Name = r.ref
+	}
 	b.sourceRef = r.ref
 	// Path points at the tree's own envelope so FSDir resolves to the installed
 	// directory — which is what makes a tree bundle's SKILL packages loadable.

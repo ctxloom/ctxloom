@@ -249,11 +249,15 @@ func (r *localFSReader) readBundle(path, name string) (BundleRead, error) {
 		return BundleRead{}, fmt.Errorf("failed to parse bundle %s: %w", path, err)
 	}
 	bundle.Path = path
-	// Bundle.Name is the LEAF name a load has always carried ("go" for
-	// lang/go/bundle.yaml); the read's ref is the path-relative name a listing
-	// resolves by ("lang/go"). They differ for nested bundles and both have
-	// callers, so neither may quietly become the other.
-	bundle.Name = ExtractBundleName(path)
+	// A DECLARED name wins. The path-derived leaf name ("go" for
+	// lang/go/bundle.yaml) is only the FALLBACK for a bundle that declares no
+	// identity of its own, so it may never overwrite what the document said.
+	// The read's ref stays the path-relative name a listing resolves by
+	// ("lang/go"): it differs from the leaf name for nested bundles and both
+	// have callers, so neither may quietly become the other.
+	if bundle.Name == "" {
+		bundle.Name = ExtractBundleName(path)
+	}
 
 	// A builtin's content trust identity is stamped HERE, at the read that
 	// knows this bundle is ProvenanceBuiltin, using `name` — the same

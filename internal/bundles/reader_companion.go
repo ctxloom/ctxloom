@@ -114,7 +114,12 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 		return BundleRead{}, false
 	}
 	ref := companionRefPrefix + lo.Bin
-	b.Name = ref
+	// The companion ref is the RESOLUTION identity and stays unconditional; it
+	// is only the FALLBACK for Name, so a loadout that declared `name:` keeps
+	// the name it declared.
+	if b.Name == "" {
+		b.Name = ref
+	}
 	b.sourceRef = ref
 
 	facts := readSignatureFacts(lo.Bundle, lo.Signature, r.cfg.root)

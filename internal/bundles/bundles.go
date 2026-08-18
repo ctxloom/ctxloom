@@ -66,8 +66,16 @@ type Bundle struct {
 	// be acknowledged before its hooks fire (see docs/bundle-review-plan.md).
 	Hooks BundleHooks `yaml:"hooks,omitempty"`
 
+	// Name is the bundle's DECLARED identity. A bundle that declares `name:`
+	// answers to that name; one that declares nothing falls back to the name
+	// its location implies (ExtractBundleName for a file on disk, the ref for a
+	// pinned or companion source). The declared name WINS: a reader may write
+	// its location-derived fallback only into an empty Name — see
+	// localFSReader.readBundle, repoFSReader, and companionReader.read.
+	Name string `yaml:"name,omitempty"`
+
 	// Internal fields (not serialized)
-	Name string `yaml:"-"` // Bundle name (from path)
+	//
 	// Path is OVERLOADED, and callers must not treat it as a filesystem path
 	// without asking. It is a real path to the bundle.yaml for an on-disk
 	// bundle, but it is "" for a companion-seeded bundle (config/companions.go

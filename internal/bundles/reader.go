@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -265,6 +266,31 @@ func (r BundleRead) SourceRef() trust.BundleRef {
 		return trust.BundleRef{}
 	}
 	return r.Bundle.contentSourceRefTyped()
+}
+
+// itemRefFor mints the canonical "<source>#<kind>/<item>" reference an item's
+// TrustRef is built from: src.WithItem(kind, item).String(), rendered through
+// the canonical bundle-reference grammar rather than hand-concatenated.
+//
+// WithItem can fail only if src itself is not a validly-minted BundleRef —
+// unreachable for a source ref a reader has already stamped, since every
+// stamp site mints through the SAME class minters (BuiltinRef/LocalRef/
+// CompanionRef/GitRef/FileRef) WithItem itself round-trips through. It is
+// reachable in exactly the shape AsBundleRef's own doc describes: src is the
+// zero BundleRef, which BundleRead.SourceRef reports as-is for a read whose
+// typed source was never established. Degrading to a stable, well-formed,
+// UNADDRESSABLE-looking string — rather than the empty string, or the
+// hand-concatenated fallback the caller could no longer construct without
+// src — is deliberate and mirrors operations.CountersignRef's identical
+// fallback for the identical unreachable case: an item must key SOMEWHERE
+// stable, never silently collide with another unaddressable item by both
+// flattening to "".
+func itemRefFor(src trust.BundleRef, kind trust.ItemKind, item string) string {
+	br, err := src.WithItem(kind, item)
+	if err != nil {
+		return fmt.Sprintf("ctxloom+unaddressable:%#v", src)
+	}
+	return br.String()
 }
 
 // TrustCtx reports the only axis a gate keys on.

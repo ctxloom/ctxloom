@@ -75,8 +75,8 @@ func TestLoaderGate_WithholdsFragment_KeepsSibling(t *testing.T) {
 	if got.Content != "keep body" {
 		t.Errorf("keep content = %q, want %q", got.Content, "keep body")
 	}
-	if w := l.Withheld(); len(w) != 1 || w[0] != "demo#fragments/blocked" {
-		t.Errorf("Withheld() = %v, want [demo#fragments/blocked]", w)
+	if w := l.Withheld(); len(w) != 1 || w[0] != "ctxloom+local:demo#fragments/blocked" {
+		t.Errorf("Withheld() = %v, want [ctxloom+local:demo#fragments/blocked] (the canonical bundle-reference grammar)", w)
 	}
 }
 

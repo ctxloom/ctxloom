@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // LoadedContent is a fragment or command that has been through the PROCESS
@@ -307,10 +308,13 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 }
 
 // fragmentRead builds the ItemRead for a fragment: every form the store holds
-// plus the trust facts the process stage decides on. TrustRef is keyed on the
-// bundle's honest source ref (Bundle.contentSourceRef) — canonical for a cloned
-// bundle so its text gates like an executable, the local name for a project
-// bundle so its text auto-trusts — which is the SAME keying the exec gate uses.
+// plus the trust facts the process stage decides on. TrustRef is minted from
+// the bundle's honest TYPED source ref (BundleRead.SourceRef) — canonical for
+// a cloned bundle so its text gates like an executable, the local name for a
+// project bundle so its text auto-trusts — through the canonical
+// bundle-reference grammar (itemRefFor), not hand-concatenated from
+// Bundle.contentSourceRef's string. That is the SAME keying the exec gate
+// uses.
 func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragment) *ItemRead {
 	bundle := read.Bundle
 	return &ItemRead{
@@ -322,7 +326,7 @@ func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragm
 		Installation: frag.Installation,
 		DistilledBy:  frag.DistilledBy,
 		Forms:        frag.Forms(),
-		TrustRef:     bundle.contentSourceRef() + "#fragments/" + fragName,
+		TrustRef:     itemRefFor(read.SourceRef(), trust.KindFragment, fragName),
 		Signer:       bundle.Signer(),
 		Read:         read,
 	}

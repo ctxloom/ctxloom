@@ -693,6 +693,9 @@ func TestBundleRef_SyntaxRefusals(t *testing.T) {
 		{"truncated percent escape", "ctxloom+local:too%"},
 		{"invalid percent escape", "ctxloom+local:too%zz"},
 		{"path on an internal class", "ctxloom+builtin://host/x"},
+		{"git suffix on repo path", "ctxloom+git://github.com/acme/repo.git//bundles/x"},
+		{"git suffix on file repo path", "ctxloom+file:///srv/repo.git//bundles/x"},
+		{"www prefix on host", "ctxloom+git://www.github.com/acme/repo//bundles/x"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := ParseBundleRef(tt.in)

@@ -370,51 +370,24 @@ func setReviewForms(item *ReviewItem, shown []byte, shownForm bundles.ContentFor
 func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundles.BundleRead, payload []byte, form string, executable bool) (ReviewItem, bool) {
 	// name is BUNDLE-AUTHORED — a fragment/command/mcp/hook/skill key straight
 	// out of the bundle's own YAML or file tree, never itself put through
-	// remote.NormalizeRef before arriving here. It is normalized up front,
+	// remote.NormalizeRef before arriving here. ref is normalized up front,
 	// before anything below reads it, so every use past this line — the
 	// unaddressable-item warning, ReportVerdict's diagnostic, and the
 	// ReviewItem shown to the human doing `ctxloom review` — sees the same
-	// clean string the trust decision below decided with. Without this, a
-	// bundle naming an item with an embedded control character got a CORRECT
-	// trust decision while the review UI and diagnostics still printed the
-	// raw one: exactly the terminal-repainting hazard this ref grammar exists
-	// to close (see remote.isRefControlChar's doc), just moved from the
-	// countersign preimage to the review prompt.
-	name = remote.NormalizeRef(name)
-	// ref is the DISPLAY/CLI-facing item ref — "<bundleRef>#<kindDir>/<name>",
-	// bundleRef being the bundle's bare RESOLUTION name (read.Ref()) — and it
-	// stays in that OLD grammar deliberately: it is what ReviewItem.Ref hands
-	// straight to operations.SetItemTrust/SetBlacklist (still trust.
-	// ParseItemRef readers; the CLI ref syntax migrates in a later slice), so
-	// changing its shape here would break `ctxloom review`'s accept/reject
-	// the moment this landed, not just transiently.
-	ref := bundleRef + "#" + kindDir + "/" + name
-
-	// tRef is the TRUST identity the decision below keys on, and it is built
-	// from the bundle's HONEST typed source (read.SourceRef(), the same
-	// typed field every migrated producer mints from) through the canonical
-	// bundle-reference grammar — never by reparsing ref, which carries
-	// bundleRef (read.Ref(), the bare RESOLUTION name) instead of the source.
-	// The two agree for every class except BUILTIN, where the resolution ref
-	// is deliberately unqualified ("isolation") while the source ref carries
-	// its class ("builtin:isolation" / ctxloom+builtin:isolation) — so the
-	// old ref-string round trip through trust.ParseItemRef misread a builtin
-	// item as Ref{IsLocal: true} instead of Ref{IsBuiltin: true}: a second,
-	// quietly-different construction of "the same" identity from the one
-	// every migrated producer's item ref now carries.
-	kind, parsedName, serr := trust.ParseSelector(kindDir + "/" + name)
-	if serr != nil {
-		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", ref, serr)
-		return ReviewItem{}, false
-	}
-	br, err := read.SourceRef().WithItem(kind, parsedName)
+	// clean string ParseItemRef decided trust with. Without this, a bundle
+	// naming an item with an embedded control character got a CORRECT trust
+	// decision (ParseItemRef normalizes its own copy) while the review UI and
+	// diagnostics still printed the raw one: exactly the terminal-repainting
+	// hazard this ref grammar exists to close (see remote.isRefControlChar's
+	// doc), just moved from the countersign preimage to the review prompt.
+	ref := remote.NormalizeRef(bundleRef + "#" + kindDir + "/" + name)
+	tRef, _, _, err := trust.ParseItemRef(ref)
 	if err != nil {
 		// A ref review cannot address cannot be accepted either — the exposure
 		// gate withholds it regardless; surface the anomaly and move on.
 		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", ref, err)
 		return ReviewItem{}, false
 	}
-	tRef := trust.RefFromBundleRef(br)
 	// THE SAME FILTER THE EXPOSURE PATH USES, not a second opinion about the
 	// same item. That is the whole point of the verdict: a status report is
 	// truthful by CONSTRUCTION rather than because two code paths that both

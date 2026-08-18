@@ -6,7 +6,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Catalog is the RESOLVED bundle set: everything a session can see, read once.
@@ -23,18 +22,6 @@ import (
 type Catalog struct {
 	reads []BundleRead          // every read, in resolution order
 	byRef map[string]BundleRead // resolution identity → read
-
-	// byTrustRef indexes the same reads by their TYPED source identity
-	// (BundleRead.SourceRef().BundleIdentity()) rather than by resolution-ref
-	// spelling. It is keyed alongside byRef, in the same loop, off the exact
-	// same winning read after resolveCollision — so the two indexes can never
-	// disagree about which read answers for a given resolution ref. A read
-	// whose SourceRef is the zero BundleRef (unaddressable — see
-	// Ref.AsBundleRef's doc for when a mint fails) is not entered here: an
-	// empty BundleIdentity() would otherwise let every unaddressable read in
-	// one resolve collide on ONE key, and the last one in would silently stand
-	// in for all the others. See LookupBundleRef.
-	byTrustRef map[string]BundleRead
 }
 
 // Resolve reads every reader ONCE and returns the set.
@@ -48,7 +35,6 @@ type Catalog struct {
 // no bundles" and "we could not find out what bundles you have".
 func Resolve(ctx context.Context, readers ...Reader) Catalog {
 	byRef := make(map[string]BundleRead)
-	byTrustRef := make(map[string]BundleRead)
 	var order []string
 
 	for _, r := range readers {
@@ -67,21 +53,13 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 			if !admit(read) {
 				continue
 			}
-			winner := read
 			prior, seen := byRef[read.ref]
 			if !seen {
 				order = append(order, read.ref)
 				byRef[read.ref] = read
-			} else {
-				winner = resolveCollision(prior, read)
-				byRef[read.ref] = winner
+				continue
 			}
-			// Only a read with an ADDRESSABLE source ref is entered — see
-			// byTrustRef's doc for why an unaddressable (zero) one is skipped
-			// rather than colliding every such read onto one key.
-			if src := winner.SourceRef(); src.Class != "" {
-				byTrustRef[src.BundleIdentity()] = winner
-			}
+			byRef[read.ref] = resolveCollision(prior, read)
 		}
 	}
 
@@ -90,7 +68,7 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 	for _, ref := range order {
 		reads = append(reads, byRef[ref])
 	}
-	return Catalog{reads: reads, byRef: byRef, byTrustRef: byTrustRef}
+	return Catalog{reads: reads, byRef: byRef}
 }
 
 // resolveCollision decides which of two reads sharing ONE resolution ref the
@@ -191,24 +169,6 @@ func (c Catalog) Lookup(name string) (BundleRead, bool) {
 	return BundleRead{}, false
 }
 
-// LookupBundleRef resolves a STRUCTURED bundle-level reference to the read
-// that answers for it, keyed on the read's typed source identity
-// (BundleRead.SourceRef().BundleIdentity()) rather than on any
-// resolution-ref spelling.
-//
-// It is the typed counterpart to Lookup(name) for a caller that already
-// holds a trust.BundleRef — the shape the canonical bundle-reference grammar
-// parses a "ctxloom+<class>:…" string into — and it is PURELY ADDITIVE:
-// Lookup(name) is unchanged, keeps resolving the bare-name/alias spellings
-// it always has, and gains no new arm here. br's own item selector (Kind/
-// Item), if any, is ignored — this resolves the BUNDLE the item lives in,
-// matching BundleIdentity's own "identity of the bundle that contains the
-// item" contract, not the item within it.
-func (c Catalog) LookupBundleRef(br trust.BundleRef) (BundleRead, bool) {
-	read, ok := c.byTrustRef[br.BundleIdentity()]
-	return read, ok
-}
-
 // Scoped narrows to one or more provenance classes, returning a VIEW over the
 // same reads rather than a second resolve.
 //
@@ -223,16 +183,13 @@ func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 	for _, p := range classes {
 		keep[p] = true
 	}
-	out := Catalog{byRef: make(map[string]BundleRead), byTrustRef: make(map[string]BundleRead)}
+	out := Catalog{byRef: make(map[string]BundleRead)}
 	for _, read := range c.reads {
 		if !keep[read.Provenance] {
 			continue
 		}
 		out.reads = append(out.reads, read)
 		out.byRef[read.ref] = read
-		if src := read.SourceRef(); src.Class != "" {
-			out.byTrustRef[src.BundleIdentity()] = read
-		}
 	}
 	return out
 }

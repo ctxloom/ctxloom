@@ -75,8 +75,8 @@ func TestLoaderGate_WithholdsFragment_KeepsSibling(t *testing.T) {
 	if got.Content != "keep body" {
 		t.Errorf("keep content = %q, want %q", got.Content, "keep body")
 	}
-	if w := l.Withheld(); len(w) != 1 || w[0] != "ctxloom+local:demo#fragments/blocked" {
-		t.Errorf("Withheld() = %v, want [ctxloom+local:demo#fragments/blocked] (the canonical bundle-reference grammar)", w)
+	if w := l.Withheld(); len(w) != 1 || w[0] != "demo#fragments/blocked" {
+		t.Errorf("Withheld() = %v, want [demo#fragments/blocked]", w)
 	}
 }
 
@@ -95,8 +95,8 @@ func TestLoaderGate_WithholdsCommand(t *testing.T) {
 	if _, err := l.GetCommand("demo#commands/okprompt"); err != nil {
 		t.Fatalf("GetCommand(okprompt): %v", err)
 	}
-	if w := l.Withheld(); len(w) != 1 || w[0] != "ctxloom+local:demo#prompts/badprompt" {
-		t.Errorf("Withheld() = %v, want [ctxloom+local:demo#prompts/badprompt] (the canonical bundle-reference grammar)", w)
+	if w := l.Withheld(); len(w) != 1 || w[0] != "demo#prompts/badprompt" {
+		t.Errorf("Withheld() = %v, want [demo#prompts/badprompt]", w)
 	}
 }
 
@@ -145,14 +145,7 @@ func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
 		local = append(local, e.Ref.IsLocal)
 		return admitVerdict()
 	})
-	// seedLocal deliberately mints every seed's typed SourceRef as
-	// LocalRef(ref) regardless of what the seed KEY looks like (see its own
-	// doc) — a canonical-URL-shaped key is no longer enough to reach a
-	// non-local trust.Ref through Decide's canonical-grammar parse now that
-	// the parse reads the TYPED SourceRef instead of reparsing the ref
-	// string. seedRemote goes through a REAL repoFSReader instead, so the
-	// class minted is the honest one this test is about.
-	l := gatedPipe(NewLoader(seedRemote(t, seed)...), authorizer, true)
+	l := gatedPipe(NewLoader(seedLocal(seed)), authorizer, true)
 
 	if _, err := l.GetFragment(canonical + "#fragments/f"); err != nil {
 		t.Fatalf("GetFragment: %v", err)

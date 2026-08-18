@@ -17,9 +17,8 @@ import (
 
 // gatePulledRef is a THIRD item, distinct from gatePostgresRef (pending) and
 // gateHookRef (rejectable), used by the tests below to exercise the RETRACTED
-// source specifically. Canonical bundle-reference grammar — see
-// gatePostgresRef/gateHookRef's doc (trust_exec_gate_test.go) for why.
-var gatePulledRef = mustGitItemRef("github.com", "/acme/repo", "tooling", trust.KindMCP, "pulled-server")
+// source specifically.
+const gatePulledRef = acmeBundle + "tooling#mcp/pulled-server"
 
 // TestContentGate_WithheldItems_ReportReason is the RED-before/GREEN-after
 // proof for the visibility fix: a withheld item's ref must carry WHY it was

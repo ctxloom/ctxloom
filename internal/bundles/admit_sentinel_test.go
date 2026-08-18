@@ -37,8 +37,8 @@ func TestExposure_RealGate_WithholdsWhatItRefuses(t *testing.T) {
 	if _, err := p.GetFragment("demo#fragments/secret"); !errors.Is(err, errs.ErrFragmentWithheld) {
 		t.Fatalf("GetFragment err = %v, want ErrFragmentWithheld", err)
 	}
-	if w := p.Withheld(); len(w) != 1 || w[0] != "ctxloom+local:demo#fragments/secret" {
-		t.Errorf("Withheld() = %v, want [ctxloom+local:demo#fragments/secret] (the canonical bundle-reference grammar)", w)
+	if w := p.Withheld(); len(w) != 1 || w[0] != "demo#fragments/secret" {
+		t.Errorf("Withheld() = %v, want [demo#fragments/secret]", w)
 	}
 }
 
@@ -73,8 +73,8 @@ func TestExposure_ForgottenGate_DoesNotAdmit(t *testing.T) {
 	if _, err := p.GetFragment("demo#fragments/secret"); !errors.Is(err, errs.ErrFragmentWithheld) {
 		t.Fatalf("a pipeline nobody gave an authorizer served content (err = %v)", err)
 	}
-	if w := p.Withheld(); len(w) != 1 || w[0] != "ctxloom+local:demo#fragments/secret" {
-		t.Errorf("Withheld() = %v, want [ctxloom+local:demo#fragments/secret] (the canonical bundle-reference grammar)", w)
+	if w := p.Withheld(); len(w) != 1 || w[0] != "demo#fragments/secret" {
+		t.Errorf("Withheld() = %v, want [demo#fragments/secret]", w)
 	}
 	if !strings.Contains(sink.String(), "no authorizer") {
 		t.Errorf("the missing authorizer was not reported; diagnostics = %q", sink.String())

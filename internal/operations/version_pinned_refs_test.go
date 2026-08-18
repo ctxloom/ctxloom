@@ -169,7 +169,7 @@ func TestVersionPinned_GateEvaluatesPinnedHash(t *testing.T) {
 	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned2", Pipeline: loader})
 	require.NoError(t, err)
 	assert.NotContains(t, res.Context, "V2-BODY", "an un-granted pinned version must be withheld")
-	assert.Equal(t, []string{canonicalWithheldRef(t, cqVersionRef+"#fragments/solid")}, loader.Withheld(),
+	assert.Equal(t, []string{cqVersionRef + "#fragments/solid"}, loader.Withheld(),
 		"the withheld pinned version is tallied under its version-less ref")
 
 	// `ctxloom trust` of the pinned version's own hash exposes it (fresh loader so

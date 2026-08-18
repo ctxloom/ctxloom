@@ -72,10 +72,6 @@ func TestBuiltinRead_ResolutionRefBare_TrustRefStillQualified(t *testing.T) {
 	items, err := NewLoader(NewBuiltinReader()).ReadFragment(shared + "#fragments/isolation-axes")
 	require.NoError(t, err)
 	require.Len(t, items, 1, "the bare resolution ref must reach the builtin's fragment")
-	wantItemRef, err := trust.BuiltinRef(shared)
-	require.NoError(t, err)
-	wantItemRefStr, err := wantItemRef.WithItem(trust.KindFragment, "isolation-axes")
-	require.NoError(t, err)
-	assert.Equal(t, wantItemRefStr.String(), items[0].TrustRef,
-		"the item ref the gate sees must carry the builtin qualification, minted through the canonical bundle-reference grammar")
+	assert.Equal(t, trust.BuiltinSourcePrefix+shared+"#fragments/isolation-axes", items[0].TrustRef,
+		"the item ref the gate sees must carry the builtin qualification")
 }

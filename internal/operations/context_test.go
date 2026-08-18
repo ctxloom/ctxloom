@@ -707,8 +707,8 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, result.Context, "llm-tool-killer briefing")
 		assert.Contains(t, result.Context, "taskloom briefing")
-		assert.Contains(t, result.FragmentsLoaded, "ctxloom+companion:ltk#fragments/ltk")
-		assert.Contains(t, result.FragmentsLoaded, "ctxloom+companion:taskloom#fragments/taskloom")
+		assert.Contains(t, result.FragmentsLoaded, "ctxloom:companion@ltk#fragments/ltk")
+		assert.Contains(t, result.FragmentsLoaded, "ctxloom:companion@taskloom#fragments/taskloom")
 	})
 
 	t.Run("companion absent (loadout probe fails) → that companion's fragments skipped", func(t *testing.T) {
@@ -732,8 +732,8 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
 		require.NoError(t, err)
-		assert.NotContains(t, result.FragmentsLoaded, "ctxloom+companion:ltk#fragments/ltk", "absent companion is skipped")
-		assert.Contains(t, result.FragmentsLoaded, "ctxloom+companion:taskloom#fragments/taskloom", "present companion still injects")
+		assert.NotContains(t, result.FragmentsLoaded, "ctxloom:companion@ltk#fragments/ltk", "absent companion is skipped")
+		assert.Contains(t, result.FragmentsLoaded, "ctxloom:companion@taskloom#fragments/taskloom", "present companion still injects")
 	})
 }
 
@@ -741,7 +741,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 // isolation fragment (resources/builtin_bundles/isolation.yaml), shared by
 // every test in this package that must account for its unconditional
 // injection alongside loader-resolved content.
-const builtinIsolationFragmentRef = "ctxloom+builtin:isolation#fragments/isolation-axes"
+const builtinIsolationFragmentRef = "builtin:isolation#fragments/isolation-axes"
 
 // TestAssembleContext_InjectsBuiltinIsolationFragment proves ctxloom's first
 // genuinely-embedded builtin bundle (resources/builtin_bundles/isolation.yaml)

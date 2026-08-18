@@ -69,7 +69,8 @@ func TestBuiltinFragment_RejectViaLoaderRoute_WithholdsInjectionRoute(t *testing
 	items, err := loader.ReadFragment("isolation#fragments/isolation-axes")
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	tRefA := mustParseProducerRef(t, items[0].TrustRef)
+	tRefA, _, _, err := trust.ParseItemRef(items[0].TrustRef)
+	require.NoError(t, err)
 	fx.rejectRef(tRefA)
 
 	// ROUTE A now withholds (expected — same ref rejected).
@@ -108,7 +109,8 @@ func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
 	loader := bundles.NewLoader(bundles.NewBuiltinReader())
 	items, err := loader.ReadFragment("isolation#fragments/isolation-axes")
 	require.NoError(t, err)
-	tRef := mustParseProducerRef(t, items[0].TrustRef)
+	tRef, _, _, err := trust.ParseItemRef(items[0].TrustRef)
+	require.NoError(t, err)
 
 	// Reject once, through a gate built over the fixture's stores. Ref-scoped
 	// only — see the sibling test for why a content-scoped (ref-agnostic)
@@ -135,46 +137,6 @@ func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
 		"the injection route must also still withhold it after reload")
 }
 
-// TestClassify_BuiltinItem_KeysTrustDecisionOnSourceRefNotResolutionRef pins
-// review.go's own fix to the SAME identity bug crispy-scoop closed elsewhere:
-// classify used to build its trust decision from bundleRef — read.Ref(), the
-// bundle's BARE resolution name ("isolation") — reparsed through
-// trust.ParseItemRef's bare-token fallback, landing on Ref{IsLocal: true}.
-// The honest identity is read.SourceRef() ("ctxloom+builtin:isolation"),
-// Ref{IsBuiltin: true}.
-//
-// There is currently NO observable difference in review's own output from
-// this fix (a builtin auto-allows under EITHER identity, so it never reaches
-// NeedsReview() either way — see the doc on classify's tRef construction), so
-// this test pins the fix at its own point of divergence: the trust.Ref
-// classify's authorizer.Admit call is actually handed, captured directly
-// rather than inferred from a downstream verdict.
-func TestClassify_BuiltinItem_KeysTrustDecisionOnSourceRefNotResolutionRef(t *testing.T) {
-	loader := bundles.NewLoader(bundles.NewBuiltinReader())
-	read, ok := loader.Read("isolation")
-	require.True(t, ok, "the embedded builtin must resolve by its bare name")
-
-	var seenRef trust.Ref
-	captured := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
-		seenRef = e.Ref
-		return bundles.Verdict{Allow: true, Reason: bundles.ReasonBuiltin}
-	})
-	e := &reviewEnumerator{authorizer: captured}
-
-	frag, ok := read.Bundle.Fragments["isolation-axes"]
-	require.True(t, ok, "the embedded isolation bundle must ship isolation-axes")
-	payload, form := frag.ContentPayload(false)
-
-	// read.Ref() ("isolation") is passed as bundleRef exactly as pendingItems
-	// passes it — classify must NOT use it to build the trust decision.
-	_, _ = e.classify(read.Ref(), "fragments", "isolation-axes", read, payload, string(form), false)
-
-	assert.True(t, seenRef.IsBuiltin,
-		"classify must key the trust decision on the bundle's typed SourceRef (IsBuiltin), not its bare resolution ref (which trust.ParseItemRef's bare-token fallback reads as IsLocal)")
-	assert.False(t, seenRef.IsLocal)
-	assert.Equal(t, "isolation", seenRef.Bundle)
-}
-
 // TestNonBuiltinLocalBundle_TrustRefUnchanged is the regression guard: a
 // project-authored (NewProjectReader) bundle's content trust ref must be
 // completely unaffected by the builtin-only stamp in
@@ -196,11 +158,12 @@ func TestNonBuiltinLocalBundle_TrustRefUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 
-	const wantRef = "ctxloom+local:dev#fragments/keep"
+	const wantRef = "dev#fragments/keep"
 	assert.Equal(t, wantRef, items[0].TrustRef,
-		"a project-local bundle's TrustRef must stay keyed on the bare, unprefixed name")
+		"a project-local bundle's TrustRef must stay the bare, unprefixed name")
 
-	tRef := mustParseProducerRef(t, items[0].TrustRef)
+	tRef, _, _, err := trust.ParseItemRef(items[0].TrustRef)
+	require.NoError(t, err)
 	assert.True(t, tRef.IsLocal, "a project-local item must still resolve to IsLocal")
 	assert.False(t, tRef.IsBuiltin, "a project-local item must never resolve to IsBuiltin")
 	assert.Equal(t, "ctxloom:local", tRef.CanonicalURL())

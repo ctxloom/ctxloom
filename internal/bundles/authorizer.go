@@ -423,17 +423,6 @@ type UnaddressableReporter interface {
 // An UNPARSEABLE ref withholds. An item nothing can address is an item the
 // decision function was never able to key on, and exposing it would be exposing
 // content no rule ever saw.
-//
-// The parse is the canonical bundle-reference grammar (trust.ParseBundleRef +
-// trust.RefFromBundleRef), not the retired trust.ParseItemRef
-// ("<source>#<kind>/<name>", hand-concatenated) — every producer in this
-// package and in internal/config now mints ref through that same canonical
-// grammar (trust.BundleRef.WithItem), so this is the matching read half, not
-// a second, competing one. ORDER WAS LOAD-BEARING getting here: every
-// producer had to migrate onto the canonical grammar BEFORE this switch
-// landed, or this parser would have refused every ref they were still
-// emitting in the old one — an unparseable ref withholds SILENTLY apart from
-// a warn line, so reversing the order would have withheld the whole catalog.
 func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, form ContentForm) Verdict {
 	if authorizer == nil {
 		v := Verdict{Reason: ReasonUngoverned}
@@ -446,7 +435,7 @@ func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, 
 	if !Gates(authorizer) {
 		return authorizer.Admit(Exposure{Read: read, Bytes: payload, Form: form})
 	}
-	br, err := trust.ParseBundleRef(ref)
+	tRef, _, _, err := trust.ParseItemRef(ref)
 	if err != nil {
 		v := Verdict{Reason: ReasonUnaddressable, Detail: err.Error()}
 		clidiag.Warn("ctxloom", "withheld %s: %s", ref, v.Reason.Explain(v.Detail))
@@ -455,7 +444,6 @@ func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, 
 		}
 		return v
 	}
-	tRef := trust.RefFromBundleRef(br)
 	v := authorizer.Admit(Exposure{Read: read, Ref: tRef, Bytes: payload, Form: form})
 	ReportVerdict(ref, v)
 	return v

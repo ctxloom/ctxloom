@@ -562,7 +562,7 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 		}))
 		var found bool
 		for _, f := range got {
-			if f.Name == "ctxloom+companion:ltk#fragments/ltk" {
+			if f.Name == remote.CompanionSource+"@ltk#fragments/ltk" {
 				found = true
 			}
 		}
@@ -580,7 +580,7 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 		cfg := &Config{appPaths: []string{appDir}}
 		got := cfg.ResolveBuiltinBundleFragments(testAuthorizer(false))
 		for _, f := range got {
-			assert.NotEqual(t, "ctxloom+companion:ltk#fragments/ltk", f.Name,
+			assert.NotEqual(t, remote.CompanionSource+"@ltk#fragments/ltk", f.Name,
 				"a companion fragment must be withheld by a denying gate — a true builtin fragment is exempt and would NOT be")
 		}
 	})

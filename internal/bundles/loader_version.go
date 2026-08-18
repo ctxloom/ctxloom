@@ -90,19 +90,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// a bundle's own YAML, so a version path that keyed trust off it would let
 	// a declared name steer which grants apply to a historical version
 	// (outdated-recoil).
-	//
-	// sourceRefTyped is stamped alongside sourceRef, through the SAME
-	// canonicalBundleRefTyped bridge repoFSReader.sourceRefTyped uses on a
-	// ref of this identical canonical shape — never left for newRead's
-	// only-if-empty fallback to reach, because that fallback mints
-	// trust.LocalRef unconditionally and would misclassify every non-local
-	// historical version. Without this, BundleRead.SourceRef on a
-	// version-pinned read reported the zero BundleRef, and a zero source ref
-	// is not merely undocumented — the producers that mint an item's ref from
-	// it (fragmentRead, commandRead, the skill loader) would silently
-	// withhold every item this path serves.
 	b.sourceRef = canonical
-	b.sourceRefTyped = canonicalBundleRefTyped(canonical)
 	b.Name = canonical
 	b.Path = fmt.Sprintf("<remote-version>:%s@%s", canonical, commit)
 

@@ -243,19 +243,12 @@ func pendingReason(read bundles.BundleRead) bundles.Reason {
 // Detail — so a later advisory can name why, not just that, it was withheld
 // (deduplicated, lazily allocated). It returns the verdict so every withholding
 // arm above is one line and none of them can forget to record.
-//
-// Keyed on e.Ref.DisplayRef() — the canonical bundle-reference grammar
-// rendering, matching Exposure.RefString()'s own already-landed switch to
-// the same method — not the retired trust.Ref.ItemRef() grammar. Both
-// consumers here (WarnWithheld, warnGuttedProfilesTo) are pure stderr
-// advisories; neither round-trips its ref through a CLI mutation, so there is
-// no compatibility reason to keep the old grammar.
 func (g *contentGate) record(e bundles.Exposure, v bundles.Verdict) bundles.Verdict {
 	g.withheldMu.Lock()
 	if g.withheld == nil {
 		g.withheld = make(map[string]bundles.Verdict)
 	}
-	g.withheld[e.Ref.DisplayRef()] = v
+	g.withheld[e.Ref.ItemRef()] = v
 	g.withheldMu.Unlock()
 	return v
 }

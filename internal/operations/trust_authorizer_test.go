@@ -25,14 +25,6 @@ import (
 
 const authorizerRemoteRef = "https://example.test/repo@bundles/kit"
 
-// authorizerItemRef is authorizerRemoteRef's fragment "keeper", in the
-// canonical bundle-reference grammar — the shape bundles.Decide itself now
-// parses. Every admitFragment/bundles.Decide call below feeds it directly
-// (these tests exercise Decide's own contract by hand, not through a
-// producer), and every fx.approve/fx.rejectRef call parses it back with
-// mustParseProducerRef so the write and the read key on the SAME identity.
-var authorizerItemRef = mustGitItemRef("example.test", "/repo", "kit", trust.KindFragment, "keeper")
-
 // authorizerBundle is the fixture content every test below decides about: one
 // fragment, so the exposure carries real bytes.
 func authorizerBundle() *bundles.Bundle {
@@ -57,7 +49,7 @@ func TestAuthorizer_RemoteInvalidSignatureIsTampered_NotDegradedToUnsigned(t *te
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
 
-	v := admitFragment(t, g, read, authorizerItemRef, "KEEPER-PAYLOAD")
+	v := admitFragment(t, g, read, authorizerRemoteRef+"#fragments/keeper", "KEEPER-PAYLOAD")
 
 	assert.False(t, v.Allow, "tampered remote content must be withheld")
 	assert.Equal(t, bundles.ReasonTampered, v.Reason,
@@ -85,8 +77,9 @@ func TestAuthorizer_ApprovalOverridesRemoteInvalidSignature(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
-	itemRef := authorizerItemRef
-	tRef := mustParseProducerRef(t, itemRef)
+	itemRef := authorizerRemoteRef + "#fragments/keeper"
+	tRef, _, _, err := trust.ParseItemRef(itemRef)
+	require.NoError(t, err)
 	fx.approve(tRef, signing.FormRaw, []byte("KEEPER-PAYLOAD"))
 
 	g := &contentGate{cfg: cfg, records: fx.records()}
@@ -105,7 +98,7 @@ func TestAuthorizer_RemoteInvalidSignatureWithoutApprovalIsStillTampered(t *test
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
-	itemRef := authorizerItemRef
+	itemRef := authorizerRemoteRef + "#fragments/keeper"
 
 	g := &contentGate{cfg: cfg, records: fx.records()}
 	v := admitFragment(t, g, read, itemRef, "KEEPER-PAYLOAD")
@@ -123,8 +116,9 @@ func TestAuthorizer_RejectionOutranksTamper(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
-	itemRef := authorizerItemRef
-	tRef := mustParseProducerRef(t, itemRef)
+	itemRef := authorizerRemoteRef + "#fragments/keeper"
+	tRef, _, _, err := trust.ParseItemRef(itemRef)
+	require.NoError(t, err)
 	fx.rejectRef(tRef)
 
 	g := &contentGate{cfg: cfg, records: fx.records()}
@@ -214,7 +208,7 @@ func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T
 	restore := clidiag.SetSink(&warnings)
 	t.Cleanup(restore)
 
-	v := bundles.Decide(g, read, ref.DisplayRef(), []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
+	v := bundles.Decide(g, read, ref.ItemRef(), []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
 
 	assert.True(t, v.Allow, "a companion's unverifiable signature must NOT withhold its content")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
@@ -237,7 +231,7 @@ func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
 	restore := clidiag.SetSink(&warnings)
 	t.Cleanup(restore)
 
-	v := admitFragment(t, g, read, mustLocalItemRef("stale-kit", trust.KindFragment, "keeper"), "KEEPER-PAYLOAD")
+	v := admitFragment(t, g, read, "stale-kit#fragments/keeper", "KEEPER-PAYLOAD")
 
 	require.True(t, v.Allow, "a stale sidecar over LOCAL bytes must never withhold — there is nothing to gate")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
@@ -335,8 +329,9 @@ func TestAuthorizer_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	read := readOf(t, seedLoader(t, map[string]*bundles.Bundle{authorizerRemoteRef: authorizerBundle()}), authorizerRemoteRef)
-	itemRef := authorizerItemRef
-	tRef := mustParseProducerRef(t, itemRef)
+	itemRef := authorizerRemoteRef + "#fragments/keeper"
+	tRef, _, _, err := trust.ParseItemRef(itemRef)
+	require.NoError(t, err)
 	fx.approve(tRef, signing.FormRaw, []byte("KEEPER-PAYLOAD"))
 
 	g := &contentGate{cfg: cfg, records: fx.records()}

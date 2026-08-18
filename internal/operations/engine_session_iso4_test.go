@@ -241,7 +241,7 @@ func TestOpenEngineSession_FragmentsAndCommandsWireThroughToSummary(t *testing.T
 	// (appendBuiltinFragments, context.go) — both real, resolved facts, not
 	// placeholders.
 	assert.Contains(t, chat.InitSummary,
-		"fragments : 2 (ctxloom:local@bundles/local#fragments/onboarding, ctxloom+builtin:isolation#fragments/isolation-axes) loaded into the lead context",
+		"fragments : 2 (ctxloom:local@bundles/local#fragments/onboarding, builtin:isolation#fragments/isolation-axes) loaded into the lead context",
 		"the REAL resolved fragment names from the composed profile, not a placeholder")
 	assert.Contains(t, chat.InitSummary, "commands  : 1 (greet) available",
 		"the REAL command ctxloom assembled from the same bundle")

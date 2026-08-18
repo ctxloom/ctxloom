@@ -319,12 +319,12 @@ func TestContentGate_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 	// retraction left nil — exactly what buildContentGate produces.
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records(), fs: afero.NewOsFs()}
 
-	assert.False(t, admitExec(t, g, execRead(t, "publisher@example.com"), solidDecideRef, pbytes("x"), rawForm),
+	assert.False(t, admitExec(t, g, execRead(t, "publisher@example.com"), solidRef, pbytes("x"), rawForm),
 		"the real gate entry point must withhold remote content when retraction state cannot be established")
 
 	items := g.withheldItems()
 	require.Len(t, items, 1, "the gate records the withheld ref, so the advisory can say WHY it was withheld")
-	assert.Equal(t, solidDecideRef, items[0].Ref)
+	assert.Equal(t, solidRef, items[0].Ref)
 	assert.Equal(t, bundles.ReasonPending, items[0].Verdict.Reason)
 }
 

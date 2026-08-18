@@ -39,6 +39,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
@@ -1006,7 +1007,7 @@ func tsCountersignRef(cliRef string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse item ref %q: %w", cliRef, err)
 	}
-	return parsed.CanonicalURL() + "|" + parsed.Key(), nil
+	return operations.CountersignRef(parsed), nil
 }
 
 // tsAssertCollisionRoles is the assertion the text→exec escalation scenario

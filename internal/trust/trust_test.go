@@ -49,8 +49,8 @@ func TestCanonicalRepoURL_VariantsCollapse(t *testing.T) {
 		// Each of these escaped a sticky ref-level rejection by
 		// respelling the remote URL — and for a bundle carrying a verified
 		// publisher signature the escape is not "rejected -> pending" but
-		// "rejected -> ALLOW" at step 5, because the store address is
-		// CanonicalURL()+"|"+Key() and any divergence is simply a store miss.
+		// "rejected -> ALLOW" at step 5, because the store address derives
+		// from this canonical form and any divergence is simply a store miss.
 		// docs/trust-model.md lists "URL-variant / typosquat escape of a
 		// rejection" as an ADDRESSED threat.
 		"https://github.com/acme/repo.git/",   // NormalizeURL strips .git BEFORE the trailing slash is trimmed

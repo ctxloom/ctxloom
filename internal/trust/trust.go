@@ -311,7 +311,8 @@ var knownCaseFoldForges = map[string]bool{
 // the same repo collapse to one key — otherwise a rejection keyed on one
 // spelling could be escaped by fetching the same repo under another. This is
 // the ENTIRE defense against that escape: the countersignature store's address
-// is CanonicalURL()+"|"+Key(), so any divergence between two spellings is not
+// is derived from this canonical form (see CountersignRef, which keys on
+// BundleRef.Identity), so any divergence between two spellings is not
 // a near miss, it is a store miss — and for a bundle with a verified publisher
 // signature the escape is not "rejected → pending" but "rejected → ALLOW" at
 // step 5. docs/trust-model.md lists "URL-variant / typosquat escape of a

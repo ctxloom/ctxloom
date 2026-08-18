@@ -15,9 +15,7 @@ import (
 // trust.Ref producing a deterministic countersign-store address is not a
 // silent no-op.
 //
-// U3 changed WHAT that address looks like: CountersignRef used to compose
-// CanonicalURL()+"|"+Key() unconditionally, so the zero Ref's well-formed-
-// looking "|#/" needed its own harmlessness argument. It now bridges through
+// CountersignRef bridges through
 // Ref.AsBundleRef onto trust.BundleRef's stricter grammar, which refuses an
 // empty bundle name (see bundleref_test.go, "minters refuse an empty name"),
 // so the zero Ref no longer converts — CountersignRef falls back to a

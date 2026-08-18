@@ -56,6 +56,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
@@ -63,13 +64,13 @@ import (
 )
 
 // tcLocalRef composes the countersign ref key for a fragment of a
-// PROJECT-AUTHORED bundle, exactly as operations.countersignRef does:
-// Ref.CanonicalURL() + "|" + Ref.Key(), both from trust.Ref's own
-// canonicalization rather than from a hand-spelled string. Local items key
-// under the fixed ctxloom:local source token (Ref.CanonicalURL).
+// PROJECT-AUTHORED bundle by DELEGATING to the one implementation. Composing
+// the key here instead would drift the moment the ref grammar moves, and the
+// scenario would then assert against an address production never writes.
 func tcLocalRef(bundle, fragment string) string {
-	ref := trust.Ref{Bundle: bundle, Kind: trust.KindFragment, Name: fragment, IsLocal: true}
-	return ref.CanonicalURL() + "|" + ref.Key()
+	return operations.CountersignRef(trust.Ref{
+		Bundle: bundle, Kind: trust.KindFragment, Name: fragment, IsLocal: true,
+	})
 }
 
 // tcFragmentPayload returns the countersign payload for a fragment of the

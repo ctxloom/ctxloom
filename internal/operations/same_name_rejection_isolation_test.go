@@ -94,8 +94,10 @@ func builtinTrustRef(t *testing.T) trust.Ref {
 // TestSameNamedBundles_RefRejectDoesNotLeakBetweenSources is the human's HARD
 // CONSTRAINT on the shadowing rule, direction 1.
 //
-// A countersignature is keyed by CountersignRef = Ref.CanonicalURL() + "|" +
-// Ref.Key(). Both halves carry the source class today — CanonicalURL as
+// A countersignature is keyed by CountersignRef, which derives the address
+// from BundleRef.Identity(). The source class is carried in the identity's
+// scheme ("ctxloom+builtin:" vs "ctxloom+local:") and, historically, also
+// through Key's Bundle component — CanonicalURL as
 // "ctxloom:builtin" vs "ctxloom:local", Key through its Bundle component
 // ("builtin:isolation" vs "isolation") — and MEASURED, only the FIRST is
 // load-bearing: normalising the "builtin:" prefix out of Key() leaves this

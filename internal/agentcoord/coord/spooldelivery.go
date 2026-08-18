@@ -708,27 +708,53 @@ func (h *Home) sweepSpoolIn() {
 	for _, e := range res.Entries {
 		msg, err := mailFromSpool(e, e.Message.FromHarp)
 		if err != nil {
-			clidiag.Warn("ctxloom", "runner: refusing an undeliverable spool message: %v", err)
-			h.spoolDeliveryCount.failed.Add(1)
+			h.failSpoolEntry(e, "refusing an undeliverable spool message", err)
 			continue
 		}
 		wire, err := deliverableStructured(msg.Structured)
 		if err != nil {
-			clidiag.Warn("ctxloom", "runner: cannot project spool message %s's payload onto the delivery seam: %v", e.Ref, err)
-			h.spoolDeliveryCount.failed.Add(1)
+			h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s's payload onto the delivery seam", e.Ref), err)
 			continue
 		}
 		msg.Structured = wire
 		pm, err := peerMessageProto(msg)
 		if err != nil {
-			clidiag.Warn("ctxloom", "runner: cannot project spool message %s onto the delivery seam: %v", e.Ref, err)
-			h.spoolDeliveryCount.failed.Add(1)
+			h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s onto the delivery seam", e.Ref), err)
 			continue
 		}
 		h.rememberSpoolRef(msg.ID, e.Ref)
 		h.spoolDeliveryCount.delivered.Add(1)
 		h.deliverNotice(pm)
 	}
+}
+
+// failSpoolEntry is the terminal outcome for an in/ entry this reader parsed
+// as a message but could not classify or project onto the delivery seam: an
+// unknown or future mailbox kind, or a structured payload that will not
+// decode above the parse layer. A bare continue here — the defect this
+// function replaces — left the file in in/ to be re-read, re-warned about,
+// and re-skipped on every sweep forever, while later entries in the same
+// directory kept delivering around it: exactly the silent-skip this project
+// treats as its characteristic defect.
+//
+// Instead the file is moved OUT of in/ into the local in/failed/ terminal
+// directory (spool.Fail): present on disk, unreadable, and never swept
+// again — a state an operator can tell apart from "never arrived" (nothing
+// in any directory) and from "delivered" (in/consumed/), which is the
+// three-way distinction a bare warning-and-retry cannot make.
+func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
+	h.spoolDeliveryCount.failed.Add(1)
+	if err := spool.Fail(spool.NewHomeMapper(), e.Ref); err != nil {
+		if errors.Is(err, spool.ErrAlreadyGone) {
+			// The other path (a withdrawal) already won the race; nothing to
+			// strand and nothing to warn about.
+			return
+		}
+		clidiag.Warn("ctxloom", "runner: %s: %v (also could not move %s to in/failed/: %v; it will be retried, and re-warned about, on the next sweep)",
+			why, cause, e.Ref, err)
+		return
+	}
+	clidiag.Warn("ctxloom", "runner: %s: %v (moved %s to in/failed/; it will NOT be retried)", why, cause, e.Ref)
 }
 
 // rememberSpoolRef records which file a delivered id came from, so the

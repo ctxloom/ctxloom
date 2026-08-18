@@ -71,19 +71,18 @@ func researcherSpawner() *fakeSpawner {
 
 // TestRunChannel_ChildSendReachesParent: a child's plane-2 PeerSendRequest
 // (to_role "parent") lands in the parent's durable mailbox with the kind
-// convention riding structured.kind.
+// carried on the typed Kind field (coordination.proto field 7).
 func TestRunChannel_ChildSendReachesParent(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, researcherSpawner(), nil)
 	out := spawnResearcher(t, c)
 	h := childHome(t, c, out.RunID)
 
-	structured, _ := structpb.NewStruct(map[string]any{"kind": "result"})
 	resp, err := h.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole:     ParentAddress,
-			Text:       "found it",
-			Structured: structured,
+			ToRole: ParentAddress,
+			Text:   "found it",
+			Kind:   agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
 		}},
 	})
 	require.NoError(t, err)
@@ -110,6 +109,7 @@ func TestRunChannel_RequestIdempotency(t *testing.T) {
 			Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
 				ToRole: ParentAddress,
 				Text:   "once",
+				Kind:   agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
 			}},
 		}
 	}
@@ -120,7 +120,7 @@ func TestRunChannel_RequestIdempotency(t *testing.T) {
 	assert.Equal(t, first.GetPeerSend().GetMessageId(), second.GetPeerSend().GetMessageId(),
 		"the reissued request_id returns the cached response, not a second delivery")
 
-	assert.Len(t, recvKind(t, c, "", time.Second), 1, "exactly one message was queued")
+	assert.Len(t, recvKind(t, c, KindMessage, time.Second), 1, "exactly one message was queued")
 }
 
 // TestRunChannel_ParkedRecvPushAndConsume: a parked runner-side recv is
@@ -150,7 +150,7 @@ func TestRunChannel_ParkedRecvPushAndConsume(t *testing.T) {
 		return ch != nil && ch.parked
 	}, conformanceWait, 10*time.Millisecond)
 
-	disposition, err := c.AgentSend(ownerIdentity(), out.Harp, "", "hello child", nil, "")
+	disposition, err := c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "hello child", nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, disposition, "waiting agent_recv")
 
@@ -200,7 +200,7 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 		return ch != nil && ch.parked
 	}, conformanceWait, 10*time.Millisecond)
 
-	_, err := c.AgentSend(ownerIdentity(), out.Harp, "", "fragile", nil, "")
+	_, err := c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "fragile", nil, "")
 	require.NoError(t, err)
 	select {
 	case msgs := <-got:

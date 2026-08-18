@@ -151,7 +151,7 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	// directly — the peer model's flat-hub semantics (manly-grant (4)).
 	sendResp, err := grandchildH.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole: ParentAddress, Text: "marker-from-grandchild",
+			ToRole: ParentAddress, Text: "marker-from-grandchild", Kind: agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
 		}},
 	})
 	require.NoError(t, err)
@@ -180,16 +180,16 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	// way: no automatic pass-through).
 	relayResp, err := childH.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole: ParentAddress, Text: "relayed: " + marker.GetText(),
+			ToRole: ParentAddress, Text: "relayed: " + marker.GetText(), Kind: agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
 		}},
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, codes.OK, relayResp.GetStatus().GetCode())
 
-	// Select the RELAY (the child's own agent_send, kind "") out of the
+	// Select the RELAY (the child's own agent_send, kind "message") out of the
 	// parent's mailbox: bridged turn results (kind "result") legitimately
 	// share it now — see children.go's bridgeTurnResult.
-	rootMsgs := recvKind(t, c, "", time.Second)
+	rootMsgs := recvKind(t, c, KindMessage, time.Second)
 	require.Len(t, rootMsgs, 1)
 	assert.Equal(t, "relayed: marker-from-grandchild", rootMsgs[0].Body)
 	assert.Equal(t, child.Harp, rootMsgs[0].From, "root sees the RELAY's sender (the child), not the grandchild directly")

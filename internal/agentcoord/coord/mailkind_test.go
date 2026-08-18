@@ -53,10 +53,18 @@ func TestSenderMailKind_VocabularySplit(t *testing.T) {
 
 // TestServePeerSend_RefusesUnsetKind pins the human ruling this whole change
 // exists for: `kind` is REQUIRED on agent_send, from a closed vocabulary of
-// exactly four values — and leaving it unset is refused exactly like naming
-// an illegal one, never defaulted to KindUnset and delivered unclassified.
-// control.go's Inject used to be the single largest source of exactly this on
-// the wire; this test is the ingress side of closing that off.
+// exactly four values — and leaving it unset on an ORDINARY (uncorrelated)
+// send is refused exactly like naming an illegal one, never defaulted to
+// KindUnset and delivered unclassified. control.go's Inject used to be the
+// single largest source of exactly this on the wire; this test is the ingress
+// side of closing that off.
+//
+// The refusal surfaces from peerSend's SenderMailKind check, one frame deeper
+// than servePeerSend's own typed-field guard (see that function's doc
+// comment for why: an unset kind must still fall through to the
+// approval/ask-reply correlation check first). The vocabulary named in the
+// message is therefore the lowercase legacy spelling SenderMailKind speaks,
+// not the enum names — both name the same four values.
 //
 // Proven at the EFFECT, not just the response shape: this project's
 // characteristic bug is a success-shaped response with nothing behind it, so
@@ -78,7 +86,7 @@ func TestServePeerSend_RefusesUnsetKind(t *testing.T) {
 		"an unset kind is an ingress rejection, not a silent default")
 	msg := resp.GetStatus().GetMessage()
 	assert.Contains(t, msg, "required")
-	for _, want := range []string{"MESSAGE_KIND_MESSAGE", "MESSAGE_KIND_RESULT", "MESSAGE_KIND_ERROR", "MESSAGE_KIND_QUESTION"} {
+	for _, want := range []string{KindMessage, KindResult, KindError, KindQuestion} {
 		assert.Contains(t, msg, want, "the refusal must name the four legal values")
 	}
 	assert.Nil(t, resp.GetPeerSend(), "nothing was queued")
@@ -93,12 +101,17 @@ func TestServePeerSend_RefusesUnsetKind(t *testing.T) {
 // perfectly legal kind must not rescue an unset typed field, because "kind"
 // inside structured is just another opaque key now — one channel, not two.
 func TestServePeerSend_StructuredKindIsInert(t *testing.T) {
-	c := newTestCoordinatorAt(t, t.TempDir())
-	t.Cleanup(c.Close)
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	c := newTestCoordinator(t, sp, nil)
 
-	resp := c.servePeerSend(ownerIdentity(), &agentcoordpb.PeerSendRequest{
-		ToAgentId:  "child-harp-1",
-		Text:       "hello",
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
+
+	resp := c.servePeerSend(child, &agentcoordpb.PeerSendRequest{
+		ToRole:     ParentAddress,
+		Text:       "STRUCTURED-KIND-ONLY-MESSAGE",
 		Structured: mustStruct(t, map[string]any{"kind": KindResult}),
 		// Kind (the typed field, coordination.proto field 7) is deliberately
 		// left unset — the only thing that could carry the kind now.
@@ -107,6 +120,9 @@ func TestServePeerSend_StructuredKindIsInert(t *testing.T) {
 		"structured[\"kind\"] must not rescue an unset typed field")
 	assert.Contains(t, resp.GetStatus().GetMessage(), "required")
 	assert.Nil(t, resp.GetPeerSend(), "nothing was queued")
+
+	assert.Empty(t, recvBody(t, c, "STRUCTURED-KIND-ONLY-MESSAGE", 200*time.Millisecond),
+		"the refused text must never reach the parent's mailbox")
 }
 
 // TestServePeerSend_RefusesSpoofedApprovalRequest is the SPOOF REFUSAL, at the

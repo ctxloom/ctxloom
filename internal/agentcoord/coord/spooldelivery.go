@@ -846,6 +846,22 @@ func (h *Home) emitMailConsumed(ids []string) {
 // losing them to "the coordinator will complain later, by mail" would make a
 // mistyped or absent kind a silently-dropped message instead of an immediate
 // error.
+//
+// The kind check is skipped entirely when InReplyTo is set. This path has no
+// coordinator round trip, so — unlike servePeerSend, which can defer an unset
+// kind to peerSend's post-correlation SenderMailKind check — it cannot ask
+// "does this actually correlate to a pending approval/ask" before deciding
+// whether to write the file: that state lives coordinator-side and this is a
+// local write. A reply to a relayed approval_request never needs a kind
+// (peerSend: "kind rides alongside the decision and is ignored"), so refusing
+// one here would break every cutover approval answer
+// (TestSpoolApproval_RelayRidesFilesAndAuditsIdentically). The cost is
+// narrower than it sounds: an unset-kind send whose in_reply_to turns out NOT
+// to correlate to anything still gets refused — just one hop later, when the
+// coordinator's sweep reads the file (routeSpoolOut's peerSend call) and
+// mails the refusal back (replySpoolRefusal), which is the EXISTING, already
+// tested fallback this file's own doc comment names for exactly this
+// asymmetry ("the coordinator will complain later, by mail").
 func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, bool) {
 	if !h.spoolDelivery {
 		return nil, false
@@ -867,8 +883,10 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	if send.GetText() == "" {
 		return spoolSendErr(codes.InvalidArgument, "agent_send: text is required"), true
 	}
-	if err := agentcoordpb.ValidateMessageKind(send.GetKind()); err != nil {
-		return spoolSendErr(codes.InvalidArgument, err.Error()), true
+	if send.GetInReplyTo() == "" {
+		if err := agentcoordpb.ValidateMessageKind(send.GetKind()); err != nil {
+			return spoolSendErr(codes.InvalidArgument, err.Error()), true
+		}
 	}
 	kind := agentcoordpb.LegacyKindName(send.GetKind())
 	var structured json.RawMessage

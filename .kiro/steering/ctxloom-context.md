@@ -564,6 +564,60 @@ revisable steps BEFORE you act or delegate.
 
 ---
 
+# Closing a turn: fix what you can, file what you cannot
+
+Before a turn ends, every issue it surfaced has to be DISPOSED OF. There
+are exactly two honest dispositions, and "mentioned it in the reply" is
+neither.
+
+## Fix the easy ones
+
+If a finding is root-caused and the fix is bounded, FIX IT. Filing a task
+for something you already understand and could correct in the same turn
+converts a solved problem into work someone pays to rediscover: they must
+re-read the code, rebuild the reproduction, and re-derive the cause you
+already had in hand.
+
+A filed task looks like progress. It is not progress; it is a promise.
+Prefer the fix, and where the fix is larger than the turn, dispatch it
+rather than defer it.
+
+## File the hard ones, with tags
+
+File when the work genuinely cannot happen now: it needs a HUMAN DECISION
+(name the fork and the options), it lives in another repository or
+release, or it is materially larger than the current scope. Those are real
+reasons. "I noticed several things" is not.
+
+Tag what you file, because an untagged task is unfindable: what kind of
+work it is, what it touches, its rough effort, and whether it is blocked
+on a person. A task nobody can filter for is a task nobody reads.
+
+## Leave the status TRUE
+
+The task log and the plans are the shared picture of where things stand,
+and a stale picture is worse than none because it is confidently wrong.
+Before the turn closes:
+
+- Close what the turn actually finished, stating what was asked for and
+  what was done, so a reader can judge rather than take your word.
+- Where a change satisfies a task only in PART, cut the task down to what
+  REMAINS. A task carrying its own completed half is indistinguishable
+  from work never started.
+- Update the plan files the turn moved, including where reality diverged
+  from the plan. The divergence is the most valuable thing in them.
+- Check for tasks the turn quietly obsoleted, and for duplicates you may
+  have just created by filing before reading.
+
+## Report what was FIXED
+
+Lead with what is now true, not with what was noticed. A list of filed
+tasks is not a status report: it is a list of things still broken, and
+reading it as accomplishment is how a backlog grows while the code stands
+still.
+
+---
+
 # communication
 
 ## Do
@@ -875,23 +929,34 @@ Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
 set`, `run --agent`, `agent_run`)? Set both axes explicitly — never rely
 on the default:
 
-- **runtime** (`host`|`container`, the agent binding's `runtime:`)
-  isolates the PROCESS.
+- **runtime** (`host` | `container-rootless` | `container-rootful`,
+  the agent binding's `runtime:`) isolates the PROCESS. There is
+  deliberately no "any container" value: rootless and rootful differ
+  in UID mapping, so a workload can genuinely require one.
 - **workspace** (`none`|`worktree`, per-invocation `--workspace` /
   `agent_run`'s `workspace`) isolates the FILES.
 
-They're independent: `container` can still mount the workspace at the
-SAME absolute path as the live project (process isolated, edits still
-land where the editor already looks); `worktree` still runs the engine
-on the host (the editor goes blind to that tree by design — results
-return via the delegated-agent merge flow, not live edits). Picking one
-says nothing about the other.
+An ownership mismatch is FATAL, never a substitution. Asking for
+`container-rootful` where only rootless is reachable is a fatal
+ClassIsolation finding (exit 3), not a quiet downgrade to the other
+mode — and `--degraded` falls back to the HOST, never to the other
+ownership mode.
+
+They're independent: `container-rootless` can still mount the
+workspace at the SAME absolute path as the live project (process
+isolated, edits still land where the editor already looks); `worktree`
+still runs the engine on the host (the editor goes blind to that tree
+by design — results return via the delegated-agent merge flow, not
+live edits). Picking one says nothing about the other.
 
 Unspecified means `host`+`none` — isolated on NEITHER axis. That's a
-default, not a decision.
-
-Containers make isolation a property of the runtime, not a request to
-the engine: some vendor CLIs ignore env-var isolation hints and write
+default, not a decision. Host runtime is not a security boundary
+between agents: the coordinator credential is readable in the process
+environment of any same-uid process, and that token IS identity, so a
+host-runtime agent can read another host-runtime agent's credential and
+speak as that agent. Containers are the actual boundary: they make
+isolation a property of the runtime, not a request to the engine —
+some vendor CLIs ignore env-var isolation hints and write
 credentials/state to a global path regardless.
 
 A bad or missing agent name silently degrades to `host`+`none` with only

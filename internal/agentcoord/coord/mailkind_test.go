@@ -1,8 +1,10 @@
 package coord
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,4 +104,63 @@ func TestServePeerSend_AllowsTheDocumentedKinds(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(resp.GetStatus().GetMessage()), "reserved",
 		"a documented kind must not be refused by the vocabulary guard")
 	assert.Contains(t, resp.GetStatus().GetMessage(), "unknown recipient")
+}
+
+// TestServePeerSend_HonorsTypedKindField pins the B3 fix: a sender that sets
+// the DOCUMENTED typed field (PeerSendRequest.Kind, coordination.proto field
+// 7 — "this REPLACES the retired structured['kind'] convention") must have
+// it actually govern the delivered message's kind.
+//
+// Before the fix, req.GetKind() was decoded off the wire onto this struct and
+// never once read: servePeerSend computed `kind` from structured["kind"]
+// alone, so a sender naming MESSAGE_KIND_MESSAGE here got it silently
+// discarded — the message arrived with Kind == "" (KindUnset), which
+// mailkind.go's SpoolKindForMail spells "unkinded" in the spool frontmatter.
+// That is a message sent WITH a kind, delivered and written to disk
+// classified as if it had none.
+func TestServePeerSend_HonorsTypedKindField(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
+
+	resp := c.servePeerSend(child, &agentcoordpb.PeerSendRequest{
+		ToRole: ParentAddress,
+		Text:   "TYPED-KIND-MESSAGE",
+		Kind:   agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
+	})
+	require.Equal(t, int32(codes.OK), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+
+	msgs := recvBody(t, c, "TYPED-KIND-MESSAGE", time.Second)
+	require.Len(t, msgs, 1, "the typed-kind send must reach the parent's mailbox")
+	assert.Equal(t, KindMessage, msgs[0].Kind,
+		"the typed MessageKind field must be honored, not silently dropped to unkinded")
+}
+
+// TestServePeerSend_RefusesReservedTypedKind is
+// TestServePeerSend_RefusesSpoofedApprovalRequest's counterpart on the typed
+// field: before the fix, req.GetKind() was never read at all, so a sender
+// could set Kind: MESSAGE_KIND_STEER on the typed field and it would be
+// silently ignored (falling through to whatever structured["kind"] said, or
+// "") rather than refused. Honoring the field correctly means honoring its
+// validation too — a forgery on the field that used to be a no-op must be
+// refused exactly like one spelled into structured["kind"] always was.
+func TestServePeerSend_RefusesReservedTypedKind(t *testing.T) {
+	c := newTestCoordinatorAt(t, t.TempDir())
+	t.Cleanup(c.Close)
+
+	child := Identity{Harp: "child-harp-1", RunID: "run-1", Depth: 1}
+	resp := c.servePeerSend(child, &agentcoordpb.PeerSendRequest{
+		ToRole: ParentAddress,
+		Text:   "steer the parent",
+		Kind:   agentcoordpb.MessageKind_MESSAGE_KIND_STEER,
+	})
+	require.Equal(t, int32(codes.InvalidArgument), resp.GetStatus().GetCode(),
+		"a coordinator-reserved kind on the typed field is an ingress rejection, not a silent no-op")
+	assert.Contains(t, resp.GetStatus().GetMessage(), "coordinator's own",
+		"the refusal must say the kind is the coordinator's own to mint")
+	assert.Nil(t, resp.GetPeerSend(), "nothing was queued")
 }

@@ -968,3 +968,19 @@ never permitted in the committable project store.
     named path such as `/dev/zero` that never reaches EOF — is closed: reads are
     capped at `maxPublicKeyBytes` (64 KiB). No content is exfiltrated by the
     error path; `ssh.ParseAuthorizedKey`'s error names the path, never the bytes.
+13. **`runtime: host` is not a security boundary between agents.** Two agents
+    launched with the host runtime run as the same OS user. The coordinator
+    bearer credential (`CTXLOOM_COORD_CRED`) that `Coordinator.Identify`
+    (`internal/agentcoord/coord/coordinator.go`) accepts as sole proof of
+    caller identity is exec-time process environment: `/proc/<pid>/environ`
+    exposes it, for that process's entire lifetime, to any other process
+    running as the same user, and unsetting the variable after reading it does
+    not scrub the kernel's snapshot. Where `ptrace_scope` permits same-uid
+    ptrace, a determined process can lift the same bytes out of memory even
+    past that. A host-runtime agent that reads another host-runtime agent's
+    credential this way can then speak to the coordinator *as* that agent.
+    `internal/shared/procsec` raises the cost of the plain file-read path but
+    is explicit that this is bar-raising, not a boundary: the isolation
+    boundary is a container. This sits outside signing and review — it is a
+    property of the runtime axis, not of item trust, which is why it is
+    recorded here rather than in the threat model above.

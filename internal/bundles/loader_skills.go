@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // This file is the LOADER-side resolution of a bundle's Agent Skill packages
@@ -40,9 +41,10 @@ type LoadedSkill struct {
 	LLM         SkillLLMExports   // per-engine enablement
 	Tags        []string          // combined (bundle + skill) tags
 
-	// TrustRef is the ref the trust gate keys this package by,
-	// "<source>#skills/<name>" — the same honest-source keying LoadedContent
-	// uses. A read FACT, never a decision.
+	// TrustRef is the ref the trust gate keys this package by, minted through
+	// the canonical bundle-reference grammar (itemRefFor,
+	// "ctxloom+<class>:...#skills/<name>") — the same honest typed-source
+	// keying LoadedContent uses. A read FACT, never a decision.
 	TrustRef string
 	// TrustPayload is the package's trust preimage: the encoded EffectiveManifest
 	// (authored when the skill has been through `ctxloom skill sync`, derived
@@ -190,7 +192,7 @@ func (l *Loader) skillContent(read BundleRead, name string, entry BundleSkill) *
 		Files:        files,
 		LLM:          entry.LLM,
 		Tags:         slices.Concat(bundle.Tags, entry.Tags),
-		TrustRef:     bundle.contentSourceRef() + "#skills/" + name,
+		TrustRef:     itemRefFor(read.SourceRef(), trust.KindSkill, name),
 		TrustPayload: payload,
 		Signer:       bundle.Signer(),
 		Read:         read,

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // effHash is the effective-content hash of a raw body — the exact key the trust
@@ -73,9 +74,20 @@ func TestMultiVersion_CoexistGatedIndependently(t *testing.T) {
 	if got[0].Content != "v1 body" {
 		t.Errorf("surviving content = %q, want %q", got[0].Content, "v1 body")
 	}
-	// The withheld v2 is tallied under the version-less ref (content-free).
-	if w := l.Withheld(); len(w) != 1 || w[0] != cqFrag {
-		t.Errorf("Withheld() = %v, want [%s]", w, cqFrag)
+	// The withheld v2 is tallied under the version-less ref (content-free),
+	// in the canonical bundle-reference grammar (Decide's own parse, and
+	// therefore the ref it withholds under) — not cqFrag's old-grammar
+	// spelling, which is still what a caller ASKS for the fragment by.
+	wantWithheld, err := trust.GitRef("github.com", "/acme/b", "cq")
+	if err != nil {
+		t.Fatalf("trust.GitRef: %v", err)
+	}
+	wantWithheldStr, err := wantWithheld.WithItem(trust.KindFragment, "solid")
+	if err != nil {
+		t.Fatalf("WithItem: %v", err)
+	}
+	if w := l.Withheld(); len(w) != 1 || w[0] != wantWithheldStr.String() {
+		t.Errorf("Withheld() = %v, want [%s]", w, wantWithheldStr.String())
 	}
 }
 
@@ -197,6 +209,38 @@ func TestMultiVersion_NoResolverFailsClosed(t *testing.T) {
 	lc, err := l.GetFragment(cqFrag)
 	if err != nil || lc.Content != "default body" {
 		t.Errorf("default GetFragment = (%v, %v), want default body", lc, err)
+	}
+}
+
+// TestMultiVersion_TypedSourceRefIsStamped proves a version-pinned read's
+// typed SourceRef is stamped, not left zero. This is the silent-withholding
+// hazard bundleAtVersion used to carry: BundleRead.SourceRef reports the zero
+// BundleRef for ANY read whose sourceRefTyped was never set, and a producer
+// that mints an item ref from a zero source (WithItem on an empty Bundle)
+// fails — silently withholding every item the version-pinned read serves,
+// with only a warn line to show for it. bundleAtVersion must stamp
+// sourceRefTyped through the SAME canonicalBundleRefTyped bridge
+// repoFSReader.sourceRefTyped uses on a ref of this identical canonical
+// shape, so a historical version keys under the SAME trust identity as its
+// unpinned twin.
+func TestMultiVersion_TypedSourceRefIsStamped(t *testing.T) {
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	versions := map[string]*Bundle{
+		"c1": {Fragments: map[string]BundleFragment{"solid": {Content: "v1 body"}}},
+	}
+	gate := hashGate(map[string]bool{effHash("v1 body"): true})
+	l := versionedLoader(t, cqRef, def, versions, gate)
+
+	read, err := l.loader.bundleAtVersion(cqRef, "c1")
+	if err != nil {
+		t.Fatalf("bundleAtVersion: %v", err)
+	}
+	want, err := trust.GitRef("github.com", "/acme/b", "cq")
+	if err != nil {
+		t.Fatalf("trust.GitRef: %v", err)
+	}
+	if got := read.SourceRef(); got != want {
+		t.Errorf("SourceRef() = %+v, want %+v (a version-pinned read must be addressable, or its items are silently withheld)", got, want)
 	}
 }
 

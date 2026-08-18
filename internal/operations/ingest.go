@@ -203,16 +203,37 @@ func (in *contextIngest) join() string {
 }
 
 // ingestItemKey reduces an item ref to the source-agnostic identity dedup keys
-// on: trust.Ref.Key(), "<bundle>#<kind>/<name>".
+// on: trust.Ref.Key(), "<bundle>#<kind>/<name>" — deliberately CLASS-AGNOSTIC
+// (it never reads IsLocal/IsBuiltin/IsCompanion/RepoURL), so a project bundle
+// that shadows a builtin of the same name and the builtin's own unconditional
+// injection dedup to ONE occurrence even though they carry two different
+// TRUST identities. trust.BundleRef.Identity() would NOT do that — it is
+// fully class-qualified by design (that qualification is the whole point of
+// the canonical grammar for TRUST purposes) — so this parses through it only
+// to reach the identical class-agnostic trust.Ref.Key() every producer's ref
+// used to reduce to directly.
 //
-// A ref that does not parse as an item ref is used verbatim. That is the
-// fail-safe direction: an unparseable ref can then only ever match another
-// occurrence spelled byte-for-byte the same way, so a ref this grammar does not
-// understand is never collapsed into a DIFFERENT one.
+// TWO grammars reach here, from TWO different callers of add: the
+// loader-resolved route's ref is the assembly pipeline's own QUALIFIED LOCAL
+// form ("ctxloom:local@bundles/<name>#<kind>/<name>", built elsewhere — not
+// one of this slice's 8 producers, so still trust.ParseItemRef's grammar);
+// the injection route's ref is a migrated producer's canonical
+// "ctxloom+<class>:...#<kind>/<item>" (config.BuiltinFragment.Name, minted by
+// config.fragmentsFromBundle). The canonical grammar is tried FIRST: an
+// old-grammar string could otherwise be misread by trust.ParseItemRef's own
+// bare-token fallback (it does not recognize "ctxloom+" as a marker) rather
+// than correctly failing over to the parser that understands it.
+//
+// A ref that matches NEITHER grammar is used verbatim. That is the fail-safe
+// direction: an unparseable ref can then only ever match another occurrence
+// spelled byte-for-byte the same way, so a ref neither grammar understands is
+// never collapsed into a DIFFERENT one.
 func ingestItemKey(ref string) string {
-	tRef, _, _, err := trust.ParseItemRef(ref)
-	if err != nil {
-		return ref
+	if br, err := trust.ParseBundleRef(ref); err == nil {
+		return trust.RefFromBundleRef(br).Key()
 	}
-	return tRef.Key()
+	if tRef, _, _, err := trust.ParseItemRef(ref); err == nil {
+		return tRef.Key()
+	}
+	return ref
 }

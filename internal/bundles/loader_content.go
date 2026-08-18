@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // LoadedContent is a fragment or command that has been through the PROCESS
@@ -63,10 +64,12 @@ type ItemRead struct {
 	// "what have you got", with nothing picked.
 	Forms ContentForms
 
-	// TrustRef is the ref the trust gate keys this item by:
-	// "<source>#fragments/<name>" or "<source>#prompts/<name>", where source is
-	// the bundle's HONEST source ref (canonical for a cloned bundle so its text
-	// gates like an executable, the local name for a project bundle so its text
+	// TrustRef is the ref the trust gate keys this item by: the canonical
+	// bundle-reference grammar's item selector (itemRefFor,
+	// trust.BundleRef.WithItem), "ctxloom+<class>:...#fragments/<name>" or
+	// "...#prompts/<name>", minted from the bundle's HONEST typed source ref
+	// (BundleRead.SourceRef — canonical for a cloned bundle so its text gates
+	// like an executable, the local name for a project bundle so its text
 	// auto-trusts). A read FACT the reader establishes, never a decision.
 	TrustRef string
 	// Signer is the owning bundle's VERIFIED publisher identity, or "" when the
@@ -307,10 +310,13 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 }
 
 // fragmentRead builds the ItemRead for a fragment: every form the store holds
-// plus the trust facts the process stage decides on. TrustRef is keyed on the
-// bundle's honest source ref (Bundle.contentSourceRef) — canonical for a cloned
-// bundle so its text gates like an executable, the local name for a project
-// bundle so its text auto-trusts — which is the SAME keying the exec gate uses.
+// plus the trust facts the process stage decides on. TrustRef is minted from
+// the bundle's honest TYPED source ref (BundleRead.SourceRef) — canonical for
+// a cloned bundle so its text gates like an executable, the local name for a
+// project bundle so its text auto-trusts — through the canonical
+// bundle-reference grammar (itemRefFor), not hand-concatenated from
+// Bundle.contentSourceRef's string. That is the SAME keying the exec gate
+// uses.
 func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragment) *ItemRead {
 	bundle := read.Bundle
 	return &ItemRead{
@@ -322,7 +328,7 @@ func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragm
 		Installation: frag.Installation,
 		DistilledBy:  frag.DistilledBy,
 		Forms:        frag.Forms(),
-		TrustRef:     bundle.contentSourceRef() + "#fragments/" + fragName,
+		TrustRef:     itemRefFor(read.SourceRef(), trust.KindFragment, fragName),
 		Signer:       bundle.Signer(),
 		Read:         read,
 	}
@@ -402,9 +408,10 @@ func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
 }
 
 // commandRead builds the ItemRead for a command. See fragmentRead — the same
-// read facts. TrustRef keeps the "prompts" kind segment (trust.KindPrompt.Dir())
-// even though the load selector is "#commands/", so the item-kind rename does
-// not invalidate existing trust grants.
+// read facts, minted the same way (itemRefFor over the typed SourceRef).
+// TrustRef keeps the "prompts" kind segment (trust.KindPrompt, whose Dir() is
+// "prompts") even though the load selector is "#commands/", so the item-kind
+// rename does not invalidate existing trust grants.
 func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCommand) *ItemRead {
 	bundle := read.Bundle
 	return &ItemRead{
@@ -417,7 +424,7 @@ func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCo
 		DistilledBy:  prompt.DistilledBy,
 		LLM:          prompt.LLM,
 		Forms:        prompt.Forms(),
-		TrustRef:     bundle.contentSourceRef() + "#prompts/" + promptName,
+		TrustRef:     itemRefFor(read.SourceRef(), trust.KindPrompt, promptName),
 		Signer:       bundle.Signer(),
 		Read:         read,
 	}

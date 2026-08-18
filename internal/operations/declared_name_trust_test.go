@@ -146,11 +146,10 @@ func TestDeclaredName_ProjectBundleKeysByLocationNotByDeclaredName(t *testing.T)
 	impostorItems, err := loader.ReadFragment("impostor#fragments/keeper")
 	require.NoError(t, err)
 	require.Len(t, impostorItems, 1)
-	assert.Equal(t, "impostor#fragments/keeper", impostorItems[0].TrustRef,
+	assert.Equal(t, "ctxloom+local:impostor#fragments/keeper", impostorItems[0].TrustRef,
 		"a project bundle's trust ref is its LOCATION-derived resolution name, never the name it declared")
 
-	impostorRef, _, _, err := trust.ParseItemRef(impostorItems[0].TrustRef)
-	require.NoError(t, err)
+	impostorRef := mustParseProducerRef(t, impostorItems[0].TrustRef)
 	assert.True(t, impostorRef.IsLocal, "the impostor must key as local project content")
 	assert.Empty(t, impostorRef.RepoURL,
 		"and must NOT pick up the remote repository it named — that URL is what a grant is keyed under")
@@ -158,8 +157,7 @@ func TestDeclaredName_ProjectBundleKeysByLocationNotByDeclaredName(t *testing.T)
 	remoteItems, err := loader.ReadFragment(impostorRemoteRef + "#fragments/keeper")
 	require.NoError(t, err)
 	require.Len(t, remoteItems, 1)
-	remoteRef, _, _, err := trust.ParseItemRef(remoteItems[0].TrustRef)
-	require.NoError(t, err)
+	remoteRef := mustParseProducerRef(t, remoteItems[0].TrustRef)
 	assert.False(t, remoteRef.IsLocal, "the real remote item must still key as remote")
 
 	assert.NotEqual(t, remoteRef.Key(), impostorRef.Key(),
@@ -251,8 +249,7 @@ func TestDeclaredName_SelfRenameDoesNotEscapeAnExistingRejection(t *testing.T) {
 	items, err := original.ReadFragment("mine#fragments/keeper")
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	tRef, _, _, err := trust.ParseItemRef(items[0].TrustRef)
-	require.NoError(t, err)
+	tRef := mustParseProducerRef(t, items[0].TrustRef)
 	fx.rejectRef(tRef)
 
 	_, err = originalPipe.GetFragment("mine#fragments/keeper")

@@ -266,6 +266,31 @@ type Ref struct {
 // cryptographic signer; no signature is verified.
 const BuiltinSigner = "builtin:ctxloom"
 
+// ConfigDeclaredBundle is the reserved LOCAL bundle name a config-declared
+// item — one the user typed directly into this project's own config.yaml,
+// with no bundle to read it from (operations.TrustStamper.ForLocalMCP) —
+// mints its Ref.Bundle as.
+//
+// It exists because every BundleRef minter refuses an empty bundle name
+// (mint's own doc), and a Ref built with Bundle == "" cannot convert through
+// AsBundleRef at all: operations.CountersignRef falls back to a
+// %#v-of-the-Ref address for one, which is deterministic per Ref VALUE but
+// not per REF SHAPE — reordering or retyping one field of trust.Ref silently
+// changes every such key, which is a REJECTION store address, so the failure
+// direction is fail-OPEN (see CountersignRef's doc, R5, and ForLocalMCP's
+// caller-side comment). Giving the item a real bundle name here mints a
+// genuine, stable BundleRef instead: "ctxloom+local:ctxloom:config#mcp/<name>".
+//
+// It is namespaced under "ctxloom:" alongside remote.LocalSource
+// ("ctxloom:local") and remote.CompanionSource ("ctxloom:companion") — the
+// same convention this grammar already uses for every synthetic identity that
+// is not an author's own choice — so a real project bundle (always a
+// directory-relative path under the project's bundle search dirs) cannot
+// collide with it in practice. This is an ADDRESSING change only: the item
+// stays trusted by the same local exemption it always was (see ForLocalMCP's
+// doc); nothing about WHETHER it is trusted moves.
+const ConfigDeclaredBundle = "ctxloom:config"
+
 // Key returns the repo-relative item key used in the store, e.g.
 // "code-quality#fragments/solid" or "tooling#mcp/postgres". It deliberately
 // omits the repo URL (stored separately) and any @version (grants pin by

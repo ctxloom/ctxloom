@@ -172,7 +172,7 @@ func TestTrustStamper_ForLocalMCP(t *testing.T) {
 	// Content-reject is deliberately ref-omitted (spec §5.3): this denies
 	// "denied"'s bytes under ANY name, never binding to a particular ref.
 	fx.rejectContent(trust.KindMCP, signing.FormRaw, mcpPayloadOf(denied))
-	fx.rejectRef(trust.Ref{Kind: trust.KindMCP, Name: "blocked", IsLocal: true})
+	fx.rejectRef(trust.Ref{Bundle: trust.ConfigDeclaredBundle, Kind: trust.KindMCP, Name: "blocked", IsLocal: true})
 
 	stamper := NewTrustStamper(nil, WithStampRecords(fx.records()))
 

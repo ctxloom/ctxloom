@@ -3,9 +3,53 @@ package operations
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
+
+// mustParseProducerRef parses ref — an item ref a MIGRATED producer emitted
+// (ItemRead.TrustRef, LoadedSkill.TrustRef, config's BuiltinFragment.Name, or
+// a ref built by hand through trust.BundleRef.WithItem in a test) — into the
+// trust.Ref shape a test wants to feed to a fixture's rejectRef/blacklist
+// helper or assert IsLocal/IsBuiltin/RepoURL/Key() against.
+//
+// It is the TEST-SIDE analog of bundles.Decide's own step 4 switch
+// (trust.ParseBundleRef + trust.RefFromBundleRef) rather than
+// trust.ParseItemRef: every producer this slice migrates now emits the
+// canonical "ctxloom+<class>:...#<kind>/<item>" grammar, which
+// trust.ParseItemRef does not understand (it stays as the OLD grammar's
+// parser throughout this slice — only Decide's own internal call switches).
+// A test asserting against a migrated producer's literal output must switch
+// with it, or its assertion is pinned to a grammar the producer no longer
+// speaks.
+func mustParseProducerRef(t *testing.T, ref string) trust.Ref {
+	t.Helper()
+	br, err := trust.ParseBundleRef(ref)
+	require.NoError(t, err, "ref %q must parse as the canonical bundle-reference grammar", ref)
+	return trust.RefFromBundleRef(br)
+}
+
+// canonicalWithheldRef converts an OLD-grammar item ref — the shape a fixture
+// constant built by hand as "<source>#<kind>/<name>" for use as an ASK/seed
+// string (Catalog.Lookup and seedLoader still speak only that grammar; this
+// slice does not touch them) — into the canonical bundle-reference grammar
+// string a migrated producer now emits for the IDENTICAL item, so a test
+// written before the migration can assert Pipeline.Withheld()'s literal tally
+// without hand-deriving the new grammar's host-splitting/escaping rules a
+// second, competing way. It reuses trust.ParseItemRef (unaffected by this
+// slice — only bundles.Decide's own internal call switches) to decompose the
+// old-grammar string, then Ref.AsBundleRef to re-mint it — the exact
+// bridge itemRefFor/fragmentRead use in production.
+func canonicalWithheldRef(t *testing.T, oldGrammarRef string) string {
+	t.Helper()
+	tRef, _, _, err := trust.ParseItemRef(oldGrammarRef)
+	require.NoError(t, err, "fixture ref %q must be valid old-grammar for the conversion to mean anything", oldGrammarRef)
+	br, err := tRef.AsBundleRef()
+	require.NoError(t, err)
+	return br.String()
+}
 
 // testAuthorizer is the two-valued Authorizer a test reaches for when it is exercising
 // what happens AROUND a decision rather than the decision itself: admit

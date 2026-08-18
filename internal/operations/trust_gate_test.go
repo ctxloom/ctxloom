@@ -83,10 +83,10 @@ func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 	// isolation.yaml) injects unconditionally alongside the loader-resolved
 	// set, through this same gate — it is exempt from review (builtin), not
 	// exempt from appearing.
-	assert.ElementsMatch(t, []string{solidRef, builtinIsolationFragmentRef}, res.FragmentsLoaded)
+	assert.ElementsMatch(t, []string{canonicalWithheldRef(t, solidRef), builtinIsolationFragmentRef}, res.FragmentsLoaded)
 
 	withheld := loader.Withheld()
-	assert.ElementsMatch(t, []string{evilRef, swapRef}, withheld,
+	assert.ElementsMatch(t, []string{canonicalWithheldRef(t, evilRef), canonicalWithheldRef(t, swapRef)}, withheld,
 		"both denied refs surfaced (content-free) via Withheld")
 }
 

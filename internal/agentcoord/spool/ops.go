@@ -78,6 +78,59 @@ func Withdraw(m PathMapper, ref Ref) (Ref, error) {
 	return moveTo(m, ref, target)
 }
 
+// FailedDirName is the terminal directory for an in/ entry this process's
+// own reader parsed as a message (Sweep already returned it as an Entry, not
+// a Problem) but could not otherwise classify or deliver: an unknown or
+// future mailbox kind, a structured payload that will not decode at the
+// delivery seam, or any comparable semantic rejection above this package's
+// own parse layer.
+//
+// It sits beside in/, exactly like consumed/ and withdrawn/, but is
+// deliberately NOT a member of the closed Dir set: Ref.Validate must keep
+// refusing it, because nothing ever rings a doorbell about landing here — the
+// move is entirely local to the reader that could not act on the file — so
+// unlike every value in Dirs() it carries no wire obligation. Adding it to
+// the closed set would grow the Dir/wire exhaustiveness pin
+// (TestSpoolDoorbell_EnumExhaustiveBothDirections) for a directory the wire
+// protocol has no reason to know about.
+const FailedDirName Dir = "in/failed"
+
+// Fail moves ref — which must be an in/ entry — into the local in/failed/
+// terminal directory: an entry PRESENT ON DISK and UNREADABLE, distinct both
+// from "not found" (nothing ever arrived) and from "in/consumed/"
+// (delivered). Like Consume and Withdraw this is a rename, never a delete or
+// an in-place rewrite: a delete would erase the one record that the message
+// ever arrived, and an edit would give a reader two versions of the same
+// file to disagree about.
+//
+// Unlike Consume, nothing on the other end of a channel is watching for
+// this: it returns no Ref for a caller to announce, and FailedDirName must
+// never reach SpoolDirToWire (which refuses it — see its doc).
+func Fail(m PathMapper, ref Ref) error {
+	if ref.Dir != DirIn {
+		return fmt.Errorf("spool: only an in/ entry can be marked failed, got %q", ref.Dir)
+	}
+	from, err := m.Resolve(ref)
+	if err != nil {
+		return err
+	}
+	root, err := Root(m, ref.Harp)
+	if err != nil {
+		return err
+	}
+	to := filepath.Join(root, filepath.FromSlash(string(FailedDirName)), ref.Name)
+	if err := os.MkdirAll(filepath.Dir(to), dirPerm); err != nil {
+		return fmt.Errorf("spool: create %s: %w", filepath.Dir(to), err)
+	}
+	if err := os.Rename(from, to); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("spool: moving %s to %s: %w", ref, FailedDirName, ErrAlreadyGone)
+		}
+		return fmt.Errorf("spool: moving %s to %s: %w", ref, FailedDirName, err)
+	}
+	return syncDir(filepath.Dir(to))
+}
+
 // moveTo renames ref into dir, returning the new ref.
 func moveTo(m PathMapper, ref Ref, dir Dir) (Ref, error) {
 	from, err := m.Resolve(ref)

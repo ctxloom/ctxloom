@@ -731,3 +731,84 @@ func TestSpoolDelivery_UnparsableFileIsReportedNeverSkipped(t *testing.T) {
 	require.Eventually(t, func() bool { return home.SpoolDeliveryStats().Failed >= 1 }, conformanceWait, 10*time.Millisecond,
 		"an unreadable spool file must be counted, not skipped")
 }
+
+// TestSpoolDelivery_UnmappableKindReachesATerminalState pins the fix for the
+// silent-skip defect: an in/ entry that PARSES as a message (unlike the
+// unparsable-file case above) but carries a kind this build's mailbox
+// vocabulary does not know — an unknown or future kind string — must not sit
+// in in/ forever, re-warned about and re-skipped on every sweep while later
+// entries in the same directory keep delivering around it.
+//
+// The runner here is deliberately cold (dials an address nothing serves, as
+// TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel does): the only
+// thing that can act on the fixture is the reactor's own startup sweep, so a
+// pass here is proof of sweepSpoolIn's own terminal handling and not of some
+// other delivery path picking up the slack.
+func TestSpoolDelivery_UnmappableKindReachesATerminalState(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	const harp = "unmappable-kind-harp"
+
+	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
+	require.NoError(t, err)
+	ref, err := w.Write(&spool.Message{
+		Kind: "a-kind-this-build-does-not-know", FromHarp: "coordinator-harp", To: harp,
+		Body: "unmappable",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, ref.Name)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	home, err := NewHome(ctx, HomeConfig{
+		URL:           "http://127.0.0.1:1/mcp",
+		Token:         "unused",
+		RunID:         "run-unmappable-kind",
+		Harness:       "mock",
+		Harp:          harp,
+		SpoolDelivery: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { home.crash() })
+	require.False(t, home.Attached(), "this runner must never reach a coordinator")
+
+	delivered := make(chan string, 8)
+	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
+		delivered <- pm.GetText()
+		return true
+	})
+
+	// LOUD: the failure is counted, not swallowed.
+	require.Eventually(t, func() bool { return home.SpoolDeliveryStats().Failed >= 1 }, conformanceWait, 10*time.Millisecond,
+		"an unmappable kind must be counted as a failure")
+
+	// TERMINAL: the file leaves in/ ...
+	require.Eventually(t, func() bool { return len(spoolEntries(t, harp, spool.DirIn)) == 0 }, conformanceWait, 10*time.Millisecond,
+		"the unmappable entry must not sit in in/ forever")
+	// ... but it must NOT be in in/consumed/: it was never delivered, and
+	// that directory's whole meaning is "the reader accepted this".
+	assert.Empty(t, spoolEntries(t, harp, spool.DirInConsumed),
+		"an entry that was never delivered must never be marked consumed — that would lie about delivery")
+	// It must be findable at the distinct, present-but-unreadable location.
+	root, err := spool.Root(spool.NewHomeMapper(), harp)
+	require.NoError(t, err)
+	failedPath := filepath.Join(root, "in", "failed", ref.Name)
+	assert.FileExists(t, failedPath,
+		"an unmappable entry must be PRESENT ON DISK at a terminal location distinguishable from both "+
+			"\"never arrived\" and \"delivered\"")
+
+	// NEVER DELIVERED: no turn is ever produced from it.
+	select {
+	case text := <-delivered:
+		t.Fatalf("an unmappable message must never be delivered as a turn; got %q", text)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// NEVER RETRIED: a later sweep must not re-discover or re-count it —
+	// the whole point of a terminal state.
+	failedBefore := home.SpoolDeliveryStats().Failed
+	home.SweepSpoolIn()
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, failedBefore, home.SpoolDeliveryStats().Failed,
+		"a terminal entry must not be re-counted as a fresh failure on a later sweep")
+}

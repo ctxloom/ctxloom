@@ -22,6 +22,7 @@
 package trust
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -403,4 +404,78 @@ func CanonicalRepoURL(raw string) string {
 		u.Path = strings.ToLower(u.Path)
 	}
 	return u.String()
+}
+
+// AsBundleRef converts r into the canonical bundle-reference grammar
+// (BundleRef), minting through the same GitRef / FileRef / BuiltinRef /
+// LocalRef / CompanionRef entry points a caller building a fresh reference by
+// hand would use — so a Ref converted here is held to exactly the rules
+// (R1-R4) a hand-typed reference is, never a laxer path around them.
+//
+// It exists so operations.countersignRef can key the countersignature store
+// on BundleRef.Identity() instead of the retired CanonicalURL()+"|"+Key()
+// composition (R5): see bundleref.go's Identity doc for why that join was
+// itself a framing hazard.
+//
+// r.RepoURL is run through CanonicalRepoURL BEFORE it is split into host and
+// repository path, and that pre-clean is load-bearing, not redundant with
+// ParseBundleRef's own rules. CanonicalRepoURL FOLDS case and a "www." prefix
+// on the forges it knows and strips a ".git" suffix unconditionally;
+// ParseBundleRef now REFUSES an unfolded spelling of any of those instead
+// (R2, and the .git/www. refusals added alongside it). A Ref built from one
+// of the many pre-existing spellings CanonicalRepoURL exists to collapse must
+// therefore be cleaned before it ever reaches the stricter grammar, or this
+// conversion would fail on ordinary, previously-working input — a git@
+// remote, a repo.git URL, an upper-case GitHub owner — the moment it shipped.
+// A remaining spelling CanonicalRepoURL itself does not fold (e.g. "www." on
+// a host outside knownCaseFoldForges) still reaches ParseBundleRef unfolded
+// and is refused there; AsBundleRef reports that as an error rather than
+// guessing, and its one caller falls back to an inert, non-colliding address
+// (see countersignRef) rather than panicking or silently mis-keying.
+func (r Ref) AsBundleRef() (BundleRef, error) {
+	base, err := r.bundleRefBase()
+	if err != nil {
+		return BundleRef{}, err
+	}
+	if r.Kind == "" && r.Name == "" {
+		return base, nil
+	}
+	return base.WithItem(r.Kind, r.Name)
+}
+
+// bundleRefBase converts everything about r EXCEPT its item selector — the
+// half AsBundleRef shares with a future bundle-only (no item) conversion.
+func (r Ref) bundleRefBase() (BundleRef, error) {
+	switch {
+	case r.IsBuiltin:
+		return BuiltinRef(r.Bundle)
+	case r.IsLocal:
+		return LocalRef(r.Bundle)
+	case r.IsCompanion:
+		return CompanionRef(r.Bundle)
+	}
+
+	canon := CanonicalRepoURL(r.RepoURL)
+	switch canon {
+	case "":
+		return BundleRef{}, fmt.Errorf("%w: empty repository URL", ErrRefSyntax)
+	case remote.LocalSource:
+		return LocalRef(r.Bundle)
+	case remote.CompanionSource:
+		return CompanionRef(r.Bundle)
+	}
+
+	u, err := url.Parse(canon)
+	if err != nil {
+		return BundleRef{}, fmt.Errorf("%w: %v", ErrRefSyntax, err)
+	}
+	if u.Scheme == "file" {
+		return FileRef(u.Path, r.Bundle)
+	}
+	// Every other scheme (https after CanonicalRepoURL's folding, or ssh://,
+	// git://, etc. that it left untouched) addresses a bundle "in a remote
+	// git repository reachable by host" — BundleRef's ClassGit abstracts away
+	// which transport reached it, exactly as CanonicalRepoURL's own identity
+	// does not care which transport a rejection was recorded against.
+	return GitRef(u.Host, u.Path, r.Bundle)
 }

@@ -222,14 +222,39 @@ func attestationFormsFor(kind trust.ItemKind) []signing.AttestationForm {
 }
 
 // countersignRef builds the canonical item-ref string a countersignature
-// binds to. trust.Ref.Key() alone ("<bundle>#<kind>/<name>") omits the repo,
-// so two different repos publishing a same-named bundle would otherwise
-// collide; CanonicalURL() is prepended to disambiguate. Both components come
-// from trust.Ref's OWN canonicalization (CanonicalRepoURL / Key), never from
-// however a ref string happened to be typed, so this is stable and collision
-// -free by the same construction the rest of the trust package relies on.
+// binds to.
+//
+// It used to be ref.CanonicalURL()+"|"+ref.Key(): trust.Ref.Key() alone
+// ("<bundle>#<kind>/<name>") omits the repo, so two different repos
+// publishing a same-named bundle would otherwise collide, and CanonicalURL()
+// was prepended to disambiguate. That "|" join was itself a framing hazard —
+// remote.NormalizeRef strips control characters but never "|" (0x7C), so a
+// source literally named "S" with bundle "a|b" and a source "S|a" with
+// bundle "b" rendered the SAME string and could countersign for each other
+// (see trust.BundleRef.Identity's doc, R5). A canonical BundleRef carries
+// source, bundle and item in ONE injective string with every component
+// percent-encoded, so no component can spell a delimiter of the string that
+// contains it — Identity() replaces the join outright rather than picking a
+// safer separator.
+//
+// ref.AsBundleRef can fail: it is a BRIDGE from the wider trust.Ref shape
+// (which the decision function still keys on) onto BundleRef's narrower,
+// stricter grammar, and a Ref carrying a repository spelling the new
+// grammar refuses (see AsBundleRef's doc) or the zero Ref (produced only
+// alongside an error every caller already checks — see
+// TestZeroRef_AddressesButIsInertAndUnreachable) cannot convert. Falling
+// back to Go's own %#v of the Ref keeps the address well-formed, DETERMINISTIC
+// and — critically — impossible to confuse with a real BundleRef.Identity()
+// (which never starts with "ctxloom+", the literal scheme prefix, followed by
+// "unaddressable:"): the pending review path is fail-closed either way, so an
+// unaddressable Ref must key somewhere stable, never silently collide with
+// another unaddressable Ref's address by both flattening to "".
 func countersignRef(ref trust.Ref) string {
-	return ref.CanonicalURL() + "|" + ref.Key()
+	br, err := ref.AsBundleRef()
+	if err != nil {
+		return fmt.Sprintf("ctxloom+unaddressable:%#v", ref)
+	}
+	return br.Identity()
 }
 
 // buildCountersignRecords builds the countersignRecords for cfg: the user and

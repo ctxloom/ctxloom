@@ -288,9 +288,11 @@ func (r *localFSReader) readBundle(path, name string) (BundleRead, error) {
 	// its bare resolution name and its IsLocal auto-trust is unchanged.
 	if r.provenance == ProvenanceBuiltin {
 		bundle.sourceRef = trust.BuiltinSourcePrefix + name
-		if typed, err := trust.BuiltinRef(name); err == nil {
-			bundle.sourceRefTyped = typed
+		typed, err := trust.BuiltinRef(name)
+		if err != nil {
+			warnUnmintableSource(bundle.sourceRef, err)
 		}
+		bundle.sourceRefTyped = typed
 	}
 
 	// Skills are a PACKAGE (a directory tree: SKILL.md plus siblings), which a

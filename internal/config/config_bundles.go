@@ -13,7 +13,21 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
+
+// itemRefFor mints the canonical "<source>#<kind>/<item>" reference this
+// file's executable-surface producers key their gate on, and REPORTS a source
+// it cannot address. The grammar lives in trust.ItemRefFromSource; what is
+// local here is the diagnostic, because an unaddressable item is withheld from
+// delivery and a silent degrade reports vanished content as success.
+func itemRefFor(source string, kind trust.ItemKind, item string) string {
+	ref, err := trust.ItemRefFromSource(source, kind, item)
+	if err != nil {
+		clidiag.Warn("ctxloom", "cannot address source %q: %v — items under it will be withheld", source, err)
+	}
+	return ref
+}
 
 // lookPath is the PATH-resolution seam for tests.
 var lookPath = exec.LookPath
@@ -606,7 +620,7 @@ func filterMissingCompanionHooks(in wire.UnifiedHooks) wire.UnifiedHooks {
 // BuiltinFragment is one always-on fragment shipped by a built-in bundle,
 // ready for unconditional injection into assembled context.
 type BuiltinFragment struct {
-	Name         string // reporting identity ("builtin:<bundle>#fragments/<name>")
+	Name         string // reporting identity, the canonical bundle-reference grammar's item ref (e.g. "ctxloom+builtin:<bundle>#fragments/<name>")
 	Content      string
 	Installation string
 }
@@ -668,12 +682,13 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 }
 
 // fragmentsFromBundle extracts every fragment in b as BuiltinFragment
-// entries in a stable (sorted-by-name) order, applying gate per item
-// (ref = "<source>#fragments/<name>", using the caller-supplied signer) and
-// skipping empty content. Shared by the embedded-builtin loop above (signer
-// "", ref "builtin:<name>") and the companion-loadout loop (signer
-// b.Signer(), ref "ctxloom:companion@<bin>") — the only two callers, which
-// differ solely in source/signer.
+// entries in a stable (sorted-by-name) order, applying gate per item — ref
+// minted through itemRefFor(source, trust.KindFragment, name), the canonical
+// bundle-reference grammar's item selector over source (using the
+// caller-supplied signer) — and skipping empty content. Shared by the
+// embedded-builtin loop above (signer "", source "builtin:<name>") and the
+// companion-loadout loop (signer b.Signer(), source "ctxloom:companion@<bin>")
+// — the only two callers, which differ solely in source/signer.
 func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, source string, preferDistilled bool, gate bundles.Authorizer) []BuiltinFragment {
 	b := read.Bundle
 	fragNames := make([]string, 0, len(b.Fragments))
@@ -687,7 +702,7 @@ func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, source 
 		if strings.TrimSpace(content) == "" {
 			continue
 		}
-		ref := source + "#fragments/" + fragName
+		ref := itemRefFor(source, trust.KindFragment, fragName)
 		payload, form := frag.ContentPayload(preferDistilled)
 		if !bundles.Decide(gate, read, ref, payload, form).Allow {
 			continue // withheld by the trust gate (e.g. rejected, or pending)
@@ -739,14 +754,15 @@ func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundl
 // extractHooksFromBundle converts a bundle's hooks to wire.Hooks. When gate
 // decides anything (bundles.Gates — the executable trust gate, TR5), each
 // hook's executable surface is
-// hashed (BundleHook.ComputeContentHash) and run through the cascade keyed
-// "<bundle>#hooks/<event>/<index>"; a DENY omits the hook — a bundle hook is an
-// arbitrary-command executable that must never be applied unevaluated
-// (fail-closed). Builtin callers pass bundles.AdmitAll (in-binary, exempt): the
-// preimage is never even built, which is why this branches rather than letting
-// Decide answer. The identity
-// scheme is bundles.HookEntry, shared with the migration baseline so a baselined
-// hook's ref matches.
+// hashed (BundleHook.ComputeContentHash) and run through the cascade keyed on
+// the canonical bundle-reference grammar's item selector over source
+// (itemRefFor(source, trust.KindHook, "<event>/<index>")); a DENY omits the
+// hook — a bundle hook is an arbitrary-command executable that must never be
+// applied unevaluated (fail-closed). Builtin callers pass bundles.AdmitAll
+// (in-binary, exempt): the preimage is never even built, which is why this
+// branches rather than letting Decide answer. The identity scheme is
+// bundles.HookEntry.ID() ("<event>/<index>"), shared with the migration
+// baseline so a baselined hook's ref matches.
 func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles.Authorizer) wire.UnifiedHooks {
 	bundle := read.Bundle
 	if !bundle.Hooks.HasAny() {
@@ -790,7 +806,7 @@ func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles
 				// This makes the cascade's IsLocal/RepoURL honest (local hooks
 				// auto-trust; a cloned one is judged by WHO SIGNED it) and aligns
 				// the gate key with the baseline/grant key (both source).
-				ref := source + "#hooks/" + bundles.HookEntry{Event: event, Index: i}.ID()
+				ref := itemRefFor(source, trust.KindHook, bundles.HookEntry{Event: event, Index: i}.ID())
 				payload, perr := hookPreimage(h)
 				if perr != nil {
 					// Cannot build the preimage → cannot evaluate → withhold. Fail
@@ -833,9 +849,10 @@ func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles
 // decides anything (bundles.Gates — the executable trust gate, TR5), each
 // server's executable surface
 // (Command+Args+Env+Installation) is hashed and run through the cascade keyed
-// "<bundle>#mcp/<name>"; a DENY omits the server entirely — an arbitrary-command
-// executable must never reach settings unevaluated (fail-closed). Builtin
-// callers pass bundles.AdmitAll (in-binary, exempt).
+// on the canonical bundle-reference grammar's item selector over source
+// (itemRefFor(source, trust.KindMCP, name)); a DENY omits the server entirely
+// — an arbitrary-command executable must never reach settings unevaluated
+// (fail-closed). Builtin callers pass bundles.AdmitAll (in-binary, exempt).
 func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.Authorizer) map[string]wire.MCPServer {
 	bundle := read.Bundle
 	result := make(map[string]wire.MCPServer)
@@ -845,7 +862,7 @@ func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.A
 			// Key by the source ref (canonical for a cloned bundle, local name for
 			// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
 			// gate key matches the baseline/grant key. See extractHooksFromBundle.
-			ref := source + "#mcp/" + name
+			ref := itemRefFor(source, trust.KindMCP, name)
 			payload, perr := mcpPreimage(mcp)
 			if perr != nil {
 				// Cannot build the preimage → cannot evaluate → withhold. Fail

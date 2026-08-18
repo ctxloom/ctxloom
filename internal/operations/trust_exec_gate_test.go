@@ -17,10 +17,34 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-const (
-	gatePostgresRef = acmeBundle + "tooling#mcp/postgres"
-	gateHookRef     = acmeBundle + "tooling#hooks/pre_tool/0"
+// gatePostgresRef / gateHookRef are canonical bundle-reference grammar item
+// refs — the shape bundles.Decide itself now parses (trust.ParseBundleRef),
+// not acmeBundle's "<url>@bundles/<name>" concatenation these tests feed
+// Decide directly with (rather than through a producer). They round-trip
+// through trust.RefFromBundleRef to the IDENTICAL trust.Ref{RepoURL:
+// trustRepo, Bundle: "tooling", ...} these tests reject/retract by hand
+// elsewhere in this file, which is what keeps a rejection written under one
+// spelling reachable by a Decide call built from the other.
+var (
+	gatePostgresRef = mustGitItemRef("github.com", "/acme/repo", "tooling", trust.KindMCP, "postgres")
+	gateHookRef     = mustGitItemRef("github.com", "/acme/repo", "tooling", trust.KindHook, "pre_tool/0")
 )
+
+// mustGitItemRef mints a canonical git-class item ref for a "<host><repoPath>"
+// test fixture repository — every hand-built (not producer-derived) fixture
+// ref this package feeds directly to bundles.Decide/admitFragment/admitExec
+// goes through this one mint, so the grammar cannot drift between fixtures.
+func mustGitItemRef(host, repoPath, bundle string, kind trust.ItemKind, item string) string {
+	br, err := trust.GitRef(host, repoPath, bundle)
+	if err != nil {
+		panic(err)
+	}
+	full, err := br.WithItem(kind, item)
+	if err != nil {
+		panic(err)
+	}
+	return full.String()
+}
 
 func postgresPayload() []byte {
 	return mcpPayloadOf(bundles.BundleMCP{Command: "pg-mcp", Args: []string{"--port", "5432"}})
@@ -323,7 +347,16 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 		[]byte("version: \"1.0\"\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n"), 0o644))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-	ref := "hookb#hooks/pre_tool/0"
+	// SetBlacklist (backing `ctxloom blacklist`/`bundle reject`) is
+	// CLI-facing ref syntax, explicitly out of scope for this slice — it
+	// still reads trust.ParseItemRef's old grammar. bundles.Decide, in
+	// contrast, has switched — so the exec-gate calls below use a SEPARATE,
+	// canonical-grammar ref. Both spellings round-trip to the identical
+	// trust.Ref{Bundle:"hookb", Kind:KindHook, Name:"pre_tool/0",
+	// IsLocal:true} for a bare local name, which is what keeps a CLI
+	// rejection reachable by Decide's own parse.
+	const cliRef = "hookb#hooks/pre_tool/0"
+	declRef := mustLocalItemRef("hookb", trust.KindHook, "pre_tool/0")
 	hookPayload, err := (&bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"}).ContentPayload()
 	require.NoError(t, err)
 
@@ -333,14 +366,14 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	require.True(t, ok, "the on-disk bundle must resolve")
 
 	// A project-local bundle hook is first-party (no acceptance needed) → passes.
-	assert.True(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, ref, hookPayload, bundles.FormRaw).Allow,
+	assert.True(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, declRef, hookPayload, bundles.FormRaw).Allow,
 		"a first-party local bundle hook must pass the exec gate")
 
 	// CLI rejection → the exec gate withholds it (rejection beats the local
 	// exemption).
-	_, err = SetBlacklist(cfg, SetBlacklistRequest{Ref: ref})
+	_, err = SetBlacklist(cfg, SetBlacklistRequest{Ref: cliRef})
 	require.NoError(t, err)
-	assert.False(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, ref, hookPayload, bundles.FormRaw).Allow,
+	assert.False(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, declRef, hookPayload, bundles.FormRaw).Allow,
 		"a CLI-rejected bundle hook must be withheld by the exec gate")
 }
 

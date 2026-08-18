@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -267,6 +268,40 @@ func (r BundleRead) SourceRef() trust.BundleRef {
 	return r.Bundle.contentSourceRefTyped()
 }
 
+// warnUnmintableSource reports a source ref that could not be minted into the
+// canonical grammar, NAMING the string and the reason.
+//
+// It exists because the alternative was measured and cost 402 withheld items.
+// Every stamp site used to write `if typed, err := mint(...); err == nil` and
+// drop the error, so a ref the grammar refused produced a zero BundleRef, which
+// produced an unaddressable item ref, which the trust gate WITHHELD — three
+// layers from the cause, with the only evidence a %#v of an all-empty struct
+// that named neither the bundle nor the string that failed.
+//
+// It warns rather than failing the read: withholding is already fail-closed, so
+// the safe outcome is reached either way. What was missing was never safety, it
+// was ATTRIBUTION.
+func warnUnmintableSource(source string, err error) {
+	clidiag.Warn("ctxloom", "cannot address source %q: %v — items under it will be withheld", source, err)
+}
+
+// itemRefFor mints the canonical "<source>#<kind>/<item>" reference an item's
+// TrustRef is built from, and REPORTS a source it cannot address. The grammar
+// and the fallback spelling live in trust.ItemRef — shared with the
+// source-string form the config and lm/backends producers use, so the two
+// cannot drift on what an unaddressable item keys as.
+//
+// Reachable in exactly the shape AsBundleRef's doc describes: src is the zero
+// BundleRef, which BundleRead.SourceRef reports as-is for a read whose typed
+// source was never established.
+func itemRefFor(src trust.BundleRef, kind trust.ItemKind, item string) string {
+	ref, err := trust.ItemRef(src, kind, item)
+	if err != nil {
+		warnUnmintableSource(fmt.Sprintf("%#v", src), err)
+	}
+	return ref
+}
+
 // TrustCtx reports the only axis a gate keys on.
 func (r BundleRead) TrustCtx() TrustCtx { return r.trustCtx }
 
@@ -329,9 +364,11 @@ func (r BundleRead) Claimed() bool {
 func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts signatureFacts) BundleRead {
 	if b != nil && b.sourceRef == "" {
 		b.sourceRef = ref
-		if typed, err := trust.LocalRef(ref); err == nil {
-			b.sourceRefTyped = typed
+		typed, err := trust.LocalRef(ref)
+		if err != nil {
+			warnUnmintableSource(ref, err)
 		}
+		b.sourceRefTyped = typed
 	}
 	return BundleRead{
 		Bundle:               b,

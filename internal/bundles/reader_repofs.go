@@ -96,17 +96,43 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 
 // sourceRefTyped mints this reader's structured source ref from r.ref, its
 // already-canonical lockfile identity ("<url>@bundles/<path>" or a bare local
-// name), through the SAME Ref -> BundleRef bridge (trust.Ref.AsBundleRef)
-// that trust.ParseItemRef's own base-ref parse feeds for the identical string
+// name), through canonicalBundleRefTyped.
+func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
+	br, err := canonicalBundleRefTyped(r.ref)
+	if err != nil {
+		warnUnmintableSource(r.ref, err)
+		return trust.BundleRef{}
+	}
+	return br
+}
+
+// canonicalBundleRefTyped mints the structured trust.BundleRef for a canonical
+// resolution ref of the "<url>@bundles/<path>" / bare-local-name shape —
+// the ONE grammar shared by a pinned tree's own ref (repoFSReader.
+// sourceRefTyped, both single-file and tree form) and a version-pinned read's
+// version-less canonical ref (loader_version.go's bundleAtVersion, whose
+// commit-addressed reads carry the SAME identity as their unpinned twin). It
+// is the SAME Ref -> BundleRef bridge (trust.Ref.AsBundleRef) that
+// trust.ParseItemRef's own base-ref parse feeds for the identical string
 // shape — reusing that conversion rather than re-deriving host/path from the
 // ref a second, competing way. remote.ParseReference here is not a second
 // parser: it is the one parser this ref's grammar has, the same one
 // loader_version.go's versionRead already calls on a canonical ref of this
 // exact shape.
-func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
-	parsed, err := remote.ParseReference(r.ref)
+//
+// It returns the ERROR rather than the zero BundleRef alone, and that return is
+// load-bearing. A caller that cannot mint here degrades to an unaddressable ref,
+// and an unaddressable ref is WITHHELD from delivery — so a swallowed failure
+// here is not a missing field, it is content silently vanishing. That is
+// exactly how a universal ".git" refusal in the grammar withheld 402 items
+// while every package test stayed green: six sites discarded this error, so the
+// only surviving evidence was a %#v of a zero struct that named nothing.
+// Callers must report what could not be minted; warnUnmintableSource is the
+// shared way to do it.
+func canonicalBundleRefTyped(canonical string) (trust.BundleRef, error) {
+	parsed, err := remote.ParseReference(canonical)
 	if err != nil {
-		return trust.BundleRef{}
+		return trust.BundleRef{}, fmt.Errorf("parse %q: %w", canonical, err)
 	}
 	br, err := trust.Ref{
 		RepoURL:     parsed.URL,
@@ -115,9 +141,9 @@ func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
 		IsCompanion: parsed.IsCompanion,
 	}.AsBundleRef()
 	if err != nil {
-		return trust.BundleRef{}
+		return trust.BundleRef{}, fmt.Errorf("convert %q: %w", canonical, err)
 	}
-	return br
+	return br, nil
 }
 
 // leaf is the last segment of the ref — the name the bundle answers to inside

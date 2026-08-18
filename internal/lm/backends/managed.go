@@ -11,7 +11,21 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
+
+// itemRefFor mints the canonical "<source>#<kind>/<item>" reference this
+// file's executable-surface producers key their gate on, and REPORTS a source
+// it cannot address. The grammar lives in trust.ItemRefFromSource; what is
+// local here is the diagnostic, because an unaddressable item is withheld from
+// delivery and a silent degrade reports vanished content as success.
+func itemRefFor(source string, kind trust.ItemKind, item string) string {
+	ref, err := trust.ItemRefFromSource(source, kind, item)
+	if err != nil {
+		clidiag.Warn("ctxloom", "cannot address source %q: %v — items under it will be withheld", source, err)
+	}
+	return ref
+}
 
 // This file is the HOST side of the setup seam: ctxloom owns config and bundles
 // here, resolves them into the wire-typed agent.ManagedConfig, and ships that to
@@ -393,7 +407,8 @@ func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, p
 // executable trust gate allows. A directory profile may be remote-sourced, so its
 // directly-declared MCP servers — unlike a trusted-local config.yaml inline
 // profile's — pass the SAME per-item executable gate as bundle MCP servers
-// (config.extractMCPFromBundle), keyed "<ref.Base>#mcp/<name>" with the server's
+// (config.extractMCPFromBundle), keyed on the canonical bundle-reference
+// grammar's item selector over ref.Read.SourceRef() (itemRefFor) with the server's
 // executable-surface hash. A DENY omits the server (fail-closed). An AdmitAll
 // gate (management paths) admits everything unchanged.
 func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authorizer) wire.MCPConfig {
@@ -404,7 +419,7 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authori
 	if len(mcp.Servers) > 0 {
 		out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
 		for name, srv := range mcp.Servers {
-			itemRef := ref.Base + "#mcp/" + name
+			itemRef := itemRefFor(ref.Base, trust.KindMCP, name)
 			if gateProfileExec(gate, ref, itemRef, mcpExecPayload(srv)) {
 				out.Servers[name] = srv
 			} else {
@@ -416,13 +431,14 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authori
 		}
 	}
 	// Plugin-specific (backend-passthrough) servers gate too — an arbitrary-command
-	// executable must never bypass the gate; keyed "<ref.Base>#mcp/<backend>/<name>".
+	// executable must never bypass the gate; keyed on itemRefFor(ref.Base,
+	// trust.KindMCP, "<backend>/<name>").
 	if len(mcp.Plugins) > 0 {
 		out.Plugins = make(map[string]map[string]wire.MCPServer, len(mcp.Plugins))
 		for backend, servers := range mcp.Plugins {
 			gated := make(map[string]wire.MCPServer)
 			for name, srv := range servers {
-				itemRef := ref.Base + "#mcp/" + backend + "/" + name
+				itemRef := itemRefFor(ref.Base, trust.KindMCP, backend+"/"+name)
 				if gateProfileExec(gate, ref, itemRef, mcpExecPayload(srv)) {
 					gated[name] = srv
 				} else {
@@ -438,8 +454,9 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authori
 }
 
 // gateProfileHooks returns the hooks of a directory-resolved profile that the
-// executable trust gate allows. Each hook is keyed "<ref.Base>#hooks/<event>/
-// <index>" (the SAME identity scheme bundle hooks use, bundles.HookEntry) with
+// executable trust gate allows. Each hook is keyed on itemRefFor(ref.Base,
+// trust.KindHook, "<event>/<index>") (the SAME identity scheme bundle hooks
+// use, bundles.HookEntry) with
 // its executable-surface hash; a DENY omits it (fail-closed). An AdmitAll gate
 // (management paths) admits everything unchanged.
 func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Authorizer) wire.HooksConfig {
@@ -449,7 +466,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 	keep := func(event string, hooks []wire.Hook) []wire.Hook {
 		var out []wire.Hook
 		for i, hook := range hooks {
-			hookRef := ref.Base + "#hooks/" + event + "/" + strconv.Itoa(i)
+			hookRef := itemRefFor(ref.Base, trust.KindHook, event+"/"+strconv.Itoa(i))
 			if gateProfileExec(gate, ref, hookRef, hookExecPayload(hook)) {
 				out = append(out, hook)
 			} else {
@@ -470,8 +487,8 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			PostFileEdit: keep(bundles.HookEventPostFileEdit, h.Unified.PostFileEdit),
 		},
 	}
-	// Plugin-specific (backend-native) hooks gate too; keyed
-	// "<ref.Base>#hooks/<plugin>/<event>/<index>".
+	// Plugin-specific (backend-native) hooks gate too; keyed on
+	// itemRefFor(ref.Base, trust.KindHook, "<plugin>/<event>/<index>").
 	if len(h.Plugins) > 0 {
 		out.Plugins = make(map[string]wire.BackendHooks, len(h.Plugins))
 		for plugin, backend := range h.Plugins {

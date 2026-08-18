@@ -75,8 +75,7 @@ func projectTrustRef(t *testing.T, loader *bundles.Loader) trust.Ref {
 	items, err := loader.ReadFragment(sharedFragmentRef)
 	require.NoError(t, err)
 	require.Len(t, items, 1, "the bare name must resolve to the PROJECT copy; the builtin is shadowed")
-	ref, _, _, err := trust.ParseItemRef(items[0].TrustRef)
-	require.NoError(t, err)
+	ref := mustParseProducerRef(t, items[0].TrustRef)
 	require.True(t, ref.IsLocal, "a project bundle's item must gate as project-local")
 	return ref
 }
@@ -85,8 +84,7 @@ func projectTrustRef(t *testing.T, loader *bundles.Loader) trust.Ref {
 // injection route constructs.
 func builtinTrustRef(t *testing.T) trust.Ref {
 	t.Helper()
-	ref, _, _, err := trust.ParseItemRef(builtinIsolationFragmentRef)
-	require.NoError(t, err)
+	ref := mustParseProducerRef(t, builtinIsolationFragmentRef)
 	require.True(t, ref.IsBuiltin, "the injection route's ref must gate as builtin")
 	return ref
 }

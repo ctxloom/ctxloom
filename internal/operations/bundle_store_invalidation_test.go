@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -96,4 +97,41 @@ func TestBundleStore_FirstBundleInAFreshProjectIsVisible(t *testing.T) {
 		"the first bundle created in a project must be visible afterwards: a reader built before the "+
 			"bundles directory existed would otherwise hold an empty search path that no invalidation "+
 			"can repair, since invalidation drops reads and never rebuilds readers")
+}
+
+// TestMoveBundle_SourceDisappearsFromTheSharedLoader closes the gap the store
+// decorator did not cover.
+//
+// MoveBundle removes the source through the FILESYSTEM, not through the store,
+// so none of the store's invalidation applies to it. With one loader shared for
+// the process, the moved-away bundle otherwise stays resolvable for the rest of
+// the command — present in listings, loadable by ref, exit 0 — which is the
+// stale-read failure this codebase is shaped by.
+func TestMoveBundle_SourceDisappearsFromTheSharedLoader(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	bundlesDir := paths.LocalBundlesPath(appDir)
+	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
+	destDir := t.TempDir()
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	store := bundleStore(cfg, nil)
+	require.NoError(t, store.Save(&bundles.Bundle{
+		Name:    "movable",
+		Version: "1.0.0",
+		Path:    filepath.Join(bundlesDir, "movable.yaml"),
+	}))
+
+	// Resolve BEFORE the move, so a stale view is possible at all.
+	_, before := cfg.BundleLoader().Read("movable")
+	require.True(t, before, "sanity: the bundle must resolve before it is moved")
+
+	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "movable", To: destDir})
+	require.NoError(t, err)
+
+	_, after := cfg.BundleLoader().Read("movable")
+	require.False(t, after,
+		"a moved bundle must stop resolving: the source was removed through the filesystem rather than "+
+			"the store, so nothing else tells the shared loader, and every later read in this command "+
+			"would keep serving a bundle that is no longer there")
 }

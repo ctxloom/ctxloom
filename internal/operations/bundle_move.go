@@ -133,6 +133,12 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 	if err := removeMoveSource(fs, src, result.Dest); err != nil {
 		return nil, err
 	}
+	// The source file is gone from this project's bundles tree, and it went
+	// through the filesystem rather than the store — so nothing else has told
+	// the session's shared loader. Without this, every later read in this
+	// command still resolves the bundle that was just moved away: present in
+	// listings, loadable by ref, exit 0.
+	cfg.InvalidateBundleLoader()
 	return result, nil
 }
 

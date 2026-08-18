@@ -75,6 +75,22 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// The version-less canonical ref is the trust/identity key: a historical
 	// version is gated by its own content_hash under the SAME ref, so grants
 	// keyed {repo, ref, content_hash} match regardless of the serving commit.
+	//
+	// sourceRef carries it, because sourceRef is what contentSourceRef reads
+	// and therefore what the content gate keys on. Stamping it HERE — rather
+	// than letting newRead fall back to versionRead's `canonical@commit` ref —
+	// is what keeps a historical version under the same key as its unpinned
+	// twin. `canonical` is location-derived: splitBundleVersion produced it
+	// from the ref the loader was ASKED for, with the version split off, so it
+	// is a resolution identity and not anything the fetched document said
+	// about itself.
+	//
+	// Name is stamped too, for the resolution/display identity it names. It is
+	// no longer load-bearing for trust, and that matters: Name is declared in
+	// a bundle's own YAML, so a version path that keyed trust off it would let
+	// a declared name steer which grants apply to a historical version
+	// (outdated-recoil).
+	b.sourceRef = canonical
 	b.Name = canonical
 	b.Path = fmt.Sprintf("<remote-version>:%s@%s", canonical, commit)
 

@@ -168,26 +168,59 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 		"the item's content must be recorded as a content-reject")
 }
 
-// TestRunBlacklist_CanonicalizedKeying drives `ctxloom blacklist` against a
-// remote ref spelled one way and proves the on-disk rejection matches a
-// *different* spelling of the same repo — URL variants cannot escape a
-// rejection. The content is unresolvable here (no bundle on disk), so only the
-// durable ref-level state is written; that is exactly the path that must
-// canonicalize.
-func TestRunBlacklist_CanonicalizedKeying(t *testing.T) {
+// TestRunBlacklist_RefRejectBindsOneAddress drives `ctxloom blacklist` against
+// a remote ref and pins BOTH halves of what a ref-level rejection means.
+//
+// It binds the address it names, across every spelling that is the SAME URI:
+// transport form (git@ vs https), scheme case, a trailing slash. It does NOT
+// reach a merely non-preferred respelling — a ".git" suffix, a different
+// repository-path case — because those are DIFFERENT identities, deliberately:
+// whether two addresses reach one repository is host-specific knowledge this
+// layer does not have, and folding on a guess merges two identities onto one
+// trust key.
+//
+// That narrowing is not a gap left open. The cross-address case is carried by
+// the CONTENT-reject countersignature, which is signed with the ref omitted
+// and therefore follows identical bytes wherever they appear — see
+// operations.TestDeclaredNameTrust and
+// operations.TestSameNameRejectionIsolation. A ref-reject blocks one address,
+// which is what it says.
+//
+// The content is unresolvable here (no bundle on disk), so only the durable
+// ref-level state is written; that is exactly the path under test.
+func TestRunBlacklist_RefRejectBindsOneAddress(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	c, _ := testCmd()
-	// Reject with a .git suffix + mixed case + trailing variant.
 	require.NoError(t, runItemReject(c, cfg,
-		"https://github.com/Acme/Repo.git@bundles/tooling#fragments/solid"))
-
-	// Query with an entirely different spelling of the same repo (git@ form).
-	variantRef := trust.Ref{RepoURL: "git@github.com:acme/repo", Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
+		"https://github.com/acme/repo@bundles/tooling#fragments/solid"))
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(variantRef)),
-		"a URL variant of the same remote must resolve to the same rejection key")
+
+	t.Run("the same URI in another transport spelling IS bound", func(t *testing.T) {
+		for _, repoURL := range []string{
+			"git@github.com:acme/repo",
+			"https://GitHub.com/acme/repo/",
+			"http://github.com/acme/repo",
+		} {
+			ref := trust.Ref{RepoURL: repoURL, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
+			assert.True(t, store.HasUnsignedRefReject(countersignRefFor(ref)),
+				"%s is the same URI and must resolve to the same rejection key", repoURL)
+		}
+	})
+
+	t.Run("a non-preferred respelling is a DIFFERENT address, and is NOT bound", func(t *testing.T) {
+		for _, repoURL := range []string{
+			"https://github.com/acme/repo.git",
+			"https://github.com/Acme/Repo",
+			"https://www.github.com/acme/repo",
+		} {
+			ref := trust.Ref{RepoURL: repoURL, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
+			assert.False(t, store.HasUnsignedRefReject(countersignRefFor(ref)),
+				"%s was folded onto the rejected address; two identities merged onto one trust key", repoURL)
+		}
+	})
+
 }

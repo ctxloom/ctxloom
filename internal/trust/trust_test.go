@@ -9,12 +9,12 @@ func TestCanonicalRepoURL(t *testing.T) {
 		want string
 	}{
 		{"https passthrough", "https://github.com/acme/repo", "https://github.com/acme/repo"},
-		{"strip .git", "https://github.com/acme/repo.git", "https://github.com/acme/repo"},
-		{"lowercase github owner/repo", "https://github.com/Acme/Repo", "https://github.com/acme/repo"},
+		{".git suffix PRESERVED", "https://github.com/acme/repo.git", "https://github.com/acme/repo.git"},
+		{"repo-path case PRESERVED", "https://github.com/Acme/Repo", "https://github.com/Acme/Repo"},
 		{"lowercase host", "https://GitHub.com/acme/repo", "https://github.com/acme/repo"},
 		{"trailing slash", "https://github.com/acme/repo/", "https://github.com/acme/repo"},
-		{"git@ to https", "git@github.com:acme/repo.git", "https://github.com/acme/repo"},
-		{"git@ mixed case", "git@github.com:Acme/Repo", "https://github.com/acme/repo"},
+		{"git@ to https, suffix intact", "git@github.com:acme/repo.git", "https://github.com/acme/repo.git"},
+		{"git@ preserves repo-path case", "git@github.com:Acme/Repo", "https://github.com/Acme/Repo"},
 		{"shorthand owner/repo", "acme/repo", "https://github.com/acme/repo"},
 		{"empty", "", ""},
 		{"local token passthrough", "ctxloom:local", "ctxloom:local"},
@@ -35,39 +35,51 @@ func TestCanonicalRepoURL(t *testing.T) {
 	}
 }
 
-// TestCanonicalRepoURL_VariantsCollapse pins the property the blacklist relies
-// on: every spelling of the same GitHub repo canonicalizes to one key.
-func TestCanonicalRepoURL_VariantsCollapse(t *testing.T) {
+// TestCanonicalRepoURL_ConformantVariantsCollapse pins the spellings that are
+// the SAME URI under RFC 3986 §6.2 (scheme and host case, a trailing slash)
+// plus the two request-addressing components that never name a repository
+// (userinfo, query, fragment) — and the transport unification NormalizeURL
+// owns (git@ scp form, and http, which no forge serves differently from
+// https).
+func TestCanonicalRepoURL_ConformantVariantsCollapse(t *testing.T) {
 	variants := []string{
-		"https://github.com/Acme/Repo",
-		"https://github.com/acme/repo.git",
+		"https://github.com/acme/repo",
 		"https://GitHub.com/acme/repo/",
+		"HTTPS://github.com/acme/repo",
+		"http://github.com/acme/repo",
 		"git@github.com:acme/repo",
-		"git@github.com:Acme/Repo.git",
 		"acme/repo",
-
-		// Each of these escaped a sticky ref-level rejection by
-		// respelling the remote URL — and for a bundle carrying a verified
-		// publisher signature the escape is not "rejected -> pending" but
-		// "rejected -> ALLOW" at step 5, because the store address derives
-		// from this canonical form and any divergence is simply a store miss.
-		// docs/trust-model.md lists "URL-variant / typosquat escape of a
-		// rejection" as an ADDRESSED threat.
-		"https://github.com/acme/repo.git/",   // NormalizeURL strips .git BEFORE the trailing slash is trimmed
-		"git@github.com:acme/repo.git/",       // same, via the git@ rewrite
-		"HTTPS://github.com/acme/repo",        // the http(s) guard was case-SENSITIVE, so this skipped folding entirely
-		"https://www.github.com/acme/repo",    // www. was in knownCaseFoldForges but never folded off
-		"http://github.com/acme/repo",         // scheme downgrade
-		"https://user@github.com/acme/repo",   // userinfo
-		"https://github.com/acme/repo?ref=x",  // query
-		"https://github.com/acme/repo#readme", // fragment
-		"https://github.com/acme/repo//",      // repeated trailing slashes
+		"https://user@github.com/acme/repo",
+		"https://github.com/acme/repo?ref=x",
+		"https://github.com/acme/repo#readme",
+		"https://github.com/acme/repo//",
 	}
 	want := CanonicalRepoURL(variants[0])
 	for _, v := range variants {
 		if got := CanonicalRepoURL(v); got != want {
 			t.Errorf("CanonicalRepoURL(%q) = %q, want %q (variant must collapse)", v, got, want)
 		}
+	}
+}
+
+// TestCanonicalRepoURL_NonPreferredSpellingsStayDISTINCT is the inverse, and
+// it is the property the byte-exact rule exists for: a spelling that is merely
+// non-preferred is a DIFFERENT identity, not a variant. Whether two addresses
+// reach the same repository is host-specific knowledge this layer does not
+// have. A rejection of one does not govern the other — that is what a
+// CONTENT-reject is for, and it omits the ref by design.
+func TestCanonicalRepoURL_NonPreferredSpellingsStayDISTINCT(t *testing.T) {
+	base := CanonicalRepoURL("https://github.com/acme/repo")
+	for _, tt := range []struct{ name, in string }{
+		{".git suffix", "https://github.com/acme/repo.git"},
+		{"repository-path case", "https://github.com/Acme/Repo"},
+		{"www. host", "https://www.github.com/acme/repo"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CanonicalRepoURL(tt.in); got == base {
+				t.Errorf("CanonicalRepoURL(%q) = %q, which collapsed onto %q — two identities merged onto one trust key", tt.in, got, base)
+			}
+		})
 	}
 }
 

@@ -215,8 +215,13 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		return r, nil
 
 	default:
-		host, hadGit := trimPathSuffixes(raw)
-		r.form, r.host, r.gitSuffix = formBareHost, host, hadGit
+		// A bare host has no path, so a trailing ".git" here is part of the
+		// HOST NAME — "example.com.git" is a different DNS name from
+		// "example.com", not the same repository spelled twice. Trimming it
+		// would invent a host the user never named, so this arm keeps the
+		// slashes trimmed and the suffix intact. gitSuffix stays false: it
+		// records a repository-path suffix, and there is no path here.
+		r.form, r.host = formBareHost, strings.Trim(raw, "/")
 		return r, nil
 	}
 }
@@ -247,30 +252,69 @@ func trimPathSuffixes(p string) (path string, hadGit bool) {
 func (r RepoURL) Kind() SourceKind { return r.kind }
 
 // Normalized renders the IDENTITY of the repository: the string that keys the
-// trust namespace (via trust.CanonicalRepoURL, which folds host/path case on
-// known forges on top of this), names a remote in remotes.yaml, and appears in
-// lockfile keys.
+// trust namespace (via trust.CanonicalRepoURL), names a remote in remotes.yaml,
+// and appears in lockfile keys.
 //
-// Every transport spelling of one repository collapses here: scp, shorthand,
-// scheme-less host paths and http all render as https. The ".git" suffix is
-// dropped for http(s) — a forge cosmetic — and KEPT for every other scheme,
-// because a local bare repository is literally named "<name>.git" and the
-// suffix is part of its path, not decoration.
-func (r RepoURL) Normalized() string {
+// TRANSPORT IS NOT IDENTITY, and that is a decision, not an accident of this
+// function. Every transport spelling of one repository collapses here: scp,
+// shorthand, scheme-less host paths and http all render as https. Which
+// transport reached a repository is a statement about the caller's
+// CREDENTIALS — an ssh key versus a token — and a user who switches remotes
+// from git@ to https has not changed which repository they are addressing, so
+// they must not lose their approvals or escape their rejections by doing it.
+// Do not add a transport dimension here or to trust.BundleRef's ClassGit,
+// which abstracts the same thing for the same reason.
+//
+// EVERY OTHER SPELLING IS PRESERVED byte-exact, including a ".git" suffix, on
+// every scheme. The two rules are one rule applied twice: fold what is
+// provably the same repository, preserve what is only PROBABLY the same.
+// Whether "host/foo.git" and "host/foo" are one repository is host-specific
+// knowledge this layer does not have — on a plain git server serving a bare
+// repo, "host/foo.git" is the real path and "host/foo" may not exist at all —
+// so folding them would merge two identities onto one trust key, letting a
+// rejection of one silently govern the other. See trust.ParseBundleRef's doc
+// for the same rule stated at the grammar, and docs/trust-model.md for what
+// the narrower ref-reject scope means for the threat model.
+func (r RepoURL) Normalized() string { return r.render() }
+
+// render is the ONE place a RepoURL becomes a string. Normalized and CloneArg
+// both go through it and both get the SAME path spelling — there is no
+// per-caller variant, because two renderers that can disagree about what
+// repository a string names is the exact defect the shared parse was written
+// to end (see TestRepoURL_IdentityAndTransportAgree).
+//
+// It collapses transport by construction: scp, shorthand, scheme-less host
+// paths and http all render as https, because which transport reached a
+// repository is a statement about the caller's CREDENTIALS and not about
+// which repository it is. There is deliberately no arm that can reintroduce
+// it, and CloneArg's scp case is the one deliberate divergence — it keeps the
+// scp form so a clone does not lose the user's ssh key.
+func (r RepoURL) render() string {
+	p := r.identityPath()
 	switch r.form {
 	case formSentinel, formVerbatim:
 		return r.raw
 	case formURL:
-		return r.renderURL()
-	case formSCP:
-		return "https://" + r.host + "/" + r.path
-	case formShorthand, formHostPath:
-		return "https://" + r.host + "/" + r.path
+		return r.renderURL(p)
+	case formSCP, formShorthand, formHostPath:
+		return "https://" + r.host + "/" + p
 	case formBareHost:
 		return "https://" + r.host
 	default: // formOpaque
-		return "https://" + r.path
+		return "https://" + p
 	}
+}
+
+// identityPath is the path as a REFERENCE spells it: r.path with the ".git"
+// suffix restored when the input carried one. r.path stays suffix-free for the
+// consumers that genuinely need it stripped — CacheSegments, so two spellings
+// of one repo share one clone directory, and the forge API callers. See
+// Normalized's doc for why the suffix is not folded off an identity.
+func (r RepoURL) identityPath() string {
+	if r.gitSuffix {
+		return r.path + ".git"
+	}
+	return r.path
 }
 
 // CloneArg renders the TRANSPORT form: the argument handed to `git clone` and
@@ -290,23 +334,10 @@ func (r RepoURL) Normalized() string {
 // "owner/repo.js" clone as a local directory and "gitlab.com/alice/repo"
 // resolve to two different repositories depending on which helper you asked.
 func (r RepoURL) CloneArg() string {
-	switch r.form {
-	case formSentinel, formVerbatim:
-		// Nothing clones a sentinel; callers dispatch on Kind() first. Render
-		// the token unchanged so a caller that forgot gets an obviously wrong
-		// argument rather than a plausible-looking URL.
-		return r.raw
-	case formURL:
-		return r.renderURL()
-	case formSCP:
-		p := r.path
-		if r.gitSuffix {
-			p += ".git"
-		}
-		return r.user + "@" + r.host + ":" + p
-	default:
-		return r.Normalized()
+	if r.form == formSCP {
+		return r.user + "@" + r.host + ":" + r.identityPath()
 	}
+	return r.render()
 }
 
 // CacheSegments returns the path segments naming this repo's clone directory
@@ -392,13 +423,14 @@ func (r RepoURL) isHTTP() bool {
 // Only http(s) is rewritten at all. On http(s) the trailing ".git" is a forge
 // cosmetic and a trailing slash is noise, and trust.CanonicalRepoURL already
 // removes both, so folding them here moves no key. On every other scheme the
-// path is emitted byte-for-byte as written — see pathVerbatim for why that is
+// httpPath is the path spelling render resolved for an http(s) URL. A
+// non-http(s) path is emitted byte-for-byte as written — see pathVerbatim for why that is
 // load-bearing rather than timid.
-func (r RepoURL) renderURL() string {
+func (r RepoURL) renderURL(httpPath string) string {
 	v := *r.u
 	p := r.pathVerbatim
 	if r.isHTTP() {
-		p = r.path
+		p = httpPath
 	}
 	if p != "" {
 		p = "/" + p

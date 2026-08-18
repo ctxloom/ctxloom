@@ -549,6 +549,37 @@ test-acceptance: build _ensure-gotmpdir
     if [ "$status" -eq 0 ]; then just _sweep-cache "$marker"; else rm -f "$marker"; fi
     exit "$status"
 
+# Run a NARROW slice of the acceptance suite: one or more feature files, and
+# optionally a tag expression. This is the iteration loop; `just test-acceptance`
+# is the MERGE gate.
+#
+# The full suite is ~450s, which is too slow to sit inside an edit/verify cycle
+# and fast enough to run once before a merge. The Go seam for narrowing already
+# existed (ACCEPTANCE_PATHS / ACCEPTANCE_TAGS, read by acceptance_test.go); it
+# just had no recipe, and a raw `go test` is blocked, so the seam was reachable
+# only from the recipes that hard-code their own paths.
+#
+#   just test-acceptance-focus features/j001400_bundle_distribution.feature
+#   just test-acceptance-focus features/j000200_setup.feature,features/j000700_team.feature
+#   just test-acceptance-focus features/j002200_isolation.feature "@wip"
+#
+# PATHS is comma-separated and relative to tests/acceptance/.
+#
+# Leaving TAGS empty keeps the DEFAULT hermetic tag filter (~@live ~@network
+# ~@future ~@wip ~@container) and therefore the hermetic lane, where a runtime
+# skip is fatal. Passing TAGS replaces that filter outright — it does not
+# intersect with it — so a tag expression can opt INTO @live/@wip, and doing so
+# leaves the hermetic lane and makes skips non-fatal. Narrowing PATHS alone
+# never leaves it.
+#
+# Narrowing hides regressions in the features you did not name. That is the
+# trade this recipe exists to make; the merge gate is what closes it.
+test-acceptance-focus PATHS TAGS="": build _ensure-gotmpdir
+    GOTMPDIR="{{go_tmp}}" \
+    ACCEPTANCE_PATHS={{PATHS}} \
+    ACCEPTANCE_TAGS="{{TAGS}}" \
+    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
 # Build a coverage-instrumented ctxloom.
 build-cover: dev-image
     just _run build-cover

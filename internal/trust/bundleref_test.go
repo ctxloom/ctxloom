@@ -1,6 +1,7 @@
 package trust
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -257,6 +258,68 @@ func TestBundleRef_R1_PipeAndControlCharactersNeverPassThrough(t *testing.T) {
 			assert.ErrorIs(t, err, ErrRefSyntax)
 		}
 	})
+}
+
+// TestIsRefControlRune_ExhaustiveC0AndDEL is a direct, white-box test of the
+// predicate itself — the trust-package mirror of
+// remote.TestStripRefControlChars_ExhaustiveC0AndDEL. Every one of the 33 code
+// points named by the comment (C0 0x00-0x1F, plus DEL 0x7F) must match, and
+// nothing else in the 0x00-0xFF byte range may. This is the exact parity claim
+// the audit exists to pin: the two predicates share one formula
+// (r < 0x20 || r == 0x7f) in two packages, and a divergence between them would
+// mean the two ref grammars disagree about what a "safe" reference can carry.
+func TestIsRefControlRune_ExhaustiveC0AndDEL(t *testing.T) {
+	for r := 0; r < 0x100; r++ {
+		r := rune(r)
+		want := r < 0x20 || r == 0x7f
+		assert.Equal(t, want, isRefControlRune(r), "isRefControlRune(%#U) mismatch", r)
+	}
+}
+
+// TestBundleRef_ControlCharacters_ExhaustiveRefusal is the end-to-end
+// counterpart: every control code point must make ParseBundleRef fail,
+// wherever in the raw ref string it appears.
+//
+// The two positions below are NOT equally strong evidence for isRefControlRune
+// specifically, and the difference matters enough to spell out. Confirmed by
+// mutating isRefControlRune to always return false (restored after):
+//
+//   - bundle-name position still refused every case — net/url.Parse carries
+//     its OWN, entirely independent control-byte check (stringContainsCTLByte)
+//     over the pre-'#' portion of the string, so this half is redundant
+//     defense-in-depth, not proof isRefControlRune fired.
+//   - item-name position (after '#') stopped being refused for EVERY control
+//     code point with isRefControlRune disabled. net/url.Parse cuts the
+//     fragment off BEFORE running its control-byte check (see url.Parse's
+//     "Cut off #frag" step) and setFragment never re-checks it — an
+//     unescaped control byte there is percent-escaped on render, not refused.
+//     isRefControlRune is the ONLY guard standing between argv/an advisory and
+//     a control character surviving into an item name.
+//
+// So the item-name-position half is the one that actually pins isRefControlRune
+// down; the bundle-name-position half is kept because losing the net/url
+// redundancy would also be a real regression worth catching, just a different
+// and less critical one.
+func TestBundleRef_ControlCharacters_ExhaustiveRefusal(t *testing.T) {
+	isControl := func(r rune) bool { return r < 0x20 || r == 0x7f }
+
+	for r := rune(0); r < 0x80; r++ {
+		if !isControl(r) {
+			continue
+		}
+		t.Run(fmt.Sprintf("bundle-name position %#U", r), func(t *testing.T) {
+			in := "ctxloom+local:tool" + string(r) + "ing#fragments/a"
+			_, err := ParseBundleRef(in)
+			require.Error(t, err, "accepted control character %#U in the bundle name", r)
+			assert.ErrorIs(t, err, ErrRefSyntax)
+		})
+		t.Run(fmt.Sprintf("item-name position %#U", r), func(t *testing.T) {
+			in := "ctxloom+local:tooling#fragments/a" + string(r) + "b"
+			_, err := ParseBundleRef(in)
+			require.Error(t, err, "accepted control character %#U in the item name", r)
+			assert.ErrorIs(t, err, ErrRefSyntax)
+		})
+	}
 }
 
 // --- R2: repo-path case — reject on folding forges, preserve elsewhere ------

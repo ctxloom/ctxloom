@@ -99,11 +99,20 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 	remotes := remoteURLMap(cfg)
 	row := func(name string, tags []string, source string) itemRow {
 		remoteName, bundleLabel, sourceURL := classifySource(source, remotes)
+		// name/source are bundle-authored (a fragment/command key from the
+		// bundle's own YAML) and reach this listing row without having
+		// passed through remote.NormalizeRef — the same display-surface gap
+		// review.go's classify() had (see its comment). Strip (not
+		// NormalizeRef) so a malicious name cannot repaint `fragment/command
+		// list` output; this is a listing, not an ingest boundary, so it does
+		// not own the loud warning.
+		cleanName, _ := remote.StripRefControlChars(name)
+		cleanSource, _ := remote.StripRefControlChars(source)
 		return itemRow{
-			Name:        name,
+			Name:        cleanName,
 			Tags:        tags,
-			Bundle:      source,
-			Ref:         source + "#" + itemRefPrefix(itemType) + name,
+			Bundle:      cleanSource,
+			Ref:         remote.NormalizeRef(source + "#" + itemRefPrefix(itemType) + name),
 			Remote:      remoteName,
 			BundleLabel: bundleLabel,
 			SourceURL:   sourceURL,

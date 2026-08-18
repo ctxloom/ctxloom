@@ -368,7 +368,19 @@ func setReviewForms(item *ReviewItem, shown []byte, shownForm bundles.ContentFor
 // filled by the caller, which has the item in hand). ok=false means the item
 // needs no review (allowed, rejected, or unaddressable).
 func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundles.BundleRead, payload []byte, form string, executable bool) (ReviewItem, bool) {
-	ref := bundleRef + "#" + kindDir + "/" + name
+	// name is BUNDLE-AUTHORED — a fragment/command/mcp/hook/skill key straight
+	// out of the bundle's own YAML or file tree, never itself put through
+	// remote.NormalizeRef before arriving here. ref is normalized up front,
+	// before anything below reads it, so every use past this line — the
+	// unaddressable-item warning, ReportVerdict's diagnostic, and the
+	// ReviewItem shown to the human doing `ctxloom review` — sees the same
+	// clean string ParseItemRef decided trust with. Without this, a bundle
+	// naming an item with an embedded control character got a CORRECT trust
+	// decision (ParseItemRef normalizes its own copy) while the review UI and
+	// diagnostics still printed the raw one: exactly the terminal-repainting
+	// hazard this ref grammar exists to close (see remote.isRefControlChar's
+	// doc), just moved from the countersign preimage to the review prompt.
+	ref := remote.NormalizeRef(bundleRef + "#" + kindDir + "/" + name)
 	tRef, _, _, err := trust.ParseItemRef(ref)
 	if err != nil {
 		// A ref review cannot address cannot be accepted either — the exposure
@@ -400,10 +412,13 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	}
 
 	item := ReviewItem{
-		Bundle:     bundleRef,
-		Ref:        ref,
-		Kind:       kindDir,
-		Name:       name,
+		Bundle: bundleRef,
+		Ref:    ref,
+		Kind:   kindDir,
+		// tRef.Name, not the raw name parameter: it is the value ParseItemRef
+		// actually parsed ref into, so display can never show a byte the
+		// trust decision above did not see (see ref's normalization comment).
+		Name:       tRef.Name,
 		Status:     ReviewStatusNew,
 		Executable: executable,
 	}

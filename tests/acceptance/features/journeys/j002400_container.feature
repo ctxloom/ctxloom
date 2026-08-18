@@ -1,7 +1,7 @@
 Feature: The container runtime axis — can an engine actually land in a container here, and did it?
 
   ctxloom's runtime axis puts an agent's ENGINE process inside a container
-  (`runtime: container`) instead of on the host, so a risky or untrusted task
+  (`runtime: container-rootless`) instead of on the host, so a risky or untrusted task
   runs against a fresh HOME, a scoped filesystem, and read-only credential
   mounts rather than the operator's live environment. Containers are the axis
   that makes isolation a PROPERTY of the runtime rather than a request the
@@ -10,7 +10,7 @@ Feature: The container runtime axis — can an engine actually land in a contain
   the axis that must be proven by observation rather than assumed.
 
   `ctxloom container check` is how an operator answers "will `runtime:
-  container` work on this host?" without launching anything, and `container
+  container-rootless` work on this host?" without launching anything, and `container
   build` provisions the per-backend agent image a run would use. Without that
   diagnostic surface the only way to find out is to start a run and watch it
   abort.
@@ -46,7 +46,7 @@ Feature: The container runtime axis — can an engine actually land in a contain
   # the fail-loud/degrade contract for a requested container that CANNOT launch
   # — and self-skips where one can, so on a docker-having machine THIS file is
   # the only executable evidence for the runtime axis. agent.feature owns the
-  # `--runtime container` round-trip through agent set/show and the `container
+  # `--runtime container-rootless` round-trip through agent set/show and the `container
   # check` header line. cli/container.feature owns the comprehensive,
   # hermetic surface around the launch (diagnostics, scaffold, tooling).
 

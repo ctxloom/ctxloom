@@ -184,7 +184,10 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			w.docStepMaterialized = fmt.Sprintf("agent_send -> %s (harp %s)\n  steer body: %s", name, harp, body)
-			return callTool(c, "agent_send", map[string]any{"to": harp, "body": body})
+			// kind is REQUIRED on an ordinary send. This rides the
+			// sender-facing tool, so it names a sender-allowed kind:
+			// the steer body is prose the child echoes back.
+			return callTool(c, "agent_send", map[string]any{"to": harp, "body": body, "kind": "message"})
 		})
 
 	// --- the echo -----------------------------------------------------------

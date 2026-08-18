@@ -6,7 +6,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
 
   An agent is a NAME for a decision you would otherwise retype: which LLM
   engine, which composed profiles, and — the axis that makes it more than a
-  shortcut — which RUNTIME that engine process executes in, host or container.
+  shortcut — which RUNTIME that engine process executes in: host, container-rootless
+  or container-rootful.
   `ctxloom run --agent dev` is then one word instead of four flags, and every
   colleague who runs it gets the same four.
 
@@ -48,7 +49,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And a profile "dev" exists
       When Alice binds an engine and a runtime to a profile:
         """
-        ctxloom agent create developer --llm claude-code --profiles dev --runtime container
+        ctxloom agent create developer --llm claude-code --profiles dev --runtime container-rootless
         """
       Then the command succeeds
       And the output contains "Created agent"
@@ -60,7 +61,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "developer"
       And the output contains "llm: claude-code"
       And the output contains "profiles: dev"
-      And the output contains "runtime: container"
+      And the output contains "runtime: container-rootless"
 
     # The bare noun answers the question somebody typing it has, rather than
     # teaching them what they could have typed instead.
@@ -80,7 +81,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     Scenario: Showing one binding reports what was declared and what it resolves to
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev --runtime container"
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev --runtime container-rootless"
       When Alice inspects one binding:
         """
         ctxloom agent show developer
@@ -88,7 +89,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command succeeds
       And the output contains "Agent: developer"
       And the output contains "Engine (declared): claude-code"
-      And the output contains "Runtime: container"
+      And the output contains "Runtime: container-rootless"
       And the output contains "Profiles"
       And the output contains "dev"
       And the output contains "Resolved llm:"
@@ -173,13 +174,13 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And I run "ctxloom agent create developer --llm claude-code --profiles dev,ops --runtime host --permissions plan"
       When Alice moves one binding into a container and changes nothing else:
         """
-        ctxloom agent edit developer --runtime container
+        ctxloom agent edit developer --runtime container-rootless
         """
       Then the command succeeds
       And the output contains "Updated agent"
       When I run "ctxloom agent list"
       Then the command succeeds
-      And the output contains "runtime: container"
+      And the output contains "runtime: container-rootless"
       And the output contains "llm: claude-code"
       And the output contains "profiles: dev, ops"
       And the output contains "permissions: plan"

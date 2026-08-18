@@ -526,7 +526,10 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if !ok {
 				return fmt.Errorf("j002300: no session harp remembered for %q — spawn it first", name)
 			}
-			return callTool(c, "agent_send", map[string]any{"to": harp, "body": body})
+			// kind is REQUIRED on an ordinary send: an absent one is refused,
+			// naming the four sender-allowed values. This is plain prose from
+			// the coordinator to a child, claiming no special authority.
+			return callTool(c, "agent_send", map[string]any{"to": harp, "body": body, "kind": "message"})
 		})
 
 	ctx.Step(`^"([^"]*)"'s next reported turn carries "([^"]*)"$`,

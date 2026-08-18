@@ -160,9 +160,19 @@ const (
 	// stated reason (display-only, untrusted).
 	ReasonRetracted
 	// ReasonTampered: REMOTE content carrying a signature that does not cover
-	// its bytes. Withheld, and deliberately NOT degraded to unsigned/pending:
-	// degrading it is the spec §10.2 downgrade — corrupt a `.sig` and signed
-	// content becomes merely reviewable, which a careless human then approves.
+	// its bytes. Withheld — but no longer an OVERRIDE, as of a human decision on
+	// 2026-08-17: a countersignature over those exact bytes now allows it.
+	//
+	// It remains a distinct reason rather than collapsing into unsigned/pending,
+	// and that part is unchanged: a signature that exists and fails is a
+	// different and more alarming fact than one that was never made, and the
+	// person deciding must be told which they are looking at.
+	//
+	// The spec §10.2 downgrade this used to foreclose is therefore REACHABLE:
+	// corrupt a `.sig` and signed content becomes content a human may accept.
+	// The remaining mitigations are that acceptance binds to the exact bytes and
+	// re-pends when they change, and that rejection and retraction still outrank
+	// every allow. See contentGate.verdictFor for the trade-off as accepted.
 	ReasonTampered
 	// ReasonUnsigned: REMOTE content with no signature at all. Pending review.
 	ReasonUnsigned

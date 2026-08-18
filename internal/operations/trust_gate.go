@@ -122,23 +122,55 @@ func evaluationErrorDetail(err error) string {
 // verdictFor turns a decided EffectiveTrustResult into the Verdict every surface
 // renders, applying the two read-fact refinements Admit documents.
 func (g *contentGate) verdictFor(e bundles.Exposure, res EffectiveTrustResult) bundles.Verdict {
-	remoteTamper := e.Read.TrustCtx() == bundles.TrustCtxRemote && e.Read.Signature() == bundles.SignatureInvalid
-
 	switch res.Source {
 	case trust.SourceRejected:
-		// Step 1, above everything including tamper: a human's own decision is
-		// the answer they need to see.
+		// Step 1, above every allow: a human's own decision is the answer they
+		// need to see.
 		return g.record(e, bundles.Verdict{Reason: bundles.ReasonRejected})
 	case trust.SourceRetracted:
 		return g.record(e, bundles.Verdict{Reason: bundles.ReasonRetracted, Detail: res.Detail})
 	}
-	if remoteTamper {
-		return g.record(e, bundles.Verdict{Reason: bundles.ReasonTampered, Detail: e.Read.SignatureDetail()})
-	}
+	// A LOCAL ATTESTATION OVERRIDES A BROKEN OR ABSENT REMOTE ONE — human
+	// decision, 2026-08-17, taken with the counter-argument on the table.
+	//
+	// This block used to short-circuit on remote+invalid-signature ahead of the
+	// allow, so a countersignature could not rescue tampered bytes. The stated
+	// reason was spec §10.2: corrupt a publisher's `.sig` and signed content
+	// degrades to merely-reviewable, which a careless human then approves.
+	//
+	// WHAT WE TRADE AWAY, stated plainly so nobody has to rediscover it: that
+	// downgrade is now reachable. An attacker who can corrupt a `.sig` in the
+	// clone cache turns publisher-signed content into content a human may accept
+	// — and the acceptance prompt is where the whole attack lands.
+	//
+	// WHAT WE GET: one rule instead of two, and an owner who can act. A
+	// countersignature covers the BYTES, so it is a complete attestation on its
+	// own; refusing to let it stand meant a user who had personally reviewed the
+	// exact bytes still could not use them, with no local remedy at all. The
+	// acceptance is bound to those bytes and re-pends the moment they change, so
+	// it is a decision about content someone looked at, not a standing
+	// exemption for the source.
+	//
+	// Rejection and retraction still outrank everything, above.
 	if res.Trusted() {
 		return bundles.Verdict{Allow: true, Reason: admitReason(e, res.Source), Detail: admitDetail(e)}
 	}
-	return g.record(e, bundles.Verdict{Reason: pendingReason(e.Read)})
+	// Nothing justified exposure. Tamper is now a REASON for withholding rather
+	// than an override of the allow — the decision belongs entirely to
+	// EffectiveTrust, and this only names it.
+	return g.record(e, bundles.Verdict{
+		Reason: pendingReason(e.Read),
+		Detail: pendingDetail(e.Read),
+	})
+}
+
+// pendingDetail carries the reader's own explanation for a withheld item, which
+// today only a broken signature has.
+func pendingDetail(read bundles.BundleRead) string {
+	if pendingReason(read) == bundles.ReasonTampered {
+		return read.SignatureDetail()
+	}
+	return ""
 }
 
 // admitReason names WHICH rule allowed an exposure. The stale-local-signature
@@ -192,6 +224,12 @@ func pendingReason(read bundles.BundleRead) bundles.Reason {
 		return bundles.ReasonPending
 	}
 	switch {
+	// Tampered is named HERE now, rather than short-circuiting ahead of the
+	// allow. It is still the most specific and most alarming thing that can be
+	// said about a withheld remote item — a signature exists and does not cover
+	// these bytes — it simply no longer decides the outcome on its own.
+	case read.Signature() == bundles.SignatureInvalid:
+		return bundles.ReasonTampered
 	case read.Signature() == bundles.SignatureNone:
 		return bundles.ReasonUnsigned
 	case read.Signer() == bundles.SignerUntrusted:

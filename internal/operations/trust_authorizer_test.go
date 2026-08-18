@@ -58,11 +58,22 @@ func TestAuthorizer_RemoteInvalidSignatureIsTampered_NotDegradedToUnsigned(t *te
 	assert.NotEqual(t, bundles.ReasonUnsigned, v.Reason)
 }
 
-// The same bytes with a human's APPROVAL on them are still tampered. An
-// approval covers bytes, not a signature, so it cannot un-tamper anything —
-// and this is the arm that actually closes §10.2, because the downgrade's whole
-// payoff is getting a human to approve content that was signed.
-func TestAuthorizer_RemoteInvalidSignatureBeatsAnApproval(t *testing.T) {
+// A HUMAN'S APPROVAL OVERRIDES A BROKEN PUBLISHER SIGNATURE. Human decision,
+// 2026-08-17; this test previously asserted the exact opposite and is inverted
+// deliberately rather than deleted, so the reversal is visible in history.
+//
+// A countersignature covers the BYTES, so it is a complete attestation on its
+// own — it does not need the publisher's to be intact, or to exist. Refusing to
+// let it stand meant someone who had personally reviewed these exact bytes still
+// could not use them and had no local remedy at all.
+//
+// WHAT THIS TRADES AWAY, so nobody rediscovers it as a surprise: spec §10.2's
+// downgrade is now reachable. Corrupting a publisher's `.sig` in the clone cache
+// turns signed content into content a human may accept, and the acceptance
+// prompt is where that attack lands. The mitigations that remain are that the
+// acceptance is bound to those exact bytes and re-pends the moment they change,
+// and that rejection and retraction still outrank everything.
+func TestAuthorizer_ApprovalOverridesRemoteInvalidSignature(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
@@ -74,8 +85,29 @@ func TestAuthorizer_RemoteInvalidSignatureBeatsAnApproval(t *testing.T) {
 	g := &contentGate{cfg: cfg, records: fx.records()}
 	v := admitFragment(t, g, read, itemRef, "KEEPER-PAYLOAD")
 
-	assert.False(t, v.Allow, "an approval does not un-tamper a signature that no longer covers the bytes")
-	assert.Equal(t, bundles.ReasonTampered, v.Reason)
+	assert.True(t, v.Allow,
+		"a countersignature covers the bytes, so it stands on its own: a publisher signature that no "+
+			"longer covers them must not veto a human's acceptance of exactly these bytes")
+}
+
+// WITHOUT an approval, tampered content is still withheld AND still named as
+// tampered. Moving the tamper rule below the allow changed which decisions it
+// can override; it did not make tamper quieter, and degrading it to a plain
+// "pending" would lose the one fact worth alarming about.
+func TestAuthorizer_RemoteInvalidSignatureWithoutApprovalIsStillTampered(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fx := newTrustFixture(t)
+	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
+	itemRef := authorizerRemoteRef + "#fragments/keeper"
+
+	g := &contentGate{cfg: cfg, records: fx.records()}
+	v := admitFragment(t, g, read, itemRef, "KEEPER-PAYLOAD")
+
+	assert.False(t, v.Allow, "nothing justified exposure, so it stays withheld")
+	assert.Equal(t, bundles.ReasonTampered, v.Reason,
+		"the most specific true thing about it is that a signature does not cover its bytes")
+	assert.NotEqual(t, bundles.ReasonUnsigned, v.Reason,
+		"a broken signature is not a missing one")
 }
 
 // Rejection is STEP 1 and stays above the tamper rule: both withhold, and the

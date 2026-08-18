@@ -590,6 +590,36 @@ func TestBundleRef_AtInANameIsDataNotAVersion(t *testing.T) {
 	assert.Empty(t, again.Version)
 }
 
+// TestBundleRef_VersionOnInternalClassesIsUniform pins U3's decision on the
+// one grammar divergence left open by U2: "@<version>" is accepted on the
+// three internal classes (builtin/local/companion) exactly as it is on
+// git/file, rather than being a git/file-only affordance. The grammar stays
+// ONE rule ("at most one unescaped '@' before any '#' is a version, on every
+// class") instead of a per-class carve-out, and Identity/BundleIdentity
+// already drop Version uniformly, so accepting it here costs nothing: a
+// companion or builtin ref MAY carry a diagnostic version (e.g. the
+// companion binary's own release, or ctxloom's own build) without that
+// version ever entering what the reference keys as.
+func TestBundleRef_VersionOnInternalClassesIsUniform(t *testing.T) {
+	for _, tt := range []struct {
+		class SourceClass
+		in    string
+	}{
+		{ClassBuiltin, "ctxloom+builtin:isolation@1.2.3"},
+		{ClassLocal, "ctxloom+local:lang/go@1.2.3"},
+		{ClassCompanion, "ctxloom+companion:taskloom@1.2.3"},
+	} {
+		t.Run(string(tt.class), func(t *testing.T) {
+			got, err := ParseBundleRef(tt.in)
+			require.NoError(t, err)
+			assert.Equal(t, "1.2.3", got.Version)
+			assert.Equal(t, tt.in, got.String())
+			assert.NotContains(t, got.Identity(), "1.2.3",
+				"Identity must omit the version even on an internal class")
+		})
+	}
+}
+
 // --- selector aliasing ------------------------------------------------------
 
 func TestBundleRef_SelectorAliasCollapsesToOneIdentity(t *testing.T) {

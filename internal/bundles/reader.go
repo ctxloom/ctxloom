@@ -288,7 +288,15 @@ func (r BundleRead) SourceRef() trust.BundleRef {
 func itemRefFor(src trust.BundleRef, kind trust.ItemKind, item string) string {
 	br, err := src.WithItem(kind, item)
 	if err != nil {
-		return fmt.Sprintf("ctxloom+unaddressable:%#v", src)
+		// kind and item are appended, not just src: WithItem fails BEFORE
+		// they land on the BundleRef, so a %#v of src alone is identical for
+		// every item of the same unaddressable bundle. Without them here, a
+		// fragment and a command sharing one unaddressable source would
+		// degrade to the SAME withheld key — meaning only one of the two
+		// would ever be tallied, and the other's withhold would look like it
+		// never happened. Never mint an unaddressable address whose only
+		// axis of uniqueness the caller can lose.
+		return fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", src, kind.Dir(), item)
 	}
 	return br.String()
 }

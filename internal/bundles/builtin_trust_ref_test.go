@@ -45,6 +45,16 @@ func TestBuiltinRead_ResolutionRefBare_TrustRefStillQualified(t *testing.T) {
 	require.Equal(t, trust.BuiltinSourcePrefix+shared, read.TrustSourceRef(),
 		"a builtin's TRUST ref must stay source-qualified even though its resolution ref no longer is")
 
+	// The TYPED counterpart must name the identical identity, not merely a
+	// string that happens to look right: BuiltinRef(shared) is the exact
+	// minter localFSReader.readBundle calls to stamp it, so this pins that
+	// the read carries a BundleRef equal to what that call site produces —
+	// not a zero value that would silently make SourceRef() unaddressable.
+	wantTyped, err := trust.BuiltinRef(shared)
+	require.NoError(t, err)
+	assert.Equal(t, wantTyped, read.SourceRef(),
+		"a builtin's typed SourceRef must be the same BuiltinRef(shared) identity as its string TrustSourceRef")
+
 	// The load-bearing half: what the qualification is FOR. An item ref built
 	// from the trust ref must parse to the builtin identity — not to IsLocal,
 	// which is where an unqualified string lands.

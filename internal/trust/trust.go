@@ -466,17 +466,114 @@ func (r Ref) bundleRefBase() (BundleRef, error) {
 		return CompanionRef(r.Bundle)
 	}
 
-	u, err := url.Parse(canon)
+	branch, err := parseRepoURLBranch(canon)
 	if err != nil {
-		return BundleRef{}, fmt.Errorf("%w: %v", ErrRefSyntax, err)
+		return BundleRef{}, err
 	}
-	if u.Scheme == "file" {
-		return FileRef(u.Path, r.Bundle)
+	if branch.class == ClassFile {
+		return FileRef(branch.repoPath, r.Bundle)
 	}
 	// Every other scheme (https after CanonicalRepoURL's folding, or ssh://,
 	// git://, etc. that it left untouched) addresses a bundle "in a remote
 	// git repository reachable by host" — BundleRef's ClassGit abstracts away
 	// which transport reached it, exactly as CanonicalRepoURL's own identity
 	// does not care which transport a rejection was recorded against.
-	return GitRef(u.Host, u.Path, r.Bundle)
+	return GitRef(branch.host, branch.repoPath, r.Bundle)
+}
+
+// RefFromBundleRef is AsBundleRef's mechanical inverse: it maps a BundleRef's
+// structured fields back onto the wider trust.Ref shape. br has already
+// passed ParseBundleRef's rules (it came from ParseBundleRef itself or from a
+// minter), so this is a field mapping, not a validation — no parsing, no I/O.
+//
+// The one direction that is not a bare field copy is ClassGit/ClassFile's
+// Host+RepoPath -> RepoURL, which goes through repoURLBranch.repoURL(), the
+// same class-branch value bundleRefBase computes in the other direction — so
+// the two conversions cannot independently drift on what "file" vs.
+// everything-else means for a repo URL.
+//
+// A companion's RepoURL is stamped to remote.CompanionSource rather than left
+// empty: Ref.CanonicalURL has no IsCompanion branch of its own and falls
+// through to CanonicalRepoURL(r.RepoURL), which recognizes that exact token —
+// so a round-tripped companion Ref must carry it to key the same way a
+// trust.ParseItemRef-built one does.
+func RefFromBundleRef(br BundleRef) Ref {
+	r := Ref{Bundle: br.Bundle, Kind: br.Kind, Name: br.Item}
+	switch br.Class {
+	case ClassBuiltin:
+		r.IsBuiltin = true
+	case ClassLocal:
+		r.IsLocal = true
+	case ClassCompanion:
+		r.IsCompanion = true
+		r.RepoURL = remote.CompanionSource
+	case ClassGit, ClassFile:
+		r.RepoURL = repoURLBranch{class: br.Class, host: br.Host, repoPath: br.RepoPath}.repoURL()
+	}
+	return r
+}
+
+// DisplayRef renders r in the canonical bundle-reference grammar (BundleRef)
+// for display — an advisory, a listing, a diagnostic. It follows
+// operations.CountersignRef's own pattern for the identical AsBundleRef
+// conversion: mint through it, and fall back to a stable, inert spelling
+// ("ctxloom+unaddressable:%#v") when r cannot convert (see AsBundleRef's doc
+// for when that happens). The two fallbacks are deliberately the SAME
+// spelling rather than two independently invented ones, so a caller can never
+// see one "cannot address this" string from CountersignRef and a different
+// one from here for the identical Ref.
+//
+// Unlike CountersignRef (which keys the countersignature store on Identity,
+// version-less by design), DisplayRef renders String — including "@<version>"
+// when the Ref carries one — because a display string is for a human to read
+// or re-type, and a version pinned in the original ref is part of what they
+// typed.
+func (r Ref) DisplayRef() string {
+	br, err := r.AsBundleRef()
+	if err != nil {
+		return fmt.Sprintf("ctxloom+unaddressable:%#v", r)
+	}
+	return br.String()
+}
+
+// repoURLBranch is the parsed (class, host, repoPath) shape of a
+// canonicalized external (git or file) repo URL — the value both
+// bundleRefBase's forward conversion (Ref.RepoURL -> BundleRef) and
+// RefFromBundleRef's reverse conversion (BundleRef -> Ref.RepoURL) key off,
+// so the one rule that tells the two external classes apart ("file" scheme is
+// ClassFile, everything else is ClassGit) is written once instead of twice.
+type repoURLBranch struct {
+	class    SourceClass
+	host     string
+	repoPath string
+}
+
+// parseRepoURLBranch parses a repo URL already run through CanonicalRepoURL
+// into its class-branch shape. It is bundleRefBase's forward half only —
+// minting the actual BundleRef still needs the bundle name, which this
+// function does not have.
+func parseRepoURLBranch(canon string) (repoURLBranch, error) {
+	u, err := url.Parse(canon)
+	if err != nil {
+		return repoURLBranch{}, fmt.Errorf("%w: %v", ErrRefSyntax, err)
+	}
+	if u.Scheme == "file" {
+		return repoURLBranch{class: ClassFile, repoPath: u.Path}, nil
+	}
+	return repoURLBranch{class: ClassGit, host: u.Host, repoPath: u.Path}, nil
+}
+
+// repoURL renders the branch back into a repo URL string — the exact
+// operation RefFromBundleRef needs to fill Ref.RepoURL from a BundleRef's
+// Host/RepoPath. ClassGit always renders "https://": BundleRef discards the
+// transport a reference was originally minted with (CanonicalRepoURL already
+// folds http to https, and a ssh://, git://, etc. remote reaches GitRef by
+// host+path alone, never by scheme), so "https" is the one stable,
+// re-parseable spelling to name a git remote by — not a claim that the
+// original clone URL used https.
+func (b repoURLBranch) repoURL() string {
+	if b.class == ClassFile {
+		return (&url.URL{Scheme: "file", Path: b.repoPath}).String()
+	}
+	return (&url.URL{Scheme: "https", Host: b.host, Path: b.repoPath}).String()
 }

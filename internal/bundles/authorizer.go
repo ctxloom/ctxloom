@@ -75,9 +75,16 @@ type Exposure struct {
 	Form ContentForm
 }
 
-// Ref spells this exposure's item ref back as the string it was parsed from —
-// what an advisory names it by, and what a user types into `ctxloom trust`.
-func (e Exposure) RefString() string { return e.Ref.ItemRef() }
+// RefString spells this exposure's ref in the canonical bundle-reference
+// grammar (trust.Ref.DisplayRef), not the grammar it was originally composed
+// in (trust.Ref.ItemRef, "<source>#<kind>/<name>") — the two are ctxloom's
+// two ref grammars, and this is the display surface moving onto the
+// canonical one first. It has no production caller (only test helpers read
+// it: internal/lm/backends' recordingAuthorizer, internal/config's
+// recordingGate), so this switch does not change any CLI output, log line, or
+// store key — see DisplayRef's own doc for its stable fallback when a Ref
+// cannot convert.
+func (e Exposure) RefString() string { return e.Ref.DisplayRef() }
 
 // Verdict is what a Authorizer decided, and the ONLY vocabulary anything downstream
 // renders. A caller that prints "withheld" without printing Reason is printing

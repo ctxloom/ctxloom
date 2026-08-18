@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // The bundle document every reader test reads, and its exact bytes — a
@@ -117,6 +118,11 @@ func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) 
 	assert.Equal(t, SignatureNone, reads[0].Signature(), "an unsigned project bundle reports none, never unset")
 	assert.Equal(t, SignerNone, reads[0].Signer())
 	assert.Equal(t, "KEEPER-PAYLOAD", reads[0].Bundle.Fragments["keeper"].Content)
+
+	wantTyped, err := trust.LocalRef("kit")
+	require.NoError(t, err)
+	assert.Equal(t, wantTyped, reads[0].SourceRef(),
+		"a project bundle's typed source ref is LocalRef(its bare resolution name), minted by newRead's fallback")
 }
 
 func TestNewBuiltinReader_ReportsBuiltinProvenanceLocalAndUnsigned(t *testing.T) {
@@ -146,6 +152,11 @@ func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing
 	assert.Equal(t, "ctxloom:companion@ltk", reads[0].Ref())
 	assert.Equal(t, SignatureNone, reads[0].Signature())
 	assert.Equal(t, SignerNone, reads[0].Signer())
+
+	wantTyped, err := trust.CompanionRef("ltk")
+	require.NoError(t, err)
+	assert.Equal(t, wantTyped, reads[0].SourceRef(),
+		"a companion loadout's typed source ref is CompanionRef(its binary name)")
 }
 
 func TestNewRepoFSReader_ReportsRemoteProvenanceAndRemoteContext(t *testing.T) {
@@ -159,6 +170,11 @@ func TestNewRepoFSReader_ReportsRemoteProvenanceAndRemoteContext(t *testing.T) {
 	assert.Equal(t, ProvenanceRemote, reads[0].Provenance)
 	assert.Equal(t, TrustCtxRemote, reads[0].TrustCtx(), "these bytes crossed a forge; that is the whole distinction")
 	assert.Equal(t, "https://example.test/repo@bundles/kit", reads[0].Ref(), "canonical is the sole resolution identity")
+
+	wantTyped, err := trust.GitRef("example.test", "/repo", "kit")
+	require.NoError(t, err)
+	assert.Equal(t, wantTyped, reads[0].SourceRef(),
+		"a repofs reader's typed source ref is GitRef(host, repo path, bundle) from its own canonical ref")
 }
 
 // ---------------------------------------------------------------------------

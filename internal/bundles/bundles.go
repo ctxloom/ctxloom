@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Bundle represents a versioned collection of related content.
@@ -106,6 +107,21 @@ type Bundle struct {
 	// The declared name is CONTENT: covered by the signature and by review, and
 	// therefore never an input to the decision that establishes that trust.
 	sourceRef string `yaml:"-"`
+
+	// sourceRefTyped is sourceRef's structured counterpart: the identical
+	// location-derived source, carried as a trust.BundleRef instead of its
+	// string rendering. It is set by the SAME call sites that set sourceRef,
+	// through the matching class minter (trust.BuiltinRef / LocalRef /
+	// CompanionRef / GitRef / FileRef via trust.Ref.AsBundleRef) rather than by
+	// reparsing sourceRef — so the two can never independently disagree on
+	// what a bundle's source IS, only on how it is spelled. See
+	// BundleRead.SourceRef.
+	//
+	// The zero BundleRef (a mint that failed, or a call site this slice has
+	// not reached yet — see loader_version.go's bundleAtVersion) is not
+	// meaningful on its own; BundleRead.SourceRef reports it as-is rather than
+	// guessing, and nothing in this slice reads it for a decision.
+	sourceRefTyped trust.BundleRef `yaml:"-"`
 
 	// signer is the VERIFIED publisher identity of this bundle's file bytes: the
 	// principal of the allowed_signers entry whose key made a valid publish
@@ -232,6 +248,16 @@ func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
 // when the stamp goes (internal/operations/declared_name_trust_test.go).
 func (b *Bundle) contentSourceRef() string {
 	return b.sourceRef
+}
+
+// contentSourceRefTyped is contentSourceRef's structured counterpart. See
+// sourceRefTyped's doc for why it is a field mapping, never a reparse of
+// contentSourceRef's string.
+func (b *Bundle) contentSourceRefTyped() trust.BundleRef {
+	if b == nil {
+		return trust.BundleRef{}
+	}
+	return b.sourceRefTyped
 }
 
 // nonFilesystemPathPrefixes are the synthetic Bundle.Path sentinels. None of

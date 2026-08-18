@@ -6,6 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Reader is the read half of the delivery seam: everything one SOURCE of
@@ -249,6 +250,23 @@ func (r BundleRead) TrustSourceRef() string {
 	return r.Bundle.contentSourceRef()
 }
 
+// SourceRef reports TrustSourceRef's structured counterpart: the same
+// location-derived source, as a trust.BundleRef instead of a string a caller
+// would have to reparse. It is minted by the reader at the same point it
+// stamps TrustSourceRef, through the class matching where the bundle was
+// actually found — never by parsing TrustSourceRef's string back apart.
+//
+// The zero BundleRef means either an unclaimed read (r.Bundle == nil) or a
+// reader that has not stamped this field yet; BundleRead.Claimed does not
+// cover it, so a caller that must distinguish those two should check
+// TrustSourceRef first.
+func (r BundleRead) SourceRef() trust.BundleRef {
+	if r.Bundle == nil {
+		return trust.BundleRef{}
+	}
+	return r.Bundle.contentSourceRefTyped()
+}
+
 // TrustCtx reports the only axis a gate keys on.
 func (r BundleRead) TrustCtx() TrustCtx { return r.trustCtx }
 
@@ -297,9 +315,23 @@ func (r BundleRead) Claimed() bool {
 // Only-when-empty, so a ref a reader already established deliberately wins:
 // WithSeededBundles' lockfile ref, the repofs reader's, the companion
 // reader's, and localFSReader's "builtin:<name>" for embedded content.
+//
+// Every caller that reaches this fallback with sourceRef still empty is, by
+// construction, a genuinely local resolution ref — the companion, repofs and
+// builtin call sites all stamp sourceRef (string AND typed) themselves before
+// calling newRead, so the only ones left empty here are localFSReader's
+// project-provenance bundles and the package's other exported constructor for
+// project-authored (non-Reader) content above. The typed stamp below is
+// minted with trust.LocalRef accordingly, not re-derived by inspecting
+// prov/tctx: a fifth reader that reached this fallback for a non-local ref
+// would be a bug in THAT reader, not something this function could detect
+// from its own arguments.
 func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts signatureFacts) BundleRead {
 	if b != nil && b.sourceRef == "" {
 		b.sourceRef = ref
+		if typed, err := trust.LocalRef(ref); err == nil {
+			b.sourceRefTyped = typed
+		}
 	}
 	return BundleRead{
 		Bundle:               b,

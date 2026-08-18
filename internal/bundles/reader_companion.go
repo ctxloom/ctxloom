@@ -3,6 +3,8 @@ package bundles
 import (
 	"context"
 	"sort"
+
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // CompanionLoadout is one companion application's advertised loadout, exactly
@@ -121,6 +123,9 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 		b.Name = ref
 	}
 	b.sourceRef = ref
+	if typed, err := trust.CompanionRef(lo.Bin); err == nil {
+		b.sourceRefTyped = typed
+	}
 
 	facts := readSignatureFacts(lo.Bundle, lo.Signature, r.cfg.root)
 	switch {

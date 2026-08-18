@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 const (
@@ -114,6 +115,15 @@ func TestLoadTreeBundle_ReadsTheInstalledTreeIntoABundle(t *testing.T) {
 	assert.Equal(t, "FRAG-BODY", b.Fragments["house-style"].Content)
 	require.Len(t, b.Hooks.PostFileEdit, 2)
 	assert.Equal(t, "echo stamp", b.Hooks.PostFileEdit[0].Command)
+
+	// A DIRECTORY-form (tree-form) bundle's typed source ref: the repoFSReader
+	// call site this covers (readTreeForm) is separate from the single-file
+	// readDocument path internal/bundles' own reader tests exercise, and
+	// nothing else in the suite reaches it.
+	wantTyped, err := trust.GitRef("github.com", "/acme/ctx", "atelier")
+	require.NoError(t, err)
+	assert.Equal(t, wantTyped, read.SourceRef(),
+		"a tree-form bundle's typed source ref is GitRef(host, repo path, bundle) from its own canonical ref")
 }
 
 // Skills are the reason the INSTALLED tree is read rather than the clone at the

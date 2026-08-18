@@ -237,6 +237,16 @@ func TestRun_DryRun(t *testing.T) {
 // verb fell through to, so cobra failed the flag parse. Had the invocation
 // carried no flags it would have printed `agent`'s help and exited 0, exactly
 // like TestConfig_Show/TestConfig_Get below.
+//
+// It also used to drive `--runtime container` — the spelling `container` was
+// renamed to `container-rootless` when the ownership axis shipped, and this
+// test carried the stale spelling because `agent create` used to WARN that
+// "container" was unknown and then persist it anyway (a reproduced defect:
+// the requested container isolation silently degraded to host, and the
+// written config then failed schema validation at the next real `ctxloom
+// run`). Now `agent create`/`edit` REFUSE an unknown runtime outright — see
+// TestRun_AgentCreate_RejectsUnknownRuntime below for that direction — so this
+// test exercises the dry-run preview with one of the three legal values.
 func TestRun_Agent_DryRun(t *testing.T) {
 	env := setupTestEnv(t)
 
@@ -247,7 +257,7 @@ bundles:
   - local#fragments/agent-frag
 `)
 
-	_ = env.Run("agent", "create", "dev", "--profiles", "agent-profile", "--runtime", "container")
+	_ = env.Run("agent", "create", "dev", "--profiles", "agent-profile", "--runtime", "container-rootless")
 	require.Equal(t, 0, env.LastExitCode(), "agent create: %s", env.LastOutput())
 	require.Contains(t, env.LastOutput(), "dev",
 		"agent create must report the binding it wrote, not print the agent group's help")
@@ -258,9 +268,45 @@ bundles:
 	out := env.LastOutput()
 	assert.Contains(t, out, "Agent-composed content", "the agent's composed profile context is previewed")
 	assert.Contains(t, out, "=== Agent ===")
-	assert.Contains(t, out, "runtime: container", "the agent's declared runtime axis surfaces")
+	assert.Contains(t, out, "runtime: container-rootless", "the agent's declared runtime axis surfaces")
 	assert.Contains(t, out, "workspace: none", "an unset session workspace renders as the axis default")
 	assert.Contains(t, out, "agent-profile", "the agent's profile set scopes the preview")
+}
+
+// TestRun_AgentCreate_RejectsUnknownRuntime pins the fix for the defect
+// TestRun_Agent_DryRun's doc above describes: `agent create dev --runtime
+// container` must exit non-zero AND write nothing — no config.yaml at all
+// (setupTestEnv's CreateProjectConfig scaffolds the .ctxloom directory but
+// never writes the file itself; SetAgent's Manager.Update, which is what
+// would create it, never opens because validateAgentAxes refuses first), let
+// alone an agents.dev entry carrying the invalid value. Asserting only the
+// exit code (or only the error text) would pass even if the old
+// warn-and-store behavior were still there underneath a bolted-on non-zero
+// exit; checking the file itself is what actually proves the refusal writes
+// nothing, per this project's characteristic bug (a report that doesn't
+// match what got written, in either direction).
+func TestRun_AgentCreate_RejectsUnknownRuntime(t *testing.T) {
+	env := setupTestEnv(t)
+
+	require.False(t, env.FileExists(".ctxloom/config.yaml"),
+		"precondition: nothing has written config.yaml yet")
+
+	_ = env.Run("agent", "create", "dev", "--runtime", "container")
+
+	assert.Equal(t, 1, env.LastExitCode(), "an unknown runtime must be refused: %s", env.LastOutput())
+	out := strings.ToLower(env.LastOutput())
+	assert.Contains(t, out, "unknown runtime")
+	assert.Contains(t, out, "host")
+	assert.Contains(t, out, "container-rootless")
+	assert.Contains(t, out, "container-rootful")
+
+	assert.False(t, env.FileExists(".ctxloom/config.yaml"),
+		"a refused agent create must write NOTHING — not even the file itself")
+
+	// And the effect a report-only assertion would miss: the agent genuinely
+	// does not exist afterward, not merely "the command said it didn't".
+	_ = env.Run("agent", "show", "dev")
+	assert.Equal(t, 1, env.LastExitCode(), "a refused create must leave no agent to show: %s", env.LastOutput())
 }
 
 // TestRun_Agent_Unknown pins the hard-error contract: an explicit --agent

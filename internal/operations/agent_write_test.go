@@ -187,8 +187,6 @@ func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 // copy — no longer has this value take effect on a real Load; that closure is
 // covered by internal/config's own layerscope tests. What this test still
 // pins is that SetAgent itself writes the byte, never silently discarding it.
-// An unknown value is stored as written (advisory warn only; it acts as host
-// at resolve time per fault tolerance).
 func TestSetAgent_PersistsRuntime(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := managerFor(appDir)
@@ -204,16 +202,53 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 	sub, ok := readAgentFromDisk(t, appDir, "developer")
 	require.True(t, ok)
 	assert.Equal(t, "container-rootless", sub.Runtime)
+}
 
+// TestSetAgent_RejectsUnknownRuntime pins the fix for a reproduced defect:
+// `agent create dev --runtime container` used to WARN that "container" was
+// unknown and then persist it anyway, echoing it back in the success line as
+// if it had been honored — silently substituting the requested container
+// isolation boundary for the host, and leaving behind a config.yaml that
+// then failed schema validation at the next `ctxloom run` (fatal exit 3).
+// Runtime now sits on validateAgentAxes' refusing side (like Engine and
+// Driving), not warnAgentAxisTypos' advisory side: an unknown value is
+// REJECTED outright, and — this is the part a bare error-code check would
+// miss — NOTHING is written, neither a new agent nor a mutation of an
+// existing one. Asserting only the error (or only the exit code, at the CLI
+// layer) would pass even if SetAgent still wrote the bad value alongside the
+// error; reading the file back is what actually proves the refusal.
+func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	mgr := managerFor(appDir)
+
+	// Create: the agent must not come into existence at all.
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "odd", Runtime: ptr("container")})
+	require.Error(t, err, "unknown runtime must be refused, not warned-and-stored")
+	assert.Contains(t, err.Error(), `unknown runtime "container"`)
+	assert.Contains(t, err.Error(), "host, container-rootless, container-rootful",
+		"the refusal must name the legal values, not just complain")
+	_, ok := readAgentFromDisk(t, appDir, "odd")
+	assert.False(t, ok, "a refused create must write nothing — no agent, not even a partial one")
+
+	// Edit: an existing, validly-configured binding must survive untouched —
+	// the refusal must not half-apply over a live binding.
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{
+		Name:    "steady",
+		Runtime: ptr("container-rootless"),
+	})
+	require.NoError(t, err)
 
-	// Unknown value: stored verbatim, never an error.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Runtime: ptr("podracer")})
-	require.NoError(t, err, "unknown runtime warns, never errors")
-	sub, ok = readAgentFromDisk(t, appDir, "odd")
+	reloaded, err = config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "steady", Runtime: ptr("container")})
+	require.Error(t, err, "unknown runtime must be refused on edit too, not just create")
+
+	sub, ok := readAgentFromDisk(t, appDir, "steady")
 	require.True(t, ok)
-	assert.Equal(t, "podracer", sub.Runtime, "stored as written")
+	assert.Equal(t, "container-rootless", sub.Runtime,
+		"a refused edit must leave the existing valid value untouched")
 }
 
 // TestSetAgent_PersistsPermissions proves the permission posture written by
@@ -249,8 +284,8 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 }
 
 // TestSetAgent_PersistsDriving proves the driving axis written by
-// `agent set --driving` survives the config round-trip. UNLIKE
-// Runtime/Permissions above, an unknown value is REJECTED outright — SetAgent
+// `agent set --driving` survives the config round-trip. LIKE Runtime and
+// UNLIKE Permissions above, an unknown value is REJECTED outright — SetAgent
 // errors and nothing is persisted (agents.ValidateDriving's doc: a typo here
 // changes execution semantics, so it never gets the advisory-warn treatment).
 func TestSetAgent_PersistsDriving(t *testing.T) {
@@ -271,7 +306,8 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, agents.DrivingOneshot, sub.Driving)
 
-	// Unknown value: REJECTED — nothing written, unlike Runtime/Permissions.
+	// Unknown value: REJECTED — nothing written, like Runtime and unlike
+	// Permissions.
 	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Driving: ptr("wildwest")})
 	require.Error(t, err, "unknown driving must be rejected, not stored")
 	assert.Contains(t, err.Error(), "wildwest")
@@ -283,7 +319,7 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 
 // TestSetAgent_PersistsConfigHome proves the config-home policy written by
 // `agent set --config-home` survives the config round-trip. UNLIKE
-// Runtime/Permissions and LIKE Driving/Surfaces, an unknown value is REJECTED
+// Permissions and LIKE Runtime/Driving/Surfaces, an unknown value is REJECTED
 // outright — SetAgent errors and nothing is persisted, naming the two valid
 // values.
 //

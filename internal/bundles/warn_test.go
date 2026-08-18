@@ -78,6 +78,14 @@ func TestBundleWarner_AmbiguousDedupesPerName(t *testing.T) {
 // misreading these diagnostics exist to prevent.
 func TestLoader_WarnWriterReceivesTheWarnerDiagnostics(t *testing.T) {
 	t.Run("unresolved bundle ref", func(t *testing.T) {
+		// Reset the process-wide warner. It dedups per ref for the life of the
+		// process, so without this the assertion below holds only on the FIRST
+		// run in a process: `go test -count=2` (and any harness that re-executes
+		// a test function) sees the second occurrence deduped away and reads the
+		// silence as "no diagnostic emitted". Same reason captureBundleWarner
+		// exists in loader_silent_failure_test.go; this test never adopted it.
+		_ = captureBundleWarner(t)
+
 		var warnings strings.Builder
 		l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithWarnWriter(&warnings)
 
@@ -89,6 +97,8 @@ func TestLoader_WarnWriterReceivesTheWarnerDiagnostics(t *testing.T) {
 	})
 
 	t.Run("ambiguous bare fragment ask", func(t *testing.T) {
+		_ = captureBundleWarner(t) // see the sibling subtest
+
 		fsys := afero.NewMemMapFs()
 		dir := "/bundles"
 		require.NoError(t, afero.WriteFile(fsys, dir+"/alpha.yaml",

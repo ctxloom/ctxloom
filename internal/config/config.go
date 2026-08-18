@@ -2347,10 +2347,12 @@ func (c *Config) buildBundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
 	// The builtin reader's presence here is what makes a builtin bundle
 	// resolvable BY REF — a profile naming `isolation#fragments/isolation-axes`
 	// reaches it through the ordinary loader rather than only through the
-	// unconditional injection route. It cannot collide with a project bundle of
-	// the same name: a builtin resolves by its qualified `builtin:<name>` ref,
-	// and a bare ask still prefers the project's (see
-	// localFSReader.resolutionRef and Loader.lookup).
+	// unconditional injection route. A builtin resolves by its BARE name, so it
+	// CAN collide with a project bundle of the same name; that collision is
+	// settled in bundles.resolveCollision, which keeps the project's bundle,
+	// shadows the builtin, and reports the shadowing. The builtin still reaches
+	// the session by injection either way — the two routes are collapsed by the
+	// ingest identity rule, not by the catalog.
 	//
 	// It goes AFTER the project reader, and that is not cosmetic. Loader.FS()
 	// returns the first reader that has a filesystem, and the builtin reader has

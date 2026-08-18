@@ -2,14 +2,13 @@ package operations
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // builtinRefsIn reports the builtin reads this config's loader actually
@@ -17,11 +16,22 @@ import (
 // unless something proves it was present to begin with — absence satisfying
 // absence is this suite's documented false-green shape — so every assertion
 // below is guarded by this returning a non-empty set.
+//
+// It asks the read's PROVENANCE, not its ref. A builtin's resolution ref is its
+// bare name and carries no source class, so a "builtin:" prefix test finds
+// nothing and the guard silently stops guarding. Provenance is also what the
+// listing filter itself keys on (listBundleInfos scopes to project/remote/
+// companion), so guard and subject now answer the same question.
+//
+// That the refs collected here are BARE names strengthens what follows: the
+// assertions demand a listing free of "isolation", a name a project bundle
+// could legitimately carry, rather than free of "builtin:isolation", a string
+// nothing has minted since I7.
 func builtinRefsIn(t *testing.T, cfg *config.Config) []string {
 	t.Helper()
 	var refs []string
 	for _, read := range cfg.BundleLoader().Catalog().Reads() {
-		if strings.HasPrefix(read.Ref(), trust.BuiltinSourcePrefix) {
+		if read.Provenance == bundles.ProvenanceBuiltin {
 			refs = append(refs, read.Ref())
 		}
 	}

@@ -786,14 +786,15 @@ func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundl
 // extractHooksFromBundle converts a bundle's hooks to wire.Hooks. When gate
 // decides anything (bundles.Gates — the executable trust gate, TR5), each
 // hook's executable surface is
-// hashed (BundleHook.ComputeContentHash) and run through the cascade keyed
-// "<bundle>#hooks/<event>/<index>"; a DENY omits the hook — a bundle hook is an
-// arbitrary-command executable that must never be applied unevaluated
-// (fail-closed). Builtin callers pass bundles.AdmitAll (in-binary, exempt): the
-// preimage is never even built, which is why this branches rather than letting
-// Decide answer. The identity
-// scheme is bundles.HookEntry, shared with the migration baseline so a baselined
-// hook's ref matches.
+// hashed (BundleHook.ComputeContentHash) and run through the cascade keyed on
+// the canonical bundle-reference grammar's item selector over source
+// (itemRefFor(source, trust.KindHook, "<event>/<index>")); a DENY omits the
+// hook — a bundle hook is an arbitrary-command executable that must never be
+// applied unevaluated (fail-closed). Builtin callers pass bundles.AdmitAll
+// (in-binary, exempt): the preimage is never even built, which is why this
+// branches rather than letting Decide answer. The identity scheme is
+// bundles.HookEntry.ID() ("<event>/<index>"), shared with the migration
+// baseline so a baselined hook's ref matches.
 func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles.Authorizer) wire.UnifiedHooks {
 	bundle := read.Bundle
 	if !bundle.Hooks.HasAny() {
@@ -837,7 +838,7 @@ func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles
 				// This makes the cascade's IsLocal/RepoURL honest (local hooks
 				// auto-trust; a cloned one is judged by WHO SIGNED it) and aligns
 				// the gate key with the baseline/grant key (both source).
-				ref := source + "#hooks/" + bundles.HookEntry{Event: event, Index: i}.ID()
+				ref := itemRefFor(source, trust.KindHook, bundles.HookEntry{Event: event, Index: i}.ID())
 				payload, perr := hookPreimage(h)
 				if perr != nil {
 					// Cannot build the preimage → cannot evaluate → withhold. Fail

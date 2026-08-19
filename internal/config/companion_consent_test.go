@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -490,7 +491,7 @@ func TestProbeCompanionLoadouts_NeverExecsAnUnadmittedCompanion(t *testing.T) {
 
 	got, err := ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
-	assert.Empty(t, got)
+	assert.Empty(t, got.Loadouts)
 	assert.Empty(t, execed, "an unconfirmed companion must never be exec'd, not merely have its output discarded")
 
 	// Now grant consent and prove the SAME fixture does run — otherwise the
@@ -562,9 +563,9 @@ func TestProbes_NeverExecuteAnUnadmittedCompanion_RealBinary(t *testing.T) {
 	// agent and CI run. Deliberately NO seam overrides: the probes below reach
 	// the real exec.
 	statuses := ProbeCompanions()
-	loadouts, err := ProbeCompanionLoadouts(context.Background())
+	probe, err := ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
-	assert.Empty(t, loadouts)
+	assert.Empty(t, probe.Loadouts)
 
 	// The companion has to have been FOUND and REFUSED. Without this the
 	// sentinel assertion would pass just as well against a fixture whose binary
@@ -607,4 +608,49 @@ func TestAdmitCompanions_PromptFalseNeverAsksEvenInteractively(t *testing.T) {
 	got := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, false), "ctxloom-companion-acme")
 	assert.False(t, got.Allow)
 	assert.Equal(t, 0, f.prompted, "a caller that passes prompt=false must never ask, even on a terminal")
+}
+
+// TestProbeCompanionLoadouts_RefusedCompanionBecomesAnUnconsentedCandidate is
+// the identity-without-content case, proved on a REAL binary with the exec
+// seams left at their production bodies.
+//
+// A companion that is present and never approved contributes nothing, and the
+// only record that it exists at all is the candidate. Minting its identity
+// takes the name a directory entry already gave, so the whole classification
+// happens without the file ever running — asserted here on a filesystem
+// sentinel only an actual execution can create.
+func TestProbeCompanionLoadouts_RefusedCompanionBecomesAnUnconsentedCandidate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the sentinel companion is an sh script")
+	}
+	f := newConsentFixture(t)
+	sentinel := filepath.Join(t.TempDir(), "executed")
+	writeFakeCompanion(t, f.elsewhere, "ctxloom-companion-acme", "echo \"$1\" >> "+sentinel)
+	restorePath := setPathDirsForTesting(t, []string{f.elsewhere, f.installDir})
+	defer restorePath()
+
+	probe, err := ProbeCompanionLoadouts(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, probe.Loadouts, "an unapproved companion contributes no content")
+
+	byBin := make(map[string]bundles.CompanionCandidate)
+	for _, c := range probe.Candidates {
+		byBin[c.Bin] = c
+	}
+	acme, ok := byBin["ctxloom-companion-acme"]
+	require.True(t, ok, "the refused companion must be REPORTED, not omitted — omission reads as 'not installed'")
+	assert.Equal(t, bundles.CandidateUnconsented, acme.Reason)
+	assert.Equal(t, filepath.Join(f.elsewhere, "ctxloom-companion-acme"), acme.Path,
+		"the candidate must name the file 'ctxloom companion trust' has to be pointed at")
+
+	assert.NoFileExists(t, sentinel,
+		"classifying a companion as a candidate must not RUN it")
+
+	// A first-party name nothing on this machine answers to is the OTHER
+	// reason, and it must not be collapsed into the one above: "install it"
+	// and "allow it" are different remedies.
+	reprise, ok := byBin["reprise"]
+	require.True(t, ok, "guard: a name with no binary must still be reported")
+	assert.Equal(t, bundles.CandidateAbsent, reprise.Reason)
+	assert.Empty(t, reprise.Path)
 }

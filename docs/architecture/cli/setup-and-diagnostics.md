@@ -118,9 +118,12 @@ All four also exist as `manage config *` deprecated aliases (`manage.go:406-452`
 | `config show` / `get` / `edit` / `init` (deprecated) | `:422`–`:446` |
 | `gitignore install` | `:462` |
 
-`companionHint` (`:194`) is the "what breaks / how to install" text for a missing
-companion binary; its map keys must match `config.BuiltinCompanionBins()`, and a
-drift degrades to a generic fallback (documented at `:199-202`).
+`companionHint` is the "what breaks / how to install" text for a missing
+companion binary; its map keys are companion binary names, and a name with no
+entry degrades to a generic fallback. `printCompanionStatus` renders the
+resolved `bundles.Catalog` — companion-provenance reads are contributing,
+`Catalog.Candidates()` are not — so the report never discovers companions a
+second time and cannot disagree with the session it describes.
 
 ## `ctxloom container` (`container_cmd.go:22`)
 

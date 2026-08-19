@@ -43,6 +43,70 @@ type Catalog struct {
 	// report can name it; it is simply not resolvable, which is the same
 	// fail-closed verdict its item refs already get.
 	byKey map[trust.BundleKey]BundleRead
+
+	// candidates are the identities the readers established WITHOUT content.
+	// They are a SECOND collection rather than nil-content entries in reads,
+	// and that separation is the whole design: every Reads() consumer would
+	// otherwise have to test BundleRead.Bundle for nil, and the one that
+	// forgot would either panic or quietly treat an identity nobody read as a
+	// bundle. Reads() holds only bundles that were actually obtained, and no
+	// BundleRead in it has a nil Bundle.
+	candidates []Candidate
+}
+
+// CandidateReason names why a candidate has an identity but no content.
+//
+// The three are different facts about the machine and imply different user
+// actions — install it, allow it, fix it — so collapsing them would be the
+// silent no-op this codebase's characteristic bug is made of.
+type CandidateReason string
+
+const (
+	// CandidateUnconsented: the thing that would produce the content is
+	// installed and this machine's human has not agreed ctxloom may run it.
+	// Nothing was run, so nothing was read.
+	CandidateUnconsented CandidateReason = "unconsented"
+	// CandidateProbeFailed: obtaining the content was allowed and produced
+	// nothing usable — the probe failed, timed out, or its output would not
+	// parse.
+	CandidateProbeFailed CandidateReason = "probe-failed"
+	// CandidateAbsent: the identity is known but nothing on this machine
+	// answers to it.
+	CandidateAbsent CandidateReason = "absent"
+)
+
+// Candidate is a bundle identity that has NO content in this set.
+//
+// It exists because an identity can be established more cheaply than content.
+// A companion's canonical ref is ctxloom+companion:<bin>, and <bin> comes from
+// reading directory entries on $PATH — so a companion that is present but
+// never consented to has a name, a location and a reason long before anything
+// executes it. Reporting that state is what keeps "found but not run" from
+// rendering as "not installed".
+type Candidate struct {
+	// Ref is the canonical identity the content WOULD be resolvable under,
+	// were it ever obtained. It is the same key Catalog.LookupKey takes, so a
+	// caller can ask whether a candidate later became a read.
+	Ref trust.BundleKey
+	// Path is where on this machine the content would come from, or "" when
+	// nothing answers to the identity. It is what a remedy has to name — an
+	// approval keys on the file, not on the name anything may claim.
+	Path string
+	// Reason is why there is no content.
+	Reason CandidateReason
+}
+
+// CandidateReader is a Reader that also learns identities it obtained no
+// content for.
+//
+// It is a SEPARATE interface, not a widened Reader, so a reader with nothing
+// to say on the subject says nothing rather than returning an empty slice that
+// a caller cannot tell from "this reader never looks". Candidates is valid
+// only after Read has run: it reports what THAT pass established, and asking
+// before it would answer about a pass that never happened.
+type CandidateReader interface {
+	Reader
+	Candidates() []Candidate
 }
 
 // Resolve reads every reader ONCE and returns the set.
@@ -64,9 +128,17 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 	byKey := make(map[trust.BundleKey]BundleRead)
 	var order []trust.BundleKey
 	var unaddressable []BundleRead
+	var candidates []Candidate
 
 	for _, r := range readers {
 		reads, err := r.Read(ctx)
+		// Collected whatever Read answered, INCLUDING on error: a reader that
+		// failed partway still knows which identities it found nothing for,
+		// and dropping them would report a machine with no companions rather
+		// than one whose companions could not be reached.
+		if cr, ok := r.(CandidateReader); ok {
+			candidates = append(candidates, cr.Candidates()...)
+		}
 		if err != nil {
 			// ONCE, because a process builds many resolved sets and a source
 			// that fails deterministically — a malformed bundle file, which
@@ -99,7 +171,8 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 	}
 	reads = append(reads, unaddressable...)
 	sortReads(reads)
-	return Catalog{reads: reads, byKey: byKey}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].Ref < candidates[j].Ref })
+	return Catalog{reads: reads, byKey: byKey, candidates: candidates}
 }
 
 // sortReads puts a resolved set in listing order: by the name a listing shows,
@@ -125,6 +198,25 @@ func (c Catalog) Reads() []BundleRead {
 
 // Len reports how many reads the set holds, without copying it.
 func (c Catalog) Len() int { return len(c.reads) }
+
+// Candidates returns every identity this set established WITHOUT content, in
+// canonical-ref order.
+//
+// It is disjoint from Reads: a candidate is an identity nothing was read
+// under, so nothing here appears there and no read here has to be checked for
+// emptiness. A caller reporting on companions asks Reads for what is
+// contributing and Candidates for what is not, and neither answer requires a
+// second discovery pass over the machine.
+//
+// Building this list EXECUTES NOTHING. Every reason it carries was established
+// by the same single pass that read the content — by looking at $PATH, at the
+// consent record, and at what an already-permitted probe returned — so asking
+// for it can never be the thing that runs a foreign binary.
+//
+// The copy is defensive, for the same reason Reads' is.
+func (c Catalog) Candidates() []Candidate {
+	return append([]Candidate(nil), c.candidates...)
+}
 
 // Lookup resolves an ask to the read that answers for it.
 //
@@ -339,6 +431,11 @@ func (c Catalog) ResolveAsk(ask string) (trust.BundleRef, error) {
 // why it belongs here and the surface merging that CONSUMES it does not.
 //
 // The result shares this Catalog's reads; nothing here mutates them.
+//
+// It carries NO candidates. Provenance is a fact about a read, and a candidate
+// has no read to carry one — so there is no honest answer to "which candidates
+// are in this scope", and inventing one by passing them all through would let
+// Scoped(ProvenanceProject).Candidates() report companions.
 func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 	keep := make(map[ProvenanceClass]bool, len(classes))
 	for _, p := range classes {

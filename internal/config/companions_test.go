@@ -23,17 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// BuiltinCompanionBins is now the UNION of DiscoverCompanions' first-party
-// list (ltk, taskloom, reprise — S8 companion loadout discovery) with
-// whatever an embedded built-in bundle's hooks/MCP still reference (none
-// today: S8 moved ltk/taskloom off the embedded-bundle mechanism onto their
-// own loadouts). reprise is included even though it doesn't implement
-// `loadout` yet — see firstPartyCompanions' doc comment.
-func TestBuiltinCompanionBins_UnionsDiscoveryWithEmbeddedBundles(t *testing.T) {
-	bins := BuiltinCompanionBins()
-	assert.Equal(t, []string{"ltk", "reprise", "taskloom"}, bins, "sorted, deduped, ctxloom excluded")
-}
-
 func TestProbeCompanions_ReportsVersionFromJSONProbe(t *testing.T) {
 	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
@@ -198,7 +187,7 @@ func companionLoadoutsOf(t *testing.T, cfg *Config) []bundles.CompanionLoadout {
 	}
 	got, err := probe(context.Background())
 	require.NoError(t, err)
-	return got
+	return got.Loadouts
 }
 
 // TestCompanionsDisabled_SkipsProbeEntirely is the contract of the switch:
@@ -211,9 +200,11 @@ func TestCompanionsDisabled_SkipsProbeEntirely(t *testing.T) {
 
 	probed := 0
 	cfg := &Config{appPaths: []string{t.TempDir()}}
-	cfg.SetCompanionProbeForTesting(func(context.Context) ([]bundles.CompanionLoadout, error) {
+	cfg.SetCompanionProbeForTesting(func(context.Context) (bundles.CompanionProbe, error) {
 		probed++
-		return []bundles.CompanionLoadout{{Bin: "ltk", Bundle: []byte("version: \"1.0\"\n")}}, nil
+		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{
+			{Bin: "ltk", Bundle: []byte("version: \"1.0\"\n")},
+		}}, nil
 	})
 
 	SetCompanionsDisabled(true)
@@ -301,7 +292,7 @@ func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
 
 	out, err := ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
-	assert.Empty(t, out, "a wedged companion still contributes nothing")
+	assert.Empty(t, out.Loadouts, "a wedged companion still contributes nothing")
 	assert.Contains(t, buf.String(), "loadout probe failed", "a non-benign failure must be diagnosed, not silent")
 }
 
@@ -326,7 +317,7 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 
 	out, err := ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
-	assert.Empty(t, out)
+	assert.Empty(t, out.Loadouts)
 	assert.Empty(t, buf.String(), "an unadopted loadout subcommand is the ordinary case, not a warning")
 }
 
@@ -367,9 +358,11 @@ func TestCompanionsEnabled_ProbesByDefault(t *testing.T) {
 
 	probed := 0
 	cfg := &Config{appPaths: []string{t.TempDir()}}
-	cfg.SetCompanionProbeForTesting(func(context.Context) ([]bundles.CompanionLoadout, error) {
+	cfg.SetCompanionProbeForTesting(func(context.Context) (bundles.CompanionProbe, error) {
 		probed++
-		return []bundles.CompanionLoadout{{Bin: "ltk", Bundle: []byte("version: \"1.0\"\n")}}, nil
+		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{
+			{Bin: "ltk", Bundle: []byte("version: \"1.0\"\n")},
+		}}, nil
 	})
 
 	assert.Len(t, companionLoadoutsOf(t, cfg), 1)

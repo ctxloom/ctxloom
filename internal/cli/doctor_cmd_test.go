@@ -23,6 +23,7 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -479,6 +480,38 @@ func TestDoctorCheckSetupCompanions_NeverWarns(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	check := doctorCheckSetupCompanions(cfg, nil)
 	assert.NotEqual(t, doctorWarn, check.Status, "companions are optional add-ons, never a doctor failure")
+}
+
+// TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled is the
+// report a user acts on: "found on PATH but never allowed to run" and "not
+// installed" send them to different remedies, and the check reads BOTH off the
+// one resolved catalog rather than discovering companions a second time.
+func TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled(t *testing.T) {
+	_, cfg := setupProject(t, "claude-code")
+	cfg.SetCompanionProbeForTesting(func(context.Context) (bundles.CompanionProbe, error) {
+		return bundles.CompanionProbe{
+			Loadouts: []bundles.CompanionLoadout{
+				{Bin: "ltk", Path: "/opt/bin/ltk", Bundle: []byte("version: \"1.0\"\n")},
+			},
+			Candidates: []bundles.CompanionCandidate{
+				{Bin: "taskloom", Path: "/opt/bin/taskloom", Reason: bundles.CandidateUnconsented},
+				{Bin: "reprise", Reason: bundles.CandidateAbsent},
+				{Bin: "wedged", Path: "/opt/bin/wedged", Reason: bundles.CandidateProbeFailed},
+			},
+		}, nil
+	})
+
+	check := doctorCheckSetupCompanions(cfg, nil)
+
+	assert.NotEqual(t, doctorWarn, check.Status, "companions are optional add-ons, never a doctor failure")
+	assert.Contains(t, check.Detail, "loadouts read: ltk")
+	assert.Contains(t, check.Detail, "NOT RUN: taskloom (/opt/bin/taskloom)")
+	assert.Contains(t, check.Detail, "ctxloom companion trust",
+		"a refusal a user cannot act on is a dead end")
+	assert.Contains(t, check.Detail, "not installed: reprise")
+	assert.Contains(t, check.Detail, "probe failed: wedged (/opt/bin/wedged)")
+	assert.NotContains(t, check.Detail, "not installed: taskloom",
+		"a companion that is present and refused must never be reported as missing")
 }
 
 func TestDoctorCheckSetupAuthPing_AlwaysInfoAndNamesTheGap(t *testing.T) {

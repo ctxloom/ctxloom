@@ -167,19 +167,6 @@ func AdmitEveryDiscoveredCompanionForTesting() func() {
 	})
 }
 
-// admittedCompanions is the probes' filter: the admitted subset of bins, in
-// discovery order, as (bin, path) pairs ready to exec.
-func admittedCompanions(bins []string) []CompanionAdmission {
-	all := companionAdmission(bins, true)
-	out := make([]CompanionAdmission, 0, len(all))
-	for _, a := range all {
-		if a.Allow {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
 // admitCompanion is the per-binary decision cascade. The ORDER is the security
 // content, and it mirrors EffectiveTrust's: the fail-closed store gate first,
 // then the human's "no", then the exemptions, then the recorded "yes", then the

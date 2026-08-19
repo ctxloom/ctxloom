@@ -226,9 +226,8 @@ flowchart TD
 | Signature | file:line | Contract |
 |---|---|---|
 | `DiscoverCompanions() []string` | `companions.go:211` | First-party list (`ltk`, `taskloom`, `reprise`) union every `ctxloom-companion-*` on `$PATH`, sorted |
-| `BuiltinCompanionBins() []string` | `companions.go:72` | `DiscoverCompanions` union the companion binaries named by embedded builtin bundles' hooks and MCP entries |
 | `ProbeCompanions() []CompanionStatus` | `companions.go:132` | Concurrently resolves and version-probes every companion via `<bin> version --format json`; failures land in `CompanionStatus.Err` |
-| `ProbeCompanionLoadouts(root) map[string]*bundles.Bundle` | `companions.go:321` | Concurrently execs `<bin> loadout --format json`, decodes the signature envelope, parses each loadout into a bundle keyed `ctxloom:companion@<bin>` and stamps its signer |
+| `ProbeCompanionLoadouts(ctx) (bundles.CompanionProbe, error)` | `companions.go` | One pass: concurrently execs `<bin> loadout --format json` for every ADMITTED companion and returns the envelopes, plus a `CompanionCandidate` for each discovered companion that produced none (absent / unconsented / probe-failed) |
 | `(*Config).companionBundleSeed()` | `config.go:1762` | Per-`Config` `sync.Once` memo of the loadout probe; honours `CompanionsDisabled()` and the test override, disable winning |
 | `SetCompanionsDisabled` / `CompanionsDisabled` | `companions.go:308` / `:315` | The mutex-guarded process-wide companion switch |
 

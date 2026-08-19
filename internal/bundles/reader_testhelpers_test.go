@@ -89,3 +89,13 @@ func seedRemote(t *testing.T, seeded map[string]*Bundle) []Reader {
 	}
 	return readers
 }
+
+// loadoutProbe is a CompanionProber over a fixed set of loadouts and no
+// candidates — the shape a test that is about what a loadout CONTRIBUTES
+// wants. A test about what a companion FAILS to contribute builds a
+// CompanionProbe with Candidates itself.
+func loadoutProbe(los ...CompanionLoadout) CompanionProber {
+	return func(context.Context) (CompanionProbe, error) {
+		return CompanionProbe{Loadouts: los}, nil
+	}
+}

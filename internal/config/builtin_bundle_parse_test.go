@@ -118,10 +118,9 @@ func TestEachBuiltinBundle_ParsesOncePerProcess(t *testing.T) {
 // own yaml.Unmarshal reintroduces the divergence, and this is the note that
 // says where to put it instead.
 func TestBuiltinBundleReaders_UseTheCanonicalParser(t *testing.T) {
-	// Exercised through the three exported surfaces, so the shared helper is
-	// on each of their live paths rather than merely present in the file.
+	// Exercised through the exported surfaces, so the shared helper is on each
+	// of their live paths rather than merely present in the file.
 	assert.NotPanics(t, func() {
-		_ = BuiltinCompanionBins()
 		_ = resolveBuiltinBundleMCPServers(bundles.AdmitAll())
 		_ = resolveBuiltinBundleHooks(bundles.AdmitAll())
 	})

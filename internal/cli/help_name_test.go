@@ -89,10 +89,10 @@ func TestNameHelp_StillPrintsHelpWhenNoSuchResourceExists(t *testing.T) {
 // Agents behave the same way: an agent literally named help is showable.
 func TestAgentNamedHelp_IsShowable(t *testing.T) {
 	root := testsupport.ProjectDir(t)
-	agentsDir := filepath.Join(root, ".ctxloom", "agents")
-	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "help.yaml"),
-		[]byte("llm: claude-code\nprofiles: [default]\n"), 0o644))
+	appDir := filepath.Join(root, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
+		[]byte("version: 5\nagents:\n  help:\n    llm: claude-code\n    profiles: [default]\n"), 0o644))
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
 

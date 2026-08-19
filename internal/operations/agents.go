@@ -43,13 +43,10 @@ type AgentEntry struct {
 	// (project|host), as written; empty (undeclared) defaults to host at
 	// resolve time — see agents.Agent.ConfigHome's doc.
 	ConfigHome string `json:"config_home,omitempty"`
-	// Source is "config" for a config.yaml `agents:` entry, otherwise the
-	// .ctxloom/agents/*.yaml file path it was read from.
-	Source string `json:"source,omitempty"`
 }
 
-// ListAgents returns every locally-defined agent (config key + directory),
-// merged and sorted by name. Definitions only — no profile composition or engine
+// ListAgents returns every locally-defined agent (the `agents:` config key),
+// sorted by name. Definitions only — no profile composition or engine
 // resolution — so it is cheap over many agents.
 func ListAgents(cfg *config.Config) []AgentEntry {
 	subs := cfg.LoadAgents()
@@ -64,7 +61,6 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Driving:     s.Driving,
 			Escalation:  s.Escalation,
 			ConfigHome:  s.ConfigHome,
-			Source:      s.Source,
 		})
 	}
 	return out
@@ -89,7 +85,6 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Driving:     sub.Driving,
 		Escalation:  sub.Escalation,
 		ConfigHome:  sub.ConfigHome,
-		Source:      sub.Source,
 	}, nil
 }
 
@@ -155,24 +150,14 @@ func orKeep[T any](set *T, existing T) T {
 // substituted at run time (Permissions → agent.ResolveDefault refuses it as a
 // fatal finding and floors to read-only), so it is stored as written per fault
 // tolerance — but warned about NOW, so a typo surfaces at write time rather
-// than at the first run. The shadowed-definition notice rides along: it is
-// likewise about where a definition lives, not about whether the binding works.
+// than at the first run.
 //
 // Runtime used to live here too (warn-and-store, "it will run on the host").
 // It does not anymore: an unknown runtime doesn't just degrade, it silently
 // SUBSTITUTES the isolation boundary the user asked for with none at all, and
 // the substituted config then fails schema validation at the next load — see
 // validateAgentAxes for the refusal.
-func warnAgentAxisTypos(cfg *config.Config, name string, req SetAgentRequest) {
-	// A directory-sourced agent of the same name would be shadowed by this
-	// config-key entry (config wins, see config.LoadAgents). Surface it so the
-	// user knows the file is now inert rather than silently double-defining.
-	if existing, ok := cfg.Agent(name); ok && !existing.FromConfig() {
-		clidiag.Warn("ctxloom",
-			"agent %q is also defined in %s; the config.yaml entry written now takes precedence",
-			name, existing.Source)
-	}
-
+func warnAgentAxisTypos(name string, req SetAgentRequest) {
 	if req.Permissions != nil && *req.Permissions != "" {
 		if _, ok := agent.ParsePermissionMode(*req.Permissions); !ok {
 			clidiag.Warn("ctxloom",
@@ -375,7 +360,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	// Pre-flight, both halves BEFORE the Manager.Update transaction opens, so
 	// a refusal writes nothing and a typo'd `agent edit` cannot half-apply over
 	// a live binding.
-	warnAgentAxisTypos(cfg, name, req)
+	warnAgentAxisTypos(name, req)
 	if err := validateAgentAxes(cfg, name, req); err != nil {
 		return nil, err
 	}
@@ -431,25 +416,15 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		Driving:     entry.Driving,
 		Escalation:  entry.Escalation,
 		ConfigHome:  entry.ConfigHome,
-		Source:      agents.SourceConfig,
 	}, nil
 }
 
 // RemoveAgent deletes a LOCAL agent from the `agents:` config key, inside one
 // Manager.Update transaction: the existence check and the delete happen
 // against the same locked, freshly-reloaded Draft, so a concurrent writer can
-// never resurrect the entry between the check and the save. Only config-key
-// agents are removable here: a directory-sourced agent
-// (.ctxloom/agents/<name>.yaml) is its own file and is reported as such
-// rather than silently left in place (the caller deletes the file). An
-// unknown name errors.
-//
-// cfg is consulted only to distinguish "defined as a file" from "not defined
-// at all" for the error message; it is never mutated.
-func RemoveAgent(mgr *config.Manager, cfg *config.Config, name string) error {
-	if cfg == nil {
-		return fmt.Errorf("config is required")
-	}
+// never resurrect the entry between the check and the save. An unknown name
+// errors.
+func RemoveAgent(mgr *config.Manager, name string) error {
 	if mgr == nil {
 		return fmt.Errorf("manager is required")
 	}
@@ -458,11 +433,6 @@ func RemoveAgent(mgr *config.Manager, cfg *config.Config, name string) error {
 	}
 	return mgr.Update(func(d *config.Draft) error {
 		if _, ok := d.Agents[name]; !ok {
-			// Distinguish "defined as a file" from "not defined at all" for a clear
-			// message — the config-key write path cannot delete a file.
-			if existing, found := cfg.Agent(name); found && !existing.FromConfig() {
-				return fmt.Errorf("agent %q is defined in %s, not config.yaml; delete that file to remove it", name, existing.Source)
-			}
 			return fmt.Errorf("agent %q not found in config.yaml", name)
 		}
 		delete(d.Agents, name)
@@ -615,12 +585,11 @@ func ResolveAgent(ctx context.Context, cfg *config.Config, name, engineOverride 
 // the binding's engine) wins; an empty effective engine falls back to the
 // composed profiles' llm, then the project default backend.
 func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, sub agents.Agent, engineOverride string, pipe *bundles.Pipeline) (*ResolvedAgent, error) {
-	// Reject an unknown Driving value here too, not just at ParseAgent/
-	// SetAgent: this is the ONLY load path a config-key `agents:` entry
-	// walks (it is parsed by the whole-config.yaml yaml.Unmarshal, which
-	// never routes through agents.ParseAgent), so a hand-edited config.yaml
-	// with a typo'd `driving:` must still fail loud here rather than
-	// silently resolving to the conversational default.
+	// Reject an unknown Driving value here too, not just at SetAgent: an
+	// `agents:` entry is parsed by the whole-config.yaml unmarshal, which
+	// validates no axis of its own, so a hand-edited config.yaml with a
+	// typo'd `driving:` must still fail loud here rather than silently
+	// resolving to the conversational default.
 	if err := agents.ValidateDriving(sub.Driving); err != nil {
 		return nil, fmt.Errorf("agent %q: %w", name, err)
 	}

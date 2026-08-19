@@ -1177,7 +1177,7 @@ func agentBindingError(cfg *config.Config, name string, cause error) error {
 	}
 	if len(available) == 0 {
 		return fmt.Errorf("agent %q cannot be opened (%w), and no agents are defined in this project — "+
-			"define one under agents: in .ctxloom/config.yaml (or .ctxloom/agents/), or omit --agent to open a plain session", name, cause)
+			"define one under agents: in .ctxloom/config.yaml, or omit --agent to open a plain session", name, cause)
 	}
 	return fmt.Errorf("agent %q cannot be opened (%w); available: %s — "+
 		"fix --agent, or omit it to open a plain session. Not degrading to a generic session on purpose: "+

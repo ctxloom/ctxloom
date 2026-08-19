@@ -110,7 +110,7 @@ func renderACPAgents(out io.Writer, entries []acpAgentEntry) error {
 	if len(entries) == 1 {
 		w.Println()
 		w.Println("No agent bindings defined — each binding would advertise as its own agent-server entry.")
-		w.Println("Define one under 'agents:' in .ctxloom/config.yaml or as .ctxloom/agents/<name>.yaml.")
+		w.Println("Define one under 'agents:' in .ctxloom/config.yaml.")
 	}
 	w.Println()
 	// The differentiator's hole, said out loud where a user is about to

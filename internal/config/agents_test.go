@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/schema"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -100,14 +99,14 @@ func TestConfigSchema_AcceptsAgents(t *testing.T) {
 	assert.NoError(t, v.ValidateBytes([]byte(yaml)))
 }
 
-// TestLoadAgents_MergesBothSources proves the merged view folds the config
-// key AND the .ctxloom/agents/*.yaml directory, each entry carrying its
-// Source, sorted by name.
-func TestLoadAgents_MergesBothSources(t *testing.T) {
+// TestLoadAgents_ReadsTheConfigKey proves the merged view is the `agents:`
+// config key alone, sorted by name, with every declared axis intact — the
+// regression risk of removing the directory source is that a config-key agent
+// stops carrying what it declares.
+func TestLoadAgents_ReadsTheConfigKey(t *testing.T) {
 	// The config.yaml read is real-OS-fs (no WithFS): isolate HOME so the
-	// new home-layer read (D2/D3 layering) never reaches this developer's
-	// real ~/.ctxloom — only the appDir fixture built below is meant to
-	// contribute anything.
+	// home-layer read never reaches this developer's real ~/.ctxloom — only
+	// the appDir fixture built below is meant to contribute anything.
 	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeAppConfig(t, appDir, `version: 5
@@ -115,11 +114,15 @@ agents:
   dev:
     llm: claude-code
     profiles: [go-developer]
+    runtime: container-rootless
+    permissions: bypass
+    driving: oneshot
+    config_home: project
+    surfaces:
+      context: system-prompt
+  finder:
+    profiles: [finder]
 `)
-	subDir := filepath.Join(appDir, "agents")
-	require.NoError(t, os.MkdirAll(subDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(subDir, "finder.yaml"),
-		[]byte("llm: fast\nprofiles: [finder]\n"), 0644))
 
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
@@ -127,45 +130,84 @@ agents:
 	subs := cfg.LoadAgents()
 	require.Len(t, subs, 2)
 	assert.Equal(t, "dev", subs[0].Name)
-	assert.Equal(t, agents.SourceConfig, subs[0].Source)
-	assert.Equal(t, "finder", subs[1].Name)
-	assert.Equal(t, filepath.Join(subDir, "finder.yaml"), subs[1].Source)
+	assert.Equal(t, "finder", subs[1].Name, "sorted by name")
 
-	got, ok := cfg.Agent("finder")
+	dev, ok := cfg.Agent("dev")
 	require.True(t, ok)
-	assert.Equal(t, "fast", got.LLM)
+	// Assert the VALUES, not merely that the lookup succeeded: config_home and
+	// surfaces are the two axes a launch degrades to a default on, so a binding
+	// that resolves while dropping them is the failure worth catching.
+	assert.Equal(t, "claude-code", dev.LLM)
+	assert.Equal(t, []string{"go-developer"}, dev.Profiles)
+	assert.Equal(t, "container-rootless", dev.Runtime)
+	assert.Equal(t, "bypass", dev.Permissions)
+	assert.Equal(t, agents.DrivingOneshot, dev.Driving)
+	assert.Equal(t, agents.ConfigHomeProject, dev.ConfigHome)
+	assert.Equal(t, map[string]string{"context": "system-prompt"}, dev.Surfaces)
+
 	_, ok = cfg.Agent("absent")
 	assert.False(t, ok)
 }
 
-// TestLoadAgents_ConfigWinsOnCollision proves a name defined in BOTH sources
-// resolves to the config-key definition (the directory one is shadowed).
-func TestLoadAgents_ConfigWinsOnCollision(t *testing.T) {
-	// The config.yaml read is real-OS-fs (no WithFS): isolate HOME so the
-	// new home-layer read (D2/D3 layering) never reaches this developer's
-	// real ~/.ctxloom — only the appDir fixture built below is meant to
-	// contribute anything.
-	testsupport.Isolate(t)
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeAppConfig(t, appDir, `version: 5
-agents:
-  dev:
-    llm: from-config
-    profiles: [config-profile]
-`)
-	subDir := filepath.Join(appDir, "agents")
-	require.NoError(t, os.MkdirAll(subDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(subDir, "dev.yaml"),
-		[]byte("llm: from-dir\nprofiles: [dir-profile]\n"), 0644))
+// TestLoadAgents_RetiredDirectoryIsAFatalFinding pins what happens to a
+// .ctxloom/agents directory left over from when it was a second source: the
+// files are NOT read, and they are NOT silently ignored either. Exit 0 over a
+// binding the user wrote and ctxloom quietly dropped is this codebase's
+// characteristic bug.
+func TestLoadAgents_RetiredDirectoryIsAFatalFinding(t *testing.T) {
+	resetStrictness(t)
+	mem := afero.NewMemMapFs()
+	appPath := "/app"
+	agentsDir := paths.AgentsPath(appPath)
+	require.NoError(t, mem.MkdirAll(agentsDir, 0o755))
+	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, "finder.yaml"),
+		[]byte("llm: fast\nprofiles: [finder]\n"), 0o644))
 
-	cfg, err := Load(WithAppDir(appDir))
-	require.NoError(t, err)
+	cfg := NewFixture(Fixture{
+		AppPaths: []string{appPath},
+		Agents:   map[string]agents.Agent{"dev": {LLM: "claude-code", Profiles: []string{"go-developer"}}},
+	})
+	cfg.SetFS(mem)
 
-	dev, ok := cfg.Agent("dev")
-	require.True(t, ok)
-	assert.Equal(t, "from-config", dev.LLM, "config-key entry wins on collision")
-	assert.Equal(t, agents.SourceConfig, dev.Source)
-	assert.Len(t, cfg.LoadAgents(), 1, "the shadowed directory entry is not a second agent")
+	mark := strictness.Checkpoint()
+	got := cfg.LoadAgents()
+
+	// The config key still resolves — a stranded directory does not take the
+	// working half of the config down with it.
+	require.Len(t, got, 1, "the directory contributes nothing")
+	assert.Equal(t, "dev", got[0].Name)
+
+	findings := strictness.Since(mark)
+	require.Len(t, findings, 1, "a directory holding definitions nothing reads must be reported")
+	assert.Equal(t, strictness.ClassMigration, findings[0].Class)
+	assert.Contains(t, findings[0].Message, "finder.yaml", "the finding names the file the user must move")
+	assert.Contains(t, findings[0].Message, agentsDir)
+	assert.Contains(t, findings[0].FixIt, paths.ConfigPath(appPath), "the fix-it names where the binding belongs")
+}
+
+// TestLoadAgents_AbsentOrEmptyDirectoryIsSilent is the other half: the signpost
+// is guarded, not unconditional. Without this the assertion above could pass
+// because every project fires the finding.
+func TestLoadAgents_AbsentOrEmptyDirectoryIsSilent(t *testing.T) {
+	resetStrictness(t)
+	mem := afero.NewMemMapFs()
+	appPath := "/quiet"
+	// An EMPTY directory (or a stray non-YAML file) is not a stranded
+	// definition — there is nothing for the user to move.
+	require.NoError(t, mem.MkdirAll(paths.AgentsPath(appPath), 0o755))
+	require.NoError(t, afero.WriteFile(mem, filepath.Join(paths.AgentsPath(appPath), "README.md"),
+		[]byte("notes\n"), 0o644))
+
+	cfg := NewFixture(Fixture{
+		AppPaths: []string{appPath},
+		Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"p"}}},
+	})
+	cfg.SetFS(mem)
+
+	mark := strictness.Checkpoint()
+	require.Len(t, cfg.LoadAgents(), 1)
+	assert.Empty(t, strictness.Since(mark),
+		"an empty retired directory has nothing to report; only definitions do")
 }
 
 // TestConfig_SaveRoundTripsAgents proves the config-key agents survive a
@@ -194,20 +236,6 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 	require.Len(t, reloaded.agents, 1)
 	assert.Equal(t, "claude-code", reloaded.agents["dev"].LLM)
 	assert.Equal(t, []string{"go-developer"}, reloaded.agents["dev"].Profiles)
-}
-
-// TestAgentDirLoader_NeverNil pins the invariant LoadAgents relies on: the
-// directory loader is always usable, so LoadAgents needs no nil guard of its
-// own. With no app paths at all, GetAgentDirs yields an empty slice and
-// agents.NewLoader still returns a loader whose List() is the empty case.
-func TestAgentDirLoader_NeverNil(t *testing.T) {
-	cfg := &Config{}
-	loader := cfg.agentDirLoader()
-	require.NotNil(t, loader, "agentDirLoader must never return nil")
-
-	list, err := loader.List()
-	require.NoError(t, err)
-	assert.Empty(t, list)
 }
 
 // LoadAgents folded the `agents:` config-key entries into its merged
@@ -269,88 +297,34 @@ func TestAgent_MutationDoesNotReachConfig(t *testing.T) {
 		"Agent must hand back an owned copy of Profiles")
 }
 
-// LoadAgents warned on a directory-scan failure and then used the nil
-// result as if it were a successful EMPTY scan, so the caller got a merged set
-// silently missing every on-disk agent — and `run --agent dev` reported "no
-// such agent" for an agent that is defined and merely unreadable.
-//
-// The row located the swallow one level too high. `agents.Loader.List`'s
-// afero.Walk callback returned nil on EVERY error, so Walk (List's only error
-// source) could never return non-nil and the config-side guard was unreachable
-// by construction. The observable defect the row describes was real all the
-// same; it just came out of List as (nil, nil) rather than as an error. Both
-// halves are fixed: List distinguishes an unreadable DIRECTORY (whose whole
-// subtree is invisible — reported) from an unreadable single ENTRY (warned and
-// skipped, unchanged), and LoadAgents raises the result as a fatal-class
-// finding the startup choke can abort on rather than a stderr line the run
-// walks straight past.
-func TestLoadAgents_UnreadableAgentsDirectoryIsAFinding(t *testing.T) {
+// Agent(name) re-runs LoadAgents on every lookup, and one command reaches it
+// several times (ResolveAgent, DefaultAgentProfiles, `agent show`), so the
+// retired-directory signpost must state its fact once rather than stack N
+// identical findings and N identical stderr lines into one abort listing.
+func TestLoadAgents_RetiredDirectoryFindingIsRecordedOncePerWindow(t *testing.T) {
 	resetStrictness(t)
 	mem := afero.NewMemMapFs()
-	appPath := "/app"
+	appPath := "/repeatprobe"
 	agentsDir := paths.AgentsPath(appPath)
 	require.NoError(t, mem.MkdirAll(agentsDir, 0o755))
-	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, "dev.yaml"),
-		[]byte("llm: claude-code\nprofiles: [go-developer]\n"), 0o644))
-
-	// Sanity: with a readable directory the agent is found. Without this the
-	// assertion below could pass because the fixture never defined an agent.
-	readable := NewFixture(Fixture{AppPaths: []string{appPath}})
-	readable.SetFS(mem)
-	require.Len(t, readable.LoadAgents(), 1, "the fixture must define one on-disk agent")
-
-	cfg := NewFixture(Fixture{AppPaths: []string{appPath}})
-	cfg.SetFS(denyOpenFs{Fs: mem, deny: agentsDir})
-
-	mark := strictness.Checkpoint()
-	got := cfg.LoadAgents()
-
-	assert.Empty(t, got, "the unreadable directory still yields no agents — that half is fault tolerance")
-	findings := strictness.Since(mark)
-	require.Len(t, findings, 1,
-		"an unreadable agents directory must be indistinguishable from neither an absent one nor an empty one: it must record a finding")
-	assert.Equal(t, strictness.ClassConfig, findings[0].Class)
-	assert.Contains(t, findings[0].Message, agentsDir, "the finding names the directory it could not read")
-}
-
-// Agent(name) re-runs LoadAgents' full two-source merge on every
-// lookup, and LoadAgents re-emitted its shadowing warning each time. Config's
-// Agent() sits on the path operations.ResolveAgent, DefaultAgentProfiles and
-// `agent show` all take, so one command reaches it several times and a single
-// shadowed agent printed the same line once per lookup.
-//
-// The warning is a one-per-process statement of fact about the user's config,
-// not a per-lookup event, so it collapses to WarnOnce — the same treatment
-// every other repeat-from-independent-callers diagnostic in this codebase gets
-// (see FwarnOnce's doc, written for exactly this shape).
-func TestLoadAgents_ShadowWarningIsEmittedOncePerProcess(t *testing.T) {
-	mem := afero.NewMemMapFs()
-	appPath := "/shadowprobe"
-	agentsDir := paths.AgentsPath(appPath)
-	require.NoError(t, mem.MkdirAll(agentsDir, 0o755))
-	// A name unique to this test: WarnOnce keys on the rendered line and has
-	// no process-wide reset, so a shared name could be pre-consumed by another
-	// test and make this pass vacuously.
-	const name = "u047f08probe"
-	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, name+".yaml"),
-		[]byte("llm: claude-code\nprofiles: [from-disk]\n"), 0o644))
+	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, "stranded.yaml"),
+		[]byte("profiles: [from-disk]\n"), 0o644))
 
 	cfg := NewFixture(Fixture{
 		AppPaths: []string{appPath},
-		Agents:   map[string]agents.Agent{name: {LLM: "claude-code", Profiles: []string{"from-config"}}},
+		Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"from-config"}}},
 	})
 	cfg.SetFS(mem)
 
-	var sink strings.Builder
-	restore := clidiag.SetSink(&sink)
-	defer restore()
-
+	mark := strictness.Checkpoint()
 	for range 3 {
-		got, ok := cfg.Agent(name)
-		require.True(t, ok)
-		require.Equal(t, []string{"from-config"}, got.Profiles, "the config key must still win the collision")
+		got, ok := cfg.Agent("dev")
+		require.True(t, ok, "the config key must still resolve while a stranded directory sits there")
+		require.Equal(t, []string{"from-config"}, got.Profiles)
 	}
+	_, ok := cfg.Agent("stranded")
+	assert.False(t, ok, "a file under the retired directory defines nothing")
 
-	assert.Equal(t, 1, strings.Count(sink.String(), name+"\" is defined in both"),
-		"the shadowing warning states a fact about the config once; repeating it per lookup is noise the user cannot act on")
+	assert.Len(t, strictness.Since(mark), 1,
+		"the signpost states a fact about the config once per window; repeating it per lookup is noise")
 }

@@ -47,7 +47,7 @@ more composed profiles.
 An agent names an 'engine' (the LLM config label/backend, which overrides the
 constituent profiles' own llm) and a list of 'profiles' that compose into one
 assembled context. Agents are defined solely in your .ctxloom — under the
-'agents:' key of config.yaml and/or as .ctxloom/agents/<name>.yaml files.
+'agents:' key of config.yaml.
 They are never shipped in bundles or remotes: the engine choice is yours.`,
 }, "list")
 
@@ -75,7 +75,7 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 	w := iox.NewErrWriter(out)
 	if len(list) == 0 {
 		w.Println("No agents defined.")
-		w.Println("Define one under 'agents:' in .ctxloom/config.yaml or as .ctxloom/agents/<name>.yaml.")
+		w.Println("Define one under 'agents:' in .ctxloom/config.yaml.")
 		return w.Err()
 	}
 	w.Printf("Agents (%d):\n", len(list))
@@ -186,14 +186,11 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	return w.Err()
 }
 
-// renderAgentDeclaration writes the agent AS DECLARED: identity, source, the
-// declared engine (with the project-default hint when unset), and the optional
-// axes, each omitted when empty.
+// renderAgentDeclaration writes the agent AS DECLARED: identity, the declared
+// engine (with the project-default hint when unset), and the optional axes,
+// each omitted when empty.
 func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	w.Printf("Agent: %s\n", def.Name)
-	if def.Source != "" {
-		w.Printf("Source: %s\n", def.Source)
-	}
 	if def.LLM != "" {
 		w.Printf("Engine (declared): %s\n", def.LLM)
 	} else {
@@ -408,8 +405,7 @@ func writeAgentBinding(cmd *cobra.Command, name string, mustExist bool) error {
 }
 
 // checkAgentExistence enforces create-vs-edit's differing precondition against
-// the MERGED agent view (config key + .ctxloom/agents/*.yaml), so a
-// directory-defined agent counts as existing for both verbs.
+// the declared agent view (the `agents:` config key).
 func checkAgentExistence(cfg *config.Config, name string, mustExist bool) error {
 	_, exists := cfg.Agent(name)
 	switch {
@@ -512,7 +508,7 @@ runtime + permissions the transport. This replaces the retired 'profile default'
 
 With no argument, prints the current default agent. With a name, sets it (written
 as 'default_agent' in .ctxloom/config.yaml). The named agent should exist under
-'agents:' or as .ctxloom/agents/<name>.yaml — an unknown name is accepted with a
+'agents:' — an unknown name is accepted with a
 warning (a bare run then degrades to empty context until it is defined).
 
 Examples:
@@ -592,6 +588,13 @@ Pass --yes to apply it.`,
 	RunE: runAgentRemove,
 }
 
+// runAgentRemove shares the two-arm remove shape with runLLMRemove — bare
+// previews, --yes applies — but diverges on what the apply call needs. An
+// agent lives entirely under the `agents:` key, so the manager alone can
+// delete it; an llm label may be machine-scoped and shared across projects, so
+// RemoveLLM must consult the config to tell a user-authored label from one it
+// must not touch. That asymmetry is a property of the two entities, not drift.
+// reprise:accept-drift
 func runAgentRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	cfg, err := GetConfigForUpdate()
@@ -615,7 +618,7 @@ func runAgentRemove(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	if err := operations.RemoveAgent(config.NewManager(), cfg, name); err != nil {
+	if err := operations.RemoveAgent(config.NewManager(), name); err != nil {
 		// See runAgentShow: only an ABSENT "help" is the courtesy request.
 		if name == helpArgName {
 			return cmd.Help()

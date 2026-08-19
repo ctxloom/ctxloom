@@ -71,7 +71,6 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "finder", entry.Name)
-	assert.Equal(t, agents.SourceConfig, entry.Source)
 
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -450,9 +449,7 @@ func TestRemoveAgent_RoundTrips(t *testing.T) {
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "finder", Profiles: ptr([]string{"p1"})})
 	require.NoError(t, err)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	require.NoError(t, RemoveAgent(mgr, reloaded, "finder"))
+	require.NoError(t, RemoveAgent(mgr, "finder"))
 
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -462,25 +459,8 @@ func TestRemoveAgent_RoundTrips(t *testing.T) {
 
 // TestRemoveAgent_NotFound errors on an unknown name.
 func TestRemoveAgent_NotFound(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, "version: 5\n")
-	assert.Error(t, RemoveAgent(managerFor(appDir), cfg, "nope"))
-}
-
-// TestRemoveAgent_DirectorySourceRefused proves a directory-defined agent
-// is NOT removable via the config-key write path (it is its own file): remove
-// errors with a clear pointer rather than silently no-op'ing.
-func TestRemoveAgent_DirectorySourceRefused(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
-	writeFile(t, filepath.Join(appDir, "agents", "filed.yaml"), "llm: x\nprofiles: [p]\n")
-
-	reloaded, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	_, ok := reloaded.Agent("filed")
-	require.True(t, ok, "directory agent should be visible")
-
-	err = RemoveAgent(managerFor(appDir), reloaded, "filed")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "filed.yaml", "error must point at the file to delete")
+	assert.Error(t, RemoveAgent(managerFor(appDir), "nope"))
 }
 
 // TestSetAgent_ConcurrentWritesAllSurvive proves the migrated write path: N

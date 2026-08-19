@@ -82,10 +82,11 @@ const (
 	// ProfilesDir is the subdirectory for profiles.
 	ProfilesDir = "profiles"
 
-	// AgentsDir is the subdirectory for local-only agent definitions
-	// (.ctxloom/agents/<name>.yaml). Agents are an end-user, LOCAL-only
-	// engine↔profile binding — never shipped in bundles or remotes — so this
-	// directory has no remote/cache analog, unlike ProfilesDir.
+	// AgentsDir is the RETIRED per-agent definition directory. Agent bindings
+	// live under the `agents:` key of config.yaml and nowhere else; this
+	// constant survives only so config.retiredAgentsDirSignpost can name the
+	// location it refuses to read, and it is deliberately absent from
+	// Layout() — ctxloom neither writes it nor classifies it.
 	AgentsDir = "agents"
 
 	// ContentDir is the subdirectory for project-authored, version-controlled
@@ -782,8 +783,9 @@ func ProfilesPath(appPath string) string {
 	return filepath.Join(appPath, ProfilesDir)
 }
 
-// AgentsPath returns the path to the local agents directory (at appPath
-// root). Local-only: there is no cache/remote counterpart.
+// AgentsPath returns the RETIRED agents directory (at appPath root). Nothing
+// reads definitions from it; config.retiredAgentsDirSignpost uses this to name
+// the files a user must move into config.yaml's `agents:` key.
 func AgentsPath(appPath string) string {
 	return filepath.Join(appPath, AgentsDir)
 }
@@ -1088,7 +1090,6 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, LockFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom remote lock"},
 		{Rel: filepath.Join(AppDirName, ContentDir), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, ProfilesDir), Tier: TierCommitted},
-		{Rel: filepath.Join(AppDirName, AgentsDir), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, AllowedSignersFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, DistrustedSignersFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, ApprovalsDirName), Tier: TierCommitted},

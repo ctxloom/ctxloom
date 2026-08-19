@@ -249,24 +249,22 @@ func TestResolveAgent_EngineUnsetNoProfileLLMUsesProjectDefault(t *testing.T) {
 	assert.Equal(t, "claude-code", res.Backend)
 }
 
-// TestListAgents_MultipleNamedBothSources proves several named agents list
-// from BOTH local sources (config key + .ctxloom/agents/*.yaml).
-func TestListAgents_MultipleNamedBothSources(t *testing.T) {
+// TestListAgents_MultipleNamed proves several named agents list from the one
+// source, sorted, and that each one still resolves.
+func TestListAgents_MultipleNamed(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfig(root, map[string]agents.Agent{
-		"dev": {LLM: "primary", Profiles: []string{"p1"}},
+		"dev":    {LLM: "primary", Profiles: []string{"p1"}},
+		"finder": {LLM: "fast", Profiles: []string{"p2"}},
 	})
-	// A second agent from the directory source.
-	writeFile(t, filepath.Join(root, ".ctxloom", "agents", "finder.yaml"),
-		"llm: fast\nprofiles: [p2]\n")
 
 	list := ListAgents(cfg)
 	require.Len(t, list, 2)
 	assert.Equal(t, "dev", list[0].Name)
-	assert.Equal(t, agents.SourceConfig, list[0].Source)
+	assert.Equal(t, "primary", list[0].LLM)
 	assert.Equal(t, "finder", list[1].Name)
-	assert.Equal(t, filepath.Join(root, ".ctxloom", "agents", "finder.yaml"), list[1].Source)
+	assert.Equal(t, "fast", list[1].LLM)
 
 	// Both resolve.
 	for _, name := range []string{"dev", "finder"} {
@@ -300,10 +298,8 @@ func TestResolveAgent_BundleProfileMember(t *testing.T) {
 
 // TestResolveAgent_Driving proves the driving axis carries through
 // resolveAgentBinding onto ResolvedAgent.Driving, and that an unknown value
-// FAILS LOUD at resolve — this is the ONLY validation a config-key-sourced
-// agent walks (it never routes through agents.ParseAgent, unlike a
-// directory-sourced .ctxloom/agents/*.yaml file), so this is where a
-// hand-edited config.yaml typo must be caught.
+// FAILS LOUD at resolve — SetAgent already refuses it at the write edge, so
+// resolve is where a HAND-EDITED config.yaml typo must still be caught.
 func TestResolveAgent_Driving(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
@@ -326,7 +322,7 @@ func TestResolveAgent_Driving(t *testing.T) {
 		assert.Equal(t, agents.DrivingOneshot, res.Driving)
 	})
 
-	t.Run("unknown driving value fails loud at resolve, not just at ParseAgent", func(t *testing.T) {
+	t.Run("unknown driving value fails loud at resolve, not just at the write edge", func(t *testing.T) {
 		cfg := agentTestConfig(root, map[string]agents.Agent{
 			"dev": {LLM: "slow", Profiles: []string{"p1"}, Driving: agents.DrivingMode("bogus")},
 		})
@@ -356,12 +352,11 @@ func TestAgent_LocalOnly_NeverFromBundle(t *testing.T) {
 	assert.False(t, hasField, "bundles.Bundle must have no Agents field")
 
 	// Behavioral: a bundle YAML carrying a `agents:` key surfaces NO agent —
-	// the agent loader reads only the config key + .ctxloom/agents/, never a
-	// bundle.
+	// the agent loader reads only the config key, never a bundle.
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".ctxloom", "content", "bundles", "evil.yaml"),
 		"version: \"1.0.0\"\nagents:\n  smuggled:\n    llm: attacker\n    profiles: [x]\n")
-	cfg := agentTestConfig(root, nil) // no config-key, no agents dir
+	cfg := agentTestConfig(root, nil) // no config-key agents at all
 
 	assert.Empty(t, ListAgents(cfg), "a bundle cannot define an agent")
 	_, ok := cfg.Agent("smuggled")

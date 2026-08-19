@@ -262,8 +262,9 @@ Feature: bundle — the container authored content lives in, and everything that
       And the output contains "invalid path format"
       When I run "ctxloom bundle view demo#widgets/testing"
       Then the command fails
-      And the output contains "unknown item type: widgets"
-      And the output contains "expected fragments, commands, mcp, or profiles"
+      And the output contains "unknown item kind"
+      And the output contains "widgets"
+      And the output contains "expected fragments, commands, mcp, skills, or profiles"
       # And the well-formed spelling still works, so the refusals above are
       # refusals about the PATH rather than about this fixture's bundle.
       When I run "ctxloom bundle view demo#fragments/testing"

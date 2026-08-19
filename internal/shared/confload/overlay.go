@@ -85,6 +85,32 @@ func (e *ScopeViolationError) Error() string {
 	return fmt.Sprintf("%s: %s may not set %q — %s", e.Display, e.Source, strings.Join(e.Path, "."), e.Why)
 }
 
+// SchemaViolationError is what ApplyOverrides returns (joined alongside any
+// other override error) when Product.ValidateValue refuses a resolved
+// override's VALUE. A distinct type, like ScopeViolationError beside it, so a
+// caller can classify a schema fault as the schema fault it is (ctxloom maps it
+// to its validate warning kind, the same one a config FILE's schema breakage
+// gets) rather than folding it into the coarser parse bucket.
+//
+// The offending value is still APPLIED, deliberately, and this is a report
+// rather than a drop: dropping it would resolve the key to whatever the layer
+// below says, which for a security-relevant key is how a typo ends up silently
+// MORE privileged than the value that was typed. Every consumer that reads such
+// a key owns its own fail-closed handling of a value it cannot honour (see
+// agent.ResolveDefault); this exists so the fault is not silent on the way in.
+type SchemaViolationError struct {
+	Source  OverrideSource
+	Path    []string
+	Display string // the raw override's display form (env var name / --config-set entry)
+	Err     error
+}
+
+func (e *SchemaViolationError) Error() string {
+	return fmt.Sprintf("%s: %s set %q to a value the schema refuses: %v", e.Display, e.Source, strings.Join(e.Path, "."), e.Err)
+}
+
+func (e *SchemaViolationError) Unwrap() error { return e.Err }
+
 // ReadOverrides captures the process's env/CLI overrides ONCE — see the
 // package doc's "Overrides are captured once, resolved on every load"
 // section. It does NOT resolve anything against a config base; that happens
@@ -401,6 +427,15 @@ func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize fu
 		if warn {
 			clidiag.Warn(p.Name, "%s does not match any known config key (resolved as %s); setting it anyway",
 				display, strings.Join(path, "."))
+		}
+		// Reported and still applied — see SchemaViolationError's doc. It sits
+		// after the scope check because a value the layer may not carry at all
+		// is dropped there and never reaches the document, so validating it
+		// would only add a second complaint about a value nothing will read.
+		if p.ValidateValue != nil {
+			if verr := p.ValidateValue(path, raw[name]); verr != nil {
+				errs = append(errs, &SchemaViolationError{Source: source, Path: path, Display: display, Err: verr})
+			}
 		}
 		flat[strings.Join(path, delim)] = raw[name]
 	}

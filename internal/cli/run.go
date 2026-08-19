@@ -1884,7 +1884,16 @@ func warnBypassOnLostContainer(axes isolation.Axes, preparedName string, permMod
 // --config-set) wrote: layerscope drops the key from a home config or the
 // environment before the merge. See config.Config.permissions.
 func resolvePermissionMode(flag, agentPerm, labelPerm, projectPerm, backendType string, mode pb.ExecutionMode, backendEnforcesPlan bool) agent.PermissionMode {
-	m := agent.ResolveDefault([]string{flag, agentPerm, labelPerm, projectPerm}, backendType == config.BackendClaudeCode)
+	m, honoured := agent.ResolveDefault([]string{flag, agentPerm, labelPerm, projectPerm}, backendType == config.BackendClaudeCode)
+	if !honoured {
+		// A declared posture that does not parse is already floored to the most
+		// restrictive tier and reported as a fatal finding. It returns AS IS:
+		// every step below widens (the plan collapse trades read-only for
+		// prompt-per-call; the ONESHOT floor trades prompt-per-call for
+		// bypass), and running both on a floored value would walk a typo back
+		// up to the posture the floor exists to deny it.
+		return m
+	}
 	// plan is only a genuine read-only posture on backends that enforce it. On a
 	// backend with no read-only tier it collapses to default — the nearest posture
 	// that still gates each tool call on a human. Interactive: that prompts; a

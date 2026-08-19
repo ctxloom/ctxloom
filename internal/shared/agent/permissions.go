@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // PermissionMode is the generalized launch-time permission posture ctxloom hands
@@ -96,23 +98,57 @@ func WireMode(s string) PermissionMode {
 	return m
 }
 
+// PermissionFloor is the posture every unhonourable declaration lands on: the
+// most restrictive tier ctxloom can name. Read-only is the only answer to "the
+// user asked for something we cannot honour" that cannot widen what they typed
+// — the same floor the delegation path applies when a child's declared posture
+// is not headless-safe.
+const PermissionFloor = PermissionPlan
+
 // ResolveDefault picks the posture from layered source spellings — the first
-// parseable of the ordered sources wins (e.g. flag > agent > label) — falling
-// back to bypass when nothing is set and the backend is the claude-code host
-// stopgap, else default. It is the run-context-independent base shared by the
-// run resolver and `agent show`; callers layer CollapsePlanIfUnenforced and the
-// headless floor on top. claudeCodeDefault is backendType == the claude-code
+// DECLARED of the ordered sources wins (e.g. flag > agent > label) — falling
+// back to bypass when nothing is declared and the backend is the claude-code
+// host stopgap, else default. It is the run-context-independent base shared by
+// the run resolver and `agent show`; callers layer CollapsePlanIfUnenforced and
+// the headless floor on top. claudeCodeDefault is backendType == the claude-code
 // backend type (the caller owns that comparison so this stays config-free).
-func ResolveDefault(sources []string, claudeCodeDefault bool) PermissionMode {
+//
+// UNSET AND UNPARSEABLE ARE DIFFERENT INPUTS, and conflating them was a silent
+// privilege escalation. An empty source declares nothing and is skipped, so a
+// lower source (and ultimately the built-in default) answers for it. A NON-EMPTY
+// source that does not parse is a declaration that MISSED: the user asked for
+// something, so continuing down the chain hands them a posture nobody chose —
+// on claude-code, the bottom of that chain is bypass, so `permissions: plann`
+// (an obvious `plan`) resolved to full --dangerously-skip-permissions, and the
+// escalation ladder derived from it flipped from auto-decline to auto-accept.
+// A missed declaration therefore STOPS the chain, reports a fatal ClassConfig
+// finding, and floors to PermissionFloor. honoured is false in exactly that
+// case, so a caller must not apply any widening step (the ONESHOT floor, a
+// backend collapse) to the returned mode: nothing may lift a posture nobody
+// successfully declared. Degraded mode narrows here too — it never widens.
+func ResolveDefault(sources []string, claudeCodeDefault bool) (mode PermissionMode, honoured bool) {
 	for _, s := range sources {
-		if m, ok := ParsePermissionMode(s); ok {
-			return m
+		if strings.TrimSpace(s) == "" {
+			continue
 		}
+		m, ok := ParsePermissionMode(s)
+		if !ok {
+			fallback := PermissionDefault
+			if claudeCodeDefault {
+				fallback = PermissionBypass
+			}
+			strictness.FailOnce(strictness.ClassConfig,
+				fmt.Sprintf("set permissions: to one of %s (fix the typo in .ctxloom/config.yaml, the --permissions flag, or the --config-set override)", strings.Join(PermissionModeNames(), "|")),
+				"unknown permissions value %q (known: %s); an unrecognised posture is NOT treated as unset — it would otherwise resolve to %q, so this run is floored to %q (read-only)",
+				s, strings.Join(PermissionModeNames(), "|"), fallback, PermissionFloor)
+			return PermissionFloor, false
+		}
+		return m, true
 	}
 	if claudeCodeDefault {
-		return PermissionBypass
+		return PermissionBypass, true
 	}
-	return PermissionDefault
+	return PermissionDefault, true
 }
 
 // CollapsePlanIfUnenforced returns PermissionDefault in place of PermissionPlan

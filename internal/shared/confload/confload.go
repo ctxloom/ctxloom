@@ -195,13 +195,24 @@ const delim = "\x1f"
 //     key names, keeping this package free of ctxloom-specific (or
 //     taskloom-specific, or...) knowledge exactly as KnownPath already does.
 type Product struct {
-	Name        string
-	DirName     string
-	FileName    string
-	EnvPrefix   string
-	KnownPath   func(path []string) bool
-	ScopeAllows func(source OverrideSource, path []string) (ok bool, why string)
-	MergeFunc   MergeFunc
+	Name      string
+	DirName   string
+	FileName  string
+	EnvPrefix string
+	KnownPath func(path []string) bool
+	// ValidateValue, when set, checks ONE resolved override's value against the
+	// product's schema at the resolved path. It closes the gap between the two
+	// override channels and a config FILE: a file layer is schema-validated
+	// before it merges, while an env/--config-set value reaches the merged
+	// document having been type-GUESSED from a string and checked against
+	// nothing at all — so `--config-set agents.x.permissions=plann` (an enum
+	// key) warned nowhere, while the same value in config.yaml was refused.
+	// A refusal is REPORTED (as a SchemaViolationError joined into
+	// ApplyOverrides' error) and the value is still applied; see that type's
+	// doc for why a drop would be the more dangerous answer.
+	ValidateValue func(path []string, value any) error
+	ScopeAllows   func(source OverrideSource, path []string) (ok bool, why string)
+	MergeFunc     MergeFunc
 }
 
 // MergeLayers merges FILE layers (home, project) through p's own MergeFunc if

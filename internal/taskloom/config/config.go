@@ -229,6 +229,11 @@ func product(validator *schema.ConfigValidator) confload.Product {
 	}
 	if validator != nil {
 		p.KnownPath = validator.KnownPath
+		// Same override schema gate ctxloomProduct installs, for the same
+		// reason: a file layer is validated before it merges, so without this
+		// an env/--config-set value is the one way into this config that no
+		// schema ever sees.
+		p.ValidateValue = validator.ValidateAt
 	}
 	return p
 }

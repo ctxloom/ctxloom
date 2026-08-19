@@ -40,10 +40,18 @@ func TestResolvePermissionMode(t *testing.T) {
 		{"explicit default beats claude host-bypass", "default", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
 		{"explicit default via label beats claude host-bypass", "", "", "default", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
 		{"other backend default prompts", "", "", "", "", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
-		// An unparseable config-sourced value (agent/label) stays fault tolerant and
-		// falls through. The typed --permissions flag is rejected up front instead
-		// (see TestValidatePermissionFlag), so it never reaches here unparseable.
-		{"unparseable config value falls through to the default", "", "nonsense", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
+		// An unparseable config-sourced value (agent/label) is a declaration that
+		// MISSED, not an absent one: it stops the chain at the most restrictive
+		// posture instead of falling through to the claude-code host stopgap. The
+		// typed --permissions flag is rejected up front instead (see
+		// TestValidatePermissionFlag), so it never reaches here unparseable.
+		{"unparseable agent value floors to read-only, never the claude stopgap", "", "nonsense", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
+		{"unparseable value does not defer to a wider source below it", "", "nonsense", "bypass", "bypass", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
+		// The floor survives BOTH widening steps below it: the plan collapse on a
+		// backend with no read-only tier, and the ONESHOT floor that follows it.
+		// Letting either apply walks a typo back up to bypass.
+		{"unparseable value is not collapsed on a non-enforcing backend", "", "nonsense", "", "", "antigravity", pb.ExecutionMode_INTERACTIVE, false, agent.PermissionFloor},
+		{"unparseable value is not widened by the oneshot floor", "", "nonsense", "", "", "antigravity", pb.ExecutionMode_ONESHOT, false, agent.PermissionFloor},
 		{"oneshot upgrades a would-block default to bypass", "default", "", "", "", "codex", pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
 		{"oneshot keeps safe-headless plan on an enforcing backend", "plan", "", "", "", "codex", pb.ExecutionMode_ONESHOT, true, agent.PermissionPlan},
 		{"oneshot upgrades acceptEdits to bypass", "acceptEdits", "", "", "", claude, pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},

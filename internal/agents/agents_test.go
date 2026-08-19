@@ -329,9 +329,11 @@ func TestAgent_FromConfig(t *testing.T) {
 //   - driving:  a closed enum (it decides whether a child's engine process
 //     survives a turn boundary)
 //
-// Deliberately NOT rejected here, because an unknown value degrades to a
-// documented default rather than changing semantics; internal/operations warns
-// at WRITE time instead:
+// Deliberately NOT rejected here, because an unknown value is CAUGHT by a later
+// phase rather than silently substituted; internal/operations warns at WRITE
+// time, and each axis is refused where it is resolved (isolation.warnUnknownAxes
+// for runtime, agent.ResolveDefault for permissions — which floors an
+// unparseable posture to read-only instead of letting it fall through):
 //   - runtime, permissions
 //
 // Escalation is validated later still, by the coordinator that builds the

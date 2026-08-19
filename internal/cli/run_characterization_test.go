@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +58,7 @@ func runCLIFixture(t *testing.T) string {
 
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"),
-		[]byte("version: 4\n"), 0o644))
+		[]byte(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)), 0o644))
 	// editor.command lives in HOME, not the project fixture: it is
 	// ScopeMachine (internal/config/layerscope) — a binary on THIS box — so
 	// a committed PROJECT file may no longer carry it (a startup-gate fatal
@@ -67,7 +68,7 @@ func runCLIFixture(t *testing.T) string {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"),
-		[]byte("version: 4\neditor:\n  command: \"true\"\n"), 0o644))
+		[]byte(fmt.Sprintf("version: %d\neditor:\n  command: \"true\"\n", config.CurrentConfigVersion)), 0o644))
 	config.Invalidate()
 
 	for _, argv := range [][]string{

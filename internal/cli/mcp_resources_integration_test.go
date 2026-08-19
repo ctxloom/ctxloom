@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -21,7 +23,7 @@ func stageMinimalProject(t *testing.T) string {
 	appDir := filepath.Join(workDir, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	// Empty config is fine — defaults work for the resource handlers.
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("llm:\n  plugins:\n    claude-code: {}\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(fmt.Sprintf("version: %d\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n", config.CurrentConfigVersion)), 0o644))
 	return workDir
 }
 

@@ -2010,12 +2010,18 @@ func TestResilientStartup_NonExistentProfile(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
 
-	// Config references a non-existent profile
-	configYAML := `
-defaults:
-  profiles:
-    - nonexistent-profile
-`
+	// Config references a non-existent profile. Written in the CURRENT schema:
+	// a fixture spelled in a retired one only passes while a migration happens
+	// to carry it forward, which makes it a test of the migration rather than
+	// of the behaviour it names.
+	configYAML := fmt.Sprintf(`
+version: %d
+default_agent: default
+agents:
+  default:
+    profiles:
+      - nonexistent-profile
+`, CurrentConfigVersion)
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
@@ -2054,15 +2060,17 @@ func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
 
 	// Config with some valid and some invalid parts (unknown property in plugin)
 	// Schema validation may catch this, but we should still not fail
-	configYAML := `
+	configYAML := fmt.Sprintf(`
+version: %d
 llm:
   configs:
     claude-code:
       unknown_property: true
 profiles:
-  valid-profile:
-    description: "This is valid"
-`
+  definitions:
+    valid-profile:
+      description: "This is valid"
+`, CurrentConfigVersion)
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))

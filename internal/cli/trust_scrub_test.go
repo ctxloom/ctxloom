@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,7 +37,8 @@ func scrubProjectRoot(t *testing.T) string {
 	appDir := filepath.Join(root, paths.AppDirName)
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir),
-		[]byte("profiles:\n  defaults:\n    - dev\n"), 0o644))
+		[]byte(fmt.Sprintf("version: %d\ndefault_agent: default\nagents:\n  default:\n    profiles:\n      - dev\n",
+			config.CurrentConfigVersion)), 0o644))
 
 	profilesDir := paths.ProfilesPath(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))

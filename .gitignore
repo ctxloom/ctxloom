@@ -146,9 +146,20 @@ AGENTS.md
 .ctxloom/pieces/
 .ctxloom/sessions/
 
-# Serena's per-project LSP state (project config, symbol cache, its own memories).
-# Local and rebuildable — serena re-derives it from the checkout on first activation.
-.serena/
+# Serena's per-project state. Only the LOCAL and rebuildable parts are ignored;
+# .serena/project.yml and .serena/memories/ are VERSIONED deliberately.
+#
+# Serena ships its own .serena/.gitignore excluding exactly the machine-local
+# parts (/cache, /project.local.yml), which is the tool telling us the rest is
+# meant to be committed. Versioning it is also what makes settings and memories
+# available across git worktrees, where each worktree activates itself.
+#
+# Ignoring the whole directory cost us once already: project.yml drifted against
+# a schema key rename, serena died at startup with a KeyError, and its symbol
+# tools were silently absent from sessions rather than failing loudly. An
+# unversioned config cannot drift visibly.
+.serena/cache/
+.serena/project.local.yml
 
 # Working decisions log — for human review during a work session, not part of
 # the repo record. FINDINGS.md and docs/behaviour-changes-*.md are the committed

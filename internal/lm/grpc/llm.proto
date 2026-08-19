@@ -219,8 +219,13 @@ message ChatStart {
   // advertised the terminal capability; see agent.ChatRequest.ForwardTerminal.
   bool forward_terminal = 8;
   // runtime carries the agent binding's resolved runtime axis (ISO1) into a
-  // structured chat: "container" asks the backend to run its engine SUBPROCESS
-  // inside a container, anything else (including empty) means host. Mirrors
+  // structured chat: "container-rootless" or "container-rootful" asks the
+  // backend to run its engine SUBPROCESS inside a container under that
+  // ownership mode, empty (or "host") means host. There is deliberately no
+  // undifferentiated "container" value — rootless and rootful differ in UID
+  // mapping. The host side parses this exactly once, via
+  // agent.ParseRuntimeAxis (internal/lm/grpc/chat.go's chatStartFromProto),
+  // refusing any other spelling rather than silently landing on host. Mirrors
   // agent.ChatRequest.Runtime, which had NO proto field at all — so a
   // container-bound `ctxloom acp` session ran on the HOST while ctxloom
   // announced container isolation. Only a backend whose structured-chat

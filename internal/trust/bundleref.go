@@ -366,12 +366,18 @@ func (r BundleRef) Identity() string {
 	return r.render(false)
 }
 
+// BundleKey is the version-less, item-less canonical identity of a bundle:
+// exactly what BundleRef.BundleIdentity() renders. It is a DEFINED type so a
+// bare bundle name cannot be passed where a resolution key is expected — the
+// two namespaces that U3b-3 merges were, until now, both spelled `string`.
+type BundleKey string
+
 // BundleIdentity is Identity with the item selector dropped — the identity of
 // the BUNDLE that contains the item, rather than of the item.
-func (r BundleRef) BundleIdentity() string {
+func (r BundleRef) BundleIdentity() BundleKey {
 	r.Kind = ""
 	r.Item = ""
-	return r.render(false)
+	return BundleKey(r.render(false))
 }
 
 // IsItem reports whether the reference addresses an item within the bundle

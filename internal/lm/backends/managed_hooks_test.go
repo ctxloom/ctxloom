@@ -146,27 +146,27 @@ func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
 	}{
 		{
 			name: "builtin",
-			scm:  "bundle:" + mustRef(trust.BuiltinRef("core")).BundleIdentity(),
+			scm:  "bundle:" + string(mustRef(trust.BuiltinRef("core")).BundleIdentity()),
 			want: HookSource{Origin: HookOriginBuiltin, Ref: "ctxloom+builtin:core"},
 		},
 		{
 			name: "companion",
-			scm:  "bundle:" + mustRef(trust.CompanionRef("ltk")).BundleIdentity(),
+			scm:  "bundle:" + string(mustRef(trust.CompanionRef("ltk")).BundleIdentity()),
 			want: HookSource{Origin: HookOriginCompanion, Ref: "ctxloom+companion:ltk"},
 		},
 		{
 			name: "local",
-			scm:  "bundle:" + mustRef(trust.LocalRef("local-kit")).BundleIdentity(),
+			scm:  "bundle:" + string(mustRef(trust.LocalRef("local-kit")).BundleIdentity()),
 			want: HookSource{Origin: HookOriginBundle, Ref: "ctxloom+local:local-kit"},
 		},
 		{
 			name: "git",
-			scm:  "bundle:" + mustRef(trust.GitRef("github.com", "/acme/tools", "kit")).BundleIdentity(),
+			scm:  "bundle:" + string(mustRef(trust.GitRef("github.com", "/acme/tools", "kit")).BundleIdentity()),
 			want: HookSource{Origin: HookOriginBundle, Ref: "ctxloom+git://github.com/acme/tools//bundles/kit"},
 		},
 		{
 			name: "file",
-			scm:  "bundle:" + mustRef(trust.FileRef("/srv/repo", "kit")).BundleIdentity(),
+			scm:  "bundle:" + string(mustRef(trust.FileRef("/srv/repo", "kit")).BundleIdentity()),
 			want: HookSource{Origin: HookOriginBundle, Ref: "ctxloom+file:///srv/repo//bundles/kit"},
 		},
 		// A marker that fails to parse (the retired, non-canonical spelling

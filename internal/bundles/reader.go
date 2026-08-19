@@ -229,6 +229,16 @@ type BundleRead struct {
 // "<source>#<kind>/<name>" gate ref wants SourceRef below.
 func (r BundleRead) Ref() string { return r.ref }
 
+// Key reports this read's RESOLUTION identity in the merged namespace
+// U3b-3 introduces — SourceRef().BundleIdentity(), the version-less,
+// item-less canonical key a caller can round-trip through
+// Catalog.LookupKey. Unlike Ref, it never depends on which reader composed
+// last or on any spelling a bundle declares: it is location-derived, exactly
+// as SourceRef itself is.
+func (r BundleRead) Key() trust.BundleKey {
+	return r.SourceRef().BundleIdentity()
+}
+
 // SourceRef reports the source component of this bundle's content trust
 // refs — the structured trust.BundleRef a "<source>#<kind>/<name>" gate ref
 // is built from.

@@ -31,6 +31,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -425,11 +426,31 @@ func TestDoctorCheckAgents_WrongState_UnresolvableProfile(t *testing.T) {
 // --- DOCTOR-CHECK-SETUP-DEPS-h8 (lockfile + context assembly) ---
 
 func TestDoctorCheckSetupLockAndAssembly_RightState(t *testing.T) {
-	_, cfg := setupProject(t, "claude-code")
+	root, cfg := setupProject(t, "claude-code")
+	stubLocalDefaultProfile(t, root)
+	var err error
+	cfg, err = config.Load(config.WithAppDir(cfg.GetAppPaths()[0]))
+	require.NoError(t, err)
+
 	check := doctorCheckSetupLockAndAssembly(context.Background(), cfg, nil)
 	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "lockfile: 0 entries parse cleanly")
 	assert.Contains(t, check.Detail, "context assembly: succeeds")
+}
+
+// stubLocalDefaultProfile overwrites the scaffolded seed profile
+// (.ctxloom/profiles/default.yaml) with a self-contained profile carrying no
+// remote parent. The embedded seed profile (resources/profiles/default.yaml)
+// inherits https://github.com/ctxloom/ctxloom-default, which a hermetic test
+// never installs (no `ctxloom deps pull` ever runs here) — a fixture meant to
+// represent a genuinely fully-wired project must not carry a dependency this
+// suite can never satisfy, or DOCTOR-CHECK-SETUP-DEPS-h8 correctly reports
+// the unresolved parent as a skipped ref.
+func stubLocalDefaultProfile(t *testing.T, root string) {
+	t.Helper()
+	path := filepath.Join(root, ".ctxloom", "profiles", "default.yaml")
+	content := "version: \"1.0.0\"\ndescription: \"self-contained test profile, no remote dependency\"\ntags:\n  - default\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 }
 
 func TestDoctorCheckSetupLockAndAssembly_WrongState_CorruptLockfile(t *testing.T) {
@@ -440,6 +461,45 @@ func TestDoctorCheckSetupLockAndAssembly_WrongState_CorruptLockfile(t *testing.T
 	check := doctorCheckSetupLockAndAssembly(context.Background(), cfg, nil)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "lockfile:")
+}
+
+// TestDoctorCheckSetupLockAndAssembly_WrongState_SkippedProfileRefs is the
+// freehand-fabric regression: assembling context for a configured default
+// agent whose profiles cannot be resolved is fault-tolerant by design — it
+// skips each broken profile and still returns a nil error — so a check that
+// only looks at AssembleContext's error return reports "[ok] ... succeeds"
+// for a session that is actually running on an almost-empty context. The
+// check must instead read what assembly already recorded during that call
+// and refuse to say ok.
+func TestDoctorCheckSetupLockAndAssembly_WrongState_SkippedProfileRefs(t *testing.T) {
+	resetStrictness(t)
+	_, cfg := setupProject(t, "claude-code")
+	f := cfg.ToFixture()
+	f.DefaultAgent = "default"
+	f.Agents = map[string]agents.Agent{
+		"default": {Profiles: []string{"doctor-missing-profile-one", "doctor-missing-profile-two"}},
+	}
+	cfg = config.NewFixture(f)
+
+	// Guard: prove this exact fixture makes assembly skip TWO refs, by
+	// capturing the real stderr warning lines a raw AssembleContext call
+	// against it produces — independent of the check's own counting logic
+	// (which reads strictness findings, not stderr text), so a bug in that
+	// counting cannot also hide in this guard.
+	var stderrBuf bytes.Buffer
+	restoreSink := clidiag.SetSink(&stderrBuf)
+	_, assembleErr := operations.AssembleContext(context.Background(), cfg, operations.AssembleContextRequest{})
+	restoreSink()
+	require.NoError(t, assembleErr, "the defaults path degrades rather than erroring")
+	skipLines := strings.Count(stderrBuf.String(), "skipping default profile")
+	require.Equal(t, 2, skipLines,
+		"fixture must make BOTH configured default profiles fail to resolve, or this test proves nothing")
+
+	check := doctorCheckSetupLockAndAssembly(context.Background(), cfg, nil)
+	assert.Equal(t, doctorWarn, check.Status,
+		"an assembly that skipped every configured default profile ref must never report ok")
+	assert.Contains(t, check.Detail, "2 ref(s)",
+		"the count must name the exact number of skipped refs, not just that some were skipped")
 }
 
 // --- DOCTOR-CHECK-HOOKS-TRUST-d4: hooks AND MCP registration per backend ---
@@ -776,6 +836,7 @@ func TestDoctorCmd_AlwaysExitsCleanEvenWhenMisconfigured(t *testing.T) {
 
 func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
+	stubLocalDefaultProfile(t, root)
 	applyHooksHermetically(t, cfg, root, "claude-code")
 
 	// A fully-wired project must show no warn lines at all, including the

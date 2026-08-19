@@ -81,6 +81,14 @@ type LoadedSkillFile struct {
 // bundle's skills. Nothing is dropped on policy grounds; see
 // Pipeline.SkillsFromBundleRef.
 func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
+	if isItemScopedRef(bundleRef) {
+		// See ReadBundleCommands: an ITEM-scoped ref ("<bundle>#fragments/<name>")
+		// cherry-picks one fragment, not the bundle, and legitimately ships no
+		// skills — l.lookup cannot resolve the raw selector-bearing string by
+		// design, so warning here was a false positive on every default
+		// assembly that used a fragment cherry-pick.
+		return nil
+	}
 	read, ok := l.lookup(bundleRef)
 	if !ok {
 		// This feeds the export path that WRITES per-engine skill files, so a

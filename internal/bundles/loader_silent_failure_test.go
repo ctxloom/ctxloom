@@ -77,6 +77,65 @@ func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 		"the ref that failed to load must be named in a diagnostic")
 }
 
+// TestCommandsFromBundleRef_ItemScopedRefIsSilentEmpty pins the fix for
+// subsonic-contusion: a false "skipping unresolved bundle" warning on every
+// default assembly.
+//
+// A profile's `bundles:` list may cherry-pick a single fragment
+// ("<bundle>#fragments/<name>") instead of naming the whole bundle —
+// project-base.yaml does exactly this for "ctxloom-project#fragments/config-hierarchy".
+// CommandsFromBundleRef used to hand that raw, selector-bearing string
+// straight to l.lookup, which resolves bundles by NAME and can never match a
+// string with a "#fragments/..." suffix on it — so it warned "skipping
+// unresolved bundle" every time, even though the SAME ref resolves fine
+// through the content path (ExpandBundleRefs -> ReadFragment, asserted below)
+// and its fragment is genuinely delivered. A fragment cherry-pick never
+// claimed "also export this bundle's commands", so this is the legitimate
+// empty case — see config.reportBundleRefLoadFailure's identical "#"
+// carve-out for the MCP/hooks siblings.
+func TestCommandsFromBundleRef_ItemScopedRefIsSilentEmpty(t *testing.T) {
+	buf := captureBundleWarner(t)
+	fsys := afero.NewMemMapFs()
+	dir := "/bundles"
+	require.NoError(t, afero.WriteFile(fsys, dir+"/proj.yaml",
+		[]byte("version: \"1.0\"\nfragments:\n  config-hierarchy:\n    content: hi\n"), 0o644))
+
+	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(buf)
+
+	// The fragment itself resolves fine through the content path (this is
+	// what makes the commands-side warning a FALSE positive rather than a
+	// true one).
+	reads, err := l.ReadFragment("proj#fragments/config-hierarchy")
+	require.NoError(t, err)
+	require.NotEmpty(t, reads, "the fragment the ref names must actually resolve")
+
+	// The commands resolver, asked about the identical ref, must neither warn
+	// nor treat it as an error: it legitimately ships no commands.
+	got := ungated(l, false).CommandsFromBundleRef("proj#fragments/config-hierarchy")
+	require.Empty(t, got, "an item-scoped ref ships no commands")
+	require.Empty(t, buf.String(),
+		"an item-scoped ref must not warn 'skipping unresolved bundle': the fragment it names "+
+			"resolves fine elsewhere, so this warning is a false positive that teaches readers "+
+			"to skim past the true ones")
+}
+
+// TestSkillsFromBundleRef_ItemScopedRefIsSilentEmpty is the skills-side twin
+// of TestCommandsFromBundleRef_ItemScopedRefIsSilentEmpty — see it for the
+// full defect writeup. ReadBundleSkills had the identical bug.
+func TestSkillsFromBundleRef_ItemScopedRefIsSilentEmpty(t *testing.T) {
+	buf := captureBundleWarner(t)
+	fsys := afero.NewMemMapFs()
+	dir := "/bundles"
+	require.NoError(t, afero.WriteFile(fsys, dir+"/proj.yaml",
+		[]byte("version: \"1.0\"\nfragments:\n  config-hierarchy:\n    content: hi\n"), 0o644))
+
+	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(buf)
+
+	got := ungated(l, false).SkillsFromBundleRef("proj#fragments/config-hierarchy")
+	require.Empty(t, got, "an item-scoped ref ships no skills")
+	require.Empty(t, buf.String(), "an item-scoped ref must not warn 'skipping unresolved bundle'")
+}
+
 // TestList_UnreadableBundlesDirIsLoud pins the fix below.
 //
 // A bundles root that cannot be read returned an EMPTY LIST WITH A NIL ERROR,

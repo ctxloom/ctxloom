@@ -294,6 +294,17 @@ func (l *Loader) ReadFragment(name string) ([]*ItemRead, error) {
 	return l.searchFragment(name)
 }
 
+// isItemScopedRef reports whether ref names one item inside a bundle
+// ("<bundle>#fragments/<name>", or the ":fragments/"/":commands/"/":mcp"
+// aliases expandBundleRef also recognizes) rather than the bundle as a whole.
+// "#" is the canonical, unambiguous selector introducer throughout this
+// package (see expandBundleRef's own comment on why a URL-form ref's scheme
+// colon is never mistaken for one), so its presence alone is the same test
+// config.reportBundleRefLoadFailure uses for its MCP/hooks carve-out.
+func isItemScopedRef(ref string) bool {
+	return strings.Contains(ref, "#")
+}
+
 // splitItemRef parses a "bundle#kind/name" reference. isRef reports whether a
 // "#" was present at all; when it was, kind must equal want or an error is
 // returned. For a plain name (no "#"), isRef is false and the caller searches.
@@ -439,6 +450,19 @@ func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCo
 // command-file writes are reproducible. Nothing is dropped on policy grounds —
 // see Pipeline.CommandsFromBundleRef for the gated delivery.
 func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
+	if isItemScopedRef(bundleRef) {
+		// A profile's `bundles:` list may carry an ITEM-scoped ref
+		// ("<bundle>#fragments/<name>") that cherry-picks one fragment out of
+		// the bundle. l.lookup resolves whole bundles by name; handed the raw
+		// ref (selector included) it never matches, so every item-scoped entry
+		// looked exactly like a genuinely missing bundle and warned on every
+		// default assembly even though the fragment it named resolved fine
+		// through ExpandBundleRefs/ReadFragment. A fragment cherry-pick was
+		// never a claim "also export every command this bundle ships", so this
+		// is the legitimate empty case — see the identical carve-out in
+		// config.reportBundleRefLoadFailure for the MCP/hooks siblings.
+		return nil
+	}
 	read, ok := l.lookup(bundleRef)
 	if !ok {
 		// Same silent-export defect as SkillsFromBundleRef, same fix, same

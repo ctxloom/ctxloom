@@ -18,8 +18,10 @@ import (
 // the bare host — so a project asking for a container boundary would have run
 // outside one with nothing said.
 //
-// The refusal has to happen before dispatch, which is what the control below
-// pins: the axis is assigned whatever the chosen arm then does.
+// The parse happens before dispatch, so it governs every launch arm rather
+// than only the ones that bind a named agent — which is what the controls
+// pin: a declared axis is accepted here and reaches the run's state, and
+// silence is accepted unchanged.
 func TestResolveLaunchSource_RefusesATypodProjectRuntime(t *testing.T) {
 	runtimeState := func(t *testing.T, runtime string) *runState {
 		t.Helper()
@@ -33,10 +35,9 @@ func TestResolveLaunchSource_RefusesATypodProjectRuntime(t *testing.T) {
 	for _, axis := range []isolation.RuntimeAxis{isolation.RuntimeContainerRootless, isolation.RuntimeContainerRootful} {
 		t.Run("control: "+string(axis)+" is accepted and assigned before dispatch", func(t *testing.T) {
 			st := runtimeState(t, string(axis))
-			// The launch arm this then dispatches into needs a whole project
-			// on disk and is not what is under test; the axis is assigned
-			// first, and that assignment is the claim.
-			_ = st.resolveLaunchSource()
+
+			require.NoError(t, st.resolveLaunchSource(),
+				"a declared container axis is accepted, and dispatch proceeds past it")
 			assert.Equal(t, axis, st.agentRuntime,
 				"a declared container axis really does reach the run's state — without this the refusal below could pass on a dead path")
 		})
@@ -57,9 +58,10 @@ func TestResolveLaunchSource_RefusesATypodProjectRuntime(t *testing.T) {
 
 	t.Run("UNSET still resolves to the existing host default", func(t *testing.T) {
 		st := runtimeState(t, "")
-		_ = st.resolveLaunchSource()
-		assert.Equal(t, agent.RuntimeAxis(""), st.agentRuntime,
-			"a project that declares no runtime must behave exactly as it did before this key existed")
+
+		require.NoError(t, st.resolveLaunchSource(),
+			"a project that declares no runtime must behave exactly as it did before this key existed — silence is not a typo")
+		assert.Equal(t, agent.RuntimeAxis(""), st.agentRuntime, "and unset stays unset")
 	})
 }
 

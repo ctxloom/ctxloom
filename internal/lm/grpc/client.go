@@ -450,17 +450,20 @@ func NewSelfInvokingClientForLabelEnv(backendName, label string, verbosity int, 
 	return runnerFromConn(dialLLMConnection(executable, args, env, newPluginLogger(verbosity)))
 }
 
-// Kill terminates the plugin process. Safe on a nil receiver: a failed spawn
-// (runnerFromConn returning a nil *LLMRunner alongside its error) still gets
-// boxed into a non-nil Client interface value at every (Client,
-// error)-typed return-conversion boundary between here and a caller
-// (Runtime.Spawn, {Container,Worktree,None}.SpawnClient) — Go's classic
-// typed-nil-in-interface pitfall. A caller's `if client != nil` check tests
-// the INTERFACE, which is non-nil even though the underlying *LLMRunner is
-// nil, so deferred teardown (e.g. cli/run.go's teardownTransport) still
-// calls Kill on a nil receiver. The spawn failure's own error is already
-// returned and surfaced independently of Kill, so no-op'ing here costs
-// nothing — it only stops the crash from masking that error mid-unwind.
+// Kill terminates the plugin process. Safe on a nil receiver: this is
+// belt-and-braces against Go's classic typed-nil-in-interface pitfall — a
+// failed spawn's nil *LLMRunner passed through a (Client, error)-typed
+// return-conversion boundary (Runtime.Spawn, {Container,Worktree,None}.
+// SpawnClient) boxes into a non-nil Client interface value, so a caller's
+// `if client != nil` check tests the INTERFACE, which is non-nil even though
+// the underlying *LLMRunner is nil, and deferred teardown (e.g. cli/run.go's
+// teardownTransport) ends up calling Kill on a nil receiver. Every boundary
+// on that chain now returns an explicit nil interface on error instead of
+// forwarding the concrete pointer, so this guard should never fire in
+// today's callers — it stays as the correct behavior for a nil receiver
+// regardless, and as the backstop for any future boundary that reintroduces
+// the boxing. The spawn failure's own error is already returned and
+// surfaced independently of Kill, so no-op'ing here costs nothing.
 func (p *LLMRunner) Kill() {
 	if p == nil {
 		return

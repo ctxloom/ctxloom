@@ -64,6 +64,14 @@ var _ Client = (*LLMRunner)(nil)
 // DefaultClientFactory returns the default factory that creates real plugin clients.
 func DefaultClientFactory() ClientFactory {
 	return func(backendName, label string, verbosity int) (Client, error) {
-		return NewSelfInvokingClientForLabel(backendName, label, verbosity)
+		// Return an explicit nil interface on failure. Forwarding the concrete
+		// (*LLMRunner, error) pair directly would box a typed nil into a
+		// non-nil Client, and every `if client != nil` check downstream tests
+		// the interface, not the pointer.
+		runner, err := NewSelfInvokingClientForLabel(backendName, label, verbosity)
+		if err != nil {
+			return nil, err
+		}
+		return runner, nil
 	}
 }

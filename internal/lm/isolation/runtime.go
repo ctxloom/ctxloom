@@ -309,7 +309,19 @@ func (ociRuntime) spawn(rt Runtime, launch LaunchSpec) (pb.Client, error) {
 
 	name := containerName(launch.AgentID)
 	runnerFunc := containerRunnerFunc(rt, launch.Image, name, launch.WorkDir, launch.Home, command, launch.ContainerSocketDir, launch.ExtraEnv, launch.ExtraMounts, launch.SpawnEnv)
-	return pb.NewContainerClient(launch.Verbosity, runnerFunc, launch.HostSocketDir)
+	// Assigned to the concrete *pb.LLMRunner, not returned directly: a bare
+	// `return pb.NewContainerClient(...)` would let Go auto-convert a failed
+	// call's typed-nil *LLMRunner into a non-nil pb.Client interface value
+	// (Go's typed-nil-in-interface pitfall) at this exact return-statement
+	// boundary — the point where a concrete type meets an interface return
+	// type. An explicit nil interface on error is what every caller up the
+	// chain (Container/Worktree/None.SpawnClient, and cli/run.go's
+	// `if st.client != nil` teardown check) needs to see.
+	client, err := pb.NewContainerClient(launch.Verbosity, runnerFunc, launch.HostSocketDir)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 // Docker launches containers via the docker CLI. rootless records whether the
@@ -460,7 +472,15 @@ func (Host) ExecArgs(string, bool, []string, []string) []string { return nil }
 // workspace is expressed purely via the caller's RunOptions.WorkDir, so only
 // BackendName/Label/Verbosity are consulted; the container fields are ignored.
 func (Host) Spawn(launch LaunchSpec) (pb.Client, error) {
-	return pb.NewSelfInvokingClientForLabelEnv(launch.BackendName, launch.Label, launch.Verbosity, launch.SpawnEnv)
+	// Assigned to the concrete *pb.LLMRunner, not returned directly — see
+	// ociRuntime.spawn's matching comment for why a bare `return pb.New...(...)`
+	// here would box a failed spawn's typed-nil *LLMRunner into a non-nil
+	// pb.Client interface value instead of the honest nil callers check for.
+	client, err := pb.NewSelfInvokingClientForLabelEnv(launch.BackendName, launch.Label, launch.Verbosity, launch.SpawnEnv)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 // Expose renders the identity bind mount, same as the OCI runtimes — the host

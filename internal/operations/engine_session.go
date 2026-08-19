@@ -82,7 +82,15 @@ var assignSession = AssignSession
 // subprocess (which a unit test cannot do: it would try to self-exec the
 // TEST binary as the plugin).
 var newACPEngineClient = func(backendName, label string, verbosity int, spawnEnv map[string]string) (pb.Client, error) {
-	return pb.NewSelfInvokingClientForLabelEnv(backendName, label, verbosity, spawnEnv)
+	// Return an explicit nil interface on failure. Forwarding the concrete
+	// (*LLMRunner, error) pair directly would box a typed nil into a non-nil
+	// pb.Client, and every `if client != nil` check downstream tests the
+	// interface, not the pointer.
+	runner, err := pb.NewSelfInvokingClientForLabelEnv(backendName, label, verbosity, spawnEnv)
+	if err != nil {
+		return nil, err
+	}
+	return runner, nil
 }
 
 // OpenEngineSession is the production ChatOpener body: it loads ctxloom

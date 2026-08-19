@@ -17,8 +17,7 @@ import (
 // GRACEFUL Cleanup(), so without this sweep every crashed member left an
 // orphaned checkout (and a stale `git worktree list` registration in its
 // project repo) behind forever, one per crash. Best-effort and silent on the
-// all-clear path; only reports when it actually removed something, mirroring
-// mcp_server.go's purgeLegacyBundles reporting shape. Never blocks or fails
+// all-clear path; only reports when it actually removed something. Never blocks or fails
 // startup: isolation.ReapOrphanedWorktrees is itself conservative on every
 // candidate it cannot prove is both ownerless AND clean (see its doc) — a
 // live agent's worktree, or a dead one still carrying real uncommitted work,

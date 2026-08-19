@@ -2094,8 +2094,8 @@ func (c *Config) bundleReaderDirs() []string {
 // is demanded, not performed: ctxloom does not rewrite content it did not
 // author in this run (no-backward-compat-shims — re-place, don't shim).
 //
-// Remote-pull artifacts in the same tree (identified by a `_source.sha`, the
-// same marker operations.PurgeExtractedBundles keys on) are genuine cache and
+// Remote-pull artifacts in the same tree (identified by a `_source.sha`) are
+// genuine cache and
 // never fire this: they are regenerable from the lockfile + clone cache.
 //
 // A pulled DIRECTORY-FORM bundle is regenerable cache too, and it carries no
@@ -2231,7 +2231,7 @@ func strandedCacheEntry(fs afero.Fs, path string, info os.FileInfo, err error) b
 		return true // unreadable: cannot be shown to be cache, so it is authored
 	}
 	// Legacy remote-pull artifacts embed a `_source` block; a non-empty SHA
-	// there unambiguously marks one (mirrors PurgeExtractedBundles).
+	// there unambiguously marks one.
 	var meta struct {
 		Source struct {
 			SHA string `yaml:"sha"`

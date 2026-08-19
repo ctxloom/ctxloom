@@ -214,8 +214,6 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// silence when there is nothing to do.
 	operations.SweepOrphanedSessionHomes(os.Stderr)
 
-	purgeLegacyBundles(cfg)
-
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -265,19 +263,6 @@ func fallbackConfigForLoadFailure(err error) *config.Config {
 		Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
 		Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
 	})
-}
-
-// purgeLegacyBundles removes leftover extracted bundle YAML copies from the
-// pre-PR-1 era (docs/bundle-review-plan.md Phase 1.4). With the read path now
-// served from the git clone cache via remote.BundleReader, those files would
-// otherwise shadow the SHA-pinned content. Local bundles (no `_source`
-// metadata) are preserved. Warn-and-continue: cleanup failure must not abort.
-func purgeLegacyBundles(cfg *config.Config) {
-	if removed, err := operations.PurgeExtractedBundles(cfg); err != nil {
-		clidiag.Warn("ctxloom", "legacy bundle cleanup failed: %v", err)
-	} else if removed > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: removed %d legacy extracted bundle YAML(s)\n", removed)
-	}
 }
 
 // runStartupSync auto-syncs remote bundles/profiles when enabled. The sync is

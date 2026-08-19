@@ -127,8 +127,8 @@ type WorktreeCandidate struct {
 }
 
 // WorktreeReapResult tallies one ReapOrphanedWorktrees sweep, for a one-line
-// boot-transcript summary (mirrors the CLI's purgeLegacyBundles reporting
-// shape).
+// boot-transcript summary: report only when something was actually removed, so
+// the all-clear path stays silent.
 type WorktreeReapResult struct {
 	Reaped  int // orphaned AND clean — removed
 	Spared  int // orphaned but carrying real (or unknowable) WIP — left in place

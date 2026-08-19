@@ -72,7 +72,8 @@ func TestGetBundleDirs_AuthoredBundlesInCache_RaisesFatalFinding(t *testing.T) {
 }
 
 // Legacy remote-pull artifacts (carrying _source.sha) are cache, not authored
-// work: they are PurgeExtractedBundles' business and must not fire the gate.
+// work: they are regenerable from the lockfile and clone cache, and must not
+// fire the gate.
 func TestGetBundleDirs_LegacyRemoteArtifactsInCache_NoFinding(t *testing.T) {
 	strictness.Reset()
 	strictness.SetDegraded(false)

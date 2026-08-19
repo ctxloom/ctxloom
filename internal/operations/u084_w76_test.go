@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -130,87 +129,6 @@ func namesAreAscendingW76(infos []bundles.ContentInfo) bool {
 	return true
 }
 
-// PurgeExtractedBundles collapsed EVERY os.Stat failure on
-// the bundles cache root into `return 0, nil` — a permission error, a broken
-// mount and "the directory simply isn't there" were all reported as "nothing to
-// do". The caller (cli.purgeLegacyBundles) warns on a non-nil error and
-// continues, so there was never a reason for the silence.
-func TestPurgeExtractedBundles_UnreadableRootIsNotSilentlyNothingToDo(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores the 0000 mode bit, so the fixture cannot be made hostile")
-	}
-	dir := t.TempDir()
-	bundlesRoot := paths.CacheBundlesPath(dir)
-	require.NoError(t, os.MkdirAll(bundlesRoot, 0o755))
-
-	// Seal the PARENT so stat of bundlesRoot itself fails with EACCES rather
-	// than ENOENT.
-	parent := filepath.Dir(bundlesRoot)
-	require.NoError(t, os.Chmod(parent, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
-
-	// Prove the fixture is actually hostile from the
-	// code-under-test's vantage point — stat must fail, and NOT with
-	// fs.ErrNotExist, or this pin would be asserting the legitimate no-op.
-	_, statErr := os.Stat(bundlesRoot)
-	require.Error(t, statErr, "fixture is not hostile: stat succeeded")
-	require.False(t, errors.Is(statErr, fs.ErrNotExist),
-		"fixture is not hostile: stat failed with ErrNotExist, which is the legitimate no-op")
-
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
-	removed, err := PurgeExtractedBundles(cfg)
-
-	assert.Zero(t, removed)
-	require.Error(t, err, "an unreadable bundles root must be reported, not treated as 'nothing to do'")
-	assert.Contains(t, err.Error(), bundlesRoot, "the error must name the path it could not read")
-}
-
-// The ordinary "cache directory was never
-// created" case must stay a silent, error-free no-op. Without this the fix
-// above could over-report.
-func TestPurgeExtractedBundles_MissingRootStaysAQuietNoOp(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
-
-	removed, err := PurgeExtractedBundles(cfg)
-
-	require.NoError(t, err)
-	assert.Zero(t, removed)
-}
-
-// The empty-directory prune ran inside a PRE-order
-// WalkDir callback, so a parent that held one now-empty child was not itself
-// empty when it was visited and survived the pass. Only the deepest level was
-// ever cleared; a nested chain needed one extra run per level.
-func TestPurgeExtractedBundles_PrunesNestedEmptyDirsInOnePass(t *testing.T) {
-	dir := t.TempDir()
-	bundlesRoot := paths.CacheBundlesPath(dir)
-	outer := filepath.Join(bundlesRoot, "forge-a")
-	inner := filepath.Join(outer, "owner", "repo")
-	require.NoError(t, os.MkdirAll(inner, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(inner, "pulled.yaml"), []byte(
-		"description: pulled\n_source:\n  sha: abc123\n"), 0o644))
-
-	// The chain must be genuinely more than one level deep,
-	// otherwise a single-level prune would pass for the wrong reason.
-	rel, relErr := filepath.Rel(bundlesRoot, inner)
-	require.NoError(t, relErr)
-	require.Greater(t, len(strings.Split(rel, string(filepath.Separator))), 1,
-		"fixture must nest more than one level below the bundles root")
-
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
-	removed, err := PurgeExtractedBundles(cfg)
-	require.NoError(t, err)
-	assert.Equal(t, 1, removed)
-
-	for _, gone := range []string{inner, filepath.Dir(inner), outer} {
-		_, statErr := os.Stat(gone)
-		assert.True(t, os.IsNotExist(statErr),
-			"%s should have been pruned in the same pass", gone)
-	}
-	_, rootErr := os.Stat(bundlesRoot)
-	assert.NoError(t, rootErr, "the bundles root itself must survive")
-}
 
 // NewRepoCache built its per-forge resolver inside
 // `if registry, err := remote.NewRegistry(...); err == nil { ... }` — so a

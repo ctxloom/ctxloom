@@ -246,10 +246,11 @@ func pendingReason(read bundles.BundleRead) bundles.Reason {
 //
 // Keyed on e.Ref.DisplayRef() — the canonical bundle-reference grammar
 // rendering, matching Exposure.RefString()'s own already-landed switch to
-// the same method — not the retired trust.Ref.ItemRef() grammar. Both
-// consumers here (WarnWithheld, warnGuttedProfilesTo) are pure stderr
-// advisories; neither round-trips its ref through a CLI mutation, so there is
-// no compatibility reason to keep the old grammar.
+// the same method — not the item-ref grammar a CLI mutation parses (see
+// trust.ParseItemRef). Both consumers here (WarnWithheld,
+// warnGuttedProfilesTo) are pure stderr advisories; neither round-trips its
+// ref through a CLI mutation, so there is no compatibility reason to keep the
+// old grammar.
 func (g *contentGate) record(e bundles.Exposure, v bundles.Verdict) bundles.Verdict {
 	g.withheldMu.Lock()
 	if g.withheld == nil {

@@ -2,6 +2,7 @@ package backends
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -16,15 +17,45 @@ import (
 
 // itemRefFor mints the canonical "<source>#<kind>/<item>" reference this
 // file's executable-surface producers key their gate on, and REPORTS a source
-// it cannot address. The grammar lives in trust.ItemRefFromSource; what is
-// local here is the diagnostic, because an unaddressable item is withheld from
-// delivery and a silent degrade reports vanished content as success.
+// it cannot address. It takes the source as a STRING (unlike
+// bundles.ItemRefFor, which callers holding a BundleRead can call directly)
+// because a directory profile's gate identity (profileGateRef.Base, from
+// profiles.ResolvedProfile.SourceRef) has no typed sibling: a profile whose
+// origin bundle failed to resolve must still mint an addressable ref for the
+// withheld-item diagnostic even though its BundleRead is unclaimed — see
+// gateProfileMCP/gateProfileHooks's tests, which build a profileGateRef with a
+// Base and no Read at all. parseSourceRef resolves that string into the
+// bundles.ItemRefFor.
 func itemRefFor(source string, kind trust.ItemKind, item string) string {
-	ref, err := trust.ItemRefFromSource(source, kind, item)
+	src, err := parseSourceRef(source)
 	if err != nil {
 		clidiag.Warn("ctxloom", "cannot address source %q: %v — items under it will be withheld", source, err)
+		return fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", source, kind.Dir(), item)
 	}
-	return ref
+	return bundles.ItemRefFor(src, kind, item)
+}
+
+// parseSourceRef resolves a bundle-level source ref STRING — a profile's own
+// canonical origin ref (profiles.ResolvedProfile.SourceRef) — into the
+// structured trust.BundleRef bundles.ItemRefFor needs.
+//
+// It replays ParseItemRef's base-ref resolution by handing it a throwaway
+// selector and discarding the parsed Kind/Name, exactly as the deleted
+// trust.BundleRefFromSource did — kept here, not re-implemented a second,
+// competing way, because ParseItemRef is still the one shared grammar (ADR
+// 0032) and this is the one remaining caller with a plain string and no typed
+// source to hand across.
+func parseSourceRef(source string) (trust.BundleRef, error) {
+	tRef, _, _, err := trust.ParseItemRef(source + "#" + trust.KindFragment.Dir() + "/x")
+	if err != nil {
+		return trust.BundleRef{}, fmt.Errorf("parse %q: %w", source, err)
+	}
+	tRef.Kind, tRef.Name = "", ""
+	br, err := tRef.AsBundleRef()
+	if err != nil {
+		return trust.BundleRef{}, fmt.Errorf("convert %q: %w", source, err)
+	}
+	return br, nil
 }
 
 // This file is the HOST side of the setup seam: ctxloom owns config and bundles

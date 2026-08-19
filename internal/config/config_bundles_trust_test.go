@@ -52,11 +52,11 @@ func TestExtractMCPFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 		},
 	}
 	seen := map[string]string{}
-	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", recordingGate(seen, "#mcp/beta"))
+	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(seen, "#mcp/beta"))
 
 	require.Contains(t, got, "alpha", "trusted MCP server must survive the gate")
 	require.NotContains(t, got, "beta", "denied MCP server must be omitted from settings")
-	assert.Equal(t, "bundle:remote/tools", got["alpha"].SCM, "SCM marker still set on the kept server")
+	assert.Equal(t, "bundle:ctxloom+local:remote/tools", got["alpha"].SCM, "SCM marker still set on the kept server")
 
 	// The gate is keyed on the bundle's SOURCE ref (matching the baseline + grant
 	// key, and making the cascade's IsLocal/RepoURL honest), fed the
@@ -74,7 +74,7 @@ func TestExtractMCPFromBundle_FailClosed(t *testing.T) {
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
 	denyAll := testAuthorizer(false)
-	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", denyAll)
+	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), denyAll)
 	assert.Empty(t, got, "fail-closed: a deny-all gate withholds every MCP server")
 }
 
@@ -84,7 +84,7 @@ func TestExtractMCPFromBundle_NilGate_Ungated(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "builtin:tools", bundles.AdmitAll())
+	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustBuiltinRef(t, "tools"), bundles.AdmitAll())
 	assert.Len(t, got, 2, "nil gate must not gate anything")
 }
 
@@ -106,11 +106,11 @@ func TestExtractHooksFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	}
 	seen := map[string]string{}
 	// Deny the second pre_tool hook ("echo b", index 1).
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", recordingGate(seen, "#hooks/pre_tool/1"))
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(seen, "#hooks/pre_tool/1"))
 
 	require.Len(t, got.PreTool, 1, "the denied pre_tool hook must be omitted")
 	assert.Equal(t, "echo a", got.PreTool[0].Command, "the trusted sibling hook survives")
-	assert.Equal(t, "bundle:remote/tools", got.PreTool[0].SCM)
+	assert.Equal(t, "bundle:ctxloom+local:remote/tools", got.PreTool[0].SCM)
 	require.Len(t, got.PostFileEdit, 1, "an unrelated event's hook is unaffected")
 	assert.Equal(t, "echo c", got.PostFileEdit[0].Command)
 
@@ -132,7 +132,7 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 		PostTool: []bundles.BundleHook{{Command: "echo b", Type: "command"}},
 	}}
 	denyAll := testAuthorizer(false)
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", denyAll)
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), denyAll)
 	assert.Empty(t, got.PreTool, "fail-closed: deny-all withholds pre_tool hooks")
 	assert.Empty(t, got.PostTool, "fail-closed: deny-all withholds post_tool hooks")
 }
@@ -181,7 +181,7 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 
 	foundCompanion := false
 	for _, srv := range result {
-		if strings.HasPrefix(srv.SCM, "bundle:ctxloom:companion@") {
+		if strings.HasPrefix(srv.SCM, "bundle:ctxloom+companion:") {
 			foundCompanion = true
 		}
 	}
@@ -207,8 +207,8 @@ func TestResolveBundleHooks_GatedEndToEnd(t *testing.T) {
 	cfg.SetExecutableTrustGate(recordingGate(nil, "#hooks/session_start/0"))
 
 	result := cfg.ResolveBundleHooks(nil)
-	assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", "bundle:hook-bundle"),
+	assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", "bundle:ctxloom+local:hook-bundle"),
 		"a trusted profile-bundle hook must survive")
-	assert.False(t, hasHookCommand(result.SessionStart, "echo session-start", "bundle:hook-bundle"),
+	assert.False(t, hasHookCommand(result.SessionStart, "echo session-start", "bundle:ctxloom+local:hook-bundle"),
 		"the denied profile-bundle hook must NOT be applied")
 }

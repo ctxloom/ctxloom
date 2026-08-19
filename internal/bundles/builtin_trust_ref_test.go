@@ -18,22 +18,22 @@ import (
 //     handle a caller addresses the bundle by — `isolation`, no source class,
 //     because a bundle is addressed by what it declares and not by where it
 //     sits;
-//   - the TRUST ref (BundleRead.TrustSourceRef, i.e. Bundle.sourceRef) keeps
-//     its `builtin:` qualification, because that string is what
-//     trust.ParseItemRef reads to decide WHICH TRUST IDENTITY an item has.
+//   - the TRUST ref (BundleRead.SourceRef, i.e. Bundle.sourceRef) keeps its
+//     builtin qualification (trust.ClassBuiltin), because that is what a
+//     structured item ref reads to decide WHICH TRUST IDENTITY an item has.
 //
 // The trap this guards: the obvious way to un-qualify the resolution ref is to
-// stop minting `builtin:<name>` in localFSReader.readBundle at all. That also
-// un-qualifies the trust ref, because newRead stamps bundle.sourceRef from the
-// resolution ref when it is empty. A bare trust ref falls through
-// ParseItemRef's bare-token case to Ref{IsLocal}, which is a DIFFERENT trust
-// identity from the Ref{IsBuiltin} the unconditional builtin-injection route
-// gates on — so one item acquires two identities and a rejection recorded
-// against either route leaves the other deliverable. That is the crispy-scoop
-// gate bypass, arrived at from the opposite direction.
+// stop minting trust.BuiltinRef(<name>) in localFSReader.readBundle at all.
+// That also un-qualifies the trust ref, because newRead stamps
+// bundle.sourceRef from the resolution ref when it is unset. An unqualified
+// trust ref mints as trust.ClassLocal, a DIFFERENT trust identity from the
+// ClassBuiltin the unconditional builtin-injection route gates on — so one
+// item acquires two identities and a rejection recorded against either route
+// leaves the other deliverable. That is the crispy-scoop gate bypass, arrived
+// at from the opposite direction.
 //
 // So this asserts the divergence directly, on the real embedded builtin, at
-// the reader that mints both strings.
+// the reader that mints both refs.
 func TestBuiltinRead_ResolutionRefBare_TrustRefStillQualified(t *testing.T) {
 	const shared = "isolation" // the one bundle this binary actually embeds
 
@@ -42,29 +42,31 @@ func TestBuiltinRead_ResolutionRefBare_TrustRefStillQualified(t *testing.T) {
 
 	assert.Equal(t, shared, read.Ref(),
 		"a builtin's RESOLUTION ref carries no source class: it is addressed by what it declares")
-	require.Equal(t, trust.BuiltinSourcePrefix+shared, read.TrustSourceRef(),
-		"a builtin's TRUST ref must stay source-qualified even though its resolution ref no longer is")
 
-	// The TYPED counterpart must name the identical identity, not merely a
-	// string that happens to look right: BuiltinRef(shared) is the exact
-	// minter localFSReader.readBundle calls to stamp it, so this pins that
-	// the read carries a BundleRef equal to what that call site produces —
-	// not a zero value that would silently make SourceRef() unaddressable.
+	// The TYPED source must name the builtin identity, not merely a value that
+	// happens to look right: BuiltinRef(shared) is the exact minter
+	// localFSReader.readBundle calls to stamp it, so this pins that the read
+	// carries a BundleRef equal to what that call site produces — not a zero
+	// value that would silently make SourceRef() unaddressable.
 	wantTyped, err := trust.BuiltinRef(shared)
 	require.NoError(t, err)
 	assert.Equal(t, wantTyped, read.SourceRef(),
-		"a builtin's typed SourceRef must be the same BuiltinRef(shared) identity as its string TrustSourceRef")
+		"a builtin's typed SourceRef must be the BuiltinRef(shared) identity")
+	assert.Equal(t, trust.ClassBuiltin, read.SourceRef().Class,
+		"a builtin's TRUST ref must stay source-qualified even though its resolution ref no longer is")
+	assert.NotEqual(t, trust.ClassLocal, read.SourceRef().Class,
+		"an unqualified trust ref silently becomes a second identity")
 
 	// The load-bearing half: what the qualification is FOR. An item ref built
-	// from the trust ref must parse to the builtin identity — not to IsLocal,
-	// which is where an unqualified string lands.
-	tRef, _, _, err := trust.ParseItemRef(read.TrustSourceRef() + "#fragments/isolation-axes")
+	// from the trust ref must carry the builtin class in its canonical
+	// rendering — not local, which is where an unqualified source lands.
+	itemRefStr := ItemRefFor(read.SourceRef(), trust.KindFragment, "isolation-axes")
+	itemRef, err := trust.ParseBundleRef(itemRefStr)
 	require.NoError(t, err)
-	assert.True(t, tRef.IsBuiltin,
-		"a builtin item must gate as IsBuiltin; an unqualified trust ref silently becomes a second identity")
-	assert.False(t, tRef.IsLocal, "a builtin must never be gated as project-local content")
-	assert.Equal(t, trust.KindFragment, tRef.Kind)
-	assert.Equal(t, "isolation-axes", tRef.Name)
+	assert.Equal(t, trust.ClassBuiltin, itemRef.Class,
+		"a builtin item must gate under ClassBuiltin; an unqualified trust ref silently becomes a second identity")
+	assert.Equal(t, trust.KindFragment, itemRef.Kind)
+	assert.Equal(t, "isolation-axes", itemRef.Item)
 
 	// And the item refs the loader itself hands the gate must agree with that
 	// — asserting the reader's stamp alone would not catch a content path that

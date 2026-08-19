@@ -89,13 +89,11 @@ type Bundle struct {
 	// sourceRef is the bundle's LOCATION-DERIVED canonical ref, and it is the
 	// sole input to contentSourceRef — the content trust key. Every shape it
 	// takes is decided by WHERE the bundle was found, never by what it says
-	// about itself: the lockfile key for a remote (cloned) source, e.g.
-	// "https://…@bundles/x" (set at seed time, WithSeededBundles, and by the
-	// repofs reader), "builtin:<name>" for a bundle embedded in the binary,
-	// "ctxloom:companion@<bin>" for a companion loadout, and the path-relative
-	// resolution name ("lang/go") for a bundle in the project's own tree. The
-	// last of those is a bare token, which trust.ParseItemRef keys IsLocal —
-	// that is what lets project content auto-trust.
+	// about itself: the class-appropriate minter's BundleRef for a remote
+	// (cloned) source, a bundle embedded in the binary (trust.BuiltinRef), a
+	// companion loadout (trust.CompanionRef), and the path-relative resolution
+	// name for a bundle in the project's own tree (trust.LocalRef) — the
+	// last of those is what lets project content auto-trust.
 	//
 	// newRead stamps the resolution ref here whenever a reader left it empty,
 	// so it is never empty on a read a reader emitted. That backstop is a
@@ -106,27 +104,34 @@ type Bundle struct {
 	// a bundle that renamed itself would move off its own recorded decisions.
 	// The declared name is CONTENT: covered by the signature and by review, and
 	// therefore never an input to the decision that establishes that trust.
-	sourceRef string `yaml:"-"`
-
-	// sourceRefTyped is sourceRef's structured counterpart: the identical
-	// location-derived source, carried as a trust.BundleRef instead of its
-	// string rendering. It is set by the SAME call sites that set sourceRef,
-	// through the matching class minter (trust.BuiltinRef / LocalRef /
-	// CompanionRef / GitRef / FileRef via trust.Ref.AsBundleRef) rather than by
-	// reparsing sourceRef — so the two can never independently disagree on
-	// what a bundle's source IS, only on how it is spelled. See
-	// BundleRead.SourceRef.
 	//
-	// Every call site that sets sourceRef sets this field too — localFSReader
-	// (builtin and project), newRead's local fallback, companionReader,
-	// repoFSReader (single-file and tree form), and loader_version.go's
-	// bundleAtVersion for a version-pinned read. The zero BundleRef therefore
-	// means only a mint that failed (an unfoldable repo-URL spelling — see
-	// Ref.AsBundleRef's doc); BundleRead.SourceRef reports it as-is rather
-	// than guessing, and a producer minting an item ref from it must degrade
-	// to a stable, well-formed address rather than withhold silently (see
+	// It is a trust.BundleRef, not a string: the field used to carry BOTH a
+	// string rendering and this structured counterpart, set by the same call
+	// sites through the matching class minter — so the two could never
+	// independently disagree on what a bundle's source IS, only on how it was
+	// spelled. Collapsing to one typed field removes the spelling question
+	// entirely rather than keeping two representations in sync.
+	//
+	// Every call site that sets sourceRef does so through a class minter —
+	// localFSReader (builtin and project), newRead's local fallback,
+	// companionReader, repoFSReader (single-file and tree form), and
+	// loader_version.go's bundleAtVersion for a version-pinned read. The zero
+	// BundleRef is therefore a REACHABLE, meaningful value — a mint that
+	// failed (an unfoldable repo-URL spelling — see Ref.AsBundleRef's doc) —
+	// not merely "unset"; BundleRead.SourceRef reports it as-is rather than
+	// guessing, and a producer minting an item ref from it must degrade to a
+	// stable, well-formed address rather than withhold silently (see
 	// operations.CountersignRef's identical fallback).
-	sourceRefTyped trust.BundleRef `yaml:"-"`
+	//
+	// Because the zero value is reachable and meaningful, "has a reader
+	// already stamped this" cannot be read off sourceRef itself — a failed
+	// mint and an untouched field are the same trust.BundleRef{}. sourceRefSet
+	// is that separate sentinel: newRead's local fallback (the only caller
+	// that ever asks) checks it, not sourceRef's value, so an UNMINTABLE
+	// canonical ref from repoFSReader stays unaddressable rather than being
+	// silently re-stamped as a local bundle of that name.
+	sourceRef    trust.BundleRef `yaml:"-"`
+	sourceRefSet bool            `yaml:"-"`
 
 	// signer is the VERIFIED publisher identity of this bundle's file bytes: the
 	// principal of the allowed_signers entry whose key made a valid publish
@@ -226,17 +231,16 @@ func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
 }
 
 // contentSourceRef returns the bundle's honest source ref for content trust
-// gating: the canonical ref of a seeded (cloned) bundle, the "builtin:<name>"
-// ref of a bundle embedded in the binary, the "ctxloom:companion@<bin>" ref of
-// a companion loadout, or the path-relative resolution name of a project (fs)
-// bundle. Locality/builtin-ness flows from this into the trust cascade, so a
-// clone's TEXT gates like its executables, a builtin's TEXT carries the SAME
-// identity whether it was selected by ref through the loader or injected
-// unconditionally (a builtin read through localFSReader once keyed as LOCAL, a
-// different trust identity than the "builtin:<name>" ref injection uses for
-// the identical item — a rejection via one route did not withhold the other;
-// see crispy-scoop), and a project bundle's bare token keys IsLocal and
-// auto-trusts. "Text to an LLM is executable."
+// gating: the canonical ref of a seeded (cloned) bundle, the BuiltinRef of a
+// bundle embedded in the binary, the CompanionRef of a companion loadout, or
+// the LocalRef of a project (fs) bundle. Locality/builtin-ness flows from this
+// into the trust cascade, so a clone's TEXT gates like its executables, a
+// builtin's TEXT carries the SAME identity whether it was selected by ref
+// through the loader or injected unconditionally (a builtin read through
+// localFSReader once keyed as LOCAL, a different trust identity than the
+// builtin ref injection uses for the identical item — a rejection via one
+// route did not withhold the other; see crispy-scoop), and a project bundle's
+// bare token keys IsLocal and auto-trusts. "Text to an LLM is executable."
 //
 // It reads sourceRef and NOTHING ELSE. In particular it must never fall back
 // to Bundle.Name: Name is DECLARED in the bundle's own YAML, so a fallback
@@ -251,18 +255,11 @@ func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
 // stamping, the fallback is unreachable. Its removal is trap removal — the
 // stamp is the load-bearing half, and the tests that die are the ones that die
 // when the stamp goes (internal/operations/declared_name_trust_test.go).
-func (b *Bundle) contentSourceRef() string {
-	return b.sourceRef
-}
-
-// contentSourceRefTyped is contentSourceRef's structured counterpart. See
-// sourceRefTyped's doc for why it is a field mapping, never a reparse of
-// contentSourceRef's string.
-func (b *Bundle) contentSourceRefTyped() trust.BundleRef {
+func (b *Bundle) contentSourceRef() trust.BundleRef {
 	if b == nil {
 		return trust.BundleRef{}
 	}
-	return b.sourceRefTyped
+	return b.sourceRef
 }
 
 // nonFilesystemPathPrefixes are the synthetic Bundle.Path sentinels. None of

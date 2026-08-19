@@ -274,7 +274,7 @@ func TestExposureWithheld_Characterization_ResolveErrorWithholds(t *testing.T) {
 
 	// The producer cannot mint a canonical ref for a source it could not
 	// parse (read.SourceRef() is the zero BundleRef here), so it degrades to
-	// a stable, well-formed, non-colliding address — see bundles.itemRefFor's
+	// a stable, well-formed, non-colliding address — see bundles.ItemRefFor's
 	// unaddressable fallback. kind/item are appended to that degraded
 	// address, or the fragment and the command would collide onto ONE
 	// withheld key and only one of the two would ever be tallied.

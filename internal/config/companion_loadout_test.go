@@ -465,7 +465,7 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
 		result := cfg.ResolveBundleHooks(nil)
 		require.Len(t, result.PreTool, 1)
 		assert.Equal(t, "ltk evaluate", result.PreTool[0].Command)
-		assert.Equal(t, "bundle:"+remote.CompanionSource+"@ltk", result.PreTool[0].SCM)
+		assert.Equal(t, "bundle:ctxloom+companion:ltk", result.PreTool[0].SCM)
 	})
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
@@ -491,7 +491,7 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testin
 		cfg.SetExecutableTrustGate(testAuthorizer(true))
 		result := cfg.ResolveBundleMCPServers(nil)
 		require.Contains(t, result, "ltk-server")
-		assert.Equal(t, "bundle:"+remote.CompanionSource+"@ltk", result["ltk-server"].SCM)
+		assert.Equal(t, "bundle:ctxloom+companion:ltk", result["ltk-server"].SCM)
 	})
 
 	t.Run("denying gate withholds it", func(t *testing.T) {

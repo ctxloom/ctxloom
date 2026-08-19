@@ -243,12 +243,12 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 
 	keepApplied, denyApplied := false, false
 	for _, h := range result.PreTool {
-		if h.Command == "echo keep" && h.SCM == "bundle:hook-bundle" {
+		if h.Command == "echo keep" && h.SCM == "bundle:ctxloom+local:hook-bundle" {
 			keepApplied = true
 		}
 	}
 	for _, h := range result.SessionStart {
-		if h.Command == "echo deny" && h.SCM == "bundle:hook-bundle" {
+		if h.Command == "echo deny" && h.SCM == "bundle:ctxloom+local:hook-bundle" {
 			denyApplied = true
 		}
 	}

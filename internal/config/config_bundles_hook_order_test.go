@@ -30,7 +30,7 @@ func TestExtractHooksFromBundle_OrderFieldSequencesWithinAnEvent(t *testing.T) {
 			Order:   hookOrderP((12 - i) * 100),
 		})
 	}
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), "src", bundles.AdmitAll())
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), mustLocalRef(t, "src"), bundles.AdmitAll())
 
 	require.Len(t, got.PreTool, 12)
 	var cmds []string
@@ -51,7 +51,7 @@ func TestExtractHooksFromBundle_NoDeclaredOrderKeepsAuthoredPosition(t *testing.
 		{Type: "command", Command: "alpha"},
 		{Type: "command", Command: "mike"},
 	}
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), "src", bundles.AdmitAll())
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), mustLocalRef(t, "src"), bundles.AdmitAll())
 
 	var cmds []string
 	for _, h := range got.PreTool {
@@ -71,7 +71,7 @@ func TestExtractHooksFromBundle_DeclaredOrderBeatsUndeclared(t *testing.T) {
 		{Type: "command", Command: "legacy-second"},
 		{Type: "command", Command: "sequenced", Order: hookOrderP(900000)},
 	}
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), "src", bundles.AdmitAll())
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), mustLocalRef(t, "src"), bundles.AdmitAll())
 
 	var cmds []string
 	for _, h := range got.PreTool {
@@ -94,7 +94,7 @@ func TestExtractHooksFromBundle_GateRefsStayAuthoredIndex(t *testing.T) {
 	}
 	got := extractHooksFromBundle(
 		bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}),
-		"remote/tools", recordingGate(seen))
+		mustLocalRef(t, "remote/tools"), recordingGate(seen))
 
 	require.Len(t, got.PreTool, 2)
 	assert.Equal(t, "runs-first", got.PreTool[0].Command, "resolution still honours order")
@@ -117,7 +117,7 @@ func TestExtractHooksFromBundle_DenialDoesNotDisturbRemainingOrder(t *testing.T)
 	}
 	got := extractHooksFromBundle(
 		bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}),
-		"remote/tools", recordingGate(nil, "#hooks/pre_tool/1"))
+		mustLocalRef(t, "remote/tools"), recordingGate(nil, "#hooks/pre_tool/1"))
 
 	var cmds []string
 	for _, h := range got.PreTool {
@@ -137,7 +137,7 @@ func TestExtractHooksFromBundle_DenialDoesNotDisturbRemainingOrder(t *testing.T)
 // against.
 func TestExtractHooksFromBundle_OrderIsConsumedAndNeverSerialized(t *testing.T) {
 	in := []bundles.BundleHook{{Type: "command", Command: "x", Order: hookOrderP(4242)}}
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), "src", bundles.AdmitAll())
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), mustLocalRef(t, "src"), bundles.AdmitAll())
 	require.Len(t, got.PreTool, 1)
 
 	encoded, err := json.Marshal(got.PreTool[0])

@@ -122,12 +122,12 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 	if b.Name == "" {
 		b.Name = ref
 	}
-	b.sourceRef = ref
 	typed, err := trust.CompanionRef(lo.Bin)
 	if err != nil {
 		warnUnmintableSource(ref, err)
 	}
-	b.sourceRefTyped = typed
+	b.sourceRef = typed
+	b.sourceRefSet = true
 
 	facts := readSignatureFacts(lo.Bundle, lo.Signature, r.cfg.root)
 	switch {

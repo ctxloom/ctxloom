@@ -30,7 +30,7 @@ func TestExtractHooksFromBundle_PreimageBuildFailure_IsReported(t *testing.T) {
 	}}
 
 	mark := strictness.Checkpoint()
-	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", recordingGate(nil))
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(nil))
 
 	assert.Empty(t, got.PreTool, "fail-closed: a hook whose preimage cannot be built is withheld")
 
@@ -56,7 +56,7 @@ func TestExtractMCPFromBundle_PreimageBuildFailure_IsReported(t *testing.T) {
 	}}
 
 	mark := strictness.Checkpoint()
-	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", recordingGate(nil))
+	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "remote/tools"), recordingGate(nil))
 
 	assert.Empty(t, got, "fail-closed: an MCP server whose preimage cannot be built is withheld")
 

@@ -225,12 +225,13 @@ type BundleRead struct {
 //
 // It is NOT the trust key, and since a builtin's resolution ref stopped
 // carrying its source class the two genuinely differ: `isolation` resolves the
-// builtin, `builtin:isolation` gates it. Anything building a
-// "<source>#<kind>/<name>" gate ref wants TrustSourceRef below.
+// builtin, its builtin-class BundleRef gates it. Anything building a
+// "<source>#<kind>/<name>" gate ref wants SourceRef below.
 func (r BundleRead) Ref() string { return r.ref }
 
-// TrustSourceRef reports the source component of this bundle's content trust
-// refs — the string a "<source>#<kind>/<name>" gate ref is built from.
+// SourceRef reports the source component of this bundle's content trust
+// refs — the structured trust.BundleRef a "<source>#<kind>/<name>" gate ref
+// is built from.
 //
 // It exists so the two routes a builtin's content reaches a session by cannot
 // key differently. The loader-resolved route builds its ref from
@@ -244,28 +245,15 @@ func (r BundleRead) Ref() string { return r.ref }
 //
 // Location-derived without exception: the readers stamp it, nothing a bundle
 // DECLARES reaches it (outdated-recoil).
-func (r BundleRead) TrustSourceRef() string {
-	if r.Bundle == nil {
-		return ""
-	}
-	return r.Bundle.contentSourceRef()
-}
-
-// SourceRef reports TrustSourceRef's structured counterpart: the same
-// location-derived source, as a trust.BundleRef instead of a string a caller
-// would have to reparse. It is minted by the reader at the same point it
-// stamps TrustSourceRef, through the class matching where the bundle was
-// actually found — never by parsing TrustSourceRef's string back apart.
 //
 // The zero BundleRef means either an unclaimed read (r.Bundle == nil) or a
 // reader that has not stamped this field yet; BundleRead.Claimed does not
-// cover it, so a caller that must distinguish those two should check
-// TrustSourceRef first.
+// cover it.
 func (r BundleRead) SourceRef() trust.BundleRef {
 	if r.Bundle == nil {
 		return trust.BundleRef{}
 	}
-	return r.Bundle.contentSourceRefTyped()
+	return r.Bundle.contentSourceRef()
 }
 
 // warnUnmintableSource reports a source ref that could not be minted into the
@@ -285,16 +273,22 @@ func warnUnmintableSource(source string, err error) {
 	clidiag.Warn("ctxloom", "cannot address source %q: %v — items under it will be withheld", source, err)
 }
 
-// itemRefFor mints the canonical "<source>#<kind>/<item>" reference an item's
+// ItemRefFor mints the canonical "<source>#<kind>/<item>" reference an item's
 // TrustRef is built from, and REPORTS a source it cannot address. The grammar
-// and the fallback spelling live in trust.ItemRef — shared with the
-// source-string form the config and lm/backends producers use, so the two
-// cannot drift on what an unaddressable item keys as.
+// and the fallback spelling live in trust.ItemRef, so every producer that
+// mints an item ref from a bundle's structured source — this package's own
+// loaders, config's executable-surface extractors, lm/backends' profile
+// gate — cannot drift on what an unaddressable item keys as.
+//
+// Exported because config and lm/backends are the same kind of caller this
+// package's own loaders are: each holds a trust.BundleRef (a BundleRead's
+// SourceRef, or the structured counterpart of one) and needs the identical
+// mint-and-report behavior, not a private copy of it.
 //
 // Reachable in exactly the shape AsBundleRef's doc describes: src is the zero
 // BundleRef, which BundleRead.SourceRef reports as-is for a read whose typed
 // source was never established.
-func itemRefFor(src trust.BundleRef, kind trust.ItemKind, item string) string {
+func ItemRefFor(src trust.BundleRef, kind trust.ItemKind, item string) string {
 	ref, err := trust.ItemRef(src, kind, item)
 	if err != nil {
 		warnUnmintableSource(fmt.Sprintf("%#v", src), err)
@@ -351,24 +345,30 @@ func (r BundleRead) Claimed() bool {
 // WithSeededBundles' lockfile ref, the repofs reader's, the companion
 // reader's, and localFSReader's "builtin:<name>" for embedded content.
 //
-// Every caller that reaches this fallback with sourceRef still empty is, by
+// Every caller that reaches this fallback with sourceRefSet still false is, by
 // construction, a genuinely local resolution ref — the companion, repofs and
-// builtin call sites all stamp sourceRef (string AND typed) themselves before
-// calling newRead, so the only ones left empty here are localFSReader's
+// builtin call sites all stamp sourceRef (and sourceRefSet) themselves before
+// calling newRead, so the only ones left unset here are localFSReader's
 // project-provenance bundles and the package's other exported constructor for
-// project-authored (non-Reader) content above. The typed stamp below is
-// minted with trust.LocalRef accordingly, not re-derived by inspecting
-// prov/tctx: a fifth reader that reached this fallback for a non-local ref
-// would be a bug in THAT reader, not something this function could detect
-// from its own arguments.
+// project-authored (non-Reader) content above. The stamp below is minted with
+// trust.LocalRef accordingly, not re-derived by inspecting prov/tctx: a fifth
+// reader that reached this fallback for a non-local ref would be a bug in
+// THAT reader, not something this function could detect from its own
+// arguments.
+//
+// Gated on sourceRefSet, not on sourceRef's value: a reader whose mint FAILED
+// still stamped sourceRefSet, and that failure (the zero BundleRef) must
+// stick — checking sourceRef itself would be unable to tell "unmintable" from
+// "untouched" and would silently paper over the failure as a local bundle of
+// that name.
 func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts signatureFacts) BundleRead {
-	if b != nil && b.sourceRef == "" {
-		b.sourceRef = ref
+	if b != nil && !b.sourceRefSet {
 		typed, err := trust.LocalRef(ref)
 		if err != nil {
 			warnUnmintableSource(ref, err)
 		}
-		b.sourceRefTyped = typed
+		b.sourceRef = typed
+		b.sourceRefSet = true
 	}
 	return BundleRead{
 		Bundle:               b,

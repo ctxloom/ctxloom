@@ -142,7 +142,7 @@ func resolveCollision(prior, incoming BundleRead) BundleRead {
 	strictness.FailOnce(strictness.ClassBundle,
 		"rename one of the two bundles so each has its own name",
 		"bundle %q resolves to two different bundles: %s (used) shadows %s (unreachable)",
-		winner.ref, winner.TrustSourceRef(), shadowed.TrustSourceRef())
+		winner.ref, winner.SourceRef().String(), shadowed.SourceRef().String())
 	return winner
 }
 
@@ -167,7 +167,7 @@ func (c Catalog) Len() int { return len(c.reads) }
 // encoded WHERE the bundle sat, which is a trust question, not an addressing
 // one. Nothing mints such a resolution ref any more, so the arm could only ever
 // miss, and `builtin:isolation` is now correctly NOT a bundle handle: it is a
-// TRUST ref (BundleRead.TrustSourceRef), and the two are deliberately different
+// TRUST ref (BundleRead.SourceRef), and the two are deliberately different
 // strings. A bare `isolation` reaches the builtin, or the project's bundle of
 // that name when one shadows it (resolveCollision).
 //

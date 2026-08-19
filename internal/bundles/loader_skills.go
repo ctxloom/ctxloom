@@ -42,7 +42,7 @@ type LoadedSkill struct {
 	Tags        []string          // combined (bundle + skill) tags
 
 	// TrustRef is the ref the trust gate keys this package by, minted through
-	// the canonical bundle-reference grammar (itemRefFor,
+	// the canonical bundle-reference grammar (ItemRefFor,
 	// "ctxloom+<class>:...#skills/<name>") — the same honest typed-source
 	// keying LoadedContent uses. A read FACT, never a decision.
 	TrustRef string
@@ -214,7 +214,7 @@ func (l *Loader) skillContent(read BundleRead, name string, entry BundleSkill) *
 		Files:        files,
 		LLM:          entry.LLM,
 		Tags:         slices.Concat(bundle.Tags, entry.Tags),
-		TrustRef:     itemRefFor(read.SourceRef(), trust.KindSkill, name),
+		TrustRef:     ItemRefFor(read.SourceRef(), trust.KindSkill, name),
 		TrustPayload: payload,
 		Signer:       bundle.Signer(),
 		Read:         read,

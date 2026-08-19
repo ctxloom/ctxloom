@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // This file holds the RESOLVED MODEL of the ctxloom-managed hook set:
@@ -53,13 +53,14 @@ const (
 	// through the same loader). These pass the executable trust gate; a hook
 	// with this origin was ALLOWED by it.
 	HookOriginProfileDirectory HookOrigin = "profile-directory"
-	// HookOriginBuiltin: a bundle compiled into the ctxloom binary. Ref is
-	// "builtin:<name>". Unconditional — no profile pulls these in, so there is
-	// no profile to name and nothing in the project to edit.
+	// HookOriginBuiltin: a bundle compiled into the ctxloom binary. Ref is the
+	// canonical "ctxloom+builtin:<name>". Unconditional — no profile pulls
+	// these in, so there is no profile to name and nothing in the project to
+	// edit.
 	HookOriginBuiltin HookOrigin = "builtin"
 	// HookOriginCompanion: a companion binary's loadout bundle, discovered on
-	// PATH. Ref is "ctxloom:companion@<bin>". Also unconditional: the lever is
-	// whether the binary is installed.
+	// PATH. Ref is the canonical "ctxloom+companion:<bin>". Also
+	// unconditional: the lever is whether the binary is installed.
 	HookOriginCompanion HookOrigin = "companion"
 	// HookOriginBundle: a bundle a selected profile references. Ref is the
 	// bundle's source ref.
@@ -92,8 +93,8 @@ type HookSource struct {
 	Profile string
 
 	// Ref is the source ref of the bundle a hook came from, for the three
-	// bundle origins ("builtin:<name>", "ctxloom:companion@<bin>", or a
-	// bundle's own ref). Empty otherwise.
+	// bundle origins ("ctxloom+builtin:<name>", "ctxloom+companion:<bin>", or
+	// a bundle's own canonical ref). Empty otherwise.
 	Ref string
 }
 
@@ -372,29 +373,39 @@ func fixedSource(s HookSource) hookAttributor {
 }
 
 // bundleHookMarkerPrefix is the marker config.extractHooksFromBundle stamps into
-// wire.Hook.SCM for every bundle-shipped hook ("bundle:<source ref>"). It is the
-// ONLY provenance the bundle-resolution pass carries, since that pass returns
-// builtin, companion, and profile-referenced bundle hooks as one flat set.
+// wire.Hook.SCM for every bundle-shipped hook ("bundle:" + the canonical
+// BundleIdentity of the source ref). It is the ONLY provenance the
+// bundle-resolution pass carries, since that pass returns builtin, companion,
+// and profile-referenced bundle hooks as one flat set.
 const bundleHookMarkerPrefix = "bundle:"
-
-// builtinBundleRefPrefix is how config.resolveBuiltinBundleHooks refs a bundle
-// compiled into this binary ("builtin:<name>").
-const builtinBundleRefPrefix = "builtin:"
 
 // bundleSource reads a bundle-resolved hook's origin back off its SCM marker and
 // classifies the ref: a builtin, a companion loadout, or a bundle a profile
 // referenced. These are three genuinely different answers to "what do I change"
 // — reinstall nothing, install or remove a binary, or edit a profile's bundle
 // list — so they are three origins rather than one.
+//
+// Classification is by PARSED CLASS (trust.ParseBundleRef), never a string
+// prefix test: the marker is a canonical bundle reference
+// ("ctxloom+builtin:<name>", "ctxloom+companion:<bin>", …), and a class
+// carried in the URI scheme cannot be spoofed by a bundle NAME that happens to
+// start with the same characters the way a raw prefix test could be. A marker
+// that fails to parse is Unattributed with the ref reported unattributed
+// rather than misclassified, matching the "I do not know" posture
+// HookOriginUnattributed documents.
 func bundleSource(h wire.Hook) HookSource {
 	ref, ok := strings.CutPrefix(h.SCM, bundleHookMarkerPrefix)
 	if !ok {
 		return HookSource{Origin: HookOriginUnattributed}
 	}
-	switch {
-	case strings.HasPrefix(ref, builtinBundleRefPrefix):
+	br, err := trust.ParseBundleRef(ref)
+	if err != nil {
+		return HookSource{Origin: HookOriginUnattributed, Ref: ref}
+	}
+	switch br.Class {
+	case trust.ClassBuiltin:
 		return HookSource{Origin: HookOriginBuiltin, Ref: ref}
-	case strings.HasPrefix(ref, remote.CompanionSource+"@"):
+	case trust.ClassCompanion:
 		return HookSource{Origin: HookOriginCompanion, Ref: ref}
 	default:
 		return HookSource{Origin: HookOriginBundle, Ref: ref}

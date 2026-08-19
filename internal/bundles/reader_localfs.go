@@ -268,31 +268,32 @@ func (r *localFSReader) readBundle(path, name string) (BundleRead, error) {
 	//   by what it declares, not by where it sits (ProvenanceClass's own doc:
 	//   provenance is "a LABEL ... never the axis a gate keys on").
 	//
-	//   TRUST ref (bundle.sourceRef, "builtin:<name>") is ACTUAL LOCATION, and
-	//   trust keys on actual location. Source class belongs here and only here.
+	//   TRUST ref (bundle.sourceRef, trust.BuiltinRef(name)) is ACTUAL
+	//   LOCATION, and trust keys on actual location. Source class belongs
+	//   here and only here.
 	//
 	// This must run BEFORE newRead, whose stamp is only-if-empty: with sourceRef
 	// already set, the bare resolution ref cannot overwrite it. Were sourceRef
-	// left empty, newRead would stamp the bare `name`, Bundle.contentSourceRef()
+	// left unset, newRead would stamp the bare `name`, Bundle.contentSourceRef()
 	// (the fragment/prompt/skill trust ref for the loader-resolved-by-ref route)
-	// would yield it, and trust.ParseItemRef's bare-token fallback would key
-	// that route as IsLocal — a second trust identity for the same item, so a
-	// rejection recorded against one route would not withhold the other
-	// (crispy-scoop). The injection route in
-	// config.ResolveBuiltinBundleFragments reads the same string through
-	// BundleRead.TrustSourceRef(), so both routes still resolve to ONE
+	// would yield it, and it would key IsLocal — a second trust identity for
+	// the same item, so a rejection recorded against one route would not
+	// withhold the other (crispy-scoop). The injection route in
+	// config.ResolveBuiltinBundleFragments reads the same value through
+	// BundleRead.SourceRef(), so both routes still resolve to ONE
 	// Ref{IsBuiltin: true} and one store key — now structurally, rather than
 	// because two independently-built strings happened to match.
 	//
-	// A project bundle's sourceRef is untouched (stays ""), so newRead stamps
-	// its bare resolution name and its IsLocal auto-trust is unchanged.
+	// A project bundle's sourceRef is untouched (stays the zero BundleRef), so
+	// newRead stamps its bare resolution name and its IsLocal auto-trust is
+	// unchanged.
 	if r.provenance == ProvenanceBuiltin {
-		bundle.sourceRef = trust.BuiltinSourcePrefix + name
 		typed, err := trust.BuiltinRef(name)
 		if err != nil {
-			warnUnmintableSource(bundle.sourceRef, err)
+			warnUnmintableSource(name, err)
 		}
-		bundle.sourceRefTyped = typed
+		bundle.sourceRef = typed
+		bundle.sourceRefSet = true
 	}
 
 	// Skills are a PACKAGE (a directory tree: SKILL.md plus siblings), which a

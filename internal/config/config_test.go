@@ -1356,14 +1356,14 @@ func TestExtractMCPFromBundle(t *testing.T) {
 		},
 	}
 
-	result := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), "my-bundle", bundles.AdmitAll())
+	result := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), mustLocalRef(t, "my-bundle"), bundles.AdmitAll())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
 	assert.Equal(t, []string{"--arg1"}, result["test-server"].Args)
 	assert.Equal(t, "value", result["test-server"].Env["KEY"])
 	assert.Equal(t, "Test server", result["test-server"].Notes)
-	assert.Equal(t, "bundle:my-bundle", result["test-server"].SCM)
+	assert.Equal(t, "bundle:ctxloom+local:my-bundle", result["test-server"].SCM)
 }
 
 // =============================================================================
@@ -1408,7 +1408,7 @@ func TestResolveProfile_DepthLimit(t *testing.T) {
 func onlyBuiltinMCPServers(t *testing.T, result map[string]wire.MCPServer) {
 	t.Helper()
 	for name, server := range result {
-		assert.True(t, strings.HasPrefix(server.SCM, "bundle:builtin:") || strings.HasPrefix(server.SCM, "bundle:ctxloom:companion@"),
+		assert.True(t, strings.HasPrefix(server.SCM, "bundle:ctxloom+builtin:") || strings.HasPrefix(server.SCM, "bundle:ctxloom+companion:"),
 			"unexpected non-builtin, non-companion MCP server %q (SCM %q)", name, server.SCM)
 	}
 	assert.Empty(t, result, "no embedded builtin bundle ships an MCP server anymore, and these callers don't fake a companion loadout probe")
@@ -1746,7 +1746,7 @@ func hasHookCommand(hooks []wire.Hook, command, wantSCM string) bool {
 // affecting the always-present builtin hooks.
 func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 	admitEveryDiscoveredCompanion(t)
-	const bundleSCM = "bundle:hook-bundle"
+	const bundleSCM = "bundle:ctxloom+local:hook-bundle"
 
 	newProject := func(t *testing.T) (appDir, profilesDir, bundlesDir string) {
 		t.Helper()
@@ -1821,7 +1821,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 			"a ghost bundle ref contributes no hooks")
 		found := false
 		for _, h := range result.PostFileEdit {
-			if strings.Contains(h.Command, "hook stamp-plan") && h.SCM == "bundle:ctxloom:companion@taskloom" {
+			if strings.Contains(h.Command, "hook stamp-plan") && h.SCM == "bundle:ctxloom+companion:taskloom" {
 				found = true
 			}
 		}
@@ -1915,7 +1915,7 @@ hooks:
 	require.Len(t, result.PostTool, 1)
 	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
 	assert.Equal(t, "echo recorded", result.PostTool[0].Command)
-	assert.Equal(t, "bundle:with-hooks", result.PostTool[0].SCM, "bundle-shipped hooks must be tagged with their origin")
+	assert.Equal(t, "bundle:ctxloom+local:with-hooks", result.PostTool[0].SCM, "bundle-shipped hooks must be tagged with their origin")
 
 	require.Len(t, result.PostFileEdit, 1)
 	assert.Contains(t, result.PostFileEdit[0].Matcher, "plan")
@@ -1962,10 +1962,10 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 
 	synthetic := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
 		Hooks: bundles.BundleHooks{PostFileEdit: []bundles.BundleHook{{Command: "echo hi", Type: "command"}}},
-	}), "builtin:future-bundle", bundles.AdmitAll())
+	}), mustBuiltinRef(t, "future-bundle"), bundles.AdmitAll())
 	require.Len(t, synthetic.PostFileEdit, 1)
-	assert.Equal(t, "bundle:builtin:future-bundle", synthetic.PostFileEdit[0].SCM,
-		"extractHooksFromBundle prepends 'bundle:' to whatever source it gets, including builtin:")
+	assert.Equal(t, "bundle:ctxloom+builtin:future-bundle", synthetic.PostFileEdit[0].SCM,
+		"extractHooksFromBundle prepends 'bundle:' to the source's canonical BundleIdentity, including a builtin's")
 }
 
 // TestResolveBuiltinBundleMCPServers proves the embedded-builtin-bundle
@@ -1974,7 +1974,7 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 // registration onto its own loadout; see
 // TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated). The
 // SCM-tag contract for any FUTURE embedded builtin is still pinned directly
-// via extractMCPFromBundle with "builtin:<name>" as the source — the same
+// via extractMCPFromBundle with a BuiltinRef as the source — the same
 // code path resolveBuiltinBundleMCPServers takes.
 func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 	stubLookPath(t)
@@ -1988,10 +1988,10 @@ func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 		MCP: map[string]bundles.BundleMCP{
 			"synthetic": {Command: "fake"},
 		},
-	}), "builtin:future-bundle", bundles.AdmitAll())
+	}), mustBuiltinRef(t, "future-bundle"), bundles.AdmitAll())
 	require.Contains(t, synthetic, "synthetic")
-	assert.Equal(t, "bundle:builtin:future-bundle", synthetic["synthetic"].SCM,
-		"extractMCPFromBundle prepends 'bundle:' to whatever source it gets, including builtin:")
+	assert.Equal(t, "bundle:ctxloom+builtin:future-bundle", synthetic["synthetic"].SCM,
+		"extractMCPFromBundle prepends 'bundle:' to the source's canonical BundleIdentity, including a builtin's")
 }
 
 func TestHooksConfig_HasAny(t *testing.T) {

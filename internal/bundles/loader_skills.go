@@ -103,7 +103,7 @@ func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 			return nil
 		}
 	}
-	read, err := l.lookup(bundleRef)
+	read, err := l.Read(bundleRef)
 	if err != nil {
 		// This feeds the export path that WRITES per-engine skill files, so a
 		// bare `return nil` exported zero skills, exit 0, in silence —
@@ -301,7 +301,7 @@ func (l *Loader) ReadSkill(name string) ([]*LoadedSkill, error) {
 // success: a skill that does not materialize must never look like one that
 // materialized to nothing.
 func (l *Loader) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, error) {
-	read, err := l.lookup(bundleName)
+	read, err := l.Read(bundleName)
 	if err != nil {
 		return nil, err
 	}

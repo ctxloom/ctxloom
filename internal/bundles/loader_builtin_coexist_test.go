@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -82,11 +83,24 @@ func TestCatalog_SameDeclaredNameDifferentClasses_BothResolve(t *testing.T) {
 // Composition order no longer decides IDENTITY, but it still decides this.
 func TestCatalogFS_StaysTheProjectFilesystem(t *testing.T) {
 	fs := coexistFS(t, "isolation")
-	l := NewLoader(NewProjectReader(fs, []string{"/bundles"}), NewBuiltinReader())
+	builtin := NewBuiltinReader()
+
+	// The assertion below is only meaningful while the builtin reader HAS a
+	// filesystem of its own to be mistaken for the project's. A builtin reader
+	// that carried none would make every arrangement of readers pass.
+	embedded, ok := builtin.(interface{ FS() afero.Fs })
+	require.True(t, ok, "the builtin reader must carry a filesystem, or this test proves nothing")
+	require.NotEqual(t, fmt.Sprintf("%T", fs), fmt.Sprintf("%T", embedded.FS()),
+		"the embedded filesystem must be a different filesystem from the project's")
+
+	l := NewLoader(NewProjectReader(fs, []string{"/bundles"}), builtin)
 
 	require.Same(t, fs, l.FS(),
 		"a loader carrying the builtin reader must still read skills from the PROJECT filesystem; "+
 			"reader order alone can redirect it to the embedded one and silently withhold every skill")
+	require.Same(t, fs, l.Catalog().FS(),
+		"the resolved set answers with the SAME filesystem it resolved from; a set that answered "+
+			"with any other would derive every skill preimage from a tree that is not there")
 }
 
 // TestUnshadowedBuiltin_ResolvesByItsBareName is the cost the ambiguity

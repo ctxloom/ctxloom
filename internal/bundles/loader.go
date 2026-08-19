@@ -2,15 +2,12 @@ package bundles
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"os"
 	"sync"
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -106,14 +103,7 @@ func (l *Loader) WithVersionResolver(resolver BundleVersionResolver) *Loader {
 // It comes from the first reader that has one (the project reader in every real
 // wiring), and falls back to the OS filesystem for a loader composed entirely
 // of sources that are not filesystems.
-func (l *Loader) FS() afero.Fs {
-	for _, r := range l.readers {
-		if fsr, ok := r.(interface{ FS() afero.Fs }); ok {
-			return fsr.FS()
-		}
-	}
-	return afero.NewOsFs()
-}
+func (l *Loader) FS() afero.Fs { return readersFS(l.readers) }
 
 // index reads every reader once and builds the addressable view.
 //
@@ -151,7 +141,10 @@ func (l *Loader) Catalog() Catalog {
 	l.index()
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.cat
+	// Stamped at HAND-OUT, not at resolve: WithWarnWriter may be called after
+	// the set was resolved, and a redirect that only took effect on a later
+	// re-read would send this caller's diagnostics to stderr behind its back.
+	return l.cat.WithWarnWriter(l.warnOut)
 }
 
 // isSyntheticPath reports whether a Bundle.Path is one of the non-filesystem
@@ -194,9 +187,7 @@ func (l *Loader) Reads() []BundleRead { return l.Catalog().Reads() }
 // by ref without ever going through a Pipeline: config.loadMCPFromBundleRef and
 // config.loadHooksFromBundleRef both need the read, not just the content. Load
 // remains for callers that genuinely only want the bundle.
-func (l *Loader) Read(name string) (BundleRead, error) {
-	return l.lookup(name)
-}
+func (l *Loader) Read(name string) (BundleRead, error) { return l.Catalog().Read(name) }
 
 // ReadKey resolves a bundle by its EXACT resolution key (Catalog.LookupKey) —
 // the load-path counterpart to Read for a caller that already holds a
@@ -207,81 +198,18 @@ func (l *Loader) ReadKey(key trust.BundleKey) (BundleRead, bool) {
 
 // LoadKey reads a bundle by its EXACT resolution key. See ReadKey.
 func (l *Loader) LoadKey(key trust.BundleKey) (*Bundle, error) {
-	read, ok := l.Catalog().LookupKey(key)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, key)
-	}
-	return read.Bundle, nil
+	return l.Catalog().LoadBundleKey(key)
 }
 
 // Load reads a bundle by name. See Catalog.Lookup for what an ask may be and
 // which asks are refused rather than resolved.
-func (l *Loader) Load(name string) (*Bundle, error) {
-	read, err := l.lookup(name)
-	if err != nil {
-		return nil, err
-	}
-	return read.Bundle, nil
-}
-
-// missing explains an ask that resolved to nothing.
-//
-// "Not found" and "found, but unreadable" are different facts and must not
-// share an exit: a bundle whose file will not parse is a fault the asker can
-// FIX, and reporting it as absent points them at their spelling instead of at
-// the file. Readers that can tell the two apart say so through ReadFailure.
-func (l *Loader) missing(name string) error {
-	for _, r := range l.readers {
-		rf, ok := r.(interface{ ReadFailure(string) error })
-		if !ok {
-			continue
-		}
-		if err := rf.ReadFailure(name); err != nil {
-			return fmt.Errorf("bundle %s could not be read: %w", name, err)
-		}
-	}
-	return fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
-}
-
-// lookup resolves an ask against the resolved set (Catalog.Lookup), through
-// explain so an absent bundle is reported as what the readers know about it.
-func (l *Loader) lookup(name string) (BundleRead, error) {
-	read, err := l.Catalog().Lookup(name)
-	if err != nil {
-		return BundleRead{}, l.explain(name, err)
-	}
-	return read, nil
-}
-
-// explain replaces the ONE resolution verdict a reader can say more about with
-// what the reader knows: a bundle that is absent and a bundle whose file will
-// not parse are different faults, and only the readers can tell them apart.
-// Every other verdict — an ambiguous name, a retired spelling — is already the
-// whole story and passes through untouched.
-func (l *Loader) explain(name string, err error) error {
-	if errors.Is(err, errs.ErrBundleNotFound) {
-		return l.missing(name)
-	}
-	return err
-}
+func (l *Loader) Load(name string) (*Bundle, error) { return l.Catalog().Load(name) }
 
 // Find locates the FILE backing a bundle. It exists for the two callers that
 // need the path itself — deleting a bundle, and reporting whether a short name
 // resolves — and refuses a bundle that has no file, because a synthetic path is
 // not one.
-func (l *Loader) Find(name string) (string, error) {
-	if err := ValidateBundleName(name); err != nil {
-		return "", err
-	}
-	read, err := l.lookup(name)
-	if err != nil {
-		return "", err
-	}
-	if read.Bundle.Path == "" || isSyntheticPath(read.Bundle.Path) {
-		return "", fmt.Errorf("bundle %q has no file on this machine (it came from %s)", name, read.Provenance)
-	}
-	return read.Bundle.Path, nil
-}
+func (l *Loader) Find(name string) (string, error) { return l.Catalog().Find(name) }
 
 // List returns every bundle this loader can see, as listing metadata.
 //

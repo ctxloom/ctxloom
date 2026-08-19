@@ -373,7 +373,7 @@ func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragm
 // fragmentFromBundle loads a specific bundle and reports the named fragment —
 // the single-candidate case of ReadFragment.
 func (l *Loader) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, error) {
-	read, err := l.lookup(bundleName)
+	read, err := l.Read(bundleName)
 	if err != nil {
 		return nil, err
 	}
@@ -505,7 +505,7 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 			return nil
 		}
 	}
-	read, err := l.lookup(bundleRef)
+	read, err := l.Read(bundleRef)
 	if err != nil {
 		// Same silent-export defect as SkillsFromBundleRef, same fix, same
 		// warner expandBundleRef already uses: writing zero command
@@ -530,7 +530,7 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 // commandFromBundle loads a specific bundle and reports the named command —
 // the single-candidate case of ReadCommand.
 func (l *Loader) commandFromBundle(bundleName, promptName string) ([]*ItemRead, error) {
-	read, err := l.lookup(bundleName)
+	read, err := l.Read(bundleName)
 	if err != nil {
 		return nil, err
 	}

@@ -892,7 +892,16 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// (config.loadBundleProfileSeed) for a bundle-shipped one — so deriving
 	// from it needs no re-canonicalization.
 	if bundle, _, ok := remote.SplitBundleProfileRef(profile.Name); ok {
-		resolved.SourceRef = remote.CanonicalBundleRef(bundle)
+		// Fails the whole resolution rather than degrading. SourceRef is what
+		// this profile's directly-declared hooks and MCP servers key the
+		// EXECUTABLE trust gate by; a source that cannot be canonicalized has
+		// no key, and the local fallback would hand it the first-party
+		// auto-allow under a name the ref never named.
+		sourceRef, err := remote.CanonicalBundleRef(bundle)
+		if err != nil {
+			return nil, fmt.Errorf("profile %q: %w", name, err)
+		}
+		resolved.SourceRef = sourceRef
 		resolved.Signer = profile.Signer
 	}
 

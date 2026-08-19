@@ -114,7 +114,8 @@ func TestLocalRev_PromptViaNameAddressedPath(t *testing.T) {
 	appDir, rev1, _ := localContentRepo(t)
 	loader := localResolverLoader(t, appDir)
 
-	ref, version := remote.SplitPromptVersion(localGoTools + "#commands/review@" + rev1)
+	ref, version, err := remote.SplitPromptVersion(localGoTools + "#commands/review@" + rev1)
+	require.NoError(t, err)
 	require.Equal(t, rev1, version, "the name-addressed @rev is split off")
 	lc, err := loader.GetPromptAtVersion(ref, version)
 	require.NoError(t, err)

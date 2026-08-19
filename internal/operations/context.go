@@ -273,8 +273,18 @@ func fragmentsFromTags(cat bundles.Catalog, tags []string) ([]config.FragmentRef
 	}
 	refs := make([]config.FragmentRef, 0, len(taggedInfos))
 	for _, info := range taggedInfos {
-		name := remote.CanonicalBundleRef(info.Bundle) + remote.FragmentSelector + info.Name
-		refs = append(refs, config.FragmentRef{Name: name, Priority: 0})
+		bundle, err := remote.CanonicalBundleRef(info.Bundle)
+		if err != nil {
+			// One unaddressable bundle costs its own fragments, never the tag
+			// query: the other bundles matching this tag are addressable and
+			// their content is what the caller asked for.
+			clidiag.Warn("ctxloom", "tag selection skips fragment %q: %v", info.Name, err)
+			continue
+		}
+		refs = append(refs, config.FragmentRef{
+			Name:     bundle + remote.FragmentSelector + info.Name,
+			Priority: 0,
+		})
 	}
 	return refs, nil
 }
@@ -345,7 +355,15 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 		// Bundle-expanded refs (resolveProfile) already carry Version and a
 		// canonical Name, so normalization is a no-op for them.
 		for _, ref := range profile.Fragments {
-			norm := normalizeFragmentRef(ref)
+			norm, err := normalizeFragmentRef(ref)
+			if err != nil {
+				// Withheld, not fatal: one unaddressable ref must not cost the
+				// profile every other fragment it declares. The load step is
+				// what reports the gap, and the ref reaches it as authored.
+				clidiag.Warn("ctxloom", "profile %q: fragment %q is not addressable and will be withheld: %v",
+					pName, ref.Name, err)
+				norm = ref
+			}
 			allFragments = append(allFragments, norm)
 			declaredByProfile[pName] = append(declaredByProfile[pName], norm.Name)
 		}
@@ -359,12 +377,16 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 // Name. A ref that already carries a Version (e.g. emitted by ExpandBundleRefs
 // with a version-agnostic Name) is returned untouched so re-normalization never
 // clobbers it.
-func normalizeFragmentRef(ref config.FragmentRef) config.FragmentRef {
+func normalizeFragmentRef(ref config.FragmentRef) (config.FragmentRef, error) {
 	if ref.Version != "" {
-		return ref
+		return ref, nil
 	}
-	ref.Name, ref.Version = remote.SplitFragmentVersion(ref.Name)
-	return ref
+	name, version, err := remote.SplitFragmentVersion(ref.Name)
+	if err != nil {
+		return ref, err
+	}
+	ref.Name, ref.Version = name, version
+	return ref, nil
 }
 
 // ingestFragmentRefs loads the ordered fragments (honoring per-ref content

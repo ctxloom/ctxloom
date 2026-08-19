@@ -119,7 +119,10 @@ func GetCommand(ctx context.Context, cfg *config.Config, req GetCommandRequest) 
 	// unchanged GetCommand path resolves the lockfile-pinned default; a pinned
 	// ref resolves that exact historical version via GetPromptAtVersion, gated
 	// by ITS OWN content hash (fail-closed on fetch/resolve error).
-	ref, version := remote.SplitPromptVersion(req.Name)
+	ref, version, err := remote.SplitPromptVersion(req.Name)
+	if err != nil {
+		return nil, err
+	}
 	prompt, err := getPromptVersioned(pipe, req.Name, ref, version)
 	if err != nil {
 		return nil, err

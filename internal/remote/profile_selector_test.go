@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestProfileSelector pins the "<bundle>#profiles/<name>" grammar — the profile
@@ -42,7 +43,9 @@ func TestBundleProfileRef(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, BundleProfileRef(tt.bundle, tt.prof))
+			got, err := BundleProfileRef(tt.bundle, tt.prof)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -221,7 +224,8 @@ func TestSplitRetiredProfileRef(t *testing.T) {
 // SplitBundleProfileRef are inverses for a canonical bundle ref.
 func TestBundleProfileRef_RoundTrip(t *testing.T) {
 	const bundle = "https://github.com/o/r@bundles/code-review"
-	ref := BundleProfileRef(bundle, "cr-correctness-rust")
+	ref, err := BundleProfileRef(bundle, "cr-correctness-rust")
+	require.NoError(t, err)
 	gotBundle, gotName, ok := SplitBundleProfileRef(ref)
 	assert.True(t, ok)
 	assert.Equal(t, bundle, gotBundle)

@@ -394,12 +394,30 @@ func (c Catalog) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, e
 // an explicit ask is never dropped silently).
 func (c Catalog) ResolveFragmentAsk(name string) string {
 	if strings.Contains(name, "#") {
-		return remote.CanonicalFragmentRef(name)
+		canonical, err := remote.CanonicalFragmentRef(name)
+		if err != nil {
+			// The ask is returned AS AUTHORED, which is the same
+			// fault-tolerance the no-match branch below applies and is not the
+			// same thing as the local fallback this replaced: an unaddressable
+			// source stays unaddressable, so the load step withholds it and
+			// says so, instead of resolving to first-party content the ask
+			// never named.
+			return name
+		}
+		return canonical
 	}
 	var matches []string
 	for _, read := range c.Reads() {
 		if _, ok := read.Bundle.Fragments[name]; ok {
-			matches = append(matches, remote.CanonicalBundleRef(read.DisplayName()))
+			// A read whose own display name will not canonicalize is skipped
+			// rather than failing the ask: the fragment may still be served by
+			// another bundle, and refusing the whole search would make one
+			// unaddressable bundle hide every copy of the fragment.
+			match, err := remote.CanonicalBundleRef(read.DisplayName())
+			if err != nil {
+				continue
+			}
+			matches = append(matches, match)
 		}
 	}
 	if len(matches) == 0 {
@@ -673,7 +691,11 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 		// The bundle part may pin a content version ("bundle@<commit>"); keep it
 		// (the read path resolves the cherry-pick at that commit) while the
 		// emitted Name stays the version-agnostic canonical identity.
-		canonical, version := splitBundleVersion(bundleName)
+		canonical, version, err := splitBundleVersion(bundleName)
+		if err != nil {
+			l.Catalog().warnUnresolvedBundle(bundleName, err)
+			return nil
+		}
 		return []ExpandedRef{{Name: canonical + "#" + rest, Version: version}}
 	}
 
@@ -681,7 +703,11 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 	// "@<commit>" enumerates that historical version (its fragment set may
 	// differ from the default) and stamps every item with the commit so each
 	// resolves at that version.
-	canonical, version := splitBundleVersion(ref)
+	canonical, version, err := splitBundleVersion(ref)
+	if err != nil {
+		l.Catalog().warnUnresolvedBundle(ref, err)
+		return nil
+	}
 	// bundleAtVersion with no explicit commit re-derives the version from the
 	// ref itself: the lockfile-pinned default when nothing is pinned, or the
 	// exact historical version via the wired version resolver for "@<commit>".

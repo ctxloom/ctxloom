@@ -182,11 +182,12 @@ func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []strin
 func loadCuratedPrompts(pipe *bundles.Pipeline, refs []string) []*bundles.LoadedContent {
 	var out []*bundles.LoadedContent
 	for _, ref := range refs {
-		name, version := remote.SplitPromptVersion(ref)
-		var (
-			content *bundles.LoadedContent
-			err     error
-		)
+		name, version, err := remote.SplitPromptVersion(ref)
+		if err != nil {
+			clidiag.Warn("ctxloom", "skipping curated prompt %q: %v", ref, err)
+			continue
+		}
+		var content *bundles.LoadedContent
 		if version == "" {
 			content, err = pipe.GetCommand(ref)
 		} else {

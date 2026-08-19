@@ -1086,7 +1086,16 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 		// ref for pinned remote content, the relative path for a local
 		// bundle); bundle.Name is only the file's base, so canonicalize from
 		// the display name.
-		bundleRef := remote.CanonicalBundleRef(read.DisplayName())
+		bundleRef, err := remote.CanonicalBundleRef(read.DisplayName())
+		if err != nil {
+			// This bundle's profiles are dropped, and the drop is announced:
+			// a seed key built on an unparsed source would be a key nothing
+			// ever looks up, so the profiles would go missing either way —
+			// silently in the first case, diagnosably in this one.
+			clidiag.Warn("ctxloom", "bundle %q ships %d profile(s) that cannot be seeded: %v",
+				read.DisplayName(), bundle.ProfileCount(), err)
+			continue
+		}
 		sourceURL := bundleProfileSourceURL(bundleRef)
 		for _, profName := range bundle.ProfileNames() {
 			p := cloneBundleProfile(bundle.Profiles[profName])

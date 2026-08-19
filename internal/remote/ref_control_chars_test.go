@@ -124,7 +124,9 @@ func TestRefIngestPointsStripControlChars(t *testing.T) {
 	})
 
 	t.Run("CanonicalBundleRef", func(t *testing.T) {
-		assert.Equal(t, LocalBundleRef("dev"), CanonicalBundleRef("dev"+nl))
+		got, err := CanonicalBundleRef("dev" + nl)
+		require.NoError(t, err)
+		assert.Equal(t, LocalBundleRef("dev"), got)
 	})
 
 	t.Run("LocalBundleRef", func(t *testing.T) {
@@ -144,17 +146,21 @@ func TestRefIngestPointsStripControlChars(t *testing.T) {
 	})
 
 	t.Run("SplitFragmentVersion", func(t *testing.T) {
-		canonical, _ := SplitFragmentVersion("dev" + nl + "#fragments/a")
+		canonical, _, err := SplitFragmentVersion("dev" + nl + "#fragments/a")
+		require.NoError(t, err)
 		assert.Equal(t, LocalBundleRef("dev")+FragmentSelector+"a", canonical)
 	})
 
 	t.Run("SplitPromptVersion", func(t *testing.T) {
-		canonical, _ := SplitPromptVersion("dev" + nl + "#commands/review")
+		canonical, _, err := SplitPromptVersion("dev" + nl + "#commands/review")
+		require.NoError(t, err)
 		assert.Equal(t, LocalBundleRef("dev")+CommandSelector+"review", canonical)
 	})
 
 	t.Run("BundleProfileRef", func(t *testing.T) {
-		assert.Equal(t, LocalBundleRef("dev")+ProfileSelector+"x", BundleProfileRef("dev"+nl, "x"+nl))
+		got, err := BundleProfileRef("dev"+nl, "x"+nl)
+		require.NoError(t, err)
+		assert.Equal(t, LocalBundleRef("dev")+ProfileSelector+"x", got)
 	})
 
 	t.Run("CanonicalProfileKey", func(t *testing.T) {

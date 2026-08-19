@@ -1,48 +1,43 @@
 version: 1
-locked_at: 2026-08-18T03:37:22.582062099Z
+locked_at: 2026-08-19T06:10:37.571532961Z
 bundles:
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/agent-ensemble:
-        sha: dd55c7f0889a731390b56bf1b479fe8e7dbe7978
+        sha: c9a44467063788728ae961bde95972675c3f34c2
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/containers:
-        sha: dd55c7f0889a731390b56bf1b479fe8e7dbe7978
+        sha: c9a44467063788728ae961bde95972675c3f34c2
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices:
-        sha: dd55c7f0889a731390b56bf1b479fe8e7dbe7978
+        sha: c9a44467063788728ae961bde95972675c3f34c2
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/developer-mindset:
-        sha: dd55c7f0889a731390b56bf1b479fe8e7dbe7978
+        sha: c9a44467063788728ae961bde95972675c3f34c2
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/github:
-        sha: dd55c7f0889a731390b56bf1b479fe8e7dbe7978
+        sha: c9a44467063788728ae961bde95972675c3f34c2
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/go-development:
-        sha: dd55c7f0889a731390b56bf1b479fe8e7dbe7978
+        sha: c9a44467063788728ae961bde95972675c3f34c2
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/just:
-        sha: dd55c7f0889a731390b56bf1b479fe8e7dbe7978
-        url: https://github.com/benjaminabbitt/ctxloom-personal
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-    https://github.com/benjaminabbitt/ctxloom-personal@bundles/serena:
-        sha: dd55c7f0889a731390b56bf1b479fe8e7dbe7978
+        sha: c9a44467063788728ae961bde95972675c3f34c2
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/source-organization:
-        sha: dd55c7f0889a731390b56bf1b479fe8e7dbe7978
+        sha: c9a44467063788728ae961bde95972675c3f34c2
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z

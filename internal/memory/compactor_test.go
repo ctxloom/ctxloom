@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
@@ -224,10 +225,13 @@ func TestCompactor_ChunkText_RuneBoundaryOffsetDoesNotCopy(t *testing.T) {
 }
 
 func TestDistilledSession_RoundTrip(t *testing.T) {
+	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
+	const harp = "round-trip-harp"
 
 	c := &Compactor{config: CompactionConfig{OutputDir: tmpDir}}
 	path, err := c.saveDistilled("round-trip", "## Summary\nDistilled body.", distilledMeta{
+		HarpName:   harp,
 		EntryCount: 12,
 		TokensIn:   2000,
 		TokensOut:  300,
@@ -235,7 +239,13 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 		SourceSize: 184320,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(tmpDir, "round-trip.md"), path)
+
+	// saveDistilled returns the harp's CURRENT essence, which is what a caller
+	// prints and what the picker reads; the rotation copy read back below is
+	// the other half of the same write.
+	essencePath, perr := paths.HarpEssencePath(harp)
+	require.NoError(t, perr)
+	assert.Equal(t, essencePath, path)
 
 	loaded, err := LoadDistilledSession(tmpDir, "round-trip")
 	require.NoError(t, err)
@@ -311,6 +321,7 @@ func TestCompactor_DistillChunk_WithMockClient(t *testing.T) {
 		config: CompactionConfig{
 			LLM:       "test-plugin",
 			OutputDir: tmpDir,
+			HarpName:  "compactor-under-test",
 		},
 		clientFactory: pb.MockClientFactory(mockClient),
 	}
@@ -541,6 +552,7 @@ func TestCompact_EmptySession(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       t.TempDir(),
+		HarpName:        "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -590,6 +602,7 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       tmpDir,
+		HarpName:        "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -641,6 +654,7 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       t.TempDir(),
+		HarpName:        "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -685,6 +699,7 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       t.TempDir(),
+		HarpName:        "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -722,6 +737,7 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       outDir,
+		HarpName:        "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -760,6 +776,7 @@ func TestCompact_WithMockClient(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       tmpDir,
+		HarpName:        "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -819,6 +836,7 @@ func TestCompact_MultiChunk_RunsReducePassUnderThreshold(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       tmpDir,
+		HarpName:        "compactor-under-test",
 		ChunkSize:       50, // 200 chars/chunk → the big entries split into many chunks
 	})
 	require.NoError(t, err)
@@ -871,6 +889,7 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       tmpDir,
+		HarpName:        "compactor-under-test",
 		ChunkSize:       50, // 200 chars/chunk → many chunks, so reduce runs
 	})
 	require.NoError(t, err)
@@ -936,6 +955,7 @@ func TestCompact_ReduceFailure_NeverFallsBackToUnboundedRawCombined(t *testing.T
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       tmpDir,
+		HarpName:        "compactor-under-test",
 		ChunkSize:       50, // 200 chars/chunk → many chunks; combined » MaxEssenceChars
 	})
 	require.NoError(t, err)
@@ -982,6 +1002,7 @@ func TestCompact_DeliversSystemPromptUnderSkipSetup(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       tmpDir,
+		HarpName:        "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -1139,6 +1160,7 @@ func TestCompact_PartialChunkFailure_StillSaves(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       tmpDir,
+		HarpName:        "compactor-under-test",
 		ChunkSize:       100,
 	})
 	require.NoError(t, err)
@@ -1223,6 +1245,7 @@ func TestCompact_BySessionID(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       tmpDir,
+		HarpName:        "compactor-under-test",
 		SessionID:       "specific-session",
 	})
 	require.NoError(t, err)
@@ -1314,6 +1337,7 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       t.TempDir(),
+		HarpName:        "compactor-under-test",
 		// No HarpName, no SessionID.
 	})
 	require.NoError(t, err)
@@ -1397,6 +1421,7 @@ func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       t.TempDir(),
+		HarpName:        "compactor-under-test",
 		Backend:         "claude-code",
 		SessionID:       "dead-session", // explicit, and absent from sessions
 	})
@@ -1787,6 +1812,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       t.TempDir(),
+		HarpName:        "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -1813,6 +1839,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(includeClient),
 		OutputDir:       t.TempDir(),
+		HarpName:        "compactor-under-test",
 		IncludeThinking: true,
 	})
 	require.NoError(t, err)
@@ -1821,35 +1848,41 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	assert.Positive(t, spawned, "with thinking included the transcript is not empty and must be distilled")
 }
 
-// A distilled artifact's path must still name the file it was written to after
-// the process changes directory. Every CLI distill path chdirs into the
-// session's own project dir and then back out again, and `session distill`
-// PRINTS the returned path, so a path left as a bare relative string names a
-// different file the moment the cwd moves — and the unconditional MkdirAll on
-// it mints a stray .ctxloom under whatever directory the process happens to be
-// in, which config's app-dir walk will later adopt. The default output
-// directory must therefore be anchored at the moment it is resolved.
-func TestSaveDistilled_DefaultOutputDirIsAnchored(t *testing.T) {
+// A distillation with no harp has nowhere to go, and must say so rather than
+// invent a location.
+//
+// This used to resolve a default under the CURRENT WORKING DIRECTORY, which is
+// the shape the refusal replaces: every CLI distill path chdirs into the
+// session's own project dir and back out again, so a cwd-derived default named
+// a different file depending on when it was resolved, and its unconditional
+// MkdirAll minted a stray .ctxloom under whatever directory the process
+// happened to be in — which config's app-dir walk would later adopt as a
+// project. An essence belongs to a harp; without one there is no answer, and
+// guessing produced exactly that stray directory.
+//
+// Asserts the EFFECT, not just the error: nothing may be written anywhere under
+// the working directory.
+func TestSaveDistilled_NoHarpRefusesRatherThanGuessingALocation(t *testing.T) {
 	testsupport.ProjectDir(t)
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 
 	c := &Compactor{config: CompactionConfig{}}
-	// The default branch is reached only with no OutputDir configured; assert
-	// the fixture is hostile from saveDistilled's own vantage point rather than
-	// assuming it.
-	require.Empty(t, c.config.OutputDir, "this pin only exercises the default when no OutputDir is configured")
+	require.Empty(t, c.config.OutputDir, "this pin exercises the no-OutputDir path")
 
 	path, err := c.saveDistilled("anchored", "## Summary\nbody.", distilledMeta{})
-	require.NoError(t, err)
-	assert.True(t, filepath.IsAbs(path), "the distilled path must be absolute, got %q", path)
-	assert.Equal(t, filepath.Join(wd, ".ctxloom", "sessions", "anchored.md"), path)
+	require.Error(t, err, "a distillation with no harp must refuse, not resolve some default")
+	assert.Empty(t, path, "a refused save must not name a file it did not write")
+	assert.Contains(t, err.Error(), "harp", "the error must name what is missing")
 
-	// existingEssence resolves the same default, or the two disagree about
-	// where an essence lives and dumpEmptySession overwrites a real one.
+	strayDir := filepath.Join(wd, ".ctxloom", "sessions")
+	_, statErr := os.Stat(strayDir)
+	assert.True(t, os.IsNotExist(statErr),
+		"the refusal must not mint %s on the way out — that stray directory is what config's app-dir walk later adopts as a project", strayDir)
+
 	found, ok := c.existingEssence("anchored", "")
-	assert.True(t, ok, "existingEssence must find the essence saveDistilled just wrote")
-	assert.Equal(t, path, found)
+	assert.False(t, ok, "nothing was written, so nothing may be found")
+	assert.Empty(t, found)
 }
 
 // An unreadable session index must not be indistinguishable from "this harp has
@@ -1951,6 +1984,7 @@ func TestRunDistill_ForwardsConfiguredEnvOntoTheRequest(t *testing.T) {
 		config: CompactionConfig{
 			LLM:       "test-plugin",
 			OutputDir: t.TempDir(),
+			HarpName:  "compactor-under-test",
 			Env:       map[string]string{"ANTHROPIC_API_KEY": "sk-from-config", "OTHER": "keep"},
 		},
 		clientFactory: pb.MockClientFactory(mockClient),
@@ -2009,6 +2043,7 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 		BackendOverride: mockBe,
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       outputDir,
+		HarpName:        "compactor-under-test",
 	})
 	require.NoError(t, err)
 

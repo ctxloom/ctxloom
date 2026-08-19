@@ -34,7 +34,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 	progress := iox.NewErrWriter(cmd.ErrOrStderr())
 	for i := range entries {
 		e := &entries[i]
-		_, distilled := operations.SessionEssenceInfo(e.HarpName, e, appDir)
+		_, distilled := operations.SessionEssenceInfo(e.HarpName, e)
 		stale, known := e.SourceStale()
 		knownStale := known && stale
 		if distilled && !knownStale {

@@ -137,7 +137,7 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 	essence, distilled := readSessionEssence(harp, entry)
 	essencePath := ""
 	if distilled {
-		essencePath, _ = operations.SessionEssenceInfo(harp, entry, sessionAppDir())
+		essencePath, _ = operations.SessionEssenceInfo(harp, entry)
 	}
 	return emit(cmd, sessionEssence{Harp: harp, Distilled: distilled, Essence: essence, EssencePath: essencePath}, func() error {
 		if !distilled {

@@ -253,9 +253,10 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		}
 		// No index entry for this harp (e.g. a bare in.SessionID against an
 		// ambient backend with no BindSession yet): nothing for
-		// ResolveAndHeal/DistillEntry to resolve, so this falls back to the
-		// pre-unification shape, keyed directly off the caller's input.
-		sessionsDir := paths.ProjectSessionsDir(s.cfg.GetAppDir())
+		// ResolveAndHeal/DistillEntry to resolve, so this falls back to
+		// compacting directly off the caller's input. OutputDir is left unset
+		// so the essence files itself under the harp's own lineage, which is
+		// the only place anything reads one from.
 		compactor, cerr := memory.NewCompactor(memory.CompactionConfig{
 			LLM:       s.cfg.GetCompactionLLM(),
 			Model:     model,
@@ -263,7 +264,6 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			ChunkSize: s.cfg.GetCompactionChunkSize(),
 			SessionID: in.SessionID,
 			WorkDir:   workDir,
-			OutputDir: sessionsDir,
 			HarpName:  harp,
 		})
 		if cerr != nil {
@@ -328,7 +328,7 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 	rows := make([]sessionSummary, 0, len(entries))
 	for i := range entries {
 		e := &entries[i]
-		_, distilled := operations.SessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
+		_, distilled := operations.SessionEssenceInfo(e.HarpName, e)
 		last := e.LastActivity
 		if last.IsZero() {
 			last = sessions.ActivityTime(*e)
@@ -354,7 +354,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 	defer cancel()
 	for i := range entries {
 		e := &entries[i]
-		_, distilled := operations.SessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
+		_, distilled := operations.SessionEssenceInfo(e.HarpName, e)
 		stale, known := e.SourceStale()
 		knownStale := known && stale
 		if distilled && !knownStale {
@@ -843,15 +843,32 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		}, nil
 	}
 
-	sessionsDir := paths.ProjectSessionsDir(s.cfg.GetAppDir())
-
 	// Resolve the harp that owns this session so its plan files
 	// (~/.ctxloom/sessions/<harp>/) are read for the RIGHT session — not the
 	// active one — when distilling a previous or cross-agent session, and so the
-	// staleness check stats the harp's bound transcript.
+	// staleness check stats the harp's bound transcript. It is also what says
+	// WHERE this session's essence is filed: under its harp's lineage.
 	harp := sessionHarpForID(sessionID)
+	if harp == "" {
+		// The index does not bind this id, but a harp DIRECTORY may still exist
+		// for it — an orphaned lineage the index lost, or a harp addressed by
+		// name rather than by its backend id. Either way the essence has a home,
+		// so filing it does not need an index row.
+		if dir, derr := paths.HarpDir(sessionID); derr == nil {
+			if st, serr := os.Stat(dir); serr == nil && st.IsDir() {
+				harp = sessionID
+			}
+		}
+	}
+	if harp == "" {
+		return nil, nil, fmt.Errorf("session %s belongs to no harp, so there is nowhere to file its distilled essence: run `ctxloom session adopt` to bring an orphaned vendor transcript into a harp's lineage first", sessionID)
+	}
+	sessionsDir, err := paths.ResolveHarpSegmentsDir(harp)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve segments dir for %s: %w", harp, err)
+	}
 	transcriptPath := ""
-	if harp != "" {
+	{
 		if entry, _ := operations.GetSession(harp); entry != nil {
 			// Prefer the canonical transcript: once captured,
 			// that's the file Compact actually distilled from, so staleness must
@@ -1044,7 +1061,6 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 		ChunkSize: s.cfg.GetCompactionChunkSize(),
 		SessionID: sessionID,
 		WorkDir:   workDir,
-		OutputDir: sessionsDir,
 		HarpName:  harp,
 	})
 	if err != nil {

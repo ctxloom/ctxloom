@@ -95,23 +95,6 @@ func TestHarpEssencePath_InHarpDir(t *testing.T) {
 	assert.Equal(t, filepath.Join(harpDir, "essence.md"), got)
 }
 
-// TestProjectSessionsDir covers the consolidated project-sessions resolver,
-// including the cwd fallback the old truncated cmd/memory.go variant dropped.
-func TestProjectSessionsDir(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-
-	// Configured app dir wins.
-	assert.Equal(t, filepath.Join("/app", "sessions"), ProjectSessionsDir("/app"))
-
-	// Empty app dir falls back to <cwd>/.ctxloom/sessions — the behavior the
-	// truncated variant lacked. We compare against the isolated project cwd.
-	assert.Equal(t, filepath.Join(dir, AppDirName, SessionsDir), ProjectSessionsDir(""))
-}
-
-// =============================================================================
-// Coordinator State Directory Tests
-// =============================================================================
-
 // TestHomeCoordDir_HomeRootedCoordSegment pins ~/.ctxloom/coord — the root
 // internal/agentcoord/coord and discover both resolve project coordinator
 // state under (see CoordProjectStateDir). The literal "coord" (not

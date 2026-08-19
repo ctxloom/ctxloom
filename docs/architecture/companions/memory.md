@@ -162,11 +162,13 @@ flowchart TD
   nothing (thinking-only with `IncludeThinking` false, or an unrecognized `Type`) passes the
   check, `chunkText("")` returns one empty chunk, and a plugin is spawned on an empty
   `<session_log>`.
-- **`saveDistilled`'s default `OutputDir` is the *relative* `".ctxloom/sessions"`**
-  (`compactor.go:979-982`), resolved against the process cwd. `cli/session_cmd.go:537-547`
-  (`compactEntry`) never sets it, and the MCP server documents that it must **not** chdir — so
-  distilling a harp belonging to project B while the server sits in project A writes into
-  `A/.ctxloom/sessions/`. Every other caller passes `paths.ProjectSessionsDir(...)`.
+- ~~**`saveDistilled`'s default `OutputDir` is the *relative* `".ctxloom/sessions"`**, resolved
+  against the process cwd, so distilling a harp belonging to project B while the server sits in
+  project A wrote into `A/.ctxloom/sessions/`.~~ **RESOLVED.** There is no cwd-derived default and
+  no project-rooted essence store at all: an essence is filed under its own harp
+  (`Compactor.rotationEssencePath` → `paths.ResolveHarpSegmentEssencePath`), and a distillation
+  with no harp REFUSES rather than resolving a location out of the working directory. Where the
+  process happens to be standing can no longer decide where a session's record lands.
 - **`StampPlanFile` returns `nil` in four cases where it wrote nothing** — unterminated
   frontmatter (`stamp.go:71`), malformed YAML (`:81`), already-present (`:84`), and root-not-a-
   mapping (`addHarpToSessionsNode:123`). The doc at `stamp.go:21-22` says "malformed YAML

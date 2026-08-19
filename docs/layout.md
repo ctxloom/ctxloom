@@ -98,8 +98,6 @@ Two more local-only paths live at the `.ctxloom` root rather than under
   on disk under the old id, unreachable. *A move to `state/project-id`, with a
   read fallback to the root copy and a one-time migration, is decided but not
   yet implemented; the root path above is what the code resolves today.*
-- `.ctxloom/sessions/` — this machine's distilled session records
-  (`paths.ProjectSessionsDir`).
 
 ## The home tree: `~/.ctxloom`
 

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	harpid "github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
@@ -270,14 +269,23 @@ const (
 	// host-local — it also carries the read-only consumer credential.
 	CoordEndpointFileName = "endpoint.json"
 
-	// SegmentsDirName is the harp-dir leaf holding cached per-rotation
-	// canonical segments (see ResolveHarpSegmentsDir/ResolveHarpSegmentPath):
-	// one converted-once JSONL file per displaced session ID in a harp's
-	// sessions.Entry.Rotations lineage. A sibling of persist/ and
-	// ephemeral/, not nested under either — a segment is neither the
-	// bind-mounted vendor store (persist/transcripts) nor purely regenerable
-	// (re-deriving it means re-locating a vendor file that may already be
-	// gone; see operations.RefreshVendorTranscript), so it gets its own root.
+	// SegmentsDirName is the harp-dir leaf holding per-rotation artifacts, one
+	// pair per displaced session ID in a harp's sessions.Entry.Rotations
+	// lineage: the converted-once canonical <sessionID>.jsonl
+	// (ResolveHarpSegmentPath) and that rotation's distilled
+	// <sessionID>.md (ResolveHarpSegmentEssencePath), keyed alike and
+	// distinguished by extension.
+	//
+	// A sibling of persist/ and ephemeral/, not nested under either — neither
+	// artifact is the bind-mounted vendor store (persist/transcripts), and
+	// neither is purely regenerable: re-deriving a segment means re-locating a
+	// vendor file that may already be gone (see
+	// operations.RefreshVendorTranscript), and re-deriving an essence means
+	// that AND an LLM call. So they get their own root.
+	//
+	// The harp's own essence.md is the CURRENT one and is overwritten by every
+	// distill; these are the record of what each earlier session was about,
+	// which is otherwise erased by the next /clear.
 	SegmentsDirName = "segments"
 
 	// HomeLocksDirName is the home-rooted directory holding advisory-lock
@@ -458,6 +466,29 @@ func ResolveHarpSegmentsDir(harp string) (string, error) {
 	return filepath.Join(dir, SegmentsDirName), nil
 }
 
+// ResolveHarpSegmentEssencePath returns
+// ~/.ctxloom/sessions/<harp>/segments/<sessionID>.md — the distilled essence of
+// ONE rotation in harp's lineage, beside that rotation's canonical segment
+// (ResolveHarpSegmentPath, the same name with a .jsonl suffix).
+//
+// The harp dir keeps a single current essence.md, overwritten by each distill.
+// A harp accumulates one session id per /clear rotation, so a per-rotation
+// essence needs the rotation's own key; segments/ is where this repo already
+// keys per-rotation artifacts by session id, and an essence belongs beside the
+// transcript it was distilled from rather than in a directory of its own.
+//
+// It is deliberately NOT project-rooted. Everything ctxloom owns about a
+// session — canonical transcript, ACP transcript, segments, essence — lives
+// under the harp dir; a per-project copy is a second home for the same fact,
+// keyed differently, that nothing reconciles.
+func ResolveHarpSegmentEssencePath(harp, sessionID string) (string, error) {
+	dir, err := ResolveHarpSegmentsDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, sessionID+".md"), nil
+}
+
 // ResolveHarpSegmentPath returns
 // ~/.ctxloom/sessions/<harp>/segments/<sessionID>.jsonl — the cached
 // canonical-form conversion of ONE displaced session ID in harp's rotation
@@ -583,33 +614,6 @@ func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
 	}
 
 	return current, nil
-}
-
-// ProjectSessionsDir returns the project-rooted directory holding distilled
-// session .md files. It is distinct from the home-rooted HomeSessionsDir: this
-// is per-project state under the app dir. Resolution prefers the configured app
-// dir, then <cwd>/.ctxloom/sessions, then a bare relative .ctxloom/sessions when
-// even the working directory can't be resolved.
-//
-// The first two results are ANCHORED — absolute, fixed at the moment of the
-// call. The last is not: a relative path is resolved by whoever uses it,
-// against whatever the working directory is then, so a caller that changes
-// directory between this call and its read or write addresses somewhere else
-// entirely. Nothing downstream can tell the two kinds of answer apart from the
-// string, which is why the degradation is announced here rather than inferred
-// there. It stays a warning, not an error: an unanchorable sessions dir must
-// not block startup.
-func ProjectSessionsDir(appDir string) string {
-	if appDir != "" {
-		return filepath.Join(appDir, SessionsDir)
-	}
-	wd, err := os.Getwd()
-	if err == nil {
-		return filepath.Join(wd, AppDirName, SessionsDir)
-	}
-	relative := filepath.Join(AppDirName, SessionsDir)
-	clidiag.Warn("ctxloom", "cannot resolve the working directory (%v); the project sessions directory falls back to the relative %s, which resolves against the caller's current directory", err, relative)
-	return relative
 }
 
 // TriggerCacheDir returns ~/.ctxloom/cache/triggers — the home-rooted

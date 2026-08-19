@@ -88,7 +88,7 @@ func newSessionRow(e sessions.Entry, appDir string) SessionRow {
 		end := sessionTime(*e.EndedAt)
 		row.End = &end
 	}
-	if path, distilled := operations.SessionEssenceInfo(e.HarpName, &e, appDir); distilled {
+	if path, distilled := operations.SessionEssenceInfo(e.HarpName, &e); distilled {
 		row.EssencePath = path
 	}
 	return row

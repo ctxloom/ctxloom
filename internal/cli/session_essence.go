@@ -3,15 +3,14 @@ package cli
 import (
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// A session's distilled essence lives in one of two places and is resolved by
-// ONE lookup order: the harp-dir layout (~/.ctxloom/sessions/<harp>/essence.md)
-// first, then the legacy <appDir>/sessions/<sessionID>.md —
+// A session's distilled essence lives in one of two places, BOTH under the harp
+// dir, and is resolved by ONE lookup order: the harp's current essence.md
+// first, then that session's own per-rotation segments/<sessionID>.md —
 // operations.SessionEssenceInfo answers "where is it / is there one" without
 // opening the file, for listings that need that per row; readSessionEssence
 // is its reading face. Callers are `session show`, `session list`, `session
@@ -28,11 +27,7 @@ import (
 // READ is a different fact and is reported rather than passed off as
 // never-distilled.
 func readSessionEssence(harp string, entry *sessions.Entry) (string, bool) {
-	appDir := ""
-	if cfg, err := config.Load(); err == nil {
-		appDir = cfg.GetAppDir()
-	}
-	path, distilled := operations.SessionEssenceInfo(harp, entry, appDir)
+	path, distilled := operations.SessionEssenceInfo(harp, entry)
 	if !distilled {
 		return "", false
 	}

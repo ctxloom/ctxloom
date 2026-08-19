@@ -41,6 +41,7 @@ func progressFixture(t *testing.T, progress io.Writer) *Compactor {
 		BackendOverride: &mockBackend{history: mockHistory},
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       t.TempDir(),
+		HarpName:        "compactor-under-test",
 		Progress:        progress,
 	})
 	require.NoError(t, err)

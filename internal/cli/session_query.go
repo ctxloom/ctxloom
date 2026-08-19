@@ -127,7 +127,7 @@ func sessionMetadataHaystack(e *sessions.Entry) string {
 // never an error, matching this codebase's fault-tolerance convention (a
 // dead or unreadable essence just doesn't contribute a content match).
 func readEssenceForQuery(e *sessions.Entry, appDir string) (string, bool) {
-	path, distilled := operations.SessionEssenceInfo(e.HarpName, e, appDir)
+	path, distilled := operations.SessionEssenceInfo(e.HarpName, e)
 	if !distilled {
 		return "", false
 	}

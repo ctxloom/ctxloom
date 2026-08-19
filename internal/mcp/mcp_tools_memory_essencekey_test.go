@@ -171,7 +171,12 @@ func TestDistillSessionOnce_ReadsBackUnderTheKeyCompactWrote(t *testing.T) {
 
 	projectDir := t.TempDir()
 	appDir := filepath.Join(projectDir, ".ctxloom")
-	sessionsDir := paths.ProjectSessionsDir(appDir)
+
+	// A rotation's essence is filed under its harp's segments dir, which is
+	// also where the read-back looks.
+	const harp = "shut-hoary-yahoo"
+	sessionsDir, err := paths.ResolveHarpSegmentsDir(harp)
+	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(sessionsDir, 0o755))
 
 	// The compactor resolves this session to a key of its OWN choosing, which
@@ -185,7 +190,7 @@ func TestDistillSessionOnce_ReadsBackUnderTheKeyCompactWrote(t *testing.T) {
 		compactorFactory: fixedCompactor(resolvedID, body),
 	}
 
-	out, err := s.distillSessionOnce(context.Background(), callerID, "claude-code", "", projectDir, sessionsDir, "")
+	out, err := s.distillSessionOnce(context.Background(), callerID, "claude-code", "", projectDir, sessionsDir, harp)
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.True(t, out.Loaded,

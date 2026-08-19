@@ -92,7 +92,7 @@ type CompactionConfig struct {
 	ChunkSize       int              // Target tokens per chunk
 	SessionID       string           // Session to compact (empty = most recent)
 	WorkDir         string           // Working directory for the session
-	OutputDir       string           // Directory holding the sessionID-keyed distilled mirrors. Empty resolves through paths.ProjectSessionsDir — see legacySessionsDir.
+	OutputDir       string           // TEST SEAM ONLY: redirects per-rotation essences somewhere a test can read. No production caller sets it; empty files them under the harp's own segments dir (rotationEssencePath).
 	HarpName        string           // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
 	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
 	BackendOverride agent.Backend    // Optional: inject backend directly for testing (bypasses registry)
@@ -444,26 +444,31 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 	return c.finishDistill(session, harpName, sourceSize, plans, result, "", emptySessionPlaceholder, start)
 }
 
-// legacySessionsDir resolves the project-rooted directory holding the
-// sessionID-keyed distilled mirrors, honouring the caller's OutputDir when it
-// set one. The default is anchored at resolve time rather than left as a bare
-// relative path: distilled paths are returned to callers and printed, and every
-// CLI distill path chdirs into the session's own project dir and back out
-// again, so a relative path names a different file once the cwd moves — and the
-// MkdirAll on it would mint a stray .ctxloom the app-dir walk later adopts.
-// paths.ProjectSessionsDir is the repo's one resolver for this directory; every
-// reader of these mirrors already goes through it.
-func (c *Compactor) legacySessionsDir() string {
+// rotationEssencePath returns where THIS session's per-rotation essence lives:
+// ~/.ctxloom/sessions/<harp>/segments/<sessionID>.md, beside that rotation's
+// canonical segment. A caller's OutputDir overrides the directory, which is how
+// a test pins the write somewhere it can read.
+//
+// It needs a harp because the essence is harp-owned: a rotation is a step in
+// ONE harp's lineage, and there is no meaningful place to file a rotation of no
+// harp. The empty-harp case returns an error rather than falling back to a
+// project directory — a second home for the same fact, keyed differently, that
+// nothing reconciles.
+func (c *Compactor) rotationEssencePath(harpName, sessionID string) (string, error) {
 	if c.config.OutputDir != "" {
-		return c.config.OutputDir
+		return filepath.Join(c.config.OutputDir, sessionID+".md"), nil
 	}
-	return paths.ProjectSessionsDir("")
+	if harpName == "" {
+		return "", fmt.Errorf("no harp for session %s: a distilled essence is filed under its harp's lineage, so one must be bound before distilling", sessionID)
+	}
+	return paths.ResolveHarpSegmentEssencePath(harpName, sessionID)
 }
 
 // existingEssence reports whether a distilled essence already exists for this
-// session, checking the harp-dir layout first (the primary write target) and
-// then the legacy sessionID-keyed path, mirroring saveDistilled's own
-// precedence so the two can't disagree about where the essence lives.
+// session, checking the harp's current essence first (the primary write target)
+// and then this rotation's own essence under segments/, mirroring
+// saveDistilled's own precedence so the two can't disagree about where the
+// essence lives.
 func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 	if harpName != "" {
 		if essencePath, err := paths.HarpEssencePath(harpName); err == nil {
@@ -472,9 +477,12 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 			}
 		}
 	}
-	legacyPath := filepath.Join(c.legacySessionsDir(), sessionID+".md")
-	if st, err := os.Stat(legacyPath); err == nil && st.Size() > 0 {
-		return legacyPath, true
+	rotationPath, err := c.rotationEssencePath(harpName, sessionID)
+	if err != nil {
+		return "", false
+	}
+	if st, err := os.Stat(rotationPath); err == nil && st.Size() > 0 {
+		return rotationPath, true
 	}
 	return "", false
 }
@@ -1224,53 +1232,44 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 	doc.WriteString("\n")
 	docBytes := []byte(doc.String())
 
-	// Legacy outputDir for sessionID lookups (load_session, etc.).
-	outputDir := c.legacySessionsDir()
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+	// Two writes, both under the harp: essence.md is the harp's CURRENT
+	// distillation, and segments/<sessionID>.md is THIS rotation's, keyed
+	// beside the canonical segment it was distilled from. essence.md is
+	// overwritten by every distill, so without the second write a harp's
+	// earlier rotations leave no distilled record at all.
+	rotationPath, err := c.rotationEssencePath(meta.HarpName, sessionID)
+	if err != nil {
 		return "", err
 	}
-	legacyPath := filepath.Join(outputDir, sessionID+".md")
-
-	// Phase 3.6 harp-dir layout: when a harp name is known, that's the
-	// primary write target; the legacy path is also written so existing
-	// sessionID-keyed lookups continue working. Every fallthrough to
-	// legacy-only warns: the essence.md the picker and SessionStart hook
-	// read was NOT written, and silence would hide that.
-	if meta.HarpName != "" {
-		if essencePath, ok := c.saveEssence(meta.HarpName, legacyPath, docBytes); ok {
-			return essencePath, nil
-		}
-	}
-
-	// All writes are atomic (temp file + rename): a crash mid-write must not
-	// truncate the essence that recovery and the resume picker depend on.
-	if err := iox.WriteFileAtomic(legacyPath, docBytes, 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Dir(rotationPath), 0o755); err != nil {
 		return "", err
 	}
-	return legacyPath, nil
+
+	return c.saveEssence(meta.HarpName, rotationPath, docBytes)
 }
 
-// saveEssence writes the harp-dir essence.md plus its legacy mirror. Returns
-// ok=false (after warning) when the harp-dir write failed and the caller
-// should degrade to the legacy-only layout.
-func (c *Compactor) saveEssence(harpName, legacyPath string, docBytes []byte) (string, bool) {
+// saveEssence writes the harp's current essence.md and this rotation's
+// segments/<sessionID>.md, returning the current essence's path.
+//
+// The harp-dir write is no longer allowed to degrade. It used to warn and fall
+// back to a project-rooted copy, which meant the file the picker and the
+// SessionStart hook actually read could silently not exist while the command
+// still reported success. There is nowhere else to file a harp's essence, so a
+// failure here is the whole operation failing.
+func (c *Compactor) saveEssence(harpName, rotationPath string, docBytes []byte) (string, error) {
 	harpDir, err := harpSessionDir(harpName)
 	if err != nil {
-		c.warnf("resolve harp dir for %s: %v; writing legacy layout only", harpName, err)
-		return "", false
+		return "", fmt.Errorf("resolve harp dir for %s: %w", harpName, err)
 	}
 	if err := os.MkdirAll(harpDir, 0o755); err != nil {
-		c.warnf("create harp dir %s: %v; writing legacy layout only", harpDir, err)
-		return "", false
+		return "", fmt.Errorf("create harp dir %s: %w", harpDir, err)
 	}
 	essencePath, err := paths.HarpEssencePath(harpName)
 	if err != nil {
-		c.warnf("resolve essence path for %s: %v; writing legacy layout only", harpName, err)
-		return "", false
+		return "", fmt.Errorf("resolve essence path for %s: %w", harpName, err)
 	}
 	if err := iox.WriteFileAtomic(essencePath, docBytes, 0o644); err != nil {
-		c.warnf("write essence %s: %v; writing legacy layout only", essencePath, err)
-		return "", false
+		return "", fmt.Errorf("write essence %s: %w", essencePath, err)
 	}
 	// NB: the active task store already lives at <harpDir>/tasks.md (see
 	// tasks.OpenSession migration), so we deliberately do NOT copy the legacy
@@ -1278,11 +1277,12 @@ func (c *Compactor) saveEssence(harpName, legacyPath string, docBytes []byte) (s
 	// file has migrated away, and would clobber the live store if a stray
 	// project file lingered.
 	//
-	// Mirror essence to legacy path so sessionID lookups still work.
-	if err := iox.WriteFileAtomic(legacyPath, docBytes, 0o644); err != nil {
-		c.warnf("mirror essence to %s: %v", legacyPath, err)
+	// This rotation's own copy, so a later /clear does not erase the record of
+	// what THIS session was about when essence.md is overwritten.
+	if err := iox.WriteFileAtomic(rotationPath, docBytes, 0o644); err != nil {
+		c.warnf("write rotation essence %s: %v", rotationPath, err)
 	}
-	return essencePath, true
+	return essencePath, nil
 }
 
 // harpSessionDir returns ~/.ctxloom/sessions/<harp>/. Errors when home

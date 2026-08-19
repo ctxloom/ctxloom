@@ -346,63 +346,60 @@ func seedProjectConfig(t *testing.T) string {
 	return appDir
 }
 
-// seedLegacyEssence writes the pre-harp-dir <appDir>/sessions/<sessionID>.md
-// essence and returns its path.
-func seedLegacyEssence(t *testing.T, appDir, sessionID, body string) string {
+// seedRotationEssence writes one rotation's essence at
+// ~/.ctxloom/sessions/<harp>/segments/<sessionID>.md and returns its path.
+func seedRotationEssence(t *testing.T, harp, sessionID, body string) string {
 	t.Helper()
-	legacyDir := paths.ProjectSessionsDir(appDir)
-	require.NoError(t, os.MkdirAll(legacyDir, 0o755))
-	p := filepath.Join(legacyDir, sessionID+".md")
+	p, err := paths.ResolveHarpSegmentEssencePath(harp, sessionID)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 	return p
 }
 
 // TestSessionEssenceResolution_SharedLookupOrder pins the ONE two-step
-// resolution order every essence entry point owes the user — harp-dir layout
-// (~/.ctxloom/sessions/<harp>/essence.md) first, legacy
-// <appDir>/sessions/<sessionID>.md second — across BOTH of the functions that
+// resolution order every essence entry point owes the user — the harp's current
+// ~/.ctxloom/sessions/<harp>/essence.md first, that session's own per-rotation
+// segments/<sessionID>.md second — across BOTH of the functions that
 // implement it: sessionEssenceInfo (path/exists, used by `session list`,
 // `session query` and the memory MCP tools) and readSessionEssence (bytes,
 // used by `session show` and `--full`). They must agree on whether a session
 // is distilled AND on which of the two candidate files wins, or the same
 // session reads as distilled in one command and pending in another.
 func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
-	t.Run("harp_dir_wins_over_legacy", func(t *testing.T) {
-		appDir := seedProjectConfig(t)
+	t.Run("current_essence_wins_over_the_rotation_copy", func(t *testing.T) {
 		harp := "plump-loose-sash"
 		harpPath := seedDistilledEssence(t, harp, "harp-dir body\n")
-		seedLegacyEssence(t, appDir, "sess-1", "legacy body\n")
+		seedRotationEssence(t, harp, "sess-1", "rotation body\n")
 		e := sessions.Entry{HarpName: harp, SessionID: "sess-1"}
 
-		gotPath, distilled := operations.SessionEssenceInfo(harp, &e, appDir)
+		gotPath, distilled := operations.SessionEssenceInfo(harp, &e)
 		body, found := readSessionEssence(harp, &e)
 
 		assert.True(t, distilled)
 		assert.True(t, found, "both entry points must agree the session is distilled")
-		assert.Equal(t, harpPath, gotPath, "harp-dir layout wins")
+		assert.Equal(t, harpPath, gotPath, "the harp's CURRENT essence wins")
 		assert.Equal(t, "harp-dir body\n", body, "the bytes must come from the SAME file the path resolver picked")
 	})
 
-	t.Run("legacy_path_when_no_harp_essence", func(t *testing.T) {
-		appDir := seedProjectConfig(t)
+	t.Run("rotation_essence_when_no_current_essence", func(t *testing.T) {
 		harp := "swift-amber-falcon"
-		legacyPath := seedLegacyEssence(t, appDir, "sess-2", "legacy body\n")
+		rotationPath := seedRotationEssence(t, harp, "sess-2", "rotation body\n")
 		e := sessions.Entry{HarpName: harp, SessionID: "sess-2"}
 
-		gotPath, distilled := operations.SessionEssenceInfo(harp, &e, appDir)
+		gotPath, distilled := operations.SessionEssenceInfo(harp, &e)
 		body, found := readSessionEssence(harp, &e)
 
 		assert.True(t, distilled)
-		assert.True(t, found, "both entry points must fall back to the legacy path")
-		assert.Equal(t, legacyPath, gotPath)
-		assert.Equal(t, "legacy body\n", body)
+		assert.True(t, found, "both entry points must fall back to this rotation's own essence")
+		assert.Equal(t, rotationPath, gotPath)
+		assert.Equal(t, "rotation body\n", body)
 	})
 
 	t.Run("neither_present_is_not_distilled", func(t *testing.T) {
-		appDir := seedProjectConfig(t)
 		e := sessions.Entry{HarpName: "never-distilled-harp", SessionID: "sess-3"}
 
-		gotPath, distilled := operations.SessionEssenceInfo("never-distilled-harp", &e, appDir)
+		gotPath, distilled := operations.SessionEssenceInfo("never-distilled-harp", &e)
 		body, found := readSessionEssence("never-distilled-harp", &e)
 
 		assert.False(t, distilled)
@@ -422,7 +419,6 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 // entry points may disagree about the BYTES (one of them never opens the
 // file); they must not disagree in silence.
 func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
-	appDir := seedProjectConfig(t)
 	harp := "plump-loose-sash"
 	essencePath := seedDistilledEssence(t, harp, "## Summary\n\nunreadable\n")
 	require.NoError(t, os.Chmod(essencePath, 0o000))
@@ -433,7 +429,7 @@ func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
 	restore := clidiag.SetSink(&diag)
 	t.Cleanup(restore)
 
-	gotPath, distilled := operations.SessionEssenceInfo(harp, &e, appDir)
+	gotPath, distilled := operations.SessionEssenceInfo(harp, &e)
 	body, found := readSessionEssence(harp, &e)
 
 	assert.True(t, distilled, "the listing side sees the file and reports its path")

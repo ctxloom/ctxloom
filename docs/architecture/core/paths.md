@@ -71,7 +71,6 @@ flowchart TD
     GCD --> LTOP["LegacyTrustObjectsPath<br/>cache/trust/objects (migration source only)"]
 
     AP --> PID[".ctxloom/project-id<br/>(ProjectIDFileName)"]
-    AP --> PSD["ProjectSessionsDir<br/>sessions/"]
 
     AP --> SP["StatePath<br/>state/"]
     SP --> TOP["TrustObjectsPath<br/>state/trust/objects"]
@@ -178,7 +177,6 @@ this package.
 | `DirtyTreeCommitAckPath` | `<appPath>/state/dirty_tree_commit_ack.yaml` | 2 |
 | `SessionStatePath` | `<appPath>/state/<harp>` — **validates the harp**, returns an error | 1 |
 | `SessionHomePath` | `<appPath>/state/<harp>/home` — the per-session engine config-home instance; returns an error | 4 |
-| `ProjectSessionsDir` | `<appDir>/sessions`, else cwd-derived, else a bare relative path | 4 |
 | `DefaultRemotesPath` | `RemotesPath(AppDirName)` | 1 |
 
 ### Classification
@@ -247,8 +245,9 @@ path-authority gate flags exactly the alternative).
 
 ## Boundaries
 
-- **Imports:** two shared leaves only — `internal/shared/harp` (harp validation) and
-  `internal/shared/clidiag` (the one warning `ProjectSessionsDir` emits).
+- **Imports:** one shared leaf only — `internal/shared/harp` (harp validation). Nothing here
+  degrades or guesses, so nothing here reports: every resolver either composes a path from what it
+  was given or returns an error.
 - **Imported by:** 23 internal packages plus `cmd/validate` — `config` and `operations` for
   project artifacts; `sessions`, `memory`, `transcript`, `lm/isolation`, `lm/grpc`,
   `agentcoord/coord` and `cli` for per-harp session state; `claude`, `codex` and `kiro` for
@@ -263,10 +262,6 @@ path-authority gate flags exactly the alternative).
   also owns the `project-id` marker leaf (`tasks/paths.ProjectMarkerPath`) while this
   package declares `ProjectIDFileName` for `Layout`'s benefit — two declarations of one
   name, kept in step by `TestPathSegments_ComeFromNamedConstants`.
-- `ProjectSessionsDir` still returns a **relative** path when `os.Getwd()` fails — degrading is
-  correct, since an unanchorable sessions dir must not block startup — but the fallback is no
-  longer silent: it warns that the path it returned is resolved by the caller's working directory
-  rather than anchored.
 - Every function still accepts an empty `appPath` and composes a cwd-relative path from it (see
   invariant 6). No production caller can currently reach that: `config.findAppDir` and
   `cli.resolveAppDir` cannot return an empty string, and the three callers that accept one

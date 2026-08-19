@@ -44,7 +44,7 @@ ctxloom command edit my-bundle#commands/review
 
 ## Containerized Agents
 
-Agents with `runtime: container` pass a scoped set of host variables through to the engine inside the image:
+Agents with `runtime: container-rootless` or `runtime: container-rootful` pass a scoped set of host variables through to the engine inside the image:
 
 | Variable | Description |
 |----------|-------------|

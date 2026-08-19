@@ -59,18 +59,18 @@
               "type": "string"
             },
             "mcp_servers": {
-              "description": "mcp_servers are the child's resolved MCP server NAMES ONLY (F1) — never command, args, or env, which can carry a secret. Composed strictly from the child's OWN resolved profile set (prodSpawner.childMCPServers), so this is the privilege-scoping audit trail: a real operator can confirm a run received exactly these servers, never a sibling's or the parent's. Empty for a run journaled before F1.",
+              "description": "mcp_servers are the child's resolved MCP server NAMES ONLY — never command, args, or env, which can carry a secret. Composed strictly from the child's OWN resolved profile set (prodSpawner.childMCPServers), so this is the privilege-scoping audit trail: a real operator can confirm a run received exactly these servers, never a sibling's or the parent's. Empty for a run journaled before this field existed.",
               "items": {
                 "type": "string"
               },
               "type": "array"
             },
             "parent_run_id": {
-              "description": "Empty for a depth-1 (top-level) child; set for a depth-2+ grandchild (D5) — the SPAWNING run's run_id, so a roster consumer can render the delegation tree without re-deriving it from the event log.",
+              "description": "Empty for a depth-1 (top-level) child; set for a depth-2+ grandchild to the SPAWNING run's run_id, so a roster consumer can render the delegation tree without re-deriving it from the event log.",
               "type": "string"
             },
             "permission_mode": {
-              "description": "permission_mode is the child's resolved permission mode's kind name (agent.PermissionMode.String(): \"bypass\"|\"plan\"|\"default\"| \"acceptEdits\"), fixed at enqueue (F1). Empty for a run journaled before F1.",
+              "description": "permission_mode is the child's resolved permission mode's kind name (agent.PermissionMode.String(): \"bypass\"|\"plan\"|\"default\"| \"acceptEdits\"), fixed at enqueue. Empty for a run journaled before this field existed.",
               "type": "string"
             },
             "phase": {

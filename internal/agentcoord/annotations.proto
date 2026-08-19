@@ -1,4 +1,4 @@
-// annotations.proto — agentcoord.v1 schema annotations (rev 7, D3).
+// annotations.proto — agentcoord.v1 schema annotations.
 //
 // LLM-facing schema metadata for the GENERATED MCP tool surface. Protobuf is
 // the canonical representation of the coordination vocabulary; the MCP tool

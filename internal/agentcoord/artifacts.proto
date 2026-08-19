@@ -1,6 +1,6 @@
-// artifacts.proto — agentcoord.v1 artifact transfer (rev 10, additive).
+// artifacts.proto — agentcoord.v1 artifact transfer (additive).
 //
-// Lands the deferred artifact-transfer surface (the rev-5 design file beside
+// Lands the deferred artifact-transfer surface (the design file beside
 // the migration plan; coordination.proto's Wave A "artifact/state split") as
 // its OWN service in its own file, per that split's plan. Motivating
 // scenario: work products live in containers and worktrees, NOT a shared
@@ -8,22 +8,22 @@
 // end to end, so a plan filed by a containerized child is retrievable on the
 // host after the container is gone.
 //
-// RECONCILIATION AGAINST THE RESERVED SLOTS (E1a recon, verified against the
+// RECONCILIATION AGAINST THE RESERVED SLOTS (verified against the
 // checked-out coordination.proto before writing this file):
-//   - AgentEvent.artifact_produced (slot 50) was ALREADY restored in rev 7
-//     (D2, Wave B1.6) for the plan-manifest consumer — no action here.
+//   - AgentEvent.artifact_produced (slot 50) was ALREADY restored
+//     (Wave B1.6) for the plan-manifest consumer — no action here.
 //   - AgentRequest/CoordinatorResponse slot 15 (artifact_lookup) and
 //     CoordinatorRequest/AgentResponse slot 12 (state_snapshot) STAY
 //     RESERVED: Lookup/feedback/gates and StateSnapshot/Delta are explicitly
-//     shelved for this wave (E1's own scope line) and untouched here.
+//     shelved for this wave and untouched here.
 //   - CoordinatorService never reserved RPC "slots" for Upload/DownloadArtifact
 //     in the first place (proto services don't number methods the way
 //     messages number fields) — Wave A's split simply omitted them from the
 //     service and left a comment. This file is a fresh ADDITIVE service, not
 //     an un-reservation.
 //
-// DEVIATIONS FROM THE REV-5 SKETCH (E1 recon, documented — both forced by
-// what actually shipped in Waves B1.6/C, which the rev-5 sketch predates):
+// DEVIATIONS FROM THE DESIGN SKETCH (documented — both forced by
+// what actually shipped in Waves B1.6/C, which the design sketch predates):
 //   - DownloadArtifact keys by agent_id (harp), not run_id: the landed
 //     system indexes artifacts by harp (reportsFold, coord/reports.go —
 //     matching AgentIdentity.agent_id used throughout coordination.proto for
@@ -33,18 +33,19 @@
 //     identity comes from session.cred, not run.enqueued). A run_id-keyed
 //     lookup could not address the motivating scenario's own root session.
 //   - The download response stream is a header+chunk oneof (mirroring
-//     upload), not a bare ArtifactChunk stream: E1e's MANDATORY end-to-end
+//     upload), not a bare ArtifactChunk stream: a MANDATORY end-to-end
 //     integrity rule requires the receiver to know the manifest's sha256
-//     BEFORE placing the file, and the rev-5 bare-chunk shape carried no
-//     such header — this upgrades the design's implicit "manifests
-//     verifiable" to mechanically mandatory, per E1e.
+//     BEFORE placing the file, and the design sketch's bare-chunk shape
+//     carried no such header — this upgrades the design's implicit
+//     "manifests verifiable" to mechanically mandatory.
 //   - ArtifactUploadHeader keeps run_id (asserted against the caller's
 //     credential; empty for a session-owner upload) as an idempotency-key
 //     component; harp/agent identity is NEVER carried on the wire as a
 //     self-declared field — it is always credential-derived server-side
-//     (rev-6 A1's identity discipline, generalized to this file).
+//     (the same identity discipline coordination.proto's RunnerHello applies,
+//     generalized to this file).
 //
-// OWNERSHIP / LINEAGE / CONSUMER-CLASS (E1a, enforced in coord/artifacts.go):
+// OWNERSHIP / LINEAGE / CONSUMER-CLASS (enforced in coord/artifacts.go):
 //   - UploadArtifact accepts only the artifact's OWNING credential (the run
 //     — or session-owner — uploading its own bytes: header.run_id asserted
 //     against the caller's credential RunID). A consumer-class credential is
@@ -80,7 +81,7 @@ service ArtifactTransferService {
   // artifact can't head-of-line-block a status update. First message MUST be
   // `header`, then `chunk`s in offset order, each <= 1 MiB. The coordinator
   // hashes the received stream INDEPENDENTLY of the header's declared
-  // sha256 and rejects a mismatch with INVALID_ARGUMENT (E1e) — the header's
+  // sha256 and rejects a mismatch with INVALID_ARGUMENT — the header's
   // sha256 is the uploader's CLAIM, never trusted by itself. Idempotent on
   // (run_id, artifact_id, sha256): re-uploading identical content is a free
   // no-op (the store is content-addressed) and does not create a new
@@ -88,9 +89,9 @@ service ArtifactTransferService {
   rpc UploadArtifact(stream ArtifactUploadRequest) returns (ArtifactReceipt);
 
   // Server-streaming download, keyed by (agent_id, artifact_id) — see the
-  // file header for why agent_id (harp) replaces the rev-5 sketch's run_id.
+  // file header for why agent_id (harp) replaces the design sketch's run_id.
   // The FIRST response frame is always `header` (the manifest the receiver
-  // verifies against BEFORE placing any bytes, per E1e), then `chunk`s in
+  // verifies against BEFORE placing any bytes), then `chunk`s in
   // offset order.
   rpc DownloadArtifact(ArtifactDownloadRequest) returns (stream ArtifactDownloadFrame);
 }
@@ -118,7 +119,7 @@ message ArtifactUploadHeader {
   uint64 size_bytes = 5;
   // Declared by the uploader (its own read of the file); the coordinator
   // hashes the received bytes independently and rejects a mismatch — this
-  // field is a CLAIM, not a trusted value (E1e).
+  // field is a CLAIM, not a trusted value.
   bytes sha256 = 6;
 }
 
@@ -168,7 +169,7 @@ message ArtifactDownloadHeader {
   uint64 size_bytes = 6;
   bytes sha256 = 7;  // the manifest's content address — the receiver
                       // verifies against THIS before placing the file
-                      // (E1e); hard-fail on mismatch
+                      // hard-fail on mismatch
 }
 
 // =============================================================================

@@ -280,7 +280,11 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 	// `ctxloom acp` entry never does, regardless of cfg.Workspace or an
 	// auto-bound cfg.DefaultAgent). The RUNTIME axis deliberately stays the
 	// zero value (host) here — ISO1 owns that axis on this same opener.
-	acpAxes := isolation.Axes{Workspace: acpWorkspaceAxis(cfg, flagAgent, currentAgent, flagWorkspace)}
+	acpWorkspace, err := acpWorkspaceAxis(cfg, flagAgent, currentAgent, flagWorkspace)
+	if err != nil {
+		return nil, fmt.Errorf("acp agent: %w", err)
+	}
+	acpAxes := isolation.Axes{Workspace: acpWorkspace}
 
 	// Session accounting: resume the named harp, or mint a fresh one. A resume
 	// of an unknown/unbound harp is a hard error (the client asked for THAT
@@ -773,7 +777,7 @@ func loadConfigForDirRaw(dir string) (*config.Config, error) {
 // holds exactly when the explicit-agent path resolved successfully; that
 // equality (not just currentAgent != "") is the honest test for "an editor
 // deliberately chose this agent's own entry".
-func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace string) isolation.WorkspaceAxis {
+func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace string) (isolation.WorkspaceAxis, error) {
 	if flagAgent == "" || currentAgent != flagAgent {
 		// The posture rule is deliberate; the SILENCE was not. A user who
 		// typed an explicit --workspace and got the shared checkout anyway
@@ -784,13 +788,13 @@ func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace
 		if flagWorkspace != "" {
 			clidiag.Warn("ctxloom", "acp agent: --workspace %q is IGNORED for a session with no explicit --agent — this session runs against the shared project checkout, not an isolated worktree (worktree-under-ACP applies only to a deliberately-bound `ctxloom acp server --agent <name>` entry)", flagWorkspace)
 		}
-		return isolation.WorkspaceAxis("")
+		return "", nil
 	}
 	ws := flagWorkspace
 	if ws == "" {
 		ws = cfg.GetWorkspace()
 	}
-	return isolation.WorkspaceAxis(ws)
+	return isolation.ParseWorkspaceAxis(ws)
 }
 
 // worktreeIsolationProse is the honesty wording for a session whose workspace

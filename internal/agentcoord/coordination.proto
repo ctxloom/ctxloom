@@ -737,7 +737,23 @@ message SpawnAgentRequest {
   google.protobuf.Struct input = 2 [(field_schema) = {
     required: true,
     doc: "Child task input. `prompt` carries the child's briefing, delivered as its first turn. Optional `workspace` (\"none\"|\"worktree\"): \"none\" runs the child in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves the child its own git worktree, checked out at HEAD (it will NOT see the parent's uncommitted edits). Empty defers to the project config if it sets one explicitly, otherwise defaults to worktree. This isolates the child's WORKING FILES only — it does not isolate the engine's own global config/credentials/session store from the parent's. Optional `dirty_tree_handler` (\"commit\"|\"copy\"|\"stale\"|\"fail\"), relevant only when this spawn resolves to a worktree and the parent tree has uncommitted changes (a worktree checkout only ever sees committed state): \"commit\" auto-commits the parent's dirty state first (requires a human dirty-tree-commit acknowledgement recorded via `ctxloom init` or `ctxloom manage dirty-tree-ack grant` (never a config key, never this per-call field — no per-call parameter can grant it); absent the ack, the spawn is refused, naming it); \"copy\" carves the worktree at HEAD then reproduces the changes inside it as uncommitted WIP, nothing committed; \"stale\" proceeds with the child seeing committed state only; \"fail\" refuses the spawn, naming the uncommitted paths. Empty defers to the project's dirty_tree_handler config default, then to the built-in default (\"commit\")",
-    example: "{\"prompt\": \"Review the diff on branch X for correctness bugs\"}"
+    example: "{\"prompt\": \"Review the diff on branch X for correctness bugs\"}",
+    property: [
+      {
+        name: "prompt",
+        doc: "The child's briefing, delivered as its first turn"
+      },
+      {
+        name: "workspace",
+        doc: "Where the child's working files live. \"none\" runs it in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves it its own git worktree at HEAD (it will NOT see the parent's uncommitted edits). OMIT to defer to the project config, which defaults a delegated child to worktree.",
+        enum_values: ["none", "worktree"]
+      },
+      {
+        name: "dirty_tree_handler",
+        doc: "What this spawn does when it resolves to a worktree and the parent tree has uncommitted changes. \"commit\" auto-commits the parent's dirty state first (requires a human acknowledgement no per-call field can grant; absent it, the spawn is refused); \"copy\" carves the worktree at HEAD then reproduces the changes inside it as uncommitted WIP; \"stale\" proceeds with the child seeing committed state only; \"fail\" refuses the spawn. OMIT to defer to the project's dirty_tree_handler default, then to the built-in default (\"commit\"). A value outside this set is REFUSED, never resolved to the default — the default is the one member that writes to your repository.",
+        enum_values: ["commit", "copy", "stale", "fail"]
+      }
+    ]
   }];
   // 3 was constraints (google.protobuf.Struct), 4 was budget (BudgetSpec),
   // 5 was notify_on (enum NotifyOn) — all three REMOVED.

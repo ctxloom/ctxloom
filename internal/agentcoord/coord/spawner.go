@@ -38,13 +38,18 @@ type SpawnPlan struct {
 	// returns.
 	Workspace string
 	// DirtyTreeHandler is the identical per-call override for what a
-	// worktree spawn does when the parent tree is dirty (commit|copy|
-	// stale|fail; empty = fall back to the project's
-	// cfg.GetDirtyTreeHandler() default). Stamped onto the plan the same
-	// way and at the same point as Workspace, for the same reason: this is
-	// an ORCHESTRATION trait the caller supplies per invocation, not
-	// something Resolve's pure agent-definition resolution should carry.
-	DirtyTreeHandler string
+	// worktree spawn does when the parent tree is dirty (the zero value =
+	// fall back to the project's cfg.GetDirtyTreeHandler() default).
+	// Stamped onto the plan the same way and at the same point as
+	// Workspace, for the same reason: this is an ORCHESTRATION trait the
+	// caller supplies per invocation, not something Resolve's pure
+	// agent-definition resolution should carry.
+	//
+	// It is the TYPED value, parsed at the verb's edge (serveSpawnAgent for
+	// the wire, the MCP tool handler for the native surface). The plan can
+	// therefore only carry a handler the vocabulary admits; there is no
+	// spelling on it for a later frame to re-interpret.
+	DirtyTreeHandler operations.DirtyTreeHandler
 	// Ladder is the resolved (preset-or-declared, validated) escalation
 	// ladder (Wave C2) this child's ApprovalRequests walk. Resolved once at
 	// spawn time from the agent's declared escalation: (or the Perm preset)

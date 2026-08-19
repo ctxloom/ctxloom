@@ -139,7 +139,7 @@ func TestBuildRunRequest_HonorsProjectPermissionDefault(t *testing.T) {
 			Permissions: "bypass",
 		})
 		st := newPermissionRunState(t, cfg, "codex", "codex")
-		st.buildRunRequest()
+		require.NoError(t, st.buildRunRequest())
 
 		require.NotNil(t, st.req)
 		require.NotNil(t, st.req.Options)
@@ -162,7 +162,7 @@ func TestBuildRunRequest_HonorsProjectPermissionDefault(t *testing.T) {
 			}},
 		})
 		st := newPermissionRunState(t, cfg, "careful", "codex")
-		st.buildRunRequest()
+		require.NoError(t, st.buildRunRequest())
 
 		require.NotNil(t, st.req)
 		require.NotNil(t, st.req.Options)
@@ -178,7 +178,7 @@ func TestBuildRunRequest_HonorsProjectPermissionDefault(t *testing.T) {
 
 		cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 		st := newPermissionRunState(t, cfg, "codex", "codex")
-		st.buildRunRequest()
+		require.NoError(t, st.buildRunRequest())
 
 		require.NotNil(t, st.req)
 		require.NotNil(t, st.req.Options)

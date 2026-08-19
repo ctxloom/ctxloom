@@ -40,6 +40,44 @@ message FieldSchema {
   // Example value, JSON-encoded (e.g. "\"parent\"", "{\"prompt\": \"...\"}").
   // Emitted as the schema's `examples[0]`.
   string example = 3;
+
+  // Known keys of a google.protobuf.Struct field, projected as the schema's
+  // `properties`. The Struct stays an OPEN object (additionalProperties
+  // remains true) — this constrains the keys it names without closing the
+  // rest.
+  //
+  // It exists for the keys that carry a CLOSED VOCABULARY. A free-form
+  // Struct's own schema can say nothing about what its values may be, so a
+  // vocabulary riding one is describable only in prose, and prose constrains
+  // nobody: the caller filling this Struct is a model, and an unrecognized
+  // spelling reaches the server as a well-formed request. Declaring the
+  // vocabulary here puts it where a model reads the tool surface.
+  repeated PropertySchema property = 4;
+}
+
+// PropertySchema constrains ONE key of a google.protobuf.Struct field. See
+// FieldSchema.property.
+//
+// It never replaces server-side validation: the schema is advertised, not
+// enforced on the wire, so the verb still parses every one of these values
+// through its vocabulary's own parser. Both must agree, and the generated
+// surface is drift-checked against the owning Go vocabulary by test.
+message PropertySchema {
+  // The key, as it appears in the Struct (snake_case, like every other
+  // projected field name).
+  string name = 1;
+
+  // JSON Schema `type` for the value. Empty means "string".
+  string type = 2;
+
+  // LLM-facing description of this key.
+  string doc = 3;
+
+  // The closed set of values this key accepts, projected as `enum`. Do not
+  // include the empty string: an optional key says "nothing" by being
+  // ABSENT, and listing "" as a member would make the schema advertise a
+  // spelling of unset that the parsers treat as a value.
+  repeated string enum_values = 4;
 }
 
 // MessageSchema carries per-message schema metadata for the generated tool

@@ -192,6 +192,68 @@ func TestPrepareAgentChat_ExplicitNoneStillNone_CallerOverride(t *testing.T) {
 		"an explicit per-call Workspace: \"none\" must still be honored for a delegated child")
 }
 
+// TestPrepareAgentChat_WorkspaceTypoRefusesRatherThanUsingTheParentTree is
+// the workspace axis's half of the same defect: asserted past a parser, an
+// unrecognized spelling reads as the shared checkout, so `workspace:
+// "wroktree"` does not merely fail to isolate a delegated child — it lands it
+// in the PARENT'S LIVE TREE, strictly further from safety than the empty
+// value it resembles (empty defaults a delegated child to its own worktree).
+//
+// The two control subtests are the vacuity guard: they prove this harness
+// observes the axis the spawn actually resolved, so the refusal below is a
+// refusal of the spelling.
+func TestPrepareAgentChat_WorkspaceTypoRefusesRatherThanUsingTheParentTree(t *testing.T) {
+	prepare := func(t *testing.T, cfg *config.Config, perCall string) (isolation.Axes, error) {
+		t.Helper()
+		resetStrictness(t)
+		var gotAxes isolation.Axes
+		prev := prepareIsolation
+		prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+			gotAxes = axes
+			return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+		}
+		t.Cleanup(func() { prepareIsolation = prev })
+		p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+			Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+			WorkDir:   t.TempDir(),
+			Workspace: perCall,
+		})
+		if p != nil {
+			t.Cleanup(p.Abort)
+		}
+		return gotAxes, err
+	}
+
+	t.Run("control: a declared member reaches the axes", func(t *testing.T) {
+		axes, err := prepare(t, config.NewFixture(config.Fixture{}), "worktree")
+		require.NoError(t, err)
+		assert.Equal(t, isolation.WorkspaceWorktree, axes.Workspace)
+	})
+
+	t.Run("control: the shared checkout is reachable by asking for it", func(t *testing.T) {
+		axes, err := prepare(t, config.NewFixture(config.Fixture{}), "none")
+		require.NoError(t, err)
+		assert.Equal(t, isolation.WorkspaceShared, axes.Workspace)
+	})
+
+	t.Run("a typo'd per-call workspace refuses and resolves no axes at all", func(t *testing.T) {
+		axes, err := prepare(t, config.NewFixture(config.Fixture{}), "wroktree")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "wroktree")
+		assert.Contains(t, err.Error(), "none|worktree")
+		assert.NotEqual(t, isolation.WorkspaceShared, axes.Workspace,
+			"THE POINT: a typo must not resolve to the parent's live checkout")
+		assert.Equal(t, isolation.Axes{}, axes, "isolation was never prepared at all")
+	})
+
+	t.Run("a typo'd project workspace default refuses the same way", func(t *testing.T) {
+		axes, err := prepare(t, config.NewFixture(config.Fixture{Workspace: "wroktree"}), "")
+		require.Error(t, err)
+		assert.NotEqual(t, isolation.WorkspaceShared, axes.Workspace)
+		assert.Equal(t, isolation.Axes{}, axes)
+	})
+}
+
 // TestPrepareAgentChat_ContainerDegradeGate pins fail-loud parity with the
 // fan's member gate: an explicitly-requested container that can't start
 // (ClassIsolation finding during Prepare) refuses the child in strict mode —
@@ -558,7 +620,7 @@ func TestPrepareAgentChat_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T
 	resetStrictness(t)
 	strictness.SetDegraded(true)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M internal/foo.go"}}
-	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: DirtyTreeHandlerFail})
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(DirtyTreeHandlerFail)})
 	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
 		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
 		WorkDir:  "/proj",
@@ -906,7 +968,8 @@ func TestHandleDirtyParentTree_Commit_PerCallHandlerCannotSupplyAck(t *testing.T
 	// resolveDirtyTreeHandler is exactly what a per-call agent_run
 	// dirty_tree_handler: "commit" resolves to — there is no field anywhere
 	// in AgentChatRequest/agentRunInput that can also carry an ack.
-	handler := resolveDirtyTreeHandler(cfg, DirtyTreeHandlerCommit)
+	handler, rerr := resolveDirtyTreeHandler(cfg, DirtyTreeHandlerCommit)
+	require.NoError(t, rerr)
 	require.Equal(t, DirtyTreeHandlerCommit, handler)
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", handler)
 	require.Error(t, err, "an explicit per-call request for \"commit\" still refuses without the project's own ack")
@@ -1035,25 +1098,123 @@ func TestPrepareAgentChat_Commit_ChildSeesCommittedContent(t *testing.T) {
 // Workspace's own GAP 2 resolution uses.
 func TestResolveDirtyTreeHandler_Precedence(t *testing.T) {
 	t.Run("per-call wins over project config", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: DirtyTreeHandlerFail})
-		assert.Equal(t, DirtyTreeHandlerStale, resolveDirtyTreeHandler(cfg, DirtyTreeHandlerStale))
+		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: string(DirtyTreeHandlerFail)})
+		got, err := resolveDirtyTreeHandler(cfg, DirtyTreeHandlerStale)
+		require.NoError(t, err)
+		assert.Equal(t, DirtyTreeHandlerStale, got)
 	})
 	t.Run("empty per-call falls back to project config", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: DirtyTreeHandlerFail})
-		assert.Equal(t, DirtyTreeHandlerFail, resolveDirtyTreeHandler(cfg, ""))
+		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: string(DirtyTreeHandlerFail)})
+		got, err := resolveDirtyTreeHandler(cfg, "")
+		require.NoError(t, err)
+		assert.Equal(t, DirtyTreeHandlerFail, got)
 	})
+	// THE UNSET PATH, unchanged: saying nothing at either level is not an
+	// error and never has been — it is the one input that still resolves to
+	// the built-in default. Typing the vocabulary refused UNPARSEABLE values;
+	// it must not have promoted silence into one.
 	t.Run("both empty falls back to the built-in default (commit)", func(t *testing.T) {
 		cfg := config.NewFixture(config.Fixture{})
-		assert.Equal(t, "commit", resolveDirtyTreeHandler(cfg, ""))
-		assert.Equal(t, defaultDirtyTreeHandler, resolveDirtyTreeHandler(cfg, ""))
+		got, err := resolveDirtyTreeHandler(cfg, "")
+		require.NoError(t, err, "unset is not an error — only unparseable is")
+		assert.Equal(t, DirtyTreeHandler("commit"), got)
+		assert.Equal(t, defaultDirtyTreeHandler, got)
 	})
-	t.Run("an unrecognized per-call value falls back to the default, not silently to something else", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: DirtyTreeHandlerFail})
-		assert.Equal(t, defaultDirtyTreeHandler, resolveDirtyTreeHandler(cfg, "bogus-value-1"))
+	// The defect this vocabulary was typed to close: an unrecognized value
+	// resolved to the built-in default, which is the member that AUTO-COMMITS
+	// the user's working tree — so a typo'd per-call override beat a project
+	// that had explicitly pinned "fail", and committed on its behalf.
+	t.Run("an unrecognized per-call value REFUSES rather than falling back", func(t *testing.T) {
+		handler, err := ParseDirtyTreeHandler("fial")
+		require.Error(t, err, "the parse is where a typo stops — nothing downstream ever sees the spelling")
+		assert.Equal(t, DirtyTreeHandler(""), handler, "a refused parse yields no handler at all, least of all the default")
+		assert.NotEqual(t, defaultDirtyTreeHandler, handler)
+		assert.Contains(t, err.Error(), "commit|copy|stale|fail", "the refusal names the legal values")
 	})
-	t.Run("an unrecognized project config value falls back to the default", func(t *testing.T) {
+	t.Run("an unrecognized project config value REFUSES rather than falling back", func(t *testing.T) {
 		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: "bogus-value-2"})
-		assert.Equal(t, defaultDirtyTreeHandler, resolveDirtyTreeHandler(cfg, ""))
+		got, err := resolveDirtyTreeHandler(cfg, "")
+		require.Error(t, err)
+		assert.Equal(t, DirtyTreeHandler(""), got)
+		assert.NotEqual(t, defaultDirtyTreeHandler, got)
+	})
+}
+
+// TestParseDirtyTreeHandler is the vocabulary's own contract: the four
+// members round-trip, empty passes through as the zero value (the "this
+// level said nothing" input), and everything else is refused naming the
+// legal set.
+func TestParseDirtyTreeHandler(t *testing.T) {
+	for _, member := range DirtyTreeHandlerNames() {
+		got, err := ParseDirtyTreeHandler(member)
+		require.NoError(t, err, "%q is a declared member", member)
+		assert.Equal(t, DirtyTreeHandler(member), got)
+	}
+	require.Len(t, DirtyTreeHandlerNames(), 4, "the vocabulary is four members; a fifth needs a decision, not a silent admission")
+
+	got, err := ParseDirtyTreeHandler("")
+	require.NoError(t, err, "unset is not an error")
+	assert.Equal(t, DirtyTreeHandler(""), got, "empty stays empty — the caller applies its own precedence")
+
+	for _, bad := range []string{"fial", "COMMIT", " commit", "commit ", "true", "none"} {
+		got, err := ParseDirtyTreeHandler(bad)
+		require.Error(t, err, "%q is not a member", bad)
+		assert.Equal(t, DirtyTreeHandler(""), got)
+		assert.Contains(t, err.Error(), bad, "the refusal quotes what the caller actually typed")
+	}
+}
+
+// TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit is the EFFECT
+// proof, at the seam that actually touches git: an unrecognized
+// dirty_tree_handler must leave the user's working tree alone.
+//
+// Both subtests share one fixture — a project that has ACKNOWLEDGED
+// auto-commit and a dirty parent tree resolving to a worktree — so the only
+// difference between them is the spelling of the handler. The control
+// subtest is the vacuity guard: it proves this fixture DOES commit when the
+// handler parses, so the refusal below cannot be passing because the commit
+// path was never reachable in the first place.
+func TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
+	newFake := func() *git.Fake {
+		return &git.Fake{
+			Dirty:              map[string]bool{"/proj": true},
+			Changes:            []string{" M internal/foo.go"},
+			CurrentBranchValue: "main",
+			CommitAllSHA:       "abc123",
+			CommitAllChanged:   []string{"internal/foo.go"},
+		}
+	}
+
+	t.Run("control: the well-spelled default DOES commit this fixture", func(t *testing.T) {
+		resetStrictness(t)
+		captureWarnings(t)
+		fake := newFake()
+		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(DirtyTreeHandlerCommit)})
+		p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+			Resolved: &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
+			WorkDir:  "/proj",
+			Git:      fake,
+		})
+		require.NoError(t, err)
+		defer p.Abort()
+		require.Len(t, fake.CommitMessages, 1, "the fixture reaches the auto-commit — the refusal below is therefore meaningful")
+		assert.Contains(t, fake.Calls, "commit-all /proj")
+	})
+
+	t.Run("a typo'd project default refuses and commits NOTHING", func(t *testing.T) {
+		resetStrictness(t)
+		captureWarnings(t)
+		fake := newFake()
+		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree", DirtyTreeHandler: "fial"})
+		p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+			Resolved: &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
+			WorkDir:  "/proj",
+			Git:      fake,
+		})
+		require.Error(t, err, "an unrecognized handler refuses the spawn")
+		assert.Nil(t, p)
+		assert.Empty(t, fake.CommitMessages, "THE POINT: a typo must not commit the user's working tree")
+		assert.NotContains(t, fake.Calls, "commit-all /proj", "handleDirtyParentTree was never reached")
 	})
 }
 
@@ -1065,7 +1226,7 @@ func TestPrepareAgentChat_DirtyTreeHandler_PerCallOverridesProject(t *testing.T)
 	resetStrictness(t)
 	captureWarnings(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: DirtyTreeHandlerFail})
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(DirtyTreeHandlerFail)})
 	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
 		Resolved:         &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
 		WorkDir:          "/proj",
@@ -1082,7 +1243,7 @@ func TestPrepareAgentChat_DirtyTreeHandler_PerCallOverridesProject(t *testing.T)
 func TestPrepareAgentChat_DirtyTreeHandler_EmptyFallsBackToProjectDefault(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: DirtyTreeHandlerFail})
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(DirtyTreeHandlerFail)})
 	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
 		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
 		WorkDir:  "/proj",

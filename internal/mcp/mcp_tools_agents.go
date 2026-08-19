@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 )
@@ -204,10 +207,54 @@ type agentStopResult struct {
 	Disposition string `json:"disposition"`
 }
 
+
+// agentRunInputSchema is agent_run's advertised input schema: the shape
+// inferred from agentRunInput, with its two per-call VOCABULARY arguments
+// carrying the enum of what they actually accept.
+//
+// The prose in each field's description already listed the legal values, but
+// prose is not a constraint: nothing rejected a spelling outside it, and the
+// caller filling these arguments is a model. An `enum` is read by the model
+// AND enforced by the SDK's own argument validation before the handler runs,
+// which is the same posture the human-edited channel already has (the
+// project config's JSON Schema enumerates both of these keys). The enums
+// come from each vocabulary's owning package, so a member added there cannot
+// leave this surface behind.
+//
+// A missing property PANICS rather than quietly advertising an unconstrained
+// argument: it can only mean the struct field was renamed, and a schema that
+// silently stopped constraining the argument that decides whether ctxloom
+// commits the user's tree is the failure this whole surface exists to avoid.
+func agentRunInputSchema() *jsonschema.Schema {
+	schema, err := jsonschema.For[agentRunInput](nil)
+	if err != nil {
+		panic(fmt.Sprintf("agent_run: input schema: %v", err))
+	}
+	constrainToVocabulary(schema, "dirty_tree_handler", operations.DirtyTreeHandlerNames())
+	constrainToVocabulary(schema, "workspace", isolation.WorkspaceNames())
+	return schema
+}
+
+// constrainToVocabulary stamps a closed vocabulary onto one property of an
+// inferred schema. See agentRunInputSchema for why an absent property is a
+// panic rather than a no-op.
+func constrainToVocabulary(schema *jsonschema.Schema, property string, members []string) {
+	prop, ok := schema.Properties[property]
+	if !ok {
+		panic(fmt.Sprintf("agent_run: input schema has no %q property to constrain (renamed field?)", property))
+	}
+	enum := make([]any, 0, len(members))
+	for _, m := range members {
+		enum = append(enum, m)
+	}
+	prop.Enum = enum
+}
+
 func (s *ctxServer) registerAgentTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "agent_run",
+			InputSchema: agentRunInputSchema(),
 			Description: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's harp (its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send(to: harp). Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.",
 		},
 		s.handleAgentRun)
@@ -261,7 +308,16 @@ func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, nil, err
 	}
-	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt, in.Workspace, in.DirtyTreeHandler)
+	// THIS IS THE EDGE for the per-call dirty-tree vocabulary on the native
+	// surface: the argument is a model-supplied string, and the member it
+	// would otherwise default to auto-commits the user's working tree. Parse
+	// it here, so an unrecognized spelling is refused at the tool call
+	// naming the legal values, and only the typed value travels inward.
+	dirtyTreeHandler, err := operations.ParseDirtyTreeHandler(in.DirtyTreeHandler)
+	if err != nil {
+		return nil, nil, fmt.Errorf("agent_run: %w", err)
+	}
+	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt, in.Workspace, dirtyTreeHandler)
 	if err != nil {
 		return nil, nil, err
 	}

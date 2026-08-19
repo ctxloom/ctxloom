@@ -260,15 +260,17 @@ type RunOutcome struct {
 // stays pure — see spawner.go's Resolve/GAP 1).
 //
 // dirtyTreeHandler is the identical per-call override for what a worktree
-// spawn does when the parent tree is dirty (commit|copy|stale|fail; empty =
-// project default, cfg.GetDirtyTreeHandler()) — see
+// spawn does when the parent tree is dirty (the zero value = project default,
+// cfg.GetDirtyTreeHandler()). It is the TYPED value: callers parse the
+// caller-supplied spelling at their own edge, so an unrecognized one is
+// refused where the caller can see it rather than resolved here — see
 // operations.handleDirtyParentTree. Deliberately does NOT carry any
 // acknowledgement for the "commit" handler's mutation: that is a
 // per-checkout, human-only acknowledgement (dirty_tree_commit_ack — see
 // config.DirtyTreeCommitAcknowledged) that this per-call parameter can never
 // set: it is not even a config key any longer, precisely so no channel an
 // agent can reach (config, env, argv) can grant it.
-func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt, workspace, dirtyTreeHandler string) (*RunOutcome, error) {
+func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt, workspace string, dirtyTreeHandler operations.DirtyTreeHandler) (*RunOutcome, error) {
 	if agentName == "" {
 		return nil, errors.New("agent_run: agent is required (a configured agent name; see `ctxloom agent list`)")
 	}

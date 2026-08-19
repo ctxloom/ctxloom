@@ -276,7 +276,7 @@
     },
     "workspace": {
       "type": "string",
-      "description": "Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/acp --workspace (or an agent_run spawn's workspace field). Deliberately not an agent trait \u2014 needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning).",
+      "description": "Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/acp --workspace (or an agent_run spawn's workspace field). Deliberately not an agent trait \u2014 needing a private cwd is a property of how a session is launched. A value outside this set is REFUSED, never degraded: asserted past the parser it would read as the shared checkout, so a typo'd request for isolation would run in your live project directory.",
       "enum": [
         "none",
         "worktree"
@@ -284,7 +284,7 @@
     },
     "dirty_tree_handler": {
       "type": "string",
-      "description": "Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it \u2014 requires a human dirty-tree-commit acknowledgement recorded via `ctxloom init` or `ctxloom manage dirty-tree-ack grant` (NOT a config key \u2014 see .ctxloom/state/dirty_tree_commit_ack.yaml), and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter.",
+      "description": "Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it \u2014 requires a human dirty-tree-commit acknowledgement recorded via `ctxloom init` or `ctxloom manage dirty-tree-ack grant` (NOT a config key \u2014 see .ctxloom/state/dirty_tree_commit_ack.yaml), and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter. A value outside this set is REFUSED, never resolved to the default: the default is the one handler that writes to your repository.",
       "enum": [
         "commit",
         "copy",

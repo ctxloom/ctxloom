@@ -490,7 +490,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	defer closeCoordinator()
 
 	st.seedTask()
-	st.buildRunRequest()
+	if err := st.buildRunRequest(); err != nil {
+		return err
+	}
 
 	// Teardown: kill the go-plugin client (host/worktree/oneshot
 	// arms) OR the docker-exec keepalive container (Phase 2a-A interactive arm
@@ -1155,7 +1157,7 @@ func (st *runState) seedTask() {
 // scopes the managed mcp/commands/hooks to the SAME profiles, so `run -p X` no
 // longer leaks the default profile's MCP or every pulled bundle's commands
 // into X's session.
-func (st *runState) buildRunRequest() {
+func (st *runState) buildRunRequest() error {
 	// Gate the executable surfaces (bundle MCP servers + bundle hooks + prompt
 	// command-file exports) the host ships in ManagedConfig: these bypass the
 	// content loader, so each is gated at its own choke via this injected
@@ -1169,8 +1171,16 @@ func (st *runState) buildRunRequest() {
 	// prepares a policy from these below; the permission posture resolves
 	// separately from config/CLI (no longer gated on the isolation boundary).
 	// The external-plugin-binary path is never isolated (none).
+	// A --workspace (or project `workspace:`) spelling the axis does not
+	// admit stops the run here. Asserted past the parser it would read as the
+	// shared checkout, so a typo'd request for isolation would run in the
+	// live project directory having said so out loud to nobody.
+	sessionWorkspace, err := isolation.ParseWorkspaceAxis(st.sessionWorkspace)
+	if err != nil {
+		return err
+	}
 	st.runAxes = isolation.Axes{
-		Workspace: isolation.WorkspaceAxis(st.sessionWorkspace),
+		Workspace: sessionWorkspace,
 		Runtime:   isolation.RuntimeAxis(st.agentRuntime),
 	}
 
@@ -1214,6 +1224,7 @@ func (st *runState) buildRunRequest() {
 	}
 	// Advisory: tell the user if a bundle executable was withheld (content-free).
 	execGate.WarnWithheld()
+	return nil
 }
 
 // warnPermissionCollapse surfaces a posture that resolved to something other

@@ -27,7 +27,9 @@ import (
 //	    conflict (models handle flat-optional better than JSON-Schema oneOf);
 //	(c) google.protobuf.Struct fields project as
 //	    {"type": "object", "additionalProperties": true} with the annotation
-//	    description — never a bare "object";
+//	    description — never a bare "object"; the (field_schema).property
+//	    annotation adds `properties` for the keys such a Struct is known to
+//	    carry (the ones with a closed vocabulary), leaving it open;
 //	(d) REQUIRED-ness comes ONLY from the (field_schema).required annotation
 //	    (proto3 has none);
 //	(e) 64-bit integers project as {"type": ["integer", "string"]} — protojson
@@ -148,6 +150,9 @@ func (p *Projector) fieldSchema(fld protoreflect.FieldDescriptor, seen map[proto
 	if err != nil {
 		return nil, err
 	}
+	if err := applyPropertyAnnotations(fld, schema); err != nil {
+		return nil, err
+	}
 	if desc := p.fieldDescription(fld, seen); desc != "" {
 		schema["description"] = desc
 	}
@@ -164,6 +169,49 @@ func (p *Projector) fieldSchema(fld protoreflect.FieldDescriptor, seen map[proto
 	}
 	schema["examples"] = []any{v}
 	return schema, nil
+}
+
+// applyPropertyAnnotations projects (field_schema).property onto an open
+// object schema: the declared keys become `properties`, and the object stays
+// open (additionalProperties keeps whatever the base projection set, which
+// for a Struct is true) so the undeclared keys are still accepted.
+//
+// It refuses to apply to anything that is not an object, and refuses a
+// property with no name: both mean the annotation says something the emitted
+// schema cannot carry, and a generator that dropped it silently would leave
+// a vocabulary undeclared on the model-facing surface with nothing to say so.
+func applyPropertyAnnotations(fld protoreflect.FieldDescriptor, schema map[string]any) error {
+	declared := fieldAnnotation(fld).GetProperty()
+	if len(declared) == 0 {
+		return nil
+	}
+	if schema["type"] != "object" {
+		return fmt.Errorf("mcpschema: field %s carries (field_schema).property but does not project as an object", fld.FullName())
+	}
+	props := map[string]any{}
+	for _, d := range declared {
+		if d.GetName() == "" {
+			return fmt.Errorf("mcpschema: field %s has a (field_schema).property with no name", fld.FullName())
+		}
+		kind := d.GetType()
+		if kind == "" {
+			kind = "string"
+		}
+		prop := map[string]any{"type": kind}
+		if doc := d.GetDoc(); doc != "" {
+			prop["description"] = doc
+		}
+		if members := d.GetEnumValues(); len(members) > 0 {
+			enum := make([]any, 0, len(members))
+			for _, m := range members {
+				enum = append(enum, m)
+			}
+			prop["enum"] = enum
+		}
+		props[d.GetName()] = prop
+	}
+	schema["properties"] = props
+	return nil
 }
 
 // baseFieldSchema projects the field's kind, wrapped for repeated and map

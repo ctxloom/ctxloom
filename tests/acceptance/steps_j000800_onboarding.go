@@ -185,7 +185,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		// surface carries, not a restatement of the assertion.
 		w.docStepMaterialized = fmt.Sprintf("%s:\n%s", rel, j000400Excerpt(body, j000800TeamMarker, 1))
 		if !strings.Contains(body, j000800TeamMarker) {
-			return fmt.Errorf("Bob's materialized %s context does not contain the team's standardized-context marker; content:\n%s", engine, body)
+			return fmt.Errorf("the materialized %s context for Bob does not contain the team's standardized-context marker; content:\n%s", engine, body)
 		}
 		return nil
 	})
@@ -320,10 +320,10 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		}
 		got, err := j000800LockedSHA(raw)
 		if err != nil {
-			return fmt.Errorf("Bob's lockfile: %w", err)
+			return fmt.Errorf("reading Bob's lockfile: %w", err)
 		}
 		if got != j000800.pinnedSHA {
-			return fmt.Errorf("Bob's pull moved the upstream bundle off the team's pin: lockfile now records sha %q, the team pinned %q — a hold must freeze the resolved commit even when the pull re-resolves against a newer upstream; Bob's lockfile:\n%s", got, j000800.pinnedSHA, raw)
+			return fmt.Errorf("the pull moved Bob's upstream bundle off the team's pin: lockfile now records sha %q, the team pinned %q — a hold must freeze the resolved commit even when the pull re-resolves against a newer upstream; Bob's lockfile:\n%s", got, j000800.pinnedSHA, raw)
 		}
 		return assertBobMaterializedContains(w, j000800PinnedMarker)
 	})
@@ -374,7 +374,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("expected Bob to be told the company's content is awaiting review; materialize output:\n%s", w.j000700().bobOutput)
 		}
 		if strings.Contains(body, j000800CompanyMarker) {
-			return fmt.Errorf("Bob's materialized context unexpectedly contains the held company marker; content:\n%s", body)
+			return fmt.Errorf("the materialized context for Bob unexpectedly contains the held company marker; content:\n%s", body)
 		}
 		return nil
 	})
@@ -520,7 +520,7 @@ func assertBobMaterializedContains(w *World, want string) error {
 		return err
 	}
 	if !strings.Contains(body, want) {
-		return fmt.Errorf("Bob's materialized context does not contain %q; content:\n%s", want, body)
+		return fmt.Errorf("the materialized context for Bob does not contain %q; content:\n%s", want, body)
 	}
 	return nil
 }
@@ -531,7 +531,7 @@ func assertBobMaterializedDoesNotContain(w *World, notWant string) error {
 		return err
 	}
 	if strings.Contains(body, notWant) {
-		return fmt.Errorf("Bob's materialized context unexpectedly contains %q; content:\n%s", notWant, body)
+		return fmt.Errorf("the materialized context for Bob unexpectedly contains %q; content:\n%s", notWant, body)
 	}
 	return nil
 }

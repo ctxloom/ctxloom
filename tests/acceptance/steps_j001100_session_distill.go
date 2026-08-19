@@ -37,10 +37,6 @@ import (
 )
 
 const (
-	// j001100Harp is distinct from j001200's amber-quiet-heron / brisk-copper-moth so
-	// this journey's fixture can never collide with j001200's.
-	j001100Harp = "quiet-ember-forge"
-
 	// j001100TranscriptMarker exists ONLY in this journey's seeded transcript, so
 	// finding it in the mock's recorded prompt proves the REAL transcript
 	// reached the distiller rather than an empty or stale one.

@@ -109,11 +109,11 @@ import (
 	"testing"
 )
 
-// ledgerDisciplineScopes and ledgerDisciplineExemptDirs mirror
-// lock_discipline_test.go's scope exactly — see its doc for why these five
-// packages and these two primitive files.
+// ledgerDisciplineScopes mirrors lock_discipline_test.go's scope exactly — see
+// its doc for why these five packages. The two primitive files that scope
+// exempts are exempt here too: the walk below asks lockDisciplineFileExempt
+// directly rather than carrying its own copy of the list.
 var ledgerDisciplineScopes = lockDisciplineScopes
-var ledgerDisciplineExemptDirs = lockDisciplineExemptDirs
 
 var ledgerManagedPattern = regexp.MustCompile(`(?i)managed`)
 

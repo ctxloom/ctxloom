@@ -487,7 +487,7 @@ func j001600Reference(w *World) error {
 		return runOK(w, "deps", "pull")
 	}
 	if st.url == "" {
-		return fmt.Errorf("Trent has not published his bundle yet")
+		return fmt.Errorf("no bundle has been published by Trent yet")
 	}
 	if err := runOK(w, "bundle", "create", "seed", "-d", "J001600 seed bundle"); err != nil {
 		return err

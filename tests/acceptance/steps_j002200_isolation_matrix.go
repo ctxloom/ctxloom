@@ -1317,11 +1317,11 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("the instance carries %d project entries, want exactly the one this run works in — Alice's own projects map must never be copied wholesale:\n%s", len(cfg.Projects), got)
 		}
 		if cfg.MCPServers != nil {
-			return fmt.Errorf("Alice's own mcpServers registrations crossed into the agent's instance:\n%s", got)
+			return fmt.Errorf("the agent's instance inherited Alice's own mcpServers registrations:\n%s", got)
 		}
 		for _, secret := range []string{isoFixturePersonalSecret, isoFixturePersonalEmail, isoFixturePersonalHistory} {
 			if strings.Contains(got, secret) {
-				return fmt.Errorf("Alice's own %q reached the agent's instance config:\n%s", secret, got)
+				return fmt.Errorf("the agent's instance config carries Alice's own %q:\n%s", secret, got)
 			}
 		}
 		w.docStepMaterialized = "instance .claude.json, read from inside the spy process:\n" + got

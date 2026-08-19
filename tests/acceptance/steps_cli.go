@@ -411,15 +411,15 @@ func shellSplit(cmdline string) ([]string, error) {
 	runes := []rune(cmdline)
 	for i := 0; i < len(runes); {
 		c := runes[i]
-		switch {
-		case c == ' ' || c == '\t':
+		switch c {
+		case ' ', '\t':
 			if haveCur {
 				fields = append(fields, cur.String())
 				cur.Reset()
 				haveCur = false
 			}
 			i++
-		case c == '\'':
+		case '\'':
 			haveCur = true
 			i++
 			start := i
@@ -431,7 +431,7 @@ func shellSplit(cmdline string) ([]string, error) {
 			}
 			cur.WriteString(string(runes[start:i]))
 			i++
-		case c == '"':
+		case '"':
 			haveCur = true
 			i++
 			for i < len(runes) && runes[i] != '"' {

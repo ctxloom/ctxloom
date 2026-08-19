@@ -71,13 +71,13 @@ type RecordTarget struct {
 // the resolved list (indices concrete, key-matches collapsed), not the abstract
 // patch, per §9.7: "the record states what happened to THIS file."
 type RecordOp struct {
-	Op         string       `yaml:"op"`
-	From       string       `yaml:"from,omitempty"`
-	Path       string       `yaml:"path"`
-	Absent     bool         `yaml:"absent,omitempty"`
-	Count      *int         `yaml:"count,omitempty"`
-	Kind       string       `yaml:"kind,omitempty"`
-	Exhaustive bool         `yaml:"exhaustive,omitempty"`
+	Op         string `yaml:"op"`
+	From       string `yaml:"from,omitempty"`
+	Path       string `yaml:"path"`
+	Absent     bool   `yaml:"absent,omitempty"`
+	Count      *int   `yaml:"count,omitempty"`
+	Kind       string `yaml:"kind,omitempty"`
+	Exhaustive bool   `yaml:"exhaustive,omitempty"`
 
 	// OnConflict is the add policy the transform carried. hew's OP-02/03/04 all
 	// resolve to `add` and differ ONLY here — fail, replace, keep — so a record

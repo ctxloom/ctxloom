@@ -249,18 +249,18 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		carolMaterialized := w.env.LastOutput()
 		w.docStepMaterialized = carolSyncOutput + "\n" + carolMaterialized
 		if !strings.Contains(carolSyncOutput, "retracted") {
-			return fmt.Errorf("Carol's sync output does not mention retraction; output:\n%s", carolSyncOutput)
+			return fmt.Errorf("the sync output for Carol does not mention retraction; output:\n%s", carolSyncOutput)
 		}
 		wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j001700RetractReason)
 		if !strings.Contains(carolMaterialized, wantWarn) {
-			return fmt.Errorf("Carol's materialize output does not carry the exact withheld reason %q; output:\n%s", wantWarn, carolMaterialized)
+			return fmt.Errorf("the materialize output for Carol does not carry the exact withheld reason %q; output:\n%s", wantWarn, carolMaterialized)
 		}
 		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
 		if err != nil {
 			return fmt.Errorf("read Carol's materialized CLAUDE.md: %w", err)
 		}
 		if strings.Contains(body, j001700Marker) {
-			return fmt.Errorf("Carol's materialized context still contains the retracted marker; content:\n%s", body)
+			return fmt.Errorf("the materialized context for Carol still contains the retracted marker; content:\n%s", body)
 		}
 		return nil
 	})
@@ -269,11 +269,11 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		j001700 := j001700Of(w)
 		if !strings.Contains(j001700.bobSyncOutput, "retracted") {
-			return fmt.Errorf("Bob's sync output does not mention retraction; output:\n%s", j001700.bobSyncOutput)
+			return fmt.Errorf("the sync output for Bob does not mention retraction; output:\n%s", j001700.bobSyncOutput)
 		}
 		wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j001700RetractReason)
 		if !strings.Contains(j001700.bobMaterialized, wantWarn) {
-			return fmt.Errorf("Bob's materialize output does not carry the exact withheld reason %q; output:\n%s", wantWarn, j001700.bobMaterialized)
+			return fmt.Errorf("the materialize output for Bob does not carry the exact withheld reason %q; output:\n%s", wantWarn, j001700.bobMaterialized)
 		}
 		// readBobFile sets docStepMaterialized itself (to the file it read), so
 		// this must run BEFORE the evidence assignment below or it would clobber
@@ -285,7 +285,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if strings.Contains(body, j001700Marker) {
-			return fmt.Errorf("Bob's materialized context still contains the retracted marker; content:\n%s", body)
+			return fmt.Errorf("the materialized context for Bob still contains the retracted marker; content:\n%s", body)
 		}
 		w.docStepMaterialized = j001700.bobSyncOutput + "\n" + j001700.bobMaterialized
 		return nil
@@ -319,11 +319,11 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		carolMaterialized := w.env.LastOutput()
 		w.docStepMaterialized = carolSyncOutput + "\n" + carolMaterialized
 		if !strings.Contains(carolSyncOutput, "retracted") {
-			return fmt.Errorf("Carol's sync output does not mention retraction even though the persisted verdict was retracted; output:\n%s", carolSyncOutput)
+			return fmt.Errorf("the sync output for Carol does not mention retraction even though the persisted verdict was retracted; output:\n%s", carolSyncOutput)
 		}
 		wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j001700RetractReason)
 		if !strings.Contains(carolMaterialized, wantWarn) {
-			return fmt.Errorf("Carol's materialize output does not carry the exact withheld reason %q; output:\n%s", wantWarn, carolMaterialized)
+			return fmt.Errorf("the materialize output for Carol does not carry the exact withheld reason %q; output:\n%s", wantWarn, carolMaterialized)
 		}
 		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
 		if err != nil {

@@ -142,7 +142,15 @@ func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.
 	// idempotent, so the constructor's own cleanup still runs.
 	c.Close()
 
-	containerPath := resolveUnderHome(t, crossBoundaryContainerHome, ref)
+	// The container view is resolved by THIS process with $HOME pointing at the
+	// container's home — the second-view approximation this file's doc names.
+	// The swap is global to the process and lasts to the end of the test:
+	// nothing below reads the process $HOME (containerRead hands docker the
+	// container's home explicitly), and the coordinator that did was quiesced
+	// above.
+	t.Setenv("HOME", crossBoundaryContainerHome)
+	containerPath, err := spool.NewHomeMapper().Resolve(ref)
+	require.NoError(t, err)
 	require.NotEqual(t, hostPath, containerPath,
 		"the two views must DIFFER, or this test proves nothing about view-independence")
 	require.True(t, strings.HasPrefix(containerPath, crossBoundaryContainerHome+"/"),
@@ -164,25 +172,6 @@ func TestSpoolTeeCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.
 	assert.Equal(t, KindMessage, msg.Kind)
 	assert.Equal(t, body, msg.Body)
 	assert.Equal(t, msgID, msg.OriginID, "the file the doorbell named must be the twin of the mailbox delivery that caused it")
-}
-
-// resolveUnderHome resolves ref with $HOME pointing at another view — the
-// second-view approximation this file's doc names. The swap is global to the
-// process, which is why the caller quiesces first.
-func resolveUnderHome(t *testing.T, home string, ref spool.Ref) string {
-	t.Helper()
-	prev, had := os.LookupEnv("HOME")
-	require.NoError(t, os.Setenv("HOME", home))
-	defer func() {
-		if had {
-			require.NoError(t, os.Setenv("HOME", prev))
-			return
-		}
-		require.NoError(t, os.Unsetenv("HOME"))
-	}()
-	path, err := spool.NewHomeMapper().Resolve(ref)
-	require.NoError(t, err)
-	return path
 }
 
 // containerRead bind-mounts the fixture home at the container home and reads

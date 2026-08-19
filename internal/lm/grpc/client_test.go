@@ -447,7 +447,7 @@ func TestRunnerFromConn_InfoErrorTriggersKill(t *testing.T) {
 func TestLLMRunnerKill_NilReceiverFromFailedSpawn_NoPanic(t *testing.T) {
 	fake := &fakeLLMConnection{clientErr: errors.New("dial failed")}
 
-	runner, err := runnerFromConn(fake)
+	runner, err := runnerFromConn(fake) //nolint:staticcheck // SA4023 names this line as the source of the concrete type in the comparison below, where the reasoning lives
 	require.Error(t, err)
 	require.Nil(t, runner, "a failed spawn must hand back a nil *LLMRunner")
 
@@ -459,7 +459,12 @@ func TestLLMRunnerKill_NilReceiverFromFailedSpawn_NoPanic(t *testing.T) {
 	// cli/run.go's teardownTransport guards with a bare `if st.client != nil`
 	// — so the test must use the same comparison to reproduce what fooled it.
 	var client Client = runner
-	if client == nil {
+	// SA4023 is RIGHT that this comparison can never be true, and that is the
+	// property under test: a nil *LLMRunner boxed into Client is a NON-nil
+	// interface, which is why production's bare `!= nil` teardown guard calls
+	// Kill on a nil receiver. Rewriting the comparison to satisfy the analyzer
+	// would stop reproducing the guard that was actually fooled.
+	if client == nil { //nolint:staticcheck // the impossibility of this comparison is the assertion
 		t.Fatal("expected a NON-nil interface (typed-nil-in-interface pitfall) from a plain `!= nil` comparison, matching what production's teardownTransport guard actually sees")
 	}
 

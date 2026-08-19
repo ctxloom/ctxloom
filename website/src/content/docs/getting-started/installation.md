@@ -305,9 +305,9 @@ error (the exact `ssh-add`/`ssh-keygen` commands to run) rather than a silent no
 content for yourself only — `ctxloom review` without `--project` — never requires a key: with
 none found, it offers an explicit, confirmed **unsigned** path instead.
 
-### Container isolation (`runtime: container`)
+### Container isolation (`runtime: container-rootless` / `container-rootful`)
 
-Only needed if you opt into `runtime: container` (or run `ctxloom container build`) — the
+Only needed if you opt into `runtime: container-rootless` or `runtime: container-rootful` (or run `ctxloom container build`) — the
 default `runtime: host` needs no container runtime at all. Container-isolated agents need
 **docker or podman** installed, on `PATH`, with the daemon reachable (`docker info` / `podman
 info` succeeding). Run `ctxloom container check` to diagnose whether the current host can launch

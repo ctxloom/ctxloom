@@ -85,7 +85,7 @@ agents:
   dev:
     engine: claude-code
     profiles: [developer]
-    runtime: container        # optional; host|container
+    runtime: container-rootless # optional; host|container-rootless|container-rootful
     permissions: acceptEdits  # optional; default|acceptEdits|plan|bypass (config-only, no CLI flag equivalent)
     escalation: []            # optional; ordered approval-request ladder, overrides the permissions-derived default
 
@@ -107,7 +107,7 @@ permissions: acceptEdits      # default|acceptEdits|plan|bypass
 
 # Project-wide isolation defaults
 workspace: none               # session workspace axis: none|worktree
-runtime: host                 # agent runtime axis: host|container
+runtime: host                 # agent runtime axis: host|container-rootless|container-rootful
 
 # Container-image overrides for containerized agents
 isolation_base_containerfile: .ctxloom/base.Containerfile   # your base stage
@@ -283,7 +283,7 @@ between read-only and unrestricted.
 `bypass` means the engine asks nothing before running commands or writing
 files. Its blast radius is whatever contains the process — a container, or
 nothing at all on the bare host. Pair a permissive project default with
-`runtime: container` (below) if the directory is not one you would hand a
+`runtime: container-rootless` (below) if the directory is not one you would hand a
 stranger a shell in.
 :::
 

@@ -49,9 +49,9 @@ const (
 // It exists so exhaustiveness over the classes is TESTABLE rather than
 // trusted: anything that must answer for every class walks this list, so a
 // class added here without being handled there fails that test instead of
-// being silently misread at runtime. HasScheme's own table is checked against
-// it for exactly that reason — a class the recogniser does not know is read as
-// a bare name, which is the fail-OPEN direction for every guard built on it.
+// being silently misread at runtime. ClassForScheme is driven off it directly,
+// which is what makes this list the definition of the vocabulary rather than a
+// second copy of it.
 func Classes() []SourceClass {
 	return []SourceClass{ClassGit, ClassFile, ClassBuiltin, ClassLocal, ClassCompanion}
 }
@@ -122,24 +122,22 @@ func (p Parts) IsExternal() bool {
 	return p.Class == ClassGit || p.Class == ClassFile
 }
 
-// HasScheme reports whether raw opens with any class's scheme. It answers on
-// the SCHEME alone, so it is true for a reference this package cannot parse —
-// which is the point: a caller uses it to tell "scheme-qualified but
-// malformed" (fail CLOSED) apart from "no scheme at all" (a bare name). A
-// class missing from this answer is read as a bare name and granted whatever
-// exemption bare names get, so the recogniser must know every class Parse
-// dispatches on; TestHasScheme_KnowsEveryClass holds the two together.
+// HasScheme reports whether raw CLAIMS the ctxloom URI family, by opening with
+// the shared scheme prefix. It says nothing about whether the class that
+// follows is one this package knows, and that width is deliberate.
+//
+// A caller uses it to tell "scheme-qualified" (fail CLOSED — refuse, and say
+// why) apart from "no scheme at all" (a bare name, first-party by
+// construction, and the only input that takes the local exemption). Narrowing
+// this to the KNOWN classes would put "ctxloom+registry:x" — a reference
+// naming a class this build does not implement — on the bare-name side, where
+// it would be granted the exemption instead of being refused. A reference from
+// a newer grammar must fail, not be adopted.
+//
+// Parse is where a class is checked, and it refuses every scheme this
+// recogniser admits and Classes() does not name.
 func HasScheme(raw string) bool {
-	name, ok := strings.CutPrefix(strings.TrimSpace(raw), SchemePrefix)
-	if !ok {
-		return false
-	}
-	for _, c := range Classes() {
-		if strings.HasPrefix(name, string(c)+":") {
-			return true
-		}
-	}
-	return false
+	return strings.HasPrefix(strings.TrimSpace(raw), SchemePrefix)
 }
 
 // Parse parses and canonicalizes a reference URI.

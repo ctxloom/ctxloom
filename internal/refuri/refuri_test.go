@@ -46,9 +46,10 @@ func TestHasScheme_KnowsEveryClass(t *testing.T) {
 
 	for _, class := range Classes() {
 		raw := SchemePrefix + string(class) + ":name"
-		if class == ClassGit {
+		switch class {
+		case ClassGit:
 			raw = SchemePrefix + string(class) + "://host/repo//bundles/name"
-		} else if class == ClassFile {
+		case ClassFile:
 			raw = SchemePrefix + string(class) + ":///repo//bundles/name"
 		}
 		assert.True(t, HasScheme(raw), "HasScheme(%q) must recognize class %q", raw, class)
@@ -70,14 +71,11 @@ func TestHasScheme_RejectsNonMembers(t *testing.T) {
 		"",
 		"dev",
 		"lang/go",
-		"ctxloom+registry:dev",
 		"ctxloom:local@bundles/dev",
 		"ctxloom:companion@ltk",
 		"https://github.com/acme/repo@bundles/dev",
 		"git@github.com:acme/repo@bundles/dev",
 		"file:///srv/repo@bundles/dev",
-		"ctxloom+local",
-		"ctxloom+localish:dev",
 	} {
 		assert.False(t, HasScheme(raw), "HasScheme(%q) must be false", raw)
 	}
@@ -103,5 +101,22 @@ func TestParse_RoundTripsEveryClass(t *testing.T) {
 		again, err := Parse(p.Render(true))
 		require.NoError(t, err)
 		assert.Equal(t, p, again, "parse ∘ render ∘ parse must be stable")
+	}
+}
+
+// TestHasScheme_AdmitsUnknownClassesSoParseCanRefuseThem pins the width of the
+// recogniser against the narrowness of the parser. A reference naming a class
+// this build does not implement must reach Parse and be REFUSED there; read as
+// a bare name instead, it would take the first-party local exemption — a
+// newer grammar's reference silently granted more trust than an older one's.
+func TestHasScheme_AdmitsUnknownClassesSoParseCanRefuseThem(t *testing.T) {
+	for _, raw := range []string{
+		"ctxloom+registry:dev",
+		"ctxloom+localish:dev",
+		"ctxloom+local",
+	} {
+		assert.True(t, HasScheme(raw), "%q claims the family and must not be read as a bare name", raw)
+		_, err := Parse(raw)
+		assert.ErrorIs(t, err, ErrSyntax, "%q names no known class and must be refused", raw)
 	}
 }

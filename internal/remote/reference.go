@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/refuri"
 )
 
 // LocalSource is the fixed source token for ctxloom:local references —
@@ -52,6 +53,16 @@ const CompanionSource = "ctxloom:companion"
 // Local source (project-authored, committed .ctxloom/content/):
 //   - "ctxloom:local@bundles/name"
 //   - "ctxloom:local@bundles/name@<rev>" (pinned to a project revision)
+//
+// Canonical ctxloom URI (the grammar internal/refuri defines; class in the
+// scheme, "//" between repository path and bundle path):
+//   - "ctxloom+git://github.com/owner/repo//bundles/name[@ver][#kind/item]"
+//   - "ctxloom+file:///abs/repo//bundles/name"
+//   - "ctxloom+local:name", "ctxloom+companion:bin"
+//
+// ctxloom+builtin: parses as a URI but has no Reference: a builtin bundle is
+// embedded in the binary and has no source to fetch from. See
+// parseCanonicalURIReference.
 func ParseReference(ref string) (*Reference, error) {
 	// Ingest boundary: a reference reaching the grammar carries no control
 	// characters (NormalizeRef). Doing it here rather than in each caller is
@@ -60,6 +71,13 @@ func ParseReference(ref string) (*Reference, error) {
 	ref = NormalizeRef(ref)
 	if ref == "" {
 		return nil, fmt.Errorf("empty reference")
+	}
+
+	// The canonical URI family: class in the scheme, "//" splitting the
+	// repository path from the bundle path. Dispatched FIRST because it is the
+	// grammar every other spelling here is a predecessor of.
+	if refuri.HasScheme(ref) {
+		return parseCanonicalURIReference(ref)
 	}
 
 	// Local source: ctxloom:local@<type>/<path>[@version]
@@ -106,6 +124,11 @@ func ParseReference(ref string) (*Reference, error) {
 // well-formed one. This function is the union of the two, so neither reach
 // is lost:
 //
+//   - the whole canonical ctxloom+<class>: family, via refuri.HasScheme. Three
+//     of the five classes are OPAQUE URIs — "ctxloom+builtin:x" carries no
+//     "://" at all — so a "://" test reads them as bare names and grants them
+//     the first-party local exemption, which is the fail-OPEN direction for
+//     every guard built on this answer.
 //   - any "://" ANYWHERE, not just the http/https/file prefixes ParseReference
 //     dispatches on. An "ssh://…" or "git://…" ref is scheme-qualified even
 //     though ParseReference cannot parse it, and must fail closed rather than
@@ -116,7 +139,8 @@ func ParseReference(ref string) (*Reference, error) {
 // anything ParseReference recognises but this does not is a fail-open.
 func IsSelfContainedRef(ref string) bool {
 	switch {
-	case strings.HasPrefix(ref, LocalSource+"@"),
+	case refuri.HasScheme(ref),
+		strings.HasPrefix(ref, LocalSource+"@"),
 		strings.HasPrefix(ref, CompanionSource+"@"),
 		strings.HasPrefix(ref, "git@"),
 		strings.Contains(ref, "://"):

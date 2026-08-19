@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -121,16 +122,31 @@ func LocalBundleRef(name string) string {
 
 // CanonicalBundleRef returns the canonical pipeline identity for a bundle
 // reference: its version-less canonical form when it parses as a reference
-// (remote URL or ctxloom:local), else the ctxloom:local form for a plain
-// local bundle name. Every fragment name the assembly pipeline carries is
-// "<CanonicalBundleRef>#fragments/<name>", so identities compare exactly and
-// local/remote bundles with colliding names stay distinguishable.
-func CanonicalBundleRef(name string) string {
+// (a canonical URI, a remote URL or ctxloom:local), else the ctxloom:local
+// form for a plain local bundle name. Every fragment name the assembly
+// pipeline carries is "<CanonicalBundleRef>#fragments/<name>", so identities
+// compare exactly and local/remote bundles with colliding names stay
+// distinguishable.
+//
+// It ERRORS on a ref that carries a scheme or source token and does not parse,
+// and that error is the point of the function's signature. The local fallback
+// may only be reached by a BARE NAME. A ref that names a source and fails to
+// parse is not a local bundle called "https://…" — feeding it to
+// LocalBundleRef mints "ctxloom:local@bundles/<the entire ref>", a
+// syntactically valid identity for content that does not exist, which every
+// consumer downstream then reports as a MISSING bundle rather than as the
+// grammar fault it is. IsSelfContainedRef draws that line, which is why the
+// two must know the same set of scheme markers.
+func CanonicalBundleRef(name string) (string, error) {
 	name = NormalizeRef(name)
 	if ck, ok := CanonicalKey(name); ok {
-		return ck
+		return ck, nil
 	}
-	return LocalBundleRef(name)
+	if IsSelfContainedRef(name) {
+		return "", fmt.Errorf("bundle reference %q names a source but does not parse: "+
+			"it is not a local bundle name and cannot be read as one", name)
+	}
+	return LocalBundleRef(name), nil
 }
 
 // CanonicalFragmentRef canonicalizes the bundle part of a qualified fragment
@@ -138,9 +154,9 @@ func CanonicalBundleRef(name string) string {
 // a fragment selector (bare names) are returned unchanged. Any "@<commit>"
 // content version is dropped — the canonical fragment identity is
 // version-agnostic (see SplitFragmentVersion to keep the version).
-func CanonicalFragmentRef(ref string) string {
-	canonical, _ := SplitFragmentVersion(ref)
-	return canonical
+func CanonicalFragmentRef(ref string) (string, error) {
+	canonical, _, err := SplitFragmentVersion(ref)
+	return canonical, err
 }
 
 // SplitFragmentVersion canonicalizes the bundle part of a qualified fragment
@@ -151,16 +167,20 @@ func CanonicalFragmentRef(ref string) string {
 // Name is the version-AGNOSTIC canonical identity (so dedup/exclusion/ordering
 // stay version-agnostic); the version is meant to be honored only at the
 // read/resolution path.
-func SplitFragmentVersion(ref string) (canonical, version string) {
+func SplitFragmentVersion(ref string) (canonical, version string, err error) {
 	ref = NormalizeRef(ref)
 	base, sel := SplitItemPath(ref)
 	if !strings.HasPrefix(sel, FragmentSelector) {
-		return ref, ""
+		return ref, "", nil
 	}
-	if parsed, err := ParseReference(base); err == nil {
+	if parsed, perr := ParseReference(base); perr == nil {
 		version = parsed.ContentVersion
 	}
-	return CanonicalBundleRef(base) + sel, version
+	bundle, err := CanonicalBundleRef(base)
+	if err != nil {
+		return "", "", err
+	}
+	return bundle + sel, version, nil
 }
 
 // CommandSelector is the selector prefix addressing a command within a bundle
@@ -180,14 +200,14 @@ const CommandSelector = "#commands/"
 // honored only at the read/resolution path (GetPromptAtVersion). A ref without a
 // command selector (a bare name) is returned unchanged with no version — a bare
 // name has no bundle to pin a historical version against.
-func SplitPromptVersion(ref string) (canonical, version string) {
+func SplitPromptVersion(ref string) (canonical, version string, err error) {
 	ref = NormalizeRef(ref)
 	base, sel := SplitItemPath(ref)
 	if !strings.HasPrefix(sel, CommandSelector) {
-		return ref, ""
+		return ref, "", nil
 	}
 	// Version on the bundle part: "X@<commit>#commands/n".
-	if parsed, err := ParseReference(base); err == nil {
+	if parsed, perr := ParseReference(base); perr == nil {
 		version = parsed.ContentVersion
 	}
 	// Version trailing the command name: "X#commands/n@<commit>" (wins if present).
@@ -195,7 +215,11 @@ func SplitPromptVersion(ref string) (canonical, version string) {
 		version = sel[atIdx+1:]
 		sel = sel[:atIdx]
 	}
-	return CanonicalBundleRef(base) + sel, version
+	bundle, err := CanonicalBundleRef(base)
+	if err != nil {
+		return "", "", err
+	}
+	return bundle + sel, version, nil
 }
 
 // ProfileSelector is the selector prefix addressing a profile shipped INSIDE a
@@ -215,8 +239,12 @@ const ProfileSelector = "#profiles/"
 // bundle-profile seed), mirroring the "<bundle>#fragments/<name>" fragment
 // identity so a bundle profile and a top-level/local profile resolve through the
 // same loader.
-func BundleProfileRef(bundle, name string) string {
-	return CanonicalBundleRef(bundle) + ProfileSelector + NormalizeRef(name)
+func BundleProfileRef(bundle, name string) (string, error) {
+	canonical, err := CanonicalBundleRef(bundle)
+	if err != nil {
+		return "", err
+	}
+	return canonical + ProfileSelector + NormalizeRef(name), nil
 }
 
 // CanonicalProfileKey returns the version-less canonical identity of a
@@ -226,7 +254,8 @@ func BundleProfileRef(bundle, name string) string {
 // the profile name ("X#profiles/n@<sha>"): the lockfile pins the bundle, so
 // profile identity stays version-agnostic (the profile mirror of
 // SplitFragmentVersion/SplitPromptVersion). ok is false when ref carries no
-// "#profiles/" selector. NOTE CanonicalKey is NOT a substitute: it parses the
+// "#profiles/" selector, and also when its bundle part names a source that
+// does not parse. NOTE CanonicalKey is NOT a substitute: it parses the
 // whole ref and drops the item selector entirely, collapsing a bundle profile
 // to its bundle.
 func CanonicalProfileKey(ref string) (string, bool) {
@@ -237,7 +266,16 @@ func CanonicalProfileKey(ref string) (string, bool) {
 	if atIdx := strings.LastIndex(name, "@"); atIdx != -1 {
 		name = name[:atIdx]
 	}
-	return BundleProfileRef(bundle, name), true
+	key, err := BundleProfileRef(bundle, name)
+	if err != nil {
+		// ok=false, never a key built on an unparsed bundle part. Reporting
+		// success on a ref this function could not canonicalize is what turns
+		// a grammar fault into a silent seed MISS: the caller looks the
+		// mangled key up, finds nothing, and reports the profile as not
+		// installed.
+		return "", false
+	}
+	return key, true
 }
 
 // SplitBundleProfileRef splits a "<bundle>#profiles/<name>" reference into its

@@ -1656,14 +1656,13 @@ func TestLoader_GetFragment_LocalCanonicalRefRoundTrips(t *testing.T) {
 func TestLoader_ResolveFragmentAsk(t *testing.T) {
 	loader := expandRefsFixture(t)
 
+	resolve := loader.ResolveFragmentAsk
 	// A bare unique name qualifies to its canonical pipeline form.
-	assert.Equal(t, "ctxloom:local@bundles/test/alpha#fragments/a1",
-		loader.ResolveFragmentAsk("a1"))
+	assert.Equal(t, "ctxloom:local@bundles/test/alpha#fragments/a1", resolve("a1"))
 	// Qualified asks canonicalize their bundle part.
-	assert.Equal(t, "ctxloom:local@bundles/test/alpha#fragments/a1",
-		loader.ResolveFragmentAsk("test/alpha#fragments/a1"))
+	assert.Equal(t, "ctxloom:local@bundles/test/alpha#fragments/a1", resolve("test/alpha#fragments/a1"))
 	// Unknown names pass through unchanged for the load step to report.
-	assert.Equal(t, "nope", loader.ResolveFragmentAsk("nope"))
+	assert.Equal(t, "nope", resolve("nope"))
 }
 
 func TestBundleHook_ComputeContentHash(t *testing.T) {

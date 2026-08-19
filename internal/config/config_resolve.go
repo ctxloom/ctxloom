@@ -173,7 +173,15 @@ func (b *profileBuilder) mergeHooks(source wire.HooksConfig) {
 func NewExclusionSet(exclusions []string) collections.Set[string] {
 	set := collections.NewSet[string]()
 	for _, e := range exclusions {
-		set.Add(remote.CanonicalFragmentRef(e))
+		// An exclusion whose bundle part will not canonicalize is added as
+		// AUTHORED rather than dropped. Dropping it would silently widen the
+		// context: an exclusion that fails to parse must still exclude
+		// something, and its own text is the only honest candidate.
+		canonical, err := remote.CanonicalFragmentRef(e)
+		if err != nil {
+			canonical = e
+		}
+		set.Add(canonical)
 	}
 	return set
 }
@@ -184,7 +192,12 @@ func NewExclusionSet(exclusions []string) collections.Set[string] {
 // matches on its canonical qualified form (qualified exclusions) or on its
 // bare fragment name (bare exclusions).
 func IsExcludedFragment(name string, excluded collections.Set[string]) bool {
-	canonical := remote.CanonicalFragmentRef(name)
+	canonical, err := remote.CanonicalFragmentRef(name)
+	if err != nil {
+		// Matched on the authored spelling, the same fallback NewExclusionSet
+		// makes, so an unparseable ref on either side still meets the other.
+		canonical = name
+	}
 	if excluded.Has(canonical) {
 		return true
 	}

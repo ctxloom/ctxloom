@@ -40,7 +40,10 @@ import (
 func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// A bundleRef may itself carry the version ("<bundle>@<commit>"); an explicit
 	// commit argument wins, else fall back to the ref's own pinned version.
-	canonical, refVersion := splitBundleVersion(bundleRef)
+	canonical, refVersion, err := splitBundleVersion(bundleRef)
+	if err != nil {
+		return BundleRead{}, err
+	}
 	if commit == "" {
 		commit = refVersion
 	}
@@ -147,17 +150,24 @@ func versionRead(canonical, commit string, b *Bundle) BundleRead {
 }
 
 // splitBundleVersion separates a bundle reference's version-less canonical form
-// from any trailing "@<commit>" content version. A ref that does not parse as a
-// reference (a plain local bundle name) is returned canonicalized with an empty
-// version. The version-less canonical form is the loader/trust identity key.
-func splitBundleVersion(bundleRef string) (canonical, version string) {
-	if parsed, err := remote.ParseReference(bundleRef); err == nil {
+// from any trailing "@<commit>" content version. A BARE NAME (a plain local
+// bundle) is returned canonicalized with an empty version. The version-less
+// canonical form is the loader/trust identity key, which is why a ref that
+// names a source and does not parse errors instead: an unparseable source
+// canonicalized as a local name would key its content under an identity the
+// project owns.
+func splitBundleVersion(bundleRef string) (canonical, version string, err error) {
+	if parsed, perr := remote.ParseReference(bundleRef); perr == nil {
 		version = parsed.ContentVersion
 	}
 	if ck, ok := remote.CanonicalKey(bundleRef); ok {
-		return ck, version
+		return ck, version, nil
 	}
-	return remote.CanonicalBundleRef(bundleRef), version
+	canonical, err = remote.CanonicalBundleRef(bundleRef)
+	if err != nil {
+		return "", "", err
+	}
+	return canonical, version, nil
 }
 
 // ReadFragmentAtVersion reports a fragment from a specific commit-version of

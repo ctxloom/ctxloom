@@ -71,7 +71,11 @@ func TestCanonicalBundleRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := CanonicalBundleRef(tt.input); got != tt.want {
+			got, err := CanonicalBundleRef(tt.input)
+			if err != nil {
+				t.Fatalf("CanonicalBundleRef(%q): %v", tt.input, err)
+			}
+			if got != tt.want {
 				t.Errorf("CanonicalBundleRef(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
@@ -94,7 +98,11 @@ func TestCanonicalFragmentRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := CanonicalFragmentRef(tt.input); got != tt.want {
+			got, err := CanonicalFragmentRef(tt.input)
+			if err != nil {
+				t.Fatalf("CanonicalFragmentRef(%q): %v", tt.input, err)
+			}
+			if got != tt.want {
 				t.Errorf("CanonicalFragmentRef(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
@@ -120,7 +128,10 @@ func TestSplitPromptVersion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			canon, version := SplitPromptVersion(tt.input)
+			canon, version, err := SplitPromptVersion(tt.input)
+			if err != nil {
+				t.Fatalf("SplitPromptVersion(%q): %v", tt.input, err)
+			}
 			if canon != tt.wantCanon || version != tt.wantVersion {
 				t.Errorf("SplitPromptVersion(%q) = (%q, %q), want (%q, %q)",
 					tt.input, canon, version, tt.wantCanon, tt.wantVersion)

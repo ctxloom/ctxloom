@@ -1,12 +1,16 @@
 package schema
 
 import (
+	"encoding/json"
+	"fmt"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -242,4 +246,79 @@ func TestConfigValidator_KnownPath(t *testing.T) {
 		var nilValidator *ConfigValidator
 		assert.False(t, nilValidator.KnownPath([]string{"default_agent"}))
 	})
+}
+
+// TestConfigValidator_ConfigHome_UnknownValueRefused proves an unrecognized
+// agents.<name>.config_home is a schema REFUSAL at load — not merely a
+// message printed somewhere downstream — naming both the offending key and
+// the two legal values. Distinct from operations.validateAgentAxes (the
+// write-edge check on the SetAgent path): this is the boundary check on a
+// hand-edited config.yaml, which the write-edge validator never sees.
+func TestConfigValidator_ConfigHome_UnknownValueRefused(t *testing.T) {
+	v, err := NewConfigValidator()
+	require.NoError(t, err)
+
+	yaml := `
+agents:
+  dev:
+    config_home: bogus
+`
+	err = v.ValidateBytes([]byte(yaml))
+	require.Error(t, err, "an unknown config_home value must be refused at load")
+	assert.Contains(t, err.Error(), "config_home")
+	assert.Contains(t, err.Error(), agents.ConfigHomeProject)
+	assert.Contains(t, err.Error(), agents.ConfigHomeHost)
+}
+
+// TestConfigValidator_ConfigHome_LegalValuesLoadCleanly is the control for
+// the refusal test above: both real config_home values must validate with no
+// error, so the refusal test isn't passing because the fixture never reaches
+// the validator at all.
+func TestConfigValidator_ConfigHome_LegalValuesLoadCleanly(t *testing.T) {
+	v, err := NewConfigValidator()
+	require.NoError(t, err)
+
+	names := agents.ConfigHomeNames()
+	require.Len(t, names, 2, "fixture sanity: config_home has exactly two legal values")
+
+	for _, name := range names {
+		yaml := fmt.Sprintf("agents:\n  dev:\n    config_home: %s\n", name)
+		err := v.ValidateBytes([]byte(yaml))
+		assert.NoError(t, err, "config_home: %s must validate cleanly", name)
+	}
+}
+
+// TestConfigSchema_ConfigHomeEnumMatchesGoNames binds the schema's
+// agents.<name>.config_home enum to agents.ConfigHomeNames() so the two
+// cannot silently drift apart — config-schema.json is hand-authored (no
+// generator ties its enums to Go), so this is the drift gate in place of
+// one. Add a member to ConfigHomeNames without updating the schema and this
+// test fails.
+func TestConfigSchema_ConfigHomeEnumMatchesGoNames(t *testing.T) {
+	raw, err := resources.GetConfigSchema()
+	require.NoError(t, err)
+
+	var doc struct {
+		Properties struct {
+			Agents struct {
+				AdditionalProperties struct {
+					Properties struct {
+						ConfigHome struct {
+							Enum []string `json:"enum"`
+						} `json:"config_home"`
+					} `json:"properties"`
+				} `json:"additionalProperties"`
+			} `json:"agents"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &doc))
+
+	schemaEnum := doc.Properties.Agents.AdditionalProperties.Properties.ConfigHome.Enum
+	require.NotEmpty(t, schemaEnum, "fixture sanity: config_home enum must be present in the schema at all")
+	sort.Strings(schemaEnum)
+
+	want := append([]string(nil), agents.ConfigHomeNames()...)
+	sort.Strings(want)
+
+	assert.Equal(t, want, schemaEnum, "schema config_home enum must match agents.ConfigHomeNames() exactly")
 }

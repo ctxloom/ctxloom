@@ -17,14 +17,19 @@ import (
 // identities is two trust keys, where a rejection recorded against one does
 // not withhold the other.
 //
-// The Reference produced deliberately renders back in the PRE-CANONICAL
-// spelling (Reference.CanonicalString). Identity here is a trust-store address
-// and a signature preimage component: changing what a given bundle renders as
-// would move every key already recorded against it, so the URI family is
-// accepted as INPUT without being adopted as output. The two spellings of one
-// git bundle converge because ctxloom+git carries no transport choice and
-// NormalizeURL already folds git@ to https — so host + repo path is the same
-// URL either way.
+// The Reference produced carries TWO addresses, and they answer different
+// questions. Reference.CanonicalString renders the canonical URI — the
+// identity a trust record and a signature preimage key on. Reference.LockKey
+// renders the pre-canonical spelling — the FETCH address, which is what a
+// lockfile entry and a fetch diagnostic name, because those address where the
+// bytes come from rather than what the bundle is.
+//
+// The two spellings of one git bundle converge because ctxloom+git carries no
+// transport choice and NormalizeURL already folds git@ to https, so host and
+// repo path are the same URL either way. That convergence is what makes
+// migrating an authored ref a spelling change rather than a key migration: a
+// decision recorded under one spelling still governs content addressed by the
+// other.
 func parseCanonicalURIReference(ref string) (*Reference, error) {
 	p, err := refuri.Parse(ref)
 	if err != nil {

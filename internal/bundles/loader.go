@@ -211,6 +211,32 @@ func (l *Loader) Load(name string) (*Bundle, error) { return l.Catalog().Load(na
 // not one.
 func (l *Loader) Find(name string) (string, error) { return l.Catalog().Find(name) }
 
+// The queries below hold nothing back for themselves: each one is answered by
+// the resolved set (Catalog), and the loader's part is only to produce that
+// set. A caller that already holds one should ask it directly.
+
+func (l *Loader) ListAllFragments() ([]ContentInfo, error) { return l.Catalog().ListAllFragments() }
+func (l *Loader) ListAllCommands() ([]ContentInfo, error)  { return l.Catalog().ListAllCommands() }
+func (l *Loader) ListAllSkills() ([]SkillInfo, error)      { return l.Catalog().ListAllSkills() }
+func (l *Loader) ListByTags(tags []string) ([]ContentInfo, error) {
+	return l.Catalog().ByTags(tags)
+}
+func (l *Loader) ReadFragment(name string) ([]*ItemRead, error) {
+	return l.Catalog().ReadFragment(name)
+}
+func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
+	return l.Catalog().ReadCommand(name)
+}
+func (l *Loader) ReadSkill(name string) ([]*LoadedSkill, error) { return l.Catalog().ReadSkill(name) }
+func (l *Loader) ReadAllSkills() ([]*LoadedSkill, error)        { return l.Catalog().ReadAllSkills() }
+func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
+	return l.Catalog().ReadBundleCommands(bundleRef)
+}
+func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
+	return l.Catalog().ReadBundleSkills(bundleRef)
+}
+func (l *Loader) ResolveFragmentAsk(name string) string { return l.Catalog().ResolveFragmentAsk(name) }
+
 // List returns every bundle this loader can see, as listing metadata.
 //
 // A listing that wants a NARROWER set asks the resolved Catalog for it

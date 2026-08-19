@@ -12,16 +12,16 @@ import (
 
 // bundleWarner emits the "unresolved bundle" warning at most once per distinct
 // ref. Context is assembled more than once per process at startup — sync's
-// context-file regeneration and the launch-time assembly — each through an
-// independent Loader, so dedup must outlive any single loader. Hence a
-// process-scoped warner rather than per-Loader state; the warning is pure
+// context-file regeneration and the launch-time assembly — each over an
+// independently resolved set, so dedup must outlive any single one of them.
+// Hence a process-scoped warner rather than per-set state; the warning is pure
 // diagnostics, so suppressing repeats after the first is safe.
 //
 // DEDUP is process-scoped; the SINK is not. Each emission takes the writer of
-// the loader that asked, because "where do my diagnostics go" is that caller's
+// the set that asked, because "where do my diagnostics go" is that caller's
 // decision (WithWarnWriter) while "have I said this already" is the process's.
-// Holding a writer in here instead made the second question answer the first,
-// and a loader that redirected its diagnostics still lost these two to stderr.
+// Holding a writer in here instead makes the second question answer the first,
+// and a caller that redirected its diagnostics loses these two to stderr.
 type bundleWarner struct {
 	mu   sync.Mutex
 	seen map[warnKey]struct{}
@@ -106,13 +106,14 @@ func StaleSignatureAdvice(read BundleRead) string {
 // every emission goes to the warn writer of the loader that asked.
 var unresolvedBundleWarner = newBundleWarner()
 
-// warnUnresolvedBundle and warnAmbiguousFragment are the loader's only route to
-// the process-wide warner, so every one of its user-facing diagnostics honours
-// WithWarnWriter (os.Stderr by default) exactly as fsStore.Save's does.
-func (l *Loader) warnUnresolvedBundle(ref string, err error) {
-	unresolvedBundleWarner.unresolved(l.warnOut, ref, err)
+// warnUnresolvedBundle and warnAmbiguousFragment are a resolved set's only
+// route to the process-wide warner, so every one of its user-facing
+// diagnostics honours WithWarnWriter (os.Stderr by default) exactly as
+// fsStore.Save's does.
+func (c Catalog) warnUnresolvedBundle(ref string, err error) {
+	unresolvedBundleWarner.unresolved(c.warnWriter(), ref, err)
 }
 
-func (l *Loader) warnAmbiguousFragment(name string, matches []string, chosen string) {
-	unresolvedBundleWarner.ambiguous(l.warnOut, name, matches, chosen)
+func (c Catalog) warnAmbiguousFragment(name string, matches []string, chosen string) {
+	unresolvedBundleWarner.ambiguous(c.warnWriter(), name, matches, chosen)
 }

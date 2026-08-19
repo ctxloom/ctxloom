@@ -179,7 +179,7 @@ func (l *Loader) ReadFragmentAtVersion(ref, commit string) ([]*ItemRead, error) 
 		return nil, err
 	}
 	if !ask.Scoped {
-		return l.searchFragment(ref)
+		return l.Catalog().searchFragment(ref)
 	}
 	if ask.Kind != trust.KindFragment {
 		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, ref, ask.Kind, trust.KindFragment)
@@ -192,7 +192,7 @@ func (l *Loader) ReadFragmentAtVersion(ref, commit string) ([]*ItemRead, error) 
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, ask.Item, read.Bundle.Name)
 	}
-	return []*ItemRead{l.fragmentRead(read, ask.Item, frag)}, nil
+	return []*ItemRead{fragmentRead(read, ask.Item, frag)}, nil
 }
 
 // ReadCommandAtVersion is the command counterpart to ReadFragmentAtVersion: a
@@ -204,7 +204,7 @@ func (l *Loader) ReadCommandAtVersion(ref, commit string) ([]*ItemRead, error) {
 		return nil, err
 	}
 	if !ask.Scoped {
-		return l.searchCommand(ref)
+		return l.Catalog().searchCommand(ref)
 	}
 	if ask.Kind != trust.KindPrompt {
 		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, ref, ask.Kind, trust.KindPrompt)
@@ -217,7 +217,7 @@ func (l *Loader) ReadCommandAtVersion(ref, commit string) ([]*ItemRead, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, ask.Item, read.Bundle.Name)
 	}
-	return []*ItemRead{l.commandRead(read, ask.Item, prompt)}, nil
+	return []*ItemRead{commandRead(read, ask.Item, prompt)}, nil
 }
 
 // ReadFragmentVersions reports the fragment named by ref at each requested

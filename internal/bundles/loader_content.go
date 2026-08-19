@@ -203,11 +203,11 @@ type ContentInfo struct {
 }
 
 // ListAllFragments returns info about all fragments across all bundles.
-func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
+func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
 	var infos []ContentInfo
 	seen := collections.NewSet[string]()
 
-	for _, read := range l.Reads() {
+	for _, read := range c.Reads() {
 		bundleInfo, bundle := read, read.Bundle
 
 		for name, frag := range bundle.Fragments {
@@ -242,10 +242,10 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 // genuine, permanent shape difference between the two item kinds, not drift
 // to reconcile.
 // reprise:accept-drift
-func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
+func (c Catalog) ListAllCommands() ([]ContentInfo, error) {
 	seen := collections.NewSet[string]()
 	var infos []ContentInfo
-	for _, read := range l.Reads() {
+	for _, read := range c.Reads() {
 		bundleInfo, bundle := read, read.Bundle
 
 		for name, prompt := range bundle.Commands {
@@ -283,18 +283,18 @@ func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
 //
 // It carries NO form preference. What comes back holds every form the store has
 // for the item (ItemRead.Forms); the process stage picks.
-func (l *Loader) ReadFragment(name string) ([]*ItemRead, error) {
+func (c Catalog) ReadFragment(name string) ([]*ItemRead, error) {
 	ask, err := ParseItemAsk(name)
 	if err != nil {
 		return nil, err
 	}
 	if !ask.Scoped {
-		return l.searchFragment(name)
+		return c.searchFragment(name)
 	}
 	if ask.Kind != trust.KindFragment {
 		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, trust.KindFragment)
 	}
-	return l.fragmentFromBundle(ask.Bundle, ask.Item)
+	return c.fragmentFromBundle(ask.Bundle, ask.Item)
 }
 
 // ItemAsk is a parsed content ask: the bundle half, plus the selector when one
@@ -353,7 +353,7 @@ func ParseItemAsk(ask string) (ItemAsk, error) {
 // bundle-reference grammar (ItemRefFor), not hand-concatenated from
 // Bundle.contentSourceRef's string. That is the SAME keying the exec gate
 // uses.
-func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragment) *ItemRead {
+func fragmentRead(read BundleRead, fragName string, frag BundleFragment) *ItemRead {
 	bundle := read.Bundle
 	return &ItemRead{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
@@ -372,8 +372,8 @@ func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragm
 
 // fragmentFromBundle loads a specific bundle and reports the named fragment —
 // the single-candidate case of ReadFragment.
-func (l *Loader) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, error) {
-	read, err := l.Read(bundleName)
+func (c Catalog) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, error) {
+	read, err := c.Read(bundleName)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +381,7 @@ func (l *Loader) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, e
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundleName)
 	}
-	return []*ItemRead{l.fragmentRead(read, fragName, frag)}, nil
+	return []*ItemRead{fragmentRead(read, fragName, frag)}, nil
 }
 
 // ResolveFragmentAsk resolves a user-supplied fragment ask to the canonical
@@ -392,12 +392,12 @@ func (l *Loader) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, e
 // sorts by bundle name) with a warning naming the alternatives; no match
 // returns the ask unchanged so the load step reports it (fault-tolerance:
 // an explicit ask is never dropped silently).
-func (l *Loader) ResolveFragmentAsk(name string) string {
+func (c Catalog) ResolveFragmentAsk(name string) string {
 	if strings.Contains(name, "#") {
 		return remote.CanonicalFragmentRef(name)
 	}
 	var matches []string
-	for _, read := range l.Reads() {
+	for _, read := range c.Reads() {
 		if _, ok := read.Bundle.Fragments[name]; ok {
 			matches = append(matches, remote.CanonicalBundleRef(read.DisplayName()))
 		}
@@ -406,7 +406,7 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 		return name
 	}
 	if len(matches) > 1 {
-		l.warnAmbiguousFragment(name, matches, matches[0])
+		c.warnAmbiguousFragment(name, matches, matches[0])
 	}
 	return matches[0] + remote.FragmentSelector + name
 }
@@ -416,11 +416,11 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 // deterministic). Reporting all of them is what lets the process stage keep
 // scanning past one it withholds — a trusted copy in another bundle still wins
 // — a decision the reader is in no position to make.
-func (l *Loader) searchFragment(name string) ([]*ItemRead, error) {
+func (c Catalog) searchFragment(name string) ([]*ItemRead, error) {
 	var out []*ItemRead
-	for _, read := range l.Reads() {
+	for _, read := range c.Reads() {
 		if frag, ok := read.Bundle.Fragments[name]; ok {
-			out = append(out, l.fragmentRead(read, name, frag))
+			out = append(out, fragmentRead(read, name, frag))
 		}
 	}
 	if len(out) == 0 {
@@ -432,18 +432,18 @@ func (l *Loader) searchFragment(name string) ([]*ItemRead, error) {
 // ReadCommand is ReadFragment's command counterpart: every command this reader
 // holds under name, nothing dropped on policy grounds. Name can be
 // "command-name" (searches all bundles) or "bundle#commands/name".
-func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
+func (c Catalog) ReadCommand(name string) ([]*ItemRead, error) {
 	ask, err := ParseItemAsk(name)
 	if err != nil {
 		return nil, err
 	}
 	if !ask.Scoped {
-		return l.searchCommand(name)
+		return c.searchCommand(name)
 	}
 	if ask.Kind != trust.KindPrompt {
 		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, trust.KindPrompt)
 	}
-	return l.commandFromBundle(ask.Bundle, ask.Item)
+	return c.commandFromBundle(ask.Bundle, ask.Item)
 }
 
 // commandRead builds the ItemRead for a command. See fragmentRead — the same
@@ -451,7 +451,7 @@ func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
 // TrustRef keeps the "prompts" kind segment (trust.KindPrompt, whose Dir() is
 // "prompts") even though the load selector is "#commands/", so the item-kind
 // rename does not invalidate existing trust grants.
-func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCommand) *ItemRead {
+func commandRead(read BundleRead, promptName string, prompt BundleCommand) *ItemRead {
 	bundle := read.Bundle
 	return &ItemRead{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
@@ -477,7 +477,7 @@ func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCo
 // ListAllCommands sweep. Deterministic order matters so downstream
 // command-file writes are reproducible. Nothing is dropped on policy grounds —
 // see Pipeline.CommandsFromBundleRef for the gated delivery.
-func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
+func (c Catalog) ReadBundleCommands(bundleRef string) []*ItemRead {
 	if ask, err := ParseItemAsk(bundleRef); err == nil && ask.Scoped {
 		switch ask.Kind {
 		case trust.KindPrompt:
@@ -489,9 +489,9 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 			// command missing) is still loud — via commandFromBundle's own
 			// error — and never the misleading "bundle not found: <whole
 			// ref>", which would name an existing bundle as missing.
-			reads, err := l.commandFromBundle(ask.Bundle, ask.Item)
+			reads, err := c.commandFromBundle(ask.Bundle, ask.Item)
 			if err != nil {
-				l.warnUnresolvedBundle(bundleRef, err)
+				c.warnUnresolvedBundle(bundleRef, err)
 				return nil
 			}
 			return reads
@@ -505,13 +505,13 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 			return nil
 		}
 	}
-	read, err := l.Read(bundleRef)
+	read, err := c.Read(bundleRef)
 	if err != nil {
 		// Same silent-export defect as SkillsFromBundleRef, same fix, same
 		// warner expandBundleRef already uses: writing zero command
 		// files because the bundle would not load must not look like a bundle
 		// that ships no commands.
-		l.warnUnresolvedBundle(bundleRef, err)
+		c.warnUnresolvedBundle(bundleRef, err)
 		return nil
 	}
 	bundle := read.Bundle
@@ -522,15 +522,15 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 	sort.Strings(names)
 	out := make([]*ItemRead, 0, len(names))
 	for _, name := range names {
-		out = append(out, l.commandRead(read, name, bundle.Commands[name]))
+		out = append(out, commandRead(read, name, bundle.Commands[name]))
 	}
 	return out
 }
 
 // commandFromBundle loads a specific bundle and reports the named command —
 // the single-candidate case of ReadCommand.
-func (l *Loader) commandFromBundle(bundleName, promptName string) ([]*ItemRead, error) {
-	read, err := l.Read(bundleName)
+func (c Catalog) commandFromBundle(bundleName, promptName string) ([]*ItemRead, error) {
+	read, err := c.Read(bundleName)
 	if err != nil {
 		return nil, err
 	}
@@ -538,17 +538,17 @@ func (l *Loader) commandFromBundle(bundleName, promptName string) ([]*ItemRead, 
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundleName)
 	}
-	return []*ItemRead{l.commandRead(read, promptName, prompt)}, nil
+	return []*ItemRead{commandRead(read, promptName, prompt)}, nil
 }
 
 // searchCommand scans every bundle for a command with the given name and
 // reports EVERY match, in List order — searchFragment's command twin, for the
 // same reason: only the process stage can say which of them is admissible.
-func (l *Loader) searchCommand(name string) ([]*ItemRead, error) {
+func (c Catalog) searchCommand(name string) ([]*ItemRead, error) {
 	var out []*ItemRead
-	for _, read := range l.Reads() {
+	for _, read := range c.Reads() {
 		if prompt, ok := read.Bundle.Commands[name]; ok {
-			out = append(out, l.commandRead(read, name, prompt))
+			out = append(out, commandRead(read, name, prompt))
 		}
 	}
 	if len(out) == 0 {
@@ -557,9 +557,9 @@ func (l *Loader) searchCommand(name string) ([]*ItemRead, error) {
 	return out, nil
 }
 
-// ListByTags returns fragments matching any of the given tags.
-func (l *Loader) ListByTags(tags []string) ([]ContentInfo, error) {
-	all, err := l.ListAllFragments()
+// ByTags returns fragments matching any of the given tags.
+func (c Catalog) ByTags(tags []string) ([]ContentInfo, error) {
+	all, err := c.ListAllFragments()
 	if err != nil {
 		return nil, err
 	}
@@ -692,7 +692,7 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 		// silently dropping it produces context that is missing content with no
 		// error (fault-tolerance: log, don't crash). Deduped process-wide:
 		// startup assembles context more than once.
-		l.warnUnresolvedBundle(ref, err)
+		l.Catalog().warnUnresolvedBundle(ref, err)
 		return nil
 	}
 	out := make([]ExpandedRef, 0, len(read.Bundle.Fragments))

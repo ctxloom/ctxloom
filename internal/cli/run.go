@@ -1179,9 +1179,15 @@ func (st *runState) buildRunRequest() error {
 	if err != nil {
 		return err
 	}
+	// st.agentRuntime is ALREADY the typed axis — resolveLaunchSource parses
+	// the project `runtime:` default before any arm runs, and an agent
+	// binding's own runtime arrives pre-parsed on ResolvedAgent. A typo is
+	// therefore refused before this function is reached, and re-converting
+	// here would put a second, unchecked door on a security boundary that has
+	// exactly one.
 	st.runAxes = isolation.Axes{
 		Workspace: sessionWorkspace,
-		Runtime:   isolation.RuntimeAxis(st.agentRuntime),
+		Runtime:   st.agentRuntime,
 	}
 
 	// Launch-time permission posture. Precedence: --permissions flag > agent

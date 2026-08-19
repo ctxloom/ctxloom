@@ -215,12 +215,6 @@ var vocabConversionAllowed = map[string]string{
 	"internal/operations/engine_session.go#acpWorkspaceAxis#internal/lm/isolation.WorkspaceAxis":  "workspace axis asserted from flag/agent/project layering; waits on the same ParseWorkspaceAxis",
 	"internal/operations/oneshot.go#RunOneshot#internal/lm/isolation.WorkspaceAxis":               "workspace axis asserted from config; waits on the same ParseWorkspaceAxis",
 
-	"internal/cli/run.go#runState.buildRunRequest#internal/shared/agent.RuntimeAxis":                      "agent.ParseRuntimeAxis EXISTS and errors on an unrecognized value — this asserts the string past it instead of calling it",
-	"internal/operations/agents.go#validateContainerAuth#internal/shared/agent.RuntimeAxis":               "same bypass of the existing agent.ParseRuntimeAxis",
-	"internal/operations/delegate.go#delegatedAxes#internal/shared/agent.RuntimeAxis":                     "same bypass of the existing agent.ParseRuntimeAxis",
-	"internal/operations/oneshot.go#RunOneshot#internal/shared/agent.RuntimeAxis":                         "same bypass of the existing agent.ParseRuntimeAxis",
-	"internal/operations/runtime_offer.go#RuntimeOffer.OffersContainer#internal/shared/agent.RuntimeAxis": "same bypass of the existing agent.ParseRuntimeAxis",
-
 	"internal/lm/grpc/chat.go#chatStartFromProto#internal/shared/agent.MCPTransport":            "a proto string field asserted into the transport enum; an unknown wire value becomes a well-typed value nothing rejects",
 	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/shared/agent.SessionEntryType":  "a proto string field asserted into the entry-type enum; same unchecked-wire-value shape",
 	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/shared/agent.SessionSystemKind": "a proto string field asserted into the system-kind enum; same unchecked-wire-value shape",

@@ -58,7 +58,12 @@ func llmListEntries(names []string, defaultLabel string, authored func(string) b
 		}
 		if offer != nil {
 			o := offer(name)
-			e.Runtimes = o.Runtimes
+			// The offer carries the TYPED axis; this entry is the wire/text
+			// shape, so the spelling is taken OUT of the vocabulary here
+			// rather than the vocabulary being asserted back in anywhere.
+			for _, r := range o.Runtimes {
+				e.Runtimes = append(e.Runtimes, string(r))
+			}
 			e.ContainerWithheld = o.ContainerWithheld
 		}
 		entries = append(entries, e)

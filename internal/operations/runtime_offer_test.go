@@ -39,7 +39,7 @@ func TestAgentRuntimeOffer_EngineWithoutContainerAuthIsNotOfferedAContainerRunti
 
 	require.False(t, isolation.HasContainerAuth(offer.Backend),
 		"fixture precondition: %q must be a backend with no container auth", offer.Backend)
-	assert.Equal(t, []string{string(isolation.RuntimeHost)}, offer.Runtimes,
+	assert.Equal(t, []isolation.RuntimeAxis{isolation.RuntimeHost}, offer.Runtimes,
 		"an engine with no container auth may be offered host and nothing else")
 	assert.False(t, offer.OffersContainer(),
 		"no container axis may appear in an offer for an engine that cannot authenticate in one")
@@ -78,10 +78,10 @@ func TestAgentRuntimeOffer_EngineWithContainerAuthGetsBothAxes(t *testing.T) {
 
 	require.True(t, isolation.HasContainerAuth(offer.Backend),
 		"fixture precondition: %q must have container auth", offer.Backend)
-	assert.Equal(t, []string{
-		string(isolation.RuntimeHost),
-		string(isolation.RuntimeContainerRootless),
-		string(isolation.RuntimeContainerRootful),
+	assert.Equal(t, []isolation.RuntimeAxis{
+		isolation.RuntimeHost,
+		isolation.RuntimeContainerRootless,
+		isolation.RuntimeContainerRootful,
 	}, offer.Runtimes)
 	assert.True(t, offer.OffersContainer())
 	assert.Empty(t, offer.ContainerWithheld,
@@ -102,7 +102,7 @@ func TestAgentRuntimeOffer_NoDefaultIsMarked(t *testing.T) {
 
 	assert.Len(t, offer.Runtimes, 3,
 		"all three axes are offered on equal footing — none is marked, promoted or pre-picked")
-	assert.Equal(t, string(isolation.RuntimeHost), offer.Runtimes[0],
+	assert.Equal(t, isolation.RuntimeHost, offer.Runtimes[0],
 		"host leads the menu as the axis every engine can take")
 }
 
@@ -115,7 +115,7 @@ func TestAgentRuntimeOffer_NoDefaultIsMarked(t *testing.T) {
 func TestAgentRuntimeOffer_NilConfigWithholdsContainer(t *testing.T) {
 	offer := AgentRuntimeOffer(nil, "claude-code")
 
-	assert.Equal(t, []string{string(isolation.RuntimeHost)}, offer.Runtimes)
+	assert.Equal(t, []isolation.RuntimeAxis{isolation.RuntimeHost}, offer.Runtimes)
 	assert.False(t, offer.OffersContainer(),
 		"an unknown backend is not evidence that a container axis would work")
 	assert.NotEmpty(t, offer.ContainerWithheld,

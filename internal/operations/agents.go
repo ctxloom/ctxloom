@@ -292,7 +292,18 @@ func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest)
 	if runtime == "" {
 		runtime = cfg.GetRuntime()
 	}
-	if !isolation.IsContainerRuntimeAxis(isolation.RuntimeAxis(runtime)) {
+	// Two of the three sources above are still raw at this point: the RECORDED
+	// binding and the project `runtime:` default (only req.Runtime was parsed,
+	// by the caller). Asserted past the parser, an unrecognized spelling
+	// answers "not a container" and this gate returns clean — so the binding
+	// is written for an engine that cannot authenticate inside a container,
+	// and only the launch discovers it. The runtime axis is a security
+	// boundary, so the typo is refused here instead.
+	axis, rterr := agent.ParseRuntimeAxis(runtime)
+	if rterr != nil {
+		return fmt.Errorf("agent %q: %w", name, rterr)
+	}
+	if !isolation.IsContainerRuntimeAxis(axis) {
 		return nil
 	}
 

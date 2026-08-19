@@ -2,7 +2,7 @@
 title: "Choosing an isolation boundary"
 ---
 
-You've picked `workspace: worktree`, or `runtime: container`, or both, and now you want one
+You've picked `workspace: worktree`, or `runtime: container-rootless`, or both, and now you want one
 question answered: isolated from *what*? Both options are called "isolation" on this site, and
 neither is fake, but they hold back different things, and one of them holds back less than
 people assume. Picking wrong doesn't fail loudly — the agent runs, the session looks normal,
@@ -67,7 +67,7 @@ knock on it — it's the accurate description of the one thing it does.
 
 ## Containers close the loop, by not asking
 
-`runtime: container` answers a different question than `workspace: worktree` does, and it
+Container isolation (`runtime: container-rootless` or `runtime: container-rootful`) answers a different question than `workspace: worktree` does, and it
 answers it a different way. A containerized engine isn't held back because it read an
 environment variable correctly, or because it chose to route its state through the right file.
 It's held back because the boundary isn't a request at all — it's a property of the kernel.
@@ -109,10 +109,10 @@ choosing one says nothing about the other:
 | Axis | Values | Set where |
 |---|---|---|
 | **Workspace** | `none` \| `worktree` | Per invocation (`run`/`acp --workspace`, or an `agent_run` spawn's workspace field), or the project's `workspace:` default |
-| **Runtime** | `host` \| `container` | On the agent (`agent set --runtime`), or the project's `runtime:` default |
+| **Runtime** | `host` \| `container-rootless` \| `container-rootful` | On the agent (`agent set --runtime`), or the project's `runtime:` default |
 
 `workspace: worktree` on `runtime: host` gets you an isolated checkout and a shared, negotiated
-engine state. `workspace: none` on `runtime: container` gets you a contained engine process
+engine state. `workspace: none` on `runtime: container-rootless` gets you a contained engine process
 working directly in your live checkout — the container boundary with none of the worktree one.
 All four combinations are real and each answers a different question; see [Agents & Isolation:
 the two isolation axes](/concepts/agents/#the-two-isolation-axes) for the full mechanism.
@@ -205,7 +205,7 @@ implies.
 ## Mechanism and further reading
 
 - [Agents & Isolation: the two isolation axes](/concepts/agents/#the-two-isolation-axes) —
-  `runtime` and `workspace`, where each is set, and what `runtime: container` mounts.
+  `runtime` and `workspace`, where each is set, and what `runtime: container-rootless` mounts.
 - [The engine you don't control](/security/isolation/) — the measured account of vector 3:
   real engines, real config-home behavior, checked rather than assumed.
 - [A prompt is executable code](/security/prompts-are-code/) — why what an agent reads matters

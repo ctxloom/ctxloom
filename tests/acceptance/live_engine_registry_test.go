@@ -303,22 +303,17 @@ func TestLiveAgentOrderMatchesRegistry(t *testing.T) {
 	}
 }
 
-// TestLiveAgents_ConfigValidatesAgainstSchema is the gate task
-// audacious-sandworm exists to add. Every liveAgents[*].config is the SHARED
-// base every P0-P6 probe config (matrixConfigYAML, mcpProbeConfigYAML,
-// hookProbeConfigYAML, p4ConfigYAML, probeConfigYAML — see their own doc
-// comments) is built by appending onto, but until this test existed nothing
-// ran that base document through the REAL schema validator production's own
-// config loader uses (internal/schema.NewConfigValidator, the seam
-// internal/config/unknown_keys.go's classifyValidationError sits on top of).
-// It used to carry `profiles:\n  defaults: []`, a key
-// unknown_keys.go's retiredKeys table has said was RETIRED since the
-// default_agent/agents rework — which meant every probe config built from
-// this fixture failed real schema validation for a reason having nothing to
-// do with whatever the probe was testing, and was only ever parsed by the
-// more lenient agents.ParseAgent path. See
-// TestApproachConfigYAML_RuntimeMustBeSchemaValid's own comment (task
-// unwatched-discharge) for the workaround this fixture's brokenness forced.
+// TestLiveAgents_ConfigValidatesAgainstSchema holds the shared fixture to the
+// real schema. Every liveAgents[*].config is the base that every P0-P6 probe
+// config (matrixConfigYAML, mcpProbeConfigYAML, hookProbeConfigYAML,
+// p4ConfigYAML, probeConfigYAML) is built by appending onto, so a key this
+// base carries is a key every probe inherits. Validate it through
+// internal/schema.NewConfigValidator — the same validator the production
+// config loader uses, and the seam internal/config/unknown_keys.go's
+// classifyValidationError sits on top of — because the leniency of
+// agents.ParseAgent, which is all these configs were ever parsed by, cannot
+// see a retired key. When the base carries one, every probe built from it
+// fails real validation for a reason unrelated to what the probe tests.
 func TestLiveAgents_ConfigValidatesAgainstSchema(t *testing.T) {
 	v, err := schema.NewConfigValidator()
 	require.NoError(t, err, "the embedded config schema must compile")

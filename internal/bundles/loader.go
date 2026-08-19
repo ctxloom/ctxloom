@@ -25,6 +25,12 @@ import (
 //
 // One loader therefore serves everyone: management, listing and every exposure
 // surface alike.
+//
+// What it owns is exactly what a resolved set cannot: the READERS, the memo
+// around resolving them, the invalidation a write must announce, and the
+// version seam, whose space is unbounded and so can never be part of a set.
+// Every other method here is answered by Catalog — a caller that only queries
+// should hold that instead, because holding it cannot re-read the world.
 type Loader struct {
 	readers []Reader
 
@@ -105,19 +111,14 @@ func (l *Loader) WithVersionResolver(resolver BundleVersionResolver) *Loader {
 // of sources that are not filesystems.
 func (l *Loader) FS() afero.Fs { return readersFS(l.readers) }
 
-// index reads every reader once and builds the addressable view.
-//
-// The read is memoized for the loader's life, which is what makes repeated
-// resolution cheap and what keeps a companion probe (an EXEC per companion)
-// from running per lookup. A write through fsStore invalidates it, so a
-// save-then-read within one command sees the new bytes.
 // index resolves every reader once and memoizes the result for this loader's
-// life, which is what makes repeated resolution cheap and what keeps a companion
-// probe (an EXEC per companion) from running per lookup. A write through fsStore
-// invalidates it, so a save-then-read within one command sees the new bytes.
+// life, which is what makes repeated resolution cheap and what keeps a
+// companion probe (an EXEC per companion) from running per lookup. A write
+// through fsStore invalidates it, so a save-then-read within one command sees
+// the new bytes.
 //
 // The reading itself lives in Resolve, which holds no loader state: this method
-// is now only the memo around it.
+// is only the memo around it.
 func (l *Loader) index() {
 	l.mu.RLock()
 	loaded := l.loaded

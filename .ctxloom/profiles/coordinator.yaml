@@ -1,7 +1,7 @@
 description: 'Coordinator role: sequences, brainstorms, architects, writes sub-agent prompts, and delegates; rarely edits code; carries no dev-language bundles. Inherits the personal agent-ensemble coordinator profile (single source of truth).'
 parents:
     - project-base
-    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/agent-ensemble#profiles/coordinator
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/agent-ensemble#profiles/coordinator
 # serena is UNLINKED, deliberately — the bundle still exists and is not deleted,
 # it is simply not composed here. It resolves its project once at server start
 # from the launching session's cwd, and in-process sub-agents share that one

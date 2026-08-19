@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -395,9 +396,12 @@ func resolveEngines(configured []string) []string {
 	if len(configured) == 0 {
 		return composableEngines()
 	}
+	// Canonicalized on the way in: composableEngines() is canonical, so a
+	// configured alias matched raw would be dropped as "unknown" and quietly
+	// trim a real engine out of the composed image.
 	want := map[string]bool{}
 	for _, c := range configured {
-		want[c] = true
+		want[agent.CanonicalEngineName(c)] = true
 	}
 	var out []string
 	for _, e := range composableEngines() {
@@ -436,7 +440,11 @@ func resolveEngines(configured []string) []string {
 // WRITE time; this arm is the last line for the paths that never went through
 // a binding.
 func engineContainerSpecFor(backend string) engineContainerSpec {
-	switch backend {
+	// Resolved through the repo-wide alias table so a declared alias reaches
+	// its engine's arm instead of the fail-closed default. Every case label is
+	// a canonical name; ContainerAuthEngines/composableEngines enumerate them
+	// and enginekeys.go's init asserts that.
+	switch agent.CanonicalEngineName(backend) {
 	case "claude-code":
 		return engineContainerSpec{
 			image: defaultContainerImage,

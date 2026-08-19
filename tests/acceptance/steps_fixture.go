@@ -187,6 +187,19 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return worldFrom(c).env.InitGitRepo()
 	})
 
+	// A generic door through the ambient-session env scrub (see
+	// TestEnvironment.SetChildEnv's doc) for a scenario that needs to drive an
+	// arbitrary env var directly rather than through a CLI flag or a
+	// bespoke-named step like "the session harp is". SetChildEnv rather than
+	// SetEnv so this also works for variables the scrub would otherwise strip.
+	// Chain multiple "And" lines before the command that reads them to set
+	// more than one — the value persists on every ctxloom process this
+	// scenario spawns from here on, not just the next command.
+	ctx.Step(`^the environment variable "([^"]*)" is set to "([^"]*)"$`, func(c context.Context, key, value string) error {
+		worldFrom(c).env.SetChildEnv(key, value)
+		return nil
+	})
+
 	// A project whose editor appends a fixed marker, so an `edit` round-trip is
 	// observable (the change lands in the bundle file and across MCP).
 	// markerEditorConfig lives in HOME (editor.command/args are ScopeMachine);

@@ -199,6 +199,27 @@ func TestResolveBackend(t *testing.T) {
 		assert.Equal(t, config.DefaultLLM, backend)
 		assert.Empty(t, model)
 	})
+
+	// A backend NAME is what the launch path keys tables by — including
+	// internal/lm/isolation's credential-seed and instance-config tables, which
+	// resolve engines by name and hold only canonical spellings. An alias that
+	// left here as typed would seed no credentials and report nothing.
+	t.Run("an ad-hoc alias is promoted to the canonical backend name", func(t *testing.T) {
+		for _, spelling := range []string{"claude", "CLAUDE", "claudecode", "Claude-Code"} {
+			backend, model := ResolveBackend(cfg, spelling)
+			assert.Equal(t, "claude-code", backend, "ResolveBackend(%q)", spelling)
+			assert.Empty(t, model)
+		}
+	})
+
+	t.Run("a hand-written entry whose type is an alias resolves canonical", func(t *testing.T) {
+		aliased := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
+			"hand-edited": {Type: "claude", Body: map[string]any{"model": "opus"}},
+		}}})
+		backend, model := ResolveBackend(aliased, "hand-edited")
+		assert.Equal(t, "claude-code", backend)
+		assert.Equal(t, "opus", model)
+	})
 }
 
 func TestRunOneshot_OverrideWinsOverProfileLLM(t *testing.T) {

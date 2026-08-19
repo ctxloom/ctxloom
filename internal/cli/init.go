@@ -30,6 +30,12 @@ init scaffolds a LOCAL default coding profile (.ctxloom/profiles/default.yaml,
 inheriting the ctxloom-default baseline) and wires the trusted ctxloom-default
 remote so its code-review lens profiles are available.
 
+It then installs the dependencies that scaffold declares ('ctxloom deps pull'),
+because a declared-but-uninstalled remote parent is SKIPPED at assembly: without
+this the project reads as initialized while composing less context than its
+configuration says. --no-pull suppresses it; a pull that cannot reach its remote
+never rolls the init back — it warns and leaves a usable project.
+
 When run interactively (TTY detected), init will guide you through:
   1. Selecting an AI engine (claude-code, codex, etc.)
   2. Optionally adding a personal ctxloom repository as a remote
@@ -49,7 +55,8 @@ Examples:
   ctxloom init                     # Interactive setup (if TTY)
   ctxloom init --home              # Initialize in ~/.ctxloom
   ctxloom init --engine codex       # Pre-select engine
-  ctxloom init --non-interactive   # Skip all prompts`,
+  ctxloom init --non-interactive   # Skip all prompts
+  ctxloom init --no-pull           # Scaffold without installing dependencies`,
 	// init is configured entirely by flags and reads no positional argument,
 	// so anything positional is a mistyped subcommand. Without this it was the
 	// most destructive instance of the silent-namespace defect groupNode
@@ -69,6 +76,7 @@ var (
 	initEngine         string
 	initRemotes        []string
 	initForge          string
+	initNoPull         bool
 )
 
 // initPromptCmd is the real home for the setup-interview re-entry pointer:
@@ -102,6 +110,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
 	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, codex, etc.)")
 	initCmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable")
+	initCmd.Flags().BoolVar(&initNoPull, "no-pull", false, "Skip the dependency pull init ends with; declared dependencies stay uninstalled until 'ctxloom deps pull' runs")
 	initCmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")
 	initCmd.AddCommand(initPromptCmd)
 }
@@ -128,6 +137,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// exited 0, printed "ctxloom directory already exists", and added
 		// zero remotes. Honour the flags here too, on a pre-existing dir.
 		addPersonalRemotesFn(cmd, appDir, initRemotes, initForge)
+		// A re-init installs the declared closure too. A project whose first
+		// init ran offline, or a fresh clone of one, has references it can
+		// resolve only through a lockfile entry it does not have; re-running
+		// init is the obvious thing to reach for, so it repairs that rather
+		// than leaving a project that assembles degraded.
+		pullSeededDependencies(cmd, appDir)
 	} else {
 		selectedEngine, err = setupNewCtxloomDir(cmd, appDir, selectedEngine, interactive)
 		if err != nil {
@@ -354,16 +369,36 @@ func cloneConfiguredRemotes(cmd *cobra.Command, appDir string) {
 	}
 }
 
-// pullSeededDependencies pulls and locks the remote dependencies the fresh
-// config at appDir references (see addPersonalRemotes on why the dir is passed,
-// not discovered) — most importantly the seeded default profile, which
-// resolves only through a lockfile entry. Without this step the very first
-// `ctxloom run` after init fails to assemble. Fault-tolerant: failures warn
-// and continue (offline init still completes; run degrades per assembly).
+// pullSeededDependencies pulls and locks the remote dependencies the config at
+// appDir references (see addPersonalRemotes on why the dir is passed, not
+// discovered) — most importantly the seeded default profile, which resolves
+// only through a lockfile entry. Without it a fresh project is degraded rather
+// than merely unfinished: assembly SKIPS the uninstalled reference, so the very
+// first `ctxloom run` after init composes less context than the configuration
+// says it should, and `ctxloom doctor` reports the skip.
+//
+// It runs before applyInitHooks because hooks are materialized from the
+// installed bundles: hooks applied over a closure that is not there yet
+// register nothing the pulled content ships.
+//
+// --no-pull suppresses it, and the pull is the ONLY thing that flag decides; it
+// configures this invocation and is never bridged to a config key.
+//
+// Fault-tolerant, and deliberately so: a pull needs a reachable remote, and a
+// user who is offline, proxied, or pointed at an unreachable address must still
+// end up with a usable initialized project. Every failure keeps what init wrote
+// and reports what is missing (warnDependencyPullFailed) instead of failing the
+// command.
 func pullSeededDependencies(cmd *cobra.Command, appDir string) {
+	if initNoPull {
+		fmt.Println("Skipped the dependency pull (--no-pull). Any remote dependencies this project")
+		fmt.Println("references are NOT installed, so context assembly will skip them until you run:")
+		fmt.Println("  ctxloom deps pull")
+		return
+	}
 	cfg, err := config.Load(config.WithAppDir(appDir))
 	if err != nil {
-		clidiag.Warn("ctxloom", "failed to load config for dependency pull: %v", err)
+		warnDependencyPullFailed("failed to load config for dependency pull: " + err.Error())
 		return
 	}
 	result, syncErr := operations.SyncDependencies(cmd.Context(), cfg, operations.SyncDependenciesRequest{
@@ -371,12 +406,39 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 		ApplyHooks: false, // applyInitHooks runs right after
 	})
 	if syncErr != nil {
-		clidiag.Warn("ctxloom", "failed to pull seeded dependencies: %v", syncErr)
+		warnDependencyPullFailed(syncErr.Error())
+		return
+	}
+	// A sync returns a NIL ERROR for a run in which individual references
+	// failed to fetch — the per-item outcomes live in the result, and an
+	// offline init produces exactly that shape: nil error, zero installed,
+	// every reference failed. Reporting only on Installed printed nothing at
+	// all in that case, which is this project's characteristic defect (exit 0,
+	// no complaint, zero bytes fetched). pullResultErr is the same verdict
+	// `ctxloom deps pull` exits on, so init and the command it stands in for
+	// can never disagree about what counts as a failed pull.
+	if resultErr := pullResultErr(result); resultErr != nil {
+		warnDependencyPullFailed(resultErr.Error())
 		return
 	}
 	if result.Installed > 0 {
 		fmt.Printf("Pulled %d seeded dependencies\n", result.Installed)
 	}
+}
+
+// warnDependencyPullFailed reports a dependency pull that did not complete
+// during init. It names three things a bare error cannot: that the init itself
+// stands (nothing is rolled back), that the consequence is uninstalled
+// dependencies which assembly will silently skip, and the one command that
+// finishes the job once the remote is reachable.
+func warnDependencyPullFailed(reason string) {
+	clidiag.Warn("ctxloom",
+		"the dependency pull did not complete: %s\n"+
+			"  Everything init wrote is kept — the project is initialized and usable.\n"+
+			"  Its remote dependencies are NOT installed, so context assembly will skip\n"+
+			"  them (`ctxloom doctor` reports this). Once the remote is reachable, run:\n"+
+			"    ctxloom deps pull",
+		reason)
 }
 
 // applyHooksFn is a package var seam over operations.ApplyHooks: tests stub it

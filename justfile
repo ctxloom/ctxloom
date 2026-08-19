@@ -1415,6 +1415,18 @@ fmt:
 lint: dev-image
     just _run lint
 
+# Build the architectural linter into bin/archlint (delegates to devcontainer).
+build-archlint: dev-image
+    just _run build-archlint
+
+# Run ctxloom's architectural rules (delegates to devcontainer).
+#
+# A sibling of `lint` rather than part of it, so an architectural failure is
+# attributable and CI's golangci-lint baseline is untouched. Wired into
+# lefthook's pre-commit hook against the prebuilt bin/archlint.
+lint-arch: dev-image
+    just _run lint-arch
+
 # ===== Code complexity (lizard, in devcontainer) =====
 # lizard is a cross-platform, multi-language per-function complexity analyzer,
 # installed in the devcontainer image. These targets delegate into it, so no

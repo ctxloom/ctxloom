@@ -75,13 +75,14 @@ require (
 	github.com/knadh/koanf/providers/env/v2 v2.0.0
 	github.com/knadh/koanf/v2 v2.3.5
 	github.com/spf13/pflag v1.0.10
+	golang.org/x/tools v0.47.0
 	modernc.org/sqlite v1.54.0
 )
 
 require (
 	github.com/cucumber/gherkin/go/v42 v42.0.0 // indirect
 	github.com/cucumber/messages/go/v34 v34.2.0 // indirect
-	golang.org/x/tools v0.47.0 // indirect
+	golang.org/x/mod v0.37.0 // indirect
 )
 
 require (

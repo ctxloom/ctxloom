@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Multi-version coexistence (trust rework, TR5)
@@ -173,44 +174,50 @@ func splitBundleVersion(bundleRef string) (canonical, version string) {
 // no bundle to pin a version against and resolves via the ordinary search
 // (commit ignored).
 func (l *Loader) ReadFragmentAtVersion(ref, commit string) ([]*ItemRead, error) {
-	bundleRef, fragName, isRef, err := splitItemRef(ref, "fragments")
+	ask, err := ParseItemAsk(ref)
 	if err != nil {
 		return nil, err
 	}
-	if !isRef {
+	if !ask.Scoped {
 		return l.searchFragment(ref)
 	}
-	read, err := l.bundleAtVersion(bundleRef, commit)
+	if ask.Kind != trust.KindFragment {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, ref, ask.Kind, trust.KindFragment)
+	}
+	read, err := l.bundleAtVersion(ask.Bundle, commit)
 	if err != nil {
 		return nil, err
 	}
-	frag, ok := read.Bundle.Fragments[fragName]
+	frag, ok := read.Bundle.Fragments[ask.Item]
 	if !ok {
-		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, read.Bundle.Name)
+		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, ask.Item, read.Bundle.Name)
 	}
-	return []*ItemRead{l.fragmentRead(read, fragName, frag)}, nil
+	return []*ItemRead{l.fragmentRead(read, ask.Item, frag)}, nil
 }
 
 // ReadCommandAtVersion is the command counterpart to ReadFragmentAtVersion: a
 // command from a specific commit-version of its bundle, carrying that version's
 // own bytes under the version-less TrustRef.
 func (l *Loader) ReadCommandAtVersion(ref, commit string) ([]*ItemRead, error) {
-	bundleRef, promptName, isRef, err := splitItemRef(ref, "commands")
+	ask, err := ParseItemAsk(ref)
 	if err != nil {
 		return nil, err
 	}
-	if !isRef {
+	if !ask.Scoped {
 		return l.searchCommand(ref)
 	}
-	read, err := l.bundleAtVersion(bundleRef, commit)
+	if ask.Kind != trust.KindPrompt {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, ref, ask.Kind, trust.KindPrompt)
+	}
+	read, err := l.bundleAtVersion(ask.Bundle, commit)
 	if err != nil {
 		return nil, err
 	}
-	prompt, ok := read.Bundle.Commands[promptName]
+	prompt, ok := read.Bundle.Commands[ask.Item]
 	if !ok {
-		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, read.Bundle.Name)
+		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, ask.Item, read.Bundle.Name)
 	}
-	return []*ItemRead{l.commandRead(read, promptName, prompt)}, nil
+	return []*ItemRead{l.commandRead(read, ask.Item, prompt)}, nil
 }
 
 // ReadFragmentVersions reports the fragment named by ref at each requested

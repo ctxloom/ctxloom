@@ -134,36 +134,3 @@ func ParseSelector(sel string) (ItemKind, string, error) {
 		return "", "", fmt.Errorf("unknown item kind %q (want fragments|commands|mcp|hooks|skills)", kindDir)
 	}
 }
-
-// ItemRef spells a Ref back as the item-ref STRING it was parsed from — the
-// exact form a user types into `ctxloom trust` or `ctxloom blacklist`, and the
-// form an advisory names an item by.
-//
-// It is the inverse of ParseItemRef and lives beside it so the two cannot drift:
-// an advisory that named an item in a spelling the mutation could not parse
-// would be a fix instruction that fails.
-//
-// It is NOT the store key. Key() is (that one deliberately omits the repo URL,
-// which is stored separately) and nothing here may be substituted for it.
-func (r Ref) ItemRef() string {
-	base := r.Bundle
-	switch {
-	case r.IsBuiltin:
-		base = BuiltinSourcePrefix + r.Bundle
-	case r.IsLocal && r.RepoURL != "":
-		// The QUALIFIED local form ("ctxloom:local@bundles/<name>"), which is
-		// what the assembly pipeline and the bundle-shipped profile resolvers
-		// carry. A bare local name has no RepoURL and stays bare — both spell
-		// the same identity, and each round-trips to the spelling it came in as.
-		base = r.RepoURL + "@" + remote.ItemTypeBundle.DirName() + "/" + r.Bundle
-	case r.IsCompanion:
-		// A companion loadout is addressed "ctxloom:companion@<bin>" — the
-		// binary's name sits where a repo-relative bundle PATH sits for a
-		// remote, with no "bundles/" segment. Spelling one in would produce a
-		// ref ParseItemRef resolves to a different bundle.
-		base = r.RepoURL + "@" + r.Bundle
-	case !r.IsLocal && r.RepoURL != "":
-		base = r.RepoURL + "@" + remote.ItemTypeBundle.DirName() + "/" + r.Bundle
-	}
-	return base + "#" + r.Kind.Dir() + "/" + r.Name
-}

@@ -113,7 +113,7 @@ func TestSentinelErrors_EveryMessageNamesItsSubject(t *testing.T) {
 	}
 	sentinels := []error{
 		errs.ErrBundleNotFound, errs.ErrFragmentNotFound, errs.ErrCommandNotFound,
-		errs.ErrSkillNotFound, errs.ErrProfileNotFound,
+		errs.ErrSkillNotFound, errs.ErrProfileNotFound, errs.ErrBadItemRef,
 		errs.ErrFragmentWithheld, errs.ErrCommandWithheld, errs.ErrSkillWithheld,
 		errs.ErrNoVersionResolver,
 		errs.ErrRemoteNotFound, errs.ErrRemoteContentNotFound, errs.ErrRemoteNotMaterialized,

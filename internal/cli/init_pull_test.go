@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,6 +119,15 @@ func withInitFlags(t *testing.T, noPull bool) {
 	})
 }
 
+// initTestCmd is a cobra command carrying a context, as cobra's own
+// Execute/ExecuteContext always hands one to a RunE. runInit passes it
+// straight through to the fetch machinery, which shells out to git.
+func initTestCmd() *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	return cmd
+}
+
 // lockedRefs returns the canonical references the project's lockfile pins.
 func lockedRefs(t *testing.T, appDir string) []string {
 	t.Helper()
@@ -170,7 +180,7 @@ func TestRunInit_PullsRemoteDependencies(t *testing.T) {
 	withInitFlags(t, false)
 
 	captureStdout(t, func() {
-		require.NoError(t, runInit(&cobra.Command{}, nil))
+		require.NoError(t, runInit(initTestCmd(), nil))
 	})
 
 	assert.Contains(t, lockedRefs(t, appDir), ref,
@@ -195,7 +205,7 @@ func TestRunInit_RepeatedInitKeepsTheClosureInstalled(t *testing.T) {
 	for run := 0; run < 2; run++ {
 		config.Invalidate()
 		captureStdout(t, func() {
-			require.NoError(t, runInit(&cobra.Command{}, nil), "init run %d must succeed", run+1)
+			require.NoError(t, runInit(initTestCmd(), nil), "init run %d must succeed", run+1)
 		})
 	}
 
@@ -218,7 +228,7 @@ func TestRunInit_NoPull_SuppressesTheDependencyPull(t *testing.T) {
 	withInitFlags(t, true)
 
 	out := captureStdout(t, func() {
-		require.NoError(t, runInit(&cobra.Command{}, nil))
+		require.NoError(t, runInit(initTestCmd(), nil))
 	})
 
 	assert.NotContains(t, lockedRefs(t, appDir), ref, "--no-pull must not pin anything")
@@ -251,7 +261,7 @@ func TestRunInit_FailedPullKeepsTheProjectAndSaysSo(t *testing.T) {
 
 	var runErr error
 	stderr := captureStderr(t, func() {
-		captureStdout(t, func() { runErr = runInit(&cobra.Command{}, nil) })
+		captureStdout(t, func() { runErr = runInit(initTestCmd(), nil) })
 	})
 
 	require.NoError(t, runErr, "a failed pull must not fail the init")
@@ -262,7 +272,7 @@ func TestRunInit_FailedPullKeepsTheProjectAndSaysSo(t *testing.T) {
 	assert.NotContains(t, lockedRefs(t, appDir), ref, "an unreachable remote must not be pinned")
 
 	assert.Contains(t, stderr, "warning:", "a failed dependency pull is a warning, not silence")
-	assert.Contains(t, stderr, "not installed",
+	assert.Contains(t, stderr, "NOT installed",
 		"the warning must name the state it left: the dependencies are NOT installed")
 	assert.Contains(t, stderr, "ctxloom deps pull",
 		"the warning must name the command that finishes the job")

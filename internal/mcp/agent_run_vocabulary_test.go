@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // agentRunSurfaces returns agent_run's advertised input schema from BOTH
@@ -98,6 +99,15 @@ func TestAgentRun_ConstrainsPerCallVocabulariesOnBothSurfaces(t *testing.T) {
 // arguments against the advertised schema before the handler runs, so a
 // typo'd handler is rejected at the tool call and never reaches the spawn.
 func TestAgentRun_StdioSurfaceRefusesAnUnknownDirtyTreeHandler(t *testing.T) {
+	// This test drives the REAL agent_run handler, and the bare-`mcp` server
+	// keys its project off os.Getwd(): newAgentDelegation resolves the project
+	// identity for the cwd, which MINTS a .ctxloom/project-id marker there and
+	// registers it in ~/.ctxloom/projects. Under `go test` the cwd is the
+	// package source directory, so an unisolated run writes both into the
+	// checkout and the developer's real home. Isolated HOME + cwd (forbidigo:
+	// no raw os.Chdir).
+	testsupport.ProjectDir(t)
+
 	s := &ctxServer{cfg: testConfig()}
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
 	s.registerTools(server)

@@ -112,10 +112,9 @@ func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
 // sourceRefTyped, both single-file and tree form) and a version-pinned read's
 // version-less canonical ref (loader_version.go's bundleAtVersion, whose
 // commit-addressed reads carry the SAME identity as their unpinned twin). It
-// is the SAME Ref -> BundleRef bridge (trust.Ref.AsBundleRef) that
-// trust.ParseItemRef's own base-ref parse feeds for the identical string
-// shape — reusing that conversion rather than re-deriving host/path from the
-// ref a second, competing way. remote.ParseReference here is not a second
+// is the SAME Ref -> BundleRef bridge (trust.Ref.AsBundleRef) every other
+// holder of a resolution ref of this shape feeds — reusing that conversion
+// rather than re-deriving host/path from the ref a second, competing way. remote.ParseReference here is not a second
 // parser: it is the one parser this ref's grammar has, the same one
 // loader_version.go's versionRead already calls on a canonical ref of this
 // exact shape.

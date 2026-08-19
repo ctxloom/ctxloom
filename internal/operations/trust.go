@@ -576,8 +576,8 @@ func buildLockfileRetraction(cfg *config.Config, fs afero.Fs) RetractionRecords 
 
 // lockfileKeyForRef reconstructs a bundle ref's lockfile map key
 // ("<url>@bundles/<path>") from a trust.Ref — the exact inverse of what
-// trust.ParseItemRef derives a trust.Ref's RepoURL/Bundle FROM (it parses that
-// same string via remote.ParseReference), and the exact string
+// remote.ParseReference derives a trust.Ref's RepoURL/Bundle FROM, and the
+// exact string
 // bundles.Bundle.contentSourceRef carries as the gate's "source" for a cloned
 // bundle (loader.go's gateContent). All three — the lockfile key, the
 // trust.Ref, and the gated content's source ref — are the same identity

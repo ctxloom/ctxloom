@@ -194,7 +194,7 @@ func printBundleItemTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 	ref := bundle + "#" + kind.Dir() + "/" + name
 	res := stamper.ForRef(ref)
 	// name is bundle-authored and reaches this print RAW; ForRef normalizes
-	// its own copy for the trust decision (via trust.ParseItemRef), but never
+	// its own copy for the trust decision (via trust.Ref.Key), but never
 	// hands the cleaned string back. Strip (not NormalizeRef) so a malicious
 	// name cannot repaint this terminal line without a second, redundant
 	// warning on top of the one ForRef's ingest already emitted for the

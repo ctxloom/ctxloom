@@ -425,8 +425,8 @@ type UnaddressableReporter interface {
 // content no rule ever saw.
 //
 // The parse is the canonical bundle-reference grammar (trust.ParseBundleRef +
-// trust.RefFromBundleRef), not the retired trust.ParseItemRef
-// ("<source>#<kind>/<name>", hand-concatenated) — every producer in this
+// trust.RefFromBundleRef), not the retired "<source>#<kind>/<name>"
+// hand-concatenated spelling — every producer in this
 // package and in internal/config now mints ref through that same canonical
 // grammar (trust.BundleRef.WithItem), so this is the matching read half, not
 // a second, competing one. ORDER WAS LOAD-BEARING getting here: every

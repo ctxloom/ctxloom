@@ -240,7 +240,7 @@ fragments:
 }
 
 // TestContentGate_UnrecognizedSourceRef_FailsClosed proves the fail-open bug
-// in trust.ParseItemRef's fallback: a bundle seeded under a source ref that
+// in the ref grammar's bare-token fallback: a bundle seeded under a source ref that
 // SUPERFICIALLY looks like a canonical URL but fails remote.ParseReference
 // (here: missing the required "@<type>/<path>" suffix) must NOT be silently
 // downgraded to "local" — that bypasses the trust gate and review entirely.

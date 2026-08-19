@@ -103,7 +103,7 @@ func NewBuiltinReader(opts ...ReaderOption) Reader {
 //     anything.
 //   - It is no wider than the claim it replaces: the same call site used to
 //     assert locality implicitly, by handing the gate a bare-token ref, which
-//     trust.ParseItemRef resolves to IsLocal — a claim of locality made in a
+//     the ref grammar resolves to IsLocal — a claim of locality made in a
 //     string, where nothing could see it. This makes the claim visible and
 //     greppable; TestProjectAuthoredRead_CallSites pins the list.
 //

@@ -14,8 +14,8 @@ import (
 
 // An item name is bundle-authored: a fragment/command/mcp key straight out of
 // the bundle's own YAML, never itself put through remote.NormalizeRef before
-// reaching a display line. The trust DECISION (ForRef, via
-// trust.ParseItemRef) always normalizes its own copy, but that says nothing
+// reaching a display line. The trust DECISION (TrustStamper.ForRef, via
+// trust.Ref.Key) always normalizes its own copy, but that says nothing
 // about what gets printed — printBundleItemTrust used to interpolate the raw
 // name straight into the terminal line it writes for `bundle show -i`.
 //

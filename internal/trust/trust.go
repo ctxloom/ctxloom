@@ -248,7 +248,7 @@ type Ref struct {
 	// second spelling of IsLocal, so step 1's rejection check still runs ahead
 	// of it and a reader can see WHICH exemption allowed an item.
 	//
-	// The single production site that sets it (trust.ParseItemRef)
+	// Every production site that sets it
 	// copies remote.Reference.IsCompanion, which the reference grammar sets
 	// only for the fixed remote.CompanionSource token — never for a URL or
 	// bundle name an author can choose — and which never coincides with
@@ -477,8 +477,8 @@ func (r Ref) bundleRefBase() (BundleRef, error) {
 // A companion's RepoURL is stamped to remote.CompanionSource rather than left
 // empty: Ref.CanonicalURL has no IsCompanion branch of its own and falls
 // through to CanonicalRepoURL(r.RepoURL), which recognizes that exact token —
-// so a round-tripped companion Ref must carry it to key the same way a
-// trust.ParseItemRef-built one does.
+// so a round-tripped companion Ref must carry it to key the same way one
+// built through remote.ParseReference does.
 func RefFromBundleRef(br BundleRef) Ref {
 	r := Ref{Bundle: br.Bundle, Kind: br.Kind, Name: br.Item}
 	switch br.Class {

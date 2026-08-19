@@ -207,7 +207,6 @@ type agentStopResult struct {
 	Disposition string `json:"disposition"`
 }
 
-
 // agentRunInputSchema is agent_run's advertised input schema: the shape
 // inferred from agentRunInput, with its two per-call VOCABULARY arguments
 // carrying the enum of what they actually accept.

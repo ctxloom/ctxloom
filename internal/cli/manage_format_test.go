@@ -86,7 +86,6 @@ func TestManageStatusline_FormatJSON(t *testing.T) {
 	require.Equal(t, false, payload["statusline"])
 }
 
-
 // mcpServerListedByName reports whether `mcp server list --format json`
 // currently lists a server by that name.
 func mcpServerListedByName(t *testing.T, name string) bool {

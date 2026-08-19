@@ -69,6 +69,7 @@ var (
 	initEngine         string
 	initRemotes        []string
 	initForge          string
+	initNoPull         bool
 )
 
 // initPromptCmd is the real home for the setup-interview re-entry pointer:
@@ -102,6 +103,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
 	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, codex, etc.)")
 	initCmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable")
+	initCmd.Flags().BoolVar(&initNoPull, "no-pull", false, "Skip the dependency pull init ends with; declared dependencies stay uninstalled until 'ctxloom deps pull' runs")
 	initCmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")
 	initCmd.AddCommand(initPromptCmd)
 }

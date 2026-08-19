@@ -17,22 +17,22 @@ tags:
 # matches what `ctxloom init` emits today.
 parents:
   - project-base
-  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer@branch:main#profiles/developer
+  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer@branch:main#profiles/developer
 bundles:
   # Language: upstream Go practices plus the personal composition on top.
-  - https://github.com/ctxloom/ctxloom-default@bundles/go-ai-practices
-  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/go-development
-  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/source-organization
+  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/go-ai-practices
+  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/go-development
+  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/source-organization
   # Tooling this repo actually runs. Each one exists because an agent that does
   # not know the tool reaches past it: invoking `go test` instead of the recipe,
   # treating an ltk redirect as a failure, or re-solving duplication reprise
   # already reports.
-  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/just
-  - https://github.com/ctxloom/ctxloom-default@bundles/lefthook
-  - https://github.com/ctxloom/ctxloom-default@bundles/ltk
-  - https://github.com/ctxloom/ctxloom-default@bundles/reprise
-  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/containers
-  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/github
+  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/just
+  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/lefthook
+  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ltk
+  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/reprise
+  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/containers
+  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/github
   # serena is UNLINKED, deliberately. The bundle still exists and is not
   # deleted; it is simply not composed here.
   #

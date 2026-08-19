@@ -2,6 +2,6 @@ parents:
     - project-base
 description: 'Code-review lens: testing.'
 bundles:
-    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-base#fragments/conduct
-    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-base#fragments/thorough
-    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-testing#fragments/general
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-base#fragments/conduct
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-base#fragments/thorough
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-testing#fragments/general

@@ -2,4 +2,4 @@ parents:
     - project-base
 description: 'Developer escalation discipline: escalate significant/structural/API changes up to the coordinator.'
 bundles:
-    - https://github.com/ctxloom/ctxloom-default@bundles/agent-roles#fragments/developer-escalation
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/agent-roles#fragments/developer-escalation

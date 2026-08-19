@@ -25,4 +25,4 @@ bundles:
     # the disposition it governs is not the coordinator's alone — an
     # implementer that files a task instead of fixing what it can, or waves a
     # failure through as pre-existing, is the same defect one layer down.
-    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/prototyping
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/prototyping

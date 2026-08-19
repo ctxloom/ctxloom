@@ -1,7 +1,7 @@
 description: 'Finder role (ingest): cheap, parallel look-up-by-name plus web fetch; reports path:line/URL directly and terse. Inherits the personal agent-ensemble finder profile (single source of truth).'
 parents:
     - project-base
-    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/agent-ensemble#profiles/finder
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/agent-ensemble#profiles/finder
 
 # Project-wide: how ctxloom itself resolves configuration
 # (home < project < ENV < --config-set). Baked into every profile so no

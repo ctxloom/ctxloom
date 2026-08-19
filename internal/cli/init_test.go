@@ -361,11 +361,11 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 // The literal values stay pinned in TestPromptDirtyTreeHandler_EachOptionAndDefault
 // (they are what lands in config.yaml); this test pins the correspondence.
 func TestDirtyTreeHandlerOptions_AreTheOperationsHandlers(t *testing.T) {
-	values := make([]string, 0, len(dirtyTreeHandlerOptions))
+	values := make([]operations.DirtyTreeHandler, 0, len(dirtyTreeHandlerOptions))
 	for _, opt := range dirtyTreeHandlerOptions {
 		values = append(values, opt.value)
 	}
-	assert.Equal(t, []string{
+	assert.Equal(t, []operations.DirtyTreeHandler{
 		operations.DirtyTreeHandlerCommit,
 		operations.DirtyTreeHandlerCopy,
 		operations.DirtyTreeHandlerStale,
@@ -380,7 +380,7 @@ func TestDirtyTreeHandlerOptions_AreTheOperationsHandlers(t *testing.T) {
 		var err error
 		captureStdout(t, func() { handler, ack, err = p.promptDirtyTreeHandler() })
 		require.NoError(t, err)
-		assert.Equal(t, opt.value, handler)
+		assert.Equal(t, string(opt.value), handler)
 		assert.Equal(t, opt.value == operations.DirtyTreeHandlerCommit, ack,
 			"only the commit handler mutates the user's repo, so only it carries the ack")
 	}

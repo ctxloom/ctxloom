@@ -142,7 +142,8 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 // the full line shown for it (already including its trailing consequence
 // text, so the loop below only needs to number and print each one).
 type dirtyTreeHandlerOption struct {
-	value, label string
+	value operations.DirtyTreeHandler
+	label string
 }
 
 // dirtyTreeHandlerOptions is promptDirtyTreeHandler's menu, in display order.
@@ -218,7 +219,7 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 			}
 			opt = dirtyTreeHandlerOptions[num-1]
 		}
-		return opt.value, opt.value == operations.DirtyTreeHandlerCommit, nil
+		return string(opt.value), opt.value == operations.DirtyTreeHandlerCommit, nil
 	}
 }
 

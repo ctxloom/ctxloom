@@ -432,6 +432,40 @@ func TestRunnerFromConn_InfoErrorTriggersKill(t *testing.T) {
 	assert.Equal(t, 1, fake.killCalls)
 }
 
+// TestLLMRunnerKill_NilReceiverFromFailedSpawn_NoPanic pins the climatic-rebel
+// fix: a failed spawn (runnerFromConn's Client()-error arm, exercised here
+// via a stand-in fakeLLMConnection so no real process or credentials are
+// needed) returns a nil *LLMRunner. Boxing that nil pointer into the Client
+// interface — exactly what every SpawnClient/Runtime.Spawn call site does at
+// its `(Client, error)`-typed return — produces a NON-nil interface value
+// (Go's typed-nil-in-interface pitfall), so a caller's `if client != nil`
+// guard (cli/run.go's teardownTransport) still calls Kill on the nil
+// receiver. Before the fix this panicked at client.go's `p.conn != nil`
+// check, exactly as reported for the --degraded path with no credentials
+// (a failed spawn, not a concurrent teardown race — this is deterministic
+// and single-goroutine, reproduced here with no concurrency at all).
+func TestLLMRunnerKill_NilReceiverFromFailedSpawn_NoPanic(t *testing.T) {
+	fake := &fakeLLMConnection{clientErr: errors.New("dial failed")}
+
+	runner, err := runnerFromConn(fake)
+	require.Error(t, err)
+	require.Nil(t, runner, "a failed spawn must hand back a nil *LLMRunner")
+
+	// The boxing step: assigning the nil *LLMRunner into the Client interface
+	// is exactly what happens at every SpawnClient/Runtime.Spawn return. A
+	// plain `!= nil` (not testify's require.NotNil/assert.Nil, which reach
+	// through the interface via reflection and correctly report the
+	// underlying pointer as nil) is what production code actually does —
+	// cli/run.go's teardownTransport guards with a bare `if st.client != nil`
+	// — so the test must use the same comparison to reproduce what fooled it.
+	var client Client = runner
+	if client == nil {
+		t.Fatal("expected a NON-nil interface (typed-nil-in-interface pitfall) from a plain `!= nil` comparison, matching what production's teardownTransport guard actually sees")
+	}
+
+	assert.NotPanics(t, func() { client.Kill() }, "Kill on a never-started runner must be a safe no-op, not a panic that masks the spawn's own error")
+}
+
 // TestCheckDaemonVersion pins the unstamped-build safety valve directly:
 // "" and "dev" on either side are "cannot verify", never a refusal — a bare
 // `go build` (bypassing the task runner's ldflags stamp) must not brick

@@ -450,8 +450,21 @@ func NewSelfInvokingClientForLabelEnv(backendName, label string, verbosity int, 
 	return runnerFromConn(dialLLMConnection(executable, args, env, newPluginLogger(verbosity)))
 }
 
-// Kill terminates the plugin process.
+// Kill terminates the plugin process. Safe on a nil receiver: a failed spawn
+// (runnerFromConn returning a nil *LLMRunner alongside its error) still gets
+// boxed into a non-nil Client interface value at every (Client,
+// error)-typed return-conversion boundary between here and a caller
+// (Runtime.Spawn, {Container,Worktree,None}.SpawnClient) — Go's classic
+// typed-nil-in-interface pitfall. A caller's `if client != nil` check tests
+// the INTERFACE, which is non-nil even though the underlying *LLMRunner is
+// nil, so deferred teardown (e.g. cli/run.go's teardownTransport) still
+// calls Kill on a nil receiver. The spawn failure's own error is already
+// returned and surfaced independently of Kill, so no-op'ing here costs
+// nothing — it only stops the crash from masking that error mid-unwind.
 func (p *LLMRunner) Kill() {
+	if p == nil {
+		return
+	}
 	if p.conn != nil {
 		p.conn.Kill()
 	}

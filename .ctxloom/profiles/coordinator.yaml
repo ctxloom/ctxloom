@@ -2,13 +2,15 @@ description: 'Coordinator role: sequences, brainstorms, architects, writes sub-a
 parents:
     - project-base
     - https://github.com/benjaminabbitt/ctxloom-personal@bundles/agent-ensemble#profiles/coordinator
-# serena is the ONE exception to "carries no dev-language bundles" above: it is
-# not a language bundle but a code-intelligence MCP server, and the coordinator
-# still reads code to plan against it. Note its --context claude-code prompt
-# declares native Read forbidden for discovery — deliberately accepted here so
-# the symbolic tools actually get used. Revisit with taskloom wispy-rise.
+# serena is UNLINKED, deliberately — the bundle still exists and is not deleted,
+# it is simply not composed here. It resolves its project once at server start
+# from the launching session's cwd, and in-process sub-agents share that one
+# server, so an agent working in a worktree is answered about the coordinator's
+# checkout instead — silently, for reads as well as edits. Its
+# --context claude-code prompt additionally asserts authority over tool choice,
+# so it pulls agents toward itself against project guidance. Re-link only once
+# an agent gets its own serena rooted at its own working directory.
 bundles:
-    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/serena
     # unattended carries the good-night skill: work an admitted queue while the
     # human is asleep, stopping at anything hard to reverse or environment-
     # endangering. Coordinator-only by design — it merges, reaps worktrees and

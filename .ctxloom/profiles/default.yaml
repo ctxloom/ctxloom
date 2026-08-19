@@ -33,11 +33,22 @@ bundles:
   - https://github.com/ctxloom/ctxloom-default@bundles/reprise
   - https://github.com/benjaminabbitt/ctxloom-personal@bundles/containers
   - https://github.com/benjaminabbitt/ctxloom-personal@bundles/github
-  # serena, for the same reason as the rest of this group: an implementer that
-  # does not know the tool reaches past it. Measured — a full session read whole
-  # files and edited by string match with serena registered the entire time,
-  # because serena's own registration only injects "call initial_instructions"
-  # and nothing ever makes that call. Note its --context claude-code prompt
-  # declares native Read forbidden for discovery; accepted deliberately here so
-  # the symbolic tools actually get used.
-  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/serena
+  # serena is UNLINKED, deliberately. The bundle still exists and is not
+  # deleted; it is simply not composed here.
+  #
+  # Serena resolves its project ONCE, at server start, from the launching
+  # session's cwd. In-process sub-agents inherit the coordinator's MCP
+  # connections, so they share ONE server rooted at the coordinator's checkout.
+  # An agent working in a git worktree is therefore answered about the wrong
+  # tree, silently, in BOTH directions: a symbol that exists only in the
+  # worktree reads as not found, and an edit lands in the coordinator's
+  # checkout while the worktree stays untouched. There is no error — a symbol
+  # delete can report success while writing nothing the agent can see.
+  #
+  # Its --context claude-code prompt also asserts authority over tool choice
+  # (declaring native Read forbidden for discovery), so it pulls agents toward
+  # itself against project guidance rather than merely being available.
+  #
+  # Re-link only once an agent gets its OWN serena rooted at its OWN working
+  # directory, or once worktree-isolated agents cannot reach a host serena at
+  # all.

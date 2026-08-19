@@ -294,7 +294,15 @@ func acpRunWorkingDir() (string, error) {
 // nothing anywhere would name the difference. `ctxloom run --agent` is the
 // surface that isolates the files.
 func warnACPSessionWorkspaceAxis(workspace string) {
-	if isolation.WorkspaceAxis(workspace) != isolation.WorkspaceWorktree {
+	// A spelling the axis does not admit is its own warning: this entry has
+	// no error path to refuse on, and silence here would leave a project
+	// whose `workspace:` is a typo believing it asked for something.
+	axis, err := isolation.ParseWorkspaceAxis(workspace)
+	if err != nil {
+		clidiag.Warn("ctxloom", "%s — this project's workspace axis is set to a value nothing can honor; fix `workspace:` in .ctxloom/config.yaml", err)
+		return
+	}
+	if axis != isolation.WorkspaceWorktree {
 		return
 	}
 	clidiag.Warn("ctxloom", "this project's workspace axis is %q, and an ACP session has no carrier for it: this conversation runs in the project directory. Use `ctxloom run --agent <name> --workspace worktree` for a session with its own worktree.", workspace)

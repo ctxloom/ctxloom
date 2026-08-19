@@ -192,6 +192,68 @@ func TestPrepareAgentChat_ExplicitNoneStillNone_CallerOverride(t *testing.T) {
 		"an explicit per-call Workspace: \"none\" must still be honored for a delegated child")
 }
 
+// TestPrepareAgentChat_WorkspaceTypoRefusesRatherThanUsingTheParentTree is
+// the workspace axis's half of the same defect: asserted past a parser, an
+// unrecognized spelling reads as the shared checkout, so `workspace:
+// "wroktree"` does not merely fail to isolate a delegated child — it lands it
+// in the PARENT'S LIVE TREE, strictly further from safety than the empty
+// value it resembles (empty defaults a delegated child to its own worktree).
+//
+// The two control subtests are the vacuity guard: they prove this harness
+// observes the axis the spawn actually resolved, so the refusal below is a
+// refusal of the spelling.
+func TestPrepareAgentChat_WorkspaceTypoRefusesRatherThanUsingTheParentTree(t *testing.T) {
+	prepare := func(t *testing.T, cfg *config.Config, perCall string) (isolation.Axes, error) {
+		t.Helper()
+		resetStrictness(t)
+		var gotAxes isolation.Axes
+		prev := prepareIsolation
+		prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+			gotAxes = axes
+			return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+		}
+		t.Cleanup(func() { prepareIsolation = prev })
+		p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+			Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+			WorkDir:   t.TempDir(),
+			Workspace: perCall,
+		})
+		if p != nil {
+			t.Cleanup(p.Abort)
+		}
+		return gotAxes, err
+	}
+
+	t.Run("control: a declared member reaches the axes", func(t *testing.T) {
+		axes, err := prepare(t, config.NewFixture(config.Fixture{}), "worktree")
+		require.NoError(t, err)
+		assert.Equal(t, isolation.WorkspaceWorktree, axes.Workspace)
+	})
+
+	t.Run("control: the shared checkout is reachable by asking for it", func(t *testing.T) {
+		axes, err := prepare(t, config.NewFixture(config.Fixture{}), "none")
+		require.NoError(t, err)
+		assert.Equal(t, isolation.WorkspaceShared, axes.Workspace)
+	})
+
+	t.Run("a typo'd per-call workspace refuses and resolves no axes at all", func(t *testing.T) {
+		axes, err := prepare(t, config.NewFixture(config.Fixture{}), "wroktree")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "wroktree")
+		assert.Contains(t, err.Error(), "none|worktree")
+		assert.NotEqual(t, isolation.WorkspaceShared, axes.Workspace,
+			"THE POINT: a typo must not resolve to the parent's live checkout")
+		assert.Equal(t, isolation.Axes{}, axes, "isolation was never prepared at all")
+	})
+
+	t.Run("a typo'd project workspace default refuses the same way", func(t *testing.T) {
+		axes, err := prepare(t, config.NewFixture(config.Fixture{Workspace: "wroktree"}), "")
+		require.Error(t, err)
+		assert.NotEqual(t, isolation.WorkspaceShared, axes.Workspace)
+		assert.Equal(t, isolation.Axes{}, axes)
+	})
+}
+
 // TestPrepareAgentChat_ContainerDegradeGate pins fail-loud parity with the
 // fan's member gate: an explicitly-requested container that can't start
 // (ClassIsolation finding during Prepare) refuses the child in strict mode —

@@ -20,6 +20,7 @@ package isolation
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -264,6 +265,37 @@ const (
 // SELECTION asks for a specific value.
 func IsContainerRuntimeAxis(v RuntimeAxis) bool {
 	return agent.IsContainerRuntimeAxis(v)
+}
+
+// ParseWorkspaceAxis is the ONE conversion between the workspace-axis string
+// vocabulary (config YAML, run/acp --workspace, an agent_run spawn's
+// workspace field) and the typed WorkspaceAxis. Every boundary that receives
+// a workspace string parses it exactly once, here — never a bare
+// WorkspaceAxis(s) conversion, which compiles for any string and hands the
+// axis a value nobody admitted.
+//
+// Empty passes through as "" (the zero value), meaning "this level said
+// nothing": each caller's own layering decides what silence resolves to, and
+// they do not agree — delegatedAxes defaults a delegated child to worktree
+// while Axes.WantsWorktree reads everything that is not WorkspaceWorktree as
+// the shared checkout. That disagreement is exactly why an unrecognized
+// value cannot be treated as silence: `workspace: "wroktree"` would not
+// merely fail to isolate a child, it would flip it from its own worktree
+// into the PARENT'S LIVE CHECKOUT — strictly further from safety than the
+// empty value it resembles, and past decideDirtyParentTree, which
+// short-circuits on any axis that is not WorkspaceWorktree. So anything
+// unrecognized is an error naming the bad value and the legal ones.
+//
+// This does NOT reclassify the workspace axis as a security boundary (see
+// warnUnknownAxes for why it is not one, and how the runtime axis differs).
+// It refuses TYPOS: a value the user typed that no code path can honor.
+func ParseWorkspaceAxis(s string) (WorkspaceAxis, error) {
+	switch WorkspaceAxis(s) {
+	case "", WorkspaceShared, WorkspaceWorktree:
+		return WorkspaceAxis(s), nil
+	default:
+		return "", fmt.Errorf("unknown workspace axis %q (known: %s)", s, strings.Join(WorkspaceNames(), "|"))
+	}
 }
 
 // ParseRuntimeAxis re-exports agent.ParseRuntimeAxis under this package's

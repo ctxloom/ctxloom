@@ -84,7 +84,8 @@ func TestAcpWorkspaceAxis(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := acpWorkspaceAxis(tc.cfg, tc.flagAgent, tc.currentAgent, tc.flagWorkspace)
+			got, err := acpWorkspaceAxis(tc.cfg, tc.flagAgent, tc.currentAgent, tc.flagWorkspace)
+			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -435,7 +436,8 @@ func iso2GitRun(t *testing.T, dir string, args ...string) {
 // discard has to be stated. The VALUE is unchanged: still "".
 func TestAcpWorkspaceAxis_DiscardedFlagIsAnnounced(t *testing.T) {
 	warnings := captureWarnings(t)
-	got := acpWorkspaceAxis(config.NewFixture(config.Fixture{}), "", "", "worktree")
+	got, err := acpWorkspaceAxis(config.NewFixture(config.Fixture{}), "", "", "worktree")
+	require.NoError(t, err)
 	assert.Equal(t, isolation.WorkspaceAxis(""), got, "the posture rule is unchanged — no --agent, no isolation")
 
 	out := warnings.String()
@@ -449,7 +451,8 @@ func TestAcpWorkspaceAxis_DiscardedFlagIsAnnounced(t *testing.T) {
 // said. Only an explicit flag earns the warning.
 func TestAcpWorkspaceAxis_SilentWhenNothingWasAsked(t *testing.T) {
 	warnings := captureWarnings(t)
-	got := acpWorkspaceAxis(config.NewFixture(config.Fixture{Workspace: "worktree"}), "", "", "")
+	got, err := acpWorkspaceAxis(config.NewFixture(config.Fixture{Workspace: "worktree"}), "", "", "")
+	require.NoError(t, err)
 	assert.Equal(t, isolation.WorkspaceAxis(""), got)
 	assert.Empty(t, warnings.String())
 }

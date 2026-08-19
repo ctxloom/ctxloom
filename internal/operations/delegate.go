@@ -188,11 +188,15 @@ func (p *PreparedAgentChat) MCPCommandOverride() string { return p.mcpCommandOve
 // own findings log.
 func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequest) (*PreparedAgentChat, error) {
 	rs := req.Resolved
+	axes, err := delegatedAxes(cfg, req)
+	if err != nil {
+		return nil, err
+	}
 	p := &PreparedAgentChat{
 		cfg:             cfg,
 		req:             req,
 		contextText:     req.Context,
-		axes:            delegatedAxes(cfg, req),
+		axes:            axes,
 		chatDialTimeout: resolveChatDialTimeout(req),
 	}
 	if p.contextText == "" {
@@ -291,17 +295,28 @@ func warnOnEmptyLeadContext(rs *ResolvedAgent, lead string) {
 //
 // The RUNTIME axis carries the agent's own resolved choice through untouched:
 // it is an agent trait, not an invocation one.
-func delegatedAxes(cfg *config.Config, req AgentChatRequest) isolation.Axes {
-	workspace := cfg.GetWorkspace()
+func delegatedAxes(cfg *config.Config, req AgentChatRequest) (isolation.Axes, error) {
+	raw := cfg.GetWorkspace()
 	if req.Workspace != "" {
-		workspace = req.Workspace
-	} else if workspace == "" {
-		workspace = string(isolation.WorkspaceWorktree)
+		raw = req.Workspace
+	} else if raw == "" {
+		raw = string(isolation.WorkspaceWorktree)
+	}
+	// An unrecognized spelling REFUSES rather than degrading. This function
+	// is the one that defaults a delegated child to its own worktree, so a
+	// typo here does not merely fail to isolate: an unparsed value reads as
+	// the shared checkout downstream, which drops the child into the
+	// PARENT'S LIVE TREE — further from the default than saying nothing at
+	// all, and past decideDirtyParentTree, which never runs on an axis that
+	// is not WorkspaceWorktree.
+	workspace, err := isolation.ParseWorkspaceAxis(raw)
+	if err != nil {
+		return isolation.Axes{}, fmt.Errorf("agent_run: %w", err)
 	}
 	return isolation.Axes{
-		Workspace: isolation.WorkspaceAxis(workspace),
+		Workspace: workspace,
 		Runtime:   isolation.RuntimeAxis(req.Resolved.Runtime),
-	}
+	}, nil
 }
 
 // resolveChatDialTimeout applies the package default to an unset per-request

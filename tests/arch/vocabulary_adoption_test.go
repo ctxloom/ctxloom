@@ -737,11 +737,6 @@ var vocabConversionAllowed = map[string]string{
 	"internal/agentcoord/coord/enginehost.go#EngineHost.startRun#internal/transcript.RawPolicy": "raw-transcript policy string asserted into the enum; internal/transcript ships no parser for RawPolicy — add one and call it",
 	"internal/lm/grpc/chat.go#GRPCClient.openRecorder#internal/transcript.RawPolicy":            "same RawPolicy assertion as coord.EngineHost.startRun, reached from the wire side",
 
-	"internal/cli/acp_run_cmd.go#warnACPSessionWorkspaceAxis#internal/lm/isolation.WorkspaceAxis": "the workspace axis has NO validator anywhere: an unrecognized --workspace value converts cleanly and then reads as the shared-checkout default, so a typo runs in the parent's live tree. Needs a ParseWorkspaceAxis beside isolation.ParseRuntimeAxis, then every one of these five sites routed through it",
-	"internal/cli/run.go#runState.buildRunRequest#internal/lm/isolation.WorkspaceAxis":            "workspace axis asserted from session state; waits on the same ParseWorkspaceAxis",
-	"internal/operations/delegate.go#delegatedAxes#internal/lm/isolation.WorkspaceAxis":           "workspace axis asserted from a delegation request field; waits on the same ParseWorkspaceAxis",
-	"internal/operations/engine_session.go#acpWorkspaceAxis#internal/lm/isolation.WorkspaceAxis":  "workspace axis asserted from flag/agent/project layering; waits on the same ParseWorkspaceAxis",
-	"internal/operations/oneshot.go#RunOneshot#internal/lm/isolation.WorkspaceAxis":               "workspace axis asserted from config; waits on the same ParseWorkspaceAxis",
 
 	"internal/cli/run.go#runState.buildRunRequest#internal/shared/agent.RuntimeAxis":                      "agent.ParseRuntimeAxis EXISTS and errors on an unrecognized value — this asserts the string past it instead of calling it",
 	"internal/operations/agents.go#validateContainerAuth#internal/shared/agent.RuntimeAxis":               "same bypass of the existing agent.ParseRuntimeAxis",

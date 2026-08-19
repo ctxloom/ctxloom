@@ -488,3 +488,36 @@ func TestImageOverrideAndBaseImageAreOppositeConcepts(t *testing.T) {
 	assert.Contains(t, string(overlay[0].containerfile), "COPY ctxloom /usr/local/bin/ctxloom\n",
 		"a build base gets ctxloom layered onto it; a run-as-is override never would")
 }
+
+// TestParseWorkspaceAxis is the workspace vocabulary's own contract: the two
+// members round-trip, empty passes through as "this level said nothing", and
+// everything else is refused naming the legal set.
+//
+// The empty case is load-bearing and not a formality: each caller's layering
+// resolves silence differently (a delegated child defaults to its own
+// worktree, a top-level run to the shared checkout), so the parser must hand
+// silence back unchanged rather than picking one of them.
+func TestParseWorkspaceAxis(t *testing.T) {
+	for _, member := range WorkspaceNames() {
+		got, err := ParseWorkspaceAxis(member)
+		require.NoError(t, err, "%q is a declared member", member)
+		assert.Equal(t, WorkspaceAxis(member), got)
+	}
+	require.Equal(t, []string{"none", "worktree"}, WorkspaceNames())
+
+	got, err := ParseWorkspaceAxis("")
+	require.NoError(t, err, "unset is not an error")
+	assert.Equal(t, WorkspaceAxis(""), got)
+
+	for _, bad := range []string{"wroktree", "worktree ", "Worktree", "shared", "host"} {
+		got, err := ParseWorkspaceAxis(bad)
+		require.Error(t, err, "%q is not a member", bad)
+		assert.Equal(t, WorkspaceAxis(""), got)
+		assert.Contains(t, err.Error(), bad)
+		assert.Contains(t, err.Error(), "none|worktree")
+		// The refusal exists because the FALLBACK is worse than nothing:
+		// WantsWorktree reads anything unrecognized as the shared checkout.
+		assert.False(t, Axes{Workspace: WorkspaceAxis(bad)}.WantsWorktree(),
+			"an unparsed spelling really would have read as the shared checkout")
+	}
+}

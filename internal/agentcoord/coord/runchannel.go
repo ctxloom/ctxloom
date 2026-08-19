@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -1015,6 +1016,16 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
 		}
 	}
+	// Both per-call vocabularies are converted at this edge. The workspace
+	// axis is checked here rather than only where the child's axes are
+	// resolved because THAT happens on the launch goroutine, after this verb
+	// has already answered "spawned": a typo would otherwise be reported as a
+	// child that died, to a caller who could no longer see which argument was
+	// wrong.
+	workspace, werr := isolation.ParseWorkspaceAxis(rawWorkspace)
+	if werr != nil {
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: "+werr.Error())}
+	}
 	dirtyTreeHandler, derr := operations.ParseDirtyTreeHandler(rawDirtyTreeHandler)
 	if derr != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: "+derr.Error())}
@@ -1025,7 +1036,7 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	if prompt == "" {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: input.prompt is required (the child's briefing/first turn)")}
 	}
-	out, err := c.AgentRun(c.baseCtx, caller, role, prompt, rawWorkspace, dirtyTreeHandler)
+	out, err := c.AgentRun(c.baseCtx, caller, role, prompt, string(workspace), dirtyTreeHandler)
 	if err != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}

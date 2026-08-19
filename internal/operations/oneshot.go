@@ -88,7 +88,11 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	// all-defaults oneshot writes no per-member config and must stay
 	// byte-identical to pre-P3; gate construction runs the trust baseline +
 	// opens the store). Ignored on the injected-Factory path.
-	axes := isolation.Axes{Workspace: isolation.WorkspaceAxis(cfg.GetWorkspace()), Runtime: isolation.RuntimeAxis(cfg.GetRuntime())}
+	workspace, err := isolation.ParseWorkspaceAxis(cfg.GetWorkspace())
+	if err != nil {
+		return nil, fmt.Errorf("oneshot: %w — fix `workspace:` in .ctxloom/config.yaml", err)
+	}
+	axes := isolation.Axes{Workspace: workspace, Runtime: isolation.RuntimeAxis(cfg.GetRuntime())}
 	// The all-defaults member writes no per-member config, so nothing consults
 	// this gate at all — AdmitAll states that, where a nil would claim the gate
 	// was forgotten and withhold if anything ever did consult it.

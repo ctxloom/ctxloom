@@ -79,6 +79,21 @@ func TestServeSpawnAgent_DirtyTreeHandlerParsedAtTheVerb(t *testing.T) {
 		assert.Equal(t, 0, sp.spawnCount())
 	})
 
+	// The workspace axis rides the same edge, for the same reason plus one:
+	// its axes are resolved on the LAUNCH goroutine, so without this parse a
+	// typo is reported as a child that died rather than as a bad argument.
+	t.Run("a typo'd workspace is refused at the verb too", func(t *testing.T) {
+		sp, c := newWorker(t)
+		resp := c.serveSpawnAgent(ownerIdentity(), &agentcoordpb.SpawnAgentRequest{
+			Role:  "worker",
+			Input: spawnInput(t, map[string]any{"prompt": "task", "workspace": "wroktree"}),
+		})
+		assert.EqualValues(t, codes.InvalidArgument, resp.GetStatus().GetCode())
+		assert.Contains(t, resp.GetStatus().GetMessage(), "wroktree")
+		assert.Contains(t, resp.GetStatus().GetMessage(), "none|worktree")
+		assert.Equal(t, 0, sp.spawnCount())
+	})
+
 	// THE UNSET PATH, unchanged: a caller that says nothing carries no
 	// override, and the project default still decides downstream.
 	t.Run("omitting the key still carries no override", func(t *testing.T) {

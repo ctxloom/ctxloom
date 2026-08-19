@@ -1167,13 +1167,22 @@ test-mutation-container:
 # need no mutation run:
 #
 #   just test-pkg ./tests/mutation/... -tags mutation -run TestMutationTargets
+#
+# THE RESULT IS RATCHETED, per target, against tests/mutation/survivor_baseline.txt:
+# a target that measures MORE survivors than its recorded count fails this
+# recipe. The harness itself cannot do that — it releases with
+# WithMinimumThreshold(0) so a threshold is never chosen before a measurement
+# exists — so without the ratchet the only thing that can red this gate is a
+# run producing no score at all. Re-record after coverage work with
+# CTXLOOM_MUTATION_BASELINE=update; the baseline file states what each
+# provenance word licenses.
 test-mutation-cucumber *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
     marker="{{mutation_tmp}}/.cache-sweep.$$"
     : > "$marker"
-    trap 'rm -f "$marker"' EXIT
+    trap 'rm -f "$marker" "{{mutation_tmp}}/.run.$$.log"' EXIT
     set +e
     # -v is LOAD-BEARING, not a debugging convenience. ooze prints its per-mutant
     # diffs and its summary box to STDOUT, and `go test` swallows a PASSING test's
@@ -1215,8 +1224,22 @@ test-mutation-cucumber *ARGS:
     echo
     echo "=== mutation summary ==="
     grep -E 'Total:|Killed:|Survived:|Score:' <<<"$output" || true
-    # Past the no-score guard, so a real score was produced: sweep what the
-    # per-mutant recompiles just added.
+    # THE SECOND HALF OF THE SAME INVARIANT: the guard above refuses a run that
+    # measured nothing; this one refuses a run that measured something WORSE
+    # than what is already recorded. A score alone cannot fail this gate, so
+    # regression is what fails it — per target, because one number for the whole
+    # table lets an improvement in one entry mask a regression in another.
+    runlog="{{mutation_tmp}}/.run.$$.log"
+    printf '%s\n' "$output" > "$runlog"
+    set +e
+    bash tests/mutation/survivor_ratchet.sh tests/mutation/survivor_baseline.txt "$runlog"
+    ratchet=$?
+    set -e
+    if [ "$ratchet" -ne 0 ]; then
+        exit "$ratchet"
+    fi
+    # Past both guards, so a real score was produced and it did not regress:
+    # sweep what the per-mutant recompiles just added.
     just _sweep-cache "$marker"
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).

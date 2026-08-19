@@ -54,6 +54,7 @@
 package mutation
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -353,6 +354,23 @@ func (m mutationTarget) release(t *testing.T, extra ...ooze.Option) {
 
 	t.Logf("test command: %s", testCmd)
 	t.Logf("scoped features: %s", strings.Join(m.Features, ", "))
+
+	// PER-TARGET ATTRIBUTION for the survivor ratchet. ooze's summary box says
+	// what it counted and never which target it counted for, so a run of the
+	// whole table emits several indistinguishable boxes and no baseline can be
+	// applied to any of them. This marker names the one that follows.
+	//
+	// os.Stdout, not t.Logf: testing buffers a subtest's log until the subtest
+	// ends, which is AFTER ooze has summarized in its t.Cleanup. Writing to the
+	// same stream ooze's reporter writes to, from this goroutine, immediately
+	// before the release, makes marker-then-box an ordering this code
+	// establishes rather than one the ratchet has to infer from `go test`'s own
+	// bookkeeping lines.
+	//
+	// t.Name(), not m.Name: TestTrustCascadeGuardMutation releases this same
+	// ENTRY under a different virus set, and its mutant set is a different
+	// measurement that must not share a baseline row with the stock run.
+	fmt.Fprintf(os.Stdout, "\nooze-target: %s\n", t.Name())
 
 	opts := []ooze.Option{
 		ooze.WithRepositoryRoot(root),

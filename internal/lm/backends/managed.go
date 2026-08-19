@@ -39,12 +39,12 @@ func itemRefFor(source string, kind trust.ItemKind, item string) string {
 // canonical origin ref (profiles.ResolvedProfile.SourceRef) — into the
 // structured trust.BundleRef bundles.ItemRefFor needs.
 //
-// It replays ParseItemRef's base-ref resolution by handing it a throwaway
-// selector and discarding the parsed Kind/Name, exactly as the deleted
-// trust.BundleRefFromSource did — kept here, not re-implemented a second,
-// competing way, because ParseItemRef is still the one shared grammar (ADR
-// 0032) and this is the one remaining caller with a plain string and no typed
-// source to hand across.
+// It replays trust.ParseItemRef's base-ref resolution by handing it a throwaway
+// selector and discarding the parsed Kind/Name. It lives here rather than in
+// trust because ParseItemRef must stay the ONE shared grammar (ADR 0032), and
+// this is the single remaining caller holding a plain string with no typed
+// source to hand across. If that caller acquires a typed source, this helper
+// goes with it rather than growing users.
 func parseSourceRef(source string) (trust.BundleRef, error) {
 	tRef, _, _, err := trust.ParseItemRef(source + "#" + trust.KindFragment.Dir() + "/x")
 	if err != nil {

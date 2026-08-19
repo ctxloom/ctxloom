@@ -86,13 +86,15 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 		}
 		return SignTarget{BundleName: parsed.Path}, nil
 	}
-	// The RETIRED (pre-U3b-3) builtin source-ref spelling, "builtin:<name>",
-	// with no selector. The canonical "ctxloom+builtin:<name>" arm is S6's
-	// job (ResolveSignTarget gains the canonical arm there, deliberately
-	// without a catalog — see R4); this recognizer's only job is to keep the
-	// existing retired-spelling refusal working now that the shared
-	// trust.BuiltinSourcePrefix constant is gone, not to widen what is
-	// refused.
+	// The RETIRED builtin source-ref spelling, "builtin:<name>", with no
+	// selector. This recognizer refuses that spelling and nothing more; the
+	// canonical "ctxloom+builtin:<name>" arm belongs to the slice that retires
+	// the old input grammar, and ResolveSignTarget takes no catalog because a
+	// publishing repo signs bundles that are not in one.
+	//
+	// The literal is inline deliberately: no shared constant spells a RETIRED
+	// grammar, because a constant invites reuse and this spelling must not
+	// spread to a new call site.
 	if _, ok := strings.CutPrefix(ref, "builtin:"); ok {
 		return SignTarget{}, fmt.Errorf("ctxloom sign: %q is a builtin bundle — builtins are never signed "+
 			"(signing bytes compiled into the binary that verifies them is circular)", ref)

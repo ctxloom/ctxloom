@@ -149,8 +149,6 @@ llm:
   defaults:
     primary: claude
     fast: claude
-profiles:
-  defaults: []
 `,
 		mapCreds:  mapClaudeCredentials,
 		copyCreds: copyClaudeCredentials,
@@ -177,8 +175,6 @@ llm:
   defaults:
     primary: kiro
     fast: kiro
-profiles:
-  defaults: []
 `,
 		copyCreds: copyKiroCredentials,
 		authCheck: authCheckKiro,
@@ -253,8 +249,6 @@ llm:
   defaults:
     primary: codex
     fast: codex
-profiles:
-  defaults: []
 `,
 		mapCreds:  mapCodexCredentials,
 		copyCreds: copyCodexCredentials,
@@ -286,8 +280,6 @@ llm:
   defaults:
     primary: opencode
     fast: opencode
-profiles:
-  defaults: []
 `,
 		mapCreds:  mapOpencodeCredentials,
 		copyCreds: copyOpencodeCredentials,

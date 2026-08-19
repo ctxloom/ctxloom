@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/schema"
 )
 
 // fakeAuthCheck returns a canned (ok, reason) pair, so tests never shell out
@@ -297,6 +300,33 @@ func TestLiveAgentOrderMatchesRegistry(t *testing.T) {
 	for _, name := range liveAgentOrder {
 		_, ok := liveAgents[name]
 		assert.True(t, ok, fmt.Sprintf("liveAgentOrder names %q, which is not in liveAgents", name))
+	}
+}
+
+// TestLiveAgents_ConfigValidatesAgainstSchema holds the shared fixture to the
+// real schema. Every liveAgents[*].config is the base that every P0-P6 probe
+// config (matrixConfigYAML, mcpProbeConfigYAML, hookProbeConfigYAML,
+// p4ConfigYAML, probeConfigYAML) is built by appending onto, so a key this
+// base carries is a key every probe inherits. Validate it through
+// internal/schema.NewConfigValidator — the same validator the production
+// config loader uses, and the seam internal/config/unknown_keys.go's
+// classifyValidationError sits on top of — because the leniency of
+// agents.ParseAgent, which is all these configs were ever parsed by, cannot
+// see a retired key. When the base carries one, every probe built from it
+// fails real validation for a reason unrelated to what the probe tests.
+func TestLiveAgents_ConfigValidatesAgainstSchema(t *testing.T) {
+	v, err := schema.NewConfigValidator()
+	require.NoError(t, err, "the embedded config schema must compile")
+
+	for _, name := range liveAgentOrder {
+		t.Run(name, func(t *testing.T) {
+			a, ok := liveAgents[name]
+			require.True(t, ok)
+			require.NotEmpty(t, a.config, "an empty config would validate vacuously and prove nothing")
+			err := v.ValidateBytes([]byte(a.config))
+			assert.NoError(t, err,
+				"liveAgents[%q].config — the base every P0-P6 probe config is built from — must validate clean against config-schema.json, or every probe built from it inherits a fixture-level failure unrelated to what the probe tests", name)
+		})
 	}
 }
 

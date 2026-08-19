@@ -51,7 +51,7 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
       Then the command succeeds
       And the output contains "ACP agent-server entries (1):"
       And the output contains "No agent bindings defined"
-      And the output contains ".ctxloom/agents/"
+      And the output contains "'agents:' in .ctxloom/config.yaml"
 
     # The claim is that a binding BECOMES an entry — name, engine and curated
     # profiles all carried through. Each is asserted separately: a listing that

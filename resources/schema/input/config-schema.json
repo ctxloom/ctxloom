@@ -368,7 +368,7 @@
     },
     "agents": {
       "type": "object",
-      "description": "Local-only engine\u2194profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY \u2014 never shipped in a bundle or remote; may also be declared as .ctxloom/agents/<name>.yaml files.",
+      "description": "Local-only engine\u2194profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY \u2014 never shipped in a bundle or remote, and never read from anywhere but this key.",
       "additionalProperties": {
         "type": "object",
         "properties": {
@@ -478,7 +478,7 @@
     },
     "default_agent": {
       "type": "string",
-      "description": "The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves \u2014 its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop)."
+      "description": "The always-bound default agent: names an entry in `agents` that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves \u2014 its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop)."
     },
     "ui": {
       "type": "object",

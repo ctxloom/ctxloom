@@ -19,7 +19,7 @@ runtime + permissions the transport. This replaces the retired 'profile default'
 
 With no argument, prints the current default agent. With a name, sets it (written
 as 'default_agent' in .ctxloom/config.yaml). The named agent should exist under
-'agents:' or as .ctxloom/agents/<name>.yaml — an unknown name is accepted with a
+'agents:' — an unknown name is accepted with a
 warning (a bare run then degrades to empty context until it is defined).
 
 Examples:

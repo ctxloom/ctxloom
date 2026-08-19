@@ -126,7 +126,7 @@ and "what they know" are one selectable thing.
 An agent names the profiles it composes, the engine that runs it, and its
 isolation/permissions. `ctxloom run --agent <name>` launches one as the session's
 primary; `ctxloom agent default` shows which one supplies the default context.
-Local agent definitions live in `.ctxloom/agents/<name>.yaml`.
+Local agent definitions live under the `agents:` key of `.ctxloom/config.yaml`.
 
 Agents are also the unit of **delegation**: a primary agent can spawn child
 agents as full child sessions — each with its own composed profiles, engine, and

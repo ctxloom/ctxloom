@@ -26,7 +26,7 @@ The contract it owns: an item's content hash is `sha256` over a preimage this pa
 - Fetching, pinning and caching remote bundles — `internal/remote`; see `./remote.md`. Version materialization is an injected function.
 - Profile resolution and inheritance — `internal/profiles`; see `./profiles.md`. `BundleProfile` is a type alias for `profiles.Profile` and bundle-shipped profile definitions are never gated here.
 - Turning bundle MCP entries and hooks into wire types for a launched engine — `internal/config/config_bundles.go` does that, calling back into `BundleMCP.ContentPayload`/`BundleHook.ContentPayload` for the preimage.
-- Agents. There is no `agents:` key in a bundle; agent definitions come from the `agents:` config key and `.ctxloom/agents/*.yaml` — see `./config.md`.
+- Agents. There is no `agents:` key in a bundle; agent definitions come from the `agents:` config key alone — see `./config.md`.
 - Assembling context and writing per-engine command/skill files — `internal/operations` and `internal/lm/backends`.
 
 ## Data flow

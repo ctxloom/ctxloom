@@ -47,7 +47,7 @@ a dedicated bundle repo lays out the same tree, so a publishing repo and a
 consuming project are identical in shape.
 
 Alongside it, and committed for the same reason, sit the root files and
-directories: `config.yaml`, `remotes.yaml`, `lock.yaml`, `profiles/`, `agents/`,
+directories: `config.yaml`, `remotes.yaml`, `lock.yaml`, `profiles/`,
 `allowed_signers`, `distrusted_signers` and `approvals/`.
 
 `lock.yaml` is the deliberate oddity: it is **derived** (`ctxloom remote lock`
@@ -215,7 +215,7 @@ never removes a user's own lines):
 ```
 
 **Everything else under `.ctxloom/` is committed by omission** — `config.yaml`,
-`remotes.yaml`, `lock.yaml`, `content/`, `profiles/`, `agents/`,
+`remotes.yaml`, `lock.yaml`, `content/`, `profiles/`,
 `allowed_signers`, `distrusted_signers`, `approvals/`. That is intentional:
 each is content, configuration, or trust state your project depends on.
 

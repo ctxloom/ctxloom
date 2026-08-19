@@ -41,7 +41,7 @@ An agent names:
 
 Whether an agent gets the coordinator-only MCP tools (`agent_run`, `roster`, `agent_stop`, `agent_fetch_artifact`) is **not** an agent-binding setting — it follows from where the agent sits in the delegation tree, not from anything you write on the binding. See the `delegation.depth` project setting on the [Configuration](/reference/config/) page: the session owner is depth 0 and always gets the tools; its subagents are depth 1 and, at the default cap, do not. A leaf still reports to its parent via `agent_send`/`agent_recv`/`agent_report`.
 
-Agents live solely in your `.ctxloom` — under the `agents:` key of `config.yaml` or as `.ctxloom/agents/<name>.yaml` files. They are **never shipped in bundles or remotes**: bundles distribute portable context, but the engine choice (which costs money and holds your credentials) always stays yours.
+Agents live solely in your `.ctxloom`, under the `agents:` key of `config.yaml`. They are **never shipped in bundles or remotes**: bundles distribute portable context, but the engine choice (which costs money and holds your credentials) always stays yours.
 
 ## Managing agents
 
@@ -54,7 +54,7 @@ ctxloom agent show dev
 ctxloom agent remove reviewer --yes
 ```
 
-Re-running `agent set` with the same name updates the binding. `agent set` covers every field except `escalation`, which has no flag — write the ladder into `config.yaml` or the agent's own `.ctxloom/agents/<name>.yaml`.
+Re-running `agent set` with the same name updates the binding. `agent set` covers every field except `escalation`, which has no flag — write the ladder into the binding's block in `config.yaml`.
 
 `ctxloom init prompt` prints an interview prompt for your AI: it scans the available engines (`ctxloom llm list`) and profiles, discusses which roles you want (a coordinator, a containerized developer, a cheap finder, review lenses), and writes the bindings with `ctxloom agent set`. `ctxloom init` runs this as part of its setup interview; `init prompt` re-enters it any time.
 

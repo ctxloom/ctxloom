@@ -598,7 +598,7 @@ delivery half back where it belongs.
 ### J002400 container — **still the right story; wire it, with one correction.**
 
 The framing is genuinely good: an operator deciding whether to mandate
-`runtime: container` across a fleet needs to know *before* running anything, and
+`runtime: container-rootless` (or `container-rootful`) across a fleet needs to know *before* running anything, and
 the honesty note about which parts of `container check`'s payload are
 host-dependent is exactly the right discipline. The axis-labels-not-values
 assertion is the honest hermetic reading.

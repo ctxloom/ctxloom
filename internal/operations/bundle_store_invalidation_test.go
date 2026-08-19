@@ -41,7 +41,7 @@ func TestBundleStore_SaveIsVisibleToTheNextRead(t *testing.T) {
 	// view in the first place — the assertion has to be about invalidation, not
 	// about laziness.
 	_, existsBefore := cfg.BundleLoader().Read("late-arrival")
-	require.False(t, existsBefore, "sanity: the bundle must not exist before it is written")
+	require.Error(t, existsBefore, "sanity: the bundle must not exist before it is written")
 
 	store := bundleStore(cfg, nil)
 	require.NoError(t, store.Save(&bundles.Bundle{
@@ -52,7 +52,7 @@ func TestBundleStore_SaveIsVisibleToTheNextRead(t *testing.T) {
 	}))
 
 	_, existsAfter := cfg.BundleLoader().Read("late-arrival")
-	require.True(t, existsAfter,
+	require.NoError(t, existsAfter,
 		"a bundle written through the store must be visible to the next read: the Config's bundle "+
 			"loader is shared for the life of the process, so a write that does not invalidate it "+
 			"leaves every later read in this command serving the pre-write view, with exit 0 and no error")
@@ -82,7 +82,7 @@ func TestBundleStore_FirstBundleInAFreshProjectIsVisible(t *testing.T) {
 	// Resolve first, while the bundles dir is still absent — this is what fixes
 	// the reader's search path in place.
 	_, existsBefore := cfg.BundleLoader().Read("first-ever")
-	require.False(t, existsBefore, "sanity: nothing exists in a fresh project")
+	require.Error(t, existsBefore, "sanity: nothing exists in a fresh project")
 
 	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
 	store := bundleStore(cfg, nil)
@@ -93,7 +93,7 @@ func TestBundleStore_FirstBundleInAFreshProjectIsVisible(t *testing.T) {
 	}))
 
 	_, existsAfter := cfg.BundleLoader().Read("first-ever")
-	require.True(t, existsAfter,
+	require.NoError(t, existsAfter,
 		"the first bundle created in a project must be visible afterwards: a reader built before the "+
 			"bundles directory existed would otherwise hold an empty search path that no invalidation "+
 			"can repair, since invalidation drops reads and never rebuilds readers")
@@ -124,13 +124,13 @@ func TestMoveBundle_SourceDisappearsFromTheSharedLoader(t *testing.T) {
 
 	// Resolve BEFORE the move, so a stale view is possible at all.
 	_, before := cfg.BundleLoader().Read("movable")
-	require.True(t, before, "sanity: the bundle must resolve before it is moved")
+	require.NoError(t, before, "sanity: the bundle must resolve before it is moved")
 
 	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "movable", To: destDir})
 	require.NoError(t, err)
 
 	_, after := cfg.BundleLoader().Read("movable")
-	require.False(t, after,
+	require.Error(t, after,
 		"a moved bundle must stop resolving: the source was removed through the filesystem rather than "+
 			"the store, so nothing else tells the shared loader, and every later read in this command "+
 			"would keep serving a bundle that is no longer there")

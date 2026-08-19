@@ -136,7 +136,7 @@ func companionBundles(t *testing.T, root signing.TrustRoot) map[string]*bundles.
 	require.NoError(t, err)
 	out := make(map[string]*bundles.Bundle, len(reads))
 	for _, r := range reads {
-		out[r.Ref()] = r.Bundle
+		out[r.DisplayName()] = r.Bundle
 	}
 	return out
 }

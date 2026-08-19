@@ -54,8 +54,8 @@ func TestCatalogScoped_ExcludesBuiltinsAndKeepsAcquiredContent(t *testing.T) {
 		acquired,
 	)
 
-	// The BARE name: a builtin's resolution ref carries no source class (I7).
-	// "builtin:isolation" is its TRUST ref and was never a listing handle.
+	// The BARE name: a builtin is DISPLAYED by the name it declares. Its
+	// canonical URI is what addresses it; the display name never did.
 	const builtinRef = "isolation"
 	require.Contains(t, namesOf(cat.Infos()), builtinRef,
 		"guard: the embedded builtin must be in the unscoped set, or this test proves nothing")
@@ -69,41 +69,41 @@ func TestCatalogScoped_ExcludesBuiltinsAndKeepsAcquiredContent(t *testing.T) {
 	assert.Len(t, got, 3, "scoping drops the builtin and nothing else")
 }
 
-// TestCatalogLookupBundleRef_ResolvesByTypedSourceIdentity proves the typed
-// counterpart to Lookup(name): a caller holding a structured trust.BundleRef
+// TestCatalogLookupRef_ResolvesByTypedSourceIdentity proves the typed
+// counterpart to Lookup(ask): a caller holding a structured trust.BundleRef
 // (LocalRef("kit"), the identity a real project bundle's SourceRef carries)
-// resolves the same read Lookup("kit") does, and Lookup itself is unchanged.
-func TestCatalogLookupBundleRef_ResolvesByTypedSourceIdentity(t *testing.T) {
+// resolves the same read Lookup("kit") does.
+func TestCatalogLookupRef_ResolvesByTypedSourceIdentity(t *testing.T) {
 	loader := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n"))
 	cat := loader.Catalog()
 
-	byName, ok := cat.Lookup("kit")
-	require.True(t, ok, "Lookup(name) must still resolve the bare name")
+	byName, err := cat.Lookup("kit")
+	require.NoError(t, err, "Lookup(ask) must still resolve an unambiguous bare name")
 
 	want, err := trust.LocalRef("kit")
 	require.NoError(t, err)
-	byTyped, ok := cat.LookupBundleRef(want)
-	require.True(t, ok, "LookupBundleRef must resolve the typed identity Lookup(name) resolves")
+	byTyped, ok := cat.LookupRef(want)
+	require.True(t, ok, "LookupRef must resolve the typed identity Lookup(ask) resolves")
 
-	assert.Equal(t, byName.Ref(), byTyped.Ref(), "both must resolve to the SAME read")
+	assert.Equal(t, byName.Key(), byTyped.Key(), "both must resolve to the SAME read")
 
-	// br's own item selector is ignored — LookupBundleRef resolves the BUNDLE
-	// the item lives in, not the item. A ref carrying "#fragments/x" must
-	// still resolve the same bundle read as the bundle-level ref: this is
-	// what pins BundleIdentity() (item-stripped) as the actual index key
-	// rather than Identity() (item-carrying) — the two coincide for a
-	// bundle-level query, so only an item-qualified query can catch a
-	// regression back to Identity().
+	// br's own item selector is ignored — LookupRef resolves the BUNDLE the
+	// item lives in, not the item. A ref carrying "#fragments/x" must still
+	// resolve the same bundle read as the bundle-level ref: this is what pins
+	// BundleIdentity() (item-stripped) as the actual index key rather than
+	// Identity() (item-carrying) — the two coincide for a bundle-level query,
+	// so only an item-qualified query can catch a regression back to
+	// Identity().
 	itemQualified, err := want.WithItem(trust.KindFragment, "x")
 	require.NoError(t, err)
-	byItemQualified, ok := cat.LookupBundleRef(itemQualified)
+	byItemQualified, ok := cat.LookupRef(itemQualified)
 	require.True(t, ok, "an item-qualified BundleRef must still resolve its owning bundle")
-	assert.Equal(t, byName.Ref(), byItemQualified.Ref())
+	assert.Equal(t, byName.Key(), byItemQualified.Key())
 
 	// An identity nothing was resolved under misses cleanly, no panic.
 	other, err := trust.LocalRef("no-such-bundle")
 	require.NoError(t, err)
-	_, ok = cat.LookupBundleRef(other)
+	_, ok = cat.LookupRef(other)
 	assert.False(t, ok, "an identity nothing was resolved under must miss")
 }
 

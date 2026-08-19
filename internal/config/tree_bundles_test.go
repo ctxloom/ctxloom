@@ -253,7 +253,7 @@ func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *test
 	reads, err := readers[0].Read(context.Background())
 	require.NoError(t, err)
 	require.Len(t, reads, 1)
-	assert.Equal(t, treeCanonical, reads[0].Ref(), "the canonical ref is the resolution identity")
+	assert.Equal(t, treeCanonical, reads[0].DisplayName(), "the canonical ref is the resolution identity")
 	assert.Equal(t, treeCanonical, reads[0].Bundle.Name)
 	assert.NotContains(t, failures, treeCanonical, "a claimed tree is no longer a failure")
 	assert.Equal(t, other, failures["https://github.com/acme/ctx@bundles/other"],

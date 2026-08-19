@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -193,7 +194,7 @@ func (l *Loader) Reads() []BundleRead { return l.Catalog().Reads() }
 // by ref without ever going through a Pipeline: config.loadMCPFromBundleRef and
 // config.loadHooksFromBundleRef both need the read, not just the content. Load
 // remains for callers that genuinely only want the bundle.
-func (l *Loader) Read(name string) (BundleRead, bool) {
+func (l *Loader) Read(name string) (BundleRead, error) {
 	return l.lookup(name)
 }
 
@@ -213,18 +214,12 @@ func (l *Loader) LoadKey(key trust.BundleKey) (*Bundle, error) {
 	return read.Bundle, nil
 }
 
-// Load reads a bundle by name.
-// Name can be:
-//   - Simple name: "go-tools"
-//   - Remote-qualified: "alice/go-tools"
-//   - Canonical: "https://…@bundles/go-tools", "ctxloom:companion@ltk"
-//   - Local canonical: "ctxloom:local@bundles/go-tools" — the qualified identity
-//     the assembly pipeline carries (see remote.CanonicalBundleRef), resolved to
-//     the same project bundle as the simple name.
+// Load reads a bundle by name. See Catalog.Lookup for what an ask may be and
+// which asks are refused rather than resolved.
 func (l *Loader) Load(name string) (*Bundle, error) {
-	read, ok := l.lookup(name)
-	if !ok {
-		return nil, l.missing(name)
+	read, err := l.lookup(name)
+	if err != nil {
+		return nil, err
 	}
 	return read.Bundle, nil
 }
@@ -248,11 +243,26 @@ func (l *Loader) missing(name string) error {
 	return fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
 }
 
-// lookup resolves a ref to a read: exact identity first, then the version-less
-// canonical key (a ref carrying a content version resolves to the pinned one),
-// then the local-canonical form's plain path.
-func (l *Loader) lookup(name string) (BundleRead, bool) {
-	return l.Catalog().Lookup(name)
+// lookup resolves an ask against the resolved set (Catalog.Lookup), through
+// explain so an absent bundle is reported as what the readers know about it.
+func (l *Loader) lookup(name string) (BundleRead, error) {
+	read, err := l.Catalog().Lookup(name)
+	if err != nil {
+		return BundleRead{}, l.explain(name, err)
+	}
+	return read, nil
+}
+
+// explain replaces the ONE resolution verdict a reader can say more about with
+// what the reader knows: a bundle that is absent and a bundle whose file will
+// not parse are different faults, and only the readers can tell them apart.
+// Every other verdict — an ambiguous name, a retired spelling — is already the
+// whole story and passes through untouched.
+func (l *Loader) explain(name string, err error) error {
+	if errors.Is(err, errs.ErrBundleNotFound) {
+		return l.missing(name)
+	}
+	return err
 }
 
 // Find locates the FILE backing a bundle. It exists for the two callers that
@@ -263,9 +273,9 @@ func (l *Loader) Find(name string) (string, error) {
 	if err := ValidateBundleName(name); err != nil {
 		return "", err
 	}
-	read, ok := l.lookup(name)
-	if !ok {
-		return "", fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
+	read, err := l.lookup(name)
+	if err != nil {
+		return "", err
 	}
 	if read.Bundle.Path == "" || isSyntheticPath(read.Bundle.Path) {
 		return "", fmt.Errorf("bundle %q has no file on this machine (it came from %s)", name, read.Provenance)
@@ -284,7 +294,15 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 
 // BundleInfo holds metadata about a bundle without loading full content.
 type BundleInfo struct {
-	Name          string
+	// Name is the ASK name — what a listing shows and a user types back.
+	// It is not unique: two bundles read from different sources may share it.
+	Name string
+
+	// Ref is the canonical URI, the unambiguous handle. It is what a user
+	// copies when two rows share a Name, and the only spelling that resolves
+	// exactly.
+	Ref trust.BundleKey
+
 	Path          string
 	Version       string
 	Description   string

@@ -137,7 +137,7 @@ func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
 
 // TestClassify_BuiltinItem_KeysTrustDecisionOnSourceRefNotResolutionRef pins
 // review.go's own fix to the SAME identity bug crispy-scoop closed elsewhere:
-// classify used to build its trust decision from bundleRef — read.Ref(), the
+// classify used to build its trust decision from bundleRef — read.DisplayName(), the
 // bundle's BARE resolution name ("isolation") — reparsed through
 // trust.ParseItemRef's bare-token fallback, landing on Ref{IsLocal: true}.
 // The honest identity is read.SourceRef() ("ctxloom+builtin:isolation"),
@@ -151,8 +151,8 @@ func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
 // rather than inferred from a downstream verdict.
 func TestClassify_BuiltinItem_KeysTrustDecisionOnSourceRefNotResolutionRef(t *testing.T) {
 	loader := bundles.NewLoader(bundles.NewBuiltinReader())
-	read, ok := loader.Read("isolation")
-	require.True(t, ok, "the embedded builtin must resolve by its bare name")
+	read, err := loader.Read("isolation")
+	require.NoError(t, err, "the embedded builtin must resolve by its bare name")
 
 	var seenRef trust.Ref
 	captured := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
@@ -165,9 +165,9 @@ func TestClassify_BuiltinItem_KeysTrustDecisionOnSourceRefNotResolutionRef(t *te
 	require.True(t, ok, "the embedded isolation bundle must ship isolation-axes")
 	payload, form := frag.ContentPayload(false)
 
-	// read.Ref() ("isolation") is passed as bundleRef exactly as pendingItems
+	// read.DisplayName() ("isolation") is passed as bundleRef exactly as pendingItems
 	// passes it — classify must NOT use it to build the trust decision.
-	_, _ = e.classify(read.Ref(), "fragments", "isolation-axes", read, payload, string(form), false)
+	_, _ = e.classify(read.DisplayName(), "fragments", "isolation-axes", read, payload, string(form), false)
 
 	assert.True(t, seenRef.IsBuiltin,
 		"classify must key the trust decision on the bundle's typed SourceRef (IsBuiltin), not its bare resolution ref (which trust.ParseItemRef's bare-token fallback reads as IsLocal)")

@@ -212,7 +212,7 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 
 		for name, frag := range bundle.Fragments {
 			// Use bundleInfo.Name (full path) instead of bundle.Name (just filename)
-			key := bundleInfo.Ref() + "/" + name
+			key := bundleInfo.DisplayName() + "/" + name
 			if seen.Has(key) {
 				continue
 			}
@@ -221,9 +221,9 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 				Name:     name,
 				FileName: name + ".yaml",
 				Path:     bundle.Path,
-				Source:   bundleInfo.Ref(),
+				Source:   bundleInfo.DisplayName(),
 				Tags:     slices.Concat(bundle.Tags, frag.Tags),
-				Bundle:   bundleInfo.Ref(),
+				Bundle:   bundleInfo.DisplayName(),
 				ItemType: "fragment",
 			})
 		}
@@ -250,7 +250,7 @@ func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
 
 		for name, prompt := range bundle.Commands {
 			// Use bundleInfo.Name (normalized full path) instead of bundle.Name (just filename)
-			key := bundleInfo.Ref() + "/" + name
+			key := bundleInfo.DisplayName() + "/" + name
 			if seen.Has(key) {
 				continue
 			}
@@ -259,9 +259,9 @@ func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
 				Name:        name,
 				FileName:    name + ".yaml",
 				Path:        bundle.Path,
-				Source:      bundleInfo.Ref(),
+				Source:      bundleInfo.DisplayName(),
 				Tags:        slices.Concat(bundle.Tags, prompt.Tags),
-				Bundle:      bundleInfo.Ref(),
+				Bundle:      bundleInfo.DisplayName(),
 				ItemType:    "command",
 				Description: prompt.Description,
 			})
@@ -373,9 +373,9 @@ func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragm
 // fragmentFromBundle loads a specific bundle and reports the named fragment —
 // the single-candidate case of ReadFragment.
 func (l *Loader) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, error) {
-	read, ok := l.lookup(bundleName)
-	if !ok {
-		return nil, l.missing(bundleName)
+	read, err := l.lookup(bundleName)
+	if err != nil {
+		return nil, err
 	}
 	frag, ok := read.Bundle.Fragments[fragName]
 	if !ok {
@@ -399,7 +399,7 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 	var matches []string
 	for _, read := range l.Reads() {
 		if _, ok := read.Bundle.Fragments[name]; ok {
-			matches = append(matches, remote.CanonicalBundleRef(read.Ref()))
+			matches = append(matches, remote.CanonicalBundleRef(read.DisplayName()))
 		}
 	}
 	if len(matches) == 0 {
@@ -505,13 +505,13 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 			return nil
 		}
 	}
-	read, ok := l.lookup(bundleRef)
-	if !ok {
+	read, err := l.lookup(bundleRef)
+	if err != nil {
 		// Same silent-export defect as SkillsFromBundleRef, same fix, same
 		// warner expandBundleRef already uses: writing zero command
 		// files because the bundle would not load must not look like a bundle
 		// that ships no commands.
-		l.warnUnresolvedBundle(bundleRef, l.missing(bundleRef))
+		l.warnUnresolvedBundle(bundleRef, err)
 		return nil
 	}
 	bundle := read.Bundle
@@ -530,9 +530,9 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 // commandFromBundle loads a specific bundle and reports the named command —
 // the single-candidate case of ReadCommand.
 func (l *Loader) commandFromBundle(bundleName, promptName string) ([]*ItemRead, error) {
-	read, ok := l.lookup(bundleName)
-	if !ok {
-		return nil, l.missing(bundleName)
+	read, err := l.lookup(bundleName)
+	if err != nil {
+		return nil, err
 	}
 	prompt, ok := read.Bundle.Commands[promptName]
 	if !ok {

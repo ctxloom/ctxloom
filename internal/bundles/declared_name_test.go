@@ -53,7 +53,7 @@ func TestProjectReader_DeclaredNameWinsOverPath(t *testing.T) {
 	read := readOne(t, projectReaderOver(t, "onpath.yaml", "version: 1.0.0\nname: declared\n"))
 
 	assert.Equal(t, "declared", read.Bundle.Name, "a declared name must win over the path-derived one")
-	assert.Equal(t, "onpath", read.Ref(), "the resolution ref stays path-derived; only Name is declared")
+	assert.Equal(t, "onpath", read.DisplayName(), "the resolution ref stays path-derived; only Name is declared")
 }
 
 // TestProjectReader_UndeclaredNameFallsBackToPath is the other half of the same
@@ -80,7 +80,7 @@ func TestNewRepoFSReader_DeclaredNameWinsOverTheCanonicalRef(t *testing.T) {
 	require.Len(t, reads, 1)
 
 	assert.Equal(t, "declared", reads[0].Bundle.Name, "a declared name must win over the canonical ref")
-	assert.Equal(t, ref, reads[0].Ref(), "canonical stays the sole resolution identity")
+	assert.Equal(t, ref, reads[0].DisplayName(), "canonical stays the sole resolution identity")
 }
 
 // TestNewRepoFSReader_UndeclaredNameFallsBackToTheCanonicalRef is the other half:
@@ -110,7 +110,7 @@ func TestNewCompanionReader_DeclaredNameWinsOverTheCompanionRef(t *testing.T) {
 	require.Len(t, reads, 1)
 
 	assert.Equal(t, "declared", reads[0].Bundle.Name, "a declared name must win over the companion ref")
-	assert.Equal(t, companionRefPrefix+"ltk", reads[0].Ref(), "the companion ref stays the resolution identity")
+	assert.Equal(t, companionRefPrefix+"ltk", reads[0].DisplayName(), "the companion ref stays the resolution identity")
 }
 
 // TestNewCompanionReader_UndeclaredNameFallsBackToTheCompanionRef is the other

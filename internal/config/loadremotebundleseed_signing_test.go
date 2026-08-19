@@ -92,7 +92,7 @@ func seedWith(t *testing.T, repoDir, sha, allowedSigners string) map[string]*bun
 		return out
 	}
 	for _, read := range bundles.NewLoader(readers...).Reads() {
-		out[read.Ref()] = &bundleForTest{
+		out[read.DisplayName()] = &bundleForTest{
 			signer:    read.Bundle.Signer(),
 			version:   read.Bundle.Version,
 			publisher: bundles.PublisherOf(read),

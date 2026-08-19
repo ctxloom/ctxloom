@@ -221,20 +221,20 @@ type BundleRead struct {
 	untrustedFingerprint string
 }
 
-// Ref reports this bundle's resolution identity — what a caller asks for it by.
+// DisplayName reports the name a listing shows for this bundle and a user may
+// type back at it — "lang/go", "alice/go-tools".
 //
-// It is NOT the trust key, and since a builtin's resolution ref stopped
-// carrying its source class the two genuinely differ: `isolation` resolves the
-// builtin, its builtin-class BundleRef gates it. Anything building a
-// "<source>#<kind>/<name>" gate ref wants SourceRef below.
-func (r BundleRead) Ref() string { return r.ref }
+// It is a LABEL, not an identity. Two bundles read from different sources may
+// share one, and neither displaces the other; what tells them apart is Key.
+// Anything that must address exactly one bundle — a trust ref, a resolution,
+// a "<source>#<kind>/<name>" gate ref — wants Key or SourceRef below.
+func (r BundleRead) DisplayName() string { return r.ref }
 
-// Key reports this read's RESOLUTION identity in the merged namespace
-// U3b-3 introduces — SourceRef().BundleIdentity(), the version-less,
-// item-less canonical key a caller can round-trip through
-// Catalog.LookupKey. Unlike Ref, it never depends on which reader composed
-// last or on any spelling a bundle declares: it is location-derived, exactly
-// as SourceRef itself is.
+// Key reports this read's RESOLUTION identity: SourceRef().BundleIdentity(),
+// the version-less, item-less canonical URI a caller round-trips through
+// Catalog.LookupKey. It is location-derived, exactly as SourceRef is — it
+// never depends on which reader composed last or on any spelling a bundle
+// declares.
 func (r BundleRead) Key() trust.BundleKey {
 	return r.SourceRef().BundleIdentity()
 }
@@ -246,12 +246,10 @@ func (r BundleRead) Key() trust.BundleKey {
 // It exists so the two routes a builtin's content reaches a session by cannot
 // key differently. The loader-resolved route builds its ref from
 // Bundle.contentSourceRef(); the unconditional injection route
-// (config.ResolveBuiltinBundleFragments and its hooks/MCP siblings) used to
-// build its own from BundleRead.Ref(), and that only agreed because a builtin's
-// resolution ref happened to be spelled "builtin:<name>" too. It no longer is,
-// so the injection route reads the trust key HERE rather than reconstructing
-// it. Two constructions of one identity is exactly how a rejection recorded
-// against one route stops withholding the other (crispy-scoop).
+// (config.ResolveBuiltinBundleFragments and its hooks/MCP siblings) reads the
+// trust key HERE rather than reconstructing one from a display name. Two
+// constructions of one identity is exactly how a rejection recorded against
+// one route stops withholding the other.
 //
 // Location-derived without exception: the readers stamp it, nothing a bundle
 // DECLARES reaches it (outdated-recoil).

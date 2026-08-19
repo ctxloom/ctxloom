@@ -1357,8 +1357,8 @@ func (ts *TrustStamper) readFor(loadRef string) bundles.BundleRead {
 	if ts.loader == nil || loadRef == "" {
 		return bundles.BundleRead{}
 	}
-	read, ok := ts.loader.Read(loadRef)
-	if !ok {
+	read, err := ts.loader.Read(loadRef)
+	if err != nil {
 		return bundles.BundleRead{}
 	}
 	return read

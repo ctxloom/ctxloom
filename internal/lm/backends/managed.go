@@ -427,7 +427,7 @@ func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, p
 		// The ORIGIN BUNDLE's own read, from the loader that read it — not a
 		// posture this call site invents. An origin that will not resolve leaves
 		// the read unclaimed, and an unclaimed read withholds.
-		if read, ok := cfg.BundleLoader().Read(resolved.SourceRef); ok {
+		if read, err := cfg.BundleLoader().Read(resolved.SourceRef); err == nil {
 			ref.Read = read
 		}
 	}

@@ -47,9 +47,9 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	if commit == "" {
 		// No version pinned anywhere → the ordinary lockfile default, whose
 		// facts a real reader established.
-		read, ok := l.lookup(bundleRef)
-		if !ok {
-			return BundleRead{}, l.missing(bundleRef)
+		read, err := l.lookup(bundleRef)
+		if err != nil {
+			return BundleRead{}, err
 		}
 		return read, nil
 	}

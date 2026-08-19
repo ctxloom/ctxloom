@@ -116,6 +116,11 @@ func (f *parityFiller) fill(v reflect.Value, path string, depth int) {
 		// Crosses as its String() spelling, so only a named mode round-trips.
 		v.Set(reflect.ValueOf(agent.PermissionAcceptEdits))
 		return
+	case reflect.TypeOf(agent.RuntimeAxis("")):
+		// Crosses as its own string value and is re-typed by ParseRuntimeAxis
+		// on the way back, so only a member of the axis vocabulary round-trips.
+		v.Set(reflect.ValueOf(agent.RuntimeContainerRootless))
+		return
 	case reflect.TypeOf(agent.CellKind(0)):
 		// Enum with a documented default; pick a non-default member.
 		v.Set(reflect.ValueOf(agent.CellKindDirectoryIsolated))
@@ -281,6 +286,19 @@ func chatMessageFromInputOrFail(t *testing.T) func(*ChatInput) agent.ChatMessage
 	}
 }
 
+// chatStartFromProtoParity adapts the production decoder's (value, error)
+// shape to the parity helper's func(P) G. The filler above only ever
+// populates Runtime with a legal RuntimeAxis member (agent.RuntimeContainerRootless),
+// so a parse failure here means ParseRuntimeAxis and the filler have drifted —
+// a real bug this sweep should catch loudly, not swallow.
+func chatStartFromProtoParity(t *testing.T) func(*ChatStart) agent.ChatRequest {
+	return func(p *ChatStart) agent.ChatRequest {
+		req, err := chatStartFromProto(p)
+		require.NoError(t, err, "chatStartFromProto rejected a runtime axis chatStartToProto produced")
+		return req
+	}
+}
+
 // TestArch_ProtoConverters_MirrorEveryStructField sweeps EVERY hand-mirrored converter pair in this package.
 // Adding a converter pair without adding it here is the one gap this design
 // cannot close by reflection.
@@ -321,7 +339,7 @@ func TestArch_ProtoConverters_MirrorEveryStructField(t *testing.T) {
 	checkParity(t, hits, "agent.CellKind", CellKindToProto, cellKindFromProto)
 
 	// --- chat.go: the structured-chat transport ---
-	checkParity(t, hits, "agent.ChatRequest", chatStartToProto, chatStartFromProto)
+	checkParity(t, hits, "agent.ChatRequest", chatStartToProto, chatStartFromProtoParity(t))
 	checkParity(t, hits, "agent.TerminalRequest", terminalRequestToProto, terminalRequestFromProto)
 	checkParity(t, hits, "agent.TerminalResponse", terminalAnswerToProto, terminalAnswerFromProto)
 	checkParity(t, hits, "agent.PermissionRequest", permissionRequestToProto, permissionRequestFromProto)
@@ -465,7 +483,7 @@ func TestArch_ProtoConverters_ExclusionsAreLive(t *testing.T) {
 	// having run after TestArch_ProtoConverters_MirrorEveryStructField.
 	hits := map[string]bool{}
 	t.Run("sweep", func(t *testing.T) {
-		checkParity(t, hits, "agent.ChatRequest", chatStartToProto, chatStartFromProto)
+		checkParity(t, hits, "agent.ChatRequest", chatStartToProto, chatStartFromProtoParity(t))
 		checkParity(t, hits, "wire.Hook", hookToProto, hookFromProto)
 	})
 

@@ -32,7 +32,7 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 		ForwardPermissions:  req.ForwardPermissions,
 		TranscriptRawPolicy: req.TranscriptRawPolicy,
 		ForwardTerminal:     req.ForwardTerminal,
-		Runtime:             req.Runtime,
+		Runtime:             string(req.Runtime),
 		ResumeSessionId:     req.ResumeSessionID,
 	}
 	for _, m := range req.MCPServers {
@@ -49,7 +49,17 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 	return out
 }
 
-func chatStartFromProto(p *ChatStart) agent.ChatRequest {
+// chatStartFromProto decodes the wire ChatStart into agent.ChatRequest. The
+// runtime axis is a genuine PARSE boundary — the proto field is a bare string
+// (a proto field cannot carry a Go type), so this is the one place on this
+// path that turns it back into the typed agent.RuntimeAxis, via the single
+// canonical ParseRuntimeAxis. A value that does not resolve is refused here,
+// loudly, rather than silently landing on the host past this point.
+func chatStartFromProto(p *ChatStart) (agent.ChatRequest, error) {
+	runtime, err := agent.ParseRuntimeAxis(p.GetRuntime())
+	if err != nil {
+		return agent.ChatRequest{}, fmt.Errorf("chat start: %w", err)
+	}
 	req := agent.ChatRequest{
 		WorkDir:             p.GetWorkDir(),
 		Model:               p.GetModel(),
@@ -58,7 +68,7 @@ func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 		ForwardPermissions:  p.GetForwardPermissions(),
 		TranscriptRawPolicy: p.GetTranscriptRawPolicy(),
 		ForwardTerminal:     p.GetForwardTerminal(),
-		Runtime:             p.GetRuntime(),
+		Runtime:             runtime,
 		ResumeSessionID:     p.GetResumeSessionId(),
 	}
 	for _, m := range p.GetMcpServers() {
@@ -72,7 +82,7 @@ func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 			Headers:   m.GetHeaders(),
 		})
 	}
-	return req
+	return req, nil
 }
 
 func chatEventToProto(ev agent.ChatEvent) *ChatEvent {
@@ -291,6 +301,11 @@ func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 		return status.Errorf(codes.Unimplemented, "backend %s does not support structured chat", s.Impl.Name())
 	}
 
+	req, perr := chatStartFromProto(start)
+	if perr != nil {
+		return status.Errorf(codes.InvalidArgument, "%v", perr)
+	}
+
 	ctx := stream.Context()
 	in := make(chan agent.ChatMessage)
 	out := make(chan agent.ChatEvent)
@@ -318,7 +333,7 @@ func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 
 	// Run the backend's chat; it closes `out` when done.
 	chatErr := make(chan error, 1)
-	go func() { chatErr <- chat.Chat(ctx, chatStartFromProto(start), in, out) }()
+	go func() { chatErr <- chat.Chat(ctx, req, in, out) }()
 
 	for ev := range out {
 		if serr := stream.Send(chatEventToProto(ev)); serr != nil {

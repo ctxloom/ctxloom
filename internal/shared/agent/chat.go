@@ -92,18 +92,20 @@ type ChatRequest struct {
 	// Runtime asks the backend to run the underlying engine SUBPROCESS inside
 	// a container instead of directly on the host: either of
 	// RuntimeContainerRootless / RuntimeContainerRootful containerizes it,
-	// "" (or anything else) means host — today's behavior,
-	// unchanged. Ask IsContainerRuntime rather than comparing against one
-	// const. It carries the AGENT BINDING's resolved runtime axis (see
-	// isolation.RuntimeAxis / ResolvedAgent.Runtime) into a structured chat,
-	// which the axis could not reach before (ISO1): this package sits below
-	// internal/lm/isolation in the import graph (isolation -> lm/grpc ->
-	// this package), so the axis rides as a bare string rather than an
-	// imported type, to avoid a cycle back to here. Only a backend whose
-	// StructuredChat transport actually implements container isolation (the
-	// ACP client driver, internal/acp) consults it; every other backend
-	// ignores it — additive, host stays the default everywhere else.
-	Runtime string
+	// RuntimeHost (the zero value) means host — today's behavior, unchanged.
+	// Ask IsContainerRuntimeAxis rather than comparing against one const. It
+	// carries the AGENT BINDING's resolved runtime axis (see
+	// ResolvedAgent.Runtime, parsed once in resolveAgentBinding) into a
+	// structured chat — this package is where RuntimeAxis itself is declared
+	// (isolation.RuntimeAxis is an alias of it), so the axis rides as the
+	// TYPED value all the way from resolution to here; only the gRPC wire
+	// crossing (chatStartToProto/chatStartFromProto, internal/lm/grpc/chat.go)
+	// converts to and parses from a string, since a proto field cannot carry
+	// a Go type. Only a backend whose StructuredChat transport actually
+	// implements container isolation (the ACP client driver, internal/acp)
+	// consults it; every other backend ignores it — additive, host stays the
+	// default everywhere else.
+	Runtime RuntimeAxis
 	// ModelQuirk optionally names a per-engine escape hatch (see
 	// ModelDeliveryQuirk) that forces Model onto the session via a non-spec
 	// call the ACP driver (internal/acp/session.go) makes right after setup,
@@ -136,32 +138,6 @@ type ModelDeliveryQuirk struct {
 	// path untouched.
 	AgentName       string
 	AdapterVersions []string
-}
-
-// RuntimeContainerRootless and RuntimeContainerRootful are the two
-// ChatRequest.Runtime values asking a StructuredChat backend to run its engine
-// subprocess inside a container. They mirror isolation.RuntimeContainerRootless
-// and isolation.RuntimeContainerRootful byte-for-byte (see Runtime's doc for
-// why these are duplicated literals, not an import; the agreement is pinned by
-// a test in internal/lm/isolation, which CAN import this package).
-//
-// There is deliberately no single "container" value: rootless and rootful
-// differ in UID mapping, and which one a run got is not a detail a config may
-// leave to the host. Nothing in THIS package cares which one it is — every
-// consumer here asks IsContainerRuntime — but the distinction has to survive
-// the trip through this string, so a backend that later does care can read it.
-const (
-	RuntimeContainerRootless = "container-rootless"
-	RuntimeContainerRootful  = "container-rootful"
-)
-
-// IsContainerRuntime reports whether a ChatRequest.Runtime value asks for a
-// container in EITHER ownership mode. Every "is the engine containerized?"
-// gate asks this, never an equality test against one const: an equality test
-// silently answers "host" for the other ownership mode, which is exactly the
-// bug that splitting the value in two exists to prevent.
-func IsContainerRuntime(runtime string) bool {
-	return runtime == RuntimeContainerRootless || runtime == RuntimeContainerRootful
 }
 
 // ACPTransportKind names how a backend's StructuredChat implementation
@@ -217,7 +193,7 @@ type ACPTransport struct {
 }
 
 // RequireOnHost is the ONE gate every ACPAdapter engine's Chat() runs before
-// spawning its adapter: for a HOST-runtime chat (!IsContainerRuntime(runtime))
+// spawning its adapter: for a HOST-runtime chat (!IsContainerRuntimeAxis(runtime))
 // it LookPath()s Binary and fails loud, naming InstallCmd, if it's absent —
 // a containerized chat in EITHER ownership mode is EXEMPT (the agent image
 // carries its own adapter; this process's PATH is irrelevant there — see
@@ -231,8 +207,8 @@ type ACPTransport struct {
 // the same LookPath-or-fail-with-InstallCmd shape) is what makes the gate
 // itself, not just the underlying binary/InstallCmd data, a single
 // declaration every ACPAdapter engine shares.
-func (t ACPTransport) RequireOnHost(runtime, engineLabel string) error {
-	if IsContainerRuntime(runtime) || t.Kind != ACPAdapter {
+func (t ACPTransport) RequireOnHost(runtime RuntimeAxis, engineLabel string) error {
+	if IsContainerRuntimeAxis(runtime) || t.Kind != ACPAdapter {
 		return nil
 	}
 	if _, err := exec.LookPath(t.Binary); err != nil {

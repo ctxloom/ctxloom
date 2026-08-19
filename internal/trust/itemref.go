@@ -97,15 +97,20 @@ func ParseItemRef(ref string) (tRef Ref, loadRef, version string, err error) {
 // and auto-trusted at step 3 — trusted MORE than a well-formed one. A single
 // list cannot drift from itself.
 
-// IsRetiredAskSpelling reports whether ask carries a scheme marker belonging
-// to a RETIRED (pre-U3b-3) or non-bundle reference spelling — a token that
-// must fail closed rather than be silently downgraded to a bare-name search.
-// It is remote.IsSelfContainedRef's list (ctxloom:local@, ctxloom:companion@,
-// git@, any "://") plus "builtin:", the one retired spelling
-// IsSelfContainedRef never had to know about because nothing outside the
-// bundle/item-ref grammar ever minted it — see ParseItemRef's own recognizer
-// above, which this shares the literal with rather than duplicating it in a
-// package the builtin-literal sweep (S3) polices.
+// IsRetiredAskSpelling reports whether ask carries a scheme marker belonging to
+// a retired or non-bundle reference spelling. Such a token must FAIL CLOSED: a
+// user who types a spelling the grammar no longer accepts needs to be told so,
+// never silently downgraded to a bare-name search that resolves to something
+// else or to "not found". Those are different faults and they deserve different
+// messages.
+//
+// The set is remote.IsSelfContainedRef's list (ctxloom:local@,
+// ctxloom:companion@, git@, any "://") plus "builtin:" — the one spelling
+// IsSelfContainedRef never had to know about, because nothing outside the
+// bundle/item-ref grammar ever minted it. The literal lives HERE rather than at
+// the call site so it stays in the one package the builtin-literal sweep
+// deliberately exempts, instead of being duplicated into a package the sweep
+// polices.
 func IsRetiredAskSpelling(ask string) bool {
 	return strings.HasPrefix(ask, "builtin:") || remote.IsSelfContainedRef(ask)
 }

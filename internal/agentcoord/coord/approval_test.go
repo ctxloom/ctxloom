@@ -101,7 +101,7 @@ func planPresetSpawner(mk func() *scriptedChat) *fakeSpawner {
 // (Wave C3 backend-parity variant) — "" keeps the default ("mock").
 func planPresetSpawnerFor(backend string, mk func() *scriptedChat) *fakeSpawner {
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, backend: backend},
+		"worker": {perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, backend: backend},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -127,7 +127,7 @@ func relayLadderSpawner(mk func() *scriptedChat, timeout time.Duration) *fakeSpa
 func relayLadderSpawnerFor(backend string, mk func() *scriptedChat, timeout time.Duration) *fakeSpawner {
 	ladder := Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: timeout}}
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, backend: backend, ladder: ladder},
+		"worker": {perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, backend: backend, ladder: ladder},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -278,7 +278,7 @@ func TestApproval_TimeoutFallsThroughToCancel(t *testing.T) {
 	permReq := commandExecRequest("perm-timeout")
 	ladder := Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: 50 * time.Millisecond}}
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
+		"worker": {perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
 	}, nil)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{permission: permReq} }
 	c := newTestCoordinator(t, sp, nil)
@@ -465,7 +465,7 @@ func TestApproval_BypassPresetAutoAcceptsAll(t *testing.T) {
 	resetStrictness(t)
 	permReq := commandExecRequest("perm-bypass")
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: "container", profiles: []string{"p1"}, viaStartRun: true},
+		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true},
 	}, nil)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{permission: permReq} }
 	c := newTestCoordinator(t, sp, nil)
@@ -543,7 +543,7 @@ func TestLegacyChild_UnaffectedByMigratedSiblingApprovalLadder(t *testing.T) {
 	resetStrictness(t)
 	permReq := commandExecRequest("perm-legacy-sibling")
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true,
+		"worker": {perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true,
 			ladder: Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: conformanceWait}}},
 		// "legacy" declares no viaStartRun (zero value: false) — it rides
 		// fakeSpawner.Launch, the legacy go-plugin Chat dial's test analog.

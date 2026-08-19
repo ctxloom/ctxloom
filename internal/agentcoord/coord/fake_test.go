@@ -217,7 +217,7 @@ type fakeSpawner struct {
 
 type fakeAgent struct {
 	perm        string // headless permission enum; "" refuses (D3)
-	runtime     string
+	runtime     agent.RuntimeAxis
 	profiles    []string
 	unknown     bool
 	viaStartRun bool // route this agent over the migrated StartRun path

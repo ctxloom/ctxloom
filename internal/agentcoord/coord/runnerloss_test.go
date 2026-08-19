@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +62,7 @@ func waitForChildEnv(t *testing.T, c *Coordinator, runID string) map[string]stri
 func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: "container", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}}},
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
@@ -115,7 +116,7 @@ func TestRunnerLoss_HeartbeatTimeout(t *testing.T) {
 	var clockMu chanClock
 	clockMu.set(now)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: "container", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}}},
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, clockMu.now)
 

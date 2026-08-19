@@ -372,7 +372,7 @@ func TestRunACPSession_CarriesTheProjectRuntimeAxis(t *testing.T) {
 	acpRunFactory = acpRunStubFactory(stub)
 
 	cfg := config.NewFixture(config.Fixture{
-		Runtime: agent.RuntimeContainerRootless,
+		Runtime: string(agent.RuntimeContainerRootless),
 		LM: config.LMConfig{
 			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp", Permissions: "bypass"}}, // headless-safe: this test is about the runtime axis, not permission resolution
 			Defaults: config.RoleDefaults{Primary: "acp-kiro"},

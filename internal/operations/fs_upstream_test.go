@@ -17,13 +17,23 @@ func TestShouldChainFsUpstream(t *testing.T) {
 	tests := []struct {
 		name        string
 		aw          *acpWorkspace
-		runtimeAxis string
+		runtimeAxis agent.RuntimeAxis
 		want        bool
 	}{
 		{
 			name:        "host axis: no worktree, no container -> chains",
 			aw:          nil,
 			runtimeAxis: "",
+			want:        true,
+		},
+		{
+			name: "EXPLICIT host axis: no worktree, no container -> chains",
+			// An agent that declares `runtime: host` resolves to the literal
+			// RuntimeHost value, not "" — a bare equality-to-empty check
+			// would wrongly refuse this even though it is exactly as
+			// unisolated as the unset case above.
+			aw:          nil,
+			runtimeAxis: agent.RuntimeHost,
 			want:        true,
 		},
 		{

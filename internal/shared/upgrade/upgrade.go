@@ -224,3 +224,28 @@ func EnsureMap(parent *yaml.Node, key string) *yaml.Node {
 func ScalarNode(val string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: val}
 }
+
+// Reporter is how an upgrade step reports a LOSSY change — a user-set value it
+// had to drop — to whoever is driving the pipeline. The Upgrader interface has
+// no return channel for this and deliberately keeps none: a step that silently
+// discards a setting is the failure this exists to prevent, and a caller that
+// wants the report must pass somewhere to put it.
+//
+// It is a plain callback rather than a shared sink type so a step can live in
+// its own package (see internal/config/migrate) without that package and its
+// driver having to agree on a concrete buffer. A nil Reporter is legal and
+// means the caller is not collecting; call it through a step's own helper that
+// nil-checks, never directly.
+type Reporter func(format string, args ...any)
+
+// MapEntry returns the key and value nodes for key in a mapping node (both nil
+// if absent). Unlike MapValue it exposes the KEY node too, so a relocation can
+// carry the key's comments along rather than silently dropping them.
+func MapEntry(m *yaml.Node, key string) (keyNode, valueNode *yaml.Node) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i], m.Content[i+1]
+		}
+	}
+	return nil, nil
+}

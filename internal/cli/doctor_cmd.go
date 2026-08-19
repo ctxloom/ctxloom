@@ -26,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/internal/version"
@@ -853,10 +854,34 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 			parts = append(parts, fmt.Sprintf("lockfile: %d entries parse cleanly", len(lf.AllEntries())))
 		}
 	}
-	if _, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{}); err != nil {
+	// A checkpoint taken immediately around the assembly call captures ONLY
+	// the strictness.ClassRef findings THIS call records — the same
+	// strictness.Fail sites AssembleContext already fires for a configured
+	// default profile that fails to resolve (collectProfileFragments) or a
+	// profile-pushed fragment that fails to load (warnFragmentLoadFailure).
+	// Assembly is fault-tolerant on the defaults path: it skips a failed ref
+	// and keeps going, so a nil error here means "assembly ran to
+	// completion", never "every configured ref actually loaded" — reading
+	// the findings recorded during this exact call is what tells the two
+	// apart, without re-assembling or reimplementing the skip logic.
+	mark := strictness.Checkpoint()
+	_, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{})
+	skippedRefs := 0
+	for _, f := range strictness.Since(mark) {
+		if f.Class == strictness.ClassRef {
+			skippedRefs++
+		}
+	}
+	switch {
+	case err != nil:
 		parts = append(parts, "context assembly: "+err.Error())
 		status = doctorWarn
-	} else {
+	case skippedRefs > 0:
+		parts = append(parts, fmt.Sprintf(
+			"context assembly: succeeded, but %d ref(s) in the configured default profile(s) failed to load and were skipped (see the warning(s) above)",
+			skippedRefs))
+		status = doctorWarn
+	default:
 		parts = append(parts, "context assembly: succeeds for the configured default profile(s)")
 	}
 	return doctorCheck{Marker: marker, Status: status, Detail: strings.Join(parts, "; ")}

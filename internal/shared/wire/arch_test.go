@@ -19,9 +19,9 @@ import (
 // different names, is one spelling in the file the user edits and a different
 // spelling in the file the engine reads — and the drift is silent, because
 // encoding/json falls back to the Go field name rather than failing. That is
-// exactly how the container types (UnifiedHooks, HooksConfig, MCPConfig) drifted
-// from the leaf types (Hook, MCPServer): the leaves picked up json tags when
-// they needed backend-settings marshalling and the containers never did.
+// exactly how the container types (UnifiedHooks, HooksConfig) drifted from the
+// leaf types (Hook, MCPServer): the leaves picked up json tags when they needed
+// backend-settings marshalling and the containers never did.
 //
 // BUILD-TAGGED `arch`, following this repo's discrete architectural-invariant
 // gate idiom (build/gates.justfile's `test-arch`, ~155): named
@@ -41,7 +41,6 @@ var taggedTypes = []any{
 	UnifiedHooks{},
 	HooksConfig{},
 	MCPServer{},
-	MCPConfig{},
 }
 
 // tagName returns the name a struct tag assigns to a field, and whether the tag

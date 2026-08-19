@@ -75,9 +75,9 @@ func matrixSentinelInputs() agent.SurfaceInputs {
 	return agent.SurfaceInputs{
 		Context:   slotContext,
 		Fragments: []*agent.Fragment{{Name: "sentinel-frag", Content: slotFragment}},
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{
+		BundleMCP: map[string]wire.MCPServer{
 			slotMCP: {Command: slotMCPCmd},
-		}},
+		},
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			SessionStart: []wire.Hook{{Command: slotHook, Type: "command"}},
 		}},

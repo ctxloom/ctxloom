@@ -321,7 +321,6 @@ func TestArch_ProtoConverters_MirrorEveryStructField(t *testing.T) {
 	checkParity(t, hits, "wire.HooksConfig", hooksConfigToProto, hooksConfigFromProto)
 	checkParity(t, hits, "wire.MCPServer", mcpServerToProto, mcpServerFromProto)
 	checkParity(t, hits, "map[string]wire.MCPServer", mcpServerMapToProto, mcpServerMapFromProto)
-	checkParity(t, hits, "wire.MCPConfig", mcpConfigToProto, mcpConfigFromProto)
 
 	// --- plans.go ---
 	checkParity(t, hits, "[]agent.PlanFile", planFilesToProto, planFilesFromProto)

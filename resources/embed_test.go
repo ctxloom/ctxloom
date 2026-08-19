@@ -172,14 +172,13 @@ func TestGetBuiltinBundle_Unknown(t *testing.T) {
 	}
 }
 
-// TestListBuiltinBundles_OnlyIsolation pins the current embedded set. S8
-// deleted the last two embedded bundles (ltk, taskloom) — their content now
-// ships from the companions' own loadouts — leaving resources/builtin_bundles/
-// with only a README (see its doc comment) until "isolation" became the first
-// bundle that genuinely needs to ship compiled into the binary itself (no
-// companion of its own). ListBuiltinBundles must report exactly that one name,
-// and must still strip the .yaml extension for whatever it finds.
-func TestListBuiltinBundles_OnlyIsolation(t *testing.T) {
+// TestListBuiltinBundles_PinsEmbeddedSet pins the current embedded set. A bundle
+// belongs here only when it has no companion of its own to ship it: "isolation"
+// carries the isolation vocabulary, and "ctxloom-mcp" carries ctxloom's own MCP
+// server, which is unconditionally injected now that config has no `mcp:` key
+// to declare it. ListBuiltinBundles must report exactly those names, and must
+// still strip the .yaml extension for whatever it finds.
+func TestListBuiltinBundles_PinsEmbeddedSet(t *testing.T) {
 	names, err := ListBuiltinBundles()
 	if err != nil {
 		t.Fatalf("ListBuiltinBundles: %v", err)
@@ -189,7 +188,7 @@ func TestListBuiltinBundles_OnlyIsolation(t *testing.T) {
 			t.Errorf("ListBuiltinBundles must strip the .yaml extension; got %q", n)
 		}
 	}
-	if want := []string{"isolation"}; !reflect.DeepEqual(names, want) {
+	if want := []string{"ctxloom-mcp", "isolation"}; !reflect.DeepEqual(names, want) {
 		t.Errorf("expected embedded builtin bundles %v, got %v", want, names)
 	}
 }

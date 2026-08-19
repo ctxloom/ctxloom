@@ -24,20 +24,25 @@ import (
 // Loader.Reads() returned a fresh []BundleRead copy on every call and nothing
 // named it, so there was nothing to pass and everyone passed the resolver.
 type Catalog struct {
-	reads []BundleRead          // every read, in resolution order
-	byRef map[string]BundleRead // resolution identity → read
+	reads []BundleRead // every read, in listing order
 
-	// byTrustRef indexes the same reads by their TYPED source identity
-	// (BundleRead.SourceRef().BundleIdentity()) rather than by resolution-ref
-	// spelling. It is keyed alongside byRef, in the same loop, off the exact
-	// same winning read after resolveCollision — so the two indexes can never
-	// disagree about which read answers for a given resolution ref. A read
-	// whose SourceRef is the zero BundleRef (unaddressable — see
-	// Ref.AsBundleRef's doc for when a mint fails) is not entered here: an
-	// empty BundleIdentity() would otherwise let every unaddressable read in
-	// one resolve collide on ONE key, and the last one in would silently stand
-	// in for all the others. See LookupBundleRef.
-	byTrustRef map[string]BundleRead
+	// byKey is the ONE index, and its being one is the property that makes a
+	// declared name unable to displace anything. The key is
+	// BundleRead.Key() — the version-less, item-less canonical URI the
+	// reader stamps from WHERE the bundle was read, never from what it
+	// declares — so two bundles that share a declared name under different
+	// URIs are two entries, both listed, both loadable, both independently
+	// trustable. Resolution and trust land on one string by construction
+	// rather than by agreement between two maps.
+	//
+	// A read whose SourceRef is the zero BundleRef (unaddressable — see
+	// Ref.AsBundleRef for when a mint fails) is NOT entered: it has no
+	// identity to be entered under, and letting every such read share the
+	// empty key would make the last one in stand in for all the others. It
+	// still appears in reads, so a listing shows it and the unmintable-source
+	// report can name it; it is simply not resolvable, which is the same
+	// fail-closed verdict its item refs already get.
+	byKey map[trust.BundleKey]BundleRead
 }
 
 // Resolve reads every reader ONCE and returns the set.
@@ -49,10 +54,16 @@ type Catalog struct {
 // failing are kept, and the fault is reported once. A source that could not be
 // read is NOT an empty source — reporting it is the difference between "you have
 // no bundles" and "we could not find out what bundles you have".
+//
+// Two reads that produce the SAME key — one reader emitting a bundle twice, or
+// a pinned remote read superseding a stale extracted copy of the same URI — are
+// resolved by plain last-wins, silently. That is an override between two
+// spellings of ONE identity, which is precedence, not shadowing: there is no
+// second bundle left unreachable to announce.
 func Resolve(ctx context.Context, readers ...Reader) Catalog {
-	byRef := make(map[string]BundleRead)
-	byTrustRef := make(map[string]BundleRead)
-	var order []string
+	byKey := make(map[trust.BundleKey]BundleRead)
+	var order []trust.BundleKey
+	var unaddressable []BundleRead
 
 	for _, r := range readers {
 		reads, err := r.Read(ctx)
@@ -70,83 +81,37 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 			if !admit(read) {
 				continue
 			}
-			winner := read
-			prior, seen := byRef[read.ref]
-			if !seen {
-				order = append(order, read.ref)
-				byRef[read.ref] = read
-			} else {
-				winner = resolveCollision(prior, read)
-				byRef[read.ref] = winner
+			if read.SourceRef().Class == "" {
+				unaddressable = append(unaddressable, read)
+				continue
 			}
-			// Only a read with an ADDRESSABLE source ref is entered — see
-			// byTrustRef's doc for why an unaddressable (zero) one is skipped
-			// rather than colliding every such read onto one key.
-			if src := winner.SourceRef(); src.Class != "" {
-				byTrustRef[string(src.BundleIdentity())] = winner
+			key := read.Key()
+			if _, seen := byKey[key]; !seen {
+				order = append(order, key)
 			}
+			byKey[key] = read
 		}
 	}
 
-	sort.Strings(order)
-	reads := make([]BundleRead, 0, len(order))
-	for _, ref := range order {
-		reads = append(reads, byRef[ref])
+	reads := make([]BundleRead, 0, len(order)+len(unaddressable))
+	for _, key := range order {
+		reads = append(reads, byKey[key])
 	}
-	return Catalog{reads: reads, byRef: byRef, byTrustRef: byTrustRef}
+	reads = append(reads, unaddressable...)
+	sortReads(reads)
+	return Catalog{reads: reads, byKey: byKey}
 }
 
-// resolveCollision decides which of two reads sharing ONE resolution ref the
-// catalog keeps, and reports a shadowing the user could not otherwise see.
-//
-// The default is unchanged and stays unchanged deliberately: a LATER reader
-// wins, which is the precedence NewLoader documents and the reason pinned
-// remote content shadows a stale extracted copy on disk. That is an intended
-// override between two sources the user configured, and it stays silent.
-//
-// The ONE exception is a BUILTIN. Since a builtin's resolution ref stopped
-// carrying its source class it can collide with a project bundle of the same
-// name, and the builtin reader is composed AFTER the project reader (it must
-// be — Loader.FS() returns the first reader that has a filesystem, and putting
-// the embedded one first silently withholds every project skill). Plain
-// last-wins would therefore let a bundle compiled into this binary displace a
-// bundle the user wrote, which inverts every other precedence in the loader.
-// So a builtin never displaces anything, and never loses silently:
-//
-//   - the PROJECT bundle wins and the builtin is shadowed
-//   - the shadowing is ANNOUNCED, naming both TRUST refs — which is what still
-//     distinguishes them once the resolution refs are one string — and telling
-//     the user to rename one
-//   - the session PROCEEDS
-//
-// Refusing was considered and rejected: a bundle published in ctxloom-default
-// later adopting a name a project already uses would otherwise break that
-// project on its next deps pull, over a clash the user did not create. Silent
-// precedence was rejected as this project's characteristic silent-no-op shape
-// (taskloom concerned-path, decided by the human 2026-08-17).
-//
-// FailOnce rather than Fail, matching Resolve's sibling report above and for
-// the same measured reason: a process builds MANY catalogs (doctor went
-// through 22), and a name collision is a property of the filesystem and the
-// binary, so it cannot resolve itself between two builds in one process.
-// Reporting per build buries the one line that names the bundle to rename.
-// The FINDING still records per checkpoint window, so strict mode cannot be
-// talked out of aborting by a repeat.
-func resolveCollision(prior, incoming BundleRead) BundleRead {
-	priorBuiltin := prior.Provenance == ProvenanceBuiltin
-	incomingBuiltin := incoming.Provenance == ProvenanceBuiltin
-	if priorBuiltin == incomingBuiltin {
-		return incoming // ordinary last-wins precedence; not a shadowing
-	}
-	winner, shadowed := incoming, prior
-	if incomingBuiltin {
-		winner, shadowed = prior, incoming
-	}
-	strictness.FailOnce(strictness.ClassBundle,
-		"rename one of the two bundles so each has its own name",
-		"bundle %q resolves to two different bundles: %s (used) shadows %s (unreachable)",
-		winner.ref, winner.SourceRef().String(), shadowed.SourceRef().String())
-	return winner
+// sortReads puts a resolved set in listing order: by the name a listing shows,
+// then by canonical key so two bundles sharing a display name still order
+// deterministically rather than by which reader happened to run first.
+func sortReads(reads []BundleRead) {
+	sort.SliceStable(reads, func(i, j int) bool {
+		if reads[i].ref != reads[j].ref {
+			return reads[i].ref < reads[j].ref
+		}
+		return reads[i].Key() < reads[j].Key()
+	})
 }
 
 // Reads returns every read in resolution order.
@@ -161,73 +126,144 @@ func (c Catalog) Reads() []BundleRead {
 // Len reports how many reads the set holds, without copying it.
 func (c Catalog) Len() int { return len(c.reads) }
 
-// Lookup resolves an ask to a read, accepting the spellings of one identity
-// that callers actually author: the bare name, the remote-qualified and
-// canonical forms, and the local canonical form the assembly pipeline carries.
+// Lookup resolves an ask to the read that answers for it.
 //
-// There is no builtin arm, and its absence is the point. It existed to find a
-// builtin whose resolution ref had been minted "builtin:<name>" — a ref that
-// encoded WHERE the bundle sat, which is a trust question, not an addressing
-// one. Nothing mints such a resolution ref any more, so the arm could only ever
-// miss, and `builtin:isolation` is now correctly NOT a bundle handle: it is a
-// TRUST ref (BundleRead.SourceRef), and the two are deliberately different
-// strings. A bare `isolation` reaches the builtin, or the project's bundle of
-// that name when one shadows it (resolveCollision).
+// It returns an ERROR rather than a bool because `bool` cannot express
+// AMBIGUOUS, and ambiguous is the one answer this function must be able to
+// give. Two bundles may share a declared name under different canonical URIs;
+// neither shadows the other, so an ask that names both resolves to nothing and
+// says so, naming every candidate URI. A refusal cannot silently deliver the
+// wrong bundle, which is what any winner-picking rule here could.
 //
-// The three remaining arms are alias spellings of a ref the catalog already
-// keys, not location encodings: remote-qualified "alice/go-tools" and the
-// canonical/local-canonical forms the lockfile and the pipeline author.
-func (c Catalog) Lookup(name string) (BundleRead, bool) {
-	if read, ok := c.byRef[name]; ok {
-		return read, true
+// The arms, in order:
+//
+//  1. ask parses as a canonical trust.BundleRef — resolved EXACTLY by
+//     LookupKey. No search, no ambiguity possible. A canonical ref this
+//     catalog does not hold is errs.ErrBundleNotFound.
+//  2. ask is a self-contained identity in the pipeline's own spelling (a
+//     lockfile ref, "ctxloom:local@bundles/<name>", "ctxloom:companion@<bin>")
+//     — minted to its canonical key and resolved EXACTLY, again by LookupKey.
+//     This arm is a bridge for the identities the assembly pipeline and the
+//     lockfile still author; it never searches, so it cannot pick a winner.
+//  3. ask carries a retired scheme marker no live spelling accounts for —
+//     errs.ErrRetiredRefSpelling with the migration hint. It is never
+//     downgraded to arm 4: "you typed a spelling the grammar no longer
+//     accepts" and "no such bundle" are different faults and deserve
+//     different messages.
+//  4. otherwise ask is a bare NAME. Every read is compared on the name a
+//     listing shows (DisplayName), then on the bundle's DECLARED name.
+//     Exactly one match resolves; zero is errs.ErrBundleNotFound; two or more
+//     is errs.ErrBundleAmbiguous naming every candidate's canonical URI.
+func (c Catalog) Lookup(ask string) (BundleRead, error) {
+	if br, err := trust.ParseBundleRef(ask); err == nil {
+		if read, ok := c.LookupKey(br.BundleIdentity()); ok {
+			return read, nil
+		}
+		return BundleRead{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
 	}
-	if key, ok := remote.CanonicalKey(name); ok && key != name {
-		if read, ok := c.byRef[key]; ok {
+	if remote.IsSelfContainedRef(ask) {
+		if read, ok := c.selfContained(ask); ok {
+			return read, nil
+		}
+	}
+	if trust.IsRetiredAskSpelling(ask) {
+		return BundleRead{}, retiredSpelling(ask)
+	}
+	matches := c.matchingName(ask)
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return BundleRead{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
+	default:
+		return BundleRead{}, ambiguousAsk(ask, matches)
+	}
+}
+
+// selfContained resolves an ask written as a self-contained identity — a
+// lockfile ref, "ctxloom:local@bundles/<name>", "ctxloom:companion@<bin>" —
+// to the one read that identity names.
+//
+// Every route here is EXACT. It mints the canonical key first, which is the
+// resolution the readers themselves stamp; only if the identity was never
+// mintable does it fall back to matching the spelling a listing shows, and
+// then to the version-less form of it, because such an identity addresses one
+// bundle by construction and cannot be a name two bundles share.
+func (c Catalog) selfContained(ask string) (BundleRead, bool) {
+	if br, err := canonicalBundleRefTyped(ask); err == nil {
+		if read, ok := c.LookupKey(br.BundleIdentity()); ok {
 			return read, true
 		}
 	}
-	if ref, err := remote.ParseReference(name); err == nil && ref.IsLocal && ref.ItemType == remote.ItemTypeBundle {
-		if read, ok := c.byRef[ref.Path]; ok {
-			return read, true
+	spellings := []string{ask}
+	if key, ok := remote.CanonicalKey(ask); ok && key != ask {
+		spellings = append(spellings, key)
+	}
+	for _, spelling := range spellings {
+		for _, read := range c.reads {
+			if read.DisplayName() == spelling {
+				return read, true
+			}
 		}
 	}
 	return BundleRead{}, false
 }
 
-// LookupBundleRef resolves a STRUCTURED bundle-level reference to the read
-// that answers for it, keyed on the read's typed source identity
-// (BundleRead.SourceRef().BundleIdentity()) rather than on any
-// resolution-ref spelling.
-//
-// It is the typed counterpart to Lookup(name) for a caller that already
-// holds a trust.BundleRef — the shape the canonical bundle-reference grammar
-// parses a "ctxloom+<class>:…" string into — and it is PURELY ADDITIVE:
-// Lookup(name) is unchanged, keeps resolving the bare-name/alias spellings
-// it always has, and gains no new arm here. br's own item selector (Kind/
-// Item), if any, is ignored — this resolves the BUNDLE the item lives in,
-// matching BundleIdentity's own "identity of the bundle that contains the
-// item" contract, not the item within it.
-func (c Catalog) LookupBundleRef(br trust.BundleRef) (BundleRead, bool) {
-	read, ok := c.byTrustRef[string(br.BundleIdentity())]
-	return read, ok
+// matchingName reports every read a bare NAME could mean: the name a listing
+// shows first, and only if nothing answers there the bundle's own declared
+// name. The two are kept in that order rather than merged because a listing is
+// a menu of handles, and a handle the listing showed must win over one it
+// never did.
+func (c Catalog) matchingName(ask string) []BundleRead {
+	var byDisplayName, byDeclaredName []BundleRead
+	for _, read := range c.reads {
+		switch {
+		case read.DisplayName() == ask:
+			byDisplayName = append(byDisplayName, read)
+		case read.Bundle != nil && read.Bundle.Name == ask:
+			byDeclaredName = append(byDeclaredName, read)
+		}
+	}
+	if len(byDisplayName) > 0 {
+		return byDisplayName
+	}
+	return byDeclaredName
 }
 
-// LookupKey is LookupBundleRef keyed directly on the resolution key rather
-// than on a structured reference — the exact, total resolution: given the
-// version-less canonical identity a read's SourceRef stamps, it either finds
-// the one read that identity names or it does not. No search, no ambiguity.
-//
-// It is ADDITIVE (U3b-3 S4): the catalog still indexes byTrustRef the same
-// way it always has, this is only a new way in to the same map.
+// ambiguousAsk refuses a name that means more than one bundle, naming every
+// candidate by its canonical URI — the one spelling that tells them apart and
+// the one the user can type back to say which they meant.
+func ambiguousAsk(ask string, matches []BundleRead) error {
+	var candidates strings.Builder
+	for i, m := range matches {
+		if i > 0 {
+			candidates.WriteString(", ")
+		}
+		candidates.WriteString(string(m.Key()))
+	}
+	return fmt.Errorf("%w: %q names more than one bundle: %s",
+		errs.ErrBundleAmbiguous, ask, candidates.String())
+}
+
+// retiredSpelling refuses an ask written in a reference grammar this version
+// no longer accepts, and says where the current one is written down.
+func retiredSpelling(ask string) error {
+	return fmt.Errorf("%w: %q — see `ctxloom bundle trust --help`; re-run `ctxloom init` to migrate a project",
+		errs.ErrRetiredRefSpelling, ask)
+}
+
+// LookupKey is the ONLY exact resolution: given the version-less canonical
+// identity a read's SourceRef stamps, it either finds the one read that
+// identity names or it does not. No search, no ambiguity.
 func (c Catalog) LookupKey(key trust.BundleKey) (BundleRead, bool) {
-	read, ok := c.byTrustRef[string(key)]
+	read, ok := c.byKey[key]
 	return read, ok
 }
 
-// LookupRef is LookupKey for a caller holding a parsed trust.BundleRef rather
-// than an already-extracted key — the same body as LookupBundleRef, under the
-// name U3b-3's design settles on. Both names resolve identically for now;
-// LookupBundleRef is retired in a later slice once every caller has moved.
+// LookupRef is LookupKey for a caller holding a parsed reference rather than
+// an already-extracted key. br's own item selector (Kind/Item), if any, is
+// ignored: this resolves the BUNDLE the item lives in, matching
+// BundleIdentity's own contract.
 func (c Catalog) LookupRef(br trust.BundleRef) (BundleRead, bool) {
 	return c.LookupKey(br.BundleIdentity())
 }
@@ -237,22 +273,24 @@ func (c Catalog) LookupRef(br trust.BundleRef) (BundleRead, bool) {
 // that needs the ref rather than the read (the trust mutations) uses this
 // instead of discarding a BundleRead it never wanted.
 //
-// The three arms:
+// It is STRICTER than Lookup on one axis, deliberately. Lookup serves the load
+// path, which still carries the pipeline's own self-contained identity
+// spellings; ResolveAsk serves the surfaces where a human types a reference,
+// and there a retired spelling is refused outright rather than bridged. The
+// two agree on everything else, and share matchingName so an ambiguity is one
+// rule rather than two.
 //
-//  1. ask parses as a canonical trust.BundleRef (trust.ParseBundleRef) —
-//     resolved EXACTLY against this catalog by LookupKey(br.BundleIdentity()).
-//     A canonical ref that names no bundle in THIS catalog is
-//     errs.ErrBundleNotFound: unlike operations.ResolveItemAsk, this
-//     resolver always consults the catalog, because a bundle-level ask
-//     ("bundle show", "bundle remove") is meaningless for a bundle the
-//     catalog cannot see.
-//  2. ask carries a retired scheme marker ("builtin:", "ctxloom:local@",
-//     "ctxloom:companion@", "://", "git@") — errs.ErrRetiredRefSpelling.
-//     Never downgraded to a name search: a malformed or obsolete
-//     scheme-qualified spelling must fail closed, not be silently re-read as
-//     a first-party local bundle name.
-//  3. otherwise: ask is compared against every read's DisplayName (Ref())
-//     first; if none match, against the bundle's DECLARED Name. Exactly one
+// The arms:
+//
+//  1. ask parses as a canonical trust.BundleRef — resolved EXACTLY against
+//     this catalog by LookupKey. A canonical ref that names no bundle HERE is
+//     errs.ErrBundleNotFound: a bundle-level ask ("bundle show", "bundle
+//     remove") is meaningless for a bundle the catalog cannot see.
+//  2. ask carries a retired scheme marker — errs.ErrRetiredRefSpelling. Never
+//     downgraded to a name search: a malformed or obsolete scheme-qualified
+//     spelling must fail closed, not be silently re-read as a first-party
+//     local bundle name.
+//  3. otherwise ask is a bare NAME, resolved by matchingName. Exactly one
 //     match resolves; zero is errs.ErrBundleNotFound; two or more is
 //     errs.ErrBundleAmbiguous, naming every candidate.
 //
@@ -267,38 +305,17 @@ func (c Catalog) ResolveAsk(ask string) (trust.BundleRef, error) {
 		return br, nil
 	}
 	if trust.IsRetiredAskSpelling(ask) {
-		return trust.BundleRef{}, fmt.Errorf("%w: %q — see `ctxloom bundle trust --help`; re-run `ctxloom init` to migrate a project",
-			errs.ErrRetiredRefSpelling, ask)
+		return trust.BundleRef{}, retiredSpelling(ask)
 	}
 
-	var byDisplayName, byDeclaredName []BundleRead
-	for _, read := range c.reads {
-		if read.Ref() == ask {
-			byDisplayName = append(byDisplayName, read)
-		} else if read.Bundle != nil && read.Bundle.Name == ask {
-			byDeclaredName = append(byDeclaredName, read)
-		}
-	}
-	matches := byDisplayName
-	if len(matches) == 0 {
-		matches = byDeclaredName
-	}
-
+	matches := c.matchingName(ask)
 	switch len(matches) {
-	case 0:
-		return trust.BundleRef{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
 	case 1:
 		return matches[0].SourceRef(), nil
+	case 0:
+		return trust.BundleRef{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
 	default:
-		var candidates strings.Builder
-		for i, m := range matches {
-			if i > 0 {
-				candidates.WriteString(", ")
-			}
-			candidates.WriteString(m.SourceRef().String())
-		}
-		return trust.BundleRef{}, fmt.Errorf("%w: %q names more than one bundle: %s",
-			errs.ErrBundleAmbiguous, ask, candidates.String())
+		return trust.BundleRef{}, ambiguousAsk(ask, matches)
 	}
 }
 
@@ -316,15 +333,14 @@ func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 	for _, p := range classes {
 		keep[p] = true
 	}
-	out := Catalog{byRef: make(map[string]BundleRead), byTrustRef: make(map[string]BundleRead)}
+	out := Catalog{byKey: make(map[trust.BundleKey]BundleRead)}
 	for _, read := range c.reads {
 		if !keep[read.Provenance] {
 			continue
 		}
 		out.reads = append(out.reads, read)
-		out.byRef[read.ref] = read
-		if src := read.SourceRef(); src.Class != "" {
-			out.byTrustRef[string(src.BundleIdentity())] = read
+		if read.SourceRef().Class != "" {
+			out.byKey[read.Key()] = read
 		}
 	}
 	return out
@@ -337,16 +353,19 @@ func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 // deliberately carries no provenance, so narrowing after the projection is
 // impossible and every narrowing caller would otherwise re-derive this loop.
 //
-// Name is the read's REF, not Bundle.Name, and the difference is load-bearing:
-// a listing is a menu of handles the user types back at `bundle show`/`remove`,
-// and only the ref resolves. They diverge for any bundle outside the top level —
-// lang/go.yaml resolves as "lang/go" while Bundle.Name is the leaf "go".
+// Name is the read's DISPLAY NAME, not Bundle.Name, and the difference is
+// load-bearing: a listing is a menu of handles the user types back at `bundle
+// show`/`remove`, and the declared name need not be one. They diverge for any
+// bundle outside the top level — lang/go.yaml is shown as "lang/go" while
+// Bundle.Name is the leaf "go". Ref carries the canonical URI alongside it,
+// which is what disambiguates two rows that share a Name.
 func (c Catalog) Infos() []*BundleInfo {
 	out := make([]*BundleInfo, 0, len(c.reads))
 	for _, read := range c.reads {
 		b := read.Bundle
 		out = append(out, &BundleInfo{
-			Name:          read.ref,
+			Name:          read.DisplayName(),
+			Ref:           read.Key(),
 			Path:          b.Path,
 			Version:       b.Version,
 			Description:   b.Description,

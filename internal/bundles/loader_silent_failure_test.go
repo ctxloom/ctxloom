@@ -265,8 +265,8 @@ func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
 			restore := clidiag.SetSink(&warnings)
 			t.Cleanup(restore)
 
-			read, ok := l.lookup("companion")
-			require.True(t, ok)
+			read, err := l.lookup("companion")
+			require.NoError(t, err)
 			got := l.skillContent(read, "helper", b.Skills["helper"])
 
 			require.Nil(t, got,

@@ -32,7 +32,7 @@ func builtinRefsIn(t *testing.T, cfg *config.Config) []string {
 	var refs []string
 	for _, read := range cfg.BundleLoader().Catalog().Reads() {
 		if read.Provenance == bundles.ProvenanceBuiltin {
-			refs = append(refs, read.Ref())
+			refs = append(refs, read.DisplayName())
 		}
 	}
 	require.NotEmpty(t, refs,

@@ -161,7 +161,7 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 		authorizer: &contentGate{cfg: cfg, records: records, fs: req.FS}}
 	result := &PendingReviewResult{}
 	for _, read := range loader.Reads() {
-		ref := read.Ref()
+		ref := read.DisplayName()
 		items := e.pendingItems(ref, read)
 		if len(items) == 0 {
 			continue
@@ -382,7 +382,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// countersign preimage to the review prompt.
 	name = remote.NormalizeRef(name)
 	// ref is the DISPLAY/CLI-facing item ref — "<bundleRef>#<kindDir>/<name>",
-	// bundleRef being the bundle's bare RESOLUTION name (read.Ref()) — and it
+	// bundleRef being the bundle's display name (read.DisplayName()) — and it
 	// stays in that OLD grammar deliberately: it is what ReviewItem.Ref hands
 	// straight to operations.SetItemTrust/SetBlacklist (still trust.
 	// ParseItemRef readers; the CLI ref syntax migrates in a later slice), so
@@ -394,7 +394,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// from the bundle's HONEST typed source (read.SourceRef(), the same
 	// typed field every migrated producer mints from) through the canonical
 	// bundle-reference grammar — never by reparsing ref, which carries
-	// bundleRef (read.Ref(), the bare RESOLUTION name) instead of the source.
+	// bundleRef (read.DisplayName(), a label) instead of the source.
 	// The two agree for every class except BUILTIN, where the resolution ref
 	// is deliberately unqualified ("isolation") while the source ref carries
 	// its class ("builtin:isolation" / ctxloom+builtin:isolation) — so the

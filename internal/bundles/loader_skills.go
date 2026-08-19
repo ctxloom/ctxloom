@@ -103,14 +103,14 @@ func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 			return nil
 		}
 	}
-	read, ok := l.lookup(bundleRef)
-	if !ok {
+	read, err := l.lookup(bundleRef)
+	if err != nil {
 		// This feeds the export path that WRITES per-engine skill files, so a
 		// bare `return nil` exported zero skills, exit 0, in silence —
 		// indistinguishable from a bundle that ships none. The
 		// sibling expandBundleRef already warns here through this same warner;
 		// that inconsistency was the tell.
-		l.warnUnresolvedBundle(bundleRef, l.missing(bundleRef))
+		l.warnUnresolvedBundle(bundleRef, err)
 		return nil
 	}
 	bundle := read.Bundle
@@ -301,9 +301,9 @@ func (l *Loader) ReadSkill(name string) ([]*LoadedSkill, error) {
 // success: a skill that does not materialize must never look like one that
 // materialized to nothing.
 func (l *Loader) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, error) {
-	read, ok := l.lookup(bundleName)
-	if !ok {
-		return nil, l.missing(bundleName)
+	read, err := l.lookup(bundleName)
+	if err != nil {
+		return nil, err
 	}
 	entry, ok := read.Bundle.Skills[skillName]
 	if !ok {

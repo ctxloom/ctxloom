@@ -1082,10 +1082,11 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 		if bundle.ProfileCount() == 0 {
 			continue
 		}
-		// The read's ref is the bundle's full resolution identity (the canonical
-		// ref for pinned remote content, the relative path for a local bundle);
-		// bundle.Name is only the file's base, so canonicalize from the ref.
-		bundleRef := remote.CanonicalBundleRef(read.Ref())
+		// The read's display name is the bundle's full handle (the canonical
+		// ref for pinned remote content, the relative path for a local
+		// bundle); bundle.Name is only the file's base, so canonicalize from
+		// the display name.
+		bundleRef := remote.CanonicalBundleRef(read.DisplayName())
 		sourceURL := bundleProfileSourceURL(bundleRef)
 		for _, profName := range bundle.ProfileNames() {
 			p := cloneBundleProfile(bundle.Profiles[profName])

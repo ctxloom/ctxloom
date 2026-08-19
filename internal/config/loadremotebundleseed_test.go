@@ -37,7 +37,7 @@ func remoteBundleSeed(t *testing.T, cfg *Config) map[string]*bundles.Bundle {
 	// would assert on facts nobody consumes.
 	out := map[string]*bundles.Bundle{}
 	for _, read := range bundles.NewLoader(readers...).Reads() {
-		out[read.Ref()] = read.Bundle
+		out[read.DisplayName()] = read.Bundle
 	}
 	return out
 }

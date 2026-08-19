@@ -149,7 +149,7 @@ func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing
 	assert.Equal(t, ProvenanceCompanion, reads[0].Provenance)
 	assert.Equal(t, TrustCtxLocal, reads[0].TrustCtx(),
 		"a loadout came off the stdout of a binary the user consented to execute — no intermediary")
-	assert.Equal(t, "ctxloom:companion@ltk", reads[0].Ref())
+	assert.Equal(t, "ctxloom:companion@ltk", reads[0].DisplayName())
 	assert.Equal(t, SignatureNone, reads[0].Signature())
 	assert.Equal(t, SignerNone, reads[0].Signer())
 
@@ -169,7 +169,7 @@ func TestNewRepoFSReader_ReportsRemoteProvenanceAndRemoteContext(t *testing.T) {
 	require.Len(t, reads, 1)
 	assert.Equal(t, ProvenanceRemote, reads[0].Provenance)
 	assert.Equal(t, TrustCtxRemote, reads[0].TrustCtx(), "these bytes crossed a forge; that is the whole distinction")
-	assert.Equal(t, "https://example.test/repo@bundles/kit", reads[0].Ref(), "canonical is the sole resolution identity")
+	assert.Equal(t, "https://example.test/repo@bundles/kit", reads[0].DisplayName(), "canonical is the sole resolution identity")
 
 	wantTyped, err := trust.GitRef("example.test", "/repo", "kit")
 	require.NoError(t, err)
@@ -307,7 +307,7 @@ func TestNewCompanionReader_UnparseableLoadoutIsWarnedAndSkipped(t *testing.T) {
 
 	require.NoError(t, err, "one broken companion must never sink the read")
 	require.Len(t, reads, 1, "the healthy companion still contributes")
-	assert.Equal(t, "ctxloom:companion@ltk", reads[0].Ref())
+	assert.Equal(t, "ctxloom:companion@ltk", reads[0].DisplayName())
 	assert.Contains(t, warnings.String(), "broken", "the companion that produced nothing must be named")
 }
 

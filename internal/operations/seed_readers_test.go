@@ -173,7 +173,7 @@ func seedTampered(t *testing.T, ref, principal string, b *bundles.Bundle) *bundl
 // value every trust decision now keys on.
 func readOf(t *testing.T, loader *bundles.Loader, ref string) bundles.BundleRead {
 	t.Helper()
-	read, ok := loader.Read(ref)
-	require.True(t, ok, "the fixture bundle %q must resolve", ref)
+	read, err := loader.Read(ref)
+	require.NoError(t, err, "the fixture bundle %q must resolve", ref)
 	return read
 }

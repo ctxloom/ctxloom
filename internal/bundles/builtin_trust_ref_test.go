@@ -37,11 +37,11 @@ import (
 func TestBuiltinRead_ResolutionRefBare_TrustRefStillQualified(t *testing.T) {
 	const shared = "isolation" // the one bundle this binary actually embeds
 
-	read, ok := NewLoader(NewBuiltinReader()).Read(shared)
-	require.True(t, ok, "the embedded builtin must resolve by its bare name")
+	read, err := NewLoader(NewBuiltinReader()).Read(shared)
+	require.NoError(t, err, "the embedded builtin must resolve by its bare name")
 
-	assert.Equal(t, shared, read.Ref(),
-		"a builtin's RESOLUTION ref carries no source class: it is addressed by what it declares")
+	assert.Equal(t, shared, read.DisplayName(),
+		"a builtin's DISPLAY name carries no source class: it is shown as what it declares")
 
 	// The TYPED source must name the builtin identity, not merely a value that
 	// happens to look right: BuiltinRef(shared) is the exact minter

@@ -362,8 +362,8 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 
 	// The hook's own bundle, read by the project reader — local posture,
 	// project provenance, which is what the first-party step now keys on.
-	localRead, ok := cfg.BundleLoader().Read("hookb")
-	require.True(t, ok, "the on-disk bundle must resolve")
+	localRead, err := cfg.BundleLoader().Read("hookb")
+	require.NoError(t, err, "the on-disk bundle must resolve")
 
 	// A project-local bundle hook is first-party (no acceptance needed) → passes.
 	assert.True(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, declRef, hookPayload, bundles.FormRaw).Allow,

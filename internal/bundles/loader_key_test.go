@@ -20,7 +20,7 @@ func TestLoaderReadKey_ResolvesTheExactKey(t *testing.T) {
 
 	read, ok := loader.ReadKey(want.BundleIdentity())
 	require.True(t, ok)
-	assert.Equal(t, "kit", read.Ref())
+	assert.Equal(t, "kit", read.DisplayName())
 }
 
 // TestLoaderReadKey_UnknownKeyMisses proves a key nothing was resolved under

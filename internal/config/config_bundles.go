@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -294,9 +293,9 @@ func resolveProfileOrReport(profileLoader *profiles.Loader, profileName string) 
 // (they live only in the SeededBundleLoader seed), so resolving a remote ref by
 // a computed filesystem path would silently find nothing and drop its servers.
 func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.Authorizer) map[string]wire.MCPServer {
-	read, ok := loader.Read(bundleRef)
-	if !ok {
-		reportBundleRefLoadFailure(bundleRef, errs.ErrBundleNotFound)
+	read, err := loader.Read(bundleRef)
+	if err != nil {
+		reportBundleRefLoadFailure(bundleRef, err)
 		return nil
 	}
 	return extractMCPFromBundle(read, read.SourceRef(), gate)
@@ -393,7 +392,7 @@ func companionRefs(loader *bundles.Loader) []string {
 	reads := readsWithProvenance(loader, bundles.ProvenanceCompanion)
 	out := make([]string, 0, len(reads))
 	for _, read := range reads {
-		out = append(out, read.Ref())
+		out = append(out, read.DisplayName())
 	}
 	return out
 }
@@ -730,9 +729,9 @@ func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
 func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.Authorizer) wire.UnifiedHooks {
-	read, ok := loader.Read(bundleRef)
-	if !ok {
-		reportBundleRefLoadFailure(bundleRef, errs.ErrBundleNotFound)
+	read, err := loader.Read(bundleRef)
+	if err != nil {
+		reportBundleRefLoadFailure(bundleRef, err)
 		return wire.UnifiedHooks{}
 	}
 	return extractHooksFromBundle(read, read.SourceRef(), gate)

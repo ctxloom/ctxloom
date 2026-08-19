@@ -68,7 +68,7 @@ func TestEachBuiltinBundle_ParsesEveryEmbeddedBundle(t *testing.T) {
 	seen := map[string]bool{}
 	eachBuiltinBundle(func(read bundles.BundleRead) {
 		require.NotNil(t, read.Bundle)
-		seen[read.Ref()] = true
+		seen[read.DisplayName()] = true
 	})
 
 	for _, name := range names {
@@ -98,7 +98,7 @@ func TestEachBuiltinBundle_ParsesEveryEmbeddedBundle(t *testing.T) {
 func TestEachBuiltinBundle_ParsesOncePerProcess(t *testing.T) {
 	collect := func() map[string]*bundles.Bundle {
 		out := map[string]*bundles.Bundle{}
-		eachBuiltinBundle(func(read bundles.BundleRead) { out[read.Ref()] = read.Bundle })
+		eachBuiltinBundle(func(read bundles.BundleRead) { out[read.DisplayName()] = read.Bundle })
 		return out
 	}
 

@@ -530,18 +530,6 @@ func newReaderConfig(opts []ReaderOption) readerConfig {
 	return c
 }
 
-// warn emits one reader diagnostic through the configured sink. A reader that
-// could not turn bytes into a bundle says so HERE: nothing about a failed read
-// is allowed to be silent, because zero content and zero diagnostics is
-// indistinguishable from a source that legitimately holds nothing.
-func (c readerConfig) warn(format string, args ...any) {
-	if c.warnHandler != nil {
-		c.warnHandler(format, args...)
-		return
-	}
-	clidiag.Warn("ctxloom", format, args...)
-}
-
 // warnOnce is warn for a diagnostic whose repetition is noise rather than
 // information — the same line about the same companion in one process. The
 // dedup is the process's business; the sink is still the caller's.

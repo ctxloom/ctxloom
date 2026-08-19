@@ -87,8 +87,6 @@ type j001300State struct {
 	foreign map[string]string
 
 	ready bool
-
-	probes []j001900ProbeResult
 }
 
 func j001300Of(w *World) *j001300State {
@@ -259,17 +257,6 @@ func j001300AddForeignWorktree(w *World, branch string, dirty bool) (string, err
 	}
 	st.foreign[branch] = dir
 	return dir, nil
-}
-
-// j001300Probe records one candidate invocation of a surface that may not exist.
-func j001300Probe(w *World, args ...string) {
-	st := j001300Of(w)
-	_ = w.env.Run(args...)
-	st.probes = append(st.probes, j001900ProbeResult{
-		args:   append([]string(nil), args...),
-		exit:   w.env.LastExitCode(),
-		output: w.env.LastOutput(),
-	})
 }
 
 // j001300Answered reports whether the LAST run's output names every want, failing

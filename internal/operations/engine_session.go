@@ -118,7 +118,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		backendName     string
 		model           string
 		mcpServers      []agent.ChatMCPServer
-		runtimeAxis     string
+		runtimeAxis     agent.RuntimeAxis
 		// fragmentsLoaded names what actually loaded into contextText — set
 		// from ResolvedAgent.Fragments (agent path) or
 		// AssembleContextResult.FragmentsLoaded (bare profile-flow path) below.
@@ -873,7 +873,7 @@ func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation
 //     harmless projectDir/nil), so this function conservatively still
 //     refuses to chain — a missed optimization in that corner, never a
 //     wrong-content bug.
-//   - agent.IsContainerRuntime(runtimeAxis) (ISO1 containerized the
+//   - agent.IsContainerRuntimeAxis(runtimeAxis) (ISO1 containerized the
 //     ENGINE's own subprocess): ISO1's same-path mount already makes
 //     local disk correct — this "ctxloom llm serve" subprocess (where
 //     internal/acp/session.go's fs handlers actually run) is ALWAYS on
@@ -882,8 +882,15 @@ func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation
 //   - Otherwise (the fully unisolated default): true — this is the ONLY
 //     axis where local disk can diverge from the truth (an editor's
 //     unsaved buffer), so it's the only one that chains.
-func shouldChainFsUpstream(aw *acpWorkspace, runtimeAxis string) bool {
-	return aw == nil && runtimeAxis == ""
+//
+// The predicate, not a bare equality against "": runtimeAxis is a parsed
+// agent.RuntimeAxis now, and an agent that explicitly declares `runtime:
+// host` resolves to the literal RuntimeHost value rather than "" — an
+// equality-to-empty check would have wrongly refused to chain for that
+// agent even though it is exactly as unisolated as one with no runtime
+// declared at all.
+func shouldChainFsUpstream(aw *acpWorkspace, runtimeAxis agent.RuntimeAxis) bool {
+	return aw == nil && !agent.IsContainerRuntimeAxis(runtimeAxis)
 }
 
 // sessionInitSummaryInputs bundles every resolved fact
@@ -937,7 +944,7 @@ type sessionInitSummaryInputs struct {
 	// posture (announceOnFirstEvent); reporting "configured" is the honest,
 	// synchronously-knowable fact instead.
 	mcpServerNames nameListing
-	runtimeAxis    string
+	runtimeAxis    agent.RuntimeAxis
 	// workDir is the SAME path OpenEngineSession put on ChatRequest.WorkDir —
 	// req.Cwd for every unisolated/container-only session, or aw.dir once
 	// ISO2 has isolated the WORKSPACE axis to a worktree.
@@ -1019,7 +1026,7 @@ const sessionPermissionsLine = "every tool call is forwarded to your editor for 
 // mapping rather than asserting the two paths equal in prose.
 func sessionIsolationLine(in sessionInitSummaryInputs) string {
 	isolatedWorktree := in.aw != nil && in.aw.announce != ""
-	isolatedContainer := agent.IsContainerRuntime(in.runtimeAxis)
+	isolatedContainer := agent.IsContainerRuntimeAxis(in.runtimeAxis)
 	if !isolatedWorktree && !isolatedContainer {
 		return fmt.Sprintf("HOST process (no container); working directory %s (no worktree) — NOT isolated on either axis", in.workDir)
 	}

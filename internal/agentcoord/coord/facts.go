@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Fact kinds. Two journals: the run-registry journal (runs.jsonl — run
@@ -99,10 +101,10 @@ type runEnqueued struct {
 	// starts, even though it is depth 0. It is empty only for a child
 	// spawned directly by the plugin-hosted top-level session, whose own
 	// credential carries no run id at all.
-	ParentRunID string `json:"parent_run_id,omitempty"`
-	Runtime     string `json:"runtime,omitempty"` // resolved runtime axis ("", "host", "container-rootless", "container-rootful")
-	CredHash    string `json:"cred_hash"`         // hex SHA-256 of the bearer token — never the token
-	Depth       int    `json:"depth"`
+	ParentRunID string            `json:"parent_run_id,omitempty"`
+	Runtime     agent.RuntimeAxis `json:"runtime,omitempty"` // resolved runtime axis
+	CredHash    string            `json:"cred_hash"`         // hex SHA-256 of the bearer token — never the token
+	Depth       int               `json:"depth"`
 	// OneShot mirrors this run's own SpawnPlan.ResumeMode ==
 	// ResumeModeOneShot — journaled so this run's OWN future credential
 	// (folds.go's applyEnqueued) reports it via Identity.OneShot without a

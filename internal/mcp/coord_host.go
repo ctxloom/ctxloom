@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
@@ -134,7 +135,7 @@ func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context
 // engine-env pair (EnvCoordURL, EnvCoordCred) returned for injection at launch. A standup failure returns
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
-func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp, runtimeAxis string) (*coord.Coordinator, map[string]string, error) {
+func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp string, runtimeAxis agent.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
 	c, err := NewHostedCoordinator(cfg, projectDir)
 	if err != nil {
 		return nil, nil, err
@@ -152,7 +153,7 @@ func HostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp, runtim
 // the per-owner-harp agent-bus.sock bind step: observe/roster/inject now
 // ride ConsumerService, a single coordinator-wide surface Serve() already
 // stood up — nothing left to bind here.
-func SessionOwnerEnv(c *coord.Coordinator, ownerHarp, runtimeAxis string) (map[string]string, error) {
+func SessionOwnerEnv(c *coord.Coordinator, ownerHarp string, runtimeAxis agent.RuntimeAxis) (map[string]string, error) {
 	token, err := c.RegisterSessionOwner(ownerHarp)
 	if err != nil {
 		return nil, err

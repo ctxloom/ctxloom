@@ -220,6 +220,15 @@ func runACPSessionWithConfig(cmd *cobra.Command, cfg *config.Config, opening str
 
 	warnACPSessionWorkspaceAxis(cfg.GetWorkspace())
 
+	// The project's RUNTIME axis, parsed here — as early as practical for
+	// this single-turn form, via the single canonical ParseRuntimeAxis — so a
+	// typo'd project `runtime:` fails loud instead of riding into
+	// ChatRequest.Runtime as an unvalidated string.
+	runtimeAxis, err := agent.ParseRuntimeAxis(cfg.GetRuntime())
+	if err != nil {
+		return fmt.Errorf("project `runtime:` default: %w", err)
+	}
+
 	factory := acpRunFactory
 	if factory == nil {
 		factory = pb.DefaultClientFactory()
@@ -242,7 +251,7 @@ func runACPSessionWithConfig(cmd *cobra.Command, cfg *config.Config, opening str
 		// answering from the host. The single-turn form already resolves this
 		// axis through operations.RunOneshot, and two forms of one verb that
 		// isolate differently is a difference nobody would think to look for.
-		Runtime: cfg.GetRuntime(),
+		Runtime: runtimeAxis,
 	}, chatTurns{
 		Lead:    ctxResult.Context,
 		Opening: opening,

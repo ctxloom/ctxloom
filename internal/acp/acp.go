@@ -433,15 +433,15 @@ func withEngineStderr(err error, tr *transport) error {
 
 // transportRequest is one ACP conversation's launch: the argv, the env overlay,
 // the working directory, and the runtime axis that chooses host or container
-// (agent.ChatRequest.Runtime — "" = host, either container-ownership value =
-// container; ask agent.IsContainerRuntime, never an equality test).
+// (agent.ChatRequest.Runtime — RuntimeHost = host, either container-ownership
+// value = container; ask agent.IsContainerRuntimeAxis, never an equality test).
 // The axis travels WITH the launch rather than on *ACP, so which transport runs
 // is a property of the call and not of what a previous argv build left behind.
 type transportRequest struct {
 	argv    []string
 	env     map[string]string
 	workDir string
-	runtime string
+	runtime agent.RuntimeAxis
 }
 
 type transportFunc func(ctx context.Context, req transportRequest) (*transport, error)
@@ -453,7 +453,7 @@ type transportFunc func(ctx context.Context, req transportRequest) (*transport, 
 // mapping, and everything above this function are untouched regardless of which
 // branch runs.
 func (b *ACP) spawnTransport(ctx context.Context, req transportRequest) (*transport, error) {
-	if agent.IsContainerRuntime(req.runtime) {
+	if agent.IsContainerRuntimeAxis(req.runtime) {
 		return b.containerTransport(ctx, req.argv, req.env, req.workDir, req.runtime)
 	}
 	return b.spawnHostTransport(ctx, req.argv, req.env, req.workDir)

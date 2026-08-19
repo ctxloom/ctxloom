@@ -25,7 +25,7 @@ type SpawnPlan struct {
 	Backend   string
 	Label     string
 	Profiles  []string
-	Runtime   string
+	Runtime   agent.RuntimeAxis
 	Context   string
 	Perm      agent.PermissionMode
 	// Workspace is GAP 2's per-call workspace-axis override (none|worktree;

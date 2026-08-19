@@ -199,7 +199,7 @@ func (c *Coordinator) LoopbackURL() string {
 // runs; the widened bridge/host-interface listener for container runs
 // (opened on demand, never 0.0.0.0). The hosting glue uses it for the parent
 // harness's env trio.
-func (c *Coordinator) ReachURL(runtimeAxis string) (string, error) {
+func (c *Coordinator) ReachURL(runtimeAxis agent.RuntimeAxis) (string, error) {
 	srv := c.srv.Load()
 	if srv == nil {
 		return "", errors.New("coordinator listeners are not up")
@@ -207,7 +207,7 @@ func (c *Coordinator) ReachURL(runtimeAxis string) (string, error) {
 	// EITHER ownership mode is a container, and both need the widened
 	// listener: loopback inside a container is the container's own loopback,
 	// so handing one back is not a degraded URL, it is an unreachable one.
-	if !agent.IsContainerRuntime(runtimeAxis) {
+	if !agent.IsContainerRuntimeAxis(runtimeAxis) {
 		return srv.loopURL, nil
 	}
 	return srv.ensureWide()

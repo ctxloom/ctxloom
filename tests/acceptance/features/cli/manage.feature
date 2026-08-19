@@ -336,7 +336,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the output contains "HOOKLIST-FIRST"
       And the output contains "HOOKLIST-SECOND"
       And the output matches "HOOKLIST-FIRST[\s\S]*HOOKLIST-SECOND"
-      And the output contains "bundle hooked"
+      And the output contains "bundle ctxloom+local:hooked"
 
     # Each hook must name ONE place to go. A coarse "local" label covering both
     # config.yaml's own hooks: block and every inline profile's leaves a user

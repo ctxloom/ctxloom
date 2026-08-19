@@ -17,8 +17,8 @@
 // READER, NOT IMPORTER — and NOT the deleted scrapers either. These are not
 // one-time imports into a ctxloom-owned archive: a vendor reader is consulted
 // whenever a conversation is needed and transforms the vendor's own store
-// into ctxloom's canonical form ON READ (task virtuous-evil, decided
-// 2026-08-05). Do not confuse this package with the per-engine
+// into ctxloom's canonical form ON READ (task virtuous-evil). Do not
+// confuse this package with the per-engine
 // Backend.History() SCRAPERS deleted in S5 as PROVEN BROKEN (their defects
 // are named in internal/lm/grpc/canonical_source.go: codex's
 // envelope-vs-flat parse, claude's wrong-filename, kiro's v1-vs-v2-sqlite,

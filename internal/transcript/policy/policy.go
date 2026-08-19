@@ -22,8 +22,8 @@
 // silently does nothing for codex and kiro, which is the failure this
 // boundary exists to prevent.
 //
-// The policy is HARD-CODED, not a config surface (user, 2026-08-06). Revisit
-// when a second opinion about it actually exists.
+// The policy is HARD-CODED, not a config surface. Revisit when a second
+// opinion about it actually exists.
 package policy
 
 import (
@@ -67,7 +67,7 @@ func New(rules ...Rule) Policy { return Policy{rules: rules} }
 // bytes twice.
 //
 // file_snapshot is NOT free, and was excluded anyway with the cost accepted
-// knowingly (user, 2026-08-06): Edit carries 2.34 MB of whole-file pre-edit
+// knowingly: Edit carries 2.34 MB of whole-file pre-edit
 // images against 0.09 MB of result text, duplicated nowhere. It snapshots the
 // entire file on every edit.
 //

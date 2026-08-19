@@ -561,9 +561,19 @@ test-acceptance: build _ensure-gotmpdir
 #
 #   just test-acceptance-focus features/j001400_bundle_distribution.feature
 #   just test-acceptance-focus features/j000200_setup.feature,features/j000700_team.feature
-#   just test-acceptance-focus features/j002200_isolation.feature "@wip"
+#   just test-acceptance-focus features/j002200_isolation.feature "@container"
 #
 # PATHS is comma-separated and relative to tests/acceptance/.
+#
+# A run that matches ZERO scenarios FAILS. `go test` exits 0 when godog matches
+# nothing, so without that "I looked and found nothing wrong" and "I never
+# looked" are the same green tick — and the second is the easy one to get,
+# because every scenario in a file can be excluded by the default tag filter
+# while the file itself is perfectly real. Same invariant as the
+# `[no tests to run]` guard on test-integration-run and the no-score guard on
+# test-mutation-cucumber. The two causes get different messages because they
+# need different fixes: a path that names no file is a typo, a filter that
+# excluded everything needs TAGS.
 #
 # Leaving TAGS empty keeps the DEFAULT hermetic tag filter (~@live ~@network
 # ~@future ~@wip ~@container) and therefore the hermetic lane, where a runtime
@@ -575,10 +585,64 @@ test-acceptance: build _ensure-gotmpdir
 # Narrowing hides regressions in the features you did not name. That is the
 # trade this recipe exists to make; the merge gate is what closes it.
 test-acceptance-focus PATHS TAGS="": build _ensure-gotmpdir
+    #!/usr/bin/env bash
+    # No `set -e`: the run's exit code is captured so the zero-scenario verdict
+    # below can speak before it propagates.
+    set -uo pipefail
+
+    # CAUSE 1: a PATHS entry that names no feature file. godog does refuse this
+    # ("feature path ... is not available"), but only from inside the -v
+    # firehose, and it names the path without saying what PATHS is relative to.
+    missing=()
+    IFS=',' read -r -a wanted <<<"{{PATHS}}"
+    for p in "${wanted[@]}"; do
+        [ -e "tests/acceptance/$p" ] || missing+=("$p")
+    done
+    if [ "${#missing[@]}" -ne 0 ]; then
+        echo "error: PATHS names no feature file: ${missing[*]}" >&2
+        echo "       PATHS is comma-separated and relative to tests/acceptance/ — a" >&2
+        echo "       renamed or typo'd path would run zero scenarios." >&2
+        exit 1
+    fi
+
+    log="{{go_tmp}}/.acceptance-focus.$$.log"
+    trap 'rm -f "$log"' EXIT
     GOTMPDIR="{{go_tmp}}" \
     ACCEPTANCE_PATHS={{PATHS}} \
     ACCEPTANCE_TAGS="{{TAGS}}" \
-    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/... 2>&1 | tee "$log"
+    status="${PIPESTATUS[0]}"
+    if [ "$status" -ne 0 ]; then
+        exit "$status"
+    fi
+
+    # CAUSE 2: the paths matched, godog ran, and the TAG FILTER left nothing to
+    # run. godog says so in one line it also exits 0 on. The count is anchored
+    # at line start, ahead of any colouring godog puts on the passed/failed
+    # tallies that follow it.
+    summary=$(grep -aE '^(No scenarios|[0-9]+ scenarios)' "$log" | head -1)
+    if [ -z "$summary" ]; then
+        echo "error: the run never said how many scenarios it covered." >&2
+        echo "       godog prints that count on every run; without it there is nothing" >&2
+        echo "       here that distinguishes a covered run from an empty one. Do not" >&2
+        echo "       read this as a pass." >&2
+        exit 1
+    fi
+    if [ "${summary}" = "No scenarios" ]; then
+        filter="{{TAGS}}"
+        if [ -z "$filter" ]; then
+            filter="~@live && ~@network && ~@future && ~@wip && ~@container (the default, because TAGS was empty)"
+        fi
+        echo "error: the focused run matched ZERO scenarios — it verified NOTHING." >&2
+        echo "       Every PATHS entry names a real feature file, so the TAG FILTER" >&2
+        echo "       excluded every scenario in them:" >&2
+        echo "           $filter" >&2
+        echo "       Passing TAGS REPLACES that filter rather than intersecting with it," >&2
+        echo "       so opt in with the tag the scenarios actually carry, e.g." >&2
+        echo "           just test-acceptance-focus {{PATHS}} \"@container\"" >&2
+        echo "       Do not read this as a pass." >&2
+        exit 1
+    fi
 
 # Build a coverage-instrumented ctxloom.
 build-cover: dev-image
@@ -1167,13 +1231,22 @@ test-mutation-container:
 # need no mutation run:
 #
 #   just test-pkg ./tests/mutation/... -tags mutation -run TestMutationTargets
+#
+# THE RESULT IS RATCHETED, per target, against tests/mutation/survivor_baseline.txt:
+# a target that measures MORE survivors than its recorded count fails this
+# recipe. The harness itself cannot do that — it releases with
+# WithMinimumThreshold(0) so a threshold is never chosen before a measurement
+# exists — so without the ratchet the only thing that can red this gate is a
+# run producing no score at all. Re-record after coverage work with
+# CTXLOOM_MUTATION_BASELINE=update; the baseline file states what each
+# provenance word licenses.
 test-mutation-cucumber *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
     marker="{{mutation_tmp}}/.cache-sweep.$$"
     : > "$marker"
-    trap 'rm -f "$marker"' EXIT
+    trap 'rm -f "$marker" "{{mutation_tmp}}/.run.$$.log"' EXIT
     set +e
     # -v is LOAD-BEARING, not a debugging convenience. ooze prints its per-mutant
     # diffs and its summary box to STDOUT, and `go test` swallows a PASSING test's
@@ -1215,8 +1288,22 @@ test-mutation-cucumber *ARGS:
     echo
     echo "=== mutation summary ==="
     grep -E 'Total:|Killed:|Survived:|Score:' <<<"$output" || true
-    # Past the no-score guard, so a real score was produced: sweep what the
-    # per-mutant recompiles just added.
+    # THE SECOND HALF OF THE SAME INVARIANT: the guard above refuses a run that
+    # measured nothing; this one refuses a run that measured something WORSE
+    # than what is already recorded. A score alone cannot fail this gate, so
+    # regression is what fails it — per target, because one number for the whole
+    # table lets an improvement in one entry mask a regression in another.
+    runlog="{{mutation_tmp}}/.run.$$.log"
+    printf '%s\n' "$output" > "$runlog"
+    set +e
+    bash tests/mutation/survivor_ratchet.sh tests/mutation/survivor_baseline.txt "$runlog"
+    ratchet=$?
+    set -e
+    if [ "$ratchet" -ne 0 ]; then
+        exit "$ratchet"
+    fi
+    # Past both guards, so a real score was produced and it did not regress:
+    # sweep what the per-mutant recompiles just added.
     just _sweep-cache "$marker"
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).

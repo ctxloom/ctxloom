@@ -1,0 +1,48 @@
+# THE RATCHET. Each row is the survivor count one mutation target is known to
+# produce. `just test-mutation-cucumber` fails when a target measures MORE
+# survivors than its row here.
+#
+# It does not fail on the counts already recorded: those are tracked debt, and
+# a gate that refused them would simply never be run. What it refuses is a
+# change that leaves more mechanisms unverified than it found — which is the
+# only thing the harness itself cannot refuse, because it releases with
+# WithMinimumThreshold(0) so that a threshold is never chosen before a
+# measurement exists.
+#
+# A survivor is a mutant no scenario killed: a mechanism a feature CLAIMS to
+# cover and does not actually verify. The ratchet keys on that COUNT, not on
+# the score. Score is killed/total, so a change that adds well-covered code
+# raises the score while leaving MORE mechanisms unverified than before; the
+# count cannot be moved that way. TOTAL is recorded beside it only so a
+# failure can say whether the extra survivors arrived with a bigger mutant set
+# or on the same one — nothing is gated on TOTAL.
+#
+# TARGET                                   TOTAL  SURVIVED  PROVENANCE
+# what the harness prints as its `ooze-target:` marker, so a row can only be
+# compared against the measurement it names.
+#
+# PROVENANCE says what licenses the number, and is the one thing here taken on
+# trust:
+#   measured  a run of this gate against this repository wrote it.
+#   recorded  carried over from the project's mutation record. Believed of the
+#             code it was taken on; never re-measured by this gate.
+#   stale     recorded, and known NOT to describe HEAD — coverage work landed
+#             on the target after the measurement. It is an UPPER BOUND, so it
+#             still catches a regression, and the first real run must lower it.
+#   unknown   no number exists. The gate reports what it measures and calls it
+#             neither a pass nor a failure; the first real run records it.
+#
+# Re-record the rows a run covered:
+#   CTXLOOM_MUTATION_BASELINE=update just test-mutation-entry <name>
+#
+# A count that goes DOWN is reported, never lowered automatically. Lowering it
+# is what keeps the ratchet tracking the debt down instead of banking slack,
+# and it belongs in the diff that earned it.
+#
+# TARGET                                   TOTAL  SURVIVED  PROVENANCE
+TestAcceptanceMutation/bundle_sign            31         6  recorded
+TestAcceptanceMutation/trust_cascade         132        51  recorded
+TestAcceptanceMutation/signer_store          138        83  stale
+TestAcceptanceMutation/isolation_axes         44        32  recorded
+TestAcceptanceMutation/remote_registry         -         -  unknown
+TestTrustCascadeGuardMutation                  -         -  unknown

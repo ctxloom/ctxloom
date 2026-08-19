@@ -30,8 +30,9 @@ To return an item to pending, decided neither way, use
 Reference format matches 'ctxloom bundle trust' (see its help).
 
 Examples:
-  ctxloom bundle reject tooling#fragments/curl-pipe-sh
-  ctxloom bundle reject 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
+  ctxloom bundle reject 'tooling#fragments/curl-pipe-sh'
+  ctxloom bundle reject 'ctxloom+builtin:ltk#hooks/SessionStart/0'
+  ctxloom bundle reject 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
 
 ```
 ctxloom bundle reject <ref> [flags]
@@ -40,7 +41,7 @@ ctxloom bundle reject <ref> [flags]
 ### Options inherited from parent commands
 
 ```
-      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
+      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     show help for this command

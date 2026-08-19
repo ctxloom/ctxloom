@@ -23,9 +23,17 @@ of truth) while preserving foreign entries. Unlike 'ctxloom profile export'
 (which publishes the profile YAML), this writes the assembled, ready-to-run
 config a plain 'claude' / CI / human launch reads by default.
 
+--diff <file> switches to a read-only comparison instead: it assembles the
+named profile(s)' context exactly as materialize would, but rather than
+writing it under --target, diffs it against an already-delivered context file
+(e.g. another machine's materialized CLAUDE.md) and reports what differs — the
+two-machine "it works on his machine, not hers" symptom. --target is not
+required in this mode; nothing is written.
+
 Examples:
   ctxloom profile materialize default --target ./out
   ctxloom profile materialize go-dev cr-correctness-go --target ../worktree
+  ctxloom profile materialize default --diff ../bob-checkout/CLAUDE.md
 
 ```
 ctxloom profile materialize <profile>... [flags]
@@ -35,6 +43,7 @@ ctxloom profile materialize <profile>... [flags]
 
 ```
       --backend string        Backend surface to write (claude-code) (default "claude-code")
+      --diff string           Compare this profile's materialized context against an already-delivered context file instead of writing --target
       --surface stringArray   Override where a surface is delivered: <kind>=<approach> (repeatable). See --help for what this project's engines support.
       --target string         Target directory to write the agent surface into (required)
 ```
@@ -42,7 +51,7 @@ ctxloom profile materialize <profile>... [flags]
 ### Options inherited from parent commands
 
 ```
-      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
+      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     show help for this command

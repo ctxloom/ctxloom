@@ -21,8 +21,9 @@ With a path after #, displays just that item's content.
 Path formats:
   bundle-name                     Full bundle YAML
   bundle-name#fragments/name      Fragment content
-  bundle-name#commands/name       Command content
+  bundle-name#commands/name       Command content (prompts/ is accepted too)
   bundle-name#mcp/name            MCP server config
+  bundle-name#skills/name         Skill manifest
   bundle-name#profiles/name       Profile definition
 
 Examples:
@@ -45,7 +46,7 @@ ctxloom bundle view <name[#path]> [flags]
 ### Options inherited from parent commands
 
 ```
-      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
+      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     show help for this command

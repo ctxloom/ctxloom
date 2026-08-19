@@ -27,14 +27,36 @@ refused rather than reported as success. Grant it with
 With no signing key at all the decision is recorded unsigned in your personal
 store.
 
-Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#commands/<name>,
-<bundle-ref>#mcp/<name>, or <bundle-ref>#hooks/<event>/<index>. The bundle ref
-may be a canonical URL ref, a ctxloom:local ref, or a plain local bundle name.
+REFERENCE FORMAT
+
+A reference is <bundle>#<kind>/<name>. The kinds are fragments, commands
+(prompts is accepted as an alias), mcp, hooks, and skills; a hook's name is
+<event>/<index>. Profiles are deliberately not addressable: a profile is a
+selection, not content, and its constituent items are decided individually.
+
+The bundle half is either a CANONICAL URI or a plain bundle NAME:
+
+  ctxloom+local:<name>                        a bundle in this project's tree
+  ctxloom+builtin:<name>                      a bundle compiled into ctxloom
+  ctxloom+companion:<binary>                  a companion binary's loadout
+  ctxloom+git://<host>/<repo>//bundles/<name> a bundle in a remote repository
+  ctxloom+file://<abs-repo>//bundles/<name>   the same, in a repo on this disk
+
+A canonical URI resolves on its own, so an item stays decidable after the
+bundle carrying it is gone. A plain name is looked up instead, and is refused
+when it names more than one bundle — the URI in that refusal says which is
+which. A remote ALIAS is never a reference: an alias addresses a fetch.
+
+Every form needs shell quoting, because '#' starts a comment in most shells.
 
 Examples:
-  ctxloom bundle trust core#fragments/tdd
-  ctxloom bundle trust ctxloom:local@bundles/dev#commands/review
-  ctxloom bundle trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
+  ctxloom bundle trust 'core#fragments/tdd'
+  ctxloom bundle trust 'lang/go#fragments/idioms'
+  ctxloom bundle trust 'ctxloom+local:dev#commands/review'
+  ctxloom bundle trust 'ctxloom+builtin:isolation#fragments/isolation-axes'
+  ctxloom bundle trust 'ctxloom+companion:ltk#hooks/PreToolUse/0'
+  ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
+  ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/x@v1.2.0#fragments/y'
 
 Reject an item with 'ctxloom bundle reject <ref>'. Withdraw this approval —
 returning the item to pending, without rejecting it — with
@@ -47,7 +69,7 @@ ctxloom bundle trust <ref> [flags]
 ### Options inherited from parent commands
 
 ```
-      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
+      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     show help for this command

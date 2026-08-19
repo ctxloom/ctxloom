@@ -18,9 +18,18 @@ lets anyone who trusts your key verify the bundle came from you (signature-
 envelope spec §3.1, §4.2).
 
 ref is a bundle ref or an item ref — the same grammar 'ctxloom bundle trust'
-uses. A publisher signature covers the whole bundle FILE, so an item ref
+uses: a plain local bundle name, or the canonical 'ctxloom+local:<name>' URI.
+A publisher signature covers the whole bundle FILE, so an item ref
 ("<bundle>#fragments/<name>") resolves to its CONTAINING bundle and signs
 that; ctxloom bundle sign says so.
+
+Only bundles you author LOCALLY can be signed. A remote bundle's tree is not
+yours to write — only that remote's own publisher can sign it — and a builtin
+is never signed at all, because signing bytes compiled into the binary that
+verifies them is circular. Both are refused by name rather than skipped.
+
+ref is never resolved against a catalog: a publishing repository signs the
+bundles it ships, whether or not they are installed anywhere.
 
 Key discovery is zero-config: it tries 'git config user.signingkey' first
 (anyone who already signs commits with SSH needs no ctxloom setup at all),
@@ -33,7 +42,8 @@ material — every signature is produced by your existing ssh-agent.
 
 Examples:
   ctxloom bundle sign my-tools                          # bare = local bundle (the common case)
-  ctxloom bundle sign my-tools#fragments/go-testing      # resolves to bundle my-tools
+  ctxloom bundle sign 'my-tools#fragments/go-testing'    # resolves to bundle my-tools
+  ctxloom bundle sign 'ctxloom+local:my-tools'           # the same bundle, canonically
   ctxloom bundle sign --all                              # every local bundle this project publishes
   ctxloom bundle sign my-tools --key ~/.ssh/id_ed25519.pub
   ctxloom bundle sign my-tools --key ben@abbitt.me       # match by ssh-agent key comment
@@ -52,7 +62,7 @@ ctxloom bundle sign [ref] [flags]
 ### Options inherited from parent commands
 
 ```
-      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
+      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     show help for this command

@@ -18,7 +18,7 @@ Change an EXISTING agent's binding in the 'agents:' key of
 'ctxloom agent create'.
 
 Only the flags you pass are applied; every unnamed field keeps its current
-value, so 'ctxloom agent edit dev --runtime container' does not wipe dev's
+value, so 'ctxloom agent edit dev --runtime container-rootless' does not wipe dev's
 llm, profiles, posture or escalation ladder. An explicitly-supplied empty
 value (--llm "") clears that field.
 
@@ -28,8 +28,12 @@ the same thing, and the two spellings drift.
 
 The engine (optional) overrides the profiles' own llm; omit it to use the project
 default. Profiles compose into one assembled context. Runtime (optional:
-host|container) sets WHERE this agent's engine process executes; omit it to
-inherit the project's 'runtime:' default. The workspace axis (worktree vs shared
+host|container-rootless|container-rootful) sets WHERE this agent's engine
+process executes; omit it to inherit the project's 'runtime:' default — which
+is a default rather than a decision, so 'ctxloom init' always writes one
+explicitly. Not every engine can take a container axis: one with no way to
+authenticate inside a container is refused here, and 'ctxloom llm list' reports
+per engine which values it can be given. The workspace axis (worktree vs shared
 dir) is NOT set here — it is a session trait chosen at invocation time
 (run/acp --workspace, or an agent_run spawn's workspace field). Driving
 (optional: conversational|oneshot) sets
@@ -46,7 +50,7 @@ invocation path this binding resolves through — a bare run under
 default_agent, run --agent, a delegated child, a oneshot fan member alike.
 
 Examples:
-  ctxloom agent edit dev --runtime container
+  ctxloom agent edit dev --runtime container-rootless
   ctxloom agent edit reviewer --profiles cr-correctness-golang,cr-security
 
 ```
@@ -56,18 +60,18 @@ ctxloom agent edit <name> [flags]
 ### Options
 
 ```
-      --config-home string    Per-engine config-home policy on the in-tree axis: project|host (empty = host, the default — controlled homes are opt-in)
-      --llm string            llm.configs label to bind (overrides the profiles' llm; empty = project default)
-      --permissions string    Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
-      --profiles strings      Comma-separated profile name(s)/ref(s) to compose
-      --runtime string        Runtime axis: where this agent's engine executes (host|container; empty = project default)
-      --surface stringArray   Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.
+      --config-home string         Per-engine config-home policy on the in-tree axis: project|host (empty = host, the default — controlled homes are opt-in)
+      --llm string                 llm.configs label to bind (overrides the profiles' llm; empty = project default)
+      --permissions string         Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
+      --profiles strings           Comma-separated profile name(s)/ref(s) to compose
+      --runtime ctxloom llm list   Runtime axis: where this agent's engine executes (host|container-rootless|container-rootful; empty = project default). ctxloom llm list reports which of these each engine can be given
+      --surface stringArray        Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.
 ```
 
 ### Options inherited from parent commands
 
 ```
-      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
+      --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     show help for this command

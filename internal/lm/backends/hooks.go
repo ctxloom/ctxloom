@@ -25,7 +25,7 @@ var WithSettingsFS = agent.WithSettingsFS
 // otherwise the OS filesystem is used. The per-backend writer constructors
 // live in the descriptor table (registry.go).
 func GetSettingsWriter(name string, fs afero.Fs) agent.SettingsWriter {
-	if d, ok := descriptors[name]; ok && d.newWriter != nil {
+	if d, ok := lookup(name); ok && d.newWriter != nil {
 		return d.newWriter(agent.SettingsOptions{FS: fs})
 	}
 	return nil

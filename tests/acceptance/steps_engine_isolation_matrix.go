@@ -78,7 +78,7 @@ import (
 // reasons that have nothing to do with the engine.
 type matrixState struct {
 	engine    string // backend type, as written in the Examples table
-	runtime   string // host | container
+	runtime   string // host | container-rootless | container-rootful
 	workspace string // none | worktree
 	nonce     string
 	stdout    string

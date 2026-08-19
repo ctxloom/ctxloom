@@ -19,3 +19,10 @@ bundles:
     # briefs the work, and whoever reviews it. An audit on 2026-08-04 found 25
     # assertions in this repo that were green and proved nothing.
     - ctxloom-project#fragments/green-is-not-passing
+    # This project is a PROTOTYPE and is developed as one: delete and rebuild
+    # rather than accommodate, own a red you did not cause, and reduce before
+    # implementing. It belongs here rather than in one role's profile because
+    # the disposition it governs is not the coordinator's alone — an
+    # implementer that files a task instead of fixing what it can, or waves a
+    # failure through as pre-existing, is the same defect one layer down.
+    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/prototyping

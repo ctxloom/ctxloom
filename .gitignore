@@ -32,15 +32,13 @@ go.work.sum
 # empty tree. These patterns are gitignore.PrivateStatePatterns; keep them in
 # sync with that list rather than re-broadening to a blanket.
 .ctxloom/cache/
-.ctxloom/pieces/
 .ctxloom/sessions/
-.ctxloom/ephemeral/
 .ctxloom/project-id
-# Transient advisory lock files (not gitignore.PrivateStatePatterns; added
-# here because retiring the blanket exposed them).
+.ctxloom/state/
+# Advisory lock sidecars now live under state/locks, but every project written
+# by an earlier version carries .ctxloom/config.yaml.lock at its root, and
+# leaving that visible in `git status` invites exactly one mistake.
 .ctxloom/*.lock
-# Design plans stay under version control (kept from the retired block).
-!.ctxloom/plans/
 # Defense-in-depth: a NESTED .ctxloom under a package dir is test/tool pollution
 # (the root `.ctxloom/*` above is anchored by its slash, so nested dirs slip
 # through). The operations TestMain also prevents + guards this at its source.
@@ -87,18 +85,15 @@ coverage.raw.*.out
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
-# ctxloom ephemeral data (synced bundles, session data, context files)
-.ctxloom/ephemeral/
-
-# ctxloom private working state (synced bundles, session/context, project id)
+# Per-file backups ctxloom writes before rewriting a managed surface.
 *.ctxloom.bak
+# gemini engine surface; regenerated, never authored here.
 .gemini/
 
 # Generated JSON Schemas for ctxloom JSON output (vexed-cloak); produced by
 # `just gen-schemas` (build dep + CI step), like generated protobuf.
 resources/schema/gen/
 
-# ctxloom private working state (synced bundles, session/context, project id)
 # Codex runtime state. ctxloom points CODEX_HOME at <project>/.codex to keep
 # prompts cell-local (internal/codex/surfaces.go), but codex uses ONE home for
 # both its config surface AND all of its runtime state — so it also writes its
@@ -120,11 +115,8 @@ resources/schema/gen/
 .codex/*
 !.codex/prompts/
 
-# ctxloom private working state (synced bundles, session/context, project id)
+# Agent surface materialized by ctxloom; regenerated, never authored here.
 .agents/
-
-# ctxloom private working state (synced bundles, session/context, project id)
-.ctxloom/project-id
 
 # Generated living-docs journey pages (like generated protobuf/JSON Schema):
 # produced by `just gen-living-docs` from a passing acceptance run's capture,
@@ -138,13 +130,8 @@ opencode.json
 AGENTS.md
 .ctxloom-opencode-managed
 
-# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)
+# codex engine surface materialized by ctxloom; regenerated, never authored here.
 .codex/config.toml
-
-# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)
-.ctxloom/cache/
-.ctxloom/pieces/
-.ctxloom/sessions/
 
 # Serena's per-project state. Only the LOCAL and rebuildable parts are ignored;
 # .serena/project.yml and .serena/memories/ are VERSIONED deliberately.
@@ -166,11 +153,8 @@ AGENTS.md
 # artifacts; this is the scratch ledger behind them.
 DECISIONS.md
 
-# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)
+# codex credentials — a real secret, nothing to do with ctxloom state.
 .codex/auth.json
-
-# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)
-.ctxloom/state/
 
 # Coverage-instrumented ctxloom (just build-cover). Same name as the shipped
 # binary on purpose — see cmd/ctxloom/justfile — so it needs its own directory.

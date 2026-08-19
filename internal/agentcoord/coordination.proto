@@ -1,7 +1,10 @@
-// coordination.proto — agentcoord.v1 (rev 12 — plane-2 Stage 2a)
+// coordination.proto — agentcoord.v1 (plane-2 Stage 2a)
 //
-// Changelog rev 11 -> rev 12 (pre-release; ONE SANCTIONED BREAK, see below):
-//   - 4.B: mail `kind` becomes the MessageKind ENUM, carried by
+// DESIGN NOTES, most recent first. ONE SANCTIONED BREAK ships in this
+// history (mail `kind`, immediately below) — everything else here is
+// additive.
+//
+//   - mail `kind` becomes the MessageKind ENUM, carried by
 //     PeerSendRequest.kind (7) and PeerMessage.kind (8). The
 //     `structured["kind"]` free-string convention is RETIRED — that string was
 //     the injection vector (a sender could name the coordinator-reserved
@@ -11,49 +14,46 @@
 //     shape: `kind` moves out of `structured` and onto the message. A
 //     deliberate prerelease break, human-sanctioned, per the
 //     no-backward-compat-shims rule.
-//   - 4.C: presentation-only reminder messages (MailPendingReminder,
+//   - presentation-only reminder messages (MailPendingReminder,
 //     SteerPendingReminder, UnpulledReminder, QuestionPendingReminder,
 //     PausedReminder, ResumedReminder). NEVER WIRE TRAFFIC: they exist to be
 //     rendered into
 //     injected `<ctxloom-reminder>` frames by their GENERATED `.XmlLike()`
 //     encoders (annotations.proto's XmlRole). No RPC, oneof, or field
 //     anywhere carries one.
-//   - 4.E: ControlInitiatorKind — the closed HUMAN/AGENT privilege
+//   - ControlInitiatorKind — the closed HUMAN/AGENT privilege
 //     discriminator for control verbs, journaled into durable facts.
 //   - Comment-only: SteerResult.APPLIED_IMMEDIATE no longer claims "injected
 //     into the current turn". It means IDLE TARGET, NEW
 //     TURN NOW; no engine surface supports genuine mid-turn injection.
 //
-// Changelog rev 10 -> rev 11 (pre-release, additive):
-//   - F1: ListRunsResult.RunInfo gains permission_mode
+//   - ListRunsResult.RunInfo gains permission_mode
 //     and mcp_servers so the roster — a real operator's ONLY black-box view
 //     of a live delegation — can audit the central delegation security
 //     claim ("a child only ever gets its own tools"), which until now was
 //     provable solely by an in-process Go unit test. Both are resolved once
 //     at enqueue (facts.go's runEnqueued.Permission/MCPServers) for the same
-//     reason Ladder already is (rev 9's D1/D5 note below): a later config
-//     edit must not retroactively change what a live run's privileges were.
-//     mcp_servers is NAMES ONLY — never command/args/env, which can carry a
-//     secret (mirrors cred_hash: this journal records identity, never the
-//     credential). Additive; empty/absent on any run journaled before this
-//     revision.
+//     reason Ladder already is (see the parent_run_id note below): a later
+//     config edit must not retroactively change what a live run's
+//     privileges were. mcp_servers is NAMES ONLY — never command/args/env,
+//     which can carry a secret (mirrors cred_hash: this journal records
+//     identity, never the credential). Additive; empty/absent on any run
+//     journaled before these fields existed.
 //
-// Changelog rev 9 -> rev 10 (pre-release, additive):
-//   - E1a: the deferred artifact-transfer surface (UploadArtifact/
+//   - the deferred artifact-transfer surface (UploadArtifact/
 //     DownloadArtifact + their messages) lands on a NEW, separate
 //     ArtifactTransferService in artifacts.proto (same package) — see that
-//     file's header for the reserved-slot reconciliation and the rev-5
-//     sketch deviations. No field renumbering here; AgentRequest/
+//     file's header for the reserved-slot reconciliation and the design
+//     sketch's deviations. No field renumbering here; AgentRequest/
 //     CoordinatorResponse slot 15 (artifact_lookup) and CoordinatorRequest/
 //     AgentResponse slot 12 (state_snapshot) STAY reserved (Lookup/feedback/
 //     gates and StateSnapshot/Delta remain shelved).
-//   - E1c: Summary gains `publish_paths` (field 7) — the generic artifact-
+//   - Summary gains `publish_paths` (field 7) — the generic artifact-
 //     publish case: cell-local file paths the agent names explicitly,
 //     runner-read and uploaded via ArtifactTransferService alongside the
 //     automatic *.plan.md manifest stamping (unchanged).
 //
-// Changelog rev 8 -> rev 9 (pre-release, additive):
-//   - D1: new ConsumerService — WatchRuns (server-stream: a fold SNAPSHOT
+//   - new ConsumerService — WatchRuns (server-stream: a fold SNAPSHOT
 //     followed by LIVE plane-1 AgentEvents, full payloads including delta
 //     text, teed as they arrive on each run's RunChannel; the durable
 //     journal stays counts-only for deltas — this is a SEPARATE, additive
@@ -64,36 +64,32 @@
 //     then live-from-now; there is no historical delta replay (session
 //     transcripts serve history). Consumer credentials are a distinct,
 //     read-only class — see coord/consumer.go.
-//   - D1/D5: ListRunsResult.RunInfo gains parent_run_id so a roster consumer
+//   - ListRunsResult.RunInfo gains parent_run_id so a roster consumer
 //     can render the delegation tree (depth-2 children close manly-grant);
-//     StartRun/RunStarted already carried parent_run_id (rev 5) — this only
+//     StartRun/RunStarted already carried parent_run_id — this only
 //     exposes it on the read-side roster projection.
 //
-// Changelog rev 7 -> rev 8 (pre-release, additive; comment-only — no field
-// changes):
-//   - C0/A8: documented the HarnessSpec.config Struct-key convention that
-//     carries the delegated child's session harp (CTXLOOM_SESSION_HARP):
-//     key "ctxloom.session_harp". HarnessSpec gains no typed field for it —
-//     the A3 boundary (only permission_mode is typed; MCP config/env and now
-//     the harp stay in the Struct, harness-specific shapes) already covers
-//     this; A8 just needed the convention written down.
+//   - Comment-only, no field changes: documented the HarnessSpec.config
+//     Struct-key convention that carries the delegated child's session harp
+//     (CTXLOOM_SESSION_HARP): key "ctxloom.session_harp". HarnessSpec gains
+//     no typed field for it — only permission_mode is typed; MCP config/env
+//     and the harp stay in the Struct, harness-specific shapes.
 //   - Documented on RunStarted/StartRunResult: harness_session_id is
 //     journaled by the coordinator (run.harness fact) and feeds
 //     HarnessSpec.resume_session_id on a later retry/resume of the same
 //     harp — closing the loop the fields already implied.
 //
-// Changelog rev 6 -> rev 7 (pre-release, additive):
-//   - D1: AgentRequest gains `stop_run` (CoordinatorResponse the matching
+//   - AgentRequest gains `stop_run` (CoordinatorResponse the matching
 //     result). A PARENT requesting a child's termination is SpawnAgent's
 //     dual and had no plane-2 home (CancelRun is coordinator->agent);
 //     the coordinator ownership-checks the target run_id against the
 //     requester's lineage.
-//   - D2: AgentEvent slot 50 un-reserved — ArtifactProduced restored
+//   - AgentEvent slot 50 un-reserved — ArtifactProduced restored
 //     (fields renumbered into declaration order while nothing shipped;
 //     was reserved "until a consumer exists", and the plan-manifest
 //     consumer now exists). Manifest-on-log only: the chunked transfer
 //     RPCs stay deferred with the artifact family.
-//   - D3: new annotations.proto in the package — custom FieldOptions/
+//   - annotations.proto added to the package — custom FieldOptions/
 //     MessageOptions carrying LLM-facing schema metadata (required,
 //     example, doc-override) for the GENERATED MCP tool surface. protoc-
 //     gen-go strips SourceCodeInfo from embedded descriptors, so comments
@@ -104,23 +100,22 @@
 //     session itself rather than one spawned run (the parent harness
 //     routes through its own runner like every agent).
 //
-// Changelog rev 5 -> rev 6:
-//   - A1: RunnerHello.runner_id removed (remaining fields renumbered);
+//   - RunnerHello.runner_id removed (remaining fields renumbered);
 //     runner, agent, and run identity derive from the connection
 //     credential, never from self-declared fields.
-//   - A2: money is micro-USD — BudgetSpec.max_cost_usd_micros and
+//   - money is micro-USD — BudgetSpec.max_cost_usd_micros and
 //     Usage.cost_usd_micros (were *_usd_cents).
-//   - A3: HarnessSpec.permission_mode added as a typed, coordinator-
+//   - HarnessSpec.permission_mode added as a typed, coordinator-
 //     enforced field; it no longer rides inside `config`.
-//   - A6: ListRunsRequest scopes by exact task_id + include_descendants;
+//   - ListRunsRequest scopes by exact task_id + include_descendants;
 //     task_id_prefix dropped (no prefix matching on opaque ids).
-//   - A10: queued peer delivery documented as durable coordinator
+//   - queued peer delivery documented as durable coordinator
 //     mailbox state that survives coordinator restarts.
 //   - Artifact/state split: the artifact family (produce, feedback,
 //     lookup, chunked transfer) and the shared-state family (snapshot,
 //     delta) are deferred until a consumer exists; their field numbers
 //     are reserved in place, and the transfer RPCs will land on a future
-//     ArtifactTransfer service in artifacts.proto. The rev-5 design file
+//     ArtifactTransfer service in artifacts.proto. The design file
 //     is the source of record for the deferred shapes. ArtifactRef and
 //     ArtifactKind stay here as shared vocabulary.
 //
@@ -162,7 +157,7 @@
 //      user input, sub-agent spawns, sibling lookups; the coordinator can
 //      ask agents questions, demand on-demand summaries, pause/resume,
 //      steer. (Artifact fetches and state-snapshot pulls are deferred
-//      with the artifact/state families — see the changelog above.)
+//      with the artifact/state families — see the design notes above.)
 //
 //   3. NOTICE PLANE (fire-and-forget delivery)
 //      Agent -> coordinator: Heartbeat. Coordinator -> agent: Ack
@@ -248,7 +243,7 @@ service CoordinatorService {
   // Chunked artifact transfer (UploadArtifact / DownloadArtifact) is
   // deferred with the artifact family: it will land on a dedicated
   // ArtifactTransfer service in artifacts.proto when a consumer exists.
-  // The rev-5 design file is the source of record for those shapes.
+  // The design file is the source of record for those shapes.
 
   // Unary at-least-once fallback for constrained agents (batch CI,
   // flaky networks) and for replaying a locally journaled event log.
@@ -355,7 +350,7 @@ message HarnessSpec {
   string harness = 1;    // must be in RunnerHello.harnesses
   string model = 2;
   string workspace = 3;  // working directory / checkout the runner prepares
-  // 4 was extra_args (repeated string), REMOVED 2026-07-26: it
+  // 4 was extra_args (repeated string), REMOVED: it
   // documented an allowlist enforcement point that never existed and no
   // runner ever read the field. Reintroducing per-run CLI arguments means
   // building the validation first, then giving it a new field number.
@@ -363,7 +358,7 @@ message HarnessSpec {
   // Tool policy, MCP config, env — harness-specific. Permission mode
   // does NOT ride here; it is the typed permission_mode field below.
   //
-  // C0/A8 convention (documented, not typed — see the A3 boundary above):
+  // The session-harp convention (documented, not typed — see the boundary above):
   // the delegated child's session harp (CTXLOOM_SESSION_HARP) rides key
   // "ctxloom.session_harp" as a plain string value. Runners read it from
   // here rather than a typed field because it is ctxloom-specific ambient
@@ -411,7 +406,7 @@ message StopRun {
     doc: "Why you are stopping this child. Recorded on the run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on (\"superseded by a narrower brief\", \"wrong base commit\")",
     example: "\"superseded by a narrower brief\""
   }];
-  // 3 was grace (google.protobuf.Duration), REMOVED 2026-07-26:
+  // 3 was grace (google.protobuf.Duration), REMOVED:
   // no code path ever read it. The parent->coordinator stop is a hard kill
   // and the runner-control direction never implemented the SIGINT-then-
   // SIGTERM escalation the field implied, so advertising it to the model
@@ -420,7 +415,7 @@ message StopRun {
 }
 
 message StopRunResult {
-  // 1 was exited_within_grace (bool), REMOVED 2026-07-26: both
+  // 1 was exited_within_grace (bool), REMOVED: both
   // return paths hardcoded `true`, including the immediate-kill path — a
   // response field asserting an unmeasured fact. Nothing measures it now
   // that `grace` is gone.
@@ -581,7 +576,7 @@ message HelloAck {
   // echoes Hello.resume_from_seq back unchanged because it keeps no durable
   // event log to compare against. See Hello.resume_from_seq.
   uint64 committed_seq = 3;
-  // 4 was event_window (uint32), REMOVED 2026-07-26: the
+  // 4 was event_window (uint32), REMOVED: the
   // app-level credit window was never emitted, never read, and never
   // enforced, so the file's "end-to-end backpressure" claim rested on a
   // field that did not exist at runtime.
@@ -624,7 +619,7 @@ message AgentRequest {
   google.protobuf.Duration timeout = 2;
 
   // 15 is held for artifact_lookup, deferred with the artifact family;
-  // the rev-5 design file is the source of record.
+  // the design file is the source of record.
   reserved 15;
 
   oneof kind {
@@ -633,7 +628,7 @@ message AgentRequest {
     SpawnAgentRequest spawn_agent = 12;
     PeerSendRequest peer_send = 13;
     ListRunsRequest list_runs = 14;
-    // D1: a parent asks the coordinator to terminate one of its children —
+    // A parent asks the coordinator to terminate one of its children —
     // SpawnAgent's dual. The coordinator ownership-checks the target
     // run_id against the REQUESTER's lineage (only the run's parent may
     // stop it) and answers StopRunResult. In the B window the runtime
@@ -652,7 +647,7 @@ message CoordinatorResponse {
   google.rpc.Status status = 2;
 
   // 15 is held for artifact_lookup, deferred with the artifact family;
-  // the rev-5 design file is the source of record.
+  // the design file is the source of record.
   reserved 15;
 
   oneof kind {
@@ -661,7 +656,7 @@ message CoordinatorResponse {
     SpawnAgentResult spawn_agent = 12;
     PeerSendResult peer_send = 13;
     ListRunsResult list_runs = 14;
-    StopRunResult stop_run = 16;  // D1: answers AgentRequest.stop_run
+    StopRunResult stop_run = 16;  // answers AgentRequest.stop_run
     google.protobuf.Struct custom = 90;
   }
 }
@@ -745,7 +740,7 @@ message SpawnAgentRequest {
     example: "{\"prompt\": \"Review the diff on branch X for correctness bugs\"}"
   }];
   // 3 was constraints (google.protobuf.Struct), 4 was budget (BudgetSpec),
-  // 5 was notify_on (enum NotifyOn) — all three REMOVED 2026-07-26.
+  // 5 was notify_on (enum NotifyOn) — all three REMOVED.
   // Every one was projected into agent_run's model-facing tool
   // schema and discarded by serveSpawnAgent: there is no budget carve-out,
   // no constraint enforcement, and no completion-notification machinery.
@@ -763,7 +758,7 @@ message BudgetSpec {
 }
 
 message SpawnAgentResult {
-  // 1 was child_task_id (string), REMOVED 2026-07-26: never
+  // 1 was child_task_id (string), REMOVED: never
   // populated, so the model received an always-empty id in every spawn
   // result. ctxloom keys delegation on (harp, run_id); there is no task-id
   // axis.
@@ -772,7 +767,7 @@ message SpawnAgentResult {
   string child_agent_id = 3;
 }
 
-// MessageKind is the CLOSED vocabulary of mailbox message kinds (4.B).
+// MessageKind is the CLOSED vocabulary of mailbox message kinds.
 //
 // It replaces the `structured["kind"]` free-string convention, which was
 // sender-controlled over an OPEN vocabulary that included the
@@ -875,13 +870,13 @@ message PeerSendRequest {
   // sender-allowed values are accepted here; a coordinator-reserved value (or
   // an unrecognised number) is refused at ingress naming the vocabulary.
   //
-  // 4.B: this REPLACES the retired `structured["kind"]` convention. `kind` in
+  // This REPLACES the retired `structured["kind"]` convention. `kind` in
   // `structured` is now just an ordinary payload key with no special meaning.
   MessageKind kind = 7 [(field_schema) = {
     doc: "REQUIRED. The message's kind, from a CLOSED vocabulary of exactly four values you may send: MESSAGE_KIND_MESSAGE (plain prose, claiming no special authority), MESSAGE_KIND_RESULT (your findings/verdict/deliverable), MESSAGE_KIND_ERROR (a failure the recipient must act on), MESSAGE_KIND_QUESTION (you expect an answer back). Every OTHER value is the coordinator's own and is REJECTED from a sender, not quietly downgraded — a reserved kind asks the recipient to trust the coordinator's authorship (MESSAGE_KIND_APPROVAL_REQUEST is relayed to a human as a trust decision), so a sender able to set one could borrow that authority. An unrecognised value is likewise REJECTED rather than passed through, and so is leaving this unset: the send fails, naming the four legal values. Nothing you write here is ever interpolated into text the recipient reads — the kind renders only as a name from this closed set.",
     example: "\"MESSAGE_KIND_RESULT\""
   }];
-  // 5 was artifact_ids (repeated string), REMOVED 2026-07-26:
+  // 5 was artifact_ids (repeated string), REMOVED:
   // servePeerSend never read it and PeerMessage.artifacts was never
   // populated, so an agent that attached artifact ids to a message sent
   // nothing and the recipient's advertised `artifacts` array was always
@@ -917,9 +912,9 @@ message ListRunsRequest {
   };
 
   // 1 was task_id (string), 4 was include_descendants (bool) — both
-  // REMOVED 2026-07-26. serveListRuns read neither. There is no
+  // REMOVED. serveListRuns read neither. There is no
   // task-id axis to scope by, and the roster is ALREADY the whole
-  // delegation tree: descendants (D5 grandchildren) are always included and
+  // delegation tree: descendants (grandchildren) are always included and
   // carry parent_run_id, so `include_descendants: true` could only ever
   // return the identical list.
   reserved 1, 4;
@@ -943,33 +938,33 @@ message ListRunsResult {
     string latest_summary = 5;     // most recent Summary.text, truncated
     google.protobuf.Timestamp last_event_at = 6;
     // Empty for a depth-1 (top-level) child; set for a depth-2+ grandchild
-    // (D5) — the SPAWNING run's run_id, so a roster consumer can render the
+    // the SPAWNING run's run_id, so a roster consumer can render the
     // delegation tree without re-deriving it from the event log.
     string parent_run_id = 7;
     // permission_mode is the child's resolved permission mode's kind name
     // (agent.PermissionMode.String(): "bypass"|"plan"|"default"|
-    // "acceptEdits"), fixed at enqueue (F1). Empty for a run journaled
-    // before F1.
+    // "acceptEdits"), fixed at enqueue. Empty for a run journaled
+    // before this field existed.
     string permission_mode = 8;
-    // mcp_servers are the child's resolved MCP server NAMES ONLY (F1) —
+    // mcp_servers are the child's resolved MCP server NAMES ONLY —
     // never command, args, or env, which can carry a secret. Composed
     // strictly from the child's OWN resolved profile set
     // (prodSpawner.childMCPServers), so this is the privilege-scoping audit
     // trail: a real operator can confirm a run received exactly these
     // servers, never a sibling's or the parent's. Empty for a run journaled
-    // before F1.
+    // before this field existed.
     repeated string mcp_servers = 9;
   }
   repeated RunInfo runs = 1;
 }
 
 // =============================================================================
-// Consumer watch API (D1, Wave D): read-only observation for viewers — the
-// TUI (run_terminal_ui/sessionfeed/roster), ACP frontends (D3's Tier A
+// Consumer watch API (Wave D): read-only observation for viewers — the
+// TUI (run_terminal_ui/sessionfeed/roster), ACP frontends (Tier A
 // push), and a parent watching a child live. A NEW, additive service: no
 // change to CoordinatorService or its messages. Steer/inject is NOT here —
-// it mutates a run, so it rides the session's own authenticated surface
-// (D2); ConsumerService is observation only.
+// it mutates a run, so it rides the session's own authenticated surface;
+// ConsumerService is observation only.
 // =============================================================================
 
 service ConsumerService {
@@ -1001,11 +996,11 @@ message RosterSnapshot {
   repeated ListRunsResult.RunInfo runs = 1;
 }
 
-// Shared artifact vocabulary, retained through the rev-6 artifact split:
+// Shared artifact vocabulary, retained through the artifact split:
 // PeerMessage.artifacts carries these by reference, and Result /
 // ToolCallCompleted carry artifact-id strings. The rest of the artifact
 // family (production, feedback, lookup, transfer) is deferred — see the
-// header changelog.
+// header design notes.
 message ArtifactRef {
   string artifact_id = 1;
   string run_id = 2;
@@ -1053,7 +1048,7 @@ message CoordinatorRequest {
   repeated string required_capabilities = 3;
 
   // 12 is held for state_snapshot, deferred with the shared-state
-  // family; the rev-5 design file is the source of record.
+  // family; the design file is the source of record.
   reserved 12;
 
   oneof kind {
@@ -1071,7 +1066,7 @@ message AgentResponse {
   google.rpc.Status status = 2;  // UNIMPLEMENTED if capability absent
 
   // 12 is held for state_snapshot, deferred with the shared-state
-  // family; the rev-5 design file is the source of record.
+  // family; the design file is the source of record.
   reserved 12;
 
   oneof kind {
@@ -1142,7 +1137,7 @@ message PauseResult {
 message ResumeRequest {}
 message ResumeResult {}
 
-// ControlInitiatorKind names WHO initiated a control action (4.E) — the
+// ControlInitiatorKind names WHO initiated a control action — the
 // privilege discriminator the coordinator's control guard reads to decide
 // whether the caller may control a given run.
 //
@@ -1175,7 +1170,7 @@ enum ControlInitiatorKind {
 
 // ----- injected reminder frames (PRESENTATION ONLY, never wire traffic) -------
 //
-// 4.C. These messages are the source of the DATA STRUCTURE for the tiny
+// These messages are the source of the DATA STRUCTURE for the tiny
 // `<ctxloom-reminder>` notices ctxloom injects into a session's turn stream.
 // They are rendered to text by their GENERATED `.XmlLike()` encoders
 // (annotations.proto's XmlRole) and are NEVER SENT: no RPC takes one, no oneof
@@ -1296,7 +1291,7 @@ message ResumedReminder {
 
 message CoordinatorNotice {
   // 5 is held for artifact_feedback, deferred with the artifact family;
-  // the rev-5 design file is the source of record.
+  // the design file is the source of record.
   reserved 5;
 
   oneof kind {
@@ -1340,7 +1335,7 @@ message PeerMessage {
   google.protobuf.Struct structured = 5 [(field_schema) = {
     doc: "Structured companion the sender attached, when there is one. A message whose `kind` is MESSAGE_KIND_APPROVAL_REQUEST carries the escalation ladder's ApprovalRequest projection here and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first. This object no longer carries the message kind — read the `kind` field."
   }];
-  // 6 was artifacts (repeated ArtifactRef), REMOVED 2026-07-26:
+  // 6 was artifacts (repeated ArtifactRef), REMOVED:
   // no producer ever set it, so agent_recv advertised an artifacts array
   // that could never appear. See PeerSendRequest's reserved 5.
   reserved 6;
@@ -1348,7 +1343,7 @@ message PeerMessage {
   // The message's kind, from the closed MessageKind vocabulary — including the
   // coordinator-reserved values, which only ever appear INBOUND like this.
   //
-  // 4.B: this REPLACES the retired `structured["kind"]` convention, and is the
+  // This REPLACES the retired `structured["kind"]` convention, and is the
   // user-visible half of that break: `kind` moved out of `structured` and onto
   // the message. A recognised value here is guaranteed by decode; an
   // unrecognised one is refused rather than delivered unclassified.
@@ -1470,8 +1465,8 @@ message AgentEvent {
   string traceparent = 7;
 
   // 60/61 are held for state_snapshot/state_delta (shared-state family),
-  // deferred; the rev-5 design file is the source of record. 50 was
-  // un-reserved in rev 7 (D2): ArtifactProduced returned with the
+  // deferred; the design file is the source of record. 50 was
+  // un-reserved: ArtifactProduced returned with the
   // plan-manifest consumer.
   reserved 60, 61;
 
@@ -1705,8 +1700,8 @@ message ToolCallCompleted {
 // finer-grained. Retained vocabulary: referenced by ArtifactRef and
 // ApprovalRequest while the rest of the artifact family is deferred.
 // A durable artifact fact: the agent produced (a revision of) an artifact.
-// Restored in rev 7 (D2) for the plan-manifest consumer, fields RENUMBERED
-// into declaration order (rev-5's jumble, A5) while nothing had shipped.
+// Restored for the plan-manifest consumer, fields RENUMBERED
+// into declaration order (the earlier jumble) while nothing had shipped.
 // Manifest-on-log discipline: bulk bytes stay in the producing session's
 // directory (or an external store); the log carries the manifest — name,
 // kind, size, sha256, location. The chunked transfer RPCs remain deferred
@@ -1790,7 +1785,7 @@ message Summary {
 
   repeated string artifact_ids = 6;
 
-  // E1c generic publish case: cell-local file paths (relative to the
+  // Generic publish case: cell-local file paths (relative to the
   // working directory) to publish as artifacts alongside this report —
   // runner-read and uploaded via ArtifactTransferService, size-capped
   // sanely (coord/artifacts.go). Automatic *.plan.md stamping happens

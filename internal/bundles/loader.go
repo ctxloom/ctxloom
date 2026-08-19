@@ -198,7 +198,7 @@ func (l *Loader) ReadKey(key trust.BundleKey) (BundleRead, bool) {
 
 // LoadKey reads a bundle by its EXACT resolution key. See ReadKey.
 func (l *Loader) LoadKey(key trust.BundleKey) (*Bundle, error) {
-	return l.Catalog().LoadBundleKey(key)
+	return l.Catalog().LoadKey(key)
 }
 
 // Load reads a bundle by name. See Catalog.Lookup for what an ask may be and

@@ -685,8 +685,8 @@ func (c Catalog) Load(ask string) (*Bundle, error) {
 	return read.Bundle, nil
 }
 
-// LoadBundleKey reads a bundle by its EXACT resolution key. See LookupKey.
-func (c Catalog) LoadBundleKey(key trust.BundleKey) (*Bundle, error) {
+// LoadKey reads a bundle by its EXACT resolution key. See LookupKey.
+func (c Catalog) LoadKey(key trust.BundleKey) (*Bundle, error) {
 	read, ok := c.LookupKey(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, key)

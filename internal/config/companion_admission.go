@@ -100,6 +100,33 @@ var companionSessionInteractive = func() bool {
 	return term.IsTerminal(int(inFile.Fd())) && term.IsTerminal(int(errFile.Fd()))
 }
 
+// SetCompanionPromptIOForTesting redirects both ends of the consent question
+// and returns a restore function.
+//
+// BOTH ends, never one: the question is written to out and the answer read from
+// in, so redirecting only the writer leaves a forced-interactive test reading
+// the real stdin, which blocks forever when that stdin is a terminal.
+func SetCompanionPromptIOForTesting(in io.Reader, out io.Writer) func() {
+	prevIn, prevOut := companionPromptIn, companionPromptOut
+	companionPromptIn, companionPromptOut = in, out
+	return func() { companionPromptIn, companionPromptOut = prevIn, prevOut }
+}
+
+// SetCompanionSessionInteractiveForTesting pins whether the admission cascade
+// believes there is a human it can put the consent question to, and returns a
+// restore function.
+//
+// It exists so a caller in ANOTHER package can prove its own path never raises
+// that question. Under `go test` neither end is a terminal, so the real answer
+// is always false and nothing would ask whatever the caller passed — which
+// makes "no prompt appeared" true for a reason that has nothing to do with the
+// code under test. Forcing it true is what turns that assertion into evidence.
+func SetCompanionSessionInteractiveForTesting(v bool) func() {
+	prev := companionSessionInteractive
+	companionSessionInteractive = func() bool { return v }
+	return func() { companionSessionInteractive = prev }
+}
+
 // AdmitCompanions decides, for each discovered companion name, whether ctxloom
 // may execute it — trust-on-first-use, keyed on the resolved absolute path AND
 // the binary's SHA-256.

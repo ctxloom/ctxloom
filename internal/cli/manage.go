@@ -429,7 +429,7 @@ func printHarnessStatus(r *operations.HarnessStatusResult) {
 	}
 	printSurfaceCurrencies(r.Surfaces)
 	fmt.Println()
-	printCompanionSection()
+	printCompanionStatus(os.Stdout)
 }
 
 // printSurfaceCurrencies renders the DELIVERY half of the wiring report — see

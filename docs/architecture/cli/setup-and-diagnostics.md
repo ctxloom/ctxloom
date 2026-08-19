@@ -120,10 +120,15 @@ All four also exist as `manage config *` deprecated aliases (`manage.go:406-452`
 
 `companionHint` is the "what breaks / how to install" text for a missing
 companion binary; its map keys are companion binary names, and a name with no
-entry degrades to a generic fallback. `printCompanionStatus` renders the
-resolved `bundles.Catalog` — companion-provenance reads are contributing,
-`Catalog.Candidates()` are not — so the report never discovers companions a
-second time and cannot disagree with the session it describes.
+entry degrades to a generic fallback. `printCompanionStatus` reads
+`config.AdmitCompanions(..., prompt=false)` and nothing else: a status command
+executes no companion — approved or not — and can never raise the
+trust-on-first-use question, because the answer to "what is the state of
+things" must not itself change that state. The resolved `bundles.Catalog` is
+deliberately NOT consulted here; its companion reader is the exec. `ctxloom
+doctor` reads the catalog instead (`Catalog.Candidates()` for the companions
+that produced nothing), which is where a diagnosis is allowed to cost a
+resolution.
 
 ## `ctxloom container` (`container_cmd.go:22`)
 

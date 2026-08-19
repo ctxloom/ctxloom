@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
+	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/internal/version"
 )
 
@@ -930,6 +931,17 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 		parts = append(parts, section.label+": "+strings.Join(section.items, ", ")+section.hint)
 	}
 	return doctorCheck{Marker: marker, Status: doctorOK, Detail: strings.Join(parts, "; ")}
+}
+
+// companionBinOf recovers the binary name a companion identity was minted
+// from. A key that will not parse is shown verbatim: it is still the most
+// specific thing known about that entry, and hiding it would drop a row.
+func companionBinOf(key trust.BundleKey) string {
+	ref, err := trust.ParseBundleRef(string(key))
+	if err != nil || ref.Bundle == "" {
+		return string(key)
+	}
+	return ref.Bundle
 }
 
 // doctorCheckSetupAuthPing is a placeholder. init-as-skill's USER RULING (a)

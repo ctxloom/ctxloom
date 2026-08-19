@@ -23,6 +23,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // Distinctive marker strings the shared "team" bundle carries, so a
@@ -133,7 +135,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		if err := w.env.InitGitRepo(); err != nil {
 			return err
 		}
-		if err := w.env.WriteFile(".ctxloom/config.yaml", "version: 4\n"); err != nil {
+		if err := w.env.WriteFile(".ctxloom/config.yaml", fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)); err != nil {
 			return err
 		}
 		if err := w.env.WriteFile(".ctxloom/content/bundles/team.yaml", j000400TeamBundleYAML()); err != nil {

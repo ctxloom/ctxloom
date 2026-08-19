@@ -30,6 +30,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // j002200Record is one "Alice runs the mock agent under workspace ..." step's
@@ -85,8 +87,7 @@ func j002200Of(w *World) *j002200State {
 // has no atomic-replace merge rule), so the project's own `type: mock` and
 // home's `env` deep-merge into one usable entry.
 func j002200ConfigYAML() string {
-	return `version: 4
-llm:
+	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     fast:
       type: mock
@@ -109,8 +110,7 @@ agents:
 // with a fresh recordFile so sequential runs never clobber each other's
 // evidence — see j002200ConfigYAML's doc for why this piece lives in HOME.
 func j002200HomeConfigYAML(recordFile string) string {
-	return fmt.Sprintf(`version: 4
-llm:
+	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`llm:
   configs:
     fast:
       env:

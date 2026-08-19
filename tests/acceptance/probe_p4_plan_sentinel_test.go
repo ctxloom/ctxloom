@@ -34,6 +34,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 const p4TestHarp = "swift-amber-falcon"
@@ -307,7 +309,7 @@ func TestP4PermissionValue_MapsThePairAndPanicsOnAnythingElse(t *testing.T) {
 // reaching config.yaml the two cells would become the same cell — both at
 // bypass, both green, the ladder reporting plan enforcement it never exercised.
 func TestP4ConfigYAML_CarriesThePostureOntoTheProductionBindingSurface(t *testing.T) {
-	a := liveAgent{config: "version: 4\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n"}
+	a := liveAgent{config: fmt.Sprintf("version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
 
 	plan := p4ConfigYAML(a, "claude", p4Plan)
 	control := p4ConfigYAML(a, "claude", p4Control)

@@ -16,6 +16,9 @@
 package acceptance
 
 import (
+	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,7 +49,7 @@ func TestRuntimeAxis_ConfigFileControl(t *testing.T) {
 			require.NoError(t, env.InitGitRepo())
 			require.NoError(t, env.CreateProjectConfig())
 			require.NoError(t, env.WriteFile(".ctxloom/config.yaml",
-				"version: 5\nagents:\n  probe:\n    runtime: "+tc.runtime+"\n"))
+				fmt.Sprintf("version: %d\nagents:\n  probe:\n    runtime: %s\n", config.CurrentConfigVersion, tc.runtime)))
 
 			_ = env.Run("run", "--agent", "probe", "--dry-run", "hi")
 			exit := env.LastExitCode()

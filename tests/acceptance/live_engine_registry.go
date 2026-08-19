@@ -37,6 +37,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // realHomeDir is the user's actual home, captured in TestMain (acceptance_test.go)
@@ -140,8 +142,7 @@ var liveAgents = map[string]liveAgent{
 		binary:     "claude",
 		apiKeyEnvs: []string{"ANTHROPIC_API_KEY"},
 		credDir:    ".claude",
-		config: `version: 4
-llm:
+		config: fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     claude:
       type: claude-code
@@ -166,8 +167,7 @@ llm:
 		binary:     "kiro-cli",
 		apiKeyEnvs: []string{"KIRO_API_KEY"},
 		credDir:    filepath.Join(".local", "share", "kiro-cli"),
-		config: `version: 4
-llm:
+		config: fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     kiro:
       type: kiro
@@ -240,8 +240,7 @@ llm:
 		binary:     "codex",
 		apiKeyEnvs: []string{"OPENAI_API_KEY", "CODEX_API_KEY"},
 		credDir:    ".codex",
-		config: `version: 4
-llm:
+		config: fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     codex:
       type: codex
@@ -271,8 +270,7 @@ llm:
 		binary:     "opencode",
 		apiKeyEnvs: []string{"OPENROUTER_API_KEY"},
 		credDir:    filepath.Join(".local", "share", "opencode"),
-		config: `version: 4
-llm:
+		config: fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     opencode:
       type: opencode

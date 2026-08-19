@@ -129,7 +129,6 @@ func namesAreAscendingW76(infos []bundles.ContentInfo) bool {
 	return true
 }
 
-
 // NewRepoCache built its per-forge resolver inside
 // `if registry, err := remote.NewRegistry(...); err == nil { ... }` — so a
 // remotes.yaml that exists but cannot be parsed or read dropped every

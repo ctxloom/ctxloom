@@ -53,6 +53,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // j002300AgentSpec is one delegated child's fixture identity: which profile/
@@ -115,7 +117,7 @@ func j002300ProfileYAML(s *j002300AgentSpec) string {
 // launch fails outright ("refusing to auto-commit for delegated agent").
 func j002300HermeticConfigYAML(specs ...*j002300AgentSpec) string {
 	var b strings.Builder
-	b.WriteString("version: 4\nworkspace: none\nllm:\n  configs:\n    fast:\n      type: mock\n  defaults:\n    primary: fast\n    fast: fast\nagents:\n")
+	b.WriteString(fmt.Sprintf("version: %d\nworkspace: none\nllm:\n  configs:\n    fast:\n      type: mock\n  defaults:\n    primary: fast\n    fast: fast\nagents:\n", config.CurrentConfigVersion))
 	for _, s := range specs {
 		fmt.Fprintf(&b, "  %s:\n    llm: fast\n    profiles:\n      - %s\n    permissions: bypass\n", s.Name, s.Profile)
 	}
@@ -128,8 +130,7 @@ func j002300HermeticConfigYAML(specs ...*j002300AgentSpec) string {
 // the @live suite already uses, so this is genuinely two different vendor
 // engines, not one engine under two labels.
 func j002300LiveConfigYAML(claudeSpec, codexSpec *j002300AgentSpec) string {
-	return fmt.Sprintf(`version: 4
-workspace: none
+	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`workspace: none
 llm:
   configs:
     claude:

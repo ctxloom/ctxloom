@@ -1826,6 +1826,27 @@ func loadConfigLayer(cfg *Config, layer layerscope.Layer, appPath, homeAppPath, 
 		pending = &upgrade.Pending{Path: configPath, Data: upgraded, Applied: applied}
 		zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))
 	}
+	// A config older than the current schema is REFUSED, not repaired. The
+	// in-place upgraders are gone (see CurrentConfigVersion): rewriting a config
+	// toward a shape nobody has exercised in years is how one retired step came
+	// to migrate toward a backend the registry no longer carries, producing a
+	// file that could not load at all. A missing `version` is the pre-versioning
+	// generation and is equally too old.
+	//
+	// Reported as a finding rather than returned as an error, like every other
+	// class here, so the startup gate decides whether it is fatal and the user
+	// gets the whole picture rather than the first problem encountered.
+	if v, declared := declaredConfigVersion(data); v < CurrentConfigVersion {
+		spelled := "no `version` key, i.e. the pre-versioning generation"
+		if declared {
+			spelled = fmt.Sprintf("`version: %d`", v)
+		}
+		strictness.FailOnce(strictness.ClassMigration,
+			fmt.Sprintf("back up %s, then re-run `ctxloom init` to scaffold a current one and re-apply your settings", configPath),
+			"%s carries %s but this ctxloom requires config schema version %d, and in-place upgrades have been removed — an old config is no longer rewritten on load",
+			configPath, spelled, CurrentConfigVersion)
+	}
+
 	// A lossy upgrade (a dropped user-set value) is collected by the pipeline
 	// rather than printed inline, so the loader can tag it with its kind and
 	// the strict startup gate can abort on it (fail-loudly).

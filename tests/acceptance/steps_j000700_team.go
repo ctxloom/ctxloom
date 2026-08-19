@@ -32,6 +32,8 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 const (
@@ -284,7 +286,7 @@ func j000700SetupTeamProject(w *World) error {
 // rule), so the project's own `type: mock` and home's `env` deep-merge into
 // one usable entry.
 func j000700SetupDistillProject(w *World) error {
-	cfg := "version: 4\n" +
+	cfg := fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) +
 		"llm:\n" +
 		"  configs:\n" +
 		"    mock:\n" +
@@ -296,7 +298,7 @@ func j000700SetupDistillProject(w *World) error {
 	if err := j000700SetupProject(w, cfg); err != nil {
 		return err
 	}
-	homeCfg := "version: 4\n" +
+	homeCfg := fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) +
 		"llm:\n" +
 		"  configs:\n" +
 		"    mock:\n" +

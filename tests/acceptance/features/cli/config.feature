@@ -176,18 +176,19 @@ Feature: config — the project's one configuration document, read and scaffolde
     # reported "already exists" and had nonetheless rewritten the file would
     # pass a message-only assertion while having destroyed the project's
     # configuration. The existing document is read back to prove it survived
-    # verbatim: `version: 4` is the fixture's own content, and `engine:` is a
+    # verbatim: `version: 6` is the fixture's own content (it tracks
+    # config.CurrentConfigVersion — bump both together), and `engine:` is a
     # key only the scaffold writes — its absence is what says no scaffold ran.
     Scenario: Create refuses an existing config and leaves it byte-for-byte alone
       Given an initialized ctxloom project
-      And the file ".ctxloom/config.yaml" contains "version: 4"
+      And the file ".ctxloom/config.yaml" contains "version: 6"
       When Alice scaffolds over a project that already has a configuration:
         """
         ctxloom config create
         """
       Then the command fails
       And the output contains "config already exists"
-      And the file ".ctxloom/config.yaml" contains "version: 4"
+      And the file ".ctxloom/config.yaml" contains "version: 6"
       And the file ".ctxloom/config.yaml" does not contain "engine:"
 
   Rule: Edit refuses to open an editor on a config that is not there

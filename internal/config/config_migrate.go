@@ -6,11 +6,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/config/migrate/fromv1"
-	"github.com/ctxloom/ctxloom/internal/config/migrate/fromv2"
-	"github.com/ctxloom/ctxloom/internal/config/migrate/fromv3"
-	"github.com/ctxloom/ctxloom/internal/config/migrate/fromv4"
-	"github.com/ctxloom/ctxloom/internal/config/migrate/fromv5"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
@@ -114,24 +109,39 @@ func (u agentProfileCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
 	return changed
 }
 
-// newConfigUpgrades builds the ordered, registry-free upgrade pipeline, oldest
-// SOURCE version first. Each step lives in its own package under
-// internal/config/migrate, named for the config version it migrates OFF, and
-// carries its own tests — so retiring support for a source version is deleting
-// that directory and the one line here that names it.
+// newConfigUpgrades builds the ordered, registry-free upgrade pipeline. It is
+// deliberately EMPTY: a config older than CurrentConfigVersion is now REFUSED
+// rather than repaired in place (see the refusal in loadConfigLayer).
 //
-// sink collects the lossy steps' dropped-setting diagnostics; it is bound per
-// load so one config's loss is never attributed to another.
+// The frame around it is intact on purpose — the pipeline, the per-load sink,
+// and the pending-upgrade consent path that asks before rewriting a user's
+// file. Re-introducing an upgrade is appending one Upgrader here, oldest SOURCE
+// version first, in its own package under internal/config/migrate named for the
+// version it migrates OFF. Rebuilding the consent UX is the expensive half, and
+// it is what this empty frame preserves.
+//
+// sink collects a lossy step's dropped-setting diagnostics; it is bound per
+// load so one config's loss is never attributed to another. Nothing writes to
+// it while the pipeline is empty.
 func newConfigUpgrades(sink *migrationSink) upgrade.Pipeline {
 	report := upgrade.Reporter(nil)
 	if sink != nil {
 		report = sink.record
 	}
-	return upgrade.Pipeline{
-		fromv1.Upgrade{},
-		fromv2.Upgrade{Report: report},
-		fromv3.Upgrade{Report: report},
-		fromv4.Upgrade{},
-		fromv5.Upgrade{Report: report},
+	_ = report
+	return upgrade.Pipeline{}
+}
+
+// declaredConfigVersion reports the `version` a raw config document declares and
+// whether the key was present at all. Absent, non-integer and unparseable all
+// read as version 0 with declared=false: each means "this file does not say it
+// is current", which is the only question the caller asks.
+func declaredConfigVersion(data []byte) (version int, declared bool) {
+	var doc struct {
+		Version *int `yaml:"version"`
 	}
+	if err := yaml.Unmarshal(data, &doc); err != nil || doc.Version == nil {
+		return 0, false
+	}
+	return *doc.Version, true
 }

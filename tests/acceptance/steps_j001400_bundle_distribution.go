@@ -91,6 +91,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // j001400State is this journey's fixture state.
@@ -170,8 +172,7 @@ func j001400BundleRel(rel string) string {
 // declared is not a configuration any consumer would have, and the matrix is
 // supposed to describe one.
 func j001400ConfigYAML() string {
-	return `version: 4
-llm:
+	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     claude-code:
       type: claude-code

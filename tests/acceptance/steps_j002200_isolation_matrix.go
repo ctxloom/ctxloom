@@ -76,6 +76,8 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // isoSpyEnvAllowlist is the CLOSED set of environment variables the spy is
@@ -453,8 +455,7 @@ func isoMatrixConfigYAML(engineType, configHome string) string {
 	if configHome != "" {
 		configHomeLine = fmt.Sprintf("    config_home: %s\n", configHome)
 	}
-	return fmt.Sprintf(`version: 4
-llm:
+	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`llm:
   configs:
     iso:
       type: %s
@@ -471,8 +472,7 @@ agents:
 // isoMatrixHomeConfigYAML renders the HOME half — see isoMatrixConfigYAML's
 // doc for why env lives here.
 func isoMatrixHomeConfigYAML(spyOut string) string {
-	return fmt.Sprintf(`version: 4
-llm:
+	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`llm:
   configs:
     iso:
       env:

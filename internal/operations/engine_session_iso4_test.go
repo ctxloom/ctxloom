@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -221,7 +222,7 @@ func TestOpenEngineSession_FragmentsAndCommandsWireThroughToSummary(t *testing.T
 	profileYAML := "name: reviewer-profile\ndescription: test\nbundles:\n  - local#fragments/onboarding\n"
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "reviewer-profile.yaml"), []byte(profileYAML), 0o644))
 
-	body := "version: 5\n" +
+	body := fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) +
 		"config:\n  use_distilled: false\n" +
 		"agents:\n  reviewer:\n    llm: mock\n    profiles: [reviewer-profile]\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))

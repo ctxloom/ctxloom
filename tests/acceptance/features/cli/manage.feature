@@ -346,7 +346,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
-        version: 4
+        version: 6
         editor:
           command: "true"
         hooks:

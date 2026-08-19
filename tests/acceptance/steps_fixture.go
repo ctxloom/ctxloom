@@ -5,6 +5,8 @@ package acceptance
 import (
 	"context"
 	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -34,11 +36,11 @@ import (
 // writeMinimalConfig): editor.command/args are ScopeMachine
 // (internal/config/layerscope) — a binary on THIS box — so a committed
 // project-file value no longer survives a real Load.
-const minimalConfig = "version: 4\n"
+var minimalConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)
 
 // minimalHomeEditorConfig is minimalConfig's HOME half: the no-op editor
 // pin. See minimalConfig's doc and writeMinimalConfig.
-const minimalHomeEditorConfig = "version: 4\neditor:\n  command: \"true\"\n"
+var minimalHomeEditorConfig = fmt.Sprintf("version: %d\neditor:\n  command: \"true\"\n", config.CurrentConfigVersion)
 
 // writeMinimalConfig writes minimalConfig to the project layer and
 // minimalHomeEditorConfig to home — every scenario that used to write
@@ -62,8 +64,7 @@ func writeMinimalConfig(env *testenv.TestEnvironment) error {
 // editor" step, which writes minimalConfig to project and THIS to home) —
 // editor.command/args are ScopeMachine, so a committed project value would
 // not survive a real Load.
-const markerEditorConfig = `version: 4
-editor:
+var markerEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `editor:
   command: sh
   args:
     - "-c"
@@ -79,8 +80,7 @@ editor:
 // what makes that refusal path reachable hermetically.
 //
 // Lives entirely in the HOME layer — see markerEditorConfig's doc for why.
-const emptyEditorConfig = `version: 4
-editor:
+var emptyEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `editor:
   command: sh
   args:
     - "-c"
@@ -97,8 +97,7 @@ editor:
 // exit code.
 //
 // Lives entirely in the HOME layer — see markerEditorConfig's doc for why.
-const descriptionEditorConfig = `version: 4
-editor:
+var descriptionEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `editor:
   command: sh
   args:
     - "-c"
@@ -113,8 +112,7 @@ editor:
 // valid manifest behind or the command reads back garbage.
 //
 // Lives entirely in the HOME layer — see markerEditorConfig's doc for why.
-const commandEditorConfig = `version: 4
-editor:
+var commandEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `editor:
   command: sh
   args:
     - "-c"

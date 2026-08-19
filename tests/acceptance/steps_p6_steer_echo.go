@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // p6State is one P6 cell's fixture: which cell it is (the ledger key its steer
@@ -70,8 +72,7 @@ func p6Of(w *World) *p6State {
 // acceptance suite by construction. Nothing in the lane would have told anyone
 // that; the first cell to assert on spool bytes finds it immediately.
 func p6SpoolHomeConfigYAML() string {
-	return `version: 4
-# P6 (capability probe p6-steer-echo): the mail-plane cutover, on for this
+	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `# P6 (capability probe p6-steer-echo): the mail-plane cutover, on for this
 # scenario. Machine-scoped keys, so they must be written in the HOME layer —
 # a project file declaring them does not survive a real config Load.
 delegation:

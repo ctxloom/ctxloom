@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -316,7 +317,7 @@ func TestOpenEngineSession_UnknownAgentAnnouncementIsLoud(t *testing.T) {
 	repo := initTestRepo(t)
 	appDir := filepath.Join(repo, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	body := "version: 5\ndefault_agent: no-such-agent\n"
+	body := fmt.Sprintf("version: %d\ndefault_agent: no-such-agent\n", config.CurrentConfigVersion)
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))
 
 	client := &fakeACPEngineClient{}
@@ -373,7 +374,7 @@ func openEngineSessionContainerAnnounces(t *testing.T, mode string) {
 	// divergence section. So this fixture is exactly what it looks like: an
 	// ordinary project-declared agent, engine and runtime both in the same
 	// (committed) file, same as before this change.
-	body := "version: 5\n" +
+	body := fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) +
 		"agents:\n  builder:\n    llm: mock\n    runtime: " + mode + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))
 
@@ -415,7 +416,7 @@ func TestOpenEngineSession_InitSummaryModelMatchesDelivered(t *testing.T) {
 	repo := initTestRepo(t)
 	appDir := filepath.Join(repo, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	body := "version: 5\n" +
+	body := fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) +
 		"llm:\n  configs:\n    fast-model:\n      type: mock\n      model: mock-model-v1\n" +
 		"agents:\n  coder:\n    llm: fast-model\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))

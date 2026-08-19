@@ -17,6 +17,8 @@ package acceptance
 
 import (
 	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,7 +151,7 @@ func addSourceAsRemote(w *World, name, profile string) error {
 // touching ctxloom-default remote/parent-profile scaffolding (see file doc).
 func buildJ000200Config(label, engineType string) string {
 	var b strings.Builder
-	b.WriteString("version: 4\n")
+	b.WriteString(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 	b.WriteString("llm:\n  configs:\n")
 	fmt.Fprintf(&b, "    %s:\n      type: %s\n", label, engineType)
 	fmt.Fprintf(&b, "  defaults:\n    primary: %s\n    fast: %s\n", label, label)

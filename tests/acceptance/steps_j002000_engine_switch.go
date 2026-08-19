@@ -30,6 +30,8 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 const (
@@ -76,7 +78,7 @@ func j002000Of(w *World) *j002000State {
 // configured would be testing initial setup instead.
 func j002000Config() string {
 	var b strings.Builder
-	b.WriteString("version: 4\n")
+	b.WriteString(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 	b.WriteString("llm:\n  configs:\n")
 	fmt.Fprintf(&b, "    %s:\n      type: %s\n", j002000OldEngine, j002000OldEngine)
 	fmt.Fprintf(&b, "    %s:\n      type: %s\n", j002000NewEngine, j002000NewEngine)

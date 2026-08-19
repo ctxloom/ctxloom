@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -235,7 +236,7 @@ func writeACPTestProject(t *testing.T, workspaceDefault string) string {
 	repo := initTestRepo(t)
 	appDir := filepath.Join(repo, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	body := "version: 5\n"
+	body := fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)
 	if workspaceDefault != "" {
 		body += "workspace: " + workspaceDefault + "\n"
 	}

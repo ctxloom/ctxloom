@@ -206,3 +206,30 @@ func TestBuildLadder_ExplicitRelayOnlyOmitsPresetSurfaceRung(t *testing.T) {
 			"the preset's new surface_to_human rung must never leak into an explicit escalation: block")
 	}
 }
+
+// TestPresetLadder_UnhonourablePermissionNeverAutoAccepts closes the loop
+// between the posture resolver and the escalation ladder derived from it. A
+// permissions typo used to resolve to bypass on claude-code, and the ladder
+// that follows from bypass is a single catch-all auto_accept rung — so one
+// misspelling silently turned "auto-decline every file change and privilege
+// escalation" into "auto-accept everything". agent.ResolveDefault now floors an
+// unparseable declaration, and this pins what that floor buys: the ladder built
+// from it declines the mutating kinds outright and never auto-accepts anything.
+func TestPresetLadder_UnhonourablePermissionNeverAutoAccepts(t *testing.T) {
+	perm, honoured := agent.ResolveDefault([]string{"plann"}, true)
+	require.False(t, honoured, "fixture check: the typo must reach the resolver as an unhonourable declaration")
+	require.Equal(t, agent.PermissionFloor, perm, "fixture check: it must come back floored")
+
+	l := presetLadder(perm)
+	for _, rung := range l {
+		assert.NotEqual(t, ActionAutoAccept, rung.Action, "no rung derived from an unhonourable posture may auto-accept")
+	}
+	for _, k := range []agentcoordpb.ApprovalRequest_ApprovalKind{
+		agentcoordpb.ApprovalRequest_APPROVAL_KIND_FILE_CHANGE,
+		agentcoordpb.ApprovalRequest_APPROVAL_KIND_PERMISSION_ESCALATION,
+	} {
+		rungs := l.matchingRungs(k)
+		require.NotEmpty(t, rungs)
+		assert.Equal(t, ActionAutoDecline, rungs[0].Action, "kind %v must decline outright", k)
+	}
+}

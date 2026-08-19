@@ -65,10 +65,13 @@ func TestResolvePermissionMode_ProjectDefault(t *testing.T) {
 		{"an undeclared project default leaves the stopgap standing", "", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
 		{"an undeclared project default leaves a non-claude backend prompting", "", "", "", "", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
 
-		// Fault tolerance matches the other config-sourced rungs: a hand-edited
-		// misspelling falls THROUGH rather than hard-failing the launch (only
-		// the typed --permissions flag is strict — validatePermissionFlag).
-		{"an unparseable project default falls through", "", "", "", "nonsense", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
+		// A hand-edited misspelling is refused as a fatal finding rather than
+		// hard-failing the launch here (only the typed --permissions flag is
+		// strict — validatePermissionFlag), and the posture it lands on is the
+		// floor: falling THROUGH would hand the run whatever the rung below
+		// happens to say, up to and including the claude-code host stopgap.
+		{"an unparseable project default floors to read-only", "", "", "", "nonsense", "codex", pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
+		{"an unparseable project default floors on claude-code too", "", "", "", "nonsense", claude, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
 
 		// The collapses/floors that sit downstream of the whole chain apply to a
 		// project-sourced posture exactly as to any other.

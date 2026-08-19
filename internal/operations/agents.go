@@ -151,12 +151,12 @@ func orKeep[T any](set *T, existing T) T {
 // advisory half, validateAgentAxes the refusing half; SetAgent runs both before
 // it opens its write transaction.
 //
-// warnAgentAxisTypos covers the axis whose unknown value still resolves to a
-// working default at run time (Permissions → the default posture), so it is
-// stored as written per fault tolerance — but warned about NOW, so a typo
-// surfaces at write time rather than at the first run. The shadowed-definition
-// notice rides along: it is likewise about where a definition lives, not about
-// whether the binding works.
+// warnAgentAxisTypos covers the axis whose unknown value is CAUGHT rather than
+// substituted at run time (Permissions → agent.ResolveDefault refuses it as a
+// fatal finding and floors to read-only), so it is stored as written per fault
+// tolerance — but warned about NOW, so a typo surfaces at write time rather
+// than at the first run. The shadowed-definition notice rides along: it is
+// likewise about where a definition lives, not about whether the binding works.
 //
 // Runtime used to live here too (warn-and-store, "it will run on the host").
 // It does not anymore: an unknown runtime doesn't just degrade, it silently
@@ -176,8 +176,8 @@ func warnAgentAxisTypos(cfg *config.Config, name string, req SetAgentRequest) {
 	if req.Permissions != nil && *req.Permissions != "" {
 		if _, ok := agent.ParsePermissionMode(*req.Permissions); !ok {
 			clidiag.Warn("ctxloom",
-				"agent %q declares unknown permissions %q (known: %s); it will use the default posture",
-				name, *req.Permissions, strings.Join(agent.PermissionModeNames(), "|"))
+				"agent %q declares unknown permissions %q (known: %s); every run of it is refused as a fatal config finding, and under --degraded it is floored to %q (read-only)",
+				name, *req.Permissions, strings.Join(agent.PermissionModeNames(), "|"), agent.PermissionFloor)
 		}
 	}
 }
@@ -684,6 +684,20 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, cherr)
 	}
 
+	// The interactive base an unflagged run resolves to (declared → label →
+	// PROJECT DEFAULT → built-in default), so a blank claude-code posture shows
+	// its real bypass. The project default belongs in this list because this
+	// field's whole job is to print what an unflagged run WILL do: omitting a
+	// rung the run itself consults would make `agent show` report a posture the
+	// launch does not use.
+	//
+	// An unhonourable declaration already reported itself as a fatal finding
+	// inside ResolveDefault and came back floored; this call reports what the
+	// launch would use, so it prints the floor rather than re-diagnosing it.
+	effectivePerm, _ := agent.ResolveDefault(
+		[]string{sub.Permissions, labelEntry.Permissions, cfg.GetPermissions()},
+		backend == config.BackendClaudeCode)
+
 	return &ResolvedAgent{
 		Name:        name,
 		Surfaces:    surfaces,
@@ -695,17 +709,9 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		Context:     ctxResult.Context,
 		Fragments:   ctxResult.FragmentsLoaded,
 		Runtime:     runtime,
-		Permissions: sub.Permissions,
-		// The interactive base an unflagged run resolves to (declared → label →
-		// PROJECT DEFAULT → built-in default), so a blank claude-code posture
-		// shows its real bypass. The project default belongs in this list
-		// because this field's whole job is to print what an unflagged run WILL
-		// do: omitting a rung the run itself consults would make `agent show`
-		// report a posture the launch does not use.
-		EffectivePermissions: agent.ResolveDefault(
-			[]string{sub.Permissions, labelEntry.Permissions, cfg.GetPermissions()},
-			backend == config.BackendClaudeCode).String(),
-		Escalation: sub.Escalation,
+		Permissions:          sub.Permissions,
+		EffectivePermissions: effectivePerm.String(),
+		Escalation:           sub.Escalation,
 		Driving:    sub.Driving,
 		ConfigHome: configHome,
 	}, nil

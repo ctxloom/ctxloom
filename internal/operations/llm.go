@@ -172,16 +172,17 @@ type SetLLMRequest struct {
 
 // warnLLMPermissionsTypo is SetLLM's advisory-only axis check, split out to
 // mirror SetAgent's warnAgentAxisTypos/validateAgentAxes split: an unknown
-// permissions value still resolves to a working default at run time, so it
-// is stored as written but flagged now rather than only at first launch.
+// permissions value is caught at run time (agent.ResolveDefault refuses it and
+// floors to read-only), so it is stored as written but flagged now rather than
+// only at first launch.
 func warnLLMPermissionsTypo(label string, permissions *string) {
 	if permissions == nil || *permissions == "" {
 		return
 	}
 	if _, ok := agent.ParsePermissionMode(*permissions); !ok {
 		clidiag.Warn("ctxloom",
-			"llm %q declares unknown permissions %q (known: %s); it will use the default posture",
-			label, *permissions, strings.Join(agent.PermissionModeNames(), "|"))
+			"llm %q declares unknown permissions %q (known: %s); every run through this label is refused as a fatal config finding, and under --degraded it is floored to %q (read-only)",
+			label, *permissions, strings.Join(agent.PermissionModeNames(), "|"), agent.PermissionFloor)
 	}
 }
 

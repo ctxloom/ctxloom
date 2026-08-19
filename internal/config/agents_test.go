@@ -99,10 +99,10 @@ func TestConfigSchema_AcceptsAgents(t *testing.T) {
 	assert.NoError(t, v.ValidateBytes([]byte(yaml)))
 }
 
-// TestLoadAgents_ReadsTheConfigKey proves the merged view is the `agents:`
-// config key alone, sorted by name, with every declared axis intact — the
-// regression risk of removing the directory source is that a config-key agent
-// stops carrying what it declares.
+// TestLoadAgents_ReadsTheConfigKey proves the agent view is the `agents:`
+// config key alone, sorted by name, with every declared axis intact. Asserting
+// the axes and not merely the lookup is the point: a binding that resolves
+// while dropping what it declares is the failure worth catching.
 func TestLoadAgents_ReadsTheConfigKey(t *testing.T) {
 	// The config.yaml read is real-OS-fs (no WithFS): isolate HOME so the
 	// home-layer read never reaches this developer's real ~/.ctxloom — only
@@ -149,11 +149,10 @@ agents:
 	assert.False(t, ok)
 }
 
-// TestLoadAgents_RetiredDirectoryIsAFatalFinding pins what happens to a
-// .ctxloom/agents directory left over from when it was a second source: the
-// files are NOT read, and they are NOT silently ignored either. Exit 0 over a
-// binding the user wrote and ctxloom quietly dropped is this codebase's
-// characteristic bug.
+// TestLoadAgents_RetiredDirectoryIsAFatalFinding pins both halves of what a
+// .ctxloom/agents directory gets: its files are NOT read, and they are NOT
+// silently ignored either. Exit 0 over a binding the user wrote and ctxloom
+// quietly dropped is this codebase's characteristic bug.
 func TestLoadAgents_RetiredDirectoryIsAFatalFinding(t *testing.T) {
 	resetStrictness(t)
 	mem := afero.NewMemMapFs()

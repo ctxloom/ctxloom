@@ -292,8 +292,8 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 
 // TestArch_ConfigSchema_AgentBindingPermitsEveryAgentField is the one-level-deeper
 // drift gate for agent bindings: agents.Agent is the concrete struct backing
-// each entry under the top-level `agents` map (and .ctxloom/agents/*.yaml),
-// so every serializable Agent field must be permitted by the agent-binding
+// each entry under the top-level `agents` map, so every serializable Agent
+// field must be permitted by the agent-binding
 // object schema (properties.agents.additionalProperties) — with that object's
 // own additionalProperties:false, a field the schema omits makes an otherwise-
 // valid binding rejected with a spurious "unknown key" warning (exactly how

@@ -362,10 +362,8 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	setOrDelete(existing, "editor", c.editor.Command != "" || len(c.editor.Args) > 0, c.editor)
 	setOrDelete(existing, "profiles", c.profiles.hasAny(), c.profiles)
 	delete(existing, "defaults") // superseded by config + profiles blocks
-	// Persist only the config-key agents (c.agents). Directory-sourced
-	// agents live in their own .ctxloom/agents/*.yaml files and are not
-	// folded back into config.yaml. Pruned when empty so an emptied map removes
-	// the block rather than leaving `agents: {}` behind.
+	// Pruned when empty so an emptied map removes the block rather than
+	// leaving `agents: {}` behind.
 	setOrDelete(existing, "agents", len(c.agents) > 0, c.agents)
 	// The always-bound default agent (replaces the retired profiles.defaults);
 	// pruned when empty so an unset default_agent leaves no key behind.

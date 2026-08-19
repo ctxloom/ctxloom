@@ -19,8 +19,8 @@ import (
 // and refused at the write edge (operations.validateAgentAxes) rather than
 // degraded at launch.
 //
-// A .ctxloom/agents directory left over from when it WAS a source is not
-// quietly skipped — see retiredAgentsDirSignpost.
+// A .ctxloom/agents directory holding definitions is not a source and is not
+// quietly skipped either — see retiredAgentsDirSignpost.
 //
 // Every returned Agent is cloned, so it obeys accessors.go's copy-on-read
 // policy like every other value handed out of a Config: Agent.Profiles decides
@@ -51,12 +51,12 @@ func (c *Config) Agent(name string) (agents.Agent, bool) {
 }
 
 // retiredAgentsDirSignpost records a fatal ClassMigration finding when
-// .ctxloom/agents still holds agent definitions. That directory used to be a
-// second source of the agent entity; the `agents:` config key is now the only
-// one, so every file under it is inert. Ignoring them silently would make a
-// user's own bindings vanish from `agent list`, `run --agent` and
-// `default_agent` with no explanation, so the move is demanded, not performed:
-// ctxloom does not rewrite content it did not author in this run.
+// .ctxloom/agents holds agent definitions. Nothing reads that directory — the
+// `agents:` config key is the only source — so every file under it is inert.
+// Ignoring them silently would make a user's own bindings vanish from
+// `agent list`, `run --agent` and `default_agent` with no explanation, so the
+// move is demanded, not performed: ctxloom does not rewrite content it did not
+// author in this run.
 //
 // Same shape and same reason as legacyCacheBundlesSignpost, the other "this
 // location is no longer read" gate — including FailOnce, because Agent(name)
@@ -79,10 +79,10 @@ func (c *Config) retiredAgentsDirSignpost() {
 	}
 }
 
-// strandedAgentFiles returns the base names of the YAML files under dir, the
-// definitions the retired directory source would once have loaded. A dir that
-// is absent or unreadable yields nothing: the signpost only ever fires on
-// something it can actually see and name.
+// strandedAgentFiles returns the base names of the YAML files under dir — the
+// definitions a user wrote where nothing reads them. A dir that is absent or
+// unreadable yields nothing: the signpost only ever fires on something it can
+// actually see and name.
 func strandedAgentFiles(fs afero.Fs, dir string) []string {
 	entries, err := afero.ReadDir(fs, dir)
 	if err != nil {

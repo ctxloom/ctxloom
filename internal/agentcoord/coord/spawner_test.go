@@ -173,9 +173,9 @@ func TestProdSpawner_ResolveFallsBackToStartupSnapshotOnReadFailure(t *testing.T
 }
 
 // TestProdSpawner_Resolve_Driving is the end-to-end proof at the real
-// Spawner.Resolve entry point (config-key-sourced agents, which bypass
-// agents.ParseAgent entirely — see resolveAgentBinding's ValidateDriving
-// call): the driving axis round-trips for conversational/absent, an unknown
+// Spawner.Resolve entry point (a config-key agent, whose only axis validation
+// at load is resolveAgentBinding's own ValidateDriving call): the driving axis
+// round-trips for conversational/absent, an unknown
 // value fails loud, and driving: oneshot fails loud both for a non-resumable
 // engine (the permanent capability gate) and for a resume-capable one (the
 // separate, deliberately temporary v0.8 "not yet available" gate) — proving
@@ -206,7 +206,7 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 		assert.Equal(t, ResumeModePersistent, plan.ResumeMode)
 	})
 
-	t.Run("unknown driving value FAILS LOUD at resolve, even for a config-key agent that bypasses ParseAgent", func(t *testing.T) {
+	t.Run("unknown driving value FAILS LOUD at resolve, not merely at the write edge", func(t *testing.T) {
 		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n    driving: bogus\n")
 		_, err := s.Resolve(context.Background(), "dev")
 		require.Error(t, err)

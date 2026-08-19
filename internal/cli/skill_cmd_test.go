@@ -126,3 +126,19 @@ func TestSkillCommands_UseCobraContextNotBackground(t *testing.T) {
 	assert.Empty(t, offending,
 		"skill subcommands must pass cmd.Context() to the operations layer, not a detached root context")
 }
+
+// TestSkillSyncTarget_RefusesAnotherKindsSelector pins the guard the collapse
+// onto bundles.ParseItemAsk adds: a selector naming a kind other than skills
+// used to fall through to the bare-bundle form, because the old splitter cut
+// on the literal "#skills/" and nothing else. That widened one mistyped ref
+// into a rewrite of every skill manifest in the bundle — the exact
+// re-baselining of the install-time tamper check the narrowing rule exists to
+// prevent.
+func TestSkillSyncTarget_RefusesAnotherKindsSelector(t *testing.T) {
+	for _, arg := range []string{"my-bundle#fragments/x", "my-bundle#mcp/pg", "my-bundle#commands/review"} {
+		b, n, err := skillSyncTarget(arg)
+		require.Error(t, err, "%q selects something other than a skill and must not widen to a whole-bundle sync", arg)
+		assert.Empty(t, b, arg)
+		assert.Empty(t, n, arg)
+	}
+}

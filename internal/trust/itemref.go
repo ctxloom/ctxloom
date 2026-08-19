@@ -97,6 +97,19 @@ func ParseItemRef(ref string) (tRef Ref, loadRef, version string, err error) {
 // and auto-trusted at step 3 — trusted MORE than a well-formed one. A single
 // list cannot drift from itself.
 
+// IsRetiredAskSpelling reports whether ask carries a scheme marker belonging
+// to a RETIRED (pre-U3b-3) or non-bundle reference spelling — a token that
+// must fail closed rather than be silently downgraded to a bare-name search.
+// It is remote.IsSelfContainedRef's list (ctxloom:local@, ctxloom:companion@,
+// git@, any "://") plus "builtin:", the one retired spelling
+// IsSelfContainedRef never had to know about because nothing outside the
+// bundle/item-ref grammar ever minted it — see ParseItemRef's own recognizer
+// above, which this shares the literal with rather than duplicating it in a
+// package the builtin-literal sweep (S3) polices.
+func IsRetiredAskSpelling(ask string) bool {
+	return strings.HasPrefix(ask, "builtin:") || remote.IsSelfContainedRef(ask)
+}
+
 // ParseSelector parses a "<kind>/<name>" selector (the part after "#").
 func ParseSelector(sel string) (ItemKind, string, error) {
 	kindDir, name, found := strings.Cut(sel, "/")

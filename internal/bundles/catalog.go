@@ -266,7 +266,7 @@ func (c Catalog) ResolveAsk(ask string) (trust.BundleRef, error) {
 		}
 		return br, nil
 	}
-	if isRetiredAskSpelling(ask) {
+	if trust.IsRetiredAskSpelling(ask) {
 		return trust.BundleRef{}, fmt.Errorf("%w: %q — see `ctxloom bundle trust --help`; re-run `ctxloom init` to migrate a project",
 			errs.ErrRetiredRefSpelling, ask)
 	}
@@ -300,17 +300,6 @@ func (c Catalog) ResolveAsk(ask string) (trust.BundleRef, error) {
 		return trust.BundleRef{}, fmt.Errorf("%w: %q names more than one bundle: %s",
 			errs.ErrBundleAmbiguous, ask, candidates.String())
 	}
-}
-
-// isRetiredAskSpelling reports whether ask carries a scheme marker belonging
-// to a RETIRED (pre-U3b-3) or non-bundle reference spelling — a token that
-// must fail closed rather than be downgraded to a bare-name search. It is
-// remote.IsSelfContainedRef's list (ctxloom:local@, ctxloom:companion@,
-// git@, any "://") plus "builtin:", the one retired spelling
-// IsSelfContainedRef never had to know about because nothing outside the
-// bundle-ask grammar ever minted it.
-func isRetiredAskSpelling(ask string) bool {
-	return strings.HasPrefix(ask, "builtin:") || remote.IsSelfContainedRef(ask)
 }
 
 // Scoped narrows to one or more provenance classes, returning a VIEW over the

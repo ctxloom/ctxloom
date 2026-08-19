@@ -31,7 +31,6 @@ package acceptance
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -327,28 +326,29 @@ func TestApproachConfigYAML_ActuallyPinsTheApproach(t *testing.T) {
 // "container-rootless" turns it green again. See the task's own report for
 // the transcript of both runs.
 //
-// DELIBERATELY NOT approachConfigYAML(a, ...): liveAgents' shared base config
-// (live_engine_registry.go) still carries `profiles:\n  defaults: []`, a KEY
-// config-schema.json's own retiredKeys table (internal/config/unknown_keys.go)
-// says was retired independently of this task — reusing it here would make
-// this test red for an unrelated, pre-existing reason and hide the one this
-// test exists to catch. Reported separately rather than fixed here; see the
-// task's own report. This test instead builds the smallest config the schema
-// actually requires (a version, one llm.configs entry, one agent binding) so
-// the ONLY thing that can turn it red is the runtime value.
+// NOW USES approachConfigYAML(a, ...) — the actual P1 renderer, not a
+// hand-built stand-in. It could not before (task audacious-sandworm,
+// 2026-08-18): liveAgents' shared base config (live_engine_registry.go) then
+// carried `profiles:\n  defaults: []`, a key config-schema.json's own
+// retiredKeys table (internal/config/unknown_keys.go) says was retired
+// independently of this task — reusing it here would have made this test red
+// for an unrelated, pre-existing reason and hidden the one this test exists
+// to catch. That key is gone now (live_engine_registry_test.go's
+// TestLiveAgents_ConfigValidatesAgainstSchema gates it directly), so this test
+// exercises the SAME bytes a live P1 cell would actually write instead of a
+// parallel minimal config that could silently drift from the real renderer.
 func TestApproachConfigYAML_RuntimeMustBeSchemaValid(t *testing.T) {
 	v, err := schema.NewConfigValidator()
 	require.NoError(t, err, "the embedded config schema must compile")
 
-	minimalConfigYAML := func(runtime string) string {
-		return fmt.Sprintf("version: 6\nllm:\n  configs:\n    claude:\n      type: claude-code\n"+
-			"agents:\n  hello:\n    llm: claude\n    profiles: []\n    permissions: bypass\n    runtime: %s\n", runtime)
-	}
+	a := liveAgents["claude"]
+	require.NotEmpty(t, a.config, "the live registry's claude row must carry a config, or this validates nothing")
 
 	for _, runtime := range []string{"container-rootless", "container-rootful"} {
 		t.Run(runtime, func(t *testing.T) {
-			require.NoError(t, v.ValidateBytes([]byte(minimalConfigYAML(runtime))),
-				"a P1 cell's own rendered config must validate against config-schema.json's runtime enum, or a live cell built from it would silently degrade to host instead of exercising a container")
+			rendered := approachConfigYAML(a, "claude", runtime, "system-prompt")
+			require.NoError(t, v.ValidateBytes([]byte(rendered)),
+				"a P1 cell's own rendered config must validate against config-schema.json's runtime enum, or a live cell built from it would silently degrade to host instead of exercising a container:\n%s", rendered)
 		})
 	}
 }

@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/schema"
 )
 
 // fakeAuthCheck returns a canned (ok, reason) pair, so tests never shell out
@@ -297,6 +300,38 @@ func TestLiveAgentOrderMatchesRegistry(t *testing.T) {
 	for _, name := range liveAgentOrder {
 		_, ok := liveAgents[name]
 		assert.True(t, ok, fmt.Sprintf("liveAgentOrder names %q, which is not in liveAgents", name))
+	}
+}
+
+// TestLiveAgents_ConfigValidatesAgainstSchema is the gate task
+// audacious-sandworm exists to add. Every liveAgents[*].config is the SHARED
+// base every P0-P6 probe config (matrixConfigYAML, mcpProbeConfigYAML,
+// hookProbeConfigYAML, p4ConfigYAML, probeConfigYAML — see their own doc
+// comments) is built by appending onto, but until this test existed nothing
+// ran that base document through the REAL schema validator production's own
+// config loader uses (internal/schema.NewConfigValidator, the seam
+// internal/config/unknown_keys.go's classifyValidationError sits on top of).
+// It used to carry `profiles:\n  defaults: []`, a key
+// unknown_keys.go's retiredKeys table has said was RETIRED since the
+// default_agent/agents rework — which meant every probe config built from
+// this fixture failed real schema validation for a reason having nothing to
+// do with whatever the probe was testing, and was only ever parsed by the
+// more lenient agents.ParseAgent path. See
+// TestApproachConfigYAML_RuntimeMustBeSchemaValid's own comment (task
+// unwatched-discharge) for the workaround this fixture's brokenness forced.
+func TestLiveAgents_ConfigValidatesAgainstSchema(t *testing.T) {
+	v, err := schema.NewConfigValidator()
+	require.NoError(t, err, "the embedded config schema must compile")
+
+	for _, name := range liveAgentOrder {
+		t.Run(name, func(t *testing.T) {
+			a, ok := liveAgents[name]
+			require.True(t, ok)
+			require.NotEmpty(t, a.config, "an empty config would validate vacuously and prove nothing")
+			err := v.ValidateBytes([]byte(a.config))
+			assert.NoError(t, err,
+				"liveAgents[%q].config — the base every P0-P6 probe config is built from — must validate clean against config-schema.json, or every probe built from it inherits a fixture-level failure unrelated to what the probe tests", name)
+		})
 	}
 }
 

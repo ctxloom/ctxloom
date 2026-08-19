@@ -33,7 +33,7 @@ title: "The engine you don't control"
 # it is right here, not deleted. Make the case against THIS reasoning, don't just revert past it.
 ---
 
-You set `runtime: container`, or `workspace: worktree`, and you stop thinking about it. Two
+You set `runtime: container-rootless`, or `workspace: worktree`, and you stop thinking about it. Two
 agents run side by side, each with its own worktree, its own config-home environment
 variables, its own line in `ctxloom agent list`. You believe they are isolated.
 
@@ -199,7 +199,7 @@ keyring; file writes, via the fixed global scratch directory below), downgradabl
 only with `--degraded`. Pretending the curated `HOME` closes the auth gap on its own — proceeding
 quietly through it — was the earlier posture this page described; it read as the same kind of
 silent overclaim this page exists to rule out, so it was replaced with an outright refusal that
-names both escapes and points at `runtime: container` instead.
+names both escapes and points at `runtime: container-rootless` instead.
 
 **A second, separate gap, found live by the executable probe (2026-07-22, agy 1.1.5), not by
 inspecting `HOME`:** `agy -p` (the headless oneshot mode ctxloom's `run --one-shot` drives) does
@@ -255,7 +255,7 @@ strict mode, downgradeable to a warning only with `--degraded`, the same fail-lo
 gets when `KIRO_API_KEY` is absent.
 
 What remains unverified is narrower now, and purely operational: this resolver has not itself
-been driven through a live `ctxloom run --runtime container` call against a real, authenticated
+been driven through a live `ctxloom run --runtime container-rootless` call against a real, authenticated
 `agy` (that needs docker, the real binary, and a captured token, in combination — out of band
 for a documentation pass; tracked as a follow-up probe/CI run). Two edges also stay open and
 unverified rather than ruled out either way: whether Antigravity's binary also carries a
@@ -320,8 +320,8 @@ to the vendors who happen to have picked the harder design:
 - **Antigravity — structural, host-mode gap; container-mode now has a real resolver.** The
   credential channel is an OS session keyring addressed by UID, not by any environment variable
   a caller controls — there is no lever a config-home variable could offer here on the host,
-  because the address was never the process environment's to redirect. `runtime: container`
-  severs the keyring socket at the namespace level, which forces Antigravity onto its own
+  because the address was never the process environment's to redirect. Container isolation
+  (`container-rootless` or `container-rootful`) severs the keyring socket at the namespace level, which forces Antigravity onto its own
   file-based fallback credential (`~/.gemini/antigravity-cli/antigravity-oauth-token`) — and
   ctxloom's container-auth resolver now seeds that real file into the container rather than
   leaving containerized Antigravity unauthenticated. Outside a container, the structural gap
@@ -419,7 +419,7 @@ per-process environment variable can redirect. A boundary does not need an addre
 anything. Whatever the engine reads, if it is outside the boundary, it is not there. **You stop
 needing to know.**
 
-That is the entire argument for `runtime: container`. It moves isolation from a **property of
+That is the entire argument for container isolation (`runtime: container-rootless` or `runtime: container-rootful`). It moves isolation from a **property of
 the binary's behaviour**, which you can neither observe nor control, to a **property of the
 boundary**, which you built and can verify.
 
@@ -436,7 +436,7 @@ typically share the engine's one global config directory, unless its config-home
 happens to be both set *and* honoured for the specific store you care about — which, per the
 above, you cannot assume.
 
-**Container isolation (`runtime: container`) bounds the filesystem the process can write
+**Container isolation (`runtime: container-rootless` or `runtime: container-rootful`) bounds the filesystem the process can write
 to** — a fresh `$HOME`, and only the paths ctxloom deliberately mounts in — plus the
 per-image network and mount surface you configured. That is a real, enforced boundary, and it
 is also not more than that. It is **not a security sandbox**: ctxloom passes no network
@@ -529,7 +529,7 @@ release, not ten.
 
 ## Mechanism
 
-- The runtime axis (`host` | `container`) and the workspace axis (`none` | `worktree`) are
+- The runtime axis (`host` | `container-rootless` | `container-rootful`) and the workspace axis (`none` | `worktree`) are
   independent, chosen at different times, by different owners — see [Agents &
   Isolation](/concepts/agents/#the-two-isolation-axes).
 - `ctxloom container build` builds the per-backend agent image; `ctxloom container check`

@@ -259,7 +259,7 @@ func codexCredentialMounts(containerHome string) ([]Mount, bool) {
 	if err != nil || home == "" {
 		return nil, false
 	}
-	spec, ok := credentialSeedSpecs["codex"]
+	spec, ok := credentialSeedSpecFor("codex")
 	if !ok || spec.sourceFiles == nil {
 		return nil, false
 	}
@@ -563,6 +563,10 @@ type seedFile struct {
 // this registry has no known host isolation lever at all and keeps the
 // pre-fix, config-only-isolation no-op.
 //
+// Keyed by CANONICAL name: enginekeys.go's init asserts it, and
+// credentialSeedSpecFor is the only read path, so an aliased spelling cannot
+// miss an engine that is in fact registered here.
+//
 //   - claude: HonoursVarForCreds true — CLAUDE_CONFIG_DIR relocates both
 //     config AND credentials, so seeding copies .credentials.json (+
 //     .claude.json) into it.
@@ -800,7 +804,7 @@ type CredentialSeedHomeVar struct {
 // CredentialSeedHomeVars returns engine's HomeVars (nil for an unregistered
 // engine name — see CredentialSeedEngineNames for the valid keys).
 func CredentialSeedHomeVars(engine string) []CredentialSeedHomeVar {
-	spec, ok := credentialSeedSpecs[engine]
+	spec, ok := credentialSeedSpecFor(engine)
 	if !ok {
 		return nil
 	}
@@ -814,7 +818,7 @@ func CredentialSeedHomeVars(engine string) []CredentialSeedHomeVar {
 // CredentialSeedDestSubdir returns engine's destSubdir and true, or ("",
 // false) for an unregistered engine name.
 func CredentialSeedDestSubdir(engine string) (string, bool) {
-	spec, ok := credentialSeedSpecs[engine]
+	spec, ok := credentialSeedSpecFor(engine)
 	if !ok {
 		return "", false
 	}
@@ -847,7 +851,7 @@ const credentialSeedSourceFileSentinelHome = "/sentinel-home-never-real"
 // engine has no sourceFiles — e.g. kiro, whose credentials do not relocate
 // via a seeded file at all).
 func CredentialSeedSourceFiles(engine string) []CredentialSeedFile {
-	spec, ok := credentialSeedSpecs[engine]
+	spec, ok := credentialSeedSpecFor(engine)
 	if !ok || spec.sourceFiles == nil {
 		return nil
 	}

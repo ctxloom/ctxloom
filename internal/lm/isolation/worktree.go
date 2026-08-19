@@ -34,6 +34,9 @@ const credentialSeedFixIt = "authenticate the engine on this host (e.g. `claude 
 // default — a real, user-selectable backend (e.g. "acp") that falls through
 // both registries is exactly the bug this guards against, not a candidate for
 // this list.
+//
+// Keyed by CANONICAL name (enginekeys.go asserts it); read only through
+// backendHasNoGlobalState, which resolves aliases.
 var backendsWithNoGlobalState = map[string]bool{"mock": true}
 
 // worktreeBaseRef is the ref each per-agent worktree is checked out to: HEAD,
@@ -180,7 +183,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 			panic(r)
 		}
 	}()
-	if _, seeded := credentialSeedSpecs[w.backend]; !seeded && w.backend != "" && !backendsWithNoGlobalState[w.backend] {
+	if _, seeded := credentialSeedSpecFor(w.backend); !seeded && w.backend != "" && !backendHasNoGlobalState(w.backend) {
 		// A backend registered in NEITHER credentialSeedSpecs (e.g. "acp")
 		// used to fall through here with zero engine-global isolation and NO
 		// finding at all — the run reports "worktree" isolation while the
@@ -293,7 +296,7 @@ func (w Worktree) provisionConfigHome(agentID, workDir string) (home string, den
 // the rest of this provisioning step: a failure warns and leaves the var
 // pointing at an absent directory, exactly as before.
 func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) {
-	spec, ok := credentialSeedSpecs[w.backend]
+	spec, ok := credentialSeedSpecFor(w.backend)
 	if !ok {
 		return
 	}
@@ -335,7 +338,7 @@ func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) 
 // ~/.ctxloom/sessions/<harp>/ephemeral/, because they are per-AGENT, not
 // per-session.
 func (w Worktree) seedCredentials(configHome, agentID, workDir string) map[string]bool {
-	spec, ok := credentialSeedSpecs[w.backend]
+	spec, ok := credentialSeedSpecFor(w.backend)
 	if !ok {
 		return nil
 	}
@@ -504,7 +507,7 @@ func (w *worktreeWorkspace) Env() map[string]string {
 		env["GIT_COMMITTER_EMAIL"] = email
 	}
 	if w.configHome != "" {
-		if spec, ok := credentialSeedSpecs[w.backend]; ok {
+		if spec, ok := credentialSeedSpecFor(w.backend); ok {
 			for _, hv := range spec.HomeVars {
 				if w.deniedHomeVars[hv.EnvVar] {
 					continue

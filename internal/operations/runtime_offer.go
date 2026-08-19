@@ -44,7 +44,13 @@ type RuntimeOffer struct {
 	Backend string `json:"backend"`
 	// Runtimes are the axis values `agent create --runtime` may be offered for
 	// this label, in display order. Always at least host.
-	Runtimes []string `json:"runtimes"`
+	//
+	// TYPED, not []string: every element is minted below from the runtime
+	// vocabulary's own constants, so membership is a property of the type
+	// rather than something each reader re-asserts. A []string would oblige
+	// every consumer to convert on the way out — an assertion, on the one
+	// menu whose whole job is to name exactly what the writer will accept.
+	Runtimes []isolation.RuntimeAxis `json:"runtimes"`
 	// ContainerWithheld is empty when the container axes ARE offered, and
 	// otherwise says why they are not, in the user's terms.
 	ContainerWithheld string `json:"container_withheld,omitempty"`
@@ -55,7 +61,7 @@ type RuntimeOffer struct {
 // re-derived from Runtimes at each call site.
 func (o RuntimeOffer) OffersContainer() bool {
 	for _, r := range o.Runtimes {
-		if isolation.IsContainerRuntimeAxis(isolation.RuntimeAxis(r)) {
+		if isolation.IsContainerRuntimeAxis(r) {
 			return true
 		}
 	}
@@ -78,7 +84,7 @@ const noConfigRuntimeWithheld = "no config could be loaded, so this engine's bac
 // failing — this feeds an interview, and an interview must never be blocked by
 // a config read (CLAUDE.md fault tolerance).
 func AgentRuntimeOffer(cfg *config.Config, label string) RuntimeOffer {
-	offer := RuntimeOffer{Label: label, Runtimes: []string{string(isolation.RuntimeHost)}}
+	offer := RuntimeOffer{Label: label, Runtimes: []isolation.RuntimeAxis{isolation.RuntimeHost}}
 	if cfg == nil {
 		offer.ContainerWithheld = noConfigRuntimeWithheld
 		return offer
@@ -94,8 +100,8 @@ func AgentRuntimeOffer(cfg *config.Config, label string) RuntimeOffer {
 	}
 
 	offer.Runtimes = append(offer.Runtimes,
-		string(isolation.RuntimeContainerRootless),
-		string(isolation.RuntimeContainerRootful))
+		isolation.RuntimeContainerRootless,
+		isolation.RuntimeContainerRootful)
 	return offer
 }
 

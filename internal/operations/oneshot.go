@@ -92,7 +92,14 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("oneshot: %w — fix `workspace:` in .ctxloom/config.yaml", err)
 	}
-	axes := isolation.Axes{Workspace: workspace, Runtime: isolation.RuntimeAxis(cfg.GetRuntime())}
+	// The runtime axis is a security boundary: an unrecognized `runtime:`
+	// spelling refuses the oneshot rather than reading as the host, which is
+	// what asserting it past the parser would silently mean.
+	runtime, err := agent.ParseRuntimeAxis(cfg.GetRuntime())
+	if err != nil {
+		return nil, fmt.Errorf("oneshot: %w — fix `runtime:` in .ctxloom/config.yaml", err)
+	}
+	axes := isolation.Axes{Workspace: workspace, Runtime: runtime}
 	// The all-defaults member writes no per-member config, so nothing consults
 	// this gate at all — AdmitAll states that, where a nil would claim the gate
 	// was forgotten and withhold if anything ever did consult it.

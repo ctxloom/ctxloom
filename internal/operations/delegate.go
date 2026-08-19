@@ -313,9 +313,14 @@ func delegatedAxes(cfg *config.Config, req AgentChatRequest) (isolation.Axes, er
 	if err != nil {
 		return isolation.Axes{}, fmt.Errorf("agent_run: %w", err)
 	}
+	// The runtime axis arrives ALREADY typed: ResolvedAgent.Runtime is what
+	// resolveAgentBinding produced from agent.ParseRuntimeAxis, so a typo on
+	// either of its two sources (the binding, the project default) is refused
+	// before a child is ever prepared. Carrying the typed value through — not
+	// re-converting it — keeps that the axis's only door.
 	return isolation.Axes{
 		Workspace: workspace,
-		Runtime:   isolation.RuntimeAxis(req.Resolved.Runtime),
+		Runtime:   req.Resolved.Runtime,
 	}, nil
 }
 

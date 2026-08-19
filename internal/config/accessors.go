@@ -94,35 +94,6 @@ func cloneAgentsMap(m map[string]agents.Agent) map[string]agents.Agent {
 	return out
 }
 
-func cloneMCPServerMap(m map[string]wire.MCPServer) map[string]wire.MCPServer {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]wire.MCPServer, len(m))
-	for k, v := range m {
-		out[k] = wire.CloneMCPServer(v)
-	}
-	return out
-}
-
-func cloneMCPPlugins(m map[string]map[string]wire.MCPServer) map[string]map[string]wire.MCPServer {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]map[string]wire.MCPServer, len(m))
-	for k, v := range m {
-		out[k] = cloneMCPServerMap(v)
-	}
-	return out
-}
-
-func cloneMCPConfig(m wire.MCPConfig) wire.MCPConfig {
-	m.AutoRegisterCtxloom = cloneBoolPtr(m.AutoRegisterCtxloom)
-	m.Servers = cloneMCPServerMap(m.Servers)
-	m.Plugins = cloneMCPPlugins(m.Plugins)
-	return m
-}
-
 func cloneLLMConfigEntry(l LLMConfig) LLMConfig {
 	l.Body = deepCopyBody(l.Body)
 	return l
@@ -196,7 +167,6 @@ func cloneProfile(p Profile) Profile {
 	p.Skills = cloneStrings(p.Skills)
 	p.Variables = cloneStringMap(p.Variables)
 	p.Hooks = cloneHooksConfig(p.Hooks)
-	p.MCP = cloneMCPConfig(p.MCP)
 	p.ExcludeFragments = cloneStrings(p.ExcludeFragments)
 	p.ExcludeMCP = cloneStrings(p.ExcludeMCP)
 	p.DenyTools = cloneStrings(p.DenyTools)
@@ -338,17 +308,6 @@ func (c *Config) GetPendingUpgrade() *upgrade.Pending { return c.pendingUpgrade 
 // GetHomePendingUpgrade returns the HOME layer's pending schema upgrade
 // (only populated when a project layer also exists), or nil.
 func (c *Config) GetHomePendingUpgrade() *upgrade.Pending { return c.homePendingUpgrade }
-
-// GetMCPConfig returns a copy of the whole MCP configuration block.
-func (c *Config) GetMCPConfig() wire.MCPConfig { return cloneMCPConfig(c.mcp) }
-
-// GetMCPServers returns a copy of the unified MCP server map.
-func (c *Config) GetMCPServers() map[string]wire.MCPServer { return cloneMCPServerMap(c.mcp.Servers) }
-
-// GetMCPPlugins returns a copy of the per-backend MCP server override map.
-func (c *Config) GetMCPPlugins() map[string]map[string]wire.MCPServer {
-	return cloneMCPPlugins(c.mcp.Plugins)
-}
 
 // GetLMConfig returns a copy of the whole LLM registry + role-default block.
 func (c *Config) GetLMConfig() LMConfig { return cloneLMConfig(c.lm) }

@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -27,14 +26,16 @@ var mcpCmd = mcpBareMachineRefusal(groupNodeDefault(&cobra.Command{
 	Long: `The MCP (Model Context Protocol) noun: the servers this project hands to
 every engine, and ctxloom's own stdio server.
 
-  ctxloom mcp              List the configured MCP servers (this project's
-                           own, plus whether ctxloom auto-registers itself)
+  ctxloom mcp              List the MCP servers this project registers
   ctxloom mcp serve        Serve ctxloom AS an MCP server over stdio. This is
                            the invocation an engine's settings name, and the
                            only one that speaks the protocol.
-  ctxloom mcp server       Create, show, edit and delete configured servers
-  ctxloom mcp register     Toggle ctxloom's own auto-registration
-  ctxloom mcp unregister
+  ctxloom mcp server       List, show and edit registered servers
+
+Every server here comes from a BUNDLE — ctxloom's own included, which ships
+in the builtin ctxloom bundle. Add one by composing a bundle that declares it;
+withhold one with a profile's exclude_mcp, or with
+  ctxloom bundle reject <bundle>#mcp/<name>
 
 Tools ctxloom serves under 'mcp serve':
   Context:  assemble_context, search_content, search_library
@@ -111,27 +112,22 @@ var mcpServerListCmd = &cobra.Command{
 	RunE:    runMCPList,
 }
 
-// mcpListRow is the --format json shape for `ctxloom mcp list`: a configured MCP
-// server plus its effective-trust stamp. These are project/plugin-level (local)
-// servers; per the trust model they are first-party (the user configured them
-// in this project), so they are exposed via the local exemption unless
-// explicitly rejected. (Bundle-sourced MCP items — addressed
-// <bundle>#mcp/<name> — are gated at their own choke and are not what this
-// command lists.)
+// mcpListRow is the --format json shape for `ctxloom mcp list`: one registered
+// MCP server and the bundle that ships it. Source is also the server's TRUST
+// identity — every entry is a bundle item, addressed <bundle>#mcp/<name>, and
+// gated at the bundle exec choke — so the posture is read and changed through
+// the bundle surfaces (`ctxloom bundle show -i`, `ctxloom bundle trust|reject`,
+// `ctxloom review`) rather than restated here.
 type mcpListRow struct {
-	Name        string   `json:"name"`
-	Command     string   `json:"command"`
-	Args        []string `json:"args,omitempty"`
-	Backend     string   `json:"backend"`
-	Trusted     bool     `json:"trusted"`
-	TrustSource string   `json:"trust_source"`
-	State       string   `json:"state"`
+	Name    string   `json:"name"`
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
+	Source  string   `json:"source"`
 }
 
 // mcpListJSON is the top-level --format json payload for `ctxloom mcp list`.
 type mcpListJSON struct {
-	Servers      []mcpListRow `json:"servers"`
-	AutoRegister bool         `json:"auto_register"`
+	Servers []mcpListRow `json:"servers"`
 }
 
 func runMCPList(cmd *cobra.Command, args []string) error {
@@ -147,62 +143,30 @@ func runMCPList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Effective trust is stamped only for the machine (json) surface, matching
-	// the fragment/prompt listings; the human output below is unchanged.
-	rows := mcpListRows(cfg, result.Servers, outputFormatOf(cmd) == formatJSON)
-
-	return emit(cmd, mcpListJSON{Servers: rows, AutoRegister: result.AutoRegister}, func() error {
+	return emit(cmd, mcpListJSON{Servers: mcpListRows(result.Servers)}, func() error {
 		return printMCPList(cmd.OutOrStdout(), result)
 	})
 }
 
-// mcpListRows projects each configured server into its json row, stamping the
-// row's effective trust (TR3) in the same iteration that reads the server when
-// withTrust is set. A single TrustStamper reads the trust store / remote
-// registry once for the whole list; each configured server is hashed by its
-// executable surface (BundleMCP.ComputeContentHash) and resolved as a local mcp
-// item.
-//
-// One loop over ONE slice is the invariant: a row and the server it describes
-// are produced together, so there is no second slice for an index to drift
-// against and no length relationship for a caller to have to maintain.
-func mcpListRows(cfg *config.Config, servers []operations.MCPServerEntry, withTrust bool) []mcpListRow {
-	var stamper *operations.TrustStamper
-	if withTrust {
-		stamper = operations.NewTrustStamper(cfg)
-	}
+// mcpListRows projects each registered server into its json row.
+func mcpListRows(servers []operations.MCPServerEntry) []mcpListRow {
 	rows := make([]mcpListRow, 0, len(servers))
 	for _, srv := range servers {
-		row := mcpListRow{
+		rows = append(rows, mcpListRow{
 			Name:    srv.Name,
 			Command: srv.Command,
 			Args:    srv.Args,
-			Backend: srv.Backend,
-		}
-		if stamper != nil {
-			res := stamper.ForLocalMCP(srv.Name, bundles.BundleMCP{
-				Command:      srv.Command,
-				Args:         srv.Args,
-				Env:          srv.Env,
-				Installation: srv.Installation,
-			})
-			row.Trusted = res.Trusted()
-			row.TrustSource = string(res.Source)
-			row.State = string(res.State())
-		}
-		rows = append(rows, row)
+			Source:  srv.Source,
+		})
 	}
 	return rows
 }
 
-// printMCPList writes the human-readable MCP server listing, preserving the
-// pre-TR3 text output exactly (trust is shown only in --format json).
+// printMCPList writes the human-readable MCP server listing.
 func printMCPList(w io.Writer, result *operations.ListMCPServersResult) error {
 	if result.Count == 0 {
-		fmt.Fprintln(w, "No MCP servers configured.")
-		fmt.Fprintln(w)
-		fmt.Fprintf(w, "Auto-register ctxloom MCP server: %v\n", result.AutoRegister)
-		fmt.Fprintln(w, "\nUse 'ctxloom mcp server create <name> --command <cmd>' to add one.")
+		fmt.Fprintln(w, "No MCP servers registered.")
+		fmt.Fprintln(w, "\nMCP servers ship in bundles — compose one that declares an `mcp:` server, or check whether a profile's `exclude_mcp` withholds it.")
 		return nil
 	}
 
@@ -213,136 +177,9 @@ func printMCPList(w io.Writer, result *operations.ListMCPServersResult) error {
 		if len(srv.Args) > 0 {
 			fmt.Fprintf(w, "    Args: %s\n", strings.Join(srv.Args, " "))
 		}
-		fmt.Fprintf(w, "    Scope: %s\n", srv.Backend)
+		fmt.Fprintf(w, "    Bundle: %s\n", srv.Source)
 	}
-
-	fmt.Fprintf(w, "\nAuto-register ctxloom MCP server: %v\n", result.AutoRegister)
 	return nil
-}
-
-var (
-	mcpAddCommand string
-	mcpAddArgs    []string
-	mcpAddBackend string
-)
-
-// mcpServerCreateLong documents `mcp server create`, the canonical spine's
-// `create` for the MCP-server noun.
-const mcpServerCreateLong = `Add an MCP server to be injected into backend settings.
-
-Examples:
-  ctxloom mcp server create my-server --command "npx my-mcp-server"
-  ctxloom mcp server create tools --command "python" --args "-m,mcp_tools"
-  ctxloom mcp server create claude-only --command "./server" --backend claude-code`
-
-var mcpServerCreateCmd = &cobra.Command{
-	Use:   "create <name>",
-	Short: "Create an MCP server configuration",
-	Long:  mcpServerCreateLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runMCPAdd,
-}
-
-func runMCPAdd(cmd *cobra.Command, args []string) error {
-	name := args[0]
-
-	if mcpAddCommand == "" {
-		return fmt.Errorf("--command is required")
-	}
-
-	if _, err := GetConfigForUpdate(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	result, err := operations.AddMCPServer(cmd.Context(), config.NewManager(), operations.AddMCPServerRequest{
-		Name:    name,
-		Command: mcpAddCommand,
-		Args:    mcpAddArgs,
-		Backend: mcpAddBackend,
-	})
-	if err != nil {
-		return err
-	}
-
-	return emit(cmd, result, func() error {
-		scope := "unified (all backends)"
-		if result.Backend != "" && result.Backend != "unified" {
-			scope = result.Backend + " only"
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Added MCP server %q (%s)\n", result.Name, scope)
-		fmt.Fprintln(cmd.OutOrStdout(), "Run 'ctxloom run' or 'ctxloom manage hooks install' to apply changes to backend settings.")
-		return nil
-	})
-}
-
-var (
-	mcpRemoveBackend   string
-	mcpServerRemoveYes bool
-)
-
-// mcpServerRemoveCmd is the canonical spine's `remove` for the MCP-server
-// noun. Bare invocation reports what would be removed and removes nothing
-// (exit 0); --yes applies it.
-var mcpServerRemoveCmd = &cobra.Command{
-	Use:     "remove <name>",
-	Aliases: []string{"rm", "del"},
-	Short:   "Remove an MCP server configuration",
-	Long: `Remove an MCP server configuration.
-
-Bare invocation reports what would be removed and removes nothing (exit 0).
-Pass --yes to apply it.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runMCPRemove,
-}
-
-func runMCPRemove(cmd *cobra.Command, args []string) error {
-	name := args[0]
-
-	if _, err := GetConfigForUpdate(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	applyCmd := fmt.Sprintf("ctxloom mcp server remove %s --yes", name)
-	if mcpRemoveBackend != "" {
-		applyCmd = fmt.Sprintf("ctxloom mcp server remove %s --backend %s --yes", name, mcpRemoveBackend)
-	}
-	if !mcpServerRemoveYes {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		found, err := operations.GetMCPServer(cmd.Context(), cfg, operations.GetMCPServerRequest{Name: name})
-		if err != nil {
-			return err
-		}
-		if !found.Found {
-			return fmt.Errorf("MCP server %q not found", name)
-		}
-		target := fmt.Sprintf("MCP server %q", name)
-		return emit(cmd, newRemovePreviewResult(target, nil, applyCmd), func() error {
-			printRemovePreview(cmd.OutOrStdout(), target, nil, applyCmd)
-			return nil
-		})
-	}
-
-	result, err := operations.RemoveMCPServer(cmd.Context(), config.NewManager(), operations.RemoveMCPServerRequest{
-		Name:    name,
-		Backend: mcpRemoveBackend,
-	})
-	if err != nil {
-		return err
-	}
-
-	return emit(cmd, result, func() error {
-		for _, backend := range result.RemovedFrom {
-			if backend != "unified" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Removed from backend: %s\n", backend)
-			}
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Removed MCP server %q\n", result.Name)
-		fmt.Fprintln(cmd.OutOrStdout(), "Run 'ctxloom run' or 'ctxloom manage hooks install' to apply changes to backend settings.")
-		return nil
-	})
 }
 
 // mcpServerShowCmd is the canonical spine's `show` for the MCP-server noun.
@@ -384,25 +221,14 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Interactive trust review. TTY-gated and json-suppressed so the entry
-	// output above is byte-for-byte unchanged; the review goes to stderr.
-	// result.Found is guaranteed true here (the early return above handles
-	// !Found for every format). These are configured-local servers
-	// (first-party, no SetItemTrust ref path), so the surface reviews the
-	// posture rather than offering a t/b action — see reviewLocalMCPTrust.
-	if mcpShowInteractive && outputFormatOf(cmd) != formatJSON && isInteractiveTerminal() {
-		reviewLocalMCPTrust(cmd, cfg, result.Entries)
-	}
 	return nil
 }
 
-var mcpShowInteractive bool
-
-// printMCPServerEntry writes one MCP server entry's scope, command, args, and
+// printMCPServerEntry writes one MCP server entry's bundle, command, args, and
 // env to w.
 func printMCPServerEntry(w io.Writer, e operations.MCPServerEntry) {
 	fmt.Fprintf(w, "MCP Server: %s\n", e.Name)
-	fmt.Fprintf(w, "Scope: %s\n", mcpScopeLabel(e.Backend))
+	fmt.Fprintf(w, "Bundle: %s\n", e.Source)
 	fmt.Fprintf(w, "Command: %s\n", e.Command)
 	if len(e.Args) > 0 {
 		fmt.Fprintf(w, "Args: %s\n", strings.Join(e.Args, " "))
@@ -413,15 +239,6 @@ func printMCPServerEntry(w io.Writer, e operations.MCPServerEntry) {
 			fmt.Fprintf(w, "  %s=%s\n", k, v)
 		}
 	}
-}
-
-// mcpScopeLabel renders an entry's backend scope for human output, matching the
-// labels the previous direct-config lookup used.
-func mcpScopeLabel(backend string) string {
-	if backend == "unified" {
-		return "unified (all backends)"
-	}
-	return backend + " only"
 }
 
 // mcpServerEditCmd is the canonical spine's `edit` for the MCP-server noun. It
@@ -455,13 +272,13 @@ const mcpServerRefPrefix = "mcp/"
 // `<bundle>#mcp/<name>` ref, judged by bundles.ParseItemAsk — the one selector
 // parser every reader shares.
 //
-// A ref that does not select an MCP server is refused by name: the
-// config-level (config.yaml `mcp.servers`) store has no editor path yet, and
-// silently editing the wrong store — or reporting success having changed
-// nothing — is the failure mode this refusal exists to prevent.
+// A ref that does not select an MCP server is refused by name: an MCP server
+// lives in a bundle and nowhere else, so a ref that names no bundle names
+// nothing this command can edit — and reporting success having changed nothing
+// is the failure mode this refusal exists to prevent.
 func runMCPServerEdit(cmd *cobra.Command, args []string) error {
 	notBundleScoped := func() error {
-		return fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); editing a config-level server is not implemented — use `ctxloom mcp server remove --yes` then `ctxloom mcp server create`", args[0], mcpServerRefPrefix)
+		return fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); every MCP server lives in a bundle, so there is no other store to edit", args[0], mcpServerRefPrefix)
 	}
 	ask, err := bundles.ParseItemAsk(args[0])
 	if err != nil {
@@ -476,65 +293,25 @@ func runMCPServerEdit(cmd *cobra.Command, args []string) error {
 	return runBundleMCPEdit(cmd, []string{ask.Bundle, ask.Item})
 }
 
-// mcpServerCmd is the MCP-server noun: the canonical spine over the
-// config-level MCP server store. Bare `ctxloom mcp server` lists the
-// configured servers: the collection is the one thing the noun is about,
-// and reading it touches nothing.
+// mcpServerCmd is the MCP-server noun: the canonical spine over the servers
+// this project registers, every one of them a bundle item. Bare `ctxloom mcp
+// server` lists them: the collection is the one thing the noun is about, and
+// reading it touches nothing.
 var mcpServerCmd = groupNodeDefault(&cobra.Command{
 	Use:   "server",
-	Short: "List, show, create, edit, or delete configured MCP servers",
+	Short: "List, show, or edit the MCP servers this project registers",
 }, "list")
-
-// mcpRegisterCmd / mcpUnregisterCmd toggle ctxloom's own auto-registration,
-// sharing setMcpAutoRegister (manage.go).
-var mcpRegisterCmd = &cobra.Command{
-	Use:   "register",
-	Short: "Enable auto-registration of ctxloom's own MCP server",
-	Args:  cobra.NoArgs,
-	RunE:  runMCPRegister,
-}
-
-var mcpUnregisterCmd = &cobra.Command{
-	Use:   "unregister",
-	Short: "Disable auto-registration of ctxloom's own MCP server",
-	Args:  cobra.NoArgs,
-	RunE:  runMCPUnregister,
-}
-
-func runMCPRegister(cmd *cobra.Command, _ []string) error {
-	return setMcpAutoRegister(cmd, true)
-}
-
-func runMCPUnregister(cmd *cobra.Command, _ []string) error {
-	return setMcpAutoRegister(cmd, false)
-}
 
 func init() {
 	rootCmd.AddCommand(mcpCmd)
 
 	// `mcp serve` is the runtime server, and the invocation every generated
-	// engine surface names (agent.CtxloomMCPArgs). Server-config management
-	// lives under `mcp server`; ctxloom's own auto-registration under
-	// `mcp register`/`mcp unregister`.
+	// engine surface names (agent.CtxloomMCPArgs). A server's definition lives
+	// in the bundle that ships it, so `mcp server` reads and edits there.
 	mcpCmd.AddCommand(mcpServeCmd)
 
 	mcpCmd.AddCommand(mcpServerCmd)
 	mcpServerCmd.AddCommand(mcpServerListCmd)
 	mcpServerCmd.AddCommand(mcpServerShowCmd)
-	mcpServerCmd.AddCommand(mcpServerCreateCmd)
 	mcpServerCmd.AddCommand(mcpServerEditCmd)
-	mcpServerCmd.AddCommand(mcpServerRemoveCmd)
-
-	mcpServerCreateCmd.Flags().StringVarP(&mcpAddCommand, "command", "c", "", "Command to run the MCP server (required)")
-	mcpServerCreateCmd.Flags().StringSliceVarP(&mcpAddArgs, "args", "a", nil, "Arguments for the command (can be repeated)")
-	mcpServerCreateCmd.Flags().StringVarP(&mcpAddBackend, "backend", "b", "", "Backend to add server for (claude-code, codex, or unified)")
-	_ = mcpServerCreateCmd.MarkFlagRequired("command")
-
-	mcpServerRemoveCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to remove the server from")
-	mcpServerRemoveCmd.Flags().BoolVarP(&mcpServerRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
-
-	mcpServerShowCmd.Flags().BoolVarP(&mcpShowInteractive, "interactive", "i", false, "Review the server's effective trust (interactive terminal only)")
-
-	mcpCmd.AddCommand(mcpRegisterCmd)
-	mcpCmd.AddCommand(mcpUnregisterCmd)
 }

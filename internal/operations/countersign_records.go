@@ -270,23 +270,17 @@ func CountersignRef(ref trust.Ref) (string, error) {
 // refLevelAddress reports ref's countersign-store address, and whether ref HAS
 // one at all.
 //
-// A ref carrying NO BUNDLE names an item that lives in the project's own
-// configuration rather than in any bundle — a `config.yaml` MCP server is the
-// shape (see TrustStamper.ForLocalMCP). There is no bundle to address it
-// under, so it has no ref-level address, and only a CONTENT-scoped decision —
-// which is ref-omitted by design (spec §5.3) — can cover it. That is a known
-// shape, not a fault, so it is reported by the boolean rather than by a
-// diagnostic.
-//
-// Any OTHER conversion failure IS a fault, and is named: a ref that carries a
-// bundle and still will not convert is a spelling the grammar refuses, which a
-// human can act on.
+// INVARIANT: every trust-bearing item lives in a bundle, so every ref converts.
+// A conversion failure is therefore a FAULT and is always named — it is a
+// spelling the grammar refuses, which a human can act on. The boolean survives
+// because the callers must still fail closed on one (an unaddressable ref has
+// no ref-level record, so it is neither approved nor rejected at ref level;
+// only a CONTENT-scoped decision, which is ref-omitted by design — spec §5.3 —
+// can cover it).
 func refLevelAddress(ref trust.Ref) (string, bool) {
 	refStr, err := CountersignRef(ref)
 	if err != nil {
-		if ref.Bundle != "" {
-			clidiag.Warn("ctxloom", "trust: %v — no ref-level decision can cover it", err)
-		}
+		clidiag.Warn("ctxloom", "trust: %v — no ref-level decision can cover it", err)
 		return "", false
 	}
 	return refStr, true

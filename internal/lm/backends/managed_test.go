@@ -69,7 +69,6 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 				},
 				Plugins: make(map[string]wire.BackendHooks),
 			},
-			MCP:          wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 			Profiles: config.ProfilesConfig{
@@ -135,59 +134,6 @@ func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 	assert.NotEmpty(t, assembled.Wire().Unified.SessionStart, "context-injection hook should still be assembled")
 }
 
-// TestAssembleManagedMCP_MergesProfileServers folds config-level then
-// default-profile MCP servers (the MCP half of the old MergeConfigHooks, now
-// host-side).
-func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		MCP: wire.MCPConfig{
-			Servers: map[string]wire.MCPServer{"config-mcp": {Command: "config-mcp-cmd"}},
-			Plugins: make(map[string]map[string]wire.MCPServer),
-		},
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{
-				"p": {MCP: wire.MCPConfig{
-					Servers: map[string]wire.MCPServer{"profile-mcp": {Command: "profile-mcp-cmd"}},
-				}},
-			},
-		},
-	})
-
-	mcp := AssembleManagedMCP(cfg, nil)
-	assert.Contains(t, mcp.Servers, "config-mcp")
-	assert.Contains(t, mcp.Servers, "profile-mcp")
-}
-
-// A BROKEN inline profile (circular parent inheritance) must be diagnosed as
-// such — not silently mistaken for "not an inline profile" and retried
-// against the directory loader, whose own (unrelated) not-found error then
-// masks the real cause. Before the fix, all three managed.go resolvers
-// (`if resolved, err := config.ResolveProfile(...); err == nil`) discarded
-// ANY non-nil error the same way, inline or not.
-func TestAssembleManagedMCP_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		MCP:          wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"loopy"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{
-				"loopy": {Parents: []string{"loopy"}},
-			},
-		},
-	})
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	AssembleManagedMCP(cfg, nil)
-
-	assert.Contains(t, buf.String(), "inheritance",
-		"the real cause (inheritance) must reach the warning, not the directory loader's unrelated not-found error: got %q", buf.String())
-}
-
 func TestAssembleManagedHooks_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
@@ -229,27 +175,6 @@ func TestAssembleManagedDenyTools_CircularInlineProfileIsWarnedNotMasked(t *test
 
 	assert.Contains(t, buf.String(), "inheritance",
 		"the real cause (inheritance) must reach the warning: got %q", buf.String())
-}
-
-// The "default profile %q unresolved" warning must not say "default" when
-// the caller passed an EXPLICIT --profile/-p selection — only a name pulled
-// from the config's own defaults (scopedProfiles' fallback branch, no
-// profileNames given) is a "default profile". AssembleManagedHooks already
-// gets this right ("profile %q unresolved"); AssembleManagedMCP and
-// AssembleManagedDenyTools did not.
-func TestAssembleManagedMCP_ExplicitProfileWarningOmitsDefault(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		MCP: wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
-	})
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	AssembleManagedMCP(cfg, []string{"explicitly-selected-and-missing"})
-
-	assert.NotContains(t, buf.String(), "default profile",
-		"an explicitly-selected profile must not be misreported as a default: got %q", buf.String())
 }
 
 func TestAssembleManagedDenyTools_ExplicitProfileWarningOmitsDefault(t *testing.T) {

@@ -130,7 +130,7 @@ func LaunchOnlySurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss
 		// the same question here as it is for a hookless backend.
 		add("hooks", droppedHookDetail(name, *in.Hooks))
 	}
-	add("mcp", managedMCPDetail(name, in))
+	add("mcp", managedMCPDetail(in))
 	if n := len(in.Commands); n > 0 {
 		add("commands", fmt.Sprintf("%d command file(s)", n))
 	}
@@ -151,23 +151,19 @@ func LaunchOnlySettingsReason(name string) string {
 	return d.launchOnlySettingsReason
 }
 
-// managedMCPDetail counts the MCP servers a delivery for name would have
-// registered: ctxloom's own auto-registered entry (the one whose absence costs
-// the user every ctxloom tool, so it is counted even though nobody wrote it
-// into a config by hand), plus bundle servers, plus configured ones, plus this
-// backend's native passthrough set. "" when there are none at all.
-func managedMCPDetail(name string, in agent.SurfaceInputs) string {
+// managedMCPDetail counts the MCP servers a delivery would have registered:
+// every server the resolved bundles ship, ctxloom's own (the builtin ctxloom
+// bundle's, whose absence costs the user every ctxloom tool) included. "" when
+// there are none at all.
+func managedMCPDetail(in agent.SurfaceInputs) string {
 	n := len(in.BundleMCP)
-	if in.MCP != nil {
-		n += len(in.MCP.Servers) + len(in.MCP.Plugins[name])
-	}
-	if in.MCP == nil || in.MCP.ShouldAutoRegisterCtxloom() {
-		n++
-	}
 	if n == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d MCP server(s), including ctxloom's own", n)
+	if _, own := in.BundleMCP[agent.MCPServerName]; own {
+		return fmt.Sprintf("%d MCP server(s), including ctxloom's own", n)
+	}
+	return fmt.Sprintf("%d MCP server(s), NOT including ctxloom's own", n)
 }
 
 // unsupportedHookKindLosses reports, for a backend that carries hooks

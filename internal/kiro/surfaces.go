@@ -74,7 +74,6 @@ func (s *contextSurface) UnsafeInfo() string { return "kiro/context" }
 // mcpSurface is kiro's MCP surface: .kiro/settings/mcp.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
 type mcpSurface struct {
-	mcp             *wire.MCPConfig
 	bundleMCP       map[string]wire.MCPServer
 	fs              afero.Fs
 	commandOverride string // see agent.SurfaceInputs.MCPCommandOverride
@@ -89,7 +88,7 @@ type mcpSurface struct {
 // reprise:accept-drift
 func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 	w := &KiroWriter{FS: s.fs, mcpCommandOverride: s.commandOverride}
-	if err := w.mcpFile(dir).WriteServers(s.mcp, s.bundleMCP); err != nil {
+	if err := w.mcpFile(dir).WriteServers(s.bundleMCP); err != nil {
 		return nil, err
 	}
 	return agent.DeliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
@@ -218,7 +217,7 @@ type Surfaces struct {
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := &contextSurface{context: in.Context, fs: fs}
-	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, commandOverride: in.MCPCommandOverride}
+	mcp := &mcpSurface{bundleMCP: in.BundleMCP, fs: fs, commandOverride: in.MCPCommandOverride}
 	settings := &settingsSurface{hooks: in.Hooks, fs: fs, agentName: in.AgentName}
 	commands, skills := agent.NewSkillShapedCommandsAndSkills("kiro", "kiro", kiroSkillsDir, in, fs,
 		func(dir string, cmds []agent.CommandExport, fs afero.Fs) error {

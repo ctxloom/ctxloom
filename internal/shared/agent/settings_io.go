@@ -4,8 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -71,6 +73,35 @@ func ResolveMCPCommand(override string) string {
 		return override
 	}
 	return CtxloomCommand()
+}
+
+// ResolveManagedMCPServers returns servers with ctxloom's OWN entry — the one
+// the builtin ctxloom bundle contributes under MCPServerName — carrying the
+// command and args a materialized surface must name: the self-exec absolute
+// path of the binary writing the surface (or override's in-container path, see
+// ResolveMCPCommand) and the `mcp serve` leaf (CtxloomMCPArgs).
+//
+// INVARIANT: a bundle declares WHETHER ctxloom's own server is registered;
+// this function fixes WHAT is written, because neither value is knowable when
+// a bundle is authored — the absolute path is a fact about the running
+// process, and the in-container path a fact about the cell. A server set
+// carrying no ctxloom entry is returned unchanged, which is how withholding
+// the builtin bundle's item (a profile's exclude_mcp, or rejecting it) turns
+// ctxloom's own server off.
+//
+// servers is never mutated: one resolved bundle set is shared across engines
+// and cells, and only some of them carry a container override.
+func ResolveManagedMCPServers(servers map[string]wire.MCPServer, override string) map[string]wire.MCPServer {
+	own, ok := servers[MCPServerName]
+	if !ok {
+		return servers
+	}
+	out := make(map[string]wire.MCPServer, len(servers))
+	maps.Copy(out, servers)
+	own.Command = ResolveMCPCommand(override)
+	own.Args = slices.Clone(CtxloomMCPArgs)
+	out[MCPServerName] = own
+	return out
 }
 
 // SettingsOptions configures a settings-writing operation. It carries the

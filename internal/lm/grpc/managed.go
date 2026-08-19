@@ -33,7 +33,6 @@ func ManagedConfigToProto(m *agent.ManagedConfig) *ManagedConfig {
 		Commands:         commandExportsToProto(m.Commands),
 		Skills:           skillExportsToProto(m.Skills),
 		Hooks:            hooksConfigToProto(m.Hooks),
-		Mcp:              mcpConfigToProto(m.MCP),
 		BundleMcp:        mcpServerMapToProto(m.BundleMCP),
 		ManageStatusline: m.ManageStatusline,
 		DenyTools:        m.DenyTools,
@@ -51,7 +50,6 @@ func managedConfigFromProto(m *ManagedConfig) *agent.ManagedConfig {
 		Commands:         commandExportsFromProto(m.GetCommands()),
 		Skills:           skillExportsFromProto(m.GetSkills()),
 		Hooks:            hooksConfigFromProto(m.GetHooks()),
-		MCP:              mcpConfigFromProto(m.GetMcp()),
 		BundleMCP:        mcpServerMapFromProto(m.GetBundleMcp()),
 		ManageStatusline: m.GetManageStatusline(),
 		DenyTools:        m.GetDenyTools(),
@@ -338,53 +336,6 @@ func mcpServerMapFromProto(in map[string]*MCPServer) map[string]wire.MCPServer {
 	out := make(map[string]wire.MCPServer, len(in))
 	for name, s := range in {
 		out[name] = mcpServerFromProto(s)
-	}
-	return out
-}
-
-func mcpConfigToProto(c *wire.MCPConfig) *MCPConfig {
-	if c == nil {
-		return nil
-	}
-	out := &MCPConfig{AutoRegisterCtxloom: c.AutoRegisterCtxloom}
-	if len(c.Servers) > 0 {
-		out.Servers = make(map[string]*MCPServer, len(c.Servers))
-		for name, s := range c.Servers {
-			out.Servers[name] = mcpServerToProto(s)
-		}
-	}
-	if len(c.Plugins) > 0 {
-		out.Plugins = make(map[string]*MCPServerMap, len(c.Plugins))
-		for backend, servers := range c.Plugins {
-			sm := make(map[string]*MCPServer, len(servers))
-			for name, s := range servers {
-				sm[name] = mcpServerToProto(s)
-			}
-			out.Plugins[backend] = &MCPServerMap{Servers: sm}
-		}
-	}
-	return out
-}
-
-func mcpConfigFromProto(c *MCPConfig) *wire.MCPConfig {
-	if c == nil {
-		return nil
-	}
-	// Match the substrate's assembled shape: non-nil Servers/Plugins maps.
-	out := &wire.MCPConfig{
-		AutoRegisterCtxloom: c.AutoRegisterCtxloom,
-		Servers:             make(map[string]wire.MCPServer),
-		Plugins:             make(map[string]map[string]wire.MCPServer),
-	}
-	for name, s := range c.GetServers() {
-		out.Servers[name] = mcpServerFromProto(s)
-	}
-	for backend, sm := range c.GetPlugins() {
-		servers := make(map[string]wire.MCPServer)
-		for name, s := range sm.GetServers() {
-			servers[name] = mcpServerFromProto(s)
-		}
-		out.Plugins[backend] = servers
 	}
 	return out
 }

@@ -402,7 +402,6 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	// what `manage hooks list` reports and what lands in this backend's settings
 	// file are the same resolution, read twice.
 	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil).Wire()
-	mcpCfg := p.freshCfg.GetMCPConfig()
 	settings := p.freshCfg.GetSettings()
 
 	set := backends.BuildSurfaces(backendName, agent.SurfaceInputs{
@@ -412,7 +411,6 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 		// context via Hook writes no native file; codex's context surface reads
 		// Fragments, not this string), so it is safe to set for every backend.
 		Context:          p.assembledContext,
-		MCP:              &mcpCfg,
 		BundleMCP:        p.bundleMCP,
 		Hooks:            hooksCfg,
 		ManageStatusline: settings.ShouldManageStatusline(),

@@ -108,7 +108,7 @@ func vendorPinSeedHome(t *testing.T) (homeParent, projDir, stampPath string) {
 			Command: "printf '%s\n' STAMPED >> " + stampPath,
 		}},
 	}}
-	if err := w.writeSettingsIn(hooks, nil, nil, homeParent, projDir); err != nil {
+	if err := w.writeSettingsIn(hooks, nil, homeParent, projDir); err != nil {
 		t.Fatalf("writeSettingsIn: %v", err)
 	}
 	return homeParent, projDir, stampPath

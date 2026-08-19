@@ -32,8 +32,6 @@ type MCPFileConfig struct {
 	LedgerDir string
 	// Label names the file in warnings/errors (e.g. ".agents/mcp_config.json").
 	Label string
-	// PluginKey selects this engine's entries from wire.MCPConfig.Plugins.
-	PluginKey string
 	// Warn is the diagnostics sink (never fails the write).
 	Warn func(format string, args ...interface{})
 	// CommandOverride, when non-empty, replaces CtxloomCommand() as the
@@ -68,9 +66,9 @@ type mcpFile struct {
 
 // WriteServers reconciles the managed set into the registry file: every
 // previously managed name (the ledger, plus the well-known ctxloom name for
-// pre-ledger files) is dropped, then the current managed set — the ctxloom
-// server (unless auto-register is off), bundle servers, config servers, and
-// this engine's plugin servers — is re-added and the ledger rewritten.
+// pre-ledger files) is dropped, then the current managed set — every server
+// the resolved bundles ship, ctxloom's own included — is re-added and the
+// ledger rewritten.
 //
 // A name derived this round that is NOT in the ledger but IS already present
 // in the registry is a hand-authored entry ctxloom never wrote (the ledger
@@ -81,7 +79,7 @@ type mcpFile struct {
 // collision must not block the rest of the reconcile, and claiming the name
 // anyway would compound today's silent overwrite into a silent deletion the
 // next time RemoveServers or a config change drops it from the managed set.
-func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
+func (c MCPFileConfig) WriteServers(bundleMCP map[string]wire.MCPServer) error {
 	// The lock spans load through save+ledger-write: this is the whole RMW
 	// cycle a concurrent WriteServers/RemoveServers on the SAME registry file
 	// (another hook firing, the MCP server, a container's bind-mounted
@@ -103,10 +101,7 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 
 		c.dropManaged(mf, ledgerNames)
 
-		// A later source (config, plugin) can shadow an earlier one
-		// (bundle) under the same name — including MCPServerName itself. seen
-		// dedupes `managed` so the ledger records each name once, not once per
-		// source that wrote it.
+		// seen dedupes `managed` so the ledger records each name once.
 		var managed []string
 		seen := make(map[string]bool)
 		collisionWarned := make(map[string]bool)
@@ -130,21 +125,8 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 			}
 		}
 
-		if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-			add(MCPServerName, mcpFileServer{Command: ResolveMCPCommand(c.CommandOverride), Args: CtxloomMCPArgs})
-		}
-		for name, server := range bundleMCP {
+		for name, server := range ResolveManagedMCPServers(bundleMCP, c.CommandOverride) {
 			add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
-		}
-		if mcp != nil {
-			for name, server := range mcp.Servers {
-				add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
-			}
-			if backendServers, ok := mcp.Plugins[c.PluginKey]; ok {
-				for name, server := range backendServers {
-					add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
-				}
-			}
 		}
 
 		if err := c.save(mf); err != nil {

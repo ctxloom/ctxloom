@@ -48,6 +48,4 @@ llm:
     defaults:
         fast: claude-fast
         primary: claude-code
-mcp:
-    auto_register_ctxloom: true
 version: 6

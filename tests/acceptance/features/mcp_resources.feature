@@ -44,12 +44,12 @@ Feature: MCP resources
     And the resource contains "url: file:///tmp/acceptance-remote.git"
     And the resource contains "count: 1"
 
-  Scenario: The mcp-servers resource reflects configured servers
+  Scenario: The mcp-servers resource reflects the registered servers
     Given an initialized ctxloom project
-    And I run "ctxloom mcp server create tools -c echo"
     When the agent reads resource "ctxloom://mcp-servers"
     Then the resource MIME type is "application/yaml"
-    And the resource contains "tools"
+    And the resource contains "ctxloom"
+    And the resource contains "ctxloom+builtin:ctxloom-mcp"
 
   # Same shape as the remotes resource above: a recorded session is payload
   # both views must carry, and `recent` additionally states its own

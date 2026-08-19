@@ -1427,7 +1427,7 @@ func (st *runState) startTransport() error {
 			Harp:        st.activeHarp,
 			ContextText: st.ctxResult.Context,
 			Prompt:      st.prompt,
-			MCPServers:  st.managed.ChatMCPServers(st.backendName, st.req.Options.Env[agent.MCPCommandOverrideEnv]),
+			MCPServers:  st.managed.ChatMCPServers(st.req.Options.Env[agent.MCPCommandOverrideEnv]),
 			Permission:  st.permMode,
 			Mode:        st.mode,
 			RunnerEnv:   st.runnerSpawnEnv,

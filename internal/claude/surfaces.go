@@ -121,7 +121,6 @@ func (s *contextSurface) Path() string { return s.appendD.Path() }
 // --mcp-config <file> (paired with --strict-mcp-config, which replaces the
 // project .mcp.json rather than merging — a buildArgs concern).
 type mcpSurface struct {
-	mcp             *wire.MCPConfig
 	bundle          map[string]wire.MCPServer
 	fs              afero.Fs
 	isolated        agent.Placement // out-of-cwd location for the --mcp-config file
@@ -135,10 +134,11 @@ type mcpSurface struct {
 // carry no stdio command), and write the merged config. Deliver and
 // DeliverIsolated differ only in where dir comes from and whether the resulting
 // path is recorded; that is the whole of what either entry point adds.
+// reprise:accept-drift — shares a three-line shape with settingsSurface.deliver and commandsSurface.Deliver, and that shape IS the whole body: construct the writer, set the one knob this surface owns, call the one delivery it owns. A helper taking both as parameters is longer than what it replaces and hides which knob belongs to which surface; each of the three changes only when its own surface's knob or delivery changes.
 func (s *mcpSurface) deliver(dir string) (agent.Delivered, error) {
 	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
 	d.mcpCommandOverride = s.commandOverride
-	return d.DeliverMCP(s.mcp, s.bundle)
+	return d.DeliverMCP(s.bundle)
 }
 
 // Deliver writes .mcp.json into dir via the reused file-template MCP writer.
@@ -301,7 +301,7 @@ type Surfaces struct {
 func NewSurfaces(in agent.SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := newContextSurface(in.Context, isolated, fs)
-	mcp := &mcpSurface{mcp: in.MCP, bundle: in.BundleMCP, fs: fs, isolated: isolated, commandOverride: in.MCPCommandOverride}
+	mcp := &mcpSurface{bundle: in.BundleMCP, fs: fs, isolated: isolated, commandOverride: in.MCPCommandOverride}
 	settings := &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: fs, isolated: isolated}
 	commands := &commandsSurface{commands: in.Commands, fs: fs, selfContainedCommands: in.SelfContainedCommands}
 	skills := newSkillsSurface(in.Skills, fs)
@@ -400,11 +400,11 @@ var (
 	_ agent.Delivery    = (*contextSurface)(nil)
 	_ agent.StateReader = (*contextSurface)(nil)
 	_ agent.Delivery    = (*mcpSurface)(nil)
-	_ agent.Delivery  = (*settingsSurface)(nil)
-	_ agent.Delivery  = (*commandsSurface)(nil)
-	_ agent.Delivery  = (*agent.ManagedSkillPackagesDelivery)(nil)
-	_ agent.Delivery  = noopContextDelivery{}
-	_ agent.Placement = dirPlacement{}
+	_ agent.Delivery    = (*settingsSurface)(nil)
+	_ agent.Delivery    = (*commandsSurface)(nil)
+	_ agent.Delivery    = (*agent.ManagedSkillPackagesDelivery)(nil)
+	_ agent.Delivery    = noopContextDelivery{}
+	_ agent.Placement   = dirPlacement{}
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

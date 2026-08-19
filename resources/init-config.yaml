@@ -19,7 +19,3 @@ config:
 # binds this agent. Edit the profile, add language/stack profiles via discovery,
 # or run `ctxloom init prompt` to bind more agents; `ctxloom agent default <name>`
 # repoints the default.
-
-# MCP server configuration.
-mcp:
-  auto_register_ctxloom: true

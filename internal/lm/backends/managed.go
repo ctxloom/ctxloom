@@ -22,7 +22,7 @@ import (
 // (unlike bundles.ItemRefFor, which callers holding a BundleRead can call
 // directly) because a directory profile's gate identity (profileGateRef.Base,
 // from profiles.ResolvedProfile.SourceRef) has no typed sibling — see
-// gateProfileMCP/gateProfileHooks's tests, which build a profileGateRef with a
+// gateProfileHooks's tests, which build a profileGateRef with a
 // Base and no Read at all. parseSourceRef resolves that string into the
 // bundles.ItemRefFor.
 //
@@ -118,7 +118,6 @@ func AssembleManagedConfig(backendName, workDir string, gate bundles.Authorizer,
 		Commands:         CommandExportsFor(backendName, LoadCommandExports(cfg, profileNames)),
 		Skills:           SkillExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
 		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames).Wire(),
-		MCP:              AssembleManagedMCP(cfg, profileNames),
 		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
 		ManageStatusline: managedStatuslineEnabled(cfg),
 		DenyTools:        AssembleManagedDenyTools(cfg, profileNames),
@@ -159,70 +158,11 @@ func SkillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.
 	return d.skillExports(skills)
 }
 
-// AssembleManagedMCP builds the merged MCP server set: config-level servers then
-// each default profile's servers (later wins). This is the MCP half of the old
-// BaseLifecycle.MergeConfigHooks, lifted host-side now that ctxloom owns config
-// resolution.
-//
-// A default profile resolves the SAME way operations.resolveProfile does:
-// inline definitions (config.yaml profiles: map) win, and a name that isn't an
-// inline profile falls back to a directory profile (.ctxloom/profiles/<name>.yaml
-// via the profile loader) — so a directory profile's inline mcp: servers reach
-// the managed set, parity with an inline profile. An inline profile's servers are
-// trusted-local config (ungated); a directory profile may be remote-sourced, so
-// ITS directly-declared servers pass the executable trust gate first (the SAME
-// gate bundle MCP servers pass), never reaching settings unevaluated.
-func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConfig {
-	mcp := &wire.MCPConfig{
-		Servers: make(map[string]wire.MCPServer),
-		Plugins: make(map[string]map[string]wire.MCPServer),
-	}
-	if cfg == nil {
-		return mcp
-	}
-	// Config-level MCP is the project-wide baseline (always merged). The
-	// per-profile inline MCP is scoped to the SELECTED profiles, falling back
-	// to the configured defaults when none are passed.
-	configMCP := cfg.GetMCPConfig()
-	wire.MergeMCPConfig(mcp, &configMCP)
-	gate := cfg.ExecutableTrustGate()
-	profileDefs := cfg.GetProfileDefinitions()
-	for _, profileName := range scopedProfiles(cfg, profileNames) {
-		// Inline profile (config.yaml) wins, trusted-local (ungated). A non-nil
-		// inlineErr is either "not an inline profile" (errs.ErrProfileNotFound —
-		// fall through to the directory loader below, same as before) or a REAL
-		// inline-profile defect (circular inheritance, depth exceeded) the
-		// directory fallback cannot explain: this used to treat both cases
-		// identically, so a broken inline profile's actual cause was
-		// discarded in favor of the directory loader's unrelated not-found error.
-		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
-		if inlineErr == nil {
-			wire.MergeMCPConfig(mcp, &inlineResolved.MCP)
-			continue
-		}
-		if !errors.Is(inlineErr, errs.ErrProfileNotFound) {
-			clidiag.Warn("ctxloom", "profile %q: inline resolution failed; its MCP servers omitted: %v", profileName, inlineErr)
-			continue
-		}
-		// Directory profile fallback: drop servers its exclude_mcp removes (parity
-		// with the inline toProfile filter), then gate the directly-declared
-		// servers before merging.
-		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
-		if err != nil {
-			clidiag.Warn("ctxloom", "profile %q unresolved; its MCP servers omitted: %v", profileName, err)
-			continue
-		}
-		gated := gateProfileMCP(profileGateRefFor(cfg, resolved, profileName), excludeMCPServers(resolved.MCP, resolved.ExcludeMCP), gate)
-		wire.MergeMCPConfig(mcp, &gated)
-	}
-	return mcp
-}
-
 // AssembleManagedDenyTools builds the union of deny_tools declared by the
 // config's default profile / the caller's selected profiles: config.yaml
 // inline profiles (config.ResolveProfile) or, when a name isn't inline, a
 // directory profile (cfg.GetProfileLoader().ResolveProfile) — the SAME
-// two-source resolution AssembleManagedMCP/AssembleManagedHooks use. Order is
+// two-source resolution AssembleManagedHooks uses. Order is
 // deterministic (first-seen wins position) and entries dedup case-sensitively
 // on the exact tool identifier string.
 //
@@ -249,7 +189,7 @@ func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []strin
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		// Inline profile (config.yaml) wins, trusted-local (ungated) — see the
-		// same-shaped loop in AssembleManagedMCP, including the real-vs-
+		// same-shaped loop in AssembleManagedHooks, including the real-vs-
 		// not-found error distinction.
 		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
 		if inlineErr == nil {
@@ -313,7 +253,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 	// Config-level hooks.
 	hooks.mergeHooks(cfg.GetHooksConfig(), fixedSource(HookSource{Origin: HookOriginConfig}))
 	// Selected-profile-shipped hooks (defaults when none are passed). A profile
-	// resolves the SAME way operations.resolveProfile / AssembleManagedMCP do:
+	// resolves the SAME way operations.resolveProfile / AssembleManagedDenyTools do:
 	// inline definitions (config.yaml) win and are trusted-local (ungated); a name
 	// that isn't inline falls back to a directory profile, whose directly-declared
 	// hooks pass the executable trust gate first (the SAME gate bundle hooks pass)
@@ -323,7 +263,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 	profiles := scopedProfiles(cfg, profileNames)
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range profiles {
-		// Same real-vs-not-found error distinction as AssembleManagedMCP's loop:
+		// Same real-vs-not-found error distinction as AssembleManagedDenyTools's loop:
 		// a broken inline profile must not be silently retried as a
 		// directory profile.
 		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
@@ -379,31 +319,7 @@ func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, con
 	}
 }
 
-// excludeMCPServers drops the named unified servers from a directory profile's
-// MCP (its exclude_mcp list), mirroring the inline profileBuilder.toProfile
-// filter so the directory path honors exclude_mcp on its own declared servers
-// exactly like the inline path. Backend-passthrough Plugins are left untouched,
-// matching the inline filter's Servers-only scope.
-func excludeMCPServers(mcp wire.MCPConfig, exclude []string) wire.MCPConfig {
-	if len(exclude) == 0 || len(mcp.Servers) == 0 {
-		return mcp
-	}
-	excluded := make(map[string]bool, len(exclude))
-	for _, n := range exclude {
-		excluded[n] = true
-	}
-	out := mcp
-	out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
-	for name, srv := range mcp.Servers {
-		if excluded[name] {
-			continue
-		}
-		out.Servers[name] = srv
-	}
-	return out
-}
-
-// profileGateRef is the identity gateProfileMCP/gateProfileHooks key the
+// profileGateRef is the identity gateProfileHooks keys the
 // executable trust gate by — the profile's own SOURCE, never its display
 // name (a display name is neither honestly local nor a parseable trust
 // ref). Base is the ref the gate composes "#<kind>/<name>" onto; Signer is
@@ -454,64 +370,6 @@ func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, p
 	return ref
 }
 
-// gateProfileMCP returns the MCP servers of a directory-resolved profile that the
-// executable trust gate allows. A directory profile may be remote-sourced, so its
-// directly-declared MCP servers — unlike a trusted-local config.yaml inline
-// profile's — pass the SAME per-item executable gate as bundle MCP servers
-// (config.extractMCPFromBundle), keyed on the canonical bundle-reference
-// grammar's item selector over ref.Read.SourceRef() (itemRefFor) with the server's
-// executable-surface hash. A DENY omits the server (fail-closed). An AdmitAll
-// gate (management paths) admits everything unchanged.
-func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authorizer) wire.MCPConfig {
-	if !bundles.Gates(gate) {
-		return mcp
-	}
-	out := wire.MCPConfig{AutoRegisterCtxloom: mcp.AutoRegisterCtxloom}
-	if len(mcp.Servers) > 0 {
-		out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
-		for name, srv := range mcp.Servers {
-			itemRef, err := itemRefFor(ref.Base, trust.KindMCP, name)
-			if err != nil {
-				clidiag.Warn("ctxloom", "profile MCP server %q withheld: %v", name, err)
-				continue
-			}
-			if gateProfileExec(gate, ref, itemRef, mcpExecPayload(srv)) {
-				out.Servers[name] = srv
-			} else {
-				// Fail-closed is right, fail-SILENT is not — the gate's
-				// decision is unchanged, this only makes the withhold
-				// diagnosable.
-				clidiag.Warn("ctxloom", "profile MCP server %q withheld by trust gate (%s); its executable is pending review", name, itemRef)
-			}
-		}
-	}
-	// Plugin-specific (backend-passthrough) servers gate too — an arbitrary-command
-	// executable must never bypass the gate; keyed on itemRefFor(ref.Base,
-	// trust.KindMCP, "<backend>/<name>").
-	if len(mcp.Plugins) > 0 {
-		out.Plugins = make(map[string]map[string]wire.MCPServer, len(mcp.Plugins))
-		for backend, servers := range mcp.Plugins {
-			gated := make(map[string]wire.MCPServer)
-			for name, srv := range servers {
-				itemRef, err := itemRefFor(ref.Base, trust.KindMCP, backend+"/"+name)
-				if err != nil {
-					clidiag.Warn("ctxloom", "profile MCP server %q (backend %s) withheld: %v", name, backend, err)
-					continue
-				}
-				if gateProfileExec(gate, ref, itemRef, mcpExecPayload(srv)) {
-					gated[name] = srv
-				} else {
-					clidiag.Warn("ctxloom", "profile MCP server %q (backend %s) withheld by trust gate (%s); its executable is pending review", name, backend, itemRef)
-				}
-			}
-			if len(gated) > 0 {
-				out.Plugins[backend] = gated
-			}
-		}
-	}
-	return out
-}
-
 // gateProfileHooks returns the hooks of a directory-resolved profile that the
 // executable trust gate allows. Each hook is keyed on itemRefFor(ref.Base,
 // trust.KindHook, "<event>/<index>") (the SAME identity scheme bundle hooks
@@ -533,7 +391,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			if gateProfileExec(gate, ref, hookRef, hookExecPayload(hook)) {
 				out = append(out, hook)
 			} else {
-				// Same fail-closed-but-diagnosable shape as gateProfileMCP's
+				// Same fail-closed-but-diagnosable shape as gateProfileHooks's
 				// warn — the gate's decision is unchanged.
 				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Command, hookRef)
 			}
@@ -586,19 +444,6 @@ func gateProfileExec(gate bundles.Authorizer, ref profileGateRef, itemRef string
 		return false
 	}
 	return bundles.Decide(gate, ref.Read, itemRef, payload, bundles.FormRaw).Allow
-}
-
-// mcpExecPayload builds a profile MCP server's executable-surface preimage via
-// the shared bundle primitive (Command+Args+Env+Installation), so a
-// profile-declared server and an identical bundle-declared one bind to exactly
-// the SAME bytes. nil on an (unreachable) encoding failure — see gateProfileExec.
-func mcpExecPayload(s wire.MCPServer) []byte {
-	bm := bundles.BundleMCP{Command: s.Command, Args: s.Args, Env: s.Env, Installation: s.Installation}
-	payload, err := bm.ContentPayload()
-	if err != nil {
-		return nil
-	}
-	return payload
 }
 
 // hookExecPayload builds a profile hook's executable-surface preimage via the

@@ -78,8 +78,8 @@ func TestLeafMarshalBytesArePinned(t *testing.T) {
 
 // TestContainerMarshalUsesSnakeCase is the other side of the same coin: it
 // pins what the containers now emit. Before the json tags were added these
-// keys were the Go field names (Unified, PreTool, Servers,
-// AutoRegisterCtxloom) sitting beside snake_case leaves in the same document.
+// keys were the Go field names (Unified, PreTool) sitting beside snake_case
+// leaves in the same document.
 func TestContainerMarshalUsesSnakeCase(t *testing.T) {
 	hooks := HooksConfig{
 		Unified: UnifiedHooks{
@@ -101,20 +101,5 @@ func TestContainerMarshalUsesSnakeCase(t *testing.T) {
 	wantHooks := `{"unified":{"pre_tool":[{"command":"a"}],"post_tool":[{"command":"b"}],"session_start":[{"command":"c"}],"session_end":[{"command":"d"}],"pre_shell":[{"command":"e"}],"post_file_edit":[{"command":"f"}]},"plugins":{"claude-code":{"PreToolUse":[{"command":"g"}]}}}`
 	if string(gotHooks) != wantHooks {
 		t.Errorf("HooksConfig JSON\n got: %s\nwant: %s", gotHooks, wantHooks)
-	}
-
-	auto := true
-	mcp := MCPConfig{
-		AutoRegisterCtxloom: &auto,
-		Servers:             map[string]MCPServer{"s": {Command: "cmd"}},
-		Plugins:             map[string]map[string]MCPServer{"claude-code": {"p": {Command: "pc"}}},
-	}
-	gotMCP, err := json.Marshal(mcp)
-	if err != nil {
-		t.Fatalf("json.Marshal(MCPConfig): %v", err)
-	}
-	wantMCP := `{"auto_register_ctxloom":true,"servers":{"s":{"command":"cmd"}},"plugins":{"claude-code":{"p":{"command":"pc"}}}}`
-	if string(gotMCP) != wantMCP {
-		t.Errorf("MCPConfig JSON\n got: %s\nwant: %s", gotMCP, wantMCP)
 	}
 }

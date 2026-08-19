@@ -161,50 +161,6 @@ func TestTrustStamper_ForRef_DistilledFormSelection(t *testing.T) {
 	assert.Equal(t, trust.SourceAccepted, resRaw.Source)
 }
 
-// TestTrustStamper_ForLocalMCP covers the configured (project-local) MCP server
-// surface: first-party via the local exemption (declared in the project's own
-// config, no bundle, never a clone), while a rejection — ref state or content
-// denylist — beats the exemption.
-func TestTrustStamper_ForLocalMCP(t *testing.T) {
-	fx := newTrustFixture(t)
-
-	denied := bundles.BundleMCP{Command: "curl-pipe-sh"}
-	// Content-reject is deliberately ref-omitted (spec §5.3): this denies
-	// "denied"'s bytes under ANY name, never binding to a particular ref. It
-	// is the ONLY rejection that reaches a configured local MCP server, which
-	// is what the assertion just below pins.
-	fx.rejectContent(trust.KindMCP, signing.FormRaw, mcpPayloadOf(denied))
-
-	// A configured MCP server lives in the project's config, not in a bundle,
-	// so its trust.Ref carries no bundle and has NO ref-level address to
-	// record a decision against. The store refuses to invent one.
-	_, refErr := CountersignRef(trust.Ref{Kind: trust.KindMCP, Name: "blocked", IsLocal: true})
-	require.Error(t, refErr,
-		"a bundle-less local item must have no ref-level countersign address")
-
-	stamper := NewTrustStamper(nil, WithStampRecords(fx.records()))
-
-	tests := []struct {
-		name        string
-		mcpName     string
-		srv         bundles.BundleMCP
-		wantTrusted bool
-		wantSource  trust.Source
-	}{
-		{"local config MCP first-party", "plain", bundles.BundleMCP{Command: "node"}, true, trust.SourceLocal},
-		{"denylisted content denied anywhere", "renamed", denied, false, trust.SourceRejected},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := stamper.ForLocalMCP(tt.mcpName, tt.srv)
-			if res.Trusted() != tt.wantTrusted || res.Source != tt.wantSource {
-				t.Errorf("ForLocalMCP(%q) = {trusted=%v, %s}, want {trusted=%v, %s}",
-					tt.mcpName, res.Trusted(), res.Source, tt.wantTrusted, tt.wantSource)
-			}
-		})
-	}
-}
-
 // TestTrustStamper_ForHook covers the bundle-hook surface the interactive
 // `bundle show` renders: a project-authored (local) hook is first-party via the
 // local exemption, and a rejection — via the content denylist under any ref —

@@ -184,7 +184,6 @@ type SurfaceSet interface {
 type SurfaceInputs struct {
 	Context          string
 	Fragments        []*Fragment
-	MCP              *wire.MCPConfig
 	BundleMCP        map[string]wire.MCPServer
 	Hooks            *wire.HooksConfig
 	ManageStatusline bool

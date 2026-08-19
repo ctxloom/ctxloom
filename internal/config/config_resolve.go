@@ -47,7 +47,6 @@ type profileBuilder struct {
 	Skills         orderedSet[string]
 	Variables      map[string]string
 	Hooks          wire.HooksConfig
-	MCP            wire.MCPConfig
 	fragmentsOrder []FragmentRef
 	// Track fragment priorities (keep highest when same fragment referenced multiple times)
 	fragmentPriorities map[string]int
@@ -75,10 +74,6 @@ func newProfileBuilder() *profileBuilder {
 		fragmentPriorities: make(map[string]int),
 		Hooks: wire.HooksConfig{
 			Plugins: make(map[string]wire.BackendHooks),
-		},
-		MCP: wire.MCPConfig{
-			Servers: make(map[string]wire.MCPServer),
-			Plugins: make(map[string]map[string]wire.MCPServer),
 		},
 		seenHooks:        collections.NewSet[string](),
 		ExcludeFragments: collections.NewSet[string](),
@@ -217,18 +212,6 @@ func (b *profileBuilder) toProfile() *Profile {
 		}
 	}
 
-	// Filter excluded MCP servers
-	filteredMCP := b.MCP
-	if len(b.ExcludeMCP.Items()) > 0 && filteredMCP.Servers != nil {
-		filteredServers := make(map[string]wire.MCPServer)
-		for name, server := range filteredMCP.Servers {
-			if !b.ExcludeMCP.Has(name) {
-				filteredServers[name] = server
-			}
-		}
-		filteredMCP.Servers = filteredServers
-	}
-
 	return &Profile{
 		Description: b.Description,
 		LLM:         b.LLM,
@@ -241,7 +224,6 @@ func (b *profileBuilder) toProfile() *Profile {
 		Skills:      b.Skills.Items(),
 		Variables:   b.Variables,
 		Hooks:       b.Hooks,
-		MCP:         filteredMCP,
 		// These three accumulate through inheritance in a collections.Set, whose
 		// Items() is MAP-ITERATION order — Go randomizes it, so an unsorted read
 		// would spell a resolved profile differently on every run. They are not
@@ -386,10 +368,8 @@ func mergeProfileValues(builder *profileBuilder, profile Profile) {
 		builder.Variables[k] = v
 	}
 
-	// Merge hooks (deduplicated by command+matcher) and MCP (later wins).
+	// Merge hooks (deduplicated by command+matcher).
 	builder.mergeHooks(profile.Hooks)
-	mcpSource := profile.MCP
-	wire.MergeMCPConfig(&builder.MCP, &mcpSource)
 
 	for _, frag := range profile.ExcludeFragments {
 		builder.ExcludeFragments.Add(frag)

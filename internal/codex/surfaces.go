@@ -179,7 +179,6 @@ func (s *agentsMDSurface) UnsafeInfo() string { return "codex/agents-md" }
 // per-invocation config redirect.
 type configSurface struct {
 	hooks     *wire.HooksConfig
-	mcp       *wire.MCPConfig
 	bundleMCP map[string]wire.MCPServer
 	fs        afero.Fs
 	// homeOverride is the codex home parent config.toml (and, via the sibling
@@ -224,7 +223,7 @@ func (s *configSurface) Deliver(_ string) (agent.Delivered, error) {
 		return nil, nil
 	}
 	w := &CodexHookWriter{FS: s.fs, MCPCommandOverride: s.mcpCommandOverride}
-	if err := w.writeSettingsIn(s.hooks, s.mcp, s.bundleMCP, target, s.trustAbsPath); err != nil {
+	if err := w.writeSettingsIn(s.hooks, s.bundleMCP, target, s.trustAbsPath); err != nil {
 		return nil, err
 	}
 	return agent.DeliveredFunc(func() error { return w.removeSettingsIn(target) }), nil
@@ -335,7 +334,7 @@ func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs a
 	fs = agent.GetFS(fs)
 	ctxSurf := &contextSurface{fragments: in.Fragments, fs: fs}
 	mdSurf := &agentsMDSurface{context: in.Context, fs: fs}
-	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, homeOverride: homeOverride, trustAbsPath: trustAbsPath, mcpCommandOverride: in.MCPCommandOverride}
+	config := &configSurface{hooks: in.Hooks, bundleMCP: in.BundleMCP, fs: fs, homeOverride: homeOverride, trustAbsPath: trustAbsPath, mcpCommandOverride: in.MCPCommandOverride}
 	commands := agent.NewManagedCommandsDelivery("codex/commands (global $CODEX_HOME)", in.Commands, func(_ string, commands []agent.CommandExport) error {
 		target, why := deliveryHome(homeOverride)
 		if why != homeAvailable {

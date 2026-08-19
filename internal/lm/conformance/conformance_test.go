@@ -102,7 +102,7 @@ func TestConformance_CodexIsAbsentByDECLARATION(t *testing.T) {
 	assert.Empty(t, (&codex.CodexHookWriter{}).SettingsPath("/project"),
 		"codex is absent from agentCases because it has NO project-keyed settings path; if it has one again, add the row back")
 
-	err := (&codex.CodexHookWriter{}).WriteSettings(standardHooks(), nil, nil, "/project")
+	err := (&codex.CodexHookWriter{}).WriteSettings(standardHooks(), nil, "/project")
 	assert.Error(t, err, "and because its harpless writer declares the absence rather than writing")
 }
 
@@ -199,7 +199,7 @@ func TestConformance_RefusesToOverwriteUnparseableSettings(t *testing.T) {
 			path := w.SettingsPath(projectDir)
 			require.NoError(t, afero.WriteFile(fs, path, []byte(corrupt), 0644))
 
-			err := w.WriteSettings(standardHooks(), nil, nil, projectDir)
+			err := w.WriteSettings(standardHooks(), nil, projectDir)
 			require.Error(t, err, "WriteSettings must refuse rather than overwrite an unparseable prior file")
 			assert.Contains(t, err.Error(), path, "the refusal error must name the offending file")
 
@@ -288,7 +288,7 @@ func TestConformance_AtomicWriteBackup(t *testing.T) {
 			require.NoError(t, afero.WriteFile(fs, path, []byte(a.userFile), 0644))
 			fs.reset() // that setup write is the test's, not the writer's
 
-			require.NoError(t, w.WriteSettings(standardHooks(), nil, nil, projectDir))
+			require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
 
 			bak, err := afero.ReadFile(fs, path+".ctxloom.bak")
 			require.NoError(t, err, "a .ctxloom.bak of the prior settings must exist")
@@ -327,7 +327,7 @@ func TestConformance_HookEventCoverage(t *testing.T) {
 		t.Run(a.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			w := a.newWriter(agent.SettingsOptions{FS: fs})
-			require.NoError(t, w.WriteSettings(standardHooks(), nil, nil, projectDir))
+			require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
 
 			data, err := afero.ReadFile(fs, w.SettingsPath(projectDir))
 			require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestConformance_HookEventsAreEmittedIndependently(t *testing.T) {
 			t.Run(a.name+"/"+ev.marker, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
 				w := a.newWriter(agent.SettingsOptions{FS: fs})
-				require.NoError(t, w.WriteSettings(onlyHooks(ev), nil, nil, projectDir))
+				require.NoError(t, w.WriteSettings(onlyHooks(ev), nil, projectDir))
 
 				data, err := afero.ReadFile(fs, w.SettingsPath(projectDir))
 				require.NoError(t, err)
@@ -417,7 +417,7 @@ func TestConformance_MCPAutoRegister(t *testing.T) {
 		t.Run(a.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			w := a.newWriter(agent.SettingsOptions{FS: fs})
-			require.NoError(t, w.WriteSettings(standardHooks(), nil, nil, projectDir))
+			require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
 
 			st, err := w.Status(projectDir)
 			require.NoError(t, err)
@@ -442,7 +442,7 @@ func TestConformance_RemovePreservesUser(t *testing.T) {
 			path := w.SettingsPath(projectDir)
 			require.NoError(t, afero.WriteFile(fs, path, []byte(a.userFile), 0644))
 
-			require.NoError(t, w.WriteSettings(standardHooks(), nil, nil, projectDir))
+			require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
 			for _, ev := range coveredEvents {
 				require.NotEmptyf(t, liveFilesContaining(t, fs, ev.marker),
 					"precondition: managed event %q must be on disk before removal can be shown to strip it", ev.marker)

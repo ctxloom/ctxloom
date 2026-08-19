@@ -216,27 +216,3 @@ func printBundleHookTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 	cleanID, _ := remote.StripRefControlChars(entry.ID())
 	fmt.Fprintf(w, "  hooks/%s: %s\n", cleanID, stampedTrust(res))
 }
-
-// reviewLocalMCPTrust is the TTY-gated trust review for `manage mcp servers show
-// -i`. The servers it lists are project/plugin-local configured executables, not
-// bundle items: they are first-party (exposed via the local exemption unless
-// rejected) and — because they carry no bundle ref — they have no
-// SetItemTrust/SetBlacklist mutation path. This surface therefore REVIEWS the
-// posture (to stderr) and points at the ref-based commands for bundle-sourced
-// MCP servers, rather than offering a t/b action that could not be honored.
-func reviewLocalMCPTrust(cmd *cobra.Command, cfg *config.Config, entries []operations.MCPServerEntry) {
-	stamper := operations.NewTrustStamper(cfg)
-	w := cmd.ErrOrStderr()
-	for _, e := range entries {
-		res := stamper.ForLocalMCP(e.Name, bundles.BundleMCP{
-			Command:      e.Command,
-			Args:         e.Args,
-			Env:          e.Env,
-			Installation: e.Installation,
-		})
-		fmt.Fprintf(w, "Effective trust (%s scope): %s\n", e.Backend, stampedTrust(res))
-	}
-	fmt.Fprintln(w,
-		"Configured local MCP servers are reviewed here; trust or reject a bundle-sourced "+
-			"MCP server with `ctxloom bundle trust|reject <bundle>#mcp/<name>`.")
-}

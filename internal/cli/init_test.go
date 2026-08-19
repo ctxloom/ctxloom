@@ -42,7 +42,6 @@ func TestGenerateConfig_DefaultsBlock(t *testing.T) {
 	body := string(data)
 	// The scaffold settings survive into the written config.
 	assert.Contains(t, body, "use_distilled: true")
-	assert.Contains(t, body, "auto_register_ctxloom: true")
 	// The engine's role pair is wired into llm.defaults.
 	assert.Contains(t, body, "primary: claude-code")
 	assert.Contains(t, body, "fast: claude-fast")

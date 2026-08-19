@@ -21,14 +21,6 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 		agents: map[string]agents.Agent{
 			"dev": {Name: "dev", Profiles: []string{"go", "review"}},
 		},
-		mcp: wire.MCPConfig{
-			Servers: map[string]wire.MCPServer{
-				"fs": {Command: "fs-server", Args: []string{"--root", "."}},
-			},
-			Plugins: map[string]map[string]wire.MCPServer{
-				"claude-code": {"fs": {Command: "fs-server"}},
-			},
-		},
 		lm: LMConfig{
 			Configs: map[string]LLMConfig{
 				"main": {Type: "claude-code", Body: map[string]any{"model": "opus"}},
@@ -69,28 +61,6 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 		dev.Profiles[0] = "MUTATED"
 		if cfg.agents["dev"].Profiles[0] != "go" {
 			t.Fatalf("mutating a nested slice on GetConfiguredAgents() result corrupted the source: %v", cfg.agents["dev"].Profiles)
-		}
-	})
-
-	t.Run("MCPServers map and nested slice", func(t *testing.T) {
-		got := cfg.GetMCPServers()
-		delete(got, "fs")
-		if _, ok := cfg.mcp.Servers["fs"]; !ok {
-			t.Fatal("deleting from GetMCPServers() result deleted the source entry")
-		}
-		got2 := cfg.GetMCPServers()
-		srv := got2["fs"]
-		srv.Args[0] = "MUTATED"
-		if cfg.mcp.Servers["fs"].Args[0] != "--root" {
-			t.Fatalf("mutating a nested slice on GetMCPServers() result corrupted the source: %v", cfg.mcp.Servers["fs"].Args)
-		}
-	})
-
-	t.Run("MCPPlugins map of maps", func(t *testing.T) {
-		got := cfg.GetMCPPlugins()
-		delete(got["claude-code"], "fs")
-		if _, ok := cfg.mcp.Plugins["claude-code"]["fs"]; !ok {
-			t.Fatal("deleting from a nested map in GetMCPPlugins() result deleted the source entry")
 		}
 	})
 

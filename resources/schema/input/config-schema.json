@@ -114,10 +114,6 @@
       "$ref": "#/$defs/hooksConfig",
       "description": "Hooks configuration applied globally"
     },
-    "mcp": {
-      "$ref": "#/$defs/mcpConfig",
-      "description": "MCP (Model Context Protocol) server configuration"
-    },
     "profiles": {
       "type": "object",
       "description": "Named profile definitions",
@@ -208,10 +204,6 @@
                   "type": "string",
                   "minLength": 1
                 }
-              },
-              "mcp": {
-                "$ref": "#/$defs/mcpConfig",
-                "description": "MCP servers for this profile (inherited)"
               },
               "commands": {
                 "type": "array",
@@ -894,71 +886,6 @@
           "additionalProperties": false
         }
       ]
-    },
-    "mcpConfig": {
-      "type": "object",
-      "description": "MCP (Model Context Protocol) server configuration",
-      "properties": {
-        "auto_register_ctxloom": {
-          "type": "boolean",
-          "description": "Whether to automatically register ctxloom's own MCP server (default: true)"
-        },
-        "servers": {
-          "type": "object",
-          "description": "Unified MCP server configurations (applied to all backends)",
-          "additionalProperties": {
-            "$ref": "#/$defs/mcpServer"
-          }
-        },
-        "plugins": {
-          "type": "object",
-          "description": "Backend-specific MCP server configurations (keyed by backend name)",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/$defs/mcpServer"
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "mcpServer": {
-      "type": "object",
-      "description": "MCP server configuration",
-      "required": [
-        "command"
-      ],
-      "properties": {
-        "command": {
-          "type": "string",
-          "description": "Command to run the MCP server",
-          "minLength": 1
-        },
-        "args": {
-          "type": "array",
-          "description": "Arguments for the server command",
-          "items": {
-            "type": "string"
-          }
-        },
-        "env": {
-          "type": "object",
-          "description": "Environment variables for the server",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "notes": {
-          "type": "string",
-          "description": "Human-readable notes about the server (not sent to AI)"
-        },
-        "installation": {
-          "type": "string",
-          "description": "Setup/installation instructions (not sent to AI)"
-        }
-      },
-      "additionalProperties": false
     },
     "hook": {
       "type": "object",

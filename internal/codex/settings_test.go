@@ -67,8 +67,8 @@ func TestWriteSettings_CompanionHookIdempotent(t *testing.T) {
 		return
 	}
 
-	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
-	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, "/proj", ""))
 
 	exact, variant := countLtk()
 	assert.Equal(t, 1, exact, "companion hook must not duplicate across re-applies")
@@ -92,8 +92,8 @@ func TestWriteSettings_SameCommandDistinctMatchersCoexist(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
-	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, "/proj", ""))
 
 	byMatcher := map[string]int{}
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
@@ -125,11 +125,12 @@ func TestWriteSettings_HooksAndMCP(t *testing.T) {
 			PreTool:      []wire.Hook{{Command: "ctxloom hook stamp", Matcher: "Bash"}},
 		},
 	}
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{
-		"context7": {Command: "npx", Args: []string{"-y", "@upstash/context7-mcp"}},
-	}}
+	bundleMCP := map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+		"context7":          {Command: "npx", Args: []string{"-y", "@upstash/context7-mcp"}},
+	}
 
-	require.NoError(t, w.writeSettingsIn(hooks, mcp, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, bundleMCP, "/proj", ""))
 
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	assert.Equal(t, "o3", cfg["model"], "user key preserved")
@@ -141,8 +142,8 @@ func TestWriteSettings_HooksAndMCP(t *testing.T) {
 
 	servers := asMap(cfg["mcp_servers"])
 	require.NotNil(t, servers)
-	assert.Contains(t, servers, "context7", "config MCP server written")
-	assert.Contains(t, servers, agent.MCPServerName, "ctxloom server auto-registered")
+	assert.Contains(t, servers, "context7", "the bundle MCP server was written")
+	assert.Contains(t, servers, agent.MCPServerName, "ctxloom's own server was written")
 }
 
 // TestWriteSettings_MCPCommandOverride pins dire-five's fix at codex's own
@@ -151,6 +152,15 @@ func TestWriteSettings_HooksAndMCP(t *testing.T) {
 // absolute path into [mcp_servers.ctxloom]; a writer with the override set
 // (the container-cell path, surfaces.go's configSurface) emits the override
 // instead.
+// ctxloomBundleMCP is the entry the builtin ctxloom bundle contributes to a
+// resolved server set: the bare binary name and the `mcp serve` leaf, which
+// agent.ResolveManagedMCPServers rewrites to the writing binary's own path.
+func ctxloomBundleMCP() map[string]wire.MCPServer {
+	return map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+	}
+}
+
 func TestWriteSettings_MCPCommandOverride(t *testing.T) {
 	command := func(t *testing.T, fs afero.Fs) string {
 		t.Helper()
@@ -165,7 +175,7 @@ func TestWriteSettings_MCPCommandOverride(t *testing.T) {
 	t.Run("host-unchanged: no override writes CtxloomCommand()", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		w := &CodexHookWriter{FS: fs}
-		require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, nil, nil, "/proj", ""))
+		require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, ctxloomBundleMCP(), "/proj", ""))
 		assert.Equal(t, agent.CtxloomCommand(), command(t, fs))
 	})
 
@@ -173,7 +183,7 @@ func TestWriteSettings_MCPCommandOverride(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		const containerBin = "/usr/local/bin/ctxloom"
 		w := &CodexHookWriter{FS: fs, MCPCommandOverride: containerBin}
-		require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, nil, nil, "/proj", ""))
+		require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, ctxloomBundleMCP(), "/proj", ""))
 		assert.Equal(t, containerBin, command(t, fs))
 	})
 }
@@ -185,25 +195,18 @@ func TestWriteSettings_MCPServerEnvPreserved(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &CodexHookWriter{FS: fs}
 
-	mcp := &wire.MCPConfig{
-		Servers: map[string]wire.MCPServer{
-			"config-server": {
-				Command: "config-cmd",
-				Args:    []string{"--flag"},
-				Env:     map[string]string{"CONFIG_TOKEN": "abc123"},
-			},
-		},
-		Plugins: map[string]map[string]wire.MCPServer{
-			"codex": {
-				"plugin-server": {Command: "plugin-cmd", Env: map[string]string{"PLUGIN_KEY": "xyz"}},
-			},
-		},
-	}
 	bundleMCP := map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+		"config-server": {
+			Command: "config-cmd",
+			Args:    []string{"--flag"},
+			Env:     map[string]string{"CONFIG_TOKEN": "abc123"},
+		},
+		"plugin-server": {Command: "plugin-cmd", Env: map[string]string{"PLUGIN_KEY": "xyz"}},
 		"bundle-server": {Command: "bundle-cmd", Env: map[string]string{"BUNDLE_VAR": "value"}},
 	}
 
-	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, mcp, bundleMCP, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, bundleMCP, "/proj", ""))
 
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	servers := asMap(cfg["mcp_servers"])
@@ -220,10 +223,10 @@ func TestWriteSettings_MCPServerEnvPreserved(t *testing.T) {
 		assert.Equal(t, want, asMap(entry["env"]), "%s env preserved", name)
 	}
 
-	// The auto-registered ctxloom server carries no env.
+	// ctxloom's own server declares no env.
 	ctxloomEntry := asMap(servers[agent.MCPServerName])
 	require.NotNil(t, ctxloomEntry)
-	assert.NotContains(t, ctxloomEntry, "env", "ctxloom auto-server has no env key")
+	assert.NotContains(t, ctxloomEntry, "env", "ctxloom's own server has no env key")
 }
 
 // TestRemoveSettings strips ctxloom-managed hooks + MCP but keeps user content.
@@ -234,7 +237,7 @@ func TestRemoveSettings(t *testing.T) {
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
 	}}
-	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, "/proj", ""))
 
 	// A user-authored hook the writer must not touch.
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))

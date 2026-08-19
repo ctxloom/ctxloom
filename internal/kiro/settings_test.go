@@ -37,7 +37,7 @@ func TestKiroWriter_AgentConfigAndHookMapping(t *testing.T) {
 		PreTool:      []wire.Hook{{Matcher: "fs_read", Command: "audit"}},
 		SessionEnd:   []wire.Hook{{Command: "ctxloom hook session-bind"}},
 	}}
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
+	require.NoError(t, w.WriteSettings(hooks, nil, "/proj"))
 
 	a := readAgent(t, fs, "/proj")
 	assert.Equal(t, defaultAgentName, a.Name)
@@ -59,7 +59,7 @@ func TestKiroWriter_NonCommandHookSkipped(t *testing.T) {
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		PreTool: []wire.Hook{{Type: "prompt", Prompt: "hi"}},
 	}}
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
+	require.NoError(t, w.WriteSettings(hooks, nil, "/proj"))
 	a := readAgent(t, fs, "/proj")
 	assert.Nil(t, a.Hooks) // the only hook was a non-command type and was dropped
 }
@@ -72,7 +72,7 @@ func TestKiroWriter_ContextDivertedToSteering(t *testing.T) {
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{{ContextHash: hash}},
 	}}
-	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
+	require.NoError(t, w.WriteSettings(hooks, nil, "/proj"))
 
 	steering, err := afero.ReadFile(fs, "/proj/.kiro/steering/ctxloom-context.md")
 	require.NoError(t, err)
@@ -89,10 +89,11 @@ func TestKiroWriter_MCPPreservesUserAndLedgers(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, "/proj/.kiro/settings/mcp.json",
 		[]byte(`{"mcpServers":{"user-srv":{"command":"user","args":["x"]}}}`), 0644))
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{
-		"weather": {Command: "npx", Args: []string{"-y", "weather-mcp"}},
-	}}
-	require.NoError(t, w.WriteSettings(nil, mcp, nil, "/proj"))
+	bundleMCP := map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+		"weather":           {Command: "npx", Args: []string{"-y", "weather-mcp"}},
+	}
+	require.NoError(t, w.WriteSettings(nil, bundleMCP, "/proj"))
 
 	data, err := afero.ReadFile(fs, "/proj/.kiro/settings/mcp.json")
 	require.NoError(t, err)
@@ -102,7 +103,7 @@ func TestKiroWriter_MCPPreservesUserAndLedgers(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &f))
 	assert.Contains(t, f.MCPServers, "user-srv")          // user entry preserved
 	assert.Contains(t, f.MCPServers, "weather")           // managed server added
-	assert.Contains(t, f.MCPServers, agent.MCPServerName) // ctxloom auto-registered
+	assert.Contains(t, f.MCPServers, agent.MCPServerName) // ctxloom's own server
 
 	ledger, err := afero.ReadFile(fs, filepath.Join("/proj/.kiro/settings", ledger.Name))
 	require.NoError(t, err)
@@ -118,8 +119,7 @@ func TestKiroWriter_RemoveSettings(t *testing.T) {
 		SessionStart: []wire.Hook{{ContextHash: hash}},
 		PreTool:      []wire.Hook{{Command: "x"}},
 	}}
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"weather": {Command: "npx"}}}
-	require.NoError(t, w.WriteSettings(hooks, mcp, nil, "/proj"))
+	require.NoError(t, w.WriteSettings(hooks, map[string]wire.MCPServer{"weather": {Command: "npx"}}, "/proj"))
 
 	require.NoError(t, w.RemoveSettings("/proj"))
 
@@ -143,13 +143,15 @@ func TestKiroWriter_Status(t *testing.T) {
 	assert.False(t, st.Wired())
 
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "x"}}}}
-	require.NoError(t, w.WriteSettings(hooks, &wire.MCPConfig{}, nil, "/proj"))
+	require.NoError(t, w.WriteSettings(hooks, map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+	}, "/proj"))
 
 	st, err = w.Status("/proj")
 	require.NoError(t, err)
 	assert.True(t, st.SettingsExists)
 	assert.True(t, st.HooksPresent)
-	assert.True(t, st.MCPPresent) // ctxloom server auto-registered
+	assert.True(t, st.MCPPresent) // ctxloom's own server is registered
 	assert.True(t, st.Wired())
 	_ = fs
 }

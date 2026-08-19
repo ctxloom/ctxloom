@@ -14,8 +14,9 @@ import "github.com/ctxloom/ctxloom/internal/shared/wire"
 type SettingsWriter interface {
 	// WriteSettings writes hooks and MCP servers to the agent's config file,
 	// preserving user-defined settings and adding/updating managed ones.
-	// bundleMCP carries MCP servers resolved from profile bundles.
-	WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error
+	// bundleMCP carries every MCP server the session registers, resolved from
+	// builtin, companion and profile bundles.
+	WriteSettings(hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error
 
 	// RemoveSettings strips every managed hook, statusline, and MCP server from
 	// the agent's config files, preserving user-defined entries. Absent files

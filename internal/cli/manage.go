@@ -418,7 +418,6 @@ func runManageCheck(cmd *cobra.Command, _ []string) error {
 // printHarnessStatus renders the wiring report.
 func printHarnessStatus(r *operations.HarnessStatusResult) {
 	fmt.Printf("Project: %s\n", r.WorkDir)
-	fmt.Printf("MCP auto-registration: %v\n", r.AutoRegisterMCP)
 	fmt.Printf("Statusline (HUD): %v\n\n", r.ManageStatusline)
 	for _, b := range r.Backends {
 		if !b.SettingsExists {
@@ -652,35 +651,6 @@ func resolvedHookOrigin(h operations.ResolvedHook) string {
 		return h.SourceKind + " " + h.Source
 	}
 	return h.SourceKind
-}
-
-// --- manage mcp -------------------------------------------------------------
-
-// setMcpAutoRegister toggles ctxloom's MCP auto-registration and renders the
-// resulting state through emit() (text/json/yaml/toml/markdown).
-func setMcpAutoRegister(cmd *cobra.Command, enabled bool) error {
-	if _, err := GetConfig(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	result, err := operations.SetMCPAutoRegister(cmd.Context(), config.NewManager(), operations.SetMCPAutoRegisterRequest{Enabled: enabled})
-	if err != nil {
-		return err
-	}
-	state := "disabled"
-	if result.AutoRegister {
-		state = "enabled"
-	}
-
-	type mcpAutoRegisterResult struct {
-		Status       string `json:"status"`
-		AutoRegister bool   `json:"auto_register"`
-	}
-	out := mcpAutoRegisterResult{Status: state, AutoRegister: result.AutoRegister}
-	return emit(cmd, out, func() error {
-		fmt.Fprintf(cmd.OutOrStdout(), "ctxloom MCP server auto-registration: %s\n", state)
-		fmt.Fprintln(cmd.OutOrStdout(), "Run 'ctxloom run' or 'ctxloom manage hooks install' to apply changes to backend settings.")
-		return nil
-	})
 }
 
 // --- manage statusline ------------------------------------------------------

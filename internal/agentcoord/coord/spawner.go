@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -635,11 +634,8 @@ func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
 	// with override="" and patching downstream (rather than recomposing
 	// once the policy is known) preserves the "resolved exactly once"
 	// invariant the MCPServers field doc states: recomposing would re-run
-	// AssembleManagedMCP/ResolveBundleMCPServers and re-fire
-	// WarnWithheld a second time.
-	servers := agent.ComposeChatMCPServers(plan.Backend, "",
-		backends.AssembleManagedMCP(s.cfg, plan.Profiles),
-		s.cfg.ResolveBundleMCPServers(plan.Profiles), nil)
+	// ResolveBundleMCPServers and re-fire WarnWithheld a second time.
+	servers := agent.ComposeChatMCPServers("", s.cfg.ResolveBundleMCPServers(plan.Profiles), nil)
 	s.gate.WarnWithheld()
 	warnNoReachBack(plan.AgentName, servers)
 	return servers
@@ -651,18 +647,19 @@ func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
 // agent_send, no agent_recv and no agent_report, so it launches, consumes its
 // budget, and can never answer its parent or be steered — the stranding shape
 // spawnReachURL fails loud on when the fault is an unreachable endpoint. Here the
-// cause is configuration (`mcp.auto_register_ctxloom: false`, which composes a
-// set carrying no ctxloom entry — nil when nothing else is registered either), so
-// it warns rather than refusing: the setting is a deliberate project choice and
-// mirrors the documented degraded no-reach-back posture. What it must not be is
-// SILENT.
+// cause is configuration (the builtin ctxloom bundle's `ctxloom` server
+// withheld — a profile's `exclude_mcp: [ctxloom]`, or the item rejected — which
+// composes a set carrying no ctxloom entry, nil when nothing else is registered
+// either), so it warns rather than refusing: withholding it is a deliberate
+// project choice and mirrors the documented degraded no-reach-back posture.
+// What it must not be is SILENT.
 func warnNoReachBack(agentName string, servers []agent.ChatMCPServer) {
 	for _, srv := range servers {
 		if srv.Name == agent.MCPServerName {
 			return
 		}
 	}
-	clidiag.Warn("ctxloom", "agent_run: agent %q composed no %q MCP server (mcp.auto_register_ctxloom is off for this project); the child launches WITHOUT agent_send/agent_recv/agent_report — it cannot report back or be steered",
+	clidiag.Warn("ctxloom", "agent_run: agent %q composed no %q MCP server (the builtin ctxloom bundle's server is withheld for this project — check `exclude_mcp` on its profiles, and whether the item is rejected); the child launches WITHOUT agent_send/agent_recv/agent_report — it cannot report back or be steered",
 		agentName, agent.MCPServerName)
 }
 

@@ -19,9 +19,9 @@ func launchOnlyInputs() agent.SurfaceInputs {
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			SessionStart: []wire.Hook{{Command: "echo team-guardrail"}},
 		}},
-		MCP:      &wire.MCPConfig{Servers: map[string]wire.MCPServer{"toolserver": {Command: "tool"}}},
-		Commands: []agent.CommandExport{{Name: "review", Enabled: true}},
-		Skills:   []agent.SkillExport{{Name: "humanize", Enabled: true}},
+		BundleMCP: map[string]wire.MCPServer{"toolserver": {Command: "tool"}},
+		Commands:  []agent.CommandExport{{Name: "review", Enabled: true}},
+		Skills:    []agent.SkillExport{{Name: "humanize", Enabled: true}},
 	}
 }
 
@@ -66,15 +66,22 @@ func TestLaunchOnlySurfaces_QuietForEveryOtherBackend(t *testing.T) {
 // UncarriedSurfaces already does: a capability gap nobody asked to use costs
 // nothing and stays quiet.
 //
-// The ctxloom MCP server is the deliberate exception and the one asymmetry
-// worth stating: it is auto-registered whether or not the user configured any
-// server, so it is genuinely lost even on an otherwise-empty input — which is
-// why the empty case reports mcp and nothing else.
+// A real loadout always carries ctxloom's own MCP server (the builtin ctxloom
+// bundle ships it into every session), so the mcp surface is genuinely lost
+// even when the user configured nothing else — that is the row below. A
+// SurfaceInputs carrying literally nothing is the degenerate case a resolver
+// failure produces, and it must stay silent rather than report a loss of
+// something nobody was going to get.
 func TestLaunchOnlySurfaces_ReportsOnlyWhatWasAsked(t *testing.T) {
-	losses := LaunchOnlySurfaces("codex", agent.SurfaceInputs{})
+	losses := LaunchOnlySurfaces("codex", agent.SurfaceInputs{
+		BundleMCP: map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}},
+	})
 
-	require.Len(t, losses, 1, "an empty loadout loses only the auto-registered ctxloom server; got %v", losses)
+	require.Len(t, losses, 1, "a loadout carrying only ctxloom's own server loses mcp and nothing else; got %v", losses)
 	assert.Equal(t, "mcp", losses[0].Surface)
+
+	assert.Empty(t, LaunchOnlySurfaces("codex", agent.SurfaceInputs{}),
+		"an input carrying nothing at all loses nothing at all")
 }
 
 // TestLaunchOnlySurfaces_IsNotUncarriedSurfaces pins the separation that keeps

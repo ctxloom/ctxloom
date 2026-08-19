@@ -903,7 +903,7 @@ func preToolCommands(h wire.HooksConfig) []string {
 }
 
 // TestLoader_ResolveProfile_InlineFields verifies a directory profile's inline
-// fragments:/bundle_items:/hooks:/mcp: round-trip through resolution and union
+// fragments:/bundle_items:/hooks: round-trip through resolution and union
 // with a parent's — the directory-side mirror of config.Profile's fields that
 // brings directory profiles to parity with inline profiles. Parent items come
 // first (depth-first), then the child's; a "@<commit>" pin stays in the stored
@@ -921,12 +921,6 @@ hooks:
     pre_tool:
       - command: parent-hook
         type: command
-mcp:
-  servers:
-    parent-srv:
-      command: parent-cmd
-    shared-srv:
-      command: parent-shared
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
 
@@ -944,12 +938,6 @@ hooks:
     pre_tool:
       - command: child-hook
         type: command
-mcp:
-  servers:
-    child-srv:
-      command: child-cmd
-    shared-srv:
-      command: child-shared
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
 
@@ -973,29 +961,18 @@ mcp:
 	// Hooks union (parent then child).
 	assert.Equal(t, []string{"parent-hook", "child-hook"}, preToolCommands(resolved.Hooks))
 
-	// MCP: both distinct servers present; for a name in both, the child (applied
-	// after parents) wins — "later wins per server name", matching the inline
-	// mergeMCP semantics.
-	assert.Contains(t, resolved.MCP.Servers, "parent-srv")
-	assert.Contains(t, resolved.MCP.Servers, "child-srv")
-	assert.Equal(t, "child-shared", resolved.MCP.Servers["shared-srv"].Command,
-		"a server declared by both parent and child resolves to the child's")
 }
 
 // TestResolvedProfile_Merge_InlineFields verifies Merge unions the new
 // directly-declared fields across resolved profiles (the cross-default-profile
-// fold), deduping fragments by Name, unioning bundle_items, appending hooks, and
-// letting a later MCP server name win — parity with how Bundles/Tags/Commands merge.
+// fold), deduping fragments by Name, unioning bundle_items, and appending
+// hooks — parity with how Bundles/Tags/Commands merge.
 func TestResolvedProfile_Merge_InlineFields(t *testing.T) {
 	r1 := &ResolvedProfile{
 		Fragments:   []FragmentRef{{Name: "f1"}},
 		BundleItems: []string{"bi1"},
 		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "h1", Type: "command"}},
-		}},
-		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
-			"s1":     {Command: "s1-cmd"},
-			"shared": {Command: "from-r1"},
 		}},
 		Variables: map[string]string{},
 	}
@@ -1005,10 +982,6 @@ func TestResolvedProfile_Merge_InlineFields(t *testing.T) {
 		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "h2", Type: "command"}},
 		}},
-		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
-			"s2":     {Command: "s2-cmd"},
-			"shared": {Command: "from-r2"},
-		}},
 		Variables: map[string]string{},
 	}
 
@@ -1017,9 +990,6 @@ func TestResolvedProfile_Merge_InlineFields(t *testing.T) {
 	assert.Equal(t, []string{"f1", "f2"}, fragNames(r1.Fragments), "fragments union, deduped by Name")
 	assert.Equal(t, []string{"bi1", "bi2"}, r1.BundleItems, "bundle_items union, deduped")
 	assert.Equal(t, []string{"h1", "h2"}, preToolCommands(r1.Hooks), "hooks accumulate across profiles")
-	assert.Contains(t, r1.MCP.Servers, "s1")
-	assert.Contains(t, r1.MCP.Servers, "s2")
-	assert.Equal(t, "from-r2", r1.MCP.Servers["shared"].Command, "later (merged-in) server name wins")
 }
 
 // TestGetProfileDirs_UsesInjectedFS pins that directory discovery honours the

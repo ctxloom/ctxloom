@@ -95,9 +95,9 @@ func TestBuildSurfaces_CodexNoNativeContextFile(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	set := BuildSurfaces("codex", agent.SurfaceInputs{
-		Context: "assembled context",
-		Hooks:   &wire.HooksConfig{},
-		MCP:     &wire.MCPConfig{Servers: map[string]wire.MCPServer{}},
+		Context:   "assembled context",
+		Hooks:     &wire.HooksConfig{},
+		BundleMCP: map[string]wire.MCPServer{},
 	}, fs)
 	_, _, errs := agent.Select(set).WithEverything().DeliverUnder(dir)
 	require.Empty(t, errs, "codex surfaces deliver cleanly")

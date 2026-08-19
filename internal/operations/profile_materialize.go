@@ -146,12 +146,9 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	//
 	// contextHash "" omits the SessionStart context-injection hook — the context is
 	// STATIC in the native file, so re-injecting it at launch would double it.
-	// AssembleManagedMCP (not &cfg.MCP) folds a profile's OWN inline mcp: block into
-	// the exported config, mirroring what a live run assembles; bundleMCP rides
-	// alongside. Each write reconciles (managed entries overwritten, foreign ones
+	// Each write reconciles (managed entries overwritten, foreign ones
 	// preserved).
 	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles).Wire()
-	mcp := backends.AssembleManagedMCP(cfg, req.Profiles)
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
 	commands := backends.CommandExportsFor(backend, backends.LoadCommandExports(cfg, req.Profiles))
 	skills := backends.SkillExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
@@ -160,7 +157,6 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 
 	inputs := agent.SurfaceInputs{
 		Context:          asm.Context,
-		MCP:              mcp,
 		BundleMCP:        bundleMCP,
 		Hooks:            hooks,
 		ManageStatusline: settings.ShouldManageStatusline(),

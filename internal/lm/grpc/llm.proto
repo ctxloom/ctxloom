@@ -470,7 +470,6 @@ message RunStart {
 message ManagedConfig {
   repeated CommandExport commands = 1;  // per-target-agent command (slash-command) exports
   HooksConfig hooks = 2;                // config + default-profile + bundle hooks (no context-injection)
-  MCPConfig mcp = 3;                    // merged config + default-profile MCP servers
   bool manage_statusline = 4;           // whether ctxloom manages the backend statusline
   map<string, MCPServer> bundle_mcp = 5; // MCP servers shipped by profile + builtin bundles (parallel to the bundle hooks)
   // skills mirrors agent.ManagedConfig.Skills: the per-target-agent Agent Skill
@@ -594,19 +593,6 @@ message MCPServer {
   string notes = 4;
   string installation = 5;
   string scm = 6;
-}
-
-// MCPServerMap wraps a server map so it can be a proto map value.
-message MCPServerMap {
-  map<string, MCPServer> servers = 1;
-}
-
-// MCPConfig mirrors wire.MCPConfig. auto_register_ctxloom is optional to
-// preserve the unset/true/false tri-state of the *bool it mirrors.
-message MCPConfig {
-  optional bool auto_register_ctxloom = 1;
-  map<string, MCPServer> servers = 2;
-  map<string, MCPServerMap> plugins = 3;
 }
 
 // Fragment represents a context fragment or prompt with metadata.

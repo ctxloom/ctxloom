@@ -214,7 +214,7 @@ func (w *KiroWriter) mapHooks(u wire.UnifiedHooks, plugins wire.BackendHooks) (c
 // remove/status) that only the human should decide. The cascade behind it
 // (reconcileSteering's hash-reading arm, mapHooks' contextHash return) is
 // unreachable in production for the same reason and is left in place with it.
-func (w *KiroWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
+func (w *KiroWriter) WriteSettings(hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
 	if hooks == nil {
 		hooks = &wire.HooksConfig{}
 	}
@@ -226,7 +226,7 @@ func (w *KiroWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig,
 	if err := w.reconcileSteering(projectDir, contextHash); err != nil {
 		return err
 	}
-	return w.mcpFile(projectDir).WriteServers(mcp, bundleMCP)
+	return w.mcpFile(projectDir).WriteServers(bundleMCP)
 }
 
 func (w *KiroWriter) writeAgentConfig(projectDir string, h kiroHooks) error {
@@ -329,7 +329,6 @@ func (w *KiroWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 		Path:            w.mcpPath(projectDir),
 		LedgerDir:       w.mcpLedgerDir(projectDir),
 		Label:           ConfigDirName + "/settings/mcp.json",
-		PluginKey:       "kiro",
 		Warn:            w.warn,
 		CommandOverride: w.mcpCommandOverride,
 	}

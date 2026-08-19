@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -582,10 +581,7 @@ func acpSessionMCPServers(cfg *config.Config, backendName string, profiles []str
 	// isolation.Policy in scope to resolve one from — out of scope for the
 	// materialize flow's fix; left "" (unchanged behavior) and noted in
 	// DECISIONS.md as a residual for the acp/delegation flows to pick up.
-	return agent.ComposeChatMCPServers(backendName, "",
-		backends.AssembleManagedMCP(cfg, profiles),
-		cfg.ResolveBundleMCPServers(profiles),
-		existing)
+	return agent.ComposeChatMCPServers("", cfg.ResolveBundleMCPServers(profiles), existing)
 }
 
 // buildSessionLLMs advertises the cwd's configured LLMs (the labels `-l`/`--llm`

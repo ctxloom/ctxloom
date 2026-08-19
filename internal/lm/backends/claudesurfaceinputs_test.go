@@ -35,7 +35,7 @@ func TestBuildSurfaces_Claude_CarriesMCPCommandOverride(t *testing.T) {
 
 	set := BuildSurfaces("claude-code", agent.SurfaceInputs{
 		Context:            "ctx",
-		MCP:                &wire.MCPConfig{Servers: map[string]wire.MCPServer{}},
+		BundleMCP:          map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}},
 		Hooks:              &wire.HooksConfig{},
 		MCPCommandOverride: override,
 	}, fs)

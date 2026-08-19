@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -135,20 +136,14 @@ func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
 	assert.Equal(t, string(first), string(second), "re-materialize is a clean overwrite")
 }
 
-// TestMaterializeProfile_FoldsProfileInlineMCP proves a profile's OWN inline mcp:
-// block reaches the exported .mcp.json. The pre-fix path passed only &cfg.mcp
-// (config-level) + bundle MCP to WriteSettings, silently dropping the profile's
-// inline servers; AssembleManagedMCP folds them in.
-func TestMaterializeProfile_FoldsProfileInlineMCP(t *testing.T) {
+// TestMaterializeProfile_ExportsCtxloomsOwnMCPServer proves the builtin
+// ctxloom bundle reaches a materialized export: the exported .mcp.json carries
+// ctxloom's own server, resolved to an absolute ctxloom path rather than the
+// bare name the bundle declares. No profile names the bundle — builtins are
+// injected unconditionally — so this is also the proof that the injection route
+// carries MCP.
+func TestMaterializeProfile_ExportsCtxloomsOwnMCPServer(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
-	// Give the inline reviewer profile its own MCP server (trusted-local, ungated).
-	// Both GetProfilesConfig and ToFixture are copy-on-read, so the
-	// amended definition has to be installed by rebuilding the config.
-	p := cfg.GetProfilesConfig().Definitions["reviewer"]
-	p.MCP = wire.MCPConfig{Servers: map[string]wire.MCPServer{
-		"prof-srv": {Command: "prof-cmd"},
-	}}
-	cfg = withProfileDefs(cfg, map[string]config.Profile{"reviewer": p})
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,
@@ -158,8 +153,18 @@ func TestMaterializeProfile_FoldsProfileInlineMCP(t *testing.T) {
 
 	data, err := os.ReadFile(filepath.Join(target, ".mcp.json"))
 	require.NoError(t, err, "the backend MCP config must be written")
-	assert.Contains(t, string(data), "prof-srv",
-		"the profile's inline mcp: server must be folded into the exported .mcp.json")
+	var doc struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+	entry, ok := doc.MCPServers[agent.MCPServerName]
+	require.True(t, ok, "ctxloom's own MCP server must be exported; got %v", doc.MCPServers)
+	assert.Equal(t, agent.CtxloomMCPArgs, entry.Args, "the exported entry must invoke `mcp serve`")
+	assert.Equal(t, agent.CtxloomCommand(), entry.Command,
+		"the exported command must be the binary that materialized the surface, not the bare name the bundle declares")
 }
 
 // materializeHookFixture is materializeFixture plus a config-level session_start

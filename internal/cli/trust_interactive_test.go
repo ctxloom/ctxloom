@@ -15,7 +15,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -184,22 +183,6 @@ func TestOfferItemTrust_RendersThroughTheCommandsErrWriter(t *testing.T) {
 
 	assert.Contains(t, errBuf.String(), "Effective trust:",
 		"the effective-trust stamp must reach the writer the command owns")
-}
-
-func TestReviewLocalMCPTrust_RendersThroughTheCommandsErrWriter(t *testing.T) {
-	appDir := t.TempDir()
-	neutralizeRefresh(t)
-	noAgentEnv(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	cmd, errBuf := errCapturingCmd()
-	reviewLocalMCPTrust(cmd, cfg, []operations.MCPServerEntry{
-		{Name: "local-one", Backend: "claude", Command: "/usr/bin/true"},
-	})
-
-	out := errBuf.String()
-	assert.Contains(t, out, "Effective trust (claude scope):")
-	assert.Contains(t, out, "ctxloom bundle trust|reject <bundle>#mcp/<name>")
 }
 
 // withFailingStdin points the shared prompt reader at a terminal whose reads

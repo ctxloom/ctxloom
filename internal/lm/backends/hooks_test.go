@@ -25,11 +25,10 @@ import (
 // via the surface selection — the test replacement for the removed WriteSettings
 // facade. manageStatusline mirrors the old WithStatusLineDisabled inverse (the old
 // facade default, with no opt, MANAGED the statusline, so pass true there).
-func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
+func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
 	t.Helper()
 	set := BuildSurfaces(backend, agent.SurfaceInputs{
 		Hooks:            hooks,
-		MCP:              mcp,
 		BundleMCP:        bundleMCP,
 		ManageStatusline: manageStatusline,
 	}, fs)
@@ -173,7 +172,7 @@ func TestDeliverManagedSettings_WithFS(t *testing.T) {
 		},
 	}
 
-	deliverManagedSettings(t, "claude-code", hooks, nil, nil, true, "/project", fs)
+	deliverManagedSettings(t, "claude-code", hooks, nil, true, "/project", fs)
 
 	// Verify settings were written
 	exists, _ := afero.Exists(fs, "/project/.claude/settings.json")
@@ -209,7 +208,7 @@ func TestClaudeCodeHookWriter_WritesSelfExecAbsoluteCommands(t *testing.T) {
 			{Command: "ctxloom hook stamp-plan", Type: "command"},
 		},
 	}}
-	require.NoError(t, writer.WriteSettings(cfg, nil, nil, tmpDir))
+	require.NoError(t, writer.WriteSettings(cfg, map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, tmpDir))
 
 	settingsData, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
 	require.NoError(t, err)
@@ -236,13 +235,13 @@ func TestClaudeCodeHookWriter_WritesSelfExecAbsoluteCommands(t *testing.T) {
 	assert.Equal(t, "ctxloom hook stamp-plan", bundleCmd,
 		"bundle-shipped hook command is author-supplied, not materialized by this binary; got %q", bundleCmd)
 
-	// .mcp.json: auto-registered ctxloom MCP server command names the
-	// self-exec absolute path too.
+	// .mcp.json: ctxloom's own MCP server command names the self-exec absolute
+	// path too — the bundle declares the bare name, the writer resolves it.
 	mcpData, err := os.ReadFile(filepath.Join(tmpDir, ".mcp.json"))
 	require.NoError(t, err)
 	var mcpConfig map[string]any
 	require.NoError(t, json.Unmarshal(mcpData, &mcpConfig))
 	ctxloomServer := mcpConfig["mcpServers"].(map[string]any)["ctxloom"].(map[string]any)
 	assert.Equal(t, self, ctxloomServer["command"],
-		"auto-registered MCP server command must name the self-exec absolute path; got %q", ctxloomServer["command"])
+		"ctxloom's own MCP server command must name the self-exec absolute path; got %q", ctxloomServer["command"])
 }

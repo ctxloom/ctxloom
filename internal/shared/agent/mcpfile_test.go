@@ -39,7 +39,7 @@ func TestMCPFileConfig_WriteServers_CommandOverride(t *testing.T) {
 	t.Run("host-unchanged: empty override writes CtxloomCommand()", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
-		require.NoError(t, c.WriteServers(nil, nil))
+		require.NoError(t, c.WriteServers(map[string]wire.MCPServer{MCPServerName: ctxloomBundleServer()}))
 
 		data, err := afero.ReadFile(fs, "/proj/mcp.json")
 		require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestMCPFileConfig_WriteServers_CommandOverride(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		const containerBin = "/usr/local/bin/ctxloom"
 		c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: func(string, ...interface{}) {}, CommandOverride: containerBin}
-		require.NoError(t, c.WriteServers(nil, nil))
+		require.NoError(t, c.WriteServers(map[string]wire.MCPServer{MCPServerName: ctxloomBundleServer()}))
 
 		data, err := afero.ReadFile(fs, "/proj/mcp.json")
 		require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestMCPFileConfig_WriteServers_RefusesUnparsableRegistry(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, "/proj/mcp.json", original, 0644))
 
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
-	err := c.WriteServers(nil, nil)
+	err := c.WriteServers(nil)
 	require.Error(t, err, "an unparsable registry must refuse the write, not silently replace it")
 
 	data, readErr := afero.ReadFile(fs, "/proj/mcp.json")
@@ -91,32 +91,8 @@ func TestMCPFileConfig_WriteServers_LedgerReadErrorSurfaces(t *testing.T) {
 	fs := failOpenFs{Fs: base, path: "/proj/.ctxloom-managed"}
 
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
-	err := c.WriteServers(nil, nil)
+	err := c.WriteServers(nil)
 	require.Error(t, err, "a ledger read failure (not simply missing) must surface, not be silently treated as an empty ledger")
-}
-
-// TestMCPFileConfig_WriteServers_DedupesManagedNames pins the fix: a server
-// name that shadows an earlier one — here, the same name present in both
-// bundleMCP and mcp.Servers — used to be appended to `managed` on EVERY add,
-// so the ledger persisted duplicate lines for one server.
-func TestMCPFileConfig_WriteServers_DedupesManagedNames(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
-
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"dup": {Command: "second"}}}
-	bundleMCP := map[string]wire.MCPServer{"dup": {Command: "first"}}
-	require.NoError(t, c.WriteServers(mcp, bundleMCP))
-
-	ledger, err := afero.ReadFile(fs, "/proj/.ctxloom-managed")
-	require.NoError(t, err)
-	lines := strings.Split(strings.TrimSpace(string(ledger)), "\n")
-	count := 0
-	for _, l := range lines {
-		if strings.TrimSpace(strings.SplitN(l, "\t", 2)[0]) == "dup" {
-			count++
-		}
-	}
-	assert.Equal(t, 1, count, "a name shadowed by a later source must appear exactly once in the ledger, not once per source")
 }
 
 // TestMCPFileConfig_WriteServers_IsIdempotentAcrossCalls pins the property the
@@ -134,16 +110,18 @@ func TestMCPFileConfig_WriteServers_IsIdempotentAcrossCalls(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"alpha": {Command: "/bin/alpha"}}}
-	bundleMCP := map[string]wire.MCPServer{"beta": {Command: "/bin/beta"}}
+	bundleMCP := map[string]wire.MCPServer{
+		"alpha": {Command: "/bin/alpha"},
+		"beta":  {Command: "/bin/beta"},
+	}
 
-	require.NoError(t, c.WriteServers(mcp, bundleMCP))
+	require.NoError(t, c.WriteServers(bundleMCP))
 	ledger1, err := afero.ReadFile(fs, "/proj/.ctxloom-managed")
 	require.NoError(t, err)
 	registry1, err := afero.ReadFile(fs, "/proj/mcp.json")
 	require.NoError(t, err)
 
-	require.NoError(t, c.WriteServers(mcp, bundleMCP))
+	require.NoError(t, c.WriteServers(bundleMCP))
 	ledger2, err := afero.ReadFile(fs, "/proj/.ctxloom-managed")
 	require.NoError(t, err)
 	registry2, err := afero.ReadFile(fs, "/proj/mcp.json")
@@ -186,8 +164,8 @@ func TestMCPFileConfig_WriteServers_UnmanagedEntryWithNoCollisionSurvives(t *tes
 	warn, lines := warnRecorder()
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: warn}
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"ours": {Command: "ctxloom-server"}}}
-	require.NoError(t, c.WriteServers(mcp, nil))
+	bundleMCP := map[string]wire.MCPServer{"ours": {Command: "ctxloom-server"}}
+	require.NoError(t, c.WriteServers(bundleMCP))
 
 	data, err := afero.ReadFile(fs, "/proj/mcp.json")
 	require.NoError(t, err)
@@ -216,11 +194,11 @@ func TestMCPFileConfig_WriteServers_RefusesCollisionWithUserAuthoredName(t *test
 	warn, lines := warnRecorder()
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: warn}
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{
+	bundleMCP := map[string]wire.MCPServer{
 		"foo":  {Command: "/opt/ctxloom-bundled-foo"},
 		"safe": {Command: "/opt/ctxloom-safe"},
-	}}
-	require.NoError(t, c.WriteServers(mcp, nil), "a name collision must not fail the whole reconcile")
+	}
+	require.NoError(t, c.WriteServers(bundleMCP), "a name collision must not fail the whole reconcile")
 
 	data, err := afero.ReadFile(fs, "/proj/mcp.json")
 	require.NoError(t, err)
@@ -255,8 +233,8 @@ func TestMCPFileConfig_RemoveServers_DoesNotDeleteUserAuthoredEntry(t *testing.T
 	require.NoError(t, afero.WriteFile(fs, "/proj/mcp.json", []byte(`{"mcpServers":{"foo":{"command":"/usr/bin/user-foo","args":["--user"]}}}`), 0644))
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"foo": {Command: "/opt/ctxloom-bundled-foo"}}}
-	require.NoError(t, c.WriteServers(mcp, nil))
+	bundleMCP := map[string]wire.MCPServer{"foo": {Command: "/opt/ctxloom-bundled-foo"}}
+	require.NoError(t, c.WriteServers(bundleMCP))
 	require.NoError(t, c.RemoveServers())
 
 	data, err := afero.ReadFile(fs, "/proj/mcp.json")
@@ -273,8 +251,8 @@ func TestMCPFileConfig_WriteServers_ManagedNameRoundTripsWriteThenRemove(t *test
 	require.NoError(t, afero.WriteFile(fs, "/proj/mcp.json", []byte(`{"mcpServers":{"theirs":{"command":"/usr/bin/theirs"}}}`), 0644))
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"ours": {Command: "/opt/ctxloom-ours"}}}
-	require.NoError(t, c.WriteServers(mcp, nil))
+	bundleMCP := map[string]wire.MCPServer{"ours": {Command: "/opt/ctxloom-ours"}}
+	require.NoError(t, c.WriteServers(bundleMCP))
 
 	data, err := afero.ReadFile(fs, "/proj/mcp.json")
 	require.NoError(t, err)
@@ -307,7 +285,7 @@ func TestMCPFileConfig_WriteServers_StaleLedgerNameIsReleasedSilently(t *testing
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: warn}
 
 	// config no longer declares "gone" at all.
-	require.NoError(t, c.WriteServers(nil, nil))
+	require.NoError(t, c.WriteServers(nil))
 
 	data, err := afero.ReadFile(fs, "/proj/mcp.json")
 	require.NoError(t, err)
@@ -332,8 +310,8 @@ func TestMCPFileConfig_WriteServers_RecreatesHandDeletedManagedServerWithWarning
 	warn, lines := warnRecorder()
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: warn}
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"gone": {Command: "/opt/ctxloom-gone"}}}
-	require.NoError(t, c.WriteServers(mcp, nil))
+	bundleMCP := map[string]wire.MCPServer{"gone": {Command: "/opt/ctxloom-gone"}}
+	require.NoError(t, c.WriteServers(bundleMCP))
 
 	data, err := afero.ReadFile(fs, "/proj/mcp.json")
 	require.NoError(t, err)
@@ -361,8 +339,8 @@ func TestMCPFileConfig_WriteServers_PreservesLargeNumbers(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, "/proj/mcp.json", []byte(original), 0644))
 	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerDir: "/proj", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"ours": {Command: "ctxloom"}}}
-	require.NoError(t, c.WriteServers(mcp, nil))
+	bundleMCP := map[string]wire.MCPServer{"ours": {Command: "ctxloom"}}
+	require.NoError(t, c.WriteServers(bundleMCP))
 
 	data, err := afero.ReadFile(fs, "/proj/mcp.json")
 	require.NoError(t, err)

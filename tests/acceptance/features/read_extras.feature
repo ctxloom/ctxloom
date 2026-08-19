@@ -28,21 +28,12 @@ Feature: Additional read and configuration commands
     And the output contains "review"
     And the output contains "COMMAND-BODY-review"
 
-  Scenario: Disabling MCP auto-registration removes the server on re-apply
-    Given an initialized ctxloom project
-    When I run "ctxloom manage hooks install"
-    Then the command succeeds
-    # cwd is set ONLY on the auto-registered ctxloom server, so it tracks that
-    # one entry. The old token here was the _ctxloom marker, which ctxloom no
-    # longer writes into the user's file — ownership rides the §9.7 record.
-    And the file ".mcp.json" contains "${CLAUDE_PROJECT_DIR}"
-    When I run "ctxloom mcp unregister"
-    Then the command succeeds
-    When I run "ctxloom manage hooks install"
-    Then the command succeeds
-    And the file ".mcp.json" does not contain "${CLAUDE_PROJECT_DIR}"
-    When I run "ctxloom mcp register"
-    Then the command succeeds
-    When I run "ctxloom manage hooks install"
-    Then the command succeeds
-    And the file ".mcp.json" contains "ctxloom"
+  Scenario: ctxloom's own server reaches .mcp.json through the builtin bundle
+      Given an initialized ctxloom project
+      When I run "ctxloom manage hooks install"
+      Then the command succeeds
+      # cwd is set ONLY on ctxloom's own entry, so it tracks that one server.
+      # The old token here was the _ctxloom marker, which ctxloom no longer
+      # writes into the user's file — ownership rides the §9.7 record.
+      And the file ".mcp.json" contains "${CLAUDE_PROJECT_DIR}"
+      And the file ".mcp.json" contains "ctxloom"

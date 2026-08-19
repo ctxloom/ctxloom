@@ -184,9 +184,9 @@ func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 	work := t.TempDir()
 	managed := &agent.ManagedConfig{
 		Commands: []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{
+		BundleMCP: map[string]wire.MCPServer{
 			"srv": {Command: "run-srv"},
-		}},
+		},
 	}
 	backend, ephem := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
 
@@ -225,7 +225,7 @@ func TestSetup_IsolatedCell_WellKnownFilesNoFlags(t *testing.T) {
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
 		}},
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
+		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
 	}
 	backend := setupClaudeIsolated(t, work, managed)
 
@@ -287,7 +287,7 @@ func TestCleanup_RemovesDeliveredSurfaces(t *testing.T) {
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
 		}},
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
+		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
 	}
 	backend, _ := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
 

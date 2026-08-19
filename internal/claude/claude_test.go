@@ -30,7 +30,7 @@ func TestClaudeCodeHookWriter_WriteSettings(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, nil, nil, tmpDir)
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, nil, nil, tmpDir)
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, nil, nil, tmpDir)
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, nil, nil, tmpDir)
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
 	// Write hooks three times. Without the fix, each apply would append
 	// a duplicate of the previous run's hooks.
 	for range 3 {
-		if err := writer.WriteSettings(cfg, nil, nil, tmpDir); err != nil {
+		if err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir); err != nil {
 			t.Fatalf("WriteSettings: %v", err)
 		}
 	}
@@ -371,7 +371,7 @@ func TestClaudeCodeHookWriter_CompanionHookIdempotent(t *testing.T) {
 		},
 	}
 	for range 3 {
-		require.NoError(t, writer.WriteSettings(cfg, nil, nil, tmpDir))
+		require.NoError(t, writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir))
 	}
 
 	data, err := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
@@ -406,7 +406,7 @@ func TestClaudeCodeHookWriter_UnifiedToBackendMapping(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, nil, nil, tmpDir)
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -470,7 +470,7 @@ func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, nil, nil, tmpDir)
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -490,14 +490,24 @@ func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 		t.Error("expected PreCompact hook from passthrough")
 	}
 }
+
+// ctxloomBundleMCP is the entry the builtin ctxloom bundle contributes to a
+// resolved server set: the bare binary name and the `mcp serve` leaf, which
+// agent.ResolveManagedMCPServers rewrites to the writing binary's own path.
+func ctxloomBundleMCP() map[string]wire.MCPServer {
+	return map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+	}
+}
+
 func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	// Empty config should still add MCP server
+	// The builtin ctxloom bundle's entry is what registers ctxloom's own server.
 	cfg := &wire.HooksConfig{}
 
-	err := writer.WriteSettings(cfg, nil, nil, tmpDir)
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -577,7 +587,7 @@ func TestClaudeCodeHookWriter_MCPCommandOverride(t *testing.T) {
 	t.Run("host-unchanged: no override writes CtxloomCommand()", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		writer := &ClaudeCodeHookWriter{}
-		require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, nil, nil, tmpDir))
+		require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), tmpDir))
 		assert.Equal(t, agent.CtxloomCommand(), readCommand(t, tmpDir))
 	})
 
@@ -585,7 +595,7 @@ func TestClaudeCodeHookWriter_MCPCommandOverride(t *testing.T) {
 		tmpDir := t.TempDir()
 		const containerBin = "/usr/local/bin/ctxloom"
 		writer := &ClaudeCodeHookWriter{mcpCommandOverride: containerBin}
-		require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, nil, nil, tmpDir))
+		require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), tmpDir))
 		assert.Equal(t, containerBin, readCommand(t, tmpDir))
 	})
 }
@@ -594,24 +604,17 @@ func TestClaudeCodeHookWriter_MCPServerEnvPreserved(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	mcp := &wire.MCPConfig{
-		Servers: map[string]wire.MCPServer{
-			"config-server": {
-				Command: "config-cmd",
-				Args:    []string{"--flag"},
-				Env:     map[string]string{"CONFIG_TOKEN": "abc123"},
-			},
-		},
-		Plugins: map[string]map[string]wire.MCPServer{
-			"claude-code": {
-				"plugin-server": {
-					Command: "plugin-cmd",
-					Env:     map[string]string{"PLUGIN_KEY": "xyz"},
-				},
-			},
-		},
-	}
 	bundleMCP := map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+		"config-server": {
+			Command: "config-cmd",
+			Args:    []string{"--flag"},
+			Env:     map[string]string{"CONFIG_TOKEN": "abc123"},
+		},
+		"plugin-server": {
+			Command: "plugin-cmd",
+			Env:     map[string]string{"PLUGIN_KEY": "xyz"},
+		},
 		"bundle-server": {
 			Command: "bundle-cmd",
 			Env:     map[string]string{"BUNDLE_VAR": "value", "OTHER": "2"},
@@ -619,7 +622,7 @@ func TestClaudeCodeHookWriter_MCPServerEnvPreserved(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(&wire.HooksConfig{}, mcp, bundleMCP, tmpDir)
+	err := writer.WriteSettings(&wire.HooksConfig{}, bundleMCP, tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -660,7 +663,7 @@ func TestClaudeCodeHookWriter_MCPServerEnvPreserved(t *testing.T) {
 		}
 	}
 
-	// The auto-registered ctxloom server has no env and must not gain one.
+	// ctxloom's own server declares no env and must not gain one.
 	ctxloomServer := mcpServers["ctxloom"].(map[string]interface{})
 	if _, ok := ctxloomServer["env"]; ok {
 		t.Error("ctxloom auto-registered server should not have an env key")
@@ -690,7 +693,7 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 
 	// Write hooks with ctxloom config
 	cfg := &wire.HooksConfig{}
-	err := writer.WriteSettings(cfg, nil, nil, tmpDir)
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -744,7 +747,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 
 	// Write hooks - should update ctxloom server
 	cfg := &wire.HooksConfig{}
-	err := writer.WriteSettings(cfg, nil, nil, tmpDir)
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -799,7 +802,7 @@ func TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp(t *testi
 			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
-	err := writer.WriteSettings(cfg, nil, nil, "/project")
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
 	require.Error(t, err, "should refuse to write when existing settings.json fails to parse")
 
 	// Original file must be left exactly as-is, not overwritten with an
@@ -831,7 +834,7 @@ func TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoudAndBacksUp(t *testing.
 			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
-	err := writer.WriteSettings(cfg, nil, nil, "/project")
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
 	require.Error(t, err, "should refuse to write when hooks in settings.json fail to parse")
 
 	data, readErr := afero.ReadFile(fs, settingsPath)
@@ -884,7 +887,7 @@ func TestClaudeCodeHookWriter_ModifiesInPlaceWithoutABackupSibling(t *testing.T)
 			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
-	err := writer.WriteSettings(cfg, nil, nil, "/project")
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
 	require.NoError(t, err)
 
 	exists, err := afero.Exists(fs, settingsPath+".ctxloom.bak")
@@ -916,7 +919,7 @@ func TestClaudeCodeHookWriter_MalformedMCPConfig_IsNotOverwritten(t *testing.T) 
 	require.NoError(t, afero.WriteFile(fs, mcpPath, []byte(malformed), 0644))
 
 	cfg := &wire.HooksConfig{}
-	err := writer.WriteSettings(cfg, nil, nil, "/project")
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
 	require.Error(t, err, "an unreadable .mcp.json must stop the write, not be replaced by one")
 
 	data, readErr := afero.ReadFile(fs, mcpPath)
@@ -1068,7 +1071,7 @@ func TestClaudeCodeHookWriter_MalformedPermissionsJSON_FailsLoudAndBacksUp(t *te
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
 	}
-	err := writer.WriteSettings(cfg, nil, nil, "/project")
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
 	require.Error(t, err, "should refuse to write when permissions in settings.json fail to parse")
 
 	data, readErr := afero.ReadFile(fs, settingsPath)
@@ -1093,7 +1096,7 @@ func TestClaudeCodeHookWriter_MalformedPermissionsDeny_FailsLoudAndBacksUp(t *te
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
 	}
-	err := writer.WriteSettings(cfg, nil, nil, "/project")
+	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
 	require.Error(t, err, "should refuse to write when permissions.deny fails to parse")
 
 	data, readErr := afero.ReadFile(fs, settingsPath)
@@ -1115,7 +1118,7 @@ func TestClaudeCodeHookWriter_WellFormedPermissions_RoundTripUntouched(t *testin
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
 	}
-	require.NoError(t, writer.WriteSettings(cfg, nil, nil, "/project"))
+	require.NoError(t, writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project"))
 
 	data, err := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, err)
@@ -1141,7 +1144,7 @@ func TestClaudeCodeHookWriter_LegacyMCPServersInSettings_ArePreserved(t *testing
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
 	}
-	require.NoError(t, writer.WriteSettings(cfg, nil, nil, "/project"))
+	require.NoError(t, writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project"))
 
 	data, err := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, err)
@@ -1163,7 +1166,7 @@ func TestClaudeCodeHookWriter_MalformedMCPConfig_FailsLoudAndBacksUp(t *testing.
 	corruptContent := `{"mcpServers": {"mine": {"command": "my-server"} `
 	require.NoError(t, afero.WriteFile(fs, mcpPath, []byte(corruptContent), 0644))
 
-	err := writer.writeMCPConfig("/project", &wire.MCPConfig{}, map[string]wire.MCPServer{
+	err := writer.writeMCPConfig("/project", map[string]wire.MCPServer{
 		"ctxloom-added": {Command: "ctxloom", Args: []string{"mcp"}},
 	})
 	require.Error(t, err, "should refuse to write .mcp.json over an unparseable one")
@@ -1183,7 +1186,7 @@ func TestClaudeCodeHookWriter_AbsentMCPConfig_StillWrites(t *testing.T) {
 	writer := &ClaudeCodeHookWriter{FS: fs}
 	require.NoError(t, fs.MkdirAll("/project", 0755))
 
-	require.NoError(t, writer.writeMCPConfig("/project", &wire.MCPConfig{}, map[string]wire.MCPServer{
+	require.NoError(t, writer.writeMCPConfig("/project", map[string]wire.MCPServer{
 		"ctxloom-added": {Command: "ctxloom", Args: []string{"mcp"}},
 	}))
 
@@ -1474,7 +1477,7 @@ func TestWriteSettings_HandAuthoredCtxloomHookSurvives(t *testing.T) {
 		`]}]}}`
 	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(seed), 0o644))
 
-	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, projectDir))
+	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), projectDir))
 
 	data, err := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, err)
@@ -1506,7 +1509,7 @@ func TestWriteSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 		seed := `{"statusLine":{"type":"command","command":"` + userStatus + `"}}`
 		require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(seed), 0o644))
 
-		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), "/proj"))
 
 		data, err := afero.ReadFile(fs, settingsPath)
 		require.NoError(t, err)
@@ -1517,7 +1520,7 @@ func TestWriteSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 	t.Run("control: with no prior claim ctxloom still installs its own", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		w := &ClaudeCodeHookWriter{FS: fs}
-		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), "/proj"))
 
 		data, err := afero.ReadFile(fs, w.SettingsPath("/proj"))
 		require.NoError(t, err)
@@ -1544,7 +1547,7 @@ func TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared(t *testing.T
 	declared := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: companion, Matcher: "Bash"}}},
 	}
-	require.NoError(t, w.WriteSettings(declared, nil, nil, "/proj"))
+	require.NoError(t, w.WriteSettings(declared, ctxloomBundleMCP(), "/proj"))
 
 	data, err := afero.ReadFile(fs, w.SettingsPath("/proj"))
 	require.NoError(t, err)
@@ -1557,7 +1560,7 @@ func TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared(t *testing.T
 		"ctxloom must record the companion hook it wrote, by digest")
 
 	// Config no longer declares it: it must go.
-	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), "/proj"))
 
 	after, err := afero.ReadFile(fs, w.SettingsPath("/proj"))
 	require.NoError(t, err)

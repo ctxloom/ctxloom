@@ -1,0 +1,38 @@
+# ctxloom's own MCP server, shipped as a builtin bundle
+# (resources/builtin_bundles/README.md): core ctxloom functionality with no
+# companion binary of its own, so it is compiled into the ctxloom binary
+# rather than discovered as a companion loadout.
+#
+# COMPOSING THIS BUNDLE IS WHAT REGISTERS THE SERVER. Builtin bundles reach
+# every session unconditionally (Config.ResolveBundleMCPServers runs
+# resolveBuiltinBundleMCPServers before any profile scope), so ctxloom's own
+# tools are on by default; a profile's `exclude_mcp: [ctxloom]` withholds it,
+# and so does rejecting the item, which sits above every trust exemption.
+#
+# `command` here is the bare binary name and is NOT what reaches a settings
+# file: agent.ResolveManagedMCPServers rewrites this one entry to the absolute
+# path of the binary materializing the surface (or a container cell's
+# in-container path). A bundle cannot know either value. The bare name is what
+# the bundle-resolution layer's companion check reads, and it exempts ctxloom
+# itself, so this entry is never withheld as a missing companion.
+
+version: 1.0.0
+tags:
+  - mcp
+  - core
+author: ctxloom
+description: |
+  ctxloom's own MCP server: context assembly, session history, content
+  search, and agent delegation, exposed to whichever engine the session runs.
+
+mcp:
+  ctxloom:
+    command: ctxloom
+    args:
+      - mcp
+      - serve
+    notes: |
+      ctxloom's own stdio MCP server. The command written into an engine's
+      settings is the absolute path of the ctxloom binary that materialized
+      that surface, so a session's MCP server can never diverge from the
+      binary running it.

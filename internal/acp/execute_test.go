@@ -71,8 +71,10 @@ func TestExecute_InjectsManagedMCPServersAtSessionNew(t *testing.T) {
 	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir: t.TempDir(),
 		Managed: &agent.ManagedConfig{
-			MCP:       &wire.MCPConfig{},
-			BundleMCP: map[string]wire.MCPServer{"taskloom": {Command: "taskloom", Args: []string{"mcp"}}},
+			BundleMCP: map[string]wire.MCPServer{
+				agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+				"taskloom":          {Command: "taskloom", Args: []string{"mcp"}},
+			},
 		},
 	}))
 	newParams := captureSessionNew(fa)

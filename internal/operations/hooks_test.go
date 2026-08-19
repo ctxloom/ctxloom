@@ -140,11 +140,10 @@ func TestApplyHooksRequest_FSField(t *testing.T) {
 // deliverManagedSettings materializes a backend's settings + MCP surfaces into dir
 // via the surface selection — the test replacement for the removed WriteSettings
 // facade. manageStatusline mirrors the old WithStatusLineDisabled inverse.
-func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
+func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
 	t.Helper()
 	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{
 		Hooks:            hooks,
-		MCP:              mcp,
 		BundleMCP:        bundleMCP,
 		ManageStatusline: manageStatusline,
 	}, fs)
@@ -165,7 +164,7 @@ func TestManagedSettings_ClaudeCode(t *testing.T) {
 		},
 	}
 
-	deliverManagedSettings(t, "claude-code", hooks, nil, nil, true, "/project", fs)
+	deliverManagedSettings(t, "claude-code", hooks, map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, true, "/project", fs)
 
 	// Verify settings file was created
 	exists, err := afero.Exists(fs, "/project/.claude/settings.json")
@@ -220,7 +219,7 @@ func TestManagedSettings_PreservesExistingSettings(t *testing.T) {
 		},
 	}
 
-	deliverManagedSettings(t, "claude-code", hooks, nil, nil, true, "/project", fs)
+	deliverManagedSettings(t, "claude-code", hooks, nil, true, "/project", fs)
 
 	// Read and verify user settings are preserved
 	content, err := afero.ReadFile(fs, "/project/.claude/settings.json")
@@ -431,22 +430,15 @@ func TestApplyHooks_ConfigLoadError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to load config")
 }
 
-// TestApplyHooks_WithMCPServers tests that MCP servers are written correctly.
+// TestApplyHooks_WithMCPServers proves apply-hooks materializes the MCP surface
+// with ctxloom's own server in it. Nothing configures a server: the builtin
+// ctxloom bundle is injected unconditionally, so its entry is what must land.
 func TestApplyHooks_WithMCPServers(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			MCP: wire.MCPConfig{
-				Servers: map[string]wire.MCPServer{
-					"test-server": {
-						Command: "test-cmd",
-						Args:    []string{"arg1", "arg2"},
-					},
-				},
-			},
-		}), nil
+		return config.NewFixture(config.Fixture{}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
@@ -464,11 +456,11 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	// Verify MCP config contains the server
+	// Verify the MCP config carries ctxloom's own server, invoking `mcp serve`.
 	content, err := afero.ReadFile(fs, "/project/.mcp.json")
 	require.NoError(t, err)
-	assert.Contains(t, string(content), "test-server")
-	assert.Contains(t, string(content), "test-cmd")
+	assert.Contains(t, string(content), `"`+agent.MCPServerName+`"`)
+	assert.Contains(t, string(content), `"serve"`)
 }
 
 // ==========================================================================

@@ -17,7 +17,6 @@ import (
 // Flush(nil) leak.
 func TestManagedConfig_ProtoRoundTrip_PreservesBundleMCP(t *testing.T) {
 	in := &agent.ManagedConfig{
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{}},
 		BundleMCP: map[string]wire.MCPServer{
 			"taskloom": {Command: "taskloom", Args: []string{"mcp"}, SCM: "bundle:builtin:taskloom"},
 		},
@@ -103,50 +102,6 @@ func TestManagedConverters_EmptyAndNilAreOneAnswer(t *testing.T) {
 		require.Len(t, got.Hooks.Unified.PreTool, 1)
 		assert.Equal(t, "Bash", got.Hooks.Unified.PreTool[0].Matcher)
 	})
-}
-
-// TestMCPConfig_ProtoRoundTrip_PreservesTriState pins the unset/true/false
-// tri-state of wire.MCPConfig.AutoRegisterCtxloom across the wire.
-//
-// The proto field is `optional bool` precisely so "absent" stays
-// distinguishable from "false": ShouldAutoRegisterCtxloom resolves an ABSENT
-// value to true (auto-register ctxloom's own MCP server), so collapsing absent
-// to false silently launches every child WITHOUT agent_send / agent_recv /
-// agent_report — the stranding coord/spawner.go warns about when the setting is
-// genuinely off.
-//
-// The generated getter GetAutoRegisterCtxloom() performs exactly that collapse:
-// it returns bool, not *bool, so a nil field reads as false. Neither converter
-// may use it; both must carry the pointer through. This hazard is unguarded
-// by the package-wide parity sweep in arch_test.go, which fills every field
-// with a NON-ZERO value and so never exercises the nil arm.
-func TestMCPConfig_ProtoRoundTrip_PreservesTriState(t *testing.T) {
-	tru, fls := true, false
-	for _, tc := range []struct {
-		name string
-		in   *bool
-	}{
-		{"absent", nil},
-		{"explicit true", &tru},
-		{"explicit false", &fls},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			sent := &wire.MCPConfig{AutoRegisterCtxloom: tc.in}
-			back := mcpConfigFromProto(mcpConfigToProto(sent))
-			require.NotNil(t, back)
-			if tc.in == nil {
-				assert.Nil(t, back.AutoRegisterCtxloom,
-					"absent must stay absent — collapsing it to a pointer makes the config's default unreachable")
-			} else {
-				require.NotNil(t, back.AutoRegisterCtxloom, "an explicit value must survive as an explicit value")
-				assert.Equal(t, *tc.in, *back.AutoRegisterCtxloom)
-			}
-			// The payload assertion: what the plugin ASKS is the only thing the
-			// tri-state exists to protect.
-			assert.Equal(t, sent.ShouldAutoRegisterCtxloom(), back.ShouldAutoRegisterCtxloom(),
-				"the decoded config must answer ShouldAutoRegisterCtxloom identically to the one that was sent")
-		})
-	}
 }
 
 // TestManagedConfig_SurfacePreferenceSurvivesTheWire guards the failure this

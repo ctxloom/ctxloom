@@ -101,7 +101,6 @@ type BackendWiring struct {
 // HarnessStatusResult reports ctxloom's project wiring across backends.
 type HarnessStatusResult struct {
 	WorkDir          string          `json:"work_dir"`
-	AutoRegisterMCP  bool            `json:"auto_register_mcp"`
 	ManageStatusline bool            `json:"manage_statusline"`
 	Backends         []BackendWiring `json:"backends"`
 	// RootFallback reports that WorkDir is the bare cwd fallback — no
@@ -144,17 +143,15 @@ type SurfaceCurrency struct {
 }
 
 // HarnessStatus reports which ctxloom-managed artifacts are wired into each
-// settings-supporting backend, plus the MCP auto-registration setting.
+// settings-supporting backend.
 func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusRequest) (*HarnessStatusResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
 	opts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
 
-	mcpCfg := cfg.GetMCPConfig()
 	settings := cfg.GetSettings()
 	result := &HarnessStatusResult{
 		WorkDir:          workDir,
-		AutoRegisterMCP:  mcpCfg.ShouldAutoRegisterCtxloom(),
 		ManageStatusline: settings.ShouldManageStatusline(),
 		Backends:         []BackendWiring{},
 		RootFallback:     projectroot.RootFromFallback(),

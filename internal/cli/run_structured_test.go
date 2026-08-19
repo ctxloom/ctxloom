@@ -260,12 +260,14 @@ func TestRunChatSession_InjectsMCPServers(t *testing.T) {
 	}
 
 	managed := &agent.ManagedConfig{
-		MCP:       &wire.MCPConfig{},
-		BundleMCP: map[string]wire.MCPServer{"taskloom": {Command: "taskloom", Args: []string{"mcp"}}},
+		BundleMCP: map[string]wire.MCPServer{
+			agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+			"taskloom":          {Command: "taskloom", Args: []string{"mcp"}},
+		},
 	}
 	var out bytes.Buffer
 	require.NoError(t, runChatSession(context.Background(), mock, agent.ChatRequest{
-		MCPServers: managed.ChatMCPServers("claude-code", ""),
+		MCPServers: managed.ChatMCPServers(""),
 	}, chatTurns{Stdin: strings.NewReader("")}, formatJSON, &out))
 
 	require.Len(t, captured.MCPServers, 2)

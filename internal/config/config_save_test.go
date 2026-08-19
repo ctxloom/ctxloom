@@ -10,17 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 func ptrBool(b bool) *bool { return &b }
 
-// TestApplyConfigSections_EditorAndMCPPresence pins the setOrDelete predicates
-// for the editor and mcp blocks (config_save.go:134/138). Each block must be
-// emitted exactly when its presence predicate is true and pruned otherwise —
-// including when only one disjunct of the predicate holds (e.g. editor args but
-// no command, or an mcp block carrying only auto_register_ctxloom).
-func TestApplyConfigSections_EditorAndMCPPresence(t *testing.T) {
+// TestApplyConfigSections_EditorPresence pins the setOrDelete predicate for the
+// editor block. It must be emitted exactly when its presence predicate is true
+// and pruned otherwise — including when only one disjunct of the predicate
+// holds (editor args but no command). An `mcp` key is never emitted at all:
+// native MCP config does not exist, so the block has no writer.
+func TestApplyConfigSections_EditorPresence(t *testing.T) {
 	tests := []struct {
 		name        string
 		mutate      func(*Config)
@@ -44,24 +43,6 @@ func TestApplyConfigSections_EditorAndMCPPresence(t *testing.T) {
 			name:       "editor_args_only", // Command empty: only the len(Args)>0 disjunct holds
 			mutate:     func(c *Config) { c.editor = EditorConfig{Args: []string{"-p"}} },
 			wantEditor: true,
-		},
-		{
-			name:        "mcp_servers_only",
-			mutate:      func(c *Config) { c.mcp = wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "x"}}} },
-			wantMCP:     true,
-			wantSrvName: "srv",
-		},
-		{
-			name: "mcp_plugins_only",
-			mutate: func(c *Config) {
-				c.mcp = wire.MCPConfig{Plugins: map[string]map[string]wire.MCPServer{"claude": {"p": {Command: "x"}}}}
-			},
-			wantMCP: true,
-		},
-		{
-			name:    "mcp_auto_register_only", // only the AutoRegisterCtxloom != nil disjunct holds
-			mutate:  func(c *Config) { c.mcp = wire.MCPConfig{AutoRegisterCtxloom: ptrBool(false)} },
-			wantMCP: true,
 		},
 		{
 			// The sync block keys on AutoSync != nil, so a zero value with the
@@ -101,12 +82,12 @@ func TestApplyConfigSections_EditorAndMCPPresence(t *testing.T) {
 	}
 }
 
-// TestConfig_Save_PrunesEmptiedEditorAndMCP exercises the delete branch of
-// setOrDelete end-to-end: a config file that already carries editor and mcp
-// blocks must lose them when saved from a config where both are empty, while
-// unknown keys are preserved. This is the round-trip the Marshal table can't
-// reach, since Marshal always starts from an empty map.
-func TestConfig_Save_PrunesEmptiedEditorAndMCP(t *testing.T) {
+// TestConfig_Save_PrunesEmptiedEditor exercises the delete branch of
+// setOrDelete end-to-end: a config file that already carries an editor block
+// must lose it when saved from a config where it is empty, while unknown keys
+// are preserved. This is the round-trip the Marshal table can't reach, since
+// Marshal always starts from an empty map.
+func TestConfig_Save_PrunesEmptiedEditor(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
@@ -114,11 +95,10 @@ func TestConfig_Save_PrunesEmptiedEditorAndMCP(t *testing.T) {
 	seed := "" +
 		"version: 3\n" +
 		"editor:\n  command: vim\n" +
-		"mcp:\n  servers:\n    old:\n      command: x\n" +
 		"custom_unknown: keepme\n"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(seed), 0o644))
 
-	cfg := &Config{appPaths: []string{appDir}} // Editor + MCP left zero/empty
+	cfg := &Config{appPaths: []string{appDir}} // Editor left zero/empty
 	cfg.SetFS(fs)
 	require.NoError(t, cfg.saveLocked(fs, paths.ConfigPath(appDir)))
 
@@ -127,7 +107,6 @@ func TestConfig_Save_PrunesEmptiedEditorAndMCP(t *testing.T) {
 	got := string(data)
 
 	assert.NotContains(t, got, "editor:", "emptied editor block must be pruned")
-	assert.NotContains(t, got, "mcp:", "emptied mcp block must be pruned")
 	assert.Contains(t, got, "custom_unknown: keepme", "unknown keys must survive a save")
 }
 

@@ -36,9 +36,10 @@ func TestConfigSurface_IsTheOneProductionWriteSettingsCaller(t *testing.T) {
 
 	surfaces := NewSurfaces(agent.SurfaceInputs{
 		Context: "ctx",
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{
-			"proj-tool": {Command: "proj-cmd", Args: []string{"serve"}},
-		}},
+		BundleMCP: map[string]wire.MCPServer{
+			agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+			"proj-tool":         {Command: "proj-cmd", Args: []string{"serve"}},
+		},
 	}, fs)
 
 	handle, err := surfaces.Config.Deliver(dir)

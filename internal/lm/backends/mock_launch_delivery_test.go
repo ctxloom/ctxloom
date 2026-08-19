@@ -45,7 +45,7 @@ func launchSetupRequest(workDir string, fragments []*agent.Fragment, managed *ag
 // surface; its non-nil-ness is not (see setupViaCells' documented "nothing
 // managed → no surfaces to deliver" short-circuit, pinned below).
 func hostManagedConfig() *agent.ManagedConfig {
-	return &agent.ManagedConfig{Hooks: &wire.HooksConfig{}, MCP: &wire.MCPConfig{}}
+	return &agent.ManagedConfig{Hooks: &wire.HooksConfig{}, BundleMCP: map[string]wire.MCPServer{}}
 }
 
 // TestMock_Setup_DeliversContextBytesOnTheLaunchPath is the headline: the SAME

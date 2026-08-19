@@ -39,7 +39,6 @@ func fullyPopulatedFixture() Fixture {
 		Settings:                     SettingsConfig{CompactionChunks: 4096},
 		Sync:                         SyncConfig{AutoSync: &autoSync},
 		Hooks:                        wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "true"}}}},
-		MCP:                          wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "true"}}},
 		Profiles:                     ProfilesConfig{Definitions: map[string]Profile{"p": {Description: "a profile"}}},
 		Agents:                       map[string]agents.Agent{"worker": {LLM: "fast"}},
 		DefaultAgent:                 "worker",

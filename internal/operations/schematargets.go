@@ -14,7 +14,6 @@ import (
 func SchemaTargets() []schemagen.Target {
 	return []schemagen.Target{
 		{Type: reflect.TypeOf(AddItemResult{})},
-		{Type: reflect.TypeOf(AddMCPServerResult{})},
 		{Type: reflect.TypeOf(AddRemoteResult{})},
 		{Type: reflect.TypeOf(ApplyHooksResult{})},
 		{Type: reflect.TypeOf(AssembleContextResult{})},
@@ -53,7 +52,6 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(ReadBundleResult{})},
 		{Type: reflect.TypeOf(RemoveHooksResult{})},
 		{Type: reflect.TypeOf(RemoveLocalItemsResult{})},
-		{Type: reflect.TypeOf(RemoveMCPServerResult{})},
 		{Type: reflect.TypeOf(RemoveRemoteResult{})},
 		{Type: reflect.TypeOf(RunOneshotResult{})},
 		{Type: reflect.TypeOf(SearchContentResult{})},
@@ -62,7 +60,6 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(SetBundleMCPResult{})},
 		{Type: reflect.TypeOf(SetDefaultLLMResult{})},
 		{Type: reflect.TypeOf(SetItemContentResult{})},
-		{Type: reflect.TypeOf(SetMCPAutoRegisterResult{})},
 		{Type: reflect.TypeOf(SetProfileContentResult{})},
 		{Type: reflect.TypeOf(SetStatuslineResult{})},
 		{Type: reflect.TypeOf(SyncDependenciesResult{})},

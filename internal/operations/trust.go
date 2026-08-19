@@ -1299,32 +1299,6 @@ func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
 	return ts.resolve(tRef, read, payload, string(form), signer)
 }
 
-// ForLocalMCP stamps a configured (project-local) MCP server, which carries no
-// bundle ref and therefore no publisher signature. It resolves the server's
-// executable surface (BundleMCP.ContentPayload — Command+Args+Env+Installation)
-// as a local mcp item, which the decision function ALLOWS via the first-party
-// local exemption at step 3 (the user configured it in this project themselves)
-// — unless it has been explicitly rejected at step 1, which beats the
-// exemption, as does a retraction at step 2. Retraction never actually fires
-// for a local item, but by SCOPE rather than by precedence: retractable()
-// excludes a ref with no remote lockfile entry. The distinction matters,
-// because it is what makes the exemption safe to sit this low.
-// Signing is irrelevant here and its absence is not a downgrade: local content
-// never needed a key and still does not.
-func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) EffectiveTrustResult {
-	payload, err := srv.ContentPayload()
-	if err != nil {
-		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
-	}
-	ref := trust.Ref{Kind: trust.KindMCP, Name: name, IsLocal: true}
-	// The posture is stated, not looked up: a config.yaml MCP server is a line
-	// the user typed into this project's own configuration. There is no bundle
-	// to read it from and never was — the old path asserted the same thing by
-	// setting IsLocal on the ref.
-	return ts.resolve(ref, bundles.ProjectAuthoredRead(name, &bundles.Bundle{Name: name}),
-		payload, string(bundles.FormRaw), "")
-}
-
 // ForHook stamps a bundle hook addressed by its (source, HookEntry) identity,
 // mirroring the exec choke. It resolves the hook's executable surface
 // (BundleHook.ContentPayload) through the decision function.

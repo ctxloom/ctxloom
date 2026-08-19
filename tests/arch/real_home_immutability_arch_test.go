@@ -177,7 +177,7 @@ func launchManaged() *agent.ManagedConfig {
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
 		}},
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
+		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
 	}
 }
 

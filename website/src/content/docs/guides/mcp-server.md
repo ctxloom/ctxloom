@@ -17,7 +17,7 @@ This starts ctxloom as an MCP server over stdio.
 Claude Code doesn't read `mcpServers` from `~/.claude/settings.json` — it reads `.mcp.json` (project scope) or `~/.claude.json` (user scope). The easiest path is to let ctxloom write that entry for you:
 
 ```bash
-ctxloom mcp register
+ctxloom manage hooks install
 ```
 
 If you need to add it by hand, put the block in `.mcp.json` (project) or `~/.claude.json` (user), not `settings.json`:
@@ -35,21 +35,21 @@ If you need to add it by hand, put the block in `.mcp.json` (project) or `~/.cla
 
 Replace `/path/to/ctxloom` with your actual binary location (e.g., `~/go/bin/ctxloom`).
 
-### Auto-Registration
+### Where the registration comes from
 
-By default, ctxloom auto-registers itself as an MCP server. Control this with:
-
-```bash
-ctxloom mcp unregister
-ctxloom mcp register
-```
-
-Or in config:
+ctxloom's own server ships in the builtin `ctxloom` bundle, which every
+session composes unconditionally — so it is registered by default and there is
+no flag to turn on. To withhold it, exclude it from the profiles a session
+composes:
 
 ```yaml
-mcp:
-  auto_register_ctxloom: false
+# .ctxloom/profiles/<name>.yaml
+exclude_mcp:
+  - ctxloom
 ```
+
+Withholding it costs the session every ctxloom tool, including the
+`agent_send`/`agent_recv`/`agent_report` bus a delegated child reports back on.
 
 ## What the Server Exposes
 
@@ -156,14 +156,15 @@ Management requests route through the CLI instead — e.g. "pull the remotes" ru
 
 ## Managing MCP Servers
 
-ctxloom manages MCP server configurations with the CLI:
+Every MCP server lives in a bundle, so the CLI here READS the roster and edits
+the bundle a server came from. Adding a server means composing a bundle that
+declares it; removing one means not composing that bundle, or excluding the
+server by name from the profiles a session composes (`exclude_mcp`).
 
 ```bash
-ctxloom mcp server list
-ctxloom mcp server create tree-sitter -c "npx" -a "tree-sitter-mcp"
-ctxloom mcp server create my-server -c "/path/to/server" -b claude-code
-ctxloom mcp server remove tree-sitter --yes
+ctxloom mcp server list                        # what this project registers, and from which bundle
 ctxloom mcp server show tree-sitter
+ctxloom mcp server edit tools#mcp/tree-sitter  # edit it where it lives
 ```
 
 ## Bundle MCP Definitions

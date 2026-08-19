@@ -165,7 +165,7 @@ type claudeCodeHook struct {
 // WriteSettings implements SettingsWriter for Claude Code.
 // Hooks are written to .claude/settings.json
 // MCP servers are written to .mcp.json (where variable expansion works)
-func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
+func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
 	// Write hooks + statusline to settings.json. This legacy interface method
 	// carries no deny_tools payload (the agent.SettingsWriter interface is
 	// shared across every backend, so extending its signature is a
@@ -178,7 +178,7 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.
 	}
 
 	// Write MCP servers to .mcp.json (separate file where variable expansion works)
-	return w.writeMCPConfig(projectDir, mcp, bundleMCP)
+	return w.writeMCPConfig(projectDir, bundleMCP)
 }
 
 // writeSettingsFile writes the settings.json half of WriteSettings: it replaces
@@ -540,7 +540,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 
 // writeMCPConfig writes MCP servers to .mcp.json.
 // This file supports ${CLAUDE_PROJECT_DIR} variable expansion.
-func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
+func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, bundleMCP map[string]wire.MCPServer) error {
 	mcpPath := w.MCPConfigPath(projectDir)
 
 	// See writeSettingsFile: the lock spans load through save, the whole RMW
@@ -565,7 +565,7 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPCo
 	// so a hand-authored remote server ({"type","url","headers"}) came back as
 	// {"command": ""} — every unmodelled field destroyed and an invalid empty
 	// command invented, on a success path with a success message.
-	desired, err := w.desiredMCPServers(mcp, bundleMCP)
+	desired, err := w.desiredMCPServers(bundleMCP)
 	if err != nil {
 		return err
 	}
@@ -580,9 +580,9 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPCo
 // The JSON round trip is what honours claudeCodeMCPServer's json tags,
 // including omitempty: hew encodes whatever Go value it is handed, and handing
 // it the struct directly would spell the keys by their Go field names.
-func (w *ClaudeCodeHookWriter) desiredMCPServers(mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) (map[string]any, error) {
+func (w *ClaudeCodeHookWriter) desiredMCPServers(bundleMCP map[string]wire.MCPServer) (map[string]any, error) {
 	empty := &claudeCodeMCPConfig{MCPServers: map[string]claudeCodeMCPServer{}}
-	w.addMCPServersToConfig(empty, mcp, bundleMCP)
+	w.addMCPServersToConfig(empty, bundleMCP)
 
 	out := make(map[string]any, len(empty.MCPServers))
 	for name, server := range empty.MCPServers {
@@ -987,54 +987,27 @@ func (w *ClaudeCodeHookWriter) removeExactCommand(settings *claudeCodeSettings, 
 // AppMCPServerName is the name used for the ctxloom MCP server in settings.
 const AppMCPServerName = agent.MCPServerName
 
-// addMCPServersToConfig adds MCP servers from config to .mcp.json config.
-func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) {
+// addMCPServersToConfig adds the resolved bundle MCP servers to the .mcp.json
+// config. ctxloom's own entry (the builtin ctxloom bundle's) has its command
+// resolved to the self-exec absolute path, so this session's MCP server can
+// never diverge from the binary that materialized it, and additionally carries
+// cwd so it runs in the project directory where findAppDir works — the one
+// field no bundle can express.
+func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPConfig, bundleMCP map[string]wire.MCPServer) {
 	if mcpConfig.MCPServers == nil {
 		mcpConfig.MCPServers = make(map[string]claudeCodeMCPServer)
 	}
 
-	// Auto-register ctxloom's own MCP server unless disabled. Command names
-	// the self-exec absolute path (agent.CtxloomCommand) so this session's
-	// MCP server can never diverge from the binary that materialized it.
-	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		mcpConfig.MCPServers[AppMCPServerName] = claudeCodeMCPServer{
-			Command: agent.ResolveMCPCommand(w.mcpCommandOverride),
-			Args:    agent.CtxloomMCPArgs,
-			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findAppDir works
-		}
-	}
-
-	// Add MCP servers from profile bundles (loaded first, can be overridden)
-	for name, server := range bundleMCP {
-		mcpConfig.MCPServers[name] = claudeCodeMCPServer{
+	for name, server := range agent.ResolveManagedMCPServers(bundleMCP, w.mcpCommandOverride) {
+		entry := claudeCodeMCPServer{
 			Command: server.Command,
 			Args:    server.Args,
 			Env:     server.Env,
 		}
-	}
-
-	if mcp == nil {
-		return
-	}
-
-	// Add unified MCP servers (overrides bundle servers if same name)
-	for name, server := range mcp.Servers {
-		mcpConfig.MCPServers[name] = claudeCodeMCPServer{
-			Command: server.Command,
-			Args:    server.Args,
-			Env:     server.Env,
+		if name == AppMCPServerName {
+			entry.Cwd = "${CLAUDE_PROJECT_DIR}"
 		}
-	}
-
-	// Add backend-specific MCP servers (passthrough)
-	if backendServers, ok := mcp.Plugins["claude-code"]; ok {
-		for name, server := range backendServers {
-			mcpConfig.MCPServers[name] = claudeCodeMCPServer{
-				Command: server.Command,
-				Args:    server.Args,
-				Env:     server.Env,
-			}
-		}
+		mcpConfig.MCPServers[name] = entry
 	}
 }
 

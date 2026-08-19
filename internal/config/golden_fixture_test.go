@@ -83,7 +83,6 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 	// machinery) that silently changes its effective config also fails here,
 	// independent of layering.
 	assert.True(t, projectOnly.ShouldUseDistilled())
-	assert.True(t, projectOnly.mcp.ShouldAutoRegisterCtxloom())
 	assert.Empty(t, projectOnly.defaultAgent,
 		"init-config.yaml deliberately carries no default_agent — init fills it in after engine selection")
 	assert.Empty(t, projectOnly.agents)
@@ -105,9 +104,6 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 	// project one (that would be the OTHER direction, not D3).
 	assert.Equal(t, projectOnly.ShouldUseDistilled(), layered.ShouldUseDistilled(),
 		"config.use_distilled is project-set; home carries no config: section at all")
-	assert.Equal(t, projectOnly.mcp.ShouldAutoRegisterCtxloom(), layered.mcp.ShouldAutoRegisterCtxloom(),
-		"mcp.auto_register_ctxloom is project-set; home carries no mcp: section at all")
-
 	// THE DRIFT: keys init-config.yaml never mentions are now INHERITED from
 	// home instead of staying empty/built-in-default. This is the accepted D3
 	// behavior change, pinned explicitly rather than left to be discovered.
@@ -158,11 +154,9 @@ func TestGoldenFixture_D3Drift_IsAdditiveOnly(t *testing.T) {
 	layered, err := Load(WithFS(fsLayered), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
-	// init-config.yaml sets exactly: version, config.use_distilled,
-	// mcp.auto_register_ctxloom (see the template's own doc comment — llm,
-	// agents, default_agent are deliberately absent, filled in by `init`
-	// itself, not the static template).
+	// init-config.yaml sets exactly: version and config.use_distilled (see the
+	// template's own doc comment — llm, agents, default_agent are deliberately
+	// absent, filled in by `init` itself, not the static template).
 	assert.Equal(t, projectOnly.version, layered.version)
 	assert.Equal(t, projectOnly.settings.UseDistilled, layered.settings.UseDistilled)
-	assert.Equal(t, projectOnly.mcp.ShouldAutoRegisterCtxloom(), layered.mcp.ShouldAutoRegisterCtxloom())
 }

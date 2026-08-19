@@ -34,10 +34,6 @@ import (
 // dir and is obviously not hand-authored project source.
 const opencodeContextFile = ".opencode/ctxloom-context.md"
 
-// opencodeMCPPluginKey selects opencode's passthrough MCP servers from
-// wire.MCPConfig.Plugins.
-const opencodeMCPPluginKey = "opencode"
-
 // readOnlyPermission is the plan-mode read-only posture written into opencode.json's
 // `permission` key. It denies the only two workspace-mutation / command-execution
 // vectors: `edit` — which gates BOTH the edit and write tools, since opencode has
@@ -462,31 +458,15 @@ func unregisterSkillsPath(fs afero.Fs, projectDir string) error {
 }
 
 // composeManagedServers builds the materializable server set the settings writer
-// installs: the auto-registered ctxloom server (unless explicitly disabled), bundle
-// servers (overridable), config+profile servers, then opencode's passthrough
-// servers — the SAME sources and override order codex/MCPFileConfig reconcile, so
-// the materialize path matches every other engine. (The chat path receives its set
-// pre-composed via ManagedChatMCPServers, so it does not call this.) Unlike the
-// chat reconciler, a nil config still auto-registers ctxloom — materialize always
-// wants the session's own MCP server.
-func composeManagedServers(mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) []agent.ChatMCPServer {
+// installs: every server the resolved bundles ship, with ctxloom's own entry
+// resolved to this binary's absolute path — the SAME source and resolution
+// codex/MCPFileConfig reconcile, so the materialize path matches every other
+// engine. (The chat path receives its set pre-composed via
+// ManagedChatMCPServers, so it does not call this.)
+func composeManagedServers(bundleMCP map[string]wire.MCPServer) []agent.ChatMCPServer {
 	var out []agent.ChatMCPServer
-	add := func(name, cmd string, args []string, env map[string]string) {
-		out = append(out, agent.ChatMCPServer{Name: name, Command: cmd, Args: args, Env: env})
-	}
-	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		add(agent.MCPServerName, agent.CtxloomCommand(), agent.CtxloomMCPArgs, nil)
-	}
-	for name, s := range bundleMCP {
-		add(name, s.Command, s.Args, s.Env)
-	}
-	if mcp != nil {
-		for name, s := range mcp.Servers {
-			add(name, s.Command, s.Args, s.Env)
-		}
-		for name, s := range mcp.Plugins[opencodeMCPPluginKey] {
-			add(name, s.Command, s.Args, s.Env)
-		}
+	for name, s := range agent.ResolveManagedMCPServers(bundleMCP, "") {
+		out = append(out, agent.ChatMCPServer{Name: name, Command: s.Command, Args: s.Args, Env: s.Env})
 	}
 	return out
 }
@@ -528,7 +508,7 @@ func (w *OpencodeWriter) contextFilePath(projectDir string) string {
 // preserving foreign keys and reconciling the managed set against the ledger
 // (renamed/removed servers drop out instead of orphaning). opencode has no
 // ctxloom-managed hook mechanism, so hooks are ignored.
-func (w *OpencodeWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
+func (w *OpencodeWriter) WriteSettings(hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
 	fs := w.getFS()
 	path := w.SettingsPath(projectDir)
 	// The lock spans load through save+ledger-write: opencode.json is a
@@ -548,7 +528,7 @@ func (w *OpencodeWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCon
 		if err := stripManagedMCP(cfg, ledger); err != nil {
 			return err
 		}
-		servers := composeManagedServers(mcp, bundleMCP)
+		servers := composeManagedServers(bundleMCP)
 		names, err := applyManaged(cfg, managedConfig{mcpServers: servers})
 		if err != nil {
 			return err

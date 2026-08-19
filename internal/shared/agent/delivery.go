@@ -34,14 +34,14 @@ type ContextDelivery interface {
 	DeliverContext(context string) (Delivered, error)
 }
 
-// MCPDelivery delivers the MCP surface of a loadout: the merged MCP server set
-// plus the servers shipped by profile and builtin bundles. It is a small
-// per-surface facet an MCP mechanism strategy satisfies on its own.
+// MCPDelivery delivers the MCP surface of a loadout: the servers shipped by
+// builtin, companion and profile bundles. It is a small per-surface facet an
+// MCP mechanism strategy satisfies on its own.
 type MCPDelivery interface {
 	// DeliverMCP materializes the MCP configuration for the session and returns a
-	// handle owning its cleanup. bundle carries the profile+builtin-bundle servers
-	// (parallel to ManagedConfig.BundleMCP).
-	DeliverMCP(mcp *wire.MCPConfig, bundle map[string]wire.MCPServer) (Delivered, error)
+	// handle owning its cleanup. bundle carries the resolved bundle servers
+	// (ManagedConfig.BundleMCP).
+	DeliverMCP(bundle map[string]wire.MCPServer) (Delivered, error)
 }
 
 // CommandsDelivery delivers the commands surface of a loadout: the

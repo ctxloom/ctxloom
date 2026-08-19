@@ -103,8 +103,6 @@ func aliasProbeFixture() Fixture {
 	f := fullyPopulatedFixture()
 	f.LM.Configs["fast"] = LLMConfig{Type: "claude-code", Body: map[string]any{"model": "m"}}
 	f.Editor = EditorConfig{Command: "vi", Args: []string{"-p"}}
-	f.MCP.Servers["srv"] = wire.MCPServer{Command: "true", Args: []string{"-x"}, Env: map[string]string{"K": "v"}}
-	f.MCP.Plugins = map[string]map[string]wire.MCPServer{"p": {"s": {Command: "true", Args: []string{"-y"}}}}
 	f.Hooks.Plugins = map[string]wire.BackendHooks{"claude": {"PostToolUse": []wire.Hook{{Command: "true"}}}}
 	f.Profiles.Definitions["p"] = Profile{
 		Description:      "a profile",
@@ -120,7 +118,6 @@ func aliasProbeFixture() Fixture {
 		ExcludeFragments: []string{"ef"},
 		ExcludeMCP:       []string{"em"},
 		DenyTools:        []string{"Bash"},
-		MCP:              wire.MCPConfig{Servers: map[string]wire.MCPServer{"ps": {Command: "true", Args: []string{"-z"}}}},
 		Hooks:            wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "true"}}}},
 	}
 	f.Agents["worker"] = agents.Agent{

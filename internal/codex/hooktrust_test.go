@@ -311,7 +311,7 @@ func TestWriteSettingsIn_SeedsHookTrustOnAnOwnedHome(t *testing.T) {
 		SessionStart: []wire.Hook{{Command: "echo seeded", Type: "command"}},
 	}}
 
-	if err := w.writeSettingsIn(hooks, nil, nil, "/owned/home", "/work/dir"); err != nil {
+	if err := w.writeSettingsIn(hooks, nil, "/owned/home", "/work/dir"); err != nil {
 		t.Fatalf("writeSettingsIn: %v", err)
 	}
 
@@ -348,7 +348,7 @@ func TestWriteSettingsIn_NoHookTrustWithoutAnOwnedHome(t *testing.T) {
 		SessionStart: []wire.Hook{{Command: "echo unseeded", Type: "command"}},
 	}}
 
-	if err := w.writeSettingsIn(hooks, nil, nil, "/not/ours", ""); err != nil {
+	if err := w.writeSettingsIn(hooks, nil, "/not/ours", ""); err != nil {
 		t.Fatalf("writeSettingsIn: %v", err)
 	}
 
@@ -373,7 +373,7 @@ func TestRemoveSettingsIn_RevertsOurTrustRecords(t *testing.T) {
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{{Command: "ctxloom hook run", Type: "command"}},
 	}}
-	if err := w.writeSettingsIn(hooks, nil, nil, "/owned/home", "/work/dir"); err != nil {
+	if err := w.writeSettingsIn(hooks, nil, "/owned/home", "/work/dir"); err != nil {
 		t.Fatalf("writeSettingsIn: %v", err)
 	}
 	if err := w.removeSettingsIn("/owned/home"); err != nil {
@@ -406,7 +406,7 @@ func TestWriteSettingsIn_SaysSoWhenAHookCannotBeVouchedFor(t *testing.T) {
 	hooks := &wire.HooksConfig{Plugins: map[string]wire.BackendHooks{
 		"codex": {"NotAnEvent": []wire.Hook{{Command: "echo doomed", Type: "command"}}},
 	}}
-	if err := w.writeSettingsIn(hooks, nil, nil, "/owned/home", "/work/dir"); err != nil {
+	if err := w.writeSettingsIn(hooks, nil, "/owned/home", "/work/dir"); err != nil {
 		t.Fatalf("writeSettingsIn: %v", err)
 	}
 
@@ -436,7 +436,7 @@ func TestWriteSettingsIn_SaysSoWhenNoHookCanBeVouchedFor(t *testing.T) {
 		SessionStart: []wire.Hook{{Command: "echo a", Type: "command"}},
 		PreTool:      []wire.Hook{{Command: "echo b", Type: "command"}},
 	}}
-	if err := w.writeSettingsIn(hooks, nil, nil, "/not/ours", ""); err != nil {
+	if err := w.writeSettingsIn(hooks, nil, "/not/ours", ""); err != nil {
 		t.Fatalf("writeSettingsIn: %v", err)
 	}
 
@@ -462,7 +462,7 @@ func TestWriteSettingsIn_QuietWhenEveryHookIsVouchedFor(t *testing.T) {
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{{Command: "echo fine", Type: "command"}},
 	}}
-	if err := w.writeSettingsIn(hooks, nil, nil, "/owned/home", "/work/dir"); err != nil {
+	if err := w.writeSettingsIn(hooks, nil, "/owned/home", "/work/dir"); err != nil {
 		t.Fatalf("writeSettingsIn: %v", err)
 	}
 	if strings.Contains(buf.String(), "SKIP") {
@@ -483,7 +483,7 @@ func TestSeedHookTrust_IsStableAcrossRewrites(t *testing.T) {
 
 	read := func() string {
 		t.Helper()
-		if err := w.writeSettingsIn(hooks, nil, nil, "/owned/home", "/work/dir"); err != nil {
+		if err := w.writeSettingsIn(hooks, nil, "/owned/home", "/work/dir"); err != nil {
 			t.Fatalf("writeSettingsIn: %v", err)
 		}
 		data, err := afero.ReadFile(fs, "/owned/home/.codex/config.toml")

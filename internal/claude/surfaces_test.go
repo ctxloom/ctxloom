@@ -43,13 +43,10 @@ func captureStderr(t *testing.T, fn func()) string {
 func sampleInputs() agent.SurfaceInputs {
 	return agent.SurfaceInputs{
 		Context: "# Rules\nthe secret color is vermilion",
-		MCP: &wire.MCPConfig{
-			Servers: map[string]wire.MCPServer{
-				"config-server": {Command: "config-cmd", Args: []string{"--flag"}},
-			},
-		},
 		BundleMCP: map[string]wire.MCPServer{
-			"bundle-server": {Command: "bundle-cmd", SCM: "ctxloom-bundle:test"},
+			agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+			"config-server":     {Command: "config-cmd", Args: []string{"--flag"}},
+			"bundle-server":     {Command: "bundle-cmd", SCM: "ctxloom-bundle:test"},
 		},
 		Hooks: &wire.HooksConfig{
 			Unified: wire.UnifiedHooks{

@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // =============================================================================
@@ -334,9 +333,6 @@ func TestSearchContent_TagsOnlyQueryIsFragmentScoped(t *testing.T) {
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-developer": {Description: "Go development profile", Tags: []string{"go"}},
 		}},
-		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
-			"filesystem": {Command: "npx"},
-		}},
 	})
 
 	// Tags-only search (empty query): tags filter fragments only. An empty query
@@ -461,31 +457,18 @@ func TestSearchContent_SearchProfiles(t *testing.T) {
 }
 
 func TestSearchContent_SearchMCPServers(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		MCP: wire.MCPConfig{
-			Servers: map[string]wire.MCPServer{
-				"filesystem": {
-					Command: "npx",
-					Args:    []string{"-y", "@modelcontextprotocol/server-filesystem"},
-				},
-				"github": {
-					Command: "npx",
-					Args:    []string{"-y", "@modelcontextprotocol/server-github"},
-				},
-			},
-		},
-	})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
-		Query: "github",
+		Query: "ctxloom",
 		Types: []string{"mcp_server"},
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Count)
 	assert.Equal(t, "mcp_server", result.Results[0].Type)
-	assert.Equal(t, "github", result.Results[0].Name)
+	assert.Equal(t, "ctxloom", result.Results[0].Name,
+		"ctxloom's own server, injected by the builtin ctxloom bundle, must be searchable")
 }
 
 func TestSearchContent_MultipleTypes(t *testing.T) {

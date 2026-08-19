@@ -634,20 +634,20 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	}
 	labelEntry, _ := cfg.GetLLMEntry(label)
 
-	// A preference that does not survive validation is a WARNING here, not a
-	// failed launch: the binding was already refused at write time, so reaching
-	// this arm means the config was hand-edited or the engine changed under it.
-	// Degrading to the engine's default keeps the session, and saying so keeps
-	// it from being the silent kind.
+	// The two arms below degrade rather than block, and that rests on one
+	// invariant: config.yaml's `agents:` key is the ONLY place a binding comes
+	// from, and SetAgent — which refuses both of these values — is the only
+	// writer of it. So a value that fails validation HERE was hand-edited into
+	// config.yaml after the fact (or, for Surfaces, the engine changed under a
+	// pair that was valid when written). That is a config the user can see and
+	// fix, not a launch worth refusing; warning names what was dropped so the
+	// degrade is never the silent kind.
+
 	surfaces, serr := ResolveAgentSurfaces(backend, sub.Surfaces)
 	if serr != nil {
 		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
 	}
 
-	// Same warn+default treatment as Surfaces just above: a value that fails
-	// validation here reached this point only via a hand-edited config.yaml
-	// (SetAgent already refused it at write time), so the launch degrades to
-	// the safe default (host) with a warning rather than blocking.
 	configHome, cherr := ResolveConfigHome(sub.ConfigHome)
 	if cherr != nil {
 		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, cherr)

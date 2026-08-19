@@ -31,5 +31,17 @@ for d in resources cmd/ltk cmd/taskloom internal/shared/harp container \
   done
 done
 
+# The build output must be a REAL file in the laboratory before `go build`
+# writes it. ./ctxloom is one of the symlinks ooze mints back to the real
+# checkout whenever a built binary is sitting at its root, and `go build -o`
+# WRITES THROUGH an existing symlink rather than replacing it — verified
+# empirically. So without this the mutant build lands its bytes on the
+# developer's own ./ctxloom, and every process that resolves the binary by
+# project root (tests/integration/testenv findAppBinary, which is what the
+# acceptance suite runs) executes a MUTATED ctxloom for as long as the
+# mutation gate is running. That is a silent cross-run corruption: a
+# concurrent acceptance suite fails in whatever code the current mutant
+# touched, attributing the mutation's damage to the branch under test.
+rm -f ./ctxloom
 CGO_ENABLED=1 go build -buildvcs=false -tags treesitter -o ./ctxloom ./cmd/ctxloom
 exec go test -tags "acceptance integration" -run TestAcceptance -count=1 ./tests/acceptance/...

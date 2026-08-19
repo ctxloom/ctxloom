@@ -47,9 +47,12 @@ func TestACPLive_ClaudeCodeAdapter(t *testing.T) {
 	// CLAUDECODE var makes the adapter's nested claude refuse to launch. That is
 	// claude's own nesting guard — the DRIVER deliberately does not override it,
 	// so the test scrubs its own process env instead.
-	if orig, ok := os.LookupEnv("CLAUDECODE"); ok {
+	if _, ok := os.LookupEnv("CLAUDECODE"); ok {
+		// t.Setenv captures the CURRENT value and restores it at test end; the
+		// unset that follows is what the adapter actually needs, and the
+		// restore it registered still puts the original back.
+		t.Setenv("CLAUDECODE", "")
 		require.NoError(t, os.Unsetenv("CLAUDECODE"))
-		t.Cleanup(func() { _ = os.Setenv("CLAUDECODE", orig) })
 	}
 
 	drv := acp.NewChatDriver(acp.ACPConfig{Command: "claude-code-acp"})
@@ -108,9 +111,12 @@ func TestACPLive_ClaudeBackendDelegation(t *testing.T) {
 			t.Skip("no ambient claude auth (ANTHROPIC_API_KEY or ~/.claude credentials)")
 		}
 	}
-	if orig, ok := os.LookupEnv("CLAUDECODE"); ok {
+	if _, ok := os.LookupEnv("CLAUDECODE"); ok {
+		// t.Setenv captures the CURRENT value and restores it at test end; the
+		// unset that follows is what the adapter actually needs, and the
+		// restore it registered still puts the original back.
+		t.Setenv("CLAUDECODE", "")
 		require.NoError(t, os.Unsetenv("CLAUDECODE"))
-		t.Cleanup(func() { _ = os.Setenv("CLAUDECODE", orig) })
 	}
 
 	backend := claude.NewClaudeCode()

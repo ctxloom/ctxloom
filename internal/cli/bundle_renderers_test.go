@@ -271,28 +271,44 @@ func TestRenderBundleMCPEntry_MinimalShowsCommandOnly(t *testing.T) {
 }
 
 // =============================================================================
-// parseBundleViewRef
+// renderBundleViewItem selector vocabulary
 // =============================================================================
 
-func TestParseBundleViewRef(t *testing.T) {
-	cases := []struct {
-		in         string
-		wantBundle string
-		wantPath   string
-	}{
-		{"plain", "plain", ""},
-		{"name#fragments/intro", "name", "fragments/intro"},
-		{"name#mcp/default", "name", "mcp/default"},
-		{"name#", "name", ""}, // trailing #, empty path
-		{"#foo", "", "foo"},   // leading # is unusual but well-defined
+// TestRenderBundleViewItem_CommandAliasResolvesLikeEveryOtherReader pins the
+// consequence of judging the selector by KIND rather than by a literal
+// directory word: "#prompts/x" and "#commands/x" are the same ask here, as
+// they already were through every reader built on trust.ParseSelector. Before
+// this, `bundle view b#prompts/x` was the one surface that said "unknown item
+// type" for an alias the rest of the system accepts.
+func TestRenderBundleViewItem_CommandAliasResolvesLikeEveryOtherReader(t *testing.T) {
+	b := &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {Content: "REVIEW BODY"}}}
+	for _, path := range []string{"commands/review", "prompts/review"} {
+		var buf bytes.Buffer
+		require.NoError(t, renderBundleViewItem(&buf, b, path, false), path)
+		assert.Contains(t, buf.String(), "REVIEW BODY", path)
 	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			gotBundle, gotPath := parseBundleViewRef(tc.in)
-			assert.Equal(t, tc.wantBundle, gotBundle)
-			assert.Equal(t, tc.wantPath, gotPath)
-		})
-	}
+}
+
+// TestRenderBundleViewItem_ProfilesStayViewable pins the one selector `view`
+// accepts beyond the addressable item kinds. A profile carries no trust state
+// and trust.ParseSelector has no arm for it, but `view` walks the bundle
+// DOCUMENT and a profile is part of that document.
+func TestRenderBundleViewItem_ProfilesStayViewable(t *testing.T) {
+	b := &bundles.Bundle{Profiles: map[string]bundles.BundleProfile{"cr": {Tags: []string{"security"}}}}
+	var buf bytes.Buffer
+	require.NoError(t, renderBundleViewItem(&buf, b, "profiles/cr", false))
+	assert.Contains(t, buf.String(), "Profile: cr")
+	assert.Contains(t, buf.String(), "security")
+}
+
+// TestRenderBundleViewItem_UnknownSelectorRefused: a selector word the grammar
+// does not know is an error, never a silently empty render.
+func TestRenderBundleViewItem_UnknownSelectorRefused(t *testing.T) {
+	b := &bundles.Bundle{}
+	var buf bytes.Buffer
+	err := renderBundleViewItem(&buf, b, "widgets/x", false)
+	require.Error(t, err)
+	assert.Empty(t, buf.String(), "a refused render must write nothing at all")
 }
 
 // =============================================================================
@@ -351,7 +367,7 @@ func TestRenderBundleViewItem_BadPathFormat(t *testing.T) {
 
 func TestRenderBundleViewItem_UnknownItemType(t *testing.T) {
 	err := renderBundleViewItem(&bytes.Buffer{}, viewBundle(), "weird/intro", false)
-	assert.ErrorContains(t, err, "unknown item type")
+	assert.ErrorContains(t, err, "unknown item kind")
 }
 
 func TestRenderBundleViewItem_Fragment_RawAndDistilled(t *testing.T) {

@@ -73,16 +73,16 @@ func TestPrintSkillList_NonEmptyRendersEntries(t *testing.T) {
 // what re-arms (or silently re-baselines) the install-time tamper check. The
 // separator is an explicit narrowing request, so an empty name after it is a
 // typo to refuse, never a broader default to assume.
-func TestSplitSkillSyncRef(t *testing.T) {
+func TestSkillSyncTarget(t *testing.T) {
 	t.Run("bare bundle name selects every skill", func(t *testing.T) {
-		b, n, err := splitSkillSyncRef("my-bundle")
+		b, n, err := skillSyncTarget("my-bundle")
 		require.NoError(t, err)
 		assert.Equal(t, "my-bundle", b)
 		assert.Empty(t, n, "a bare bundle name is the documented whole-bundle sync")
 	})
 
 	t.Run("qualified ref selects exactly one skill", func(t *testing.T) {
-		b, n, err := splitSkillSyncRef("my-bundle#skills/code-reviewer")
+		b, n, err := skillSyncTarget("my-bundle#skills/code-reviewer")
 		require.NoError(t, err)
 		assert.Equal(t, "my-bundle", b)
 		assert.Equal(t, "code-reviewer", n)
@@ -90,7 +90,7 @@ func TestSplitSkillSyncRef(t *testing.T) {
 
 	for _, arg := range []string{"my-bundle#skills/", "my-bundle#skills/   "} {
 		t.Run("empty name after the separator is refused: "+arg, func(t *testing.T) {
-			_, _, err := splitSkillSyncRef(arg)
+			_, _, err := skillSyncTarget(arg)
 			require.Error(t, err, "an empty name after #skills/ must not widen to a whole-bundle sync")
 			assert.Contains(t, err.Error(), "#skills/")
 		})
@@ -125,4 +125,20 @@ func TestSkillCommands_UseCobraContextNotBackground(t *testing.T) {
 	}
 	assert.Empty(t, offending,
 		"skill subcommands must pass cmd.Context() to the operations layer, not a detached root context")
+}
+
+// TestSkillSyncTarget_RefusesAnotherKindsSelector pins the guard the collapse
+// onto bundles.ParseItemAsk adds: a selector naming a kind other than skills
+// used to fall through to the bare-bundle form, because the old splitter cut
+// on the literal "#skills/" and nothing else. That widened one mistyped ref
+// into a rewrite of every skill manifest in the bundle — the exact
+// re-baselining of the install-time tamper check the narrowing rule exists to
+// prevent.
+func TestSkillSyncTarget_RefusesAnotherKindsSelector(t *testing.T) {
+	for _, arg := range []string{"my-bundle#fragments/x", "my-bundle#mcp/pg", "my-bundle#commands/review"} {
+		b, n, err := skillSyncTarget(arg)
+		require.Error(t, err, "%q selects something other than a skill and must not widen to a whole-bundle sync", arg)
+		assert.Empty(t, b, arg)
+		assert.Empty(t, n, arg)
+	}
 }

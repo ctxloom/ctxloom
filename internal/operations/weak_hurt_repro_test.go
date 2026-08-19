@@ -96,5 +96,5 @@ func TestWeakHurt_PendingReview_UnreadableStore_ListingPath(t *testing.T) {
 	require.Equal(t, 1, res.Total, "the untrusted remote fragment must still be LISTED as pending, never silently dropped because the store is unreadable")
 	require.Len(t, res.Bundles, 1)
 	require.Len(t, res.Bundles[0].Items, 1)
-	assert.Equal(t, "https://github.com/acme/repo@bundles/tooling#fragments/solid", res.Bundles[0].Items[0].Ref)
+	assert.Equal(t, seedItemRef(t, seededBundleKey, "fragments/solid"), res.Bundles[0].Items[0].Ref)
 }

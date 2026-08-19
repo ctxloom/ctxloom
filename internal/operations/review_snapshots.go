@@ -225,11 +225,11 @@ func copyTrustObjects(fs afero.Fs, src, dst string) error {
 // snapshotted like fragments/commands (IsContent() includes trust.KindSkill).
 //
 // Best-effort by construction (every write path warns instead of failing).
-func snapshotAcceptedItemContent(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref, loadRef string, fs afero.Fs, rawHash, distilledHash string) {
+func snapshotAcceptedItemContent(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref, key trust.BundleKey, fs afero.Fs, rawHash, distilledHash string) {
 	if !tRef.Kind.IsContent() {
 		return
 	}
-	bundle, err := loader.Load(loadRef)
+	bundle, err := loader.LoadKey(key)
 	if err != nil {
 		clidiag.Warn("ctxloom", "could not snapshot accepted content for %q: %v", tRef.Key(), err)
 		return
@@ -240,7 +240,7 @@ func snapshotAcceptedItemContent(cfg *config.Config, loader *bundles.Loader, tRe
 	// than the hash it is filed under.
 	raw, distilled, ok := itemContentPair(loader.FS(), bundle, tRef)
 	if !ok {
-		clidiag.Warn("ctxloom", "could not snapshot accepted content: %q not found in %q", tRef.Name, loadRef)
+		clidiag.Warn("ctxloom", "could not snapshot accepted content: %q not found in %q", tRef.Name, key)
 		return
 	}
 	baseDir := getBaseDir(cfg)

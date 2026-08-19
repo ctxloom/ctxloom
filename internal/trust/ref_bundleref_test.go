@@ -89,7 +89,7 @@ func TestRefAsBundleRef_WwwHostIsPreserved(t *testing.T) {
 }
 
 // TestRefAsBundleRef_ZeroRefErrors pins that the zero Ref — produced only
-// alongside an error every caller already checks (ParseItemRef's failure
+// alongside an error every caller already checks (the ask boundary's failure
 // arms) — cannot convert: BundleRef's minters refuse an empty bundle name.
 func TestRefAsBundleRef_ZeroRefErrors(t *testing.T) {
 	_, err := Ref{}.AsBundleRef()
@@ -154,8 +154,8 @@ func TestRefFromBundleRef_RoundTripsWithAsBundleRef(t *testing.T) {
 // to remote.CompanionSource, because Ref.CanonicalURL has no IsCompanion
 // branch of its own and falls through to CanonicalRepoURL(r.RepoURL), which
 // only recognizes that exact token. Without this stamp a round-tripped
-// companion Ref would key under a DIFFERENT CanonicalURL than one
-// trust.ParseItemRef builds from the same source.
+// companion Ref would key under a DIFFERENT CanonicalURL than one built
+// from the same source through remote.ParseReference.
 func TestRefFromBundleRef_CompanionCarriesCanonicalURLToken(t *testing.T) {
 	br, err := CompanionRef("taskloom")
 	require.NoError(t, err)

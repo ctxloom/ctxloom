@@ -10,8 +10,8 @@ import (
 // TestParseReference_Companion proves remote.ParseReference RECOGNIZES the
 // ctxloom:companion@<bin> source token (signature-envelope spec §4.3/§6): the
 // companion loadout protocol's whole trust story depends on this ref never
-// falling into ParseReference's "unsupported reference" error, which is what
-// trust.ParseItemRef's fail-closed guard treats as an attempted-but-
+// falling into ParseReference's "unsupported reference" error, which every
+// fail-closed guard built on IsSelfContainedRef treats as an attempted-but-
 // unrecognized source (denied, never silently local).
 func TestParseReference_Companion(t *testing.T) {
 	tests := []struct {
@@ -68,8 +68,8 @@ func TestReference_Companion_StringRoundTrip(t *testing.T) {
 }
 
 // TestParseReference_Companion_NotBuiltin proves a companion ref is
-// distinguishable from the "builtin:" source ref (operations.
-// trust.ParseItemRef) and from ctxloom:local — they are different trust
+// distinguishable from the retired "builtin:" source ref
+// (trust.IsRetiredBuiltinSpelling) and from ctxloom:local — they are different trust
 // classes (trusted-signer/pending vs the unconditional builtin/local
 // exemptions) and must never be confused. See internal/trust's
 // TestCanonicalRepoURL for the companion-source special case in

@@ -9,17 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // A bundle's fragment/command/mcp/hook/skill NAMES are bundle-authored — a
 // YAML key or a filename the bundle's own author chose — never themselves
 // ingested through remote.NormalizeRef before classify() concatenates them
 // into a ref string. classify() DOES normalize that concatenated ref before
-// handing it to trust.ParseItemRef for the trust decision, but the review
-// display fields (ReviewItem.Name, ReviewItem.Ref) and the ReportVerdict/
-// unaddressable-item diagnostics used to be built from the PRE-normalization
-// locals, not the value ParseItemRef actually decided against.
+// the trust decision is taken against it, but the review display fields
+// (ReviewItem.Name, ReviewItem.Ref) and the ReportVerdict/unaddressable-item
+// diagnostics used to be built from the PRE-normalization locals, not the
+// value the decision was actually made against.
 //
 // That gap mattered: NormalizeRef's whole point is that a ref shown to the
 // human approving it — the entire purpose of `ctxloom review` — cannot carry
@@ -56,14 +55,14 @@ func TestPendingReview_MaliciousItemNameCannotReachDisplay(t *testing.T) {
 	assert.Equal(t, cleanName, item.Name, "the control character must not reach the review display name")
 	assert.NotContains(t, item.Name, "\n")
 	assert.NotContains(t, item.Ref, "\n")
-	assert.Equal(t, reviewSeedKey+"#fragments/"+cleanName, item.Ref)
+	assert.Equal(t, seedItemRef(t, reviewSeedKey, "fragments/"+cleanName), item.Ref)
 
 	// The displayed Ref must be the SAME identity the trust decision was made
 	// against — round-tripping it through the parser the CLI's trust/reject
 	// actions use must yield the clean name, not a second, different parse of
 	// the raw bytes.
-	tRef, _, _, err := trust.ParseItemRef(item.Ref)
+	ask, err := bundles.ParseItemAsk(item.Ref)
 	require.NoError(t, err)
-	assert.Equal(t, cleanName, tRef.Name)
-	assert.False(t, strings.ContainsAny(tRef.Name, "\n\r"))
+	assert.Equal(t, cleanName, ask.Item)
+	assert.False(t, strings.ContainsAny(ask.Item, "\n\r"))
 }

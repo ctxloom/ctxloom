@@ -347,11 +347,10 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 		[]byte("version: \"1.0\"\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n"), 0o644))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-	// SetBlacklist (backing `ctxloom blacklist`/`bundle reject`) is
-	// CLI-facing ref syntax, explicitly out of scope for this slice — it
-	// still reads trust.ParseItemRef's old grammar. bundles.Decide, in
-	// contrast, has switched — so the exec-gate calls below use a SEPARATE,
-	// canonical-grammar ref. Both spellings round-trip to the identical
+	// SetBlacklist (backing `ctxloom blacklist`/`bundle reject`) resolves a
+	// user-typed ASK, while bundles.Decide reads a producer's canonical ref —
+	// so the exec-gate calls below use a SEPARATE, canonical-grammar ref.
+	// Both spellings round-trip to the identical
 	// trust.Ref{Bundle:"hookb", Kind:KindHook, Name:"pre_tool/0",
 	// IsLocal:true} for a bare local name, which is what keeps a CLI
 	// rejection reachable by Decide's own parse.

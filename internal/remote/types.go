@@ -137,9 +137,9 @@ type Reference struct {
 	// third-party content arriving from elsewhere (the binary's author, not
 	// this project), so it must NOT auto-allow the way local content does — it
 	// is judged by who signed it (trusted-signer) or sent to review (pending),
-	// exactly like a remote bundle. See trust.ParseItemRef, which
-	// relies on IsLocal staying false here to route it through the gate
-	// instead of the local exemption.
+	// exactly like a remote bundle. Every consumer of this Reference relies on
+	// IsLocal staying false here to route it through the gate instead of the
+	// local exemption.
 	IsCompanion bool
 }
 

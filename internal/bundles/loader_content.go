@@ -315,9 +315,9 @@ type ItemAsk struct {
 
 // ParseItemAsk parses ask's "#<kind>/<name>" selector, if it has one, through
 // trust.ParseSelector's own kind vocabulary (fragments | commands | prompts |
-// mcp | hooks | skills) — the SAME parser trust.ParseItemRef uses, so every
-// reader judges a selector by the kind it names rather than by the mere
-// presence of "#" or by matching one literal spelling.
+// mcp | hooks | skills) — the SAME parser trust.ParseBundleRef's own selector
+// half uses, so every reader judges a selector by the kind it names rather
+// than by the mere presence of "#" or by matching one literal spelling.
 //
 // Scoped is false for an ordinary whole-bundle/bare-name ask (no "#"); the
 // caller searches or looks up by the ORIGINAL ask string in that case, not by

@@ -27,7 +27,7 @@ import (
 // bundle, switch on the kind, pick content+distilled) is what let `show` and
 // `edit` disagree about which bundle refs exist.
 func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled, interactive bool) error {
-	bundleName, itemName, err := parseItemRef(ref, itemType)
+	bundleName, itemName, err := itemRefTarget(ref, itemType)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func createItem(cmd *cobra.Command, bundleName, itemName string, itemType ItemTy
 // removal via operations.DeleteItem. Both paths render through emit() so the
 // report and the applied result both honour --format identically.
 func removeItem(cmd *cobra.Command, ref string, itemType ItemType, yes bool) error {
-	bundleName, itemName, err := parseItemRef(ref, itemType)
+	bundleName, itemName, err := itemRefTarget(ref, itemType)
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func removeItem(cmd *cobra.Command, ref string, itemType ItemType, yes bool) err
 // distilled-mode assembly) rather than a WRONG one. See docs at those
 // functions for the invariant this relies on.
 func editItem(cmd *cobra.Command, ref string, itemType ItemType, noDistill bool) error {
-	bundleName, itemName, err := parseItemRef(ref, itemType)
+	bundleName, itemName, err := itemRefTarget(ref, itemType)
 	if err != nil {
 		return err
 	}
@@ -260,7 +260,7 @@ func editNoDistillWarning(itemType ItemType, ref string, noDistillFlag, wasAlrea
 // supplies the LLM-backed Distiller and renders the outcome, through emit() so
 // the global --format is honoured.
 func distillItem(cmd *cobra.Command, ref string, itemType ItemType, force bool) error {
-	bundleName, itemName, err := parseItemRef(ref, itemType)
+	bundleName, itemName, err := itemRefTarget(ref, itemType)
 	if err != nil {
 		return err
 	}

@@ -86,12 +86,12 @@ func TestPendingReview_FreshRecordsAllPending(t *testing.T) {
 
 	refs := pendingRefs(res)
 	for _, want := range []string{
-		reviewSeedKey + "#fragments/solid",
-		reviewSeedKey + "#fragments/dual",
-		reviewSeedKey + "#commands/greet",
-		reviewSeedKey + "#mcp/pg",
-		reviewSeedKey + "#hooks/pre_tool/0",
-		reviewSeedKey + "#skills/humanize",
+		seedItemRef(t, reviewSeedKey, "fragments/solid"),
+		seedItemRef(t, reviewSeedKey, "fragments/dual"),
+		seedItemRef(t, reviewSeedKey, "commands/greet"),
+		seedItemRef(t, reviewSeedKey, "mcp/pg"),
+		seedItemRef(t, reviewSeedKey, "hooks/pre_tool/0"),
+		seedItemRef(t, reviewSeedKey, "skills/humanize"),
 	} {
 		assert.Equalf(t, ReviewStatusNew, refs[want], "%s must be pending NEW", want)
 	}
@@ -117,18 +117,18 @@ func TestPendingReview_ContentAndRendering(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, "dual distilled body", byRef[reviewSeedKey+"#fragments/dual"].CurrentContent,
+	assert.Equal(t, "dual distilled body", byRef[seedItemRef(t, reviewSeedKey, "fragments/dual")].CurrentContent,
 		"review must show the effective (distilled-preferred) form — the bytes that would be exposed")
-	assert.Equal(t, "solid raw body", byRef[reviewSeedKey+"#fragments/solid"].CurrentContent)
+	assert.Equal(t, "solid raw body", byRef[seedItemRef(t, reviewSeedKey, "fragments/solid")].CurrentContent)
 
-	mcp := byRef[reviewSeedKey+"#mcp/pg"]
+	mcp := byRef[seedItemRef(t, reviewSeedKey, "mcp/pg")]
 	assert.True(t, mcp.Executable)
 	assert.Contains(t, mcp.CurrentContent, "command: pg-mcp")
 	assert.Contains(t, mcp.CurrentContent, "args:    --port 5432")
 	assert.Contains(t, mcp.CurrentContent, "APP=x")
 	assert.Contains(t, mcp.CurrentContent, "PGHOST=localhost")
 
-	hook := byRef[reviewSeedKey+"#hooks/pre_tool/0"]
+	hook := byRef[seedItemRef(t, reviewSeedKey, "hooks/pre_tool/0")]
 	assert.True(t, hook.Executable)
 	assert.Contains(t, hook.CurrentContent, "event:   pre_tool")
 	assert.Contains(t, hook.CurrentContent, "matcher: Bash")
@@ -139,7 +139,7 @@ func TestPendingReview_ContentAndRendering(t *testing.T) {
 	// than inline content. It is deliberately non-executable (Executable ==
 	// false) so it flows through the same content-snapshot/diff machinery as
 	// fragments/commands, unlike mcp/hooks.
-	skill := byRef[reviewSeedKey+"#skills/humanize"]
+	skill := byRef[seedItemRef(t, reviewSeedKey, "skills/humanize")]
 	assert.False(t, skill.Executable, "a skill is a reviewable TREE, not an opaque executable surface")
 	assert.Contains(t, skill.CurrentContent, "SKILL.md")
 	assert.Contains(t, skill.CurrentContent, "sha256:skillmd1")
@@ -157,12 +157,12 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 		fx := newTrustFixture(t)
 		loader := reviewLoader(t, reviewBundle())
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#fragments/solid", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
 		require.NoError(t, err)
 
 		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: fs})
 		require.NoError(t, err)
-		assert.NotContains(t, pendingRefs(res), reviewSeedKey+"#fragments/solid")
+		assert.NotContains(t, pendingRefs(res), seedItemRef(t, reviewSeedKey, "fragments/solid"))
 		assert.Equal(t, 5, res.Total)
 	})
 
@@ -172,7 +172,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 
 		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, reviewBundle()), FS: afero.NewMemMapFs()})
 		require.NoError(t, err)
-		assert.NotContains(t, pendingRefs(res), reviewSeedKey+"#commands/greet")
+		assert.NotContains(t, pendingRefs(res), seedItemRef(t, reviewSeedKey, "commands/greet"))
 	})
 
 	t.Run("content-rejected is excluded even under a fresh ref", func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 
 		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, b), FS: afero.NewMemMapFs()})
 		require.NoError(t, err)
-		assert.NotContains(t, pendingRefs(res), reviewSeedKey+"#fragments/solid")
+		assert.NotContains(t, pendingRefs(res), seedItemRef(t, reviewSeedKey, "fragments/solid"))
 	})
 
 	t.Run("trusted publisher is exempt — nothing pending", func(t *testing.T) {
@@ -227,7 +227,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 	t.Run("distilled-form item diffs against the approved distilled text", func(t *testing.T) {
 		fx := newTrustFixture(t)
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#fragments/dual", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/dual"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 		require.NoError(t, err)
 
 		// Upstream edits the distilled form.
@@ -240,13 +240,13 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		require.NoError(t, err)
 
 		refs := pendingRefs(res)
-		require.Equal(t, ReviewStatusUpdate, refs[reviewSeedKey+"#fragments/dual"], "an approved item whose bytes changed is an UPDATE")
+		require.Equal(t, ReviewStatusUpdate, refs[seedItemRef(t, reviewSeedKey, "fragments/dual")], "an approved item whose bytes changed is an UPDATE")
 		assert.Positive(t, res.Updates)
 
 		var item ReviewItem
 		for _, b := range res.Bundles {
 			for _, it := range b.Items {
-				if it.Ref == reviewSeedKey+"#fragments/dual" {
+				if it.Ref == seedItemRef(t, reviewSeedKey, "fragments/dual") {
 					item = it
 				}
 			}
@@ -259,7 +259,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 	t.Run("raw-form item diffs against the approved raw text", func(t *testing.T) {
 		fx := newTrustFixture(t)
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#fragments/solid", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 		require.NoError(t, err)
 
 		edited := reviewBundle()
@@ -272,7 +272,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 
 		for _, b := range res.Bundles {
 			for _, it := range b.Items {
-				if it.Ref == reviewSeedKey+"#fragments/solid" {
+				if it.Ref == seedItemRef(t, reviewSeedKey, "fragments/solid") {
 					assert.Equal(t, ReviewStatusUpdate, it.Status)
 					assert.Equal(t, "solid raw body", it.PreviousContent)
 				}
@@ -288,7 +288,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		// tree listing, with every untouched file's line unchanged.
 		fx := newTrustFixture(t)
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#skills/humanize", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "skills/humanize"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 		require.NoError(t, err)
 
 		edited := reviewBundle()
@@ -305,7 +305,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		var item ReviewItem
 		for _, b := range res.Bundles {
 			for _, it := range b.Items {
-				if it.Ref == reviewSeedKey+"#skills/humanize" {
+				if it.Ref == seedItemRef(t, reviewSeedKey, "skills/humanize") {
 					item = it
 				}
 			}
@@ -328,7 +328,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		// entry survives.
 		fx := newTrustFixture(t)
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#fragments/solid", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 		require.NoError(t, err)
 		require.NoError(t, fs.RemoveAll(paths.TrustObjectsPath(".ctxloom")))
 
@@ -341,10 +341,10 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		require.NoError(t, err)
 
 		refs := pendingRefs(res)
-		require.Equal(t, ReviewStatusUpdate, refs[reviewSeedKey+"#fragments/solid"])
+		require.Equal(t, ReviewStatusUpdate, refs[seedItemRef(t, reviewSeedKey, "fragments/solid")])
 		for _, b := range res.Bundles {
 			for _, it := range b.Items {
-				if it.Ref == reviewSeedKey+"#fragments/solid" {
+				if it.Ref == seedItemRef(t, reviewSeedKey, "fragments/solid") {
 					assert.Empty(t, it.PreviousContent, "no snapshot → empty diff base (full-content display)")
 					assert.Equal(t, "solid raw body v2", it.CurrentContent)
 				}
@@ -379,7 +379,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 func TestSetItemTrust_WritesSnapshots(t *testing.T) {
 	fx := newTrustFixture(t)
 	fs := afero.NewMemMapFs()
-	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#fragments/dual", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/dual"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
 
@@ -401,7 +401,7 @@ func TestSetItemTrust_WritesSnapshots(t *testing.T) {
 func TestSetItemTrust_NoSnapshotForExecutables(t *testing.T) {
 	fx := newTrustFixture(t)
 	fs := afero.NewMemMapFs()
-	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#mcp/pg", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "mcp/pg"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 	require.NoError(t, err)
 
 	exists, err := afero.DirExists(fs, paths.TrustObjectsPath(".ctxloom"))
@@ -415,7 +415,7 @@ func TestSetItemTrust_NoSnapshotForExecutables(t *testing.T) {
 func TestReviewItem_UpdateVsNewAfterPartialDecisions(t *testing.T) {
 	fx := newTrustFixture(t)
 	fs := afero.NewMemMapFs()
-	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#fragments/solid", UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 	require.NoError(t, err)
 	fx.rejectRef(trust.Ref{RepoURL: trustRepo, Bundle: "toolkit", Kind: trust.KindMCP, Name: "pg"})
 
@@ -428,9 +428,9 @@ func TestReviewItem_UpdateVsNewAfterPartialDecisions(t *testing.T) {
 	require.NoError(t, err)
 
 	refs := pendingRefs(res)
-	assert.Equal(t, ReviewStatusUpdate, refs[reviewSeedKey+"#fragments/solid"])
-	assert.Equal(t, ReviewStatusNew, refs[reviewSeedKey+"#fragments/dual"])
-	assert.NotContains(t, refs, reviewSeedKey+"#mcp/pg", "rejected items are decided, not pending")
+	assert.Equal(t, ReviewStatusUpdate, refs[seedItemRef(t, reviewSeedKey, "fragments/solid")])
+	assert.Equal(t, ReviewStatusNew, refs[seedItemRef(t, reviewSeedKey, "fragments/dual")])
+	assert.NotContains(t, refs, seedItemRef(t, reviewSeedKey, "mcp/pg"), "rejected items are decided, not pending")
 	assert.Equal(t, 1, res.Updates)
 }
 
@@ -457,14 +457,14 @@ func TestPendingReview_DualFormExposesBothForms(t *testing.T) {
 		}
 	}
 
-	dual := byRef[reviewSeedKey+"#fragments/dual"]
+	dual := byRef[seedItemRef(t, reviewSeedKey, "fragments/dual")]
 	assert.Equal(t, "dual distilled body", dual.CurrentContent)
 	assert.Equal(t, string(bundles.FormDistilled), dual.CurrentForm)
 	assert.Equal(t, "dual raw body", dual.AlternateContent,
 		"the raw form is countersigned by the same approval, so it must be shown too")
 	assert.Equal(t, string(bundles.FormRaw), dual.AlternateForm)
 
-	solid := byRef[reviewSeedKey+"#fragments/solid"]
+	solid := byRef[seedItemRef(t, reviewSeedKey, "fragments/solid")]
 	assert.Equal(t, "solid raw body", solid.CurrentContent)
 	assert.Empty(t, solid.AlternateContent, "a single-form item has no second countersigned form")
 }

@@ -10,7 +10,7 @@ import (
 // tests that used to hand extractHooksFromBundle/extractMCPFromBundle/
 // fragmentsFromBundle a bare source STRING (which the old
 // trust.ItemRefFromSource round trip resolved to exactly this identity via
-// ParseItemRef's bare-token fallback). Fails the test rather than silently
+// the bare-token fallback). Fails the test rather than silently
 // minting a zero BundleRef on an unexpected error.
 func mustLocalRef(t testing.TB, name string) trust.BundleRef {
 	t.Helper()

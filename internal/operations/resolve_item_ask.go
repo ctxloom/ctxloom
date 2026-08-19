@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -45,4 +46,35 @@ func ResolveItemAsk(cat bundles.Catalog, ask string) (trust.BundleRef, error) {
 	br.Kind = kind
 	br.Item = name
 	return br, nil
+}
+
+// resolveMutationTarget is the shared preamble of the three trust mutations
+// (`bundle trust`, `bundle reject`, `bundle forget`): the loader they read
+// content through, the trust identity the countersign record keys on, and the
+// bundle key that content loads from.
+//
+// The loader is resolved FIRST because the ask needs its catalog, and it comes
+// back so the caller reads content through the same one — a second loader
+// could see a different resolved set than the ask was answered against.
+func resolveMutationTarget(cfg *config.Config, reqLoader *bundles.Loader, ask string) (*bundles.Loader, trust.Ref, trust.BundleKey, error) {
+	loader := reqLoader
+	if loader == nil && cfg != nil {
+		loader = bundleLoader(cfg)
+	}
+	br, err := ResolveItemAsk(loaderCatalog(loader), ask)
+	if err != nil {
+		return nil, trust.Ref{}, "", err
+	}
+	return loader, trust.RefFromBundleRef(br), br.BundleIdentity(), nil
+}
+
+// loaderCatalog is loader's resolved set, or the EMPTY set when there is no
+// loader to ask. A mutation whose ask cannot be resolved refuses; refusing
+// because nothing can be seen is the same answer as refusing because the
+// bundle is not there, and both are safer than resolving.
+func loaderCatalog(loader *bundles.Loader) bundles.Catalog {
+	if loader == nil {
+		return bundles.Catalog{}
+	}
+	return loader.Catalog()
 }

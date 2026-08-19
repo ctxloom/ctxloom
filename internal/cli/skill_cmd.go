@@ -7,9 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // This file is Part B6a's `ctxloom skill` CLI group — the true Agent Skills
@@ -317,7 +319,7 @@ func runSkillSync(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	bundleName, skillName, err := splitSkillSyncRef(args[0])
+	bundleName, skillName, err := skillSyncTarget(args[0])
 	if err != nil {
 		return err
 	}
@@ -342,24 +344,32 @@ func runSkillSync(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// splitSkillSyncRef splits `skill sync`'s single argument into the bundle and
+// skillSyncTarget resolves `skill sync`'s single argument into the bundle and
 // the optional skill name: a bare bundle name selects every skill the bundle
-// ships, "<bundle>#skills/<name>" selects exactly one.
+// ships, "<bundle>#skills/<name>" selects exactly one. The selector is judged
+// by bundles.ParseItemAsk, the one parser every reader shares.
 //
-// The separator is an explicit NARROWING request, so an empty name after it is
-// refused rather than falling through to the bare-bundle form. Widening there
-// would rewrite the files: manifest of every skill in the bundle — manifests
-// the user never named, and whose rewrite re-baselines the install-time tamper
-// check against whatever is on disk right now.
-func splitSkillSyncRef(arg string) (bundle, name string, err error) {
-	b, n, ok := strings.Cut(arg, "#skills/")
-	if !ok {
+// A selector is an explicit NARROWING request, so a malformed one — an empty
+// name, or a kind other than skills — is refused rather than falling through
+// to the bare-bundle form. Widening there would rewrite the files: manifest of
+// every skill in the bundle — manifests the user never named, and whose
+// rewrite re-baselines the install-time tamper check against whatever is on
+// disk right now.
+func skillSyncTarget(arg string) (bundle, name string, err error) {
+	ask, err := bundles.ParseItemAsk(arg)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid skill reference %q: %w — name a skill as \"#skills/<name>\", or pass the bare bundle name to sync every skill in it", arg, err)
+	}
+	if !ask.Scoped {
 		return arg, "", nil
 	}
-	if strings.TrimSpace(n) == "" {
+	if ask.Kind != trust.KindSkill {
+		return "", "", fmt.Errorf("invalid skill reference %q: it selects a %s, not a skill — name a skill as \"#skills/<name>\", or pass the bare bundle name to sync every skill in it", arg, ask.Kind.Dir())
+	}
+	if strings.TrimSpace(ask.Item) == "" {
 		return "", "", fmt.Errorf("invalid skill reference %q: no name after \"#skills/\" — name a skill, or pass the bare bundle name to sync every skill in it", arg)
 	}
-	return b, n, nil
+	return ask.Bundle, ask.Item, nil
 }
 
 var skillExportOut string

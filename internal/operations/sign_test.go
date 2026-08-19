@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -51,27 +52,70 @@ func TestResolveSignTarget_ItemRefResolvesToContainingBundle(t *testing.T) {
 }
 
 func TestResolveSignTarget_LocalCanonicalRef(t *testing.T) {
-	target, err := ResolveSignTarget("ctxloom:local@bundles/my-tools")
+	target, err := ResolveSignTarget("ctxloom+local:my-tools")
 	require.NoError(t, err)
 	assert.Equal(t, "my-tools", target.BundleName)
+	assert.Empty(t, target.ItemNote)
+
+	item, err := ResolveSignTarget("ctxloom+local:my-tools#fragments/go-testing")
+	require.NoError(t, err)
+	assert.Equal(t, "my-tools", item.BundleName)
+	assert.Equal(t, "fragments/go-testing", item.ItemNote)
+}
+
+// TestResolveSignTarget_ResolvesWithoutACatalog is the property `ctxloom sign`
+// cannot do without: a publishing repo signs the bundles IT authors, and those
+// need not be members of any resolved set on the machine doing the signing.
+// ResolveSignTarget takes no catalog at all, so this is asserted by the
+// signature it keeps — and by a bare name nothing on this machine publishes
+// still resolving.
+func TestResolveSignTarget_ResolvesWithoutACatalog(t *testing.T) {
+	target, err := ResolveSignTarget("a-bundle-no-catalog-here-holds")
+	require.NoError(t, err)
+	assert.Equal(t, "a-bundle-no-catalog-here-holds", target.BundleName)
 }
 
 func TestResolveSignTarget_RemoteRefRejected(t *testing.T) {
-	_, err := ResolveSignTarget("https://github.com/ctxloom/ctxloom-default@bundles/go-tools#fragments/go-testing")
+	_, err := ResolveSignTarget("ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/go-tools#fragments/go-testing")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not resolve to a bundle you author locally")
 }
 
 func TestResolveSignTarget_RemoteBundleOnlyRefRejected(t *testing.T) {
-	_, err := ResolveSignTarget("https://github.com/ctxloom/ctxloom-default@bundles/go-tools")
+	_, err := ResolveSignTarget("ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/go-tools")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not resolve to a bundle you author locally")
 }
 
+// TestResolveSignTarget_RetiredSpellingsRefusedWithAHint: a spelling the
+// grammar no longer accepts is refused AS SUCH — never resolved (a hint is not
+// a shim), and never reported as some other fault. A refusal a user cannot act
+// on is a dead end, so the message must name where the current grammar is
+// written down.
+func TestResolveSignTarget_RetiredSpellingsRefusedWithAHint(t *testing.T) {
+	for _, ref := range []string{
+		"ctxloom:local@bundles/my-tools",
+		"ctxloom:local@bundles/my-tools#fragments/go-testing",
+		"https://github.com/ctxloom/ctxloom-default@bundles/go-tools",
+		"git@github.com:ctxloom/ctxloom-default",
+	} {
+		_, err := ResolveSignTarget(ref)
+		require.Error(t, err, ref)
+		assert.ErrorIs(t, err, errs.ErrRetiredRefSpelling, ref)
+		assert.Contains(t, err.Error(), "ctxloom sign --help", ref)
+	}
+}
+
 func TestResolveSignTarget_BuiltinRefRejected(t *testing.T) {
-	_, err := ResolveSignTarget("builtin:ltk#fragments/x")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "builtin")
+	for _, ref := range []string{
+		"builtin:ltk#fragments/x",
+		"ctxloom+builtin:ltk#fragments/x",
+		"ctxloom+builtin:ltk",
+	} {
+		_, err := ResolveSignTarget(ref)
+		require.Error(t, err, ref)
+		assert.Contains(t, err.Error(), "builtin", ref)
+	}
 }
 
 func TestResolveSignTarget_EmptyRefErrors(t *testing.T) {

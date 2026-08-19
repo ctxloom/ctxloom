@@ -138,3 +138,28 @@ func TestCtxloomMCPArgs_NamesTheServeLeaf(t *testing.T) {
 func mcpArgvPath(cmd *cobra.Command) []string {
 	return strings.Fields(strings.TrimPrefix(cmd.CommandPath(), "ctxloom "))
 }
+
+// TestRunMCPServerEdit_RefusesAnythingButABundleScopedMCPRef pins the refusal
+// `mcp server edit` is built around: the config-level (config.yaml
+// `mcp.servers`) store has no editor path, so a ref that does not select a
+// bundle-scoped MCP server must be refused BY NAME. Editing the wrong store —
+// or reporting success having changed nothing — is the failure mode this
+// exists to prevent, and it is reached by a selector naming another kind just
+// as easily as by one with no selector at all.
+func TestRunMCPServerEdit_RefusesAnythingButABundleScopedMCPRef(t *testing.T) {
+	c, _ := testCmd()
+	for _, ref := range []string{
+		"postgres",             // config-level server, no bundle scope
+		"demo#fragments/tdd",   // a selector, but for another kind
+		"demo#commands/review", // likewise
+		"demo#widgets/x",       // unrecognized kind word
+	} {
+		err := runMCPServerEdit(c, []string{ref})
+		require.Error(t, err, ref)
+		assert.Contains(t, err.Error(), "not a bundle-scoped ref", ref)
+	}
+
+	err := runMCPServerEdit(c, []string{"#mcp/pg"})
+	require.Error(t, err, "a selector with no bundle before it addresses nothing")
+	assert.Contains(t, err.Error(), "incomplete ref")
+}

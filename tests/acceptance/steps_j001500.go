@@ -322,7 +322,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice has rejected the hook$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
-		ref := j001500.url + "@bundles/" + j001500.bundleName + "#hooks/session_start/0"
+		ref := canonicalItemRef(j001500.url, j001500.bundleName, "hooks/session_start/0")
 		return runOK(w, "bundle", "reject", ref)
 	})
 

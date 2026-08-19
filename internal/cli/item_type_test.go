@@ -83,3 +83,46 @@ func TestShowItem_MissingItemStillListsWhatExists(t *testing.T) {
 	assert.ErrorIs(t, err, operations.ErrItemNotFound, "the sentinel must survive for errors.Is callers")
 	assert.Contains(t, err.Error(), "real-one", "the error must name the fragments that do exist")
 }
+
+// TestItemRefTarget_JudgesTheSelectorByKind pins what routing the frontend's
+// ref grammar through bundles.ParseItemAsk buys, and what it must not lose.
+//
+// The alias half is the gain: "#prompts/x" is the command kind through every
+// reader built on trust.ParseSelector, so it must be the command kind here
+// too. The mismatch half is the guard: a well-formed selector naming a kind
+// this command does not serve is a KIND error, not a syntax error — told
+// "invalid reference format", a user re-reads punctuation they got right —
+// and it must never be silently served as the kind they asked the wrong
+// command about.
+func TestItemRefTarget_JudgesTheSelectorByKind(t *testing.T) {
+	t.Run("the command kind accepts both of its spellings", func(t *testing.T) {
+		for _, ref := range []string{"demo#commands/review", "demo#prompts/review"} {
+			bundle, item, err := itemRefTarget(ref, ItemTypeCommand)
+			require.NoError(t, err, ref)
+			assert.Equal(t, "demo", bundle, ref)
+			assert.Equal(t, "review", item, ref)
+		}
+	})
+
+	t.Run("a selector for another kind is refused AS a kind mismatch", func(t *testing.T) {
+		_, _, err := itemRefTarget("demo#commands/review", ItemTypeFragment)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "selects a",
+			"the refusal must say the selector names the wrong KIND, not that it is malformed")
+
+		_, _, err = itemRefTarget("demo#fragments/tdd", ItemTypeCommand)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "selects a")
+	})
+
+	t.Run("a bare name and a malformed selector are both refused", func(t *testing.T) {
+		_, _, err := itemRefTarget("demo", ItemTypeFragment)
+		require.Error(t, err, "a whole-bundle ask names no item to act on")
+
+		_, _, err = itemRefTarget("demo#widgets/x", ItemTypeFragment)
+		require.Error(t, err, "an unrecognized kind word is a parse error")
+
+		_, _, err = itemRefTarget("#fragments/tdd", ItemTypeFragment)
+		require.Error(t, err, "a selector with no bundle before it names nothing")
+	})
+}

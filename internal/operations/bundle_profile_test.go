@@ -142,6 +142,6 @@ func TestBundleProfile_MCPStillGatesAtExecChoke(t *testing.T) {
 // never run through EffectiveTrust (its constituent items are). (This replaces
 // the retired TR6-baseline enumeration proxy with the grammar itself.)
 func TestBundleProfile_NotAReviewableKind(t *testing.T) {
-	_, _, _, err := trust.ParseItemRef("kit#profiles/dev")
+	_, _, err := trust.ParseSelector("profiles/dev")
 	assert.Error(t, err, "a profile must not be addressable as a trust item kind")
 }

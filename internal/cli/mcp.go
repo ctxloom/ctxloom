@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // mcpCmd is the MCP noun. Bare `ctxloom mcp` conforms to the bare-noun ladder
@@ -445,36 +446,34 @@ Examples:
 	RunE: runMCPServerEdit,
 }
 
-// mcpServerRefPrefix is the item-ref path prefix that addresses a
-// bundle-scoped MCP server (`<bundle>#mcp/<name>`). Unlike fragments and
-// commands the kind is not pluralized, so this cannot go through
-// itemRefPrefix.
+// mcpServerRefPrefix is the selector directory that addresses a bundle-scoped
+// MCP server (`<bundle>#mcp/<name>`). Unlike fragments and commands the kind
+// is not pluralized, so it does not go through itemRefPrefix.
 const mcpServerRefPrefix = "mcp/"
 
-// splitMCPServerRef splits a `<bundle>#mcp/<name>` ref into its two halves.
-// A ref that does not carry the `#mcp/` path is rejected by name: the
+// runMCPServerEdit edits a bundle-scoped MCP server named by a
+// `<bundle>#mcp/<name>` ref, judged by bundles.ParseItemAsk — the one selector
+// parser every reader shares.
+//
+// A ref that does not select an MCP server is refused by name: the
 // config-level (config.yaml `mcp.servers`) store has no editor path yet, and
 // silently editing the wrong store — or reporting success having changed
 // nothing — is the failure mode this refusal exists to prevent.
-func splitMCPServerRef(ref string) (bundleName, serverName string, err error) {
-	hash := strings.Index(ref, "#")
-	if hash < 0 || !strings.HasPrefix(ref[hash+1:], mcpServerRefPrefix) {
-		return "", "", fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); editing a config-level server is not implemented — use `ctxloom mcp server remove --yes` then `ctxloom mcp server create`", ref, mcpServerRefPrefix)
-	}
-	bundleName = ref[:hash]
-	serverName = strings.TrimPrefix(ref[hash+1:], mcpServerRefPrefix)
-	if bundleName == "" || serverName == "" {
-		return "", "", fmt.Errorf("mcp server edit: incomplete ref %q (expected <bundle>#%s<name>)", ref, mcpServerRefPrefix)
-	}
-	return bundleName, serverName, nil
-}
-
 func runMCPServerEdit(cmd *cobra.Command, args []string) error {
-	bundleName, serverName, err := splitMCPServerRef(args[0])
-	if err != nil {
-		return err
+	notBundleScoped := func() error {
+		return fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); editing a config-level server is not implemented — use `ctxloom mcp server remove --yes` then `ctxloom mcp server create`", args[0], mcpServerRefPrefix)
 	}
-	return runBundleMCPEdit(cmd, []string{bundleName, serverName})
+	ask, err := bundles.ParseItemAsk(args[0])
+	if err != nil {
+		return notBundleScoped()
+	}
+	if !ask.Scoped || ask.Kind != trust.KindMCP {
+		return notBundleScoped()
+	}
+	if ask.Bundle == "" || ask.Item == "" {
+		return fmt.Errorf("mcp server edit: incomplete ref %q (expected <bundle>#%s<name>)", args[0], mcpServerRefPrefix)
+	}
+	return runBundleMCPEdit(cmd, []string{ask.Bundle, ask.Item})
 }
 
 // mcpServerCmd is the MCP-server noun: the canonical spine over the

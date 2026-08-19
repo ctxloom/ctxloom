@@ -100,7 +100,7 @@ func TestGateProfileMCP_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
 // remote case: a genuinely local profile's ref.Base is its bare display name
 // (empty SourceRef, per profileGateRefFor) — its inline hook is gated through
 // the exact same function, and the composed ref carries no '#bundles/' or URL
-// at all, matching trust.ParseItemRef's honest-local bare-token shape.
+// at all, matching the honest-local bare-token shape parseSourceRef mints.
 func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 	ref := profileGateRef{Base: "my-local-profile"}
 	hooks := wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{
@@ -124,8 +124,8 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 // config.yaml profile).
 //
 // Before the fix, the gate ref was built as
-// "<bundle>#profiles/<name>#hooks/pre_tool/0" (double '#') — trust.ParseItemRef
-// cuts at the FIRST '#', so this mis-parsed as kind "profiles" (rejected) and
+// "<bundle>#profiles/<name>#hooks/pre_tool/0" (double '#') — the selector
+// split cuts at the FIRST '#', so this mis-parsed as kind "profiles" (rejected) and
 // the hook was PERMANENTLY withheld with no valid ref to review. After the
 // fix, the ref is "<SourceRef>#hooks/pre_tool/0" (single '#', parses, and —
 // because this is a LOCAL bundle — resolves IsLocal:true), so a permissive
@@ -149,7 +149,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 
 	// A permissive gate: proves the ref PARSES and reaches a decision at all
 	// (before the fix, the double-'#' ref failed to parse inside the gate
-	// itself, at trust.ParseItemRef — never even reaching a
+	// itself, at the selector parser — never even reaching a
 	// caller-supplied gate function to ask).
 	var gotRefs []string
 	cfg.SetExecutableTrustGate(recordingAuthorizer(true, &gotRefs))

@@ -316,10 +316,10 @@ func TestPendingReview_SupersededApprovalReadsAsUpdateNotNew(t *testing.T) {
 	require.NoError(t, err)
 
 	refs := pendingRefs(res)
-	assert.Equal(t, ReviewStatusUpdate, refs[reviewSeedKey+"#fragments/solid"],
+	assert.Equal(t, ReviewStatusUpdate, refs[seedItemRef(t, reviewSeedKey, "fragments/solid")],
 		"an approval superseded by the contract bump must read as an UPDATE, not as a NEW item")
 	assert.Positive(t, res.Updates)
-	assert.Equal(t, ReviewStatusNew, refs[reviewSeedKey+"#commands/greet"],
+	assert.Equal(t, ReviewStatusNew, refs[seedItemRef(t, reviewSeedKey, "commands/greet")],
 		"an item nobody ever approved must still read as NEW (the label has to distinguish something)")
 }
 
@@ -333,7 +333,7 @@ func TestSetItemTrust_AnItemWithNoContentIsRefusedRatherThanSilentlyNotRecorded(
 		Fragments: map[string]bundles.BundleFragment{"hollow": {Content: ""}},
 	}
 	_, err := SetItemTrust(nil, SetItemTrustRequest{
-		Ref: reviewSeedKey + "#fragments/hollow", UserStore: fx.user, Signer: fx.signer, Root: fx.root,
+		Ref: seedItemRef(t, reviewSeedKey, "fragments/hollow"), UserStore: fx.user, Signer: fx.signer, Root: fx.root,
 		Loader: reviewLoader(t, empty), FS: afero.NewMemMapFs(),
 	})
 	require.Error(t, err, "approving an item with no bytes must fail loudly")

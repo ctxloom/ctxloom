@@ -137,7 +137,7 @@ func DefaultPolicy() Policy {
 		// Kept Machine as the design doc specifies, UNLIKE command/args
 		// above: unlike them, no CLI verb writes mcp.servers.*.env today
 		// (`mcp server create` has no --env flag, and `mcp server edit`
-		// explicitly refuses a config-level ref — see splitMCPServerRef) — so
+		// explicitly refuses a config-level ref — see runMCPServerEdit) — so
 		// there is no forcing "the CLI silently drops what I typed" case to
 		// measure, and dropping a hand-edited env block is exactly the
 		// credential-leak protection this scope exists to provide.

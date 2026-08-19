@@ -509,7 +509,7 @@ func j001600Reference(w *World) error {
 // bundle — the same grammar `bundle trust`, `bundle reject` and `bundle sign`
 // all share.
 func j001600ItemRef(w *World, fragment string) string {
-	return "file://" + j001600Of(w).bare + "@bundles/" + j001600PublishedName + "#fragments/" + fragment
+	return canonicalItemRef("file://"+j001600Of(w).bare, j001600PublishedName, "fragments/"+fragment)
 }
 
 // j001600Delivered materializes the default profile and returns the assembled

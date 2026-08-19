@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -32,7 +33,7 @@ import (
 //     local, not builtin, no signer, not approvable — it falls through to the
 //     terminal fail-closed default.
 //  3. UNREACHABLE anyway. The zero Ref is produced by exactly one thing,
-//     trust.ParseItemRef's failure arms, and it is produced only ALONGSIDE an
+//     the ask boundary's failure arms, and it is produced only ALONGSIDE an
 //     error that every caller checks before using the value.
 func TestZeroRef_AddressesButIsInertAndUnreachable(t *testing.T) {
 	zero := trust.Ref{}
@@ -63,6 +64,7 @@ func TestZeroRef_AddressesButIsInertAndUnreachable(t *testing.T) {
 	assert.Equal(t, trust.SourcePending, res.Source)
 
 	// 3. Every producer of a zero Ref hands it back only with an error.
+	cat := seedLoader(t, map[string]*bundles.Bundle{"bundle": {Version: "1.0.0"}}).Catalog()
 	for _, bad := range []string{
 		"",                    // no selector
 		"#fragments/x",        // empty base
@@ -70,12 +72,11 @@ func TestZeroRef_AddressesButIsInertAndUnreachable(t *testing.T) {
 		"bundle#bogus/x",      // unknown kind directory
 		"bundle#fragments/",   // empty name
 		"https://x/y",         // a source ref with no selector at all
-		"git@host:o/r#nope/x", // parseable source, unknown kind
+		"git@host:o/r#nope/x", // scheme-marked source, unknown kind
 	} {
-		got, loadRef, version, perr := trust.ParseItemRef(bad)
-		require.Errorf(t, perr, "%q must not parse", bad)
-		assert.Equalf(t, trust.Ref{}, got, "%q must yield the zero Ref only alongside its error", bad)
-		assert.Emptyf(t, loadRef, "%q", bad)
-		assert.Emptyf(t, version, "%q", bad)
+		got, perr := ResolveItemAsk(cat, bad)
+		require.Errorf(t, perr, "%q must not resolve", bad)
+		assert.Equalf(t, trust.BundleRef{}, got, "%q must yield the zero ref only alongside its error", bad)
+		assert.Equalf(t, trust.Ref{}, trust.RefFromBundleRef(got), "%q", bad)
 	}
 }

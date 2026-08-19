@@ -24,8 +24,8 @@ import (
 //
 // Before bundles.localFSReader.readBundle stamped bundle.sourceRef for a
 // ProvenanceBuiltin read, route A's TrustRef fell back to the bare bundle
-// name ("isolation#fragments/isolation-axes"), which trust.ParseItemRef's
-// bare-token fallback resolves to IsLocal — a DIFFERENT trust.Ref than route
+// name ("isolation#fragments/isolation-axes"), which the bare-token fallback
+// resolves to IsLocal — a DIFFERENT trust.Ref than route
 // B's "builtin:isolation#fragments/isolation-axes" (IsBuiltin). Rejecting via
 // one left the other deliverable: exactly the gate bypass this fixes.
 func TestBuiltinFragment_RejectViaLoaderRoute_WithholdsInjectionRoute(t *testing.T) {
@@ -139,7 +139,7 @@ func TestBuiltinFragment_Rejection_PersistsAcrossReload(t *testing.T) {
 // review.go's own fix to the SAME identity bug crispy-scoop closed elsewhere:
 // classify used to build its trust decision from bundleRef — read.DisplayName(), the
 // bundle's BARE resolution name ("isolation") — reparsed through
-// trust.ParseItemRef's bare-token fallback, landing on Ref{IsLocal: true}.
+// the bare-token fallback, landing on Ref{IsLocal: true}.
 // The honest identity is read.SourceRef() ("ctxloom+builtin:isolation"),
 // Ref{IsBuiltin: true}.
 //
@@ -170,7 +170,7 @@ func TestClassify_BuiltinItem_KeysTrustDecisionOnSourceRefNotResolutionRef(t *te
 	_, _ = e.classify(read.DisplayName(), "fragments", "isolation-axes", read, payload, string(form), false)
 
 	assert.True(t, seenRef.IsBuiltin,
-		"classify must key the trust decision on the bundle's typed SourceRef (IsBuiltin), not its bare resolution ref (which trust.ParseItemRef's bare-token fallback reads as IsLocal)")
+		"classify must key the trust decision on the bundle's typed SourceRef (IsBuiltin), not its bare resolution ref (which the bare-token fallback reads as IsLocal)")
 	assert.False(t, seenRef.IsLocal)
 	assert.Equal(t, "isolation", seenRef.Bundle)
 }

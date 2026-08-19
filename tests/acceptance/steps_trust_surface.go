@@ -192,12 +192,36 @@ fragments:
 `, tsDualRawMarker, tsDualDistilledMarker)
 }
 
-// tsRef composes the canonical item ref for this feature's seeded bundle:
-// "file://<bare>@bundles/<bundleName>#<selector>", the same shape
-// steps_j001500.go/steps_content_decision.go drive `ctxloom bundle trust`/`bundle reject` with.
+// canonicalBundleRef mints the canonical URI addressing a bundle published at
+// repoURL, through the same Ref -> BundleRef bridge every reader stamps its
+// own source with. A scenario that composed the URI by hand would be asserting
+// against a spelling nothing produces.
+//
+// It PANICS on an unaddressable pair: a fixture that cannot name the bundle it
+// just published has no scenario left to run, and a returned error here would
+// be reported as the step's own failure rather than as the fixture's.
+func canonicalBundleRef(repoURL, bundle string) string {
+	br, err := trust.Ref{RepoURL: repoURL, Bundle: bundle}.AsBundleRef()
+	if err != nil {
+		panic(fmt.Sprintf("acceptance fixture: bundle %q at %q is not addressable: %v", bundle, repoURL, err))
+	}
+	return br.String()
+}
+
+// canonicalItemRef appends a "<kind>/<name>" selector to a canonical bundle
+// URI. The selector rides VERBATIM rather than through trust.ParseSelector, so
+// a scenario can drive a kind the grammar refuses — "profiles/x" — and assert
+// the refusal it is there to prove.
+func canonicalItemRef(repoURL, bundle, selector string) string {
+	return canonicalBundleRef(repoURL, bundle) + "#" + selector
+}
+
+// tsRef composes the canonical item ref for this feature's seeded bundle, the
+// same shape steps_j001500.go/steps_content_decision.go drive
+// `ctxloom bundle trust`/`bundle reject` with.
 func tsRef(w *World, selector string) string {
 	ts := tsOf(w)
-	return ts.url + "@bundles/" + ts.bundleName + "#" + selector
+	return canonicalItemRef(ts.url, ts.bundleName, selector)
 }
 
 // tsSelector maps a Scenario Outline's <element> column to the item's
@@ -592,10 +616,10 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice tries to review an item whose source reference is malformed$`, func(c context.Context) error {
 		w := worldFrom(c)
 		// "https://" carries a scheme marker (so it was plainly INTENDED as a
-		// canonical ref) but does not parse as one. trust.ParseItemRef must
-		// refuse it outright rather than silently downgrading it to a local
-		// bundle name — a local ref is auto-ALLOWED at cascade step 3, so a
-		// downgrade here is a gate bypass, not a cosmetic mislabel.
+		// canonical ref) but does not parse as one. The mutation must refuse
+		// it outright rather than silently downgrading it to a local bundle
+		// name — a local ref is auto-ALLOWED at cascade step 3, so a downgrade
+		// here is a gate bypass, not a cosmetic mislabel.
 		_ = w.env.Run("bundle", "trust", "https://#fragments/context")
 		return nil // the refusal is asserted next
 	})
@@ -604,9 +628,17 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		out := w.env.LastOutput()
 		w.docStepMaterialized = strings.TrimSpace(out)
-		if !strings.Contains(out, "refusing to treat an unrecognized source as local") {
-			return fmt.Errorf("ctxloom did not refuse the malformed source ref for the stated fail-closed reason "+
-				"(want %q); output:\n%s", "refusing to treat an unrecognized source as local", out)
+		// The refusal must be non-zero AND must name the offending SPELLING.
+		// A zero exit would mean the ref was resolved — and the only thing it
+		// could have resolved to is a first-party local bundle name, which is
+		// auto-ALLOWED at cascade step 3: a gate bypass, not a mislabel. A
+		// refusal that named no spelling would leave the user unable to act.
+		if w.env.LastExitCode() == 0 {
+			return fmt.Errorf("`ctxloom bundle trust` accepted a malformed source ref; a downgrade to a local "+
+				"bundle name is a gate bypass. output:\n%s", out)
+		}
+		if !strings.Contains(out, `"https://"`) {
+			return fmt.Errorf("the refusal does not name the spelling it refused (want %q); output:\n%s", `"https://"`, out)
 		}
 		return nil
 	})
@@ -997,17 +1029,17 @@ func tsSupersedeStore(w *World) error {
 	return nil
 }
 
-// tsCountersignRef is operations.countersignRef, reached through the same
-// PRODUCTION parse the CLI performs on its own argument: trust.ParseItemRef
-// turns the "<url>@bundles/<name>#<kind>/<item>" string a scenario passes to
-// `ctxloom bundle trust` into a trust.Ref, whose CanonicalURL and Key compose
-// the ref a countersignature actually binds to.
+// tsCountersignRef is operations.CountersignRef, reached through the same
+// PRODUCTION parse the CLI performs on its own argument: trust.ParseBundleRef
+// turns the canonical item URI a scenario passes to `ctxloom bundle trust`
+// into a trust.BundleRef, whose Ref form composes the address a
+// countersignature actually binds to.
 func tsCountersignRef(cliRef string) (string, error) {
-	parsed, _, _, err := trust.ParseItemRef(cliRef)
+	br, err := trust.ParseBundleRef(cliRef)
 	if err != nil {
 		return "", fmt.Errorf("parse item ref %q: %w", cliRef, err)
 	}
-	return operations.CountersignRef(parsed), nil
+	return operations.CountersignRef(trust.RefFromBundleRef(br)), nil
 }
 
 // tsAssertCollisionRoles is the assertion the text→exec escalation scenario

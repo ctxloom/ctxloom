@@ -475,9 +475,14 @@ func TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected(t *testing.T) {
 
 // --- mutation ops, end-to-end through the resolver ---------------------------
 
+// seededBundleKey is the seed key seededLoader publishes its bundle under —
+// the lockfile spelling a reader is handed. Pass it to seedItemRef to address
+// one of its items the way a trust mutation must be addressed.
+const seededBundleKey = "https://github.com/acme/repo@bundles/tooling"
+
 func seededLoader(t *testing.T) (*bundles.Loader, string) {
 	t.Helper()
-	const seedKey = "https://github.com/acme/repo@bundles/tooling"
+	const seedKey = seededBundleKey
 	b := &bundles.Bundle{
 		Name:    seedKey,
 		Version: "1.0",
@@ -524,7 +529,7 @@ func seededSkillPayload() []byte {
 func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
-	ref := "https://github.com/acme/repo@bundles/tooling#mcp/postgres"
+	ref := seedItemRef(t, seededBundleKey, "mcp/postgres")
 
 	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader})
 	require.NoError(t, err)
@@ -560,7 +565,7 @@ func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
-	ref := "https://github.com/acme/repo@bundles/tooling#skills/reviewer"
+	ref := seedItemRef(t, seededBundleKey, "skills/reviewer")
 
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindSkill, Name: "reviewer"}
 	skillPayload := seededSkillPayload()
@@ -615,7 +620,7 @@ func TestSetItemTrust_ApprovesBothForms(t *testing.T) {
 	fx := newTrustFixture(t)
 
 	res, err := SetItemTrust(nil, SetItemTrustRequest{
-		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader,
+		Ref: seedItemRef(t, seededBundleKey, "fragments/dual"), Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
@@ -635,7 +640,7 @@ func TestSetItemTrust_ApprovesBothForms(t *testing.T) {
 func TestSetBlacklist_WritesBothComponents(t *testing.T) {
 	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
-	ref := "https://github.com/acme/repo@bundles/tooling#fragments/solid"
+	ref := seedItemRef(t, seededBundleKey, "fragments/solid")
 
 	res, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader})
 	require.NoError(t, err)
@@ -671,7 +676,7 @@ func TestSetBlacklist_RejectsBothForms(t *testing.T) {
 	fx := newTrustFixture(t)
 
 	res, err := SetBlacklist(nil, SetBlacklistRequest{
-		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader,
+		Ref: seedItemRef(t, seededBundleKey, "fragments/dual"), Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader,
 	})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{rawForm, distilledForm}, res.ContentForms)
@@ -684,7 +689,19 @@ func TestSetBlacklist_RejectsBothForms(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestParseTrustItemRef(t *testing.T) {
+// TestResolveItemAsk_Grammar is the ask boundary's table: what a user may type
+// at `ctxloom bundle trust|reject|forget`, and what each spelling resolves to.
+//
+// The canonical URI arm resolves against an EMPTY catalog on purpose — that is
+// the property SetBlacklist's "written even when the item cannot be resolved"
+// rests on — while a bare name is resolved against the catalog, so a name
+// nobody publishes cannot be minted into a first-party local identity.
+func TestResolveItemAsk_Grammar(t *testing.T) {
+	cat := seedLoader(t, map[string]*bundles.Bundle{
+		"myb":               {Version: "1.0.0"},
+		"my-remote-profile": {Version: "1.0.0"},
+	}).Catalog()
+
 	tests := []struct {
 		name        string
 		ref         string
@@ -697,98 +714,57 @@ func TestParseTrustItemRef(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name: "canonical remote fragment", ref: "https://github.com/acme/repo@bundles/tooling#fragments/solid",
+			name: "canonical remote fragment", ref: "ctxloom+git://github.com/acme/repo//bundles/tooling#fragments/solid",
 			wantRepo: "https://github.com/acme/repo", wantBundle: "tooling", wantKind: trust.KindFragment, wantName: "solid",
 		},
 		{
-			name: "ctxloom:local mcp", ref: "ctxloom:local@bundles/dev#mcp/pg",
+			name: "canonical local mcp", ref: "ctxloom+local:dev#mcp/pg",
 			wantBundle: "dev", wantKind: trust.KindMCP, wantName: "pg", wantLocal: true,
 		},
 		{
-			name: "plain local bundle name", ref: "myb#prompts/review",
+			name: "plain local bundle name, prompts spelling of the command kind", ref: "myb#prompts/review",
 			wantBundle: "myb", wantKind: trust.KindPrompt, wantName: "review", wantLocal: true,
 		},
 		{
-			name: "builtin source ref", ref: "builtin:taskloom#mcp/taskloom",
+			name: "canonical builtin", ref: "ctxloom+builtin:taskloom#mcp/taskloom",
 			wantBundle: "taskloom", wantKind: trust.KindMCP, wantName: "taskloom", wantBuiltin: true,
 		},
-		// A companion loadout ref — the "one thing that can go wrong":
-		// remote.ParseReference must RECOGNIZE it (so it never falls into the
-		// unrecognized-source guard below) and it must land as neither local
-		// nor builtin, so it reaches EffectiveTrust's trusted-signer/approved/
-		// pending steps like any other third-party content. See
-		// TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied for the
-		// end-to-end gate proof.
+		// A companion loadout ref must land as neither local nor builtin, so
+		// it reaches EffectiveTrust's trusted-signer/approved/pending steps
+		// like any other third-party content. See
+		// TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable for
+		// the end-to-end gate proof.
 		{
-			name: "companion loadout ref", ref: "ctxloom:companion@ltk#fragments/ltk",
+			name: "canonical companion loadout", ref: "ctxloom+companion:ltk#fragments/ltk",
 			wantRepo: remote.CompanionSource, wantBundle: "ltk", wantKind: trust.KindFragment, wantName: "ltk",
 		},
-		{name: "missing selector", ref: "tooling", wantErr: true},
-		{name: "unknown kind", ref: "tooling#widgets/x", wantErr: true},
-		{name: "empty name", ref: "tooling#fragments/", wantErr: true},
-		// Regression lock: internal/lm/backends/managed.go's
-		// gateProfileMCP/gateProfileHooks used to compose the gate ref as
-		// "<profile-display-name>#<kind>/<name>". For a bundle-shipped
-		// profile the display name is itself "<bundle>#profiles/<name>", so
-		// the composed ref carried a SECOND '#' ("<bundle>#profiles/<name>
-		// #hooks/<event>/<i>") and trust.ParseItemRef — which cuts at the
-		// FIRST '#' — mis-split it into base="<bundle>" and
-		// sel="profiles/<name>#hooks/...", which trust.ParseSelector then
-		// rejected (kind "profiles" is not a recognized selector directory):
-		// a permanent, un-reviewable withhold with no valid trust.Ref to
-		// approve. The fix keys the gate off the profile's SOURCE ref
-		// (profiles.ResolvedProfile.SourceRef — the origin bundle's
-		// canonical ref, WITHOUT the "#profiles/<name>" selector) instead of
-		// its display name, so the composed ref below — exactly what
-		// gateProfileHooks now produces for a remote bundle-shipped profile
-		// — carries exactly one '#' and parses cleanly: reviewable, not
-		// dead.
+		// A hook's item name carries an inner slash ("<event>/<index>"), which
+		// the selector grammar must keep whole rather than cutting at.
 		{
-			name:     "bundle-shipped profile hook ref (uncut-grub fixed shape)",
-			ref:      "https://github.com/acme/tools@bundles/kit#hooks/pre_tool/0",
+			name: "hook identity carries an inner slash", ref: "ctxloom+git://github.com/acme/tools//bundles/kit#hooks/pre_tool/0",
 			wantRepo: "https://github.com/acme/tools", wantBundle: "kit", wantKind: trust.KindHook, wantName: "pre_tool/0",
 		},
-		// The MCP twin of the same fixed shape.
 		{
-			name:     "bundle-shipped profile mcp ref (uncut-grub fixed shape)",
-			ref:      "https://github.com/acme/tools@bundles/kit#mcp/server-a",
-			wantRepo: "https://github.com/acme/tools", wantBundle: "kit", wantKind: trust.KindMCP, wantName: "server-a",
-		},
-		// A LOCAL bundle-shipped profile's composed ref (ctxloom:local — a
-		// local bundle's own directly-declared hook stays honestly
-		// IsLocal:true, not the buggy always-local-via-bare-name shape).
-		{
-			name:       "local bundle-shipped profile hook ref (uncut-grub fixed shape, local)",
-			ref:        "ctxloom:local@bundles/kit#hooks/session_start/0",
-			wantBundle: "kit", wantKind: trust.KindHook, wantName: "session_start/0", wantLocal: true,
-		},
-		// Regression lock: the OLD buggy ref shape for a REMOTE
-		// profile's hook was just the bare display name
-		// ("my-remote-profile#hooks/pre_tool/0") — trust.ParseItemRef's
-		// bare-token fallback resolves that IsLocal:true unconditionally,
-		// which is exactly the "gate is a no-op, remote content auto-allowed"
-		// bug. This case documents that the bare-token fallback itself is
-		// unchanged (it is still correct for a GENUINELY local profile,
-		// which the fix continues to key this way — see
-		// profileGateRefFor) — the fix is that a REMOTE profile no longer
-		// PRODUCES this shape (it produces the canonical-URL shape above
-		// instead).
-		{
-			name:       "bare profile display name still resolves local (correct ONLY for a genuinely local profile)",
-			ref:        "my-remote-profile#hooks/pre_tool/0",
+			name: "bare profile display name resolves local", ref: "my-remote-profile#hooks/pre_tool/0",
 			wantBundle: "my-remote-profile", wantKind: trust.KindHook, wantName: "pre_tool/0", wantLocal: true,
 		},
-		// Fail-closed: an unrecognized source ref that LOOKS like an attempted
-		// canonical/local ref must error, never silently resolve local (the
-		// fail-open bug — see TestContentGate_UnrecognizedSourceRef_FailsClosed
-		// for the end-to-end proof through the gate).
-		{name: "malformed https ref (missing @type/path)", ref: "https://github.com/acme/repo#fragments/x", wantErr: true},
-		{name: "malformed git@ ref (missing @type/path)", ref: "git@github.com:acme/repo#fragments/x", wantErr: true},
-		{name: "malformed ctxloom:local ref (unknown type)", ref: "ctxloom:local@widgets/x#fragments/y", wantErr: true},
+		{name: "missing selector", ref: "myb", wantErr: true},
+		{name: "unknown kind", ref: "myb#widgets/x", wantErr: true},
+		{name: "empty name", ref: "myb#fragments/", wantErr: true},
+		{name: "profiles are not addressable", ref: "myb#profiles/dev", wantErr: true},
+		// A bare name nobody publishes must NOT be minted into a local
+		// identity: that would hand unpublished content the first-party
+		// exemption.
+		{name: "bare name the catalog cannot see", ref: "no-such-bundle#fragments/x", wantErr: true},
+		// Retired spellings: refused, never resolved. A hint is not a shim.
+		{name: "retired https spelling", ref: "https://github.com/acme/repo@bundles/tooling#fragments/x", wantErr: true},
+		{name: "retired ctxloom:local spelling", ref: "ctxloom:local@bundles/myb#fragments/x", wantErr: true},
+		{name: "retired builtin spelling", ref: "builtin:taskloom#mcp/taskloom", wantErr: true},
+		{name: "retired git@ spelling", ref: "git@github.com:acme/repo#fragments/x", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tref, _, _, err := trust.ParseItemRef(tt.ref)
+			br, err := ResolveItemAsk(cat, tt.ref)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error for %q", tt.ref)
@@ -796,8 +772,9 @@ func TestParseTrustItemRef(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("trust.ParseItemRef(%q): %v", tt.ref, err)
+				t.Fatalf("ResolveItemAsk(%q): %v", tt.ref, err)
 			}
+			tref := trust.RefFromBundleRef(br)
 			if tref.RepoURL != tt.wantRepo || tref.Bundle != tt.wantBundle || tref.Kind != tt.wantKind ||
 				tref.Name != tt.wantName || tref.IsLocal != tt.wantLocal || tref.IsBuiltin != tt.wantBuiltin {
 				t.Errorf("got %+v, want repo=%q bundle=%q kind=%q name=%q local=%v builtin=%v",
@@ -829,11 +806,12 @@ func TestParseTrustItemRef(t *testing.T) {
 // rather than withholding. That posture is pinned where it lives:
 // config.TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld.
 func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing.T) {
-	ref := "ctxloom:companion@ltk#fragments/ltk"
+	ref := "ctxloom+companion:ltk#fragments/ltk"
 
-	tref, loadRef, _, err := trust.ParseItemRef(ref)
-	require.NoError(t, err, "a companion ref MUST be recognized by remote.ParseReference, never fail-closed as unrecognized")
-	assert.Equal(t, "ctxloom:companion@ltk", loadRef)
+	br, err := ResolveItemAsk(bundles.Catalog{}, ref)
+	require.NoError(t, err, "a companion ref MUST resolve without a catalog, never fail-closed as unrecognized")
+	assert.Equal(t, trust.BundleKey("ctxloom+companion:ltk"), br.BundleIdentity())
+	tref := trust.RefFromBundleRef(br)
 	assert.True(t, tref.IsCompanion, "the companion flag must ride the same parse the ref does")
 	assert.False(t, tref.IsLocal, "a companion is its OWN exemption step, never laundered through the local one")
 	assert.False(t, tref.IsBuiltin, "a companion loadout is not compiled into this binary")

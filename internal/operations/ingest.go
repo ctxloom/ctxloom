@@ -3,6 +3,8 @@ package operations
 import (
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -204,36 +206,40 @@ func (in *contextIngest) join() string {
 
 // ingestItemKey reduces an item ref to the source-agnostic identity dedup keys
 // on: trust.Ref.Key(), "<bundle>#<kind>/<name>" — deliberately CLASS-AGNOSTIC
-// (it never reads IsLocal/IsBuiltin/IsCompanion/RepoURL), so a project bundle
-// that shadows a builtin of the same name and the builtin's own unconditional
-// injection dedup to ONE occurrence even though they carry two different
-// TRUST identities. trust.BundleRef.Identity() would NOT do that — it is
-// fully class-qualified by design (that qualification is the whole point of
-// the canonical grammar for TRUST purposes) — so this parses through it only
-// to reach the identical class-agnostic trust.Ref.Key() every producer's ref
-// used to reduce to directly.
+// (it never reads the reference's class, repository or host), so a project
+// bundle that shadows a builtin of the same name and the builtin's own
+// unconditional injection dedup to ONE occurrence even though they carry two
+// different TRUST identities. trust.BundleRef.Identity() would NOT do that —
+// it is fully class-qualified by design, which is the whole point of the
+// canonical grammar for TRUST purposes — so a canonical ref is parsed only to
+// reach the class-agnostic Key() behind it.
 //
-// TWO grammars reach here, from TWO different callers of add: the
-// loader-resolved route's ref is the assembly pipeline's own QUALIFIED LOCAL
-// form ("ctxloom:local@bundles/<name>#<kind>/<name>", built elsewhere — not
-// one of this slice's 8 producers, so still trust.ParseItemRef's grammar);
-// the injection route's ref is a migrated producer's canonical
-// "ctxloom+<class>:...#<kind>/<item>" (config.BuiltinFragment.Name, minted by
-// config.fragmentsFromBundle). The canonical grammar is tried FIRST: an
-// old-grammar string could otherwise be misread by trust.ParseItemRef's own
-// bare-token fallback (it does not recognize "ctxloom+" as a marker) rather
-// than correctly failing over to the parser that understands it.
+// TWO spellings reach here, from TWO callers of add. The injection route
+// carries a canonical "ctxloom+<class>:...#<kind>/<item>". The loader-resolved
+// route carries the assembly pipeline's own qualified identity,
+// remote.CanonicalBundleRef's "ctxloom:local@bundles/<name>#<kind>/<item>" or
+// a bare "<name>#<kind>/<item>". BOTH must reduce to the same key or one item
+// is assembled twice, so the canonical grammar is tried first and the
+// pipeline's own reference grammar second.
 //
-// A ref that matches NEITHER grammar is used verbatim. That is the fail-safe
-// direction: an unparseable ref can then only ever match another occurrence
-// spelled byte-for-byte the same way, so a ref neither grammar understands is
-// never collapsed into a DIFFERENT one.
+// A ref that matches NEITHER grammar is used verbatim, as is a bundle half
+// that carries a scheme marker but does not parse. That is the fail-safe
+// direction: such a ref can then only ever match another occurrence spelled
+// byte-for-byte the same way, so it is never collapsed into a DIFFERENT one.
 func ingestItemKey(ref string) string {
 	if br, err := trust.ParseBundleRef(ref); err == nil {
 		return trust.RefFromBundleRef(br).Key()
 	}
-	if tRef, _, _, err := trust.ParseItemRef(ref); err == nil {
-		return tRef.Key()
+	ask, err := bundles.ParseItemAsk(ref)
+	if err != nil || !ask.Scoped {
+		return ref
 	}
-	return ref
+	switch parsed, perr := remote.ParseReference(ask.Bundle); {
+	case perr == nil:
+		return trust.Ref{Bundle: parsed.Path, Kind: ask.Kind, Name: ask.Item}.Key()
+	case remote.IsSelfContainedRef(ask.Bundle):
+		return ref
+	default:
+		return trust.Ref{Bundle: ask.Bundle, Kind: ask.Kind, Name: ask.Item}.Key()
+	}
 }

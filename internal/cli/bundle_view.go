@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // bundleViewResult is emit()'s result for `bundle view`: Content is exactly
@@ -37,8 +38,9 @@ With a path after #, displays just that item's content.
 Path formats:
   bundle-name                     Full bundle YAML
   bundle-name#fragments/name      Fragment content
-  bundle-name#commands/name       Command content
+  bundle-name#commands/name       Command content (prompts/ is accepted too)
   bundle-name#mcp/name            MCP server config
+  bundle-name#skills/name         Skill manifest
   bundle-name#profiles/name       Profile definition
 
 Examples:
@@ -61,7 +63,11 @@ func runBundleView(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	bundleName, itemPath := parseBundleViewRef(ref)
+	// The bundle half and the item selector, split verbatim: `view` walks the
+	// bundle DOCUMENT, and its path vocabulary is a SUPERSET of the addressable
+	// item kinds (a profile is viewable, never trust-addressable), so the split
+	// happens here and renderBundleViewItem judges the kind.
+	bundleName, itemPath, _ := strings.Cut(ref, "#")
 
 	res, err := operations.ReadBundle(cmd.Context(), cfg, operations.ReadBundleRequest{Name: bundleName})
 	if err != nil {
@@ -95,33 +101,41 @@ func runBundleView(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// parseBundleViewRef splits a `view` argument like `mybundle` or
-// `mybundle#fragments/intro` into its (bundleName, itemPath) parts.
-// Empty itemPath signals "render the whole bundle YAML"; non-empty
-// goes through renderBundleViewItem's type/name switch.
-func parseBundleViewRef(ref string) (bundleName, itemPath string) {
-	if before, after, ok := strings.Cut(ref, "#"); ok {
-		return before, after
-	}
-	return ref, ""
-}
-
-// renderBundleViewItem dispatches on the item type prefix in itemPath
-// (fragments/prompts/mcp). For fragments/prompts, the distilled view is
-// preferred when useDistilled is true AND the entry has a distilled
-// payload; otherwise the raw Content is rendered. For mcp, the entry is
-// YAML-marshaled. A single-MCP bundle's lone server is returned even if
-// the name doesn't match — convenient for `view bundle#mcp/default`
-// against bundles that only ship one server under an arbitrary key.
+// renderBundleViewItem renders one item out of an already-loaded bundle,
+// dispatching on the KIND its selector names rather than on a literal
+// directory word. The kind comes from trust.ParseSelector, so every spelling
+// that parser accepts — "#commands/x" and its "#prompts/x" alias alike —
+// reaches the same arm here as it does through every other reader.
+//
+// The profiles arm is the ONE addition to that vocabulary, and it lives here
+// because `view` walks the bundle DOCUMENT: a profile is content a reader may
+// want to see, while trust.ParseSelector addresses only what can be delivered
+// and countersigned, which a profile never is.
+//
+// For fragments and commands the distilled view is preferred when useDistilled
+// is true AND the entry has a distilled payload; otherwise the raw Content is
+// rendered. For mcp and profiles the entry is YAML-marshaled. A single-MCP
+// bundle's lone server is returned even if the name doesn't match — convenient
+// for `view bundle#mcp/default` against bundles that only ship one server
+// under an arbitrary key.
 func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string, useDistilled bool) error {
-	itemType, itemName, ok := strings.Cut(itemPath, "/")
-	if !ok {
-		return fmt.Errorf("invalid path format: %s (expected type/name)", itemPath)
+	w := iox.NewErrWriter(out)
+
+	if profName, ok := strings.CutPrefix(itemPath, profileViewPrefix); ok {
+		profile, found := bundle.Profiles[profName]
+		if !found {
+			return fmt.Errorf("profile not found: %s", profName)
+		}
+		return writeViewYAML(w, "Profile: "+profName, profile, "profile")
 	}
 
-	w := iox.NewErrWriter(out)
-	switch itemType {
-	case "fragments":
+	kind, itemName, err := trust.ParseSelector(itemPath)
+	if err != nil {
+		return fmt.Errorf("invalid path format: %w (expected fragments, commands, mcp, skills, or profiles)", err)
+	}
+
+	switch kind {
+	case trust.KindFragment:
 		frag, found := bundle.Fragments[itemName]
 		if !found {
 			return fmt.Errorf("fragment not found: %s", itemName)
@@ -129,7 +143,7 @@ func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string
 		writeViewContent(w, frag.Content, frag.Distilled, useDistilled)
 		return w.Err()
 
-	case "commands":
+	case trust.KindPrompt:
 		command, found := bundle.Commands[itemName]
 		if !found {
 			return fmt.Errorf("command not found: %s", itemName)
@@ -137,24 +151,29 @@ func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string
 		writeViewContent(w, command.Content, command.Distilled, useDistilled)
 		return w.Err()
 
-	case "mcp":
+	case trust.KindMCP:
 		mcp, name, found := lookupBundleMCP(bundle, itemName)
 		if !found {
 			return fmt.Errorf("mcp server not found: %s", itemName)
 		}
 		return writeViewYAML(w, "MCP Server: "+name, mcp, "MCP config")
 
-	case "profiles":
-		profile, found := bundle.Profiles[itemName]
+	case trust.KindSkill:
+		skill, found := bundle.Skills[itemName]
 		if !found {
-			return fmt.Errorf("profile not found: %s", itemName)
+			return fmt.Errorf("skill not found: %s", itemName)
 		}
-		return writeViewYAML(w, "Profile: "+itemName, profile, "profile")
+		return writeViewYAML(w, "Skill: "+itemName, skill, "skill")
 
 	default:
-		return fmt.Errorf("unknown item type: %s (expected fragments, commands, mcp, or profiles)", itemType)
+		return fmt.Errorf("%s items are not viewable: %s", kind.Dir(), itemPath)
 	}
 }
+
+// profileViewPrefix is the selector directory `view` accepts beyond the
+// addressable item kinds. It is spelled here and nowhere else: a profile is
+// not an item any other surface may name.
+const profileViewPrefix = "profiles/"
 
 // writeViewYAML renders a structured item (an MCP server, a profile) as a
 // "# <heading>" line followed by its YAML. The mcp and profiles arms of

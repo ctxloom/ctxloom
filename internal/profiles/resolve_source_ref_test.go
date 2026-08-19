@@ -34,8 +34,8 @@ func TestResolveProfile_SourceRef_BundleShippedRemote(t *testing.T) {
 // TestResolveProfile_SourceRef_BundleShippedLocal proves a LOCAL bundle's
 // shipped profile ("ctxloom:local@bundles/<name>#profiles/<p>", what
 // config.loadBundleProfileSeed produces for an fs-installed bundle) resolves
-// SourceRef to the ctxloom:local form — which trust.ParseItemRef still parses
-// as IsLocal:true (parseLocalReference), so a local bundle's own
+// SourceRef to the ctxloom:local form — which remote.ParseReference still
+// parses as IsLocal:true (parseLocalReference), so a local bundle's own
 // directly-declared hook stays honestly local, exactly like before this fix.
 func TestResolveProfile_SourceRef_BundleShippedLocal(t *testing.T) {
 	key := "ctxloom:local@bundles/kit#profiles/dev"
@@ -54,7 +54,7 @@ func TestResolveProfile_SourceRef_BundleShippedLocal(t *testing.T) {
 // genuinely local/project-authored profile (.ctxloom/profiles/<name>.yaml, no
 // "#profiles/" selector anywhere in its identity) gets an EMPTY SourceRef —
 // the signal profileGateRefFor (managed.go) falls back to the bare
-// profileName for, which trust.ParseItemRef resolves IsLocal:true. This must
+// profileName for, which the bare-token fallback resolves IsLocal:true. This must
 // stay true: it is what keeps a genuinely local profile's inline hooks/mcp
 // auto-allowed after the fix, exactly as before it.
 func TestResolveProfile_SourceRef_GenuinelyLocalIsEmpty(t *testing.T) {

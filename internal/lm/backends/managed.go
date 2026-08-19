@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -39,19 +40,36 @@ func itemRefFor(source string, kind trust.ItemKind, item string) string {
 // canonical origin ref (profiles.ResolvedProfile.SourceRef) — into the
 // structured trust.BundleRef bundles.ItemRefFor needs.
 //
-// It replays trust.ParseItemRef's base-ref resolution by handing it a throwaway
-// selector and discarding the parsed Kind/Name. It lives here rather than in
-// trust because ParseItemRef must stay the ONE shared grammar (ADR 0032), and
-// this is the single remaining caller holding a plain string with no typed
-// source to hand across. If that caller acquires a typed source, this helper
-// goes with it rather than growing users.
+// A canonical URI is parsed as one. Anything else is the assembly pipeline's
+// own identity spelling (remote.CanonicalBundleRef's "ctxloom:local@bundles/
+// <name>", a lockfile's "<url>@bundles/<path>") or a bare local bundle name,
+// resolved through the reference grammar that mints those and bridged onto
+// trust.BundleRef by trust.Ref.AsBundleRef — the same bridge every other
+// holder of such a string uses. It lives here because this is the single
+// caller holding a plain string with no typed source to hand across; if that
+// caller acquires a typed source, this helper goes with it rather than
+// growing users.
 func parseSourceRef(source string) (trust.BundleRef, error) {
-	tRef, _, _, err := trust.ParseItemRef(source + "#" + trust.KindFragment.Dir() + "/x")
-	if err != nil {
-		return trust.BundleRef{}, fmt.Errorf("parse %q: %w", source, err)
+	if br, err := trust.ParseBundleRef(source); err == nil {
+		return br, nil
 	}
-	tRef.Kind, tRef.Name = "", ""
-	br, err := tRef.AsBundleRef()
+	parsed, err := remote.ParseReference(source)
+	if err != nil {
+		if remote.IsSelfContainedRef(source) {
+			// A string carrying a scheme marker that does not parse was
+			// INTENDED as a qualified reference. Reading it as a bare local
+			// bundle name would hand it the first-party exemption an
+			// unrecognized source must never get.
+			return trust.BundleRef{}, fmt.Errorf("parse %q: %w", source, err)
+		}
+		return trust.LocalRef(source)
+	}
+	br, err := trust.Ref{
+		RepoURL:     parsed.URL,
+		Bundle:      parsed.Path,
+		IsLocal:     parsed.IsLocal,
+		IsCompanion: parsed.IsCompanion,
+	}.AsBundleRef()
 	if err != nil {
 		return trust.BundleRef{}, fmt.Errorf("convert %q: %w", source, err)
 	}
@@ -411,7 +429,7 @@ type profileGateRef struct {
 // carries exactly one '#' and parses — and never keys IsLocal for a
 // remote origin. A genuinely local/
 // project-authored profile has an empty SourceRef, so Base falls back to the
-// bare profileName — exactly what trust.ParseItemRef's bare-token fallback
+// bare profileName — exactly what parseSourceRef's bare-token fallback
 // resolves to IsLocal, honestly, because it IS local.
 func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, profileName string) profileGateRef {
 	if resolved == nil || resolved.SourceRef == "" {

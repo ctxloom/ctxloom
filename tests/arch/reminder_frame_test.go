@@ -52,6 +52,9 @@ var frameDeclarers = map[string]string{
 	"internal/agentcoord/mcpschema/gen/main.go": "the generator's entry point",
 	// This gate.
 	"tests/arch/reminder_frame_test.go": "this gate",
+	// The analyzer enforcing the same rule in the lint channel; it must name
+	// the tag in order to search for it.
+	"internal/archlint/reminderframe.go": "the archreminderframe analyzer",
 }
 
 // skipUninterestingDir prunes trees that hold no Go source this gate is about.

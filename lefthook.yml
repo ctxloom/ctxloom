@@ -33,6 +33,52 @@ pre-commit:
       # expensive, invisible loss (only-viper).
       run: env -u GIT_INDEX_FILE reprise check --base HEAD .
 
+    archlint:
+      # Architectural gate: ctxloom's structural rules (internal/archlint) run
+      # as go/analysis analyzers over the whole module. An import that crosses
+      # a layer, a path segment spelled outside internal/paths, a raw
+      # filesystem write, an unlocked read-modify-write, a hand-built
+      # <ctxloom-reminder> frame — each fails here with the rule and the fix.
+      #
+      # PREBUILT, never `go run`. Compiling an analyzer suite on every commit
+      # is slow, and a slow hook is one people learn to bypass — which this
+      # file's own rule forbids. bin/archlint is built by `just build-archlint`
+      # (and by `just lint-arch`, which is the same gate for interactive use).
+      #
+      # A MISSING OR STALE BINARY FAILS LOUDLY. Skipping the check because the
+      # artifact is absent would be a gate that reports success having run
+      # nothing, which is the exact failure the rules themselves exist to
+      # catch. The staleness test is a file comparison, not a rebuild, so it
+      # costs nothing on the common path.
+      #
+      # TWO PASSES, matching `just lint-arch`. Tags reach the package loader
+      # through GOFLAGS — the driver's own -tags flag is accepted and then
+      # ignored. The first pass carries every tag whose files nothing else
+      # type-checks; the second runs the default build to reach the files
+      # those tags hide (`!schemagen`, `!docsgen`), with allowlist liveness
+      # off, because an exemption naming a file a pass cannot see is not stale.
+      #
+      # NOT scoped to changed packages, deliberately. The import-closure rule
+      # needs the whole graph (a change deep in it alters what an untouched
+      # binary reaches), and every allowlist-liveness check must inspect
+      # exempted packages precisely when nobody touched them — that is what
+      # makes an exemption go stale.
+      run: |
+        set -euo pipefail
+        if [ ! -x bin/archlint ]; then
+          echo "bin/archlint is missing — run 'just build-archlint'." >&2
+          echo "The architectural gate cannot pass by not running." >&2
+          exit 1
+        fi
+        if [ -n "$(find internal/archlint cmd/archlint -name '*.go' -newer bin/archlint -print -quit)" ]; then
+          echo "bin/archlint is older than the rules in internal/archlint — run 'just build-archlint'." >&2
+          echo "A stale linter enforces the rules it was built with, not the ones on disk." >&2
+          exit 1
+        fi
+        GOFLAGS=-tags=mutation,arch,conformance,docker_integration,acceptance,integration,schemagen,docsgen \
+          ./bin/archlint ./...
+        ARCHLINT_CHECK_ALLOWLISTS=0 ./bin/archlint ./...
+
 pre-push:
   commands:
     cache-report:

@@ -113,6 +113,48 @@ build-full: validate proto
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o ctxloom ./cmd/ctxloom
 
+# Build the architectural linter into bin/archlint.
+#
+# PREBUILT on purpose. The pre-commit hook invokes this binary; compiling an
+# analyzer suite on every commit is slow enough that the hook gets bypassed,
+# and lefthook.yml's own rule is that it never is. No codegen prerequisites:
+# the analyzers parse source and never import generated packages.
+build-archlint:
+    go build {{buildvcs}} {{trimpath}} -o bin/archlint ./cmd/archlint
+
+# Run the architectural rules over the module.
+#
+# A SIBLING of `lint`, not part of it: `lint` is CI's golangci-lint gate with
+# its own pinned version and its own baseline, and folding a second tool into
+# it would change what a `lint` failure means. This target is the whole
+# architectural suite and nothing else, so its result is attributable.
+#
+# BUILD TAGS, IN TWO PASSES. An analyzer that never loads a tag-gated file
+# reports zero issues and looks green, so tag coverage is part of the rule,
+# not a detail. Tags reach the package loader through GOFLAGS: the driver's
+# own -tags flag is accepted and then ignored, which fails silently in exactly
+# the invisible direction.
+#
+#   PASS 1 is ADDITIVE. No file in the module carries a negated constraint for
+#   any of these tags, so enabling them can only open files up, never close
+#   any. They mirror .golangci.yml's run.build-tags for the same reason.
+#
+#   PASS 2 reaches the files pass 1's tags HIDE. schemagen and docsgen have
+#   files on BOTH sides of their constraint (cmd/gen-schemas/stub.go is
+#   `!schemagen`, cmd/{ltk,taskloom}/docs_off.go is `!docsgen`), so no single
+#   tag set sees all of them. Pass 2 runs the default build to cover the
+#   negated side, with allowlist liveness OFF: an exemption naming a file this
+#   narrower pass cannot see is not stale, and reporting it as stale is the
+#   same vacuous-green error in reverse.
+#
+# Both passes must pass; the recipe fails on the first that does not.
+lint-arch: build-archlint
+    #!/usr/bin/env bash
+    set -euo pipefail
+    GOFLAGS=-tags=mutation,arch,conformance,docker_integration,acceptance,integration,schemagen,docsgen \
+        ./bin/archlint ./...
+    ARCHLINT_CHECK_ALLOWLISTS=0 ./bin/archlint ./...
+
 # Build the ltk companion into bin/ltk — delegated to the ltk module
 # (cmd/ltk/justfile). No codegen prerequisites (pure-Go, no CGO).
 build-ltk:

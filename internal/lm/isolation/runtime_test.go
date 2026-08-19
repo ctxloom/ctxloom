@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -394,4 +396,70 @@ func TestContainerHandshakeEnv_PluginPrefixIsTheCallersGuarantee(t *testing.T) {
 	assert.False(t, keys["AWS_SECRET_ACCESS_KEY"], "a non-PLUGIN_ host key never crosses, whatever the caller hands in")
 	assert.True(t, keys["PLUGIN_LEAKED_SECRET"],
 		"the prefix match forwards ANY PLUGIN_ key: keeping the host environment out of cmdEnv is the caller's job (pb.ContainerClientConfig's SkipHostEnv), not this function's")
+}
+
+// TestHostSpawn_FailedDialReturnsPlainNilInterface pins the typed-nil-in-
+// interface fix at the exact boundary cli/run.go's teardownTransport
+// depends on: Host.Spawn declares its return as the pb.Client INTERFACE, and
+// on a failed dial must hand back a genuinely nil interface value, not a
+// non-nil interface boxing a nil *pb.LLMRunner.
+//
+// Driven through the REAL production call (selfexec.SetPathForTesting points
+// the self-invoke at /bin/false, so pb.NewSelfInvokingClientForLabelEnv
+// actually forks it) rather than a fake: /bin/false exits immediately with
+// no handshake output, so go-plugin's dial fails fast — a real but
+// sub-millisecond subprocess, not a long-lived one. This is the same failure
+// SHAPE as the original incident (a spawn that cannot start), reproduced
+// without needing real credentials or a broken engine binary.
+//
+// The assertion below is a PLAIN `!= nil`, matching what
+// cli/run.go's teardownTransport actually does in production — testify's
+// require.NotNil/assert.Nil use reflection and see straight through a boxed
+// typed-nil pointer, so they would pass whether or not this boundary was
+// fixed and cannot stand in for this check.
+func TestHostSpawn_FailedDialReturnsPlainNilInterface(t *testing.T) {
+	restore := selfexec.SetPathForTesting("/bin/false")
+	t.Cleanup(restore)
+
+	client, err := Host{}.Spawn(LaunchSpec{BackendName: "does-not-matter", Verbosity: 0})
+	require.Error(t, err, "a self-invoke of a binary that never speaks the plugin handshake must fail")
+
+	if client != nil {
+		t.Fatal("Host.Spawn must return a plain nil pb.Client interface on a failed dial; got a non-nil interface (typed-nil-in-interface pitfall) — the exact shape that let cli/run.go's teardownTransport call Kill on a nil receiver")
+	}
+}
+
+// TestOciRuntimeSpawn_FailedDialReturnsPlainNilInterface is
+// TestHostSpawn_FailedDialReturnsPlainNilInterface's container-transport
+// twin: ociRuntime.spawn is the OTHER boundary in the spawn chain where a
+// concrete *pb.LLMRunner return value gets converted into the pb.Client
+// interface (via pb.NewContainerClient), so it needs the same explicit-nil
+// treatment on the error path.
+//
+// fakeRuntime{binary: "/bin/false"} substitutes for a real docker/podman
+// binary: newContainerRunner execs rt.Binary() with rt.RunArgs(spec), so
+// pointing that at /bin/false makes the "container" exit immediately with no
+// handshake output — a real, sub-millisecond subprocess exercising the
+// actual production dial path without a docker daemon.
+func TestOciRuntimeSpawn_FailedDialReturnsPlainNilInterface(t *testing.T) {
+	if goruntime.GOOS != "linux" {
+		t.Skip("the go-plugin container spawn transport is Linux-only")
+	}
+
+	rt := fakeRuntime{name: "fake", binary: "/bin/false"}
+	launch := LaunchSpec{
+		BackendName:   "does-not-matter",
+		HostSocketDir: t.TempDir(),
+	}
+
+	client, err := ociRuntime{}.spawn(rt, launch)
+	require.Error(t, err, "a container runtime binary that exits before the handshake must fail the dial")
+
+	// Same plain comparison as production's teardownTransport (see
+	// TestHostSpawn_FailedDialReturnsPlainNilInterface's doc) — testify's
+	// reflection-based nil checks would pass either way and cannot stand in
+	// for this.
+	if client != nil {
+		t.Fatal("ociRuntime.spawn must return a plain nil pb.Client interface on a failed dial; got a non-nil interface (typed-nil-in-interface pitfall)")
+	}
 }

@@ -140,9 +140,9 @@ func TestNewBuiltinReader_ReportsBuiltinProvenanceLocalAndUnsigned(t *testing.T)
 }
 
 func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing.T) {
-	reads, err := NewCompanionReader(func(context.Context) ([]CompanionLoadout, error) {
-		return []CompanionLoadout{{Bin: "ltk", Bundle: readerBundleYAML}}, nil
-	}).Read(context.Background())
+	reads, err := NewCompanionReader(
+		loadoutProbe(CompanionLoadout{Bin: "ltk", Bundle: readerBundleYAML}),
+	).Read(context.Background())
 
 	require.NoError(t, err)
 	require.Len(t, reads, 1)
@@ -271,9 +271,7 @@ func TestNewCompanionReader_InvalidSignatureIsReportedNotWithheld(t *testing.T) 
 
 	var warnings bytes.Buffer
 	reads, err := NewCompanionReader(
-		func(context.Context) ([]CompanionLoadout, error) {
-			return []CompanionLoadout{{Bin: "ltk", Bundle: shipped, Signature: sig}}, nil
-		},
+		loadoutProbe(CompanionLoadout{Bin: "ltk", Bundle: shipped, Signature: sig}),
 		WithTrustRoot(root),
 		captureWarnings(&warnings),
 	).Read(context.Background())
@@ -296,12 +294,10 @@ func TestNewCompanionReader_InvalidSignatureIsReportedNotWithheld(t *testing.T) 
 func TestNewCompanionReader_UnparseableLoadoutIsWarnedAndSkipped(t *testing.T) {
 	var warnings bytes.Buffer
 	reads, err := NewCompanionReader(
-		func(context.Context) ([]CompanionLoadout, error) {
-			return []CompanionLoadout{
-				{Bin: "broken", Bundle: []byte(":\n  not a bundle")},
-				{Bin: "ltk", Bundle: readerBundleYAML},
-			}, nil
-		},
+		loadoutProbe(
+			CompanionLoadout{Bin: "broken", Bundle: []byte(":\n  not a bundle")},
+			CompanionLoadout{Bin: "ltk", Bundle: readerBundleYAML},
+		),
 		captureWarnings(&warnings),
 	).Read(context.Background())
 

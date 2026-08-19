@@ -68,44 +68,8 @@ func (s CompanionStatus) Executed() bool {
 	return s.Admission == CompanionAdmissionFirstParty || s.Admission == CompanionAdmissionConsented
 }
 
-// BuiltinCompanionBins returns the unique non-ctxloom companion executables
-// ctxloom knows to look for at boot, sorted: the UNION of DiscoverCompanions
-// (the loadout-protocol discovery set, S8 — first-party list ∪
-// ctxloom-companion-* on PATH) and any companion still referenced by an
-// embedded built-in bundle's hooks/MCP (now typically none — S8 moved
-// ltk/taskloom off this path onto their own loadouts — kept for any FUTURE
-// built-in bundle that wires in a companion directly). Both status reporting
-// (printCompanionStatus) and the version-probe loop (ProbeCompanions) read
-// this list, so a companion that adopts either mechanism is probed at boot
-// automatically.
-func BuiltinCompanionBins() []string {
-	seen := make(map[string]bool)
-	for _, bin := range DiscoverCompanions() {
-		seen[bin] = true
-	}
-	eachBuiltinBundle(func(read bundles.BundleRead) {
-		b := read.Bundle
-		for _, hs := range [][]bundles.BundleHook{
-			b.Hooks.PreTool, b.Hooks.PostTool, b.Hooks.SessionStart,
-			b.Hooks.SessionEnd, b.Hooks.PreShell, b.Hooks.PostFileEdit,
-		} {
-			for _, h := range hs {
-				if bin := companionBin(h.Command); bin != "" {
-					seen[bin] = true
-				}
-			}
-		}
-		for _, m := range b.MCP {
-			if bin := companionBin(m.Command); bin != "" {
-				seen[bin] = true
-			}
-		}
-	})
-	return sortedBins(seen)
-}
-
 // sortedBins renders a companion-name set as the sorted slice every discovery
-// function here returns. Three call sites spelled it out by hand.
+// function here returns.
 func sortedBins(seen map[string]bool) []string {
 	out := make([]string, 0, len(seen))
 	for bin := range seen {
@@ -115,7 +79,7 @@ func sortedBins(seen map[string]bool) []string {
 	return out
 }
 
-// ProbeCompanions resolves each built-in companion on PATH and asks it for
+// ProbeCompanions resolves each discovered companion on PATH and asks it for
 // its version. Missing binaries yield Path == "" (their bundle entries are
 // skipped by the resolvers, which also emit the install hint); a present
 // binary whose probe fails carries the error. Reporting only — never fatal.
@@ -144,7 +108,7 @@ func ProbeCompanions() []CompanionStatus {
 	if CompanionsDisabled() {
 		return nil
 	}
-	admissions := companionAdmission(BuiltinCompanionBins(), true)
+	admissions := companionAdmission(DiscoverCompanions(), true)
 	out := make([]CompanionStatus, len(admissions))
 	var wg sync.WaitGroup
 	for i, adm := range admissions {
@@ -355,19 +319,36 @@ func CompanionsDisabled() bool {
 // Probes run concurrently (mirrors ProbeCompanions), each bounded by
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are admitted.
-func ProbeCompanionLoadouts(ctx context.Context) ([]bundles.CompanionLoadout, error) {
+func ProbeCompanionLoadouts(ctx context.Context) (bundles.CompanionProbe, error) {
 	// See ProbeCompanions' identical guard.
 	if CompanionsDisabled() {
-		return nil, nil
+		return bundles.CompanionProbe{}, nil
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return bundles.CompanionProbe{}, err
 	}
 	// EXEC CONSENT, resolved sequentially BEFORE the fan-out: a companion this
 	// machine's human has not agreed to run is never exec'd, and two prompts
 	// can never interleave on one terminal. See AdmitCompanions.
-	admitted := admittedCompanions(DiscoverCompanions())
+	//
+	// The refused half is KEPT rather than filtered away. It is the only place
+	// a "found on PATH, never allowed to run" companion exists at all — it
+	// produces no loadout by definition — and reporting it costs nothing here
+	// while reconstructing it later would cost a second discovery pass.
+	decided := companionAdmission(DiscoverCompanions(), true)
+	admitted := make([]CompanionAdmission, 0, len(decided))
+	var candidates []bundles.CompanionCandidate
+	for _, a := range decided {
+		if a.Allow {
+			admitted = append(admitted, a)
+			continue
+		}
+		candidates = append(candidates, bundles.CompanionCandidate{
+			Bin: a.Bin, Path: a.Path, Reason: candidateReasonFor(a.Reason),
+		})
+	}
 	slots := make([]*bundles.CompanionLoadout, len(admitted))
+	failed := make([]*bundles.CompanionCandidate, len(admitted))
 	var wg sync.WaitGroup
 	for i, adm := range admitted {
 		wg.Add(1)
@@ -386,6 +367,7 @@ func ProbeCompanionLoadouts(ctx context.Context) ([]bundles.CompanionLoadout, er
 				if !errors.As(err, &exitErr) {
 					clidiag.Warn("ctxloom", "companion %q: loadout probe failed, withholding: %v", bin, err)
 				}
+				failed[i] = &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
 				return
 			}
 			bundleBytes, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
@@ -393,6 +375,7 @@ func ProbeCompanionLoadouts(ctx context.Context) ([]bundles.CompanionLoadout, er
 				// STRUCTURAL failure — no content was produced at all. Nothing
 				// to hand on, so this half still withholds.
 				clidiag.Warn("ctxloom", "companion %q: unparseable loadout envelope, withholding: %v", bin, derr)
+				failed[i] = &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
 				return
 			}
 			slots[i] = &bundles.CompanionLoadout{Bin: bin, Path: path, Bundle: bundleBytes, Signature: sig}
@@ -406,5 +389,26 @@ func ProbeCompanionLoadouts(ctx context.Context) ([]bundles.CompanionLoadout, er
 			out = append(out, *lo)
 		}
 	}
-	return out, nil
+	for _, c := range failed {
+		if c != nil {
+			candidates = append(candidates, *c)
+		}
+	}
+	return bundles.CompanionProbe{Loadouts: out, Candidates: candidates}, nil
+}
+
+// candidateReasonFor translates a refusal to execute into the reason a catalog
+// candidate carries.
+//
+// Everything except "nothing on this machine answers to that name" is
+// UNCONSENTED: declined, never confirmed, unhashable, or blocked by an
+// unreadable consent record all mean the same thing to a reader — the binary is
+// here and ctxloom was not allowed to run it — and all four are undone the same
+// way, by deciding about the file. The specific refusal is already announced by
+// admitCompanion itself, which is where the distinction has purchase.
+func candidateReasonFor(r CompanionAdmissionReason) bundles.CandidateReason {
+	if r == CompanionAdmissionNotInstalled {
+		return bundles.CandidateAbsent
+	}
+	return bundles.CandidateUnconsented
 }

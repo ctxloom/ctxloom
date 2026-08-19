@@ -2,11 +2,13 @@ package bundles
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -113,4 +115,108 @@ func namesOf(infos []*BundleInfo) []string {
 		out = append(out, i.Name)
 	}
 	return out
+}
+
+// twoBundlesOneDisplayName resolves a catalog holding two bundles that show
+// the SAME display name under DIFFERENT canonical URIs — the shape nothing
+// shadows any more, and therefore the shape a listing has to be able to render
+// distinguishably.
+func twoBundlesOneDisplayName(t *testing.T) Catalog {
+	t.Helper()
+	localSrc, err := trust.LocalRef("isolation")
+	require.NoError(t, err)
+	builtinSrc, err := trust.BuiltinRef("isolation")
+	require.NoError(t, err)
+
+	localBundle := &Bundle{Name: "isolation", Version: "1.0.0"}
+	localBundle.sourceRef = localSrc
+	localBundle.sourceRefSet = true
+
+	builtinBundle := &Bundle{Name: "isolation", Version: "2.0.0"}
+	builtinBundle.sourceRef = builtinSrc
+	builtinBundle.sourceRefSet = true
+
+	unsigned := signatureFacts{signature: SignatureNone, signer: SignerNone}
+	return Resolve(context.Background(), staticReader{reads: []BundleRead{
+		newRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned),
+		newRead("isolation", builtinBundle, ProvenanceBuiltin, TrustCtxLocal, unsigned),
+	}})
+}
+
+// TestListingNames_ShowsTheURIWhenTwoRowsShareAName is the listing half of the
+// ambiguity contract, and its point is the JOIN with the refusal: a user who
+// asks for "isolation" is told it names more than one bundle and given the
+// candidate URIs, so those exact URIs have to be findable in the listing or
+// the remedy names a string the user cannot locate.
+//
+// It asserts the join directly — every URI the refusal names must appear in
+// the labels the listing renders — rather than asserting a format twice, which
+// would let the two drift apart while both tests stayed green.
+func TestListingNames_ShowsTheURIWhenTwoRowsShareAName(t *testing.T) {
+	cat := twoBundlesOneDisplayName(t)
+	infos := cat.Infos()
+	require.Len(t, infos, 2, "guard: the fixture must produce two rows, or this test proves nothing")
+	require.Equal(t, infos[0].Name, infos[1].Name, "guard: both rows must show the SAME name")
+	require.NotEqual(t, infos[0].Ref, infos[1].Ref, "guard: the two rows must be different bundles")
+
+	_, err := cat.Lookup("isolation")
+	require.Error(t, err, "a name two bundles share must be refused, not silently won")
+	require.ErrorIs(t, err, errs.ErrBundleAmbiguous)
+
+	labels := listingNamesFor(t, infos)
+	require.Len(t, labels, 2)
+	assert.NotEqual(t, labels[0], labels[1],
+		"two rows a user has to choose between must not render identically")
+
+	for _, info := range infos {
+		assert.Contains(t, err.Error(), string(info.Ref),
+			"the refusal must name every candidate's canonical URI")
+		assert.Contains(t, strings.Join(labels, "\n"), string(info.Ref),
+			"a URI the refusal tells the user to type must be findable in the listing")
+	}
+	// Listing order is by display name then canonical key (sortReads), so the
+	// builtin URI sorts ahead of the local one.
+	assert.Equal(t, "isolation (ctxloom+builtin:isolation)", labels[0])
+	assert.Equal(t, "isolation (ctxloom+local:isolation)", labels[1])
+}
+
+// TestListingNames_LeavesAnUncontestedNameBare is the other half, and it is a
+// bug of its own if it fails: disambiguating a name nothing collides with puts
+// a URI in front of every reader for an ambiguity that is not there, and drains
+// the parenthetical of the meaning "these two differ".
+func TestListingNames_LeavesAnUncontestedNameBare(t *testing.T) {
+	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	infos := cat.Infos()
+	require.Len(t, infos, 1, "guard: one row, or the assertion below is vacuous")
+	require.NotEmpty(t, infos[0].Ref, "guard: the row must HAVE a URI it could have been disambiguated with")
+
+	labels := listingNamesFor(t, infos)
+	assert.Equal(t, []string{"kit"}, labels)
+
+	_, err := cat.Lookup(labels[0])
+	assert.NoError(t, err, "an uncontested row's label must still resolve")
+}
+
+// TestListingNames_LeavesARowWithNoURIBare covers the lockfile-only row
+// (deleted upstream): it shares a name with a real bundle but has no canonical
+// URI to be told apart BY, so an empty parenthetical would be noise claiming to
+// be a handle.
+func TestListingNames_LeavesARowWithNoURIBare(t *testing.T) {
+	infos := []*BundleInfo{
+		{Name: "isolation", Ref: "ctxloom+local:isolation"},
+		{Name: "isolation", Deleted: true},
+	}
+	labels := listingNamesFor(t, infos)
+	assert.Equal(t, "isolation (ctxloom+local:isolation)", labels[0])
+	assert.Equal(t, "isolation", labels[1], "a row with no URI renders no parenthetical")
+}
+
+// listingNamesFor calls ListingNames and pins the one structural property
+// every caller relies on: one label per info, in the same order, so a renderer
+// may walk the two by index.
+func listingNamesFor(t *testing.T, infos []*BundleInfo) []string {
+	t.Helper()
+	labels := ListingNames(infos)
+	require.Len(t, labels, len(infos), "ListingNames must answer once per row, in order")
+	return labels
 }

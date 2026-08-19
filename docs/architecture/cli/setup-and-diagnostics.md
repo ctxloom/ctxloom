@@ -118,9 +118,17 @@ All four also exist as `manage config *` deprecated aliases (`manage.go:406-452`
 | `config show` / `get` / `edit` / `init` (deprecated) | `:422`–`:446` |
 | `gitignore install` | `:462` |
 
-`companionHint` (`:194`) is the "what breaks / how to install" text for a missing
-companion binary; its map keys must match `config.BuiltinCompanionBins()`, and a
-drift degrades to a generic fallback (documented at `:199-202`).
+`companionHint` is the "what breaks / how to install" text for a missing
+companion binary; its map keys are companion binary names, and a name with no
+entry degrades to a generic fallback. `printCompanionStatus` reads
+`config.AdmitCompanions(..., prompt=false)` and nothing else: a status command
+executes no companion — approved or not — and can never raise the
+trust-on-first-use question, because the answer to "what is the state of
+things" must not itself change that state. The resolved `bundles.Catalog` is
+deliberately NOT consulted here; its companion reader is the exec. `ctxloom
+doctor` reads the catalog instead (`Catalog.Candidates()` for the companions
+that produced nothing), which is where a diagnosis is allowed to cost a
+resolution.
 
 ## `ctxloom container` (`container_cmd.go:22`)
 

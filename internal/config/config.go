@@ -2423,7 +2423,7 @@ func (c *Config) companionProber() bundles.CompanionProber {
 	if probe == nil {
 		probe = ProbeCompanionLoadouts
 	}
-	return func(ctx context.Context) ([]bundles.CompanionLoadout, error) {
+	return func(ctx context.Context) (bundles.CompanionProbe, error) {
 		// The process-wide switch (--no-companions / CTXLOOM_NO_COMPANIONS) wins
 		// over everything, INCLUDING an injected probe: "off" must mean no
 		// companion code runs, not "off unless something wired an override".
@@ -2432,7 +2432,7 @@ func (c *Config) companionProber() bundles.CompanionProber {
 		// exec, not discarding its result, is the point, since probing shells out
 		// to whatever companion binaries happen to be on the host's PATH.
 		if CompanionsDisabled() {
-			return nil, nil
+			return bundles.CompanionProbe{}, nil
 		}
 		var err error
 		state.once.Do(func() {
@@ -2448,7 +2448,7 @@ func (c *Config) companionProber() bundles.CompanionProber {
 // developer happens to have installed. Tests that pin such a set call this so
 // the fixture — not the machine — decides the result.
 func (c *Config) DisableCompanionProbe() {
-	c.companionProbe = func(context.Context) ([]bundles.CompanionLoadout, error) { return nil, nil }
+	c.companionProbe = func(context.Context) (bundles.CompanionProbe, error) { return bundles.CompanionProbe{}, nil }
 }
 
 // SetCompanionProbeForTesting pins the companion loadouts this Config will see,
@@ -2464,7 +2464,7 @@ func (c *Config) SetCompanionProbeForTesting(probe bundles.CompanionProber) {
 // is no allocation to guard and no second lock.
 type companionSeedState struct {
 	once  sync.Once
-	cache []bundles.CompanionLoadout
+	cache bundles.CompanionProbe
 }
 
 // bundleVersionResolver returns a bundles.BundleVersionResolver that materializes

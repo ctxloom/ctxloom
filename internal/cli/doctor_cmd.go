@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
+	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/internal/version"
 )
 
@@ -749,8 +750,8 @@ func doctorTrustStoreDetail(signers []operations.SignerListing, err error) (deta
 // ===== init-as-skill Phase 6 postcondition checks (plan.md §8.2) =====
 //
 // These compose the SAME operations/config entry points every other command
-// already uses (config.Config, operations.AssembleContext, config.
-// DiscoverCompanions/ProbeCompanions/ProbeCompanionLoadouts) rather than
+// already uses (config.Config, operations.AssembleContext, the resolved
+// bundles.Catalog behind config.Config.BundleLoader) rather than
 // re-implementing any of their logic — this file's job is to CALL them and
 // translate the result into a doctorCheck, never to re-derive what "locked",
 // "resolves", or "registered" means. Deliberately absent: anything that
@@ -861,14 +862,19 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 	return doctorCheck{Marker: marker, Status: status, Detail: strings.Join(parts, "; ")}
 }
 
-// doctorCheckSetupCompanions reports companion discovery + loadout probing —
-// the SAME two-stage protocol (config.DiscoverCompanions, config.
-// ProbeCompanions, config.ProbeCompanionLoadouts) AssembleContext's
-// context assembly already runs internally for a real session. Reporting
-// only: a project with no companions installed is not misconfigured (they
-// are optional add-ons), so this is never a "warn"; it respects
-// --no-companions/CTXLOOM_NO_COMPANIONS (config.CompanionsDisabled) by
-// reporting that instead of executing companion binaries a second time.
+// doctorCheckSetupCompanions reports what the session's companions actually
+// contributed, from the ONE resolved bundle set (config.Config.BundleLoader)
+// AssembleContext's own assembly reads. Reporting only: a project with no
+// companions installed is not misconfigured (they are optional add-ons), so
+// this is never a "warn".
+//
+// It discovers nothing itself. The catalog's reads are the loadouts a session
+// carries and its candidates are the identities that produced none, each with
+// the reason — so "found on PATH" and "actually run" stay different facts
+// without a second pass over the machine that could answer differently from
+// the session being described. Reporting only the first would tell a user
+// their companion is fine while it contributes nothing, the exact silent no-op
+// doctor exists to surface.
 func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-COMPANIONS-i9"
 	if cfgErr != nil {
@@ -877,44 +883,65 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	if config.CompanionsDisabled() {
 		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "companion probing disabled (--no-companions)"}
 	}
-	bins := config.DiscoverCompanions()
-	if len(bins) == 0 {
+	cat := cfg.BundleLoader().Catalog()
+
+	var contributing []string
+	for _, read := range cat.Reads() {
+		if read.Provenance == bundles.ProvenanceCompanion {
+			contributing = append(contributing, companionBinOf(read.Key()))
+		}
+	}
+	var absent, notRun, failed []string
+	for _, cand := range cat.Candidates() {
+		bin := companionBinOf(cand.Ref)
+		switch cand.Reason {
+		case bundles.CandidateAbsent:
+			absent = append(absent, bin)
+		case bundles.CandidateUnconsented:
+			notRun = append(notRun, fmt.Sprintf("%s (%s)", bin, cand.Path))
+		default:
+			failed = append(failed, fmt.Sprintf("%s (%s)", bin, cand.Path))
+		}
+	}
+	if len(contributing)+len(absent)+len(notRun)+len(failed) == 0 {
 		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "no companions discovered"}
 	}
-	// "on PATH" and "actually run" are now different facts: a companion whose
-	// EXECUTION nobody confirmed is present and skipped. Reporting only the
-	// first would tell a user their companion is fine while it contributes
-	// nothing — the exact silent no-op doctor exists to surface.
-	var present, notRun []string
-	for _, st := range config.ProbeCompanions() {
-		if st.Path == "" {
+
+	// "(none)" rather than an omitted section: what a session actually carries
+	// is the fact this check exists to state, and a missing line reads as
+	// unchecked. Every other section is about an exception and is omitted when
+	// it has no members. Each carries the remedy its reason implies.
+	loadouts := "(none)"
+	if len(contributing) > 0 {
+		loadouts = strings.Join(contributing, ", ")
+	}
+	parts := []string{"loadouts read: " + loadouts}
+	for _, section := range []struct {
+		label string
+		items []string
+		hint  string
+	}{
+		{"NOT RUN", notRun, " — allow with 'ctxloom companion trust <path>'"},
+		{"probe failed", failed, ""},
+		{"not installed", absent, ""},
+	} {
+		if len(section.items) == 0 {
 			continue
 		}
-		present = append(present, st.Bin)
-		if !st.Executed() {
-			notRun = append(notRun, fmt.Sprintf("%s (%s)", st.Bin, st.Admission))
-		}
+		parts = append(parts, section.label+": "+strings.Join(section.items, ", ")+section.hint)
 	}
-	// Count the loadouts as the READER reported them, rather than probing a
-	// second time: asking the loader what it read cannot exec a companion
-	// again, and it counts what a session would actually carry.
-	loadouts := 0
-	for _, read := range cfg.BundleLoader().Reads() {
-		if read.Provenance == bundles.ProvenanceCompanion {
-			loadouts++
-		}
+	return doctorCheck{Marker: marker, Status: doctorOK, Detail: strings.Join(parts, "; ")}
+}
+
+// companionBinOf recovers the binary name a companion identity was minted
+// from. A key that will not parse is shown verbatim: it is still the most
+// specific thing known about that entry, and hiding it would drop a row.
+func companionBinOf(key trust.BundleKey) string {
+	ref, err := trust.ParseBundleRef(string(key))
+	if err != nil || ref.Bundle == "" {
+		return string(key)
 	}
-	presentDetail := "(none on PATH)"
-	if len(present) > 0 {
-		presentDetail = strings.Join(present, ", ")
-	}
-	notRunDetail := ""
-	if len(notRun) > 0 {
-		notRunDetail = fmt.Sprintf("; NOT RUN: %s — allow with 'ctxloom companion trust <path>'", strings.Join(notRun, ", "))
-	}
-	return doctorCheck{Marker: marker, Status: doctorOK, Detail: fmt.Sprintf(
-		"discovered: %s; on PATH: %s; loadouts read: %d%s",
-		strings.Join(bins, ", "), presentDetail, loadouts, notRunDetail)}
+	return ref.Bundle
 }
 
 // doctorCheckSetupAuthPing is a placeholder. init-as-skill's USER RULING (a)

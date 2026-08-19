@@ -127,10 +127,10 @@ func admitEveryDiscoveredCompanion(t *testing.T) {
 // user gets rather than about either half's internals.
 func companionBundles(t *testing.T, root signing.TrustRoot) map[string]*bundles.Bundle {
 	t.Helper()
-	loadouts, err := ProbeCompanionLoadouts(context.Background())
+	probe, err := ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	reads, err := bundles.NewCompanionReader(
-		func(context.Context) ([]bundles.CompanionLoadout, error) { return loadouts, nil },
+		func(context.Context) (bundles.CompanionProbe, error) { return probe, nil },
 		bundles.WithTrustRoot(root),
 	).Read(context.Background())
 	require.NoError(t, err)

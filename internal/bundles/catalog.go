@@ -19,15 +19,13 @@ import (
 
 // Catalog is the RESOLVED bundle set: everything a session can see, read once.
 //
-// It is a VALUE, and that is the whole point of it existing. Every consumer used
-// to hold a *Loader — a RESOLVER — which meant every consumer could re-read the
-// world, and 22 of them did on a single `ctxloom doctor` run. A resolved set
-// cannot: holding one triggers no directory walk and no parse, so the question
-// "who re-reads, and when" has exactly one answer instead of one per call site.
+// It is a VALUE, and that is the whole point of it existing. A consumer holding
+// a RESOLVER can re-read the world, and a consumer per call site means a re-read
+// per call site. Holding a resolved set triggers no directory walk and no parse,
+// so "who re-reads, and when" has exactly one answer.
 //
-// The reads were always here; what was missing was a NAME for the collection.
-// Loader.Reads() returned a fresh []BundleRead copy on every call and nothing
-// named it, so there was nothing to pass and everyone passed the resolver.
+// Pass this, not the resolver, wherever a caller only needs to ASK what is in
+// the world rather than to rebuild it.
 type Catalog struct {
 	reads []BundleRead // every read, in listing order
 

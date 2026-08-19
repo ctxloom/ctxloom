@@ -125,7 +125,7 @@ const (
 // axes, optionally discriminated by a variant.
 type probeCell struct {
 	Engine    string // backend type as the Examples table writes it ("claude-code")
-	Runtime   string // host | container
+	Runtime   string // host | container | container-rootless | container-rootful (P0 is on the ownership split; other probes are not yet)
 	Workspace string // none | worktree
 	Variant   string // optional intra-cell discriminator ("system-prompt", "control")
 
@@ -545,8 +545,12 @@ var probeRegistry = []probeSpec{
 	},
 }
 
-// p0Cells is the 16-cell floor that engine_isolation_matrix.feature already
-// runs: four engines × (host|container) × (none|worktree).
+// p0Cells is the 24-cell floor that engine_isolation_matrix.feature already
+// runs: four engines × (host|container-rootless|container-rootful) ×
+// (none|worktree). container-rootless and container-rootful are ownership
+// modes of the SAME containerization axis, not a fourth engine dimension — see
+// isolation.IsContainerRuntimeAxis and the feature file's own header for why
+// there is no bare "container" value.
 //
 // The two evidenced exceptions are written out rather than generated, because
 // they carry MEASURED findings and a generated row cannot hold one.
@@ -565,11 +569,23 @@ func p0Cells() []probeCell {
 	// edit the completeness gate was built to force. What replaces it is not a
 	// blanket assumption in the other direction: every one of the eight rows now
 	// carries its own evidence or its own gate reason, written out below.
-	const containerEvidence = "coordinator serial chain 2026-08-13, task bpjje2q53, post auth-keying merge (303881ee): 1 scenario / 3 steps green against the real engine in a container, credentials through the real-home read-write mount. Measured with the PRE-HARP hex nonce — see the note below."
+	//
+	// THE EVIDENCE IS container-rootless SPECIFICALLY, not "container" in
+	// general. It was measured before the runtime axis split into
+	// container-rootless/container-rootful (2026-08-17); nothing about that
+	// rename changed what ran. Every box this suite has run on has had a
+	// reachable rootless docker daemon and no reachable rootful one (a host
+	// has at most one — containercell.probeDocker asserts the exclusivity from
+	// one `docker info`), so the runtime that answered these cells was
+	// necessarily rootless. container-rootful is a DIFFERENT cell that shares
+	// this one's fixture and assertion but not its evidence — see the
+	// container-rootful loop below, which leaves those cells at the default
+	// probeWired (wired, unverified) rather than borrowing this Reason.
+	const containerEvidence = "coordinator serial chain 2026-08-13, task bpjje2q53, post auth-keying merge (303881ee): 1 scenario / 3 steps green against the real engine in a container, credentials through the real-home read-write mount. Measured with the PRE-HARP hex nonce — see the note below. REATTRIBUTED 2026-08-18 (task unvisited-magnolia) from the undifferentiated \"container\" axis to container-rootless specifically, following the ownership-axis split: this box has never had a reachable rootful docker daemon, so rootless is the only ownership this evidence could have measured."
 
 	var cells []probeCell
 	for _, e := range probeEngines {
-		for _, rt := range []string{"host", "container"} {
+		for _, rt := range []string{"host", "container-rootless", "container-rootful"} {
 			for _, ws := range []string{"none", "worktree"} {
 				cells = append(cells, probeCell{Engine: e, Runtime: rt, Workspace: ws, Status: probeWired})
 			}
@@ -578,10 +594,21 @@ func p0Cells() []probeCell {
 
 	for _, e := range []string{"claude-code", "codex", "opencode"} {
 		for _, ws := range []string{"none", "worktree"} {
-			setCell(cells, e, "container", ws, func(c *probeCell) {
+			setCell(cells, e, "container-rootless", ws, func(c *probeCell) {
 				c.Status = probeLiveVerified
 				c.Reason = containerEvidence
 			})
+			// container-rootful: deliberately left at the default probeWired
+			// (a scenario exists and runs, but nobody has watched it go green)
+			// rather than sharing containerEvidence — see that constant's own
+			// doc for why the two ownership modes cannot share one measurement.
+			// probeWired needs no Reason (enforced by
+			// TestProbeRegistry_CellsAreWellFormedAndEvidenced), which is
+			// itself the honest statement: there is nothing measured to say
+			// yet. Move it to probeLiveVerified with its OWN evidence once a
+			// runner with a reachable rootful daemon (or a rootful-invoked
+			// podman) runs `just engine-matrix <engine> container-rootful
+			// <workspace>` and it passes.
 		}
 	}
 
@@ -590,21 +617,25 @@ func p0Cells() []probeCell {
 	// with HonoursVarForCreds FALSE, because kiro's subscription credential is a
 	// global sqlite that no HomeVar relocates — so ctxloom refuses to start
 	// rather than silently hand the agent a fresh, logged-out data home, and
-	// KIRO_API_KEY is the only key that opens the axis.
+	// KIRO_API_KEY is the only key that opens the axis. That gate is about the
+	// CREDENTIAL MECHANISM, not about who owns the container daemon, so it
+	// applies identically on both ownership modes — the loop below covers both.
 	//
 	// Recorded as gated-out per the coordinator's ruling, with the nuance stated
 	// rather than smoothed away: this is a CONDITIONAL gate, not a declared
 	// absence. kiro's container axis works when KIRO_API_KEY is present; it is
-	// unreachable on this box's subscription auth. That is why these two rows
+	// unreachable on this box's subscription auth. That is why these rows
 	// keep their Examples blocks (GateAtRuntime below) — the loud skip IS the
 	// report, and deleting the rows would delete the only place the limitation
 	// is stated where somebody runs into it.
-	for _, ws := range []string{"none", "worktree"} {
-		setCell(cells, "kiro", "container", ws, func(c *probeCell) {
-			c.Status = probeGatedOut
-			c.GateAtRuntime = true
-			c.Reason = "gated 2026-08-13 in the coordinator's serial chain with production's own skip message: credentialSeedSpecs[\"kiro\"] marks XDG_DATA_HOME GatedOnCreds with HonoursVarForCreds FALSE (the subscription credential is a global sqlite no HomeVar relocates), so KIRO_API_KEY is the only key that opens this axis. CONDITIONAL, not a declared absence — with the key set, this cell runs."
-		})
+	for _, rt := range []string{"container-rootless", "container-rootful"} {
+		for _, ws := range []string{"none", "worktree"} {
+			setCell(cells, "kiro", rt, ws, func(c *probeCell) {
+				c.Status = probeGatedOut
+				c.GateAtRuntime = true
+				c.Reason = "gated 2026-08-13 in the coordinator's serial chain with production's own skip message: credentialSeedSpecs[\"kiro\"] marks XDG_DATA_HOME GatedOnCreds with HonoursVarForCreds FALSE (the subscription credential is a global sqlite no HomeVar relocates), so KIRO_API_KEY is the only key that opens this axis. CONDITIONAL, not a declared absence — with the key set, this cell runs. Applies identically on both container ownership modes (task unvisited-magnolia, 2026-08-18): the gate is about the credential mechanism, not about who owns the daemon."
+			})
+		}
 	}
 
 	// kiro host/none: RED, and the finding is NOT about the model. Measured:
@@ -637,17 +668,17 @@ func p0Cells() []probeCell {
 		c.Reason = "measured 2026-08-16 on the subscription lane, part of the same four-cell claude sweep as host/none (run right after the matrix narrowed to claude-only active rows): `just engine-matrix claude-code host worktree` passed in ~5.5s."
 	})
 
-	// claude-code's two container cells already carry the
+	// claude-code's two container-rootless cells already carry the
 	// coordinator-chain evidence (containerEvidence, above), which codex and
-	// opencode's container cells share verbatim. Append claude's own
+	// opencode's container-rootless cells share verbatim. Append claude's own
 	// re-verification here rather than edit the shared constant,
 	// since codex and opencode were not re-run at the same time and their
 	// existing evidence must not be touched.
-	setCell(cells, "claude-code", "container", "none", func(c *probeCell) {
-		c.Reason += " RE-VERIFIED 2026-08-16 on the subscription lane, part of the same four-cell claude sweep: passed in 57s including the image build."
+	setCell(cells, "claude-code", "container-rootless", "none", func(c *probeCell) {
+		c.Reason += " RE-VERIFIED 2026-08-16 on the subscription lane, part of the same four-cell claude sweep: passed in 57s including the image build (measured before the container-rootless/container-rootful split; see containerEvidence's own reattribution note)."
 	})
-	setCell(cells, "claude-code", "container", "worktree", func(c *probeCell) {
-		c.Reason += " RE-VERIFIED 2026-08-16 on the subscription lane, part of the same four-cell claude sweep: passed in 8s."
+	setCell(cells, "claude-code", "container-rootless", "worktree", func(c *probeCell) {
+		c.Reason += " RE-VERIFIED 2026-08-16 on the subscription lane, part of the same four-cell claude sweep: passed in 8s (measured before the container-rootless/container-rootful split; see containerEvidence's own reattribution note)."
 	})
 	return cells
 }

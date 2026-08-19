@@ -74,10 +74,16 @@ func probeCellSkip(family string, cell probeCellID, reason string) error {
 // coverage — the exact silence this ladder exists to break — so it has to stop
 // the suite rather than quietly decline.
 func probeCellResolve(family string, cell probeCellID) (liveAgent, string, error) {
+	// "container" stays valid alongside the two ownership values: most probes
+	// have not yet migrated off the undifferentiated containerization axis,
+	// and only P0 (engine_isolation_matrix.feature) declares
+	// container-rootless/container-rootful cells today — see
+	// capability_probe_gate_live.go's probeCellGate for where the two shapes
+	// diverge into different runtime-availability checks.
 	switch cell.Runtime {
-	case "host", "container":
+	case "host", "container", "container-rootless", "container-rootful":
 	default:
-		return liveAgent{}, "", fmt.Errorf("%s: unknown runtime axis %q (want host|container)", family, cell.Runtime)
+		return liveAgent{}, "", fmt.Errorf("%s: unknown runtime axis %q (want host|container|container-rootless|container-rootful)", family, cell.Runtime)
 	}
 	switch cell.Workspace {
 	case "none", "worktree":

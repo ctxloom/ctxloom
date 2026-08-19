@@ -73,10 +73,25 @@ func matrixBundleYAML(nonce string) string {
 // matrixConfigYAML renders config.yaml for one cell: the engine's OWN registry
 // config (live_engine_registry.go's liveAgents[key].config, already carrying
 // that engine's backend type and the cheap pinned model the whole @live lane
-// shares) plus one agent binding, and `runtime: container` for the container
-// axis only. Appending to the registry's own string keeps ONE source of truth
-// for which backend type and model the live lane drives an engine with —
-// exactly what probeConfigYAML (isolation_probe.go) does for the same reason.
+// shares) plus one agent binding, and `runtime: <the axis value>` for any
+// container axis. Appending to the registry's own string keeps ONE source of
+// truth for which backend type and model the live lane drives an engine with
+// — exactly what probeConfigYAML (isolation_probe.go) does for the same
+// reason.
+//
+// runtime IS THE CONFIG VALUE VERBATIM, not translated. This function is
+// shared by P0 (this file's own caller, container-rootless/container-rootful)
+// and P1 (approachConfigYAML, still "container" — it has not migrated off the
+// undifferentiated axis; see capability_probe_gate_live.go's probeCellGate for
+// where the two shapes diverge). All three are config.yaml's own spelling
+// (resources/schema config-schema.json's `runtime` enum), so writing the
+// string straight through means this fixture cannot drift from what the
+// schema accepts, for whichever caller supplies it. Dropping any one of the
+// three from this switch would silently stop writing `runtime:` for whichever
+// probe still passes it — an axis a cell asked for that quietly runs on the
+// host instead, this codebase's characteristic silent no-op — so a caller
+// migrating off "container" must add its new value here rather than assume
+// the fallthrough covers it.
 //
 // The workspace axis is NOT written here: it rides the `--workspace` flag on
 // the run, mirroring the isolation probe, so a cell exercises the same public
@@ -91,8 +106,9 @@ func matrixConfigYAML(a liveAgent, llmKey, runtime string) string {
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
 		matrixAgent, llmKey, matrixAgent)
-	if runtime == "container" {
-		b.WriteString("    runtime: container\n")
+	switch runtime {
+	case "container", "container-rootless", "container-rootful":
+		fmt.Fprintf(&b, "    runtime: %s\n", runtime)
 	}
 	return b.String()
 }

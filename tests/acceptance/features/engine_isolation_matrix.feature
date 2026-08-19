@@ -9,7 +9,7 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
 
   CLAUDE IS THE ENGINE THIS FEATURE DRIVES NOW. The matrix is built on two axes
   that apply to any engine ctxloom ships, and claude is the one currently wired
-  active on all four combinations of them. Codex, kiro and opencode are
+  active on all six combinations of them. Codex, kiro and opencode are
   designed on the identical two axes — their Examples blocks are further down
   this file, each now tagged work-in-progress, carrying every comment and
   measured finding they already had, untouched — but they are not the engine
@@ -19,14 +19,31 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
 
   THE TWO AXES, NAMED PLAINLY, because the table below crosses them and a
   reader should not have to already know which is which to read it. `runtime`
-  (host | container) is the CONTAINERIZATION axis — it isolates the PROCESS the
-  engine runs in. `workspace` (none | worktree) is the ISOLATION axis — it
-  isolates the FILES the engine sees. They are INDEPENDENT: a container run can
-  still mount the workspace at the exact absolute path the live project lives
-  at, and a worktree run still executes the engine on the host, outside any
-  container — picking one says nothing about the other. Both column names stay
-  `runtime` and `workspace` throughout this suite: they are the product's own
-  spelling, matching config.yaml and the CLI flags.
+  (host | container-rootless | container-rootful) is the CONTAINERIZATION axis
+  — it isolates the PROCESS the engine runs in. `workspace` (none | worktree)
+  is the ISOLATION axis — it isolates the FILES the engine sees. They are
+  INDEPENDENT: a container run can still mount the workspace at the exact
+  absolute path the live project lives at, and a worktree run still executes
+  the engine on the host, outside any container — picking one says nothing
+  about the other.
+
+  RUNTIME'S THREE VALUES, NOT TWO. `container` was never a fourth thing beside
+  `host` — it split into `container-rootless` and `container-rootful` because
+  they differ in the property this whole floor cares about: who owns the
+  container runtime daemon, and therefore which uid a run's writes land as.
+  That is a DIMENSION of the containerization axis, not a second axis and not
+  a separate suite — there is deliberately no bare `container` value here, and
+  every container row below names its ownership explicitly. A host running
+  both dimensions of a suite would be unusual; a host running both ownership
+  modes of a container daemon is rarer still — a reachable rootless docker
+  daemon means rootful docker is NOT reachable on that same box, and vice
+  versa (containercell.probeDocker asserts the exclusivity from one `docker
+  info`) — so the matrix is asymmetric by ENVIRONMENT, never by design: each
+  runner covers what it has, and no single runner is expected to cover every
+  cell below.
+
+  Both column names stay `runtime` and `workspace` throughout this suite: they
+  are the product's own spelling, matching config.yaml and the CLI flags.
 
   Nothing else in this suite answers that. j002300_cross_engine_delegation.feature
   proves DELEGATION, and only on the host axis with workspace none.
@@ -61,12 +78,13 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
   already has a solved mechanism: the host axis uses the engine's real home;
   the worktree axis seeds per-agent homes through credentialSeedSpecs; the
   container axis mounts the host credential store (claude's read-write, so a
-  refresh lands in the live chain — merge 07072acf). Those mechanisms all
-  resolve from the real host home, so these cells deliberately do NOT isolate
-  it, and seed nothing themselves: a cell that substituted its own credential
-  delivery would prove nothing about the product, and a cell more cautious than
-  the product is not a test of it. What this floor asserts on stays isolated —
-  a fresh temp project holds the fixture, and the assertion reads only stdout.
+  refresh lands in the live chain — merge 07072acf), identically under either
+  ownership mode. Those mechanisms all resolve from the real host home, so
+  these cells deliberately do NOT isolate it, and seed nothing themselves: a
+  cell that substituted its own credential delivery would prove nothing about
+  the product, and a cell more cautious than the product is not a test of it.
+  What this floor asserts on stays isolated — a fresh temp project holds the
+  fixture, and the assertion reads only stdout.
 
   THE CONTAINER CELLS WENT GREEN ON 2026-08-13, AND THAT IS WHAT THEY WERE FOR.
   Agent containerization had never been demonstrably correct here — the
@@ -79,12 +97,28 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
   relocates, so KIRO_API_KEY is the only key that opens the axis — a real
   product limitation, recorded as one).
 
+  THAT EVIDENCE IS NOW ATTRIBUTED TO container-rootless SPECIFICALLY, not
+  reproved. The runtime axis split into container-rootless/container-rootful on
+  2026-08-17, after every measurement above was taken; nothing about the axis
+  rename changed what actually ran. Every box this suite has ever run on has
+  had a reachable rootless docker daemon and no reachable rootful one (see the
+  header paragraph above on why a box has at most one), so the runtime that
+  answered these eight cells was necessarily rootless. The container-rootful
+  rows added alongside them below are the SAME cells this section describes,
+  under the ownership this suite has never yet been able to reach — wired, and
+  waiting on a runner that actually has a rootful daemon (a privileged docker
+  restart, a dedicated CI job/VM, or DinD) to become live-verified in their own
+  right rather than inherit this paragraph's evidence by assumption.
+
   CLAUDE'S FULL FOUR-CELL FLOOR WAS RE-VERIFIED ON 2026-08-16, RIGHT AFTER THIS
   MATRIX NARROWED TO CLAUDE-ONLY ACTIVE ROWS. All four claude cells were run on
   the subscription lane and all four PASSED: host/none and host/worktree each
   ~5.5s, container/none 57s (including the image build), container/worktree
   8s. Narrowing the matrix to claude did not just restructure the table — it
-  re-measured every cell claude carries.
+  re-measured every cell claude carries. Read "container/none" and
+  "container/worktree" in that sentence as container-rootless, per the
+  reattribution above — the axis had no rootful/rootless split yet on
+  2026-08-16.
 
   The cells stay exactly as strict as they were. A red here is now a
   REGRESSION rather than an expectation, which is the whole point of having run
@@ -94,9 +128,10 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
   ADDRESSING ONE CELL. Every Examples block carries its engine, its runtime axis
   and its workspace axis as tags — the idiom isolation_probe.feature
   established — so `just engine-matrix <engine> <runtime> <workspace>` runs
-  exactly one cell. That is the unit of work here: these are real, paid engine
-  calls, a container cell can be minutes long, and running the matrix in
-  parallel on a loaded box is how a machine gets OOM-killed mid-measurement.
+  exactly one cell (runtime is host, container-rootless or container-rootful).
+  That is the unit of work here: these are real, paid engine calls, a container
+  cell can be minutes long, and running the matrix in parallel on a loaded box
+  is how a machine gets OOM-killed mid-measurement.
 
   # Each cell self-skips LOUDLY, naming the engine and BOTH axes, and every
   # remaining skip names something PRODUCTION cannot do — never something this
@@ -106,17 +141,22 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
   # credential is a GLOBAL sqlite that no HomeVar relocates — so ctxloom
   # refuses to start rather than silently hand the agent a fresh, logged-out
   # data home, and KIRO_API_KEY is the only key that opens those two axes.
-  # That is a real product limitation, recorded here as one.
+  # That is a real product limitation, recorded here as one. A container-rootful
+  # row that skips because THIS BOX has no rootful daemon reachable is a
+  # DIFFERENT kind of blank — an ENVIRONMENT limitation, not a production one —
+  # and CTXLOOM_REQUIRE_RUNTIMES is what turns that blank into a hard failure on
+  # a runner that is supposed to have one (see dockergate's own doc).
   # A blank cell in the matrix always has a reason attached.
   Scenario Outline: A <engine> run under runtime <runtime> and workspace <workspace> returns exactly the JSON it was asked for
     Given the engine matrix targets "<engine>" under runtime "<runtime>" and workspace "<workspace>"
     When it runs the JSON hello-world task in one turn
     Then the run's output is exactly the expected JSON object
 
-    # ACTIVE FLOOR — claude only. VERIFIED LIVE 2026-08-16 on the subscription
-    # lane: all four cells below run serially, all four PASSED — host/none
-    # ~5.5s, host/worktree ~5.5s, container/none 57s (including the image
-    # build), container/worktree 8s. See the header for the fuller account.
+    # ACTIVE FLOOR — claude only. The host and container-rootless pairs were
+    # VERIFIED LIVE 2026-08-16 on the subscription lane: all four cells ran
+    # serially, all four PASSED — host/none ~5.5s, host/worktree ~5.5s,
+    # container(-rootless)/none 57s (including the image build),
+    # container(-rootless)/worktree 8s. See the header for the fuller account.
     @claude-code @host @ws-none
     Examples:
       | engine      | runtime | workspace |
@@ -127,15 +167,40 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
       | engine      | runtime | workspace |
       | claude-code | host    | worktree  |
 
-    @claude-code @container @ws-none
+    @claude-code @container-rootless @ws-none
     Examples:
-      | engine      | runtime   | workspace |
-      | claude-code | container | none      |
+      | engine      | runtime           | workspace |
+      | claude-code | container-rootless | none      |
 
-    @claude-code @container @ws-worktree
+    @claude-code @container-rootless @ws-worktree
     Examples:
-      | engine      | runtime   | workspace |
-      | claude-code | container | worktree  |
+      | engine      | runtime           | workspace |
+      | claude-code | container-rootless | worktree  |
+
+    # WIRED, NOT YET LIVE-VERIFIED. Same cell as the container-rootless pair
+    # above, opposite ownership — see the header's "THAT EVIDENCE IS NOW
+    # ATTRIBUTED" paragraph for why the earlier container evidence does not
+    # cover this row. This development box runs docker ROOTLESS only
+    # (containercell.probeDocker), so docker-rootful is unreachable here and
+    # this row self-skips on it. The cheapest real coverage available without a
+    # privileged daemon restart is podman: rootless vs rootful podman is an
+    # INVOCATION property (podman vs sudo podman), not a second daemon, and the
+    # gate below reads containercell's own probed RootMapsToInvoker to decide
+    # whether THIS box's podman actually serves this row — never substituting
+    # a rootless answer for a rootful one. Run `just engine-matrix claude-code
+    # container-rootful none` on a box that actually has a rootful docker (or a
+    # rootful-invoked podman) to move this row to live-verified.
+    @claude-code @container-rootful @ws-none
+    Examples:
+      | engine      | runtime          | workspace |
+      | claude-code | container-rootful | none      |
+
+    # WIRED, NOT YET LIVE-VERIFIED — see the note on the container-rootful/none
+    # row above; identical reasoning, worktree axis.
+    @claude-code @container-rootful @ws-worktree
+    Examples:
+      | engine      | runtime          | workspace |
+      | claude-code | container-rootful | worktree  |
 
     # ============================================================
     # OTHER ENGINES — SAME TWO AXES (runtime × workspace), NOT YET DRIVEN.
@@ -168,19 +233,42 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
 
     # @wip — not a defect: codex is designed on the same two axes claude
     # drives above, but it is not the engine under active test right now.
-    # Untag when codex becomes a driven engine again.
-    @codex @container @ws-none @wip
+    # This is the container-rootless row; see the header's "THAT EVIDENCE IS
+    # NOW ATTRIBUTED" paragraph — codex was one of the three engines the
+    # 2026-08-13 coordinator chain ran green here, under the only ownership
+    # this suite has ever reached. Untag when codex becomes a driven engine
+    # again.
+    @codex @container-rootless @ws-none @wip
     Examples:
-      | engine | runtime   | workspace |
-      | codex  | container | none      |
+      | engine | runtime           | workspace |
+      | codex  | container-rootless | none      |
 
     # @wip — not a defect: codex is designed on the same two axes claude
     # drives above, but it is not the engine under active test right now.
-    # Untag when codex becomes a driven engine again.
-    @codex @container @ws-worktree @wip
+    # Container-rootless row; see the note on codex's container-rootless/none
+    # block above. Untag when codex becomes a driven engine again.
+    @codex @container-rootless @ws-worktree @wip
     Examples:
-      | engine | runtime   | workspace |
-      | codex  | container | worktree  |
+      | engine | runtime           | workspace |
+      | codex  | container-rootless | worktree  |
+
+    # @wip, and WIRED-NOT-YET-LIVE-VERIFIED for a second, independent reason:
+    # codex is not the engine under active test, AND this box cannot reach a
+    # rootful container runtime at all (see the claude-code container-rootful
+    # rows above for the full account). Untag when codex becomes a driven
+    # engine again; that is independent of the rootful-runner gap, which stays
+    # open regardless.
+    @codex @container-rootful @ws-none @wip
+    Examples:
+      | engine | runtime          | workspace |
+      | codex  | container-rootful | none      |
+
+    # @wip, and WIRED-NOT-YET-LIVE-VERIFIED — see the note on codex's
+    # container-rootful/none block above; identical reasoning, worktree axis.
+    @codex @container-rootful @ws-worktree @wip
+    Examples:
+      | engine | runtime          | workspace |
+      | codex  | container-rootful | worktree  |
 
     # @wip — RED, and the finding is NOT about the model. Measured 2026-08-13:
     # kiro produced the requested object byte-perfectly, and ctxloom handed it
@@ -222,21 +310,42 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
     # above, but it is not the engine under active test right now. Untag when
     # kiro becomes a driven engine again. (Production's own conditional gate
     # on this axis — credentialSeedSpecs["kiro"] needs KIRO_API_KEY — still
-    # applies underneath this tag; see the header comment above the outline.)
-    @kiro @container @ws-none @wip
+    # applies underneath this tag, on EITHER ownership mode: the limitation is
+    # about the credential mechanism, not about who owns the daemon. See the
+    # header comment above the outline.)
+    @kiro @container-rootless @ws-none @wip
     Examples:
-      | engine | runtime   | workspace |
-      | kiro   | container | none      |
+      | engine | runtime           | workspace |
+      | kiro   | container-rootless | none      |
 
     # @wip — not a defect: kiro is designed on the same two axes claude drives
     # above, but it is not the engine under active test right now. Untag when
     # kiro becomes a driven engine again. (Production's own conditional gate
     # on this axis — credentialSeedSpecs["kiro"] needs KIRO_API_KEY — still
-    # applies underneath this tag; see the header comment above the outline.)
-    @kiro @container @ws-worktree @wip
+    # applies underneath this tag, on EITHER ownership mode. See the header
+    # comment above the outline.)
+    @kiro @container-rootless @ws-worktree @wip
     Examples:
-      | engine | runtime   | workspace |
-      | kiro   | container | worktree  |
+      | engine | runtime           | workspace |
+      | kiro   | container-rootless | worktree  |
+
+    # @wip — not a defect: kiro is designed on the same two axes claude drives
+    # above, but it is not the engine under active test right now. Untag when
+    # kiro becomes a driven engine again. Carries BOTH of kiro's own gates
+    # (KIRO_API_KEY for the container axis at all) AND this box's rootful gap
+    # (see the claude-code container-rootful rows above) — either one alone
+    # would keep this cell from running today.
+    @kiro @container-rootful @ws-none @wip
+    Examples:
+      | engine | runtime          | workspace |
+      | kiro   | container-rootful | none      |
+
+    # @wip — see the note on kiro's container-rootful/none block above;
+    # identical reasoning, worktree axis.
+    @kiro @container-rootful @ws-worktree @wip
+    Examples:
+      | engine | runtime          | workspace |
+      | kiro   | container-rootful | worktree  |
 
     # @wip — not a defect: opencode is designed on the same two axes claude
     # drives above, but it is not the engine under active test right now.
@@ -277,17 +386,41 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
       | opencode | host    | worktree  |
 
     # @wip — not a defect: opencode is designed on the same two axes claude
-    # drives above, but it is not the engine under active test right now.
-    # Untag when opencode becomes a driven engine again.
-    @opencode @container @ws-none @wip
+    # drives above, but it is not the engine under active test right now. This
+    # is the container-rootless row; see the header's "THAT EVIDENCE IS NOW
+    # ATTRIBUTED" paragraph — opencode was one of the three engines the
+    # 2026-08-13 coordinator chain ran green here, under the only ownership
+    # this suite has ever reached. Untag when opencode becomes a driven engine
+    # again.
+    @opencode @container-rootless @ws-none @wip
     Examples:
-      | engine   | runtime   | workspace |
-      | opencode | container | none      |
+      | engine   | runtime           | workspace |
+      | opencode | container-rootless | none      |
 
     # @wip — not a defect: opencode is designed on the same two axes claude
     # drives above, but it is not the engine under active test right now.
-    # Untag when opencode becomes a driven engine again.
-    @opencode @container @ws-worktree @wip
+    # Container-rootless row; see the note on opencode's
+    # container-rootless/none block above. Untag when opencode becomes a
+    # driven engine again.
+    @opencode @container-rootless @ws-worktree @wip
     Examples:
-      | engine   | runtime   | workspace |
-      | opencode | container | worktree  |
+      | engine   | runtime           | workspace |
+      | opencode | container-rootless | worktree  |
+
+    # @wip, and WIRED-NOT-YET-LIVE-VERIFIED for a second, independent reason:
+    # opencode is not the engine under active test, AND this box cannot reach
+    # a rootful container runtime at all (see the claude-code
+    # container-rootful rows above for the full account). Untag when opencode
+    # becomes a driven engine again; that is independent of the rootful-runner
+    # gap, which stays open regardless.
+    @opencode @container-rootful @ws-none @wip
+    Examples:
+      | engine   | runtime          | workspace |
+      | opencode | container-rootful | none      |
+
+    # @wip, and WIRED-NOT-YET-LIVE-VERIFIED — see the note on opencode's
+    # container-rootful/none block above; identical reasoning, worktree axis.
+    @opencode @container-rootful @ws-worktree @wip
+    Examples:
+      | engine   | runtime          | workspace |
+      | opencode | container-rootful | worktree  |

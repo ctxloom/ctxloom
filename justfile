@@ -917,7 +917,11 @@ live-delegation ENGINE: build _ensure-gotmpdir
 # (features/engine_isolation_matrix.feature): the simplest live round trip —
 # "emit exactly this JSON object, nothing else" — for one engine under one
 # isolation scheme. ENGINE is claude-code|codex|kiro|opencode, RUNTIME is
-# host|container, WORKSPACE is none|worktree.
+# host|container-rootless|container-rootful, WORKSPACE is none|worktree.
+# container-rootless and container-rootful are ownership modes of ONE
+# containerization axis, not a fourth engine — a host has at most one of them
+# reachable at a time (containercell.probeDocker), so which one this runner
+# can actually pass is an ENVIRONMENT fact, not a choice.
 #
 # ONE CELL AT A TIME, deliberately, and there is no all-cells recipe on
 # purpose: these are real, paid engine calls, a container cell can run for

@@ -165,8 +165,16 @@ func TestProbeRegistry_CellsAreWellFormedAndEvidenced(t *testing.T) {
 			} else if _, ok := liveAgents[backendTypeToLiveKey(c.Engine)]; !ok {
 				t.Errorf("%s: engine %q resolves to liveAgents key %q, which is not registered — the cell could never be gated, let alone run", id, c.Engine, backendTypeToLiveKey(c.Engine))
 			}
-			if c.Runtime != "host" && c.Runtime != "container" {
-				t.Errorf("%s: runtime %q is neither host nor container", id, c.Runtime)
+			// "container" is still valid here alongside the two ownership
+			// values: most probes have not yet migrated off the undifferentiated
+			// axis (P0/engine_isolation_matrix.feature is the one that has —
+			// task unvisited-magnolia, 2026-08-18), and a probe that has not
+			// moved must not be flagged malformed for using the vocabulary it
+			// was written against.
+			switch c.Runtime {
+			case "host", "container", "container-rootless", "container-rootful":
+			default:
+				t.Errorf("%s: runtime %q is none of host, container, container-rootless, container-rootful", id, c.Runtime)
 			}
 			if c.Workspace != "none" && c.Workspace != "worktree" {
 				t.Errorf("%s: workspace %q is neither none nor worktree", id, c.Workspace)

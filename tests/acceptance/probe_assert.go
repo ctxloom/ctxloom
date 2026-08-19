@@ -76,7 +76,7 @@ import (
 type probeCellID struct {
 	Probe     string // registry probe name ("p0", "p2", ...); the @probe-<name> tag suffix
 	Engine    string // backend type as written in the Examples table ("claude-code")
-	Runtime   string // host | container
+	Runtime   string // host | container | container-rootless | container-rootful (P0 is on the ownership split; other probes are not yet)
 	Workspace string // none | worktree
 	Variant   string // optional intra-cell discriminator ("system-prompt", "control")
 }

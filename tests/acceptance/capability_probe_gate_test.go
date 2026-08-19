@@ -112,7 +112,7 @@ func TestProbeCellResolve_MalformedCellsAreHardErrorsNeverSkips(t *testing.T) {
 // hardening while quietly making four registry-declared cells unrunnable.
 func TestProbeCellResolve_AcceptsEveryDeclaredAxisAndEngine(t *testing.T) {
 	for _, engine := range probeEngines {
-		for _, runtime := range []string{"host", "container"} {
+		for _, runtime := range []string{"host", "container", "container-rootless", "container-rootful"} {
 			for _, workspace := range []string{"none", "worktree"} {
 				cell := gateCell(engine, runtime, workspace)
 				a, key, err := probeCellResolve("p-test", cell)

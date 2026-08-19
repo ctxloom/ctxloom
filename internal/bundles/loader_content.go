@@ -294,15 +294,34 @@ func (l *Loader) ReadFragment(name string) ([]*ItemRead, error) {
 	return l.searchFragment(name)
 }
 
-// isItemScopedRef reports whether ref names one item inside a bundle
-// ("<bundle>#fragments/<name>", or the ":fragments/"/":commands/"/":mcp"
-// aliases expandBundleRef also recognizes) rather than the bundle as a whole.
-// "#" is the canonical, unambiguous selector introducer throughout this
-// package (see expandBundleRef's own comment on why a URL-form ref's scheme
-// colon is never mistaken for one), so its presence alone is the same test
-// config.reportBundleRefLoadFailure uses for its MCP/hooks carve-out.
-func isItemScopedRef(ref string) bool {
-	return strings.Contains(ref, "#")
+// selectorOf parses ref's "#<kind>/<name>" selector, if it has one, through
+// trust.ParseSelector's own kind vocabulary (fragments | commands | prompts |
+// mcp | hooks | skills) — the SAME parser trust.ParseItemRef uses, so
+// ReadBundleCommands/ReadBundleSkills judge a selector by the kind it names
+// rather than by the mere presence of "#".
+//
+// That distinction matters: the mere-presence test used to treat EVERY
+// item-scoped ref alike, so "bundle#commands/deploy" and "bundle#skills/
+// reviewer" — selectors that explicitly ask for a command or a skill —
+// silently resolved to zero results with zero signal, the same as a fragment
+// cherry-pick that legitimately ships neither. This project's characteristic
+// defect is content withheld with exit 0 and no diagnostic; a selector that
+// NAMES the kind it wants must not go silent just because some OTHER kind's
+// cherry-pick legitimately does.
+//
+// ok is false for an ordinary whole-bundle ref (no "#") and for a
+// malformed/unrecognized selector (ParseSelector errored) — both fall through
+// to the caller's normal lookup-by-name path, which reports plainly.
+func selectorOf(ref string) (bundleName string, kind trust.ItemKind, itemName string, ok bool) {
+	base, sel, found := strings.Cut(ref, "#")
+	if !found {
+		return "", "", "", false
+	}
+	kind, itemName, err := trust.ParseSelector(sel)
+	if err != nil {
+		return "", "", "", false
+	}
+	return base, kind, itemName, true
 }
 
 // splitItemRef parses a "bundle#kind/name" reference. isRef reports whether a
@@ -450,18 +469,32 @@ func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCo
 // command-file writes are reproducible. Nothing is dropped on policy grounds —
 // see Pipeline.CommandsFromBundleRef for the gated delivery.
 func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
-	if isItemScopedRef(bundleRef) {
-		// A profile's `bundles:` list may carry an ITEM-scoped ref
-		// ("<bundle>#fragments/<name>") that cherry-picks one fragment out of
-		// the bundle. l.lookup resolves whole bundles by name; handed the raw
-		// ref (selector included) it never matches, so every item-scoped entry
-		// looked exactly like a genuinely missing bundle and warned on every
-		// default assembly even though the fragment it named resolved fine
-		// through ExpandBundleRefs/ReadFragment. A fragment cherry-pick was
-		// never a claim "also export every command this bundle ships", so this
-		// is the legitimate empty case — see the identical carve-out in
-		// config.reportBundleRefLoadFailure for the MCP/hooks siblings.
-		return nil
+	if bundleName, kind, itemName, ok := selectorOf(bundleRef); ok {
+		switch kind {
+		case trust.KindPrompt:
+			// An explicit "#commands/" (or legacy "#prompts/") cherry-pick
+			// NAMES a command: resolve exactly that one, through the same
+			// single-item path ReadCommand's "bundle#commands/name" form
+			// already uses, rather than silently reporting zero commands for
+			// a ref that asked for one by name. A genuine failure (bundle or
+			// command missing) is still loud — via commandFromBundle's own
+			// error — and never the misleading "bundle not found: <whole
+			// ref>", which would name an existing bundle as missing.
+			reads, err := l.commandFromBundle(bundleName, itemName)
+			if err != nil {
+				l.warnUnresolvedBundle(bundleRef, err)
+				return nil
+			}
+			return reads
+		case trust.KindFragment, trust.KindMCP, trust.KindHook, trust.KindSkill:
+			// A fragment/MCP/hook/skill cherry-pick legitimately ships no
+			// COMMANDS — considered, not overlooked. Fragments resolve
+			// through ExpandBundleRefs/ReadFragment, MCP/hooks through
+			// config.loadMCPFromBundleRef/loadHooksFromBundleRef, skills
+			// through ReadBundleSkills below; none of those routes through
+			// here, so silence names a true fact rather than withholding one.
+			return nil
+		}
 	}
 	read, ok := l.lookup(bundleRef)
 	if !ok {

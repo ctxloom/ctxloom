@@ -81,13 +81,27 @@ type LoadedSkillFile struct {
 // bundle's skills. Nothing is dropped on policy grounds; see
 // Pipeline.SkillsFromBundleRef.
 func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
-	if isItemScopedRef(bundleRef) {
-		// See ReadBundleCommands: an ITEM-scoped ref ("<bundle>#fragments/<name>")
-		// cherry-picks one fragment, not the bundle, and legitimately ships no
-		// skills — l.lookup cannot resolve the raw selector-bearing string by
-		// design, so warning here was a false positive on every default
-		// assembly that used a fragment cherry-pick.
-		return nil
+	if bundleName, kind, itemName, ok := selectorOf(bundleRef); ok {
+		switch kind {
+		case trust.KindSkill:
+			// An explicit "#skills/" cherry-pick NAMES a skill: resolve
+			// exactly that one via skillFromBundle (ReadSkill's own
+			// single-candidate path for "bundle#skills/name") instead of
+			// silently reporting zero skills for a ref that asked for one by
+			// name. See ReadBundleCommands' "#commands/" branch — same shape,
+			// same reasoning.
+			reads, err := l.skillFromBundle(bundleName, itemName)
+			if err != nil {
+				l.warnUnresolvedBundle(bundleRef, err)
+				return nil
+			}
+			return reads
+		case trust.KindFragment, trust.KindMCP, trust.KindHook, trust.KindPrompt:
+			// A fragment/MCP/hook/command cherry-pick legitimately ships no
+			// SKILLS — considered, not overlooked; see ReadBundleCommands'
+			// mirror-image comment for where each of those actually resolves.
+			return nil
+		}
 	}
 	read, ok := l.lookup(bundleRef)
 	if !ok {

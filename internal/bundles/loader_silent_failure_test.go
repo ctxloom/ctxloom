@@ -136,6 +136,53 @@ func TestSkillsFromBundleRef_ItemScopedRefIsSilentEmpty(t *testing.T) {
 	require.Empty(t, buf.String(), "an item-scoped ref must not warn 'skipping unresolved bundle'")
 }
 
+// TestCommandsFromBundleRef_CommandSelectorResolvesNotSilent pins the
+// narrowing on top of ItemScopedRefIsSilentEmpty: NOT every "#"-bearing ref
+// legitimately ships zero commands. A fragment cherry-pick ("#fragments/")
+// does; an explicit "#commands/" selector NAMES a command, and collapsing the
+// two into the same silent-nil branch would convert a confusing warning into
+// worse silence — this project's characteristic defect (content withheld,
+// exit 0, nothing said, see the task's own "402 withheld items" history). A
+// command selector must actually resolve to the command it names.
+func TestCommandsFromBundleRef_CommandSelectorResolvesNotSilent(t *testing.T) {
+	buf := captureBundleWarner(t)
+	fsys := afero.NewMemMapFs()
+	dir := "/bundles"
+	require.NoError(t, afero.WriteFile(fsys, dir+"/proj.yaml",
+		[]byte("version: \"1.0\"\ncommands:\n  deploy:\n    content: run the deploy script\n"), 0o644))
+
+	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(buf)
+
+	got := ungated(l, false).CommandsFromBundleRef("proj#commands/deploy")
+
+	require.Len(t, got, 1, "a command selector must resolve to the ONE command it names, not silently to zero")
+	require.Equal(t, "deploy", got[0].Item)
+	require.Contains(t, got[0].Content, "run the deploy script")
+	require.Empty(t, buf.String(), "a command that resolved cleanly warns about nothing")
+}
+
+// TestSkillsFromBundleRef_SkillSelectorResolvesNotSilent is the skills-side
+// twin of TestCommandsFromBundleRef_CommandSelectorResolvesNotSilent — see it
+// for the full writeup. An explicit "#skills/" selector must resolve too.
+// Uses writeSkillBundle (loader_skills_test.go), the same directory-form
+// bundle+SKILL.md fixture the rest of this file's skill tests already build,
+// rather than a hand-rolled shape that might not match what skillContent
+// actually expects on disk.
+func TestSkillsFromBundleRef_SkillSelectorResolvesNotSilent(t *testing.T) {
+	buf := captureBundleWarner(t)
+	fsys := afero.NewMemMapFs()
+	bundlesDir := "/bundles"
+	writeSkillBundle(t, fsys, bundlesDir, "proj", "reviewer", true)
+
+	l := NewLoader(NewProjectReader(fsys, []string{bundlesDir})).WithWarnWriter(buf)
+
+	got := ungated(l, false).SkillsFromBundleRef("proj#skills/reviewer")
+
+	require.Len(t, got, 1, "a skill selector must resolve to the ONE skill it names, not silently to zero")
+	require.Equal(t, "reviewer", got[0].Item)
+	require.Empty(t, buf.String(), "a skill that resolved cleanly warns about nothing")
+}
+
 // TestList_UnreadableBundlesDirIsLoud pins the fix below.
 //
 // A bundles root that cannot be read returned an EMPTY LIST WITH A NIL ERROR,

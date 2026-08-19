@@ -108,8 +108,8 @@ var trustCascadeTarget = mutationTarget{
 	SourceRelPath: "internal/operations/trust.go",
 	Features: []string{
 		"features/trust_surface.feature",
-		"features/j001500_corporate_signed.feature",
-		"features/j001700_incident.feature",
+		"features/journeys/j001500_corporate_signed.feature",
+		"features/journeys/j001700_incident.feature",
 	},
 }
 

@@ -35,7 +35,7 @@ import (
 func relayGrandchildSpawner(timeout time.Duration, permReq *agent.PermissionRequest) *fakeSpawner {
 	ladder := Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: timeout}}
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
+		"worker": {perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
 	}, nil)
 	var mu sync.Mutex
 	spawned := 0

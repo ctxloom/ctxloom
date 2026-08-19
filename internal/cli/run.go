@@ -347,8 +347,10 @@ type runState struct {
 	// to the backend on the managed payload.
 	agentSurfaces map[agent.SurfaceKind]agent.Approach
 	// The session's runtime axis: the agent's resolved runtime, or the project
-	// `runtime:` default for a classic run.
-	agentRuntime string
+	// `runtime:` default for a classic run. Parsed once, in resolveLaunchSource
+	// (the classic-run default) or resolveAgentBinding (an agent binding's own
+	// runtime) — never a bare string past that point.
+	agentRuntime agent.RuntimeAxis
 	// boundAgent names the agent binding this run launched under (--agent or
 	// the default agent) — surround-bar identity only.
 	boundAgent string
@@ -670,8 +672,18 @@ func (st *runState) runStartupTasks() {
 // agent.
 func (st *runState) resolveLaunchSource() error {
 	// The session's runtime axis before any agent binding gets a say: the
-	// project `runtime:` default.
-	st.agentRuntime = st.cfg.GetRuntime()
+	// project `runtime:` default. Parsed HERE — the earliest point this
+	// config-boundary string is read for a bare/classic launch — via the
+	// single canonical ParseRuntimeAxis, so a typo'd project `runtime:`
+	// fails loud instead of riding into st.agentRuntime as an unvalidated
+	// string an agent binding's own resolveAgentBinding parse would later
+	// have to re-interpret (or silently not, for a launch that never binds
+	// a named agent at all).
+	runtime, err := agent.ParseRuntimeAxis(st.cfg.GetRuntime())
+	if err != nil {
+		return fmt.Errorf("project `runtime:` default: %w", err)
+	}
+	st.agentRuntime = runtime
 
 	switch {
 	case runAgent != "":
@@ -735,7 +747,11 @@ func (st *runState) resolveDefaultAgent() error {
 		return lerr
 	}
 	st.backendName, st.labelModel = operations.ResolveBackend(st.cfg, st.label)
-	st.agentRuntime = st.cfg.GetRuntime()
+	runtime, rterr := agent.ParseRuntimeAxis(st.cfg.GetRuntime())
+	if rterr != nil {
+		return fmt.Errorf("project `runtime:` default: %w", rterr)
+	}
+	st.agentRuntime = runtime
 	return nil
 }
 
@@ -880,7 +896,7 @@ func (st *runState) emitDryRun() error {
 	payload := dryRunJSON{
 		Agent:     runAgent,
 		Workspace: st.sessionWorkspace,
-		Runtime:   st.agentRuntime,
+		Runtime:   string(st.agentRuntime),
 		LLM:       st.label,
 		Backend:   st.backendName,
 		Profiles:  orEmpty(st.ctxResult.Profiles),
@@ -892,7 +908,7 @@ func (st *runState) emitDryRun() error {
 	return emit(st.cmd, payload, func() error {
 		if runAgent != "" {
 			fmt.Println("=== Agent ===")
-			fmt.Printf("%s (workspace: %s, runtime: %s)\n", runAgent, orDefault(st.sessionWorkspace, "none"), orDefault(st.agentRuntime, "host"))
+			fmt.Printf("%s (workspace: %s, runtime: %s)\n", runAgent, orDefault(st.sessionWorkspace, "none"), orDefault(string(st.agentRuntime), "host"))
 		}
 		fmt.Println("=== LLM ===")
 		fmt.Printf("%s (%s)\n", st.label, st.backendName)

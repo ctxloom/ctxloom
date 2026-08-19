@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Launch-retry gate.
@@ -67,7 +68,7 @@ func (s *failingLaunchSpawner) Resolve(ctx context.Context, agentName string) (*
 func newFailingLaunchSpawner(viaStartRun bool) *failingLaunchSpawner {
 	return &failingLaunchSpawner{
 		fakeSpawner: newFakeSpawner(map[string]fakeAgent{
-			"worker": {perm: "bypass", runtime: "container", viaStartRun: viaStartRun},
+			"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, viaStartRun: viaStartRun},
 		}, nil),
 		delay: 10 * time.Millisecond,
 	}

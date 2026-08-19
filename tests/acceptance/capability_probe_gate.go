@@ -43,6 +43,8 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // probeCellSkip prints the cell's own reason and skips. Never silent, and always
@@ -73,17 +75,21 @@ func probeCellSkip(family string, cell probeCellID, reason string) error {
 // unregistered engine or a misspelt axis would skip forever and read as
 // coverage — the exact silence this ladder exists to break — so it has to stop
 // the suite rather than quietly decline.
+//
+// This is the GHERKIN SEAM for the runtime axis: cell.Runtime is a string
+// straight out of an Examples-table column (a Go type cannot cross the
+// feature-file/subprocess boundary), and this is the ONE place it gets
+// parsed — via the same agent.ParseRuntimeAxis every other boundary uses,
+// never a local switch or string compare. A row naming a value that does not
+// resolve — including the retired undifferentiated "container" (task
+// unwatched-discharge split it into container-rootless/container-rootful;
+// there is deliberately no "any container" value) — fails the step here,
+// naming the bad value and the legal ones, rather than skipping forever or
+// falling through to whatever cell.Runtime's zero-value behavior happens to
+// be.
 func probeCellResolve(family string, cell probeCellID) (liveAgent, string, error) {
-	// "container" stays valid alongside the two ownership values: most probes
-	// have not yet migrated off the undifferentiated containerization axis,
-	// and only P0 (engine_isolation_matrix.feature) declares
-	// container-rootless/container-rootful cells today — see
-	// capability_probe_gate_live.go's probeCellGate for where the two shapes
-	// diverge into different runtime-availability checks.
-	switch cell.Runtime {
-	case "host", "container", "container-rootless", "container-rootful":
-	default:
-		return liveAgent{}, "", fmt.Errorf("%s: unknown runtime axis %q (want host|container|container-rootless|container-rootful)", family, cell.Runtime)
+	if _, err := agent.ParseRuntimeAxis(cell.Runtime); err != nil {
+		return liveAgent{}, "", fmt.Errorf("%s: %w", family, err)
 	}
 	switch cell.Workspace {
 	case "none", "worktree":

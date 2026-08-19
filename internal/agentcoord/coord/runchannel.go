@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -1019,7 +1020,7 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 // "spawned " anywhere. The structured SpawnAgentResult (child_run_id /
 // child_agent_id) still rides along on both, so a consumer that reads the
 // payload rather than the prose is unaffected either way.
-func spawnDisposition(out *RunOutcome, runtime, failureCause string) string {
+func spawnDisposition(out *RunOutcome, runtime agent.RuntimeAxis, failureCause string) string {
 	if failureCause != "" {
 		return fmt.Sprintf("agent_run FAILED: %s (engine %s, runtime %s) did not launch (%s) — see the roster for the run's terminal detail",
 			out.Harp, out.Engine, runtime, failureCause)

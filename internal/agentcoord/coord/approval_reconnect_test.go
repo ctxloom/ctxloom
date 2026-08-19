@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // The reconnect race (fix/approval-reconnect-race): an approval relay to the
@@ -50,7 +51,7 @@ type approvalReconnectSpawner struct {
 func newApprovalReconnectSpawner(ladder Ladder) *approvalReconnectSpawner {
 	return &approvalReconnectSpawner{
 		fakeSpawner: newFakeSpawner(map[string]fakeAgent{
-			"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
+			"worker": {perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
 		}, nil),
 		envCh: make(chan map[string]string, 1),
 	}

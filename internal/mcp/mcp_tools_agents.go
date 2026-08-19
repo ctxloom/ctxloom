@@ -269,7 +269,7 @@ func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, 
 		Harp:             out.Harp,
 		LLM:              out.Engine,
 		Profiles:         out.Profiles,
-		Runtime:          out.Runtime,
+		Runtime:          string(out.Runtime),
 		Queued:           out.Queued,
 		DegradedFindings: out.Degraded,
 	}, nil

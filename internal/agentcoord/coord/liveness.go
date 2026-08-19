@@ -128,7 +128,7 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 				continue
 			}
 			rows = append(rows, row{
-				harp: e.Harp, agent: r.Agent, runtime: r.Runtime, state: r.State,
+				harp: e.Harp, agent: r.Agent, runtime: string(r.Runtime), state: r.State,
 				ended: r.Ended, enqueued: r.EnqueuedAt, lastActivity: r.LastActivity,
 			})
 		}

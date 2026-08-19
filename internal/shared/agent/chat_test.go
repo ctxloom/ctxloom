@@ -143,7 +143,7 @@ func TestACPTransport_RequireOnHost_AdapterMissing(t *testing.T) {
 func TestACPTransport_RequireOnHost_ContainerRuntimeExempt(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	transport := ACPTransport{Kind: ACPAdapter, Binary: "definitely-not-a-real-binary-xyz", InstallCmd: "npm install -g whatever"}
-	for _, runtime := range []string{RuntimeContainerRootless, RuntimeContainerRootful} {
+	for _, runtime := range []RuntimeAxis{RuntimeContainerRootless, RuntimeContainerRootful} {
 		assert.NoError(t, transport.RequireOnHost(runtime, "testengine"), "runtime %q", runtime)
 	}
 }
@@ -154,7 +154,7 @@ func TestACPTransport_RequireOnHost_ContainerRuntimeExempt(t *testing.T) {
 // renamed rather than aliased, deliberately, because an ownership mode is not
 // something a config may leave to whatever the host happens to offer.
 func TestIsContainerRuntime(t *testing.T) {
-	for _, v := range []string{RuntimeContainerRootless, RuntimeContainerRootful} {
+	for _, v := range []string{string(RuntimeContainerRootless), string(RuntimeContainerRootful)} {
 		assert.True(t, IsContainerRuntime(v), "%q is a container runtime", v)
 	}
 	for _, v := range []string{"", "host", "container", "Container-Rootless", "rootless"} {

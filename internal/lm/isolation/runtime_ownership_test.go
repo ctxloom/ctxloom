@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -29,28 +28,6 @@ func TestRuntimeAxis_ThreeValuesAndNoAnyContainer(t *testing.T) {
 	for _, v := range []RuntimeAxis{"", RuntimeHost, "container", "rootless", "Container-Rootful"} {
 		assert.False(t, IsContainerRuntimeAxis(v), "%q must not be a container axis", v)
 		assert.False(t, Axes{Runtime: v}.WantsContainer(), "%q must not ask for a container boundary", v)
-	}
-}
-
-// TestRuntimeAxisValues_AgreeWithSharedAgentStrings pins the byte-for-byte
-// agreement between this package's axis constants and internal/shared/agent's
-// duplicated literals.
-//
-// The literals are duplicated because the import graph forbids the other
-// direction (isolation -> lm/grpc -> shared/agent), so nothing but this
-// assertion stops them from drifting. The consequence of drift is silent: an
-// agent bound to a container would take the HOST branch in every consumer that
-// reads ChatRequest.Runtime, and report itself isolated while running
-// unsandboxed. This test lives HERE because isolation may import agent.
-func TestRuntimeAxisValues_AgreeWithSharedAgentStrings(t *testing.T) {
-	assert.Equal(t, string(RuntimeContainerRootless), agent.RuntimeContainerRootless)
-	assert.Equal(t, string(RuntimeContainerRootful), agent.RuntimeContainerRootful)
-
-	// And the predicates must classify each other's values identically, so a
-	// gate on either side of the boundary reaches the same verdict.
-	for _, v := range []string{"", "host", "container", string(RuntimeContainerRootless), string(RuntimeContainerRootful)} {
-		assert.Equal(t, IsContainerRuntimeAxis(RuntimeAxis(v)), agent.IsContainerRuntime(v),
-			"the two packages disagree about whether %q is a container", v)
 	}
 }
 

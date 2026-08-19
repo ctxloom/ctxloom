@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // TestCoordinator_ConcurrentTurnsInvariants is the muddy-coil gate
@@ -53,7 +54,7 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 	ladder := Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: 10 * time.Second}}
 	for i := 0; i < n; i++ {
 		agents[fmt.Sprintf("worker-%d", i)] = fakeAgent{
-			perm: "plan", runtime: "container", profiles: []string{"p1"},
+			perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
 			viaStartRun: true, ladder: ladder,
 		}
 	}

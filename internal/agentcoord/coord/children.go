@@ -242,7 +242,7 @@ type RunOutcome struct {
 	RunID    string
 	Engine   string
 	Profiles []string
-	Runtime  string
+	Runtime  agent.RuntimeAxis
 	Queued   bool
 	Degraded []string
 }
@@ -632,7 +632,7 @@ func runnerEnv(harp, runID, token, url string, depth int, oneshot bool, spool sp
 // endpoint is a fatal finding (fail-loud) — degraded mode downgrades it and
 // the child launches with no coordinator env (a local, message-less
 // orchestrator, today's broken-but-running posture).
-func (c *Coordinator) spawnReachURL(harp, runtimeAxis string) (string, error) {
+func (c *Coordinator) spawnReachURL(harp string, runtimeAxis agent.RuntimeAxis) (string, error) {
 	url, err := c.ReachURL(runtimeAxis)
 	if err == nil {
 		return url, nil

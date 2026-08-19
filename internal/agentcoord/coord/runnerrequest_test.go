@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // TestRequestRunner_RoundTrip pins the RunnerChannel's coordinator-initiated
@@ -19,7 +20,7 @@ import (
 func TestRequestRunner_RoundTrip(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: "container", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}}},
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
@@ -96,7 +97,7 @@ func TestRequestRunner_NoConnectedRunner(t *testing.T) {
 func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: "container", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}}},
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 

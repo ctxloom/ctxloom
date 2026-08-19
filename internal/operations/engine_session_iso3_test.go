@@ -386,7 +386,7 @@ func openEngineSessionContainerAnnounces(t *testing.T, mode string) {
 	require.NotNil(t, chat)
 
 	require.NotNil(t, client.gotReq)
-	assert.Equal(t, mode, client.gotReq.Runtime, "sanity: the runtime axis actually reached the ChatRequest")
+	assert.Equal(t, agent.RuntimeAxis(mode), client.gotReq.Runtime, "sanity: the runtime axis actually reached the ChatRequest")
 
 	assert.Contains(t, chat.InitSummary, `agent "builder"`)
 	assert.Contains(t, chat.InitSummary, "RUNTIME isolated inside a container")

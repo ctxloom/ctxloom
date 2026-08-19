@@ -628,7 +628,7 @@ func (c *Coordinator) adopt() {
 			// earns it is that the run's engine outlives the coordinator
 			// process, which is true of a container regardless of who owns
 			// its daemon.
-			stale = append(stale, pending{runID: id, credHash: r.CredHash, container: agent.IsContainerRuntime(r.Runtime)})
+			stale = append(stale, pending{runID: id, credHash: r.CredHash, container: agent.IsContainerRuntimeAxis(r.Runtime)})
 		}
 	})
 	for _, p := range stale {

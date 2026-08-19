@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -228,25 +229,33 @@ const (
 	WorkspaceWorktree WorkspaceAxis = "worktree"
 )
 
-// RuntimeAxis says where the agent's engine process executes.
-type RuntimeAxis string
+// RuntimeAxis says where the agent's engine process executes. It is a type
+// ALIAS of agent.RuntimeAxis, not a second declaration: the vocabulary is
+// defined exactly once, in internal/shared/agent (the lower package this one
+// already imports for other reasons — see ambient.go/auth.go — so there is no
+// cycle to route around). isolation.RuntimeAxis IS agent.RuntimeAxis; nothing
+// here can drift from it because there is nothing here to drift — the alias
+// and the re-exported consts/functions below just carry this package's
+// established names forward for its own callers.
+type RuntimeAxis = agent.RuntimeAxis
 
 const (
 	// RuntimeHost runs the engine directly on the host (the default; also
 	// the meaning of an empty value after defaulting).
-	RuntimeHost RuntimeAxis = "host"
+	RuntimeHost = agent.RuntimeHost
 	// RuntimeContainerRootless runs the engine inside a container on a
 	// runtime that maps the container's root to the INVOKING HOST USER.
-	RuntimeContainerRootless RuntimeAxis = "container-rootless"
+	RuntimeContainerRootless = agent.RuntimeContainerRootless
 	// RuntimeContainerRootful runs the engine inside a container on a
 	// runtime whose container-root is REAL root, with the image entrypoint
 	// remapping to the launching uid/gid (identityEnvArgs).
-	RuntimeContainerRootful RuntimeAxis = "container-rootful"
+	RuntimeContainerRootful = agent.RuntimeContainerRootful
 )
 
 // IsContainerRuntimeAxis reports whether v is one of the two CONTAINER runtime
 // axis values — the "is a container boundary requested at all?" question,
-// which is a DIFFERENT question from "which ownership mode?".
+// which is a DIFFERENT question from "which ownership mode?". Re-exports
+// agent.IsContainerRuntimeAxis under this package's established name.
 //
 // There is deliberately no "any container" axis value. Rootless and rootful
 // differ in UID mapping, so a workload can genuinely require one, and a config
@@ -254,7 +263,15 @@ const (
 // Every "did we keep the boundary?" check asks this predicate; every
 // SELECTION asks for a specific value.
 func IsContainerRuntimeAxis(v RuntimeAxis) bool {
-	return v == RuntimeContainerRootless || v == RuntimeContainerRootful
+	return agent.IsContainerRuntimeAxis(v)
+}
+
+// ParseRuntimeAxis re-exports agent.ParseRuntimeAxis under this package's
+// established name — the ONE string->enum conversion for the runtime axis
+// (see agent.ParseRuntimeAxis's doc for the full contract: empty parses as
+// RuntimeHost, anything else unrecognized errors, never warns or degrades).
+func ParseRuntimeAxis(s string) (RuntimeAxis, error) {
+	return agent.ParseRuntimeAxis(s)
 }
 
 // Axes is a fully-defaulted isolation request. The two axes are declared at
@@ -300,9 +317,10 @@ func WorkspaceNames() []string {
 	return []string{string(WorkspaceShared), string(WorkspaceWorktree)}
 }
 
-// RuntimeNames returns the recognized runtime-axis values.
+// RuntimeNames returns the recognized runtime-axis values. Re-exports
+// agent.RuntimeNames() under this package's established name.
 func RuntimeNames() []string {
-	return []string{string(RuntimeHost), string(RuntimeContainerRootless), string(RuntimeContainerRootful)}
+	return agent.RuntimeNames()
 }
 
 // noRuntimeHint appends devcontainer-specific guidance to the no-runtime

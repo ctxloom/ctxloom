@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -131,7 +132,7 @@ func TestPresetLadder_SurfaceTimeoutFallsThroughToRelayThenCancel(t *testing.T) 
 		{Action: ActionRelayToRole, Role: ParentAddress, Timeout: 50 * time.Millisecond},
 	}
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
+		"worker": {perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
 	}, nil)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{permission: permReq} }
 	c := newTestCoordinator(t, sp, nil)

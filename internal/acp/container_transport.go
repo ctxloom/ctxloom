@@ -71,7 +71,7 @@ func isolationBackendFor(agentEngine string) string {
 // now replaced by actually honoring the axis. So PrepareWorkspace's error
 // (or any error below it) is always returned AS the session-open failure —
 // there is deliberately no --degraded escape hatch on this path.
-func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[string]string, workDir, runtimeAxis string) (*transport, error) {
+func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[string]string, workDir string, runtimeAxis isolation.RuntimeAxis) (*transport, error) {
 	engine := b.agentEngine
 	if engine == "" {
 		engine = b.command
@@ -82,7 +82,7 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 	// a substitute for the one this session asked for — and satisfying the
 	// request with it is exactly the lie the fail-loud contract above exists
 	// to prevent, just one level deeper than a host fallback.
-	rt := isolation.SelectRuntime("", isolation.RuntimeAxis(runtimeAxis))
+	rt := isolation.SelectRuntime("", runtimeAxis)
 	// SelectRuntime never reports "unavailable" via a sentinel value: on no
 	// launchable docker/podman IN THE DEMANDED OWNERSHIP it falls back to
 	// Host{}, whose Available() is UNCONDITIONALLY true (Host can always run

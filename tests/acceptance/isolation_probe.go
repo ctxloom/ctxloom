@@ -74,25 +74,31 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 )
 
-// probeAxis names the isolation axis under test.
+// probeAxis names the isolation axis under test: the WORKSPACE axis
+// (worktree, standing in for "host + a worktree" since this probe has no bare
+// host cell) or one of the two container RUNTIME ownership values. The two
+// container values are literally isolation.RuntimeContainerRootless/
+// RuntimeContainerRootful, not an independently-declared copy — a probeAxis
+// carrying either one IS the production runtime-axis vocabulary, so nothing
+// here can drift from it the way a re-typed literal could.
 type probeAxis string
 
 const (
 	probeAxisWorktree          probeAxis = "worktree"
-	probeAxisContainerRootless probeAxis = "container-rootless"
-	probeAxisContainerRootful  probeAxis = "container-rootful"
+	probeAxisContainerRootless           = probeAxis(isolation.RuntimeContainerRootless)
+	probeAxisContainerRootful            = probeAxis(isolation.RuntimeContainerRootful)
 )
 
 // isProbeContainerAxis reports whether axis is either container ownership
-// mode — the "is this cell on the container boundary at all?" question,
-// mirrored from isolation.IsContainerRuntimeAxis (this package cannot import
-// unexported production predicates, but the SHAPE — no bare "container"
-// value, two owned ones — must not drift from it). There is deliberately no
-// undifferentiated container axis here any more: task unwatched-discharge
-// retired the spelling this probe used to write (`runtime: container`),
-// which resources/schema/input/config-schema.json's enum no longer accepts.
+// mode — the "is this cell on the container boundary at all?" question —
+// by asking isolation.IsContainerRuntimeAxis directly rather than a second
+// local predicate: there is deliberately no undifferentiated container axis
+// here any more (task unwatched-discharge retired the spelling this probe
+// used to write, `runtime: container`, which resources/schema/input/
+// config-schema.json's enum no longer accepts), and asking the SAME
+// predicate production uses is what keeps that true without a pinning test.
 func isProbeContainerAxis(a probeAxis) bool {
-	return a == probeAxisContainerRootless || a == probeAxisContainerRootful
+	return isolation.IsContainerRuntimeAxis(isolation.RuntimeAxis(a))
 }
 
 // probeAuthPath names WHICH of the two mutually exclusive auth resolution

@@ -88,7 +88,12 @@ func TestProbeCellResolve_MalformedCellsAreHardErrorsNeverSkips(t *testing.T) {
 		wants string
 	}{
 		{"unknown runtime axis", gateCell("claude-code", "vm", "none"), "unknown runtime axis"},
-		{"empty runtime axis", gateCell("claude-code", "", "none"), "unknown runtime axis"},
+		// The retired undifferentiated "container" (task unwatched-discharge
+		// split it into container-rootless/container-rootful) is exactly as
+		// malformed as a typo now: probeCellResolve parses cell.Runtime via
+		// the same agent.ParseRuntimeAxis every production boundary uses, and
+		// that function declares no "any container" value.
+		{"retired undifferentiated container axis", gateCell("claude-code", "container", "none"), "unknown runtime axis"},
 		{"unknown workspace axis", gateCell("claude-code", "host", "sandbox"), "unknown workspace axis"},
 		{"empty workspace axis", gateCell("claude-code", "host", ""), "unknown workspace axis"},
 		{"engine no liveAgents row covers", gateCell("cursor", "host", "none"), "is not registered in liveAgents"},
@@ -110,9 +115,15 @@ func TestProbeCellResolve_MalformedCellsAreHardErrorsNeverSkips(t *testing.T) {
 // vocabulary the registry actually uses must all pass the gate. Without this,
 // tightening the switch above — say to host-only — would look like a green
 // hardening while quietly making four registry-declared cells unrunnable.
+//
+// "container" is deliberately NOT in this list: task unwatched-discharge
+// retired the undifferentiated axis (see the malformed-cells test above), so
+// it is no longer declared vocabulary — the registry's own P0 rows only ever
+// name host/container-rootless/container-rootful (engine_isolation_matrix.
+// feature's header).
 func TestProbeCellResolve_AcceptsEveryDeclaredAxisAndEngine(t *testing.T) {
 	for _, engine := range probeEngines {
-		for _, runtime := range []string{"host", "container", "container-rootless", "container-rootful"} {
+		for _, runtime := range []string{"host", "container-rootless", "container-rootful"} {
 			for _, workspace := range []string{"none", "worktree"} {
 				cell := gateCell(engine, runtime, workspace)
 				a, key, err := probeCellResolve("p-test", cell)
@@ -123,6 +134,21 @@ func TestProbeCellResolve_AcceptsEveryDeclaredAxisAndEngine(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestProbeCellResolve_EmptyRuntimeAxisIsHost pins the one deliberate exception
+// to "every value not in the vocabulary is refused": an empty runtime string
+// parses as the host default, exactly like every other agent.ParseRuntimeAxis
+// boundary in production (an agent/project with no `runtime:` declared). This
+// is NOT a local default arm here — probeCellResolve makes no empty-string
+// special case of its own; it falls out of calling the shared parser once, the
+// same as the retired-"container" refusal above falls out of calling it once.
+func TestProbeCellResolve_EmptyRuntimeAxisIsHost(t *testing.T) {
+	cell := gateCell("claude-code", "", "none")
+	a, key, err := probeCellResolve("p-test", cell)
+	require.NoError(t, err, "an empty runtime axis parses as host, the same as an unset agent/project runtime: default")
+	assert.NotEmpty(t, key)
+	assert.NotEmpty(t, a.binary)
 }
 
 // --- the skip line ------------------------------------------------------------

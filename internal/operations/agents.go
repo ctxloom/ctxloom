@@ -225,9 +225,10 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 		}
 	}
 
-	if req.Runtime != nil && *req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), *req.Runtime) {
-		return fmt.Errorf("agent %q: unknown runtime %q; valid runtimes: %s",
-			name, *req.Runtime, strings.Join(isolation.RuntimeNames(), ", "))
+	if req.Runtime != nil {
+		if _, rterr := agent.ParseRuntimeAxis(*req.Runtime); rterr != nil {
+			return fmt.Errorf("agent %q: %w", name, rterr)
+		}
 	}
 
 	if req.Driving != nil {
@@ -529,11 +530,13 @@ type ResolvedAgent struct {
 	// against this engine's SupportedApproaches. Empty takes the engine default.
 	Surfaces map[agent.SurfaceKind]agent.Approach `json:"-"`
 	// Runtime is the RESOLVED runtime axis for this agent (its own choice →
-	// project `runtime:` default → ""). Empty means "host" — today's
-	// behaviour. Only the runtime axis resolves here: the WORKSPACE axis is a
-	// session trait the invocation supplies; the two meet in isolation.Axes at
-	// launch.
-	Runtime string `json:"runtime,omitempty"`
+	// project `runtime:` default → RuntimeHost), already PARSED by
+	// resolveAgentBinding via agent.ParseRuntimeAxis — a typo'd runtime string
+	// on either source fails the resolve loudly rather than reaching here as
+	// an unvalidated string a later caller would have to re-interpret. Only
+	// the runtime axis resolves here: the WORKSPACE axis is a session trait
+	// the invocation supplies; the two meet in isolation.Axes at launch.
+	Runtime agent.RuntimeAxis `json:"runtime,omitempty"`
 	// Permissions is the agent's DECLARED launch-time permission posture (may be
 	// empty). The run resolver applies the engine-label default and the built-in
 	// fallback on top; the `run --permissions` flag overrides it.
@@ -646,11 +649,19 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	backend, model := ResolveBackend(cfg, label)
 
 	// Effective runtime axis: the agent's own choice wins, else the project's
-	// `runtime:` default (cfg.Runtime), else empty (→ host downstream). Empty
-	// is byte-identical to today's host behaviour.
-	runtime := sub.Runtime
-	if runtime == "" {
-		runtime = cfg.GetRuntime()
+	// `runtime:` default (cfg.Runtime), else empty (→ RuntimeHost downstream).
+	// Empty is byte-identical to today's host behaviour. Parsed HERE — as
+	// early as practical, once the two string sources are combined — via the
+	// single canonical ParseRuntimeAxis: a typo on either source is refused
+	// loudly rather than riding into ResolvedAgent.Runtime as a string a
+	// downstream caller would have to re-interpret (and could get wrong).
+	runtimeStr := sub.Runtime
+	if runtimeStr == "" {
+		runtimeStr = cfg.GetRuntime()
+	}
+	runtime, rterr := agent.ParseRuntimeAxis(runtimeStr)
+	if rterr != nil {
+		return nil, fmt.Errorf("agent %q: %w", name, rterr)
 	}
 	labelEntry, _ := cfg.GetLLMEntry(label)
 

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -35,7 +36,7 @@ import (
 func surfaceLadderSpawner(mk func() *scriptedChat, timeout time.Duration) *fakeSpawner {
 	ladder := Ladder{{Action: ActionSurfaceToHuman, Role: ParentAddress, Timeout: timeout}}
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
+		"worker": {perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -173,7 +174,7 @@ func TestApproval_SurfaceToHumanTimeout(t *testing.T) {
 		{Action: ActionAutoDecline},
 	}
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
+		"worker": {perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}, viaStartRun: true, ladder: ladder},
 	}, nil)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{permission: permReq} }
 	c := newTestCoordinator(t, sp, nil)

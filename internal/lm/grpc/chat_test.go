@@ -48,7 +48,8 @@ func TestChatMCPServer_ProtoRoundTrip_HttpSse(t *testing.T) {
 	assert.Equal(t, map[string]string{"Authorization": "Bearer tok"}, proto.GetMcpServers()[1].GetHeaders())
 	assert.Equal(t, "sse", proto.GetMcpServers()[2].GetTransport())
 
-	back := chatStartFromProto(proto)
+	back, err := chatStartFromProto(proto)
+	require.NoError(t, err)
 	assert.Equal(t, req.MCPServers, back.MCPServers, "http/sse Transport/URL/Headers must survive the relay round trip byte for byte")
 }
 

@@ -50,7 +50,7 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 	assert.NotEmpty(t, out.Harp)
 	assert.Equal(t, "fast", out.Engine)
 	assert.Equal(t, []string{"p1"}, out.Profiles)
-	assert.Equal(t, "host", out.Runtime)
+	assert.Equal(t, agent.RuntimeHost, out.Runtime)
 	assert.False(t, out.Queued)
 
 	require.Eventually(t, func() bool {

@@ -434,6 +434,46 @@ agents:
 	assert.Len(t, entry.Escalation, 1, "escalation must survive an unrelated field write")
 }
 
+// TestGetAgent_CarriesEveryDeclaredAxis is the read-path class gate: every
+// axis a binding may declare must reach AgentEntry, from both read functions.
+// `agent show` and `agent list --format json` are how a user checks what a
+// binding declares, so a field silently dropped on the way out reports a
+// binding the launch will not use — and reports it as success.
+func TestGetAgent_CarriesEveryDeclaredAxis(t *testing.T) {
+	cfg, _ := loadConfigDir(t, `version: 5
+agents:
+  dev:
+    llm: claude-code
+    profiles: [x, y]
+    runtime: container-rootless
+    permissions: bypass
+    driving: oneshot
+    config_home: project
+    escalation:
+      - action: auto_accept
+        kinds: [TOOL_USE]
+`)
+
+	entry, err := GetAgent(cfg, "dev")
+	require.NoError(t, err)
+	list := ListAgents(cfg)
+	require.Len(t, list, 1, "the fixture must define exactly the binding asserted below")
+
+	for name, got := range map[string]*AgentEntry{"GetAgent": entry, "ListAgents": &list[0]} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, "dev", got.Name)
+			assert.Equal(t, "claude-code", got.LLM)
+			assert.Equal(t, []string{"x", "y"}, got.Profiles)
+			assert.Equal(t, "container-rootless", got.Runtime)
+			assert.Equal(t, "bypass", got.Permissions)
+			assert.Equal(t, agents.DrivingOneshot, got.Driving)
+			assert.Equal(t, agents.ConfigHomeProject, got.ConfigHome)
+			require.Len(t, got.Escalation, 1)
+			assert.Equal(t, "auto_accept", got.Escalation[0].Action)
+		})
+	}
+}
+
 // TestSetAgent_EmptyName errors rather than writing a nameless binding.
 func TestSetAgent_EmptyName(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")

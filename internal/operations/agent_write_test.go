@@ -224,8 +224,8 @@ func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
 	// Create: the agent must not come into existence at all.
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "odd", Runtime: ptr("container")})
 	require.Error(t, err, "unknown runtime must be refused, not warned-and-stored")
-	assert.Contains(t, err.Error(), `unknown runtime "container"`)
-	assert.Contains(t, err.Error(), "host, container-rootless, container-rootful",
+	assert.Contains(t, err.Error(), `unknown runtime axis "container"`)
+	assert.Contains(t, err.Error(), "host|container-rootless|container-rootful",
 		"the refusal must name the legal values, not just complain")
 	_, ok := readAgentFromDisk(t, appDir, "odd")
 	assert.False(t, ok, "a refused create must write nothing — no agent, not even a partial one")

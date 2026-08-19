@@ -225,9 +225,10 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 		}
 	}
 
-	if req.Runtime != nil && *req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), *req.Runtime) {
-		return fmt.Errorf("agent %q: unknown runtime %q; valid runtimes: %s",
-			name, *req.Runtime, strings.Join(isolation.RuntimeNames(), ", "))
+	if req.Runtime != nil {
+		if _, rterr := agent.ParseRuntimeAxis(*req.Runtime); rterr != nil {
+			return fmt.Errorf("agent %q: %w", name, rterr)
+		}
 	}
 
 	if req.Driving != nil {

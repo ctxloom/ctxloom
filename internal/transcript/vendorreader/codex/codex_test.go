@@ -7,8 +7,8 @@
 //	go test -run . ./internal/transcript/vendorreader/codex
 //
 // What those commands validate is the FROZEN fixture checked in under
-// testdata/ — rollout-fixture.jsonl, captured from a real codex session on
-// 2026-07-16 (provenance in testdata/MANIFEST.json) — not a fresh capture.
+// testdata/ — rollout-fixture.jsonl, captured from a real codex session
+// (provenance in testdata/MANIFEST.json) — not a fresh capture.
 // Running them proves this build still parses that recorded shape correctly;
 // it proves nothing about a codex release that shipped afterwards.
 //

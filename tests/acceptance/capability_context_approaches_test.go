@@ -41,6 +41,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/schema"
 )
 
@@ -276,10 +277,11 @@ func TestApproachConfigYAML_ActuallyPinsTheApproach(t *testing.T) {
 			rendered := approachConfigYAML(a, "claude", "host", approach)
 
 			// Round-trip through the parser production uses for an agent
-			// binding, on the binding sub-document the config key holds.
+			// binding: the whole-config decode, since the `agents:` key is
+			// the only source there is. approachBindingYAML still isolates
+			// the binding block, so a failure names the lines at fault.
 			binding := approachBindingYAML(t, rendered)
-			parsed, err := agents.ParseAgent([]byte(binding))
-			require.NoError(t, err, "the rendered binding must parse as an agent:\n%s", binding)
+			parsed := parseMatrixBinding(t, rendered)
 			require.Equal(t, map[string]string{"context": approach}, parsed.Surfaces,
 				"the fixture must actually deliver the pin. An unparsed `surfaces:` key is silent: the run takes the engine's default and the cell claims an approach nobody selected.\n%s", binding)
 			require.Equal(t, "bypass", parsed.Permissions,
@@ -292,9 +294,7 @@ func TestApproachConfigYAML_ActuallyPinsTheApproach(t *testing.T) {
 	// not the retired undifferentiated "container" spelling —
 	// config-schema.json's `runtime` enum no longer accepts it, so a fixture
 	// still writing it would build a config no real invocation could load.
-	binding := approachBindingYAML(t, approachConfigYAML(a, "claude", "container-rootless", "hook"))
-	parsed, err := agents.ParseAgent([]byte(binding))
-	require.NoError(t, err)
+	parsed := parseMatrixBinding(t, approachConfigYAML(a, "claude", "container-rootless", "hook"))
 	require.Equal(t, "container-rootless", parsed.Runtime)
 	require.Equal(t, map[string]string{"context": "hook"}, parsed.Surfaces)
 }
@@ -348,6 +348,18 @@ func TestApproachConfigYAML_RuntimeMustBeSchemaValid(t *testing.T) {
 // It FAILS the test when the binding is not there. Returning an empty document
 // would make every assertion above pass against nothing, which is the failure
 // mode this whole file exists to refuse.
+// parseMatrixBinding decodes a rendered config.yaml through config.ParseConfig
+// — the one parser an agent binding walks in production — and returns the
+// matrix agent's binding.
+func parseMatrixBinding(t *testing.T, rendered string) agents.Agent {
+	t.Helper()
+	cfg, err := config.ParseConfig([]byte(rendered))
+	require.NoError(t, err, "the rendered config must parse:\n%s", rendered)
+	binding, ok := cfg.Agent(matrixAgent)
+	require.True(t, ok, "the rendered config must define the %q agent:\n%s", matrixAgent, rendered)
+	return binding
+}
+
 func approachBindingYAML(t *testing.T, config string) string {
 	t.Helper()
 	const head = "agents:\n  " + matrixAgent + ":\n"

@@ -19,7 +19,7 @@ more composed profiles.
 An agent names an 'engine' (the LLM config label/backend, which overrides the
 constituent profiles' own llm) and a list of 'profiles' that compose into one
 assembled context. Agents are defined solely in your .ctxloom — under the
-'agents:' key of config.yaml and/or as .ctxloom/agents/<name>.yaml files.
+'agents:' key of config.yaml.
 They are never shipped in bundles or remotes: the engine choice is yours.
 
 ```

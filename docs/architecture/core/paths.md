@@ -55,7 +55,7 @@ flowchart TD
     AP --> RP["RemotesPath remotes.yaml"]
     AP --> LKP["LockPath lock.yaml"]
     AP --> PP["ProfilesPath profiles/"]
-    AP --> AGP["AgentsPath agents/"]
+    AP --> AGP["AgentsPath agents/ (retired, signposted only)"]
     AP --> APP["ApprovalsPath approvals/"]
     AP --> ASP["AllowedSignersPath"]
     AP --> DSP["DistrustedSignersPath"]
@@ -161,7 +161,7 @@ this package.
 | `RemotesPath` | `<appPath>/remotes.yaml` | 6 |
 | `LockPath` | `<appPath>/lock.yaml` | 3 |
 | `ProfilesPath` | `<appPath>/profiles` | 4 |
-| `AgentsPath` | `<appPath>/agents` — local-only agent definitions | 1 |
+| `AgentsPath` | `<appPath>/agents` — retired agent-definition directory; named only by `config.retiredAgentsDirSignpost`, never read | 1 |
 | `ApprovalsPath` | `<appPath>/approvals` — the project countersignature store | 2 |
 | `AllowedSignersPath` | `<appPath>/allowed_signers` | 3 |
 | `DistrustedSignersPath` | `<appPath>/distrusted_signers` | 1 |
@@ -217,7 +217,7 @@ path-authority gate flags exactly the alternative).
 
 1. **Three tiers, told apart by what a fresh clone gets.** `content/` (`LocalPath`,
    `LocalBundlesPath`) is committed and authored, alongside `config.yaml`, `remotes.yaml`,
-   `lock.yaml`, `profiles/`, `agents/`, `approvals/` and the signer files. `cache/`
+   `lock.yaml`, `profiles/`, `approvals/` and the signer files. `cache/`
    (`CachePath` and everything under it) is derived: deleting it must lose nothing that a
    named command cannot rebuild. `state/` (`StatePath`) is local-only and gitignored, and
    **nothing rebuilds it** — that, not gitignore status, is what earns a path a place there

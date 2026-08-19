@@ -71,7 +71,6 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "finder", entry.Name)
-	assert.Equal(t, agents.SourceConfig, entry.Source)
 
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -435,6 +434,46 @@ agents:
 	assert.Len(t, entry.Escalation, 1, "escalation must survive an unrelated field write")
 }
 
+// TestGetAgent_CarriesEveryDeclaredAxis is the read-path class gate: every
+// axis a binding may declare must reach AgentEntry, from both read functions.
+// `agent show` and `agent list --format json` are how a user checks what a
+// binding declares, so a field silently dropped on the way out reports a
+// binding the launch will not use — and reports it as success.
+func TestGetAgent_CarriesEveryDeclaredAxis(t *testing.T) {
+	cfg, _ := loadConfigDir(t, `version: 5
+agents:
+  dev:
+    llm: claude-code
+    profiles: [x, y]
+    runtime: container-rootless
+    permissions: bypass
+    driving: oneshot
+    config_home: project
+    escalation:
+      - action: auto_accept
+        kinds: [TOOL_USE]
+`)
+
+	entry, err := GetAgent(cfg, "dev")
+	require.NoError(t, err)
+	list := ListAgents(cfg)
+	require.Len(t, list, 1, "the fixture must define exactly the binding asserted below")
+
+	for name, got := range map[string]*AgentEntry{"GetAgent": entry, "ListAgents": &list[0]} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, "dev", got.Name)
+			assert.Equal(t, "claude-code", got.LLM)
+			assert.Equal(t, []string{"x", "y"}, got.Profiles)
+			assert.Equal(t, "container-rootless", got.Runtime)
+			assert.Equal(t, "bypass", got.Permissions)
+			assert.Equal(t, agents.DrivingOneshot, got.Driving)
+			assert.Equal(t, agents.ConfigHomeProject, got.ConfigHome)
+			require.Len(t, got.Escalation, 1)
+			assert.Equal(t, "auto_accept", got.Escalation[0].Action)
+		})
+	}
+}
+
 // TestSetAgent_EmptyName errors rather than writing a nameless binding.
 func TestSetAgent_EmptyName(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
@@ -450,9 +489,7 @@ func TestRemoveAgent_RoundTrips(t *testing.T) {
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "finder", Profiles: ptr([]string{"p1"})})
 	require.NoError(t, err)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	require.NoError(t, RemoveAgent(mgr, reloaded, "finder"))
+	require.NoError(t, RemoveAgent(mgr, "finder"))
 
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -462,25 +499,8 @@ func TestRemoveAgent_RoundTrips(t *testing.T) {
 
 // TestRemoveAgent_NotFound errors on an unknown name.
 func TestRemoveAgent_NotFound(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, "version: 5\n")
-	assert.Error(t, RemoveAgent(managerFor(appDir), cfg, "nope"))
-}
-
-// TestRemoveAgent_DirectorySourceRefused proves a directory-defined agent
-// is NOT removable via the config-key write path (it is its own file): remove
-// errors with a clear pointer rather than silently no-op'ing.
-func TestRemoveAgent_DirectorySourceRefused(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
-	writeFile(t, filepath.Join(appDir, "agents", "filed.yaml"), "llm: x\nprofiles: [p]\n")
-
-	reloaded, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	_, ok := reloaded.Agent("filed")
-	require.True(t, ok, "directory agent should be visible")
-
-	err = RemoveAgent(managerFor(appDir), reloaded, "filed")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "filed.yaml", "error must point at the file to delete")
+	assert.Error(t, RemoveAgent(managerFor(appDir), "nope"))
 }
 
 // TestSetAgent_ConcurrentWritesAllSurvive proves the migrated write path: N

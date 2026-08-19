@@ -64,7 +64,7 @@ func TestRenderAgentList_Empty(t *testing.T) {
 }
 
 func TestRenderAgentShow_Resolved(t *testing.T) {
-	def := &operations.AgentEntry{Name: "dev", LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Source: "config"}
+	def := &operations.AgentEntry{Name: "dev", LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container"}
 	resolved := &operations.ResolvedAgent{
 		Name: "dev", Label: "slow", Backend: "mock", Model: "m-slow",
 		Fragments: []string{"a", "b"},
@@ -74,7 +74,6 @@ func TestRenderAgentShow_Resolved(t *testing.T) {
 	out := buf.String()
 
 	assert.Contains(t, out, "Agent: dev")
-	assert.Contains(t, out, "Source: config")
 	assert.Contains(t, out, "Engine (declared): slow")
 	assert.Contains(t, out, "Runtime: container")
 	assert.Contains(t, out, "Resolved llm: slow (backend: mock, model: m-slow)")
@@ -84,7 +83,7 @@ func TestRenderAgentShow_Resolved(t *testing.T) {
 // TestRenderAgentShow_Driving proves a declared `driving:` value renders in
 // `agent show`.
 func TestRenderAgentShow_Driving(t *testing.T) {
-	def := &operations.AgentEntry{Name: "shooter", LLM: "slow", Driving: "oneshot", Source: "config"}
+	def := &operations.AgentEntry{Name: "shooter", LLM: "slow", Driving: "oneshot"}
 	resolved := &operations.ResolvedAgent{Name: "shooter", Label: "slow", Backend: "mock"}
 	var buf bytes.Buffer
 	assert.NoError(t, renderAgentShow(&buf, def, resolved, nil, nil))
@@ -131,10 +130,10 @@ func TestSetupPrompt_EmitsPrompt(t *testing.T) {
 // command must not disagree about whether anything went wrong.
 func TestAgentShow_JSONCarriesTheResolutionFailure(t *testing.T) {
 	root := t.TempDir()
-	agentsDir := filepath.Join(root, ".ctxloom", "agents")
-	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "broken.yaml"),
-		[]byte("profiles: [no-such-profile]\n"), 0o644))
+	appDir := filepath.Join(root, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
+		[]byte("version: 5\nagents:\n  broken:\n    profiles: [no-such-profile]\n"), 0o644))
 	t.Chdir(root)
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
@@ -167,7 +166,7 @@ func TestAgentShow_JSONOmitsTheErrorKeyWhenResolutionSucceeded(t *testing.T) {
 	assert.NotContains(t, string(payload), "resolution_error")
 }
 
-// renderAgentShow is nine sequential optional-field arms plus a resolution
+// renderAgentShow is a run of sequential optional-field arms plus a resolution
 // branch. This drives EVERY arm — each optional field present in one case and
 // absent in the other — so the rendering can be split up without changing a
 // byte of what `agent show` prints.
@@ -175,7 +174,6 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 	t.Run("everything declared and resolved", func(t *testing.T) {
 		def := &operations.AgentEntry{
 			Name:        "full",
-			Source:      ".ctxloom/agents/full.yaml",
 			LLM:         "claude-code",
 			Profiles:    []string{"p1", "p2"},
 			Runtime:     "container",
@@ -198,7 +196,6 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 
 		for _, want := range []string{
 			"Agent: full\n",
-			"Source: .ctxloom/agents/full.yaml\n",
 			"Engine (declared): claude-code\n",
 			"Runtime: container\n",
 			"Permissions: acceptEdits\n",
@@ -224,7 +221,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		assert.Contains(t, out, "Engine (declared): (project default)\n")
 		assert.Contains(t, out, "Resolved llm: default\n")
 		assert.Contains(t, out, "Composed fragments: 0\n")
-		for _, unwanted := range []string{"Source:", "Runtime:", "Permissions:", "Driving:", "Escalation:", "backend:", "Resolved permissions:"} {
+		for _, unwanted := range []string{"Runtime:", "Permissions:", "Driving:", "Escalation:", "backend:", "Resolved permissions:"} {
 			assert.NotContains(t, out, unwanted)
 		}
 	})

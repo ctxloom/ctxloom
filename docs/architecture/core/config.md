@@ -13,7 +13,7 @@ The contract it owns: one `*Config` value that every other package reads, whose 
 - The write transaction: lock, re-read fresh, apply sections, atomic write (`Manager.Update` → `saveLocked`).
 - Copy-on-read projection of every unexported field (`accessors.go`).
 - Inline-profile inheritance resolution (`ResolveProfile`) for profiles defined under the `profiles.definitions` config key.
-- Merging the two local agent-definition sources: the `agents:` config key and `.ctxloom/agents/*.yaml`.
+- Reading the one local agent-definition source, the `agents:` config key, and signposting a retired `.ctxloom/agents` directory.
 - Companion-binary discovery, version probing and loadout probing (`companions.go`) — the only subprocess spawns in the package.
 - Trust-root assembly from the embedded signer list plus on-disk `allowed_signers` / `distrusted_signers` (`trustroot.go`).
 - Turning jsonschema validation failures into actionable unknown-key diagnostics (`unknown_keys.go`, `warnings.go`).
@@ -193,9 +193,9 @@ flowchart TD
 
 | Signature | file:line | Contract |
 |---|---|---|
-| `(*Config).LoadAgents() []agents.Agent` | `agents.go:32` | Merges the `agents:` config key with `.ctxloom/agents/*.yaml`, config key wins, result sorted. A directory-scan error warns and the scan is treated as empty. Returned nested slices alias `c.agents` |
-| `(*Config).Agent(name) (agents.Agent, bool)` | `agents.go:70` | The precedence-honouring lookup; re-runs the full merge (directory walk plus YAML parse) on every call |
-| `(*Config).agentDirLoader() *agents.Loader` | `agents.go:14` | Builds a loader over `.ctxloom/agents` from `GetAgentDirs` |
+| `(*Config).LoadAgents() []agents.Agent` | `config.LoadAgents` | Returns the `agents:` config-key entries, cloned, sorted by name. Fires `retiredAgentsDirSignpost` first |
+| `(*Config).Agent(name) (agents.Agent, bool)` | `config.Agent` | The by-name lookup; re-runs `LoadAgents` on every call |
+| `(*Config).retiredAgentsDirSignpost()` | `config.retiredAgentsDirSignpost` | Records a fatal `ClassMigration` finding (`FailOnce`) when `.ctxloom/agents` still holds YAML definitions, which nothing reads |
 | `(*Config).DefaultAgentProfiles() []string` | `config.go:661` | The default agent's composed profiles; nil when the named agent is undefined |
 
 ### Inline profile resolution
@@ -259,7 +259,7 @@ flowchart TD
 12. **Every persisted field must be declared in four hand-maintained places** — `Config` (`config.go:71`), `configDoc` (`config.go:308`), `Fixture` (`fixture.go:19`) and `applyConfigSections` (`config_save.go:233`) — plus `toDoc`/`fromDoc`/`ToFixture`/`NewFixture`. Only the `configDoc`↔JSON-schema pair is test-gated (`internal/config/arch_test.go:66`), and only at the top level.
 13. **`Load()` is memoized; the memo is keyed by `ambientStamp()`** (`config.go:1103`) — resolved app dir, per-layer stat, and the overrides stamp — and is bypassed whenever any `LoadOption` is passed. `LoadFresh` never consults it; `Invalidate()` drops it.
 14. **Accessors are copy-on-read.** Every exported `Get*` (`accessors.go:274-405`) returns a value or a deep copy so no caller can mutate the shared `*Config`. The two documented exceptions in the code are `GetPendingUpgrade`/`GetHomePendingUpgrade`, which return the `*upgrade.Pending` pointer.
-15. **Agent precedence:** for a name defined in both the `agents:` config key and `.ctxloom/agents/<name>.yaml`, the config key wins and a shadowing warning is emitted (`agents.go:32`).
+15. **Agents come only from the `agents:` config key.** There is no directory source; a `.ctxloom/agents` directory still holding definitions is never read and raises a fatal `ClassMigration` finding (`config.retiredAgentsDirSignpost`).
 16. **The trust root is embedded-minus-distrusted, unioned with user and project `allowed_signers`** (`trustroot.go:63`); suppression is applied to the embedded store only, and a suppressed principal removes its whole entry (`trustroot.go:100`).
 17. **Authored bundles are read from `.ctxloom/content/bundles`.** `GetBundleDirs` (`config.go:1632`) returns `paths.LocalBundlesPath` per app path when it exists; `.ctxloom/cache/bundles` is never a search dir, and authored YAML found there raises a fatal `ClassMigration` finding (`legacyCacheBundlesSignpost`, `config.go:1659`).
 18. **The companion loadout probe runs at most once per `*Config`** (`companionSeedState.once`, `config.go:1809`) and `CompanionsDisabled()` beats the test override (`config.go:1762`).
@@ -275,7 +275,6 @@ flowchart TD
 - `SetCompanionsDisabled`'s contract says no companion binary is executed (`companions.go:309`), but `ProbeCompanions` (`companions.go:132`) never consults `CompanionsDisabled()`, so `ctxloom run` and `ctxloom mcp` still exec `<bin> version` for every companion via `cli/startup_helpers.go:166`.
 - `accessors.go`'s 46-line header (`accessors.go:3-48`) describes an in-progress migration with exported fields and future `Manager.Update` write sites; the fields are already unexported (`config.go:72-287`) and `Manager`/`Draft`/`Update` already exist (`config_manager.go:72`, `:63`, `:113`).
 - The same header commits to copy-on-read, but `cloneProfile` (`accessors.go:213`) does not clone `Profile.DenyTools` (`config_types.go:165`), so that slice is shared with the loaded `Config`.
-- `agentDirLoader`'s doc says it returns nil when there is no app path (`agents.go:14`); `agents.NewLoader` (`internal/agents/agents.go:232`) always returns a non-nil loader.
 - `Draft` is documented as the write API for every persisted field, but `applyConfigSections` (`config_save.go:232`) has no `ui` entry, so a `Manager.Update` that sets `d.UI` reports success and writes nothing.
 - `Fixture`'s doc states a Fixture-built `Config` never aliases a `Load` result; `ToFixture`/`NewFixture` (`fixture.go:60`, `:110`) copy structs and share every map and slice.
 - `Profile.DenyTools` (`config_types.go:165`) is parsed and honoured by the resolver, but `deny_tools` is absent from `resources/schema/input/config-schema.json`, whose profile object is `additionalProperties:false` — so using it produces an unknown-key warning saying the key is ignored, and a fatal finding in strict mode.

@@ -12,7 +12,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
   colleague who runs it gets the same four.
 
   Agents are LOCAL and stay local. They live under the `agents:` key of
-  .ctxloom/config.yaml (or as .ctxloom/agents/<name>.yaml files) and are never
+  .ctxloom/config.yaml — the one source — and are never
   shipped in a bundle or pulled from a remote: the engine you pay for and the
   runtime you are willing to execute in are yours to choose, and a publisher
   who could choose them for you would be choosing what runs on your machine.
@@ -42,7 +42,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         """
       Then the command succeeds
       And the output contains "No agents defined"
-      And the output contains ".ctxloom/agents/"
+      And the output contains "'agents:' in .ctxloom/config.yaml"
 
     Scenario: Creating a binding records every axis, and the listing reads each one back
       Given an initialized ctxloom project

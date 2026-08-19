@@ -72,7 +72,7 @@ own real permission mode, not one hard-coded value reused for both.
 
 ## The grant is journaled, not reconstructed after the fact
 
-Config drifts. A project's `.ctxloom/agents/fixer.yaml` you read today is not necessarily what it
+Config drifts. The `fixer` binding you read in `.ctxloom/config.yaml` today is not necessarily what it
 said when a run from three days ago was actually spawned — someone may have widened its
 profile, changed its permission mode, swapped which MCP servers it carries. An operator auditing
 that three-day-old run needs to know what it *was actually granted*, not what the config

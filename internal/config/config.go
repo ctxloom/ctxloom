@@ -94,14 +94,13 @@ type Config struct {
 	hooks    wire.HooksConfig //
 	mcp      wire.MCPConfig   //
 	profiles ProfilesConfig   //
-	// agents is the LOCAL-ONLY engine↔profile binding map, the in-config half
-	// of the agent entity (the other half is .ctxloom/agents/*.yaml). Keyed
-	// by agent name. It is NEVER a bundle item kind and NEVER remote — there is
-	// no Bundle.Agents and no remote path. Read the merged set via
-	// LoadAgents / Agent, which folds in the directory source too.
+	// agents is the LOCAL-ONLY engine↔profile binding map, and the ONE source
+	// of the agent entity. Keyed by agent name. It is NEVER a bundle item kind
+	// and NEVER remote — there is no Bundle.Agents and no remote path. Read it
+	// through LoadAgents / Agent, which clone what they hand out.
 	agents map[string]agents.Agent
-	// defaultAgent names the always-bound default agent: the key in agents (or a
-	// .ctxloom/agents/*.yaml file) whose binding a bare `ctxloom run` (no --agent,
+	// defaultAgent names the always-bound default agent: the key in agents
+	// whose binding a bare `ctxloom run` (no --agent,
 	// no -p/-f/-t) resolves — its composed profiles become the context and its
 	// engine + runtime + permissions the transport. It replaces the retired
 	// profiles.defaults: "the default profile set" is now whatever this agent
@@ -900,12 +899,10 @@ func splitEditorCommand(value string) (string, []string) {
 // DefaultAgentProfiles returns the profiles composed by the always-bound
 // default agent (Config.DefaultAgent) — the single "the default profile set"
 // accessor that replaced GetDefaultProfiles/ExplicitDefaultProfiles after
-// profiles.defaults was retired. It resolves through the MERGED agent lookup
-// (Config.Agent → config-key `agents:` folded with .ctxloom/agents/*.yaml), so a
-// default agent defined either way drives the default set identically to how a
-// bare `ctxloom run` binds it (operations.ResolveAgent also goes through Agent).
-// Returns nil when no default agent is configured or the named agent is not
-// defined by either source.
+// profiles.defaults was retired. It resolves through Config.Agent, the same
+// lookup operations.ResolveAgent takes, so the default set is exactly what a
+// bare `ctxloom run` binds. Returns nil when no default agent is configured or
+// the named agent is not defined.
 func (c *Config) DefaultAgentProfiles() []string {
 	if c == nil || c.defaultAgent == "" {
 		return nil

@@ -325,9 +325,9 @@ func (c *Config) GetDelegationSpoolDelivery() bool { return c.delegation.SpoolDe
 // empty or reference an undefined agent).
 func (c *Config) GetDefaultAgent() string { return c.defaultAgent }
 
-// GetConfiguredAgents returns a copy of the RAW `agents:` config-key map —
-// unlike LoadAgents/Agent, it does NOT fold in the .ctxloom/agents/*.yaml
-// directory source.
+// GetConfiguredAgents returns a copy of the RAW `agents:` map, keyed and
+// shaped exactly as config.yaml holds it — unlike LoadAgents/Agent, which
+// stamp each entry's Name from its key and sort the result.
 func (c *Config) GetConfiguredAgents() map[string]agents.Agent { return cloneAgentsMap(c.agents) }
 
 // GetPendingUpgrade returns the PROJECT (or home, when no project layer)

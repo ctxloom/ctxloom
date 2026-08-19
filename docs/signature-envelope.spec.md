@@ -856,7 +856,7 @@ Signing bundle my-tools (contains fragments/go-testing) — signatures cover who
 
 Checked against `docs/reference-grammar.md` (bundle refs) and ADR 0032.
 A bundle ref is `<name>` (bare/local), `<alias>/<name>`, or
-`<canonical-url>@bundles/<name>`. **`ctxloom-default` is a remote *alias*, not a
+`<canonical-url>//bundles/<name>`. **`ctxloom-default` is a remote *alias*, not a
 bundle**, so `ctxloom sign ctxloom-default#fragments/go-testing` does not parse as
 intended — it would read `ctxloom-default` as a bare *bundle name*. Corrected:
 
@@ -868,7 +868,7 @@ ctxloom sign ctxloom-default
 # RIGHT — <alias>/<bundle>, or fully qualified
 ctxloom sign ctxloom-default/go-tools#fragments/go-testing     # → signs bundle go-tools
 ctxloom sign ctxloom-default/go-tools                          # whole bundle
-ctxloom sign https://github.com/ctxloom/ctxloom-default@bundles/go-tools
+ctxloom sign ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/go-tools
 ctxloom sign my-tools                                          # bare = local bundle (the common case)
 ```
 

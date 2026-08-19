@@ -1,0 +1,17 @@
+# ctxloom's private working state: rebuildable or purely local, and so must
+# never ride a distributable tree. Everything else here — config.yaml,
+# remotes.yaml, lock.yaml, allowed_signers, approvals/, content/ — is committed
+# by omission, because it is content, config, or trust state the project
+# depends on.
+#
+# These patterns are gitignore.PrivateStatePatterns, relativized. This file is
+# ctxloom's to own and rewrite; keep it in sync with that list rather than
+# editing it by hand.
+/cache
+/sessions
+/project-id
+/state
+# Advisory lock sidecars live under state/locks now, but a project written by an
+# earlier version carries config.yaml.lock at this level, and leaving that
+# visible in `git status` invites exactly one mistake.
+*.lock

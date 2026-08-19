@@ -31,14 +31,16 @@ go.work.sum
 # authored bundles: `git add` reports nothing and a content repo publishes an
 # empty tree. These patterns are gitignore.PrivateStatePatterns; keep them in
 # sync with that list rather than re-broadening to a blanket.
-.ctxloom/cache/
-.ctxloom/sessions/
-.ctxloom/project-id
-.ctxloom/state/
-# Advisory lock sidecars now live under state/locks, but every project written
-# by an earlier version carries .ctxloom/config.yaml.lock at its root, and
-# leaving that visible in `git status` invites exactly one mistake.
-.ctxloom/*.lock
+# The private-state rules now live in .ctxloom/.gitignore, which ctxloom owns
+# and rewrites wholesale. Nothing about .ctxloom belongs here any more — an
+# appended rule in this file is what accumulated five stale headers and
+# attached them to a credential and three engine surfaces.
+#
+# This works because .ctxloom/ itself is NOT ignored. Were it ever blanket-
+# ignored, git would not descend into it and the nested file would never be
+# read — gitignore.Ensure already detects and retires such a blanket rule
+# (SupersededBlanketLines / isSupersededBlanket), warning that it was hiding
+# .ctxloom/content/ from git.
 # Defense-in-depth: a NESTED .ctxloom under a package dir is test/tool pollution
 # (the root `.ctxloom/*` above is anchored by its slash, so nested dirs slip
 # through). The operations TestMain also prevents + guards this at its source.

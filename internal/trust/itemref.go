@@ -16,14 +16,6 @@ import (
 // addressing schemes, and an item approved under one spelling would be gated
 // under another.
 
-// BuiltinSourcePrefix marks a builtin-bundle source ref, e.g. "builtin:ltk"
-// (the exact "builtin:"+name string extractMCPFromBundle/extractHooksFromBundle/
-// ResolveBuiltinBundleFragments construct as their gate ref's bundle component —
-// see config_bundles.go). It is never produced by anything reading user- or
-// remote-controlled input: only the three builtin resolvers, fed exclusively
-// from resources.GetBuiltinBundle (compiled into the binary), construct it.
-const BuiltinSourcePrefix = "builtin:"
-
 // ParseItemRef splits an item ref "<bundle-ref>#<kind>/<name>" into the
 // trust.Ref (repo, bundle path, kind, name, locality), the bundle ref to load
 // content from, and any "@<commit>" provenance carried on the bundle ref.
@@ -60,12 +52,17 @@ func ParseItemRef(ref string) (tRef Ref, loadRef, version string, err error) {
 		}, base, parsed.ContentVersion, nil
 	}
 
-	// base failed to parse as a canonical/local ref. A builtin bundle's source
-	// ref is recognized explicitly (never falls through to the local guess
-	// below) so a builtin item carries its own identity in the trust store —
-	// distinct from "local" — and is reachable by the rejection step (trust
-	// rework: builtins used to bypass the gate entirely, gate=nil).
-	if bundle, ok := strings.CutPrefix(base, BuiltinSourcePrefix); ok {
+	// base failed to parse as a canonical/local ref. A builtin bundle's
+	// RETIRED (pre-U3b-3) source-ref spelling, "builtin:<name>", is recognized
+	// explicitly here (never falls through to the local guess below) so a
+	// caller still holding that old spelling — this ask grammar is unchanged
+	// until it is retired in its own slice — gets IsBuiltin rather than
+	// IsLocal, distinct identities in the trust store. The literal is inlined
+	// rather than named: the only thing that ever minted it,
+	// localFSReader.readBundle's builtin stamp, mints trust.BuiltinRef
+	// directly now, so this is purely a recognizer for input already in the
+	// wild, not a producer's contract.
+	if bundle, ok := strings.CutPrefix(base, "builtin:"); ok {
 		return Ref{Bundle: bundle, Kind: kind, Name: name, IsBuiltin: true}, base, "", nil
 	}
 

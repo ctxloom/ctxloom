@@ -12,17 +12,14 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// BuiltinCompanionBins parsed embedded bundle YAML with a raw
-// yaml.Unmarshal instead of bundles.ParseBundle, so it skipped the schema
-// upgrade pipeline every on-disk and remote bundle goes through.
+// Every surface that reads the embedded builtin bytes reads them through
+// bundles.ParseBundle, so the schema upgrade pipeline every on-disk and remote
+// bundle goes through applies to them too.
 //
-// The row understated the spread and overstated the isolation. It was not one
-// site: FOUR surfaces read the same embedded bytes (companion bins, MCP
-// servers, hooks, fragments) and ALL FOUR ran their own raw yaml.Unmarshal, so
-// "every other bundle reader" was not true of the builtin family — they agreed
-// with each other and disagreed with everything else. That is the actual
-// hazard: the same bytes could mean four different things the day a migration
-// lands, and nothing would say so.
+// The hazard this pins is agreement: several surfaces read the SAME embedded
+// bytes (MCP servers, hooks, fragments), and a surface with its own raw
+// yaml.Unmarshal would make those bytes mean two different things the day a
+// migration lands, with nothing to say so.
 //
 // The consequence TODAY is nil, and this is stated rather than implied: the
 // only registered upgrade renames the top-level `prompts:` key to `commands:`,

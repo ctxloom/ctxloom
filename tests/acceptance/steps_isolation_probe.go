@@ -10,12 +10,10 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
@@ -49,21 +47,6 @@ func probeSkip(engine string, axis probeAxis, authPath probeAuthPath, reason str
 	return godog.ErrSkip
 }
 
-// probeContainerRuntimeBin returns the reachable container runtime's binary
-// name (docker preferred, then podman) and true, or ("", false) when neither
-// is reachable. Both isolation.Docker{}.Available() and
-// isolation.Podman{}.Available() check PATH AND daemon reachability (not just
-// LookPath), matching what the container axis actually needs to launch.
-func probeContainerRuntimeBin() (string, bool) {
-	if (isolation.Docker{}).Available() {
-		return isolation.Docker{}.Binary(), true
-	}
-	if (isolation.Podman{}).Available() {
-		return isolation.Podman{}.Binary(), true
-	}
-	return "", false
-}
-
 func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the isolation probe targets "([^"]*)" under the "([^"]*)" axis$`, func(c context.Context, engine, axisStr string) error {
 		w := worldFrom(c)
@@ -72,10 +55,10 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 
 		var authPath probeAuthPath
 		var reason string
-		switch p.Axis {
-		case probeAxisWorktree:
+		switch {
+		case p.Axis == probeAxisWorktree:
 			authPath, reason = probeWorktreeAuthAvailable(engine)
-		case probeAxisContainer:
+		case isProbeContainerAxis(p.Axis):
 			authPath, reason = probeContainerAuthAvailable(engine)
 		default:
 			return fmt.Errorf("isolation probe: unknown axis %q", axisStr)
@@ -125,29 +108,27 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		p := probeStateOf(w)
 		var res *probeResult
 		var err error
-		switch p.Axis {
-		case probeAxisWorktree:
+		switch {
+		case p.Axis == probeAxisWorktree:
 			res, err = runProbeWorktree(w, p.Engine, p.ForcedPath, false)
-		case probeAxisContainer:
-			// This used to hardcode "docker" with no reachability
-			// check at all, so a podman-only host (or any host with neither
-			// runtime) failed the cell as a probe FAILURE rather than
-			// skipping with a named reason -- the opposite of this file's own
-			// loudness contract, and the inverse of dockergate's decision
-			// this exact situation exists to make (dockergate itself can't be
-			// called directly here: it needs a testing.TB, which a godog step
-			// closure does not have, so its skip/fail semantics are mirrored
-			// by hand via its own exported EnvRequireDocker).
-			runtimeBin, ok := probeContainerRuntimeBin()
-			if !ok {
-				reason := fmt.Sprintf("no container runtime reachable (docker or podman) on this host (set %s=1 to make this a failure instead)", dockergate.EnvRequireDocker)
-				if os.Getenv(dockergate.EnvRequireDocker) == "1" {
-					return fmt.Errorf("isolation probe: %s, but %s=1 demands one: %s/%s container-axis cell ran NOTHING",
-						reason, dockergate.EnvRequireDocker, p.Engine, p.Axis)
-				}
-				return probeSkip(p.Engine, p.Axis, probeAuthNone, reason)
+		case isProbeContainerAxis(p.Axis):
+			// Resolve the SAME way probeCellGate does for the matrix probes
+			// (capability_probe_gate_live.go's probeContainerRuntimeForAxis):
+			// no second copy of the ownership-vs-reachability policy, and no
+			// substituting the other ownership mode for the one this cell
+			// asked for. This used to hardcode "docker" with no
+			// reachability OR ownership check at all, so a podman-only host
+			// (or a rootful-only host answering for a rootless cell) failed
+			// the cell as a probe FAILURE rather than skipping with a named
+			// reason — the opposite of this file's own loudness contract.
+			rt, decision, msg := probeContainerRuntimeForAxis(c, string(p.Axis), fmt.Sprintf("the isolation probe's %s/%s cell", p.Engine, p.Axis))
+			switch decision {
+			case dockergate.Fail:
+				return fmt.Errorf("isolation probe: %s", msg)
+			case dockergate.Skip:
+				return probeSkip(p.Engine, p.Axis, probeAuthNone, msg)
 			}
-			res, err = runProbeContainer(w, p.Engine, runtimeBin)
+			res, err = runProbeContainer(w, p.Engine, p.Axis, rt.Command)
 		default:
 			return fmt.Errorf("isolation probe: unknown axis %q", p.Axis)
 		}
@@ -181,7 +162,7 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		switch p.Axis {
 		case probeAxisWorktree:
 			assertErr = assertProbeWorktree(res)
-		case probeAxisContainer:
+		case probeAxisContainerRootless, probeAxisContainerRootful:
 			assertErr = assertProbeContainer(res)
 			// The enumerated `docker diff` write-set, paths only — printed
 			// unconditionally (pass or fail) so a real run leaves behind

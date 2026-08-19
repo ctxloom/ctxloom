@@ -31,6 +31,7 @@ package acceptance
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +42,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/schema"
 )
 
 // approachCellFixture is a green P1 run, used as the baseline every check below
@@ -287,12 +289,68 @@ func TestApproachConfigYAML_ActuallyPinsTheApproach(t *testing.T) {
 	}
 
 	// The container axis composes with the pin rather than displacing it: the
-	// two keys sit side by side under the same binding.
-	binding := approachBindingYAML(t, approachConfigYAML(a, "claude", "container", "hook"))
+	// two keys sit side by side under the same binding. container-rootless,
+	// not the retired undifferentiated "container" spelling (task
+	// unwatched-discharge) — config-schema.json's `runtime` enum no longer
+	// accepts it, so a fixture still writing it would build a config no real
+	// invocation could load.
+	binding := approachBindingYAML(t, approachConfigYAML(a, "claude", "container-rootless", "hook"))
 	parsed, err := agents.ParseAgent([]byte(binding))
 	require.NoError(t, err)
-	require.Equal(t, "container", parsed.Runtime)
+	require.Equal(t, "container-rootless", parsed.Runtime)
 	require.Equal(t, map[string]string{"context": "hook"}, parsed.Surfaces)
+}
+
+// TestApproachConfigYAML_RuntimeMustBeSchemaValid is the mutation target for
+// task unwatched-discharge's fix (P1 wrote the retired undifferentiated
+// "runtime: container" — resources/schema/input/config-schema.json's `runtime`
+// enum now only accepts host|container-rootless|container-rootful, and an
+// unrecognized value degrades a live run to the host under --degraded,
+// silently, per isolation.go's warnUnknownAxes).
+//
+// The test above (TestApproachConfigYAML_ActuallyPinsTheApproach) only proves
+// the rendered binding PARSES — agents.ParseAgent is deliberately lenient, it
+// accepts any string into Runtime, which is exactly how the retired spelling
+// went unnoticed here for as long as it did. This test instead runs the SAME
+// rendered bytes through the REAL schema validator production's own config
+// loader uses (internal/schema.NewConfigValidator, the seam
+// internal/config/unknown_keys.go's classifyValidationError sits on top of),
+// so a P1 fixture cannot drift back to a value the schema rejects even if
+// ParseAgent stays lenient forever.
+//
+// PROVEN BY MUTATION (task unwatched-discharge, 2026-08-18): changing the
+// runtime argument below from "container-rootless" back to the retired
+// "container" turns this test RED — schema validation rejects it with
+// `'/agents/hello/runtime' does not validate ... enum: value must be one of
+// "host", "container-rootless", "container-rootful"`, reproducing exactly the
+// silent degradation this task exists to close. Restoring
+// "container-rootless" turns it green again. See the task's own report for
+// the transcript of both runs.
+//
+// DELIBERATELY NOT approachConfigYAML(a, ...): liveAgents' shared base config
+// (live_engine_registry.go) still carries `profiles:\n  defaults: []`, a KEY
+// config-schema.json's own retiredKeys table (internal/config/unknown_keys.go)
+// says was retired independently of this task — reusing it here would make
+// this test red for an unrelated, pre-existing reason and hide the one this
+// test exists to catch. Reported separately rather than fixed here; see the
+// task's own report. This test instead builds the smallest config the schema
+// actually requires (a version, one llm.configs entry, one agent binding) so
+// the ONLY thing that can turn it red is the runtime value.
+func TestApproachConfigYAML_RuntimeMustBeSchemaValid(t *testing.T) {
+	v, err := schema.NewConfigValidator()
+	require.NoError(t, err, "the embedded config schema must compile")
+
+	minimalConfigYAML := func(runtime string) string {
+		return fmt.Sprintf("version: 6\nllm:\n  configs:\n    claude:\n      type: claude-code\n"+
+			"agents:\n  hello:\n    llm: claude\n    profiles: []\n    permissions: bypass\n    runtime: %s\n", runtime)
+	}
+
+	for _, runtime := range []string{"container-rootless", "container-rootful"} {
+		t.Run(runtime, func(t *testing.T) {
+			require.NoError(t, v.ValidateBytes([]byte(minimalConfigYAML(runtime))),
+				"a P1 cell's own rendered config must validate against config-schema.json's runtime enum, or a live cell built from it would silently degrade to host instead of exercising a container")
+		})
+	}
 }
 
 // approachBindingYAML lifts the `agents: hello:` sub-document out of a rendered

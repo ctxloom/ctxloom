@@ -65,40 +65,73 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine      | axis     |
       | claude-code | worktree |
 
-    @claude-code @container
+    # container-rootless is the only container ownership this probe (or any
+    # box it has ever run on) has been able to reach — see
+    # isolation_probe.go's probeAxis doc and task unwatched-discharge, which
+    # retired the undifferentiated "container" spelling this row used to
+    # write (`runtime: container`, no longer in config-schema.json's enum).
+    @claude-code @container-rootless
     Examples:
-      | engine      | axis      |
-      | claude-code | container |
+      | engine      | axis               |
+      | claude-code | container-rootless |
+
+    # container-rootful: WIRED, UNVERIFIED. No box this suite has run on has
+    # had a reachable rootful docker daemon (this one runs rootless 29.3.0)
+    # or podman invoked rootful, so this row has never gone green — it
+    # self-skips loudly via probeContainerRuntimeForAxis until run on a
+    # runner that has one.
+    @claude-code @container-rootful
+    Examples:
+      | engine      | axis              |
+      | claude-code | container-rootful |
 
     @codex @worktree
     Examples:
       | engine | axis     |
       | codex  | worktree |
 
-    @codex @container
+    @codex @container-rootless
     Examples:
-      | engine | axis      |
-      | codex  | container |
+      | engine | axis               |
+      | codex  | container-rootless |
+
+    # container-rootful: WIRED, UNVERIFIED — see claude-code's row above.
+    @codex @container-rootful
+    Examples:
+      | engine | axis              |
+      | codex  | container-rootful |
 
     @kiro @worktree
     Examples:
       | engine | axis     |
       | kiro   | worktree |
 
-    @kiro @container
+    @kiro @container-rootless
     Examples:
-      | engine | axis      |
-      | kiro   | container |
+      | engine | axis               |
+      | kiro   | container-rootless |
+
+    # container-rootful: WIRED, UNVERIFIED — see claude-code's row above.
+    @kiro @container-rootful
+    Examples:
+      | engine | axis              |
+      | kiro   | container-rootful |
 
     @opencode @worktree
     Examples:
       | engine   | axis     |
       | opencode | worktree |
 
-    @opencode @container
+    @opencode @container-rootless
     Examples:
-      | engine   | axis      |
-      | opencode | container |
+      | engine   | axis               |
+      | opencode | container-rootless |
+
+    # container-rootful: WIRED, UNVERIFIED — see claude-code's row above.
+    @opencode @container-rootful
+    Examples:
+      | engine   | axis              |
+      | opencode | container-rootful |
 
   # Auth-path duality: the primary sweep above reports which path it took, but a
   # dev box with subscription credentials on disk will always land on "seeded"

@@ -881,10 +881,13 @@ test-acceptance-live-container: container-build-acceptance
 # Run the standalone isolation probe (tests/acceptance/features/
 # isolation_probe.feature) for exactly ONE engine x axis cell — the
 # per-engine-release regression check, not the whole live suite. ENGINE is
-# one of claude-code|codex|kiro|opencode|antigravity; AXIS is worktree or
-# container (or "bypass" for the engine's env-API-key-forced worktree row,
-# or "kiro-leak" for the dedicated --degraded credential-store-leak proof —
-# that one ignores ENGINE/AXIS). Makes AT MOST one real, paid engine call.
+# one of claude-code|codex|kiro|opencode|antigravity; AXIS is worktree,
+# container-rootless, or container-rootful (or "bypass" for the engine's
+# env-API-key-forced worktree row, or "kiro-leak" for the dedicated
+# --degraded credential-store-leak proof — that one ignores ENGINE/AXIS).
+# container-rootful is wired but has never gone green on any box this suite
+# has run on (no reachable rootful daemon) — it self-skips loudly. Makes AT
+# MOST one real, paid engine call.
 # Requires real credentials for ENGINE (a host credential file, or its
 # API-key env var) — self-skips loudly, naming exactly what is missing, when
 # absent. See website/src/content/docs/security/isolation.md's "The

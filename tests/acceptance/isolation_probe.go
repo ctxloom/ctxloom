@@ -78,9 +78,22 @@ import (
 type probeAxis string
 
 const (
-	probeAxisWorktree  probeAxis = "worktree"
-	probeAxisContainer probeAxis = "container"
+	probeAxisWorktree          probeAxis = "worktree"
+	probeAxisContainerRootless probeAxis = "container-rootless"
+	probeAxisContainerRootful  probeAxis = "container-rootful"
 )
+
+// isProbeContainerAxis reports whether axis is either container ownership
+// mode — the "is this cell on the container boundary at all?" question,
+// mirrored from isolation.IsContainerRuntimeAxis (this package cannot import
+// unexported production predicates, but the SHAPE — no bare "container"
+// value, two owned ones — must not drift from it). There is deliberately no
+// undifferentiated container axis here any more: task unwatched-discharge
+// retired the spelling this probe used to write (`runtime: container`),
+// which resources/schema/input/config-schema.json's enum no longer accepts.
+func isProbeContainerAxis(a probeAxis) bool {
+	return a == probeAxisContainerRootless || a == probeAxisContainerRootful
+}
 
 // probeAuthPath names WHICH of the two mutually exclusive auth resolution
 // paths a probe run actually took — THE TRAP a credentialed CI lane must not
@@ -643,7 +656,10 @@ func probePrompt(token string) string {
 // permissions bypass (the file-write action needs it — every backend maps
 // agent.PermissionBypass to its own skip-prompts flag, see
 // internal/{claude,codex,kiro,opencode}/backend.go), and,
-// for the container axis only, runtime: container.
+// for a container axis, runtime: <the axis value verbatim> — config.yaml's
+// own spelling (config-schema.json's `runtime` enum), so this fixture writes
+// exactly what a real invocation would type and cannot drift from what the
+// schema accepts.
 func probeConfigYAML(backendType string, axis probeAxis) string {
 	key := backendTypeToLiveKey(backendType)
 	agent, ok := liveAgents[key]
@@ -662,8 +678,8 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 	b.WriteString("agents:\n  probe:\n    llm: ")
 	b.WriteString(key)
 	b.WriteString("\n    profiles: []\n    permissions: bypass\n")
-	if axis == probeAxisContainer {
-		b.WriteString("    runtime: container\n")
+	if isProbeContainerAxis(axis) {
+		fmt.Fprintf(&b, "    runtime: %s\n", axis)
 	}
 	return b.String()
 }
@@ -862,17 +878,18 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 
 // runProbeContainer drives one live container-axis cell end to end: decide
 // container auth availability (probeContainerAuthAvailable), write config
-// with runtime: container and workspace "none" — deliberately NOT worktree:
-// a synthetic container HOME with no worktree mount keeps every
-// writable-layer path attributable to either the container's fresh HOME or
-// the plain project-dir bind mount, with no worktree-checkout machinery in
-// between to confuse the picture — run `ctxloom run` in the background
-// while watchContainerDiff races the container's own `--rm` teardown, and
-// check the token file directly in the bind-mounted project dir (a plain
-// bind mount, unlike the worktree axis's ephemeral checkout — the project
-// dir is never torn down, so this needs no race at all).
-func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, error) {
-	res := &probeResult{Engine: backendType, Axis: probeAxisContainer}
+// with runtime: <axis> (container-rootless or container-rootful) and
+// workspace "none" — deliberately NOT worktree: a synthetic container HOME
+// with no worktree mount keeps every writable-layer path attributable to
+// either the container's fresh HOME or the plain project-dir bind mount, with
+// no worktree-checkout machinery in between to confuse the picture — run
+// `ctxloom run` in the background while watchContainerDiff races the
+// container's own `--rm` teardown, and check the token file directly in the
+// bind-mounted project dir (a plain bind mount, unlike the worktree axis's
+// ephemeral checkout — the project dir is never torn down, so this needs no
+// race at all).
+func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin string) (*probeResult, error) {
+	res := &probeResult{Engine: backendType, Axis: axis}
 
 	authPath, reason := probeContainerAuthAvailable(backendType)
 	res.AuthPath, res.AuthReason = authPath, reason
@@ -901,7 +918,7 @@ func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, 
 	token := probeToken()
 	res.Token = token
 
-	if err := w.env.WriteFile(".ctxloom/config.yaml", probeConfigYAML(backendType, probeAxisContainer)); err != nil {
+	if err := w.env.WriteFile(".ctxloom/config.yaml", probeConfigYAML(backendType, axis)); err != nil {
 		return nil, err
 	}
 	if err := w.env.GitCommit("isolation probe config for " + backendType); err != nil {

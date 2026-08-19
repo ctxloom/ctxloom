@@ -113,6 +113,38 @@ func (v *ConfigValidator) KnownPath(path []string) bool {
 	return true
 }
 
+// ValidateAt validates ONE value against the sub-schema that governs path (see
+// KnownPath's doc for the segment-resolution rule). It is the seam an override
+// channel needs: env/--config-set values never pass through a config FILE, so
+// ValidateBytes — which validates a whole document — never sees them, and an
+// enum-typed key like `agents.<name>.permissions` could be set to anything from
+// either channel with no complaint at all while the same value written into
+// config.yaml was refused.
+//
+// A path the schema does not name is NOT an error here: "this key is unknown"
+// is a different diagnosis with its own reporting (confload's resolvePath case
+// 4, and the unknown-key warnings a file layer gets), and answering it twice in
+// two vocabularies helps nobody. Likewise a location under
+// `additionalProperties: true`, which names every key and constrains none.
+//
+// Validating the value ALONE rather than a synthetic one-key document is what
+// keeps this honest: a document carrying only `mcpServers.x.args` would fail
+// that object's own `required: [command]` even though the override said nothing
+// about command, and reporting a missing key nobody touched is a false alarm.
+func (v *ConfigValidator) ValidateAt(path []string, value any) error {
+	if v == nil || v.schema == nil || len(path) == 0 {
+		return nil
+	}
+	cur := v.schema
+	for _, seg := range path {
+		cur = schemaChild(cur, seg)
+		if cur == nil || cur == anyKeySchema {
+			return nil
+		}
+	}
+	return cur.Validate(convertToJSON(value))
+}
+
 // KnownKeys returns the declared property names of the schema object at path
 // (see KnownPath's doc for the segment-resolution rule), unioned across every
 // anyOf/oneOf/allOf branch reachable from it. This is the enumeration

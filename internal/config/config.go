@@ -668,6 +668,11 @@ func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
 	}
 	if validator != nil {
 		p.KnownPath = validator.KnownPath
+		// The override channels' own schema gate. A file layer is validated by
+		// loadConfigLayer before it merges; without this, an env/--config-set
+		// value merged in afterwards was checked against nothing, so the same
+		// bad value was refused through one door and silent through the other.
+		p.ValidateValue = validator.ValidateAt
 	}
 	return p
 }
@@ -1718,16 +1723,24 @@ func decodeMergedLayers(cfg *Config, layers []map[string]any, product confload.P
 		// layer may not carry) is classified as WarnKindLayerScope — the SAME
 		// fatal-class finding the per-file-layer check records — so the
 		// strict startup gate reports both routes to the identical
-		// disallowed-layer problem identically. Every OTHER override fault
-		// (an ambiguous case-2 collision, a malformed --config-set entry)
-		// keeps the existing, coarser WarnKindParse classification: this is
-		// splitting one joined error by TYPE, not inventing a new pass over
-		// anything.
+		// disallowed-layer problem identically, and a ValidateValue refusal is
+		// classified as WarnKindValidate for the identical reason. Every OTHER
+		// override fault (an ambiguous case-2 collision, a malformed
+		// --config-set entry) keeps the existing, coarser WarnKindParse
+		// classification: this is splitting one joined error by TYPE, not
+		// inventing a new pass over anything.
 		for _, sub := range splitJoinedErrors(overrideErr) {
 			var scopeErr *confload.ScopeViolationError
-			if errors.As(sub, &scopeErr) {
+			var schemaErr *confload.SchemaViolationError
+			switch {
+			case errors.As(sub, &scopeErr):
 				cfg.warn(WarnKindLayerScope, "config override resolution: %v", sub)
-			} else {
+			case errors.As(sub, &schemaErr):
+				// The SAME kind a config FILE's schema breakage gets, so one bad
+				// value reads identically whichever door it came through — which
+				// is the whole point of validating the override layer at all.
+				cfg.warn(WarnKindValidate, "config override resolution: %v", sub)
+			default:
 				cfg.warn(WarnKindParse, "config override resolution: %v", sub)
 			}
 		}

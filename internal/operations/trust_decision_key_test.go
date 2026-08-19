@@ -63,7 +63,7 @@ func TestSetItemTrust_RefusesAKeyUntrustedForApprove(t *testing.T) {
 	rogue := untrustedSigner(t)
 
 	_, err := SetItemTrust(nil, SetItemTrustRequest{
-		Ref:       "https://github.com/acme/repo@bundles/tooling#fragments/solid",
+		Ref:       seedItemRef(t, seededBundleKey, "fragments/solid"),
 		Signer:    rogue,
 		Root:      fx.root, // trusts fx.signer for approve+reject, and nothing else
 		UserStore: fx.user,
@@ -103,7 +103,7 @@ func TestSetBlacklist_RefusesAKeyUntrustedForReject(t *testing.T) {
 	rogue := untrustedSigner(t)
 
 	_, err := SetBlacklist(nil, SetBlacklistRequest{
-		Ref:       "https://github.com/acme/repo@bundles/tooling#fragments/solid",
+		Ref:       seedItemRef(t, seededBundleKey, "fragments/solid"),
 		Signer:    rogue,
 		Root:      fx.root,
 		UserStore: fx.user,
@@ -135,7 +135,7 @@ func TestReviewDecision_ApproveGrantDoesNotAuthorizeReject(t *testing.T) {
 		PublicKey:  signer.PublicKey(),
 	})
 	store := countersign.NewStore(userApprovalsDir, fs)
-	ref := "https://github.com/acme/repo@bundles/tooling#fragments/solid"
+	ref := seedItemRef(t, seededBundleKey, "fragments/solid")
 
 	_, err = SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: signer, Root: approveOnly, UserStore: store, Loader: loader})
 	require.NoError(t, err, "the approve grant authorizes an approval")

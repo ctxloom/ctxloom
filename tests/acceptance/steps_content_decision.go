@@ -134,8 +134,8 @@ func tcFragmentStates(w *World) (map[string]string, error) {
 	return states, nil
 }
 
-// runDecisionPlumbing runs `ctxloom bundle <verb> file://<bare>@bundles/<item>`
-// for a seeded remote. item is "<bundle>#<kind>/<name>", e.g. "demo#fragments/x".
+// runDecisionPlumbing runs `ctxloom bundle <verb> <canonical-item-uri>` for a
+// seeded remote. item is "<bundle>#<kind>/<name>", e.g. "demo#fragments/x".
 //
 // A seeded file:// remote's canonical bundle refs embed the scenario's temp
 // path, so a feature file cannot spell the full ref statically; this composes
@@ -153,8 +153,11 @@ func runDecisionPlumbing(c context.Context, verb, item, remoteName string) error
 	if bare == "" {
 		return fmt.Errorf("remote %q was not seeded", remoteName)
 	}
-	ref := fmt.Sprintf("file://%s@bundles/%s", bare, item)
-	return runOK(w, "bundle", verb, ref)
+	bundle, selector, scoped := strings.Cut(item, "#")
+	if !scoped {
+		return fmt.Errorf("pending item %q must be written as <bundle>#<kind>/<name>", item)
+	}
+	return runOK(w, "bundle", verb, canonicalItemRef("file://"+bare, bundle, selector))
 }
 
 func registerContentDecisionSteps(ctx *godog.ScenarioContext) {

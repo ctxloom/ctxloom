@@ -266,7 +266,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 		lines := captureIngestWarnings(t, func() {
 			in := newContextIngest()
 			require.True(t, in.add(ingestedFragment{Ref: "ctxloom:local@bundles/dev#fragments/rules", Name: "dev/rules", Content: "RULES"}))
-			require.False(t, in.add(ingestedFragment{Ref: "builtin:dev#fragments/rules", Name: "builtin dev/rules", Content: "RULES"}))
+			require.False(t, in.add(ingestedFragment{Ref: "ctxloom+builtin:dev#fragments/rules", Name: "builtin dev/rules", Content: "RULES"}))
 		})
 		require.Len(t, lines, 1)
 		assert.Contains(t, lines[0], "reached this context twice")
@@ -330,19 +330,24 @@ func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 // loader spellings of ONE item reduce to the same key, and every distinction
 // the rule must preserve survives the reduction.
 func TestIngestItemKey_IdentityIsSourceAgnosticAndSelectorBearing(t *testing.T) {
-	builtin := ingestItemKey("builtin:isolation#fragments/isolation-axes")
+	builtin := ingestItemKey("ctxloom+builtin:isolation#fragments/isolation-axes")
 	local := ingestItemKey("ctxloom:local@bundles/isolation#fragments/isolation-axes")
 	bare := ingestItemKey("isolation#fragments/isolation-axes")
 
 	assert.Equal(t, builtin, local, "the builtin and loader spellings of ONE item must reduce to one key")
 	assert.Equal(t, builtin, bare, "the bare local spelling must reduce to the same key too")
 
-	assert.NotEqual(t, builtin, ingestItemKey("builtin:isolation#fragments/other-axes"),
+	assert.NotEqual(t, builtin, ingestItemKey("ctxloom+builtin:isolation#fragments/other-axes"),
 		"a different item NAME is a different item")
-	assert.NotEqual(t, builtin, ingestItemKey("builtin:other-bundle#fragments/isolation-axes"),
+	assert.NotEqual(t, builtin, ingestItemKey("ctxloom+builtin:other-bundle#fragments/isolation-axes"),
 		"a different BUNDLE is a different item")
-	assert.NotEqual(t, builtin, ingestItemKey("builtin:isolation#commands/isolation-axes"),
+	assert.NotEqual(t, builtin, ingestItemKey("ctxloom+builtin:isolation#commands/isolation-axes"),
 		"a different item KIND is a different item")
+
+	// A scheme-marked bundle half that does not parse is used VERBATIM rather
+	// than collapsed onto the bare name inside it: an unrecognized source must
+	// never dedup against a first-party one.
+	assert.Equal(t, "ctxloom:local@#fragments/x", ingestItemKey("ctxloom:local@#fragments/x"))
 
 	// A ref the grammar cannot parse is used verbatim, so it can only ever
 	// match a byte-identical spelling — never a different one.

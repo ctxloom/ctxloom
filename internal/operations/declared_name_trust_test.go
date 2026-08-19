@@ -105,9 +105,7 @@ func TestDeclaredName_RemoteDecisionDoesNotTransferToProjectBundleClaimingItsRef
 
 	// Reject the REMOTE identity, ref-scoped, exactly as a human reviewing that
 	// remote item would.
-	remoteTRef, _, _, err := trust.ParseItemRef(impostorRemoteRef + "#fragments/keeper")
-	require.NoError(t, err)
-	fx.rejectRef(remoteTRef)
+	fx.rejectRef(pipelineItemRef(t, impostorRemoteRef+"#fragments/keeper"))
 
 	// The rejection bites the identity it names.
 	_, err = pipe.GetFragment(impostorRemoteRef + "#fragments/keeper")
@@ -275,7 +273,5 @@ func TestDeclaredName_SelfRenameDoesNotEscapeAnExistingRejection(t *testing.T) {
 // keeper fragment at the ref the loader derives for it.
 func approveRemoteKeeper(t *testing.T, fx *trustFixture, body string) {
 	t.Helper()
-	tRef, _, _, err := trust.ParseItemRef(impostorRemoteRef + "#fragments/keeper")
-	require.NoError(t, err)
-	fx.approve(tRef, signing.FormRaw, []byte(body))
+	fx.approve(pipelineItemRef(t, impostorRemoteRef+"#fragments/keeper"), signing.FormRaw, []byte(body))
 }

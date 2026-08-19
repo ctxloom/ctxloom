@@ -75,7 +75,7 @@ func TestSetItemTrust_WriteFailureSurfacesError(t *testing.T) {
 	failingStore := countersign.NewStore("/user-approvals", failWritesFs{Fs: mem})
 
 	res, err := SetItemTrust(nil, SetItemTrustRequest{
-		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/solid", Signer: fx.signer, Root: fx.root, UserStore: failingStore, Loader: loader,
+		Ref: seedItemRef(t, seededBundleKey, "fragments/solid"), Signer: fx.signer, Root: fx.root, UserStore: failingStore, Loader: loader,
 	})
 	require.Error(t, err, "a failed countersignature write must surface as an error, not a silently reported approval")
 	assert.Nil(t, res)
@@ -105,7 +105,7 @@ func TestSetBlacklist_RefRejectWriteFailureSurfacesError(t *testing.T) {
 	failingStore := countersign.NewStore("/user-approvals", failWritesFs{Fs: mem})
 
 	res, err := SetBlacklist(nil, SetBlacklistRequest{
-		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/solid", Signer: fx.signer, Root: fx.root, UserStore: failingStore, Loader: loader,
+		Ref: seedItemRef(t, seededBundleKey, "fragments/solid"), Signer: fx.signer, Root: fx.root, UserStore: failingStore, Loader: loader,
 	})
 	require.Error(t, err, "a failed ref-reject countersignature write must surface as an error, not a silently reported rejection")
 	assert.Nil(t, res)
@@ -139,7 +139,7 @@ func TestSetBlacklist_ContentRejectWriteFailure_NotFalselyReported(t *testing.T)
 	store := countersign.NewStore("/user-approvals", failing)
 
 	res, err := SetBlacklist(nil, SetBlacklistRequest{
-		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Signer: fx.signer, Root: fx.root, UserStore: store, Loader: loader,
+		Ref: seedItemRef(t, seededBundleKey, "fragments/dual"), Signer: fx.signer, Root: fx.root, UserStore: store, Loader: loader,
 	})
 	require.NoError(t, err, "the durable ref-level block succeeded, so the call as a whole must still report success")
 	require.NotNil(t, res)

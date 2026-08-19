@@ -381,40 +381,41 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// to close (see remote.isRefControlChar's doc), just moved from the
 	// countersign preimage to the review prompt.
 	name = remote.NormalizeRef(name)
-	// ref is the DISPLAY/CLI-facing item ref — "<bundleRef>#<kindDir>/<name>",
-	// bundleRef being the bundle's display name (read.DisplayName()) — and it
-	// stays in that OLD grammar deliberately: it is what ReviewItem.Ref hands
-	// straight to operations.SetItemTrust/SetBlacklist (still trust.
-	// ParseItemRef readers; the CLI ref syntax migrates in a later slice), so
-	// changing its shape here would break `ctxloom review`'s accept/reject
-	// the moment this landed, not just transiently.
-	ref := bundleRef + "#" + kindDir + "/" + name
+	// asked is how the item was ASKED for — the bundle's display name plus the
+	// selector. It names the item in the one diagnostic that fires when the
+	// item cannot be addressed at all, which is precisely when there is no
+	// canonical reference to name it by.
+	asked := bundleRef + "#" + kindDir + "/" + name
 
 	// tRef is the TRUST identity the decision below keys on, and it is built
 	// from the bundle's HONEST typed source (read.SourceRef(), the same
-	// typed field every migrated producer mints from) through the canonical
-	// bundle-reference grammar — never by reparsing ref, which carries
-	// bundleRef (read.DisplayName(), a label) instead of the source.
-	// The two agree for every class except BUILTIN, where the resolution ref
-	// is deliberately unqualified ("isolation") while the source ref carries
-	// its class ("builtin:isolation" / ctxloom+builtin:isolation) — so the
-	// old ref-string round trip through trust.ParseItemRef misread a builtin
+	// typed field every producer mints from) through the canonical
+	// bundle-reference grammar — never from bundleRef (read.DisplayName(), a
+	// label) . The two disagree for a BUILTIN bundle, whose resolution ref is
+	// deliberately unqualified ("isolation") while its source ref carries its
+	// class — so composing an identity out of the display name reads a builtin
 	// item as Ref{IsLocal: true} instead of Ref{IsBuiltin: true}: a second,
-	// quietly-different construction of "the same" identity from the one
-	// every migrated producer's item ref now carries.
+	// quietly-different construction of "the same" identity.
 	kind, parsedName, serr := trust.ParseSelector(kindDir + "/" + name)
 	if serr != nil {
-		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", ref, serr)
+		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", asked, serr)
 		return ReviewItem{}, false
 	}
 	br, err := read.SourceRef().WithItem(kind, parsedName)
 	if err != nil {
 		// A ref review cannot address cannot be accepted either — the exposure
 		// gate withholds it regardless; surface the anomaly and move on.
-		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", ref, err)
+		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", asked, err)
 		return ReviewItem{}, false
 	}
 	tRef := trust.RefFromBundleRef(br)
+
+	// ref is the DISPLAY/CLI-facing item ref, and it is the CANONICAL URI:
+	// ReviewItem.Ref is handed straight back to `ctxloom bundle trust|reject|
+	// forget`, which accepts that grammar and no other. Minting it from the
+	// same typed source tRef came from is what makes the ref a human is shown
+	// the identity the decision was keyed on.
+	ref := br.String()
 	// THE SAME FILTER THE EXPOSURE PATH USES, not a second opinion about the
 	// same item. That is the whole point of the verdict: a status report is
 	// truthful by CONSTRUCTION rather than because two code paths that both
@@ -442,9 +443,9 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 		Bundle: bundleRef,
 		Ref:    ref,
 		Kind:   kindDir,
-		// tRef.Name, not the raw name parameter: it is the value ParseItemRef
-		// actually parsed ref into, so display can never show a byte the
-		// trust decision above did not see (see ref's normalization comment).
+		// tRef.Name, not the raw name parameter: it is the value the trust
+		// decision above was actually taken against, so display can never show
+		// a byte that decision did not see (see the normalization above).
 		Name:       tRef.Name,
 		Status:     ReviewStatusNew,
 		Executable: executable,

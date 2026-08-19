@@ -196,7 +196,7 @@ func TestRunBlacklist_RefRejectBindsOneAddress(t *testing.T) {
 
 	c, _ := testCmd()
 	require.NoError(t, runItemReject(c, cfg,
-		"https://github.com/acme/repo@bundles/tooling#fragments/solid"))
+		"ctxloom+git://github.com/acme/repo//bundles/tooling#fragments/solid"))
 	store := userApprovalsStore(t)
 
 	t.Run("the same URI in another transport spelling IS bound", func(t *testing.T) {

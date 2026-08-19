@@ -842,15 +842,11 @@ type SetItemTrustResult struct {
 // Alongside the store write it snapshots the approved bytes (content kinds
 // only, best-effort) so a later upstream change can be reviewed as a diff.
 func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustResult, error) {
-	tRef, loadRef, _, err := trust.ParseItemRef(req.Ref)
+	loader, tRef, key, err := resolveMutationTarget(cfg, req.Loader, req.Ref)
 	if err != nil {
 		return nil, err
 	}
-	loader := req.Loader
-	if loader == nil {
-		loader = bundleLoader(cfg)
-	}
-	attestations, _, err := itemAttestations(loader, tRef, loadRef)
+	attestations, _, err := itemAttestations(loader, tRef, key)
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve %q to approve it: %w", req.Ref, err)
 	}
@@ -904,7 +900,7 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 		}
 	}
 
-	snapshotAcceptedItemContent(cfg, loader, tRef, loadRef, req.FS, rawHash, distilledHash)
+	snapshotAcceptedItemContent(cfg, loader, tRef, key, req.FS, rawHash, distilledHash)
 
 	res := &SetItemTrustResult{
 		Status:   "approved",
@@ -967,13 +963,9 @@ type SetBlacklistResult struct {
 // rejected wherever it appears (spec §5.3's asymmetry: approve binds the
 // ref, reject's content component deliberately does not).
 func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistResult, error) {
-	tRef, loadRef, _, err := trust.ParseItemRef(req.Ref)
+	loader, tRef, key, err := resolveMutationTarget(cfg, req.Loader, req.Ref)
 	if err != nil {
 		return nil, err
-	}
-	loader := req.Loader
-	if loader == nil {
-		loader = bundleLoader(cfg)
 	}
 
 	store, storeName, err := resolveCountersignStore(cfg, req.FS, req.Project, req.UserStore, req.ProjectStore)
@@ -1004,7 +996,7 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 	// mental model uses ("raw", "distilled"); the record itself binds the
 	// derived attestation form.
 	var forms []string
-	if attestations, _, herr := itemAttestations(loader, tRef, loadRef); herr == nil {
+	if attestations, _, herr := itemAttestations(loader, tRef, key); herr == nil {
 		for _, a := range attestations {
 			var werr error
 			if unsigned {
@@ -1055,8 +1047,8 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 // record a countersignature must go through itemAttestations, which pairs each
 // payload with the attestation form derived from the item's kind. Nothing that
 // writes a countersignature may pick a form itself.
-func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef string) (rawPayload, distilledPayload []byte, signer string, err error) {
-	bundle, err := loader.Load(loadRef)
+func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, key trust.BundleKey) (rawPayload, distilledPayload []byte, signer string, err error) {
+	bundle, err := loader.LoadKey(key)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -1076,21 +1068,21 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 	case trust.KindFragment:
 		frag, ok := bundle.Fragments[tRef.Name]
 		if !ok {
-			return nil, nil, "", fmt.Errorf("fragment %q not found in bundle %q", tRef.Name, loadRef)
+			return nil, nil, "", fmt.Errorf("fragment %q not found in bundle %q", tRef.Name, key)
 		}
 		rawPayload, distilledPayload = payloadPair(frag.ContentPayload)
 		return rawPayload, distilledPayload, signer, nil
 	case trust.KindPrompt:
 		prompt, ok := bundle.Commands[tRef.Name]
 		if !ok {
-			return nil, nil, "", fmt.Errorf("prompt %q not found in bundle %q", tRef.Name, loadRef)
+			return nil, nil, "", fmt.Errorf("prompt %q not found in bundle %q", tRef.Name, key)
 		}
 		rawPayload, distilledPayload = payloadPair(prompt.ContentPayload)
 		return rawPayload, distilledPayload, signer, nil
 	case trust.KindMCP:
 		mcp, ok := bundle.MCP[tRef.Name]
 		if !ok {
-			return nil, nil, "", fmt.Errorf("mcp server %q not found in bundle %q", tRef.Name, loadRef)
+			return nil, nil, "", fmt.Errorf("mcp server %q not found in bundle %q", tRef.Name, key)
 		}
 		payload, perr := mcp.ContentPayload()
 		if perr != nil {
@@ -1101,7 +1093,7 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 		// tRef.Name is the hook's "<event>/<index>" identity (see Entries()).
 		entry, ok := bundle.Hooks.EntryByID(tRef.Name)
 		if !ok {
-			return nil, nil, "", fmt.Errorf("hook %q not found in bundle %q", tRef.Name, loadRef)
+			return nil, nil, "", fmt.Errorf("hook %q not found in bundle %q", tRef.Name, key)
 		}
 		payload, perr := entry.Hook.ContentPayload()
 		if perr != nil {
@@ -1111,7 +1103,7 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 	case trust.KindSkill:
 		skill, ok := bundle.Skills[tRef.Name]
 		if !ok {
-			return nil, nil, "", fmt.Errorf("skill %q not found in bundle %q", tRef.Name, loadRef)
+			return nil, nil, "", fmt.Errorf("skill %q not found in bundle %q", tRef.Name, key)
 		}
 		// A skill has no distilled form (SKILL.md's description IS the
 		// progressive-disclosure mechanism; distilling it would defeat that) —
@@ -1158,8 +1150,8 @@ type itemAttestation struct {
 // A kind with no attestation form yields an error rather than an empty list: it
 // cannot be countersigned, and a caller told "nothing to record" would report a
 // decision it never made.
-func itemAttestations(loader *bundles.Loader, tRef trust.Ref, loadRef string) ([]itemAttestation, string, error) {
-	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(loader, tRef, loadRef)
+func itemAttestations(loader *bundles.Loader, tRef trust.Ref, key trust.BundleKey) ([]itemAttestation, string, error) {
+	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(loader, tRef, key)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1195,8 +1187,8 @@ func itemAttestations(loader *bundles.Loader, tRef trust.Ref, loadRef string) ([
 // computeItemPayload resolves the item's CURRENT effective form — distilled when
 // cfg prefers it and a distilled form exists, else raw — returning the exact
 // bytes assembly would expose, their form, and the bundle's verified signer.
-func computeItemPayload(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref, loadRef string) ([]byte, bundles.ContentForm, string, error) {
-	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(loader, tRef, loadRef)
+func computeItemPayload(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref, key trust.BundleKey) ([]byte, bundles.ContentForm, string, error) {
+	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(loader, tRef, key)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -1270,21 +1262,35 @@ func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamp
 }
 
 // ForRef stamps a fragment/prompt/mcp item addressed by its full list ref
-// "<source>#<kind>/<name>". It materializes the item's effective content through
-// the shared loader (cached per bundle) to get the exact payload bytes + form +
-// verified signer the decision function keys on, honoring ShouldUseDistilled. A
-// parse/resolve failure stamps a fail-closed DENY (SourcePending): never
-// trusted, never an error (fault tolerance + fail-closed for the trust signal).
+// "<source>#<kind>/<name>". It materializes the item's effective content
+// through the shared loader (cached per bundle) to get the exact payload bytes
+// + form + verified signer the decision function keys on, honoring
+// ShouldUseDistilled. A parse/resolve failure stamps a fail-closed DENY
+// (SourcePending): never trusted, never an error (fault tolerance +
+// fail-closed for the trust signal).
+//
+// The trust identity is minted from the READ's own typed source, exactly as
+// ForHook mints one: source is only how the item was ASKED for — a listing row
+// carries the name the bundle answers to, which for a pinned bundle is its
+// lockfile spelling — while the read is WHERE the bundle was actually found.
+// Only the read's own answer is safe to key trust on.
 func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
-	tRef, loadRef, _, err := trust.ParseItemRef(ref)
-	if err != nil {
-		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
+	pending := EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
+	ask, err := bundles.ParseItemAsk(ref)
+	if err != nil || !ask.Scoped {
+		return pending
 	}
-	payload, form, signer, err := computeItemPayload(ts.cfg, ts.loader, tRef, loadRef)
+	read := ts.readAsk(ask.Bundle)
+	br, err := read.SourceRef().WithItem(ask.Kind, ask.Item)
 	if err != nil {
-		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
+		return pending
 	}
-	return ts.resolve(tRef, ts.readFor(loadRef), payload, string(form), signer)
+	tRef := trust.RefFromBundleRef(br)
+	payload, form, signer, err := computeItemPayload(ts.cfg, ts.loader, tRef, br.BundleIdentity())
+	if err != nil {
+		return pending
+	}
+	return ts.resolve(tRef, read, payload, string(form), signer)
 }
 
 // ForLocalMCP stamps a configured (project-local) MCP server, which carries no
@@ -1337,7 +1343,7 @@ func (ts *TrustStamper) ForHook(source string, entry bundles.HookEntry) Effectiv
 	if perr != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	read := ts.readFor(source)
+	read := ts.readAsk(source)
 	br, err := read.SourceRef().WithItem(trust.KindHook, entry.ID())
 	if err != nil {
 		// The read's source could not be addressed (unresolved bundle, or a
@@ -1348,30 +1354,31 @@ func (ts *TrustStamper) ForHook(source string, entry bundles.HookEntry) Effectiv
 	return ts.resolve(tRef, read, payload, string(bundles.FormRaw), ts.signerFor(source))
 }
 
-// readFor returns the READ of the bundle at loadRef — the trust facts its reader
-// established, which is what the decision's first-party step keys on. An
-// unresolvable bundle yields an UNCLAIMED read, which reaches no exemption arm
-// and falls out the fail-closed default: MORE review, never more exposure,
-// matching signerFor's own fail-safe.
-func (ts *TrustStamper) readFor(loadRef string) bundles.BundleRead {
-	if ts.loader == nil || loadRef == "" {
+// readAsk returns the READ of the bundle a listing ASKED for by name — the
+// trust facts its reader established, which is what the decision's first-party
+// step keys on. An unresolvable bundle yields an UNCLAIMED read, which reaches
+// no exemption arm and falls out the fail-closed default: MORE review, never
+// more exposure, matching signerFor's own fail-safe.
+func (ts *TrustStamper) readAsk(source string) bundles.BundleRead {
+	if ts.loader == nil || source == "" {
 		return bundles.BundleRead{}
 	}
-	read, err := ts.loader.Read(loadRef)
+	read, err := ts.loader.Read(source)
 	if err != nil {
 		return bundles.BundleRead{}
 	}
 	return read
 }
 
-// signerFor returns the verified publisher identity of the bundle at loadRef,
-// or "" when it is unsigned or cannot be loaded. Fail-safe: an unresolvable
-// bundle yields no signer, which means MORE review, never more exposure.
-func (ts *TrustStamper) signerFor(loadRef string) string {
-	if ts.loader == nil || loadRef == "" {
+// signerFor returns the verified publisher identity of the bundle a listing
+// asked for by name, or "" when it is unsigned or cannot be loaded. Fail-safe:
+// an unresolvable bundle yields no signer, which means MORE review, never more
+// exposure.
+func (ts *TrustStamper) signerFor(source string) string {
+	if ts.loader == nil || source == "" {
 		return ""
 	}
-	bundle, err := ts.loader.Load(loadRef)
+	bundle, err := ts.loader.Load(source)
 	if err != nil {
 		return ""
 	}

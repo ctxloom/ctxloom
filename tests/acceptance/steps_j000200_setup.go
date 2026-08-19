@@ -343,10 +343,12 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		first := w.j000200Sources["first"]
 		second := w.j000200Sources["second"]
-		if err := runOK(w, "bundle", "trust", "file://"+w.remoteBare["first"]+"@bundles/"+first.bundleName+"#fragments/"+first.itemName); err != nil {
+		if err := runOK(w, "bundle", "trust",
+			canonicalItemRef("file://"+w.remoteBare["first"], first.bundleName, "fragments/"+first.itemName)); err != nil {
 			return err
 		}
-		return runOK(w, "bundle", "reject", "file://"+w.remoteBare["second"]+"@bundles/"+second.bundleName+"#fragments/"+second.itemName)
+		return runOK(w, "bundle", "reject",
+			canonicalItemRef("file://"+w.remoteBare["second"], second.bundleName, "fragments/"+second.itemName))
 	})
 
 	ctx.Step(`^Alice starts a new session$`, func(c context.Context) error {

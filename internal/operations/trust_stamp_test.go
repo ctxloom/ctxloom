@@ -66,7 +66,7 @@ func TestTrustStamper_ForRef_Cascade(t *testing.T) {
 		wantSource  trust.Source
 		wantState   trust.State
 	}{
-		{"accepted (matching hash)", "https://github.com/acme/repo@bundles/tooling#fragments/solid", true, trust.SourceAccepted, trust.StateAccepted},
+		{"accepted (matching hash)", seedItemRef(t, seededBundleKey, "fragments/solid"), true, trust.SourceAccepted, trust.StateAccepted},
 		{"pending (unreviewed, untrusted source)", "https://github.com/acme/repo@bundles/plain#fragments/pf", false, trust.SourcePending, trust.StatePending},
 		{"rejected (ref state)", "https://github.com/acme/repo@bundles/banned#fragments/bad", false, trust.SourceRejected, trust.StateRejected},
 		{"rejected (renamed identical content, denylist)", "https://github.com/acme/repo@bundles/plain#fragments/clone", false, trust.SourceRejected, trust.StateRejected},

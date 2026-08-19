@@ -1,10 +1,10 @@
 // Publisher-side signing (signature-envelope spec §7A): resolving a ref to
 // the local bundle FILE it names, and signing that file's exact on-disk
 // bytes. This file is deliberately separate from trust.go (which owns the
-// verification-side ReviewRecords/EffectiveTrust machinery) — it reuses
-// trust.go's unexported ref-grammar helpers (trust.ParseItemRef) directly,
-// being in the same package, plus the shared remote.IsSelfContainedRef marker
-// list, rather than duplicating the grammar (ADR 0032: one ref grammar).
+// verification-side ReviewRecords/EffectiveTrust machinery) — it reuses the
+// canonical reference grammar (trust.ParseBundleRef, trust.ParseSelector) and
+// the shared retired-spelling recognizers rather than duplicating the grammar
+// (ADR 0032: one ref grammar).
 package operations
 
 import (
@@ -24,7 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -42,10 +42,22 @@ type SignTarget struct {
 	ItemNote string
 }
 
-// ResolveSignTarget parses ref using the SAME grammar operations/trust.go's
-// trust.ParseItemRef and remote.ParseReference already implement — never a
-// second grammar (ADR 0032) — and resolves it to the local bundle
-// `ctxloom sign` should write a `.sig` sibling for.
+// ResolveSignTarget resolves ref to the local bundle `ctxloom sign` should
+// write a `.sig` sibling for, using the canonical bundle-reference grammar
+// (trust.ParseBundleRef) plus the item selector every reader shares
+// (trust.ParseSelector) — never a second grammar (ADR 0032).
+//
+// It takes NO CATALOG and resolves nothing, deliberately. `ctxloom sign` runs
+// in a publishing repo, where the authored bundle being signed is the repo's
+// own content and need not be a member of any resolved set; making signing
+// membership-dependent would break it exactly where signing happens. Its
+// arms are therefore all local rules:
+//
+//  1. a canonical URI, judged by its CLASS;
+//  2. a retired spelling, refused with the hint that names the current
+//     grammar — never resolved, because a hint is not a shim;
+//  3. a bare token, which is a local bundle name, optionally carrying an item
+//     selector.
 //
 // Only LOCAL bundles resolve successfully: ctxloom has no write access to a
 // remote's git tree (only that remote's own publisher can sign it), and a
@@ -57,54 +69,58 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 		return SignTarget{}, fmt.Errorf("ref is required")
 	}
 
-	if strings.Contains(ref, "#") {
-		tRef, _, _, err := trust.ParseItemRef(ref)
-		if err != nil {
-			return SignTarget{}, err
+	if br, err := trust.ParseBundleRef(ref); err == nil {
+		switch br.Class {
+		case trust.ClassBuiltin:
+			return SignTarget{}, errSignBuiltin(ref)
+		case trust.ClassLocal:
+			return SignTarget{BundleName: br.Bundle, ItemNote: itemNote(br.Kind, br.Item)}, nil
+		default:
+			return SignTarget{}, errSignRemote(ref)
 		}
-		if tRef.IsBuiltin {
-			return SignTarget{}, fmt.Errorf("ctxloom sign: %q is a builtin bundle — builtins are never signed "+
-				"(signing bytes compiled into the binary that verifies them is circular)", ref)
-		}
-		if !tRef.IsLocal {
-			return SignTarget{}, fmt.Errorf("ctxloom sign: %q does not resolve to a bundle you author locally — "+
-				"ctxloom cannot sign a remote bundle's tree from here; only that remote's own publisher can", ref)
-		}
-		return SignTarget{
-			BundleName: tRef.Bundle,
-			ItemNote:   tRef.Kind.Dir() + "/" + tRef.Name,
-		}, nil
 	}
 
-	// No "#<kind>/<name>" selector: ref is a bare bundle ref. Mirror
-	// trust.ParseItemRef's own base-ref resolution (same functions, same
-	// package) rather than re-deriving it.
-	if parsed, err := remote.ParseReference(ref); err == nil {
-		if !parsed.IsLocal {
-			return SignTarget{}, fmt.Errorf("ctxloom sign: %q does not resolve to a bundle you author locally — "+
-				"ctxloom cannot sign a remote bundle's tree from here; only that remote's own publisher can", ref)
-		}
-		return SignTarget{BundleName: parsed.Path}, nil
+	if trust.IsRetiredBuiltinSpelling(ref) {
+		return SignTarget{}, errSignBuiltin(ref)
 	}
-	// The RETIRED builtin source-ref spelling, "builtin:<name>", with no
-	// selector. This recognizer refuses that spelling and nothing more; the
-	// canonical "ctxloom+builtin:<name>" arm belongs to the slice that retires
-	// the old input grammar, and ResolveSignTarget takes no catalog because a
-	// publishing repo signs bundles that are not in one.
-	//
-	// The literal is inline deliberately: no shared constant spells a RETIRED
-	// grammar, because a constant invites reuse and this spelling must not
-	// spread to a new call site.
-	if _, ok := strings.CutPrefix(ref, "builtin:"); ok {
-		return SignTarget{}, fmt.Errorf("ctxloom sign: %q is a builtin bundle — builtins are never signed "+
-			"(signing bytes compiled into the binary that verifies them is circular)", ref)
+	if trust.IsRetiredAskSpelling(ref) {
+		return SignTarget{}, fmt.Errorf("ctxloom sign: %w: %q — see `ctxloom sign --help`; "+
+			"re-run `ctxloom init` to migrate a project", errs.ErrRetiredRefSpelling, ref)
 	}
-	if remote.IsSelfContainedRef(ref) {
-		return SignTarget{}, fmt.Errorf("ctxloom sign: %q is not a valid canonical or ctxloom:local reference", ref)
+
+	base, sel, scoped := strings.Cut(ref, "#")
+	if !scoped {
+		return SignTarget{BundleName: ref}, nil
 	}
-	// A bare token with no scheme marker: a plain local bundle name — the
-	// overwhelmingly common case ("ctxloom sign my-tools").
-	return SignTarget{BundleName: ref}, nil
+	if base == "" {
+		return SignTarget{}, fmt.Errorf("ctxloom sign: %q names no bundle before its #<kind>/<name> selector", ref)
+	}
+	kind, name, err := trust.ParseSelector(sel)
+	if err != nil {
+		return SignTarget{}, fmt.Errorf("ctxloom sign: invalid ref %q: %w", ref, err)
+	}
+	return SignTarget{BundleName: base, ItemNote: itemNote(kind, name)}, nil
+}
+
+// itemNote renders the "<kind>/<name>" note a SignTarget carries when the ref
+// named an item within the bundle, and "" when it named the bundle itself.
+func itemNote(kind trust.ItemKind, name string) string {
+	if kind == "" && name == "" {
+		return ""
+	}
+	return kind.Dir() + "/" + name
+}
+
+// errSignBuiltin refuses a builtin bundle, whatever spelling named it.
+func errSignBuiltin(ref string) error {
+	return fmt.Errorf("ctxloom sign: %q is a builtin bundle — builtins are never signed "+
+		"(signing bytes compiled into the binary that verifies them is circular)", ref)
+}
+
+// errSignRemote refuses a bundle this project does not author.
+func errSignRemote(ref string) error {
+	return fmt.Errorf("ctxloom sign: %q does not resolve to a bundle you author locally — "+
+		"ctxloom cannot sign a remote bundle's tree from here; only that remote's own publisher can", ref)
 }
 
 // SignBundleRequest is the input to SignBundleFile.

@@ -6,34 +6,43 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// TestParseTrustItemRef_CompanionRefsFailClosed closes a fail-open gap: the
-// operations-side "does this look like a source ref?" predicate
-// used to list three markers ("://", git@, ctxloom:local@) while
-// remote.ParseReference dispatched on six — the missing one being
-// ctxloom:companion@. A companion ref that FAILED validation therefore fell
-// through to the bare-name branch and came back IsLocal, i.e. auto-trusted at
-// step 3, while a WELL-FORMED companion ref went through the normal cascade
-// and sat pending. Malformed input was trusted more than valid input.
+// TestResolveItemAsk_CompanionRefsFailClosed closes a fail-open gap: the
+// operations-side "does this look like a source ref?" predicate used to list
+// three markers ("://", git@, ctxloom:local@) while remote.ParseReference
+// dispatched on six — the missing one being ctxloom:companion@. A companion
+// ref that FAILED validation therefore fell through to the bare-name branch
+// and came back IsLocal, i.e. auto-trusted at step 3, while a WELL-FORMED
+// companion ref went through the normal cascade and sat pending. Malformed
+// input was trusted more than valid input.
 //
-// The fix is structural rather than a fourth marker: both packages now consult
-// the single exported remote.IsSelfContainedRef list.
-func TestParseTrustItemRef_CompanionRefsFailClosed(t *testing.T) {
+// The fix is structural rather than a fourth marker: every marker list is
+// remote.IsSelfContainedRef, and the ask boundary refuses that whole class
+// rather than guessing at it.
+func TestResolveItemAsk_CompanionRefsFailClosed(t *testing.T) {
+	var empty bundles.Catalog
+
 	for _, base := range []string{
 		"ctxloom:companion@",        // empty bin name
 		"ctxloom:companion@../evil", // traversal in the bin name
 		"ctxloom:companion@/abs",    // absolute bin path
+		"ctxloom:companion@ltk",     // even well-formed: this spelling is retired input
 	} {
-		_, _, _, err := trust.ParseItemRef(base + "#fragments/x")
-		assert.Error(t, err, "%q is a malformed companion ref and must fail closed, never resolve as a local bundle name", base)
+		_, err := ResolveItemAsk(empty, base+"#fragments/x")
+		assert.Error(t, err, "%q must fail closed, never resolve as a local bundle name", base)
 	}
 
-	// A well-formed companion ref still parses, and is NOT local.
-	tRef, _, _, err := trust.ParseItemRef("ctxloom:companion@ltk#fragments/x")
+	// The CANONICAL companion spelling resolves, and is not local: a companion
+	// is its OWN exemption step, never laundered through the first-party one.
+	br, err := ResolveItemAsk(empty, "ctxloom+companion:ltk#fragments/x")
 	require.NoError(t, err)
+	assert.Equal(t, trust.ClassCompanion, br.Class)
+	tRef := trust.RefFromBundleRef(br)
+	assert.True(t, tRef.IsCompanion)
 	assert.False(t, tRef.IsLocal, "a valid companion ref is not a first-party local bundle")
 }
 

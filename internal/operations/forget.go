@@ -130,13 +130,9 @@ func (r ForgetItemDecisionResult) ClearedAnything() bool {
 // component that could not be addressed is reported (ContentResolved), and a
 // decision left standing in the other store is named (StillDecided).
 func ForgetItemDecision(cfg *config.Config, req ForgetItemDecisionRequest) (*ForgetItemDecisionResult, error) {
-	tRef, loadRef, _, err := trust.ParseItemRef(req.Ref)
+	loader, tRef, key, err := resolveMutationTarget(cfg, req.Loader, req.Ref)
 	if err != nil {
 		return nil, err
-	}
-	loader := req.Loader
-	if loader == nil {
-		loader = bundleLoader(cfg)
 	}
 	store, storeName, err := resolveCountersignStore(cfg, req.FS, req.Project, req.UserStore, req.ProjectStore)
 	if err != nil {
@@ -163,7 +159,7 @@ func ForgetItemDecision(cfg *config.Config, req ForgetItemDecisionRequest) (*For
 	// content. An unresolvable item is not a failure — see above — but it is
 	// a partial result and says so.
 	approveRemoved := 0
-	attestations, _, aerr := itemAttestations(loader, tRef, loadRef)
+	attestations, _, aerr := itemAttestations(loader, tRef, key)
 	res.ContentResolved = aerr == nil
 	if res.ContentResolved {
 		for _, a := range attestations {

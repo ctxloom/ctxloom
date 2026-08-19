@@ -7,112 +7,47 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// The item-ref GRAMMAR: turning "<bundle-ref>#<kind>/<name>" into the Ref the
-// decision function keys on.
+// The item-selector GRAMMAR: the "#<kind>/<name>" half of a reference, and
+// the recognizers for spellings the reference grammar no longer accepts.
 //
-// It lives HERE, in the package that owns Ref, rather than in operations,
-// because the delivery pipeline (bundles.Pipeline) must build the same Ref for
-// the same string that a `ctxloom trust` mutation does. Two parsers would be two
-// addressing schemes, and an item approved under one spelling would be gated
-// under another.
+// It lives HERE, in the package that owns Ref and BundleRef, rather than in
+// operations, because the delivery pipeline (bundles.Pipeline) must judge a
+// selector exactly as a `ctxloom bundle trust` mutation does. Two parsers
+// would be two addressing schemes, and an item approved under one spelling
+// would be gated under another.
 
-// ParseItemRef splits an item ref "<bundle-ref>#<kind>/<name>" into the
-// trust.Ref (repo, bundle path, kind, name, locality), the bundle ref to load
-// content from, and any "@<commit>" provenance carried on the bundle ref.
-func ParseItemRef(ref string) (tRef Ref, loadRef, version string, err error) {
-	// Ingest boundary, and the sharpest one in the codebase: this ref arrives
-	// from argv (`ctxloom bundle trust <ref>`), from an MCP argument, or from a gate
-	// built over bundle-authored names, and its Bundle/Name components are
-	// interpolated verbatim into the countersign preimage via countersignRef.
-	// The bare-local fallback below accepts ANY token that carries no scheme
-	// marker, so without this the grammar never gets a chance to object.
-	ref = remote.NormalizeRef(ref)
-	base, sel, found := strings.Cut(ref, "#")
-	if !found || base == "" {
-		return Ref{}, "", "", fmt.Errorf("trust ref %q missing #<kind>/<name> selector", ref)
-	}
-	kind, name, err := ParseSelector(sel)
-	if err != nil {
-		return Ref{}, "", "", fmt.Errorf("invalid trust ref %q: %w", ref, err)
-	}
-
-	if parsed, perr := remote.ParseReference(base); perr == nil {
-		return Ref{
-			RepoURL: parsed.URL,
-			Bundle:  parsed.Path,
-			Kind:    kind,
-			Name:    name,
-			IsLocal: parsed.IsLocal,
-			// IsCompanion rides the SAME parse, from the same reference
-			// grammar, so the decision function's companion step can never be
-			// reached by a ref that did not parse as ctxloom:companion@<bin>.
-			// Copied rather than re-derived from the URL string: one parser,
-			// one answer.
-			IsCompanion: parsed.IsCompanion,
-		}, base, parsed.ContentVersion, nil
-	}
-
-	// base failed to parse as a canonical/local ref. A builtin bundle's
-	// RETIRED (pre-U3b-3) source-ref spelling, "builtin:<name>", is recognized
-	// explicitly here (never falls through to the local guess below) so a
-	// caller still holding that old spelling — this ask grammar is unchanged
-	// until it is retired in its own slice — gets IsBuiltin rather than
-	// IsLocal, distinct identities in the trust store. The literal is inlined
-	// rather than named: the only thing that ever minted it,
-	// localFSReader.readBundle's builtin stamp, mints trust.BuiltinRef
-	// directly now, so this is purely a recognizer for input already in the
-	// wild, not a producer's contract.
-	if bundle, ok := strings.CutPrefix(base, "builtin:"); ok {
-		return Ref{Bundle: bundle, Kind: kind, Name: name, IsBuiltin: true}, base, "", nil
-	}
-
-	// base is still unrecognized. A genuinely local bundle is referenced by a
-	// bare name carrying NO scheme marker at all (e.g. "my-tools", "lang/go") —
-	// that is the only case this may still resolve to local. Anything that
-	// LOOKS like an attempted canonical/local/builtin ref (a URL scheme, a
-	// git@ prefix, or the ctxloom:local@ prefix) but failed to parse must NOT
-	// be silently downgraded to "local": that would let an unrecognized or
-	// malformed source ref bypass the trust gate entirely (the fail-open bug
-	// this fixes — a seeded remote bundle whose canonical ref somehow fails to
-	// parse must fail CLOSED, not open). Every caller of ParseItemRef
-	// already treats an error as fail-closed (the content/exec gates withhold,
-	// TrustStamper stamps pending, the CLI mutations refuse the operation), so
-	// erroring here is safe in every call site.
-	if remote.IsSelfContainedRef(base) {
-		return Ref{}, "", "", fmt.Errorf(
-			"trust ref %q: %q is not a valid canonical or ctxloom:local reference "+
-				"(and not a builtin source) — refusing to treat an unrecognized source as local", ref, base)
-	}
-
-	// base is a bare token with no scheme marker → a plain local bundle name.
-	return Ref{Bundle: base, Kind: kind, Name: name, IsLocal: true}, base, "", nil
+// IsRetiredBuiltinSpelling reports whether ask is written as "builtin:<name>",
+// the one bundle-reference spelling NOTHING in this system still mints: a
+// builtin bundle's identity comes from BuiltinRef, and no lockfile, resolved
+// profile or assembly identity carries this prefix.
+//
+// It is therefore the only spelling the LOAD path may refuse outright. The
+// load path is handed self-contained identities that are still authored today
+// — a lockfile's "<url>@bundles/<path>", a resolved profile's
+// "ctxloom:local@bundles/<name>" — and refusing those would withhold the
+// content they address.
+//
+// The literal is inlined rather than named: a constant invites reuse, and a
+// retired spelling must not spread to a new call site. It lives in THIS
+// package because it is the one package the builtin-literal sweep exempts.
+func IsRetiredBuiltinSpelling(ask string) bool {
+	return strings.HasPrefix(ask, "builtin:")
 }
 
-// The fail-closed/fail-open boundary above — "does this string carry a marker
-// saying it was INTENDED as a scheme-qualified reference?" — is
-// remote.IsSelfContainedRef, and it is the ONLY copy of this list, in the
-// package that owns the ref grammar. Two independent copies of this check
-// previously drifted: one recognised any "://" but not ctxloom:companion@, so
-// a malformed companion ref was downgraded to a first-party local bundle name
-// and auto-trusted at step 3 — trusted MORE than a well-formed one. A single
-// list cannot drift from itself.
-
-// IsRetiredAskSpelling reports whether ask carries a scheme marker belonging to
-// a retired or non-bundle reference spelling. Such a token must FAIL CLOSED: a
-// user who types a spelling the grammar no longer accepts needs to be told so,
-// never silently downgraded to a bare-name search that resolves to something
-// else or to "not found". Those are different faults and they deserve different
-// messages.
+// IsRetiredAskSpelling reports whether ask, TYPED BY A HUMAN, carries a scheme
+// marker belonging to a reference spelling the grammar no longer accepts. Such
+// a token must FAIL CLOSED: a user who types a retired spelling needs to be
+// told so, never silently downgraded to a bare-name search that resolves to
+// something else or to "not found". Those are different faults and they
+// deserve different messages.
 //
 // The set is remote.IsSelfContainedRef's list (ctxloom:local@,
-// ctxloom:companion@, git@, any "://") plus "builtin:" — the one spelling
-// IsSelfContainedRef never had to know about, because nothing outside the
-// bundle/item-ref grammar ever minted it. The literal lives HERE rather than at
-// the call site so it stays in the one package the builtin-literal sweep
-// deliberately exempts, instead of being duplicated into a package the sweep
-// polices.
+// ctxloom:companion@, git@, any "://") plus IsRetiredBuiltinSpelling. It is
+// deliberately WIDER than the load path's: at a surface where a human types a
+// reference, the pipeline's own identity spellings are retired input, while on
+// the load path the same strings are live identities a reader stamped.
 func IsRetiredAskSpelling(ask string) bool {
-	return strings.HasPrefix(ask, "builtin:") || remote.IsSelfContainedRef(ask)
+	return IsRetiredBuiltinSpelling(ask) || remote.IsSelfContainedRef(ask)
 }
 
 // ParseSelector parses a "<kind>/<name>" selector (the part after "#").

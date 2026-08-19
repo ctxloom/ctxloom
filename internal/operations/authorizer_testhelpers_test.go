@@ -1,11 +1,13 @@
 package operations
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -16,14 +18,12 @@ import (
 // helper or assert IsLocal/IsBuiltin/RepoURL/Key() against.
 //
 // It is the TEST-SIDE analog of bundles.Decide's own step 4 switch
-// (trust.ParseBundleRef + trust.RefFromBundleRef) rather than
-// trust.ParseItemRef: every producer this slice migrates now emits the
-// canonical "ctxloom+<class>:...#<kind>/<item>" grammar, which
-// trust.ParseItemRef does not understand (it stays as the OLD grammar's
-// parser throughout this slice — only Decide's own internal call switches).
-// A test asserting against a migrated producer's literal output must switch
-// with it, or its assertion is pinned to a grammar the producer no longer
-// speaks.
+// (trust.ParseBundleRef + trust.RefFromBundleRef), and the counterpart to
+// pipelineItemRef below: a PRODUCER emits the canonical
+// "ctxloom+<class>:...#<kind>/<item>" grammar, while an ASK the pipeline
+// composes is still spelled "<source>#<kind>/<item>". A test asserting
+// against a producer's literal output must use this one, or its assertion is
+// pinned to a grammar the producer does not speak.
 func mustParseProducerRef(t *testing.T, ref string) trust.Ref {
 	t.Helper()
 	br, err := trust.ParseBundleRef(ref)
@@ -47,22 +47,40 @@ func mustLocalItemRef(bundle string, kind trust.ItemKind, item string) string {
 	return full.String()
 }
 
-// canonicalWithheldRef converts an OLD-grammar item ref — the shape a fixture
-// constant built by hand as "<source>#<kind>/<name>" for use as an ASK/seed
-// string (Catalog.Lookup and seedLoader still speak only that grammar; this
-// slice does not touch them) — into the canonical bundle-reference grammar
-// string a migrated producer now emits for the IDENTICAL item, so a test
-// written before the migration can assert Pipeline.Withheld()'s literal tally
-// without hand-deriving the new grammar's host-splitting/escaping rules a
-// second, competing way. It reuses trust.ParseItemRef (unaffected by this
-// slice — only bundles.Decide's own internal call switches) to decompose the
-// old-grammar string, then Ref.AsBundleRef to re-mint it — the exact
-// bridge ItemRefFor/fragmentRead use in production.
-func canonicalWithheldRef(t *testing.T, oldGrammarRef string) string {
+// pipelineItemRef decomposes an item ref written in the ASSEMBLY PIPELINE's
+// own spelling — "<source>#<kind>/<name>", where source is a lockfile ref, a
+// "ctxloom:local@bundles/<name>" identity, or a bare local bundle name — into
+// the trust.Ref that addresses it. It is the shape seedLoader and
+// Catalog.Lookup still speak, so a fixture written in it needs a bridge to the
+// canonical grammar; the bridge is remote.ParseReference plus the shared
+// selector parser, the same two the readers themselves mint through.
+func pipelineItemRef(t *testing.T, ref string) trust.Ref {
 	t.Helper()
-	tRef, _, _, err := trust.ParseItemRef(oldGrammarRef)
-	require.NoError(t, err, "fixture ref %q must be valid old-grammar for the conversion to mean anything", oldGrammarRef)
-	br, err := tRef.AsBundleRef()
+	base, sel, scoped := strings.Cut(ref, "#")
+	require.True(t, scoped, "fixture ref %q must carry a #<kind>/<name> selector", ref)
+	kind, name, err := trust.ParseSelector(sel)
+	require.NoError(t, err, "fixture ref %q must carry a recognized selector", ref)
+	parsed, perr := remote.ParseReference(base)
+	if perr != nil {
+		require.False(t, remote.IsSelfContainedRef(base),
+			"fixture ref %q carries a scheme marker and must parse as one", ref)
+		return trust.Ref{Bundle: base, Kind: kind, Name: name, IsLocal: true}
+	}
+	return trust.Ref{
+		RepoURL: parsed.URL, Bundle: parsed.Path, Kind: kind, Name: name,
+		IsLocal: parsed.IsLocal, IsCompanion: parsed.IsCompanion,
+	}
+}
+
+// canonicalWithheldRef converts a pipeline-spelled item ref into the canonical
+// bundle-reference string a producer emits for the IDENTICAL item, so a
+// fixture can assert Pipeline.Withheld()'s literal tally without hand-deriving
+// the canonical grammar's host-splitting/escaping rules a second, competing
+// way. Ref.AsBundleRef is the exact bridge ItemRefFor/fragmentRead use in
+// production.
+func canonicalWithheldRef(t *testing.T, ref string) string {
+	t.Helper()
+	br, err := pipelineItemRef(t, ref).AsBundleRef()
 	require.NoError(t, err)
 	return br.String()
 }

@@ -366,29 +366,32 @@ func TestContentGate_RecordsEveryDenyWithAReason(t *testing.T) {
 		"withheldRefs and withheldItems must describe the same set")
 }
 
-// TestParseTrustItemRef_AttemptedSourceRefsFailClosed pins the half of
-// trust.ParseItemRef's fail-open boundary that is CORRECT, so it cannot regress
-// while the remaining gap is adjudicated separately. A string carrying a
-// scheme marker that nonetheless fails remote.ParseReference must ERROR rather
-// than be downgraded to a first-party local bundle name: every caller treats
-// the error as fail-closed, so erroring withholds, while the downgrade would
-// hand the item the step-3 local exemption and skip review entirely.
+// TestResolveItemAsk_AttemptedSourceRefsFailClosed pins the half of the ask
+// boundary that must fail CLOSED. A string carrying a scheme marker that
+// nonetheless fails the reference grammar must be REFUSED rather than
+// downgraded to a first-party local bundle name: every caller treats the error
+// as fail-closed, so refusing withholds, while the downgrade would hand the
+// item the step-3 local exemption and skip review entirely.
 //
-// The counterpart — a bare token with no scheme marker at all IS a local bundle
-// name — is asserted alongside, because a boundary that only ever fails closed
+// The counterpart — a bare token with no scheme marker IS a local bundle name
+// — is asserted alongside, because a boundary that only ever fails closed
 // would break every project whose bundles are its own.
-func TestParseTrustItemRef_AttemptedSourceRefsFailClosed(t *testing.T) {
+func TestResolveItemAsk_AttemptedSourceRefsFailClosed(t *testing.T) {
+	cat := seedLoader(t, map[string]*bundles.Bundle{"my-tools": {Version: "1.0.0"}}).Catalog()
+
 	for _, base := range []string{
 		"https://github.com/acme/repo", // canonical URL missing @bundles/<name>
 		"git@github.com:acme/repo",     // ssh ref missing the item path
 		"ctxloom:local@",               // local ref missing its item path
 	} {
-		_, _, _, err := trust.ParseItemRef(base + "#fragments/x")
-		assert.Error(t, err, "%q looks like an attempted source ref and must fail closed, never resolve as a local bundle name", base)
+		_, err := ResolveItemAsk(cat, base+"#fragments/x")
+		require.Error(t, err, "%q looks like an attempted source ref and must fail closed, never resolve as a local bundle name", base)
+		assert.NotErrorIs(t, err, errs.ErrBundleNotFound,
+			"%q must be refused for its SPELLING, not reported as a bundle nobody has", base)
 	}
 
-	tRef, _, _, err := trust.ParseItemRef("my-tools#fragments/x")
+	br, err := ResolveItemAsk(cat, "my-tools#fragments/x")
 	require.NoError(t, err, "a bare bundle name carries no scheme marker and is genuinely local")
-	assert.True(t, tRef.IsLocal)
-	assert.Equal(t, "my-tools", tRef.Bundle)
+	assert.Equal(t, trust.ClassLocal, br.Class)
+	assert.Equal(t, "my-tools", br.Bundle)
 }

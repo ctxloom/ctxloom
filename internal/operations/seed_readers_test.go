@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // seedReaders presents authored bundle VALUES as the pinned content a reader
@@ -81,6 +82,28 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 		out = append(out, bundles.NewProjectReader(projectFS, []string{"/bundles"}))
 	}
 	return out
+}
+
+// seedItemRef is the CANONICAL item reference addressing an item in the bundle
+// seeded under key. A seed key is the lockfile/pipeline spelling a reader is
+// handed ("<url>@bundles/<path>", or a bare project bundle name); a trust
+// mutation is typed by a human and takes the canonical URI. Minting through
+// trust.Ref.AsBundleRef is the same bridge the reader itself stamps its source
+// ref with, so a fixture can never address an identity the reader did not
+// produce.
+func seedItemRef(t *testing.T, key, selector string) string {
+	t.Helper()
+	kind, name, err := trust.ParseSelector(selector)
+	require.NoError(t, err, "selector %q", selector)
+	src := trust.Ref{Bundle: key, IsLocal: true}
+	if parsed, perr := remote.ParseReference(key); perr == nil {
+		src = trust.Ref{RepoURL: parsed.URL, Bundle: parsed.Path, IsLocal: parsed.IsLocal, IsCompanion: parsed.IsCompanion}
+	}
+	base, err := src.AsBundleRef()
+	require.NoError(t, err, "seed key %q", key)
+	full, err := base.WithItem(kind, name)
+	require.NoError(t, err, "seed key %q selector %q", key, selector)
+	return full.String()
 }
 
 // seedLoader is seedReaders wired into a loader, for the many tests whose only

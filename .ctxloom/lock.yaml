@@ -1,209 +1,208 @@
 version: 1
-locked_at: 2026-08-19T13:36:16.273121703Z
+locked_at: 2026-08-19T17:26:09.41174744Z
 bundles:
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/agent-ensemble:
-        sha: c9a44467063788728ae961bde95972675c3f34c2
+        sha: 6763ade9a1a3180d5f86a5ad4d93c289175fea46
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/containers:
-        sha: c9a44467063788728ae961bde95972675c3f34c2
+        sha: 6763ade9a1a3180d5f86a5ad4d93c289175fea46
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices:
-        sha: c9a44467063788728ae961bde95972675c3f34c2
+        sha: 6763ade9a1a3180d5f86a5ad4d93c289175fea46
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/developer-mindset:
-        sha: c9a44467063788728ae961bde95972675c3f34c2
+        sha: 6763ade9a1a3180d5f86a5ad4d93c289175fea46
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/github:
-        sha: c9a44467063788728ae961bde95972675c3f34c2
+        sha: 6763ade9a1a3180d5f86a5ad4d93c289175fea46
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/go-development:
-        sha: c9a44467063788728ae961bde95972675c3f34c2
+        sha: 6763ade9a1a3180d5f86a5ad4d93c289175fea46
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/just:
-        sha: c9a44467063788728ae961bde95972675c3f34c2
+        sha: 6763ade9a1a3180d5f86a5ad4d93c289175fea46
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/prototyping:
-        sha: c9a44467063788728ae961bde95972675c3f34c2
+        sha: 6763ade9a1a3180d5f86a5ad4d93c289175fea46
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/source-organization:
-        sha: c9a44467063788728ae961bde95972675c3f34c2
+        sha: 6763ade9a1a3180d5f86a5ad4d93c289175fea46
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/agent-roles:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/ai-coding-general:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/ai-developer:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
-        requested_version: branch:main
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/ast-grep:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-quality:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-accessibility-i18n:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-api-compat:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-base:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-correctness:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-cost-infra:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-data:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-dependencies:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-documentation:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-dx:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-language-idioms:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-maintainability:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-observability:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-performance:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-reliability:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-security:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-structural:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-testing:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/code-review-ux:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/conduct:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/git:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/go-ai-practices:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/lefthook:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/ltk:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/reprise:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/rtk:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/sequential-thinking:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/testing:
-        sha: bd1fa83dd2cbd95e958482e229dbf972dbe992fd
+        sha: c704d83991f6073c0279cf195e3815e0049e34e7
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z

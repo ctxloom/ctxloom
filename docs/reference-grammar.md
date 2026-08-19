@@ -5,6 +5,22 @@ resolved. When behavior and this document disagree, one of them is a bug —
 the entry-point tests in `internal/profiles/grammar_test.go` and
 `internal/remote/profile_selector_test.go` pin the rules below.
 
+## Client compatibility — canonical refs require ctxloom 0.7
+
+The canonical `ctxloom+<class>:` grammar (`ctxloom+git://host/owner/repo//bundles/<b>`)
+is parsed only by ctxloom 0.7 and later. `internal/refuri` does not exist in 0.6.x,
+and nothing there dispatches on the scheme.
+
+The published bundle repositories address their bundles that way as of 2026-08-19,
+so a client older than 0.7 that advances its pins onto that content resolves a
+SMALLER dependency closure — measured at 9 bundles down to 2 — and says nothing
+about it: same exit code, same "Pulled N items" line, less context. Existing pins
+never move on their own, so the effect starts at `deps upgrade`, not at install.
+
+Upgrade the client before upgrading pins. The retired `<canonical-url>@bundles/<b>`
+spelling below is still accepted by 0.7 for input; it is what the lockfile keys
+render, and it is not going away in this release.
+
 ## Building blocks
 
 ```

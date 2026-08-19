@@ -14,7 +14,7 @@ import (
 func baseContainerPass() *probeResult {
 	return &probeResult{
 		Engine:        "claude-code",
-		Axis:          probeAxisContainer,
+		Axis:          probeAxisContainerRootless,
 		ExitCode:      0,
 		ContainerHome: "/home/ctxloom",
 		Container:     probeContainerSnapshot{Name: "ctxloom-iso-abc", Diff: []string{"C /home/ctxloom"}},

@@ -53,18 +53,24 @@ func probeCellGate(c context.Context, w *World, family string, cell probeCellID)
 	}
 	switch cell.Runtime {
 	case "container":
-		// The undifferentiated axis, still used by every probe that has not
-		// migrated to the ownership split (P1, P2, P4, ...). ANY reachable
-		// runtime satisfies it — that is the whole difference from the
-		// ownership-aware branch below.
-		if path, reason := probeContainerAuthAvailable(cell.Engine); path == probeAuthNone {
-			return liveAgent{}, "", probeCellSkip(family, cell,
-				"container axis cannot authenticate this engine: "+reason)
-		}
-		if rt, _, msg := containercell.Select(c, "the "+family+" container cell"); !rt.Available {
-			return liveAgent{}, "", probeCellSkip(family, cell,
-				"no container runtime reachable here: "+msg)
-		}
+		// RETIRED (task unwatched-discharge, 2026-08-18). This used to be the
+		// undifferentiated axis every probe wrote before the ownership split
+		// (df87d978 migrated P0; this task migrated P1, the last probe with
+		// any LIVE cell on it — P2's "container" rows are probeDeferred, so
+		// they never generate an Examples row and never reach this gate, and
+		// P4 never had a container cell at all). Nothing in the registry +
+		// feature-file system produces this value anymore, so this arm's job
+		// is now a TRIPWIRE: if a future change resurrects a cell carrying
+		// this spelling, it must fail LOUD here rather than silently fall
+		// through the switch below ungated (cell.Runtime "host" and anything
+		// else unrecognized both fall through with no container gating at
+		// all — exactly the silent no-op this project is characteristically
+		// bad at, and probeCellResolve's own vocabulary check does not catch
+		// it because "container" is still declared vocabulary there, for
+		// P2's deferred registry rows).
+		return liveAgent{}, "", fmt.Errorf(
+			"%s: cell %s carries the RETIRED undifferentiated \"container\" runtime axis (task unwatched-discharge) — declare it container-rootless or container-rootful instead",
+			family, cell)
 	case "container-rootless", "container-rootful":
 		// The credential mechanism is the SAME mount either way (see the
 		// feature file's own header), so the auth check does not branch on

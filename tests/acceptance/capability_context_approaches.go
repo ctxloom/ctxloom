@@ -88,7 +88,7 @@ const approachSurfaceKind = "context"
 // could put the same words on stdout and red the cell.
 type approachState struct {
 	engine    string // backend type, as written in the Examples table
-	runtime   string // host | container
+	runtime   string // host | container-rootless | container-rootful
 	workspace string // none | worktree
 	variant   string // the registry cell's variant ("system-prompt", "unsafe-file-shared")
 	approach  string // the pinned agent.Approach label ("system-prompt", "hook", "unsafe-file")

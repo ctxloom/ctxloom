@@ -802,6 +802,26 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) doctorCheck {
 		return doctorCheck{Marker: marker, Status: doctorWarn,
 			Detail: "no .ctxloom marker directory found (run `ctxloom manage install` or `ctxloom init`)"}
 	}
+	// A config that FAILED SCHEMA VALIDATION still loads -- config.go's
+	// loadConfigFile records the violation as a Warning and keeps going, the
+	// same fault-tolerant shape every load-time defect gets (CLAUDE.md). This
+	// check used to report "config valid" unconditionally the instant the
+	// marker directory existed, in the SAME doctor run that had just printed
+	// "ctxloom: warning: config validation warning ..." to the exact same
+	// terminal -- a health check asserting the opposite of what it had just
+	// printed (task unwatched-discharge, found on `agents.<x>.runtime`
+	// carrying the retired "container" spelling, but the defect is general:
+	// ANY schema violation this config carries was being reported as
+	// "config valid"). cfg.GetWarnings() is EVERY load-time warning
+	// (WarnKindRead/Parse/Validate/UnknownKey/MigrationLossy/LayerScope) --
+	// see internal/config/warnings.go's own doc: "EVERY kind declared below
+	// is fatal-class in strict mode". Doctor's own contract (doctor.feature:
+	// "why its exit code is not the verdict") means this stays doctorWarn,
+	// never a process exit change -- warn IS this command's fail-loud signal.
+	if warnings := cfg.GetWarnings(); len(warnings) > 0 {
+		return doctorCheck{Marker: marker, Status: doctorWarn,
+			Detail: fmt.Sprintf("marker present, but config.yaml failed schema validation (%d issue(s) -- see the warning line(s) printed above, or `ctxloom manage config edit`): %s", len(warnings), appDir)}
+	}
 	return doctorCheck{Marker: marker, Status: doctorOK, Detail: "marker present, config valid: " + appDir}
 }
 

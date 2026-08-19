@@ -181,7 +181,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			// host/none fixture while its tags, its registry row and its evidence all
 			// said something else. Refusing here makes the columns load-bearing.
 			if runtime != "host" || workspace != "none" {
-				return fmt.Errorf("probe-p2-mcp: this probe's runnable cells are host/none only, got runtime=%q workspace=%q. The container rows are DEFERRED in the probe registry (container MCP reach-back is the undesigned endpoint-discovery gap); a worktree row was never designed. Add the axis to the registry first, or the cell would run a host fixture under another cell's name.",
+				return fmt.Errorf("probe-p2-mcp: this probe's runnable cells are host/none only, got runtime=%q workspace=%q. The container rows are DEFERRED in the probe registry (container MCP reach-back is the undesigned endpoint-discovery gap); a worktree row was never designed. Add the axis to the registry first, or the cell would run a host fixture under another cell's name",
 					runtime, workspace)
 			}
 

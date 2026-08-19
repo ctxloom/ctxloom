@@ -401,7 +401,7 @@ func registerJ001000Steps(ctx *godog.ScenarioContext) {
 			if !ok {
 				return fmt.Errorf("canonical transcript for %q: no Bash tool_use carries the real command input", harp)
 			}
-			if !(iUser < iAsst && iAsst < iGlob && iGlob < iBash) {
+			if iUser >= iAsst || iAsst >= iGlob || iGlob >= iBash {
 				return fmt.Errorf("canonical transcript for %q: real turns are out of order (user=%d assistant=%d glob=%d bash=%d)", harp, iUser, iAsst, iGlob, iBash)
 			}
 			// Stashed for the next Then step's ATTRIBUTION check: which

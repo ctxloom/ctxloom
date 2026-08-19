@@ -392,7 +392,7 @@ func j001400WriteTree(work string, authored map[string]j001400File) error {
 // generic git hosts, so a bare-repo fixture has to push with git either way.
 func j001400SignTree(work string, st *j001400State) error {
 	if st.signer == nil {
-		return fmt.Errorf("Trent has no publishing key, so the tree cannot be signed")
+		return fmt.Errorf("there is no publishing key for Trent, so the tree cannot be signed")
 	}
 	root := filepath.Join(work, ".ctxloom", "content", "bundles")
 	store, err := content.NewTreeStore(afero.NewOsFs(), root, content.Provenance{RepoURL: "https://example.test/trent/company"})
@@ -500,7 +500,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		st := j001400Of(w)
 		if st.signer == nil {
-			return fmt.Errorf("Trent has not authored anything yet, so there is no key to trust")
+			return fmt.Errorf("nothing has been authored by Trent yet, so there is no key to trust")
 		}
 		st.principal = "trent@example.com"
 		keyPath := filepath.Join(w.env.Root, "j001400-trent.pub")
@@ -527,7 +527,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		st := j001400Of(w)
 		if st.url == "" {
-			return fmt.Errorf("Trent has not published %q yet", name)
+			return fmt.Errorf("%q has not been published by Trent yet", name)
 		}
 		if err := runOK(w, "remote", "create", "company", st.url, "--forge", "git"); err != nil {
 			return err

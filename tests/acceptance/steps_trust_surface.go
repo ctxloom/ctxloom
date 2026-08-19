@@ -1095,7 +1095,7 @@ func tsAssertCollisionRoles(w *World, mcpApproved bool) error {
 
 	execOnRecord := store.HasUnsignedApprove(mcpRef, signing.AttestExecMCP, payload)
 	if mcpApproved && !execOnRecord {
-		return fmt.Errorf("Alice approved the MCP server, but no approval of %s is on record under %q over those same %d bytes; "+
+		return fmt.Errorf("the MCP server was approved by Alice, but no approval of %s is on record under %q over those same %d bytes; "+
 			"the executable's decision has to be recorded IN THE EXECUTABLE'S ROLE, or it is indistinguishable from the "+
 			"text's", mcpRef, signing.AttestExecMCP, len(payload))
 	}

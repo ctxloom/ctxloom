@@ -368,9 +368,11 @@ cat .mcp.json | jq '.mcpServers'
 
 **Ensure ctxloom is registered:**
 ```bash
-ctxloom mcp register
+ctxloom mcp server list        # ctxloom's own server must be listed
 ctxloom manage hooks install
 ```
+If it is missing, a profile's `exclude_mcp` is withholding it, or the builtin
+bundle's item has been rejected (`ctxloom review`).
 
 **Restart Claude Code** after configuration changes.
 

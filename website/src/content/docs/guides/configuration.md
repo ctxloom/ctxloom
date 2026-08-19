@@ -134,19 +134,10 @@ hooks:
     claude-code:
       EventName: []
 
-# MCP Server configuration
-mcp:
-  auto_register_ctxloom: true # auto-register ctxloom's own MCP server
-  servers:                    # unified MCP servers (all backends)
-    my-server:
-      command: "npx my-mcp"
-      args: ["--flag"]
-      env:
-        ENV_VAR: "value"
-  plugins:                    # backend-specific servers
-    claude-code:
-      server-name:
-        command: "..."
+# MCP servers are NOT configured here. They ship in bundles: a bundle's
+# `mcp:` block declares a server, and composing that bundle registers it.
+# ctxloom's own server ships in the builtin `ctxloom` bundle, so it is on by
+# default. Withhold one with a profile's `exclude_mcp: [<name>]`.
 ```
 
 ## LLMs
@@ -221,7 +212,6 @@ antigravity equivalent) are dropped.
 | `config.statusline` | `true` | Manage the ctxloom HUD statusline (set `false` to keep your own) |
 | `sync.auto_sync` | `true` | Sync remotes on startup |
 | `llm.defaults.primary` | `claude-code` | Default LLM backend |
-| `mcp.auto_register_ctxloom` | `true` | Register ctxloom's MCP server |
 | `workspace` | `none` | Session workspace axis default |
 | `runtime` | `host` | Agent runtime axis default |
 | `permissions` | engine's own | Default permission posture for this project directory |

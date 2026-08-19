@@ -72,23 +72,26 @@ func RuntimeNames() []string {
 // past that parse only the typed value travels; nothing downstream
 // re-interprets a string.
 //
-// Empty parses as RuntimeHost: that is the documented default for an unset
-// value (an agent with no runtime: declared, a project with no runtime:
-// default). Any other unrecognized spelling — a typo, a retired value like
-// bare "container" — is refused with an error naming the bad value and the
-// legal ones. This function never warns and never degrades: a caller that
-// wants the old "warn and fall back to host" behavior for an ADVISORY axis
-// must decide that at ITS OWN call site (see isolation.warnUnknownAxes for
-// the workspace axis, which stays a warn); the runtime axis is a security
-// boundary and gets no such caller-side softening.
+// Empty passes through as "" (the zero value) rather than the literal
+// RuntimeHost — byte-identical to the pre-existing "empty means host
+// downstream" behavior every resolver already documented (an agent with no
+// runtime: declared, a project with no runtime: default): IsContainerRuntimeAxis
+// treats "" and RuntimeHost identically (neither is a container), so nothing
+// that asks the predicate can tell them apart, and a caller that serializes
+// the resolved axis (dry-run JSON, `agent show`) keeps its existing
+// omitempty/blank-means-unset shape instead of a typo-proofing pass turning
+// every unset axis into a newly-visible "host". Any OTHER unrecognized
+// spelling — a typo, a retired value like bare "container" — is refused with
+// an error naming the bad value and the legal ones. This function never warns
+// and never degrades: a caller that wants the old "warn and fall back to
+// host" behavior for an ADVISORY axis must decide that at ITS OWN call site
+// (see isolation.warnUnknownAxes for the workspace axis, which stays a warn);
+// the runtime axis is a security boundary and gets no such caller-side
+// softening.
 func ParseRuntimeAxis(s string) (RuntimeAxis, error) {
 	switch RuntimeAxis(s) {
-	case "", RuntimeHost:
-		return RuntimeHost, nil
-	case RuntimeContainerRootless:
-		return RuntimeContainerRootless, nil
-	case RuntimeContainerRootful:
-		return RuntimeContainerRootful, nil
+	case "", RuntimeHost, RuntimeContainerRootless, RuntimeContainerRootful:
+		return RuntimeAxis(s), nil
 	default:
 		return "", fmt.Errorf("unknown runtime axis %q (known: %s)", s, strings.Join(RuntimeNames(), "|"))
 	}

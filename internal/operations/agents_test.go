@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // writeFile is a small helper for the agent fixtures.
@@ -117,7 +118,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	assert.Contains(t, res.Context, "FRAG-ONE")
 	assert.Contains(t, res.Context, "FRAG-TWO")
 	assert.Equal(t, "slow", res.Label)
-	assert.Equal(t, "container-rootless", res.Runtime, "the default agent's runtime rides the bare launch")
+	assert.Equal(t, agent.RuntimeContainerRootless, res.Runtime, "the default agent's runtime rides the bare launch")
 	assert.Equal(t, "plan", res.Permissions, "the default agent's permissions ride the bare launch")
 }
 

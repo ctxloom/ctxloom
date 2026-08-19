@@ -400,11 +400,11 @@ var (
 	_ agent.Delivery    = (*contextSurface)(nil)
 	_ agent.StateReader = (*contextSurface)(nil)
 	_ agent.Delivery    = (*mcpSurface)(nil)
-	_ agent.Delivery  = (*settingsSurface)(nil)
-	_ agent.Delivery  = (*commandsSurface)(nil)
-	_ agent.Delivery  = (*agent.ManagedSkillPackagesDelivery)(nil)
-	_ agent.Delivery  = noopContextDelivery{}
-	_ agent.Placement = dirPlacement{}
+	_ agent.Delivery    = (*settingsSurface)(nil)
+	_ agent.Delivery    = (*commandsSurface)(nil)
+	_ agent.Delivery    = (*agent.ManagedSkillPackagesDelivery)(nil)
+	_ agent.Delivery    = noopContextDelivery{}
+	_ agent.Placement   = dirPlacement{}
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

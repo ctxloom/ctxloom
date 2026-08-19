@@ -699,20 +699,20 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		backend == config.BackendClaudeCode)
 
 	return &ResolvedAgent{
-		Name:        name,
-		Surfaces:    surfaces,
-		LLM:         sub.LLM,
-		Profiles:    sub.Profiles,
-		Label:       label,
-		Backend:     backend,
-		Model:       model,
-		Context:     ctxResult.Context,
-		Fragments:   ctxResult.FragmentsLoaded,
-		Runtime:     runtime,
+		Name:                 name,
+		Surfaces:             surfaces,
+		LLM:                  sub.LLM,
+		Profiles:             sub.Profiles,
+		Label:                label,
+		Backend:              backend,
+		Model:                model,
+		Context:              ctxResult.Context,
+		Fragments:            ctxResult.FragmentsLoaded,
+		Runtime:              runtime,
 		Permissions:          sub.Permissions,
 		EffectivePermissions: effectivePerm.String(),
 		Escalation:           sub.Escalation,
-		Driving:    sub.Driving,
-		ConfigHome: configHome,
+		Driving:              sub.Driving,
+		ConfigHome:           configHome,
 	}, nil
 }

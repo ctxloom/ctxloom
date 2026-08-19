@@ -223,7 +223,7 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/agentcoord/coord/statedir.go#claimOwner":                        "advisory lock file's own O_EXCL create — mechanically parallel to filelock's exemption but not itself filelock (fs-consolidation plan C10 to decide: fold into filelock or exempt structurally)",
 	"internal/agentcoord/mcpschema/gen/main.go#generateXmlLike":               "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/mcpschema/gen/main.go#writeSpec":                     "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/agentcoord/spool/ops.go#renameInto":                                 "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
+	"internal/agentcoord/spool/ops.go#renameInto":                             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/spool/writer.go#Writer.Write":                        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/spool/writer.go#writeAndSync":                        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/bundles/skill_archive.go#ImportSkillArchive":                    "C10 content/skill_archive sweep: fsys.Rename here is a WHOLE-DIRECTORY swap (staged tree -> final, and final -> aside on replace), not a single-file content write — outside iox's WriteFileAtomicFs API, which has no directory-rename surface. This is a deliberate, already-safe swap-never-clear-then-hope idiom (see the function's own doc) with its own aside/restore recovery; exempt, not a violation to migrate.",

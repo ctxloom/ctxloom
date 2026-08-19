@@ -102,12 +102,12 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// is not merely undocumented — the producers that mint an item's ref from
 	// it (fragmentRead, commandRead, the skill loader) would silently
 	// withhold every item this path serves.
-	b.sourceRef = canonical
 	typed, terr := canonicalBundleRefTyped(canonical)
 	if terr != nil {
 		warnUnmintableSource(canonical, terr)
 	}
-	b.sourceRefTyped = typed
+	b.sourceRef = typed
+	b.sourceRefSet = true
 	b.Name = canonical
 	b.Path = fmt.Sprintf("<remote-version>:%s@%s", canonical, commit)
 

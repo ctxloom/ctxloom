@@ -29,10 +29,10 @@ func sentinelExecBundle() *bundles.Bundle {
 func TestExtractMCP_ForgottenGate_WithholdsTheServer(t *testing.T) {
 	read := bundles.ProjectAuthoredRead("fixture", sentinelExecBundle())
 
-	got := extractMCPFromBundle(read, "src", nil)
+	got := extractMCPFromBundle(read, mustLocalRef(t, "src"), nil)
 	assert.Empty(t, got, "a bundle MCP server reached settings with nothing having decided about it")
 
-	ungated := extractMCPFromBundle(read, "src", bundles.AdmitAll())
+	ungated := extractMCPFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll())
 	require.Contains(t, ungated, "srv", "AdmitAll must admit exactly as the old nil did")
 }
 
@@ -41,10 +41,10 @@ func TestExtractMCP_ForgottenGate_WithholdsTheServer(t *testing.T) {
 func TestExtractHooks_ForgottenGate_WithholdsTheHook(t *testing.T) {
 	read := bundles.ProjectAuthoredRead("fixture", sentinelExecBundle())
 
-	got := extractHooksFromBundle(read, "src", nil)
+	got := extractHooksFromBundle(read, mustLocalRef(t, "src"), nil)
 	assert.Empty(t, got.PreTool, "a bundle hook reached settings with nothing having decided about it")
 
-	ungated := extractHooksFromBundle(read, "src", bundles.AdmitAll())
+	ungated := extractHooksFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll())
 	require.Len(t, ungated.PreTool, 1, "AdmitAll must admit exactly as the old nil did")
 }
 

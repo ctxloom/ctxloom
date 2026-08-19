@@ -57,7 +57,7 @@ func mustLocalItemRef(bundle string, kind trust.ItemKind, item string) string {
 // second, competing way. It reuses trust.ParseItemRef (unaffected by this
 // slice — only bundles.Decide's own internal call switches) to decompose the
 // old-grammar string, then Ref.AsBundleRef to re-mint it — the exact
-// bridge itemRefFor/fragmentRead use in production.
+// bridge ItemRefFor/fragmentRead use in production.
 func canonicalWithheldRef(t *testing.T, oldGrammarRef string) string {
 	t.Helper()
 	tRef, _, _, err := trust.ParseItemRef(oldGrammarRef)

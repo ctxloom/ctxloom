@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // TestBuiltinAndProjectBundleOfOneName_ProjectShadowsBuiltin pins the collision
@@ -77,10 +76,10 @@ func TestBuiltinAndProjectBundleOfOneName_ProjectShadowsBuiltin(t *testing.T) {
 			refs = append(refs, r.Ref())
 		}
 		assert.Contains(t, refs, shared, "the winning bundle must be addressable")
-		assert.NotContains(t, refs, trust.BuiltinSourcePrefix+shared,
+		assert.NotContains(t, refs, "builtin:"+shared,
 			"\"builtin:<name>\" is a TRUST ref, never a listing handle: a resolution ref must not carry a source class")
 
-		_, err := l.Load(trust.BuiltinSourcePrefix + shared)
+		_, err := l.Load("builtin:" + shared)
 		assert.Error(t, err,
 			"the shadowed builtin has no back-door handle; that is what makes the announcement load-bearing")
 
@@ -100,13 +99,13 @@ func TestBuiltinAndProjectBundleOfOneName_ProjectShadowsBuiltin(t *testing.T) {
 		require.Len(t, findings, 1, "shadowing a builtin must be reported, not silent")
 		assert.Equal(t, strictness.ClassBundle, findings[0].Class)
 		assert.Contains(t, findings[0].Message, shared, "the finding names the contested name")
-		assert.Contains(t, findings[0].Message, trust.BuiltinSourcePrefix+shared,
+		assert.Contains(t, findings[0].Message, "builtin:"+shared,
 			"the finding names the SHADOWED bundle by its trust ref — otherwise the user cannot tell which lost")
 
 		assert.Contains(t, findings[0].FixIt, "rename",
 			"the finding must carry the fix: rename one of the two bundles")
 
-		assert.Contains(t, sink.String(), trust.BuiltinSourcePrefix+shared,
+		assert.Contains(t, sink.String(), "builtin:"+shared,
 			"the user must actually SEE the shadowing streamed, not only a recorded finding")
 	})
 

@@ -199,8 +199,8 @@ func (r *repoFSReader) readDocument() (BundleRead, error) {
 	if b.Name == "" {
 		b.Name = r.ref
 	}
-	b.sourceRef = r.ref
-	b.sourceRefTyped = r.sourceRefTyped()
+	b.sourceRef = r.sourceRefTyped()
+	b.sourceRefSet = true
 	// A document in a pinned tree has no directory of its own, so Path is the
 	// synthetic sentinel FSDir refuses rather than a filesystem path it would
 	// resolve against the process working directory.
@@ -281,8 +281,8 @@ func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 	if b.Name == "" {
 		b.Name = r.ref
 	}
-	b.sourceRef = r.ref
-	b.sourceRefTyped = r.sourceRefTyped()
+	b.sourceRef = r.sourceRefTyped()
+	b.sourceRefSet = true
 	// Path points at the tree's own envelope so FSDir resolves to the installed
 	// directory — which is what makes a tree bundle's SKILL packages loadable.
 	// Without an installed directory there is nothing on a filesystem to point

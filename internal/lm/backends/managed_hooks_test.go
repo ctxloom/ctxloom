@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // --- event coverage ---------------------------------------------------------
@@ -121,26 +122,70 @@ func TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles(t *te
 		"which profile pulled a bundle in does not survive the flat bundle pass, and must not be invented")
 }
 
-// TestBundleSource_ClassifiesEveryBundleMarker pins the read-back of the one
-// piece of provenance the flat bundle pass carries. Builtin, companion and
-// profile-referenced bundles are three different answers to "what do I change",
-// so they must not collapse into one.
-func TestBundleSource_ClassifiesEveryBundleMarker(t *testing.T) {
+// TestBundleSource_ClassifiesEveryClass pins the read-back of the one piece of
+// provenance the flat bundle pass carries. Builtin, companion and
+// profile-referenced bundles (local, and the two remote classes, git and
+// file) are genuinely different answers to "what do I change", so they must
+// not collapse into one — walked over every trust.SourceClass value, not just
+// the two internal ones a raw string-prefix test could tell apart.
+//
+// The marker is config.extractHooksFromBundle's canonical
+// "bundle:" + src.BundleIdentity() — bundleSource classifies it by PARSED
+// CLASS (trust.ParseBundleRef), never a string prefix, so this pins that
+// classification against every class the grammar defines, not the two the old
+// prefix test happened to check.
+func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
+	mustRef := func(br trust.BundleRef, err error) trust.BundleRef {
+		require.NoError(t, err)
+		return br
+	}
 	cases := []struct {
+		name string
 		scm  string
 		want HookSource
 	}{
-		{"bundle:builtin:core", HookSource{Origin: HookOriginBuiltin, Ref: "builtin:core"}},
-		{"bundle:ctxloom:companion@ltk", HookSource{Origin: HookOriginCompanion, Ref: "ctxloom:companion@ltk"}},
-		{"bundle:https://github.com/acme/tools@bundles/kit", HookSource{Origin: HookOriginBundle, Ref: "https://github.com/acme/tools@bundles/kit"}},
-		{"bundle:local-kit", HookSource{Origin: HookOriginBundle, Ref: "local-kit"}},
-		// No marker at all: unreachable in practice, and answered with "I do
-		// not know" rather than the nearest plausible guess.
-		{"", HookSource{Origin: HookOriginUnattributed}},
-		{"something-else", HookSource{Origin: HookOriginUnattributed}},
+		{
+			name: "builtin",
+			scm:  "bundle:" + mustRef(trust.BuiltinRef("core")).BundleIdentity(),
+			want: HookSource{Origin: HookOriginBuiltin, Ref: "ctxloom+builtin:core"},
+		},
+		{
+			name: "companion",
+			scm:  "bundle:" + mustRef(trust.CompanionRef("ltk")).BundleIdentity(),
+			want: HookSource{Origin: HookOriginCompanion, Ref: "ctxloom+companion:ltk"},
+		},
+		{
+			name: "local",
+			scm:  "bundle:" + mustRef(trust.LocalRef("local-kit")).BundleIdentity(),
+			want: HookSource{Origin: HookOriginBundle, Ref: "ctxloom+local:local-kit"},
+		},
+		{
+			name: "git",
+			scm:  "bundle:" + mustRef(trust.GitRef("github.com", "/acme/tools", "kit")).BundleIdentity(),
+			want: HookSource{Origin: HookOriginBundle, Ref: "ctxloom+git://github.com/acme/tools//bundles/kit"},
+		},
+		{
+			name: "file",
+			scm:  "bundle:" + mustRef(trust.FileRef("/srv/repo", "kit")).BundleIdentity(),
+			want: HookSource{Origin: HookOriginBundle, Ref: "ctxloom+file:///srv/repo//bundles/kit"},
+		},
+		// A marker that fails to parse (the retired, non-canonical spelling
+		// included) is answered "I do not know" rather than the nearest
+		// plausible guess — a confident wrong attribution sends someone to
+		// edit the wrong file.
+		{
+			name: "unparseable marker",
+			scm:  "bundle:builtin:core",
+			want: HookSource{Origin: HookOriginUnattributed, Ref: "builtin:core"},
+		},
+		// No marker at all: unreachable in practice, and answered the same way.
+		{name: "empty SCM", scm: "", want: HookSource{Origin: HookOriginUnattributed}},
+		{name: "no bundle: prefix", scm: "something-else", want: HookSource{Origin: HookOriginUnattributed}},
 	}
 	for _, tc := range cases {
-		assert.Equal(t, tc.want, bundleSource(wire.Hook{SCM: tc.scm}), "SCM %q", tc.scm)
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, bundleSource(wire.Hook{SCM: tc.scm}), "SCM %q", tc.scm)
+		})
 	}
 }
 

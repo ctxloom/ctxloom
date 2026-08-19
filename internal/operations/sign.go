@@ -2,10 +2,9 @@
 // the local bundle FILE it names, and signing that file's exact on-disk
 // bytes. This file is deliberately separate from trust.go (which owns the
 // verification-side ReviewRecords/EffectiveTrust machinery) — it reuses
-// trust.go's unexported ref-grammar helpers (trust.ParseItemRef,
-// trust.BuiltinSourcePrefix) directly, being in the same package, plus the shared
-// remote.IsSelfContainedRef marker list, rather than duplicating the grammar
-// (ADR 0032: one ref grammar).
+// trust.go's unexported ref-grammar helpers (trust.ParseItemRef) directly,
+// being in the same package, plus the shared remote.IsSelfContainedRef marker
+// list, rather than duplicating the grammar (ADR 0032: one ref grammar).
 package operations
 
 import (
@@ -87,7 +86,14 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 		}
 		return SignTarget{BundleName: parsed.Path}, nil
 	}
-	if _, ok := strings.CutPrefix(ref, trust.BuiltinSourcePrefix); ok {
+	// The RETIRED (pre-U3b-3) builtin source-ref spelling, "builtin:<name>",
+	// with no selector. The canonical "ctxloom+builtin:<name>" arm is S6's
+	// job (ResolveSignTarget gains the canonical arm there, deliberately
+	// without a catalog — see R4); this recognizer's only job is to keep the
+	// existing retired-spelling refusal working now that the shared
+	// trust.BuiltinSourcePrefix constant is gone, not to widen what is
+	// refused.
+	if _, ok := strings.CutPrefix(ref, "builtin:"); ok {
 		return SignTarget{}, fmt.Errorf("ctxloom sign: %q is a builtin bundle — builtins are never signed "+
 			"(signing bytes compiled into the binary that verifies them is circular)", ref)
 	}

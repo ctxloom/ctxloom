@@ -65,7 +65,7 @@ type ItemRead struct {
 	Forms ContentForms
 
 	// TrustRef is the ref the trust gate keys this item by: the canonical
-	// bundle-reference grammar's item selector (itemRefFor,
+	// bundle-reference grammar's item selector (ItemRefFor,
 	// trust.BundleRef.WithItem), "ctxloom+<class>:...#fragments/<name>" or
 	// "...#prompts/<name>", minted from the bundle's HONEST typed source ref
 	// (BundleRead.SourceRef — canonical for a cloned bundle so its text gates
@@ -350,7 +350,7 @@ func ParseItemAsk(ask string) (ItemAsk, error) {
 // the bundle's honest TYPED source ref (BundleRead.SourceRef) — canonical for
 // a cloned bundle so its text gates like an executable, the local name for a
 // project bundle so its text auto-trusts — through the canonical
-// bundle-reference grammar (itemRefFor), not hand-concatenated from
+// bundle-reference grammar (ItemRefFor), not hand-concatenated from
 // Bundle.contentSourceRef's string. That is the SAME keying the exec gate
 // uses.
 func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragment) *ItemRead {
@@ -364,7 +364,7 @@ func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragm
 		Installation: frag.Installation,
 		DistilledBy:  frag.DistilledBy,
 		Forms:        frag.Forms(),
-		TrustRef:     itemRefFor(read.SourceRef(), trust.KindFragment, fragName),
+		TrustRef:     ItemRefFor(read.SourceRef(), trust.KindFragment, fragName),
 		Signer:       bundle.Signer(),
 		Read:         read,
 	}
@@ -447,7 +447,7 @@ func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
 }
 
 // commandRead builds the ItemRead for a command. See fragmentRead — the same
-// read facts, minted the same way (itemRefFor over the typed SourceRef).
+// read facts, minted the same way (ItemRefFor over the typed SourceRef).
 // TrustRef keeps the "prompts" kind segment (trust.KindPrompt, whose Dir() is
 // "prompts") even though the load selector is "#commands/", so the item-kind
 // rename does not invalidate existing trust grants.
@@ -463,7 +463,7 @@ func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCo
 		DistilledBy:  prompt.DistilledBy,
 		LLM:          prompt.LLM,
 		Forms:        prompt.Forms(),
-		TrustRef:     itemRefFor(read.SourceRef(), trust.KindPrompt, promptName),
+		TrustRef:     ItemRefFor(read.SourceRef(), trust.KindPrompt, promptName),
 		Signer:       bundle.Signer(),
 		Read:         read,
 	}

@@ -120,3 +120,58 @@ func TestHasScheme_AdmitsUnknownClassesSoParseCanRefuseThem(t *testing.T) {
 		assert.ErrorIs(t, err, ErrSyntax, "%q names no known class and must be refused", raw)
 	}
 }
+
+// TestBuilders_RenderCanonicalStrings pins what each class-builder produces, as
+// literals. These are the strings a trust grant is keyed on once a layer above
+// adds an item selector, so they are asserted byte-exact rather than
+// round-tripped.
+func TestBuilders_RenderCanonicalStrings(t *testing.T) {
+	cases := []struct {
+		name string
+		mint func() (Parts, error)
+		want string
+	}{
+		{"git", func() (Parts, error) { return Git("github.com", "/acme/repo", "tooling") },
+			"ctxloom+git://github.com/acme/repo//bundles/tooling"},
+		{"file", func() (Parts, error) { return File("/srv/repo", "lang/go") },
+			"ctxloom+file:///srv/repo//bundles/lang/go"},
+		{"builtin", func() (Parts, error) { return Builtin("ltk") }, "ctxloom+builtin:ltk"},
+		{"local", func() (Parts, error) { return Local("my-tools") }, "ctxloom+local:my-tools"},
+		{"companion", func() (Parts, error) { return Companion("ltk") }, "ctxloom+companion:ltk"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := tc.mint()
+			if err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			if got := p.Render(true); got != tc.want {
+				t.Errorf("%s renders %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMint_RefusesWhatParseRefuses is the round-trip discipline: a reference
+// built in Go must clear exactly the gate a reference typed as text clears, or
+// a builder becomes a way around the grammar.
+func TestMint_RefusesWhatParseRefuses(t *testing.T) {
+	if _, err := Mint(Parts{Class: ClassLocal}); err == nil {
+		t.Error("an empty bundle name must be refused")
+	}
+	if _, err := Mint(Parts{Class: "registry", Bundle: "x"}); err == nil {
+		t.Error("a class outside the vocabulary must be refused, not rendered")
+	}
+	if _, err := Mint(Parts{Class: ClassGit, RepoPath: "/acme/repo", Bundle: "x"}); err == nil {
+		t.Error("ctxloom+git without a host must be refused")
+	}
+	// A name carrying the version delimiter survives as data rather than
+	// silently splitting into name + version.
+	p, err := Mint(Parts{Class: ClassLocal, Bundle: "na@me"})
+	if err != nil {
+		t.Fatalf("a literal @ in a bundle name must round-trip: %v", err)
+	}
+	if p.Bundle != "na@me" || p.Version != "" {
+		t.Errorf("got bundle %q version %q, want bundle \"na@me\" and no version", p.Bundle, p.Version)
+	}
+}

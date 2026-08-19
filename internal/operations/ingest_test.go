@@ -265,7 +265,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 	t.Run("two different refs, one item: dropped at the accumulator, and it says so", func(t *testing.T) {
 		lines := captureIngestWarnings(t, func() {
 			in := newContextIngest()
-			require.True(t, in.add(ingestedFragment{Ref: "ctxloom:local@bundles/dev#fragments/rules", Name: "dev/rules", Content: "RULES"}))
+			require.True(t, in.add(ingestedFragment{Ref: "ctxloom+local:dev#fragments/rules", Name: "dev/rules", Content: "RULES"}))
 			require.False(t, in.add(ingestedFragment{Ref: "ctxloom+builtin:dev#fragments/rules", Name: "builtin dev/rules", Content: "RULES"}))
 		})
 		require.Len(t, lines, 1)
@@ -288,7 +288,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 		})
 		require.Len(t, lines, 1, "one collapse under two spellings must say so exactly once")
 		assert.Contains(t, lines[0], "reached this context twice")
-		assert.Contains(t, lines[0], "ctxloom:local@bundles/isolation#fragments/isolation-axes",
+		assert.Contains(t, lines[0], "ctxloom+local:isolation#fragments/isolation-axes",
 			"the warning must name the occurrence that was KEPT")
 		assert.Contains(t, lines[0], builtinIsolationFragmentRef,
 			"the warning must name the occurrence that was DROPPED")
@@ -316,7 +316,7 @@ func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 			Pipeline: opPipe(cfg, ingestLoader(fs)),
 		})
 		require.NoError(t, err)
-		assert.Contains(t, result.FragmentsLoaded, "ctxloom:local@bundles/isolation#fragments/isolation-axes")
+		assert.Contains(t, result.FragmentsLoaded, "ctxloom+local:isolation#fragments/isolation-axes")
 		assert.Contains(t, result.FragmentsLoaded, builtinIsolationFragmentRef,
 			"the dropped occurrence still LOADED and its content is in the context")
 		assert.Empty(t, result.MissingFragments)

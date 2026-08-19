@@ -31,7 +31,7 @@ func TestResolveRef_ShortAgainstURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRef: %v", err)
 	}
-	if want := "https://github.com/o/r@bundles/demo"; got.CanonicalString() != want {
+	if want := "ctxloom+git://github.com/o/r//bundles/demo"; got.CanonicalString() != want {
 		t.Fatalf("CanonicalString = %q, want %q", got.CanonicalString(), want)
 	}
 }

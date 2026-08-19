@@ -26,19 +26,19 @@ func TestBundleProfileRef(t *testing.T) {
 			name:   "local bundle canonicalizes to ctxloom:local",
 			bundle: "code-review",
 			prof:   "cr-security-golang",
-			want:   "ctxloom:local@bundles/code-review#profiles/cr-security-golang",
+			want:   "ctxloom+local:code-review#profiles/cr-security-golang",
 		},
 		{
 			name:   "already-canonical local ref passes through",
 			bundle: "ctxloom:local@bundles/code-review",
 			prof:   "base",
-			want:   "ctxloom:local@bundles/code-review#profiles/base",
+			want:   "ctxloom+local:code-review#profiles/base",
 		},
 		{
 			name:   "remote canonical bundle ref",
 			bundle: "https://github.com/ctxloom/ctxloom-default@bundles/code-review",
 			prof:   "cr-reliability-swift",
-			want:   "https://github.com/ctxloom/ctxloom-default@bundles/code-review#profiles/cr-reliability-swift",
+			want:   "ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review#profiles/cr-reliability-swift",
 		},
 	}
 	for _, tt := range tests {
@@ -101,6 +101,7 @@ func TestSplitBundleProfileRef(t *testing.T) {
 // parent to its bundle, so every bundle-profile parent resolved as not found.
 func TestCanonicalProfileKey(t *testing.T) {
 	const repo = "https://github.com/ctxloom/ctxloom-default"
+	const canonRepo = "ctxloom+git://github.com/ctxloom/ctxloom-default"
 	tests := []struct {
 		name   string
 		ref    string
@@ -110,25 +111,25 @@ func TestCanonicalProfileKey(t *testing.T) {
 		{
 			name:   "plain bundle-profile ref is already canonical",
 			ref:    repo + "@bundles/default#profiles/default",
-			want:   repo + "@bundles/default#profiles/default",
+			want:   canonRepo + "//bundles/default#profiles/default",
 			wantOK: true,
 		},
 		{
 			name:   "bundle-part version pin dropped",
 			ref:    repo + "@bundles/default@abc1234#profiles/default",
-			want:   repo + "@bundles/default#profiles/default",
+			want:   canonRepo + "//bundles/default#profiles/default",
 			wantOK: true,
 		},
 		{
 			name:   "name-trailing version pin dropped",
 			ref:    repo + "@bundles/default#profiles/default@abc1234",
-			want:   repo + "@bundles/default#profiles/default",
+			want:   canonRepo + "//bundles/default#profiles/default",
 			wantOK: true,
 		},
 		{
 			name:   "local bundle profile canonicalizes",
 			ref:    "code-review#profiles/base",
-			want:   "ctxloom:local@bundles/code-review#profiles/base",
+			want:   "ctxloom+local:code-review#profiles/base",
 			wantOK: true,
 		},
 		{
@@ -228,6 +229,6 @@ func TestBundleProfileRef_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	gotBundle, gotName, ok := SplitBundleProfileRef(ref)
 	assert.True(t, ok)
-	assert.Equal(t, bundle, gotBundle)
+	assert.Equal(t, "ctxloom+git://github.com/o/r//bundles/code-review", gotBundle)
 	assert.Equal(t, "cr-correctness-rust", gotName)
 }

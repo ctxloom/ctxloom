@@ -39,6 +39,14 @@ const (
 	defaultURL  = "https://github.com/ctxloom/ctxloom-default"
 )
 
+// defaultURI and personalURI are the same two remotes spelled as the canonical
+// URI scheme — the identity a bundle ref from either one resolves to, and
+// therefore what a seed key and a resolved SourceRef are.
+const (
+	personalURI = "ctxloom+git://github.com/benjaminabbitt/ctxloom-personal"
+	defaultURI  = "ctxloom+git://github.com/ctxloom/ctxloom-default"
+)
+
 // testAliasToURL is the alias→URL resolver used across the upgrade tests, standing
 // in for the registry-backed resolver the loader wires in production.
 func testAliasToURL(alias string) string {

@@ -109,7 +109,7 @@ func parseCheckRef(refStr string) (*remote.Reference, error) {
 // status lines, which quote the reference the user actually typed. Prints the
 // status to out; returns the pending update when one exists.
 func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetcher, lockfile *remote.Lockfile, ref *remote.Reference, refStr string) (updateInfo, bool, error) {
-	canonical := ref.CanonicalString()
+	canonical := ref.LockKey()
 	entry, itemType := lookupLockedEntry(lockfile, canonical)
 	if itemType == "" {
 		// An unlocked ref is a bundle — top-level profile distribution was retired,

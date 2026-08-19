@@ -18,6 +18,7 @@ import (
 // cherry-picked fragments — not the whole bundle.
 func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 	const canonical = "https://github.com/ctxloom/ctxloom-default@bundles/code-review-aspects"
+	const identity = "ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-aspects"
 	seed := map[string]*bundles.Bundle{
 		canonical: {
 			Version: "1.0.0",
@@ -49,8 +50,8 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 
 	assert.ElementsMatch(t,
 		[]string{
-			canonical + "#fragments/reviewer-base",
-			canonical + "#fragments/security",
+			identity + "#fragments/reviewer-base",
+			identity + "#fragments/security",
 			builtinIsolationFragmentRef,
 		},
 		res.FragmentsLoaded)

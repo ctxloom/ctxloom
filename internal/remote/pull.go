@@ -238,7 +238,7 @@ func (p *Puller) CheckRetraction(ctx context.Context, refStr string, itemType It
 	if err != nil {
 		return false, "", time.Time{}, fmt.Errorf("invalid remote URL: %w", err)
 	}
-	return p.resolveRetraction(ctx, fetcher, owner, repo, ref, itemType, ref.CanonicalString())
+	return p.resolveRetraction(ctx, fetcher, owner, repo, ref, itemType, ref.LockKey())
 }
 
 // RecordRetraction persists retracted/reason onto refStr's EXISTING lockfile
@@ -253,7 +253,7 @@ func (p *Puller) RecordRetraction(itemType ItemType, refStr string, retracted bo
 	if err != nil {
 		return fmt.Errorf("invalid reference: %w", err)
 	}
-	localName := ref.CanonicalString()
+	localName := ref.LockKey()
 
 	lockfile, err := p.lockfileManager.Load()
 	if err != nil {
@@ -394,8 +394,8 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 	if err != nil {
 		return "", nil, "", fmt.Errorf("failed to register remote: %w", err)
 	}
-	// Lockfile key is the canonical ref — the sole content identity.
-	return repoURL, rem, ref.CanonicalString(), nil
+	// Lockfile key is the fetch address: which repository, which path.
+	return repoURL, rem, ref.LockKey(), nil
 }
 
 // confirmRetraction checks whether ref is retracted, warns, and (unless

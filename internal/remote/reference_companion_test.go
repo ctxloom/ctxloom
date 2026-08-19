@@ -53,16 +53,22 @@ func TestParseReference_Companion_Errors(t *testing.T) {
 }
 
 func TestReference_Companion_StringRoundTrip(t *testing.T) {
-	for _, ref := range []string{
-		"ctxloom:companion@ltk",
-		"ctxloom:companion@taskloom",
-		"ctxloom:companion@ctxloom-companion-acme",
+	for ref, want := range map[string]string{
+		"ctxloom:companion@ltk":                    "ctxloom+companion:ltk",
+		"ctxloom:companion@taskloom":               "ctxloom+companion:taskloom",
+		"ctxloom:companion@ctxloom-companion-acme": "ctxloom+companion:ctxloom-companion-acme",
 	} {
 		t.Run(ref, func(t *testing.T) {
 			parsed, err := ParseReference(ref)
 			require.NoError(t, err)
-			assert.Equal(t, ref, parsed.String(), "String round-trips")
-			assert.Equal(t, ref, parsed.CanonicalString(), "CanonicalString round-trips")
+			assert.Equal(t, want, parsed.String(), "String renders the canonical URI")
+			assert.Equal(t, want, parsed.CanonicalString())
+
+			// And the identity it renders parses back to the same reference,
+			// so a companion ref written either way is one identity.
+			round, err := ParseReference(want)
+			require.NoError(t, err)
+			assert.Equal(t, parsed, round)
 		})
 	}
 }

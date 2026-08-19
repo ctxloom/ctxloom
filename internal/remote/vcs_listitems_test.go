@@ -120,7 +120,7 @@ func TestRemoteRefFetcher_ListItems_CanonicalRefs(t *testing.T) {
 	refs, err := f.ListItems(context.Background(), ItemTypeBundle)
 	require.NoError(t, err)
 	require.Len(t, refs, 1)
-	assert.Equal(t, url+"@bundles/security", refs[0].CanonicalString())
+	assert.Equal(t, "ctxloom+git://github.com/alice/ctxloom//bundles/security", refs[0].CanonicalString())
 	assert.True(t, refs[0].IsCanonical())
 }
 
@@ -150,7 +150,7 @@ func TestRemoteRefFetcher_ListItems_NotMaterializedWarns(t *testing.T) {
 
 	refs, err := f.ListItems(context.Background(), ItemTypeBundle)
 	require.Len(t, refs, 1, "the materialized remote still lists")
-	assert.Equal(t, present+"@bundles/a", refs[0].CanonicalString())
+	assert.Equal(t, "ctxloom+git://github.com/alice/ctxloom//bundles/a", refs[0].CanonicalString())
 
 	require.Error(t, err, "the absent remote is surfaced, not silently dropped")
 	assert.ErrorIs(t, err, errs.ErrRemoteNotMaterialized)
@@ -168,7 +168,7 @@ func TestLocalRefFetcher_ListItems_LocalRefs(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, refs, 1)
 	assert.True(t, refs[0].IsLocal)
-	assert.Equal(t, "ctxloom:local@bundles/foo", refs[0].CanonicalString())
+	assert.Equal(t, "ctxloom+local:foo", refs[0].CanonicalString())
 }
 
 func TestResolver_ListDeleted_RemoteScheme(t *testing.T) {
@@ -188,7 +188,7 @@ func TestResolver_ListDeleted_RemoteScheme(t *testing.T) {
 	refs, err := resolver.ListDeleted(context.Background(), ItemTypeBundle)
 	require.NoError(t, err)
 	require.Len(t, refs, 1)
-	assert.Equal(t, url+"@bundles/old-bundle", refs[0].CanonicalString())
+	assert.Equal(t, "ctxloom+git://github.com/alice/ctxloom//bundles/old-bundle", refs[0].CanonicalString())
 }
 
 func TestResolver_List_FansOutAcrossSchemes(t *testing.T) {
@@ -216,6 +216,6 @@ func TestResolver_List_FansOutAcrossSchemes(t *testing.T) {
 	for _, r := range refs {
 		got[r.CanonicalString()] = true
 	}
-	assert.True(t, got[url+"@bundles/remotebun"], "remote bundle listed")
-	assert.True(t, got["ctxloom:local@bundles/localbun"], "local bundle listed")
+	assert.True(t, got["ctxloom+git://github.com/alice/ctxloom//bundles/remotebun"], "remote bundle listed")
+	assert.True(t, got["ctxloom+local:localbun"], "local bundle listed")
 }

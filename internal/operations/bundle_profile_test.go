@@ -54,6 +54,10 @@ func bundleProfileConfig(root string) *config.Config {
 
 const kitProfileKey = "ctxloom:local@bundles/kit#profiles/p1"
 
+// kitProfileID is kitProfileKey's canonical identity — the name the profile
+// resolves and lists under, whichever spelling asked for it.
+const kitProfileID = "ctxloom+local:kit#profiles/p1"
+
 // TestBundleProfile_ResolvesThroughProfileLoader proves a bundle profile
 // resolves into a runnable profile through the SAME path run/agent_run use
 // (GetProfileLoader().ResolveProfile), carrying its composed bundles and its
@@ -100,18 +104,18 @@ func TestBundleProfile_ListAndShowAttribution(t *testing.T) {
 
 	var entry *ProfileEntry
 	for i := range list.Profiles {
-		if list.Profiles[i].Name == kitProfileKey {
+		if list.Profiles[i].Name == kitProfileID {
 			entry = &list.Profiles[i]
 		}
 	}
 	require.NotNil(t, entry, "bundle profile must appear in `profile list`")
-	assert.Equal(t, "ctxloom:local@bundles/kit", entry.Bundle, "attributed to its bundle")
+	assert.Equal(t, "ctxloom+local:kit", entry.Bundle, "attributed to its bundle")
 	assert.Equal(t, "p1", entry.DisplayName, "friendly display name is the bare profile name")
 	assert.True(t, entry.IsRemote, "bundle profiles are seeded (read-only) references")
 
 	show, err := GetProfile(ctx, cfg, GetProfileRequest{Name: kitProfileKey})
 	require.NoError(t, err)
-	assert.Equal(t, "ctxloom:local@bundles/kit", show.Bundle)
+	assert.Equal(t, "ctxloom+local:kit", show.Bundle)
 	assert.Equal(t, "fast", show.LLM)
 }
 

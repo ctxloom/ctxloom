@@ -16,8 +16,8 @@ import (
 // which seed entries.
 func grammarLoader(t *testing.T) *Loader {
 	t.Helper()
-	remoteKey := defaultURL + "@bundles/ai-developer#profiles/developer"
-	localKey := "ctxloom:local@bundles/tools#profiles/probe"
+	remoteKey := defaultURI + "//bundles/ai-developer#profiles/developer"
+	localKey := "ctxloom+local:tools#profiles/probe"
 	seed := map[string]*Profile{
 		remoteKey: {
 			Name:    remoteKey,
@@ -54,15 +54,15 @@ func TestLoad_ProfileRefGrammar(t *testing.T) {
 		wantKey string
 	}{
 		{"canonical URL", defaultURL + "@bundles/ai-developer#profiles/developer",
-			defaultURL + "@bundles/ai-developer#profiles/developer"},
+			defaultURI + "//bundles/ai-developer#profiles/developer"},
 		{"alias form", "myrem/ai-developer#profiles/developer",
-			defaultURL + "@bundles/ai-developer#profiles/developer"},
+			defaultURI + "//bundles/ai-developer#profiles/developer"},
 		{"alias form with version pin", "myrem/ai-developer#profiles/developer@abc1234",
-			defaultURL + "@bundles/ai-developer#profiles/developer"},
+			defaultURI + "//bundles/ai-developer#profiles/developer"},
 		{"local bundle short form", "tools#profiles/probe",
-			"ctxloom:local@bundles/tools#profiles/probe"},
+			"ctxloom+local:tools#profiles/probe"},
 		{"explicit ctxloom:local form", "ctxloom:local@bundles/tools#profiles/probe",
-			"ctxloom:local@bundles/tools#profiles/probe"},
+			"ctxloom+local:tools#profiles/probe"},
 		{"subdir local profile (selector-less two-segment name)", "personal/go-developer",
 			"personal/go-developer"},
 	}
@@ -163,7 +163,7 @@ func TestLoad_AliasWithoutResolver_FailsWithHint(t *testing.T) {
 // time and only recognised one frame later.
 func TestResolveProfile_VisitedKeyIsCanonical(t *testing.T) {
 	const alias = "myrem/ai-developer#profiles/developer"
-	canonical := defaultURL + "@bundles/ai-developer#profiles/developer"
+	canonical := defaultURI + "//bundles/ai-developer#profiles/developer"
 
 	loader := grammarLoader(t)
 	visited := map[string]bool{}

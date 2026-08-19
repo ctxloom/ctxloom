@@ -294,7 +294,7 @@ func TestRunCharacterization_DryRunJSONPayload(t *testing.T) {
 	assert.Equal(t, got.LLM, got.Backend, "the fixture's label resolves to a same-named backend")
 	assert.Contains(t, got.Context, "# testing", "the profile's fragment reaches the assembled context")
 	assert.Positive(t, got.Tokens, "the token estimate is computed over the assembled context")
-	assert.Contains(t, got.Fragments, "ctxloom:local@bundles/demo#fragments/testing")
+	assert.Contains(t, got.Fragments, "ctxloom+local:demo#fragments/testing")
 
 	// Not an --agent run: the three axis fields stay omitted entirely.
 	assert.NotContains(t, res.out, `"agent"`)

@@ -17,7 +17,7 @@ import (
 // internal/lm/backends/managed.go's gateProfileMCP/gateProfileHooks now key
 // the executable trust gate by, instead of the display name.
 func TestResolveProfile_SourceRef_BundleShippedRemote(t *testing.T) {
-	key := defaultURL + "@bundles/kit#profiles/dev"
+	key := defaultURI + "//bundles/kit#profiles/dev"
 	seed := map[string]*Profile{
 		key: {Name: key, Path: SeededProfilePathPrefix + key, Signer: "vendor@example.com"},
 	}
@@ -25,7 +25,7 @@ func TestResolveProfile_SourceRef_BundleShippedRemote(t *testing.T) {
 
 	resolved, err := loader.ResolveProfile(key, nil)
 	require.NoError(t, err)
-	assert.Equal(t, defaultURL+"@bundles/kit", resolved.SourceRef,
+	assert.Equal(t, defaultURI+"//bundles/kit", resolved.SourceRef,
 		"SourceRef must be the origin bundle's canonical ref, with the #profiles/<name> selector stripped")
 	assert.Equal(t, "vendor@example.com", resolved.Signer,
 		"the seeded Profile.Signer (the origin bundle's verified publisher) must flow through to ResolvedProfile.Signer")
@@ -38,7 +38,7 @@ func TestResolveProfile_SourceRef_BundleShippedRemote(t *testing.T) {
 // parses as IsLocal:true (parseLocalReference), so a local bundle's own
 // directly-declared hook stays honestly local, exactly like before this fix.
 func TestResolveProfile_SourceRef_BundleShippedLocal(t *testing.T) {
-	key := "ctxloom:local@bundles/kit#profiles/dev"
+	key := "ctxloom+local:kit#profiles/dev"
 	seed := map[string]*Profile{
 		key: {Name: key, Path: SeededProfilePathPrefix + key}, // unsigned local bundle: no Signer
 	}
@@ -46,7 +46,7 @@ func TestResolveProfile_SourceRef_BundleShippedLocal(t *testing.T) {
 
 	resolved, err := loader.ResolveProfile(key, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "ctxloom:local@bundles/kit", resolved.SourceRef)
+	assert.Equal(t, "ctxloom+local:kit", resolved.SourceRef)
 	assert.Empty(t, resolved.Signer, "an unsigned local bundle carries no verified signer")
 }
 

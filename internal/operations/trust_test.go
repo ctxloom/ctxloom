@@ -21,6 +21,11 @@ const trustRepo = "https://github.com/acme/repo"
 // seed keys parse back to RepoURL == trustRepo with bundle paths after it.
 const acmeBundle = "https://github.com/acme/repo@bundles/"
 
+// acmeBundleID is the same prefix as a canonical IDENTITY — what a ref built
+// from acmeBundle renders as once it has been through the reference grammar,
+// and therefore what an assertion over a resolved ref compares against.
+const acmeBundleID = "ctxloom+git://github.com/acme/repo//bundles/"
+
 // mcpPayloadOf is the executable-surface PAYLOAD the decision function keys on
 // (the same bytes mcpHashOf hashes). Panics only on an unreachable encode error.
 func mcpPayloadOf(m bundles.BundleMCP) []byte {

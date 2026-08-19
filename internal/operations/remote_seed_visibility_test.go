@@ -19,8 +19,8 @@ import (
 
 // seedRemoteFixture builds a real git repo carrying one bundle that SHIPS a
 // bundle profile (`profiles:` item), locks the bundle in a fresh appDir's
-// lockfile, and returns the cfg plus the canonical refs (the bundle-profile ref
-// is <bundle>#profiles/dev). This is the full reference-only remote path:
+// lockfile, and returns the cfg, the bundle profile's canonical identity, and
+// the bundle's lockfile fetch address. This is the full reference-only remote path:
 // content lives only in the clone cache at the locked SHA, visible exclusively
 // through the lockfile-built bundle seed. (Top-level @profiles/ distribution was
 // retired — profiles arrive only inside bundles.)
@@ -53,7 +53,10 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	require.NoError(t, err)
 	entry := remote.LockEntry{SHA: sha, URL: repoURL, FetchedAt: time.Now().UTC()}
 	bundleRef = repoURL + "@bundles/tools"
-	profileRef = bundleRef + "#profiles/dev"
+	// The lockfile keys on the FETCH address (bundleRef); the profile is
+	// addressed by the bundle's canonical IDENTITY, which is what the seed and
+	// every listing carry.
+	profileRef = "ctxloom+file://" + repoDir + "//bundles/tools#profiles/dev"
 	lock.AddEntry(remote.ItemTypeBundle, bundleRef, entry)
 	require.NoError(t, lm.Save(lock))
 

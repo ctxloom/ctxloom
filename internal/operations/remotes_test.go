@@ -826,7 +826,7 @@ func TestBrowseRemote_PullRef(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result.Items, 1)
-	assert.Equal(t, "https://github.com/alice/ctxloom@bundles/security", result.Items[0].PullRef)
+	assert.Equal(t, "ctxloom+git://github.com/alice/ctxloom//bundles/security", result.Items[0].PullRef)
 }
 
 func TestBrowseRemote_Recursive(t *testing.T) {
@@ -879,7 +879,7 @@ func TestBrowseRemote_WithPath(t *testing.T) {
 	require.Len(t, result.Items, 1)
 	assert.Equal(t, "nested", result.Items[0].Name)
 	assert.Equal(t, "subdir/nested", result.Items[0].Path)
-	assert.Equal(t, "https://github.com/alice/ctxloom@bundles/subdir/nested", result.Items[0].PullRef)
+	assert.Equal(t, "ctxloom+git://github.com/alice/ctxloom//bundles/subdir/nested", result.Items[0].PullRef)
 }
 
 func TestBrowseRemote_NoRemote(t *testing.T) {

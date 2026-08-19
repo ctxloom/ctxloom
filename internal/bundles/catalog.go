@@ -378,11 +378,12 @@ func (c Catalog) Lookup(ask string) (BundleRead, error) {
 // MCP servers resolvable. It is not a migration bridge and does not expire
 // with one.
 //
-// Every route here is EXACT. It mints the canonical key first, which is the
-// resolution the readers themselves stamp; only if the identity was never
-// mintable does it fall back to matching the spelling a listing shows, and
-// then to the version-less form of it, because such an identity addresses one
-// bundle by construction and cannot be a name two bundles share.
+// Every route here is EXACT. It mints the canonical identity first, which is
+// the resolution the readers themselves stamp; only if that misses does it
+// fall back to matching the spellings a listing can show — the ask as written,
+// its canonical identity, and its fetch address — because such an identity
+// addresses one bundle by construction and cannot be a name two bundles
+// share.
 func (c Catalog) selfContained(ask string) (BundleRead, bool) {
 	if br, err := canonicalBundleRefTyped(ask); err == nil {
 		if read, ok := c.LookupKey(br.BundleIdentity()); ok {
@@ -392,6 +393,20 @@ func (c Catalog) selfContained(ask string) (BundleRead, bool) {
 	spellings := []string{ask}
 	if key, ok := remote.CanonicalKey(ask); ok && key != ask {
 		spellings = append(spellings, key)
+	}
+	// The FETCH address too, because that is the spelling a listing shows for
+	// a lockfile-seeded bundle: a lockfile keys on where content is fetched
+	// from, and the reader stamps that key as the read's display name. Without
+	// it a version-carrying ask would miss a seed that is present, and a
+	// present bundle reported missing is content silently dropped.
+	if parsed, err := remote.ParseReference(ask); err == nil {
+		if key := parsed.LockKey(); key != ask {
+			spellings = append(spellings, key)
+		}
+		parsed.ContentVersion = ""
+		if key := parsed.LockKey(); key != ask {
+			spellings = append(spellings, key)
+		}
 	}
 	for _, spelling := range spellings {
 		for _, read := range c.reads {

@@ -22,6 +22,9 @@ import (
 // expose content — exactly the surface a pinned version is gated against.
 const cqVersionRef = acmeBundle + "cq" // https://github.com/acme/repo@bundles/cq
 
+// cqVersionID is cqVersionRef's canonical identity.
+const cqVersionID = acmeBundleID + "cq"
+
 // versionPinnedLoader builds an exposure-style loader over the acme/cq bundle:
 // a seeded lockfile-default bundle, a fake version resolver serving per-commit
 // bundles (an absent commit errors, simulating a fetch failure), and a real
@@ -215,5 +218,5 @@ func TestVersionPinned_FetchFailureWithholdsOnlyThatItem(t *testing.T) {
 	assert.NotContains(t, res.Context, "DEFAULT-BAD", "the unresolvable item is withheld, not silently defaulted")
 	// The always-on builtin isolation fragment injects unconditionally
 	// alongside the profile-resolved set; see builtinIsolationFragmentRef.
-	assert.ElementsMatch(t, []string{cqVersionRef + "#fragments/good", builtinIsolationFragmentRef}, res.FragmentsLoaded)
+	assert.ElementsMatch(t, []string{cqVersionID + "#fragments/good", builtinIsolationFragmentRef}, res.FragmentsLoaded)
 }

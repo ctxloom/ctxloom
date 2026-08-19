@@ -201,9 +201,12 @@ func TestExposureWithheld_Characterization_AssemblyAndTooling(t *testing.T) {
 	assert.Contains(t, res.Context, charGateApprovedBody)
 	assert.NotContains(t, res.Context, charGateRejectedBody, "a rejected fragment must not reach assembled context")
 	assert.NotContains(t, res.Context, charGatePendingBody, "a never-reviewed fragment must not reach assembled context")
-	assert.Contains(t, res.FragmentsLoaded, charGateApprovedRef)
-	assert.NotContains(t, res.FragmentsLoaded, charGateRejectedRef)
-	assert.NotContains(t, res.FragmentsLoaded, charGatePendingRef)
+	// FragmentsLoaded names each ref by its canonical identity, which is what
+	// canonicalWithheldRef renders for the withheld side too — so the loaded
+	// and the withheld sets are comparable.
+	assert.Contains(t, res.FragmentsLoaded, canonicalWithheldRef(t, charGateApprovedRef))
+	assert.NotContains(t, res.FragmentsLoaded, canonicalWithheldRef(t, charGateRejectedRef))
+	assert.NotContains(t, res.FragmentsLoaded, canonicalWithheldRef(t, charGatePendingRef))
 
 	assert.Empty(t, p.tooling(), "an unreviewed tooling command must not be collected")
 	assert.Contains(t, p.withheld(), canonicalWithheldRef(t, charGateToolingGateRef),

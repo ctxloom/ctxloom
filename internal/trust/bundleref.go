@@ -3,57 +3,49 @@ package trust
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/refuri"
 )
 
-// SourceClass names which of the five reference classes a BundleRef belongs
-// to. The class is carried in the URI SCHEME (ctxloom+git, ctxloom+file,
-// ctxloom+builtin, ctxloom+local, ctxloom+companion) rather than in a path
-// prefix, which is legal per RFC 3986 §3.1 (scheme = ALPHA *( ALPHA / DIGIT /
-// "+" / "-" / "." )) and is what leaves the AUTHORITY slot free for the real
-// host. That in turn is what makes RFC 3986 §6.2.2.1 host case-folding apply
-// natively instead of being re-implemented over a hand-parsed string.
-type SourceClass string
+// The URI SYNTAX this grammar is written in — the scheme carrying the source
+// class, the "//" repository/bundle split, percent-encoding and dot-segment
+// resolution — lives in internal/refuri, below both this package and
+// internal/remote. This package adds what refuri deliberately does not know:
+// that the "#" fragment names a trust ITEM KIND, and that a parsed reference
+// is an identity a grant keys on.
+//
+// The class names are re-exported rather than re-declared so a caller reading
+// trust.ClassGit and a caller reading refuri.ClassGit cannot come to hold two
+// different values.
+type SourceClass = refuri.SourceClass
 
 const (
 	// ClassGit addresses a bundle in a remote git repository reachable by
 	// host. It is the only class with an authority.
-	ClassGit SourceClass = "git"
+	ClassGit = refuri.ClassGit
 	// ClassFile addresses a bundle in a git repository at an absolute local
 	// path. It has no authority: ctxloom+file:///srv/repo//bundles/x.
-	ClassFile SourceClass = "file"
+	ClassFile = refuri.ClassFile
 	// ClassBuiltin addresses a bundle embedded in the ctxloom binary.
-	ClassBuiltin SourceClass = "builtin"
+	ClassBuiltin = refuri.ClassBuiltin
 	// ClassLocal addresses a bundle in the project's own tree.
-	ClassLocal SourceClass = "local"
+	ClassLocal = refuri.ClassLocal
 	// ClassCompanion addresses a bundle from a companion binary's loadout.
-	ClassCompanion SourceClass = "companion"
+	ClassCompanion = refuri.ClassCompanion
 )
-
-// schemePrefix is the shared scheme prefix of every class. The class name is
-// appended to it, so scheme and class cannot drift.
-const schemePrefix = "ctxloom+"
-
-// bundleMarker is the fixed segment that opens the bundle half of an external
-// (git/file) reference, immediately after the "//" separator.
-const bundleMarker = "bundles/"
-
-// repoBundleSeparator separates the repository path from the bundle path in an
-// external reference, following the go-getter / Terraform convention. It is
-// unambiguous because a repository path cannot contain an empty segment, so
-// the FIRST occurrence is always the separator. A plain "/" could not work:
-// both halves are variable depth (GitLab subgroups on one side, nested bundles
-// like "lang/go" on the other), so there is no segment count that splits them.
-const repoBundleSeparator = "//"
 
 // Errors returned by the bundle-reference grammar. They are sentinels so a
 // caller can tell a syntax error from the one refusal that is policy —
 // ErrRefNameCollision (R3) — with errors.Is.
 var (
-	// ErrRefSyntax indicates the reference does not match the grammar.
-	ErrRefSyntax = errors.New("malformed bundle reference")
+	// ErrRefSyntax indicates the reference does not match the grammar. It IS
+	// refuri.ErrSyntax, not a copy: a syntax error raised inside the shared
+	// grammar must satisfy errors.Is against the sentinel this package's
+	// callers test, or the same malformed reference would be a syntax error at
+	// one layer and an unclassified failure at the next.
+	ErrRefSyntax = refuri.ErrSyntax
 
 	// ErrRefNameCollision indicates two references from one source name
 	// bundles or items that differ only by ASCII case. See
@@ -113,216 +105,30 @@ type BundleRef struct {
 
 // ParseBundleRef parses and canonicalizes a bundle reference.
 //
-// Canonicalization happens HERE, at the parse boundary, and nowhere else:
-// every consumer downstream compares canonical strings byte-exact. That
-// placement is the whole security property. The canonical string is the
-// countersign store address AND part of the signature preimage, so two
-// spellings that fail to collapse to one string are not a near miss, they are
-// a store MISS — and a missed rejection on a bundle carrying a verified
-// publisher signature is not "rejected → pending" but "rejected → ALLOW".
-// CanonicalRepoURL's doc states the same property for the URL it canonicalizes.
-//
-// Normalization here is RFC 3986 §6.2 and NOTHING MORE. ".git" suffixes,
-// "www." prefixes and repository-path case are PRESERVED byte-exact, and two
-// spellings of one repository are two identities. That is deliberate: whether
-// two addresses reach the same repository is host-specific knowledge we do not
-// have, and folding on a guess merges two identities onto one trust key —
-// which would let a rejection of one silently govern the other. The inverse,
-// refusing a non-preferred spelling, is worse still: "https://host/foo.git" IS
-// the real path of a bare repository on a plain git server, where
-// "https://host/foo" often does not exist, so refusing it makes a real
-// repository UNADDRESSABLE.
-//
-// The cross-address case is already handled one layer over: a CONTENT-reject
-// (signing.ContentRejectCountersignPayload) omits the ref by design, so a
-// rejection of these bytes holds wherever they appear. A REF-reject blocks one
-// ADDRESS, which is what it says. Refusal here is reserved for spellings that
-// are MALFORMED — "%2F" forging a separator, a control character, a missing
-// "bundles/" prefix — never for spellings that are merely non-preferred.
-//
-// The rules applied, in order:
-//
-//   - R1 normalization (RFC 3986 §6.2.2): percent-encoded UNRESERVED
-//     characters are decoded, remaining escapes are re-emitted with uppercase
-//     hex by String's encoder, scheme and host are lowercased, a trailing
-//     slash is dropped and an empty query is dropped. A character that is
-//     neither unreserved, sub-delim nor pchar — "|" is the motivating one — is
-//     percent-encoded on output, never passed through.
-//   - R2 repo-path case: PRESERVED byte-exact, on every host. RFC 3986
-//     §6.2.2.1 makes a URI path case-SENSITIVE, and this grammar does not
-//     second-guess it.
-//   - R3 bundle/item name case: PRESERVED byte-exact here; same-fold
-//     collisions across a SET of references are detected by
-//     CheckBundleRefFoldCollisions.
-//   - R4 dot segments: resolved by resolveDotSegmentsEachSide, which splits on
-//     the "//" separator first. Read that function's doc before touching it.
+// The URI syntax and its canonicalization are refuri.Parse's; read that
+// function's doc for the normalization rules and for why canonicalizing at the
+// parse boundary is a security property rather than tidiness. What this
+// function adds is the fragment's MEANING: refuri carries "#<kind>/<item>" as
+// opaque text, and ParseSelector turns it into the trust item kind a grant
+// keys on. A reference whose selector names no known kind is refused here even
+// though its URI is well formed — an item nobody can name is an item nobody
+// can approve.
 func ParseBundleRef(raw string) (BundleRef, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return BundleRef{}, fmt.Errorf("%w: empty", ErrRefSyntax)
-	}
-	if i := strings.IndexFunc(raw, isRefControlRune); i >= 0 {
-		// Refused, not stripped. remote.NormalizeRef strips at INGEST, where
-		// the input is whatever arrived from argv or a lockfile; by the time a
-		// string reaches the grammar it has passed that door, so a control
-		// character here is a bug in a caller that skipped ingest, and
-		// silently repairing it would hide exactly that. The hazard is
-		// concrete: a ref is interpolated verbatim into the LF-delimited
-		// countersign preimage, where an embedded LF closes the "ref:" line
-		// early and lets the rest of the ref forge the following header lines.
-		return BundleRef{}, fmt.Errorf("%w: control character at byte %d", ErrRefSyntax, i)
-	}
-	if i := indexEncodedSlash(raw); i >= 0 {
-		// An encoded slash is refused rather than carried. "/" is the one
-		// reserved character with STRUCTURAL meaning in this grammar (it
-		// separates path segments, and doubled it separates the repository
-		// from the bundle), so "%2F" and "/" are not two spellings of one
-		// reference — they are two different references that a decoded field
-		// could no longer tell apart. Refusing costs nothing: no segment of a
-		// repository path, bundle path or item name can contain a literal "/".
-		return BundleRef{}, fmt.Errorf("%w: encoded slash (%%2F) at byte %d is not addressable", ErrRefSyntax, i)
-	}
-
-	// R1, RFC 3986 §6.2.2.2, and it MUST happen before url.Parse rather than
-	// after. Two reasons, both load-bearing: url.Parse REJECTS a percent
-	// -escape in the authority outright ("github%2Ecom" is an error, not a
-	// host), so a post-parse decode never gets the chance; and "%2E%2E" must
-	// become ".." before §6.2.2.3 dot-segment removal runs, or it survives as
-	// an opaque segment here while a downstream consumer that decodes first
-	// sees a parent traversal. Decoding only UNRESERVED characters cannot
-	// change the parse: none of ALPHA / DIGIT / "-" / "." / "_" / "~" is a URI
-	// delimiter.
-	decoded, err := decodeUnreservedEscapes(raw)
+	p, err := refuri.Parse(raw)
 	if err != nil {
-		return BundleRef{}, fmt.Errorf("%w: %v", ErrRefSyntax, err)
-	}
-
-	u, err := url.Parse(decoded)
-	if err != nil {
-		return BundleRef{}, fmt.Errorf("%w: %v", ErrRefSyntax, err)
-	}
-
-	// url.Parse has already lowercased the scheme, so the class match is
-	// case-insensitive for free (R1, §6.2.2.1).
-	class, ok := classForScheme(u.Scheme)
-	if !ok {
-		return BundleRef{}, fmt.Errorf("%w: unknown scheme %q (want %sgit|%sfile|%sbuiltin|%slocal|%scompanion)",
-			ErrRefSyntax, u.Scheme, schemePrefix, schemePrefix, schemePrefix, schemePrefix, schemePrefix)
-	}
-	if u.User != nil {
-		// Credentials address a REQUEST, never a repository. Dropping them
-		// silently would make "…//bundles/x" and "alice@…//bundles/x" one
-		// identity without saying so; refusing says so.
-		return BundleRef{}, fmt.Errorf("%w: userinfo is not part of a bundle reference", ErrRefSyntax)
-	}
-	if u.RawQuery != "" {
-		return BundleRef{}, fmt.Errorf("%w: query string is not part of a bundle reference", ErrRefSyntax)
-	}
-	// An EMPTY query ("…?") is dropped rather than refused: it carries no user
-	// intent to discard. The drop needs no statement here and must not grow
-	// one: render builds a FRESH url.URL from the parsed fields, so nothing
-	// from u — query, ForceQuery, userinfo, opaque — can reach the canonical
-	// string except by being copied across deliberately. That is the invariant
-	// R1 rests on; preserve it by extending render's field list, never by
-	// rendering u.
-
-	ref := BundleRef{Class: class}
-	if err := ref.parseSelector(u.Fragment); err != nil {
 		return BundleRef{}, err
 	}
-
-	if class == ClassGit || class == ClassFile {
-		err = ref.parseExternal(u)
-	} else {
-		err = ref.parseInternal(u)
+	ref := BundleRef{
+		Class:    p.Class,
+		Host:     p.Host,
+		RepoPath: p.RepoPath,
+		Bundle:   p.Bundle,
+		Version:  p.Version,
 	}
-	if err != nil {
+	if err := ref.parseSelector(p.Fragment); err != nil {
 		return BundleRef{}, err
 	}
 	return ref, nil
-}
-
-// parseExternal fills the repo path and bundle for ClassGit / ClassFile.
-func (r *BundleRef) parseExternal(u *url.URL) error {
-	if r.Class == ClassGit {
-		if u.Host == "" {
-			return fmt.Errorf("%w: %sgit requires a host", ErrRefSyntax, schemePrefix)
-		}
-		// RFC 3986 §6.2.2.1: the host is case-INSENSITIVE, so folding its
-		// case is conformant normalization. A "www." prefix is NOT: it is a
-		// distinct host name, preserved byte-exact like every other spelling
-		// this grammar accepts. See ParseBundleRef's doc.
-		r.Host = strings.ToLower(u.Host)
-	} else if u.Host != "" {
-		return fmt.Errorf("%w: %sfile takes no host (use %sfile:///<abs-path>)", ErrRefSyntax, schemePrefix, schemePrefix)
-	}
-
-	// EscapedPath, never Path. u.Path is DECODED, and a decoded path can
-	// contain a "//" that was written "%2F%2F" — which would be read as the
-	// repo/bundle separator and silently produce a different, valid-looking
-	// reference. ParseBundleRef refuses %2F before we get here, so the two can
-	// no longer disagree, but reading the escaped form keeps this function
-	// correct on its own terms rather than by remote assumption.
-	repoEsc, bundleEsc, err := resolveDotSegmentsEachSide(u.EscapedPath())
-	if err != nil {
-		return err
-	}
-
-	// The version is split off the ESCAPED bundle path, before decoding: an
-	// item written "na%40me" must keep its "@" as data, and decoding first
-	// would make it indistinguishable from the version delimiter. String
-	// re-encodes "@" in a bundle name for the same reason, which is what makes
-	// parse ∘ render idempotent.
-	bundlePath := bundleEsc
-	if at := strings.LastIndex(bundlePath, "@"); at >= 0 {
-		r.Version = bundlePath[at+1:]
-		bundlePath = bundlePath[:at]
-	}
-	if !strings.HasPrefix(bundlePath, bundleMarker) {
-		return fmt.Errorf("%w: bundle path must begin %q after %q", ErrRefSyntax, bundleMarker, repoBundleSeparator)
-	}
-	name := strings.TrimPrefix(bundlePath, bundleMarker)
-	if name == "" {
-		return fmt.Errorf("%w: empty bundle name", ErrRefSyntax)
-	}
-
-	repoPath, err := url.PathUnescape(repoEsc)
-	if err != nil {
-		return fmt.Errorf("%w: repository path: %v", ErrRefSyntax, err)
-	}
-	if repoPath == "" || repoPath == "/" {
-		return fmt.Errorf("%w: empty repository path", ErrRefSyntax)
-	}
-	bundle, err := url.PathUnescape(name)
-	if err != nil {
-		return fmt.Errorf("%w: bundle name: %v", ErrRefSyntax, err)
-	}
-	r.RepoPath = repoPath
-	r.Bundle = bundle
-	return nil
-}
-
-// parseInternal fills the bundle for the three opaque classes. They carry no
-// authority because there IS no host, and their names are case-SENSITIVE, so
-// they take on no normalization duty beyond percent-encoding.
-func (r *BundleRef) parseInternal(u *url.URL) error {
-	if u.Host != "" || u.Path != "" {
-		return fmt.Errorf("%w: %s%s takes an opaque name, not a path", ErrRefSyntax, schemePrefix, r.Class)
-	}
-	opaque := u.Opaque
-	if at := strings.LastIndex(opaque, "@"); at >= 0 {
-		r.Version = opaque[at+1:]
-		opaque = opaque[:at]
-	}
-	name, err := url.PathUnescape(opaque)
-	if err != nil {
-		return fmt.Errorf("%w: name: %v", ErrRefSyntax, err)
-	}
-	if name == "" {
-		return fmt.Errorf("%w: empty %s name", ErrRefSyntax, r.Class)
-	}
-	r.Bundle = name
-	return nil
 }
 
 // parseSelector fills Kind and Item from the "#<kind>/<item>" fragment, which
@@ -384,106 +190,26 @@ func (r BundleRef) BundleIdentity() BundleKey {
 // rather than the bundle itself.
 func (r BundleRef) IsItem() bool { return r.Item != "" }
 
-func (r BundleRef) render(withVersion bool) string {
-	u := url.URL{Scheme: schemePrefix + string(r.Class)}
-	switch r.Class {
-	case ClassGit, ClassFile:
-		u.Host = r.Host
-		bundle := escapeAt(escapePath(r.Bundle))
-		if withVersion && r.Version != "" {
-			bundle += "@" + r.Version
-		}
-		esc := escapePath(r.RepoPath) + repoBundleSeparator + bundleMarker + bundle
-		// Setting RawPath alongside Path keeps url.URL's own consistency check
-		// satisfied (String uses RawPath only when it unescapes to Path), so
-		// the "//" separator and the "%40" survive rendering instead of being
-		// re-derived from the decoded path.
-		u.RawPath = esc
-		if p, err := url.PathUnescape(esc); err == nil {
-			u.Path = p
-		} else {
-			u.Path = esc
-		}
-	default:
-		opaque := escapeAt(escapePath(r.Bundle))
-		if withVersion && r.Version != "" {
-			opaque += "@" + r.Version
-		}
-		// url.URL emits Opaque VERBATIM — it applies no encoding of its own —
-		// so the escaping above is not belt-and-braces, it is the only
-		// escaping an internal-class name gets.
-		u.Opaque = opaque
+// parts projects the reference onto the shared URI syntax, rendering the item
+// selector back to the opaque fragment refuri carries. It is the single seam
+// between the identity this package owns and the syntax refuri owns, so the
+// two cannot disagree about what a reference looks like.
+func (r BundleRef) parts() refuri.Parts {
+	p := refuri.Parts{
+		Class:    r.Class,
+		Host:     r.Host,
+		RepoPath: r.RepoPath,
+		Bundle:   r.Bundle,
+		Version:  r.Version,
 	}
 	if r.Item != "" {
-		u.Fragment = r.Kind.Dir() + "/" + r.Item
+		p.Fragment = r.Kind.Dir() + "/" + r.Item
 	}
-	return u.String()
+	return p
 }
 
-// resolveDotSegmentsEachSide applies RFC 3986 §5.2.4 remove_dot_segments to
-// EACH SIDE of the "//" repository/bundle separator independently, and returns
-// the two halves so the caller rejoins them with the separator intact.
-//
-// It is NOT path.Clean, and it must never be replaced by path.Clean. R4 exists
-// because path.Clean collapses "//" into "/": handed
-// "/acme/repo//bundles/lang/go" it returns "/acme/repo/bundles/lang/go",
-// silently merging the repository path into the bundle path and producing a
-// DIFFERENT reference that still looks valid. Downstream that is the
-// rejected → ALLOW failure mode described on Identity, and it would arrive via
-// a one-line tidy-up refactor by someone who saw two path-cleaning
-// implementations and deleted the unfamiliar one. This paragraph and
-// TestBundleRef_R4_SeparatorSurvivesDotSegments are the defence; the test
-// fails if this function is swapped for path.Clean.
-//
-// Resolving the halves independently is also what stops a ".." in the bundle
-// path from climbing OUT of the bundle half and eating the repository path's
-// last segment, which a single whole-string resolution would allow.
-func resolveDotSegmentsEachSide(escPath string) (repo, bundle string, err error) {
-	before, after, found := strings.Cut(escPath, repoBundleSeparator)
-	if !found {
-		return "", "", fmt.Errorf("%w: missing %q separator between repository path and bundle path",
-			ErrRefSyntax, repoBundleSeparator)
-	}
-	return removeDotSegments(before), removeDotSegments(after), nil
-}
-
-// removeDotSegments implements RFC 3986 §5.2.4 over a single path, preserving
-// whether the path was absolute and whether it ended in a slash — except that
-// a trailing slash on a non-root path is DROPPED, per R1's "drop a trailing
-// slash". It never sees a "//" separator: resolveDotSegmentsEachSide splits
-// those off first.
-func removeDotSegments(p string) string {
-	absolute := strings.HasPrefix(p, "/")
-	out := make([]string, 0, 8)
-	for _, seg := range strings.Split(strings.TrimPrefix(p, "/"), "/") {
-		switch seg {
-		case "", ".":
-			// An empty segment here is safe to drop ONLY because this
-			// function never sees the "//" repo/bundle separator —
-			// resolveDotSegmentsEachSide splits that off first, so the one
-			// other source of an empty segment (a second "//" inside a
-			// single half) cannot reach this loop. That invariant rests on
-			// bundle paths being FILESYSTEM paths: on that domain "a/b" and
-			// "a//b" name the same place, so collapsing the empty segment is
-			// a no-op, not a merge. If a bundle path ever became a
-			// non-filesystem lookup key, "evil//bundles/x" and
-			// "evil/bundles/x" would stop being two spellings of one
-			// resource and become a genuine collision between two — the
-			// empty-segment collapse would be doing the merging instead of
-			// resolveDotSegmentsEachSide's separator split.
-		case "..":
-			if len(out) > 0 {
-				out = out[:len(out)-1]
-			}
-		default:
-			out = append(out, seg)
-		}
-	}
-	joined := strings.Join(out, "/")
-	if absolute {
-		return "/" + joined
-	}
-	return joined
+func (r BundleRef) render(withVersion bool) string {
+	return r.parts().Render(withVersion)
 }
 
 // CheckBundleRefFoldCollisions reports an error when two references drawn from
@@ -597,124 +323,4 @@ func mint(r BundleRef) (BundleRef, error) {
 	return ParseBundleRef(r.String())
 }
 
-func leadingSlash(p string) string {
-	if strings.HasPrefix(p, "/") {
-		return p
-	}
-	return "/" + p
-}
-
-func classForScheme(scheme string) (SourceClass, bool) {
-	name, ok := strings.CutPrefix(scheme, schemePrefix)
-	if !ok {
-		return "", false
-	}
-	switch c := SourceClass(name); c {
-	case ClassGit, ClassFile, ClassBuiltin, ClassLocal, ClassCompanion:
-		return c, true
-	default:
-		return "", false
-	}
-}
-
-// escapePath percent-encodes a decoded path using net/url's own path encoder,
-// which emits UPPERCASE hex (R1) and leaves "/" structural. Routing every
-// component through one encoder is deliberate: an internal-class name and an
-// external bundle path must escape identically, or the same name would key
-// differently depending on its class.
-func escapePath(p string) string {
-	u := url.URL{Path: p}
-	return u.EscapedPath()
-}
-
-// escapeAt encodes "@" so it cannot be mistaken for the version delimiter when
-// the rendered reference is parsed again. net/url leaves "@" alone in a path
-// (it is a legal pchar), so without this a bundle literally named "na@me"
-// would round-trip as bundle "na" at version "me".
-func escapeAt(s string) string {
-	return strings.ReplaceAll(s, "@", "%40")
-}
-
-// isRefControlRune matches the C0 range plus DEL, the characters a ctxloom
-// reference can never legally carry. It mirrors remote.isRefControlChar, which
-// is unexported there; the duplication is the same deliberate defence-in-depth
-// split that signing.CountersignHeader.Validate makes — a layer that shares an
-// implementation with the layer it backstops is one layer.
-func isRefControlRune(r rune) bool { return r < 0x20 || r == 0x7f }
-
-// indexEncodedSlash reports the byte offset of an encoded "/" ("%2F" in any
-// hex case), or -1.
-func indexEncodedSlash(s string) int {
-	for i := 0; i+2 < len(s); i++ {
-		if s[i] == '%' && s[i+1] == '2' && (s[i+2] == 'F' || s[i+2] == 'f') {
-			return i
-		}
-	}
-	return -1
-}
-
-// decodeUnreservedEscapes decodes percent-escapes that encode an UNRESERVED
-// character (RFC 3986 §2.3: ALPHA / DIGIT / "-" / "." / "_" / "~") and leaves
-// every other escape untouched, uppercasing its hex digits (§6.2.2.1). It is
-// safe to run on a whole URI before parsing precisely because no unreserved
-// character is a URI delimiter, so decoding one cannot change how the result
-// parses.
-func decodeUnreservedEscapes(s string) (string, error) {
-	if !strings.Contains(s, "%") {
-		return s, nil
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
-		if s[i] != '%' {
-			b.WriteByte(s[i])
-			continue
-		}
-		if i+2 >= len(s) {
-			return "", fmt.Errorf("truncated percent-escape at byte %d", i)
-		}
-		hi, lo := unhex(s[i+1]), unhex(s[i+2])
-		if hi < 0 || lo < 0 {
-			return "", fmt.Errorf("invalid percent-escape %q at byte %d", s[i:i+3], i)
-		}
-		c := byte(hi<<4 | lo)
-		if isUnreserved(c) {
-			b.WriteByte(c)
-		} else {
-			b.WriteByte('%')
-			b.WriteByte(upperHex(s[i+1]))
-			b.WriteByte(upperHex(s[i+2]))
-		}
-		i += 2
-	}
-	return b.String(), nil
-}
-
-func isUnreserved(c byte) bool {
-	switch {
-	case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
-		return true
-	case c == '-', c == '.', c == '_', c == '~':
-		return true
-	}
-	return false
-}
-
-func unhex(c byte) int {
-	switch {
-	case '0' <= c && c <= '9':
-		return int(c - '0')
-	case 'a' <= c && c <= 'f':
-		return int(c-'a') + 10
-	case 'A' <= c && c <= 'F':
-		return int(c-'A') + 10
-	}
-	return -1
-}
-
-func upperHex(c byte) byte {
-	if 'a' <= c && c <= 'f' {
-		return c - 'a' + 'A'
-	}
-	return c
-}
+func leadingSlash(p string) string { return refuri.LeadingSlash(p) }

@@ -259,22 +259,6 @@ func TestBundleRef_R1_PipeAndControlCharactersNeverPassThrough(t *testing.T) {
 	})
 }
 
-// TestIsRefControlRune_ExhaustiveC0AndDEL is a direct, white-box test of the
-// predicate itself — the trust-package mirror of
-// remote.TestStripRefControlChars_ExhaustiveC0AndDEL. Every one of the 33 code
-// points named by the comment (C0 0x00-0x1F, plus DEL 0x7F) must match, and
-// nothing else in the 0x00-0xFF byte range may. This is the exact parity claim
-// the audit exists to pin: the two predicates share one formula
-// (r < 0x20 || r == 0x7f) in two packages, and a divergence between them would
-// mean the two ref grammars disagree about what a "safe" reference can carry.
-func TestIsRefControlRune_ExhaustiveC0AndDEL(t *testing.T) {
-	for r := 0; r < 0x100; r++ {
-		r := rune(r)
-		want := r < 0x20 || r == 0x7f
-		assert.Equal(t, want, isRefControlRune(r), "isRefControlRune(%#U) mismatch", r)
-	}
-}
-
 // TestBundleRef_ControlCharacters_ExhaustiveRefusal is the end-to-end
 // counterpart: every control code point must make ParseBundleRef fail,
 // wherever in the raw ref string it appears.

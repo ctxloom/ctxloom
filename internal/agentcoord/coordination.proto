@@ -937,7 +937,7 @@ message ListRunsResult {
     string phase = 4;
     string latest_summary = 5;     // most recent Summary.text, truncated
     google.protobuf.Timestamp last_event_at = 6;
-    // Empty for a depth-1 (top-level) child; set for a depth-2+ grandchild
+    // Empty for a depth-1 (top-level) child; set for a depth-2+ grandchild to
     // the SPAWNING run's run_id, so a roster consumer can render the
     // delegation tree without re-deriving it from the event log.
     string parent_run_id = 7;

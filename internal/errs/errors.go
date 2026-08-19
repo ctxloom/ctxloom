@@ -68,6 +68,22 @@ var (
 	// next steps to materialize — and skip that remote rather than failing or
 	// silently omitting it. Detect via errors.Is.
 	ErrRemoteNotMaterialized = errors.New("remote not materialized locally")
+
+	// ErrBundleAmbiguous indicates a bare bundle name a caller asked for
+	// resolves to more than one bundle (two different source classes
+	// declaring the same name; U3b-3's resolution merge). A refusal, not a
+	// pick: silently choosing a winner would let one of the two bundles
+	// shadow the other with no way for the asker to reach it. Detect via
+	// errors.Is.
+	ErrBundleAmbiguous = errors.New("bundle name resolves to more than one bundle")
+
+	// ErrRetiredRefSpelling indicates an ask carries a scheme marker that
+	// once addressed a bundle but no longer does (e.g. the pre-U3b-3
+	// "builtin:<name>" spelling) — a spelling that fails CLOSED rather than
+	// being downgraded to a bare-name search, so an obsolete or malformed
+	// scheme-qualified ref can never be silently misread as a first-party
+	// local bundle name. Detect via errors.Is.
+	ErrRetiredRefSpelling = errors.New("retired bundle-reference spelling")
 )
 
 // Configuration errors indicate problems with configuration.

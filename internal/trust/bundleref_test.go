@@ -628,13 +628,13 @@ func TestBundleRef_R5_IdentityOmitsVersion(t *testing.T) {
 func TestBundleRef_BundleIdentityDropsTheItem(t *testing.T) {
 	item, err := ParseBundleRef("ctxloom+git://github.com/acme/repo//bundles/x#fragments/f")
 	require.NoError(t, err)
-	assert.Equal(t, "ctxloom+git://github.com/acme/repo//bundles/x", item.BundleIdentity())
+	assert.Equal(t, BundleKey("ctxloom+git://github.com/acme/repo//bundles/x"), item.BundleIdentity())
 	assert.True(t, item.IsItem())
 
 	bundle, err := ParseBundleRef("ctxloom+git://github.com/acme/repo//bundles/x")
 	require.NoError(t, err)
 	assert.False(t, bundle.IsItem())
-	assert.Equal(t, bundle.Identity(), item.BundleIdentity())
+	assert.Equal(t, bundle.Identity(), string(item.BundleIdentity()))
 }
 
 // --- version delimiter ------------------------------------------------------

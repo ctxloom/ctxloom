@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Loader composes Readers into one addressable view of everything this session
@@ -194,6 +195,22 @@ func (l *Loader) Reads() []BundleRead { return l.Catalog().Reads() }
 // remains for callers that genuinely only want the bundle.
 func (l *Loader) Read(name string) (BundleRead, bool) {
 	return l.lookup(name)
+}
+
+// ReadKey resolves a bundle by its EXACT resolution key (Catalog.LookupKey) —
+// the load-path counterpart to Read for a caller that already holds a
+// trust.BundleKey rather than an ask string. No search, no ambiguity.
+func (l *Loader) ReadKey(key trust.BundleKey) (BundleRead, bool) {
+	return l.Catalog().LookupKey(key)
+}
+
+// LoadKey reads a bundle by its EXACT resolution key. See ReadKey.
+func (l *Loader) LoadKey(key trust.BundleKey) (*Bundle, error) {
+	read, ok := l.Catalog().LookupKey(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, key)
+	}
+	return read.Bundle, nil
 }
 
 // Load reads a bundle by name.

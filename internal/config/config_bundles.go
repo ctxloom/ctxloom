@@ -755,7 +755,7 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 	if !bundle.Hooks.HasAny() {
 		return wire.UnifiedHooks{}
 	}
-	marker := "bundle:" + src.BundleIdentity()
+	marker := "bundle:" + string(src.BundleIdentity())
 	convert := func(event string, in []bundles.BundleHook) []wire.Hook {
 		if len(in) == 0 {
 			return nil
@@ -871,7 +871,7 @@ func extractMCPFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bun
 			Env:          mcp.Env,
 			Notes:        mcp.Notes,
 			Installation: mcp.Installation,
-			SCM:          "bundle:" + src.BundleIdentity(), // Mark as coming from a bundle
+			SCM:          "bundle:" + string(src.BundleIdentity()), // Mark as coming from a bundle
 		}
 	}
 

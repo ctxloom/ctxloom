@@ -2,8 +2,11 @@ package bundles
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -80,7 +83,7 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 			// byTrustRef's doc for why an unaddressable (zero) one is skipped
 			// rather than colliding every such read onto one key.
 			if src := winner.SourceRef(); src.Class != "" {
-				byTrustRef[src.BundleIdentity()] = winner
+				byTrustRef[string(src.BundleIdentity())] = winner
 			}
 		}
 	}
@@ -205,8 +208,98 @@ func (c Catalog) Lookup(name string) (BundleRead, bool) {
 // matching BundleIdentity's own "identity of the bundle that contains the
 // item" contract, not the item within it.
 func (c Catalog) LookupBundleRef(br trust.BundleRef) (BundleRead, bool) {
-	read, ok := c.byTrustRef[br.BundleIdentity()]
+	read, ok := c.byTrustRef[string(br.BundleIdentity())]
 	return read, ok
+}
+
+// LookupKey is LookupBundleRef keyed directly on the resolution key rather
+// than on a structured reference — the exact, total resolution: given the
+// version-less canonical identity a read's SourceRef stamps, it either finds
+// the one read that identity names or it does not. No search, no ambiguity.
+//
+// It is ADDITIVE (U3b-3 S4): the catalog still indexes byTrustRef the same
+// way it always has, this is only a new way in to the same map.
+func (c Catalog) LookupKey(key trust.BundleKey) (BundleRead, bool) {
+	read, ok := c.byTrustRef[string(key)]
+	return read, ok
+}
+
+// LookupRef is LookupKey for a caller holding a parsed trust.BundleRef rather
+// than an already-extracted key — the same body as LookupBundleRef, under the
+// name U3b-3's design settles on. Both names resolve identically for now;
+// LookupBundleRef is retired in a later slice once every caller has moved.
+func (c Catalog) LookupRef(br trust.BundleRef) (BundleRead, bool) {
+	return c.LookupKey(br.BundleIdentity())
+}
+
+// ResolveAsk resolves a user-typed bundle ASK to the canonical reference it
+// names, without loading content. It is Lookup's identity-only half: a caller
+// that needs the ref rather than the read (the trust mutations) uses this
+// instead of discarding a BundleRead it never wanted.
+//
+// The three arms:
+//
+//  1. ask parses as a canonical trust.BundleRef (trust.ParseBundleRef) —
+//     resolved EXACTLY against this catalog by LookupKey(br.BundleIdentity()).
+//     A canonical ref that names no bundle in THIS catalog is
+//     errs.ErrBundleNotFound: unlike operations.ResolveItemAsk, this
+//     resolver always consults the catalog, because a bundle-level ask
+//     ("bundle show", "bundle remove") is meaningless for a bundle the
+//     catalog cannot see.
+//  2. ask carries a retired scheme marker ("builtin:", "ctxloom:local@",
+//     "ctxloom:companion@", "://", "git@") — errs.ErrRetiredRefSpelling.
+//     Never downgraded to a name search: a malformed or obsolete
+//     scheme-qualified spelling must fail closed, not be silently re-read as
+//     a first-party local bundle name.
+//  3. otherwise: ask is compared against every read's DisplayName (Ref())
+//     first; if none match, against the bundle's DECLARED Name. Exactly one
+//     match resolves; zero is errs.ErrBundleNotFound; two or more is
+//     errs.ErrBundleAmbiguous, naming every candidate.
+//
+// ResolveAsk does not itself understand an item selector ("#<kind>/<item>");
+// it resolves the BUNDLE half of an ask. operations.ResolveItemAsk splits the
+// selector off before calling here.
+func (c Catalog) ResolveAsk(ask string) (trust.BundleRef, error) {
+	if br, err := trust.ParseBundleRef(ask); err == nil {
+		if _, ok := c.LookupKey(br.BundleIdentity()); !ok {
+			return trust.BundleRef{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
+		}
+		return br, nil
+	}
+	if trust.IsRetiredAskSpelling(ask) {
+		return trust.BundleRef{}, fmt.Errorf("%w: %q — see `ctxloom bundle trust --help`; re-run `ctxloom init` to migrate a project",
+			errs.ErrRetiredRefSpelling, ask)
+	}
+
+	var byDisplayName, byDeclaredName []BundleRead
+	for _, read := range c.reads {
+		if read.Ref() == ask {
+			byDisplayName = append(byDisplayName, read)
+		} else if read.Bundle != nil && read.Bundle.Name == ask {
+			byDeclaredName = append(byDeclaredName, read)
+		}
+	}
+	matches := byDisplayName
+	if len(matches) == 0 {
+		matches = byDeclaredName
+	}
+
+	switch len(matches) {
+	case 0:
+		return trust.BundleRef{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
+	case 1:
+		return matches[0].SourceRef(), nil
+	default:
+		var candidates strings.Builder
+		for i, m := range matches {
+			if i > 0 {
+				candidates.WriteString(", ")
+			}
+			candidates.WriteString(m.SourceRef().String())
+		}
+		return trust.BundleRef{}, fmt.Errorf("%w: %q names more than one bundle: %s",
+			errs.ErrBundleAmbiguous, ask, candidates.String())
+	}
 }
 
 // Scoped narrows to one or more provenance classes, returning a VIEW over the
@@ -231,7 +324,7 @@ func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 		out.reads = append(out.reads, read)
 		out.byRef[read.ref] = read
 		if src := read.SourceRef(); src.Class != "" {
-			out.byTrustRef[src.BundleIdentity()] = read
+			out.byTrustRef[string(src.BundleIdentity())] = read
 		}
 	}
 	return out

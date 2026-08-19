@@ -138,7 +138,10 @@ func ForgetItemDecision(cfg *config.Config, req ForgetItemDecisionRequest) (*For
 	if err != nil {
 		return nil, err
 	}
-	refStr := CountersignRef(tRef)
+	refStr, err := CountersignRef(tRef)
+	if err != nil {
+		return nil, fmt.Errorf("cannot forget %q: %w", req.Ref, err)
+	}
 
 	res := &ForgetItemDecisionResult{
 		Status:  ForgetStatusNothingRecorded,

@@ -37,7 +37,7 @@ func TestResolveItemAsk_ControlCharactersNeverReachTheCountersignPreimage(t *tes
 			if err != nil {
 				return // refused outright: nothing reaches the preimage at all
 			}
-			refStr := CountersignRef(trust.RefFromBundleRef(br))
+			refStr := mustCountersignRef(t, trust.RefFromBundleRef(br))
 			assert.NotContains(t, refStr, "\n",
 				"a ref that resolved must be addressable without carrying a preimage-forging newline")
 			h := signing.CountersignHeader{
@@ -71,6 +71,6 @@ func TestResolveItemAsk_CleanRefsResolve(t *testing.T) {
 		br, err := ResolveItemAsk(cat, ref)
 		require.NoError(t, err, ref)
 		assert.NotEmpty(t, br.Item, ref)
-		assert.NotEmpty(t, CountersignRef(trust.RefFromBundleRef(br)), ref)
+		assert.NotEmpty(t, mustCountersignRef(t, trust.RefFromBundleRef(br)), ref)
 	}
 }

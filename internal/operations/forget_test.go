@@ -183,7 +183,7 @@ func TestForgetItemDecision_NeedsNoSigningKey(t *testing.T) {
 	fx := newTrustFixture(t)
 	loader := reviewLoader(t, reviewBundle())
 	fs := afero.NewMemMapFs()
-	refStr := CountersignRef(forgetSolidRef())
+	refStr := mustCountersignRef(t, forgetSolidRef())
 
 	// The degraded unsigned path, recorded with no key at all.
 	require.NoError(t, fx.user.WriteUnsignedRefReject(refStr))
@@ -206,7 +206,7 @@ func TestForgetItemDecision_UnresolvableItem_StillClearsTheStickyBlock(t *testin
 	fx := newTrustFixture(t)
 	fs := afero.NewMemMapFs()
 	ghost := trust.Ref{RepoURL: trustRepo, Bundle: "toolkit", Kind: trust.KindFragment, Name: "ghost"}
-	require.NoError(t, fx.user.WriteRefReject(CountersignRef(ghost), fx.signer))
+	require.NoError(t, fx.user.WriteRefReject(mustCountersignRef(t, ghost), fx.signer))
 
 	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{
 		Ref: seedItemRef(t, reviewSeedKey, "fragments/ghost"), UserStore: fx.user, Root: fx.root,
@@ -243,7 +243,7 @@ func TestForgetItemDecision_SaysSoWhenTheOtherStoreStillDecides(t *testing.T) {
 	fx := newTrustFixture(t)
 	loader := reviewLoader(t, reviewBundle())
 	fs := afero.NewMemMapFs()
-	refStr := CountersignRef(forgetSolidRef())
+	refStr := mustCountersignRef(t, forgetSolidRef())
 
 	// The team's committable rejection, plus a personal one on top of it.
 	require.NoError(t, fx.project.WriteRefReject(refStr, fx.signer))
@@ -265,7 +265,7 @@ func TestForgetItemDecision_ProjectStore(t *testing.T) {
 	fx := newTrustFixture(t)
 	loader := reviewLoader(t, reviewBundle())
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fx.project.WriteRefReject(CountersignRef(forgetSolidRef()), fx.signer))
+	require.NoError(t, fx.project.WriteRefReject(mustCountersignRef(t, forgetSolidRef()), fx.signer))
 	require.Equal(t, trust.StateRejected, solidState(t, fx))
 
 	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{

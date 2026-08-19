@@ -56,10 +56,10 @@ func TestCountersignRecords_PersonalRejectBeatsProjectApprove(t *testing.T) {
 	payload := []byte("shared fragment body")
 
 	// The lead approved it, in the PROJECT store, over the raw form.
-	require.NoError(t, projectStore.WriteApprove(CountersignRef(ref), signing.AttestFragmentRaw, payload, leadSigner))
+	require.NoError(t, projectStore.WriteApprove(mustCountersignRef(t, ref), signing.AttestFragmentRaw, payload, leadSigner))
 	// The developer independently rejected the SAME item's ref, in their OWN
 	// personal USER store.
-	require.NoError(t, userStore.WriteRefReject(CountersignRef(ref), devSigner))
+	require.NoError(t, userStore.WriteRefReject(mustCountersignRef(t, ref), devSigner))
 
 	records := countersignRecords{user: userStore, project: projectStore, root: root}
 
@@ -102,8 +102,8 @@ func TestCountersignRecords_ProjectRejectBeatsPersonalApprove(t *testing.T) {
 	ref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "blocked-org-wide"}
 	payload := []byte("org-blocked body")
 
-	require.NoError(t, projectStore.WriteRefReject(CountersignRef(ref), leadSigner))
-	require.NoError(t, userStore.WriteApprove(CountersignRef(ref), signing.AttestFragmentRaw, payload, devSigner))
+	require.NoError(t, projectStore.WriteRefReject(mustCountersignRef(t, ref), leadSigner))
+	require.NoError(t, userStore.WriteApprove(mustCountersignRef(t, ref), signing.AttestFragmentRaw, payload, devSigner))
 
 	records := countersignRecords{user: userStore, project: projectStore, root: root}
 
@@ -132,7 +132,7 @@ func TestCountersignRecords_UntrustedKeyCountersigIsNotApproval(t *testing.T) {
 
 	ref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "x"}
 	payload := []byte("body")
-	require.NoError(t, userStore.WriteApprove(CountersignRef(ref), signing.AttestFragmentRaw, payload, signer))
+	require.NoError(t, userStore.WriteApprove(mustCountersignRef(t, ref), signing.AttestFragmentRaw, payload, signer))
 
 	records := countersignRecords{user: userStore, project: countersign.NewStore("/project-approvals", fs), root: root}
 

@@ -6,24 +6,20 @@ import "fmt"
 // trust key is built from, given the bundle-level ref its reader already
 // stamped.
 //
-// It returns the fallback string ALONGSIDE the error rather than instead of it.
-// The caller needs both: the string, because an item must key somewhere stable
-// even when it cannot be addressed, and the error, because an unaddressable
-// item is WITHHELD from delivery and a caller that cannot see the failure
-// reports content vanishing as success. Every caller is expected to report the
-// error; none may treat the returned string as a successful mint.
+// A source that cannot be addressed yields an ERROR and no string. There is no
+// placeholder identity: a reference is either the canonical address of an item
+// a grant can key on, or it does not exist. Minting a stand-in would push a
+// parse failure through the IDENTITY channel and leave a later stage to refuse
+// it, which splits one validation across two layers and keys the refusal on a
+// string no human can act on.
 //
-// The fallback carries kind and item, not src alone. WithItem fails BEFORE they
-// land on the BundleRef, so a %#v of src is identical for every item of one
-// unaddressable bundle — without them, a fragment and a command sharing a
-// source degrade to the SAME key, only one is ever tallied, and the other's
-// withholding looks like it never happened. It also cannot be confused with a
-// real Identity(), which never starts with the literal scheme prefix followed
-// by "unaddressable:".
+// The caller's obligation is therefore to SKIP the one item this names and
+// carry on: an item whose source cannot be addressed costs itself, never the
+// rest of the assembly.
 func ItemRef(src BundleRef, kind ItemKind, item string) (string, error) {
 	br, err := src.WithItem(kind, item)
 	if err != nil {
-		return fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", src, kind.Dir(), item), err
+		return "", fmt.Errorf("cannot address %s/%s: its bundle has no addressable source: %w", kind.Dir(), item, err)
 	}
 	return br.String(), nil
 }

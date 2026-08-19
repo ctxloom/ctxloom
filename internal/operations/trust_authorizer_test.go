@@ -214,7 +214,9 @@ func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T
 	restore := clidiag.SetSink(&warnings)
 	t.Cleanup(restore)
 
-	v := bundles.Decide(g, read, ref.DisplayRef(), []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
+	refStr, err := ref.DisplayRef()
+	require.NoError(t, err)
+	v := bundles.Decide(g, read, refStr, []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
 
 	assert.True(t, v.Allow, "a companion's unverifiable signature must NOT withhold its content")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)

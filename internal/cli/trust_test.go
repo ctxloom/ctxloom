@@ -64,8 +64,11 @@ func userApprovalsStore(t *testing.T) *countersign.Store {
 // item-ref. It is not a reimplementation: a copy of this rule drifts silently
 // the moment the ref grammar changes, and the tests then assert against a key
 // production never writes.
-func countersignRefFor(ref trust.Ref) string {
-	return operations.CountersignRef(ref)
+func countersignRefFor(t *testing.T, ref trust.Ref) string {
+	t.Helper()
+	refStr, err := operations.CountersignRef(ref)
+	require.NoError(t, err)
+	return refStr
 }
 
 // seedLocalFragment writes a local bundle with one fragment to the temp project
@@ -114,7 +117,7 @@ func TestRunItemTrust_AcceptsLocalFragment(t *testing.T) {
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "x", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(countersignRefFor(ref), signing.AttestFragmentRaw, []byte("always-trusted body")),
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(t, ref), signing.AttestFragmentRaw, []byte("always-trusted body")),
 		"approval must be recorded for the canonical ctxloom:local key, over the exact fragment bytes")
 }
 
@@ -141,7 +144,7 @@ func TestRunItemTrust_AcceptsLocalCommand(t *testing.T) {
 	// spelling.
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(countersignRefFor(ref), signing.AttestCommandRaw, []byte("always-trusted command body")))
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(t, ref), signing.AttestCommandRaw, []byte("always-trusted command body")))
 }
 
 // TestRunBlacklist_WritesBothComponents drives `ctxloom blacklist <ref>`: it
@@ -161,7 +164,7 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
 	store := userApprovalsStore(t)
 	// Ref-level (sticky) component.
-	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(ref)),
+	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(t, ref)),
 		"ref-level rejected state must be recorded")
 	// Content-reject companion.
 	assert.True(t, store.HasUnsignedContentReject(signing.AttestFragmentRaw, []byte("rm -rf danger")),
@@ -206,7 +209,7 @@ func TestRunBlacklist_RefRejectBindsOneAddress(t *testing.T) {
 			"http://github.com/acme/repo",
 		} {
 			ref := trust.Ref{RepoURL: repoURL, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
-			assert.True(t, store.HasUnsignedRefReject(countersignRefFor(ref)),
+			assert.True(t, store.HasUnsignedRefReject(countersignRefFor(t, ref)),
 				"%s is the same URI and must resolve to the same rejection key", repoURL)
 		}
 	})
@@ -218,7 +221,7 @@ func TestRunBlacklist_RefRejectBindsOneAddress(t *testing.T) {
 			"https://www.github.com/acme/repo",
 		} {
 			ref := trust.Ref{RepoURL: repoURL, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
-			assert.False(t, store.HasUnsignedRefReject(countersignRefFor(ref)),
+			assert.False(t, store.HasUnsignedRefReject(countersignRefFor(t, ref)),
 				"%s was folded onto the rejected address; two identities merged onto one trust key", repoURL)
 		}
 	})

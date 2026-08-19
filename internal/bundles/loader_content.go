@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -353,8 +354,12 @@ func ParseItemAsk(ask string) (ItemAsk, error) {
 // bundle-reference grammar (ItemRefFor), not hand-concatenated from
 // Bundle.contentSourceRef's string. That is the SAME keying the exec gate
 // uses.
-func fragmentRead(read BundleRead, fragName string, frag BundleFragment) *ItemRead {
+func fragmentRead(read BundleRead, fragName string, frag BundleFragment) (*ItemRead, error) {
 	bundle := read.Bundle
+	trustRef, err := ItemRefFor(read.SourceRef(), trust.KindFragment, fragName)
+	if err != nil {
+		return nil, fmt.Errorf("fragment %q in bundle %q: %w", fragName, bundle.Name, err)
+	}
 	return &ItemRead{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
 		Bundle:       bundle.Name,
@@ -364,10 +369,10 @@ func fragmentRead(read BundleRead, fragName string, frag BundleFragment) *ItemRe
 		Installation: frag.Installation,
 		DistilledBy:  frag.DistilledBy,
 		Forms:        frag.Forms(),
-		TrustRef:     ItemRefFor(read.SourceRef(), trust.KindFragment, fragName),
+		TrustRef:     trustRef,
 		Signer:       bundle.Signer(),
 		Read:         read,
-	}
+	}, nil
 }
 
 // fragmentFromBundle loads a specific bundle and reports the named fragment —
@@ -381,7 +386,11 @@ func (c Catalog) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, e
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundleName)
 	}
-	return []*ItemRead{fragmentRead(read, fragName, frag)}, nil
+	item, err := fragmentRead(read, fragName, frag)
+	if err != nil {
+		return nil, err
+	}
+	return []*ItemRead{item}, nil
 }
 
 // ResolveFragmentAsk resolves a user-supplied fragment ask to the canonical
@@ -438,7 +447,15 @@ func (c Catalog) searchFragment(name string) ([]*ItemRead, error) {
 	var out []*ItemRead
 	for _, read := range c.Reads() {
 		if frag, ok := read.Bundle.Fragments[name]; ok {
-			out = append(out, fragmentRead(read, name, frag))
+			item, err := fragmentRead(read, name, frag)
+			if err != nil {
+				// One unaddressable bundle costs its own copy of this
+				// fragment, never the search: a copy in another bundle is
+				// addressable and is what the caller asked for.
+				clidiag.Warn("ctxloom", "skipping an unaddressable copy of fragment %q: %v", name, err)
+				continue
+			}
+			out = append(out, item)
 		}
 	}
 	if len(out) == 0 {
@@ -469,8 +486,12 @@ func (c Catalog) ReadCommand(name string) ([]*ItemRead, error) {
 // TrustRef keeps the "prompts" kind segment (trust.KindPrompt, whose Dir() is
 // "prompts") even though the load selector is "#commands/", so the item-kind
 // rename does not invalidate existing trust grants.
-func commandRead(read BundleRead, promptName string, prompt BundleCommand) *ItemRead {
+func commandRead(read BundleRead, promptName string, prompt BundleCommand) (*ItemRead, error) {
 	bundle := read.Bundle
+	trustRef, err := ItemRefFor(read.SourceRef(), trust.KindPrompt, promptName)
+	if err != nil {
+		return nil, fmt.Errorf("command %q in bundle %q: %w", promptName, bundle.Name, err)
+	}
 	return &ItemRead{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
 		Bundle:       bundle.Name,
@@ -481,10 +502,10 @@ func commandRead(read BundleRead, promptName string, prompt BundleCommand) *Item
 		DistilledBy:  prompt.DistilledBy,
 		LLM:          prompt.LLM,
 		Forms:        prompt.Forms(),
-		TrustRef:     ItemRefFor(read.SourceRef(), trust.KindPrompt, promptName),
+		TrustRef:     trustRef,
 		Signer:       bundle.Signer(),
 		Read:         read,
-	}
+	}, nil
 }
 
 // ReadBundleCommands reports every command shipped by the bundle at bundleRef
@@ -540,7 +561,14 @@ func (c Catalog) ReadBundleCommands(bundleRef string) []*ItemRead {
 	sort.Strings(names)
 	out := make([]*ItemRead, 0, len(names))
 	for _, name := range names {
-		out = append(out, commandRead(read, name, bundle.Commands[name]))
+		item, err := commandRead(read, name, bundle.Commands[name])
+		if err != nil {
+			// One unaddressable command costs itself, never the bundle's
+			// other commands.
+			clidiag.Warn("ctxloom", "bundle %q: skipping an unaddressable command: %v", bundleRef, err)
+			continue
+		}
+		out = append(out, item)
 	}
 	return out
 }
@@ -556,7 +584,11 @@ func (c Catalog) commandFromBundle(bundleName, promptName string) ([]*ItemRead, 
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundleName)
 	}
-	return []*ItemRead{commandRead(read, promptName, prompt)}, nil
+	item, err := commandRead(read, promptName, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return []*ItemRead{item}, nil
 }
 
 // searchCommand scans every bundle for a command with the given name and
@@ -566,7 +598,14 @@ func (c Catalog) searchCommand(name string) ([]*ItemRead, error) {
 	var out []*ItemRead
 	for _, read := range c.Reads() {
 		if prompt, ok := read.Bundle.Commands[name]; ok {
-			out = append(out, commandRead(read, name, prompt))
+			item, err := commandRead(read, name, prompt)
+			if err != nil {
+				// See searchFragment: one unaddressable bundle costs its own
+				// copy of this command, never the search.
+				clidiag.Warn("ctxloom", "skipping an unaddressable copy of command %q: %v", name, err)
+				continue
+			}
+			out = append(out, item)
 		}
 	}
 	if len(out) == 0 {

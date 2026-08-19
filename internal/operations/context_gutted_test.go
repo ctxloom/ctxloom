@@ -67,8 +67,10 @@ func TestGuttedProfiles(t *testing.T) {
 func TestWarnGuttedProfiles_NamesProfileAndWithheldItems(t *testing.T) {
 	gate := &contentGate{}
 	gate.record(
-		bundles.Exposure{Ref: trust.Ref{RepoURL: "https://github.com/acme/repo", Bundle: "ensemble",
-			Kind: trust.KindFragment, Name: "role"}},
+		bundles.Exposure{
+			Ref:    trust.Ref{RepoURL: "https://github.com/acme/repo", Bundle: "ensemble", Kind: trust.KindFragment, Name: "role"},
+			RefStr: "ctxloom+git://github.com/acme/repo//bundles/ensemble#fragments/role",
+		},
 		bundles.Verdict{Reason: bundles.ReasonPending})
 
 	var out bytes.Buffer

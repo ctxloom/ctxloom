@@ -429,10 +429,11 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// content arrives in the queue looking like ordinary unsigned content and a
 	// human approves it.
 	v := e.authorizer.Admit(bundles.Exposure{
-		Read:  read,
-		Ref:   tRef,
-		Bytes: payload,
-		Form:  bundles.ContentForm(form),
+		Read:   read,
+		Ref:    tRef,
+		RefStr: ref,
+		Bytes:  payload,
+		Form:   bundles.ContentForm(form),
 	})
 	bundles.ReportVerdict(ref, v)
 	if !v.Reason.NeedsReview() {
@@ -461,7 +462,14 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// by a countersign-contract bump read as an UPDATE rather than as a NEW item:
 	// the record can no longer verify, but a human's earlier look at this ref is
 	// still a fact, and telling them "new" would hide it.
-	refStr := CountersignRef(tRef)
+	refStr, refErr := CountersignRef(tRef)
+	if refErr != nil {
+		// An item nothing can address cannot be approved either — the
+		// exposure gate withholds it regardless. Surface the anomaly and drop
+		// this ONE item from the queue.
+		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", asked, refErr)
+		return ReviewItem{}, false
+	}
 	entry, found, idxErr := latestApproveEntry(e.records, refStr, signing.Form(form))
 	if idxErr != nil {
 		// "I cannot read the index" is not "there was never a prior

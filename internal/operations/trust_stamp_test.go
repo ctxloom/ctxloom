@@ -170,9 +170,17 @@ func TestTrustStamper_ForLocalMCP(t *testing.T) {
 
 	denied := bundles.BundleMCP{Command: "curl-pipe-sh"}
 	// Content-reject is deliberately ref-omitted (spec §5.3): this denies
-	// "denied"'s bytes under ANY name, never binding to a particular ref.
+	// "denied"'s bytes under ANY name, never binding to a particular ref. It
+	// is the ONLY rejection that reaches a configured local MCP server, which
+	// is what the assertion just below pins.
 	fx.rejectContent(trust.KindMCP, signing.FormRaw, mcpPayloadOf(denied))
-	fx.rejectRef(trust.Ref{Kind: trust.KindMCP, Name: "blocked", IsLocal: true})
+
+	// A configured MCP server lives in the project's config, not in a bundle,
+	// so its trust.Ref carries no bundle and has NO ref-level address to
+	// record a decision against. The store refuses to invent one.
+	_, refErr := CountersignRef(trust.Ref{Kind: trust.KindMCP, Name: "blocked", IsLocal: true})
+	require.Error(t, refErr,
+		"a bundle-less local item must have no ref-level countersign address")
 
 	stamper := NewTrustStamper(nil, WithStampRecords(fx.records()))
 
@@ -184,7 +192,6 @@ func TestTrustStamper_ForLocalMCP(t *testing.T) {
 		wantSource  trust.Source
 	}{
 		{"local config MCP first-party", "plain", bundles.BundleMCP{Command: "node"}, true, trust.SourceLocal},
-		{"rejected ref state denied", "blocked", bundles.BundleMCP{Command: "node"}, false, trust.SourceRejected},
 		{"denylisted content denied anywhere", "renamed", denied, false, trust.SourceRejected},
 	}
 	for _, tt := range tests {

@@ -67,7 +67,7 @@ import (
 // PROJECT-AUTHORED bundle by DELEGATING to the one implementation. Composing
 // the key here instead would drift the moment the ref grammar moves, and the
 // scenario would then assert against an address production never writes.
-func tcLocalRef(bundle, fragment string) string {
+func tcLocalRef(bundle, fragment string) (string, error) {
 	return operations.CountersignRef(trust.Ref{
 		Bundle: bundle, Kind: trust.KindFragment, Name: fragment, IsLocal: true,
 	})
@@ -184,7 +184,10 @@ func registerContentDecisionSteps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			refStr := tcLocalRef(bundle, fragment)
+			refStr, err := tcLocalRef(bundle, fragment)
+			if err != nil {
+				return err
+			}
 			store := tcApprovalsStore(w)
 			if !store.HasUnsignedApprove(refStr, signing.AttestFragmentRaw, payload) {
 				return fmt.Errorf("the approvals store holds NO acceptance of %s in form %q over its %d current bytes.\n"+
@@ -208,7 +211,10 @@ func registerContentDecisionSteps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			refStr := tcLocalRef(bundle, fragment)
+			refStr, err := tcLocalRef(bundle, fragment)
+			if err != nil {
+				return err
+			}
 			store := tcApprovalsStore(w)
 			// BOTH halves, because they fail independently and mean different
 			// things: the ref block is what stops THIS item at THIS name, and
@@ -292,7 +298,10 @@ func registerContentDecisionSteps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			refStr := tcLocalRef(bundle, fragment)
+			refStr, err := tcLocalRef(bundle, fragment)
+			if err != nil {
+				return err
+			}
 			store := tcApprovalsStore(w)
 			for _, check := range []struct {
 				what    string

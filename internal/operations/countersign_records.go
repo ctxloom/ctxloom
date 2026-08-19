@@ -75,10 +75,17 @@ func (c countersignRecords) readable() error {
 // is a search over a small closed vocabulary, not a security weakening — each
 // candidate still must cryptographically verify.
 func (c countersignRecords) Rejected(ref trust.Ref, payload []byte) bool {
-	refStr := CountersignRef(ref)
 	now := time.Now()
 
+	// A ref with no ref-level address has no ref-level record to find, but the
+	// CONTENT component below is ref-omitted by design and still applies — so
+	// only the ref-level lookups are skipped, never the whole check. Answering
+	// "rejected" here instead would assert a human decision nobody made.
+	refStr, addressable := refLevelAddress(ref)
 	for _, st := range c.bothStores() {
+		if !addressable {
+			break
+		}
 		if _, ok := st.VerifiedRefReject(refStr, c.root, now); ok {
 			return true
 		}
@@ -89,7 +96,7 @@ func (c countersignRecords) Rejected(ref trust.Ref, payload []byte) bool {
 	// which is why it is never honored from the PROJECT store: that store is
 	// committable and shared, and an unsigned record there would be a
 	// forgery primitive with a friendly name.
-	if c.user.HasUnsignedRefReject(refStr) {
+	if addressable && c.user.HasUnsignedRefReject(refStr) {
 		return true
 	}
 	if len(payload) == 0 {
@@ -130,7 +137,12 @@ func (c countersignRecords) Approved(ref trust.Ref, payload []byte, form string)
 		clidiag.Warn("ctxloom", "trust: %q cannot be approved (%v) — treating it as unapproved", ref.Key(), err)
 		return false
 	}
-	refStr := CountersignRef(ref)
+	// An item with no ref-level address has no approval recorded against it,
+	// so the answer is "not approved" — fail closed.
+	refStr, addressable := refLevelAddress(ref)
+	if !addressable {
+		return false
+	}
 	now := time.Now()
 
 	for _, st := range c.bothStores() {
@@ -239,22 +251,45 @@ func attestationFormsFor(kind trust.ItemKind) []signing.AttestationForm {
 //
 // ref.AsBundleRef can fail: it is a BRIDGE from the wider trust.Ref shape
 // (which the decision function still keys on) onto BundleRef's narrower,
-// stricter grammar, and a Ref carrying a repository spelling the new
-// grammar refuses (see AsBundleRef's doc) or the zero Ref (produced only
-// alongside an error every caller already checks — see
-// TestZeroRef_AddressesButIsInertAndUnreachable) cannot convert. Falling
-// back to Go's own %#v of the Ref keeps the address well-formed, DETERMINISTIC
-// and — critically — impossible to confuse with a real BundleRef.Identity()
-// (which never starts with "ctxloom+", the literal scheme prefix, followed by
-// "unaddressable:"): the pending review path is fail-closed either way, so an
-// unaddressable Ref must key somewhere stable, never silently collide with
-// another unaddressable Ref's address by both flattening to "".
-func CountersignRef(ref trust.Ref) string {
+// stricter grammar, and a Ref carrying a repository spelling the new grammar
+// refuses (see AsBundleRef's doc) or the zero Ref cannot convert. That failure
+// is returned as an ERROR and no address, because a store address is the one
+// place a stand-in cannot be tolerated: a countersignature written under an
+// invented key claims to cover an item nothing can name, and a lookup under
+// the same key would report an approval a human never gave. A caller that
+// cannot address an item must say which item and stop handling it, not record
+// against a placeholder.
+func CountersignRef(ref trust.Ref) (string, error) {
 	br, err := ref.AsBundleRef()
 	if err != nil {
-		return fmt.Sprintf("ctxloom+unaddressable:%#v", ref)
+		return "", fmt.Errorf("cannot address %s#%s/%s: %w", ref.Bundle, ref.Kind.Dir(), ref.Name, err)
 	}
-	return br.Identity()
+	return br.Identity(), nil
+}
+
+// refLevelAddress reports ref's countersign-store address, and whether ref HAS
+// one at all.
+//
+// A ref carrying NO BUNDLE names an item that lives in the project's own
+// configuration rather than in any bundle — a `config.yaml` MCP server is the
+// shape (see TrustStamper.ForLocalMCP). There is no bundle to address it
+// under, so it has no ref-level address, and only a CONTENT-scoped decision —
+// which is ref-omitted by design (spec §5.3) — can cover it. That is a known
+// shape, not a fault, so it is reported by the boolean rather than by a
+// diagnostic.
+//
+// Any OTHER conversion failure IS a fault, and is named: a ref that carries a
+// bundle and still will not convert is a spelling the grammar refuses, which a
+// human can act on.
+func refLevelAddress(ref trust.Ref) (string, bool) {
+	refStr, err := CountersignRef(ref)
+	if err != nil {
+		if ref.Bundle != "" {
+			clidiag.Warn("ctxloom", "trust: %v — no ref-level decision can cover it", err)
+		}
+		return "", false
+	}
+	return refStr, true
 }
 
 // buildCountersignRecords builds the countersignRecords for cfg: the user and

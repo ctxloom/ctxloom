@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -240,16 +239,21 @@ func TestExposureWithheld_Characterization_BuiltinSignerNeverLaunders(t *testing
 	assert.Contains(t, p.withheld(), canonicalWithheldRef(t, charGateApprovedRef))
 }
 
-// TestExposureWithheld_Characterization_ResolveErrorWithholds is the first of
+// TestExposureWithheld_Characterization_UnmintableSourceRefuses is the first of
 // the two FAIL-CLOSED arms. A bundle seeded under a source ref that cannot be
 // addressed as a trust ref (here: a canonical URL missing its "@bundles/<path>"
-// suffix) reaches a gate that can make no decision about it. "Could not
-// evaluate" must render as WITHHELD.
+// suffix) has no identity any decision could key on. It must be REFUSED at the
+// point the reference cannot be minted — with an error that names the item —
+// and its content must never reach a caller.
+//
+// The refusal happens ABOVE the gate, which is why the gate's withheld tally is
+// empty here: there was never an address to decide about, so nothing was
+// decided. The error is the report.
 //
 // This is the arm a refactor turns into an allow path without noticing: the
-// resolve error never fires on any happy path, so nothing else fails when it
-// starts returning true.
-func TestExposureWithheld_Characterization_ResolveErrorWithholds(t *testing.T) {
+// mint failure never fires on any happy path, so nothing else fails when it
+// starts returning a usable ref.
+func TestExposureWithheld_Characterization_UnmintableSourceRefuses(t *testing.T) {
 	// Missing "@bundles/<path>": unmistakably an ATTEMPTED canonical ref, so it
 	// must not be downgraded to a first-party local bundle name either.
 	const unaddressable = "https://github.com/acme/repo"
@@ -263,8 +267,11 @@ func TestExposureWithheld_Characterization_ResolveErrorWithholds(t *testing.T) {
 	p := newExposureProbe(t, nil, newTrustFixture(t).records(), seed)
 
 	_, err := p.fragment(unaddressable + "#fragments/frag")
-	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld),
-		"an unaddressable ref must be WITHHELD, never exposed by default, got %v", err)
+	require.Error(t, err, "an item whose source cannot be minted must never be exposed")
+	assert.Contains(t, err.Error(), "frag",
+		"the refusal must name the ITEM it refused, or nobody can act on it")
+	assert.NotContains(t, err.Error(), "ctxloom+unaddressable",
+		"a refusal must not spell a stand-in identity")
 
 	res := p.assemble(t, unaddressable+"#fragments/frag")
 	assert.NotContains(t, res.Context, "unaddressable body",
@@ -272,19 +279,46 @@ func TestExposureWithheld_Characterization_ResolveErrorWithholds(t *testing.T) {
 
 	assert.Empty(t, p.tooling(), "an unaddressable tooling command must not be collected")
 
-	// The producer cannot mint a canonical ref for a source it could not
-	// parse (read.SourceRef() is the zero BundleRef here), so it degrades to
-	// a stable, well-formed, non-colliding address — see bundles.ItemRefFor's
-	// unaddressable fallback. kind/item are appended to that degraded
-	// address, or the fragment and the command would collide onto ONE
-	// withheld key and only one of the two would ever be tallied.
-	assert.ElementsMatch(t,
-		[]string{
-			fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", trust.BundleRef{}, trust.KindFragment.Dir(), "frag"),
-			fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", trust.BundleRef{}, trust.KindPrompt.Dir(), "tooling"),
+	assert.Empty(t, p.withheld(),
+		"the gate decides nothing here: the reference was refused before any decision could key on it")
+}
+
+// TestExposureWithheld_UnmintableSourceCostsOnlyItsOwnItems is the regression
+// guard on the property the refusal must not break: partial degradation. One
+// bundle whose source cannot be addressed costs ITS OWN items and nothing else
+// — every addressable bundle in the same assembly still delivers.
+//
+// Both halves are asserted in ONE assembly, because the failure this catches is
+// exactly a refusal that escalates from "drop this item" to "abort the run".
+func TestExposureWithheld_UnmintableSourceCostsOnlyItsOwnItems(t *testing.T) {
+	const unaddressable = "https://github.com/acme/repo"
+	const goodBody = "addressable neighbour body"
+	seed := map[string]*bundles.Bundle{
+		unaddressable: {
+			Name:      unaddressable,
+			Fragments: map[string]bundles.BundleFragment{"frag": {Content: "unaddressable body"}},
 		},
-		p.withheld(),
-		"every unaddressable ref is tallied — a withhold nothing recorded is a withhold nothing can report")
+		"neighbour": {
+			Name:      "neighbour",
+			Fragments: map[string]bundles.BundleFragment{"keeper": {Content: goodBody}},
+		},
+	}
+	p := newExposureProbe(t, nil, newTrustFixture(t).records(), seed)
+
+	// VACUITY GUARD: the neighbour must be deliverable on its own, or the
+	// mixed assembly below would prove nothing about degradation.
+	solo, err := p.fragment("neighbour#fragments/keeper")
+	require.NoError(t, err, "the fixture's addressable bundle must deliver on its own")
+	require.Equal(t, goodBody, solo)
+
+	res := p.assemble(t,
+		unaddressable+"#fragments/frag",
+		"neighbour#fragments/keeper")
+
+	assert.Contains(t, res.Context, goodBody,
+		"one unaddressable bundle must cost its OWN fragments, never the rest of the assembly")
+	assert.NotContains(t, res.Context, "unaddressable body",
+		"and the unaddressable one must still be absent")
 }
 
 // TestExposureWithheld_Characterization_StoreErrorWithholdsEverything is the

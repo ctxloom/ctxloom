@@ -60,7 +60,8 @@ func TestBuiltinRead_ResolutionRefBare_TrustRefStillQualified(t *testing.T) {
 	// The load-bearing half: what the qualification is FOR. An item ref built
 	// from the trust ref must carry the builtin class in its canonical
 	// rendering — not local, which is where an unqualified source lands.
-	itemRefStr := ItemRefFor(read.SourceRef(), trust.KindFragment, "isolation-axes")
+	itemRefStr, err := ItemRefFor(read.SourceRef(), trust.KindFragment, "isolation-axes")
+	require.NoError(t, err)
 	itemRef, err := trust.ParseBundleRef(itemRefStr)
 	require.NoError(t, err)
 	assert.Equal(t, trust.ClassBuiltin, itemRef.Class,

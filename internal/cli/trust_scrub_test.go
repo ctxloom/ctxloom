@@ -137,7 +137,7 @@ func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
 	require.NoError(t, perr)
 	ref := trust.Ref{Bundle: "tools", Kind: trust.KindMCP, Name: "alpha", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(ref)),
+	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(t, ref)),
 		"the rejection must persist even when the post-mutation refresh fails")
 	assert.True(t, store.HasUnsignedContentReject(signing.AttestExecMCP, alphaPayload))
 }

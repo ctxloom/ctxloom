@@ -348,10 +348,10 @@ func TestReviewApplier_WritesStoreStates(t *testing.T) {
 
 	store := userApprovalsStore(t)
 	keepRef := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "keep", IsLocal: true}
-	assert.True(t, store.HasUnsignedApprove(countersignRefFor(keepRef), signing.AttestFragmentRaw, []byte("acceptable body")))
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(t, keepRef), signing.AttestFragmentRaw, []byte("acceptable body")))
 
 	dropRef := trust.Ref{Bundle: "demo2", Kind: trust.KindFragment, Name: "drop", IsLocal: true}
-	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(dropRef)))
+	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(t, dropRef)))
 	assert.True(t, store.HasUnsignedContentReject(signing.AttestFragmentRaw, []byte("rm -rf danger")))
 }
 

@@ -17,21 +17,23 @@ import (
 )
 
 // itemRefFor mints the canonical "<source>#<kind>/<item>" reference this
-// file's executable-surface producers key their gate on, and REPORTS a source
-// it cannot address. It takes the source as a STRING (unlike
-// bundles.ItemRefFor, which callers holding a BundleRead can call directly)
-// because a directory profile's gate identity (profileGateRef.Base, from
-// profiles.ResolvedProfile.SourceRef) has no typed sibling: a profile whose
-// origin bundle failed to resolve must still mint an addressable ref for the
-// withheld-item diagnostic even though its BundleRead is unclaimed — see
+// file's executable-surface producers key their gate on, and REFUSES a source
+// it cannot address, NAMING that source. It takes the source as a STRING
+// (unlike bundles.ItemRefFor, which callers holding a BundleRead can call
+// directly) because a directory profile's gate identity (profileGateRef.Base,
+// from profiles.ResolvedProfile.SourceRef) has no typed sibling — see
 // gateProfileMCP/gateProfileHooks's tests, which build a profileGateRef with a
 // Base and no Read at all. parseSourceRef resolves that string into the
 // bundles.ItemRefFor.
-func itemRefFor(source string, kind trust.ItemKind, item string) string {
+//
+// The refusal is the boundary: an item whose source will not parse has no
+// identity, and inventing one for it would smuggle a parse failure downstream
+// through the identity channel for a later stage to refuse. Callers withhold
+// that ONE item and keep going.
+func itemRefFor(source string, kind trust.ItemKind, item string) (string, error) {
 	src, err := parseSourceRef(source)
 	if err != nil {
-		clidiag.Warn("ctxloom", "cannot address source %q: %v — items under it will be withheld", source, err)
-		return fmt.Sprintf("ctxloom+unaddressable:%#v#%s/%s", source, kind.Dir(), item)
+		return "", fmt.Errorf("cannot address source %q: %w", source, err)
 	}
 	return bundles.ItemRefFor(src, kind, item)
 }
@@ -468,7 +470,11 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authori
 	if len(mcp.Servers) > 0 {
 		out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
 		for name, srv := range mcp.Servers {
-			itemRef := itemRefFor(ref.Base, trust.KindMCP, name)
+			itemRef, err := itemRefFor(ref.Base, trust.KindMCP, name)
+			if err != nil {
+				clidiag.Warn("ctxloom", "profile MCP server %q withheld: %v", name, err)
+				continue
+			}
 			if gateProfileExec(gate, ref, itemRef, mcpExecPayload(srv)) {
 				out.Servers[name] = srv
 			} else {
@@ -487,7 +493,11 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authori
 		for backend, servers := range mcp.Plugins {
 			gated := make(map[string]wire.MCPServer)
 			for name, srv := range servers {
-				itemRef := itemRefFor(ref.Base, trust.KindMCP, backend+"/"+name)
+				itemRef, err := itemRefFor(ref.Base, trust.KindMCP, backend+"/"+name)
+				if err != nil {
+					clidiag.Warn("ctxloom", "profile MCP server %q (backend %s) withheld: %v", name, backend, err)
+					continue
+				}
 				if gateProfileExec(gate, ref, itemRef, mcpExecPayload(srv)) {
 					gated[name] = srv
 				} else {
@@ -515,7 +525,11 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 	keep := func(event string, hooks []wire.Hook) []wire.Hook {
 		var out []wire.Hook
 		for i, hook := range hooks {
-			hookRef := itemRefFor(ref.Base, trust.KindHook, event+"/"+strconv.Itoa(i))
+			hookRef, err := itemRefFor(ref.Base, trust.KindHook, event+"/"+strconv.Itoa(i))
+			if err != nil {
+				clidiag.Warn("ctxloom", "profile hook %q withheld: %v", hook.Command, err)
+				continue
+			}
 			if gateProfileExec(gate, ref, hookRef, hookExecPayload(hook)) {
 				out = append(out, hook)
 			} else {

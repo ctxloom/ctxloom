@@ -202,7 +202,11 @@ func (l *Loader) ReadFragmentAtVersion(ref, commit string) ([]*ItemRead, error) 
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, ask.Item, read.Bundle.Name)
 	}
-	return []*ItemRead{fragmentRead(read, ask.Item, frag)}, nil
+	item, err := fragmentRead(read, ask.Item, frag)
+	if err != nil {
+		return nil, err
+	}
+	return []*ItemRead{item}, nil
 }
 
 // ReadCommandAtVersion is the command counterpart to ReadFragmentAtVersion: a
@@ -227,7 +231,11 @@ func (l *Loader) ReadCommandAtVersion(ref, commit string) ([]*ItemRead, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, ask.Item, read.Bundle.Name)
 	}
-	return []*ItemRead{commandRead(read, ask.Item, prompt)}, nil
+	item, err := commandRead(read, ask.Item, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return []*ItemRead{item}, nil
 }
 
 // ReadFragmentVersions reports the fragment named by ref at each requested

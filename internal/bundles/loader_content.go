@@ -284,59 +284,65 @@ func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
 // It carries NO form preference. What comes back holds every form the store has
 // for the item (ItemRead.Forms); the process stage picks.
 func (l *Loader) ReadFragment(name string) ([]*ItemRead, error) {
-	bundleName, fragName, isRef, err := splitItemRef(name, "fragments")
+	ask, err := ParseItemAsk(name)
 	if err != nil {
 		return nil, err
 	}
-	if isRef {
-		return l.fragmentFromBundle(bundleName, fragName)
+	if !ask.Scoped {
+		return l.searchFragment(name)
 	}
-	return l.searchFragment(name)
+	if ask.Kind != trust.KindFragment {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, trust.KindFragment)
+	}
+	return l.fragmentFromBundle(ask.Bundle, ask.Item)
 }
 
-// selectorOf parses ref's "#<kind>/<name>" selector, if it has one, through
+// ItemAsk is a parsed content ask: the bundle half, plus the selector when one
+// was written. Kind comes from trust.ParseSelector and nowhere else, so
+// "#prompts/" and "#commands/" resolve identically through EVERY reader —
+// the single parser every Read* path below routes through, replacing the two
+// that used to disagree (bundles.splitItemRef matched only the literal
+// "commands"; bundles.selectorOf already used ParseSelector). See task
+// stubborn-wow: before this, "bundle#prompts/name" resolved through anything
+// built on ParseSelector but failed through ReadCommand with "invalid command
+// reference" — the same alias, two different verdicts.
+type ItemAsk struct {
+	Bundle string         // verbatim: a canonical URI or a bare name (only meaningful when Scoped)
+	Kind   trust.ItemKind // zero when Scoped is false
+	Item   string
+	Scoped bool
+}
+
+// ParseItemAsk parses ask's "#<kind>/<name>" selector, if it has one, through
 // trust.ParseSelector's own kind vocabulary (fragments | commands | prompts |
-// mcp | hooks | skills) — the SAME parser trust.ParseItemRef uses, so
-// ReadBundleCommands/ReadBundleSkills judge a selector by the kind it names
-// rather than by the mere presence of "#".
+// mcp | hooks | skills) — the SAME parser trust.ParseItemRef uses, so every
+// reader judges a selector by the kind it names rather than by the mere
+// presence of "#" or by matching one literal spelling.
 //
-// That distinction matters: the mere-presence test used to treat EVERY
-// item-scoped ref alike, so "bundle#commands/deploy" and "bundle#skills/
-// reviewer" — selectors that explicitly ask for a command or a skill —
-// silently resolved to zero results with zero signal, the same as a fragment
-// cherry-pick that legitimately ships neither. This project's characteristic
-// defect is content withheld with exit 0 and no diagnostic; a selector that
-// NAMES the kind it wants must not go silent just because some OTHER kind's
-// cherry-pick legitimately does.
+// Scoped is false for an ordinary whole-bundle/bare-name ask (no "#"); the
+// caller searches or looks up by the ORIGINAL ask string in that case, not by
+// Bundle (which is empty). A malformed or unrecognized selector (ParseSelector
+// errored — an unknown kind word, or a selector with no "/") is a genuine
+// parse error and is returned as one; it is NOT downgraded to Scoped=false,
+// because a caller that swallows it and falls through to a name search would
+// search using a string that contains a literal "#", which can never match a
+// bundle or item name — that is a worse silence than reporting the malformed
+// selector plainly.
 //
-// ok is false for an ordinary whole-bundle ref (no "#") and for a
-// malformed/unrecognized selector (ParseSelector errored) — both fall through
-// to the caller's normal lookup-by-name path, which reports plainly.
-func selectorOf(ref string) (bundleName string, kind trust.ItemKind, itemName string, ok bool) {
-	base, sel, found := strings.Cut(ref, "#")
+// ParseItemAsk does NOT itself decide whether a well-formed selector's kind
+// is the one the caller serves — that a fragment reader was asked for
+// "#commands/x" is not a parse error, it is a caller-level kind mismatch (see
+// each Read* caller below).
+func ParseItemAsk(ask string) (ItemAsk, error) {
+	base, sel, found := strings.Cut(ask, "#")
 	if !found {
-		return "", "", "", false
+		return ItemAsk{}, nil
 	}
-	kind, itemName, err := trust.ParseSelector(sel)
+	kind, item, err := trust.ParseSelector(sel)
 	if err != nil {
-		return "", "", "", false
+		return ItemAsk{}, fmt.Errorf("invalid item reference %q: %w", ask, err)
 	}
-	return base, kind, itemName, true
-}
-
-// splitItemRef parses a "bundle#kind/name" reference. isRef reports whether a
-// "#" was present at all; when it was, kind must equal want or an error is
-// returned. For a plain name (no "#"), isRef is false and the caller searches.
-func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, err error) {
-	bundleName, rest, found := strings.Cut(name, "#")
-	if !found {
-		return "", "", false, nil
-	}
-	parts := strings.SplitN(rest, "/", 2)
-	if len(parts) != 2 || parts[0] != want {
-		return "", "", true, fmt.Errorf("invalid %s reference: %s", strings.TrimSuffix(want, "s"), name)
-	}
-	return bundleName, parts[1], true, nil
+	return ItemAsk{Bundle: base, Kind: kind, Item: item, Scoped: true}, nil
 }
 
 // fragmentRead builds the ItemRead for a fragment: every form the store holds
@@ -427,14 +433,17 @@ func (l *Loader) searchFragment(name string) ([]*ItemRead, error) {
 // holds under name, nothing dropped on policy grounds. Name can be
 // "command-name" (searches all bundles) or "bundle#commands/name".
 func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
-	bundleName, promptName, isRef, err := splitItemRef(name, "commands")
+	ask, err := ParseItemAsk(name)
 	if err != nil {
 		return nil, err
 	}
-	if isRef {
-		return l.commandFromBundle(bundleName, promptName)
+	if !ask.Scoped {
+		return l.searchCommand(name)
 	}
-	return l.searchCommand(name)
+	if ask.Kind != trust.KindPrompt {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, trust.KindPrompt)
+	}
+	return l.commandFromBundle(ask.Bundle, ask.Item)
 }
 
 // commandRead builds the ItemRead for a command. See fragmentRead — the same
@@ -469,8 +478,8 @@ func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCo
 // command-file writes are reproducible. Nothing is dropped on policy grounds —
 // see Pipeline.CommandsFromBundleRef for the gated delivery.
 func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
-	if bundleName, kind, itemName, ok := selectorOf(bundleRef); ok {
-		switch kind {
+	if ask, err := ParseItemAsk(bundleRef); err == nil && ask.Scoped {
+		switch ask.Kind {
 		case trust.KindPrompt:
 			// An explicit "#commands/" (or legacy "#prompts/") cherry-pick
 			// NAMES a command: resolve exactly that one, through the same
@@ -480,7 +489,7 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 			// command missing) is still loud — via commandFromBundle's own
 			// error — and never the misleading "bundle not found: <whole
 			// ref>", which would name an existing bundle as missing.
-			reads, err := l.commandFromBundle(bundleName, itemName)
+			reads, err := l.commandFromBundle(ask.Bundle, ask.Item)
 			if err != nil {
 				l.warnUnresolvedBundle(bundleRef, err)
 				return nil

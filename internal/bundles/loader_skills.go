@@ -81,8 +81,8 @@ type LoadedSkillFile struct {
 // bundle's skills. Nothing is dropped on policy grounds; see
 // Pipeline.SkillsFromBundleRef.
 func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
-	if bundleName, kind, itemName, ok := selectorOf(bundleRef); ok {
-		switch kind {
+	if ask, err := ParseItemAsk(bundleRef); err == nil && ask.Scoped {
+		switch ask.Kind {
 		case trust.KindSkill:
 			// An explicit "#skills/" cherry-pick NAMES a skill: resolve
 			// exactly that one via skillFromBundle (ReadSkill's own
@@ -90,7 +90,7 @@ func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 			// silently reporting zero skills for a ref that asked for one by
 			// name. See ReadBundleCommands' "#commands/" branch — same shape,
 			// same reasoning.
-			reads, err := l.skillFromBundle(bundleName, itemName)
+			reads, err := l.skillFromBundle(ask.Bundle, ask.Item)
 			if err != nil {
 				l.warnUnresolvedBundle(bundleRef, err)
 				return nil
@@ -282,14 +282,17 @@ func (l *Loader) ListAllSkills() ([]SkillInfo, error) {
 // the skill analog of ReadCommand. Name can be "skill-name" (searches all
 // bundles, so several bundles may each answer) or "bundle#skills/name".
 func (l *Loader) ReadSkill(name string) ([]*LoadedSkill, error) {
-	bundleName, skillName, isRef, err := splitItemRef(name, "skills")
+	ask, err := ParseItemAsk(name)
 	if err != nil {
 		return nil, err
 	}
-	if isRef {
-		return l.skillFromBundle(bundleName, skillName)
+	if !ask.Scoped {
+		return l.searchSkill(name)
 	}
-	return l.searchSkill(name)
+	if ask.Kind != trust.KindSkill {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, trust.KindSkill)
+	}
+	return l.skillFromBundle(ask.Bundle, ask.Item)
 }
 
 // skillFromBundle loads a specific bundle and reports the named skill — the

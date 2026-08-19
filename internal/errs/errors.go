@@ -18,6 +18,13 @@ var (
 	// ErrSkillNotFound indicates an Agent Skill package could not be located.
 	ErrSkillNotFound = errors.New("skill not found")
 
+	// ErrBadItemRef indicates a well-formed "#<kind>/<name>" selector named a
+	// kind the caller does not serve — e.g. "bundle#fragments/x" handed to a
+	// command reader. Distinct from a malformed selector (which
+	// bundles.ParseItemAsk reports as its own parse error): this is a
+	// selector that parsed fine and simply asked for the wrong thing.
+	ErrBadItemRef = errors.New("bad item reference")
+
 	// ErrProfileNotFound indicates a profile could not be located.
 	ErrProfileNotFound = errors.New("profile not found")
 

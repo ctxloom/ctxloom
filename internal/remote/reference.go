@@ -414,7 +414,7 @@ func parseTypePathVersion(s string) (itemType ItemType, itemPath string, content
 	// bake the selector into the canonical ref / lockfile key, so the fetcher
 	// would look for a file literally named "<bundle>#fragments/<name>.yaml".
 	// The selector is split off and re-applied at assembly time by the bundle
-	// loader (see loader_content.go splitItemRef). Done BEFORE the @version
+	// loader (see loader_content.go ParseItemAsk). Done BEFORE the @version
 	// split so the "<path>@<version>#sel" form (what ResolveRefString emits)
 	// doesn't fold the selector into the version.
 	itemPath, selector := SplitItemPath(pathWithVersion)

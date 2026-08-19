@@ -232,7 +232,7 @@ in scoped and global listings alike — they are never hidden.
 
 | Surface | Before | Now |
 |---|---|---|
-| A top-level container **one-shot** run (`ctxloom run --one-shot` on `runtime: container`) with an empty composed prompt | exit 0, run launched, **zero payload delivered** | refused before the runner starts, naming the empty first turn (U023-F17) |
+| A top-level container **one-shot** run (`ctxloom run --one-shot` on `runtime: container-rootless`) with an empty composed prompt | exit 0, run launched, **zero payload delivered** | refused before the runner starts, naming the empty first turn (U023-F17) |
 | A delegated child whose `StartRun` would carry no first turn — no composed prompt, no resume session id, no queued mail | attached and sat idle in `executing`, having been told nothing | the run fails terminal with the reason (U023-F17) |
 | A child that starts and exits repeatedly **without consuming its mail** | relaunched forever at zero backoff | bounded by the same budget a failing launch gets, with backoff, then a loud give-up to the parent's mailbox (U023-F02) |
 | Retry-budget exhaustion for a cause other than `launch_failed` | silent; the child's mail stayed queued and nobody was told | the parent's mailbox and stderr both learn (U023-F02) |

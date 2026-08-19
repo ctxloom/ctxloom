@@ -112,7 +112,7 @@ flowchart TD
 - `preserveTypedCase` (flags only) tries each partition's original-case candidate before the lower-cased one. A fixed schema property validates only in its canonical lower_snake_case spelling, so this never mis-cases a real field; it only preserves user-chosen dynamic labels. Env sets it false — env-var case is a shell artifact carrying no intent.
 - Case 4 (nothing recognized): fall back to one segment per token in original case, return `warn = true`. The unknown-key outcome is a `warn bool` discharged as a direct `clidiag.Warn` write to stderr from inside the library; the ambiguity outcome is an `error` return. The two "could not resolve this the way you meant" outcomes therefore have opposite polarity, and the caller can suppress neither the warning nor its destination.
 - Phase 2's enumeration is `2^(n-1)` in the token count, pre-allocated in one `make`, with `n` derived from a user-supplied env var name; there is no upper bound on `n`.
-- A **scalar sitting at an intermediate level** (e.g. base has `runtime: container`, override names `..._RUNTIME_FOO`) is indistinguishable from an absent key: the type assertion in `descendOneLevel` discards its `ok`, descent stops, case 4 fires, and `Merge`'s replace-wholesale rule turns the scalar into a map.
+- A **scalar sitting at an intermediate level** (e.g. base has `runtime: container-rootless`, override names `..._RUNTIME_FOO`) is indistinguishable from an absent key: the type assertion in `descendOneLevel` discards its `ok`, descent stops, case 4 fires, and `Merge`'s replace-wholesale rule turns the scalar into a map.
 
 **Value coercion (`coerceEnvValue`)**
 

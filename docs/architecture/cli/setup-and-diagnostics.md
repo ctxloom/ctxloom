@@ -222,8 +222,9 @@ TOML integer round-trip does not fail verification.
   trust store reports `[ok]` — defeating doctor's own documented fail-loud signal.
   Its sibling `HarnessStatus` failure three lines above does set it.
 - `doctorCheckDeps` classifies a container runtime as **required**
-  (`:228-233`), but a container runtime is required only for `runtime: container`
-  agents — `isolation.Resolve` degrades to host when none is reachable.
+  (`:228-233`), but a container runtime is required only for `runtime: container-rootless`
+  or `runtime: container-rootful` agents — `isolation.Resolve` degrades to host
+  when none is reachable.
 - Both `container check` and `doctor` document "always exits 0", but both
   `return emit(...)`, which errors (→ exit 1) on an unparseable `--format`;
   `container check` also exits 1 on an unknown backend argument.

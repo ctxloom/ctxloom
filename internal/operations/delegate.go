@@ -89,17 +89,23 @@ type AgentChatRequest struct {
 	Git git.Git
 	// DirtyTreeHandler is the caller's per-call override of what happens
 	// when this spawn resolves to worktree isolation while the parent tree
-	// is dirty ("commit"|"copy"|"stale"|"fail"; see handleDirtyParentTree).
-	// Empty defers to cfg.GetDirtyTreeHandler(), then to the built-in
-	// default ("commit") — the identical three-tier precedence Workspace
-	// above uses. Mirrors agent_run's "dirty_tree_handler" parameter.
+	// is dirty (see handleDirtyParentTree). It arrives ALREADY PARSED: the
+	// surface that accepted the caller's spelling (coord's serveSpawnAgent
+	// for the wire, the MCP tool handler for the native one) converted it
+	// through ParseDirtyTreeHandler, so an unrecognized value is refused
+	// where the caller can still see their own typo — never carried this
+	// far as a string for some later frame to interpret.
+	// The zero value defers to cfg.GetDirtyTreeHandler(), then to the
+	// built-in default ("commit") — the identical three-tier precedence
+	// Workspace above uses. Mirrors agent_run's "dirty_tree_handler"
+	// parameter.
 	//
 	// Deliberately NOT where dirty_tree_commit_ack lives: that is a
 	// per-PROJECT, human-only config acknowledgement (never a per-call
 	// field) — see config.Config.dirtyTreeCommitAck's doc for why. This
 	// field only ever selects WHICH handler runs, never authorizes the
 	// commit handler's mutation.
-	DirtyTreeHandler string
+	DirtyTreeHandler DirtyTreeHandler
 	// ChatDialTimeout bounds Start's legacy go-plugin Chat dial (client.Chat,
 	// below): the ONLY per-attempt budget on this path today besides plain ctx
 	// cancellation. Zero (the normal case — no production caller sets this)
@@ -324,7 +330,10 @@ func decideDirtyParentTree(ctx context.Context, cfg *config.Config, req AgentCha
 	if gitClient == nil {
 		gitClient = git.NewExec()
 	}
-	handler := resolveDirtyTreeHandler(cfg, req.DirtyTreeHandler)
+	handler, err := resolveDirtyTreeHandler(cfg, req.DirtyTreeHandler)
+	if err != nil {
+		return nil, nil, err
+	}
 	outcome, err := handleDirtyParentTree(ctx, cfg, gitClient, req.WorkDir, req.Resolved.Name, handler)
 	if err != nil {
 		return nil, nil, err
@@ -499,12 +508,58 @@ const maxDirtyFilesListed = 10
 // set for unrelated startup-finding reasons — reintroducing the exact bug
 // this gate exists to prevent. (resolveChatModel/isolationGateErr above DO
 // still respect --degraded; that is unchanged and unrelated to this gate.)
+//
+// DirtyTreeHandler is a DEFINED TYPE, and every boundary that receives one of
+// these spellings converts through ParseDirtyTreeHandler exactly once. The
+// vocabulary reaches ctxloom from a channel typed by a MODEL (agent_run's
+// free-form input Struct), and the fallback member WRITES TO THE USER'S
+// REPOSITORY: an unrecognized spelling that resolved to the default would
+// auto-commit the parent's working tree on the strength of a typo, past both
+// the caller's and the project's explicit choice. Unset and unparseable are
+// different inputs — unset takes the default below, unparseable stops.
+type DirtyTreeHandler string
+
 const (
-	DirtyTreeHandlerCommit = "commit"
-	DirtyTreeHandlerCopy   = "copy"
-	DirtyTreeHandlerStale  = "stale"
-	DirtyTreeHandlerFail   = "fail"
+	DirtyTreeHandlerCommit DirtyTreeHandler = "commit"
+	DirtyTreeHandlerCopy   DirtyTreeHandler = "copy"
+	DirtyTreeHandlerStale  DirtyTreeHandler = "stale"
+	DirtyTreeHandlerFail   DirtyTreeHandler = "fail"
 )
+
+// DirtyTreeHandlerNames returns the recognized handler values, in the order
+// they render into user-facing fix-it text and the wire schemas. Single
+// source for every writer (ParseDirtyTreeHandler's own error text, the MCP
+// tool schemas' enum) so none of them can drift from the vocabulary declared
+// above.
+func DirtyTreeHandlerNames() []string {
+	return []string{
+		string(DirtyTreeHandlerCommit),
+		string(DirtyTreeHandlerCopy),
+		string(DirtyTreeHandlerStale),
+		string(DirtyTreeHandlerFail),
+	}
+}
+
+// ParseDirtyTreeHandler is the ONE conversion between the dirty-tree-handler
+// string vocabulary (project config, agent_run's per-call parameter on both
+// MCP surfaces) and the typed DirtyTreeHandler. Every boundary that receives
+// one parses it exactly once, here; past that parse only the typed value
+// travels and nothing downstream re-interprets a string.
+//
+// Empty passes through as "" (the zero value), meaning "this level said
+// nothing" — the caller applies its own precedence and lands on
+// defaultDirtyTreeHandler. Any other unrecognized spelling is an ERROR naming
+// the bad value and the legal ones. It never warns and never degrades: the
+// default member commits the user's working tree, so a spelling nobody
+// recognizes must stop the spawn rather than reach it.
+func ParseDirtyTreeHandler(s string) (DirtyTreeHandler, error) {
+	switch DirtyTreeHandler(s) {
+	case "", DirtyTreeHandlerCommit, DirtyTreeHandlerCopy, DirtyTreeHandlerStale, DirtyTreeHandlerFail:
+		return DirtyTreeHandler(s), nil
+	default:
+		return "", fmt.Errorf("unknown dirty_tree_handler %q (known: %s)", s, strings.Join(DirtyTreeHandlerNames(), "|"))
+	}
+}
 
 // defaultDirtyTreeHandler is the built-in default when NEITHER the agent_run
 // caller NOR the project config says anything explicit: "commit" (an empty
@@ -513,25 +568,30 @@ const defaultDirtyTreeHandler = DirtyTreeHandlerCommit
 
 // resolveDirtyTreeHandler applies GAP 2's precedence (per-call req wins,
 // else the project config default, else the built-in default) — the exact
-// same three-tier resolution PrepareAgentChat already runs for Workspace. An
-// unrecognized value at either level is treated as absent (never silently
-// promoted to some OTHER specific handler's behavior without saying so): it
-// warns once and falls through to the built-in default.
-func resolveDirtyTreeHandler(cfg *config.Config, req string) string {
-	handler := cfg.GetDirtyTreeHandler()
+// same three-tier resolution PrepareAgentChat already runs for Workspace.
+// req arrives ALREADY PARSED (the edge that accepted it — coord's
+// serveSpawnAgent, the MCP tool handler — converted it); the project config
+// is a raw string and is parsed here, the same way and with the same verdict.
+//
+// An unrecognized value at either level REFUSES the spawn. It cannot fall
+// through to the built-in default: that default is the "commit" handler,
+// which mutates the user's branch, and reaching it through a spelling nobody
+// recognized routes around the very consent the commit handler is gated on
+// (see commitDirtyTree's acknowledgement gate). A project that pinned "fail"
+// and a caller who typo'd must land on a refusal, not on the one member that
+// writes.
+func resolveDirtyTreeHandler(cfg *config.Config, req DirtyTreeHandler) (DirtyTreeHandler, error) {
 	if req != "" {
-		handler = req
+		return req, nil
 	}
-	switch handler {
-	case "", DirtyTreeHandlerCommit, DirtyTreeHandlerCopy, DirtyTreeHandlerStale, DirtyTreeHandlerFail:
-		if handler == "" {
-			return defaultDirtyTreeHandler
-		}
-		return handler
-	default:
-		clidiag.WarnOnce("ctxloom", "agent_run: dirty_tree_handler %q is not a recognized value (commit|copy|stale|fail) — falling back to %q", handler, defaultDirtyTreeHandler)
-		return defaultDirtyTreeHandler
+	handler, err := ParseDirtyTreeHandler(cfg.GetDirtyTreeHandler())
+	if err != nil {
+		return "", fmt.Errorf("agent_run: this project's dirty_tree_handler config default is unusable: %w — fix `dirty_tree_handler:` in .ctxloom/config.yaml, or pass a valid one on this call", err)
 	}
+	if handler == "" {
+		return defaultDirtyTreeHandler, nil
+	}
+	return handler, nil
 }
 
 // dirtyTreeOutcome is what handleDirtyParentTree decided, for
@@ -634,7 +694,7 @@ func (d dirtyFileList) writeTo(b *strings.Builder) {
 // doubles pass a bare temp dir): never blocks the spawn, matching how the
 // isolation chain's OWN git checks degrade (chainFor's worktree branch
 // degrades silently to None on a non-repo dir rather than failing the run).
-func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName, handler string) (dirtyTreeOutcome, error) {
+func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName string, handler DirtyTreeHandler) (dirtyTreeOutcome, error) {
 	dirty, err := gitClient.IsDirty(ctx, workDir)
 	if err != nil || !dirty {
 		return dirtyTreeOutcome{}, nil
@@ -668,10 +728,12 @@ func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient gi
 		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, files)
 
 	default:
-		// resolveDirtyTreeHandler already normalizes unrecognized values
-		// before calling here; this default only guards against a future
-		// caller bypassing it.
-		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, files)
+		// Unreachable through resolveDirtyTreeHandler, which parses before
+		// dispatching here. It stays as a REFUSAL rather than a fallback to
+		// the commit arm: a caller that reached this dispatch with a value
+		// no parse admitted has said nothing this function may act on, and
+		// the arm it would otherwise land on rewrites the user's branch.
+		return dirtyTreeOutcome{}, fmt.Errorf("agent_run: dirty_tree_handler %q reached the dirty-tree dispatch unparsed (known: %s) — refusing to spawn rather than guess a handler that could commit %s", handler, strings.Join(DirtyTreeHandlerNames(), "|"), workDir)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -295,10 +296,10 @@ func TestAgentRun_DirtyTreeHandlerOverrideThreadsToSpawnPlan(t *testing.T) {
 
 	t.Run("override rides the plan the Spawner launches from", func(t *testing.T) {
 		sp, c := newWorker(t)
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "stale")
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", operations.DirtyTreeHandlerStale)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
-		assert.Equal(t, "stale", sp.lastDirtyTreeHandler())
+		assert.Equal(t, operations.DirtyTreeHandlerStale, sp.lastDirtyTreeHandler())
 	})
 
 	t.Run("omitting dirty_tree_handler carries no override", func(t *testing.T) {

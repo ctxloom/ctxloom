@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 )
@@ -261,7 +262,16 @@ func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, nil, err
 	}
-	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt, in.Workspace, in.DirtyTreeHandler)
+	// THIS IS THE EDGE for the per-call dirty-tree vocabulary on the native
+	// surface: the argument is a model-supplied string, and the member it
+	// would otherwise default to auto-commits the user's working tree. Parse
+	// it here, so an unrecognized spelling is refused at the tool call
+	// naming the legal values, and only the typed value travels inward.
+	dirtyTreeHandler, err := operations.ParseDirtyTreeHandler(in.DirtyTreeHandler)
+	if err != nil {
+		return nil, nil, fmt.Errorf("agent_run: %w", err)
+	}
+	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt, in.Workspace, dirtyTreeHandler)
 	if err != nil {
 		return nil, nil, err
 	}

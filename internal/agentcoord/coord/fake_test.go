@@ -212,7 +212,7 @@ type fakeSpawner struct {
 	// dirtyTreeHandlers records each Launch/StartEngine call's
 	// plan.DirtyTreeHandler, in spawn order — the identical threading proof
 	// as workspaces, for AgentRun's dirty_tree_handler override.
-	dirtyTreeHandlers []string
+	dirtyTreeHandlers []operations.DirtyTreeHandler
 }
 
 type fakeAgent struct {
@@ -465,7 +465,7 @@ func (s *fakeSpawner) lastWorkspace() string {
 
 // lastDirtyTreeHandler returns the SpawnPlan.DirtyTreeHandler the most
 // recent Launch/StartEngine call carried.
-func (s *fakeSpawner) lastDirtyTreeHandler() string {
+func (s *fakeSpawner) lastDirtyTreeHandler() operations.DirtyTreeHandler {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.dirtyTreeHandlers) == 0 {

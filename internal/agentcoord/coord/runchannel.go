@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -950,15 +951,47 @@ func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendR
 	}
 }
 
+// spawnInputString reads a STRING value out of agent_run's free-form input
+// Struct. A key that is absent yields "" — the caller said nothing, and every
+// consumer treats that as "defer to the configured default".
+//
+// A key that is PRESENT but carries a non-string JSON value is an ERROR.
+// structpb.Value.GetStringValue() answers "" for every other kind, which
+// makes `{"dirty_tree_handler": 4}` indistinguishable from omitting the key —
+// and these keys select postures whose unset path has a default that writes
+// to the user's repository. Unset and unusable are different inputs and get
+// different answers.
+func spawnInputString(in *structpb.Struct, key string) (string, error) {
+	v, ok := in.GetFields()[key]
+	if !ok {
+		return "", nil
+	}
+	sv, ok := v.GetKind().(*structpb.Value_StringValue)
+	if !ok {
+		return "", fmt.Errorf("agent_run: input.%s must be a string (got %s)", key, v.String())
+	}
+	return sv.StringValue, nil
+}
+
 // serveSpawnAgent is agent_run: role = the configured agent name,
 // input.prompt = the briefing, input.workspace (GAP 2, optional) = a
 // per-call workspace-axis override — "none"|"worktree", and
 // input.dirty_tree_handler (optional) = a per-call override for what a
 // worktree spawn does when the parent tree is dirty —
 // "commit"|"copy"|"stale"|"fail" — riding the same free-form input Struct as
-// prompt (additionalProperties: true; see mcpschema/schemas/agent_run.json),
-// so no proto/schema regen is needed to accept either. Empty/absent falls
-// back to the project's cfg.Workspace / cfg.GetDirtyTreeHandler() defaults.
+// prompt. Absent falls back to the project's cfg.Workspace /
+// cfg.GetDirtyTreeHandler() defaults.
+//
+// THIS IS THE EDGE for the per-call vocabularies: the Struct is free-form
+// (its generated schema carries the enums for a model to read, but nothing on
+// the wire enforces them), and the caller filling it is a MODEL. So the value
+// is converted here, through its owning package's parser, and only the typed
+// value travels inward. An unrecognized spelling is refused with
+// InvalidArgument at the verb the caller invoked, naming the legal values —
+// never carried inward to be interpreted by a frame that answers a typo with
+// a default. dirty_tree_handler's default member auto-commits the user's
+// working tree, so a typo that fell through to it would write to the
+// repository past both the caller's and the project's explicit choice.
 // input.dirty_tree_handler deliberately carries NO acknowledgement for the
 // "commit" handler's mutation — that is a per-checkout, human-only
 // acknowledgement (dirty_tree_commit_ack — see
@@ -968,18 +1001,23 @@ func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendR
 func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAgentRequest) *agentcoordpb.CoordinatorResponse {
 	role := req.GetRole()
 	prompt := ""
-	workspace := ""
-	dirtyTreeHandler := ""
+	rawWorkspace := ""
+	rawDirtyTreeHandler := ""
 	if in := req.GetInput(); in != nil {
 		if v, ok := in.GetFields()["prompt"]; ok {
 			prompt = v.GetStringValue()
 		}
-		if v, ok := in.GetFields()["workspace"]; ok {
-			workspace = v.GetStringValue()
+		var err error
+		if rawWorkspace, err = spawnInputString(in, "workspace"); err != nil {
+			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
 		}
-		if v, ok := in.GetFields()["dirty_tree_handler"]; ok {
-			dirtyTreeHandler = v.GetStringValue()
+		if rawDirtyTreeHandler, err = spawnInputString(in, "dirty_tree_handler"); err != nil {
+			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
 		}
+	}
+	dirtyTreeHandler, derr := operations.ParseDirtyTreeHandler(rawDirtyTreeHandler)
+	if derr != nil {
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: "+derr.Error())}
 	}
 	if role == "" {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: role is required (a configured agent name; see `ctxloom agent list`)")}
@@ -987,7 +1025,7 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	if prompt == "" {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: input.prompt is required (the child's briefing/first turn)")}
 	}
-	out, err := c.AgentRun(c.baseCtx, caller, role, prompt, workspace, dirtyTreeHandler)
+	out, err := c.AgentRun(c.baseCtx, caller, role, prompt, rawWorkspace, dirtyTreeHandler)
 	if err != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}

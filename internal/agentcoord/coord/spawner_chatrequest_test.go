@@ -40,7 +40,7 @@ func TestSpawner_LaunchAndStartEngine_ShareOneChatRequest(t *testing.T) {
 	plan, err := s.Resolve(context.Background(), "dev")
 	require.NoError(t, err)
 	plan.Workspace = "worktree"
-	plan.DirtyTreeHandler = "stale"
+	plan.DirtyTreeHandler = operations.DirtyTreeHandlerStale
 
 	var seen []operations.AgentChatRequest
 	stop := errors.New("captured")
@@ -90,7 +90,7 @@ func TestSpawner_LaunchAndStartEngine_ShareOneChatRequest(t *testing.T) {
 	assert.Equal(t, plan.resolved, started.Resolved)
 	assert.Equal(t, agent.PermissionBypass, started.Permissions)
 	assert.Equal(t, "worktree", started.Workspace)
-	assert.Equal(t, "stale", started.DirtyTreeHandler)
+	assert.Equal(t, operations.DirtyTreeHandlerStale, started.DirtyTreeHandler)
 	assert.Equal(t, env, started.Env)
 	assert.Equal(t, runnerEnv, started.RunnerEnv)
 	assert.Equal(t, filepath.Dir(appDir), started.WorkDir)

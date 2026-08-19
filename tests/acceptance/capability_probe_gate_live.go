@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
@@ -51,27 +52,16 @@ func probeCellGate(c context.Context, w *World, family string, cell probeCellID)
 				"worktree axis cannot authenticate this engine: "+reason)
 		}
 	}
-	switch cell.Runtime {
-	case "container":
-		// RETIRED (task unwatched-discharge, 2026-08-18). This used to be the
-		// undifferentiated axis every probe wrote before the ownership split
-		// (df87d978 migrated P0; this task migrated P1, the last probe with
-		// any LIVE cell on it — P2's "container" rows are probeDeferred, so
-		// they never generate an Examples row and never reach this gate, and
-		// P4 never had a container cell at all). Nothing in the registry +
-		// feature-file system produces this value anymore, so this arm's job
-		// is now a TRIPWIRE: if a future change resurrects a cell carrying
-		// this spelling, it must fail LOUD here rather than silently fall
-		// through the switch below ungated (cell.Runtime "host" and anything
-		// else unrecognized both fall through with no container gating at
-		// all — exactly the silent no-op this project is characteristically
-		// bad at, and probeCellResolve's own vocabulary check does not catch
-		// it because "container" is still declared vocabulary there, for
-		// P2's deferred registry rows).
-		return liveAgent{}, "", fmt.Errorf(
-			"%s: cell %s carries the RETIRED undifferentiated \"container\" runtime axis (task unwatched-discharge) — declare it container-rootless or container-rootful instead",
-			family, cell)
-	case "container-rootless", "container-rootful":
+	// probeCellResolve (called above, at the top of this function) already
+	// parsed cell.Runtime via agent.ParseRuntimeAxis and rejected anything
+	// that does not resolve — including the retired undifferentiated
+	// "container" (task unwatched-discharge split it into container-rootless/
+	// container-rootful; there is deliberately no "any container" value) —
+	// so by the time control reaches here cell.Runtime is a KNOWN-GOOD axis
+	// string. This asks the canonical predicate for "is it a container in
+	// EITHER ownership mode", never a second vocabulary switch: a host cell
+	// needs no further gating and falls through unchanged.
+	if agent.IsContainerRuntimeAxis(agent.RuntimeAxis(cell.Runtime)) {
 		// The credential mechanism is the SAME mount either way (see the
 		// feature file's own header), so the auth check does not branch on
 		// ownership; only runtime SELECTION does.

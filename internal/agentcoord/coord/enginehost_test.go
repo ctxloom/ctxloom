@@ -465,6 +465,22 @@ func TestEngineHost_StartRunDrivesChatInProcess(t *testing.T) {
 	assert.Contains(t, names, CustomHarnessSession, "the native session id reaches the coordinator's journal path")
 	assert.Contains(t, names, CustomTurnStarted)
 
+	// The automatic turn report is the runner half of the result plane: at the
+	// boundary the host hands the parent this turn's FINAL-channel answer AND
+	// the correlation of the mail it answers. The briefing is nobody's reply,
+	// so its correlation is empty. Both halves are asserted here — a report
+	// whose correlation was dropped would still deliver text, and the tag
+	// plumbing would rot with every other assertion still green.
+	reports := home.turnReportsSeen()
+	require.Len(t, reports, 1, "one turn boundary produces exactly one report")
+	assert.Equal(t, "echo: CTX\n\ndo the thing", reports[0].Text)
+	assert.Empty(t, reports[0].InReplyTo, "the briefing turn answers no mail")
+
+	// The boundary sweep is dispatched AFTER the idle event, so it is waited
+	// for rather than assumed to have already run.
+	require.Eventually(t, func() bool { return home.spoolSweepCount() == 1 }, 5*time.Second, 10*time.Millisecond,
+		"the turn boundary must ask for one spool sweep")
+
 	// The chat request the backend saw matches the decoded spec.
 	sc.mu.Lock()
 	req := sc.requests[0]

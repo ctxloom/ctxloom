@@ -15,7 +15,7 @@ type configDecoder func(body map[string]interface{}) (agent.BackendConfig, error
 // (fault tolerance). The label that keyed the entry is NOT consulted — only the
 // explicit type drives which decoder runs.
 func DecodeLLMConfig(backendType string, body map[string]interface{}) (agent.BackendConfig, error) {
-	d, ok := descriptors[backendType]
+	d, ok := lookup(backendType)
 	if !ok || d.decodeConfig == nil {
 		return nil, fmt.Errorf("unknown LLM backend type %q", backendType)
 	}

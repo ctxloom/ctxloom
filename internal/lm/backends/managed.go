@@ -138,7 +138,7 @@ func managedStatuslineEnabled(cfg *config.Config) bool {
 // exports field — the same mapper WriteCommandFilesFor uses — so the two
 // paths can't diverge.
 func CommandExportsFor(backendName string, prompts []*bundles.LoadedContent) []agent.CommandExport {
-	d, ok := descriptors[backendName]
+	d, ok := lookup(backendName)
 	if !ok || d.exports == nil {
 		return nil
 	}
@@ -150,7 +150,7 @@ func CommandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 // nil for a backend without skill export. Reads the descriptor table's
 // skillExports field — the skills-surface analog of CommandExportsFor.
 func SkillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.SkillExport {
-	d, ok := descriptors[backendName]
+	d, ok := lookup(backendName)
 	if !ok || d.skillExports == nil {
 		return nil
 	}

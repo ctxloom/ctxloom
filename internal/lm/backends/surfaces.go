@@ -25,7 +25,7 @@ import (
 // surfaces (acp) or an unregistered name returns an agent.EmptySurfaceSet, so a
 // caller can iterate Deliveries() unconditionally.
 func BuildSurfaces(name string, inputs agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
-	if d, ok := descriptors[name]; ok && d.newSurfaces != nil {
+	if d, ok := lookup(name); ok && d.newSurfaces != nil {
 		return d.newSurfaces(inputs, fs)
 	}
 	return agent.EmptySurfaceSet{}
@@ -44,7 +44,7 @@ func BuildSurfaces(name string, inputs agent.SurfaceInputs, fs afero.Fs) agent.S
 // reports no approaches for every kind and renders as "no surface information"
 // rather than as an engine with no surfaces.
 func SurfacesFor(engine string) (agent.SurfaceSet, error) {
-	if _, ok := descriptors[engine]; !ok {
+	if _, ok := lookup(engine); !ok {
 		return nil, fmt.Errorf("unknown engine %q", engine)
 	}
 	return BuildSurfaces(engine, agent.SurfaceInputs{}, afero.NewMemMapFs()), nil
@@ -80,7 +80,7 @@ func (wellKnownPlacement) Dir() string { return "" }
 // ride their settings surface), and reporting a folded surface as lost would be
 // a false alarm — the fastest way to get the real line ignored.
 func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss {
-	d, ok := descriptors[name]
+	d, ok := lookup(name)
 	if !ok || in.Hooks == nil {
 		return nil
 	}
@@ -113,7 +113,7 @@ func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss 
 // do not carry is reported nowhere. Losses come out in a fixed order (settings,
 // MCP, commands, skills) so the report can be diffed.
 func LaunchOnlySurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss {
-	d, ok := descriptors[name]
+	d, ok := lookup(name)
 	if !ok || d.launchOnlySettingsReason == "" {
 		return nil
 	}
@@ -144,7 +144,7 @@ func LaunchOnlySurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss
 // clause, or "" when it has none. It is the read for a caller that wants the
 // SENTENCE without assembling any inputs — doctor's codex-home report.
 func LaunchOnlySettingsReason(name string) string {
-	d, ok := descriptors[name]
+	d, ok := lookup(name)
 	if !ok {
 		return ""
 	}

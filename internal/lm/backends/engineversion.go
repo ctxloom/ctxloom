@@ -34,7 +34,7 @@ var engineVersionProber = engineversion.NewProber(ResolveEngineVersionCommand)
 // binary, and the generic acp backend drives WHATEVER command config names, so
 // there is no single binary whose version would mean anything.
 func VersionCommandFor(name string) (engineversion.Command, bool) {
-	d, ok := descriptors[name]
+	d, ok := lookup(name)
 	if !ok || d.versionCommand.Parse == nil {
 		return engineversion.Command{}, false
 	}

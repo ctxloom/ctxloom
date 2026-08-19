@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -35,7 +36,7 @@ import (
 // unregistered name passes model through unchanged with ok=true: "nothing to
 // resolve" is not a failure.
 func ResolveModelFor(name, model string) (resolved string, ok bool) {
-	d, exists := descriptors[name]
+	d, exists := lookup(name)
 	if !exists || d.resolveModel == nil {
 		return model, true
 	}
@@ -55,7 +56,7 @@ func ResolveModelFor(name, model string) (resolved string, ok bool) {
 // force downgrades a real collision to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
 func CheckHookTargetScope(name, workDir string, force bool) error {
-	d, ok := descriptors[name]
+	d, ok := lookup(name)
 	if !ok || d.hookGlobalScopePaths == nil {
 		return nil
 	}
@@ -95,7 +96,7 @@ func RegisterHookGlobalScopeForTesting(name string, paths func(workDir string) (
 // synthetic backend does not linger in the shared, package-level descriptors
 // table for later tests to trip over.
 func UnregisterForTesting(name string) {
-	delete(descriptors, name)
+	delete(descriptors, agent.CanonicalEngineName(name))
 }
 
 // InTreeAgentHomeSpec is one backend's ctxloom-CONTROLLED config home INSTANCE
@@ -152,7 +153,7 @@ type InTreeAgentHomeSpec struct {
 // ~/.codex, and this seam is the single contributor of a controlled home for
 // all three.
 func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) {
-	d, exists := descriptors[name]
+	d, exists := lookup(name)
 	if !exists || d.inTreeAgentHome == nil {
 		return InTreeAgentHomeSpec{}, false
 	}

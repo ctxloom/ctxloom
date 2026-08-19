@@ -211,8 +211,29 @@ type agentDescriptor struct {
 	unsupportedHookKinds map[string]string
 }
 
-// descriptors holds the per-agent descriptor table, keyed by backend name.
+// descriptors holds the per-agent descriptor table, keyed by CANONICAL backend
+// name (agent.CanonicalEngineName): registration asserts it, and lookup below
+// is the only read path, so the key side and the read side cannot drift.
 var descriptors = make(map[string]*agentDescriptor)
+
+// lookup resolves name to its descriptor through the repo-wide alias table
+// (agent.CanonicalEngineName), so every spelling that resolves at ltk and at
+// taskloom resolves to the same backend here.
+//
+// The registry read is the chokepoint that can hold this invariant, not any
+// single entry boundary: an engine name reaches this package from CLI flags,
+// from decoded config entries, from stored agent definitions and from MCP tool
+// arguments, and no boundary is common to all of them. It is also the shape
+// ltkengine.Get and taskloom/engine.Get already have, which is what makes one
+// engine name mean one thing across all three binaries.
+//
+// No fuzzy matching: an unrecognized name arrives here lowercased and
+// unresolved, so the caller still refuses it rather than rounding it to a real
+// backend.
+func lookup(name string) (*agentDescriptor, bool) {
+	d, ok := descriptors[agent.CanonicalEngineName(name)]
+	return d, ok
+}
 
 // registerDescriptor installs a backend's complete descriptor. Panics on a
 // duplicate name: this only ever runs at init() time from the
@@ -221,6 +242,12 @@ var descriptors = make(map[string]*agentDescriptor)
 // registration win would drop the first's writer/surfaces/exports with no
 // signal at all.
 func registerDescriptor(d agentDescriptor) {
+	// A descriptor registered under a name the alias table would rewrite would
+	// be keyed where no lookup can reach it, which reads exactly like the
+	// backend having no capabilities at all.
+	if canonical := agent.CanonicalEngineName(d.name); canonical != d.name {
+		panic("backends: descriptor name " + d.name + " is not canonical (want " + canonical + ")")
+	}
 	if _, dup := descriptors[d.name]; dup {
 		panic("backends: duplicate descriptor registration for " + d.name)
 	}
@@ -273,17 +300,18 @@ func prepareInTreeAmbient(engine, instanceRoot, workDir string) error {
 // anywhere, repo-wide); built-in backends register their complete descriptor
 // via registerDescriptor (below) in one call.
 func descriptorFor(name string) *agentDescriptor {
-	d, ok := descriptors[name]
+	canonical := agent.CanonicalEngineName(name)
+	d, ok := descriptors[canonical]
 	if !ok {
-		d = &agentDescriptor{name: name}
-		descriptors[name] = d
+		d = &agentDescriptor{name: canonical}
+		descriptors[canonical] = d
 	}
 	return d
 }
 
 // Get returns a new instance of the named backend.
 func Get(name string) agent.Backend {
-	if d, ok := descriptors[name]; ok && d.newBackend != nil {
+	if d, ok := lookup(name); ok && d.newBackend != nil {
 		return d.newBackend()
 	}
 	return nil
@@ -307,7 +335,7 @@ func List() []string {
 
 // Exists returns true if a backend with the given name is registered.
 func Exists(name string) bool {
-	d, ok := descriptors[name]
+	d, ok := lookup(name)
 	return ok && d.newBackend != nil
 }
 
@@ -319,7 +347,7 @@ func Exists(name string) bool {
 // for it, so the run resolver collapses plan to default for it instead. An
 // unregistered name reports false.
 func EnforcesReadOnlyPlan(name string) bool {
-	d, ok := descriptors[name]
+	d, ok := lookup(name)
 	return ok && d.enforcesReadOnlyPlan
 }
 
@@ -331,7 +359,7 @@ func EnforcesReadOnlyPlan(name string) bool {
 // zero value (agent.ACPNative, everything else empty) — "needs nothing" is
 // the safe default for a name this registry doesn't know.
 func ACPTransportFor(name string) agent.ACPTransport {
-	d, ok := descriptors[name]
+	d, ok := lookup(name)
 	if !ok {
 		return agent.ACPTransport{}
 	}

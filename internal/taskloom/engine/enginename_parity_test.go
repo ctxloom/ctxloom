@@ -114,6 +114,13 @@ var nonRegistryCanonicalUsers = map[string]string{
 	// A test engine binary: it maps a name to a mimicked PERSONALITY, not to a
 	// registered engine, so it has no membership to be in parity about.
 	"github.com/ctxloom/ctxloom/cmd/mockengine": "selects a mimicked personality, not a registered engine",
+	// Several engine-keyed TABLES (credential seeds, instance-config writers,
+	// credential projectors, container specs), not one name -> engine
+	// registry: there is no single membership to resolve against, and each
+	// table asserts its own alias coverage from the shared table in
+	// internal/lm/isolation's own tests. It canonicalizes at every lookup and
+	// pins canonical keys at registration.
+	"github.com/ctxloom/ctxloom/internal/lm/isolation": "canonicalizes lookups into several keyed tables, no single membership",
 }
 
 // TestEngineNameVocabularyParity pins every engine registry to ONE spelling

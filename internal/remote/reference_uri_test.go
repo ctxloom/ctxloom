@@ -35,7 +35,7 @@ func TestParseReference_CanonicalURIFamilyParses(t *testing.T) {
 			ref:           "ctxloom+git://github.com/acme/repo//bundles/tooling",
 			wantURL:       "https://github.com/acme/repo",
 			wantPath:      "tooling",
-			wantCanonical: "https://github.com/acme/repo@bundles/tooling",
+			wantCanonical: "ctxloom+git://github.com/acme/repo//bundles/tooling",
 			wantSameAsOld: "https://github.com/acme/repo@bundles/tooling",
 		},
 		{
@@ -43,7 +43,7 @@ func TestParseReference_CanonicalURIFamilyParses(t *testing.T) {
 			wantURL:       "https://github.com/acme/repo",
 			wantPath:      "lang/go",
 			wantVersion:   "v1.2.3",
-			wantCanonical: "https://github.com/acme/repo@bundles/lang/go",
+			wantCanonical: "ctxloom+git://github.com/acme/repo//bundles/lang/go@v1.2.3",
 			wantSameAsOld: "https://github.com/acme/repo@bundles/lang/go@v1.2.3",
 		},
 		{
@@ -53,21 +53,21 @@ func TestParseReference_CanonicalURIFamilyParses(t *testing.T) {
 			ref:           "ctxloom+git://github.com/acme/repo//bundles/tooling#fragments/x",
 			wantURL:       "https://github.com/acme/repo",
 			wantPath:      "tooling",
-			wantCanonical: "https://github.com/acme/repo@bundles/tooling",
+			wantCanonical: "ctxloom+git://github.com/acme/repo//bundles/tooling",
 			wantSameAsOld: "https://github.com/acme/repo@bundles/tooling#fragments/x",
 		},
 		{
 			ref:           "ctxloom+file:///srv/content//bundles/tooling",
 			wantURL:       "file:///srv/content",
 			wantPath:      "tooling",
-			wantCanonical: "file:///srv/content@bundles/tooling",
+			wantCanonical: "ctxloom+file:///srv/content//bundles/tooling",
 			wantSameAsOld: "file:///srv/content@bundles/tooling",
 		},
 		{
 			ref:           "ctxloom+local:my-tools",
 			wantPath:      "my-tools",
 			wantLocal:     true,
-			wantCanonical: "ctxloom:local@bundles/my-tools",
+			wantCanonical: "ctxloom+local:my-tools",
 			wantSameAsOld: "ctxloom:local@bundles/my-tools",
 		},
 		{
@@ -75,7 +75,7 @@ func TestParseReference_CanonicalURIFamilyParses(t *testing.T) {
 			wantURL:       CompanionSource,
 			wantPath:      "ltk",
 			wantCompanion: true,
-			wantCanonical: "ctxloom:companion@ltk",
+			wantCanonical: "ctxloom+companion:ltk",
 			wantSameAsOld: "ctxloom:companion@ltk",
 		},
 	}
@@ -91,14 +91,15 @@ func TestParseReference_CanonicalURIFamilyParses(t *testing.T) {
 			assert.Equal(t, tt.wantCompanion, got.IsCompanion)
 			assert.Equal(t, ItemTypeBundle, got.ItemType)
 
-			// The identity a canonical URI resolves to is byte-identical to the
-			// one its pre-canonical spelling resolves to. That equality is what
-			// makes migrating an authored ref a spelling change and not a trust
-			// -key migration: a grant recorded under the old spelling still
-			// governs content addressed by the new one.
+			// The identity is the canonical URI, asserted as a literal: it is
+			// the string a grant is keyed on.
 			assert.Equal(t, tt.wantCanonical, got.CanonicalString(),
-				"a canonical URI must render the same identity as its predecessor spelling")
+				"a reference's identity is its canonical URI")
 
+			// A canonical URI and its PRE-CANONICAL spelling are one identity:
+			// both are accepted as input and both resolve to the same URI, so
+			// an authored ref can be written either way without becoming a
+			// second trust key.
 			old, err := ParseReference(tt.wantSameAsOld)
 			require.NoError(t, err)
 			assert.Equal(t, old.CanonicalString(), got.CanonicalString(),
@@ -153,7 +154,7 @@ func TestIsSelfContainedRef_KnowsEveryCanonicalClass(t *testing.T) {
 //
 // The old fallback was unconditional: anything CanonicalKey could not parse
 // became LocalBundleRef(name), so a canonical URI, a malformed https ref and
-// an "ssh://" ref all silently minted "ctxloom:local@bundles/<the entire ref>"
+// an "ssh://" ref all silently minted a local identity naming the entire ref
 // — a syntactically valid identity for content that does not exist. The
 // assertion below is deliberately on the RETURNED STRING as well as the error:
 // an error paired with the mangled local ref would still let a caller that
@@ -180,11 +181,11 @@ func TestCanonicalBundleRef_UnparseableSourceErrorsRatherThanBecomingLocal(t *te
 	// A BARE NAME is still the local fallback's whole purpose and must keep
 	// working: this function is on the path of every plain bundle ask.
 	for name, want := range map[string]string{
-		"dev":                          "ctxloom:local@bundles/dev",
-		"team/dev":                     "ctxloom:local@bundles/team/dev",
-		"ctxloom:local@bundles/dev":    "ctxloom:local@bundles/dev",
-		"ctxloom+local:dev":            "ctxloom:local@bundles/dev",
-		"ctxloom+git://h/r//bundles/x": "https://h/r@bundles/x",
+		"dev":                          "ctxloom+local:dev",
+		"team/dev":                     "ctxloom+local:team/dev",
+		"ctxloom:local@bundles/dev":    "ctxloom+local:dev",
+		"ctxloom+local:dev":            "ctxloom+local:dev",
+		"ctxloom+git://h/r//bundles/x": "ctxloom+git://h/r//bundles/x",
 	} {
 		got, err := CanonicalBundleRef(name)
 		require.NoError(t, err, "CanonicalBundleRef(%q)", name)
@@ -218,7 +219,7 @@ func TestCanonicalProfileKey_FalseOnUnparseableBundlePart(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, predecessor, canonical,
 		"a migrated profile ref must key to the same seed entry as the ref it replaced")
-	assert.Equal(t, "https://github.com/acme/repo@bundles/agent-ensemble#profiles/coordinator", canonical)
+	assert.Equal(t, "ctxloom+git://github.com/acme/repo//bundles/agent-ensemble#profiles/coordinator", canonical)
 }
 
 // TestParseReference_CanonicalURIRejectsTraversal pins containment on the new
@@ -237,5 +238,78 @@ func TestParseReference_CanonicalURIRejectsTraversal(t *testing.T) {
 		got, err := ParseReference(ref)
 		require.Error(t, err, "%q escapes its root and must not parse", ref)
 		assert.Nil(t, got)
+	}
+}
+
+// TestCanonicalString_AndLockKey_AreTwoDifferentAddresses pins BOTH strings a
+// Reference renders, as literals, for one bundle of each class it can be.
+//
+// They are asserted together because the whole point is that they DIFFER:
+// CanonicalString is the identity every API and stored identity carries, and
+// LockKey is the fetch address a lockfile entry is keyed on. A change that
+// collapsed one into the other would either freeze the identity in the
+// pre-canonical spelling or rewrite every lockfile key on disk, and only an
+// assertion over both catches that.
+//
+// There is no builtin row: a builtin bundle has no source to fetch from, so no
+// Reference can be builtin (see TestParseReference_BuiltinURIIsRefusedNotDowngraded).
+func TestCanonicalString_AndLockKey_AreTwoDifferentAddresses(t *testing.T) {
+	cases := []struct {
+		name         string
+		ref          Reference
+		wantIdentity string
+		wantLockKey  string
+	}{
+		{
+			name:         "git",
+			ref:          Reference{URL: "https://github.com/acme/repo", ItemType: ItemTypeBundle, Path: "tooling"},
+			wantIdentity: "ctxloom+git://github.com/acme/repo//bundles/tooling",
+			wantLockKey:  "https://github.com/acme/repo@bundles/tooling",
+		},
+		{
+			name:         "git, version-pinned",
+			ref:          Reference{URL: "https://github.com/acme/repo", ItemType: ItemTypeBundle, Path: "lang/go", ContentVersion: "v1.2.3"},
+			wantIdentity: "ctxloom+git://github.com/acme/repo//bundles/lang/go@v1.2.3",
+			wantLockKey:  "https://github.com/acme/repo@bundles/lang/go",
+		},
+		{
+			name:         "file",
+			ref:          Reference{URL: "file:///srv/content", ItemType: ItemTypeBundle, Path: "tooling"},
+			wantIdentity: "ctxloom+file:///srv/content//bundles/tooling",
+			wantLockKey:  "file:///srv/content@bundles/tooling",
+		},
+		{
+			name:         "local",
+			ref:          Reference{IsLocal: true, ItemType: ItemTypeBundle, Path: "my-tools"},
+			wantIdentity: "ctxloom+local:my-tools",
+			wantLockKey:  "ctxloom:local@bundles/my-tools",
+		},
+		{
+			name:         "companion",
+			ref:          Reference{URL: CompanionSource, IsCompanion: true, ItemType: ItemTypeBundle, Path: "ltk"},
+			wantIdentity: "ctxloom+companion:ltk",
+			wantLockKey:  "ctxloom:companion@ltk",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref := tc.ref
+			assert.Equal(t, tc.wantIdentity, ref.CanonicalString(), "identity")
+			assert.Equal(t, tc.wantLockKey, ref.LockKey(), "fetch address")
+			assert.NotEqual(t, ref.CanonicalString(), ref.LockKey(),
+				"the identity and the fetch address must not collapse into one string")
+
+			// Both spellings address the same bundle: each parses back to a
+			// reference whose version-less identity is the same string. The
+			// version is dropped on both sides because the fetch address never
+			// carries one — an identity that moved with every commit would key
+			// every grant to a single revision.
+			fromIdentity, err := ParseReference(ref.CanonicalString())
+			require.NoError(t, err)
+			fromLockKey, err := ParseReference(ref.LockKey())
+			require.NoError(t, err)
+			fromIdentity.ContentVersion, fromLockKey.ContentVersion = "", ""
+			assert.Equal(t, fromIdentity.CanonicalString(), fromLockKey.CanonicalString())
+		})
 	}
 }

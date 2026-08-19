@@ -235,13 +235,13 @@ func TestOpenEngineSession_FragmentsAndCommandsWireThroughToSummary(t *testing.T
 	require.NotNil(t, chat)
 
 	// Two fragments load for real: the profile's own bundle fragment (named
-	// by its canonical trust-gate ref, ctxloom:local@bundles/<bundle>#... —
+	// by its canonical trust-gate ref, ctxloom+local:<bundle>#... —
 	// see internal/bundles/loader.go's doc on that format) PLUS the
 	// unconditionally-injected builtin isolation fragment
 	// (appendBuiltinFragments, context.go) — both real, resolved facts, not
 	// placeholders.
 	assert.Contains(t, chat.InitSummary,
-		"fragments : 2 (ctxloom:local@bundles/local#fragments/onboarding, ctxloom+builtin:isolation#fragments/isolation-axes) loaded into the lead context",
+		"fragments : 2 (ctxloom+local:local#fragments/onboarding, ctxloom+builtin:isolation#fragments/isolation-axes) loaded into the lead context",
 		"the REAL resolved fragment names from the composed profile, not a placeholder")
 	assert.Contains(t, chat.InitSummary, "commands  : 1 (greet) available",
 		"the REAL command ctxloom assembled from the same bundle")

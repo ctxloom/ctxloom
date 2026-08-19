@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -101,10 +102,15 @@ func SplitItemPath(ref string) (base, itemPath string) {
 	return ref, ""
 }
 
-// CanonicalKey parses ref and returns its version-less canonical form — the
-// key shape lockfiles and seeded-bundle maps use ("<url>@<kind>/<path>", or
-// the ctxloom:local equivalent). ok is false when ref does not parse as a
-// reference at all (e.g. a plain local bundle name).
+// CanonicalKey parses ref and returns its version-less canonical IDENTITY —
+// the canonical ctxloom URI ("ctxloom+git://<host>/<repo>//bundles/<path>", or
+// the ctxloom+local / ctxloom+companion / ctxloom+file equivalent). ok is false
+// when ref does not parse as a reference at all (e.g. a plain local bundle
+// name).
+//
+// This is NOT the lockfile key: a lockfile entry addresses a fetch and is keyed
+// on Reference.LockKey. Both spellings parse back to the same Reference, which
+// is what lets an identity move without moving a fetch address.
 func CanonicalKey(ref string) (string, bool) {
 	parsed, err := ParseReference(ref)
 	if err != nil {
@@ -114,16 +120,26 @@ func CanonicalKey(ref string) (string, bool) {
 	return parsed.CanonicalString(), true
 }
 
-// LocalBundleRef returns the ctxloom:local canonical form for a plain local
-// bundle name ("dev" → "ctxloom:local@bundles/dev").
+// LocalBundleRef returns the canonical identity of a plain local bundle name
+// ("dev" → "ctxloom+local:dev"). It renders through refuri so a bundle name
+// carrying a character the URI grammar escapes cannot key two ways depending on
+// which side built the string.
 func LocalBundleRef(name string) string {
-	return LocalSource + "@bundles/" + NormalizeRef(name)
+	p, err := refuri.Local(NormalizeRef(name))
+	if err != nil {
+		// A name the grammar refuses has no canonical identity. Returning it
+		// verbatim keeps the caller's fault-tolerant "resolve to the ask" path
+		// intact — the load step then reports a bundle it cannot find, which is
+		// what an unaddressable name IS.
+		return NormalizeRef(name)
+	}
+	return p.Render(false)
 }
 
 // CanonicalBundleRef returns the canonical pipeline identity for a bundle
-// reference: its version-less canonical form when it parses as a reference
-// (a canonical URI, a remote URL or ctxloom:local), else the ctxloom:local
-// form for a plain local bundle name. Every fragment name the assembly
+// reference: its version-less canonical URI when it parses as a reference
+// (a canonical URI, a remote URL or ctxloom:local), else the ctxloom+local
+// URI for a plain local bundle name. Every fragment name the assembly
 // pipeline carries is "<CanonicalBundleRef>#fragments/<name>", so identities
 // compare exactly and local/remote bundles with colliding names stay
 // distinguishable.

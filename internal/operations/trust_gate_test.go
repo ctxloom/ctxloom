@@ -93,12 +93,10 @@ func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 	// isolation.yaml) injects unconditionally alongside the loader-resolved
 	// set, through this same gate — it is exempt from review (builtin), not
 	// exempt from appearing.
-	// FragmentsLoaded's loader-resolved entries echo the ASK string verbatim
-	// (ingestFragmentRefs uses config.FragmentRef.Name, not the producer's
-	// TrustRef) — solidRef, unconverted. The always-on builtin entry is the
-	// INJECTION route's own producer output (config.BuiltinFragment.Name),
-	// which IS canonical grammar.
-	assert.ElementsMatch(t, []string{solidRef, builtinIsolationFragmentRef}, res.FragmentsLoaded)
+	// FragmentsLoaded's entries are the CANONICAL identity of each ref, on
+	// both routes: the loader-resolved one (canonicalized by ExpandBundleRefs)
+	// and the always-on builtin injection (config.BuiltinFragment.Name).
+	assert.ElementsMatch(t, []string{acmeBundleID + "tooling#fragments/solid", builtinIsolationFragmentRef}, res.FragmentsLoaded)
 
 	withheld := loader.Withheld()
 	assert.ElementsMatch(t, []string{canonicalWithheldRef(t, evilRef), canonicalWithheldRef(t, swapRef)}, withheld,

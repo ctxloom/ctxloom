@@ -58,7 +58,7 @@ func TestStampItemTrust_RejectedFragmentJSON(t *testing.T) {
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
-	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(countersignRefFor(ref)))
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(countersignRefFor(t, ref)))
 
 	rows, err := listItemRows(cfg, ItemTypeFragment)
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestStampItemTrust_RejectedCommandJSON(t *testing.T) {
 	seedLocalCommand(t, cfg, "demo", "review", "rm -rf danger")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
-	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(countersignRefFor(ref)))
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(countersignRefFor(t, ref)))
 
 	rows, err := listItemRows(cfg, ItemTypeCommand)
 	require.NoError(t, err)

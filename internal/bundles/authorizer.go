@@ -59,6 +59,13 @@ type Exposure struct {
 	// Ref is the item's identity — the ref the countersignature stores key on.
 	Ref trust.Ref
 
+	// RefStr is the canonical reference string Decide parsed Ref out of — the
+	// exact address the caller asked about. It is carried rather than
+	// re-rendered from Ref because rendering is a second construction of the
+	// identity, and the two constructions are exactly what a tally, an
+	// advisory and a store must not be able to disagree about.
+	RefStr string
+
 	// Bytes are the EXACT bytes about to be exposed (pre-mustache), NEVER a
 	// hash. A hash can only be compared against a recorded hash, and a recorded
 	// hash is a file anything can write; bytes can be VERIFIED against a
@@ -75,16 +82,11 @@ type Exposure struct {
 	Form ContentForm
 }
 
-// RefString spells this exposure's ref in the canonical bundle-reference
-// grammar (trust.Ref.DisplayRef), not the grammar it was originally composed
-// in (trust.Ref.ItemRef, "<source>#<kind>/<name>") — the two are ctxloom's
-// two ref grammars, and this is the display surface moving onto the
-// canonical one first. It has no production caller (only test helpers read
-// it: internal/lm/backends' recordingAuthorizer, internal/config's
-// recordingGate), so this switch does not change any CLI output, log line, or
-// store key — see DisplayRef's own doc for its stable fallback when a Ref
-// cannot convert.
-func (e Exposure) RefString() string { return e.Ref.DisplayRef() }
+// RefString is the canonical reference string this exposure was decided under
+// — RefStr verbatim. It is not re-derived from Ref: a second construction of
+// "the same" identity is how a decision recorded under one address stops
+// governing the other.
+func (e Exposure) RefString() string { return e.RefStr }
 
 // Verdict is what a Authorizer decided, and the ONLY vocabulary anything downstream
 // renders. A caller that prints "withheld" without printing Reason is printing
@@ -444,7 +446,7 @@ func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, 
 	// exactly as it did when it was spelled nil — including for a ref nothing
 	// can address.
 	if !Gates(authorizer) {
-		return authorizer.Admit(Exposure{Read: read, Bytes: payload, Form: form})
+		return authorizer.Admit(Exposure{Read: read, RefStr: ref, Bytes: payload, Form: form})
 	}
 	br, err := trust.ParseBundleRef(ref)
 	if err != nil {
@@ -456,7 +458,7 @@ func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, 
 		return v
 	}
 	tRef := trust.RefFromBundleRef(br)
-	v := authorizer.Admit(Exposure{Read: read, Ref: tRef, Bytes: payload, Form: form})
+	v := authorizer.Admit(Exposure{Read: read, Ref: tRef, RefStr: ref, Bytes: payload, Form: form})
 	ReportVerdict(ref, v)
 	return v
 }

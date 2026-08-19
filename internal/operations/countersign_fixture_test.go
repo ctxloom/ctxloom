@@ -86,14 +86,14 @@ func (f *trustFixture) approve(ref trust.Ref, form signing.Form, payload []byte)
 	f.t.Helper()
 	attested, err := attestationFormFor(ref.Kind, form)
 	require.NoError(f.t, err)
-	require.NoError(f.t, f.user.WriteApprove(CountersignRef(ref), attested, payload, f.signer))
+	require.NoError(f.t, f.user.WriteApprove(mustCountersignRef(f.t, ref), attested, payload, f.signer))
 }
 
 // rejectRef writes a ref-level (sticky) reject countersignature — the direct
 // equivalent of the deleted store.SetRejected(repo, ref) with no hashes.
 func (f *trustFixture) rejectRef(ref trust.Ref) {
 	f.t.Helper()
-	require.NoError(f.t, f.user.WriteRefReject(CountersignRef(ref), f.signer))
+	require.NoError(f.t, f.user.WriteRefReject(mustCountersignRef(f.t, ref), f.signer))
 }
 
 // rejectContent writes a content-reject countersignature over payload (ref
@@ -162,11 +162,21 @@ func installUnsignedRejection(t *testing.T, ref trust.Ref, form signing.Form, pa
 	home, err := paths.HomeApprovalsPath()
 	require.NoError(t, err)
 	store := countersign.NewStore(home, afero.NewOsFs())
-	refStr := CountersignRef(ref)
+	refStr := mustCountersignRef(t, ref)
 	require.NoError(t, store.WriteUnsignedRefReject(refStr))
 	if len(payload) > 0 {
 		attested, ferr := attestationFormFor(ref.Kind, form)
 		require.NoError(t, ferr)
 		require.NoError(t, store.WriteUnsignedContentReject(attested, payload))
 	}
+}
+
+// mustCountersignRef is CountersignRef for a fixture ref that is addressable by
+// construction: an unaddressable one is a fault in the fixture, not a case
+// under test, so it fails the test rather than being carried further.
+func mustCountersignRef(t *testing.T, ref trust.Ref) string {
+	t.Helper()
+	refStr, err := CountersignRef(ref)
+	require.NoError(t, err)
+	return refStr
 }

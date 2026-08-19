@@ -2,7 +2,6 @@ package bundles
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -282,26 +281,25 @@ func warnUnmintableSource(source string, err error) {
 }
 
 // ItemRefFor mints the canonical "<source>#<kind>/<item>" reference an item's
-// TrustRef is built from, and REPORTS a source it cannot address. The grammar
-// and the fallback spelling live in trust.ItemRef, so every producer that
-// mints an item ref from a bundle's structured source — this package's own
-// loaders, config's executable-surface extractors, lm/backends' profile
-// gate — cannot drift on what an unaddressable item keys as.
+// TrustRef is built from, and REFUSES a source it cannot address. The grammar
+// lives in trust.ItemRef, so every producer that mints an item ref from a
+// bundle's structured source — this package's own loaders, config's
+// executable-surface extractors, lm/backends' profile gate — cannot drift on
+// what an item ref is.
 //
 // Exported because config and lm/backends are the same kind of caller this
 // package's own loaders are: each holds a trust.BundleRef (a BundleRead's
 // SourceRef, or the structured counterpart of one) and needs the identical
-// mint-and-report behavior, not a private copy of it.
+// mint behavior, not a private copy of it.
 //
-// Reachable in exactly the shape AsBundleRef's doc describes: src is the zero
-// BundleRef, which BundleRead.SourceRef reports as-is for a read whose typed
-// source was never established.
-func ItemRefFor(src trust.BundleRef, kind trust.ItemKind, item string) string {
-	ref, err := trust.ItemRef(src, kind, item)
-	if err != nil {
-		warnUnmintableSource(fmt.Sprintf("%#v", src), err)
-	}
-	return ref
+// The error arm is reachable in exactly the shape AsBundleRef's doc describes:
+// src is the zero BundleRef, which BundleRead.SourceRef reports as-is for a
+// read whose typed source could not be minted (warnUnmintableSource has
+// already named the string that failed, at the boundary where it failed). The
+// caller drops THAT ITEM and keeps going: one unaddressable bundle costs its
+// own items, never the rest of the assembly.
+func ItemRefFor(src trust.BundleRef, kind trust.ItemKind, item string) (string, error) {
+	return trust.ItemRef(src, kind, item)
 }
 
 // TrustCtx reports the only axis a gate keys on.

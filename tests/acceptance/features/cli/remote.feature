@@ -162,7 +162,7 @@ Feature: remote — registering the sources content comes from, and browsing the
         ctxloom remote show origin
         """
       Then the command succeeds
-      And the output contains "@bundles/demo"
+      And the output contains "//bundles/demo"
 
     Scenario: A remote's catalog is also readable over MCP
       Given an initialized ctxloom project

@@ -139,7 +139,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	// straight through to step 3's local ALLOW) is directly observable as
 	// Decision flipping deny->allow and Source flipping rejected->local.
 	rejectedRef := trust.Ref{Bundle: "tooling", Kind: trust.KindFragment, Name: "rejected-thing", IsLocal: true}
-	require.NoError(t, userStore.WriteUnsignedRefReject(CountersignRef(rejectedRef)))
+	require.NoError(t, userStore.WriteUnsignedRefReject(mustCountersignRef(t, rejectedRef)))
 
 	// records built ONCE — exactly the shape contentGate's constructor
 	// produces (buildCountersignRecords called at gate-construction time,
@@ -267,7 +267,7 @@ func TestEffectiveTrust_CorruptedRejectSignature_StaysDenied(t *testing.T) {
 	projectStore := countersign.NewStore(filepath.Join(dir, "project-approvals"), fs)
 
 	rejectedRef := trust.Ref{Bundle: "tooling", Kind: trust.KindFragment, Name: "rejected-thing", IsLocal: true}
-	require.NoError(t, userStore.WriteRefReject(CountersignRef(rejectedRef), signer))
+	require.NoError(t, userStore.WriteRefReject(mustCountersignRef(t, rejectedRef), signer))
 
 	records := countersignRecords{user: userStore, project: projectStore}
 

@@ -114,21 +114,7 @@ type BundleRef struct {
 // though its URI is well formed — an item nobody can name is an item nobody
 // can approve.
 func ParseBundleRef(raw string) (BundleRef, error) {
-	p, err := refuri.Parse(raw)
-	if err != nil {
-		return BundleRef{}, err
-	}
-	ref := BundleRef{
-		Class:    p.Class,
-		Host:     p.Host,
-		RepoPath: p.RepoPath,
-		Bundle:   p.Bundle,
-		Version:  p.Version,
-	}
-	if err := ref.parseSelector(p.Fragment); err != nil {
-		return BundleRef{}, err
-	}
-	return ref, nil
+	return fromParts(refuri.Parse(raw))
 }
 
 // parseSelector fills Kind and Item from the "#<kind>/<item>" fragment, which
@@ -265,33 +251,56 @@ func (r BundleRef) foldKey() string {
 	}, "\x00")
 }
 
-// GitRef mints a reference to a bundle in a remote git repository. It renders
-// the reference and reparses it, so a minted reference is subject to exactly
-// the rules ParseBundleRef enforces — a minter cannot construct a reference a
-// parser would refuse.
+// The bundle-level minters delegate to refuri's, which own the round-trip
+// discipline (render, reparse, refuse what a parser would refuse). They exist
+// here as well because a caller in this package wants a BundleRef — the shape
+// that can carry an item selector — not bare syntax.
+
+// GitRef mints a reference to a bundle in a remote git repository.
 func GitRef(host, repoPath, bundle string) (BundleRef, error) {
-	return mint(BundleRef{Class: ClassGit, Host: host, RepoPath: leadingSlash(repoPath), Bundle: bundle})
+	return fromParts(refuri.Git(host, repoPath, bundle))
 }
 
 // FileRef mints a reference to a bundle in a git repository at an absolute
-// local path. See GitRef for why it round-trips through the parser.
+// local path.
 func FileRef(repoPath, bundle string) (BundleRef, error) {
-	return mint(BundleRef{Class: ClassFile, RepoPath: leadingSlash(repoPath), Bundle: bundle})
+	return fromParts(refuri.File(repoPath, bundle))
 }
 
 // BuiltinRef mints a reference to a bundle embedded in the ctxloom binary.
 func BuiltinRef(bundle string) (BundleRef, error) {
-	return mint(BundleRef{Class: ClassBuiltin, Bundle: bundle})
+	return fromParts(refuri.Builtin(bundle))
 }
 
 // LocalRef mints a reference to a bundle in the project's own tree.
 func LocalRef(bundle string) (BundleRef, error) {
-	return mint(BundleRef{Class: ClassLocal, Bundle: bundle})
+	return fromParts(refuri.Local(bundle))
 }
 
 // CompanionRef mints a reference to a companion binary's own loadout.
 func CompanionRef(bin string) (BundleRef, error) {
-	return mint(BundleRef{Class: ClassCompanion, Bundle: bin})
+	return fromParts(refuri.Companion(bin))
+}
+
+// fromParts lifts minted syntax into a BundleRef, interpreting the fragment as
+// this package's item selector. It is ParseBundleRef's body over an already
+// -parsed value, so a reference built in Go and one parsed from text are held
+// to the same rules AND get the same selector reading.
+func fromParts(p refuri.Parts, err error) (BundleRef, error) {
+	if err != nil {
+		return BundleRef{}, err
+	}
+	ref := BundleRef{
+		Class:    p.Class,
+		Host:     p.Host,
+		RepoPath: p.RepoPath,
+		Bundle:   p.Bundle,
+		Version:  p.Version,
+	}
+	if err := ref.parseSelector(p.Fragment); err != nil {
+		return BundleRef{}, err
+	}
+	return ref, nil
 }
 
 // WithItem returns a copy of the reference addressing an item within the
@@ -310,17 +319,13 @@ func (r BundleRef) WithVersion(version string) (BundleRef, error) {
 	return mint(r)
 }
 
-// mint renders a hand-built reference and parses the result back, so that
-// every reference in circulation has passed the same gate regardless of
-// whether it arrived as text or was constructed in Go.
+// mint applies this package's own rule — an item selector is BOTH halves or
+// neither — and then hands the reference to refuri's round-trip discipline, so
+// every reference in circulation has passed the same gate regardless of whether
+// it arrived as text or was constructed in Go.
 func mint(r BundleRef) (BundleRef, error) {
-	if r.Bundle == "" {
-		return BundleRef{}, fmt.Errorf("%w: empty bundle name", ErrRefSyntax)
-	}
 	if (r.Kind == "") != (r.Item == "") {
 		return BundleRef{}, fmt.Errorf("%w: item kind and item name must be set together", ErrRefSyntax)
 	}
-	return ParseBundleRef(r.String())
+	return fromParts(refuri.Mint(r.parts()))
 }
-
-func leadingSlash(p string) string { return refuri.LeadingSlash(p) }

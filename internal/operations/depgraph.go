@@ -289,7 +289,7 @@ func (w *depWalker) record(refStr string, kind remote.ItemType) *remote.Referenc
 	if !ok {
 		return nil // unresolvable — skip rather than pin an empty hash
 	}
-	identity := ref.CanonicalString()
+	identity := ref.LockKey()
 	if w.hashes[identity] == nil {
 		w.hashes[identity] = map[string]struct{}{}
 	}
@@ -367,7 +367,7 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	if !hok {
 		return
 	}
-	guard := rec.CanonicalString() + remote.ProfileSelector + profName + "@" + hash
+	guard := rec.LockKey() + remote.ProfileSelector + profName + "@" + hash
 	if _, seen := w.visited[guard]; seen {
 		return
 	}
@@ -379,17 +379,17 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 		// closure is now INCOMPLETE, so warn and record it; a silent skip here
 		// let a transient fetch failure permanently erase the subtree's lock
 		// entries on the next wholesale rewrite.
-		w.markUnexpanded(rec.CanonicalString(), ferr)
+		w.markUnexpanded(rec.LockKey(), ferr)
 		return
 	}
 	b, berr := bundles.ParseBundle(data)
 	if berr != nil {
-		w.markUnexpanded(rec.CanonicalString(), berr)
+		w.markUnexpanded(rec.LockKey(), berr)
 		return
 	}
 	child, found := b.Profiles[profName]
 	if !found {
-		w.markUnexpanded(rec.CanonicalString(), fmt.Errorf("bundle has no profile %q", profName))
+		w.markUnexpanded(rec.LockKey(), fmt.Errorf("bundle has no profile %q", profName))
 		return
 	}
 	w.walkProfile(&child, rec.URL, hash)

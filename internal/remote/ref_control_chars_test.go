@@ -130,7 +130,7 @@ func TestRefIngestPointsStripControlChars(t *testing.T) {
 	})
 
 	t.Run("LocalBundleRef", func(t *testing.T) {
-		assert.Equal(t, LocalSource+"@bundles/dev", LocalBundleRef("dev"+nl))
+		assert.Equal(t, "ctxloom+local:dev", LocalBundleRef("dev"+nl))
 	})
 
 	t.Run("SplitItemPath", func(t *testing.T) {

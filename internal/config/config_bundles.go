@@ -670,7 +670,13 @@ func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, src tru
 		if strings.TrimSpace(content) == "" {
 			continue
 		}
-		ref := bundles.ItemRefFor(src, trust.KindFragment, fragName)
+		ref, rerr := bundles.ItemRefFor(src, trust.KindFragment, fragName)
+		if rerr != nil {
+			// One unaddressable bundle costs its own fragments, never the
+			// rest of the loadout.
+			clidiag.Warn("ctxloom", "%v — withheld", rerr)
+			continue
+		}
 		payload, form := frag.ContentPayload(preferDistilled)
 		if !bundles.Decide(gate, read, ref, payload, form).Allow {
 			continue // withheld by the trust gate (e.g. rejected, or pending)
@@ -774,7 +780,16 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 				// This makes the cascade's IsLocal/RepoURL honest (local hooks
 				// auto-trust; a cloned one is judged by WHO SIGNED it) and aligns
 				// the gate key with the baseline/grant key (both source).
-				ref := bundles.ItemRefFor(src, trust.KindHook, bundles.HookEntry{Event: event, Index: i}.ID())
+				ref, rerr := bundles.ItemRefFor(src, trust.KindHook, bundles.HookEntry{Event: event, Index: i}.ID())
+				if rerr != nil {
+					// Fail CLOSED and NAMED: a hook nothing can address is a
+					// hook nothing can decide about, and one such hook costs
+					// itself, never the bundle's other hooks.
+					strictness.Fail(strictness.ClassBundle,
+						"fix or re-pull the bundle, or pass --degraded",
+						"bundle hook withheld: %v", rerr)
+					continue
+				}
 				payload, perr := hookPreimage(h)
 				if perr != nil {
 					// Cannot build the preimage → cannot evaluate → withhold. Fail
@@ -830,7 +845,14 @@ func extractMCPFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bun
 			// Key by the source ref (canonical for a cloned bundle, local name for
 			// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
 			// gate key matches the baseline/grant key. See extractHooksFromBundle.
-			ref := bundles.ItemRefFor(src, trust.KindMCP, name)
+			ref, rerr := bundles.ItemRefFor(src, trust.KindMCP, name)
+			if rerr != nil {
+				// See extractHooksFromBundle: fail closed, named, per item.
+				strictness.Fail(strictness.ClassBundle,
+					"fix or re-pull the bundle, or pass --degraded",
+					"bundle MCP server withheld: %v", rerr)
+				continue
+			}
 			payload, perr := mcpPreimage(mcp)
 			if perr != nil {
 				// Cannot build the preimage → cannot evaluate → withhold. Fail

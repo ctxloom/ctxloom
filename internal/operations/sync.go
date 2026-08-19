@@ -848,7 +848,7 @@ func isInstalled(ctx context.Context, ref string, bundles remote.BundleByteSourc
 	if bundles == nil {
 		return false
 	}
-	_, rerr := bundles.ReadBundleBytes(ctx, parsedRef.CanonicalString())
+	_, rerr := bundles.ReadBundleBytes(ctx, parsedRef.LockKey())
 	return rerr == nil
 }
 

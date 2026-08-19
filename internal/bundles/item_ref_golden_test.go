@@ -99,7 +99,8 @@ func TestItemRefFor_GoldenAgainstDeletedStringRoute(t *testing.T) {
 				if kind == trust.KindHook {
 					item = "PreToolUse/0"
 				}
-				got := ItemRefFor(tc.src, kind, item)
+				got, err := ItemRefFor(tc.src, kind, item)
+				require.NoError(t, err)
 				require.Equal(t, want, got,
 					"%s/%s: S2 must not move the minted item-ref string", tc.name, kind)
 			}

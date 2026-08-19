@@ -28,17 +28,17 @@ func TestIsCanonicalRef(t *testing.T) {
 }
 
 // CanonicalKey strips a ref's content version to the version-less canonical
-// form lockfiles and seeded-bundle maps key on.
+// IDENTITY — the ctxloom URI, not the lockfile's fetch address.
 func TestCanonicalKey(t *testing.T) {
 	tests := []struct {
 		input  string
 		want   string
 		wantOK bool
 	}{
-		{"https://github.com/o/r@bundles/demo@abc123", "https://github.com/o/r@bundles/demo", true},
-		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "https://github.com/o/r@bundles/demo", true},
-		{"https://github.com/o/r@bundles/demo", "https://github.com/o/r@bundles/demo", true},
-		{"ctxloom:local@bundles/demo@rev1", "ctxloom:local@bundles/demo", true},
+		{"https://github.com/o/r@bundles/demo@abc123", "ctxloom+git://github.com/o/r//bundles/demo", true},
+		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "ctxloom+git://github.com/o/r//bundles/demo", true},
+		{"ctxloom+git://github.com/o/r//bundles/demo", "ctxloom+git://github.com/o/r//bundles/demo", true},
+		{"ctxloom:local@bundles/demo@rev1", "ctxloom+local:demo", true},
 		{"plain-local-name", "", false},
 		{"", "", false},
 	}
@@ -61,12 +61,12 @@ func TestCanonicalBundleRef(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"dev", "ctxloom:local@bundles/dev"},
-		{"team/dev", "ctxloom:local@bundles/team/dev"},
-		{"ctxloom:local@bundles/dev", "ctxloom:local@bundles/dev"},
-		{"ctxloom:local@bundles/dev@rev1", "ctxloom:local@bundles/dev"},
-		{"https://github.com/o/r@bundles/demo", "https://github.com/o/r@bundles/demo"},
-		{"https://github.com/o/r@bundles/demo@abc123", "https://github.com/o/r@bundles/demo"},
+		{"dev", "ctxloom+local:dev"},
+		{"team/dev", "ctxloom+local:team/dev"},
+		{"ctxloom+local:dev", "ctxloom+local:dev"},
+		{"ctxloom:local@bundles/dev@rev1", "ctxloom+local:dev"},
+		{"ctxloom+git://github.com/o/r//bundles/demo", "ctxloom+git://github.com/o/r//bundles/demo"},
+		{"https://github.com/o/r@bundles/demo@abc123", "ctxloom+git://github.com/o/r//bundles/demo"},
 	}
 
 	for _, tt := range tests {
@@ -87,10 +87,10 @@ func TestCanonicalFragmentRef(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"dev#fragments/x", "ctxloom:local@bundles/dev#fragments/x"},
-		{"ctxloom:local@bundles/dev#fragments/x", "ctxloom:local@bundles/dev#fragments/x"},
-		{"https://github.com/o/r@bundles/demo#fragments/x", "https://github.com/o/r@bundles/demo#fragments/x"},
-		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "https://github.com/o/r@bundles/demo#fragments/x"},
+		{"dev#fragments/x", "ctxloom+local:dev#fragments/x"},
+		{"ctxloom+local:dev#fragments/x", "ctxloom+local:dev#fragments/x"},
+		{"ctxloom+git://github.com/o/r//bundles/demo#fragments/x", "ctxloom+git://github.com/o/r//bundles/demo#fragments/x"},
+		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "ctxloom+git://github.com/o/r//bundles/demo#fragments/x"},
 		// No fragment selector → unchanged (bare names, prompt selectors).
 		{"x", "x"},
 		{"dev#commands/x", "dev#commands/x"},
@@ -116,12 +116,12 @@ func TestSplitPromptVersion(t *testing.T) {
 		wantVersion string
 	}{
 		// Trailing "@<commit>" (the name-addressed CLI/resource form).
-		{"dev#commands/x@c1", "ctxloom:local@bundles/dev#commands/x", "c1"},
-		{"https://github.com/o/r@bundles/demo#commands/x@abc123", "https://github.com/o/r@bundles/demo#commands/x", "abc123"},
+		{"dev#commands/x@c1", "ctxloom+local:dev#commands/x", "c1"},
+		{"https://github.com/o/r@bundles/demo#commands/x@abc123", "ctxloom+git://github.com/o/r//bundles/demo#commands/x", "abc123"},
 		// Version on the bundle part is also honored.
-		{"https://github.com/o/r@bundles/demo@abc123#commands/x", "https://github.com/o/r@bundles/demo#commands/x", "abc123"},
+		{"https://github.com/o/r@bundles/demo@abc123#commands/x", "ctxloom+git://github.com/o/r//bundles/demo#commands/x", "abc123"},
 		// Unversioned qualified ref → canonicalized, empty version.
-		{"dev#commands/x", "ctxloom:local@bundles/dev#commands/x", ""},
+		{"dev#commands/x", "ctxloom+local:dev#commands/x", ""},
 		// No command selector → unchanged, empty version (bare names, fragment selectors).
 		{"x", "x", ""},
 		{"dev#fragments/x", "dev#fragments/x", ""},

@@ -52,15 +52,21 @@ func TestParseReference_Local_Errors(t *testing.T) {
 }
 
 func TestReference_Local_StringRoundTrip(t *testing.T) {
-	for _, ref := range []string{
-		"ctxloom:local@bundles/foo",
-		"ctxloom:local@bundles/foo@abc123",
-		"ctxloom:local@bundles/team/standards@v2",
+	for ref, want := range map[string]string{
+		"ctxloom:local@bundles/foo":               "ctxloom+local:foo",
+		"ctxloom:local@bundles/foo@abc123":        "ctxloom+local:foo@abc123",
+		"ctxloom:local@bundles/team/standards@v2": "ctxloom+local:team/standards@v2",
 	} {
 		t.Run(ref, func(t *testing.T) {
 			parsed, err := ParseReference(ref)
 			require.NoError(t, err)
-			assert.Equal(t, ref, parsed.String(), "String round-trips")
+			assert.Equal(t, want, parsed.String(), "String renders the canonical URI")
+
+			// The rendered identity parses back to the same reference, which is
+			// what makes the two spellings one identity rather than two keys.
+			round, err := ParseReference(want)
+			require.NoError(t, err)
+			assert.Equal(t, parsed, round)
 		})
 	}
 }

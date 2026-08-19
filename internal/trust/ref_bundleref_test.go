@@ -1,7 +1,6 @@
 package trust
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -170,15 +169,20 @@ func TestRefFromBundleRef_CompanionCarriesCanonicalURLToken(t *testing.T) {
 // sibling instead.
 func TestRefDisplayRef_RendersGrammarA(t *testing.T) {
 	ref := Ref{IsLocal: true, Bundle: "lang/go", Kind: KindFragment, Name: "solid"}
-	assert.Equal(t, "ctxloom+local:lang/go#fragments/solid", ref.DisplayRef())
+	got, err := ref.DisplayRef()
+	require.NoError(t, err)
+	assert.Equal(t, "ctxloom+local:lang/go#fragments/solid", got)
 }
 
-// TestRefDisplayRef_UnconvertibleFallsBackStably pins DisplayRef's fallback
-// for a Ref AsBundleRef refuses (the zero Ref, or any other unconvertible
-// spelling): the same deterministic, unmistakable "ctxloom+unaddressable:%#v"
-// spelling operations.CountersignRef falls back to for the identical failure,
-// so the two never disagree on how to spell "cannot address this Ref".
-func TestRefDisplayRef_UnconvertibleFallsBackStably(t *testing.T) {
-	ref := Ref{}
-	assert.Equal(t, fmt.Sprintf("ctxloom+unaddressable:%#v", ref), ref.DisplayRef())
+// TestRefDisplayRef_UnconvertibleRefuses pins DisplayRef's refusal for a Ref
+// AsBundleRef will not convert (the zero Ref, or any other unconvertible
+// spelling): an ERROR and an EMPTY string, never a stand-in that reads like a
+// reference. A display string shaped like an address that addresses nothing is
+// a counterfeit identity, and a caller cannot tell it from a real one.
+func TestRefDisplayRef_UnconvertibleRefuses(t *testing.T) {
+	got, err := Ref{}.DisplayRef()
+	require.Error(t, err)
+	assert.Empty(t, got, "an unaddressable Ref must yield no string at all")
+	assert.NotContains(t, err.Error(), "ctxloom+",
+		"the refusal must not spell anything that parses as a reference")
 }

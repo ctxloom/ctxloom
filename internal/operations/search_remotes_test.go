@@ -96,7 +96,7 @@ func TestSearchRemotes_TagAwareDirectorySearch(t *testing.T) {
 		// The tagged bundle matches; its tags and install pull_ref are exposed.
 		require.Contains(t, byName, "go-development", "tagged bundle should match (warnings=%v)", res.Warnings)
 		assert.Contains(t, byName["go-development"].Tags, "golang")
-		assert.Equal(t, url+"@bundles/go-development", byName["go-development"].PullRef)
+		assert.Equal(t, "ctxloom+file://"+src+"//bundles/go-development", byName["go-development"].PullRef)
 		assert.Equal(t, "bundle", byName["go-development"].Type)
 
 		// The top-level profile is NOT surfaced — top-level profile distribution

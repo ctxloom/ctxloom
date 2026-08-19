@@ -13,7 +13,7 @@ import (
 // canonical "<bundle>#profiles/<name>" key.
 func seededParentLoader(t *testing.T, parentRef string) *Loader {
 	t.Helper()
-	key := defaultURL + "@bundles/ai-developer#profiles/developer"
+	key := defaultURI + "//bundles/ai-developer#profiles/developer"
 	seed := map[string]*Profile{
 		key: {
 			Name:    key,
@@ -61,5 +61,5 @@ func TestLoad_PinnedBundleProfileRefHitsSeed(t *testing.T) {
 
 	p, err := loader.Load(defaultURL + "@bundles/ai-developer@abc1234#profiles/developer")
 	require.NoError(t, err)
-	assert.Equal(t, defaultURL+"@bundles/ai-developer#profiles/developer", p.Name)
+	assert.Equal(t, defaultURI+"//bundles/ai-developer#profiles/developer", p.Name)
 }

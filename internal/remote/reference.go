@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/refuri"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // LocalSource is the fixed source token for ctxloom:local references —
@@ -519,9 +520,6 @@ func (r *Reference) String() string {
 	if r == nil {
 		return "<nil>"
 	}
-	if r.IsLocal {
-		return r.localRef()
-	}
 	return r.CanonicalString()
 }
 
@@ -547,8 +545,82 @@ func (r *Reference) localRef() string {
 	return s
 }
 
-// CanonicalString returns the canonical URL representation.
+// CanonicalString renders this reference as a canonical ctxloom URI
+// (ctxloom+git / ctxloom+file / ctxloom+local / ctxloom+companion), carrying
+// "@<version>" when the reference pins one. This is the reference's IDENTITY:
+// the spelling every API and stored identity outside the lockfile uses, and the
+// one parseCanonicalURIReference reads back.
+//
+// It is NOT the lockfile key. A lockfile entry addresses a FETCH and is keyed
+// by LockKey, which spells the same bundle the way the lockfile on disk already
+// spells it — see LockKey's own doc for why the two are separate.
+//
+// There is no ctxloom+builtin arm because no Reference can be builtin: a
+// builtin bundle is embedded in the binary, has no source to fetch from, and
+// parseCanonicalURIReference refuses the class outright rather than mapping it
+// onto ClassLocal.
+//
+// A reference that cannot be classified into the URI family carries no URL and
+// is not local or companion, which makes it malformed by construction. It
+// renders as its fetch address rather than as an invented URI, and says so.
 func (r *Reference) CanonicalString() string {
+	p, err := r.canonicalParts()
+	if err != nil {
+		clidiag.Warn("ctxloom", "cannot render %q as a canonical reference (%v); using its fetch address", r.LockKey(), err)
+		return r.LockKey()
+	}
+	return p.Render(true)
+}
+
+// canonicalParts maps this reference onto the shared URI syntax, minting
+// through refuri so a rendered identity is subject to exactly the rules a
+// parsed one is.
+//
+// ClassGit covers every transport that names a repository by host and path.
+// The transport is not part of a repository's identity — NormalizeURL already
+// folds git@ to https — so ssh://, git:// and https:// converge on one
+// identity, exactly as the trust grammar's own conversion does.
+func (r *Reference) canonicalParts() (refuri.Parts, error) {
+	switch {
+	case r.IsLocal:
+		p, err := refuri.Local(r.Path)
+		if err != nil {
+			return refuri.Parts{}, err
+		}
+		p.Version = r.ContentVersion
+		return p, nil
+	case r.IsCompanion:
+		return refuri.Companion(r.Path)
+	case r.URL == "":
+		return refuri.Parts{}, fmt.Errorf("reference has no source URL")
+	}
+	u, err := url.Parse(r.URL)
+	if err != nil {
+		return refuri.Parts{}, fmt.Errorf("source URL %q: %w", r.URL, err)
+	}
+	var p refuri.Parts
+	if u.Scheme == "file" {
+		p, err = refuri.File(u.Path, r.Path)
+	} else {
+		p, err = refuri.Git(u.Host, u.Path, r.Path)
+	}
+	if err != nil {
+		return refuri.Parts{}, err
+	}
+	p.Version = r.ContentVersion
+	return p, nil
+}
+
+// LockKey renders this reference as the lockfile/fetch address:
+// "<url>@<kind>s/<path>", or the ctxloom:local / ctxloom:companion equivalent.
+//
+// It is deliberately a DIFFERENT string from CanonicalString. A lockfile entry
+// addresses a fetch — which repository, which path — and is keyed on this
+// spelling on disk; an identity addresses content and is a canonical URI.
+// Rendering one from the other would rewrite every lockfile key the moment the
+// identity grammar moved, so the two renderings are separate and each names
+// what it is for.
+func (r *Reference) LockKey() string {
 	if r.IsLocal {
 		return r.localRef()
 	}

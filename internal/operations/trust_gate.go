@@ -244,20 +244,13 @@ func pendingReason(read bundles.BundleRead) bundles.Reason {
 // (deduplicated, lazily allocated). It returns the verdict so every withholding
 // arm above is one line and none of them can forget to record.
 //
-// Keyed on e.Ref.DisplayRef() — the canonical bundle-reference grammar
-// rendering, matching Exposure.RefString()'s own already-landed switch to
-// the same method — not the ask grammar a CLI mutation resolves (see
-// ResolveItemAsk). Both consumers here (WarnWithheld,
-// warnGuttedProfilesTo) are pure stderr advisories; neither round-trips its
-// ref through a CLI mutation, so there is no compatibility reason to keep the
-// old grammar.
+// Keyed on e.RefString() — the canonical reference the exposure was decided
+// under, verbatim — not the ask grammar a CLI mutation resolves (see
+// ResolveItemAsk) and not a re-rendering of e.Ref. Both consumers here
+// (WarnWithheld, warnGuttedProfilesTo) are pure stderr advisories; neither
+// round-trips its ref through a CLI mutation.
 func (g *contentGate) record(e bundles.Exposure, v bundles.Verdict) bundles.Verdict {
-	g.withheldMu.Lock()
-	if g.withheld == nil {
-		g.withheld = make(map[string]bundles.Verdict)
-	}
-	g.withheld[e.Ref.DisplayRef()] = v
-	g.withheldMu.Unlock()
+	g.recordRef(e.RefString(), v)
 	return v
 }
 
@@ -266,6 +259,14 @@ func (g *contentGate) record(e bundles.Exposure, v bundles.Verdict) bundles.Verd
 // used is the only identity such an item has. A withhold nothing recorded is a
 // withhold nothing can report.
 func (g *contentGate) Unaddressable(ref string, v bundles.Verdict) {
+	g.recordRef(ref, v)
+}
+
+// recordRef is the ONE way a verdict enters the withheld tally: keyed on the
+// ref string the decision was taken under, deduplicated, lazily allocated. Both
+// entry points share it so a tally written through one and read through the
+// other cannot key two ways.
+func (g *contentGate) recordRef(ref string, v bundles.Verdict) {
 	g.withheldMu.Lock()
 	if g.withheld == nil {
 		g.withheld = make(map[string]bundles.Verdict)

@@ -496,26 +496,24 @@ func RefFromBundleRef(br BundleRef) Ref {
 }
 
 // DisplayRef renders r in the canonical bundle-reference grammar (BundleRef)
-// for display — an advisory, a listing, a diagnostic. It follows
-// operations.CountersignRef's own pattern for the identical AsBundleRef
-// conversion: mint through it, and fall back to a stable, inert spelling
-// ("ctxloom+unaddressable:%#v") when r cannot convert (see AsBundleRef's doc
-// for when that happens). The two fallbacks are deliberately the SAME
-// spelling rather than two independently invented ones, so a caller can never
-// see one "cannot address this" string from CountersignRef and a different
-// one from here for the identical Ref.
+// for display — an advisory, a listing, a diagnostic.
 //
-// Unlike CountersignRef (which keys the countersignature store on Identity,
-// version-less by design), DisplayRef renders String — including "@<version>"
-// when the Ref carries one — because a display string is for a human to read
-// or re-type, and a version pinned in the original ref is part of what they
-// typed.
-func (r Ref) DisplayRef() string {
+// It returns an ERROR rather than a stand-in string when r cannot convert (see
+// AsBundleRef's doc for when that happens): a display string shaped like a
+// reference but addressing nothing is a counterfeit identity, and a caller
+// that cannot tell the two apart will key on it.
+//
+// Unlike operations.CountersignRef (which keys the countersignature store on
+// Identity, version-less by design), DisplayRef renders String — including
+// "@<version>" when the Ref carries one — because a display string is for a
+// human to read or re-type, and a version pinned in the original ref is part
+// of what they typed.
+func (r Ref) DisplayRef() (string, error) {
 	br, err := r.AsBundleRef()
 	if err != nil {
-		return fmt.Sprintf("ctxloom+unaddressable:%#v", r)
+		return "", fmt.Errorf("cannot address %s#%s/%s: %w", r.Bundle, r.Kind.Dir(), r.Name, err)
 	}
-	return br.String()
+	return br.String(), nil
 }
 
 // repoURLBranch is the parsed (class, host, repoPath) shape of a

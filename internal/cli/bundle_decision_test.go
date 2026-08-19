@@ -109,7 +109,7 @@ func TestRunItemForget_ClearsARejection(t *testing.T) {
 
 	store := userApprovalsStore(t)
 	itemRef := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
-	assert.False(t, store.HasUnsignedRefReject(countersignRefFor(itemRef)), "the sticky ref block must be gone from the store")
+	assert.False(t, store.HasUnsignedRefReject(countersignRefFor(t, itemRef)), "the sticky ref block must be gone from the store")
 	assert.False(t, store.HasUnsignedContentReject(signing.AttestFragmentRaw, []byte("rm -rf danger")),
 		"the content block must go too: a rejection cleared by half still rejects the same bytes under any other name")
 }
@@ -131,13 +131,13 @@ func TestRunItemForget_ClearsAnApproval(t *testing.T) {
 
 	store := userApprovalsStore(t)
 	itemRef := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "x", IsLocal: true}
-	require.True(t, store.HasUnsignedApprove(countersignRefFor(itemRef), signing.AttestFragmentRaw, []byte("approved body")),
+	require.True(t, store.HasUnsignedApprove(countersignRefFor(t, itemRef), signing.AttestFragmentRaw, []byte("approved body")),
 		"the approval must be on file before it can meaningfully be cleared")
 
 	c, out := testCmd()
 	require.NoError(t, runItemForget(c, cfg, "demo#fragments/x"))
 	assert.Contains(t, out.String(), "approval")
-	assert.False(t, store.HasUnsignedApprove(countersignRefFor(itemRef), signing.AttestFragmentRaw, []byte("approved body")),
+	assert.False(t, store.HasUnsignedApprove(countersignRefFor(t, itemRef), signing.AttestFragmentRaw, []byte("approved body")),
 		"the approval must be gone from the store, not merely reported as gone")
 }
 

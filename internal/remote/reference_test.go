@@ -309,7 +309,7 @@ func TestReference_String(t *testing.T) {
 				ItemType: ItemTypeBundle,
 				Path:     "core-practices",
 			},
-			want: "https://github.com/owner/repo@bundles/core-practices",
+			want: "ctxloom+git://github.com/owner/repo//bundles/core-practices",
 		},
 	}
 
@@ -519,16 +519,20 @@ func TestReference_CanonicalString(t *testing.T) {
 				ItemType: ItemTypeBundle,
 				Path:     "core-practices",
 			},
-			want: "https://github.com/owner/repo@bundles/core-practices",
+			want: "ctxloom+git://github.com/owner/repo//bundles/core-practices",
 		},
 		{
+			// The canonical URI has one item-type marker ("bundles/") because
+			// bundles are the only distributed item type, so an unset ItemType
+			// cannot render a malformed marker the way the fetch address's
+			// "<url>@<kind>s/<path>" interpolation can.
 			name: "empty item type",
 			ref: Reference{
 				URL:      "https://github.com/owner/repo",
 				ItemType: "",
 				Path:     "core",
 			},
-			want: "https://github.com/owner/repo@s/core",
+			want: "ctxloom+git://github.com/owner/repo//bundles/core",
 		},
 	}
 

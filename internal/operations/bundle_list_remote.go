@@ -56,7 +56,7 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 	// clones. Best-effort: a failure here must not break listing what's present.
 	deleted, _ := bundleListDeletedResolver(cfg).ListDeleted(ctx, remote.ItemTypeBundle)
 	for _, ref := range deleted {
-		name := ref.CanonicalString()
+		name := ref.LockKey()
 		if seen[name] {
 			continue
 		}

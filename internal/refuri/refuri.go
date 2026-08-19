@@ -455,6 +455,47 @@ func removeDotSegments(p string) string {
 	return joined
 }
 
+// Git builds the parsed reference to a bundle in a remote git repository. It
+// renders the parts and reparses them, so a reference built in Go is subject to
+// exactly the rules Parse enforces — a builder cannot construct a reference a
+// parser would refuse.
+func Git(host, repoPath, bundle string) (Parts, error) {
+	return Mint(Parts{Class: ClassGit, Host: host, RepoPath: LeadingSlash(repoPath), Bundle: bundle})
+}
+
+// File builds the parsed reference to a bundle in a git repository at an
+// absolute local path. See Git for why it round-trips through the parser.
+func File(repoPath, bundle string) (Parts, error) {
+	return Mint(Parts{Class: ClassFile, RepoPath: LeadingSlash(repoPath), Bundle: bundle})
+}
+
+// Builtin builds the parsed reference to a bundle embedded in the binary.
+func Builtin(bundle string) (Parts, error) {
+	return Mint(Parts{Class: ClassBuiltin, Bundle: bundle})
+}
+
+// Local builds the parsed reference to a bundle in the project's own tree.
+func Local(bundle string) (Parts, error) {
+	return Mint(Parts{Class: ClassLocal, Bundle: bundle})
+}
+
+// Companion builds the parsed reference to a companion binary's own loadout.
+func Companion(bin string) (Parts, error) {
+	return Mint(Parts{Class: ClassCompanion, Bundle: bin})
+}
+
+// Mint renders hand-built parts and parses the result back, so that every
+// reference in circulation has passed the same gate regardless of whether it
+// arrived as text or was constructed in Go. It is the single discipline every
+// builder above shares, and the one a layer above reuses when it adds meaning
+// to the fragment.
+func Mint(p Parts) (Parts, error) {
+	if p.Bundle == "" {
+		return Parts{}, fmt.Errorf("%w: empty bundle name", ErrSyntax)
+	}
+	return Parse(p.Render(true))
+}
+
 // LeadingSlash returns p with a leading "/", which is the shape RepoPath is
 // stored in so two spellings of one repository path cannot key differently.
 func LeadingSlash(p string) string {

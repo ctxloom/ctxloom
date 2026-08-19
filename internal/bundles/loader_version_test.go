@@ -51,6 +51,10 @@ func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions ma
 }
 
 const cqRef = "https://github.com/acme/b@bundles/cq"
+
+// cqIdentity is cqRef's canonical identity — what every ref minted from it
+// renders as, and therefore what an expectation over a minted ref asserts.
+const cqIdentity = "ctxloom+git://github.com/acme/b//bundles/cq"
 const cqFrag = cqRef + "#fragments/solid"
 
 // TestMultiVersion_CoexistGatedIndependently proves two commit-versions of one

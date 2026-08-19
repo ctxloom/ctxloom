@@ -205,6 +205,12 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		files = append(files, LoadedSkillFile{RelPath: m.Path, Content: data, Mode: uint32(mode)})
 	}
 
+	trustRef, err := ItemRefFor(read.SourceRef(), trust.KindSkill, name)
+	if err != nil {
+		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
+		return nil
+	}
+
 	return &LoadedSkill{
 		Name:         bundle.Name + "/" + name,
 		Bundle:       bundle.Name,
@@ -214,7 +220,7 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		Files:        files,
 		LLM:          entry.LLM,
 		Tags:         slices.Concat(bundle.Tags, entry.Tags),
-		TrustRef:     ItemRefFor(read.SourceRef(), trust.KindSkill, name),
+		TrustRef:     trustRef,
 		TrustPayload: payload,
 		Signer:       bundle.Signer(),
 		Read:         read,

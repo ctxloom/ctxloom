@@ -1039,7 +1039,7 @@ func tsCountersignRef(cliRef string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse item ref %q: %w", cliRef, err)
 	}
-	return operations.CountersignRef(trust.RefFromBundleRef(br)), nil
+	return operations.CountersignRef(trust.RefFromBundleRef(br))
 }
 
 // tsAssertCollisionRoles is the assertion the text→exec escalation scenario

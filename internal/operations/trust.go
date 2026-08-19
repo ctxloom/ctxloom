@@ -860,7 +860,10 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 		return nil, err
 	}
 
-	refStr := CountersignRef(tRef)
+	refStr, err := CountersignRef(tRef)
+	if err != nil {
+		return nil, fmt.Errorf("cannot approve %q: %w", req.Ref, err)
+	}
 
 	var principal string
 	if !unsigned {
@@ -977,7 +980,10 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 		return nil, err
 	}
 
-	refStr := CountersignRef(tRef)
+	refStr, err := CountersignRef(tRef)
+	if err != nil {
+		return nil, fmt.Errorf("cannot reject %q: %w", req.Ref, err)
+	}
 
 	// Ref-level (sticky) block — the durable guarantee, written even when the
 	// item cannot be resolved (e.g. already deleted).

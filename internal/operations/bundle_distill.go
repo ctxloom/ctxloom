@@ -177,7 +177,15 @@ func invalidatedByDistill(cfg *config.Config, bundleName string, items []Distill
 			continue
 		}
 		ref := trust.Ref{Bundle: bundleName, Kind: tKind, Name: it.Name, IsLocal: true}
-		prior, err := records.hadPriorApprove(CountersignRef(ref), signing.FormDistilled)
+		refStr, refErr := CountersignRef(ref)
+		if refErr != nil {
+			// Cannot address it → it has no recorded approval to invalidate,
+			// and the gate withholds it regardless. Say so and move on; one
+			// unaddressable item must not cost the rest of the report.
+			clidiag.Warn("ctxloom", "distill: cannot address %s/%s to check its approval: %v", it.Kind, it.Name, refErr)
+			continue
+		}
+		prior, err := records.hadPriorApprove(refStr, signing.FormDistilled)
 		if err != nil {
 			// Cannot tell whether this item had a prior approval — say so and
 			// list it anyway. Over-warning costs a re-review; under-warning

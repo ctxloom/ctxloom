@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,38 +11,40 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// TestZeroRef_AddressesButIsInertAndUnreachable pins why a zero-valued
-// trust.Ref producing a deterministic countersign-store address is not a
-// silent no-op.
+// TestZeroRef_HasNoAddressAndIsInert pins that a zero-valued trust.Ref has NO
+// countersign-store address at all, and that nothing downstream can act as
+// though it had one.
 //
-// CountersignRef bridges through
-// Ref.AsBundleRef onto trust.BundleRef's stricter grammar, which refuses an
-// empty bundle name (see bundleref_test.go, "minters refuse an empty name"),
-// so the zero Ref no longer converts — CountersignRef falls back to a
-// %#v-of-the-Ref address instead (see CountersignRef's doc for why that
-// fallback can never collide with a real BundleRef.Identity()). The address
-// is still DETERMINISTIC and still addresses nothing meaningful, so the same
-// three properties still make it harmless, and each is asserted below rather
-// than argued:
+// CountersignRef bridges through Ref.AsBundleRef onto trust.BundleRef's
+// stricter grammar, which refuses an empty bundle name (see bundleref_test.go,
+// "minters refuse an empty name"), so the zero Ref does not convert and
+// CountersignRef REFUSES it. No placeholder address is minted: an address is
+// what a human's countersignature is recorded against, and one that addresses
+// nothing would record a decision nobody could ever have made.
 //
-//  1. INERT at the countersignature seam. The empty kind derives no
-//     attestation form, so nothing can be approved or content-rejected under
-//     that address; Rejected's form loop does not execute at all.
+// The three properties that make the zero Ref harmless are asserted below
+// rather than argued:
+//
+//  1. UNADDRESSABLE at the countersignature seam — no address, and the empty
+//     kind derives no attestation form either, so nothing can be approved or
+//     content-rejected under it.
 //  2. WITHHELD by the decision function. Not rejected, not retracted, not
 //     local, not builtin, no signer, not approvable — it falls through to the
 //     terminal fail-closed default.
 //  3. UNREACHABLE anyway. The zero Ref is produced by exactly one thing,
 //     the ask boundary's failure arms, and it is produced only ALONGSIDE an
 //     error that every caller checks before using the value.
-func TestZeroRef_AddressesButIsInertAndUnreachable(t *testing.T) {
+func TestZeroRef_HasNoAddressAndIsInert(t *testing.T) {
 	zero := trust.Ref{}
 
 	assert.Equal(t, "#/", zero.Key())
 	assert.Empty(t, zero.CanonicalURL())
-	assert.Equal(t, fmt.Sprintf("ctxloom+unaddressable:%#v", zero), CountersignRef(zero))
+	addr, err := CountersignRef(zero)
+	require.Error(t, err, "the zero Ref must have no countersign-store address")
+	assert.Empty(t, addr, "a refusal must yield no address, not a stand-in for one")
 
 	// 1. Nothing can be countersigned at that address.
-	_, err := attestationFormFor(zero.Kind, signing.FormRaw)
+	_, err = attestationFormFor(zero.Kind, signing.FormRaw)
 	assert.Error(t, err, "the empty kind must derive no attestation form")
 	assert.Empty(t, attestationFormsFor(zero.Kind),
 		"an empty kind offering a form would let a content rejection — or an approval — key off '|#/'")

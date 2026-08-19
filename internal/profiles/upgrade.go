@@ -217,7 +217,7 @@ func renormalizeStoredRef(ref string) (string, bool) {
 	if err != nil {
 		return ref, false
 	}
-	normalized := parsed.CanonicalString()
+	normalized := parsed.LockKey()
 	if parsed.ContentVersion != "" {
 		normalized += "@" + parsed.ContentVersion
 	}

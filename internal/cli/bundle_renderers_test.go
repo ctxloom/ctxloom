@@ -88,6 +88,44 @@ func TestRenderBundleList_ZeroCountsSuppressContainsLine(t *testing.T) {
 	assert.NotContains(t, buf.String(), "Contains:")
 }
 
+// TestRenderBundleList_SharedNameRendersItsURI proves the rendered listing —
+// not just the label helper — carries the canonical URI for two rows that show
+// one name, and that the two rows come out as different lines. Without it a
+// user handed the ambiguity refusal ("isolation names more than one bundle:
+// ctxloom+builtin:isolation, ctxloom+local:isolation") has no way to see which
+// row is which.
+func TestRenderBundleList_SharedNameRendersItsURI(t *testing.T) {
+	infos := []*bundles.BundleInfo{
+		{Name: "isolation", Ref: "ctxloom+builtin:isolation", Version: "1.0.0"},
+		{Name: "isolation", Ref: "ctxloom+local:isolation", Version: "2.0.0"},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, renderBundleList(&buf, infos))
+	out := buf.String()
+
+	assert.Contains(t, out, "  isolation (ctxloom+builtin:isolation) (v1.0.0)")
+	assert.Contains(t, out, "  isolation (ctxloom+local:isolation) (v2.0.0)")
+	assert.NotContains(t, out, "  isolation (v",
+		"neither row may render as the bare ambiguous name")
+}
+
+// TestRenderBundleList_UniqueNameRendersNoURI is the over-eager-disambiguation
+// guard: the parenthetical means "another row shows this same name", so a row
+// nothing collides with must not carry one.
+func TestRenderBundleList_UniqueNameRendersNoURI(t *testing.T) {
+	infos := []*bundles.BundleInfo{
+		{Name: "isolation", Ref: "ctxloom+builtin:isolation", Version: "1.0.0"},
+		{Name: "kit", Ref: "ctxloom+local:kit", Version: "2.0.0"},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, renderBundleList(&buf, infos))
+	out := buf.String()
+
+	assert.Contains(t, out, "  isolation (v1.0.0)")
+	assert.Contains(t, out, "  kit (v2.0.0)")
+	assert.NotContains(t, out, "ctxloom+", "no row here is ambiguous, so no URI belongs in the listing")
+}
+
 // =============================================================================
 // renderBundleShow
 // =============================================================================

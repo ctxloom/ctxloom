@@ -391,6 +391,40 @@ func (c Catalog) Infos() []*BundleInfo {
 	return out
 }
 
+// ListingNames returns the label each info is shown under, in the SAME order
+// as infos so a renderer walks the two together by index.
+//
+// A row is shown under its Name. Two rows that would show the same Name are
+// shown as "<name> (<uri>)" instead, because the bare name is then a handle
+// that resolves to nothing: Catalog.Lookup refuses such an ask as ambiguous
+// and names every candidate's canonical URI, so a listing that never prints
+// those URIs leaves the reader holding a refusal whose remedy names a string
+// the listing did not contain. The parenthetical is BundleInfo.Ref — byte-
+// identical to what the refusal names — so it can be typed straight back.
+//
+// A single row keeps its bare name. Disambiguating a name nothing collides
+// with would put a URI in front of every reader to fix an ambiguity that is
+// not there, and the parenthetical would stop meaning "these two differ".
+//
+// A row with no canonical URI (an entry known only from the lockfile, whose
+// content is gone upstream) has nothing to be told apart BY and keeps its bare
+// name rather than rendering an empty parenthetical.
+func ListingNames(infos []*BundleInfo) []string {
+	shown := make(map[string]int, len(infos))
+	for _, info := range infos {
+		shown[info.Name]++
+	}
+	out := make([]string, 0, len(infos))
+	for _, info := range infos {
+		if shown[info.Name] > 1 && info.Ref != "" {
+			out = append(out, fmt.Sprintf("%s (%s)", info.Name, info.Ref))
+			continue
+		}
+		out = append(out, info.Name)
+	}
+	return out
+}
+
 // admit decides whether one read becomes addressable content, and is the ONLY
 // place in the read path that can answer no.
 //

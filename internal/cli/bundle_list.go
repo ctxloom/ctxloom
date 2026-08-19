@@ -67,9 +67,13 @@ func renderBundleList(out io.Writer, infos []*bundles.BundleInfo) error {
 		return w.Err()
 	}
 
+	// The labels are computed over the WHOLE listing, not per entry: whether a
+	// name needs its canonical URI beside it is a fact about the set, and no
+	// row can answer it alone.
+	labels := bundles.ListingNames(infos)
 	w.Printf("Installed bundles (%d):\n\n", len(infos))
-	for _, info := range infos {
-		renderBundleListEntry(w, info)
+	for i, info := range infos {
+		renderBundleListEntry(w, info, labels[i])
 	}
 	return w.Err()
 }
@@ -94,8 +98,13 @@ func bundleContentParts(info *bundles.BundleInfo) []string {
 
 // renderBundleListEntry writes one bundle's summary line plus its optional
 // description, Contains, and Tags lines.
-func renderBundleListEntry(w *iox.ErrWriter, info *bundles.BundleInfo) {
-	w.Printf("  %s", info.Name)
+//
+// label is what this row is shown under — bundles.ListingNames' answer for it,
+// which is info.Name unless another row in the same listing shows that same
+// name. It is passed in rather than derived here because the disambiguation
+// rule needs the whole set and this function sees one row.
+func renderBundleListEntry(w *iox.ErrWriter, info *bundles.BundleInfo, label string) {
+	w.Printf("  %s", label)
 	if info.Deleted {
 		// Removed upstream: no version/metadata to show — just flag it.
 		w.Println(" (deleted upstream)")

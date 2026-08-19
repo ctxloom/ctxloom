@@ -1850,7 +1850,7 @@ mcp:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test-bundle.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadMCPFromBundleRef("test-bundle", loader, bundles.AdmitAll())
+	result := loadMCPFromBundleRef("test-bundle", loader.Catalog(), bundles.AdmitAll())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -1861,7 +1861,7 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{tmpDir}))
 
 	// Invalid bundle reference
-	result := loadMCPFromBundleRef("nonexistent-bundle", loader, bundles.AdmitAll())
+	result := loadMCPFromBundleRef("nonexistent-bundle", loader.Catalog(), bundles.AdmitAll())
 	assert.Empty(t, result)
 }
 
@@ -1880,7 +1880,7 @@ func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 	require.NoError(t, err)
 	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, ref))
 
-	result := loadMCPFromBundleRef(ref, loader, bundles.AdmitAll())
+	result := loadMCPFromBundleRef(ref, loader.Catalog(), bundles.AdmitAll())
 	assert.Contains(t, result, "sequential-thinking",
 		"a remote bundle resolved only via the seed must still yield its MCP server")
 	assert.Equal(t, "npx", result["sequential-thinking"].Command)
@@ -1910,7 +1910,7 @@ hooks:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef("with-hooks", loader, bundles.AdmitAll())
+	result := loadHooksFromBundleRef("with-hooks", loader.Catalog(), bundles.AdmitAll())
 
 	require.Len(t, result.PostTool, 1)
 	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
@@ -1936,7 +1936,7 @@ mcp:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef("no-hooks", loader, bundles.AdmitAll())
+	result := loadHooksFromBundleRef("no-hooks", loader.Catalog(), bundles.AdmitAll())
 
 	assert.Empty(t, result.PostTool)
 	assert.Empty(t, result.PreTool)

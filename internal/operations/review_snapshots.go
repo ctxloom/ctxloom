@@ -225,20 +225,20 @@ func copyTrustObjects(fs afero.Fs, src, dst string) error {
 // snapshotted like fragments/commands (IsContent() includes trust.KindSkill).
 //
 // Best-effort by construction (every write path warns instead of failing).
-func snapshotAcceptedItemContent(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref, key trust.BundleKey, fs afero.Fs, rawHash, distilledHash string) {
+func snapshotAcceptedItemContent(cfg *config.Config, cat bundles.Catalog, tRef trust.Ref, key trust.BundleKey, fs afero.Fs, rawHash, distilledHash string) {
 	if !tRef.Kind.IsContent() {
 		return
 	}
-	bundle, err := loader.LoadKey(key)
+	bundle, err := cat.LoadKey(key)
 	if err != nil {
 		clidiag.Warn("ctxloom", "could not snapshot accepted content for %q: %v", tRef.Key(), err)
 		return
 	}
-	// loader.FS() — NOT fs: fs is the snapshot store, while a skill's
-	// manifest must be derived from the same filesystem the loader resolved
-	// the bundle tree on, or the snapshot would describe a different tree
-	// than the hash it is filed under.
-	raw, distilled, ok := itemContentPair(loader.FS(), bundle, tRef)
+	// The SET's filesystem — NOT fs: fs is the snapshot store, while a skill's
+	// manifest must be derived from the same filesystem the bundle tree was
+	// resolved on, or the snapshot would describe a different tree than the
+	// hash it is filed under.
+	raw, distilled, ok := itemContentPair(cat.FS(), bundle, tRef)
 	if !ok {
 		clidiag.Warn("ctxloom", "could not snapshot accepted content: %q not found in %q", tRef.Name, key)
 		return

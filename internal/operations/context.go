@@ -133,7 +133,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 		requested = append(requested, resolved)
 		allFragments = append(allFragments, config.FragmentRef{Name: resolved, Priority: 0})
 	}
-	reqTagFragments, err := fragmentsFromTags(loader, req.Tags)
+	reqTagFragments, err := fragmentsFromTags(loader.Catalog(), req.Tags)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list fragments by tags: %w", err)
 	}
@@ -263,11 +263,11 @@ func resolveContextProfileNames(cfg *config.Config, req AssembleContextRequest) 
 // ("<canonical-bundle>#fragments/<name>") — the origin bundle is known here,
 // and discarding it would make same-named fragments from different bundles
 // indistinguishable downstream (exclusion matching, dedup).
-func fragmentsFromTags(loader *bundles.Loader, tags []string) ([]config.FragmentRef, error) {
+func fragmentsFromTags(cat bundles.Catalog, tags []string) ([]config.FragmentRef, error) {
 	if len(tags) == 0 {
 		return nil, nil
 	}
-	taggedInfos, err := loader.ListByTags(tags)
+	taggedInfos, err := cat.ByTags(tags)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			profileVars[k] = v
 		}
 
-		tagFragments, err := fragmentsFromTags(loader, profile.SelectTags)
+		tagFragments, err := fragmentsFromTags(loader.Catalog(), profile.SelectTags)
 		if err != nil {
 			return nil, nil, "", nil, fmt.Errorf("failed to list fragments by profile tags: %w", err)
 		}

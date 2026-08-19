@@ -49,32 +49,30 @@ func ResolveItemAsk(cat bundles.Catalog, ask string) (trust.BundleRef, error) {
 }
 
 // resolveMutationTarget is the shared preamble of the three trust mutations
-// (`bundle trust`, `bundle reject`, `bundle forget`): the loader they read
-// content through, the trust identity the countersign record keys on, and the
-// bundle key that content loads from.
+// (`bundle trust`, `bundle reject`, `bundle forget`): the resolved set they
+// read content through, the trust identity the countersign record keys on, and
+// the bundle key that content loads from.
 //
-// The loader is resolved FIRST because the ask needs its catalog, and it comes
-// back so the caller reads content through the same one — a second loader
-// could see a different resolved set than the ask was answered against.
-func resolveMutationTarget(cfg *config.Config, reqLoader *bundles.Loader, ask string) (*bundles.Loader, trust.Ref, trust.BundleKey, error) {
+// The set comes BACK rather than being resolved again by the caller, because
+// the ask was answered against it — a second resolve could see a different set
+// than the one that decided which item the ask names.
+//
+// With no loader and no config there is nothing to resolve against, and the
+// EMPTY set is the honest answer: a mutation whose ask resolves to nothing
+// refuses, which is the same verdict as an ask for a bundle that is not there
+// and safer than either.
+func resolveMutationTarget(cfg *config.Config, reqLoader *bundles.Loader, ask string) (bundles.Catalog, trust.Ref, trust.BundleKey, error) {
 	loader := reqLoader
 	if loader == nil && cfg != nil {
 		loader = bundleLoader(cfg)
 	}
-	br, err := ResolveItemAsk(loaderCatalog(loader), ask)
+	var cat bundles.Catalog
+	if loader != nil {
+		cat = loader.Catalog()
+	}
+	br, err := ResolveItemAsk(cat, ask)
 	if err != nil {
-		return nil, trust.Ref{}, "", err
+		return bundles.Catalog{}, trust.Ref{}, "", err
 	}
-	return loader, trust.RefFromBundleRef(br), br.BundleIdentity(), nil
-}
-
-// loaderCatalog is loader's resolved set, or the EMPTY set when there is no
-// loader to ask. A mutation whose ask cannot be resolved refuses; refusing
-// because nothing can be seen is the same answer as refusing because the
-// bundle is not there, and both are safer than resolving.
-func loaderCatalog(loader *bundles.Loader) bundles.Catalog {
-	if loader == nil {
-		return bundles.Catalog{}
-	}
-	return loader.Catalog()
+	return cat, trust.RefFromBundleRef(br), br.BundleIdentity(), nil
 }

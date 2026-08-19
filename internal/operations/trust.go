@@ -842,11 +842,11 @@ type SetItemTrustResult struct {
 // Alongside the store write it snapshots the approved bytes (content kinds
 // only, best-effort) so a later upstream change can be reviewed as a diff.
 func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustResult, error) {
-	loader, tRef, key, err := resolveMutationTarget(cfg, req.Loader, req.Ref)
+	cat, tRef, key, err := resolveMutationTarget(cfg, req.Loader, req.Ref)
 	if err != nil {
 		return nil, err
 	}
-	attestations, _, err := itemAttestations(loader, tRef, key)
+	attestations, _, err := itemAttestations(cat, tRef, key)
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve %q to approve it: %w", req.Ref, err)
 	}
@@ -900,7 +900,7 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 		}
 	}
 
-	snapshotAcceptedItemContent(cfg, loader, tRef, key, req.FS, rawHash, distilledHash)
+	snapshotAcceptedItemContent(cfg, cat, tRef, key, req.FS, rawHash, distilledHash)
 
 	res := &SetItemTrustResult{
 		Status:   "approved",
@@ -963,7 +963,7 @@ type SetBlacklistResult struct {
 // rejected wherever it appears (spec §5.3's asymmetry: approve binds the
 // ref, reject's content component deliberately does not).
 func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistResult, error) {
-	loader, tRef, key, err := resolveMutationTarget(cfg, req.Loader, req.Ref)
+	cat, tRef, key, err := resolveMutationTarget(cfg, req.Loader, req.Ref)
 	if err != nil {
 		return nil, err
 	}
@@ -996,7 +996,7 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 	// mental model uses ("raw", "distilled"); the record itself binds the
 	// derived attestation form.
 	var forms []string
-	if attestations, _, herr := itemAttestations(loader, tRef, key); herr == nil {
+	if attestations, _, herr := itemAttestations(cat, tRef, key); herr == nil {
 		for _, a := range attestations {
 			var werr error
 			if unsigned {
@@ -1047,8 +1047,8 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 // record a countersignature must go through itemAttestations, which pairs each
 // payload with the attestation form derived from the item's kind. Nothing that
 // writes a countersignature may pick a form itself.
-func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, key trust.BundleKey) (rawPayload, distilledPayload []byte, signer string, err error) {
-	bundle, err := loader.LoadKey(key)
+func computeItemPayloadPair(cat bundles.Catalog, tRef trust.Ref, key trust.BundleKey) (rawPayload, distilledPayload []byte, signer string, err error) {
+	bundle, err := cat.LoadKey(key)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -1116,7 +1116,7 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, key trust.Bu
 		if dirErr != nil {
 			return nil, nil, "", fmt.Errorf("skill %q: %w", tRef.Name, dirErr)
 		}
-		payload, perr := skill.ContentPayload(loader.FS(), skillDir, tRef.Name)
+		payload, perr := skill.ContentPayload(cat.FS(), skillDir, tRef.Name)
 		if perr != nil {
 			return nil, nil, "", fmt.Errorf("skill %q payload: %w", tRef.Name, perr)
 		}
@@ -1150,8 +1150,8 @@ type itemAttestation struct {
 // A kind with no attestation form yields an error rather than an empty list: it
 // cannot be countersigned, and a caller told "nothing to record" would report a
 // decision it never made.
-func itemAttestations(loader *bundles.Loader, tRef trust.Ref, key trust.BundleKey) ([]itemAttestation, string, error) {
-	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(loader, tRef, key)
+func itemAttestations(cat bundles.Catalog, tRef trust.Ref, key trust.BundleKey) ([]itemAttestation, string, error) {
+	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(cat, tRef, key)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1187,8 +1187,8 @@ func itemAttestations(loader *bundles.Loader, tRef trust.Ref, key trust.BundleKe
 // computeItemPayload resolves the item's CURRENT effective form — distilled when
 // cfg prefers it and a distilled form exists, else raw — returning the exact
 // bytes assembly would expose, their form, and the bundle's verified signer.
-func computeItemPayload(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref, key trust.BundleKey) ([]byte, bundles.ContentForm, string, error) {
-	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(loader, tRef, key)
+func computeItemPayload(cfg *config.Config, cat bundles.Catalog, tRef trust.Ref, key trust.BundleKey) ([]byte, bundles.ContentForm, string, error) {
+	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(cat, tRef, key)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -1286,7 +1286,7 @@ func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
 		return pending
 	}
 	tRef := trust.RefFromBundleRef(br)
-	payload, form, signer, err := computeItemPayload(ts.cfg, ts.loader, tRef, br.BundleIdentity())
+	payload, form, signer, err := computeItemPayload(ts.cfg, ts.loader.Catalog(), tRef, br.BundleIdentity())
 	if err != nil {
 		return pending
 	}

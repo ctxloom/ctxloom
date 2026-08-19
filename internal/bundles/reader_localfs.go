@@ -208,14 +208,21 @@ func (r *localFSReader) recordFailure(name string, err error) {
 	r.failed[name] = err
 }
 
-// ReadFailure reports why the bundle named name is absent from this reader's
-// last read, or nil when this reader has nothing to say about that name. It is
-// how "you asked for a bundle that will not parse" stays distinguishable from
-// "you asked for a bundle that does not exist".
-func (r *localFSReader) ReadFailure(name string) error {
+// ReadFailures reports every bundle this reader's last read found but could not
+// produce, keyed by resolution name. It is how "you asked for a bundle that
+// will not parse" stays distinguishable from "you asked for a bundle that does
+// not exist".
+//
+// The result is a COPY: a resolved set snapshots it, and handing out the live
+// map would let a later read mutate what an earlier resolve reported.
+func (r *localFSReader) ReadFailures() map[string]error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.failed[name]
+	out := make(map[string]error, len(r.failed))
+	for name, err := range r.failed {
+		out[name] = err
+	}
+	return out
 }
 
 // bundleAt reports the manifest path and resolution name of the bundle at one

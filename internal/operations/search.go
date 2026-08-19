@@ -67,6 +67,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	if loader == nil {
 		loader = bundleLoader(cfg)
 	}
+	cat := loader.Catalog()
 
 	// Search is LOCAL only (the remote-search branch, gated on
 	// SearchContentRequest.SearchRemote, was unreachable in production —
@@ -78,9 +79,9 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 		typ string
 		run func() []SearchResult
 	}{
-		{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
-		{"command", func() []SearchResult { return searchCommands(loader, query) }},
-		{"skill", func() []SearchResult { return searchSkills(loader, query) }},
+		{"fragment", func() []SearchResult { return searchFragments(cat, query, req.Tags) }},
+		{"command", func() []SearchResult { return searchCommands(cat, query) }},
+		{"skill", func() []SearchResult { return searchSkills(cat, query) }},
 		{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
 		{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
 	}
@@ -124,13 +125,13 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 // query. When tags are given, the candidate set is the tag-filtered fragments;
 // otherwise it is all fragments. Loader errors yield no results (search degrades
 // rather than failing).
-func searchFragments(loader *bundles.Loader, query string, tags []string) []SearchResult {
+func searchFragments(cat bundles.Catalog, query string, tags []string) []SearchResult {
 	var infos []bundles.ContentInfo
 	var err error
 	if len(tags) > 0 {
-		infos, err = loader.ListByTags(tags)
+		infos, err = cat.ByTags(tags)
 	} else {
-		infos, err = loader.ListAllFragments()
+		infos, err = cat.ListAllFragments()
 	}
 	if err != nil {
 		return nil
@@ -159,8 +160,8 @@ func searchFragments(loader *bundles.Loader, query string, tags []string) []Sear
 
 // searchCommands returns prompts whose name matches query. Loader errors
 // yield no results.
-func searchCommands(loader *bundles.Loader, query string) []SearchResult {
-	prompts, err := loader.ListAllCommands()
+func searchCommands(cat bundles.Catalog, query string) []SearchResult {
+	prompts, err := cat.ListAllCommands()
 	if err != nil {
 		return nil
 	}
@@ -180,8 +181,8 @@ func searchCommands(loader *bundles.Loader, query string) []SearchResult {
 
 // searchSkills returns Agent Skill packages whose name or description matches
 // query. Loader errors yield no results — mirrors searchCommands.
-func searchSkills(loader *bundles.Loader, query string) []SearchResult {
-	infos, err := loader.ListAllSkills()
+func searchSkills(cat bundles.Catalog, query string) []SearchResult {
+	infos, err := cat.ListAllSkills()
 	if err != nil {
 		return nil
 	}

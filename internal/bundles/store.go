@@ -72,11 +72,7 @@ func NewFSStore(fsys afero.Fs, dirs []string) Store {
 // project-only reader — is what lets the store share one resolved view with
 // everything else without widening what it may write.
 func (s *fsStore) Load(name string) (*Bundle, error) {
-	read, err := s.Loader.Catalog().Scoped(ProvenanceProject).Lookup(name)
-	if err != nil {
-		return nil, s.Loader.explain(name, err)
-	}
-	return read.Bundle, nil
+	return s.Loader.Catalog().Scoped(ProvenanceProject).Load(name)
 }
 
 // Save writes the bundle back to its Path (which the caller sets — to the

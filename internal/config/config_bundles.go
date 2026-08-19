@@ -213,15 +213,16 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// so a companion's server is judged by ITS bundle's own source ref and
 	// verified Signer(), never the builtin exemption. Sorted for a
 	// deterministic result across runs.
-	for _, ref := range companionRefs(bundleLoader) {
-		addServers(loadMCPFromBundleRef(ref, bundleLoader, c.ExecutableTrustGate()))
+	cat := bundleLoader.Catalog()
+	for _, ref := range companionRefs(cat) {
+		addServers(loadMCPFromBundleRef(ref, cat, c.ExecutableTrustGate()))
 	}
 
 	// Finally the profile-referenced bundles, so profile-sourced servers still
 	// override builtin/companion ones of the same name.
 	for _, resolved := range scopedProfiles {
 		for _, bundleRef := range resolved.Bundles {
-			addServers(loadMCPFromBundleRef(bundleRef, bundleLoader, c.ExecutableTrustGate()))
+			addServers(loadMCPFromBundleRef(bundleRef, cat, c.ExecutableTrustGate()))
 		}
 	}
 
@@ -292,8 +293,8 @@ func resolveProfileOrReport(profileLoader *profiles.Loader, profileName string) 
 // the seeded-bundle map first: remote bundles are no longer extracted to disk
 // (they live only in the SeededBundleLoader seed), so resolving a remote ref by
 // a computed filesystem path would silently find nothing and drop its servers.
-func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.Authorizer) map[string]wire.MCPServer {
-	read, err := loader.Read(bundleRef)
+func loadMCPFromBundleRef(bundleRef string, cat bundles.Catalog, gate bundles.Authorizer) map[string]wire.MCPServer {
+	read, err := cat.Read(bundleRef)
 	if err != nil {
 		reportBundleRefLoadFailure(bundleRef, err)
 		return nil
@@ -355,41 +356,56 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	// Companion loadout hooks: same extraction+gate path a profile-referenced
 	// bundle uses, keyed and signed by the companion's OWN bundle — never the
 	// builtin exemption. Sorted for a deterministic result across runs.
-	for _, ref := range companionRefs(bundleLoader) {
-		result.Append(loadHooksFromBundleRef(ref, bundleLoader, c.ExecutableTrustGate()))
+	cat := bundleLoader.Catalog()
+	for _, ref := range companionRefs(cat) {
+		result.Append(loadHooksFromBundleRef(ref, cat, c.ExecutableTrustGate()))
 	}
 
+	c.eachProfileBundleRef(profileNames, func(bundleRef string) {
+		result.Append(loadHooksFromBundleRef(bundleRef, cat, c.ExecutableTrustGate()))
+	})
+	return result
+}
+
+// eachProfileBundleRef calls fn with every bundle reference the selected
+// profiles carry — the caller's explicit selection when non-empty, else the
+// configured defaults — in profile order, then in the order each profile lists
+// them.
+//
+// Profiles resolve RECURSIVELY, so a bundle inherited from a parent profile is
+// visited like one the child names directly; a flat load would drop it. A
+// profile that does not resolve is reported and skipped rather than aborting
+// the walk, so one broken profile cannot silence the rest.
+//
+// With no profiles in scope, or no app paths to read them from, there is
+// nothing to walk and fn is never called.
+func (c *Config) eachProfileBundleRef(profileNames []string, fn func(bundleRef string)) {
 	profiles := c.resolveProfileScope(profileNames)
 	if len(profiles) == 0 || len(c.appPaths) == 0 {
-		return result
+		return
 	}
 	profileLoader := c.GetProfileLoader()
-
 	for _, profileName := range profiles {
-		// Resolve recursively so hooks shipped by bundles inherited from
-		// parent profiles are included (matches ResolveBundleMCPServers and
-		// the fragment resolution path); a flat Load would drop them.
 		resolved, ok := resolveProfileOrReport(profileLoader, profileName)
 		if !ok {
 			continue
 		}
 		for _, bundleRef := range resolved.Bundles {
-			hooks := loadHooksFromBundleRef(bundleRef, bundleLoader, c.ExecutableTrustGate())
-			result.Append(hooks)
+			fn(bundleRef)
 		}
 	}
-	return result
 }
 
 // companionRefs returns the loader's companion loadout refs
 // (ctxloom:companion@<bin>) in deterministic sorted order.
 //
-// It asks the LOADER what it read rather than re-probing: the reads already
-// carry which source each bundle came from, so "everything the companion reader
-// contributed" is a fact on the record instead of a second discovery pass that
-// could answer differently — and it does not exec anything a second time.
-func companionRefs(loader *bundles.Loader) []string {
-	reads := readsWithProvenance(loader, bundles.ProvenanceCompanion)
+// It asks the RESOLVED SET what was read rather than re-probing: the reads
+// already carry which source each bundle came from, so "everything the
+// companion reader contributed" is a fact on the record instead of a second
+// discovery pass that could answer differently — and it does not exec anything
+// a second time.
+func companionRefs(cat bundles.Catalog) []string {
+	reads := companionReads(cat)
 	out := make([]string, 0, len(reads))
 	for _, read := range reads {
 		out = append(out, read.DisplayName())
@@ -397,24 +413,10 @@ func companionRefs(loader *bundles.Loader) []string {
 	return out
 }
 
-// readsWithProvenance returns the loader's reads of one provenance class in a
-// deterministic order.
-//
-// It replaces three hand-rolled copies of the same filter (companionRefs,
-// companionReads, and the builtin walk) that differed only in what they
-// projected out of the read — reprise flagged the first two as an exact
-// duplicate. Filtering a resolved set by provenance needs nothing but the read
-// itself: no trust gate, no wire types. When the resolved set becomes a named
-// value this moves onto it as a method, which is where it belongs; keeping it
-// here now is what stops a fourth copy being written in the meantime.
-func readsWithProvenance(loader *bundles.Loader, prov bundles.ProvenanceClass) []bundles.BundleRead {
-	return loader.Catalog().Scoped(prov).Reads()
-}
-
-// companionReads returns the loader's companion loadout reads in the same
-// deterministic order, for the one caller that needs the bundles themselves.
-func companionReads(loader *bundles.Loader) []bundles.BundleRead {
-	return readsWithProvenance(loader, bundles.ProvenanceCompanion)
+// companionReads returns the companion loadout reads in deterministic order,
+// for the callers that need the bundles themselves.
+func companionReads(cat bundles.Catalog) []bundles.BundleRead {
+	return cat.Scoped(bundles.ProvenanceCompanion).Reads()
 }
 
 // resolveProfileScope returns the profile set a bundle-resolution call should
@@ -465,23 +467,13 @@ func (c *Config) ResolveBundleCommands(profileNames []string, opts ...BundleLoad
 		out = append(out, prompt)
 	}
 
-	profiles := c.resolveProfileScope(profileNames)
-	if len(profiles) > 0 && len(c.appPaths) > 0 {
-		profileLoader := c.GetProfileLoader()
-		for _, profileName := range profiles {
-			resolved, ok := resolveProfileOrReport(profileLoader, profileName)
-			if !ok {
-				continue
-			}
-			for _, bundleRef := range resolved.Bundles {
-				for _, prompt := range pipe.CommandsFromBundleRef(bundleRef) {
-					add(prompt)
-				}
-			}
+	c.eachProfileBundleRef(profileNames, func(bundleRef string) {
+		for _, prompt := range pipe.CommandsFromBundleRef(bundleRef) {
+			add(prompt)
 		}
-	}
+	})
 
-	for _, command := range resolveCompanionCommandsWith(pipe, loader) {
+	for _, command := range resolveCompanionCommandsWith(pipe, loader.Catalog()) {
 		add(command)
 	}
 	return out
@@ -511,21 +503,11 @@ func (c *Config) ResolveBundleSkills(profileNames []string, opts ...BundleLoader
 		out = append(out, skill)
 	}
 
-	profiles := c.resolveProfileScope(profileNames)
-	if len(profiles) > 0 && len(c.appPaths) > 0 {
-		profileLoader := c.GetProfileLoader()
-		for _, profileName := range profiles {
-			resolved, ok := resolveProfileOrReport(profileLoader, profileName)
-			if !ok {
-				continue
-			}
-			for _, bundleRef := range resolved.Bundles {
-				for _, skill := range pipe.SkillsFromBundleRef(bundleRef) {
-					add(skill)
-				}
-			}
+	c.eachProfileBundleRef(profileNames, func(bundleRef string) {
+		for _, skill := range pipe.SkillsFromBundleRef(bundleRef) {
+			add(skill)
 		}
-	}
+	})
 	return out
 }
 
@@ -545,16 +527,16 @@ func (c *Config) ResolveBundleSkills(profileNames []string, opts ...BundleLoader
 func (c *Config) ResolveCompanionCommands(opts ...BundleLoaderOption) []*bundles.LoadedContent {
 	loader := c.BundleLoader(opts...)
 	return resolveCompanionCommandsWith(
-		bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.ShouldUseDistilled()), loader)
+		bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.ShouldUseDistilled()), loader.Catalog())
 }
 
 // resolveCompanionCommandsWith is the shared companion-command extraction
 // loop, taking an already-built pipeline so ResolveBundleCommands (which needs
 // one for the profile-scoped pass too) doesn't construct a second one. Gate and
 // form travel with it, so both callers necessarily agree on both.
-func resolveCompanionCommandsWith(pipe *bundles.Pipeline, loader *bundles.Loader) []*bundles.LoadedContent {
+func resolveCompanionCommandsWith(pipe *bundles.Pipeline, cat bundles.Catalog) []*bundles.LoadedContent {
 	var out []*bundles.LoadedContent
-	for _, ref := range companionRefs(loader) {
+	for _, ref := range companionRefs(cat) {
 		out = append(out, pipe.CommandsFromBundleRef(ref)...)
 	}
 	return out
@@ -661,7 +643,7 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 	// seeded bundle. Do NOT route this through the builtin ref prefix above:
 	// that is precisely the nil-gate/exemption bypass the trust rework
 	// forbids for third-party content.
-	for _, read := range companionReads(c.BundleLoader()) {
+	for _, read := range companionReads(c.BundleLoader().Catalog()) {
 		out = fragmentsFromBundle(out, read, read.SourceRef(), preferDistilled, gate)
 	}
 	return out
@@ -728,8 +710,8 @@ func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
-func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.Authorizer) wire.UnifiedHooks {
-	read, err := loader.Read(bundleRef)
+func loadHooksFromBundleRef(bundleRef string, cat bundles.Catalog, gate bundles.Authorizer) wire.UnifiedHooks {
+	read, err := cat.Read(bundleRef)
 	if err != nil {
 		reportBundleRefLoadFailure(bundleRef, err)
 		return wire.UnifiedHooks{}

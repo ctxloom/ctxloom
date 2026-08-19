@@ -2,9 +2,14 @@ package bundles
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"strings"
+
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -14,15 +19,13 @@ import (
 
 // Catalog is the RESOLVED bundle set: everything a session can see, read once.
 //
-// It is a VALUE, and that is the whole point of it existing. Every consumer used
-// to hold a *Loader — a RESOLVER — which meant every consumer could re-read the
-// world, and 22 of them did on a single `ctxloom doctor` run. A resolved set
-// cannot: holding one triggers no directory walk and no parse, so the question
-// "who re-reads, and when" has exactly one answer instead of one per call site.
+// It is a VALUE, and that is the whole point of it existing. A consumer holding
+// a RESOLVER can re-read the world, and a consumer per call site means a re-read
+// per call site. Holding a resolved set triggers no directory walk and no parse,
+// so "who re-reads, and when" has exactly one answer.
 //
-// The reads were always here; what was missing was a NAME for the collection.
-// Loader.Reads() returned a fresh []BundleRead copy on every call and nothing
-// named it, so there was nothing to pass and everyone passed the resolver.
+// Pass this, not the resolver, wherever a caller only needs to ASK what is in
+// the world rather than to rebuild it.
 type Catalog struct {
 	reads []BundleRead // every read, in listing order
 
@@ -43,6 +46,34 @@ type Catalog struct {
 	// report can name it; it is simply not resolvable, which is the same
 	// fail-closed verdict its item refs already get.
 	byKey map[trust.BundleKey]BundleRead
+
+	// fs is the filesystem the local content in this set was read from, and
+	// it is carried rather than re-derived because a skill's trust preimage
+	// is computed from its on-disk tree: computing that preimage against a
+	// DIFFERENT filesystem yields a different hash for the same skill and
+	// withholds it in silence. The set therefore reads skill trees through
+	// the same filesystem it resolved from, by construction.
+	//
+	// It is the first reader's filesystem in reader order (readersFS), which
+	// makes reader ORDER decide it — the embedded builtin filesystem ahead of
+	// the project's would redirect every project skill's preimage at a tree
+	// that does not exist there.
+	fs afero.Fs
+
+	// failures is what the readers could say about a name they produced NO
+	// read for: present but unparseable, keyed by the name asked. It is a
+	// SNAPSHOT taken at resolve time, not a handle back to the readers, so
+	// consulting it re-reads nothing.
+	//
+	// Without it "no such bundle" and "that bundle will not parse" collapse
+	// into one verdict, and a corrupt file reads as a typo — pointing the
+	// asker at their spelling instead of at the file they can fix.
+	failures map[string]error
+
+	// warnOut is where this set's user-facing diagnostics go; nil means
+	// os.Stderr. WHERE they go is the caller's decision (WithWarnWriter) —
+	// whether they have already been said is the process's (bundleWarner).
+	warnOut io.Writer
 
 	// candidates are the identities the readers established WITHOUT content.
 	// They are a SECOND collection rather than nil-content entries in reads,
@@ -172,7 +203,67 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 	reads = append(reads, unaddressable...)
 	sortReads(reads)
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].Ref < candidates[j].Ref })
-	return Catalog{reads: reads, byKey: byKey, candidates: candidates}
+	return Catalog{
+		reads:      reads,
+		byKey:      byKey,
+		candidates: candidates,
+		fs:         readersFS(readers),
+		failures:   readerFailures(readers),
+	}
+}
+
+// ReadFailureReporter is a Reader that can say why a name it knows about
+// produced no read.
+//
+// It is a SEPARATE interface, not a widened Reader, so a reader with nothing to
+// say on the subject says nothing rather than returning an empty map a caller
+// cannot tell from "this reader never records". The result is valid only after
+// Read has run: it reports what THAT pass established.
+type ReadFailureReporter interface {
+	Reader
+	ReadFailures() map[string]error
+}
+
+// readerFailures snapshots every read failure the readers recorded, keyed by
+// the name asked.
+//
+// The FIRST reader to have recorded a name wins: readers are consulted in
+// composition order, and an earlier one's account of a name is the one an ask
+// for that name would reach.
+func readerFailures(readers []Reader) map[string]error {
+	var out map[string]error
+	for _, r := range readers {
+		rf, ok := r.(ReadFailureReporter)
+		if !ok {
+			continue
+		}
+		for name, err := range rf.ReadFailures() {
+			if out == nil {
+				out = make(map[string]error)
+			}
+			if _, seen := out[name]; !seen {
+				out[name] = err
+			}
+		}
+	}
+	return out
+}
+
+// readersFS reports the filesystem a composed set of readers reads local
+// content from: the first reader that has one, falling back to the OS
+// filesystem when none does.
+//
+// ORDER decides it, and that is load-bearing rather than incidental. The
+// builtin reader has a filesystem too — the EMBEDDED one — so composing it
+// ahead of the project reader derives every project skill's trust preimage
+// from a tree that does not exist there and withholds the skill in silence.
+func readersFS(readers []Reader) afero.Fs {
+	for _, r := range readers {
+		if fsr, ok := r.(interface{ FS() afero.Fs }); ok {
+			return fsr.FS()
+		}
+	}
+	return afero.NewOsFs()
 }
 
 // sortReads puts a resolved set in listing order: by the name a listing shows,
@@ -441,7 +532,9 @@ func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 	for _, p := range classes {
 		keep[p] = true
 	}
-	out := Catalog{byKey: make(map[trust.BundleKey]BundleRead)}
+	out := c
+	out.reads, out.candidates = nil, nil
+	out.byKey = make(map[trust.BundleKey]BundleRead)
 	for _, read := range c.reads {
 		if !keep[read.Provenance] {
 			continue
@@ -548,4 +641,116 @@ func admit(read BundleRead) bool {
 		return false
 	}
 	return true
+}
+
+// FS returns the filesystem this set's local content was read from.
+//
+// A skill's trust preimage is derived from its on-disk tree
+// (BundleSkill.ContentPayload), so a caller computing that preimage for an item
+// this set resolved MUST use this same filesystem — computing it against a
+// different one produces a different hash for the same skill and silently
+// withholds it.
+func (c Catalog) FS() afero.Fs {
+	if c.fs == nil {
+		return afero.NewOsFs()
+	}
+	return c.fs
+}
+
+// WithWarnWriter returns a copy of this set whose user-facing diagnostics go to
+// w instead of os.Stderr, so a caller can read what the user would have been
+// told. A warning nobody sees is the bug these diagnostics exist to prevent.
+func (c Catalog) WithWarnWriter(w io.Writer) Catalog {
+	c.warnOut = w
+	return c
+}
+
+// warnWriter is the sink for this set's diagnostics.
+func (c Catalog) warnWriter() io.Writer {
+	if c.warnOut == nil {
+		return os.Stderr
+	}
+	return c.warnOut
+}
+
+// Load reads a bundle by ask. See Lookup for what an ask may be and which asks
+// are refused rather than resolved.
+func (c Catalog) Load(ask string) (*Bundle, error) {
+	read, err := c.read(ask)
+	if err != nil {
+		return nil, err
+	}
+	return read.Bundle, nil
+}
+
+// LoadKey reads a bundle by its EXACT resolution key. See LookupKey.
+func (c Catalog) LoadKey(key trust.BundleKey) (*Bundle, error) {
+	read, ok := c.LookupKey(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, key)
+	}
+	return read.Bundle, nil
+}
+
+// read resolves an ask to the read that answers for it, reporting an
+// unresolved ask as what the readers know about it rather than as a bare
+// absence.
+func (c Catalog) read(ask string) (BundleRead, error) {
+	read, err := c.Lookup(ask)
+	if err != nil {
+		return BundleRead{}, c.explain(ask, err)
+	}
+	return read, nil
+}
+
+// Read resolves an ask to the READ that answers for it — the content plus the
+// trust facts its reader established.
+//
+// It exists because the decision function keys on those facts (Authorizer's
+// Exposure carries a BundleRead), and the executable surfaces resolve a bundle
+// by ref without ever going through a Pipeline. Load remains for callers that
+// genuinely only want the bundle.
+func (c Catalog) Read(ask string) (BundleRead, error) { return c.read(ask) }
+
+// explain replaces the ONE resolution verdict a reader can say more about with
+// what the reader knows: a bundle that is absent and a bundle whose file will
+// not parse are different faults, and only the readers can tell them apart.
+// Every other verdict — an ambiguous name, a retired spelling — is already the
+// whole story and passes through untouched.
+func (c Catalog) explain(ask string, err error) error {
+	if errors.Is(err, errs.ErrBundleNotFound) {
+		return c.missing(ask)
+	}
+	return err
+}
+
+// missing explains an ask that resolved to nothing.
+//
+// "Not found" and "found, but unreadable" are different facts and must not
+// share an exit: a bundle whose file will not parse is a fault the asker can
+// FIX, and reporting it as absent points them at their spelling instead of at
+// the file.
+func (c Catalog) missing(ask string) error {
+	if err := c.failures[ask]; err != nil {
+		return fmt.Errorf("bundle %s could not be read: %w", ask, err)
+	}
+	return fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
+}
+
+// Find locates the FILE backing a bundle. It exists for the two callers that
+// need the path itself — deleting a bundle, and reporting whether a short name
+// resolves — and refuses a bundle that has no file, because a synthetic path is
+// not one.
+func (c Catalog) Find(name string) (string, error) {
+	if err := ValidateBundleName(name); err != nil {
+		return "", err
+	}
+	read, err := c.read(name)
+	if err != nil {
+		return "", err
+	}
+	if read.Bundle.Path == "" || isSyntheticPath(read.Bundle.Path) {
+		return "", fmt.Errorf("bundle %q has no file on this machine (it came from %s)", name, read.Provenance)
+	}
+	return read.Bundle.Path, nil
 }

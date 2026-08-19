@@ -80,7 +80,7 @@ type LoadedSkillFile struct {
 // warning — the reader does not HAVE it — never aborting the rest of the
 // bundle's skills. Nothing is dropped on policy grounds; see
 // Pipeline.SkillsFromBundleRef.
-func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
+func (c Catalog) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 	if ask, err := ParseItemAsk(bundleRef); err == nil && ask.Scoped {
 		switch ask.Kind {
 		case trust.KindSkill:
@@ -90,9 +90,9 @@ func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 			// silently reporting zero skills for a ref that asked for one by
 			// name. See ReadBundleCommands' "#commands/" branch — same shape,
 			// same reasoning.
-			reads, err := l.skillFromBundle(ask.Bundle, ask.Item)
+			reads, err := c.skillFromBundle(ask.Bundle, ask.Item)
 			if err != nil {
-				l.warnUnresolvedBundle(bundleRef, err)
+				c.warnUnresolvedBundle(bundleRef, err)
 				return nil
 			}
 			return reads
@@ -103,14 +103,14 @@ func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 			return nil
 		}
 	}
-	read, err := l.lookup(bundleRef)
+	read, err := c.Read(bundleRef)
 	if err != nil {
 		// This feeds the export path that WRITES per-engine skill files, so a
 		// bare `return nil` exported zero skills, exit 0, in silence —
 		// indistinguishable from a bundle that ships none. The
 		// sibling expandBundleRef already warns here through this same warner;
 		// that inconsistency was the tell.
-		l.warnUnresolvedBundle(bundleRef, err)
+		c.warnUnresolvedBundle(bundleRef, err)
 		return nil
 	}
 	bundle := read.Bundle
@@ -121,7 +121,7 @@ func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 	sort.Strings(names)
 	out := make([]*LoadedSkill, 0, len(names))
 	for _, name := range names {
-		if ls := l.skillContent(read, name, bundle.Skills[name]); ls != nil {
+		if ls := c.skillContent(read, name, bundle.Skills[name]); ls != nil {
 			out = append(out, ls)
 		}
 	}
@@ -141,7 +141,7 @@ func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 // It reports nothing, loudly, rather than a partial/tampered one. Deciding
 // whether the package may be DELIVERED is the process stage's call, over the
 // preimage carried out on TrustPayload.
-func (l *Loader) skillContent(read BundleRead, name string, entry BundleSkill) *LoadedSkill {
+func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *LoadedSkill {
 	bundle := read.Bundle
 	// NOT filepath.Dir(bundle.Path): Path is overloaded, and for a companion-
 	// or seeded bundle Dir() of it is ".", which resolved this skill against
@@ -165,7 +165,7 @@ func (l *Loader) skillContent(read BundleRead, name string, entry BundleSkill) *
 	// preimage and skip the verification below, so a manifest-less skill got
 	// a constant hash AND no tamper check — two failures of one trust gate.
 	// A failure to resolve the manifest withholds.
-	manifest, err := entry.EffectiveManifest(l.FS(), bundleDir, name)
+	manifest, err := entry.EffectiveManifest(c.FS(), bundleDir, name)
 	if err != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
 		return nil
@@ -180,12 +180,12 @@ func (l *Loader) skillContent(read BundleRead, name string, entry BundleSkill) *
 	// this is the tamper check against what was signed; for a derived one it
 	// re-confirms the tree still matches the preimage carried out below, so the
 	// bytes the process stage decides on are the bytes just verified.
-	if verr := VerifyExtractedManifest(l.FS(), dir, manifest); verr != nil {
+	if verr := VerifyExtractedManifest(c.FS(), dir, manifest); verr != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, verr)
 		return nil
 	}
 
-	pkg, err := ParseSkillPackage(l.FS(), dir, 0)
+	pkg, err := ParseSkillPackage(c.FS(), dir, 0)
 	if err != nil {
 		clidiag.Warn("ctxloom", "skipping skill %q: %v", name, err)
 		return nil
@@ -193,7 +193,7 @@ func (l *Loader) skillContent(read BundleRead, name string, entry BundleSkill) *
 
 	files := make([]LoadedSkillFile, 0, len(pkg.Manifest))
 	for _, m := range pkg.Manifest {
-		data, rerr := afero.ReadFile(l.FS(), filepath.Join(dir, filepath.FromSlash(m.Path)))
+		data, rerr := afero.ReadFile(c.FS(), filepath.Join(dir, filepath.FromSlash(m.Path)))
 		if rerr != nil {
 			clidiag.Warn("ctxloom", "skipping skill %q: reading %s: %v", name, m.Path, rerr)
 			return nil
@@ -237,12 +237,12 @@ type SkillInfo struct {
 // whose source tree fails to resolve, verify or parse is omitted (skillContent
 // already warns) — the reader does not have it. Nothing is dropped on policy
 // grounds; see Pipeline.ListAllSkills for the gated listing.
-func (l *Loader) ReadAllSkills() ([]*LoadedSkill, error) {
+func (c Catalog) ReadAllSkills() ([]*LoadedSkill, error) {
 	var out []*LoadedSkill
-	for _, read := range l.Reads() {
+	for _, read := range c.Reads() {
 		bundle := read.Bundle
 		for _, name := range bundle.SkillNames() {
-			if ls := l.skillContent(read, name, bundle.Skills[name]); ls != nil {
+			if ls := c.skillContent(read, name, bundle.Skills[name]); ls != nil {
 				out = append(out, ls)
 			}
 		}
@@ -266,8 +266,8 @@ func skillInfoFor(ls *LoadedSkill) SkillInfo {
 // ListAllSkills lists every Agent Skill package across every bundle — the skill
 // analog of ListAllCommands, and like it a MANAGEMENT/listing read: it reports
 // every package, so a pending-review one still shows up to be reviewed.
-func (l *Loader) ListAllSkills() ([]SkillInfo, error) {
-	skills, err := l.ReadAllSkills()
+func (c Catalog) ListAllSkills() ([]SkillInfo, error) {
+	skills, err := c.ReadAllSkills()
 	if err != nil {
 		return nil, err
 	}
@@ -281,18 +281,18 @@ func (l *Loader) ListAllSkills() ([]SkillInfo, error) {
 // ReadSkill reports every Agent Skill package this reader holds under name —
 // the skill analog of ReadCommand. Name can be "skill-name" (searches all
 // bundles, so several bundles may each answer) or "bundle#skills/name".
-func (l *Loader) ReadSkill(name string) ([]*LoadedSkill, error) {
+func (c Catalog) ReadSkill(name string) ([]*LoadedSkill, error) {
 	ask, err := ParseItemAsk(name)
 	if err != nil {
 		return nil, err
 	}
 	if !ask.Scoped {
-		return l.searchSkill(name)
+		return c.searchSkill(name)
 	}
 	if ask.Kind != trust.KindSkill {
 		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, trust.KindSkill)
 	}
-	return l.skillFromBundle(ask.Bundle, ask.Item)
+	return c.skillFromBundle(ask.Bundle, ask.Item)
 }
 
 // skillFromBundle loads a specific bundle and reports the named skill — the
@@ -300,8 +300,8 @@ func (l *Loader) ReadSkill(name string) ([]*LoadedSkill, error) {
 // (skillContent already warned) reports as not-found rather than as an empty
 // success: a skill that does not materialize must never look like one that
 // materialized to nothing.
-func (l *Loader) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, error) {
-	read, err := l.lookup(bundleName)
+func (c Catalog) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, error) {
+	read, err := c.Read(bundleName)
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +309,7 @@ func (l *Loader) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, 
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrSkillNotFound, skillName, bundleName)
 	}
-	ls := l.skillContent(read, skillName, entry)
+	ls := c.skillContent(read, skillName, entry)
 	if ls == nil {
 		return nil, fmt.Errorf("%w: %s", errs.ErrSkillNotFound, skillName)
 	}
@@ -320,14 +320,14 @@ func (l *Loader) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, 
 // EVERY package it could resolve, in List order — searchFragment's skill twin.
 // Reporting all of them is what lets the process stage keep scanning past one
 // it withholds: a trusted copy in another bundle still wins.
-func (l *Loader) searchSkill(name string) ([]*LoadedSkill, error) {
+func (c Catalog) searchSkill(name string) ([]*LoadedSkill, error) {
 	var out []*LoadedSkill
-	for _, read := range l.Reads() {
+	for _, read := range c.Reads() {
 		entry, ok := read.Bundle.Skills[name]
 		if !ok {
 			continue
 		}
-		if ls := l.skillContent(read, name, entry); ls != nil {
+		if ls := c.skillContent(read, name, entry); ls != nil {
 			out = append(out, ls)
 		}
 	}

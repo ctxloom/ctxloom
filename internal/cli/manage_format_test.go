@@ -71,22 +71,6 @@ func TestManageGitignoreInstall_WriteFailureIsNotSilentSuccess(t *testing.T) {
 	require.NotContains(t, out.String(), "Updated", "must not print the success line when the write failed")
 }
 
-// TestMcpRegisterUnregister_FormatJSON pins setMcpAutoRegister (behind
-// `mcp register`/`mcp unregister`): --format json must render the
-// auto-registration result instead of the two bare fmt.Printf/Println lines
-// it used to be stuck with regardless of --format.
-func TestMcpRegisterUnregister_FormatJSON(t *testing.T) {
-	testsupport.ProjectDir(t)
-
-	payload := runCLIJSON(t, "mcp", "register")
-	require.Equal(t, "enabled", payload["status"])
-	require.Equal(t, true, payload["auto_register"])
-
-	payload = runCLIJSON(t, "mcp", "unregister")
-	require.Equal(t, "disabled", payload["status"])
-	require.Equal(t, false, payload["auto_register"])
-}
-
 // TestManageStatusline_FormatJSON pins setStatusline (shared by `manage
 // statusline install`/`uninstall`): --format json must render the resulting
 // state instead of silently discarding it.
@@ -102,49 +86,6 @@ func TestManageStatusline_FormatJSON(t *testing.T) {
 	require.Equal(t, false, payload["statusline"])
 }
 
-// TestMcpServerCreateDelete_FormatJSON pins runMCPAdd/runMCPRemove (behind
-// `mcp server create`/`remove`): --format json must render the operations
-// result struct instead of the bare fmt.Printf lines both used
-// unconditionally.
-//
-// Uses the default unified target (mcp.servers.*): mcp.servers.*.command is
-// ScopeShared (internal/config/layerscope, a deliberate divergence from the
-// design doc's literal ScopeMachine — see policy_default.go's own comment:
-// command is REQUIRED by the mcpServer schema, so Machine-scoping it would
-// make mcp.servers.* impossible to populate with a working entry from the
-// project layer at all), so a unified server created in the committed
-// PROJECT file this test writes to survives the reload `mcp server remove
-// --yes` performs internally. No --backend workaround needed.
-//
-// `remove` here is run twice: bare (--yes-less), asserting the preview
-// payload and that the server SURVIVES it, then with --yes, asserting the
-// applied payload and that the server is actually GONE — the two directions
-// of the safety posture, not just that the command exits 0.
-func TestMcpServerCreateDelete_FormatJSON(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-	// A genuine project marker, not just a bare cwd: with none at all,
-	// findAppDir's walk-up finds nothing and falls all the way back to the
-	// isolated HOME fallback (config.go, SourceHome) — which correctly
-	// enforces that mcp.servers.*.command (ScopeShared: "never home", see
-	// this test's own doc above) cannot be set from there. This test's
-	// whole point is the COMMITTED PROJECT file, so it needs an actual one.
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte("version: 6\n"), 0o644))
-
-	payload := runCLIJSON(t, "mcp", "server", "create", "coverage-server", "--command", "echo")
-	require.Equal(t, "coverage-server", payload["name"])
-	require.Equal(t, "echo", payload["command"])
-
-	preview := runCLIJSON(t, "mcp", "server", "remove", "coverage-server")
-	require.Equal(t, "preview", preview["status"])
-	require.Equal(t, false, preview["applied"])
-	require.True(t, mcpServerListedByName(t, "coverage-server"),
-		"the bare (no --yes) path must leave the server configured")
-
-	payload = runCLIJSON(t, "mcp", "server", "remove", "coverage-server", "--yes")
-	require.Equal(t, "coverage-server", payload["name"])
-	require.False(t, mcpServerListedByName(t, "coverage-server"), "--yes must actually remove the server")
-}
 
 // mcpServerListedByName reports whether `mcp server list --format json`
 // currently lists a server by that name.

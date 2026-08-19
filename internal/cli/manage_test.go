@@ -46,19 +46,22 @@ func TestManageNamespace_HasExpectedSubcommands(t *testing.T) {
 	}
 }
 
-// TestMcpNamespace_SplitsRegistrationFromServerCRUD pins the shape the
-// deleted `manage mcp` alias namespace pointed at: registration toggles and
-// the configured-server spine are siblings under the top-level `mcp` noun.
-func TestMcpNamespace_SplitsRegistrationFromServerCRUD(t *testing.T) {
+// TestMcpNamespace_IsReadAndBundleEditOnly pins the shape the MCP noun has now
+// that every MCP server lives in a bundle: the servers a session registers are
+// READ here (list/show), and the only write is `edit`, which edits the bundle
+// that ships the server. There is no create/remove — composing or withholding a
+// bundle is what adds or removes a server — and no register/unregister, because
+// ctxloom's own server ships in the builtin ctxloom bundle like any other.
+func TestMcpNamespace_IsReadAndBundleEditOnly(t *testing.T) {
 	mcp := findSub(rootCmd, "mcp")
 	require.NotNil(t, mcp)
 
-	assert.NotNil(t, findSub(mcp, "register"), "mcp register toggles auto-register on")
-	assert.NotNil(t, findSub(mcp, "unregister"), "mcp unregister toggles auto-register off")
+	assert.Nil(t, findSub(mcp, "register"), "there is no auto-registration flag to toggle")
+	assert.Nil(t, findSub(mcp, "unregister"), "there is no auto-registration flag to toggle")
 
 	servers := findSub(mcp, "server")
-	require.NotNil(t, servers, "configured-server CRUD lives under mcp server")
-	assert.ElementsMatch(t, []string{"list", "show", "create", "edit", "remove"}, subNames(servers))
+	require.NotNil(t, servers, "the registered-server spine lives under mcp server")
+	assert.ElementsMatch(t, []string{"list", "show", "edit"}, subNames(servers))
 }
 
 func TestManageHooks_HasInstallUninstallCheckList(t *testing.T) {

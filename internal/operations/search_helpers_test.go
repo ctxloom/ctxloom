@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // searchProfiles matches profiles by name, then description, then tag (in that
@@ -58,29 +57,19 @@ func TestSearchProfiles(t *testing.T) {
 	})
 }
 
-// searchMCPServers matches servers by name or command substring.
+// searchMCPServers matches REGISTERED servers by name or command substring —
+// the resolved bundle set, which every project gets ctxloom's own server in
+// through the builtin ctxloom bundle.
 func TestSearchMCPServers(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
-			"spotify": {Command: "spotify-mcp"},
-			"github":  {Command: "gh-mcp-server"},
-		}},
-	})
+	cfg := config.NewFixture(config.Fixture{})
 
-	t.Run("matches by name", func(t *testing.T) {
-		got := searchMCPServers(cfg, "spotify")
-		if len(got) != 1 || got[0].Name != "spotify" || got[0].Type != "mcp_server" {
-			t.Fatalf("got %+v, want mcp_server spotify", got)
+	t.Run("matches ctxloom's own server by name", func(t *testing.T) {
+		got := searchMCPServers(cfg, "ctxloom")
+		if len(got) != 1 || got[0].Name != "ctxloom" || got[0].Type != "mcp_server" {
+			t.Fatalf("got %+v, want mcp_server ctxloom", got)
 		}
-		if got[0].Source != "spotify-mcp" {
-			t.Errorf("source = %q, want the command", got[0].Source)
-		}
-	})
-
-	t.Run("matches by command when name misses", func(t *testing.T) {
-		got := searchMCPServers(cfg, "gh-mcp")
-		if len(got) != 1 || got[0].Name != "github" {
-			t.Fatalf("got %+v, want github by command", got)
+		if got[0].Source == "" {
+			t.Error("source must carry the server's command")
 		}
 	})
 

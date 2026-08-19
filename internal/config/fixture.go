@@ -34,7 +34,6 @@ type Fixture struct {
 	Settings                     SettingsConfig
 	Sync                         SyncConfig
 	Hooks                        wire.HooksConfig
-	MCP                          wire.MCPConfig
 	Profiles                     ProfilesConfig
 	Agents                       map[string]agents.Agent
 	DefaultAgent                 string
@@ -77,7 +76,6 @@ func (c *Config) ToFixture() Fixture {
 		Settings:                     cloneSettings(c.settings),
 		Sync:                         cloneSync(c.sync),
 		Hooks:                        cloneHooksConfig(c.hooks),
-		MCP:                          cloneMCPConfig(c.mcp),
 		Profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)},
 		Agents:                       cloneAgentsMap(c.agents),
 		DefaultAgent:                 c.defaultAgent,
@@ -127,7 +125,6 @@ func NewFixture(f Fixture) *Config {
 		settings:                     cloneSettings(f.Settings),
 		sync:                         cloneSync(f.Sync),
 		hooks:                        cloneHooksConfig(f.Hooks),
-		mcp:                          cloneMCPConfig(f.MCP),
 		profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(f.Profiles.Definitions)},
 		agents:                       cloneAgentsMap(f.Agents),
 		defaultAgent:                 f.DefaultAgent,

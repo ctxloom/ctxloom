@@ -31,7 +31,7 @@ func TestKiroWriter_UnreadableContextHashIsLoud(t *testing.T) {
 		// A hash that was never written (reaped cache / wrong workDir).
 		SessionStart: []wire.Hook{{ContextHash: "deadbeefdeadbeef"}},
 	}}
-	err := w.WriteSettings(hooks, nil, nil, "/proj")
+	err := w.WriteSettings(hooks, nil, "/proj")
 	require.Error(t, err, "an unresolvable context hash must fail, not deliver nothing quietly")
 	assert.Contains(t, err.Error(), "deadbeefdeadbeef", "the error must name the hash it could not resolve")
 
@@ -50,7 +50,7 @@ func TestKiroWriter_EmptyHashStillRemovesSteering(t *testing.T) {
 	require.NoError(t, fs.MkdirAll("/proj/.kiro/steering", 0o755))
 	require.NoError(t, afero.WriteFile(fs, "/proj/.kiro/steering/ctxloom-context.md", []byte("stale"), 0o644))
 
-	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, "/proj"))
 
 	exists, err := afero.Exists(fs, "/proj/.kiro/steering/ctxloom-context.md")
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestKiroWriter_ResolvableHashStillDelivers(t *testing.T) {
 
 	require.NoError(t, w.WriteSettings(&wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{{ContextHash: hash}},
-	}}, nil, nil, "/proj"))
+	}}, nil, "/proj"))
 
 	body, err := afero.ReadFile(fs, "/proj/.kiro/steering/ctxloom-context.md")
 	require.NoError(t, err)

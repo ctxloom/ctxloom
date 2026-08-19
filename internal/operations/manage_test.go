@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -23,10 +24,10 @@ func wireClaudeHarness(t *testing.T, fs afero.Fs, dir string) {
 			SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
 		},
 	}
-	deliverManagedSettings(t, "claude-code", hooks, nil, nil, true, dir, fs)
+	deliverManagedSettings(t, "claude-code", hooks, map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, true, dir, fs)
 }
 
-func TestHarnessStatus_ReportsWiringAndAutoRegister(t *testing.T) {
+func TestHarnessStatus_ReportsWiring(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const dir = "/project"
 	wireClaudeHarness(t, fs, dir)
@@ -36,7 +37,6 @@ func TestHarnessStatus_ReportsWiringAndAutoRegister(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, dir, res.WorkDir)
-	assert.True(t, res.AutoRegisterMCP, "auto-register defaults on")
 
 	claude := backendWiring(t, res, "claude-code")
 	assert.True(t, claude.HooksPresent)

@@ -129,17 +129,14 @@ func TestClaudeLifecycle_MergeManaged_MergesHooksAndMCP(t *testing.T) {
 			Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "profile-hook"}}},
 			Plugins: map[string]wire.BackendHooks{},
 		},
-		MCP: &wire.MCPConfig{
-			Servers: map[string]wire.MCPServer{"profile-mcp": {Command: "profile-mcp-cmd"}},
-		},
+		BundleMCP: map[string]wire.MCPServer{"profile-mcp": {Command: "profile-mcp-cmd"}},
 	}, "/tmp", "hash123")
 
 	hooks := lifecycle.GetHooks()
 	assert.Len(t, hooks.Unified.PreTool, 1)
 	assert.Equal(t, "profile-hook", hooks.Unified.PreTool[0].Command)
 
-	mcp := lifecycle.GetMCP()
-	assert.Contains(t, mcp.Servers, "profile-mcp")
+	assert.Contains(t, lifecycle.GetBundleMCP(), "profile-mcp")
 }
 
 // TestClaudeLifecycle_MergeManaged_Statusline verifies the ManageStatusline bit
@@ -178,14 +175,14 @@ func TestClaudeLifecycle_GetMCP(t *testing.T) {
 	lifecycle := newClaudeLifecycle()
 
 	// Initially nil
-	assert.Nil(t, lifecycle.GetMCP())
+	assert.Nil(t, lifecycle.GetBundleMCP())
 
 	// After merging a managed config carrying MCP servers.
 	lifecycle.MergeManaged(&agent.ManagedConfig{
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"test-server": {Command: "test"}}},
+		BundleMCP: map[string]wire.MCPServer{"test-server": {Command: "test"}},
 	}, "/tmp", "")
 
-	assert.NotNil(t, lifecycle.GetMCP())
+	assert.NotNil(t, lifecycle.GetBundleMCP())
 }
 
 func TestClaudeCode_History(t *testing.T) {

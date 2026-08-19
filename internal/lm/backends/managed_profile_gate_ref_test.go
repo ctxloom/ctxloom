@@ -82,20 +82,6 @@ func TestGateProfileHooks_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
 		"an ALLOWED remote-sourced profile hook still reaches the produced set")
 }
 
-func TestGateProfileMCP_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
-	ref := profileGateRef{Base: "https://github.com/acme/tools@bundles/kit"}
-	mcp := wire.MCPConfig{Servers: map[string]wire.MCPServer{
-		"evil-server": {Command: "malicious-marker-command"},
-	}}
-
-	var gotRefs []string
-	denyGate := recordingAuthorizer(false, &gotRefs)
-	out := gateProfileMCP(ref, mcp, denyGate)
-	assert.NotContains(t, out.Servers, "evil-server", "a denied remote-sourced profile MCP server must be WITHHELD")
-	require.Len(t, gotRefs, 1)
-	assert.Equal(t, "ctxloom+git://github.com/acme/tools//bundles/kit#mcp/evil-server", gotRefs[0])
-}
-
 // TestGateProfileHooks_LocalProfile_StillFlowsThroughGate contrasts the
 // remote case: a genuinely local profile's ref.Base is its bare display name
 // (empty SourceRef, per profileGateRefFor) — its inline hook is gated through

@@ -33,17 +33,15 @@ func TestProjectAuthoredRead_SaysOnlyProjectLocalUnsigned(t *testing.T) {
 // erodes: a new production call site has to be a deliberate decision, not a
 // convenient import.
 //
-// The legitimate cases are content that IS in this project's own tree but is not
+// The legitimate case is content that IS in this project's own tree but is not
 // a bundle, so no Reader ever produced it: a profile's directly-declared
-// executables, and a config.yaml MCP server.
+// executables.
 func TestProjectAuthoredRead_ProductionCallSites(t *testing.T) {
 	want := map[string]bool{
 		// The declaration itself.
 		"internal/bundles/reader_localfs.go": true,
-		// A .ctxloom/profiles/<name>.yaml profile's inline hooks and MCP servers.
+		// A .ctxloom/profiles/<name>.yaml profile's inline hooks.
 		"internal/lm/backends/managed.go": true,
-		// A config.yaml MCP server, stamped for `ctxloom list --format json`.
-		"internal/operations/trust.go": true,
 	}
 
 	root := repoRootFor(t)

@@ -64,7 +64,7 @@ func TestWriteSettingsIn_RenamedBundleServerIsWithdrawn(t *testing.T) {
 	// First run: a bundle-managed server with a THIRD-PARTY command — the
 	// exact shape removeManagedMCP's command-based check cannot recognize.
 	bundleMCP := map[string]wire.MCPServer{"old-name": {Command: "third-party-cmd"}}
-	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, nil, bundleMCP, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, bundleMCP, "/proj", ""))
 
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	servers := asMap(cfg["mcp_servers"])
@@ -73,7 +73,7 @@ func TestWriteSettingsIn_RenamedBundleServerIsWithdrawn(t *testing.T) {
 	// Second run: the SAME server, renamed. Nothing about "old-name" is
 	// declared anymore.
 	bundleMCP2 := map[string]wire.MCPServer{"new-name": {Command: "third-party-cmd"}}
-	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, nil, bundleMCP2, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, bundleMCP2, "/proj", ""))
 
 	cfg2 := readConfig(t, fs, codexConfigPath("/proj"))
 	servers2 := asMap(cfg2["mcp_servers"])
@@ -84,16 +84,18 @@ func TestWriteSettingsIn_RenamedBundleServerIsWithdrawn(t *testing.T) {
 
 // TestWriteSettingsIn_WritesSurfaceMCPLedger pins the ledger record itself:
 // after a write, ledger.Ledger.Read(SurfaceMCP) names exactly the managed
-// servers addMCPServers just wrote — the auto-registered ctxloom entry plus
-// every bundle/config/plugin server — so the NEXT reconcile knows precisely
-// what it owns.
+// servers addMCPServers just wrote — every server the resolved bundles ship,
+// ctxloom's own included — so the NEXT reconcile knows precisely what it owns.
 func TestWriteSettingsIn_WritesSurfaceMCPLedger(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &CodexHookWriter{FS: fs}
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"config-server": {Command: "config-cmd"}}}
-	bundleMCP := map[string]wire.MCPServer{"bundle-server": {Command: "bundle-cmd"}}
-	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, mcp, bundleMCP, "/proj", ""))
+	bundleMCP := map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+		"config-server":     {Command: "config-cmd"},
+		"bundle-server":     {Command: "bundle-cmd"},
+	}
+	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, bundleMCP, "/proj", ""))
 
 	led := ledger.Ledger{FS: fs, Dir: cellScopedCodexHome("/proj")}
 	names, err := led.Read(ledger.SurfaceMCP)
@@ -111,7 +113,7 @@ func TestRemoveSettingsIn_ClearsSurfaceMCPLedger(t *testing.T) {
 	w := &CodexHookWriter{FS: fs}
 
 	bundleMCP := map[string]wire.MCPServer{"bundle-server": {Command: "bundle-cmd"}}
-	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, nil, bundleMCP, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, bundleMCP, "/proj", ""))
 
 	led := ledger.Ledger{FS: fs, Dir: cellScopedCodexHome("/proj")}
 	before, err := led.Read(ledger.SurfaceMCP)

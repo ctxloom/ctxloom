@@ -23,7 +23,7 @@ func TestWriteSettings_UnparseableConfigIsNotWipedOut(t *testing.T) {
 	original := "this is [not valid toml at all\n"
 	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0o644))
 
-	err := w.writeSettingsIn(&wire.HooksConfig{}, nil, nil, "/proj", "")
+	err := w.writeSettingsIn(&wire.HooksConfig{}, nil, "/proj", "")
 	assert.Error(t, err, "writing an empty table over a real config.toml must be refused")
 
 	data, rerr := afero.ReadFile(fs, path)
@@ -65,9 +65,8 @@ func TestRemoveSettings_MayLegitimatelyEmptyTheFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &CodexHookWriter{FS: fs}
 	path := w.settingsPathIn("/proj")
-	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{}, &wire.MCPConfig{
-		Servers: map[string]wire.MCPServer{"ctxloom": {Command: "ctxloom", Args: []string{"mcp"}}},
-	}, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(&wire.HooksConfig{},
+		map[string]wire.MCPServer{"ctxloom": {Command: "ctxloom", Args: []string{"mcp"}}}, "/proj", ""))
 	require.NoError(t, w.removeSettingsIn("/proj"))
 
 	data, rerr := afero.ReadFile(fs, path)

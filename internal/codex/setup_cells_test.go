@@ -53,7 +53,7 @@ func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
 		}},
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
+		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
 	}
 	env, home := sessionInstance(t, work)
 	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
@@ -171,7 +171,7 @@ func TestCodex_HomeKeyedSurfaces_RefuseTheRealHostHome(t *testing.T) {
 				Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 					PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
 				}},
-				MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
+				BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
 			},
 		}))
 	})
@@ -228,7 +228,7 @@ func TestCodex_Setup_ConfigByteIdenticalToDirectWrite(t *testing.T) {
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
 		}},
-		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
+		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
 	}
 	fragments := []*agent.Fragment{{Content: "project rules"}}
 	work := t.TempDir()
@@ -258,7 +258,7 @@ func TestCodex_Setup_ConfigByteIdenticalToDirectWrite(t *testing.T) {
 	require.NoError(t, err)
 	instanceRoot, err := SessionHome(work, "ugly-icy-squid")
 	require.NoError(t, err)
-	require.NoError(t, (&CodexHookWriter{}).writeSettingsIn(life.GetHooks(), life.GetMCP(), nil, instanceRoot, absWork))
+	require.NoError(t, (&CodexHookWriter{}).writeSettingsIn(life.GetHooks(), life.GetBundleMCP(), instanceRoot, absWork))
 	directCfg, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 

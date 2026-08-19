@@ -255,9 +255,9 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	// state, silently writing a settings file containing none of the configured
 	// hooks or servers. Fail loudly instead: this is a misconfigured backend, not a
 	// legitimate "nothing configured" case (that's req.Managed == nil, above).
-	hooks, mcp, ok := b.mergedState()
+	hooks, bundleMCP, ok := b.mergedState()
 	if !ok {
-		return fmt.Errorf("backend lifecycle does not expose the merged hooks/MCP state (GetHooks/GetMCP) needed to deliver surfaces")
+		return fmt.Errorf("backend lifecycle does not expose the merged hooks/MCP state (GetHooks/GetBundleMCP) needed to deliver surfaces")
 	}
 
 	assembled, err := assembleSurfaceContext(req.Fragments)
@@ -268,8 +268,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	inputs := SurfaceInputs{
 		Context:            assembled,
 		Fragments:          req.Fragments,
-		MCP:                mcp,
-		BundleMCP:          req.Managed.BundleMCP,
+		BundleMCP:          bundleMCP,
 		Hooks:              hooks,
 		ManageStatusline:   req.Managed.ManageStatusline,
 		Commands:           req.Managed.Commands,
@@ -517,17 +516,17 @@ func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest, cause error) bo
 // capability — mirroring ManagedChatMCPServers — so a bare ManagedLifecycle fake
 // that lacks the accessors stays valid; ok is false then. BaseLifecycle (every
 // real launch backend's lifecycle) satisfies both, so ok is true in practice.
-func (b *LaunchBackend) mergedState() (hooks *wire.HooksConfig, mcp *wire.MCPConfig, ok bool) {
+func (b *LaunchBackend) mergedState() (hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, ok bool) {
 	lh, ok1 := b.lifecycle.(interface {
 		GetHooks() *wire.HooksConfig
 	})
 	lm, ok2 := b.lifecycle.(interface {
-		GetMCP() *wire.MCPConfig
+		GetBundleMCP() map[string]wire.MCPServer
 	})
 	if !ok1 || !ok2 {
 		return nil, nil, false
 	}
-	return lh.GetHooks(), lm.GetMCP(), true
+	return lh.GetHooks(), lm.GetBundleMCP(), true
 }
 
 // Cleanup reverses the surfaces Setup delivered through the seam, in LIFO order

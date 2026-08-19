@@ -30,7 +30,7 @@ func TestWriteSettings_SessionEndIsAnnounced(t *testing.T) {
 		SessionEnd:   []wire.Hook{{Command: "ctxloom hook wrap-up"}},
 	}}
 
-	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, "/proj", ""))
 
 	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	hookTbl := asMap(cfg["hooks"])
@@ -55,7 +55,7 @@ func TestWriteSettings_NoSessionEndNoWarning(t *testing.T) {
 	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
 	}}
-	require.NoError(t, w.writeSettingsIn(hooks, nil, nil, "/proj", ""))
+	require.NoError(t, w.writeSettingsIn(hooks, nil, "/proj", ""))
 
 	assert.NotContains(t, strings.ToLower(buf.String()), "session_end")
 }

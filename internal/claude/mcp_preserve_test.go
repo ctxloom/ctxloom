@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // .mcp.json is a file ctxloom does not own. Registering a server into it must
@@ -36,7 +34,7 @@ func TestWriteMCPConfig_PreservesForeignTopLevelKeys(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0o644))
 
 	w := &ClaudeCodeHookWriter{FS: fs}
-	require.NoError(t, w.writeMCPConfig(dir, &wire.MCPConfig{}, nil))
+	require.NoError(t, w.writeMCPConfig(dir, nil))
 
 	out, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
@@ -66,7 +64,7 @@ func TestWriteMCPConfig_PreservesUnmodelledServerFields(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0o644))
 
 	w := &ClaudeCodeHookWriter{FS: fs}
-	require.NoError(t, w.writeMCPConfig(dir, &wire.MCPConfig{}, nil))
+	require.NoError(t, w.writeMCPConfig(dir, nil))
 
 	out, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)

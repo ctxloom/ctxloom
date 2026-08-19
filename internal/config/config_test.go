@@ -289,173 +289,6 @@ func TestResolveProfile_BackendHooksInheritance(t *testing.T) {
 	}
 }
 
-func TestResolveProfile_MCPInheritance(t *testing.T) {
-	profiles := map[string]Profile{
-		"base": {
-			MCP: wire.MCPConfig{
-				Servers: map[string]wire.MCPServer{
-					"base-server": {
-						Command: "base-server-cmd",
-						Args:    []string{"--base"},
-					},
-				},
-			},
-		},
-		"child": {
-			Parents: []string{"base"},
-			MCP: wire.MCPConfig{
-				Servers: map[string]wire.MCPServer{
-					"child-server": {
-						Command: "child-server-cmd",
-					},
-				},
-			},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should have inherited base server
-	if _, ok := resolved.MCP.Servers["base-server"]; !ok {
-		t.Error("expected base-server to be inherited")
-	}
-	if resolved.MCP.Servers["base-server"].Command != "base-server-cmd" {
-		t.Errorf("expected base-server command, got %s", resolved.MCP.Servers["base-server"].Command)
-	}
-
-	// Should have own child server
-	if _, ok := resolved.MCP.Servers["child-server"]; !ok {
-		t.Error("expected child-server to be present")
-	}
-}
-
-func TestResolveProfile_MCPOverride(t *testing.T) {
-	profiles := map[string]Profile{
-		"base": {
-			MCP: wire.MCPConfig{
-				Servers: map[string]wire.MCPServer{
-					"shared-server": {
-						Command: "base-cmd",
-						Args:    []string{"--base"},
-					},
-				},
-			},
-		},
-		"child": {
-			Parents: []string{"base"},
-			MCP: wire.MCPConfig{
-				Servers: map[string]wire.MCPServer{
-					"shared-server": {
-						Command: "child-cmd",
-						Args:    []string{"--child"},
-					},
-				},
-			},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Child should override base for same server name
-	if resolved.MCP.Servers["shared-server"].Command != "child-cmd" {
-		t.Errorf("expected child to override base server, got %s", resolved.MCP.Servers["shared-server"].Command)
-	}
-	if len(resolved.MCP.Servers["shared-server"].Args) != 1 || resolved.MCP.Servers["shared-server"].Args[0] != "--child" {
-		t.Errorf("expected child args, got %v", resolved.MCP.Servers["shared-server"].Args)
-	}
-}
-
-func TestResolveProfile_MCPAutoRegisterOverride(t *testing.T) {
-	falseVal := false
-	trueVal := true
-
-	profiles := map[string]Profile{
-		"base": {
-			MCP: wire.MCPConfig{
-				AutoRegisterCtxloom: &trueVal,
-			},
-		},
-		"child": {
-			Parents: []string{"base"},
-			MCP: wire.MCPConfig{
-				AutoRegisterCtxloom: &falseVal,
-			},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Child should override base's auto_register_ctxloom
-	if resolved.MCP.AutoRegisterCtxloom == nil {
-		t.Fatal("expected AutoRegisterCtxloom to be set")
-	}
-	if *resolved.MCP.AutoRegisterCtxloom != false {
-		t.Error("expected child to override AutoRegisterCtxloom to false")
-	}
-}
-
-func TestResolveProfile_MCPBackendInheritance(t *testing.T) {
-	profiles := map[string]Profile{
-		"base": {
-			MCP: wire.MCPConfig{
-				Plugins: map[string]map[string]wire.MCPServer{
-					"claude-code": {
-						"base-claude-server": {
-							Command: "base-claude-cmd",
-						},
-					},
-				},
-			},
-		},
-		"child": {
-			Parents: []string{"base"},
-			MCP: wire.MCPConfig{
-				Plugins: map[string]map[string]wire.MCPServer{
-					"claude-code": {
-						"child-claude-server": {
-							Command: "child-claude-cmd",
-						},
-					},
-					"antigravity": {
-						"antigravity-server": {
-							Command: "antigravity-cmd",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should have inherited claude-code base server
-	if _, ok := resolved.MCP.Plugins["claude-code"]["base-claude-server"]; !ok {
-		t.Error("expected base-claude-server to be inherited")
-	}
-
-	// Should have own claude-code child server
-	if _, ok := resolved.MCP.Plugins["claude-code"]["child-claude-server"]; !ok {
-		t.Error("expected child-claude-server to be present")
-	}
-
-	// Should have antigravity server
-	if _, ok := resolved.MCP.Plugins["antigravity"]["antigravity-server"]; !ok {
-		t.Error("expected antigravity-server to be present")
-	}
-}
-
 // =============================================================================
 // Profile Exclusion Tests
 // =============================================================================
@@ -490,30 +323,23 @@ func TestResolveProfile_ExcludeFragments(t *testing.T) {
 	assert.NotContains(t, fragNames, "frag-b")
 }
 
+// exclude_mcp is the ONLY way to withhold a bundle-shipped MCP server from a
+// session (ResolveBundleMCPServers applies it as a veto over every source,
+// builtin included), so it has to survive inheritance to reach that veto.
 func TestResolveProfile_ExcludeMCP(t *testing.T) {
 	profiles := map[string]Profile{
-		"parent": {
-			MCP: wire.MCPConfig{
-				Servers: map[string]wire.MCPServer{
-					"server-a": {Command: "cmd-a"},
-					"server-b": {Command: "cmd-b"},
-					"server-c": {Command: "cmd-c"},
-				},
-			},
-		},
+		"parent": {ExcludeMCP: []string{"server-b"}},
 		"child": {
 			Parents:    []string{"parent"},
-			ExcludeMCP: []string{"server-b"},
+			ExcludeMCP: []string{"ctxloom"},
 		},
 	}
 
 	resolved, err := ResolveProfile(profiles, "child")
 	require.NoError(t, err)
 
-	// Should have server-a and server-c, but not server-b
-	assert.Contains(t, resolved.MCP.Servers, "server-a")
-	assert.Contains(t, resolved.MCP.Servers, "server-c")
-	assert.NotContains(t, resolved.MCP.Servers, "server-b")
+	assert.ElementsMatch(t, []string{"server-b", "ctxloom"}, resolved.ExcludeMCP,
+		"exclusions accumulate through inheritance — a child cannot un-exclude what a parent excluded")
 }
 
 // TestResolveProfile_DenyTools proves an inline profile's deny_tools
@@ -1399,19 +1225,24 @@ func TestResolveProfile_DepthLimit(t *testing.T) {
 // ResolveBundleMCPServers Tests
 // =============================================================================
 
-// onlyBuiltinMCPServers asserts a resolution surfaced nothing beyond
-// embedded-builtin-bundle servers (none remain: S8 moved taskloom's `taskloom
-// mcp` registration onto its own loadout, discovered on PATH — none of these
-// callers fake the loadout probe, so with no real companion binary reachable
-// the result is empty) and, defensively, that anything present still carries
-// a recognized SCM prefix.
+// onlyBuiltinMCPServers asserts a resolution surfaced nothing beyond the
+// embedded builtin bundles' servers. Exactly one exists — ctxloom's own, from
+// resources/builtin_bundles/ctxloom-mcp.yaml — and it must be there whatever
+// the profile scope: builtins are injected unconditionally, which is what makes
+// composing that bundle the thing that registers ctxloom's MCP server.
+// (Companion loadouts also land here; none of these callers fakes a loadout
+// probe, so none appears.)
 func onlyBuiltinMCPServers(t *testing.T, result map[string]wire.MCPServer) {
 	t.Helper()
 	for name, server := range result {
 		assert.True(t, strings.HasPrefix(server.SCM, "bundle:ctxloom+builtin:") || strings.HasPrefix(server.SCM, "bundle:ctxloom+companion:"),
 			"unexpected non-builtin, non-companion MCP server %q (SCM %q)", name, server.SCM)
 	}
-	assert.Empty(t, result, "no embedded builtin bundle ships an MCP server anymore, and these callers don't fake a companion loadout probe")
+	own, ok := result["ctxloom"]
+	require.True(t, ok, "ctxloom's own MCP server must be injected by the builtin ctxloom bundle; got %v", result)
+	assert.Equal(t, "bundle:ctxloom+builtin:ctxloom-mcp", own.SCM)
+	assert.Equal(t, []string{"mcp", "serve"}, own.Args, "the builtin entry must invoke the `mcp serve` leaf")
+	assert.Len(t, result, 1, "no other embedded builtin bundle ships an MCP server, and these callers don't fake a companion loadout probe")
 }
 
 // stubLookPath pins the companion-gating seam: every binary resolves except
@@ -1969,18 +1800,20 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 }
 
 // TestResolveBuiltinBundleMCPServers proves the embedded-builtin-bundle
-// MCP-server path degrades cleanly to an empty (non-nil) map now that no
-// embedded bundle ships an MCP server (S8 moved taskloom's `taskloom mcp`
-// registration onto its own loadout; see
-// TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated). The
-// SCM-tag contract for any FUTURE embedded builtin is still pinned directly
-// via extractMCPFromBundle with a BuiltinRef as the source — the same
-// code path resolveBuiltinBundleMCPServers takes.
+// MCP-server path DELIVERS: ctxloom's own server ships in
+// resources/builtin_bundles/ctxloom-mcp.yaml, and this resolver — which every
+// session runs unconditionally, before any profile scope — is what puts it in
+// the managed set. The SCM-tag contract is pinned both through the real bundle
+// and directly via extractMCPFromBundle with a BuiltinRef as the source.
 func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 	stubLookPath(t)
 	got := resolveBuiltinBundleMCPServers(bundles.AdmitAll())
 	require.NotNil(t, got, "resolveBuiltinBundleMCPServers must return a non-nil map even when empty")
-	assert.Empty(t, got, "no embedded builtin bundle ships an MCP server anymore")
+	own, ok := got["ctxloom"]
+	require.True(t, ok, "the builtin ctxloom bundle must contribute ctxloom's own MCP server; got %v", got)
+	assert.Equal(t, "ctxloom", own.Command, "the bundle declares the bare name; the writers resolve it")
+	assert.Equal(t, []string{"mcp", "serve"}, own.Args, "the `mcp serve` leaf is the one spelling that speaks the protocol")
+	assert.Equal(t, "bundle:ctxloom+builtin:ctxloom-mcp", own.SCM)
 
 	// Pin the contract directly: a synthetic builtin source through
 	// extractMCPFromBundle produces the expected SCM tag.
@@ -2007,35 +1840,6 @@ func TestHooksConfig_HasAny(t *testing.T) {
 // =============================================================================
 // Save Additional Coverage
 // =============================================================================
-
-func TestConfig_Save_WithMCP(t *testing.T) {
-	tmpDir := t.TempDir()
-	trueVal := true
-
-	// Create the persistent directory
-	require.NoError(t, os.MkdirAll(tmpDir, 0755))
-
-	cfg := &Config{
-		appPaths: []string{tmpDir},
-		lm: LMConfig{
-			Configs: map[string]LLMConfig{},
-		},
-		mcp: wire.MCPConfig{
-			AutoRegisterCtxloom: &trueVal,
-			Servers: map[string]wire.MCPServer{
-				"test": {Command: "test-cmd"},
-			},
-		},
-	}
-
-	err := cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir))
-	require.NoError(t, err)
-
-	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "mcp")
-	assert.Contains(t, string(data), "test-cmd")
-}
 
 func TestConfig_Save_PreservesExisting(t *testing.T) {
 	tmpDir := t.TempDir()

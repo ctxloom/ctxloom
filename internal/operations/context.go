@@ -639,11 +639,10 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 			// "@<commit>"); filtered by exclude_fragments here, parity with the
 			// inline toProfile filter.
 			Fragments: convertProfileFragments(resolved.Fragments, resolved.ExcludeFragments),
-			// Directly-declared hooks/mcp are executable surfaces; they reach the
-			// SAME managed-hooks/MCP resolution + executable trust gate as inline
-			// profiles via backends.AssembleManagedHooks / AssembleManagedMCP.
+			// Directly-declared hooks are executable surfaces; they reach the
+			// SAME managed-hooks resolution + executable trust gate as inline
+			// profiles via backends.AssembleManagedHooks.
 			Hooks:            resolved.Hooks,
-			MCP:              resolved.MCP,
 			Variables:        resolved.Variables,
 			LLM:              resolved.LLM,
 			ExcludeFragments: resolved.ExcludeFragments,

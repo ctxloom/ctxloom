@@ -44,7 +44,12 @@ func TestCatalog_SameDeclaredNameDifferentClasses_BothResolve(t *testing.T) {
 		NewBuiltinReader(),
 	).Catalog()
 
-	require.Equal(t, 2, cat.Len(),
+	// One entry per BUILTIN, plus the project copy. Counting the builtins
+	// rather than hard-coding a number keeps this about the keying property
+	// instead of about how many bundles happen to ship today.
+	builtinOnly := NewLoader(NewBuiltinReader()).Catalog().Len()
+	require.Positive(t, builtinOnly, "fixture check: at least the builtin copy of %q must exist, or this row is vacuous", shared)
+	require.Equal(t, builtinOnly+1, cat.Len(),
 		"two bundles of one declared name under two canonical URIs are two entries; "+
 			"a set that holds one has keyed on the name and silently dropped a bundle")
 

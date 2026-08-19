@@ -101,7 +101,7 @@ func TestDeliveryHome_DistinguishesItsTwoRefusals(t *testing.T) {
 func TestLaunchOnlyRefusals_AllQuoteOneReason(t *testing.T) {
 	require.NotEmpty(t, LaunchOnlySettingsReason)
 
-	writeErr := (&CodexHookWriter{}).WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj")
+	writeErr := (&CodexHookWriter{}).WriteSettings(&wire.HooksConfig{}, nil, "/proj")
 	require.Error(t, writeErr)
 	assert.Contains(t, writeErr.Error(), LaunchOnlySettingsReason, "CodexHookWriter.WriteSettings")
 

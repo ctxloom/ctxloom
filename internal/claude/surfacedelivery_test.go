@@ -32,25 +32,22 @@ func mcpServersOf(t *testing.T, dir string) map[string]any {
 // the MCP surface into the injected Placement identically to writeMCPConfig, and
 // that Cleanup reverts ctxloom-owned servers while preserving user servers.
 func TestFileTemplateDelivery_DeliverMCP(t *testing.T) {
-	mcp := &wire.MCPConfig{
-		Servers: map[string]wire.MCPServer{
-			"config-server": {Command: "config-cmd", Args: []string{"--flag"}},
-		},
-	}
 	bundle := map[string]wire.MCPServer{
-		"bundle-server": {Command: "bundle-cmd", SCM: "ctxloom-bundle:test"},
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+		"config-server":     {Command: "config-cmd", Args: []string{"--flag"}},
+		"bundle-server":     {Command: "bundle-cmd", SCM: "ctxloom-bundle:test"},
 	}
 
 	// Delivery target.
 	deliverDir := t.TempDir()
 	d := newFileTemplateDelivery(fakePlacement{dir: deliverDir}, nil)
-	handle, err := d.DeliverMCP(mcp, bundle)
+	handle, err := d.DeliverMCP(bundle)
 	require.NoError(t, err)
 
 	// Control: the existing writer targeted at a separate dir must produce the
 	// same on-disk bytes.
 	controlDir := t.TempDir()
-	require.NoError(t, (&ClaudeCodeHookWriter{}).writeMCPConfig(controlDir, mcp, bundle))
+	require.NoError(t, (&ClaudeCodeHookWriter{}).writeMCPConfig(controlDir, bundle))
 
 	got, err := os.ReadFile(filepath.Join(deliverDir, ".mcp.json"))
 	require.NoError(t, err)
@@ -87,7 +84,9 @@ func TestFileTemplateDelivery_DeliverMCP_PreservesUserServers(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), data, 0o644))
 
 	d := newFileTemplateDelivery(fakePlacement{dir: dir}, nil)
-	handle, err := d.DeliverMCP(nil, nil) // nil mcp still auto-registers ctxloom
+	handle, err := d.DeliverMCP(map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+	})
 	require.NoError(t, err)
 
 	servers := mcpServersOf(t, dir)

@@ -1,11 +1,13 @@
 @doc
-Feature: mcp — registering MCP servers ctxloom hands to every engine
+Feature: mcp — the MCP servers ctxloom hands to every engine
 
   An MCP server is a tool process — a filesystem walker, a database client, a
-  search index — that an AI assistant can call. `ctxloom mcp server` is the
-  noun that owns registering one: a server named once in the project's config
-  is what every backend's own MCP configuration is generated from, and what
-  an agent sees listed as a resource inside the running session.
+  search index — that an AI assistant can call. Every one of them lives in a
+  BUNDLE: composing a bundle that declares an `mcp:` server is what registers
+  it, and that one registration is what every backend's own MCP configuration
+  is generated from, and what an agent sees listed as a resource inside the
+  running session. `ctxloom mcp server` reads that roster; the only write it
+  offers is `edit`, which edits the bundle the server lives in.
 
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   including the refusals and the shapes that only matter to a machine. The
@@ -13,73 +15,108 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
   engines in their own native format — is
   journeys/j000400_multi_engine.feature, which asserts what a PERSON sees.
 
-  Rule: Registering a server makes its command reachable from every axis ctxloom exposes
+  Rule: Composing a bundle that declares a server makes its command reachable from every axis ctxloom exposes
 
-    # "tools" is the argument the command line passed, and it is the config
-    # key, the listed name, and the resource entry alike — so an
-    # implementation that stored the name but dropped the command string
-    # would still satisfy every check that only looks for "tools". The
-    # command's own executable, "echo", is checked at each axis alongside the
-    # name for exactly that reason: a name echoed back three times proves
-    # nothing about whether the command it names actually landed.
-    Scenario: Alice registers a shared MCP server
-      Given an initialized ctxloom project
-      When Alice registers an MCP server for her team:
-        """
-        ctxloom mcp server create tools -c echo
-        """
-      Then the command succeeds
-      And the file ".ctxloom/config.yaml" contains "echo"
+    # "toolserver" is the bundle's key, and it is the listed name and the
+    # resource entry alike — so an implementation that stored the name but
+    # dropped the command string would still satisfy every check that only
+    # looks for "toolserver". The command's own executable is checked at each
+    # axis alongside the name for exactly that reason: a name echoed back
+    # three times proves nothing about whether the command it names actually
+    # landed.
+    Scenario: Alice's team bundle registers a shared MCP server
+      Given Carol's team profile carries a shared fragment, command, MCP server, and hook
+      And I run "ctxloom agent create dev --profiles team"
+      And I run "ctxloom agent default dev"
       When I run "ctxloom mcp server list"
       Then the command succeeds
-      And the output contains "tools"
+      And the output contains "toolserver"
       When the agent reads resource "ctxloom://mcp-servers"
-      Then the resource contains "tools"
-      And the resource contains "echo"
+      Then the resource contains "toolserver"
+
+  Rule: ctxloom's own MCP server ships in a builtin bundle, so it needs no configuration
+
+    # The entry whose absence costs the user every ctxloom tool. Nothing in
+    # the project asks for it: the builtin ctxloom bundle is injected into
+    # every session unconditionally, which is what makes "composing the bundle
+    # registers the server" true by default. The BUNDLE is asserted alongside
+    # the name — a name alone would still be satisfied by an implementation
+    # that hard-coded the entry back into the writers.
+    Scenario: A project that configures nothing still registers ctxloom's own server
+      Given an initialized ctxloom project
+      When I run "ctxloom mcp server list"
+      Then the command succeeds
+      And the output contains "ctxloom"
+      And the output contains "ctxloom+builtin:ctxloom-mcp"
 
   Rule: Showing a server surfaces its stored command, not just its name
 
     # `show` prints the server's own name as a header, echoed straight from
     # the argument the scenario already passed — so a command of "" would
-    # still satisfy an assertion that only checks for "tools". "echo" exists
-    # nowhere in a fresh project except inside the server's own stored
-    # command, so only a real round trip through config satisfies it.
+    # still satisfy an assertion that only checks for the name. The bundle
+    # identity exists nowhere in the output except because the lookup really
+    # resolved the registered server.
     Scenario: Showing an MCP server's configuration
       Given an initialized ctxloom project
-      And I run "ctxloom mcp server create tools -c echo"
       When Alice inspects the server's configuration:
         """
-        ctxloom mcp server show tools
+        ctxloom mcp server show ctxloom
         """
       Then the command succeeds
-      And the output contains "echo"
+      And the output contains "ctxloom+builtin:ctxloom-mcp"
+      And the output contains "mcp serve"
 
-  Rule: Removing a server removes it from the roster
+  Rule: There is no config-level MCP store to create in or remove from
 
-    # Bare `remove` is a preview: it must leave the server configured. A guard
-    # that quietly destroyed anyway would still pass a scenario that only
-    # checked exit code — the follow-up `mcp server list` is what actually
-    # catches that.
-    Scenario: Bare mcp server remove reports and destroys nothing
+    # The ruling this noun is shaped by: an MCP server lives in a bundle and
+    # nowhere else. `create` and `remove` are not hidden or deprecated, they
+    # are GONE — a project adds a server by composing a bundle and withholds
+    # one with a profile's exclude_mcp.
+    Scenario Outline: The config-level write leaves do not exist
       Given an initialized ctxloom project
-      And I run "ctxloom mcp server create tools -c echo"
-      When I run "ctxloom mcp server remove tools"
-      Then the command succeeds
-      And the output contains "Nothing was removed"
-      And the output contains "--yes"
-      When I run "ctxloom mcp server list"
-      Then the output contains "tools"
+      When I run "ctxloom mcp server <leaf> tools"
+      Then the command fails
+      And the output contains "unknown command"
 
-    Scenario: Removing an MCP server
+      Examples:
+        | leaf   |
+        | create |
+        | remove |
+
+    # ctxloom's own registration was a config flag with two commands behind
+    # it. Withholding the bundle is the replacement, so the toggles go too.
+    Scenario Outline: The auto-registration toggles do not exist
       Given an initialized ctxloom project
-      And I run "ctxloom mcp server create tools -c echo"
-      When Alice removes the server she no longer needs:
+      When I run "ctxloom mcp <leaf>"
+      Then the command fails
+      And the output contains "unknown command"
+
+      Examples:
+        | leaf       |
+        | register   |
+        | unregister |
+
+  Rule: A config carrying the retired native mcp: block is refused, not ignored
+
+    # A setting that looks applied and is not is the worse outcome, so a
+    # config that still names the retired key fails at load with the key named
+    # — the same treatment any key ctxloom does not know gets, because after
+    # this ruling those are the same thing. Asserting the KEY, not just the
+    # failure, is what separates this from any other reason a load might fail.
+    Scenario: A native mcp: block fails the load and names the key
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
         """
-        ctxloom mcp server remove tools --yes
+        version: 6
+        mcp:
+            auto_register_ctxloom: true
+            servers:
+                tools:
+                    command: echo
         """
-      Then the command succeeds
       When I run "ctxloom mcp server list"
-      Then the output does not contain "tools"
+      Then the output contains "unknown key `mcp`"
+      And the output contains "IGNORED"
 
   Rule: Editing a bundle's server is a round trip through the user's editor
 
@@ -88,13 +125,8 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
     # TRIP: what the editor wrote must reach the bundle on disk. A scenario
     # asserting exit 0 would pass against an editor that was never launched.
     #
-    # The fixture authors the bundle's mcp section directly, and that is not
-    # laziness: `mcp server create` cannot produce a server this command can
-    # address. create takes a bare <name> and stores it in the project
-    # config — passing it the documented "<bundle>#mcp/<name>" ref simply
-    # makes that whole string the name — while edit resolves the ref and
-    # looks in the bundle. The two never meet (taskloom filed separately).
-    # Authoring the manifest is the only way to reach this code path today.
+    # The fixture authors the bundle's mcp section directly because that IS
+    # how a server comes to exist: there is no other store to create one in.
     Scenario: Editing a bundle's MCP server writes the editor's result back
       Given a ctxloom project with a command-rewriting editor
       And the project already has the file ".ctxloom/content/bundles/demo.yaml":
@@ -195,7 +227,7 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
 
   Rule: The bare noun answers a person and refuses a protocol client
 
-    `ctxloom mcp` on its own lists this project's configured MCP servers, the
+    `ctxloom mcp` on its own lists the MCP servers this project registers, the
     way every other noun answers its own bare form. A caller that is NOT a
     person at a terminal is almost always an engine that has opened a pipe and
     is waiting for JSON-RPC, and a server listing written into that pipe is

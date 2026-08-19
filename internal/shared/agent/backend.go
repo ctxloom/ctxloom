@@ -423,8 +423,7 @@ type ManagedConfig struct {
 	Commands         []CommandExport           // per-target-agent command (slash-command) exports
 	Skills           []SkillExport             // per-target-agent Agent Skill package exports (SurfaceSkills)
 	Hooks            *wire.HooksConfig         // config + default-profile + bundle hooks (no context-injection)
-	MCP              *wire.MCPConfig           // merged config + default-profile MCP servers
-	BundleMCP        map[string]wire.MCPServer // MCP servers shipped by profile + builtin bundles (parallel to Hooks' bundle set)
+	BundleMCP        map[string]wire.MCPServer // every MCP server the session registers, shipped by builtin, companion and profile bundles (parallel to Hooks' bundle set)
 	ManageStatusline bool                      // whether ctxloom manages the backend statusline
 	// DenyTools is the config+default-profile deny_tools union (deny-tools.md
 	// root-cause fix): per-engine tool identifiers the resolved profile set

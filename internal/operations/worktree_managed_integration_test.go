@@ -66,10 +66,8 @@ func TestWorktreeMember_ManagedConfigLandsInWorktree(t *testing.T) {
 	// consumes — mirroring backends.AssembleManagedConfig's result, but hand-built
 	// so the assertion is deterministic (config.Load would read the ambient tree).
 	managed := &agent.ManagedConfig{
-		MCP: &wire.MCPConfig{
-			Servers: map[string]wire.MCPServer{
-				"demo": {Command: "echo", Args: []string{"hi"}},
-			},
+		BundleMCP: map[string]wire.MCPServer{
+			"demo": {Command: "echo", Args: []string{"hi"}},
 		},
 		ManageStatusline: true,
 	}

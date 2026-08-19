@@ -18,7 +18,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -39,11 +38,6 @@ func fixtureConfig() *config.Config {
 				"big": {Type: "antigravity", Body: map[string]interface{}{"model": "gemini-3-pro"}},
 			},
 		},
-		MCP: wire.MCPConfig{
-			Servers: map[string]wire.MCPServer{
-				"fs": {Command: "mcp-fs"},
-			},
-		},
 	})
 }
 
@@ -57,7 +51,6 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 	}{
 		{"config", "config", "compaction_chunks"},
 		{"llm", "llm", "gemini-3-pro"},
-		{"mcp", "mcp", "mcp-fs"},
 		{"profiles", "profiles", "developer"},
 	}
 
@@ -80,9 +73,9 @@ func TestResolveConfigSection_UnknownSection(t *testing.T) {
 	_, err := resolveConfigSection(cfg, "nope")
 	require.Error(t, err)
 	// The error message has to list valid sections so the CLI user
-	// can recover without reading docs. All four must appear.
+	// can recover without reading docs. All three must appear.
 	msg := err.Error()
-	for _, want := range []string{"config", "llm", "mcp", "profiles"} {
+	for _, want := range []string{"config", "llm", "profiles"} {
 		assert.Contains(t, msg, want, "error must list section %q", want)
 	}
 	assert.Contains(t, msg, "nope", "error must echo the bad section name")
@@ -99,14 +92,13 @@ func TestRenderConfigSection_UnknownSurfacesError(t *testing.T) {
 
 func TestRenderConfigYAML_RoundTripsTopLevelKeys(t *testing.T) {
 	// renderConfigYAML serializes the whole config; we verify only that
-	// the top-level keys we expect ("llm", "config", "mcp", "profiles")
-	// are present in the output. Full struct equivalence is yaml.Marshal's
-	// problem, not ours.
+	// the top-level keys we expect ("llm", "config", "profiles") are present in
+	// the output. Full struct equivalence is yaml.Marshal's problem, not ours.
 	var buf bytes.Buffer
 	require.NoError(t, renderConfigYAML(fixtureConfig(), &buf))
 
 	out := buf.String()
-	for _, key := range []string{"llm:", "config:", "mcp:", "profiles:"} {
+	for _, key := range []string{"llm:", "config:", "profiles:"} {
 		assert.True(t, strings.Contains(out, key),
 			"full-config YAML should contain top-level %q (got: %q)", key, out)
 	}

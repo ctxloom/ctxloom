@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -31,8 +32,8 @@ func TestClaudeCodeRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	userMCP := `{"mcpServers":{"user-server":{"command":"./user-mcp"}}}`
 	require.NoError(t, afero.WriteFile(fs, dir+"/.mcp.json", []byte(userMCP), 0644))
 
-	// Wire ctxloom hooks, statusline (auto), and the auto-registered MCP server.
-	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, true, dir, fs)
+	// Wire ctxloom hooks, statusline (auto), and ctxloom's own MCP server.
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, true, dir, fs)
 
 	// Sanity: ctxloom is wired before removal.
 	before, err := BackendStatus("claude-code", dir, WithSettingsFS(fs))

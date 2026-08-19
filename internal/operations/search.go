@@ -254,11 +254,11 @@ func searchProfiles(cfg *config.Config, query string) []SearchResult {
 	return results
 }
 
-// searchMCPServers returns configured MCP servers whose name or command matches
-// query.
+// searchMCPServers returns registered MCP servers whose name or command
+// matches query — the resolved bundle set every engine's settings receive.
 func searchMCPServers(cfg *config.Config, query string) []SearchResult {
 	var results []SearchResult
-	for name, srv := range cfg.GetMCPServers() {
+	for name, srv := range cfg.ResolveBundleMCPServers(nil) {
 		if strings.Contains(strings.ToLower(name), query) ||
 			strings.Contains(strings.ToLower(srv.Command), query) {
 			results = append(results, SearchResult{

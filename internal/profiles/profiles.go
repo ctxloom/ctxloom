@@ -196,11 +196,6 @@ type Profile struct {
 	// (the SAME gate bundle hooks pass) before reaching backend settings.
 	Hooks wire.HooksConfig `yaml:"hooks,omitempty"`
 
-	// MCP are MCP servers declared by this directory profile, the mirror of
-	// config.Profile.MCP. Like Hooks, these directly-declared executables pass the
-	// executable trust gate before reaching backend settings.
-	MCP wire.MCPConfig `yaml:"mcp,omitempty"`
-
 	Variables map[string]string `yaml:"variables,omitempty"`
 
 	// Exclusions - items to filter out after inheritance resolution
@@ -689,7 +684,6 @@ func (p *Profile) HasContent() bool {
 			len(p.Hooks.Unified.SessionStart)+len(p.Hooks.Unified.SessionEnd)+
 			len(p.Hooks.Unified.PreShell)+len(p.Hooks.Unified.PostFileEdit) > 0 ||
 		len(p.Hooks.Plugins) > 0 ||
-		len(p.MCP.Servers) > 0 ||
 		p.LLM != ""
 }
 
@@ -984,11 +978,10 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// child overrides, consistent with the inline fold.
 	resolved.Fragments = appendUniqueFragments(resolved.Fragments, profile.Fragments...)
 	resolved.BundleItems = appendUnique(resolved.BundleItems, profile.BundleItems...)
-	// Inline hooks/mcp fold like the inline profileBuilder: hooks accumulate
-	// (event-keyed union) and a server name later in the chain wins. Self is
-	// applied after parents, so a child's hooks/mcp override the parents'.
+	// Inline hooks fold like the inline profileBuilder: they accumulate
+	// (event-keyed union). Self is applied after parents, so a child's hooks
+	// override the parents'.
 	agent.MergeHooksConfig(&resolved.Hooks, &profile.Hooks)
-	wire.MergeMCPConfig(&resolved.MCP, &profile.MCP)
 	maps.Copy(resolved.Variables, profile.Variables)
 	// A profile's own llm overrides any inherited from parents.
 	if profile.LLM != "" {
@@ -1031,13 +1024,12 @@ type ResolvedProfile struct {
 	Fragments   []FragmentRef    // Direct fragment references (with optional priority/version pin in Name)
 	BundleItems []string         // Cherry-picked bundle items (e.g. "remote/bundle:fragments/x")
 	Hooks       wire.HooksConfig // Directly-declared lifecycle hooks (executable; gated downstream)
-	MCP         wire.MCPConfig   // Directly-declared MCP servers (executable; gated downstream)
 	Variables   map[string]string
 	LLM         string // Preferred config label/backend (empty = inherit primary)
 
 	// SourceRef is this profile's OWN canonical origin ref, for keying the
-	// executable trust gate on its directly-declared hooks/mcp
-	// (internal/lm/backends/managed.go's gateProfileMCP/gateProfileHooks) by
+	// executable trust gate on its directly-declared hooks
+	// (internal/lm/backends/managed.go's gateProfileHooks) by
 	// SOURCE rather than display name. It is
 	// the origin bundle's canonical ref ("<url>@bundles/<bundle>", WITHOUT
 	// the "#profiles/<name>" selector — carrying that selector into the gate
@@ -1081,7 +1073,6 @@ func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	r.Fragments = appendUniqueFragments(r.Fragments, other.Fragments...)
 	r.BundleItems = appendUnique(r.BundleItems, other.BundleItems...)
 	agent.MergeHooksConfig(&r.Hooks, &other.Hooks)
-	wire.MergeMCPConfig(&r.MCP, &other.MCP)
 	for k, v := range other.Variables {
 		if _, exists := r.Variables[k]; !exists {
 			r.Variables[k] = v

@@ -63,10 +63,10 @@ func newFileTemplateDelivery(place agent.Placement, fs afero.Fs) *fileTemplateDe
 // touched the same way: the override is an MCP-only concern (it replaces the
 // ctxloom stdio command), and settings.json carries no such command.
 // reprise:accept-drift
-func (d *fileTemplateDelivery) DeliverMCP(mcp *wire.MCPConfig, bundle map[string]wire.MCPServer) (agent.Delivered, error) {
+func (d *fileTemplateDelivery) DeliverMCP(bundle map[string]wire.MCPServer) (agent.Delivered, error) {
 	dir := d.place.Dir()
 	w := &ClaudeCodeHookWriter{FS: d.fs, mcpCommandOverride: d.mcpCommandOverride}
-	if err := w.writeMCPConfig(dir, mcp, bundle); err != nil {
+	if err := w.writeMCPConfig(dir, bundle); err != nil {
 		return nil, err
 	}
 	return agent.DeliveredFunc(func() error { return w.removeMCPConfig(dir) }), nil

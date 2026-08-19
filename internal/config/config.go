@@ -92,7 +92,6 @@ type Config struct {
 	settings SettingsConfig   //
 	sync     SyncConfig       //
 	hooks    wire.HooksConfig //
-	mcp      wire.MCPConfig   //
 	profiles ProfilesConfig   //
 	// agents is the LOCAL-ONLY engine↔profile binding map, the in-config half
 	// of the agent entity (the other half is .ctxloom/agents/*.yaml). Keyed
@@ -353,7 +352,6 @@ type configDoc struct {
 	Settings                     SettingsConfig          `yaml:"config,omitempty"`
 	Sync                         SyncConfig              `yaml:"sync,omitempty"`
 	Hooks                        wire.HooksConfig        `yaml:"hooks,omitempty"`
-	MCP                          wire.MCPConfig          `yaml:"mcp,omitempty"`
 	Profiles                     ProfilesConfig          `yaml:"profiles,omitempty"`
 	Agents                       map[string]agents.Agent `yaml:"agents,omitempty"`
 	DefaultAgent                 string                  `yaml:"default_agent,omitempty"`
@@ -388,7 +386,6 @@ func (c *Config) toDoc() configDoc {
 		Settings:                     cloneSettings(c.settings),
 		Sync:                         cloneSync(c.sync),
 		Hooks:                        cloneHooksConfig(c.hooks),
-		MCP:                          cloneMCPConfig(c.mcp),
 		Profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)},
 		Agents:                       cloneAgentsMap(c.agents),
 		DefaultAgent:                 c.defaultAgent,
@@ -418,7 +415,6 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.settings = doc.Settings
 	c.sync = doc.Sync
 	c.hooks = doc.Hooks
-	c.mcp = doc.MCP
 	c.profiles = doc.Profiles
 	c.agents = doc.Agents
 	c.defaultAgent = doc.DefaultAgent

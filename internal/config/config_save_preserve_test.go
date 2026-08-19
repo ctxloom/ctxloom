@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // TestConfig_Save_PreservesCommentsAndKeyOrder pins U049-F16: the persist path
@@ -48,7 +47,6 @@ func TestConfig_Save_PreservesCommentsAndKeyOrder(t *testing.T) {
 		// test here.
 		source:       SourceHome,
 		editor:       EditorConfig{Command: "vim"},
-		mcp:          wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "x"}}},
 		defaultAgent: "reviewer",
 	}
 	cfg.SetFS(fs)

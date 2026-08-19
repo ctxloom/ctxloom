@@ -97,9 +97,9 @@ func setupBackendForMatrix(t *testing.T) *ClaudeCode {
 			Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 				SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
 			}},
-			MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{
+			BundleMCP: map[string]wire.MCPServer{
 				"demo": {Command: "demo-server"},
-			}},
+			},
 		},
 	}))
 	require.NotEmpty(t, b.surfaces.Context.Path(), "matrix needs a delivered context path")

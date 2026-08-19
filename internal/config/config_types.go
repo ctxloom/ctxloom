@@ -162,7 +162,6 @@ type Profile struct {
 	Skills    []string          `mapstructure:"skills" yaml:"skills,omitempty"`
 	Variables map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
 	Hooks     wire.HooksConfig  `mapstructure:"hooks" yaml:"hooks,omitempty"` // Hooks for this profile (inherited)
-	MCP       wire.MCPConfig    `mapstructure:"mcp" yaml:"mcp,omitempty"`     // MCP servers for this profile (inherited)
 
 	// Exclusions - items to filter out after inheritance resolution
 	ExcludeFragments []string `mapstructure:"exclude_fragments" yaml:"exclude_fragments,omitempty"`

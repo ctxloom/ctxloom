@@ -67,9 +67,9 @@ func TestDeliveries_ResolvedSelectionMaterializesEverySurface(t *testing.T) {
 // the assertions are over real written bytes and not over an empty tree.
 func parityInputs() agent.SurfaceInputs {
 	return agent.SurfaceInputs{
-		Context: "assembled context for the delivery gate",
-		MCP:     &wire.MCPConfig{Servers: map[string]wire.MCPServer{"demo": {Command: "demo-server"}}},
-		Hooks:   &wire.HooksConfig{},
+		Context:   "assembled context for the delivery gate",
+		BundleMCP: map[string]wire.MCPServer{"demo": {Command: "demo-server"}},
+		Hooks:     &wire.HooksConfig{},
 		Commands: []agent.CommandExport{
 			{Name: "review", Description: "review the diff", Content: "review body", Enabled: true},
 		},

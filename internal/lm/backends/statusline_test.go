@@ -29,23 +29,23 @@ func statusLineCommand(t *testing.T, fs afero.Fs, dir string) string {
 
 func TestManagedSettings_StatusLineEnabled_InstallsHud(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, true, "/p", fs)
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, true, "/p", fs)
 	assert.Equal(t, "ctxloom hook hud", statusLineCommand(t, fs, "/p"))
 }
 
 func TestManagedSettings_StatusLineDisabled_DoesNotInstall(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, false, "/p", fs)
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, false, "/p", fs)
 	assert.Empty(t, statusLineCommand(t, fs, "/p"), "no HUD statusline when disabled")
 }
 
 func TestManagedSettings_StatusLineDisabled_ClearsPreviouslyManaged(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// First install with the HUD, then re-apply with the opt-out.
-	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, true, "/p", fs)
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, true, "/p", fs)
 	require.Equal(t, "ctxloom hook hud", statusLineCommand(t, fs, "/p"))
 
-	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, false, "/p", fs)
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, false, "/p", fs)
 	assert.Empty(t, statusLineCommand(t, fs, "/p"), "a ctxloom-managed statusline is cleared on opt-out")
 }
 
@@ -55,7 +55,7 @@ func TestManagedSettings_StatusLineDisabled_PreservesUserStatusline(t *testing.T
 	user := `{"statusLine":{"type":"command","command":"my-own-statusline"}}`
 	require.NoError(t, afero.WriteFile(fs, "/p/.claude/settings.json", []byte(user), 0644))
 
-	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, false, "/p", fs)
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, false, "/p", fs)
 
 	assert.Equal(t, "my-own-statusline", statusLineCommand(t, fs, "/p"),
 		"a user's own statusline is never touched")

@@ -5,14 +5,13 @@ import (
 )
 
 // BaseLifecycle provides shared lifecycle handler logic for backends: it folds
-// the host-assembled ManagedConfig (hooks + MCP + bundle servers) into its merged
+// the host-assembled ManagedConfig (hooks + bundle MCP servers) into its merged
 // state (MergeManaged), which the surfaces × cells Setup then reads via GetHooks /
-// GetMCP to write each settings/config surface. The statusline policy travels on
+// GetBundleMCP to write each settings/config surface. The statusline policy travels on
 // ManagedConfig itself (read directly by Setup), not through the lifecycle.
 type BaseLifecycle struct {
 	backendName string
 	hooks       *wire.HooksConfig
-	mcp         *wire.MCPConfig
 	bundleMCP   map[string]wire.MCPServer
 }
 
@@ -41,7 +40,6 @@ func (l *BaseLifecycle) MergeManaged(m *ManagedConfig, workDir string, contextHa
 		return
 	}
 	l.ensureHooks()
-	l.ensureMCP()
 
 	if m.Hooks != nil {
 		MergeHooksConfig(l.hooks, m.Hooks)
@@ -51,13 +49,9 @@ func (l *BaseLifecycle) MergeManaged(m *ManagedConfig, workDir string, contextHa
 			NewContextInjectionHooks(contextHash, workDir)...)
 	}
 
-	if m.MCP != nil {
-		wire.MergeMCPConfig(l.mcp, m.MCP)
-	}
-
-	// Bundle MCP servers are passed to WriteSettings as a separate set (they
-	// carry their own bundle-source _ctxloom marker), so they ride alongside
-	// l.mcp rather than merging into it — mirroring operations.ApplyHooks, which
+	// Bundle MCP servers are the WHOLE managed set — every MCP server, ctxloom's
+	// own included, reaches a session through some bundle — and they carry their
+	// own bundle-source _ctxloom marker. Mirrors operations.ApplyHooks, which
 	// hands the same ResolveBundleMCPServers() set as its bundleMCP argument.
 	if m.BundleMCP != nil {
 		l.bundleMCP = m.BundleMCP
@@ -73,22 +67,12 @@ func (l *BaseLifecycle) ensureHooks() {
 	}
 }
 
-// ensureMCP initializes MCP config if nil.
-func (l *BaseLifecycle) ensureMCP() {
-	if l.mcp == nil {
-		l.mcp = &wire.MCPConfig{
-			Servers: make(map[string]wire.MCPServer),
-			Plugins: make(map[string]map[string]wire.MCPServer),
-		}
-	}
-}
-
 // ChatMCPServers composes the managed MCP set this lifecycle holds into
 // chat-injectable server entries (see ComposeChatMCPServers). nil until
 // MergeManaged has folded a managed payload in — a skip-setup run merges nothing,
 // so it injects nothing.
 func (l *BaseLifecycle) ChatMCPServers(override string) []ChatMCPServer {
-	return ComposeChatMCPServers(l.backendName, override, l.mcp, l.bundleMCP, nil)
+	return ComposeChatMCPServers(override, l.bundleMCP, nil)
 }
 
 // GetHooks returns the current hooks configuration.
@@ -96,7 +80,7 @@ func (l *BaseLifecycle) GetHooks() *wire.HooksConfig {
 	return l.hooks
 }
 
-// GetMCP returns the current MCP configuration.
-func (l *BaseLifecycle) GetMCP() *wire.MCPConfig {
-	return l.mcp
+// GetBundleMCP returns the managed MCP server set this lifecycle holds.
+func (l *BaseLifecycle) GetBundleMCP() map[string]wire.MCPServer {
+	return l.bundleMCP
 }

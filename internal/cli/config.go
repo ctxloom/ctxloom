@@ -130,12 +130,10 @@ func resolveConfigSection(cfg *config.Config, name string) (any, error) {
 		return cfg.GetSettings(), nil
 	case "llm":
 		return cfg.GetLMConfig(), nil
-	case "mcp":
-		return cfg.GetMCPConfig(), nil
 	case "profiles":
 		return cfg.GetProfilesConfig(), nil
 	default:
-		return nil, fmt.Errorf("unknown section: %s\n\nAvailable: config, llm, mcp, profiles", name)
+		return nil, fmt.Errorf("unknown section: %s\n\nAvailable: config, llm, profiles", name)
 	}
 }
 

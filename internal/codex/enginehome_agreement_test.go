@@ -79,7 +79,7 @@ func TestCodexHome_HarplessStaticWritersAllDecline(t *testing.T) {
 	assert.Empty(t, (&CodexHookWriter{}).SettingsPath(workDir),
 		"static writer (CodexHookWriter.SettingsPath) must name NO file")
 
-	writeErr := (&CodexHookWriter{}).WriteSettings(&wire.HooksConfig{}, nil, nil, workDir)
+	writeErr := (&CodexHookWriter{}).WriteSettings(&wire.HooksConfig{}, nil, workDir)
 	require.Error(t, writeErr, "static writer (CodexHookWriter.WriteSettings) must refuse")
 	assert.Contains(t, writeErr.Error(), LaunchOnlySettingsReason,
 		"the refusal must quote the declared reason, not invent a second one")

@@ -10,8 +10,8 @@ Feature: config — the project's one configuration document, read and scaffolde
   document the way `git config --list` does. That is the shape of this noun:
   one document, one place, addressable in whole or by section.
 
-  THE DOCUMENT IS SHARED, WHICH IS WHY THE SECTION VIEW MATTERS. `mcp server
-  create`, `manage install`, `container scaffold` and the init interview all
+  THE DOCUMENT IS SHARED, WHICH IS WHY THE SECTION VIEW MATTERS. `agent set`,
+  `manage install`, `container scaffold` and the init interview all
   write into the same file, and `config get <section>` is how a person reads
   back what another command just wrote. A section view that silently rendered
   the whole document would look right and answer the wrong question, so every
@@ -123,24 +123,6 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the output does not contain "editor:"
       And the output does not contain "profiles:"
 
-    # ONE DOCUMENT, TWO DOORS. `mcp server create` writes into this same
-    # config.yaml, so the section view is how a person confirms what that
-    # command actually stored. Asserting the SERVER'S COMMAND, not just its
-    # name, is what makes this a round trip: a registration with the right key
-    # and an empty body would satisfy a name-only check and leave the engine
-    # with a server it cannot launch.
-    Scenario: The mcp section reads back what another command wrote into the document
-      Given an initialized ctxloom project
-      And I run "ctxloom mcp server create tools -c echo"
-      When Alice checks the MCP registration landed in the configuration:
-        """
-        ctxloom config get mcp
-        """
-      Then the command succeeds
-      And the output contains "tools"
-      And the output contains "echo"
-      And the output does not contain "llm:"
-
     # The refusal has to be USEFUL, not merely correct: a caller who guessed
     # wrong recovers from the message or not at all, so it names every section
     # that does exist.
@@ -154,7 +136,6 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the output contains "nonsense"
       And the output contains "config"
       And the output contains "llm"
-      And the output contains "mcp"
       And the output contains "profiles"
 
     # A namespace that printed its own help on a misspelling and exited 0 is

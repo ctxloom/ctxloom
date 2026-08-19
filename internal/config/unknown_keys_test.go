@@ -115,12 +115,12 @@ func TestLoad_SeveralUnknownKeys_OneWarningEach(t *testing.T) {
 // suggestion machinery follows the schema pointer, so it must not go blind at a
 // $ref boundary.
 func TestLoad_UnknownKeyInRefdSection_StillSuggests(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nmcp:\n  servers:\n    s:\n      command: c\n      comand: c\n")
+	cfg := loadYAML(t, "version: 6\nhooks:\n  unified:\n    pre_tool:\n      - command: c\n        matchr: x\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0].Text, "mcp.servers.s.comand", "the dotted path reaches through the $ref")
-	assert.Contains(t, warns[0].Text, "did you mean `command`?")
+	assert.Contains(t, warns[0].Text, "hooks.unified.pre_tool.0.matchr", "the dotted path reaches through the $ref")
+	assert.Contains(t, warns[0].Text, "did you mean `matcher`?")
 }
 
 // An unknown key inside an llm.configs.<label> entry sits behind the

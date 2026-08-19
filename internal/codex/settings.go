@@ -145,7 +145,7 @@ func (w *CodexHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.Con
 // which holds an ALREADY-RESOLVED codex home. There is no exported harpless
 // twin of it on purpose: every exported spelling of "write codex's settings
 // under a project root" is a durable project home regrowing.
-func (w *CodexHookWriter) WriteSettings(*wire.HooksConfig, *wire.MCPConfig, map[string]wire.MCPServer, string) error {
+func (w *CodexHookWriter) WriteSettings(*wire.HooksConfig, map[string]wire.MCPServer, string) error {
 	return launchOnlyError("codex has no project-scoped settings file to write")
 }
 
@@ -166,7 +166,7 @@ func (w *CodexHookWriter) WriteSettings(*wire.HooksConfig, *wire.MCPConfig, map[
 // statement of that decision and its boundary (ctxloom answers only for homes
 // it created, only for the directory the run was asked for); internal/codex/
 // backend.go's Setup is what fills the value.
-func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, codexProjectDir, trustAbsPath string) error {
+func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, codexProjectDir, trustAbsPath string) error {
 	if hooks == nil {
 		hooks = &wire.HooksConfig{}
 	}
@@ -216,7 +216,7 @@ func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, mcp *wire.MCP
 		if backendHooks, ok := hooks.Plugins["codex"]; ok {
 			addBackendHooks(cfg, backendHooks)
 		}
-		managedMCP := addMCPServers(cfg, mcp, bundleMCP, w.MCPCommandOverride)
+		managedMCP := addMCPServers(cfg, bundleMCP, w.MCPCommandOverride)
 		// Both of codex's trust gates are answered here, on the SAME axis and for
 		// the same reason (hooktrust.go's header): workspace trust for the cwd, hook
 		// trust for each hook command. Answering only the first was measurably not
@@ -668,7 +668,7 @@ func removeLedgeredMCPServers(cfg map[string]any, names []string) {
 	}
 }
 
-// addMCPServers adds MCP servers from config and bundles to [mcp_servers] and
+// addMCPServers adds the resolved bundle MCP servers to [mcp_servers] and
 // returns the full set of names it added — every server this call makes
 // ctxloom-managed. The caller writes this list to the SurfaceMCP ledger, so
 // the NEXT reconcile's removeLedgeredMCPServers knows exactly what to drop
@@ -678,37 +678,20 @@ func removeLedgeredMCPServers(cfg map[string]any, names []string) {
 // override replaces agent.CtxloomCommand() for the ctxloom-managed entry when
 // non-empty (see agent.ResolveMCPCommand) — set ONLY for an isolated-
 // container cell.
-func addMCPServers(cfg map[string]any, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, override string) []string {
+func addMCPServers(cfg map[string]any, bundleMCP map[string]wire.MCPServer, override string) []string {
 	servers := asMap(cfg["mcp_servers"])
 	if servers == nil {
 		servers = map[string]any{}
 	}
 	var names []string
 
-	// Auto-register ctxloom's own MCP server unless disabled. Command names
-	// the self-exec absolute path (agent.CtxloomCommand) so this session's
-	// MCP server can never diverge from the binary that materialized it —
-	// unless override substitutes the in-container path.
-	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		servers[agent.MCPServerName] = mcpServerToTOMLEntry(wire.MCPServer{Command: agent.ResolveMCPCommand(override), Args: agent.CtxloomMCPArgs})
-		names = append(names, agent.MCPServerName)
-	}
-
-	// Profile-bundle servers (loaded first, can be overridden).
-	for name, server := range bundleMCP {
+	// ctxloom's own entry (the builtin ctxloom bundle's) names the self-exec
+	// absolute path, so this session's MCP server can never diverge from the
+	// binary that materialized it — unless override substitutes the
+	// in-container path. agent.ResolveManagedMCPServers is where that holds.
+	for name, server := range agent.ResolveManagedMCPServers(bundleMCP, override) {
 		servers[name] = mcpServerToTOMLEntry(server)
 		names = append(names, name)
-	}
-
-	if mcp != nil {
-		for name, server := range mcp.Servers {
-			servers[name] = mcpServerToTOMLEntry(server)
-			names = append(names, name)
-		}
-		for name, server := range mcp.Plugins["codex"] {
-			servers[name] = mcpServerToTOMLEntry(server)
-			names = append(names, name)
-		}
 	}
 
 	if len(servers) > 0 {

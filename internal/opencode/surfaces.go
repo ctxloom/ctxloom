@@ -52,7 +52,6 @@ func (s *contextSurface) UnsafeInfo() string { return "opencode/context" }
 // configSurface is opencode's folded settings + MCP surface: opencode.json's `mcp`
 // key, written via the reused OpencodeWriter.WriteSettings.
 type configSurface struct {
-	mcp       *wire.MCPConfig
 	bundleMCP map[string]wire.MCPServer
 	fs        afero.Fs
 }
@@ -62,7 +61,7 @@ type configSurface struct {
 // surface's `instructions` in the same file untouched.
 func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	w := &OpencodeWriter{FS: s.fs}
-	if err := w.WriteSettings(nil, s.mcp, s.bundleMCP, dir); err != nil {
+	if err := w.WriteSettings(nil, s.bundleMCP, dir); err != nil {
 		return nil, err
 	}
 	return agent.DeliveredFunc(func() error { return w.removeMCP(dir) }), nil
@@ -114,7 +113,7 @@ type Surfaces struct {
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	ctx := &contextSurface{context: in.Context, fs: fs}
-	config := &configSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
+	config := &configSurface{bundleMCP: in.BundleMCP, fs: fs}
 	commands := agent.NewManagedCommandsDelivery("opencode/commands", in.Commands, func(dir string, commands []agent.CommandExport) error {
 		return WriteCommandFiles(dir, commands, agent.WithCommandFS(fs))
 	})

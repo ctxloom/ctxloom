@@ -7,10 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -121,103 +119,27 @@ func TestStampItemTrust_RejectedCommandJSON(t *testing.T) {
 	assert.Equal(t, "rejected", row.State)
 }
 
-// TestStampMCPTrust_ConfiguredServerJSON proves the mcp-list json row carries the
-// stamp and that a configured (project-local) MCP server is first-party: it is
-// declared in the project's own config, has no bundle, and can never be a clone,
-// so the local exemption allows it (source "local"). A server the user
-// configured must not render a dead "untrusted" shield.
-func TestStampMCPTrust_ConfiguredServerJSON(t *testing.T) {
-	appDir := t.TempDir()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+// TestMcpListRows_CarriesSourceBundle pins what the mcp-list json row is FOR
+// now that every listed server is a bundle item: the row names the bundle the
+// server came from, which is also the identity `ctxloom bundle trust|reject
+// <bundle>#mcp/<name>` addresses. There is no per-row trust stamp here — a
+// bundle item's posture is read and changed through the bundle surfaces, and a
+// second display of it would be a second mechanism.
+func TestMcpListRows_CarriesSourceBundle(t *testing.T) {
+	servers := []operations.MCPServerEntry{
+		{Name: "ctxloom", Command: "/abs/ctxloom", Args: []string{"mcp", "serve"}, Source: "ctxloom+builtin:ctxloom-mcp"},
+		{Name: "other", Command: "other-cmd", Source: "ctxloom+git://example.invalid/kit//bundles/tools"},
+	}
 
-	servers := []operations.MCPServerEntry{{Name: "local-srv", Command: "node", Backend: "unified"}}
-	rows := mcpListRows(cfg, servers, true)
-	require.Len(t, rows, 1)
+	rows := mcpListRows(servers)
 
-	assert.True(t, rows[0].Trusted, "project-configured local MCP is first-party")
-	assert.Equal(t, "local", rows[0].TrustSource)
+	require.Len(t, rows, 2, "one row per server, in server order")
+	assert.Equal(t, "ctxloom", rows[0].Name)
+	assert.Equal(t, "ctxloom+builtin:ctxloom-mcp", rows[0].Source)
+	assert.Equal(t, "other", rows[1].Name)
+	assert.Equal(t, "ctxloom+git://example.invalid/kit//bundles/tools", rows[1].Source)
 
 	b, err := json.Marshal(rows[0])
 	require.NoError(t, err)
-	assert.Contains(t, string(b), `"trusted":true`)
-	assert.Contains(t, string(b), `"trust_source":"local"`)
-	assert.Contains(t, string(b), `"state":"accepted"`)
-}
-
-// TestStampMCPTrust_RejectedServerJSON proves the configured-server stamp flows
-// through BundleMCP.ComputeContentHash: a rejection recorded against the exact
-// executable surface (content denylist) flips the row to withheld via the
-// rejected step — beating the local exemption.
-func TestStampMCPTrust_RejectedServerJSON(t *testing.T) {
-	appDir := t.TempDir()
-	noAgentEnv(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	srv := operations.MCPServerEntry{Name: "local-srv", Command: "node", Args: []string{"-x"}, Backend: "unified"}
-	mcp := bundles.BundleMCP{Command: srv.Command, Args: srv.Args}
-	mcpPayload, perr := mcp.ContentPayload()
-	require.NoError(t, perr)
-
-	// The rejection is recorded content-only (ref omitted, spec §5.3); the
-	// content-reject still catches the identical executable surface by bytes,
-	// regardless of which ref/name it is later exposed under.
-	require.NoError(t, userApprovalsStore(t).WriteUnsignedContentReject(signing.AttestExecMCP, mcpPayload))
-
-	rows := mcpListRows(cfg, []operations.MCPServerEntry{srv}, true)
-	require.Len(t, rows, 1)
-
-	assert.False(t, rows[0].Trusted)
-	assert.Equal(t, "rejected", rows[0].TrustSource)
-	assert.Equal(t, "rejected", rows[0].State)
-}
-
-// TestMcpListRows_StampBelongsToItsOwnServer pins that the trust
-// stamp used to be applied by a second function that walked `rows` and indexed
-// `servers` at the same position — connascence of position across a function
-// boundary, with no length check, so a shorter servers slice panicked and a
-// reordered one silently mislabelled every row's security posture. Rows are now
-// produced by one loop over one slice; this pins the property that makes that
-// safe: one row per server, in server order, each carrying the verdict for its
-// OWN executable surface.
-//
-// The two servers differ in exactly the way the display exists to show: one has
-// its command+args content-rejected, the other does not. A pairing that drifts
-// by one therefore reports "rejected" against the innocent server.
-func TestMcpListRows_StampBelongsToItsOwnServer(t *testing.T) {
-	appDir := t.TempDir()
-	noAgentEnv(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	clean := operations.MCPServerEntry{Name: "clean-srv", Command: "node", Args: []string{"-a"}, Backend: "unified"}
-	banned := operations.MCPServerEntry{Name: "banned-srv", Command: "node", Args: []string{"-x"}, Backend: "unified"}
-
-	bannedSurface := bundles.BundleMCP{Command: banned.Command, Args: banned.Args}
-	payload, perr := bannedSurface.ContentPayload()
-	require.NoError(t, perr)
-	require.NoError(t, userApprovalsStore(t).WriteUnsignedContentReject(signing.AttestExecMCP, payload))
-
-	servers := []operations.MCPServerEntry{clean, banned}
-	rows := mcpListRows(cfg, servers, true)
-
-	require.Len(t, rows, len(servers), "one row per server, never a slice of its own length")
-	for i, srv := range servers {
-		assert.Equal(t, srv.Name, rows[i].Name, "row %d must describe servers[%d]", i, i)
-	}
-	assert.Equal(t, "rejected", rows[1].State, "the rejected surface is the one flagged")
-	assert.NotEqual(t, "rejected", rows[0].State, "the innocent server must not inherit its neighbour's verdict")
-}
-
-// TestMcpListRows_TextPathSkipsTheStamp pins the other half of runMCPList's
-// contract: the human listing is cheaper because it never resolves trust, so a
-// row built without the stamp carries the zero-value fields rather than a
-// misleading "untrusted".
-func TestMcpListRows_TextPathSkipsTheStamp(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
-
-	rows := mcpListRows(cfg, []operations.MCPServerEntry{{Name: "local-srv", Command: "node"}}, false)
-
-	require.Len(t, rows, 1)
-	assert.Equal(t, "local-srv", rows[0].Name)
-	assert.Empty(t, rows[0].TrustSource, "the text path resolves no trust")
-	assert.Empty(t, rows[0].State)
+	assert.Contains(t, string(b), `"source":"ctxloom+builtin:ctxloom-mcp"`)
 }

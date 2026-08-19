@@ -213,14 +213,15 @@ func TestWriteSettings_MCPAndRemoveOnlyOurs(t *testing.T) {
 }`
 	require.NoError(t, afero.WriteFile(fs, "/proj/opencode.json", []byte(existing), 0o644))
 
-	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{
-		"proj-tool": {Command: "proj-cmd", Args: []string{"serve"}},
-	}}
-	require.NoError(t, w.WriteSettings(nil, mcp, nil, "/proj"))
+	bundleMCP := map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+		"proj-tool":         {Command: "proj-cmd", Args: []string{"serve"}},
+	}
+	require.NoError(t, w.WriteSettings(nil, bundleMCP, "/proj"))
 
 	got := readJSON(t, fs, "/proj/opencode.json")
 	servers := mcpObject(t, got)
-	assert.NotNil(t, servers["ctxloom"], "auto-registered ctxloom server present")
+	assert.NotNil(t, servers["ctxloom"], "ctxloom's own server present")
 	assert.NotNil(t, servers["proj-tool"], "config server present")
 	assert.NotNil(t, servers["user-server"], "foreign server preserved")
 
@@ -310,7 +311,9 @@ func TestWriteContext_InstructionsAndFile(t *testing.T) {
 	require.NoError(t, fs.MkdirAll("/proj", 0o755))
 
 	// Pre-seed an MCP entry via the settings writer (same file).
-	require.NoError(t, w.WriteSettings(nil, nil, nil, "/proj"))
+	require.NoError(t, w.WriteSettings(nil, map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
+	}, "/proj"))
 
 	_, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: "/proj", Context: "SENTINEL-CONTEXT"})
 	require.NoError(t, err)

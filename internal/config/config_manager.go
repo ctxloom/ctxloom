@@ -12,7 +12,7 @@ import (
 // Draft is the mutable view a Manager.Update transaction sees: every
 // PERSISTED Config field (the same set configDoc/Fixture carry), exported so
 // domain logic in internal/operations can mutate it directly —
-// d.Agents[name] = ..., delete(d.MCP.Servers, name), d.Settings.Statusline =
+// d.Agents[name] = ..., d.Settings.Statusline =
 // &enabled — exactly the shapes the six production write sites already used
 // before Config's fields were unexported (Phase 3). Runtime-only fields
 // (AppPaths, Warnings, PendingUpgrade, ...) are deliberately absent: they are

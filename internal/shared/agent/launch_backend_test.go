@@ -17,26 +17,32 @@ import (
 
 // recordLifecycle captures the contextHash MergeManaged receives so Setup tests
 // can assert whether the SessionStart context-injection hook was suppressed (a
-// "" hash ⇒ no hook appended). It DOES expose GetHooks/GetMCP (returning nil,
-// matching what mergedState() got from the discarded prior behavior) so
-// mergedState resolves ok=true — isolating the merge/hash contract from the
-// surface plumbing without tripping setupViaCells' now-enforced accessor
-// check. noAccessorLifecycle below is the double for that check itself.
+// "" hash ⇒ no hook appended). It DOES expose GetHooks/GetBundleMCP, folding
+// the payload it was handed exactly as BaseLifecycle does, so mergedState
+// resolves ok=true — isolating the merge/hash contract from the surface
+// plumbing without tripping setupViaCells' now-enforced accessor check.
+// noAccessorLifecycle below is the double for that check itself.
 type recordLifecycle struct {
 	merged      bool
 	contextHash string
+	hooks       *wire.HooksConfig
+	bundleMCP   map[string]wire.MCPServer
 }
 
-func (r *recordLifecycle) MergeManaged(_ *ManagedConfig, _ string, contextHash string) {
+func (r *recordLifecycle) MergeManaged(m *ManagedConfig, _ string, contextHash string) {
 	r.merged = true
 	r.contextHash = contextHash
+	if m != nil {
+		r.hooks = m.Hooks
+		r.bundleMCP = m.BundleMCP
+	}
 }
 
-func (r *recordLifecycle) GetHooks() *wire.HooksConfig { return nil }
-func (r *recordLifecycle) GetMCP() *wire.MCPConfig     { return nil }
+func (r *recordLifecycle) GetHooks() *wire.HooksConfig             { return r.hooks }
+func (r *recordLifecycle) GetBundleMCP() map[string]wire.MCPServer { return r.bundleMCP }
 
 // noAccessorLifecycle is a ManagedLifecycle that exposes ONLY MergeManaged —
-// no GetHooks/GetMCP — the shape this test needs: every REAL backend
+// no GetHooks/GetBundleMCP — the shape this test needs: every REAL backend
 // embeds BaseLifecycle (which has both), so this double is how the
 // mergedState() ok=false branch gets exercised at all.
 type noAccessorLifecycle struct{}
@@ -304,7 +310,6 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 			Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 				SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
 			}},
-			MCP:       &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run"}}},
 			BundleMCP: map[string]wire.MCPServer{"bundle-srv": {Command: "brun"}},
 		},
 	}))
@@ -316,10 +321,8 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 	require.NotNil(t, set.inputs.Hooks, "merged hooks routed through inputs")
 	assert.NotEmpty(t, set.inputs.Hooks.Unified.SessionStart, "merged hooks carry the session-bind hook")
 	assert.True(t, set.inputs.ManageStatusline, "manageStatusline mirrors the managed config")
-	require.NotNil(t, set.inputs.MCP, "merged MCP routed through inputs")
-	assert.Contains(t, set.inputs.MCP.Servers, "srv", "merged MCP carries the managed server")
 	assert.Equal(t, map[string]wire.MCPServer{"bundle-srv": {Command: "brun"}}, set.inputs.BundleMCP,
-		"bundle MCP passed straight through")
+		"the merged bundle MCP set routed through inputs")
 	for _, h := range set.inputs.Hooks.Unified.SessionStart {
 		assert.Empty(t, h.ContextHash,
 			"no context-injection hook: MergeManaged was fed an empty hash")
@@ -536,9 +539,9 @@ func TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty(t *testing
 	err := b.Setup(context.Background(), &SetupRequest{
 		WorkDir:  t.TempDir(),
 		CellKind: CellKindDirectoryIsolated,
-		Managed:  &ManagedConfig{Hooks: &wire.HooksConfig{}, MCP: &wire.MCPConfig{}},
+		Managed:  &ManagedConfig{Hooks: &wire.HooksConfig{}},
 	})
-	require.Error(t, err, "a lifecycle without GetHooks/GetMCP must fail Setup, not silently deliver an empty merged state")
+	require.Error(t, err, "a lifecycle without GetHooks/GetBundleMCP must fail Setup, not silently deliver an empty merged state")
 	assert.Empty(t, b.delivered, "nothing should be materialized when the merged state could not be read")
 }
 

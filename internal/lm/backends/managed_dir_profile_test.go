@@ -64,27 +64,6 @@ func preToolCommandSet(h wire.UnifiedHooks) []string {
 const dirMCPBody = "mcp:\n  servers:\n    keep-srv:\n      command: keep-cmd\n    drop-srv:\n      command: drop-cmd\n"
 const dirHookBody = "hooks:\n  unified:\n    pre_tool:\n      - command: keep-hook\n        type: command\n      - command: drop-hook\n        type: command\n"
 
-// TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate proves a directory
-// profile's inline mcp: servers reach the managed MCP set (the gap this change
-// closes), and that the executable trust gate withholds an un-granted one: with no
-// gate both flow (parity with an inline profile); with a gate granting only one
-// server's executable-surface hash, the other is dropped.
-func TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate(t *testing.T) {
-	// No gate (management path): both directory-declared servers flow.
-	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirMCPBody}, nil)
-	mcp := AssembleManagedMCP(cfg, nil)
-	assert.Contains(t, mcp.Servers, "keep-srv", "directory profile inline MCP servers reach the managed set")
-	assert.Contains(t, mcp.Servers, "drop-srv")
-
-	// Gate granting ONLY keep-srv's executable-surface hash → drop-srv withheld.
-	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirMCPBody}, nil)
-	keepHash := bundles.HashPayload(mcpExecPayload(wire.MCPServer{Command: "keep-cmd"}))
-	cfg2.SetExecutableTrustGate(hashAuthorizer(keepHash))
-	gated := AssembleManagedMCP(cfg2, nil)
-	assert.Contains(t, gated.Servers, "keep-srv", "a granted directory-profile MCP server is applied")
-	assert.NotContains(t, gated.Servers, "drop-srv", "an un-granted directory-profile MCP server is withheld by the exec gate")
-}
-
 // TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate is the hook twin: a
 // directory profile's inline hooks: reach the managed hook set, and the exec gate
 // withholds an un-granted one.
@@ -101,25 +80,6 @@ func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	gated := preToolCommandSet(AssembleManagedHooks(cfg2, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, gated, "keep-hook", "a granted directory-profile hook is applied")
 	assert.NotContains(t, gated, "drop-hook", "an un-granted directory-profile hook is withheld by the exec gate")
-}
-
-// TestAssembleManagedMCP_DirProfileMergesWithInlineDefault proves the managed MCP
-// set unions across a DIRECTORY default profile and an INLINE default profile —
-// the two resolution paths fold into one set, the headline parity this change
-// brings (mirroring the prompt-curation directory+inline merge). The inline
-// server is trusted-local (ungated); the directory server is gated and granted.
-func TestAssembleManagedMCP_DirProfileMergesWithInlineDefault(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"inlineP", "dirP"},
-		map[string]string{"dirP": "mcp:\n  servers:\n    dir-srv:\n      command: dir-cmd\n"},
-		map[string]config.Profile{
-			"inlineP": {MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{"inline-srv": {Command: "inline-cmd"}}}},
-		})
-	dirHash := bundles.HashPayload(mcpExecPayload(wire.MCPServer{Command: "dir-cmd"}))
-	cfg.SetExecutableTrustGate(hashAuthorizer(dirHash))
-
-	mcp := AssembleManagedMCP(cfg, nil)
-	assert.Contains(t, mcp.Servers, "inline-srv", "inline default profile's MCP server (trusted-local) is applied")
-	assert.Contains(t, mcp.Servers, "dir-srv", "directory default profile's granted MCP server is applied")
 }
 
 // TestAssembleManagedHooks_DirProfileMergesWithInlineDefault is the hook twin of
@@ -156,38 +116,6 @@ func TestAssembleManagedHooks_DirProfileInheritsParentHooks(t *testing.T) {
 	assert.Contains(t, cmds, "child-hook")
 }
 
-// TestAssembleManagedMCP_DirProfileHonorsExcludeMCP proves a directory profile's
-// exclude_mcp drops its own declared MCP server, parity with the inline
-// profileBuilder.toProfile filter. No gate so both would otherwise flow.
-func TestAssembleManagedMCP_DirProfileHonorsExcludeMCP(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{
-		"dir": "mcp:\n  servers:\n    keep-srv:\n      command: keep-cmd\n    drop-srv:\n      command: drop-cmd\nexclude_mcp:\n  - drop-srv\n",
-	}, nil)
-
-	mcp := AssembleManagedMCP(cfg, nil)
-	assert.Contains(t, mcp.Servers, "keep-srv")
-	assert.NotContains(t, mcp.Servers, "drop-srv", "exclude_mcp drops the directory profile's own declared server")
-}
-
-// A profile MCP server / hook the executable trust gate DENIES must be
-// diagnosable — a warning naming the withheld ref, not a silent drop. The
-// gate's allow/deny decision itself (keep-hash matches keep-srv only) is
-// unchanged from TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate.
-func TestAssembleManagedMCP_DeniedServerIsWarned(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirMCPBody}, nil)
-	keepHash := bundles.HashPayload(mcpExecPayload(wire.MCPServer{Command: "keep-cmd"}))
-	cfg.SetExecutableTrustGate(hashAuthorizer(keepHash))
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	gated := AssembleManagedMCP(cfg, nil)
-	assert.NotContains(t, gated.Servers, "drop-srv", "the gate's deny decision is unchanged")
-	assert.Contains(t, buf.String(), "drop-srv",
-		"a denied MCP server must be warned by name, not silently dropped: got %q", buf.String())
-}
-
 func TestAssembleManagedHooks_DeniedHookIsWarned(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
 	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
@@ -205,7 +133,7 @@ func TestAssembleManagedHooks_DeniedHookIsWarned(t *testing.T) {
 
 // TestAssembleManagedDenyTools_DirProfile proves a directory profile's
 // deny_tools reaches AssembleManagedDenyTools — the deny-tools mirror of
-// TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate. Deliberately no
+// TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate. Deliberately no
 // executable trust gate set (deny_tools is never gated), so this ALSO proves
 // an ungated cfg does not accidentally withhold it.
 func TestAssembleManagedDenyTools_DirProfile(t *testing.T) {

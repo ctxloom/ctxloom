@@ -91,7 +91,7 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	c.applyConfigSections(existing)
 
 	// Normalize the desired sections (applyConfigSections' typed-struct blocks —
-	// c.editor, c.mcp, c.settings, ...) into a nested generic map, exactly like a
+	// c.editor, c.settings, ...) into a nested generic map, exactly like a
 	// freshly-read config layer, so (a) the layer-scope walker can traverse it via
 	// kmaps and (b) each section compares canonically against the on-disk node in
 	// marshalPreservingComments below.
@@ -424,6 +424,5 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	setOrDelete(existing, "isolation_devcontainer_service", c.isolationDevcontainerService != "", c.isolationDevcontainerService)
 	setOrDelete(existing, "isolation_engines", len(c.isolationEngines) > 0, c.isolationEngines)
 	setOrDelete(existing, "sync", c.sync.AutoSync != nil, c.sync)
-	setOrDelete(existing, "mcp", len(c.mcp.Servers) > 0 || len(c.mcp.Plugins) > 0 || c.mcp.AutoRegisterCtxloom != nil, c.mcp)
 	setOrDelete(existing, "hooks", c.hooks.HasAny(), c.hooks)
 }

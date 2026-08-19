@@ -917,9 +917,9 @@ type unreadableRecords struct{ fakeRecords }
 func (unreadableRecords) readable() error { return assert.AnError }
 
 // TestEffectiveTrust_LocalExemptionSitsBelowRetraction pins the CASCADE
-// POSITION of the first-party local exemption, which ForLocalMCP's doc comment
-// names by number. The number is not decoration: it is the whole
-// content of the claim "a rejection beats this, and so does a retraction".
+// POSITION of the first-party local exemption. The position is not decoration:
+// it is the whole content of the claim "a rejection beats this, and so does a
+// retraction".
 //
 // Nothing observable distinguishes step 2 from step 3 for a local ref through
 // the PRODUCTION retraction store, because lockfileRetraction.Retracted is

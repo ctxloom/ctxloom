@@ -222,3 +222,22 @@ func TestConfigUpgrades_V5toV6_SynthesizedDefaults_IsNotLossy(t *testing.T) {
 // the current version on the way out: the loud "cannot unmarshal `banana` into
 // int" the caller would have got is replaced by a clean parse of a rewritten
 // file the user is then prompted to persist.
+
+// Strictness must be applied AFTER migration: an older config whose keys the
+// migrator upgrades forward must load CLEAN. Otherwise every user on a
+// migratable config eats a fatal finding for a key ctxloom itself would fix.
+func TestLoad_OldVersionWithMigratableKey_MigratesWithoutWarning(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(appDir, 0o755))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir),
+		[]byte("version: 5\nprofiles:\n  defaults:\n    - dev\n  definitions:\n    dev:\n      description: dev\n"), 0o644))
+
+	cfg, err := config.Load(config.WithFS(fs), config.WithAppDir(appDir))
+	require.NoError(t, err)
+
+	assert.Empty(t, cfg.GetWarnings(), "a migratable old-version config must produce NO warnings: %+v", cfg.GetWarnings())
+	require.NotNil(t, cfg.GetPendingUpgrade(), "the load must have upgraded the document in memory")
+	assert.Equal(t, "default", cfg.GetDefaultAgent(), "the v5→v6 migration rehomes profiles.defaults onto the default agent")
+	assert.Equal(t, []string{"dev"}, cfg.DefaultAgentProfiles())
+}

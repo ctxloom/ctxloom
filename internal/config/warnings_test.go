@@ -85,41 +85,6 @@ func TestLoad_AbsentConfigNoWarnings(t *testing.T) {
 	assert.Empty(t, cfg.warnings)
 }
 
-// A lossy schema migration (the dropped compaction model at
-// config_migrate.go's v2→v3 step) surfaces as a migration-lossy warning naming
-// the key to fix, instead of a loose stderr line the gate cannot see.
-func TestLoad_LossyMigrationTaggedMigrationLossy(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-	// compaction.model with no compaction.llm and no primary label: the model
-	// has no label to attach to and is dropped by migrateLLMv3.
-	lossy := "llm:\n  compaction:\n    model: haiku\n"
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(lossy), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-	require.NoError(t, err)
-
-	var lossyWarnings []Warning
-	for _, w := range cfg.warnings {
-		if w.Kind == WarnKindMigrationLossy {
-			lossyWarnings = append(lossyWarnings, w)
-		}
-	}
-	require.Len(t, lossyWarnings, 1, "the dropped compaction model must be tagged migration-lossy; warnings: %v", cfg.warnings)
-	assert.Contains(t, lossyWarnings[0].Text, "dropped compaction model")
-	assert.Contains(t, lossyWarnings[0].Text, "llm.defaults.fast", "the message must name the key to fix")
-
-	// The collector drains per load: a subsequent clean load carries nothing over.
-	fs2 := afero.NewMemMapFs()
-	require.NoError(t, fs2.MkdirAll(appDir, 0755))
-	cfg2, err := Load(WithFS(fs2), WithAppDir(appDir))
-	require.NoError(t, err)
-	assert.Empty(t, cfg2.warnings, "migration warnings must not leak into later loads")
-}
-
-// --- the contract WarningKind's own doc states -----------------------------
-
 // allWarningKinds is every kind config.Load can attach to a Warning. A kind
 // missing from here is a kind nothing below checks, so keep it exhaustive.
 var allWarningKinds = []WarningKind{

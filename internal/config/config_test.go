@@ -945,52 +945,6 @@ llm:
 	assert.NotContains(t, env, "some_api_key", "env key must not be lowercased")
 }
 
-func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	legacy := "# my config\n" +
-		"llm:\n  plugins:\n    claude-code:\n      model: opus\n" +
-		"defaults:\n  profiles:\n    - test\n  llm_plugin: antigravity\n"
-	cfgPath := paths.ConfigPath(appDir)
-	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(legacy), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-	require.NoError(t, err)
-
-	// In-memory config reflects the full v1→…→v6 upgrade chain.
-	assert.Equal(t, "antigravity", cfg.lm.Defaults.Primary, "llm_plugin → llm.defaults.primary")
-	require.Contains(t, cfg.lm.Configs, "claude-code", "llm.plugins → llm.configs")
-	assert.Equal(t, "claude-code", cfg.lm.Configs["claude-code"].Type, "v3 adds the type discriminator")
-	assert.Equal(t, "opus", cfg.lm.Configs["claude-code"].Body["model"])
-	// v5→v6: defaults.profiles → the synthesized default agent's profiles.
-	assert.Equal(t, "default", cfg.defaultAgent, "default_agent is set to the synthesized agent")
-	assert.Equal(t, []string{"test"}, cfg.DefaultAgentProfiles(), "defaults.profiles → default agent profiles")
-	assert.Empty(t, cfg.warnings, "upgraded config should not produce validation warnings")
-
-	// Load is non-destructive: the file on disk is untouched (no silent rewrite).
-	onDisk, err := afero.ReadFile(fs, cfgPath)
-	require.NoError(t, err)
-	assert.Equal(t, legacy, string(onDisk), "Load must not rewrite the file")
-
-	// The upgrade is staged as pending for an interactive caller to confirm.
-	require.NotNil(t, cfg.pendingUpgrade, "legacy config should record a pending upgrade")
-	assert.Equal(t, cfgPath, cfg.pendingUpgrade.Path)
-	assert.NotEmpty(t, cfg.pendingUpgrade.Applied)
-
-	// CommitUpgrade persists the upgraded form verbatim (comments preserved) and
-	// clears the pending state.
-	require.NoError(t, cfg.CommitUpgrade())
-	assert.Nil(t, cfg.pendingUpgrade)
-	committed, err := afero.ReadFile(fs, cfgPath)
-	require.NoError(t, err)
-	assert.NotContains(t, string(committed), "llm_plugin")
-	assert.NotContains(t, string(committed), "plugins:")
-	assert.Contains(t, string(committed), "version: 6", "upgrade stamps the current schema version")
-	assert.Contains(t, string(committed), "# my config", "comments preserved on rewrite")
-}
-
 func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName

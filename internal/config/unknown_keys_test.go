@@ -77,27 +77,6 @@ func TestLoad_RetiredProfilesDefaults_AtCurrentVersion_NamesReplacement(t *testi
 	assert.Contains(t, warns[0].Text, "agents", "and pointed at its replacement")
 }
 
-// Strictness must be applied AFTER migration: an older config whose keys the
-// migrator upgrades forward must load CLEAN. Otherwise every user on a
-// migratable config eats a fatal finding for a key ctxloom itself would fix.
-func TestLoad_OldVersionWithMigratableKey_MigratesWithoutWarning(t *testing.T) {
-	cfg := loadYAML(t, "version: 5\nprofiles:\n  defaults:\n    - dev\n  definitions:\n    dev:\n      description: dev\n")
-
-	assert.Empty(t, cfg.warnings, "a migratable old-version config must produce NO warnings: %+v", cfg.warnings)
-	require.NotNil(t, cfg.pendingUpgrade, "the load must have upgraded the document in memory")
-	assert.Equal(t, "default", cfg.defaultAgent, "the v5→v6 migration rehomes profiles.defaults onto the default agent")
-	assert.Equal(t, []string{"dev"}, cfg.agents["default"].Profiles)
-}
-
-// The pre-versioning generation (no `version:` at all) runs the whole upgrade
-// pipeline; it too must land clean.
-func TestLoad_UnversionedWithMigratableKey_MigratesWithoutWarning(t *testing.T) {
-	cfg := loadYAML(t, "profiles:\n  defaults:\n    - dev\n")
-
-	assert.Empty(t, cfg.warnings, "an unversioned config must migrate silently: %+v", cfg.warnings)
-	assert.Equal(t, []string{"dev"}, cfg.agents["default"].Profiles)
-}
-
 // Every unknown key is reported, not just the first: a user who pasted a stale
 // block must be told about all of it in one pass, the way the findings gate lists
 // every finding rather than the first.

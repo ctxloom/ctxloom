@@ -2,7 +2,6 @@ package allowedsigners
 
 import (
 	"bufio"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -34,7 +33,6 @@ var (
 	errDuplicateOption             = errors.New("duplicate option")
 	errUnquotedValue               = errors.New("option value must be double-quoted")
 	errBadTimestamp                = errors.New("invalid valid-after/valid-before timestamp")
-	errKeyTypeMismatch             = errors.New("declared key type does not match the key blob")
 	errByteOrderMark               = errors.New("line begins with a UTF-8 byte-order mark, which would become part of the first principal")
 	errLineTooLong                 = errors.New("line is longer than the 1 MiB limit and was not read")
 	errUnterminatedPrincipalsQuote = errors.New("principals field has an unterminated double quote")
@@ -232,12 +230,14 @@ func parseLine(line string, lineNo int) (*Entry, error) {
 		return nil, err
 	}
 
+	// ssh.ParseAuthorizedKey verifies the declared key-type token against the
+	// type embedded in the blob, as OpenSSH's sshkey_read does, on both its
+	// no-options and after-options paths. A line labelled ssh-rsa carrying an
+	// ed25519 blob is refused HERE. Do not add a local key-type check beside
+	// this call: the rule belongs to the format, and a second copy drifts.
 	pubKey, comment, rawOptions, _, err := ssh.ParseAuthorizedKey([]byte(rest))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errNoKey, err)
-	}
-	if declared := declaredKeyType(rest, pubKey); declared != "" && declared != pubKey.Type() {
-		return nil, fmt.Errorf("%w: line declares %q but the blob is %s", errKeyTypeMismatch, declared, pubKey.Type())
 	}
 
 	entry := &Entry{
@@ -252,33 +252,6 @@ func parseLine(line string, lineNo int) (*Entry, error) {
 		return nil, err
 	}
 	return entry, nil
-}
-
-// declaredKeyType returns the key-type token a line literally declares, or ""
-// when it cannot be located unambiguously.
-//
-// golang.org/x/crypto's parseAuthorizedKey base64-decodes the field after the
-// first space and NEVER reads the type token, so `ssh-rsa <ed25519 blob>` and
-// even `not-a-key-type <ed25519 blob>` both parse there as a perfectly good
-// ed25519 key. Real ssh-keygen calls both "invalid key" and refuses to verify
-// against them — measured against the binary, not inferred. Granting trust
-// from a line ssh-keygen rejects is the one divergence that went the WRONG
-// way: this package's doc promises every divergence yields strictly less
-// trust, never more.
-//
-// The token is located by matching the re-encoded blob rather than by field
-// position, so options (which may be quoted and contain spaces) cannot
-// mislead it. An unlocatable blob (some non-canonical encoding) returns "",
-// which skips the check rather than rejecting a line that may be fine.
-func declaredKeyType(rest string, pub ssh.PublicKey) string {
-	want := base64.StdEncoding.EncodeToString(pub.Marshal())
-	fields := strings.Fields(rest)
-	for i, f := range fields {
-		if f == want && i > 0 {
-			return fields[i-1]
-		}
-	}
-	return ""
 }
 
 // cutPrincipalsField splits a trimmed allowed_signers line into its

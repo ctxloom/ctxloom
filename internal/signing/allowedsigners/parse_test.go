@@ -273,7 +273,7 @@ func TestParse_OverlongLineGrantsNoTrust(t *testing.T) {
 func TestParseError_EveryCauseIsOneOfThePackageSentinels(t *testing.T) {
 	sentinels := []error{
 		errNoPrincipals, errNoKey, errUnknownOption, errDuplicateOption,
-		errUnquotedValue, errBadTimestamp, errKeyTypeMismatch,
+		errUnquotedValue, errBadTimestamp,
 		errByteOrderMark, errLineTooLong, errUnterminatedPrincipalsQuote,
 	}
 	_, blob, _ := strings.Cut(testEd25519Key, " ")
@@ -286,7 +286,7 @@ func TestParseError_EveryCauseIsOneOfThePackageSentinels(t *testing.T) {
 		`a@x namespaces="p",namespaces="q" ` + testEd25519Key, // errDuplicateOption
 		"a@x namespaces=unquoted " + testEd25519Key,           // errUnquotedValue
 		`a@x valid-after="notadate" ` + testEd25519Key,        // errBadTimestamp
-		"a@x not-a-real-keytype " + blob,                      // errKeyTypeMismatch
+		"a@x not-a-real-keytype " + blob,                      // errNoKey (key-type mismatch)
 		"\ufeffa@x " + testEd25519Key,                         // errByteOrderMark
 		"junk" + strings.Repeat("x", 2<<20),                   // errLineTooLong
 		`"unterminated@x.com ` + testEd25519Key,               // errUnterminatedPrincipalsQuote
@@ -378,35 +378,50 @@ func TestParse_NoKeyFieldIsMalformed(t *testing.T) {
 // TestParse_UnrecognizedKeyTypeIsMalformed pins the key-type/blob agreement
 // check, and it must do so with a blob that is otherwise PERFECTLY GOOD.
 //
-// The blob this used to carry ("AAAA==") is not valid base64, so
-// ssh.ParseAuthorizedKey rejected the line before the declared type was ever
-// looked at: the test passed for the same reason
-// TestParse_CorruptBase64KeyBlobIsMalformed passes, and it would have passed
-// against a parser that ignored the key-type token entirely — which is exactly
-// the parser this package used to have. A real ed25519 blob under a bogus type
-// token is the only input that reaches the check.
+// A blob that is not valid base64 would be rejected before the declared type
+// was ever looked at, so the test would pass for the same reason
+// TestParse_CorruptBase64KeyBlobIsMalformed passes — and would keep passing
+// against a parser that ignored the key-type token entirely. A real ed25519
+// blob under a bogus type token is the only input that reaches the check.
+//
+// The check lives in ssh.ParseAuthorizedKey, which reports it as errNoKey and
+// whose message names base64 rather than the mismatch. Asserting the refusal
+// alone would therefore also be satisfied by a parser that refused the line
+// for any reason at all, including refusing every line. The CONTROL is what
+// makes the assertion mean something: the same blob under its correct token
+// must be admitted.
 func TestParse_UnrecognizedKeyTypeIsMalformed(t *testing.T) {
 	_, blob, _ := strings.Cut(testEd25519Key, " ")
+
 	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me not-a-real-keytype " + blob + "\n"))
 	require.NoError(t, err)
 	require.Len(t, perrs, 1)
-	// The line is rejected for the RIGHT reason: the blob parses, the
-	// declared token does not describe it.
-	assert.ErrorIs(t, perrs[0].Err, errKeyTypeMismatch)
+	assert.ErrorIs(t, perrs[0].Err, errNoKey)
 	assert.Empty(t, store.Entries())
+
+	ctrl, ctrlErrs, err := Parse(strings.NewReader("ben@abbitt.me ssh-ed25519 " + blob + "\n"))
+	require.NoError(t, err)
+	require.Empty(t, ctrlErrs, "the same blob under its own token must parse")
+	require.Len(t, ctrl.Entries(), 1, "control: only the TOKEN differs between the two lines")
 }
 
 // TestParse_MislabelledKeyTypeIsMalformed is the same check with a token that
 // is a REAL ssh key type, just not this blob's — the shape an attacker would
-// actually use, since golang.org/x/crypto never reads the token and would
-// happily hand back a trusted ed25519 key from a line labelled ssh-rsa.
+// actually use, and the one that would hand back a trusted ed25519 key from a
+// line labelled ssh-rsa if the token went unread.
 func TestParse_MislabelledKeyTypeIsMalformed(t *testing.T) {
 	_, blob, _ := strings.Cut(testEd25519Key, " ")
+
 	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me ssh-rsa " + blob + "\n"))
 	require.NoError(t, err)
 	require.Len(t, perrs, 1)
-	assert.ErrorIs(t, perrs[0].Err, errKeyTypeMismatch)
-	assert.Empty(t, store.Entries())
+	assert.ErrorIs(t, perrs[0].Err, errNoKey)
+	assert.Empty(t, store.Entries(), "an ed25519 blob under an ssh-rsa token grants no trust as either")
+
+	ctrl, ctrlErrs, err := Parse(strings.NewReader("ben@abbitt.me ssh-ed25519 " + blob + "\n"))
+	require.NoError(t, err)
+	require.Empty(t, ctrlErrs)
+	require.Len(t, ctrl.Entries(), 1, "control: only the TOKEN differs between the two lines")
 }
 
 func TestParse_CorruptBase64KeyBlobIsMalformed(t *testing.T) {

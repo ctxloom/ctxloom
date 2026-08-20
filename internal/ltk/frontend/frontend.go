@@ -45,12 +45,6 @@ func (r *Registry) Register(f Frontend) {
 	}
 }
 
-// Supports reports whether a frontend is registered for shell.
-func (r *Registry) Supports(shell ir.Shell) bool {
-	_, ok := r.byShell[shell]
-	return ok
-}
-
 // Parse dispatches to the frontend registered for shell. It stamps the shell
 // onto the returned script when the frontend left it blank.
 func (r *Registry) Parse(ctx context.Context, shell ir.Shell, src string) (*ir.Script, error) {

@@ -105,15 +105,6 @@ func AgentRuntimeOffer(cfg *config.Config, label string) RuntimeOffer {
 	return offer
 }
 
-// AgentRuntimeOffers maps AgentRuntimeOffer over labels, preserving order.
-func AgentRuntimeOffers(cfg *config.Config, labels []string) []RuntimeOffer {
-	offers := make([]RuntimeOffer, 0, len(labels))
-	for _, label := range labels {
-		offers = append(offers, AgentRuntimeOffer(cfg, label))
-	}
-	return offers
-}
-
 // describeEngine names an engine the way a diagnostic should: the label the
 // user typed, plus the backend it resolved to whenever those differ. Same
 // shape validateContainerAuth's refusal uses, so the interview's explanation

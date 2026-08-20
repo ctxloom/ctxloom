@@ -94,10 +94,6 @@ func companionConsentScope(k CompanionKey) string { return k.Path }
 // resolves ~/.ctxloom/companion_consent.yaml.
 var companionConsentPath = paths.HomeCompanionConsentPath
 
-// CompanionConsentPath returns the file the companion exec-consent record
-// lives in (~/.ctxloom/companion_consent.yaml).
-func CompanionConsentPath() (string, error) { return companionConsentPath() }
-
 // companionConsentReasons is this domain's half of the shared flow's
 // vocabulary: the four outcomes the STORE itself can produce, spelled in the
 // enum every companion surface already reports in. The other three reasons

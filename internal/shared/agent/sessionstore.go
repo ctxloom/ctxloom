@@ -6,16 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 
 	"github.com/spf13/afero"
 )
 
 // SessionStore is the shared scaffold embedded by per-agent session-history
-// readers: the afero filesystem and home-directory injection points their
-// tests use, plus the common JSONL-transcript parse loop. Path conventions,
-// per-line entry conversion, and session-ID recovery stay per-agent.
+// readers: the afero filesystem their tests inject through, plus the common
+// JSONL-transcript parse loop. Path conventions, per-line entry conversion,
+// and session-ID recovery stay per-agent.
 //
 // The claude/codex/antigravity SessionHistory readers that
 // used to embed this were deleted outright (proven broken, see each
@@ -24,21 +23,6 @@ type SessionStore struct {
 	// FS is the filesystem transcripts are read through (test injection
 	// point). Nil falls back to the OS filesystem.
 	FS afero.Fs
-	// HomeDir overrides the user home directory for testing. Empty falls
-	// back to os.UserHomeDir.
-	HomeDir string
-}
-
-// ResolveHomeDir returns the HomeDir override when set, else os.UserHomeDir.
-func (s *SessionStore) ResolveHomeDir() (string, error) {
-	if s.HomeDir != "" {
-		return s.HomeDir, nil
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return homeDir, nil
 }
 
 // ErrNoSessions reports honest absence: this project has no recorded session

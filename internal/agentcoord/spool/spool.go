@@ -359,15 +359,6 @@ func DirPath(m PathMapper, harp string, dir Dir) (string, error) {
 	return filepath.Join(root, filepath.FromSlash(string(dir))), nil
 }
 
-// TmpPath returns the write-staging directory for harp in m's view.
-func TmpPath(m PathMapper, harp string) (string, error) {
-	root, err := Root(m, harp)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, tmpDirName), nil
-}
-
 // EnsureDirs creates the whole spool layout for harp in m's view, including
 // the staging directory. It is idempotent, and both sides of a mount may call
 // it: the directories are shared bytes.

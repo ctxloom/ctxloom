@@ -298,14 +298,6 @@ func ParseWorkspaceAxis(s string) (WorkspaceAxis, error) {
 	}
 }
 
-// ParseRuntimeAxis re-exports agent.ParseRuntimeAxis under this package's
-// established name — the ONE string->enum conversion for the runtime axis
-// (see agent.ParseRuntimeAxis's doc for the full contract: empty parses as
-// RuntimeHost, anything else unrecognized errors, never warns or degrades).
-func ParseRuntimeAxis(s string) (RuntimeAxis, error) {
-	return agent.ParseRuntimeAxis(s)
-}
-
 // Axes is a fully-defaulted isolation request. The two axes are declared at
 // DIFFERENT levels and meet only here: the runtime axis is an AGENT trait
 // (`runtime:` on the binding — a cost/environment call, like engine), while

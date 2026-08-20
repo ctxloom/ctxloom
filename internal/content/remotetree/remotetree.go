@@ -161,20 +161,6 @@ func New(ctx context.Context, f remote.Fetcher, spec Spec) (*content.FSStore, er
 	return content.NewFSStore(tfs, content.Provenance{RepoURL: spec.RepoURL})
 }
 
-// Fetch materializes the pinned tree as store-relative paths to bytes.
-//
-// It is exported separately from New because the bytes are what a caller
-// verifying a published tree needs to hold — the manifest check and the
-// signature check both run over exactly this map — and re-deriving it by
-// walking the store back out would be a second fetch of the same commit.
-func Fetch(ctx context.Context, f remote.Fetcher, spec Spec) (map[string][]byte, error) {
-	files, err := FetchFiles(ctx, f, spec)
-	if err != nil {
-		return nil, err
-	}
-	return bytesOf(files), nil
-}
-
 // FetchFiles is Fetch with executability attached: what the tree DECLARES, and
 // separately what git recorded.
 //

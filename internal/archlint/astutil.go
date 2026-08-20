@@ -39,20 +39,6 @@ func StringLit(e ast.Expr) (string, bool) {
 	return v, true
 }
 
-// SelectorOn reports whether e is a selector rooted at an identifier with the
-// given package name, and returns the selected name.
-func SelectorOn(e ast.Expr, pkg string) (string, bool) {
-	sel, ok := e.(*ast.SelectorExpr)
-	if !ok {
-		return "", false
-	}
-	ident, ok := sel.X.(*ast.Ident)
-	if !ok || ident.Name != pkg {
-		return "", false
-	}
-	return sel.Sel.Name, true
-}
-
 // PackageLevelConsts is the set of package-level const names declared across
 // the package's production files.
 //

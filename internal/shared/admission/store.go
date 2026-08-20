@@ -303,16 +303,6 @@ func (s *Store[K, R]) Path() string {
 	return s.path
 }
 
-// Reasons reports the vocabulary this store decides in, so a caller rendering
-// a Decision it did not produce can still name the outcomes.
-func (s *Store[K, R]) Reasons() Reasons[R] {
-	if s == nil {
-		var zero Reasons[R]
-		return zero
-	}
-	return s.reasons
-}
-
 // configured reports the "nobody gave this store a file" fault, and the
 // construction faults alongside it. See NewStore for why an empty path is a
 // fault and not an empty store.

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxloom.dev/schemas/profile.json",
+  "title": "ctxloom profile",
+  "description": "A profile file: .ctxloom/profiles/<name>.yaml, or a profile shipped inside a bundle. Every field is optional; a profile that declares none of them is refused at write time as empty.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "description": { "type": "string", "description": "Human-readable purpose, shown by `ctxloom profile list`." },
+    "llm": { "type": "string", "description": "Preferred llm.configs label for runs using this profile (overridable by -l)." },
+    "parents": {
+      "type": "array",
+      "description": "Profiles this one inherits from. A bare name is a local profile; a bundle-profile ref is `<bundle>#profiles/<name>`.",
+      "items": { "type": "string" }
+    },
+    "tags": {
+      "type": "array",
+      "description": "Descriptive tags for listing and discovery only. These do NOT select content — see select_tags.",
+      "items": { "type": "string" }
+    },
+    "select_tags": {
+      "type": "array",
+      "description": "Fragment tags that SELECT content into the assembled context.",
+      "items": { "type": "string" }
+    },
+    "bundles": {
+      "type": "array",
+      "description": "Bundle references contributing all of their content.",
+      "items": { "type": "string" }
+    },
+    "bundle_items": {
+      "type": "array",
+      "description": "Cherry-picked items, e.g. `<bundle>#fragments/<name>`, optionally pinned with a trailing `@<commit>`.",
+      "items": { "type": "string" }
+    },
+    "fragments": {
+      "type": "array",
+      "description": "Direct fragment references, each a bare name or a {name, priority} mapping.",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "priority": { "type": "integer" }
+            }
+          }
+        ]
+      }
+    },
+    "commands": {
+      "type": "array",
+      "description": "Curated slash-command exports (`<bundle>#commands/<name>`). A non-empty list suppresses the global auto-export for this profile.",
+      "items": { "type": "string" }
+    },
+    "skills": {
+      "type": "array",
+      "description": "Curated Agent Skill exports (`<bundle>#skills/<name>`). A non-empty list suppresses the global auto-export for this profile.",
+      "items": { "type": "string" }
+    },
+    "variables": {
+      "type": "object",
+      "description": "Template variables substituted into assembled content.",
+      "additionalProperties": { "type": "string" }
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Hooks this profile declares. They pass the executable trust gate, since a profile may be bundle-shipped."
+    },
+    "exclude_fragments": {
+      "type": "array",
+      "description": "Fragments to drop after inheritance resolves.",
+      "items": { "type": "string" }
+    },
+    "exclude_mcp": {
+      "type": "array",
+      "description": "MCP servers to drop after inheritance resolves.",
+      "items": { "type": "string" }
+    },
+    "deny_tools": {
+      "type": "array",
+      "description": "Per-engine tool identifiers denied at launch. Accumulates through inheritance; a child cannot un-deny what a parent denied.",
+      "items": { "type": "string" }
+    }
+  }
+}

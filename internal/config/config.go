@@ -90,7 +90,6 @@ type Config struct {
 	editor   EditorConfig   //
 	settings SettingsConfig //
 	sync     SyncConfig     //
-	profiles ProfilesConfig //
 	// agents is the LOCAL-ONLY engine↔profile binding map, and the ONE source
 	// of the agent entity. Keyed by agent name. It is NEVER a bundle item kind
 	// and NEVER remote — there is no Bundle.Agents and no remote path. Read it
@@ -348,7 +347,6 @@ type configDoc struct {
 	Editor                       EditorConfig            `yaml:"editor,omitempty"`
 	Settings                     SettingsConfig          `yaml:"config,omitempty"`
 	Sync                         SyncConfig              `yaml:"sync,omitempty"`
-	Profiles                     ProfilesConfig          `yaml:"profiles,omitempty"`
 	Agents                       map[string]agents.Agent `yaml:"agents,omitempty"`
 	DefaultAgent                 string                  `yaml:"default_agent,omitempty"`
 	Workspace                    string                  `yaml:"workspace,omitempty"`
@@ -381,7 +379,6 @@ func (c *Config) toDoc() configDoc {
 		Editor:                       cloneEditor(c.editor),
 		Settings:                     cloneSettings(c.settings),
 		Sync:                         cloneSync(c.sync),
-		Profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)},
 		Agents:                       cloneAgentsMap(c.agents),
 		DefaultAgent:                 c.defaultAgent,
 		Workspace:                    c.workspace,
@@ -409,7 +406,6 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.editor = doc.Editor
 	c.settings = doc.Settings
 	c.sync = doc.Sync
-	c.profiles = doc.Profiles
 	c.agents = doc.Agents
 	c.defaultAgent = doc.DefaultAgent
 	c.workspace = doc.Workspace
@@ -424,18 +420,13 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.isolationEngines = doc.IsolationEngines
 	c.ui = doc.UI
 
-	// Both keyed containers are pre-populated before every decode precisely so
-	// downstream code may write into them, and a document is free to null
-	// either one back out ("profiles: {definitions: null}"). Restoring them
-	// here rather than at each decode site is what keeps the two symmetrical:
-	// the guard used to exist for lm.Configs alone, in ParseConfig alone, so
-	// the same YAML left Definitions nil AND left it nil on the layered Load
-	// path that ParseConfig's own guard never covered.
+	// lm.Configs is pre-populated before every decode precisely so downstream
+	// code may write into it, and a document is free to null it back out.
+	// Restoring it here rather than at each decode site is what covers the
+	// layered Load path as well as ParseConfig, which is where the guard used
+	// to live alone.
 	if c.lm.Configs == nil {
 		c.lm.Configs = make(map[string]LLMConfig)
-	}
-	if c.profiles.Definitions == nil {
-		c.profiles.Definitions = make(map[string]Profile)
 	}
 }
 
@@ -462,9 +453,9 @@ func (c *Config) MarshalYAML() (any, error) {
 // decoding — reproducing yaml.v3's decode-into-existing-value semantics: a
 // key absent from the document leaves the corresponding field exactly as it
 // was, rather than resetting it to zero. loadUncached relies on this: it
-// pre-populates cfg's LM.Configs / Profiles.Definitions with non-nil empty
-// maps before this Unmarshal runs, specifically so a document that never
-// mentions "llm"/"profiles" still leaves those maps non-nil for downstream
+// pre-populates cfg's LM.Configs with a non-nil empty map before this
+// Unmarshal runs, specifically so a document that never mentions "llm" still
+// leaves that map non-nil for downstream
 // code that assumes so. Decoding into a fresh zero-value doc would silently
 // discard that pre-population whenever a key was absent — the same
 // silent-no-op shape this codebase treats as its characteristic bug.
@@ -1397,7 +1388,6 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 		lm: LMConfig{
 			Configs: make(map[string]LLMConfig),
 		},
-		profiles:   ProfilesConfig{Definitions: make(map[string]Profile)},
 		fs:         fs,
 		injectedFS: injectedFS,
 	}
@@ -1483,8 +1473,7 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 // entries survive untouched.
 func ParseConfig(data []byte) (*Config, error) {
 	cfg := &Config{
-		lm:       LMConfig{Configs: make(map[string]LLMConfig)},
-		profiles: ProfilesConfig{Definitions: make(map[string]Profile)},
+		lm: LMConfig{Configs: make(map[string]LLMConfig)},
 	}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)

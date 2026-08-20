@@ -1417,7 +1417,6 @@ func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/example/repo@profiles/missing"}}},
-		Profiles:     config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 	})
 
 	mockLoader := &mockProfileLoader{
@@ -1521,7 +1520,6 @@ func TestAssembleContext_DirectoryProfileExcludesTaggedFragment(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 	})
 
 	mockLoader := &mockProfileLoader{

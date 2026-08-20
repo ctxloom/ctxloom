@@ -20,45 +20,6 @@ import (
 // handed out by a Get* accessor is separately owned, and mutating it can never
 // reach back into the Config every Load()/Current() holder shares.
 
-// TestGetProfilesConfig_NeverAliasesConfigContainers is the class gate: it
-// walks the returned value reflectively, so a Profile field added tomorrow and
-// wired into cloneProfile without a clone helper fails HERE.
-func TestGetProfilesConfig_NeverAliasesConfigContainers(t *testing.T) {
-	cfg := NewFixture(aliasProbeFixture())
-
-	got := cfg.GetProfilesConfig()
-
-	assertNoSharedContainers(t, reflect.ValueOf(cfg).Elem(), reflect.ValueOf(got), "Config", "GetProfilesConfig")
-}
-
-// TestGetProfileDefinitions_NeverAliasesConfigContainers covers the second
-// accessor over the same storage; the two build their result differently
-// enough that one being right does not make the other right.
-func TestGetProfileDefinitions_NeverAliasesConfigContainers(t *testing.T) {
-	cfg := NewFixture(aliasProbeFixture())
-
-	got := cfg.GetProfileDefinitions()
-
-	assertNoSharedContainers(t, reflect.ValueOf(cfg).Elem(), reflect.ValueOf(got), "Config", "GetProfileDefinitions")
-}
-
-// TestGetProfileDefinitions_DenyToolsMutationDoesNotReachConfig states the
-// instance F02 named, as behaviour rather than as pointer identity: a caller
-// that appends to a returned deny-list must not be editing the shared config's
-// deny-list. deny_tools gates which engine tools an agent may call, so an
-// aliased slice is a permission surface mutated by action at a distance.
-func TestGetProfileDefinitions_DenyToolsMutationDoesNotReachConfig(t *testing.T) {
-	cfg := NewFixture(aliasProbeFixture())
-	require.NotEmpty(t, cfg.GetProfileDefinitions()["p"].DenyTools,
-		"the probe profile must carry a deny-list, or this pin proves nothing")
-
-	got := cfg.GetProfileDefinitions()["p"]
-	got.DenyTools[0] = "MUTATED"
-
-	assert.Equal(t, []string{"Bash"}, cfg.GetProfileDefinitions()["p"].DenyTools,
-		"GetProfileDefinitions must hand back an owned copy of DenyTools")
-}
-
 // toDoc copied the Config's maps and slices (agents,
 // isolationImages, isolationEngines, lm.Configs, profiles.Definitions) BY
 // REFERENCE, and MarshalYAML — which is exported and returns exactly that doc
@@ -93,12 +54,10 @@ func TestMarshalYAML_MutationDoesNotReachConfig(t *testing.T) {
 	require.True(t, ok, "MarshalYAML must still return a configDoc, or this pin is testing nothing")
 
 	d.Agents["injected"] = agents.Agent{LLM: "fast"}
-	d.Profiles.Definitions["injected"] = Profile{Description: "should not land"}
 	d.IsolationImages["injected"] = "img"
 	d.LM.Configs["injected"] = LLMConfig{Type: "claude-code"}
 
 	assert.NotContains(t, cfg.GetConfiguredAgents(), "injected")
-	assert.NotContains(t, cfg.GetProfilesConfig().Definitions, "injected")
 	assert.Empty(t, cfg.IsolationImageFor("injected"))
 	assert.NotContains(t, cfg.GetLMConfig().Configs, "injected")
 }

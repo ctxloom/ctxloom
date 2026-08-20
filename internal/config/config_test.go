@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/schema"
@@ -162,277 +161,11 @@ func TestResolveLLM(t *testing.T) {
 // Profile resolution handles inheritance chains and merges settings from
 // parent profiles. This enables composition of reusable profile fragments.
 
-// TestResolveProfile_HooksInheritance verifies hooks are inherited from parents.
-// Hooks defined in parent profiles apply to child profiles unless overridden.
-// This enables shared tool hooks (linting, formatting) across profiles.
-func TestResolveProfile_HooksInheritance(t *testing.T) {
-	profiles := map[string]Profile{
-		"base": {
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					PreTool: []wire.Hook{
-						{Command: "./base-hook.sh", Matcher: "Bash"},
-					},
-				},
-			},
-		},
-		"child": {
-			Parents: []string{"base"},
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					PostTool: []wire.Hook{
-						{Command: "./child-hook.sh", Matcher: "Edit"},
-					},
-				},
-			},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should have inherited PreTool from base
-	if len(resolved.Hooks.Unified.PreTool) != 1 {
-		t.Errorf("expected 1 PreTool hook, got %d", len(resolved.Hooks.Unified.PreTool))
-	}
-	if resolved.Hooks.Unified.PreTool[0].Command != "./base-hook.sh" {
-		t.Errorf("expected base hook command, got %s", resolved.Hooks.Unified.PreTool[0].Command)
-	}
-
-	// Should have own PostTool
-	if len(resolved.Hooks.Unified.PostTool) != 1 {
-		t.Errorf("expected 1 PostTool hook, got %d", len(resolved.Hooks.Unified.PostTool))
-	}
-}
-
-// TestResolveProfile_HooksDeduplication verifies duplicate hooks are merged.
-// NON-OBVIOUS: A hook is considered duplicate if BOTH command AND matcher match.
-// This prevents the same hook from running multiple times when inherited
-// through multiple parent chains (diamond inheritance problem).
-func TestResolveProfile_HooksDeduplication(t *testing.T) {
-	profiles := map[string]Profile{
-		"base": {
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					PreTool: []wire.Hook{
-						{Command: "./shared-hook.sh", Matcher: "Bash"},
-					},
-				},
-			},
-		},
-		"child": {
-			Parents: []string{"base"},
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					PreTool: []wire.Hook{
-						{Command: "./shared-hook.sh", Matcher: "Bash"}, // Duplicate
-						{Command: "./unique-hook.sh", Matcher: "Edit"},
-					},
-				},
-			},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should have deduplicated PreTool hooks (2 unique, not 3)
-	if len(resolved.Hooks.Unified.PreTool) != 2 {
-		t.Errorf("expected 2 PreTool hooks after dedup, got %d", len(resolved.Hooks.Unified.PreTool))
-	}
-}
-
-func TestResolveProfile_BackendHooksInheritance(t *testing.T) {
-	profiles := map[string]Profile{
-		"base": {
-			Hooks: wire.HooksConfig{
-				Plugins: map[string]wire.BackendHooks{
-					"claude-code": {
-						"PreToolUse": []wire.Hook{
-							{Command: "./base-claude.sh"},
-						},
-					},
-				},
-			},
-		},
-		"child": {
-			Parents: []string{"base"},
-			Hooks: wire.HooksConfig{
-				Plugins: map[string]wire.BackendHooks{
-					"claude-code": {
-						"PostToolUse": []wire.Hook{
-							{Command: "./child-claude.sh"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should have inherited claude-code PreToolUse from base
-	if len(resolved.Hooks.Plugins["claude-code"]["PreToolUse"]) != 1 {
-		t.Errorf("expected 1 PreToolUse hook, got %d", len(resolved.Hooks.Plugins["claude-code"]["PreToolUse"]))
-	}
-
-	// Should have own claude-code PostToolUse
-	if len(resolved.Hooks.Plugins["claude-code"]["PostToolUse"]) != 1 {
-		t.Errorf("expected 1 PostToolUse hook, got %d", len(resolved.Hooks.Plugins["claude-code"]["PostToolUse"]))
-	}
-}
-
 // =============================================================================
 // Profile Exclusion Tests
 // =============================================================================
 // Tests for fragment, prompt, and MCP server exclusion functionality.
 // Exclusions accumulate through inheritance (cannot un-exclude).
-
-func TestResolveProfile_ExcludeFragments(t *testing.T) {
-	profiles := map[string]Profile{
-		"parent": {
-			Fragments: []FragmentRef{
-				{Name: "frag-a"},
-				{Name: "frag-b"},
-				{Name: "frag-c"},
-			},
-		},
-		"child": {
-			Parents:          []string{"parent"},
-			ExcludeFragments: []string{"frag-b"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	// Should have frag-a and frag-c, but not frag-b
-	fragNames := make([]string, len(resolved.Fragments))
-	for i, f := range resolved.Fragments {
-		fragNames[i] = f.Name
-	}
-	assert.Contains(t, fragNames, "frag-a")
-	assert.Contains(t, fragNames, "frag-c")
-	assert.NotContains(t, fragNames, "frag-b")
-}
-
-// exclude_mcp is the ONLY way to withhold a bundle-shipped MCP server from a
-// session (ResolveBundleMCPServers applies it as a veto over every source,
-// builtin included), so it has to survive inheritance to reach that veto.
-func TestResolveProfile_ExcludeMCP(t *testing.T) {
-	profiles := map[string]Profile{
-		"parent": {ExcludeMCP: []string{"server-b"}},
-		"child": {
-			Parents:    []string{"parent"},
-			ExcludeMCP: []string{"ctxloom"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	assert.ElementsMatch(t, []string{"server-b", "ctxloom"}, resolved.ExcludeMCP,
-		"exclusions accumulate through inheritance — a child cannot un-exclude what a parent excluded")
-}
-
-// TestResolveProfile_DenyTools proves an inline profile's deny_tools
-// resolves through ResolveProfile (schema round-trip: YAML-shaped Profile in,
-// resolved DenyTools out) — the config-side half of the deny-tools fix.
-func TestResolveProfile_DenyTools(t *testing.T) {
-	profiles := map[string]Profile{
-		"solo": {
-			DenyTools: []string{"Task", "WebFetch"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "solo")
-	require.NoError(t, err)
-
-	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, resolved.DenyTools)
-}
-
-// TestResolveProfile_DenyToolsAccumulateAndDedupe proves deny_tools accumulates
-// through parent inheritance (a child cannot un-deny what a parent denied,
-// matching ExcludeMCP/ExcludeFragments semantics) and a tool named by both
-// parent and child appears once.
-func TestResolveProfile_DenyToolsAccumulateAndDedupe(t *testing.T) {
-	profiles := map[string]Profile{
-		"parent": {
-			DenyTools: []string{"Task"},
-		},
-		"child": {
-			Parents:   []string{"parent"},
-			DenyTools: []string{"Task", "WebFetch"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, resolved.DenyTools)
-}
-
-func TestResolveProfile_ExclusionsAccumulate(t *testing.T) {
-	profiles := map[string]Profile{
-		"grandparent": {
-			Fragments:        []FragmentRef{{Name: "frag-a"}, {Name: "frag-b"}, {Name: "frag-c"}},
-			ExcludeFragments: []string{"frag-a"},
-		},
-		"parent": {
-			Parents:          []string{"grandparent"},
-			ExcludeFragments: []string{"frag-b"},
-		},
-		"child": {
-			Parents: []string{"parent"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	// Both frag-a and frag-b should be excluded (accumulated from grandparent and parent)
-	fragNames := make([]string, len(resolved.Fragments))
-	for i, f := range resolved.Fragments {
-		fragNames[i] = f.Name
-	}
-	assert.NotContains(t, fragNames, "frag-a")
-	assert.NotContains(t, fragNames, "frag-b")
-	assert.Contains(t, fragNames, "frag-c")
-}
-
-func TestResolveProfile_ExcludeFragmentsSelectorForm(t *testing.T) {
-	// A fragment declared by full ref ("bundle#fragments/name") is excluded by
-	// its bare name, matching the bundle-expansion seam's semantics.
-	profiles := map[string]Profile{
-		"parent": {
-			Fragments: []FragmentRef{
-				{Name: "remote/bundle#fragments/frag-a"},
-				{Name: "remote/bundle#fragments/frag-b"},
-			},
-		},
-		"child": {
-			Parents:          []string{"parent"},
-			ExcludeFragments: []string{"frag-a"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	fragNames := make([]string, len(resolved.Fragments))
-	for i, f := range resolved.Fragments {
-		fragNames[i] = f.Name
-	}
-	assert.NotContains(t, fragNames, "remote/bundle#fragments/frag-a")
-	assert.Contains(t, fragNames, "remote/bundle#fragments/frag-b")
-}
 
 func TestExclusionSet_QualifiedExclusionIsBundleScoped(t *testing.T) {
 	// A qualified exclusion drops only its own bundle's fragment — same-named
@@ -457,23 +190,6 @@ func TestExclusionSet_BareExclusionMatchesEveryBundle(t *testing.T) {
 	assert.True(t, IsExcludedFragment("dev#fragments/security-rules", excluded))
 	assert.True(t, IsExcludedFragment("https://github.com/o/r@bundles/tools#fragments/security-rules", excluded))
 	assert.False(t, IsExcludedFragment("security", excluded))
-}
-
-func TestResolveProfile_ExclusionsPreserved(t *testing.T) {
-	profiles := map[string]Profile{
-		"child": {
-			Fragments:        []FragmentRef{{Name: "frag-a"}},
-			ExcludeFragments: []string{"frag-b"},
-			ExcludeMCP:       []string{"server-a"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	// Exclusion lists should be preserved in resolved profile
-	assert.Contains(t, resolved.ExcludeFragments, "frag-b")
-	assert.Contains(t, resolved.ExcludeMCP, "server-a")
 }
 
 // =============================================================================
@@ -657,101 +373,6 @@ func TestConfig_GetConfigFilePath(t *testing.T) {
 // ResolveProfile Additional Tests
 // =============================================================================
 
-func TestResolveProfile_CircularDependency(t *testing.T) {
-	profiles := map[string]Profile{
-		"a": {Parents: []string{"b"}},
-		"b": {Parents: []string{"a"}},
-	}
-
-	_, err := ResolveProfile(profiles, "a")
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, errs.ErrCircularInheritance)
-}
-
-func TestResolveProfile_UnknownProfile(t *testing.T) {
-	profiles := map[string]Profile{}
-
-	_, err := ResolveProfile(profiles, "nonexistent")
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, errs.ErrProfileNotFound)
-}
-
-// A missing parent must not abort resolution: per the fault-tolerance
-// philosophy the branch is skipped and the rest of the profile still resolves,
-// matching profiles.Loader.ResolveProfile.
-func TestResolveProfile_MissingParentWarnsAndContinues(t *testing.T) {
-	profiles := map[string]Profile{
-		"child": {
-			Parents: []string{"ghost"}, // not defined
-			Tags:    []string{"own-tag"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err, "missing parent should warn-and-skip, not error")
-	require.NotNil(t, resolved)
-	assert.Contains(t, resolved.Tags, "own-tag", "child's own settings should still resolve")
-}
-
-func TestResolveProfile_DeepInheritance(t *testing.T) {
-	profiles := map[string]Profile{
-		"grandparent": {
-			Tags:      []string{"gp-tag"},
-			Variables: map[string]string{"var1": "gp-value"},
-		},
-		"parent": {
-			Parents:   []string{"grandparent"},
-			Tags:      []string{"p-tag"},
-			Variables: map[string]string{"var2": "p-value"},
-		},
-		"child": {
-			Parents:   []string{"parent"},
-			Tags:      []string{"c-tag"},
-			Variables: map[string]string{"var1": "c-value"}, // Override grandparent
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	// Should have all tags
-	assert.Contains(t, resolved.Tags, "gp-tag")
-	assert.Contains(t, resolved.Tags, "p-tag")
-	assert.Contains(t, resolved.Tags, "c-tag")
-
-	// Child variable should override grandparent
-	assert.Equal(t, "c-value", resolved.Variables["var1"])
-	assert.Equal(t, "p-value", resolved.Variables["var2"])
-}
-
-func TestResolveProfile_DiamondInheritance(t *testing.T) {
-	// Diamond: D inherits from B and C, both inherit from A
-	profiles := map[string]Profile{
-		"a": {Tags: []string{"a-tag"}, Bundles: []string{"bundle-a"}},
-		"b": {Parents: []string{"a"}, Tags: []string{"b-tag"}},
-		"c": {Parents: []string{"a"}, Tags: []string{"c-tag"}},
-		"d": {Parents: []string{"b", "c"}, Tags: []string{"d-tag"}},
-	}
-
-	resolved, err := ResolveProfile(profiles, "d")
-	require.NoError(t, err)
-
-	// Should have all unique tags (no duplicates from A)
-	assert.Contains(t, resolved.Tags, "a-tag")
-	assert.Contains(t, resolved.Tags, "b-tag")
-	assert.Contains(t, resolved.Tags, "c-tag")
-	assert.Contains(t, resolved.Tags, "d-tag")
-
-	// Bundle from A should appear only once
-	bundleCount := 0
-	for _, b := range resolved.Bundles {
-		if b == "bundle-a" {
-			bundleCount++
-		}
-	}
-	assert.Equal(t, 1, bundleCount)
-}
-
 // =============================================================================
 // Config Save Tests
 // =============================================================================
@@ -773,11 +394,6 @@ func TestConfig_Save(t *testing.T) {
 		defaultAgent: "dev",
 		agents: map[string]agents.Agent{
 			"dev": {Profiles: []string{"dev"}},
-		},
-		profiles: ProfilesConfig{
-			Definitions: map[string]Profile{
-				"dev": {Description: "development"},
-			},
 		},
 	}
 
@@ -969,7 +585,6 @@ func TestLoad_NoConfigFile(t *testing.T) {
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
-	assert.NotNil(t, cfg.profiles)
 	assert.NotNil(t, cfg.lm.Configs)
 }
 
@@ -1066,58 +681,9 @@ func TestConfig_GetProfileLoader(t *testing.T) {
 // ResolveProfile - addFragment and addBundleItem Coverage
 // =============================================================================
 
-func TestResolveProfile_FragmentsAndBundleItems(t *testing.T) {
-	profiles := map[string]Profile{
-		"base": {
-			Fragments:   []FragmentRef{{Name: "frag1"}, {Name: "frag2"}},
-			BundleItems: []string{"bundle#item1"},
-		},
-		"child": {
-			Parents:     []string{"base"},
-			Fragments:   []FragmentRef{{Name: "frag2"}, {Name: "frag3"}}, // frag2 duplicate
-			BundleItems: []string{"bundle#item1", "bundle#item2"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	// Fragments should be deduplicated (extract names for comparison)
-	var fragNames []string
-	for _, f := range resolved.Fragments {
-		fragNames = append(fragNames, f.Name)
-	}
-	assert.Equal(t, []string{"frag1", "frag2", "frag3"}, fragNames)
-
-	// BundleItems should be deduplicated
-	assert.Equal(t, []string{"bundle#item1", "bundle#item2"}, resolved.BundleItems)
-}
-
 // =============================================================================
 // mergeHooks Coverage - PreShell and PostFileEdit
 // =============================================================================
-
-func TestResolveProfile_AllUnifiedHooks(t *testing.T) {
-	profiles := map[string]Profile{
-		"base": {
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					PreShell:     []wire.Hook{{Command: "./pre-shell.sh"}},
-					PostFileEdit: []wire.Hook{{Command: "./post-edit.sh"}},
-				},
-			},
-		},
-		"child": {
-			Parents: []string{"base"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	assert.Len(t, resolved.Hooks.Unified.PreShell, 1)
-	assert.Len(t, resolved.Hooks.Unified.PostFileEdit, 1)
-}
 
 // =============================================================================
 // extractMCPFromBundle Tests
@@ -1149,31 +715,6 @@ func TestExtractMCPFromBundle(t *testing.T) {
 // =============================================================================
 // resolveProfileRecursive Depth Limit
 // =============================================================================
-
-func TestResolveProfile_DepthLimit(t *testing.T) {
-	// Create a very deep inheritance chain
-	profiles := make(map[string]Profile)
-	for i := 0; i < 100; i++ {
-		name := "profile" + string(rune('a'+i%26)) + string(rune('0'+i/26))
-		parent := ""
-		if i > 0 {
-			prev := i - 1
-			parent = "profile" + string(rune('a'+prev%26)) + string(rune('0'+prev/26))
-		}
-		if parent != "" {
-			profiles[name] = Profile{Parents: []string{parent}}
-		} else {
-			profiles[name] = Profile{}
-		}
-	}
-
-	// Get the last profile name
-	lastName := "profile" + string(rune('a'+99%26)) + string(rune('0'+99/26))
-
-	_, err := ResolveProfile(profiles, lastName)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "depth exceeds maximum")
-}
 
 // =============================================================================
 // ResolveBundleMCPServers Tests
@@ -1888,27 +1429,6 @@ func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
 // mergeHooks Complete Coverage (SessionEnd)
 // =============================================================================
 
-func TestResolveProfile_SessionEndHooks(t *testing.T) {
-	profiles := map[string]Profile{
-		"base": {
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					SessionEnd: []wire.Hook{{Command: "./session-end.sh"}},
-				},
-			},
-		},
-		"child": {
-			Parents: []string{"base"},
-		},
-	}
-
-	resolved, err := ResolveProfile(profiles, "child")
-	require.NoError(t, err)
-
-	assert.Len(t, resolved.Hooks.Unified.SessionEnd, 1)
-	assert.Equal(t, "./session-end.sh", resolved.Hooks.Unified.SessionEnd[0].Command)
-}
-
 // =============================================================================
 // Resilient Startup Tests
 // =============================================================================
@@ -1938,7 +1458,7 @@ llm:
 	assert.NotEmpty(t, cfg.warnings)
 
 	// Config should still be usable with defaults
-	assert.NotNil(t, cfg.profiles)
+	assert.NotNil(t, cfg.lm.Configs)
 }
 
 func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
@@ -2004,7 +1524,7 @@ func TestResilientStartup_EmptyConfig(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
 	// Schema validation warns on empty config, but we still start
-	assert.NotNil(t, cfg.profiles)
+	assert.NotNil(t, cfg.lm.Configs)
 }
 
 func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
@@ -2012,26 +1532,31 @@ func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	// Config with some valid and some invalid parts (unknown property in plugin)
-	// Schema validation may catch this, but we should still not fail
+	// Config with some valid and some invalid parts (unknown property in plugin).
+	// Schema validation may catch this, but we should still not fail -- and the
+	// VALID part must survive, which is the whole claim. The profile lives in
+	// .ctxloom/profiles/ now that the inline arm is retired, so the surviving
+	// good part is read through the loader rather than off the config struct.
 	configYAML := fmt.Sprintf(`
 version: %d
 llm:
   configs:
     claude-code:
       unknown_property: true
-profiles:
-  definitions:
-    valid-profile:
-      description: "This is valid"
 `, CurrentConfigVersion)
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
+	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(paths.ProfilesPath(appDir), "valid-profile.yaml"),
+		[]byte("description: \"This is valid\"\n"), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	assert.Contains(t, cfg.profiles.Definitions, "valid-profile")
+	loaded, lerr := cfg.GetProfileLoader().Load("valid-profile")
+	require.NoError(t, lerr, "the valid profile must survive a partially-invalid config")
+	assert.Equal(t, "This is valid", loaded.Description,
+		"and survive with its CONTENT, not merely as a name in a map")
 }
 
 func TestResilientStartup_WarningsAreCollected(t *testing.T) {

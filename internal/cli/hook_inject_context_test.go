@@ -371,22 +371,32 @@ func TestAgentSetupNudge_Wiring(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv(projectroot.EnvVar, "") // don't let an ambient root override workDir
 
-	writeRoot := func(t *testing.T, body string) string {
+	// A profile is a FILE now, so "the project has profiles" means one exists in
+	// .ctxloom/profiles/ — writing a config block would only produce a
+	// retired-key warning and no profile at all.
+	writeRoot := func(t *testing.T, body string, profiles ...string) string {
 		root := t.TempDir()
 		appDir := filepath.Join(root, ".ctxloom")
 		require.NoError(t, os.MkdirAll(appDir, 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0644))
+		if len(profiles) > 0 {
+			require.NoError(t, os.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
+			for _, name := range profiles {
+				require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", name+".yaml"),
+					[]byte("description: seeded by the test\n"), 0644))
+			}
+		}
 		return root
 	}
 
 	t.Run("profiles, no agents → nudge on first chunk", func(t *testing.T) {
-		root := writeRoot(t, "version: 6\nprofiles:\n  definitions:\n    default: {}\n")
+		root := writeRoot(t, "version: 6\n", "default")
 		assert.NotEmpty(t, agentSetupNudge(root, 1))
 		assert.Empty(t, agentSetupNudge(root, 2), "fires once, on the first chunk")
 	})
 
 	t.Run("agent configured → silent", func(t *testing.T) {
-		root := writeRoot(t, "version: 6\nprofiles:\n  definitions:\n    default: {}\nagents:\n  dev:\n    profiles: [default]\n")
+		root := writeRoot(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n", "default")
 		assert.Empty(t, agentSetupNudge(root, 1))
 	})
 

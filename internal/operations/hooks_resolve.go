@@ -18,9 +18,6 @@ import (
 // inline-profile hooks genuinely indistinguishable. The model keeps what the
 // merge knows, so the limit is gone rather than papered over.
 const (
-	// SourceKindProfileInline: an inline profile's `hooks:` block (under
-	// `profiles:` in config.yaml). Source names the profile.
-	SourceKindProfileInline = string(backends.HookOriginProfileInline)
 	// SourceKindProfileDirectory: a directory profile's own `hooks:` block.
 	// Source names the profile.
 	SourceKindProfileDirectory = string(backends.HookOriginProfileDirectory)

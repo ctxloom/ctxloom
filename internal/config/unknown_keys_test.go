@@ -41,14 +41,14 @@ func unknownKeyWarnings(cfg *Config) []Warning {
 // context the user never asked for. It must be NAMED, in a message a human can
 // act on — not the raw jsonschema pointer soup.
 func TestLoad_UnknownTopLevelKey_NamesTheKey(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nprofilez:\n  definitions: {}\n")
+	cfg := loadYAML(t, "version: 6\nagentz:\n  definitions: {}\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1, "an unknown top-level key produces exactly one unknown-key warning")
-	assert.Contains(t, warns[0].Text, "profilez", "the message must name the offending key")
+	assert.Contains(t, warns[0].Text, "agentz", "the message must name the offending key")
 	assert.Contains(t, warns[0].Text, "config.yaml", "the message must name the file")
 	assert.Contains(t, warns[0].Text, "IGNORED", "the message must say the key has no effect")
-	assert.Contains(t, warns[0].Text, "profiles", "a near-miss typo must suggest the real key")
+	assert.Contains(t, warns[0].Text, "agents", "a near-miss typo must suggest the real key")
 }
 
 // A nested typo must name the SECTION too — "use_distiled" alone doesn't tell a
@@ -62,19 +62,34 @@ func TestLoad_UnknownNestedKey_NamesTheFullPath(t *testing.T) {
 	assert.Contains(t, warns[0].Text, "use_distilled", "and suggest the near-miss key it meant")
 }
 
-// THE trap this whole change exists for: a user copies `profiles.defaults` out of
+// THE trap this whole machinery exists for: a user copies a retired block out of
 // a stale doc into a CURRENT-version config. The migrator won't touch it (it is
-// version-gated), so today it is silently dropped and the default context is
-// empty. The message must name the retired key AND its replacement.
+// version-gated), so without this the block is silently dropped. The message must
+// name the retired key AND its replacement.
+//
+// `profiles:` is now that case in full: the inline arm is gone, so a config
+// carrying ANY of it — the whole block, not just the older `profiles.defaults`
+// — must be told where profiles live now rather than getting a bare
+// "unknown key" that reads like a typo.
+func TestLoad_RetiredProfilesBlock_AtCurrentVersion_NamesReplacement(t *testing.T) {
+	cfg := loadYAML(t, "version: 6\nprofiles:\n  definitions:\n    dev:\n      description: d\n")
+
+	warns := unknownKeyWarnings(cfg)
+	require.Len(t, warns, 1)
+	assert.Contains(t, warns[0].Text, "RETIRED", "the user must be told the key is gone, not misspelled")
+	assert.Contains(t, warns[0].Text, ".ctxloom/profiles/", "and pointed at where a profile lives now")
+	assert.Contains(t, warns[0].Text, "default_agent", "and at how the default context is chosen")
+}
+
+// The older `profiles.defaults` spelling reaches the same guidance, since the
+// whole block is retired — a user pasting either one is asking the same question.
 func TestLoad_RetiredProfilesDefaults_AtCurrentVersion_NamesReplacement(t *testing.T) {
 	cfg := loadYAML(t, "version: 6\nprofiles:\n  defaults:\n    - dev\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0].Text, "profiles.defaults", "the retired key must be named in full")
 	assert.Contains(t, warns[0].Text, "RETIRED", "the user must be told the key is gone, not misspelled")
 	assert.Contains(t, warns[0].Text, "default_agent", "and pointed at its replacement")
-	assert.Contains(t, warns[0].Text, "agents", "and pointed at its replacement")
 }
 
 // Every unknown key is reported, not just the first: a user who pasted a stale
@@ -166,16 +181,6 @@ agents:
   dev:
     llm: main
     profiles: [work]
-profiles:
-  definitions:
-    work:
-      description: work
-      select_tags: [go]
-      commands: ["b#commands/x"]
-      fragments:
-        - go-style
-        - name: testing
-          priority: 10
 `)
 
 	assert.Empty(t, cfg.warnings, "a valid config must load clean: %+v", cfg.warnings)
@@ -193,7 +198,7 @@ func TestLoad_UnknownKeyInHomeLayer_StillWarns(t *testing.T) {
 
 	homeAppDir := filepath.Join(home, AppDirName)
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir),
-		[]byte("version: 6\nprofilez:\n  definitions: {}\n"), 0644))
+		[]byte("version: 6\nagentz:\n  definitions: {}\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml",
 		[]byte("version: 6\ndefault_agent: dev\n"), 0644))
 
@@ -202,7 +207,7 @@ func TestLoad_UnknownKeyInHomeLayer_StillWarns(t *testing.T) {
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1, "an unknown key in the HOME layer must be diagnosed independently of the (valid) project layer")
-	assert.Contains(t, warns[0].Text, "profilez", "the message must name the offending key even though it lives in the lower-precedence layer")
+	assert.Contains(t, warns[0].Text, "agentz", "the message must name the offending key even though it lives in the lower-precedence layer")
 }
 
 // TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome is the mirror case:
@@ -216,14 +221,14 @@ func TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir),
 		[]byte("version: 6\ndefault_agent: dev\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml",
-		[]byte("version: 6\nprofilez:\n  definitions: {}\n"), 0644))
+		[]byte("version: 6\nagentz:\n  definitions: {}\n"), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0].Text, "profilez")
+	assert.Contains(t, warns[0].Text, "agentz")
 }
 
 // TestLoad_AgentDriving_NoUnknownKeyWarning pins the fix for a schema-drift

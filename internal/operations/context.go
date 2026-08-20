@@ -590,74 +590,52 @@ func sortFragmentsByPriority(fragments []config.FragmentRef) []config.FragmentRe
 // behavior, which is enough for the lightweight callers that only inspect
 // metadata.
 func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, profileLoaderFunc func() ProfileLoader) (*config.Profile, error) {
-	var profile *config.Profile
-
-	// First try config-based resolution (inline `profiles:` map in config.yaml).
-	p, inlineErr := config.ResolveProfile(cfg.GetProfileDefinitions(), name)
-	if inlineErr == nil {
-		profile = p
+	// Directory-resolve the profile (.ctxloom/profiles/<name>.yaml, or a
+	// bundle-shipped profile reached through the same loader). config.Profile
+	// is the ASSEMBLY pipeline's shape, not a config block any more: the inline
+	// `profiles:` map is retired, so this conversion is the only way in.
+	var pLoader ProfileLoader
+	if profileLoaderFunc != nil {
+		pLoader = profileLoaderFunc()
 	} else {
-		// Only ErrProfileNotFound means "config.yaml never mentioned this
-		// name", which is the ordinary reason to look in .ctxloom/profiles/.
-		// Any other error means an inline profile of this name EXISTS and is
-		// broken — a cycle in its parents, an inheritance chain too deep. The
-		// fallback still runs, because which profile wins is not this
-		// function's decision to change, but the fault must not vanish: left
-		// silent, the user sees either a directory profile quietly standing in
-		// for the one they wrote, or a "profile not found" naming the one
-		// place the profile is not.
-		brokenInline := !errors.Is(inlineErr, errs.ErrProfileNotFound)
-		if brokenInline {
-			clidiag.Warn("ctxloom", "inline profile %q in config.yaml is unusable: %v; trying .ctxloom/profiles/", name, inlineErr)
-		}
-
-		// Fall back to directory-based resolution (.ctxloom/profiles/<name>.yaml).
-		var pLoader ProfileLoader
-		if profileLoaderFunc != nil {
-			pLoader = profileLoaderFunc()
-		} else {
-			pLoader = cfg.GetProfileLoader()
-		}
-		resolved, rerr := pLoader.ResolveProfile(name, nil)
-		if rerr != nil {
-			if brokenInline {
-				return nil, fmt.Errorf("profile %s: %w (the inline definition in config.yaml is unusable: %v)", name, rerr, inlineErr)
-			}
-			return nil, fmt.Errorf("profile %s: %w", name, rerr)
-		}
-		profile = &config.Profile{
-			Tags:       resolved.Tags,
-			SelectTags: resolved.SelectTags,
-			Bundles:    resolved.Bundles,
-			// BundleItems are expanded via ExpandBundleRefs below (honoring any
-			// "@<commit>" pin), exactly like Bundles — the directory-profile mirror
-			// of the inline cherry-pick path.
-			BundleItems: resolved.BundleItems,
-			Commands:    resolved.Commands,
-			// Direct fragments carry into the same Fragments pipeline inline
-			// profiles use (collectProfileFragments → normalizeFragmentRef honors
-			// "@<commit>"); filtered by exclude_fragments here, parity with the
-			// inline toProfile filter.
-			Fragments: convertProfileFragments(resolved.Fragments, resolved.ExcludeFragments),
-			// Directly-declared hooks are executable surfaces; they reach the
-			// SAME managed-hooks resolution + executable trust gate as inline
-			// profiles via backends.AssembleManagedHooks.
-			Hooks:            resolved.Hooks,
-			Variables:        resolved.Variables,
-			LLM:              resolved.LLM,
-			ExcludeFragments: resolved.ExcludeFragments,
-			ExcludeMCP:       resolved.ExcludeMCP,
-		}
+		pLoader = cfg.GetProfileLoader()
+	}
+	resolved, rerr := pLoader.ResolveProfile(name, nil)
+	if rerr != nil {
+		return nil, fmt.Errorf("profile %s: %w", name, rerr)
+	}
+	profile := &config.Profile{
+		Tags:       resolved.Tags,
+		SelectTags: resolved.SelectTags,
+		Bundles:    resolved.Bundles,
+		// BundleItems are expanded via ExpandBundleRefs below, honoring any
+		// "@<commit>" pin, exactly like Bundles.
+		BundleItems: resolved.BundleItems,
+		Commands:    resolved.Commands,
+		Skills:      resolved.Skills,
+		// Direct fragments carry into the Fragments pipeline
+		// (collectProfileFragments -> normalizeFragmentRef honors "@<commit>"),
+		// filtered by exclude_fragments here.
+		Fragments: convertProfileFragments(resolved.Fragments, resolved.ExcludeFragments),
+		// Directly-declared hooks are executable surfaces and reach the
+		// managed-hooks resolution + executable trust gate via
+		// backends.AssembleManagedHooks.
+		Hooks:            resolved.Hooks,
+		Variables:        resolved.Variables,
+		LLM:              resolved.LLM,
+		ExcludeFragments: resolved.ExcludeFragments,
+		ExcludeMCP:       resolved.ExcludeMCP,
+		DenyTools:        resolved.DenyTools,
 	}
 
 	// Expand Bundles and BundleItems into FragmentRefs via the bundle loader.
 	// Without this, profiles that only list bundles (the common case for
 	// directory profiles) would resolve to zero fragments.
 	//
-	// The profile's exclude_fragments filter applies here: the inline-profile
-	// resolver only filters fragments declared inline (profileBuilder.toProfile),
-	// so bundle-expanded fragments — the only kind a directory profile has —
-	// must be filtered at this expansion seam or exclusions silently no-op.
+	// The profile's exclude_fragments filter applies here as well as in
+	// convertProfileFragments above: bundle-expanded fragments never pass
+	// through that call, so without this seam an exclusion naming one would
+	// silently no-op.
 	if loader != nil {
 		excluded := config.NewExclusionSet(profile.ExcludeFragments)
 		refs := make([]string, 0, len(profile.Bundles)+len(profile.BundleItems))

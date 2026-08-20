@@ -38,8 +38,10 @@ import (
 // migration that would have moved it, which is exactly the "copied a stale doc
 // into a current config" case.
 var retiredKeys = map[string]string{
-	"profiles.defaults": "`profiles.defaults` was RETIRED: the default context is now whatever the default AGENT composes — " +
-		"set `default_agent: <name>` and `agents.<name>.profiles: [...]`",
+	"profiles": "the `profiles:` block was RETIRED: a profile is a file — move each definition to " +
+		"`.ctxloom/profiles/<name>.yaml`, keeping its body verbatim (every field is spelled the same). " +
+		"The default context is whatever the default AGENT composes: `default_agent: <name>` and " +
+		"`agents.<name>.profiles: [...]`",
 	"defaults":       "the top-level `defaults` bag was RETIRED: use `llm.defaults.primary` / `llm.defaults.fast` for models, and `default_agent` for the default context",
 	"llm.plugins":    "`llm.plugins` was RENAMED to `llm.configs`",
 	"llm.default":    "`llm.default` was REPLACED by `llm.defaults.primary`",

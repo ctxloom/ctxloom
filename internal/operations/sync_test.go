@@ -185,7 +185,6 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 			seededDefaultBundle + "#profiles/default", // bundle-profile default
 			"go-dev", // local name — not a remote ref, stays out of the pull set
 		}}},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 		AppPaths: []string{testBaseDir},
 	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
@@ -250,9 +249,6 @@ func TestCollectRemoteReferences_RetiredDefaultProfileSkipped(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{},
-		},
 		AppPaths: []string{testBaseDir},
 	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
@@ -968,9 +964,6 @@ func TestCheckMissingDependencies_RetiredProfileRefNotOffered(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{},
-		},
 		AppPaths: []string{testBaseDir},
 	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
@@ -1227,7 +1220,6 @@ func TestCollectProfileReferences_ConfigProfile(t *testing.T) {
 
 func TestCollectProfileReferences_NotFound(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 	})
 	// No profile loader configured
 
@@ -1248,7 +1240,6 @@ func TestCollectProfileReferences_DirectoryProfile(t *testing.T) {
 
 	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{"/nonexistent"},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 	})
 
 	// This should call GetProfileLoader and try to load from directory

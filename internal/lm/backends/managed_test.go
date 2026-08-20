@@ -118,9 +118,6 @@ func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{},
-		},
 	})
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)

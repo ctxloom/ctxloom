@@ -1,13 +1,11 @@
 package backends
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -186,21 +184,7 @@ func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []strin
 			out = append(out, t)
 		}
 	}
-	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
-		// Inline profile (config.yaml) wins, trusted-local (ungated) — see the
-		// same-shaped loop in AssembleManagedHooks, including the real-vs-
-		// not-found error distinction.
-		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
-		if inlineErr == nil {
-			add(inlineResolved.DenyTools)
-			continue
-		}
-		if !errors.Is(inlineErr, errs.ErrProfileNotFound) {
-			clidiag.Warn("ctxloom", "profile %q: inline resolution failed; its deny_tools omitted: %v", profileName, inlineErr)
-			continue
-		}
-		// Directory profile fallback.
 		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
 		if err != nil {
 			clidiag.Warn("ctxloom", "profile %q unresolved; its deny_tools omitted: %v", profileName, err)
@@ -250,30 +234,13 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 	if cfg == nil {
 		return hooks
 	}
-	// Selected-profile-shipped hooks (defaults when none are passed). A profile
-	// resolves the SAME way operations.resolveProfile / AssembleManagedDenyTools do:
-	// inline definitions (config.yaml) win and are trusted-local (ungated); a name
-	// that isn't inline falls back to a directory profile, whose directly-declared
-	// hooks pass the executable trust gate first (the SAME gate bundle hooks pass)
-	// since the profile may be remote-sourced — so an inline hooks: block reaches
-	// the managed set with parity to an inline profile, but never unevaluated.
+	// Selected-profile-shipped hooks (defaults when none are passed). A
+	// profile's directly-declared hooks pass the executable trust gate first —
+	// the SAME gate bundle hooks pass — since the profile may be remote-sourced.
+	// There is no ungated arm: every declared hook is evaluated.
 	gate := cfg.ExecutableTrustGate()
 	profiles := scopedProfiles(cfg, profileNames)
-	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range profiles {
-		// Same real-vs-not-found error distinction as AssembleManagedDenyTools's loop:
-		// a broken inline profile must not be silently retried as a
-		// directory profile.
-		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
-		if inlineErr == nil {
-			hooks.mergeHooks(inlineResolved.Hooks,
-				fixedSource(HookSource{Origin: HookOriginProfileInline, Profile: profileName}))
-			continue
-		}
-		if !errors.Is(inlineErr, errs.ErrProfileNotFound) {
-			clidiag.Warn("ctxloom", "profile %q: inline resolution failed; its hooks omitted: %v", profileName, inlineErr)
-			continue
-		}
 		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
 		if err != nil {
 			clidiag.Warn("ctxloom", "profile %q unresolved; its hooks omitted: %v", profileName, err)

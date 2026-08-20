@@ -1,12 +1,10 @@
 package backends
 
 import (
-	"errors"
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -77,20 +75,7 @@ func resolveProfileSkillRefs(cfg *config.Config, profileNames []string) []string
 			}
 		}
 	}
-	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
-		// Same real-vs-not-found error distinction as resolveProfilePromptRefs
-		// (commands.go): a broken inline profile must not be silently
-		// retried as a directory profile.
-		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
-		if inlineErr == nil {
-			add(inlineResolved.Skills)
-			continue
-		}
-		if !errors.Is(inlineErr, errs.ErrProfileNotFound) {
-			clidiag.Warn("ctxloom", "profile %q: inline resolution failed; its curated skills omitted: %v", profileName, inlineErr)
-			continue
-		}
 		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
 		if err != nil {
 			clidiag.Warn("ctxloom", "profile %q unresolved; its curated skills omitted: %v", profileName, err)

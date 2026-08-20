@@ -32,7 +32,6 @@ type Fixture struct {
 	Editor                       EditorConfig
 	Settings                     SettingsConfig
 	Sync                         SyncConfig
-	Profiles                     ProfilesConfig
 	Agents                       map[string]agents.Agent
 	DefaultAgent                 string
 	Workspace                    string
@@ -73,7 +72,6 @@ func (c *Config) ToFixture() Fixture {
 		Editor:                       cloneEditor(c.editor),
 		Settings:                     cloneSettings(c.settings),
 		Sync:                         cloneSync(c.sync),
-		Profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)},
 		Agents:                       cloneAgentsMap(c.agents),
 		DefaultAgent:                 c.defaultAgent,
 		Workspace:                    c.workspace,
@@ -121,7 +119,6 @@ func NewFixture(f Fixture) *Config {
 		editor:                       cloneEditor(f.Editor),
 		settings:                     cloneSettings(f.Settings),
 		sync:                         cloneSync(f.Sync),
-		profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(f.Profiles.Definitions)},
 		agents:                       cloneAgentsMap(f.Agents),
 		defaultAgent:                 f.DefaultAgent,
 		workspace:                    f.Workspace,

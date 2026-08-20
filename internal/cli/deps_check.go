@@ -446,17 +446,9 @@ func checkDefaultProfiles(loadConfig func(...config.LoadOption) (*config.Config,
 
 	var missing []string
 	profileLoader := cfg.GetProfileLoader()
-	profileDefs := cfg.GetProfileDefinitions()
 
 	for _, name := range defaultProfiles {
-		// Check if profile exists in config
-		if _, exists := profileDefs[name]; exists {
-			continue
-		}
-
-		// Check if profile exists as a file
-		_, err := profileLoader.Load(name)
-		if err != nil {
+		if _, err := profileLoader.Load(name); err != nil {
 			missing = append(missing, name)
 		}
 	}

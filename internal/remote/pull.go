@@ -99,8 +99,10 @@ type Puller struct {
 	fetcherFactory  FetcherFactory
 	// now is the clock resolveRetraction stamps fresh retraction verdicts
 	// with, and measures persisted-verdict staleness against. A field (not a
-	// bare time.Now() call) so tests can inject a fixed/advancing clock
-	// instead of sleeping past RetractionStaleAfter (see WithPullerClock).
+	// bare time.Now() call) so a test can fix the clock and reach the
+	// stale-verdict arm without sleeping past RetractionStaleAfter; the
+	// package's own tests set it in a Puller literal, which is why there is no
+	// exported option for it.
 	now func() time.Time
 	// treeFetch is the pinned-remote tree walker, wired in from above (see
 	// TreeFetchFunc). Nil means this Puller can fetch only single-file bundles,
@@ -125,15 +127,6 @@ func WithTreeFetcher(tf TreeFetchFunc) PullerOption {
 func WithLockfileManager(lm *LockfileManager) PullerOption {
 	return func(p *Puller) {
 		p.lockfileManager = lm
-	}
-}
-
-// WithPullerClock sets the clock resolveRetraction uses to stamp fresh
-// verdicts and measure persisted-verdict staleness (for testing — production
-// always takes the default, real time.Now().UTC()).
-func WithPullerClock(now func() time.Time) PullerOption {
-	return func(p *Puller) {
-		p.now = now
 	}
 }
 

@@ -101,6 +101,11 @@ func shellSingleQuote(s string) string {
 // signature has no way to refuse. The drop still happens — it cannot not — but a
 // non-empty set going missing is named on the diagnostic channel rather than
 // leaving the session running with none of its configured hooks and nothing said.
+// The same hook never runs twice in one event, whatever declared it:
+// wire.HooksConfig.Append dedupes on the hook's whole executable content scoped
+// to the event. Do not reintroduce a plain concatenation here or beside it — a
+// diamond (child parents [b, c], both parenting d) applied d's hook once per
+// path before that landed.
 func MergeHooksConfig(dest *wire.HooksConfig, src *wire.HooksConfig) {
 	if src == nil {
 		return

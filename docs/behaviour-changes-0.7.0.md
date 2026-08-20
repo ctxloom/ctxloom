@@ -3,7 +3,7 @@
 **Read this before upgrading from 0.6.x.** ctxloom breaks rather than shims;
 breaking *silently* is what it does not do — hence this page.
 
-Twenty-four changes in this release are marked breaking. One of them fails
+Twenty-five changes in this release are marked breaking. One of them fails
 **silently** if you do nothing, so it is first.
 
 ---
@@ -69,12 +69,30 @@ canonical `<sessionID>.jsonl`. The project-rooted
 Existing files there are not migrated and are safe to delete; `ctxloom session
 adopt` re-indexes an outside session if you want its history back.
 
-## 5. `profiles.defaults` was replaced by an always-bound default agent
+## 5. A hook declared once runs once, however many profiles reach it
+
+The same hook no longer runs twice in one event. Previously, a hook declared by
+a profile that two of your profiles both inherit from was applied once per
+inheritance path — a shared ancestor reached through two parents ran its hook
+twice per event. Two selected profiles each declaring the same hook did the
+same.
+
+Hooks are compared on their whole executable content — type, command, prompt and
+matcher — **scoped to the event**. So the same command registered on both
+`session_start` and `session_end` is still two hooks, and the same command with
+a different `matcher` is still two hooks. Only an exact repeat within one event
+collapses.
+
+**If you were relying on a hook running twice, it will now run once.** That was
+not expressible on purpose and there is no way to ask for it; declare two hooks
+that differ in some way if you need two runs.
+
+## 6. `profiles.defaults` was replaced by an always-bound default agent
 
 Set `default_agent: <name>` and `agents.<name>.profiles: [...]`. A config still
 carrying `profiles.defaults` is told so by name.
 
-## 6. Everything else marked breaking
+## 7. Everything else marked breaking
 
 Grouped by what you would have to change.
 

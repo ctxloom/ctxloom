@@ -3,6 +3,7 @@ package archlint
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 	"strconv"
 
 	"golang.org/x/tools/go/analysis"
@@ -80,6 +81,12 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 		pass.ExportPackageFact(&vocabFact{Vocabs: owned})
 	}
 
+	// seen records which exemptions actually fired, so the liveness half below
+	// can report the ones that did not. Every other rule in this package has
+	// one; this rule shipped without it, and five WorkspaceAxis entries
+	// outlived the sites they exempted with nothing to say so.
+	seen := map[string]bool{}
+
 	for _, file := range files {
 		rel := FileRel(pass, file)
 		for _, decl := range file.Decls {
@@ -111,6 +118,7 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 				}
 				key := rel + "#" + sym + "#" + LocalDir(owner) + "." + sel.Sel.Name
 				if _, ok := vocabConversionAllowed[key]; ok {
+					seen[key] = true
 					return true
 				}
 				what := "a runtime string"
@@ -128,6 +136,8 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 			})
 		}
 	}
+	reportStaleAllowlist(pass, vocabConversionAllowed, analyzedFiles(pass), seen, "vocabConversionAllowed",
+		"internal/archlint/vocabulary.go")
 	return nil, nil
 }
 
@@ -139,12 +149,55 @@ func lookupVocabulary(pass *analysis.Pass, pkgName, typeName string) (string, ma
 			continue
 		}
 		var fact vocabFact
-		if !pass.ImportPackageFact(imported, &fact) {
-			continue
+		if pass.ImportPackageFact(imported, &fact) {
+			if members, ok := fact.Vocabs[typeName]; ok {
+				return imported.Path(), members
+			}
 		}
-		if members, ok := fact.Vocabs[typeName]; ok {
-			return imported.Path(), members
+		if path, members := vocabularyThroughAlias(pass, imported, typeName); members != nil {
+			return path, members
 		}
+	}
+	return "", nil
+}
+
+// vocabularyThroughAlias resolves a name that RE-EXPORTS a vocabulary declared
+// elsewhere, e.g. `type RuntimeAxis = agent.RuntimeAxis`.
+//
+// discoverVocabularies works from string-literal typed constants, so it sees a
+// vocabulary only in the package that DECLARES it. A package that aliases the
+// type and re-exports its constants publishes no fact of its own and declares
+// no literals, so every conversion written through the alias was invisible —
+// `isolation.RuntimeAxis(s)` went unreported while the identical
+// `agent.RuntimeAxis(s)` was caught. An alias is a second NAME for a closed
+// vocabulary, never a second vocabulary, so it must be governed identically.
+//
+// Resolution goes through go/types rather than the AST because that is what
+// knows where a name ultimately comes from; matching on the alias's spelling
+// would be a third place that has to be kept in step by hand.
+func vocabularyThroughAlias(pass *analysis.Pass, imported *types.Package, typeName string) (string, map[string]bool) {
+	obj := imported.Scope().Lookup(typeName)
+	if obj == nil {
+		return "", nil
+	}
+	// types.Unalias is load-bearing: under gotypesalias=1 (the default since
+	// Go 1.23) an alias declaration yields a *types.Alias, not the *types.Named
+	// it stands for, so asserting on Named alone silently matches nothing —
+	// which is exactly the blindness this function exists to remove.
+	named, ok := types.Unalias(obj.Type()).(*types.Named)
+	if !ok {
+		return "", nil
+	}
+	origin := named.Obj().Pkg()
+	if origin == nil || origin.Path() == imported.Path() {
+		return "", nil
+	}
+	var fact vocabFact
+	if !pass.ImportPackageFact(origin, &fact) {
+		return "", nil
+	}
+	if members, ok := fact.Vocabs[named.Obj().Name()]; ok {
+		return origin.Path(), members
 	}
 	return "", nil
 }
@@ -208,12 +261,6 @@ var vocabConversionAllowed = map[string]string{
 
 	"internal/agentcoord/coord/enginehost.go#EngineHost.startRun#internal/transcript.RawPolicy": "raw-transcript policy string asserted into the enum; internal/transcript ships no parser for RawPolicy — add one and call it",
 	"internal/lm/grpc/chat.go#GRPCClient.openRecorder#internal/transcript.RawPolicy":            "same RawPolicy assertion as coord.EngineHost.startRun, reached from the wire side",
-
-	"internal/cli/acp_run_cmd.go#warnACPSessionWorkspaceAxis#internal/lm/isolation.WorkspaceAxis": "the workspace axis has NO validator anywhere: an unrecognized --workspace value converts cleanly and then reads as the shared-checkout default, so a typo runs in the parent's live tree. Needs a ParseWorkspaceAxis beside isolation.ParseRuntimeAxis, then every one of these five sites routed through it",
-	"internal/cli/run.go#runState.buildRunRequest#internal/lm/isolation.WorkspaceAxis":            "workspace axis asserted from session state; waits on the same ParseWorkspaceAxis",
-	"internal/operations/delegate.go#delegatedAxes#internal/lm/isolation.WorkspaceAxis":           "workspace axis asserted from a delegation request field; waits on the same ParseWorkspaceAxis",
-	"internal/operations/engine_session.go#acpWorkspaceAxis#internal/lm/isolation.WorkspaceAxis":  "workspace axis asserted from flag/agent/project layering; waits on the same ParseWorkspaceAxis",
-	"internal/operations/oneshot.go#RunOneshot#internal/lm/isolation.WorkspaceAxis":               "workspace axis asserted from config; waits on the same ParseWorkspaceAxis",
 
 	"internal/lm/grpc/chat.go#chatStartFromProto#internal/shared/agent.MCPTransport":            "a proto string field asserted into the transport enum; an unknown wire value becomes a well-typed value nothing rejects",
 	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/shared/agent.SessionEntryType":  "a proto string field asserted into the entry-type enum; same unchecked-wire-value shape",

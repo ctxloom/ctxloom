@@ -37,7 +37,7 @@ func TestGetSeedProfile_DefaultParentsAreExactlyWhatInitSeeds(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(raw, &got), "the seed profile must be valid YAML: init writes it verbatim")
 
 	assert.Equal(t, []string{
-		"https://github.com/ctxloom/ctxloom-default@bundles/ai-developer@branch:main#profiles/developer",
+		"ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer@branch:main#profiles/developer",
 	}, got.Parents,
 		"changing what a new project inherits is a deliberate act; update this expectation in the same change, and say why in the commit")
 }

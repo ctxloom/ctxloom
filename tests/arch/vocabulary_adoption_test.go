@@ -786,10 +786,6 @@ var vocabMembershipAllowed = map[string]string{
 // vocabParallelAllowed is the PARALLEL LIST rule's shrinking allowlist, keyed
 // by the two colliding symbols in sorted order.
 var vocabParallelAllowed = map[string]string{
-	"internal/operations/sync.go#isRemoteReference ~ internal/remote/normalize.go#IsCanonicalRef":            "the remote-scheme vocabulary has FOUR homes: operations.isRemoteReference, remote.IsCanonicalRef, remote.IsSelfContainedRef (whose own doc claims to be the only list) and the dispatch in remote.ParseReference. They have already drifted — the ctxloom+<class>: opaque-URI family is known to some and not others. One owner in internal/remote, every caller routed through it",
-	"internal/operations/sync.go#isRemoteReference ~ internal/remote/reference.go#ParseReference":            "same remote-scheme cluster: the dispatch that decides which parser runs carries its own copy of the prefix list",
-	"internal/operations/sync.go#isRemoteReference ~ internal/remote/reference.go#ExtractRepoName":           "same remote-scheme cluster",
-	"internal/operations/sync.go#isRemoteReference ~ internal/remote/reference.go#Reference.localRemoteName": "same remote-scheme cluster",
 
 	"internal/cli/tui/render.go#roleTag ~ internal/transcript/vendorreader/claude/session.go#messageEntries": "two copies of the session-entry-type list; both are also flagged individually against agent.SessionEntryType, which is the owner they should route through",
 

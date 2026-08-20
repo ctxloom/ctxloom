@@ -260,7 +260,6 @@ func loadStartupConfigWith(load func(...config.LoadOption) (*config.Config, erro
 func fallbackConfigForLoadFailure(err error) *config.Config {
 	return config.NewFixture(config.Fixture{
 		LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
-		Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
 		Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
 	})
 }

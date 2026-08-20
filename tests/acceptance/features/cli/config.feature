@@ -105,23 +105,22 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the output does not contain "editor:"
       And the output does not contain "llm:"
 
-    # `config get profiles` renders cfg.Profiles — the INLINE `profiles:
-    # definitions:` map in config.yaml — not directory profiles written by
-    # `profile create` (.ctxloom/profiles/<name>.yaml never round-trips through
-    # this section). The fixture seeds the inline map for that reason.
-    Scenario: The profiles section reflects a profile defined inline in the document
+    # The `profiles:` block was RETIRED — a profile is a file. A config still
+    # carrying one must be TOLD that, and told where profiles live now: the
+    # block is silently ignored otherwise, and a user whose profiles stopped
+    # applying has nothing to go on. Reporting it as a plain unknown key would
+    # read as a typo in a key they spelled correctly.
+    Scenario: A config still carrying the retired profiles block is told where profiles live
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" is defined inline in config with bundle "demo"
-      When Alice reads back the profiles the document itself defines:
+      When Alice reads a section of the document:
         """
-        ctxloom config get profiles
+        ctxloom config get llm
         """
-      Then the command succeeds
-      And the output contains "dev"
-      And the output contains "definitions:"
-      And the output does not contain "editor:"
-      And the output does not contain "profiles:"
+      Then the output contains "RETIRED"
+      And the output contains ".ctxloom/profiles/"
+      And the output contains "default_agent"
 
     # The refusal has to be USEFUL, not merely correct: a caller who guessed
     # wrong recovers from the message or not at all, so it names every section
@@ -136,7 +135,6 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the output contains "nonsense"
       And the output contains "config"
       And the output contains "llm"
-      And the output contains "profiles"
 
     # A namespace that printed its own help on a misspelling and exited 0 is
     # this project's characteristic silent no-op wearing the CLI's dispatch as

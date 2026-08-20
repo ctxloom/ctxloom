@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -146,15 +145,9 @@ func TestResolveProfileSkillRefs_ExplicitProfileWarningOmitsDefault(t *testing.T
 // (circular parent inheritance) instead of silently retrying it as a
 // directory profile. Mirrors the commands.go/managed.go regression tests for
 // the same defect.
-func TestResolveProfileSkillRefs_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"loopy"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{
-				"loopy": {Parents: []string{"loopy"}},
-			},
-		},
+func TestResolveProfileSkillRefs_CircularProfileIsWarnedNotMasked(t *testing.T) {
+	cfg := dirProfileCfg(t, []string{"loopy"}, map[string]string{
+		"loopy": "parents:\n  - loopy\n",
 	})
 
 	var buf bytes.Buffer

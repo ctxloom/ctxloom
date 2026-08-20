@@ -82,10 +82,6 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) ([]
 			continue
 		}
 		seen[name] = struct{}{}
-		if def, ok := cfg.GetProfileDefinitions()[name]; ok {
-			roots = append(roots, &profiles.Profile{Name: name, Bundles: def.Bundles, Parents: def.Parents})
-			continue
-		}
 		p, err := loader.Load(name)
 		if err != nil {
 			// A root that will not load NARROWS the closure, and a wholesale
@@ -114,13 +110,10 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) ([]
 // even though no local profile names them; the walker resolves remote parents
 // from the clone cache directly, so this works on the very first lock before any
 // lockfile entry exists). Lock AND upgrade must share this set: a wholesale lock
-// rewrite built from a narrower set (e.g. directory profiles only) silently
-// erases every entry rooted only in an inline or config-default profile.
+// rewrite built from a narrower set silently erases every entry rooted only in a
+// config-default profile.
 func closureRoots(cfg *config.Config, loader *profiles.Loader) ([]*profiles.Profile, []string) {
 	var names []string
-	for name := range cfg.GetProfileDefinitions() {
-		names = append(names, name)
-	}
 	ps, err := loader.List()
 	var unexpanded []string
 	if err != nil {

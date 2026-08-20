@@ -38,9 +38,6 @@ const goldenHomeConfigYAML = `llm:
   defaults:
     primary: claude-code
     fast: claude-fast
-profiles:
-  defaults:
-    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/go-development#profiles/go-developer
 version: 5
 `
 

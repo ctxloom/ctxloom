@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // Fixture's own doc promises "a Fixture-built Config never aliases a
@@ -103,23 +102,6 @@ func aliasProbeFixture() Fixture {
 	f := fullyPopulatedFixture()
 	f.LM.Configs["fast"] = LLMConfig{Type: "claude-code", Body: map[string]any{"model": "m"}}
 	f.Editor = EditorConfig{Command: "vi", Args: []string{"-p"}}
-	f.Profiles.Definitions["hooked"] = Profile{Hooks: wire.HooksConfig{Plugins: map[string]wire.BackendHooks{"claude": {"PostToolUse": []wire.Hook{{Command: "true"}}}}}}
-	f.Profiles.Definitions["p"] = Profile{
-		Description:      "a profile",
-		Parents:          []string{"base"},
-		Tags:             []string{"t"},
-		SelectTags:       []string{"s"},
-		Bundles:          []string{"b"},
-		BundleItems:      []string{"bi"},
-		Fragments:        []FragmentRef{{Name: "dev#fragments/x"}},
-		Commands:         []string{"c"},
-		Skills:           []string{"sk"},
-		Variables:        map[string]string{"K": "v"},
-		ExcludeFragments: []string{"ef"},
-		ExcludeMCP:       []string{"em"},
-		DenyTools:        []string{"Bash"},
-		Hooks:            wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "true"}}}},
-	}
 	f.Agents["worker"] = agents.Agent{
 		LLM:        "fast",
 		Profiles:   []string{"p"},
@@ -160,11 +142,8 @@ func TestNewFixture_NeverAliasesItsFixture(t *testing.T) {
 func TestToFixture_MutationDoesNotReachConfig(t *testing.T) {
 	cfg := NewFixture(aliasProbeFixture())
 
-	cfg.ToFixture().Profiles.Definitions["injected"] = Profile{Description: "should not land"}
 	cfg.ToFixture().Agents["injected"] = agents.Agent{LLM: "fast"}
 
-	assert.NotContains(t, cfg.GetProfilesConfig().Definitions, "injected",
-		"a Fixture is a copy: writing into its Definitions must not mutate the Config it came from")
 	assert.NotContains(t, cfg.GetConfiguredAgents(), "injected",
 		"a Fixture is a copy: writing into its Agents must not mutate the Config it came from")
 }
@@ -175,11 +154,8 @@ func TestNewFixture_MutatingTheSourceFixtureDoesNotReachTheConfig(t *testing.T) 
 	f := aliasProbeFixture()
 
 	cfg := NewFixture(f)
-	f.Profiles.Definitions["injected"] = Profile{Description: "should not land"}
 	f.Agents["injected"] = agents.Agent{LLM: "fast"}
 
-	assert.NotContains(t, cfg.GetProfilesConfig().Definitions, "injected",
-		"NewFixture must take ownership of its own containers, not the caller's")
 	assert.NotContains(t, cfg.GetConfiguredAgents(), "injected",
 		"NewFixture must take ownership of its own containers, not the caller's")
 }

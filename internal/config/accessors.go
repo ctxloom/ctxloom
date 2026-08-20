@@ -152,38 +152,6 @@ func cloneHooksConfig(h wire.HooksConfig) wire.HooksConfig {
 	return h
 }
 
-func cloneProfile(p Profile) Profile {
-	p.Parents = cloneStrings(p.Parents)
-	p.Tags = cloneStrings(p.Tags)
-	p.SelectTags = cloneStrings(p.SelectTags)
-	p.Bundles = cloneStrings(p.Bundles)
-	p.BundleItems = cloneStrings(p.BundleItems)
-	if p.Fragments != nil {
-		out := make([]FragmentRef, len(p.Fragments))
-		copy(out, p.Fragments)
-		p.Fragments = out
-	}
-	p.Commands = cloneStrings(p.Commands)
-	p.Skills = cloneStrings(p.Skills)
-	p.Variables = cloneStringMap(p.Variables)
-	p.Hooks = cloneHooksConfig(p.Hooks)
-	p.ExcludeFragments = cloneStrings(p.ExcludeFragments)
-	p.ExcludeMCP = cloneStrings(p.ExcludeMCP)
-	p.DenyTools = cloneStrings(p.DenyTools)
-	return p
-}
-
-func cloneProfilesMap(m map[string]Profile) map[string]Profile {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]Profile, len(m))
-	for k, v := range m {
-		out[k] = cloneProfile(v)
-	}
-	return out
-}
-
 func cloneSettings(s SettingsConfig) SettingsConfig {
 	s.UseDistilled = cloneBoolPtr(s.UseDistilled)
 	s.Statusline = cloneBoolPtr(s.Statusline)
@@ -395,20 +363,6 @@ func (c *Config) LabelEnv(label string) map[string]string {
 // GetLLMLabels returns every configured LLM registry label, sorted.
 func (c *Config) GetLLMLabels() []string {
 	return collections.SortedKeys(c.lm.Configs)
-}
-
-// GetProfileDefinitions returns a copy of the inline `profiles.definitions`
-// map.
-func (c *Config) GetProfileDefinitions() map[string]Profile {
-	return cloneProfilesMap(c.profiles.Definitions)
-}
-
-// GetProfilesConfig returns a copy of the whole `profiles:` block (today just
-// the Definitions map, wrapped) — distinct from GetProfileDefinitions, which
-// unwraps straight to the map; callers that need the wrapper shape itself
-// (e.g. `config get profiles`, which marshals the section verbatim) use this.
-func (c *Config) GetProfilesConfig() ProfilesConfig {
-	return ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)}
 }
 
 // GetSettings returns a copy of the behavioral settings block.

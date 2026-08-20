@@ -391,12 +391,7 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string) (bundleR
 	// Get profiles to process
 	profilesToProcess := profileNames
 	if len(profilesToProcess) == 0 {
-		// Process all profiles from config
-		for name := range cfg.GetProfileDefinitions() {
-			profilesToProcess = append(profilesToProcess, name)
-		}
-
-		// Also get directory-based profiles. A List failure must actually
+		// Every directory profile. A List failure must actually
 		// reach this function's own (previously always-nil) err return
 		// rather than being discarded — every call site
 		// already handles a non-nil err from collectRemoteReferences
@@ -446,14 +441,6 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string) (bundleR
 
 // collectProfileReferences collects bundle and parent profile references from a profile.
 func collectProfileReferences(cfg *config.Config, profileName string) (bundles []string, profiles []string) {
-	// Try config-based profile first
-	if profile, ok := cfg.GetProfileDefinitions()[profileName]; ok {
-		bundles = append(bundles, profile.Bundles...)
-		profiles = append(profiles, profile.Parents...)
-		return
-	}
-
-	// Fall back to directory-based profile
 	loader := cfg.GetProfileLoader()
 	profile, err := loader.Load(profileName)
 	if err != nil {
@@ -779,16 +766,13 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 	}, nil
 }
 
-// resolveProfilesToCheck returns the requested profiles, or every configured
-// and directory profile when none were requested.
+// resolveProfilesToCheck returns the requested profiles, or every directory
+// profile when none were requested.
 func resolveProfilesToCheck(cfg *config.Config, requested []string) []string {
 	if len(requested) > 0 {
 		return requested
 	}
 	var names []string
-	for name := range cfg.GetProfileDefinitions() {
-		names = append(names, name)
-	}
 	loader := cfg.GetProfileLoader()
 	dirProfiles, err := loader.List()
 	if err != nil {

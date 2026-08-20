@@ -40,10 +40,6 @@ agents:
   dev:
     llm: big
     profiles: [proj/dev]
-profiles:
-  definitions:
-    proj/dev:
-      tags: [go]
 config:
   use_distilled: true
   compaction_chunks: 8000

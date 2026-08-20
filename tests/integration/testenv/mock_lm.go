@@ -117,10 +117,6 @@ func (m *MockLM) WriteConfig() error {
 	useDistilled.Tag = "!!bool"
 	upgrade.MapSet(cfgSection, "use_distilled", useDistilled)
 
-	// profiles: left exactly as found if present; created empty only for a
-	// brand new file so downstream readers see a valid (if empty) section.
-	upgrade.EnsureMap(root, "profiles")
-
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)

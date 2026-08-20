@@ -26,11 +26,6 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 				"main": {Type: "claude-code", Body: map[string]any{"model": "opus"}},
 			},
 		},
-		profiles: ProfilesConfig{
-			Definitions: map[string]Profile{
-				"go": {Description: "go work", Tags: []string{"lang"}},
-			},
-		},
 		isolationImages: map[string]string{"claude-code": "img:latest"},
 	}
 
@@ -73,27 +68,6 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 		}
 		if cfg.lm.Configs["main"].Body["model"] != "opus" {
 			t.Fatalf("mutating GetLMConfig().Configs[...].Body corrupted the source: %v", cfg.lm.Configs["main"].Body)
-		}
-	})
-
-	t.Run("ProfileDefinitions map and nested slice", func(t *testing.T) {
-		got := cfg.GetProfileDefinitions()
-		p := got["go"]
-		p.Tags[0] = "MUTATED"
-		delete(got, "go")
-		if _, ok := cfg.profiles.Definitions["go"]; !ok {
-			t.Fatal("deleting from GetProfileDefinitions() result deleted the source entry")
-		}
-		if cfg.profiles.Definitions["go"].Tags[0] != "lang" {
-			t.Fatalf("mutating a nested slice on GetProfileDefinitions() result corrupted the source: %v", cfg.profiles.Definitions["go"].Tags)
-		}
-	})
-
-	t.Run("ProfilesConfig wrapper map", func(t *testing.T) {
-		got := cfg.GetProfilesConfig()
-		delete(got.Definitions, "go")
-		if _, ok := cfg.profiles.Definitions["go"]; !ok {
-			t.Fatal("deleting from GetProfilesConfig().Definitions result deleted the source entry")
 		}
 	})
 

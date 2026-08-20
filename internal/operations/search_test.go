@@ -328,12 +328,9 @@ func TestSearchContent_SearchFragmentsByTag(t *testing.T) {
 
 func TestSearchContent_TagsOnlyQueryIsFragmentScoped(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"go-developer": {Description: "Go development profile", Tags: []string{"go"}},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+		"go-developer": {Description: "Go development profile", Tags: []string{"go"}},
+	}, config.Fixture{})
 
 	// Tags-only search (empty query): tags filter fragments only. An empty query
 	// must NOT flood the results with every prompt, profile, and mcp_server
@@ -424,19 +421,16 @@ func TestSearchContent_SearchSkills(t *testing.T) {
 }
 
 func TestSearchContent_SearchProfiles(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"go-developer": {
-				Description: "Go development profile",
-				Tags:        []string{"go", "backend"},
-			},
-			"frontend-dev": {
-				Description: "Frontend development",
-				Tags:        []string{"react", "javascript"},
-			},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+		"go-developer": {
+			Description: "Go development profile",
+			Tags:        []string{"go", "backend"},
+		},
+		"frontend-dev": {
+			Description: "Frontend development",
+			Tags:        []string{"react", "javascript"},
+		},
+	}, config.Fixture{})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "go",
@@ -473,15 +467,12 @@ func TestSearchContent_SearchMCPServers(t *testing.T) {
 
 func TestSearchContent_MultipleTypes(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"react-developer": {
-				Description: "React development profile",
-				Tags:        []string{"react", "frontend"},
-			},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+		"react-developer": {
+			Description: "React development profile",
+			Tags:        []string{"react", "frontend"},
+		},
+	}, config.Fixture{})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "react",
@@ -605,12 +596,9 @@ func TestSearchContent_DefaultLimit(t *testing.T) {
 
 func TestSearchContent_SearchAllTypesWhenEmpty(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"test-profile": {Description: "Test"},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+		"test-profile": {Description: "Test"},
+	}, config.Fixture{})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "test",
@@ -625,12 +613,9 @@ func TestSearchContent_SearchAllTypesWhenEmpty(t *testing.T) {
 
 func TestSearchContent_SortByType(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"test-profile": {Description: "Test profile"},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+		"test-profile": {Description: "Test profile"},
+	}, config.Fixture{})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "test",
@@ -670,15 +655,12 @@ func TestSearchContent_SortDescending(t *testing.T) {
 }
 
 func TestSearchContent_ProfileByDescription(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"my-profile": {
-				Description: "This is a unique description for searching",
-				Tags:        []string{"go"},
-			},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+		"my-profile": {
+			Description: "This is a unique description for searching",
+			Tags:        []string{"go"},
+		},
+	}, config.Fixture{})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "unique description",

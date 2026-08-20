@@ -35,16 +35,8 @@ func sessionStartCommands(h wire.UnifiedHooks) []string {
 // reconcile dropped the profile hook — the drop-on-clobber class that broke
 // forward-bind.
 func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{
-				"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-					SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
-				}}},
-			},
-		},
+	cfg := dirProfileCfg(t, []string{"p"}, map[string]string{
+		"p": "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
 	})
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
@@ -67,7 +59,7 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 		return dirProfileCfg(t, []string{"base", "p"}, map[string]string{
 			"base": "hooks:\n  unified:\n    session_start:\n      - command: base-session-start\n        type: command\n",
 			"p":    "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
-		}, nil)
+		})
 	}
 
 	const hash, wd = "hash123", "/tmp"
@@ -98,7 +90,7 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"p"}, map[string]string{
 		"p": "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
-	}, nil)
+	})
 
 	first := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 	second := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
@@ -118,24 +110,15 @@ func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{},
-		},
 	})
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 	assert.NotEmpty(t, assembled.Wire().Unified.SessionStart, "context-injection hook should still be assembled")
 }
 
-func TestAssembleManagedHooks_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"loopy"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{
-				"loopy": {Parents: []string{"loopy"}},
-			},
-		},
+func TestAssembleManagedHooks_CircularProfileIsWarnedNotMasked(t *testing.T) {
+	cfg := dirProfileCfg(t, []string{"loopy"}, map[string]string{
+		"loopy": "parents:\n  - loopy\n",
 	})
 
 	var buf bytes.Buffer
@@ -148,15 +131,9 @@ func TestAssembleManagedHooks_CircularInlineProfileIsWarnedNotMasked(t *testing.
 		"the real cause (inheritance) must reach the warning: got %q", buf.String())
 }
 
-func TestAssembleManagedDenyTools_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"loopy"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{
-				"loopy": {Parents: []string{"loopy"}},
-			},
-		},
+func TestAssembleManagedDenyTools_CircularProfileIsWarnedNotMasked(t *testing.T) {
+	cfg := dirProfileCfg(t, []string{"loopy"}, map[string]string{
+		"loopy": "parents:\n  - loopy\n",
 	})
 
 	var buf bytes.Buffer

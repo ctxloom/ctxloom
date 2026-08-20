@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,12 +34,9 @@ fragments:
     tags: ["security"]
     content: "`+mark+`"
 `)
-	cfg = config.NewFixture(config.Fixture{
-		AppPaths: []string{appDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"reviewer": {SelectTags: []string{"security"}},
-		}},
-	})
+	cfg = cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		"reviewer": {SelectTags: []string{"security"}},
+	}, config.Fixture{})
 	return cfg, t.TempDir()
 }
 
@@ -184,7 +182,6 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "reviewer.yaml"), []byte(
 		"select_tags:\n  - security\nhooks:\n  unified:\n    session_start:\n      - type: command\n        command: echo team-guardrail\n",
 	), 0o644))
-	f.Profiles = config.ProfilesConfig{}
 	return config.NewFixture(f), target
 }
 

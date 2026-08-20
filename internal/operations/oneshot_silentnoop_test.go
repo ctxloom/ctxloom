@@ -18,7 +18,7 @@ import (
 // is a failed run, not a legitimately-empty one.
 func TestRunOneshot_EmptyStdoutIsLoud(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := oneshotTestConfig()
+	cfg := oneshotTestConfig(t)
 
 	cases := []struct{ name, out string }{
 		{"no bytes at all", ""},

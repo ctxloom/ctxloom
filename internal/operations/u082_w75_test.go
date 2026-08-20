@@ -17,7 +17,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -380,36 +379,23 @@ func TestConstraintResolver_SkipWarningNamesTheCause(t *testing.T) {
 	}
 }
 
-// TestResolveProfile_BrokenInlineProfileIsReported pins that
-// resolveProfile threw away config.ResolveProfile's error to trigger the
-// directory fallback, so "config.yaml has no such profile" and "config.yaml
-// HAS this profile and it is broken" were the same event. A circular parent
-// chain in an inline profile therefore vanished: the user saw either a
-// directory profile silently standing in for the one they wrote, or a bare
-// "profile not found" naming the wrong place to look.
+// TestResolveProfile_BrokenProfileReportsItsActualFault pins that a profile
+// which EXISTS and is BROKEN is reported as broken, not as absent.
 //
-// The fallback ITSELF is deliberately unchanged — which profile wins is
-// profile-loading semantics, not error handling. What changes is that the
-// inline fault is no longer silent.
-func TestResolveProfile_BrokenInlineProfileIsReported(t *testing.T) {
-	defs := map[string]config.Profile{
-		// A two-node cycle: resolving "looper" revisits itself.
+// The original defect was in the retired inline arm: resolveProfile discarded
+// config.ResolveProfile's error to trigger the directory fallback, so
+// "no such profile" and "this profile exists and is broken" became the same
+// event, and a circular parent chain vanished behind a bare "profile not
+// found" naming the wrong place to look. The inline arm is gone; the claim is
+// not, because the directory resolver can fail the same two ways.
+func TestResolveProfile_BrokenProfileReportsItsActualFault(t *testing.T) {
+	// A two-node cycle: resolving "looper" revisits itself.
+	fs := afero.NewMemMapFs()
+	appDir := t.TempDir() + "/" + paths.AppDirName
+	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
 		"looper": {Parents: []string{"other"}},
 		"other":  {Parents: []string{"looper"}},
-	}
-
-	// The fixture is only hostile if config.ResolveProfile fails for a
-	// reason that is NOT "no such name" — that is the whole distinction the
-	// discarded error carried.
-	_, inlineErr := config.ResolveProfile(defs, "looper")
-	require.Error(t, inlineErr)
-	require.False(t, errors.Is(inlineErr, errs.ErrProfileNotFound),
-		"fixture must fail for a reason other than not-found, got %v", inlineErr)
-
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{t.TempDir()},
-		Profiles: config.ProfilesConfig{Definitions: defs},
-	})
+	}, config.Fixture{})
 
 	var sink strings.Builder
 	restore := clidiag.SetSink(&sink)
@@ -417,12 +403,13 @@ func TestResolveProfile_BrokenInlineProfileIsReported(t *testing.T) {
 
 	_, err := resolveProfile(cfg, "looper", nil, nil)
 
-	// The directory fallback has nothing either, so this still fails — the
-	// point is that the user is told the inline definition was the problem.
 	require.Error(t, err)
-	assert.Contains(t, sink.String()+err.Error(), "looper")
-	assert.Contains(t, strings.ToLower(sink.String()+err.Error()), "circular",
-		"the inline profile's actual fault must reach the user")
+	said := strings.ToLower(sink.String() + err.Error())
+	assert.Contains(t, said, "looper")
+	assert.Contains(t, said, "circular",
+		"the profile's ACTUAL fault must reach the user, not a not-found naming the wrong problem")
+	assert.NotContains(t, said, "not found",
+		"reporting a cycle as absence is the defect this pins")
 }
 
 // TestCreateUpdateBundle_DistillFailuresAreStderrOnly is the characterization

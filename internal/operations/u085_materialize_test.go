@@ -47,12 +47,12 @@ func emptyContextMaterializeFixture(t *testing.T) (*config.Config, string) {
 	t.Helper()
 	cfg, target := materializeFixture(t, "UNSELECTED-CONTENT")
 	rejectEveryBuiltinFragment(t)
-	f := cfg.ToFixture()
-	for name, p := range f.Profiles.Definitions {
-		p.SelectTags = []string{"no-fragment-carries-this-tag"}
-		f.Profiles.Definitions[name] = p
-	}
-	return config.NewFixture(f), target
+	// Re-seed the fixture's profile so it selects a tag no fragment carries.
+	// materializeFixture writes "reviewer"; overwriting it here is what makes
+	// the assembled context empty.
+	return withProfileDefs(t, cfg, map[string]config.Profile{
+		"reviewer": {SelectTags: []string{"no-fragment-carries-this-tag"}},
+	}), target
 }
 
 // TestMaterializeProfile_RefusesEmptyAssembledContext pins this

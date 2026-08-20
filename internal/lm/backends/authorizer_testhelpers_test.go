@@ -31,9 +31,13 @@ func recordingAuthorizer(admit bool, gotRefs *[]string) bundles.Authorizer {
 
 // hashAuthorizer admits exactly the payload whose hash is want — the shape a
 // countersignature has: one approval covers one set of bytes.
-func hashAuthorizer(want string) bundles.Authorizer {
+func hashAuthorizer(want ...string) bundles.Authorizer {
+	granted := make(map[string]bool, len(want))
+	for _, w := range want {
+		granted[w] = true
+	}
 	return bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
-		if bundles.HashPayload(e.Bytes) == want {
+		if granted[bundles.HashPayload(e.Bytes)] {
 			return bundles.Verdict{Allow: true, Reason: bundles.ReasonApproved}
 		}
 		return bundles.Verdict{Reason: bundles.ReasonPending}

@@ -243,9 +243,6 @@ func searchProfiles(cfg *config.Config, query string) []SearchResult {
 		}
 	}
 
-	for name, profile := range cfg.GetProfileDefinitions() {
-		match(name, profile.Description, profile.Tags)
-	}
 	if profileList, err := profileLoader(cfg).List(); err == nil {
 		for _, p := range profileList {
 			match(p.Name, p.Description, p.Tags)

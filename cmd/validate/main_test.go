@@ -165,21 +165,6 @@ agents:
     profiles:
       - development
       - testing
-
-profiles:
-  definitions:
-    development:
-      description: Development profile with common tools
-      fragments:
-        - go-development
-      tags:
-        - dev
-    testing:
-      description: Testing profile
-      parents:
-        - development
-      fragments:
-        - test-helpers
 `
 	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(complexConfig), 0644))
 

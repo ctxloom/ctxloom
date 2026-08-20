@@ -11,9 +11,15 @@ package testsupport
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
@@ -90,4 +96,31 @@ func ScrubbedEnv(t *testing.T) []string {
 		env = append(env, kv)
 	}
 	return env
+}
+
+// WriteDirProfiles writes one .ctxloom/profiles/<name>.yaml per entry under
+// appDir, marshalling each value as YAML.
+//
+// Values are typically a config.Profile: every field it can carry is spelled
+// identically in a directory profile, so marshalling one produces a valid
+// profile file. The parameter is `any` rather than that type because this
+// package must not import config — config's own comments record that the
+// dependency runs the other way, and closing the loop would cycle.
+//
+// It writes through the caller's afero.Fs, so a memfs test stays on memfs:
+// config.ProfileLoaderOptions wires profiles.WithFS from the same fs, which is
+// what makes the loader read what was written here.
+func WriteDirProfiles(t *testing.T, fs afero.Fs, appDir string, profiles map[string]any) {
+	t.Helper()
+	dir := filepath.Join(appDir, "profiles")
+	require.NoError(t, fs.MkdirAll(dir, 0o755))
+	for name, p := range profiles {
+		body, err := yaml.Marshal(p)
+		require.NoError(t, err, "marshal profile %q", name)
+		// A profile name may carry a path ("personal/typescript-dev"), which is
+		// a nested file rather than a literal slash in the filename.
+		out := filepath.Join(dir, filepath.FromSlash(name)+".yaml")
+		require.NoError(t, fs.MkdirAll(filepath.Dir(out), 0o755))
+		require.NoError(t, iox.WriteFileAtomicFs(fs, out, body, 0o644))
+	}
 }

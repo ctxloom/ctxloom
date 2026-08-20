@@ -477,11 +477,11 @@ func AgentSetupNudge(cfg *config.Config) string {
 }
 
 // hasAnyProfiles reports whether the project has any profile to bind an agent
-// to: a configured default, an inline definition, or a directory profile. Used
-// only to gate the setup nudge, so a directory-scan failure degrades to "none"
-// (the nudge simply stays quiet) rather than erroring.
+// to: a configured default or a directory profile. Used only to gate the setup
+// nudge, so a directory-scan failure degrades to "none" (the nudge simply stays
+// quiet) rather than erroring.
 func hasAnyProfiles(cfg *config.Config) bool {
-	if len(cfg.DefaultAgentProfiles()) > 0 || len(cfg.GetProfileDefinitions()) > 0 {
+	if len(cfg.DefaultAgentProfiles()) > 0 {
 		return true
 	}
 	list, _ := cfg.GetProfileLoader().List()

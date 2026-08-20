@@ -23,8 +23,7 @@ import (
 // share no code, and the fixture is four lines of literal.
 func testConfig() *config.Config {
 	return config.NewFixture(config.Fixture{
-		LM:       config.LMConfig{Configs: map[string]config.LLMConfig{}},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
+		LM: config.LMConfig{Configs: map[string]config.LLMConfig{}},
 	})
 }
 

@@ -199,14 +199,6 @@ func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
 	return profiles.RefuseEmptyFragmentEntries(node)
 }
 
-// ProfilesConfig holds the named profile definitions. Definitions was the old
-// root-level profiles map. The old top-level defaults.profiles array has been
-// RETIRED: the default context is now whatever the always-bound default AGENT
-// composes (Config.DefaultAgent → Config.DefaultAgentProfiles).
-type ProfilesConfig struct {
-	Definitions map[string]Profile `mapstructure:"definitions" yaml:"definitions,omitempty"` // Named profile definitions
-}
-
 // SettingsConfig holds misc behavioral settings (mapstructure key "config").
 type SettingsConfig struct {
 	UseDistilled     *bool       `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"`         // Prefer .distilled.md versions (default true)
@@ -276,11 +268,6 @@ func (s *SettingsConfig) ShouldManageStatusline() bool {
 		return true
 	}
 	return *s.Statusline
-}
-
-// hasAny reports whether any profile config is set, so Save can prune the block.
-func (p ProfilesConfig) hasAny() bool {
-	return len(p.Definitions) > 0
 }
 
 // SyncConfig holds configuration for dependency sync behavior.

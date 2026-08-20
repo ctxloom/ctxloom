@@ -30,7 +30,7 @@ import (
 // the given default profiles. The profile loader reads the real filesystem (no fs
 // is wired), matching how GetProfileDirs/os.Stat resolve directory profiles in
 // production.
-func dirProfileCfg(t *testing.T, defaults []string, dirProfiles map[string]string, inline map[string]config.Profile) *config.Config {
+func dirProfileCfg(t *testing.T, defaults []string, dirProfiles map[string]string) *config.Config {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
@@ -43,7 +43,6 @@ func dirProfileCfg(t *testing.T, defaults []string, dirProfiles map[string]strin
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
-		Profiles:     config.ProfilesConfig{Definitions: inline},
 	})
 	// Setting AppPaths arms companion probing, which execs the companion
 	// binaries on the HOST's PATH — the fixture, not the machine, must decide
@@ -68,13 +67,13 @@ const dirHookBody = "hooks:\n  unified:\n    pre_tool:\n      - command: keep-ho
 // directory profile's inline hooks: reach the managed hook set, and the exec gate
 // withholds an un-granted one.
 func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
+	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 	cmds := preToolCommandSet(assembled.Wire().Unified)
 	assert.Contains(t, cmds, "keep-hook", "directory profile inline hooks reach the managed set")
 	assert.Contains(t, cmds, "drop-hook")
 
-	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
+	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
 	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
 	cfg2.SetExecutableTrustGate(hashAuthorizer(keepHash))
 	gated := preToolCommandSet(AssembleManagedHooks(cfg2, "/tmp", "", nil).Wire().Unified)
@@ -85,20 +84,30 @@ func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 // TestAssembleManagedHooks_DirProfileMergesWithInlineDefault is the hook twin of
 // the merge-parity case: hooks union across an inline default and a directory
 // default.
-func TestAssembleManagedHooks_DirProfileMergesWithInlineDefault(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"inlineP", "dirP"},
-		map[string]string{"dirP": "hooks:\n  unified:\n    pre_tool:\n      - command: dir-hook\n        type: command\n"},
-		map[string]config.Profile{
-			"inlineP": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-				PreTool: []wire.Hook{{Command: "inline-hook", Type: "command"}},
-			}}},
+func TestAssembleManagedHooks_DirProfileMergesWithAnotherDefault(t *testing.T) {
+	// Two DIRECTORY profiles: the merge this pins is across the selected
+	// defaults, and with the inline arm retired both sides are files. Only the
+	// second profile's provenance changed; the union is the claim.
+	cfg := dirProfileCfg(t, []string{"otherP", "dirP"},
+		map[string]string{
+			"dirP":   "hooks:\n  unified:\n    pre_tool:\n      - command: dir-hook\n        type: command\n",
+			"otherP": "hooks:\n  unified:\n    pre_tool:\n      - command: other-hook\n        type: command\n",
 		})
-	dirHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "dir-hook", Type: "command"}))
-	cfg.SetExecutableTrustGate(hashAuthorizer(dirHash))
+	// BOTH hooks must be granted now. This is the behaviour change the inline
+	// arm's retirement makes visible: an inline profile's hooks were
+	// trusted-local and reached the set UNGATED, so this test used to authorize
+	// only dir-hook and still see both. Every declared hook is gated today, so
+	// a hook the gate does not grant is withheld regardless of which profile
+	// declared it.
+	grant := hashAuthorizer(
+		bundles.HashPayload(hookExecPayload(wire.Hook{Command: "dir-hook", Type: "command"})),
+		bundles.HashPayload(hookExecPayload(wire.Hook{Command: "other-hook", Type: "command"})),
+	)
+	cfg.SetExecutableTrustGate(grant)
 
 	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Wire().Unified)
-	assert.Contains(t, cmds, "inline-hook", "inline default profile's hook (trusted-local) is applied")
-	assert.Contains(t, cmds, "dir-hook", "directory default profile's granted hook is applied")
+	assert.Contains(t, cmds, "other-hook", "the second default profile's granted hook is applied")
+	assert.Contains(t, cmds, "dir-hook", "the first default profile's granted hook is applied")
 }
 
 // TestAssembleManagedHooks_DirProfileInheritsParentHooks proves a directory
@@ -109,7 +118,7 @@ func TestAssembleManagedHooks_DirProfileInheritsParentHooks(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"child"}, map[string]string{
 		"base":  "hooks:\n  unified:\n    pre_tool:\n      - command: base-hook\n        type: command\n",
 		"child": "parents:\n  - base\nhooks:\n  unified:\n    pre_tool:\n      - command: child-hook\n        type: command\n",
-	}, nil)
+	})
 
 	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, cmds, "base-hook", "a directory profile inherits its parent's inline hooks")
@@ -117,7 +126,7 @@ func TestAssembleManagedHooks_DirProfileInheritsParentHooks(t *testing.T) {
 }
 
 func TestAssembleManagedHooks_DeniedHookIsWarned(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
+	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
 	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
 	cfg.SetExecutableTrustGate(hashAuthorizer(keepHash))
 
@@ -139,7 +148,7 @@ func TestAssembleManagedHooks_DeniedHookIsWarned(t *testing.T) {
 func TestAssembleManagedDenyTools_DirProfile(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{
 		"dir": "deny_tools:\n  - Task\n",
-	}, nil)
+	})
 
 	got := AssembleManagedDenyTools(cfg, nil)
 	assert.Equal(t, []string{"Task"}, got)
@@ -149,15 +158,15 @@ func TestAssembleManagedDenyTools_DirProfile(t *testing.T) {
 // mirror of TestAssembleManagedMCP_DirProfileMergesWithInlineDefault: the
 // union spans an inline default profile and a directory default profile, and
 // a tool named by both collapses to one entry.
-func TestAssembleManagedDenyTools_MergesInlineAndDirAndDedupes(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"inlineP", "dirP"},
-		map[string]string{"dirP": "deny_tools:\n  - Task\n  - WebFetch\n"},
-		map[string]config.Profile{
-			"inlineP": {DenyTools: []string{"WebFetch"}},
-		})
+func TestAssembleManagedDenyTools_MergesAcrossDefaultsAndDedupes(t *testing.T) {
+	cfg := dirProfileCfg(t, []string{"otherP", "dirP"}, map[string]string{
+		"dirP":   "deny_tools:\n  - Task\n  - WebFetch\n",
+		"otherP": "deny_tools:\n  - WebFetch\n",
+	})
 
 	got := AssembleManagedDenyTools(cfg, nil)
-	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, got, "union across inline+directory defaults, deduped")
+	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, got,
+		"union across the selected defaults, deduped: WebFetch is named by both and appears once")
 }
 
 // TestAssembleManagedDenyTools_Empty proves a nil cfg and a profile set with
@@ -166,6 +175,6 @@ func TestAssembleManagedDenyTools_MergesInlineAndDirAndDedupes(t *testing.T) {
 func TestAssembleManagedDenyTools_Empty(t *testing.T) {
 	assert.Nil(t, AssembleManagedDenyTools(nil, nil))
 
-	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": "description: plain\n"}, nil)
+	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": "description: plain\n"})
 	assert.Empty(t, AssembleManagedDenyTools(cfg, nil))
 }

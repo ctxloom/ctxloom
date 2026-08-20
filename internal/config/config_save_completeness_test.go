@@ -37,7 +37,6 @@ func fullyPopulatedFixture() Fixture {
 		Editor:                       EditorConfig{Command: "vi"},
 		Settings:                     SettingsConfig{CompactionChunks: 4096},
 		Sync:                         SyncConfig{AutoSync: &autoSync},
-		Profiles:                     ProfilesConfig{Definitions: map[string]Profile{"p": {Description: "a profile"}}},
 		Agents:                       map[string]agents.Agent{"worker": {LLM: "fast"}},
 		DefaultAgent:                 "worker",
 		Workspace:                    "worktree",

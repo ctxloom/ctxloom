@@ -1,5 +1,11 @@
 # Behaviour changes in 0.7.0-pre001
 
+> **SUPERSEDED by [behaviour-changes-0.7.0.md](behaviour-changes-0.7.0.md).**
+> That page is the one linked from the 0.7 release notes and is what someone
+> upgrading from 0.6.x should read. This page covers the pre001 milestone only
+> and is kept for the record.
+
+
 **Read this if you script ctxloom, taskloom or ltk, or gate CI on their exit codes.**
 
 Most changes below are the same shape: a command that **failed and reported success**

@@ -500,7 +500,16 @@ checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
 
+# DISABLED for 0.7 (owner, 2026-08-20). MEASURED: 5,821 commits between v0.6.4
+# and this release. `use: github` renders commit SUBJECTS, so the body would be
+# thousands of lines with the 24 breaking changes unfindable inside it — a wall
+# in front of the release.header, which is where the upgrade warning and the
+# link to every breaking change live. The full history stays in git.
+#
+# RE-ENABLE for a normal release: delete `disable` and restore the filters
+# below, which are kept rather than deleted so re-enabling is one edit.
 changelog:
+  disable: true
   sort: asc
   use: github
   filters:

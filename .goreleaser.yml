@@ -524,6 +524,19 @@ release:
 
     Context Loom - Weave context for AI coding agents.
 
+    ### Upgrading from 0.6.x — read this first
+
+    This release carries 24 breaking changes, and **one of them fails silently**:
+    published bundle content moved to a canonical `ctxloom+git://` reference
+    grammar that no ctxloom before 0.7 can parse. A 0.6 client reading migrated
+    content resolves FEWER bundles with an identical exit code and an identical
+    "Pulled N items" line — measured at 9 bundles before the migration against 2
+    after. Pins never move on their own, so it begins at `deps upgrade`, not at
+    install. **Upgrade the client first.**
+
+    Every breaking change, and what to do about each:
+    https://github.com/ctxloom/ctxloom/blob/v{{.Version}}/docs/behaviour-changes-0.7.0.md
+
     ### Quick Install
 
     **macOS / Linux:**

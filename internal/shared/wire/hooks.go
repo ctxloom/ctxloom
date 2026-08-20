@@ -78,8 +78,19 @@ func (h HooksConfig) HasAny() bool {
 // Keys are event names (e.g., "PreToolUse" for Claude Code, "beforeShellExecution" for Cursor).
 type BackendHooks map[string][]Hook
 
-// Append concatenates other onto h: each unified per-event slice, and each
+// Append merges other into h: each unified per-event slice, and each
 // backend-native event list under its own backend key.
+//
+// A hook already present in an event is NOT added again. The same hook must
+// never run twice in one event, whatever declared it — a shared ancestor
+// profile reached by two inheritance paths yielded its hook once per path
+// before this deduped, and the command ran twice. Identity is the hook's whole
+// executable content (hookKey) SCOPED TO THE EVENT, so the same command
+// registered on two different lifecycles stays two hooks.
+//
+// The rule is deliberately the same for parent folding and for merging two
+// profiles a caller selected together: one rule, ruled 2026-08-20, rather than
+// a distinction every future caller would have to know about.
 //
 // The hooks half of this vocabulary owns its merge rule here, alongside the
 // types it merges, for the same reason MergeMCPConfig does. A caller one layer
@@ -98,17 +109,54 @@ func (h *HooksConfig) Append(other HooksConfig) {
 			h.Plugins[name] = make(BackendHooks)
 		}
 		for event, eventHooks := range hooks {
-			h.Plugins[name][event] = append(h.Plugins[name][event], eventHooks...)
+			h.Plugins[name][event] = appendUniqueHooks(h.Plugins[name][event], eventHooks)
 		}
 	}
 }
 
-// Append concatenates each per-event slice from other onto u.
+// Append merges each per-event slice from other into u, skipping any hook the
+// event already carries. See HooksConfig.Append for why.
 func (u *UnifiedHooks) Append(other UnifiedHooks) {
-	u.PreTool = append(u.PreTool, other.PreTool...)
-	u.PostTool = append(u.PostTool, other.PostTool...)
-	u.SessionStart = append(u.SessionStart, other.SessionStart...)
-	u.SessionEnd = append(u.SessionEnd, other.SessionEnd...)
-	u.PreShell = append(u.PreShell, other.PreShell...)
-	u.PostFileEdit = append(u.PostFileEdit, other.PostFileEdit...)
+	u.PreTool = appendUniqueHooks(u.PreTool, other.PreTool)
+	u.PostTool = appendUniqueHooks(u.PostTool, other.PostTool)
+	u.SessionStart = appendUniqueHooks(u.SessionStart, other.SessionStart)
+	u.SessionEnd = appendUniqueHooks(u.SessionEnd, other.SessionEnd)
+	u.PreShell = appendUniqueHooks(u.PreShell, other.PreShell)
+	u.PostFileEdit = appendUniqueHooks(u.PostFileEdit, other.PostFileEdit)
+}
+
+// hookKey is a hook's identity for dedup: its whole executable content. Two
+// hooks that would run the same thing the same way are the same hook.
+//
+// Recovered verbatim from the retired config.profileBuilder, which deduped
+// inheritance this way before the inline profile arm was deleted — the notion
+// of hook identity is not re-invented here, it is moved to where every merge
+// can reach it.
+func hookKey(h Hook) string {
+	return h.Type + "|" + h.Command + "|" + h.Prompt + "|" + h.Matcher
+}
+
+// appendUniqueHooks appends each hook in src that dst does not already carry.
+//
+// dst is scanned rather than a set being threaded through the merge: an event's
+// hook list is short (single digits in every real config), and a set built per
+// call would cost more than the scan it replaces while making the merge harder
+// to read.
+func appendUniqueHooks(dst []Hook, src []Hook) []Hook {
+	if len(src) == 0 {
+		return dst
+	}
+	seen := make(map[string]bool, len(dst)+len(src))
+	for _, h := range dst {
+		seen[hookKey(h)] = true
+	}
+	for _, h := range src {
+		k := hookKey(h)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		dst = append(dst, h)
+	}
+	return dst
 }

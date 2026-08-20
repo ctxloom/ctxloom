@@ -989,7 +989,27 @@ func TestResolvedProfile_Merge_InlineFields(t *testing.T) {
 
 	assert.Equal(t, []string{"f1", "f2"}, fragNames(r1.Fragments), "fragments union, deduped by Name")
 	assert.Equal(t, []string{"bi1", "bi2"}, r1.BundleItems, "bundle_items union, deduped")
-	assert.Equal(t, []string{"h1", "h2"}, preToolCommands(r1.Hooks), "hooks accumulate across profiles")
+	assert.Equal(t, []string{"h1", "h2"}, preToolCommands(r1.Hooks),
+		"DISTINCT hooks accumulate across profiles")
+}
+
+// TestResolvedProfile_Merge_IdenticalHookCollapses is the other half of the
+// merge rule, and it changed: two profiles a caller selected together, each
+// declaring the SAME hook, contribute it once.
+//
+// Ruled 2026-08-20. Before it, merging appended unconditionally, and the test
+// above was read as saying hooks always accumulate — true only of distinct
+// ones. One rule now covers both merges, parent folding included, so a shared
+// ancestor's hook cannot arrive once per inheritance path.
+func TestResolvedProfile_Merge_IdenticalHookCollapses(t *testing.T) {
+	same := wire.Hook{Command: "h1", Type: "command"}
+	r1 := &ResolvedProfile{Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{same}}}}
+	r2 := &ResolvedProfile{Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{same}}}}
+
+	r1.Merge(r2)
+
+	assert.Equal(t, []string{"h1"}, preToolCommands(r1.Hooks),
+		"the same hook declared by two selected profiles runs once, not twice")
 }
 
 // TestGetProfileDirs_UsesInjectedFS pins that directory discovery honours the

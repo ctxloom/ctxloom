@@ -178,6 +178,14 @@ func SetVersion(root *yaml.Node, key string, v int) {
 	MapSet(root, key, node)
 }
 
+// reprise:ignore — shares the walk-the-Content-pairs idiom with
+// agentcoord/spool's mappingGet/mappingSet/mappingDelete. The duplication is
+// real and was weighed: neither package may import the other (spool is agent
+// coordination, upgrade is config-schema migration), so collapsing them needs a
+// third package for four small functions. Ruled 2026-08-20 not worth the
+// boundary. The forcing function is gone too — MapEntry, the dead member whose
+// deletion this group used to block, is deleted.
+//
 // MapValue returns the value node for key in a mapping node, or nil if absent.
 func MapValue(m *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(m.Content); i += 2 {
@@ -237,15 +245,3 @@ func ScalarNode(val string) *yaml.Node {
 // means the caller is not collecting; call it through a step's own helper that
 // nil-checks, never directly.
 type Reporter func(format string, args ...any)
-
-// MapEntry returns the key and value nodes for key in a mapping node (both nil
-// if absent). Unlike MapValue it exposes the KEY node too, so a relocation can
-// carry the key's comments along rather than silently dropping them.
-func MapEntry(m *yaml.Node, key string) (keyNode, valueNode *yaml.Node) {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i], m.Content[i+1]
-		}
-	}
-	return nil, nil
-}

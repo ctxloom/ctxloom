@@ -28,7 +28,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // --- clone helpers -----------------------------------------------------
@@ -108,48 +107,6 @@ func cloneLMConfig(l LMConfig) LMConfig {
 		l.Configs = out
 	}
 	return l
-}
-
-func cloneHooksList(hs []wire.Hook) []wire.Hook {
-	if hs == nil {
-		return nil
-	}
-	out := make([]wire.Hook, len(hs))
-	copy(out, hs)
-	return out
-}
-
-func cloneUnifiedHooks(u wire.UnifiedHooks) wire.UnifiedHooks {
-	u.PreTool = cloneHooksList(u.PreTool)
-	u.PostTool = cloneHooksList(u.PostTool)
-	u.SessionStart = cloneHooksList(u.SessionStart)
-	u.SessionEnd = cloneHooksList(u.SessionEnd)
-	u.PreShell = cloneHooksList(u.PreShell)
-	u.PostFileEdit = cloneHooksList(u.PostFileEdit)
-	return u
-}
-
-func cloneBackendHooks(b wire.BackendHooks) wire.BackendHooks {
-	if b == nil {
-		return nil
-	}
-	out := make(wire.BackendHooks, len(b))
-	for k, v := range b {
-		out[k] = cloneHooksList(v)
-	}
-	return out
-}
-
-func cloneHooksConfig(h wire.HooksConfig) wire.HooksConfig {
-	h.Unified = cloneUnifiedHooks(h.Unified)
-	if h.Plugins != nil {
-		out := make(map[string]wire.BackendHooks, len(h.Plugins))
-		for k, v := range h.Plugins {
-			out[k] = cloneBackendHooks(v)
-		}
-		h.Plugins = out
-	}
-	return h
 }
 
 func cloneSettings(s SettingsConfig) SettingsConfig {

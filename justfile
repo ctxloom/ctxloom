@@ -1523,19 +1523,23 @@ lint-arch: dev-image
 # Pinned by the `tool` directive in go.mod, so it needs neither the dev image
 # nor a host install, and every clone runs the same version.
 #
-# Run BOTH readings — they answer different questions:
-#   just deadcode           unreachable from any main package (test-only code
-#                           is reported, which is usually what you want to find)
-#   just deadcode -test     tests count as entry points too (what is dead even
-#                           for the suite)
+# THE TAGS ARE NOT OPTIONAL. deadcode analyses ONE build configuration, and a
+# symbol reached only from tag-gated code looks dead without them. MEASURED on
+# this tree: 128 findings untagged against 16 with the tags below — 87% of the
+# untagged report was live code, including ConfigHomeEnvKeys, ComposableEngines
+# and VendorReaderEngineNames. Keep this list in step with the tags in
+# .golangci.yml and the tagged test recipes.
 #
-# Not a gate: it reports, it does not fail. Symbols behind a string-keyed
-# registry (content.Register) are unreachable to it as well, so a report is
+# -test counts tests as entry points. Drop it (`just deadcode ""`) to find code
+# that only the suite reaches — a different and also useful question.
+#
+# Not a gate: it reports, it does not fail. Symbols reached through a
+# string-keyed registry (content.Register) are invisible to it, so a report is
 # evidence to check, never a delete list.
 
-# Whole-program dead-code sweep (add -test to count tests as entry points)
-deadcode *ARGS:
-    go tool deadcode {{ARGS}} ./...
+# Whole-program dead-code sweep (pass "" to drop -test and find test-only code)
+deadcode *ARGS="-test":
+    go tool deadcode -tags treesitter,acceptance,integration,arch,mutation,conformance,docker_integration {{ARGS}} ./...
 
 # ===== Code complexity (lizard, in devcontainer) =====
 # lizard is a cross-platform, multi-language per-function complexity analyzer,

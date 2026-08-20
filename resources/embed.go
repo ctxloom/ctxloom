@@ -65,6 +65,18 @@ func GetConfigSchema() ([]byte, error) {
 	return resourcesFS.ReadFile("schema/input/config-schema.json")
 }
 
+// GetProfileSchema returns the embedded profile schema, the contract for a
+// .ctxloom/profiles/<name>.yaml file (and for a bundle-shipped profile, which
+// is the same document read from elsewhere).
+//
+// It exists as its own accessor beside GetConfigSchema because a profile is not
+// a config section any more: the inline `profiles:` block was retired, so the
+// profile object left config-schema.json with it, and this is where its
+// additionalProperties:false lives now.
+func GetProfileSchema() ([]byte, error) {
+	return resourcesFS.ReadFile("schema/input/profile-schema.json")
+}
+
 // GetSchema returns an embedded published JSON Schema by file name
 // (e.g. "run-oneshot-result-schema.json"). Schemas under schema/ are the
 // stable, documented contracts for ctxloom's JSON output; each is kept in sync

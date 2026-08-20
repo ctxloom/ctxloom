@@ -86,21 +86,6 @@ func TestManageStatusline_FormatJSON(t *testing.T) {
 	require.Equal(t, false, payload["statusline"])
 }
 
-// mcpServerListedByName reports whether `mcp server list --format json`
-// currently lists a server by that name.
-func mcpServerListedByName(t *testing.T, name string) bool {
-	t.Helper()
-	payload := runCLIJSON(t, "mcp", "server", "list")
-	servers, _ := payload["servers"].([]any)
-	for _, s := range servers {
-		row, _ := s.(map[string]any)
-		if row["name"] == name {
-			return true
-		}
-	}
-	return false
-}
-
 // TestManageInstallUninstall_FormatJSON pins runManageInstall/
 // runManageUninstall end to end, including the --print dry-run branch of
 // `manage install`.

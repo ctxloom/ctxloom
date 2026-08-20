@@ -123,16 +123,6 @@ func Detect(ctx context.Context) []Runtime {
 	return []Runtime{docker.asRootful(), docker.asRootless(), probePodman(ctx)}
 }
 
-// Lookup returns the probe result for one runtime name.
-func Lookup(ctx context.Context, name string) (Runtime, error) {
-	for _, r := range Detect(ctx) {
-		if r.Name == name {
-			return r, nil
-		}
-	}
-	return Runtime{}, fmt.Errorf("unknown container runtime %q; known: %s", name, strings.Join(Names(), ", "))
-}
-
 // dockerProbe is the single `docker info` result, split into the two named
 // runtimes. One probe, two answers: a reachable rootless daemon means
 // docker-rootless is available AND docker-rootful is not, and asserting that

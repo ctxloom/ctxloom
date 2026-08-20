@@ -73,13 +73,6 @@ const (
 	viaMove
 )
 
-func (p publishVia) String() string {
-	if p == viaMove {
-		return "move"
-	}
-	return "push"
-}
-
 // publishedSigRelation says what the .sig published to the remote IS, relative
 // to the sidecar on disk. This is the load-bearing column: "a .sig was
 // published" is not the same claim as "the author's signature was published".

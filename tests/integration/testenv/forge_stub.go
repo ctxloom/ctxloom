@@ -70,9 +70,6 @@ func (f *ForgeStub) GitHubHTTPClient() *http.Client {
 	return &http.Client{Transport: &rewriteTransport{target: target}}
 }
 
-// BaseURL is the stub's URL, suitable as the GitLab fetcher base URL.
-func (f *ForgeStub) BaseURL() string { return f.Server.URL }
-
 type rewriteTransport struct{ target *url.URL }
 
 func (rt *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {

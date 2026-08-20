@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
@@ -328,22 +327,6 @@ func realpath(t *testing.T, p string) string {
 	resolved, err := filepath.EvalSymlinks(p)
 	require.NoError(t, err)
 	return resolved
-}
-
-// seedProjectConfig gives config.Load() a real project to resolve, so a test
-// can exercise the LEGACY <appDir>/sessions/<sessionID>.md essence leg —
-// which readSessionEssence reaches only through its own config.Load(). It
-// returns the resolved appDir.
-func seedProjectConfig(t *testing.T) string {
-	t.Helper()
-	dir := testsupport.ProjectDir(t)
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte("version: 1\n"), 0o644))
-	cfg, err := config.Load()
-	require.NoError(t, err)
-	appDir := cfg.GetAppDir()
-	require.NotEmpty(t, appDir, "the fixture project must resolve an appDir")
-	return appDir
 }
 
 // seedRotationEssence writes one rotation's essence at

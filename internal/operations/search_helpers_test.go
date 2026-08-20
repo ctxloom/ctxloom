@@ -4,18 +4,18 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/spf13/afero"
 )
 
 // searchProfiles matches profiles by name, then description, then tag (in that
 // precedence), recording which field matched.
 func TestSearchProfiles(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"go-dev":   {Description: "Golang work", Tags: []string{"backend"}},
-			"frontend": {Description: "UI things", Tags: []string{"react", "go-adjacent"}},
-			"infra":    {Description: "ops", Tags: []string{"k8s"}},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), t.TempDir()+"/"+paths.AppDirName, map[string]config.Profile{
+		"go-dev":   {Description: "Golang work", Tags: []string{"backend"}},
+		"frontend": {Description: "UI things", Tags: []string{"react", "go-adjacent"}},
+		"infra":    {Description: "ops", Tags: []string{"k8s"}},
+	}, config.Fixture{})
 
 	t.Run("matches by name", func(t *testing.T) {
 		got := searchProfiles(cfg, "go-dev")

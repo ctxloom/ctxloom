@@ -293,18 +293,14 @@ fragments:
 	}
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
+		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {Fragments: []config.FragmentRef{
+				{Name: "dev#fragments/keep"},
+				{Name: "dev#fragments/blocked"},
+			}},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {Fragments: []config.FragmentRef{
-						{Name: "dev#fragments/keep"},
-						{Name: "dev#fragments/blocked"},
-					}},
-				},
-			},
 		}), nil
 	}
 

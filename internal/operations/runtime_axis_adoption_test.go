@@ -156,9 +156,14 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 func TestRunOneshot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 	oneshotCfg := func(t *testing.T, runtime string) *config.Config {
 		t.Helper()
-		f := oneshotTestConfig().ToFixture()
+		base := oneshotTestConfig(t)
+		f := base.ToFixture()
 		f.Runtime = runtime
-		return config.NewFixture(f)
+		out := config.NewFixture(f)
+		// NewFixture does not carry the injected filesystem, and the profile
+		// this config selects is a FILE on it now.
+		out.SetFS(base.FS())
+		return out
 	}
 
 	t.Run("control: a declared container axis reaches the member's isolation request", func(t *testing.T) {

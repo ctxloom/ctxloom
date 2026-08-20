@@ -50,13 +50,12 @@ func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundl
 	return pipe, cfg
 }
 
-// profileCfg returns cfg with a single inline profile of the given fields wired
-// as the loader's cfg (so AssembleContext resolves the profile and the gate
-// share one config).
-func profileCfg(cfg *config.Config, name string, p config.Profile) *config.Config {
-	f := cfg.ToFixture()
-	f.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{name: p}}
-	return config.NewFixture(f)
+// profileCfg returns cfg with a single directory profile of the given fields
+// wired as the loader's cfg (so AssembleContext resolves the profile and the
+// gate share one config).
+func profileCfg(t *testing.T, cfg *config.Config, name string, p config.Profile) *config.Config {
+	t.Helper()
+	return withProfileDefs(t, cfg, map[string]config.Profile{name: p})
 }
 
 // TestVersionPinned_BundleItem_ResolvesHistoricalVersion proves a profile
@@ -72,7 +71,7 @@ func TestVersionPinned_BundleItem_ResolvesHistoricalVersion(t *testing.T) {
 	// Trust the PINNED version's content (its own hash) — `ctxloom trust` on it.
 	fx.approveFragment("cq", "solid", "V1-BODY")
 	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
-	cfg = profileCfg(cfg, "pinned", config.Profile{
+	cfg = profileCfg(t, cfg, "pinned", config.Profile{
 		BundleItems: []string{cqVersionRef + "@c1:fragments/solid"},
 	})
 
@@ -94,7 +93,7 @@ func TestVersionPinned_FragmentRef_ResolvesHistoricalVersion(t *testing.T) {
 	fx := newTrustFixture(t)
 	fx.approveFragment("cq", "solid", "V1-BODY")
 	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
-	cfg = profileCfg(cfg, "fragpin", config.Profile{
+	cfg = profileCfg(t, cfg, "fragpin", config.Profile{
 		Fragments: []config.FragmentRef{{Name: cqVersionRef + "@c1#fragments/solid"}},
 	})
 
@@ -115,7 +114,7 @@ func TestVersionPinned_UnversionedRefUnchanged(t *testing.T) {
 	fx := newTrustFixture(t)
 	fx.approveFragment("cq", "solid", "DEFAULT-BODY")
 	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
-	cfg = profileCfg(cfg, "plain", config.Profile{
+	cfg = profileCfg(t, cfg, "plain", config.Profile{
 		BundleItems: []string{cqVersionRef + ":fragments/solid"},
 	})
 
@@ -141,7 +140,7 @@ func TestVersionPinned_WholeBundle_PinsAllItems(t *testing.T) {
 	fx.approveFragment("cq", "alpha", "ALPHA-V1")
 	fx.approveFragment("cq", "beta", "BETA-V1")
 	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
-	cfg = profileCfg(cfg, "wholepin", config.Profile{
+	cfg = profileCfg(t, cfg, "wholepin", config.Profile{
 		Bundles: []string{cqVersionRef + "@c1"},
 	})
 
@@ -164,7 +163,7 @@ func TestVersionPinned_GateEvaluatesPinnedHash(t *testing.T) {
 	}
 	fx := newTrustFixture(t) // no grant yet for V2-BODY
 	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
-	cfg = profileCfg(cfg, "pinned2", config.Profile{
+	cfg = profileCfg(t, cfg, "pinned2", config.Profile{
 		BundleItems: []string{cqVersionRef + "@c2:fragments/solid"},
 	})
 
@@ -205,7 +204,7 @@ func TestVersionPinned_FetchFailureWithholdsOnlyThatItem(t *testing.T) {
 	fx := newTrustFixture(t)
 	fx.approveFragment("cq", "good", "GOOD-V1")
 	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
-	cfg = profileCfg(cfg, "mixed", config.Profile{
+	cfg = profileCfg(t, cfg, "mixed", config.Profile{
 		BundleItems: []string{
 			cqVersionRef + "@c1:fragments/good",
 			cqVersionRef + "@broken:fragments/bad",

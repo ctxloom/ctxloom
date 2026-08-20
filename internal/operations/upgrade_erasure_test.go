@@ -31,11 +31,17 @@ func fallbackShapedConfig(baseDir string) *config.Config {
 	return config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
 }
 
-// setupInlineOnlyProject builds a file:// source repo and a project whose ONLY
-// reference to it is an INLINE config.yaml profile definition. That is the
-// shape a config-load failure erases: directory profiles survive on disk, but
-// inline definitions live in the very file that failed to load.
-func setupInlineOnlyProject(t *testing.T) (baseDir, ref string, cfg *config.Config) {
+// setupSeededLockProject builds a file:// source repo and a project that
+// references it from a profile, so the lock can be populated — and it keeps
+// that profile OUT of baseDir, in an app dir of its own.
+//
+// That separation is what makes the empty-closure case reachable. It used to
+// come for free: the reference was an INLINE config.yaml definition, so a
+// config-load failure took it with the file. With the inline arm retired a
+// profile is a file that survives any such failure, so the emptiness has to be
+// arranged deliberately — the fallback config points at baseDir, which holds
+// the lockfile and no profiles at all.
+func setupSeededLockProject(t *testing.T) (baseDir, ref string, cfg *config.Config) {
 	t.Helper()
 	tmp := t.TempDir()
 	baseDir = filepath.Join(tmp, ".ctxloom")
@@ -44,15 +50,22 @@ func setupInlineOnlyProject(t *testing.T) (baseDir, ref string, cfg *config.Conf
 	initLocalRepoWithFile(t, src, ".ctxloom/content/bundles/demo.yaml", "name: demo\n")
 	ref = "file://" + src + "@bundles/demo"
 
-	f := testConfigWithSCMPath(baseDir).ToFixture()
-	f.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{
-		"inline": {Bundles: []string{ref}},
-	}}
-	return baseDir, ref, config.NewFixture(f)
+	// baseDir stays AppPaths[0] — that is where the lockfile lives — and the
+	// profile goes in a SECOND app dir the loader also searches.
+	profileDir := filepath.Join(tmp, "profiles-home", ".ctxloom")
+	require.NoError(t, os.MkdirAll(paths.ProfilesPath(profileDir), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(paths.ProfilesPath(profileDir), "onfile.yaml"),
+		[]byte("bundles:\n  - "+ref+"\n"), 0o644))
+
+	base := testConfigWithSCMPath(baseDir).ToFixture()
+	base.AppPaths = append(base.AppPaths, profileDir)
+	cfg = config.NewFixture(base)
+	return baseDir, ref, cfg
 }
 
 func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
-	baseDir, ref, cfg := setupInlineOnlyProject(t)
+	baseDir, ref, cfg := setupSeededLockProject(t)
 	ctx := context.Background()
 
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
@@ -81,7 +94,7 @@ func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
 // worse, UN-RETRACTS content the publisher withdrew (retraction
 // state is cleared by `deps upgrade`).
 func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
-	baseDir, ref, cfg := setupInlineOnlyProject(t)
+	baseDir, ref, cfg := setupSeededLockProject(t)
 	ctx := context.Background()
 
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})

@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -165,20 +167,25 @@ func TestNamedRoots_LoadFailureRecordsUnexpanded(t *testing.T) {
 	assert.Equal(t, "missing-profile", unexpanded[0])
 }
 
-// TestNamedRoots_InlineDefinitionNeverUnexpanded is the negative companion:
-// an inline config.yaml profile definition never touches the loader at all,
-// so it must never appear in the unexpanded set.
-func TestNamedRoots_InlineDefinitionNeverUnexpanded(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"inline": {Bundles: []string{"ctxloom:local@bundles/x"}},
-		}},
-	})
-	loader := profiles.NewLoader([]string{t.TempDir()})
+// TestNamedRoots_LoadableProfileIsNeverUnexpanded is the negative companion to
+// the missing-profile case above: a profile the loader CAN load becomes a root
+// and must never appear in the unexpanded set.
+//
+// It used to pin the same outcome for an INLINE config.yaml definition, which
+// short-circuited before the loader was consulted at all. That arm is retired —
+// the loader is the only lookup — so the claim is now about a profile that
+// resolves, and the loader is pointed at the directory the profile lives in
+// rather than at an empty one.
+func TestNamedRoots_LoadableProfileIsNeverUnexpanded(t *testing.T) {
+	appDir := t.TempDir() + "/" + paths.AppDirName
+	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		"onfile": {Bundles: []string{"ctxloom:local@bundles/x"}},
+	}, config.Fixture{})
+	loader := profiles.NewLoader([]string{paths.ProfilesPath(appDir)})
 
-	roots, unexpanded := namedRoots(cfg, loader, []string{"inline"})
+	roots, unexpanded := namedRoots(cfg, loader, []string{"onfile"})
 	assert.Len(t, roots, 1)
-	assert.Empty(t, unexpanded)
+	assert.Empty(t, unexpanded, "a profile that loads is expanded, never reported as missing")
 }
 
 // TestFlattenDependencies_RootLoadFailureSurfacesInUnexpanded is the

@@ -26,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -130,23 +131,56 @@ func TestAssembleContextResult_MultipleProfiles(t *testing.T) {
 	assert.Len(t, result.FragmentsLoaded, 2)
 }
 
-// withProfileDefs returns a config carrying cfg's fields plus defs.
+// withProfileDefs returns a config carrying cfg's fields plus defs, with defs
+// written as DIRECTORY profiles into the config's own filesystem.
 //
-// A Fixture used to alias the Config's own containers, so tests injected
-// profile definitions by writing straight into
-// `cfg.ToFixture().Profiles.Definitions`. ToFixture now deep-copies, honouring
-// the "every call yields a separately-owned value" contract its doc always
-// claimed — which is exactly why that write is now a no-op and adding a
-// definition to an already-built config means REBUILDING it.
-func withProfileDefs(cfg *config.Config, defs map[string]config.Profile) *config.Config {
+// It used to add them to the inline `profiles.definitions` map. That arm is
+// retired: a profile is a file, so the definitions are marshalled into
+// <appDir>/profiles/<name>.yaml through cfg.FS() — which is the memfs the
+// caller is already driving, wherever there is one, so a memfs test stays a
+// memfs test.
+//
+// The config is still REBUILT rather than mutated. ToFixture deep-copies, so
+// writing into a fixture taken off a live config was always a no-op; that
+// remains true and is why this returns a new config rather than amending one.
+func withProfileDefs(t *testing.T, cfg *config.Config, defs map[string]config.Profile) *config.Config {
+	t.Helper()
 	f := cfg.ToFixture()
-	if f.Profiles.Definitions == nil {
-		f.Profiles.Definitions = map[string]config.Profile{}
+	// Write where the config can READ. An injected fs is authoritative. With
+	// none, the config reads the OS filesystem — unless its appDir is one of
+	// the synthetic memfs paths these tests use (testBaseDir is "/project/…",
+	// which cannot be created and must not be attempted), in which case the
+	// config gets a memfs of its own. Those fixtures take their bundles from an
+	// injected pipeline, so the filesystem only ever holds the profile.
+	appDir := ""
+	if len(f.AppPaths) > 0 {
+		appDir = f.AppPaths[0]
+	} else {
+		appDir = filepath.Join(t.TempDir(), paths.AppDirName)
+		f.AppPaths = append(f.AppPaths, appDir)
 	}
+
+	// Write where the config can READ. An injected fs is authoritative. With
+	// none, the config reads the OS filesystem — unless its appDir is one of
+	// the synthetic memfs paths these tests use (testBaseDir is "/project/…",
+	// which cannot be created and must not be attempted), in which case the
+	// config gets a memfs of its own. Those fixtures take their bundles from an
+	// injected pipeline, so the filesystem only ever holds the profile.
+	fs := cfg.FS()
+	if fs == nil {
+		fs = afero.NewOsFs()
+		if _, err := fs.Stat(filepath.Dir(appDir)); err != nil {
+			fs = afero.NewMemMapFs()
+		}
+	}
+	seed := make(map[string]any, len(defs))
 	for name, p := range defs {
-		f.Profiles.Definitions[name] = p
+		seed[name] = p
 	}
-	return config.NewFixture(f)
+	testsupport.WriteDirProfiles(t, fs, appDir, seed)
+	out := config.NewFixture(f)
+	out.SetFS(fs)
+	return out
 }
 
 // installProfileDefs is DELETED. It rebuilt a Config in place (`*cfg =
@@ -316,17 +350,14 @@ func TestAssembleContext_DeduplicatesFragments(t *testing.T) {
 }
 
 func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"go-dev": {
-				Description: "Go developer profile",
-				SelectTags:  []string{"go"},
-				Fragments:   []config.FragmentRef{{Name: "dev#fragments/testing-guidelines"}},
-			},
-		}},
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"go-dev": {
+			Description: "Go developer profile",
+			SelectTags:  []string{"go"},
+			Fragments:   []config.FragmentRef{{Name: "dev#fragments/testing-guidelines"}},
+		},
+	}, config.Fixture{})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "go-dev",
@@ -344,16 +375,13 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 // Regression for the coordinator/finder bloat: a bundle's descriptive tag,
 // inherited by every fragment, would otherwise drag the whole bundle in.
 func TestAssembleContext_ProfileTags_DoNotSelectContent(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"go-dev": {
-				Description: "Go developer profile",
-				Tags:        []string{"go"}, // descriptive only
-			},
-		}},
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"go-dev": {
+			Description: "Go developer profile",
+			Tags:        []string{"go"}, // descriptive only
+		},
+	}, config.Fixture{})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "go-dev",
@@ -370,16 +398,13 @@ func TestAssembleContext_ProfileTags_DoNotSelectContent(t *testing.T) {
 // TestAssembleContext_ProfileSelectTags_SelectContent pins that `select_tags:`
 // selects fragment content by tag — the role `tags:` used to play.
 func TestAssembleContext_ProfileSelectTags_SelectContent(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"go-dev": {
-				Description: "Go developer profile",
-				SelectTags:  []string{"go"},
-			},
-		}},
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"go-dev": {
+			Description: "Go developer profile",
+			SelectTags:  []string{"go"},
+		},
+	}, config.Fixture{})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "go-dev",
@@ -392,19 +417,16 @@ func TestAssembleContext_ProfileSelectTags_SelectContent(t *testing.T) {
 }
 
 func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"go-dev": {
-				LLM:       "agy-code",
-				Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
-			},
-			"plain": {
-				Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
-			},
-		}},
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"go-dev": {
+			LLM:       "agy-code",
+			Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
+		},
+		"plain": {
+			Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
+		},
+	}, config.Fixture{})
 
 	withLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "go-dev", Pipeline: opPipe(cfg, loader)})
 	require.NoError(t, err)
@@ -416,20 +438,17 @@ func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
 }
 
 func TestAssembleContext_ProfileWithVariables(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"project": {
-				Description: "Project profile",
-				Fragments:   []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
-				Variables: map[string]string{
-					"project_name": "MyProject",
-					"version":      "1.0.0",
-				},
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"project": {
+			Description: "Project profile",
+			Fragments:   []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
+			Variables: map[string]string{
+				"project_name": "MyProject",
+				"version":      "1.0.0",
 			},
-		}},
-	})
+		},
+	}, config.Fixture{})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "project",
@@ -450,17 +469,14 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 // matching the promise in docs/concepts/fragments.md ("An undefined variable
 // renders empty and produces a warning").
 func TestAssembleContext_UndefinedVariableWarns(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"project-partial": {
-				Fragments: []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
-				// project_name is bound; version is deliberately left undefined.
-				Variables: map[string]string{"project_name": "MyProject"},
-			},
-		}},
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"project-partial": {
+			Fragments: []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
+			// project_name is bound; version is deliberately left undefined.
+			Variables: map[string]string{"project_name": "MyProject"},
+		},
+	}, config.Fixture{})
 
 	var result *AssembleContextResult
 	stderr := captureStderr(t, func() {
@@ -479,16 +495,13 @@ func TestAssembleContext_UndefinedVariableWarns(t *testing.T) {
 // TestAssembleContext_DefinedVariablesDoNotWarn is the negative case: when
 // every referenced variable is bound, no warning fires at all.
 func TestAssembleContext_DefinedVariablesDoNotWarn(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"project-full": {
-				Fragments: []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
-				Variables: map[string]string{"project_name": "MyProject", "version": "9.9.9"},
-			},
-		}},
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"project-full": {
+			Fragments: []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
+			Variables: map[string]string{"project_name": "MyProject", "version": "9.9.9"},
+		},
+	}, config.Fixture{})
 
 	stderr := captureStderr(t, func() {
 		_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
@@ -522,12 +535,9 @@ fragments:
 	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"broken": {Fragments: []config.FragmentRef{{Name: "dev#fragments/broken-template"}}},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"broken": {Fragments: []config.FragmentRef{{Name: "dev#fragments/broken-template"}}},
+	}, config.Fixture{})
 
 	var result *AssembleContextResult
 	stderr := captureStderr(t, func() {
@@ -571,12 +581,9 @@ fragments:
 	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"project-dedup": {Fragments: []config.FragmentRef{{Name: "dev#fragments/dedup-fragment"}}},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"project-dedup": {Fragments: []config.FragmentRef{{Name: "dev#fragments/dedup-fragment"}}},
+	}, config.Fixture{})
 
 	assemble := func() string {
 		return captureStderr(t, func() {
@@ -621,15 +628,12 @@ fragments:
 	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"attribution": {Fragments: []config.FragmentRef{
-				{Name: "dev#fragments/attribution-clean"},
-				{Name: "dev#fragments/attribution-leaky"},
-			}},
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"attribution": {Fragments: []config.FragmentRef{
+			{Name: "dev#fragments/attribution-clean"},
+			{Name: "dev#fragments/attribution-leaky"},
 		}},
-	})
+	}, config.Fixture{})
 
 	stderr := captureStderr(t, func() {
 		_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
@@ -1316,11 +1320,8 @@ func TestShippedFragments_NoUnescapedForeignMustache(t *testing.T) {
 // ========== Directory-based profile resolution tests ==========
 
 func TestAssembleContext_ProfileFromDirectory(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty config profiles
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, nil, config.Fixture{})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
@@ -1349,29 +1350,33 @@ func TestAssembleContext_ProfileFromDirectory(t *testing.T) {
 	assert.GreaterOrEqual(t, len(result.FragmentsLoaded), 1)
 }
 
-func TestAssembleContext_ProfileFallbackToDirectory(t *testing.T) {
-	// Test that config-based resolution is tried first
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"config-profile": {
-				Description: "Profile from config",
-				Tags:        []string{"go"},
-			},
-		}},
-	})
+// TestAssembleContext_ProfileResolvesThroughTheInjectedLoader pins that
+// AssembleContext honours ProfileLoaderFunc rather than reaching for a loader
+// of its own.
+//
+// This used to be TestAssembleContext_ProfileFallbackToDirectory, asserting
+// that a config-defined profile WON and the directory loader was never
+// consulted — it failed the test if the loader was called at all. The inline
+// arm is retired, so there is no precedence left to assert: the loader is the
+// only resolution path, and what is worth pinning is that the INJECTED one is
+// the one used.
+func TestAssembleContext_ProfileResolvesThroughTheInjectedLoader(t *testing.T) {
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, nil, config.Fixture{})
 
+	called := 0
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
-			// This should NOT be called for config-profile
-			t.Errorf("ProfileLoader.ResolveProfile called unexpectedly for %s", name)
-			return nil, errors.New("unexpected call")
+			called++
+			if name != "injected-profile" {
+				return nil, errors.New("not found")
+			}
+			return &profiles.ResolvedProfile{Tags: []string{"go"}}, nil
 		},
 	}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile:  "config-profile",
+		Profile:  "injected-profile",
 		Pipeline: opPipe(cfg, loader),
 		ProfileLoaderFunc: func() ProfileLoader {
 			return mockLoader
@@ -1379,15 +1384,14 @@ func TestAssembleContext_ProfileFallbackToDirectory(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"config-profile"}, result.Profiles)
+	assert.Equal(t, []string{"injected-profile"}, result.Profiles)
+	assert.Positive(t, called,
+		"the injected loader must be the one consulted; zero calls would mean AssembleContext built its own")
 }
 
 func TestAssembleContext_UnknownProfileError(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, nil, config.Fixture{})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
@@ -1440,11 +1444,8 @@ func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
 }
 
 func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, nil, config.Fixture{})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
@@ -1480,11 +1481,8 @@ func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
 // in resolveProfile filters them — an excluded fragment from an inherited
 // bundle must not land in the assembled context.
 func TestAssembleContext_DirectoryProfileExcludesFragments(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty config profiles
-	})
+	fs, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, nil, config.Fixture{})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {

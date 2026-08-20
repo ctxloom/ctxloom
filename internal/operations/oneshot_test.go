@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/spf13/afero"
 )
 
 // stubClient is a minimal pb.Client for testing RunOneshot without a real
@@ -57,9 +58,13 @@ func (s *stubClient) ListSessions(context.Context) ([]agent.SessionMeta, error) 
 func (s *stubClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) { return nil, nil }
 func (s *stubClient) Kill()                                                      {}
 
-func oneshotTestConfig() *config.Config {
-	return config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
+func oneshotTestConfig(t *testing.T) *config.Config {
+	return cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+		"rev": {
+			LLM:       "agy-code",
+			Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
+		},
+	}, config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				// bypass: these are the generic profile/context/output-flow
@@ -72,18 +77,12 @@ func oneshotTestConfig() *config.Config {
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
 		},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"rev": {
-				LLM:       "agy-code",
-				Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
-			},
-		}},
 	})
 }
 
 func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := oneshotTestConfig()
+	cfg := oneshotTestConfig(t)
 
 	stub := &stubClient{out: "  REVIEW FINDINGS  \n"}
 	var gotBackend string
@@ -135,8 +134,11 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 // silent-elevation shape as the ACP one-shot arm bug.
 func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
+	cfg := cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+		"keep-plan":     {LLM: "claude-plan"},
+		"floor-default": {LLM: "claude-none"},
+		"collapse-agy":  {LLM: "agy-plan"},
+	}, config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"claude-plan": {Type: "claude-code", Permissions: "plan"},
@@ -145,11 +147,6 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-none"},
 		},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"keep-plan":     {LLM: "claude-plan"},
-			"floor-default": {LLM: "claude-none"},
-			"collapse-agy":  {LLM: "agy-plan"},
-		}},
 	})
 	t.Run("enforcing backend keeps declared plan", func(t *testing.T) {
 		stub := &stubClient{out: "ok"}
@@ -224,7 +221,7 @@ func TestResolveBackend(t *testing.T) {
 
 func TestRunOneshot_OverrideWinsOverProfileLLM(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := oneshotTestConfig()
+	cfg := oneshotTestConfig(t)
 
 	var gotBackend string
 	factory := func(backendName, _ string, _ int) (pb.Client, error) {

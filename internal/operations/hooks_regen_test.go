@@ -52,18 +52,14 @@ fragments:
     content: "BANNED-CONTENT"
 `)
 
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths:     []string{appDir},
+	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		"default": {
+			SelectTags:       []string{"security"},
+			ExcludeFragments: []string{"banned"},
+		},
+	}, config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{
-				"default": {
-					SelectTags:       []string{"security"},
-					ExcludeFragments: []string{"banned"},
-				},
-			},
-		},
 	})
 
 	hash, err := regenerateContext(cfg, workDir, nil)
@@ -127,16 +123,12 @@ fragments:
     content: "UNIQUE-MARKER"
 `)
 
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths:     []string{appDir},
+	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		// Both the tag AND the whole bundle reference the same fragment.
+		"default": {SelectTags: []string{"go"}, Bundles: []string{"dev"}},
+	}, config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{
-				// Both the tag AND the whole bundle reference the same fragment.
-				"default": {SelectTags: []string{"go"}, Bundles: []string{"dev"}},
-			},
-		},
 	})
 
 	hash, err := regenerateContext(cfg, workDir, nil)

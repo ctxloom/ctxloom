@@ -772,17 +772,13 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
+		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {
+				SelectTags: []string{"security"},
+			},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {
-						SelectTags: []string{"security"},
-					},
-				},
-			},
 		}), nil
 	}
 
@@ -892,15 +888,11 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
+		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {SelectTags: []string{"security"}},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {SelectTags: []string{"security"}},
-				},
-			},
 		}), nil
 	}
 
@@ -960,18 +952,14 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
+		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {
+				Fragments: []config.FragmentRef{{Name: "test#fragments/greeting"}},
+				Variables: map[string]string{"project_name": "ctxloom"},
+			},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {
-						Fragments: []config.FragmentRef{{Name: "test#fragments/greeting"}},
-						Variables: map[string]string{"project_name": "ctxloom"},
-					},
-				},
-			},
 		}), nil
 	}
 
@@ -1019,18 +1007,14 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
+		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {
+				Fragments: []config.FragmentRef{{Name: "test#fragments/greeting"}},
+				// No variables bound — missing_hook_var is undefined.
+			},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {
-						Fragments: []config.FragmentRef{{Name: "test#fragments/greeting"}},
-						// No variables bound — missing_hook_var is undefined.
-					},
-				},
-			},
 		}), nil
 	}
 
@@ -1075,21 +1059,17 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
+		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {
+				Fragments: []config.FragmentRef{
+					{Name: "test#fragments/hook-attribution-clean"},
+					{Name: "test#fragments/hook-attribution-leaky"},
+				},
+				// No variables bound — hook_attribution_check_variable is undefined.
+			},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {
-						Fragments: []config.FragmentRef{
-							{Name: "test#fragments/hook-attribution-clean"},
-							{Name: "test#fragments/hook-attribution-leaky"},
-						},
-						// No variables bound — hook_attribution_check_variable is undefined.
-					},
-				},
-			},
 		}), nil
 	}
 
@@ -1132,17 +1112,13 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
+		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {
+				Fragments: []config.FragmentRef{{Name: "test#fragments/my-fragment"}},
+			},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {
-						Fragments: []config.FragmentRef{{Name: "test#fragments/my-fragment"}},
-					},
-				},
-			},
 		}), nil
 	}
 
@@ -1182,21 +1158,17 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
+		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {
+				Fragments: []config.FragmentRef{{Name: "test#fragments/fallback"}},
+			},
+			// This profile is in the default list but references a parent that doesn't exist
+			"broken-profile": {
+				Parents: []string{"nonexistent-parent"},
+			},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default", "broken-profile"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {
-						Fragments: []config.FragmentRef{{Name: "test#fragments/fallback"}},
-					},
-					// This profile is in the default list but references a parent that doesn't exist
-					"broken-profile": {
-						Parents: []string{"nonexistent-parent"},
-					},
-				},
-			},
 		}), nil
 	}
 
@@ -1240,21 +1212,17 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
-			DefaultAgent: "default",
-			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {
-						// Reference both existing and non-existing fragments
-						Fragments: []config.FragmentRef{
-							{Name: "test#fragments/existing"},
-							{Name: "test#fragments/nonexistent"},
-						},
-					},
+		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {
+				// Reference both existing and non-existing fragments
+				Fragments: []config.FragmentRef{
+					{Name: "test#fragments/existing"},
+					{Name: "test#fragments/nonexistent"},
 				},
 			},
+		}, config.Fixture{
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 		}), nil
 	}
 
@@ -1296,17 +1264,13 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{testBaseDir},
+		return cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+			"default": {
+				SelectTags: []string{"nonexistent-tag"}, // No fragments match this select tag
+			},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {
-						SelectTags: []string{"nonexistent-tag"}, // No fragments match this select tag
-					},
-				},
-			},
 		}), nil
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,16 +32,14 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 	}
 	loader := seedLoader(t, seed)
 
-	cfg := config.NewFixture(config.Fixture{
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"code-review/security": {
-				Bundles: []string{
-					canonical + "#fragments/reviewer-base",
-					canonical + "#fragments/security",
-				},
+	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), t.TempDir()+"/.ctxloom", map[string]config.Profile{
+		"code-review/security": {
+			Bundles: []string{
+				canonical + "#fragments/reviewer-base",
+				canonical + "#fragments/security",
 			},
-		}},
-	})
+		},
+	}, config.Fixture{})
 
 	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "code-review/security",

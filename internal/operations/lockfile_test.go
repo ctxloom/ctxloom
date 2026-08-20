@@ -110,13 +110,12 @@ func TestLockDependencies_BuildsFromClosure(t *testing.T) {
 // directory profile) is part of sync's root set, so the post-sync lock rebuild
 // must keep it too — otherwise sync installs it and lock erases it on every
 // startup.
-func TestLockDependencies_InlineConfigProfileBundleSurvives(t *testing.T) {
+func TestLockDependencies_ProfileBundleSurvives(t *testing.T) {
 	tmp := t.TempDir()
-	f := testConfigWithSCMPath(tmp).ToFixture()
-	f.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{
+	base := testConfigWithSCMPath(tmp)
+	cfg := withProfileDefs(t, base, map[string]config.Profile{
 		"inline": {Bundles: []string{"https://github.com/test/repo@bundles/demo@abc123def456"}},
-	}}
-	cfg := config.NewFixture(f)
+	})
 
 	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
 	require.NoError(t, err)
@@ -161,14 +160,11 @@ func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create a profile that references a remote bundle (no slash = local, with slash = remote)
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"test": {
-				Bundles: []string{"local-only-bundle"}, // Local bundle, no sync needed
-			},
-		}},
-	})
+	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
+		"test": {
+			Bundles: []string{"local-only-bundle"}, // Local bundle, no sync needed
+		},
+	}, config.Fixture{})
 
 	// With SkipSync: false (default), sync runs first but finds no remote refs
 	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -552,18 +553,19 @@ func TestAgentSetupNudge_FiresOnlyWhenProfilesPresentNoAgents(t *testing.T) {
 	appDir := func() string { return filepath.Join(t.TempDir(), ".ctxloom") }
 
 	t.Run("profiles present, no agents → nudge", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{
-			AppPaths: []string{appDir()},
-			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{"default": {}}},
-		})
+		fs := afero.NewMemMapFs()
+		cfg := cfgWithDirProfiles(t, fs, appDir(), map[string]config.Profile{
+			"default": {Description: "seeded"},
+		}, config.Fixture{})
 		assert.NotEmpty(t, AgentSetupNudge(cfg))
 	})
 
 	t.Run("profiles present, agent configured → silent", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{
-			AppPaths: []string{appDir()},
-			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{"default": {}}},
-			Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"default"}}},
+		fs := afero.NewMemMapFs()
+		cfg := cfgWithDirProfiles(t, fs, appDir(), map[string]config.Profile{
+			"default": {Description: "seeded"},
+		}, config.Fixture{
+			Agents: map[string]agents.Agent{"dev": {Profiles: []string{"default"}}},
 		})
 		assert.Empty(t, AgentSetupNudge(cfg), "any agent silences the nudge")
 	})
@@ -578,16 +580,14 @@ func TestAgentSetupNudge_FiresOnlyWhenProfilesPresentNoAgents(t *testing.T) {
 	})
 }
 
-// TestAgentSetupNudge_InlineDefinitionsCountAsProfiles proves the
-// profiles-present check also counts inline profile definitions (not just
-// defaults), so a project that configured profiles inline still gets nudged.
-func TestAgentSetupNudge_InlineDefinitionsCountAsProfiles(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths: []string{filepath.Join(t.TempDir(), ".ctxloom")},
-		Profiles: config.ProfilesConfig{
-			Definitions: map[string]config.Profile{"x": {}},
-		},
-	})
+// TestAgentSetupNudge_AnyProfileOnDiskCountsAsProfiles proves the
+// profiles-present check counts a profile the project AUTHORED, not only the
+// configured defaults, so a project with profiles but no agent still gets
+// nudged.
+func TestAgentSetupNudge_AnyProfileOnDiskCountsAsProfiles(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	cfg := cfgWithDirProfiles(t, fs, filepath.Join(t.TempDir(), ".ctxloom"),
+		map[string]config.Profile{"x": {Description: "seeded"}}, config.Fixture{})
 	assert.NotEmpty(t, AgentSetupNudge(cfg))
 }
 

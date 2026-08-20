@@ -51,7 +51,7 @@ func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 
 	// Inline profile path (the proven baseline).
 	loaderInline, cfgInline := versionPinnedLoader(t, fx.records(), def, versions)
-	cfgInline = profileCfg(cfgInline, "fragpin", config.Profile{
+	cfgInline = profileCfg(t, cfgInline, "fragpin", config.Profile{
 		Fragments: []config.FragmentRef{{Name: ref}},
 	})
 	inlineRes, err := AssembleContext(context.Background(), cfgInline, AssembleContextRequest{Profile: "fragpin", Pipeline: loaderInline})
@@ -87,7 +87,7 @@ func TestDirProfile_BundleItem_VersionPinned_MatchesInline(t *testing.T) {
 	ref := cqVersionRef + "@c1:fragments/solid"
 
 	loaderInline, cfgInline := versionPinnedLoader(t, fx.records(), def, versions)
-	cfgInline = profileCfg(cfgInline, "pinned", config.Profile{BundleItems: []string{ref}})
+	cfgInline = profileCfg(t, cfgInline, "pinned", config.Profile{BundleItems: []string{ref}})
 	inlineRes, err := AssembleContext(context.Background(), cfgInline, AssembleContextRequest{Profile: "pinned", Pipeline: loaderInline})
 	require.NoError(t, err)
 	require.Contains(t, inlineRes.Context, "V1-BODY")

@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
@@ -116,6 +117,10 @@ func WriteDirProfiles(t *testing.T, fs afero.Fs, appDir string, profiles map[str
 	for name, p := range profiles {
 		body, err := yaml.Marshal(p)
 		require.NoError(t, err, "marshal profile %q", name)
-		require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, name+".yaml"), body, 0o644))
+		// A profile name may carry a path ("personal/typescript-dev"), which is
+		// a nested file rather than a literal slash in the filename.
+		out := filepath.Join(dir, filepath.FromSlash(name)+".yaml")
+		require.NoError(t, fs.MkdirAll(filepath.Dir(out), 0o755))
+		require.NoError(t, iox.WriteFileAtomicFs(fs, out, body, 0o644))
 	}
 }

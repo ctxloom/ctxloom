@@ -27,7 +27,7 @@ import (
 
 // withDefaultProfiles points cfg's default profile set at names by binding a
 // "default" agent and pointing DefaultAgent at it — the replacement for the
-// retired ProfilesConfig{Defaults: names} fixture. DefaultAgentProfiles reads
+// retired profiles.defaults fixture. DefaultAgentProfiles reads
 // the default agent's composed profiles.
 func withDefaultProfiles(cfg *Config, names ...string) *Config {
 	cfg.defaultAgent = "default"

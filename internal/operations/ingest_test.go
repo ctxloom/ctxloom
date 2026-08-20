@@ -72,7 +72,8 @@ func TestIngest_InjectedBuiltinAlsoSelectedByRefIsAssembledOnce(t *testing.T) {
 	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg = withProfileDefs(cfg, map[string]config.Profile{
+	cfg.SetFS(fs)
+	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"picks-isolation": {Fragments: []config.FragmentRef{
 			{Name: "isolation#fragments/isolation-axes"},
 		}},
@@ -96,7 +97,8 @@ func TestIngest_SameFragmentSelectedByTwoProfilesIsAssembledOnce(t *testing.T) {
 	_ = fs
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg = withProfileDefs(cfg, map[string]config.Profile{
+	cfg.SetFS(fs)
+	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"a": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
 		"b": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
 	})
@@ -125,7 +127,8 @@ fragments:
 `)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg = withProfileDefs(cfg, map[string]config.Profile{
+	cfg.SetFS(fs)
+	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"twins": {Fragments: []config.FragmentRef{
 			{Name: "twins#fragments/twin-one"},
 			{Name: "twins#fragments/twin-two"},
@@ -159,7 +162,8 @@ fragments:
 `)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg = withProfileDefs(cfg, map[string]config.Profile{
+	cfg.SetFS(fs)
+	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"both": {Fragments: []config.FragmentRef{
 			{Name: "pub-a#fragments/standards"},
 			{Name: "pub-b#fragments/standards"},
@@ -191,7 +195,8 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 		fs, _ := setupContextTestFS(t)
 		writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-		cfg = withProfileDefs(cfg, map[string]config.Profile{"p": {Fragments: refs}})
+		cfg.SetFS(fs)
+		cfg = withProfileDefs(t, cfg, map[string]config.Profile{"p": {Fragments: refs}})
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 			Profile:  "p",
 			Pipeline: opPipe(cfg, ingestLoader(fs)),
@@ -276,7 +281,8 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 		fs, _ := setupContextTestFS(t)
 		writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-		cfg = withProfileDefs(cfg, map[string]config.Profile{
+		cfg.SetFS(fs)
+		cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 			"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
 		})
 		lines := captureIngestWarnings(t, func() {
@@ -306,7 +312,8 @@ func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg = withProfileDefs(cfg, map[string]config.Profile{
+	cfg.SetFS(fs)
+	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
 	})
 
@@ -394,13 +401,11 @@ func TestIngest_RegenerateContext_InjectedBuiltinAlsoSelectedByRefIsWrittenOnce(
 	writeRegenBundle(t, appDir, "isolation",
 		"version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths:     []string{appDir},
+	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		"default": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
+	}, config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"default": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
-		}},
 	})
 
 	hash, err := regenerateContext(cfg, workDir, nil)
@@ -429,16 +434,14 @@ fragments:
     content: "IDENTICAL-TWIN-BODY"
 `)
 
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths:     []string{appDir},
+	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		"default": {Fragments: []config.FragmentRef{
+			{Name: "twins#fragments/twin-one"},
+			{Name: "twins#fragments/twin-two"},
+		}},
+	}, config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"default": {Fragments: []config.FragmentRef{
-				{Name: "twins#fragments/twin-one"},
-				{Name: "twins#fragments/twin-two"},
-			}},
-		}},
 	})
 
 	hash, err := regenerateContext(cfg, workDir, nil)
@@ -468,13 +471,11 @@ fragments:
 `)
 		writeRegenBundle(t, appDir, "isolation",
 			"version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
-		cfg := config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
+		cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+			"default": {Fragments: refs},
+		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-				"default": {Fragments: refs},
-			}},
 		})
 		h, err := regenerateContext(cfg, workDir, nil)
 		require.NoError(t, err)
@@ -518,7 +519,8 @@ fragments:
 `)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg = withProfileDefs(cfg, map[string]config.Profile{
+	cfg.SetFS(fs)
+	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
 	})
 
@@ -551,7 +553,8 @@ func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
 	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg = withProfileDefs(cfg, map[string]config.Profile{
+	cfg.SetFS(fs)
+	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{
 			{Name: "isolation#fragments/isolation-axes"},
 			{Name: "dev#fragments/security-rules"},
@@ -583,10 +586,11 @@ func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
 // injected copy sitting ahead of the content the user actually chose.
 func TestIngest_BuiltinsAreIngestedAfterSelectedContent(t *testing.T) {
 	body := builtinIsolationContent(t)
-	_, loader := setupContextTestFS(t)
+	fs, loader := setupContextTestFS(t)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg = withProfileDefs(cfg, map[string]config.Profile{
+	cfg.SetFS(fs)
+	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
 	})
 
@@ -618,13 +622,11 @@ fragments:
     content: "ALPHA-BODY"
 `)
 
-	cfg := config.NewFixture(config.Fixture{
-		AppPaths:     []string{appDir},
+	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		"default": {Fragments: []config.FragmentRef{{Name: "dev#fragments/alpha"}}},
+	}, config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"default": {Fragments: []config.FragmentRef{{Name: "dev#fragments/alpha"}}},
-		}},
 	})
 
 	hash, err := regenerateContext(cfg, workDir, nil)

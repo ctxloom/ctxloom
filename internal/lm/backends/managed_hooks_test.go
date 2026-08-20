@@ -186,7 +186,7 @@ func TestAssembleManagedHooks_DeclaredPositionsAreContiguous(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"first", "dev"}, map[string]string{
 		"first": "hooks:\n  unified:\n    pre_tool:\n      - command: c1\n        type: command\n      - command: c2\n        type: command\n",
 		"dev":   "hooks:\n  unified:\n    pre_tool:\n      - command: p1\n        type: command\n      - command: p2\n        type: command\n",
-	}, nil)
+	})
 
 	hooks := AssembleManagedHooks(cfg, "/tmp", "", nil).For("pre_tool")
 
@@ -207,7 +207,7 @@ func eventWithCommands(t *testing.T, cmds ...string) *ManagedHooks {
 	}
 	body, err := yaml.Marshal(map[string]any{"hooks": wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: hooks}}})
 	require.NoError(t, err)
-	return AssembleManagedHooks(dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}, nil), "/tmp", "", nil)
+	return AssembleManagedHooks(dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), "/tmp", "", nil)
 }
 
 func commandsOf(hooks []ResolvedHook) []string {
@@ -365,7 +365,7 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 		},
 	}})
 	require.NoError(t, err)
-	m := AssembleManagedHooks(dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}, nil), "/tmp", "", nil)
+	m := AssembleManagedHooks(dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), "/tmp", "", nil)
 
 	native := m.BackendNative()
 
@@ -384,7 +384,7 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 // honest for each shape of source.
 func TestHookSource_StringNamesWhateverTheOriginCarries(t *testing.T) {
 	assert.Equal(t, "profile-directory", HookSource{Origin: HookOriginProfileDirectory}.String())
-	assert.Equal(t, "profile-inline dev", HookSource{Origin: HookOriginProfileInline, Profile: "dev"}.String())
+	assert.Equal(t, "profile-directory dev", HookSource{Origin: HookOriginProfileDirectory, Profile: "dev"}.String())
 	assert.Equal(t, "bundle acme/tools", HookSource{Origin: HookOriginBundle, Ref: "acme/tools"}.String())
 }
 

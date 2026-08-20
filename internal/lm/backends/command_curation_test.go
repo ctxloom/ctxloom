@@ -15,20 +15,36 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/spf13/afero"
 )
 
-// curationProfiles builds a config whose default profiles are the given inline
-// definitions, with HOME isolated. AppPaths is left empty so the only bundle
-// source is the seed/resolver passed to LoadCommandExports (no production version
-// resolver is wired, so a test resolver survives).
+// curationCfg builds a config whose default profiles are the given definitions,
+// written as DIRECTORY profiles (the only kind there is), with HOME isolated.
+//
+// AppPaths points at a directory holding profiles and NOTHING else, preserving
+// what the empty AppPaths used to buy: no bundle source but the seed/resolver
+// passed to LoadCommandExports, so a test resolver survives where a production
+// one would otherwise be wired.
 func curationCfg(t *testing.T, defaults []string, defs map[string]config.Profile) *config.Config {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	return config.NewFixture(config.Fixture{
+	fs := afero.NewMemMapFs()
+	appDir := "/curation/" + paths.AppDirName
+	seed := make(map[string]any, len(defs))
+	for name, p := range defs {
+		seed[name] = p
+	}
+	testsupport.WriteDirProfiles(t, fs, appDir, seed)
+	cfg := config.NewFixture(config.Fixture{
+		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
-		Profiles:     config.ProfilesConfig{Definitions: defs},
 	})
+	cfg.SetFS(fs)
+	cfg.DisableCompanionProbe()
+	return cfg
 }
 
 // optOut returns an LLMExports with every backend's slash-command export

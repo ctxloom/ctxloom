@@ -37,7 +37,7 @@ import (
 // synthesize a Config that skips the loader's schema/upgrade/default-merge
 // pipeline — this test-only builder now goes through the same public path
 // every real caller does.
-func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]string, inline map[string]config.Profile) *config.Config {
+func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]string) *config.Config {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
@@ -52,9 +52,6 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 		"agents": map[string]any{
 			"default": map[string]any{"profiles": defaults},
 		},
-	}
-	if len(inline) > 0 {
-		doc["profiles"] = map[string]any{"definitions": inline}
 	}
 	data, err := yaml.Marshal(doc)
 	require.NoError(t, err)
@@ -78,7 +75,7 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 func TestLoadCommandExports_DirProfileCuratedSetExportsExactlyThose(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"x"}, map[string]string{
 		"x": "commands:\n  - \"dev-tools#commands/review\"\n",
-	}, nil)
+	})
 
 	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
@@ -94,7 +91,7 @@ func TestLoadCommandExports_DirProfileCuratedSetExportsExactlyThose(t *testing.T
 func TestLoadCommandExports_DirProfileUncuratedScopesToReferencedBundles(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"x"}, map[string]string{
 		"x": "bundles:\n  - dev-tools\n", // references dev-tools only, no commands:
-	}, nil)
+	})
 
 	seed := map[string]*bundles.Bundle{
 		"dev-tools": {Commands: map[string]bundles.BundleCommand{
@@ -122,7 +119,7 @@ func TestLoadCommandExports_DirProfileCurationUnionsParents(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"child"}, map[string]string{
 		"base":  "commands:\n  - \"dev-tools#commands/review\"\n",
 		"child": "parents:\n  - base\ncommands:\n  - \"dev-tools#commands/explain\"\n",
-	}, nil)
+	})
 
 	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
@@ -130,23 +127,22 @@ func TestLoadCommandExports_DirProfileCurationUnionsParents(t *testing.T) {
 		"curated set unions the directory parent (review) + child (explain); 'hidden'/'commit' stay suppressed")
 }
 
-// TestLoadCommandExports_DirProfileMergesWithInlineDefault proves the curated set
-// unions across a DIRECTORY default profile and an INLINE default profile — the
-// two resolution paths fold into one export set, the headline directory-curation
-// gap this change closes.
-func TestLoadCommandExports_DirProfileMergesWithInlineDefault(t *testing.T) {
-	cfg := dirCurationCfg(t, []string{"inlineP", "dirP"},
+// TestLoadCommandExports_CurationUnionsAcrossDefaults proves the curated set
+// unions across the selected default profiles rather than taking only the first
+// — the headline directory-curation gap this change closes. Both defaults are
+// directory profiles now that the inline arm is retired; the union is the claim,
+// not where each side was declared.
+func TestLoadCommandExports_CurationUnionsAcrossDefaults(t *testing.T) {
+	cfg := dirCurationCfg(t, []string{"otherP", "dirP"},
 		map[string]string{
-			"dirP": "commands:\n  - \"dev-tools#commands/commit\"\n",
-		},
-		map[string]config.Profile{
-			"inlineP": {Commands: []string{"dev-tools#commands/review"}},
+			"dirP":   "commands:\n  - \"dev-tools#commands/commit\"\n",
+			"otherP": "commands:\n  - \"dev-tools#commands/review\"\n",
 		})
 
 	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
 	assert.ElementsMatch(t, []string{"review", "commit"}, bundlePromptItems(prompts),
-		"curated set unions the inline default (review) with the directory default (commit)")
+		"the curated set unions both defaults; taking only the first would yield one item")
 }
 
 // TestLoadCommandExports_DirProfileCuratedGated proves a directory-curated prompt
@@ -164,7 +160,7 @@ func TestLoadCommandExports_DirProfileMergesWithInlineDefault(t *testing.T) {
 func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"x"}, map[string]string{
 		"x": "commands:\n  - \"dev-tools#commands/review\"\n",
-	}, nil)
+	})
 	seed := seedOption(t, devToolsSeed())
 
 	// Gate granting exactly the review prompt's content hash → exported.
@@ -192,7 +188,7 @@ func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
 func TestLoadCommandExports_DirProfileCuratedPinRoutedAndFailClosed(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"x"}, map[string]string{
 		"x": "commands:\n  - \"dev-tools#commands/review@c1\"\n",
-	}, nil)
+	})
 
 	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 

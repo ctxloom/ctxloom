@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
@@ -139,13 +140,14 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 	cfg.SetExecutableTrustGate(testAuthorizer(true))
+	appDir := cfg.GetAppPaths()[0]
+	require.NoError(t, os.MkdirAll(paths.ProfilesPath(appDir), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(appDir), "p.yaml"),
+		[]byte("commands:\n  - dev-tools#commands/review\n"), 0o644))
 	cfg = config.NewFixture(config.Fixture{
 		AppPaths:     cfg.GetAppPaths(),
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"p": {Commands: []string{"dev-tools#commands/review"}},
-		}},
 	})
 	cfg.SetExecutableTrustGate(testAuthorizer(true))
 

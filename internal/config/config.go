@@ -30,7 +30,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -86,13 +85,12 @@ const (
 // behaviour, which is this codebase's characteristic failure. The closed set is
 // pinned by TestConfig_NilReceiverContract.
 type Config struct {
-	version  int              // config schema version (integer; distinct from app version)
-	lm       LMConfig         //
-	editor   EditorConfig     //
-	settings SettingsConfig   //
-	sync     SyncConfig       //
-	hooks    wire.HooksConfig //
-	profiles ProfilesConfig   //
+	version  int            // config schema version (integer; distinct from app version)
+	lm       LMConfig       //
+	editor   EditorConfig   //
+	settings SettingsConfig //
+	sync     SyncConfig     //
+	profiles ProfilesConfig //
 	// agents is the LOCAL-ONLY engine↔profile binding map, and the ONE source
 	// of the agent entity. Keyed by agent name. It is NEVER a bundle item kind
 	// and NEVER remote — there is no Bundle.Agents and no remote path. Read it
@@ -350,7 +348,6 @@ type configDoc struct {
 	Editor                       EditorConfig            `yaml:"editor,omitempty"`
 	Settings                     SettingsConfig          `yaml:"config,omitempty"`
 	Sync                         SyncConfig              `yaml:"sync,omitempty"`
-	Hooks                        wire.HooksConfig        `yaml:"hooks,omitempty"`
 	Profiles                     ProfilesConfig          `yaml:"profiles,omitempty"`
 	Agents                       map[string]agents.Agent `yaml:"agents,omitempty"`
 	DefaultAgent                 string                  `yaml:"default_agent,omitempty"`
@@ -384,7 +381,6 @@ func (c *Config) toDoc() configDoc {
 		Editor:                       cloneEditor(c.editor),
 		Settings:                     cloneSettings(c.settings),
 		Sync:                         cloneSync(c.sync),
-		Hooks:                        cloneHooksConfig(c.hooks),
 		Profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)},
 		Agents:                       cloneAgentsMap(c.agents),
 		DefaultAgent:                 c.defaultAgent,
@@ -413,7 +409,6 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.editor = doc.Editor
 	c.settings = doc.Settings
 	c.sync = doc.Sync
-	c.hooks = doc.Hooks
 	c.profiles = doc.Profiles
 	c.agents = doc.Agents
 	c.defaultAgent = doc.DefaultAgent

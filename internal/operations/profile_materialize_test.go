@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -167,15 +166,25 @@ func TestMaterializeProfile_ExportsCtxloomsOwnMCPServer(t *testing.T) {
 		"the exported command must be the binary that materialized the surface, not the bare name the bundle declares")
 }
 
-// materializeHookFixture is materializeFixture plus a config-level session_start
-// hook — the "team ships a guardrail" shape a prior defect was filed about.
+// materializeHookFixture is materializeFixture with the selected profile shipping
+// a session_start hook — the "team ships a guardrail" shape a prior defect was
+// filed about.
+//
+// "reviewer" becomes a DIRECTORY profile here rather than an inline one, because
+// a directory profile is the only place a hook can be declared. It carries the
+// same select_tags, so the assembled content is unchanged and only the hook is
+// added.
 func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 	t.Helper()
 	cfg, target = materializeFixture(t, "HOOKED-CONTENT")
 	f := cfg.ToFixture()
-	f.Hooks = wire.HooksConfig{Unified: wire.UnifiedHooks{
-		SessionStart: []wire.Hook{{Type: "command", Command: "echo team-guardrail"}},
-	}}
+	require.NotEmpty(t, f.AppPaths, "materializeFixture must supply an app dir to seed the profile into")
+	profilesDir := paths.ProfilesPath(f.AppPaths[0])
+	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "reviewer.yaml"), []byte(
+		"select_tags:\n  - security\nhooks:\n  unified:\n    session_start:\n      - type: command\n        command: echo team-guardrail\n",
+	), 0o644))
+	f.Profiles = config.ProfilesConfig{}
 	return config.NewFixture(f), target
 }
 

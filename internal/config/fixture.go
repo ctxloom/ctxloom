@@ -3,7 +3,6 @@ package config
 import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // Fixture is a direct mirror of every Config field, persisted and
@@ -33,7 +32,6 @@ type Fixture struct {
 	Editor                       EditorConfig
 	Settings                     SettingsConfig
 	Sync                         SyncConfig
-	Hooks                        wire.HooksConfig
 	Profiles                     ProfilesConfig
 	Agents                       map[string]agents.Agent
 	DefaultAgent                 string
@@ -75,7 +73,6 @@ func (c *Config) ToFixture() Fixture {
 		Editor:                       cloneEditor(c.editor),
 		Settings:                     cloneSettings(c.settings),
 		Sync:                         cloneSync(c.sync),
-		Hooks:                        cloneHooksConfig(c.hooks),
 		Profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)},
 		Agents:                       cloneAgentsMap(c.agents),
 		DefaultAgent:                 c.defaultAgent,
@@ -124,7 +121,6 @@ func NewFixture(f Fixture) *Config {
 		editor:                       cloneEditor(f.Editor),
 		settings:                     cloneSettings(f.Settings),
 		sync:                         cloneSync(f.Sync),
-		hooks:                        cloneHooksConfig(f.Hooks),
 		profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(f.Profiles.Definitions)},
 		agents:                       cloneAgentsMap(f.Agents),
 		defaultAgent:                 f.DefaultAgent,

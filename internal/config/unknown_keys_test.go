@@ -90,16 +90,17 @@ func TestLoad_SeveralUnknownKeys_OneWarningEach(t *testing.T) {
 	assert.Contains(t, text, "config.compaction_chunk")
 }
 
-// An unknown key inside a $ref'd section still resolves its known-keys list — the
-// suggestion machinery follows the schema pointer, so it must not go blind at a
-// $ref boundary.
-func TestLoad_UnknownKeyInRefdSection_StillSuggests(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nhooks:\n  unified:\n    pre_tool:\n      - command: c\n        matchr: x\n")
+// An unknown key inside an ARRAY ELEMENT still resolves its known-keys list. The
+// dotted path has to carry the array INDEX as a segment; with arrays unwalkable
+// the enumeration comes back empty and the warning that most needs a suggestion
+// gets none.
+func TestLoad_UnknownKeyInsideArrayElement_StillSuggests(t *testing.T) {
+	cfg := loadYAML(t, "version: 6\nagents:\n  coder:\n    escalation:\n      - role: parent\n        actoin: ask\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0].Text, "hooks.unified.pre_tool.0.matchr", "the dotted path reaches through the $ref")
-	assert.Contains(t, warns[0].Text, "did you mean `matcher`?")
+	assert.Contains(t, warns[0].Text, "agents.coder.escalation.0.actoin", "the dotted path carries the array index")
+	assert.Contains(t, warns[0].Text, "did you mean `action`?")
 }
 
 // An unknown key inside an llm.configs.<label> entry sits behind the

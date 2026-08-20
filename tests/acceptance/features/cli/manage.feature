@@ -338,48 +338,40 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the output matches "HOOKLIST-FIRST[\s\S]*HOOKLIST-SECOND"
       And the output contains "bundle ctxloom+local:hooked"
 
-    # Each hook must name ONE place to go. A coarse "local" label covering both
-    # config.yaml's own hooks: block and every inline profile's leaves a user
-    # searching two blocks of one file, so the fixture declares a hook in each
-    # and requires them to be labelled distinctly.
+    # Each hook must name ONE place to go. A coarse "local" label covering every
+    # declaration site at once leaves a user searching all of them, so the
+    # fixture declares hooks in two DIFFERENT kinds of place and requires them to
+    # be labelled distinctly: a profile the project authored, and a companion
+    # binary found on PATH. Naming the profile is not enough on its own — the
+    # label has to carry the KIND, since "which file do I open" and "which
+    # profile is it" are different questions.
     Scenario: The hook list names the specific place each hook was declared
       Given an initialized ctxloom project
-      And the project already has the file ".ctxloom/config.yaml":
+      And the project already has the file ".ctxloom/profiles/dir-prov.yaml":
         """
-        version: 6
-        editor:
-          command: "true"
         hooks:
           unified:
             pre_tool:
               - type: command
-                command: echo PROV-FROM-CONFIG
-        profiles:
-          definitions:
-            inline-prov:
-              hooks:
-                unified:
-                  pre_tool:
-                    - type: command
-                      command: echo PROV-FROM-INLINE-PROFILE
+                command: echo PROV-FROM-DIRECTORY-PROFILE
         """
       When Alice asks where each hook came from:
         """
-        ctxloom manage hooks list --event pre_tool --profile inline-prov
+        ctxloom manage hooks list --event pre_tool --profile dir-prov
         """
       Then the command succeeds
-      And the output matches "PROV-FROM-CONFIG\s+\[config\]"
-      And the output matches "PROV-FROM-INLINE-PROFILE\s+\[profile-inline inline-prov\]"
+      And the output matches "PROV-FROM-DIRECTORY-PROFILE\s+\[profile-directory dir-prov\]"
+      And the output matches "\[companion "
       And the output does not contain "[local]"
       # The machine form carries the same specific kind, plus the position the
       # MERGE gave each hook — so a later reordering is visible as a move
       # rather than as an unexplained final number.
       When Alice asks for the same answer in machine form:
         """
-        ctxloom manage hooks list --event pre_tool --profile inline-prov --format json
+        ctxloom manage hooks list --event pre_tool --profile dir-prov --format json
         """
       Then the command succeeds
-      And the output contains "profile-inline"
+      And the output contains "profile-directory"
       And the output contains "declared"
 
     # Parsing is the claim. Event names alone appear in the human listing too,

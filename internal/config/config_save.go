@@ -422,5 +422,4 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	setOrDelete(existing, "isolation_devcontainer_service", c.isolationDevcontainerService != "", c.isolationDevcontainerService)
 	setOrDelete(existing, "isolation_engines", len(c.isolationEngines) > 0, c.isolationEngines)
 	setOrDelete(existing, "sync", c.sync.AutoSync != nil, c.sync)
-	setOrDelete(existing, "hooks", c.hooks.HasAny(), c.hooks)
 }

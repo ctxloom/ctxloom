@@ -18,8 +18,6 @@ import (
 // inline-profile hooks genuinely indistinguishable. The model keeps what the
 // merge knows, so the limit is gone rather than papered over.
 const (
-	// SourceKindConfig: the `hooks:` block of .ctxloom/config.yaml.
-	SourceKindConfig = string(backends.HookOriginConfig)
 	// SourceKindProfileInline: an inline profile's `hooks:` block (under
 	// `profiles:` in config.yaml). Source names the profile.
 	SourceKindProfileInline = string(backends.HookOriginProfileInline)

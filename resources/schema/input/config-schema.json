@@ -110,10 +110,6 @@
       },
       "additionalProperties": false
     },
-    "hooks": {
-      "$ref": "#/$defs/hooksConfig",
-      "description": "Hooks configuration applied globally"
-    },
     "profiles": {
       "type": "object",
       "description": "Named profile definitions",

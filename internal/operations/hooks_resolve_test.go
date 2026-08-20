@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -11,11 +12,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// cfgWithHooks builds a config carrying exactly these config-level hooks. It is
-// the smallest input that exercises the resolver without a bundle tree on disk.
+// cfgWithHooks builds a config whose single selected profile declares exactly
+// these hooks. It is the smallest input that exercises the resolver without a
+// bundle tree on disk.
+//
+// The hooks ride a DIRECTORY profile because that is the only place a user can
+// declare one: the config-level `hooks:` block was a second, writerless
+// implementation and is gone. The resolver behaviour these tests pin -- final
+// order per event, declared vs final position, event filtering -- is
+// source-independent, so only the fixture changed.
 func cfgWithHooks(t *testing.T, h wire.UnifiedHooks) *config.Config {
 	t.Helper()
-	return config.NewFixture(config.Fixture{Hooks: wire.HooksConfig{Unified: h}})
+	return cfgWithProfileHooks(t, afero.NewMemMapFs(), "/p/.ctxloom", wire.HooksConfig{Unified: h}, config.Fixture{})
 }
 
 // TestResolveHooks_ReportsFinalOrderPerEvent is the whole point of the surface:
@@ -66,38 +74,6 @@ func TestResolveHooks_ReportsAllSixEventsEvenWhenEmpty(t *testing.T) {
 	assert.Equal(t, []string{
 		"pre_tool", "post_tool", "session_start", "session_end", "pre_shell", "post_file_edit",
 	}, events)
-}
-
-// Provenance is half the answer. "Which hooks, in what order" without "from
-// where" leaves a user who dislikes the order with nowhere to go: they cannot
-// tell which bundle to talk to, or whether the hook is even theirs to change.
-//
-// A hook declared in config.yaml is reported as CONFIG — not as "local", which
-// used to cover config-level and inline-profile hooks alike because the merge
-// discarded which it was. The resolved model keeps the merge site, so the
-// answer names one file and one block.
-func TestResolveHooks_NamesEachHooksSource(t *testing.T) {
-	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		ConfigLoader: func() (*config.Config, error) {
-			return cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{
-				{Type: "command", Command: "config-one"},
-				// A hand-written `_ctxloom:` marker in config.yaml. It is not
-				// evidence of anything — a bundle marker is stamped by the
-				// bundle EXTRACTOR, and this hook was read out of config.yaml.
-				{Type: "command", Command: "config-two", SCM: "bundle:acme/tools"},
-			}}), nil
-		},
-		WorkDir: t.TempDir(),
-	})
-	require.NoError(t, err)
-
-	ev := eventNamed(t, res, "pre_tool")
-	require.Len(t, ev.Hooks, 2)
-	for _, h := range ev.Hooks {
-		assert.Equal(t, SourceKindConfig, h.SourceKind,
-			"a hook read out of config.yaml's hooks: block is config-level, and provenance comes from the merge site rather than from a marker anyone can type")
-		assert.Empty(t, h.Source, "config-level hooks name no profile and no bundle")
-	}
 }
 
 // Position and Declared are both reported so a user can see whether a hook's
@@ -165,11 +141,11 @@ func TestResolveHooks_UnknownEventIsRefusedNotAnsweredEmpty(t *testing.T) {
 func TestResolveHooks_BackendNativeHooksAreReportedNotSilentlyDropped(t *testing.T) {
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
 		ConfigLoader: func() (*config.Config, error) {
-			return config.NewFixture(config.Fixture{Hooks: wire.HooksConfig{
+			return cfgWithProfileHooks(t, afero.NewMemMapFs(), "/p/.ctxloom", wire.HooksConfig{
 				Plugins: map[string]wire.BackendHooks{
 					"claude-code": {"PreCompact": []wire.Hook{{Type: "command", Command: "native"}}},
 				},
-			}}), nil
+			}, config.Fixture{}), nil
 		},
 		WorkDir: t.TempDir(),
 	})

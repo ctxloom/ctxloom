@@ -36,7 +36,6 @@ func sessionStartCommands(h wire.UnifiedHooks) []string {
 // forward-bind.
 func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
-		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 		Profiles: config.ProfilesConfig{
@@ -62,23 +61,13 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 // what lets WriteSettings' remove-then-add reconcile drop a managed hook.
 func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 	newCfg := func() *config.Config {
-		return config.NewFixture(config.Fixture{
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					SessionStart: []wire.Hook{{Command: "config-session-start", Type: "command"}},
-				},
-				Plugins: make(map[string]wire.BackendHooks),
-			},
-			DefaultAgent: "default",
-			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-						SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
-					}}},
-				},
-			},
-		})
+		// Two profiles rather than a config block plus a profile: the seam this
+		// guards is between the two WRITERS, not between hook sources, so what
+		// matters is that more than one hook reaches the set.
+		return dirProfileCfg(t, []string{"base", "p"}, map[string]string{
+			"base": "hooks:\n  unified:\n    session_start:\n      - command: base-session-start\n        type: command\n",
+			"p":    "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
+		}, nil)
 	}
 
 	const hash, wd = "hash123", "/tmp"
@@ -99,30 +88,34 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 
 // TestAssembleManagedHooks_DoesNotMutateConfig guards the duplication fix:
 // apply-hooks calls AssembleManagedHooks once per backend in a loop. If it
-// aliased and appended to cfg.GetHooksConfig(), the second backend would accumulate
-// duplicate bundle/inject hooks.
+// aliased and appended to the hooks its source handed back, the second backend
+// would accumulate duplicate bundle/inject hooks.
+//
+// The source is a directory profile now that the config-level block is gone, so
+// the aliasing risk sits in the resolved profile rather than in the config, and
+// a THIRD call is what makes the assertion mean something: two equal lengths
+// could both already be wrong.
 func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		Hooks: wire.HooksConfig{
-			Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "config-session-start"}}},
-			Plugins: make(map[string]wire.BackendHooks),
-		},
-	})
+	cfg := dirProfileCfg(t, []string{"p"}, map[string]string{
+		"p": "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
+	}, nil)
 
 	first := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 	second := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
+	third := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 
 	assert.Equal(t, len(first.Wire().Unified.SessionStart), len(second.Wire().Unified.SessionStart),
-		"repeated calls must not accumulate hooks via shared config state")
-	assert.Len(t, cfg.GetHooksConfig().Unified.SessionStart, 1,
-		"AssembleManagedHooks must not mutate the caller's config.Hooks")
+		"repeated calls must not accumulate hooks via shared state")
+	assert.Equal(t, len(first.Wire().Unified.SessionStart), len(third.Wire().Unified.SessionStart),
+		"and the count must be STABLE, not merely equal between two already-grown calls")
+	assert.Contains(t, commandsOf(first.For("session_start")), "profile-session-start",
+		"the profile hook is present, so the counts above are counting something")
 }
 
 // TestAssembleManagedHooks_WithInvalidProfile must not panic on a default
 // profile reference that has no definition.
 func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
-		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
 		Profiles: config.ProfilesConfig{
@@ -136,7 +129,6 @@ func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 
 func TestAssembleManagedHooks_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
-		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"loopy"}}},
 		Profiles: config.ProfilesConfig{

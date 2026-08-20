@@ -9,7 +9,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file is the UNTAGGED half of the config-save completeness pair. Its
@@ -38,7 +37,6 @@ func fullyPopulatedFixture() Fixture {
 		Editor:                       EditorConfig{Command: "vi"},
 		Settings:                     SettingsConfig{CompactionChunks: 4096},
 		Sync:                         SyncConfig{AutoSync: &autoSync},
-		Hooks:                        wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "true"}}}},
 		Profiles:                     ProfilesConfig{Definitions: map[string]Profile{"p": {Description: "a profile"}}},
 		Agents:                       map[string]agents.Agent{"worker": {LLM: "fast"}},
 		DefaultAgent:                 "worker",

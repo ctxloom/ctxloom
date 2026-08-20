@@ -414,9 +414,6 @@ func (c *Config) GetProfilesConfig() ProfilesConfig {
 // GetSettings returns a copy of the behavioral settings block.
 func (c *Config) GetSettings() SettingsConfig { return cloneSettings(c.settings) }
 
-// GetHooksConfig returns a copy of the whole hooks configuration block.
-func (c *Config) GetHooksConfig() wire.HooksConfig { return cloneHooksConfig(c.hooks) }
-
 // GetSyncConfig returns a copy of the dependency-sync configuration block.
 func (c *Config) GetSyncConfig() SyncConfig { return cloneSync(c.sync) }
 

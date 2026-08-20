@@ -250,8 +250,6 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 	if cfg == nil {
 		return hooks
 	}
-	// Config-level hooks.
-	hooks.mergeHooks(cfg.GetHooksConfig(), fixedSource(HookSource{Origin: HookOriginConfig}))
 	// Selected-profile-shipped hooks (defaults when none are passed). A profile
 	// resolves the SAME way operations.resolveProfile / AssembleManagedDenyTools do:
 	// inline definitions (config.yaml) win and are trusted-local (ungated); a name

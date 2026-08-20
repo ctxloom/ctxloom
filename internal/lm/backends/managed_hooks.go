@@ -42,11 +42,8 @@ import (
 type HookOrigin string
 
 const (
-	// HookOriginConfig: the `hooks:` block of .ctxloom/config.yaml.
-	HookOriginConfig HookOrigin = "config"
 	// HookOriginProfileInline: an inline profile's `hooks:` block, i.e. under
-	// `profiles:` in config.yaml. Distinct from HookOriginConfig even though
-	// both live in the same file, because they are different blocks to edit.
+	// `profiles:` in config.yaml.
 	HookOriginProfileInline HookOrigin = "profile-inline"
 	// HookOriginProfileDirectory: a directory profile's own `hooks:` block
 	// (.ctxloom/profiles/<name>.yaml, or a bundle-shipped profile reached

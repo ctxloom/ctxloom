@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -116,14 +117,9 @@ func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
 	tmpDir := t.TempDir()
 	off := false
 	loader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			Settings: config.SettingsConfig{Statusline: &off},
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
-				},
-			},
-		}), nil
+		return cfgWithProfileHooks(t, fs, filepath.Join(tmpDir, ".ctxloom"), wire.HooksConfig{Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
+		}}, config.Fixture{Settings: config.SettingsConfig{Statusline: &off}}), nil
 	}
 
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{

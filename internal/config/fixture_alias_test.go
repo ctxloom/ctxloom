@@ -103,7 +103,7 @@ func aliasProbeFixture() Fixture {
 	f := fullyPopulatedFixture()
 	f.LM.Configs["fast"] = LLMConfig{Type: "claude-code", Body: map[string]any{"model": "m"}}
 	f.Editor = EditorConfig{Command: "vi", Args: []string{"-p"}}
-	f.Hooks.Plugins = map[string]wire.BackendHooks{"claude": {"PostToolUse": []wire.Hook{{Command: "true"}}}}
+	f.Profiles.Definitions["hooked"] = Profile{Hooks: wire.HooksConfig{Plugins: map[string]wire.BackendHooks{"claude": {"PostToolUse": []wire.Hook{{Command: "true"}}}}}}
 	f.Profiles.Definitions["p"] = Profile{
 		Description:      "a profile",
 		Parents:          []string{"base"},

@@ -190,11 +190,12 @@ func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
 	const workDir = "/project"
 
 	loader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-				SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
-			}},
-		}), nil
+		// The profile is seeded on a WRITABLE fs of its own: the read-only fs
+		// under test is the one hooks are written TO, and a config that cannot
+		// even be read would fail this test for the wrong reason.
+		return cfgWithProfileHooks(t, afero.NewMemMapFs(), "/project/.ctxloom", wire.HooksConfig{Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
+		}}, config.Fixture{}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
@@ -228,11 +229,9 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 	tmpDir := "/project"
 
 	loader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-				SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
-			}},
-		}), nil
+		return cfgWithProfileHooks(t, fs, "/project/.ctxloom", wire.HooksConfig{Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
+		}}, config.Fixture{}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -59,32 +60,6 @@ func sourcesByCommand(m *ManagedHooks, event string) map[string]HookSource {
 		out[h.Hook.Command] = h.Source
 	}
 	return out
-}
-
-// TestAssembleManagedHooks_ProvenanceDistinguishesConfigFromInlineProfile is the
-// specific gap the model closes. Both blocks live in config.yaml and neither
-// stamps a marker on its hooks, so after a pure-append merge they were the same
-// coarse "local" — a user told "local" still had to search two blocks. The merge
-// always knew; now it says.
-func TestAssembleManagedHooks_ProvenanceDistinguishesConfigFromInlineProfile(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-			PreTool: []wire.Hook{{Command: "from-config", Type: "command"}},
-		}},
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"dev": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-				PreTool: []wire.Hook{{Command: "from-inline-profile", Type: "command"}},
-			}}},
-		}},
-	})
-
-	got := sourcesByCommand(AssembleManagedHooks(cfg, "/tmp", "", nil), "pre_tool")
-
-	assert.Equal(t, HookSource{Origin: HookOriginConfig}, got["from-config"])
-	assert.Equal(t, HookSource{Origin: HookOriginProfileInline, Profile: "dev"}, got["from-inline-profile"],
-		"an inline profile's hooks must name the PROFILE, not be flattened in with config-level ones")
 }
 
 // TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles covers
@@ -206,18 +181,12 @@ func TestAssembleManagedHooks_ContextInjectionIsAttributedToContext(t *testing.T
 // "before the reorder" means, so it has to be a real 1-based position within the
 // event rather than a per-source index that restarts at every merge.
 func TestAssembleManagedHooks_DeclaredPositionsAreContiguous(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-			PreTool: []wire.Hook{{Command: "c1"}, {Command: "c2"}},
-		}},
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
-		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"dev": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-				PreTool: []wire.Hook{{Command: "p1"}, {Command: "p2"}},
-			}}},
-		}},
-	})
+	// Two SOURCES, so "contiguous" is a claim about the event rather than about
+	// one merge step: two profiles contributing two hooks each.
+	cfg := dirProfileCfg(t, []string{"first", "dev"}, map[string]string{
+		"first": "hooks:\n  unified:\n    pre_tool:\n      - command: c1\n        type: command\n      - command: c2\n        type: command\n",
+		"dev":   "hooks:\n  unified:\n    pre_tool:\n      - command: p1\n        type: command\n      - command: p2\n        type: command\n",
+	}, nil)
 
 	hooks := AssembleManagedHooks(cfg, "/tmp", "", nil).For("pre_tool")
 
@@ -231,14 +200,14 @@ func TestAssembleManagedHooks_DeclaredPositionsAreContiguous(t *testing.T) {
 
 // eventWithCommands assembles a model whose pre_tool event is exactly these
 // commands, in this order.
-func eventWithCommands(cmds ...string) *ManagedHooks {
+func eventWithCommands(t *testing.T, cmds ...string) *ManagedHooks {
 	hooks := make([]wire.Hook, 0, len(cmds))
 	for _, c := range cmds {
 		hooks = append(hooks, wire.Hook{Command: c, Type: "command"})
 	}
-	return AssembleManagedHooks(config.NewFixture(config.Fixture{
-		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: hooks}},
-	}), "/tmp", "", nil)
+	body, err := yaml.Marshal(map[string]any{"hooks": wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: hooks}}})
+	require.NoError(t, err)
+	return AssembleManagedHooks(dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}, nil), "/tmp", "", nil)
 }
 
 func commandsOf(hooks []ResolvedHook) []string {
@@ -269,7 +238,7 @@ func TestManagedHooks_ReorderIsAPermutation(t *testing.T) {
 	}
 	for name, rank := range rankers {
 		t.Run(name, func(t *testing.T) {
-			m := eventWithCommands(cmds...)
+			m := eventWithCommands(t, cmds...)
 			require.NoError(t, m.Reorder("pre_tool", rank))
 
 			got := commandsOf(m.For("pre_tool"))
@@ -288,7 +257,7 @@ func TestManagedHooks_ReorderIsAPermutation(t *testing.T) {
 // contiguous block, preserving their order among themselves, because otherwise
 // the override would silently destroy the ordering a bundle declared for itself.
 func TestManagedHooks_ReorderMovesRankedHooksAheadAndKeepsBlocks(t *testing.T) {
-	m := eventWithCommands("a1", "b1", "a2", "c1", "b2")
+	m := eventWithCommands(t, "a1", "b1", "a2", "c1", "b2")
 	block := map[string]int{"b1": 0, "b2": 0, "a1": 1, "a2": 1}
 
 	require.NoError(t, m.Reorder("pre_tool", func(h ResolvedHook) (int, bool) {
@@ -304,7 +273,7 @@ func TestManagedHooks_ReorderMovesRankedHooksAheadAndKeepsBlocks(t *testing.T) {
 // not overtake one someone did — the same absent-sorts-last reasoning as
 // wire.HookOrderLess.
 func TestManagedHooks_ReorderKeepsUnrankedHooksLast(t *testing.T) {
-	m := eventWithCommands("first", "second", "third")
+	m := eventWithCommands(t, "first", "second", "third")
 
 	require.NoError(t, m.Reorder("pre_tool", func(h ResolvedHook) (int, bool) {
 		return 0, h.Hook.Command == "third"
@@ -318,7 +287,7 @@ func TestManagedHooks_ReorderKeepsUnrankedHooksLast(t *testing.T) {
 // evidence that anything moved, leaving a user asking "why is this third" with
 // the same non-answer they started with.
 func TestManagedHooks_ReorderPreservesDeclaredPositions(t *testing.T) {
-	m := eventWithCommands("one", "two", "three")
+	m := eventWithCommands(t, "one", "two", "three")
 
 	require.NoError(t, m.Reorder("pre_tool", func(h ResolvedHook) (int, bool) {
 		return 0, h.Hook.Command == "three"
@@ -337,7 +306,7 @@ func TestManagedHooks_ReorderPreservesDeclaredPositions(t *testing.T) {
 // inspection reports and the order a settings writer serializes are the same
 // sequence. If these could differ, the object would be worse than no object.
 func TestManagedHooks_ReorderIsVisibleToInspectionAndWireAlike(t *testing.T) {
-	m := eventWithCommands("alpha", "beta", "gamma")
+	m := eventWithCommands(t, "alpha", "beta", "gamma")
 
 	require.NoError(t, m.Reorder("pre_tool", func(h ResolvedHook) (int, bool) {
 		return map[string]int{"gamma": 0, "beta": 1, "alpha": 2}[h.Hook.Command], true
@@ -357,7 +326,7 @@ func TestManagedHooks_ReorderIsVisibleToInspectionAndWireAlike(t *testing.T) {
 // reordered nothing is indistinguishable from a rule that had no effect, which
 // is ctxloom's characteristic failure — exit 0 and nothing happened.
 func TestManagedHooks_ReorderRefusesWhatItCannotDo(t *testing.T) {
-	m := eventWithCommands("a", "b")
+	m := eventWithCommands(t, "a", "b")
 
 	err := m.Reorder("pre_toll", func(ResolvedHook) (int, bool) { return 0, true })
 	require.Error(t, err)
@@ -376,7 +345,7 @@ func TestManagedHooks_ReorderRefusesWhatItCannotDo(t *testing.T) {
 // TestManagedHooks_ReorderOfAnEmptyEventIsNotAnError: "no hooks fire on this
 // event" is a real state, not a mistake — unlike a misspelled event name.
 func TestManagedHooks_ReorderOfAnEmptyEventIsNotAnError(t *testing.T) {
-	m := eventWithCommands("a")
+	m := eventWithCommands(t, "a")
 	assert.NoError(t, m.Reorder("session_end", func(ResolvedHook) (int, bool) { return 0, true }))
 	assert.Empty(t, m.For("session_end"))
 }
@@ -388,20 +357,22 @@ func TestManagedHooks_ReorderOfAnEmptyEventIsNotAnError(t *testing.T) {
 // not hooks anyone asked about — reporting them would invent rows for hooks that
 // do not exist.
 func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
-	m := AssembleManagedHooks(config.NewFixture(config.Fixture{Hooks: wire.HooksConfig{
+	body, err := yaml.Marshal(map[string]any{"hooks": wire.HooksConfig{
 		Plugins: map[string]wire.BackendHooks{
 			"zed":    {"PreCompact": []wire.Hook{{Command: "z-native"}}},
 			"claude": {"PreToolUse": []wire.Hook{{Command: "c-native"}}, "PostToolUse": {}},
 			"codex":  {},
 		},
-	}}), "/tmp", "", nil)
+	}})
+	require.NoError(t, err)
+	m := AssembleManagedHooks(dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}, nil), "/tmp", "", nil)
 
 	native := m.BackendNative()
 
 	require.Len(t, native, 2, "only backend events with hooks are reported")
 	assert.Equal(t, "claude", native[0].Backend)
 	assert.Equal(t, "PreToolUse", native[0].Event)
-	assert.Equal(t, HookOriginConfig, native[0].Hooks[0].Source.Origin)
+	assert.Equal(t, HookOriginProfileDirectory, native[0].Hooks[0].Source.Origin)
 	assert.Equal(t, "zed", native[1].Backend, "sorted by backend, so the report can be diffed between runs")
 
 	// ...and the empty keys still reach the wire projection.
@@ -412,7 +383,7 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 // TestHookSource_StringNamesWhateverTheOriginCarries keeps the human label
 // honest for each shape of source.
 func TestHookSource_StringNamesWhateverTheOriginCarries(t *testing.T) {
-	assert.Equal(t, "config", HookSource{Origin: HookOriginConfig}.String())
+	assert.Equal(t, "profile-directory", HookSource{Origin: HookOriginProfileDirectory}.String())
 	assert.Equal(t, "profile-inline dev", HookSource{Origin: HookOriginProfileInline, Profile: "dev"}.String())
 	assert.Equal(t, "bundle acme/tools", HookSource{Origin: HookOriginBundle, Ref: "acme/tools"}.String())
 }

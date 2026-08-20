@@ -25,26 +25,26 @@ func TestConfigValidator_KnownPath_DescendsIntoArrays(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("an index segment descends into the item schema", func(t *testing.T) {
-		assert.True(t, v.KnownPath([]string{"hooks", "unified", "pre_tool", "0", "command"}))
-		assert.True(t, v.KnownPath([]string{"hooks", "unified", "pre_tool", "12", "matcher"}))
+		assert.True(t, v.KnownPath([]string{"agents", "coder", "escalation", "0", "action"}))
+		assert.True(t, v.KnownPath([]string{"agents", "coder", "escalation", "12", "role"}))
 	})
 
 	t.Run("an unknown key under an array element is still unknown", func(t *testing.T) {
-		assert.False(t, v.KnownPath([]string{"hooks", "unified", "pre_tool", "0", "commnd"}))
+		assert.False(t, v.KnownPath([]string{"agents", "coder", "escalation", "0", "actoin"}))
 	})
 
 	t.Run("a NON-index segment does not descend into an array", func(t *testing.T) {
 		// An array is indexed by position. A word here is not a key the schema
 		// recognizes, and answering "known" would make every misspelling under
 		// every array resolve.
-		assert.False(t, v.KnownPath([]string{"hooks", "unified", "pre_tool", "command"}))
-		assert.False(t, v.KnownPath([]string{"hooks", "unified", "pre_tool", "-1"}))
+		assert.False(t, v.KnownPath([]string{"agents", "coder", "escalation", "action"}))
+		assert.False(t, v.KnownPath([]string{"agents", "coder", "escalation", "-1"}))
 	})
 
 	t.Run("KnownKeys enumerates an array element's declared names", func(t *testing.T) {
-		keys := v.KnownKeys([]string{"hooks", "unified", "pre_tool", "0"})
-		assert.Contains(t, keys, "command", "the did-you-mean for a mistyped hook field comes from here")
-		assert.Contains(t, keys, "matcher")
+		keys := v.KnownKeys([]string{"agents", "coder", "escalation", "0"})
+		assert.Contains(t, keys, "action", "the did-you-mean for a mistyped field comes from here")
+		assert.Contains(t, keys, "role")
 		assert.Contains(t, keys, "timeout")
 	})
 }

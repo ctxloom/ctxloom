@@ -39,12 +39,23 @@ type FragmentRef struct {
 // matching config.FragmentRef.
 func (f *FragmentRef) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
+		// No empty-scalar check here: Profile.UnmarshalYAML's raw-sequence walk
+		// already refuses one, and it has to exist anyway for the null items
+		// this method is never called for. A second check would be unkillable.
 		f.Name = node.Value
 		f.Priority = 0
 		return nil
 	}
+	// The struct form is NOT covered by that walk, which only inspects scalar
+	// items, so `- {name: ""}` is refused here or nowhere.
 	type plain FragmentRef
-	return node.Decode((*plain)(f))
+	if err := node.Decode((*plain)(f)); err != nil {
+		return err
+	}
+	if strings.TrimSpace(f.Name) == "" {
+		return fmt.Errorf("empty fragment reference at line %d: a fragments list entry must name a fragment", node.Line)
+	}
+	return nil
 }
 
 // MarshalYAML emits a bare string when priority is 0 (the common case), else the
@@ -209,6 +220,40 @@ type Profile struct {
 	// denied) and is never gated — it only narrows what a launch may do,
 	// never runs anything.
 	DenyTools []string `yaml:"deny_tools,omitempty"`
+}
+
+// UnmarshalYAML decodes a profile and then backstops the fragments list against
+// empty entries. FragmentRef.UnmarshalYAML rejects an empty or whitespace
+// scalar, but yaml.v3 never invokes a value's Unmarshaler for a NULL node -- a
+// bare "- " list item decodes straight to the zero FragmentRef and is then
+// DROPPED from the sequence entirely -- so an empty-named fragment never
+// reaches p.Fragments to be caught there. Walk the source nodes so the typo
+// fails loudly instead of vanishing.
+func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
+	type plain Profile
+	if err := node.Decode((*plain)(p)); err != nil {
+		return err
+	}
+	return RefuseEmptyFragmentEntries(node)
+}
+
+// RefuseEmptyFragmentEntries reports an error for any empty entry in a profile
+// node's fragments sequence.
+//
+// It is a free function, and exported, because the inline profile type in
+// package config needs the identical check and cannot be reached from here:
+// config imports profiles, never the other way round.
+func RefuseEmptyFragmentEntries(node *yaml.Node) error {
+	frags := upgrade.MapValue(node, "fragments")
+	if frags == nil || frags.Kind != yaml.SequenceNode {
+		return nil
+	}
+	for _, item := range frags.Content {
+		if item.Kind == yaml.ScalarNode && strings.TrimSpace(item.Value) == "" {
+			return fmt.Errorf("empty fragment reference in profile fragments list (line %d): a fragments entry must name a fragment", item.Line)
+		}
+	}
+	return nil
 }
 
 // Loader handles loading profiles from .ctxloom/profiles directories.

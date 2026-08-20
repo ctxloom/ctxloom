@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"gopkg.in/yaml.v3"
 )
@@ -196,14 +196,7 @@ func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
 	// item ("- ") during sequence decode (its Unmarshaler is never called for a
 	// null node), so an empty entry never reaches p.Fragments to be caught
 	// there. Walk the source nodes so the typo fails loudly instead of vanishing.
-	if frags := upgrade.MapValue(node, "fragments"); frags != nil && frags.Kind == yaml.SequenceNode {
-		for _, item := range frags.Content {
-			if item.Kind == yaml.ScalarNode && strings.TrimSpace(item.Value) == "" {
-				return fmt.Errorf("empty fragment reference in profile fragments list (line %d): a fragments entry must name a fragment", item.Line)
-			}
-		}
-	}
-	return nil
+	return profiles.RefuseEmptyFragmentEntries(node)
 }
 
 // ProfilesConfig holds the named profile definitions. Definitions was the old

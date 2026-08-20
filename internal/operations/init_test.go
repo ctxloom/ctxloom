@@ -183,7 +183,7 @@ func TestInitializeProject_ScaffoldsSeedProfileAndDefaultAgent(t *testing.T) {
 	data, err := afero.ReadFile(fs, profilePath)
 	require.NoError(t, err, "seed profile should be scaffolded locally")
 	body := string(data)
-	assert.Contains(t, body, "ctxloom/ctxloom-default@bundles/", "seed profile wires ctxloom-default bundle content")
+	assert.Contains(t, body, "ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/", "seed profile wires ctxloom-default bundle content in the canonical grammar")
 	assert.Contains(t, body, "#profiles/", "seed profile inherits ctxloom-default bundle profiles")
 	assert.Contains(t, body, "parents:", "seed profile inherits remote baseline content")
 

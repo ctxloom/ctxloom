@@ -12,4 +12,4 @@ tags:
 # the user answers; a seeded parent is a decision made on their behalf before
 # they arrive.
 parents:
-  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer@branch:main#profiles/developer
+  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer@branch:main#profiles/developer

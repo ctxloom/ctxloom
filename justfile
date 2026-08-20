@@ -1514,6 +1514,29 @@ build-archlint: dev-image
 lint-arch: dev-image
     just _run lint-arch
 
+# Whole-program dead-code sweep.
+#
+# golangci-lint's `unused` is PACKAGE-scoped: it cannot see that an exported
+# symbol has no caller anywhere in the module, which is where this codebase's
+# dead code hides. deadcode does whole-program reachability instead.
+#
+# Pinned by the `tool` directive in go.mod, so it needs neither the dev image
+# nor a host install, and every clone runs the same version.
+#
+# Run BOTH readings — they answer different questions:
+#   just deadcode           unreachable from any main package (test-only code
+#                           is reported, which is usually what you want to find)
+#   just deadcode -test     tests count as entry points too (what is dead even
+#                           for the suite)
+#
+# Not a gate: it reports, it does not fail. Symbols behind a string-keyed
+# registry (content.Register) are unreachable to it as well, so a report is
+# evidence to check, never a delete list.
+
+# Whole-program dead-code sweep (add -test to count tests as entry points)
+deadcode *ARGS:
+    go tool deadcode {{ARGS}} ./...
+
 # ===== Code complexity (lizard, in devcontainer) =====
 # lizard is a cross-platform, multi-language per-function complexity analyzer,
 # installed in the devcontainer image. These targets delegate into it, so no

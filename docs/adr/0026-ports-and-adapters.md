@@ -6,6 +6,22 @@
 
 Accepted (the architecture and its inbound + LLM edges, already in force via ADRs 0019/0020) and Proposed (the storage-port edge, adopted incrementally rather than in a big-bang refactor).
 
+**AMENDED 2026-08-20 — the profiles storage port was retired, by owner ruling.**
+`profiles.Source` / `profiles.Store` were the first instance of the storage-port
+edge this ADR proposes. They were deleted along with the `MemStore` adapter.
+
+The reason is not a rejection of the principle; it is what the instance turned
+out to be. It had exactly ONE real adapter (`*Loader`) and one test double, and
+the double's only consumer outside `internal/profiles` was the port test proving
+the port existed — an abstraction whose sole client was the test justifying it.
+Retiring it also removed a quiet hazard: the double was more permissive than the
+adapter (it accepted an empty profile the loader refuses), so a test written
+against the port could pass against behaviour production does not have.
+
+What this ADR still asks for is unchanged. A storage port earns its place when a
+SECOND real adapter exists or is committed to — not in anticipation of one. The
+proposed edge stays proposed; this instance is simply not evidence for it.
+
 ## Context
 
 Two prior ADRs each settled one edge of the same architecture without naming the whole:

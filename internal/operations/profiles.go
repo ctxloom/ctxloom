@@ -69,7 +69,7 @@ type ListProfilesRequest struct {
 	SortOrder string `json:"sort_order"` // "asc" or "desc"
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader profiles.Store `json:"-"`
+	Loader *profiles.Loader `json:"-"`
 }
 
 // ListProfilesResult contains the list of profiles.
@@ -162,7 +162,7 @@ type GetProfileRequest struct {
 	Name string `json:"name"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader profiles.Store `json:"-"`
+	Loader *profiles.Loader `json:"-"`
 }
 
 // GetProfileResult contains the profile details.
@@ -230,7 +230,7 @@ type CreateProfileRequest struct {
 	ExcludeMCP       []string `json:"exclude_mcp"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader profiles.Store `json:"-"`
+	Loader *profiles.Loader `json:"-"`
 }
 
 // CreateProfileResult contains the result of creating a profile.
@@ -315,7 +315,7 @@ type UpdateProfileRequest struct {
 	RemoveExcludeMCP       []string `json:"remove_exclude_mcp"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader profiles.Store `json:"-"`
+	Loader *profiles.Loader `json:"-"`
 }
 
 // UpdateProfileResult contains the result of updating a profile.
@@ -443,7 +443,7 @@ func applyListEdits(list, add, remove []string, label string, changes []string) 
 // model a remote parent only exists locally after `deps pull`, and pull only
 // fetches what a profile references — validating remote refs here would
 // deadlock the bootstrap order. They are validated at pull/lock time.
-func requireProfilesExist(loader profiles.Source, names []string) error {
+func requireProfilesExist(loader *profiles.Loader, names []string) error {
 	for _, name := range names {
 		if isRemoteReference(name) {
 			continue
@@ -460,7 +460,7 @@ type DeleteProfileRequest struct {
 	Name string `json:"name"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader profiles.Store `json:"-"`
+	Loader *profiles.Loader `json:"-"`
 }
 
 // DeleteProfileResult contains the result of deleting a profile.

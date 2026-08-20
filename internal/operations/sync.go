@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content/remotetree"
+	"github.com/ctxloom/ctxloom/internal/refuri"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -526,17 +527,35 @@ func addRemoteBundleBase(bundleSet collections.Set[string], ref, owner string) {
 	bundleSet.Add(base)
 }
 
-// isRemoteReference checks if a reference points to a remote source. Remote
-// refs are scheme-qualified canonical URLs; ctxloom:local and the "profile:"
-// local-profile alias are not remote.
+// isRemoteReference reports whether a reference addresses something FETCHED
+// from outside the project, and therefore must not be looked up as a local
+// profile or bundle name.
+//
+// It carries no prefix list of its own. remote.IsSelfContainedRef is the one
+// place that knows which spellings are scheme-qualified -- its own doc says
+// "THIS IS THE ONLY LIST", recorded after a second copy drifted and downgraded
+// a malformed companion ref into an auto-trusted first-party name. A third copy
+// here drifted the same way and in the same direction: it listed only the four
+// retired prefixes, so every canonical ctxloom+<class>: ref answered "not
+// remote" and was reported as a missing local profile.
+//
+// Self-contained is necessary but not sufficient: the local, builtin and
+// companion classes are self-contained and are NOT fetched. refuri.Parts
+// .IsExternal is the vocabulary-driven answer to which classes address a
+// repository, so a class added to refuri.Classes without being handled there
+// fails that package's exhaustiveness test rather than being misread here.
 func isRemoteReference(ref string) bool {
-	if strings.HasPrefix(ref, remote.LocalSource) { // ctxloom:local
-		return false
+	if !remote.IsSelfContainedRef(ref) {
+		return false // a bare name is first-party local
 	}
-	return strings.HasPrefix(ref, "https://") ||
-		strings.HasPrefix(ref, "http://") ||
-		strings.HasPrefix(ref, "git@") ||
-		strings.HasPrefix(ref, "file://")
+	if refuri.HasScheme(ref) {
+		p, err := refuri.Parse(ref)
+		return err == nil && p.IsExternal()
+	}
+	// A scheme-qualified spelling outside the canonical family: remote unless
+	// it names one of the two ctxloom: source tokens, neither of which fetches.
+	return !strings.HasPrefix(ref, remote.LocalSource) &&
+		!strings.HasPrefix(ref, remote.CompanionSource)
 }
 
 // syncItem syncs a single item and returns the result.

@@ -1,10 +1,14 @@
 package operations
 
 import (
+	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 )
 
@@ -47,17 +51,19 @@ func TestIsRemoteReference_RecognizesEveryFetchableSpelling(t *testing.T) {
 	}
 }
 
-// fakeProfileSource answers Exists for a fixed set of LOCAL profile names.
-// List/Load are unreachable from requireProfilesExist and fail loudly if that
-// ever stops being true, rather than returning a plausible empty answer.
-type fakeProfileSource map[string]bool
-
-func (f fakeProfileSource) Exists(name string) bool { return f[name] }
-func (f fakeProfileSource) List() ([]*profiles.Profile, error) {
-	panic("requireProfilesExist must not enumerate profiles")
-}
-func (f fakeProfileSource) Load(string) (*profiles.Profile, error) {
-	panic("requireProfilesExist must not load a profile")
+// loaderWith returns a real profiles.Loader over memfs holding exactly these
+// LOCAL profile names. requireProfilesExist takes the concrete loader (the
+// profiles port was retired), so the double is a real loader over a fake
+// filesystem rather than a fake loader.
+func loaderWith(t *testing.T, names ...string) *profiles.Loader {
+	t.Helper()
+	fs := afero.NewMemMapFs()
+	dir := "/app/" + paths.AppDirName + "/profiles"
+	require.NoError(t, fs.MkdirAll(dir, 0o755))
+	for _, n := range names {
+		require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, n+".yaml"), []byte("description: seeded\n"), 0o644))
+	}
+	return profiles.NewLoader([]string{dir}, profiles.WithFS(fs))
 }
 
 // TestRequireProfilesExist_CanonicalParentIsNotLookedUpLocally is the
@@ -65,7 +71,7 @@ func (f fakeProfileSource) Load(string) (*profiles.Profile, error) {
 // it fails to recognize as remote is reported as `parent profile %q not found`
 // — naming the one place the profile was never going to be.
 func TestRequireProfilesExist_CanonicalParentIsNotLookedUpLocally(t *testing.T) {
-	src := fakeProfileSource{"local-parent": true}
+	src := loaderWith(t, "local-parent")
 
 	t.Run("canonical remote parent passes without a local lookup", func(t *testing.T) {
 		err := requireProfilesExist(src, []string{

@@ -275,11 +275,17 @@ func (r *recordingFs) reset() {
 	r.created, r.renamedT = nil, nil
 }
 
-// TestConformance_AtomicWriteBackup: overwriting an existing settings file
-// leaves a .ctxloom.bak of the prior content AND replaces the file atomically —
-// both halves of the contract doc.go names, where the suite used to assert only
-// the backup and take the atomicity on trust.
-func TestConformance_AtomicWriteBackup(t *testing.T) {
+// TestConformance_AtomicWriteLeavesNoBackup: overwriting an existing settings
+// file replaces it ATOMICALLY and leaves NO .ctxloom.bak beside it.
+//
+// The absence is the contract, not an omission. Writers deliberately stopped
+// copying the live bytes to a sibling; a backup of a file the user still owns
+// is litter the user did not ask for, and it duplicated secrets into a second
+// path with the same permissions. This suite asserted the backup for every
+// writer and went red when the behaviour was removed, so the assertion is
+// inverted here rather than deleted: the atomicity half was always the half
+// worth having.
+func TestConformance_AtomicWriteLeavesNoBackup(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
 			fs := &recordingFs{Fs: afero.NewMemMapFs()}
@@ -290,9 +296,9 @@ func TestConformance_AtomicWriteBackup(t *testing.T) {
 
 			require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
 
-			bak, err := afero.ReadFile(fs, path+".ctxloom.bak")
-			require.NoError(t, err, "a .ctxloom.bak of the prior settings must exist")
-			assert.Contains(t, string(bak), a.userMarker, "backup holds the pre-write content")
+			_, bakErr := fs.Stat(path + ".ctxloom.bak")
+			assert.True(t, os.IsNotExist(bakErr),
+				"no .ctxloom.bak may be left beside the settings file; got err=%v", bakErr)
 
 			created, renamedTo := fs.snapshot()
 			assert.NotContains(t, created, path,
@@ -409,22 +415,47 @@ func liveFilesContaining(t *testing.T, fs afero.Fs, marker string) []string {
 	return hits
 }
 
-// TestConformance_MCPAutoRegister: ctxloom's own MCP server is auto-registered
-// with no explicit MCP config — reported by Status AND present in the bytes on
-// disk, so the writer's own account of itself is not the only witness.
-func TestConformance_MCPAutoRegister(t *testing.T) {
+// TestConformance_MCPWritesExactlyWhatItIsGiven: a writer registers the MCP
+// servers it is handed and invents none.
+//
+// This replaces an auto-registration assertion. ctxloom's own MCP server used
+// to be injected by the writer whenever no explicit config existed; MCP servers
+// now come from bundles only, so a writer handed nothing must write nothing.
+// Both directions are asserted, because only checking the empty case would pass
+// against a writer that had stopped registering anything at all.
+func TestConformance_MCPWritesExactlyWhatItIsGiven(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
-			fs := afero.NewMemMapFs()
-			w := a.newWriter(agent.SettingsOptions{FS: fs})
-			require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
+			// The probe name is deliberately not MCPServerName. That constant is
+			// "ctxloom", which every hook command also contains, so a substring
+			// search for it proves nothing either way.
+			const probeName = "conformance-probe-mcp"
 
-			st, err := w.Status(projectDir)
-			require.NoError(t, err)
-			assert.True(t, st.MCPPresent, "ctxloom MCP server auto-registered")
+			t.Run("given none, registers none", func(t *testing.T) {
+				fs := afero.NewMemMapFs()
+				w := a.newWriter(agent.SettingsOptions{FS: fs})
+				require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
 
-			assert.NotEmpty(t, liveFilesContaining(t, fs, agent.MCPServerName),
-				"the registration must exist in a file, not only in Status()")
+				st, err := w.Status(projectDir)
+				require.NoError(t, err)
+				assert.False(t, st.MCPPresent,
+					"a writer handed no MCP servers must not invent one")
+			})
+
+			t.Run("given one, registers exactly it, in the bytes", func(t *testing.T) {
+				fs := afero.NewMemMapFs()
+				w := a.newWriter(agent.SettingsOptions{FS: fs})
+				given := map[string]wire.MCPServer{
+					probeName: {Command: "probe-bin", Args: []string{"serve"}},
+				}
+				require.NoError(t, w.WriteSettings(standardHooks(), given, projectDir))
+
+				st, err := w.Status(projectDir)
+				require.NoError(t, err)
+				assert.True(t, st.MCPPresent, "the handed server must be reported present")
+				assert.NotEmpty(t, liveFilesContaining(t, fs, probeName),
+					"and must reach a file, not only Status(): a writer whose own account is the only witness proves nothing")
+			})
 		})
 	}
 }

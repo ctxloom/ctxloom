@@ -329,7 +329,11 @@ engine-drift-alert ENGINE PINNED LATEST RUN_URL:
         --description "Drift alert for the $engine engine specifically" \
         --force
 
-    existing="$(gh issue list --state open --label "engine-drift:$engine" --search "\"$title\" in:title" --json title --jq --arg t "$title" '.[] | select(.title == $t) | .title')"
+    # Pipe to jq rather than gh's --jq: --arg is a JQ flag and gh does not forward
+    # it, so gh rejects the command, prints its usage, and this recipe exits 1
+    # before any alert is filed. Passing the title as a jq --arg (not string-
+    # interpolating it) also keeps a title with quotes out of the jq program.
+    existing="$(gh issue list --state open --label "engine-drift:$engine" --search "\"$title\" in:title" --json title | jq -r --arg t "$title" '.[] | select(.title == $t) | .title')"
     if [ -n "$existing" ]; then
         echo "An open issue already tracks $title; not creating a duplicate."
         exit 0

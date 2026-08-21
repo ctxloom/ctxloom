@@ -322,3 +322,33 @@ func TestHasEvidence_IsAPresenceCheckNotAQualityJudgement(t *testing.T) {
 		assert.Truef(t, hasEvidence(step), "%s must satisfy the evidence gate", name)
 	}
 }
+
+// The provenance header instructs the reader to edit the source files it
+// names. A basename-plus-hard-coded-directory reconstruction silently drops the
+// corpus's journeys/ and cli/ subdirectories, producing a page that tells
+// someone to edit a path which does not exist. Assert the SUBDIRECTORY
+// survives, not merely that the filename appears — the broken form contained
+// the filename too.
+func TestGeneratePage_ProvenanceNamesResolvablePaths(t *testing.T) {
+	feat := passingFeature()
+	feat.Path = "tests/acceptance/features/journeys/j000100_adopt_and_back_out.feature"
+	narrationPath := "tests/acceptance/features/journeys/j000100_adopt_and_back_out.doc.md"
+
+	captures := map[string][]DocCapture{
+		"First scenario": {
+			{Scenario: "First scenario", Steps: []DocCaptureStep{
+				{Text: "a precondition", Keyword: "Given", Status: "passed", CLIOutput: "ok output"},
+			}},
+		},
+	}
+
+	page, err := GeneratePage(feat, Narration{Scenarios: map[string]string{}}, captures, narrationPath)
+	require.NoError(t, err)
+
+	assert.Contains(t, page, feat.Path,
+		"provenance must name the feature's real repo-relative path, subdirectory included")
+	assert.Contains(t, page, narrationPath,
+		"provenance must name the narration companion's real repo-relative path")
+	assert.NotContains(t, page, "tests/acceptance/features/j000100_adopt_and_back_out.feature",
+		"the flattened path is what the reconstruction produced and it resolves to nothing")
+}

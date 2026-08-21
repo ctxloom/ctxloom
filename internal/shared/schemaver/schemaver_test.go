@@ -37,7 +37,7 @@ func TestDeclared_KeyPreferredOverLegacyKey(t *testing.T) {
 
 func TestDeclared_PresentButUnreadable(t *testing.T) {
 	cases := map[string]string{
-		"non-integer word":  "schema_version: banana\nkept: 1\n",
+		"non-integer word":   "schema_version: banana\nkept: 1\n",
 		"float":              "schema_version: 6.5\nkept: 1\n",
 		"empty string":       "schema_version: \"\"\nkept: 1\n",
 		"nested mapping":     "schema_version:\n  nested: 6\n",

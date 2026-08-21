@@ -60,7 +60,6 @@ func preToolCommandSet(h wire.UnifiedHooks) []string {
 	return cmds
 }
 
-const dirMCPBody = "mcp:\n  servers:\n    keep-srv:\n      command: keep-cmd\n    drop-srv:\n      command: drop-cmd\n"
 const dirHookBody = "hooks:\n  unified:\n    pre_tool:\n      - command: keep-hook\n        type: command\n      - command: drop-hook\n        type: command\n"
 
 // TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate is the hook twin: a

@@ -10,9 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// versionKey is the top-level integer schema-version field on config.yaml.
-const versionKey = "version"
-
 // migrationSink collects the lossy-migration diagnostics raised while ONE
 // config load's upgrade pipeline runs (a user-set value a step had to drop).
 // The Upgrader interface has no warning channel and no access to the Config

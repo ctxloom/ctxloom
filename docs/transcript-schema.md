@@ -15,7 +15,7 @@ task `petty-green`, post-pre1).
 reads today — not a future target.
 
 **Base:** v0.7.0-pre1. Companion to the `tough-cloud` plan
-(`~/.ctxloom/sessions/sixth-moist-kite/tough-cloud-transcript-capture.plan.md`),
+(`~/.ctxloom/sessions/sixth-moist-kite/tough-cloud-transcript-capture.superseded.plan.md`),
 which is the sequencing/rationale record. Where the two disagree on a shipped
 fact, this document and the code win — the plan is upstream of the code, not
 the other way around.

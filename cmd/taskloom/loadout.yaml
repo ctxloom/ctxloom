@@ -120,10 +120,50 @@ fragments:
       `taskloom` CLI). The harp ID appears in `task_list` output so you can
       reference a specific task in later calls.
 
-      Write `text` subject-first: the first line is what the task IS
-      (~80 characters or fewer — list views show only that line,
-      truncated there). Put provenance like dates or session names on a
-      later line, not the first.
+      ## Use `--json` FIRST, paired with jq — on every command
+
+      EVERY taskloom command takes `--json` (shorthand for `--format json`;
+      `--format` also accepts yaml, toml, text, markdown). If you are an agent,
+      `--json` is your surface — reach for it before anything else, and pipe it
+      through jq. The default text output is for a person reading a terminal.
+
+          # one task's exact body — no header to strip, no offset to guess
+          taskloom show <harp> --json | jq -r '.text'
+
+          # every harp; every harp carrying a tag
+          taskloom list --all --json | jq -r '.[].harp_id'
+          taskloom list --all --json | jq -r '.[]|select(.tags[]?=="urgent")|.harp_id'
+
+      `Task`'s JSON tags are a cross-surface contract: the CLI and the MCP tools
+      emit the same snake_case keys, so one jq filter works against either.
+
+      **If `--json` fails, or a field you need is missing from it, REPORT THAT
+      as a defect** — then route around it if you must to finish the job. Both,
+      not either. The workaround unblocks you; the report is what gets the gap
+      closed, and it is the half that gets skipped.
+
+      This matters more here than it would for a third-party tool: taskloom,
+      ctxloom and reprise are ours, and we are their alpha users. There is no
+      upstream to file against and no other user base to hit the gap first. A
+      missing field that nobody reports simply stays missing, and the next agent
+      pays the same tax — which is exactly how the text-scraping habit took hold
+      instead of anyone noticing every command already speaks JSON.
+
+      Why this is stated so firmly: every way text-parsing breaks here produces a
+      WRONG ANSWER rather than an error.
+
+      - `taskloom show`'s text form prints a multi-line header. Capturing a body
+        by dropping a fixed number of lines can leave a `tags:` line as line 1 —
+        and line 1 IS the subject, so a following `edit` (which replaces the
+        whole text) silently renames the task.
+      - In `--compact` rows, `[x]` is one field but `[ ]` is two, so a positional
+        field split drops every OPEN task and keeps only the closed ones. The
+        output looks well-formed and is wrong in exactly one direction.
+
+      Note the CLI flag names differ from the MCP parameter names: `--status`
+      (singular) and `--all`, not `statuses`/`include_completed`. A mistyped flag
+      errors, but a mis-scoped query returns a confident empty list — confirm the
+      flag exists before believing emptiness.
 
       ## Check the log before you start, and again before you finish
 

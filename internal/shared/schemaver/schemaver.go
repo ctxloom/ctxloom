@@ -180,5 +180,20 @@ type Kind struct {
 // policy decision — "the rename always runs" — that belongs to each file
 // kind's own on-disk format, not to this shared plumbing.
 func (k Kind) Migrate(data []byte) (out []byte, applied []string) {
-	return k.Upgrades.Run(data)
+	// RenameUpgrade runs FIRST, always, and is not the caller's to remember.
+	// The rename must precede every version-gated stage, or a document still
+	// spelling its version LegacyKey reads as undeclared and a version check
+	// refuses a file that is actually current.
+	//
+	// It is prepended here rather than left to each kind's own Upgrades list
+	// because a kind with NO migrations registered is the expected steady
+	// state, not an edge case. Leaving the rename to the caller makes it
+	// absent exactly where nothing else would catch its absence: an empty
+	// pipeline would pass a legacy-keyed document through untouched and
+	// report success.
+	//
+	// A document already at Key is unaffected: RenameUpgrade reports no
+	// change, so Run returns the original bytes verbatim without
+	// reserializing.
+	return append(upgrade.Pipeline{RenameUpgrade()}, k.Upgrades...).Run(data)
 }

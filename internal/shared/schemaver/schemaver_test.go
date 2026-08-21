@@ -163,13 +163,35 @@ func TestRenameUpgrade_DuplicateKey_ReturnsVerbatim(t *testing.T) {
 // The steady state: a Kind with zero registered migrations must still work
 // correctly end to end, because that is exactly the state every real file
 // kind is in until its first migration is registered.
-func TestKind_Migrate_EmptyUpgrades_PassesThroughVerbatim(t *testing.T) {
+// A document ALREADY at Key is what "passes through verbatim" must mean. The
+// earlier form of this test fed a LEGACY-keyed document and asserted it came
+// back unchanged, which enshrined the defect: a kind with no migrations
+// registered — the expected steady state — would never rename its version key.
+func TestKind_Migrate_EmptyUpgrades_AlreadyCurrent_PassesThroughVerbatim(t *testing.T) {
 	k := Kind{Name: "widget", Current: 1, Upgrades: upgrade.Pipeline{}}
-	in := []byte("version: 1\nkept: x\n")
+	in := []byte(Key + ": 1\nkept: x\n")
 	out, applied := k.Migrate(in)
 	assert.Empty(t, applied)
 	assert.Equal(t, in, out)
-	assert.Same(t, &in[0], &out[0], "an empty pipeline must not reserialize")
+	assert.Same(t, &in[0], &out[0], "an already-current document must not reserialize")
+}
+
+// The case that matters, and the one the old test hid: zero registered
+// migrations must STILL rename, because that is the steady state.
+func TestKind_Migrate_EmptyUpgrades_StillRenamesLegacyKey(t *testing.T) {
+	k := Kind{Name: "widget", Current: 1, Upgrades: upgrade.Pipeline{}}
+	out, applied := k.Migrate([]byte(LegacyKey + ": 1\nkept: x\n"))
+
+	assert.NotEmpty(t, applied, "the rename must fire even with no migrations registered")
+	assert.Contains(t, string(out), Key+": 1")
+	// Anchored to a line start: a bare substring check is a FALSE NEGATIVE,
+	// because "schema_version:" itself contains "version:".
+	assert.NotRegexp(t, `(?m)^`+LegacyKey+`:`, string(out), "the legacy key must be gone as a key")
+	assert.Contains(t, string(out), "kept: x", "unrelated keys must survive")
+
+	v, ok := Declared(out)
+	assert.True(t, ok)
+	assert.Equal(t, 1, v, "the migrated document must read as version 1, not undeclared")
 }
 
 func TestKind_Migrate_NilUpgrades_PassesThroughVerbatim(t *testing.T) {

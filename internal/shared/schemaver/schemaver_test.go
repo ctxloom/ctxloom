@@ -112,6 +112,19 @@ func TestRenameUpgrade_BothKeysPresent_LeftUntouched(t *testing.T) {
 	assert.Equal(t, in, out)
 }
 
+// Neither key present must be a true no-op: RenameUpgrade must not reach for
+// a nil legacy value and stamp it onto Key. (A mutant that dropped the
+// legacy==nil early return survived every other test in this file because
+// every other test's fixture has at least one of the two keys present; this
+// is the one case that actually exercises "neither present".)
+func TestRenameUpgrade_NeitherKeyPresent_NoOp(t *testing.T) {
+	in := []byte("kept: 1\n")
+	p := upgrade.Pipeline{RenameUpgrade()}
+	out, applied := p.Run(in)
+	assert.Empty(t, applied)
+	assert.Equal(t, in, out)
+}
+
 func TestRenameUpgrade_Idempotent_SecondRunIsNoOp(t *testing.T) {
 	p := upgrade.Pipeline{RenameUpgrade()}
 	once, applied := p.Run([]byte("version: 8\n"))

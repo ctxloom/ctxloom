@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 )
@@ -26,6 +27,16 @@ func TestStampPlanFile_IsReadableByPlansParser(t *testing.T) {
 		initial string
 		// wantSessions is what the reader must report after stamping "wave81".
 		wantSessions []string
+		// wantTitle is what the reader must report for `title` after stamping.
+		// It is asserted for EVERY case, empty included: `sessions` alone was
+		// what this test used to check, and a plan's title is the other half of
+		// what the reader exists to produce.
+		wantTitle string
+		// writerKeeps is a substring the stamped file must still contain: the
+		// title's SOURCE SPELLING, proving the yaml.Node writer round-tripped
+		// it verbatim and that any mismatch above is therefore the reader's
+		// disagreement with YAML and not the writer having rewritten the value.
+		writerKeeps string
 	}{
 		{
 			name:         "no frontmatter at all",
@@ -56,6 +67,33 @@ func TestStampPlanFile_IsReadableByPlansParser(t *testing.T) {
 			name:         "sessions alongside a title",
 			initial:      "---\ntitle: \"My Plan\"\nsessions: [earlier]\n---\n\nbody\n",
 			wantSessions: []string{"earlier", "wave81"},
+			wantTitle:    "My Plan",
+			writerKeeps:  "title: \"My Plan\"",
+		},
+
+		// The three shapes below are ordinary YAML that the writer preserves
+		// character for character, so the file on disk means exactly one thing.
+		// The reader has to agree with that meaning, not with the source text.
+		{
+			name:         "a trailing comment is not part of the title",
+			initial:      "---\ntitle: hardening # rev2\nsessions: [earlier]\n---\n\nbody\n",
+			wantSessions: []string{"earlier", "wave81"},
+			wantTitle:    "hardening",
+			writerKeeps:  "title: hardening # rev2",
+		},
+		{
+			name:         "a doubled quote inside a single-quoted title is one quote",
+			initial:      "---\ntitle: 'it''s done'\nsessions: [earlier]\n---\n\nbody\n",
+			wantSessions: []string{"earlier", "wave81"},
+			wantTitle:    "it's done",
+			writerKeeps:  "title: 'it''s done'",
+		},
+		{
+			name:         "a literal block scalar title is its content, not its indicator",
+			initial:      "---\ntitle: |\n  wrapped\nsessions: [earlier]\n---\n\nbody\n",
+			wantSessions: []string{"earlier", "wave81"},
+			wantTitle:    "wrapped\n",
+			writerKeeps:  "title: |\n  wrapped",
 		},
 	}
 
@@ -77,9 +115,20 @@ func TestStampPlanFile_IsReadableByPlansParser(t *testing.T) {
 			require.Contains(t, string(data), "wave81",
 				"the writer did not record the harp at all; the reader assertion would be vacuous")
 
-			_, got := plans.ParseFrontmatter(string(data))
+			// Fixture check: the title survived the writer's yaml.Node
+			// round-trip with its spelling intact. Without this, a title
+			// mismatch below could equally mean the writer had reformatted the
+			// value, and the test would be accusing the wrong half of the pair.
+			if tc.writerKeeps != "" {
+				require.Contains(t, string(data), tc.writerKeeps,
+					"the writer did not round-trip the title verbatim, so a reader mismatch would be unattributable\n--- file ---\n%s", data)
+			}
+
+			gotTitle, got := plans.ParseFrontmatter(string(data))
 			assert.Equal(t, tc.wantSessions, got,
 				"the reader must recover exactly what the writer recorded\n--- file ---\n%s", data)
+			assert.Equal(t, tc.wantTitle, gotTitle,
+				"the reader must recover the title the file MEANS, not the source text the writer preserved\n--- file ---\n%s", data)
 		})
 	}
 }
@@ -90,20 +139,57 @@ func TestStampPlanFile_IsReadableByPlansParser(t *testing.T) {
 // treat that document as having frontmatter either. Anything else means a body
 // line that merely looks like `title:` is read as metadata of a file the writer
 // considers unparseable.
+//
+// EVERY FIXTURE HERE IS VALID YAML READ TO EOF, and that is the point. The one
+// this test used to carry ("body text" on its own line) is a YAML syntax error,
+// so it kept passing with the reader's closing-fence check deleted outright —
+// the parse failed for an unrelated reason and the test could not tell the
+// difference. A document that parses cleanly to EOF is the only kind that
+// distinguishes "the reader stopped at the fence" from "the reader ran off the
+// end and got lucky".
 func TestStampPlanFile_UnterminatedFrontmatterAgreesWithReader(t *testing.T) {
-	const unterminated = "---\ntitle: not really frontmatter\nsessions:\n  - ghost\n\nbody text\n"
+	cases := []struct {
+		name string
+		doc  string
+	}{
+		{
+			name: "a body line shaped like a key, below an unclosed fence",
+			doc:  "---\nsessions:\n  - ghost\n\ntitle: a body line, not this plan's title\n",
+		},
+		{
+			name: "nothing below the unclosed fence but a key",
+			doc:  "---\ntitle: a body line, not this plan's title\n",
+		},
+		{
+			name: "several body lines, all of them valid YAML",
+			doc:  "---\nsessions:\n  - ghost\n\ntitle: not metadata\nnotes: also not metadata\n",
+		},
+	}
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "thing.plan.md")
-	require.NoError(t, os.WriteFile(path, []byte(unterminated), 0o644))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "thing.plan.md")
+			require.NoError(t, os.WriteFile(path, []byte(tc.doc), 0o644))
 
-	// Fixture check: the writer must genuinely reject this document, or the
-	// reader has nothing to agree with.
-	err := StampPlanFile(path, "wave81")
-	require.Error(t, err, "the writer is expected to refuse an unterminated block")
-	require.ErrorContains(t, err, "no closing")
+			// Fixture check: the writer must genuinely reject this document, or
+			// the reader has nothing to agree with.
+			err := StampPlanFile(path, "wave81")
+			require.Error(t, err, "the writer is expected to refuse an unterminated block")
+			require.ErrorContains(t, err, "no closing")
 
-	title, sessions := plans.ParseFrontmatter(unterminated)
-	assert.Empty(t, title, "an unterminated block is not frontmatter to the writer; it must not be to the reader")
-	assert.Empty(t, sessions, "an unterminated block is not frontmatter to the writer; it must not be to the reader")
+			// Fixture check: the document really does parse to EOF, so the
+			// reader declining it is the fence check working and not a syntax
+			// error doing the job by accident.
+			var whole map[string]any
+			require.NoError(t, yaml.Unmarshal([]byte(tc.doc), &whole),
+				"fixture must be valid YAML when read past the missing fence, or it cannot detect a missing fence check")
+			require.Contains(t, whole, "title",
+				"fixture must offer the reader a title to wrongly pick up")
+
+			title, sessions := plans.ParseFrontmatter(tc.doc)
+			assert.Empty(t, title, "an unterminated block is not frontmatter to the writer; it must not be to the reader")
+			assert.Empty(t, sessions, "an unterminated block is not frontmatter to the writer; it must not be to the reader")
+		})
+	}
 }

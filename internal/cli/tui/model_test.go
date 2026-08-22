@@ -822,6 +822,13 @@ func TestPadCell_TruncatesColouredInputWithoutTearingTheEscape(t *testing.T) {
 			assertTerminatedEscapes(t, got, "src=%q w=%d", src, w)
 			assert.Equal(t, w, lipgloss.Width(got),
 				"padCell frames exactly w columns: src=%q w=%d got=%q", src, w, got)
+			// The frame is padded to w either way, so width alone cannot tell
+			// a good cut from a bad one. What the defect actually did was
+			// spend the budget on escape bytes and pad the remainder with
+			// blanks: the pane stayed the right shape and the content
+			// vanished. Measure the content, not the frame.
+			assert.Equal(t, w, lipgloss.Width(strings.TrimRight(got, " ")),
+				"truncation spends the budget on content, not on blanks: src=%q w=%d got=%q", src, w, got)
 		}
 	}
 }
@@ -839,12 +846,18 @@ func TestPadCell_DividerHoldsItsColumnOverColouredRows(t *testing.T) {
 	}
 	const rosterW, feedW = 22, 58
 	for i, r := range rows {
-		line := padCell(r, rosterW) + "│" + padCell(rows[len(rows)-1-i], feedW)
+		cell := padCell(r, rosterW)
+		line := cell + "│" + padCell(rows[len(rows)-1-i], feedW)
 		assertTerminatedEscapes(t, line, "row %d", i)
-		assert.Equal(t, rosterW, lipgloss.Width(padCell(r, rosterW)),
-			"row %d roster cell is off its column", i)
 		assert.Equal(t, rosterW+feedW+1, lipgloss.Width(line),
 			"row %d total width shifted: %q", i, line)
+		if lipgloss.Width(r) > rosterW {
+			assert.Equal(t, rosterW, lipgloss.Width(strings.TrimRight(cell, " ")),
+				"row %d was truncated to blanks rather than to content: %q", i, cell)
+		} else {
+			assert.Equal(t, lipgloss.Width(r), lipgloss.Width(strings.TrimRight(cell, " ")),
+				"row %d that fits must survive intact: %q", i, cell)
+		}
 	}
 }
 

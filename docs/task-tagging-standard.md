@@ -178,6 +178,42 @@ actually happen?** Then find the tier that names that consequence.
 
 ---
 
+## Recording an audit verdict — `triage:verdict:` and `triage:audited:`
+
+A backlog audit asks two questions of an old task: is the claim still TRUE, and
+does it still MATTER. Those are different, and the second is the one that gets
+missed — a task can be perfectly accurate about a subsystem nobody ships any
+more. The answer is a tag so it can be QUERIED; the reasoning goes in the task
+body, exactly as the level is a number and this document is its legend.
+
+| `triage:verdict=` | Means |
+|---|---|
+| `holds` | still true AND still matters |
+| `phantom` | already fixed, or the code it names no longer exists |
+| `obsolete` | still literally true, but no longer matters — the component was retired, the decision reversed, the approach superseded |
+| `partial` | some clauses landed, some remain |
+| `unclear` | could not be settled; says what would settle it |
+
+`triage:audited=<YYYYMMDD>` records WHEN. It is a plain integer for the same
+reason the level is: it compares. `--tag-query 'triage:audited<20260801'` finds
+verdicts old enough to distrust, which a date string could never answer. A
+verdict without a date is a claim with no expiry.
+
+The pairing is what makes the close list a query rather than a reading exercise:
+
+```
+taskloom list --tag-query 'triage:verdict=phantom'    # what can be closed
+taskloom list --tag-query 'triage:verdict=obsolete'   # what stopped mattering
+taskloom list --tag-query 'triage:verdict=unclear'    # what needs a human
+```
+
+Both are declared, so both are enforced at WRITE time: a misspelled verdict or
+an impossible date is refused when you tag, naming the declared values. Neither
+is rated — do not put a `triage:level` on a `phantom` or an `obsolete` task,
+because rating a dead row launders it into a live-looking one.
+
+---
+
 ## Locating the work — `touches:` and `sig:`
 
 The level says how bad it is. These say WHERE it is, and they answer two

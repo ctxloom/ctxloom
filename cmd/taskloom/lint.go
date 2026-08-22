@@ -34,9 +34,13 @@ default) so the check always matches what THIS project actually declares:
     the write-seam already collapses those — but foreign or hand-edited log
     data might still carry it)
 
-This is READ-TIME and ADVISORY ONLY: unlike the scalar-collapse taskloom
-enforces the moment you tag a task, lint never blocks a write. Run it in CI to
-catch drift — it exits non-zero when any violation is found.`,
+Lint never blocks a write; it is READ-TIME. But it is a BACKSTOP, not the only
+check: taskloom's write seam already refuses an out-of-enum or out-of-range
+value the moment you tag, naming the declared set, and already collapses an
+arity=scalar target. So a violation reaching lint means the data did not come in
+through taskloom — a hand-edited log, an import, or a schema that changed after
+the tag was written. Run it in CI to catch exactly that drift; it exits non-zero
+when any violation is found.`,
 	Example: `  taskloom lint
   taskloom lint --json`,
 	Args: cobra.NoArgs,

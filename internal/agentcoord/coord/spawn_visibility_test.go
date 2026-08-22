@@ -199,12 +199,23 @@ func TestAgentRun_APromptSpawnNeverReportsItselfStuck(t *testing.T) {
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	warnings := captureWarnings(t)
+	// A mutex-guarded sink, not captureWarnings' bare bytes.Buffer: the
+	// writer here would be the watchdog's own goroutine, so reading a plain
+	// buffer is only safe while the bug is absent — exactly backwards for a
+	// test whose job is to notice the bug.
+	sink := &signallingSink{seen: make(chan string, 4)}
+	restore := clidiag.SetSink(sink)
+	defer restore()
+
 	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
 
-	assert.NotContains(t, warnings.String(), "not registered yet",
-		"an ordinary spawn is well inside the notice budget and must stay silent")
+	select {
+	case line := <-sink.seen:
+		assert.NotContains(t, line, "not registered yet",
+			"an ordinary spawn is well inside the notice budget and must stay silent")
+	default:
+	}
 	assert.Empty(t, readAuditKind(t, c, "agent_run.pending"),
 		"and journals no pending fact")
 }

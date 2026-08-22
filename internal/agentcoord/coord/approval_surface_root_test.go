@@ -21,6 +21,15 @@ import (
 // tests exist to keep out: they run a GRANDCHILD, because a depth-1 child
 // cannot tell the two harps apart and so cannot fail either way.
 
+// parkedLongEnough is the rung timeout these tests give the park. It is
+// deliberately far longer than conformanceWait: the timeout firing is not
+// this file's subject (surface_to_human_test.go's TestApproval_
+// SurfaceToHumanTimeout owns that), and every assertion here happens WHILE
+// the approval is parked — three refusals, each re-reading the audit journal
+// off disk. Sizing that window at the ordinary conformance wait would make
+// these tests fail under nothing worse than a loaded box.
+const parkedLongEnough = 90 * time.Second
+
 // surfaceGrandchildSpawner is relayGrandchildSpawner's sibling with a
 // SURFACE_TO_HUMAN ladder: agent "worker" spawned twice, the second spawn (the
 // grandchild) asking for permission, so exactly one approval walks the ladder
@@ -76,7 +85,7 @@ func approvalDecisionJSON(t *testing.T, decision string) json.RawMessage {
 // authorization rather than of plumbing.
 func TestApproval_SurfaceToHumanAtDepthTwo_OnlyTheRootSessionMayAnswer(t *testing.T) {
 	resetStrictness(t)
-	sp := surfaceGrandchildSpawner(conformanceWait, commandExecRequest("perm-1"))
+	sp := surfaceGrandchildSpawner(parkedLongEnough, commandExecRequest("perm-1"))
 	c := newTestCoordinatorDepthCap(t, sp, nil, relayGenerationDepth)
 
 	parked := make(chan PendingApproval, 1)
@@ -160,7 +169,7 @@ func TestApproval_SurfaceToHumanAtDepthTwo_OnlyTheRootSessionMayAnswer(t *testin
 // agent answers it and the root may not.
 func TestApproval_RelayToRoleAtDepthTwo_StillTargetsTheDirectParent(t *testing.T) {
 	resetStrictness(t)
-	sp := relayGrandchildSpawner(conformanceWait, commandExecRequest("perm-1"))
+	sp := relayGrandchildSpawner(parkedLongEnough, commandExecRequest("perm-1"))
 	c := newTestCoordinatorDepthCap(t, sp, nil, relayGenerationDepth)
 
 	middle, grandchild, _ := spawnRelayGenerations(t, c, sp)

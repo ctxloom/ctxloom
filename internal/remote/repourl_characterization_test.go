@@ -149,6 +149,18 @@ func repoURLCases() []repoURLCase {
 		{name: "scp trailing slash", in: "git@github.com:owner/repo/",
 			identity: "https://github.com/owner/repo", transport: "git@github.com:owner/repo",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote, scpTransportDiffers: true},
+		// Git's scp syntax is "[user@]host:path" for ANY user, not just "git".
+		// gitolite and gerrit conventionally use their own, and classifying
+		// those as an opaque local path is fail-open at the trust gate: local
+		// is the auto-trusted classification, so an untrusted remote would be
+		// admitted without a trust decision. They must reach SourceKindRemote
+		// and produce a real cache dir, exactly as the "git" user does.
+		{name: "scp non-git user", in: "forge@gitlab.example.com:group/repo.git",
+			identity: "https://gitlab.example.com/group/repo.git", transport: "forge@gitlab.example.com:group/repo.git",
+			cacheDir: "/base/gitlab.example.com/group/repo", kind: SourceKindRemote, scpTransportDiffers: true},
+		{name: "scp gerrit-style user", in: "gerrit@review.example.org:platform/core",
+			identity: "https://review.example.org/platform/core", transport: "gerrit@review.example.org:platform/core",
+			cacheDir: "/base/review.example.org/platform/core", kind: SourceKindRemote, scpTransportDiffers: true},
 
 		// --- non-http transports: byte-preserved ------------------------------
 		// These name repositories that REALLY EXIST, so their trust keys must

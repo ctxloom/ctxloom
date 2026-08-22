@@ -54,7 +54,8 @@ type repoURLForm int
 const (
 	// formURL: an explicit scheme, "https://github.com/owner/repo".
 	formURL repoURLForm = iota
-	// formSCP: git's scp-like syntax, "git@github.com:owner/repo".
+	// formSCP: git's scp-like syntax, "[user@]host:path" for any user —
+	// "git@github.com:owner/repo", "forge@gitlab.example.com:group/repo".
 	formSCP
 	// formShorthand: "owner/repo" — GitHub shorthand.
 	formShorthand
@@ -138,6 +139,31 @@ func shorthandFirstSegment(token string) bool {
 	return ok && first != "" && !strings.Contains(first, ".")
 }
 
+// isSCPForm reports whether raw is git's scp-like syntax, "[user@]host:path".
+//
+// The user is ANY user, not "git". gitolite and gerrit conventionally use
+// their own ("forge@gitlab.example.com:group/repo.git"), and a host-prefix
+// test for "git@" classifies those as an opaque local path instead of a
+// remote — which is fail-open at the trust gate, since a local path is the
+// auto-trusted classification.
+//
+// The discriminator is POSITIONAL: scp form puts the "@" before the ":".
+// Strings like "ctxloom:local@bundles/x" put the ":" first and must stay
+// opaque, which is what the "@"-bearing arm below exists to protect. A form
+// carrying no ":" at all is not scp either, and falls through to that same
+// arm.
+//
+// Callers must test "://" first: a scheme URL can carry userinfo
+// ("https://user:pw@host/path") and is not scp form.
+func isSCPForm(raw string) bool {
+	at := strings.Index(raw, "@")
+	if at < 0 {
+		return false
+	}
+	colon := strings.Index(raw, ":")
+	return colon > at
+}
+
 // ParseRepoURL parses a repository URL into the one representation every
 // consumer renders from. It errors only on empty input; every other string is
 // classified into some form, because the callers it replaces were all total
@@ -183,7 +209,7 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		r.path, r.gitSuffix = trimPathSuffixes(u.Path)
 		return r, nil
 
-	case strings.HasPrefix(raw, "git@"):
+	case isSCPForm(raw):
 		user, rest, _ := strings.Cut(raw, "@")
 		host, path, ok := strings.Cut(rest, ":")
 		if !ok || host == "" || path == "" {

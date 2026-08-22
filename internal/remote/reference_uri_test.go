@@ -145,8 +145,21 @@ func TestIsSelfContainedRef_KnowsEveryCanonicalClass(t *testing.T) {
 	assert.True(t, IsSelfContainedRef("ctxloom:companion@ltk"))
 	assert.True(t, IsSelfContainedRef("https://github.com/acme/repo@bundles/dev"))
 	assert.True(t, IsSelfContainedRef("git@github.com:acme/repo@bundles/dev"))
+
+	// Git's scp syntax is "[user@]host:path" for ANY user. A guard testing
+	// "git@" alone read a gitolite/gerrit ref as a bare SHORT ref and expanded
+	// it against the containing source — a remote silently re-homed as
+	// first-party, which is the wrong direction for a guard to fail.
+	assert.True(t, IsSelfContainedRef("forge@gitlab.example.com:group/repo@bundles/dev"),
+		"any scp user names a remote, not a short same-repo ref")
+	assert.True(t, IsSelfContainedRef("gerrit@review.example.org:platform/core@bundles/dev"))
+
 	assert.False(t, IsSelfContainedRef("dev"))
 	assert.False(t, IsSelfContainedRef("lang/go"))
+	// "@" with no ":" is a versioned short ref, not scp form, and must stay
+	// expandable against its source.
+	assert.False(t, IsSelfContainedRef("demo@v1"),
+		"a short ref carrying a version is not an scp URL")
 }
 
 // TestCanonicalBundleRef_UnparseableSourceErrorsRatherThanBecomingLocal is the

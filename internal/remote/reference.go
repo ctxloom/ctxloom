@@ -143,7 +143,13 @@ func IsSelfContainedRef(ref string) bool {
 	case refuri.HasScheme(ref),
 		strings.HasPrefix(ref, LocalSource+"@"),
 		strings.HasPrefix(ref, CompanionSource+"@"),
-		strings.HasPrefix(ref, "git@"),
+		// Any scp user, not just "git" — the sentinel arms above already
+		// claim the "ctxloom:...@" spellings, which isSCPForm declines
+		// anyway because their ":" precedes their "@". Testing "git@" alone
+		// classified a gitolite or gerrit ref as a SHORT same-repo ref, so
+		// it was expanded against the containing source instead of being
+		// read as the remote it names.
+		isSCPForm(ref),
 		strings.Contains(ref, "://"):
 		return true
 	default:

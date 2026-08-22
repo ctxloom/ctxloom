@@ -227,6 +227,8 @@ func TestManageCheck_CapabilityLoss_StaysQuietWhenNothingIsLost(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, out, "Project:", "precondition: the wiring report itself rendered, so the silence below is about the loss section")
+	assert.NotContains(t, out, "Capability loss",
+		"not even the HEADING may appear: a labelled section over an empty list is the shape that teaches readers to skip the line that matters:\n"+out)
 	assert.NotContains(t, out, "NOT carried",
 		"claude-code carries this fixture's hooks; a loss section here would be a false alarm:\n"+out)
 	assert.NotContains(t, out, "no hook mechanism", out)

@@ -11,6 +11,8 @@ package backends
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,4 +181,40 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 	assert.Empty(t, assembled.Wire().Unified.PreTool, "a denied bundle-shipped profile hook must be withheld from the produced settings, not merely fail silently in a way that still ships it")
+}
+
+// TestGateProfileHooks_EveryUnifiedEventSurvivesAnAllowingGate closes a gap the
+// other tests in this file cannot see: gateProfileHooks REBUILDS the unified
+// set from a hand-written literal, one `keep(...)` line per event. An event
+// missing from that literal is not a compile error and not a gate DENY — it is
+// a hook the user declared, the gate approved, and the writer never receives.
+// It looks exactly like fail-closed behaviour and is not.
+//
+// Reflection over wire.UnifiedHooks rather than a list of events, for the usual
+// reason: the list is the thing that goes stale.
+func TestGateProfileHooks_EveryUnifiedEventSurvivesAnAllowingGate(t *testing.T) {
+	typ := reflect.TypeOf(wire.UnifiedHooks{})
+	ref := profileGateRef{Base: "my-local-profile"}
+
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		event := strings.Split(field.Tag.Get("yaml"), ",")[0]
+		t.Run(event, func(t *testing.T) {
+			var u wire.UnifiedHooks
+			cmd := "cmd-" + event
+			reflect.ValueOf(&u).Elem().Field(i).Set(reflect.ValueOf([]wire.Hook{{Command: cmd, Type: "command"}}))
+
+			var gotRefs []string
+			out := gateProfileHooks(ref, wire.HooksConfig{Unified: u}, recordingAuthorizer(true, &gotRefs))
+
+			got, _ := reflect.ValueOf(out.Unified).Field(i).Interface().([]wire.Hook)
+			require.Lenf(t, got, 1,
+				"an ALLOWED %s hook was dropped by gateProfileHooks — it is missing from the rebuild literal, and the loss reads as a trust denial", field.Name)
+			assert.Equal(t, cmd, got[0].Command)
+
+			require.Len(t, gotRefs, 1, "the gate must be consulted exactly once for the hook")
+			assert.Equal(t, "ctxloom+local:my-local-profile#hooks/"+event+"/0", gotRefs[0],
+				"the gate identity must name the hook's own event")
+		})
+	}
 }

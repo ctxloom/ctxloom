@@ -31,7 +31,7 @@ ctxloom manage hooks list [flags]
 ### Options
 
 ```
-      --event string      Report only this lifecycle event (pre_tool, post_tool, session_start, session_end, pre_shell, post_file_edit)
+      --event string      Report only this lifecycle event (pre_tool, post_tool, session_start, session_end, pre_shell, post_file_edit, turn_end)
       --profile strings   Resolve against these profiles instead of the configured defaults (repeatable)
 ```
 

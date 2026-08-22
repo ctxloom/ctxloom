@@ -55,10 +55,10 @@ func TestResolveHooks_ReportsFinalOrderPerEvent(t *testing.T) {
 	assert.Equal(t, want, got, "the reported order must be the FINAL resolved order")
 }
 
-// Every one of the six events must be reported, including the empty ones. An
+// Every one of the seven events must be reported, including the empty ones. An
 // event omitted because it is empty reads as "ctxloom did not look", and the
 // question the user asked — what runs on session_end? — goes unanswered.
-func TestResolveHooks_ReportsAllSixEventsEvenWhenEmpty(t *testing.T) {
+func TestResolveHooks_ReportsAllEventsEvenWhenEmpty(t *testing.T) {
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
 		ConfigLoader: func() (*config.Config, error) {
 			return cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{{Type: "command", Command: "x"}}}), nil
@@ -73,6 +73,7 @@ func TestResolveHooks_ReportsAllSixEventsEvenWhenEmpty(t *testing.T) {
 	}
 	assert.Equal(t, []string{
 		"pre_tool", "post_tool", "session_start", "session_end", "pre_shell", "post_file_edit",
+		"turn_end",
 	}, events)
 }
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 func hookOrderP(v int) *int { return &v }
@@ -151,4 +153,48 @@ func TestExtractHooksFromBundle_OrderIsConsumedAndNeverSerialized(t *testing.T) 
 	require.NoError(t, err)
 	assert.NotContains(t, string(yamlEncoded), "4242",
 		"the order VALUE leaked into a hook's YAML form:\n%s", yamlEncoded)
+}
+
+// TestCompanionGating_CoversEveryUnifiedEvent pins the two hand-written
+// per-event literals in this file's production twin. Both rebuild or walk the
+// event set by hand, and an event missing from either is silent:
+// filterMissingCompanionHooks would return that event EMPTY whether or not the
+// companion is installed (every hook the user declared there, gone, with no
+// warning), and builtinBundleCompanionMissing would report a bundle as
+// installable whose only hook needs a binary that is not there.
+//
+// Reflection over the struct rather than a list of events, because the list is
+// the part that goes stale.
+func TestCompanionGating_CoversEveryUnifiedEvent(t *testing.T) {
+	unifiedType := reflect.TypeOf(wire.UnifiedHooks{})
+	for i := 0; i < unifiedType.NumField(); i++ {
+		name := unifiedType.Field(i).Name
+		t.Run("filterMissingCompanionHooks/"+name, func(t *testing.T) {
+			var in wire.UnifiedHooks
+			// `ctxloom ...` is never treated as a companion, so an installed
+			// PATH is not needed to prove the event is carried through.
+			reflect.ValueOf(&in).Elem().Field(i).
+				Set(reflect.ValueOf([]wire.Hook{{Command: "ctxloom hook stamp-plan", Type: "command"}}))
+
+			out := filterMissingCompanionHooks(in)
+			got, _ := reflect.ValueOf(out).Field(i).Interface().([]wire.Hook)
+			require.Lenf(t, got, 1,
+				"filterMissingCompanionHooks drops every %s hook — the event is missing from its rebuild literal", name)
+		})
+	}
+
+	bundleType := reflect.TypeOf(bundles.BundleHooks{})
+	for i := 0; i < bundleType.NumField(); i++ {
+		name := bundleType.Field(i).Name
+		t.Run("builtinBundleCompanionMissing/"+name, func(t *testing.T) {
+			var h bundles.BundleHooks
+			reflect.ValueOf(&h).Elem().Field(i).Set(reflect.ValueOf(
+				[]bundles.BundleHook{{Command: "definitely-not-on-path-9c02af run", Type: "command"}}))
+
+			bin, missing := builtinBundleCompanionMissing(&bundles.Bundle{Hooks: h})
+			require.Truef(t, missing,
+				"builtinBundleCompanionMissing never looks at %s, so a bundle whose only hook needs an absent binary reports as ready", name)
+			assert.Equal(t, "definitely-not-on-path-9c02af", bin)
+		})
+	}
 }

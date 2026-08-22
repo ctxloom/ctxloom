@@ -255,3 +255,71 @@ func TestRemoveSettings(t *testing.T) {
 	assert.NotContains(t, gotHooks, "SessionStart", "ctxloom hook removed")
 	assert.Contains(t, gotHooks, "Stop", "user hook preserved")
 }
+
+// TestWriteSettings_TurnEndReachesStop asserts the unified turn_end event lands
+// in codex's native Stop table in the BYTES of config.toml, and carries no
+// matcher. The file is read back and decoded rather than the writer's return
+// checked: a writer that reports success and emits nothing is this codebase's
+// characteristic failure.
+func TestWriteSettings_TurnEndReachesStop(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &CodexHookWriter{FS: fs}
+	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		TurnEnd: []wire.Hook{{Command: "scripts/hooks/verify-and-track.sh", Type: "command", Timeout: 15}},
+	}}
+	require.NoError(t, w.writeSettingsIn(hooks, nil, "/proj", ""))
+
+	raw, err := afero.ReadFile(fs, codexConfigPath("/proj"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "scripts/hooks/verify-and-track.sh")
+
+	cfg := readConfig(t, fs, codexConfigPath("/proj"))
+	groups := asSlice(asMap(cfg["hooks"])["Stop"])
+	require.Len(t, groups, 1, "turn_end must be written under codex's Stop table")
+
+	group := asMap(groups[0])
+	require.NotNil(t, group)
+	assert.NotContains(t, group, "matcher", "codex forces the matcher to None on Stop")
+
+	entries := asSlice(group["hooks"])
+	require.Len(t, entries, 1)
+	entry := asMap(entries[0])
+	assert.Equal(t, "scripts/hooks/verify-and-track.sh", entry["command"])
+	assert.Equal(t, "command", entry["type"])
+	assert.EqualValues(t, 15, entry["timeout"])
+}
+
+// A matcher the user wrote on turn_end never reaches config.toml. codex's
+// matcher_pattern_for_event forces it to None before hashing, so writing it
+// would put text in the file that the seeded trust record does not cover —
+// hooktrust.go's matcherlessHookEvents already declares `stop` matcherless, and
+// this is the write side agreeing with it.
+func TestWriteSettings_TurnEndMatcherDropped(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &CodexHookWriter{FS: fs}
+	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		TurnEnd: []wire.Hook{{Matcher: "Bash", Command: "closeout"}},
+	}}
+	require.NoError(t, w.writeSettingsIn(hooks, nil, "/proj", ""))
+
+	raw, err := afero.ReadFile(fs, codexConfigPath("/proj"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "Bash", "the matcher must not be written")
+
+	cfg := readConfig(t, fs, codexConfigPath("/proj"))
+	group := asMap(asSlice(asMap(cfg["hooks"])["Stop"])[0])
+	assert.NotContains(t, group, "matcher")
+	assert.Equal(t, "closeout", asMap(asSlice(group["hooks"])[0])["command"])
+}
+
+// The trust-seeding tables already cover Stop — hookEventKeyLabels maps it to
+// the "stop" label and matcherlessHookEvents declares that label matcherless.
+// Asserted rather than assumed: routing turn_end at an event those tables did
+// not know would seed a record codex never matches, which looks written and
+// trusts nothing.
+func TestTurnEndTargetEventIsSeedable(t *testing.T) {
+	label, known := hookEventKeyLabels["Stop"]
+	require.True(t, known, "codex's Stop must be a seedable event table")
+	assert.Equal(t, "stop", label)
+	assert.True(t, matcherlessHookEvents[label], "codex forces the matcher to None on stop")
+}

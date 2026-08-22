@@ -3,6 +3,7 @@ package profiles
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -63,4 +64,23 @@ func TestResolveProfile_DistinctHooksAllSurvive(t *testing.T) {
 		"a different matcher is a different hook: only an exact repeat collapses")
 	require.Len(t, r.Hooks.Unified.SessionStart, 1,
 		"the same command on another lifecycle is its own hook, not a duplicate of the pre_tool one")
+}
+
+// TestProfile_HasContent_CountsEveryUnifiedHookEvent closes the last hand-written
+// sum in the unified-hook seam. HasContent decides whether a profile "selects
+// anything"; a profile whose only content is a hook on an event missing from
+// that sum is judged EMPTY, and the loader's strictness arm rejects it with
+// "profile selects nothing" — for a profile that plainly does.
+func TestProfile_HasContent_CountsEveryUnifiedHookEvent(t *testing.T) {
+	typ := reflect.TypeOf(wire.UnifiedHooks{})
+	for i := 0; i < typ.NumField(); i++ {
+		name := typ.Field(i).Name
+		t.Run(name, func(t *testing.T) {
+			var u wire.UnifiedHooks
+			reflect.ValueOf(&u).Elem().Field(i).Set(reflect.ValueOf([]wire.Hook{{Command: "x", Type: "command"}}))
+			p := &Profile{Hooks: wire.HooksConfig{Unified: u}}
+			assert.Truef(t, p.HasContent(),
+				"a profile whose only content is a %s hook must have content, or the loader refuses it as selecting nothing", name)
+		})
+	}
 }

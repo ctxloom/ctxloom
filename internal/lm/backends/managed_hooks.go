@@ -124,7 +124,7 @@ type ResolvedHook struct {
 }
 
 // BackendNativeHooks is one backend-native (plugin passthrough) event's hooks.
-// These bypass the six unified events entirely, so they are kept — and reported
+// These bypass the seven unified events entirely, so they are kept — and reported
 // — separately: folding them in would imply an ordering relationship with
 // unified hooks that does not exist.
 type BackendNativeHooks struct {
@@ -155,7 +155,7 @@ type ManagedHooks struct {
 	plugins map[string]map[string][]ResolvedHook
 }
 
-// HookEvents returns the six unified lifecycle event names in canonical order —
+// HookEvents returns the seven unified lifecycle event names in canonical order —
 // bundles' own hook-identity order, so a reader comparing this against a
 // bundle's hooks does not have to re-map anything. A fresh slice each call:
 // callers range over it, and a shared package-level slice is one stray
@@ -164,10 +164,11 @@ func HookEvents() []string {
 	return []string{
 		bundles.HookEventPreTool, bundles.HookEventPostTool, bundles.HookEventSessionStart,
 		bundles.HookEventSessionEnd, bundles.HookEventPreShell, bundles.HookEventPostFileEdit,
+		bundles.HookEventTurnEnd,
 	}
 }
 
-// IsHookEvent reports whether name is one of the six unified events.
+// IsHookEvent reports whether name is one of the seven unified events.
 func IsHookEvent(name string) bool {
 	for _, e := range HookEvents() {
 		if e == name {
@@ -427,7 +428,7 @@ func (m *ManagedHooks) mergeHooks(src wire.HooksConfig, attribute hookAttributor
 	}
 }
 
-// mergeUnified merges the six unified events.
+// mergeUnified merges the seven unified events.
 func (m *ManagedHooks) mergeUnified(u wire.UnifiedHooks, attribute hookAttributor) {
 	for _, event := range HookEvents() {
 		hooks := unifiedEventHooks(u, event)
@@ -452,7 +453,7 @@ func (m *ManagedHooks) resolve(hooks []wire.Hook, base int, attribute hookAttrib
 }
 
 // unifiedEventHooks selects one event's slice. A switch rather than reflection
-// so a seventh event added to wire.UnifiedHooks and not added here is a hole a
+// so an eighth event added to wire.UnifiedHooks and not added here is a hole a
 // reader can see — and TestManagedHooks_EveryUnifiedEventIsCovered makes it a
 // failing test rather than a silently absent row in every hook report.
 func unifiedEventHooks(u wire.UnifiedHooks, event string) []wire.Hook {
@@ -469,6 +470,8 @@ func unifiedEventHooks(u wire.UnifiedHooks, event string) []wire.Hook {
 		return u.PreShell
 	case bundles.HookEventPostFileEdit:
 		return u.PostFileEdit
+	case bundles.HookEventTurnEnd:
+		return u.TurnEnd
 	}
 	return nil
 }
@@ -488,5 +491,7 @@ func setUnifiedEventHooks(u *wire.UnifiedHooks, event string, hooks []wire.Hook)
 		u.PreShell = hooks
 	case bundles.HookEventPostFileEdit:
 		u.PostFileEdit = hooks
+	case bundles.HookEventTurnEnd:
+		u.TurnEnd = hooks
 	}
 }

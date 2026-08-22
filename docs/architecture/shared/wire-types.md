@@ -2,7 +2,7 @@
 
 `internal/shared/wire` is the engine-agnostic vocabulary for the two things ctxloom delivers into every backend — lifecycle hooks and MCP server registrations — plus the three operations the assembly pipeline needs on them (merge, append, default-resolve). It is a true leaf: zero internal imports, twelve internal importers, two files, no cross-talk between them.
 
-The contract it owns: **these six types are simultaneously the on-disk config shape, the gRPC payload shape, and the input shape for every engine's native settings writer.** A field added here has to be threaded through four hand-written translation layers that no compiler check binds together.
+The contract it owns: **these types are simultaneously the on-disk config shape, the gRPC payload shape, and the input shape for every engine's native settings writer.** A field added here has to be threaded through four hand-written translation layers that no compiler check binds together.
 
 ```mermaid
 flowchart TD
@@ -56,18 +56,21 @@ One lifecycle action (shell command, prompt, or agent invocation) plus the metad
 | `ContextHash string` | `hooks.go:30` | never (`yaml:"-" json:"-" mapstructure:"-"`) | `internal/antigravity/antigravity.go:381`, `internal/kiro/settings.go:136` |
 | `PreToolFallback bool` | `hooks.go:38` | `pre_tool_fallback` | `internal/antigravity/antigravity.go:388` only |
 
-### `UnifiedHooks` — `internal/shared/wire/hooks.go:42`
+### `wire.UnifiedHooks`
 
-The backend-agnostic six-event bundle. All six are `[]Hook` and are only ever touched as a group.
+The backend-agnostic seven-event bundle. All seven are `[]Hook` and are only ever touched as a group. The `file:line` column is gone from this table deliberately: every number in it was wrong, and a stale line misleads silently where a stale symbol name fails loud.
 
-| Field | file:line | Serialized as |
-|---|---|---|
-| `PreTool` | `hooks.go:43` | `pre_tool` |
-| `PostTool` | `hooks.go:44` | `post_tool` |
-| `SessionStart` | `hooks.go:45` | `session_start` |
-| `SessionEnd` | `hooks.go:46` | `session_end` |
-| `PreShell` | `hooks.go:47` | `pre_shell` |
-| `PostFileEdit` | `hooks.go:48` | `post_file_edit` |
+| Field | Serialized as (yaml and json alike) |
+|---|---|
+| `PreTool` | `pre_tool` |
+| `PostTool` | `post_tool` |
+| `SessionStart` | `session_start` |
+| `SessionEnd` | `session_end` |
+| `TurnEnd` | `turn_end` |
+| `PreShell` | `pre_shell` |
+| `PostFileEdit` | `post_file_edit` |
+
+`TurnEnd` sits beside `SessionEnd` in the struct but is APPENDED to `bundles.hookEventOrder`, not slotted in beside it: that slice is the enumeration order a bundle hook's trust identity is reported in, and reordering it would move every hook report against a baselined one.
 
 ### `HooksConfig` — `internal/shared/wire/hooks.go:52`
 
@@ -109,8 +112,8 @@ The persisted MCP document.
 
 | Function | file:line | Purpose | Call sites |
 |---|---|---|---|
-| `(HooksConfig).HasAny() bool` | `internal/shared/wire/hooks.go:59` | True if any of the six unified slices (`:61`) or any plugin event slice is non-empty. "Plugin present but empty" is a distinguished case | 1 production: `internal/config/config_save.go:288`. Note `internal/config/config_bundles.go:650` calls a *different* method, `bundles.BundleHooks.HasAny` (`internal/bundles/bundles.go:165`) |
-| `(*UnifiedHooks).Append(other UnifiedHooks)` | `internal/shared/wire/hooks.go:79` | Concatenates each of the six per-event slices from `other` onto the receiver (`:80-85`) | 5 production: `internal/config/config_bundles.go:262,270,289,468`, `internal/lm/backends/managed.go:279` |
+| `(HooksConfig).HasAny() bool` | `internal/shared/wire/hooks.go:59` | True if any of the seven unified slices or any plugin event slice is non-empty. "Plugin present but empty" is a distinguished case | 1 production: `internal/config/config_save.go:288`. Note `internal/config/config_bundles.go:650` calls a *different* method, `bundles.BundleHooks.HasAny` (`internal/bundles/bundles.go:165`) |
+| `(*UnifiedHooks).Append(other UnifiedHooks)` | `internal/shared/wire/hooks.go:79` | Appends each of the seven per-event slices from `other` onto the receiver, skipping any hook the event already carries | 5 production: `internal/config/config_bundles.go:262,270,289,468`, `internal/lm/backends/managed.go:279` |
 | `(*MCPConfig).ShouldAutoRegisterCtxloom() bool` | `internal/shared/wire/mcp.go:35` | Resolves the tri-state, defaulting true; **nil-receiver safe** | 7 production: `internal/codex/settings.go:443`, `internal/claude/claude.go:695`, `internal/opencode/settings.go:445`, `internal/operations/manage.go:125`, `internal/operations/mcp_servers.go:57`, `internal/shared/agent/chat_mcp.go:38`, `internal/shared/agent/mcpfile.go:86` |
 | `MergeMCPConfig(dest, src *MCPConfig)` | `internal/shared/wire/mcp.go:49` | Merges `src` into `dest` — later wins per server name — deep-copying each server via `cloneMCPServer` (`:64`, `:76`). Guard at `:50`; `AutoRegisterCtxloom` assigned at `:56`; maps allocated at `:60-70` | 6 production: `internal/profiles/profiles.go:852,935`, `internal/config/config_resolve.go:164`, `internal/lm/backends/managed.go:128,134,146`, `internal/shared/agent/base_lifecycle.go:55` |
 | `cloneMCPServer(s MCPServer) MCPServer` | `internal/shared/wire/mcp.go:84` | Copies an `MCPServer`, duplicating `Args` and `Env` so the copy never aliases | 2, both in-file. Semantically identical twins exist at `internal/config/accessors.go:120` and, as proto converters, at `internal/lm/grpc/managed.go:204-227` |
@@ -143,11 +146,11 @@ The persisted MCP document.
 - `dest.Servers` and `dest.Plugins` are allocated **unconditionally** (`mcp.go:60-70`), so merging an empty-but-non-nil `src` converts "nil = nothing declared" into "empty map = declared, empty". That distinction is read elsewhere: `internal/config/config_resolve.go:247`, `internal/operations/mcp_servers.go:263,276`, and `internal/lm/grpc/managed.go:228-232` (whose doc explicitly preserves nil to match the host's "no bundle servers" shape).
 - `ShouldAutoRegisterCtxloom`'s **nil-receiver safety is load-bearing**: `internal/shared/agent/chat_mcp.go:38` calls it before its own `if mcp != nil` guard at line 41.
 - `UnifiedHooks.Append(UnifiedHooks{})` is a correct no-op; whether zero hooks is an error is decided by the caller (`ResolveBundleHooks`), not here.
-- **The hooks half has no merge primitive in this package.** `MergeHooksConfig` lives at `internal/shared/agent/context_hooks.go:89-114` and its lines 95-100 duplicate `Append`'s six `append` calls verbatim, while the MCP twin (`MergeMCPConfig`) lives here. `MergeHooksConfig` has no config coupling — it references only `wire` types.
+- **The hooks half now HAS its merge primitive here.** `wire.HooksConfig.Append` owns the rule, unified half and plugin half alike, and dedups on the hook's whole executable content scoped to its event. `agent.MergeHooksConfig` no longer re-spells those appends — it delegates, and adds only the diagnostic wire cannot emit (a nil destination reports the SIZE of what it dropped). That collapse is what `TestMergeHooksConfig_UnifiedHalfMatchesWireAppend` was written to make provably behaviour-preserving.
 
 **Shape limits**
 
 - `MCPServer` can express **only a stdio (command) server**. Remote MCP exists end-to-end through a second, parallel type — `internal/shared/agent.ChatMCPServer` (`chat.go:248-267`) with `Transport`/`URL`/`Headers`, consumed by `internal/opencode/settings.go:133-135` and `internal/acp/session.go:524` — but everything sourced from config, profiles, or bundles goes through `ComposeChatMCPServers` (`internal/shared/agent/chat_mcp.go:33-35`), which always builds the stdio form. Two MCP representations coexist with asymmetric capability.
 - `ComposeChatMCPServers` passes `s.Env` through **without cloning**, bypassing the aliasing protection `MergeMCPConfig` provides. `internal/agentcoord/coord/enginehost.go:665-681` then writes into `servers[i].Env`; it is safe only because the mutation targets the entry named `agent.MCPServerName`, which is constructed with a nil `Env` and gets a fresh map.
-- Three of eight `Hook` fields are silently ignored by most consumers, and **no consumer declares which fields it honours**. Adding a seventh unified event means editing roughly eight places: this type, the proto `UnifiedHooks` (`internal/lm/grpc/llm.proto:464-471`), the JSON Schema `unifiedHooks` def, and the six-way switch in every engine writer.
+- Three of eight `Hook` fields are silently ignored by most consumers, and **no consumer declares which fields it honours**. Adding a unified event is not a one-line change: `turn_end`, the seventh, touched this type, `bundles.BundleHooks` plus its const/`hookEventOrder`/`eventHooks`/`(*reader).appendHook`, the proto `UnifiedHooks` message, the JSON Schema `unifiedHooks` def, `backends.HookEvents`/`unifiedEventHooks`/`setUnifiedEventHooks`/`gateProfileHooks`, `config.extractHooksFromBundle`/`filterMissingCompanionHooks`/`builtinBundleCompanionMissing`, `convert.hookEvents`, `profiles.Profile.HasContent`, `agent.countHooks`, and each engine writer's route table. NONE of those is a compile error if missed — every one of them is a silent drop, which is why each is now covered by a test that reflects over the struct rather than re-listing the events.
 - `Hook`'s field set is connascent-by-algorithm with `bundles.BundleHook`, which hashes `Matcher+Type+Command+Prompt+PreToolFallback` as the signed preimage a trust grant binds to (`internal/bundles/bundles.go:632-641`), and with the proto `Hook` message. All three must gain a field together. **Two of the three legs are now enforced** — the parity sweep fails if `wire.Hook` gains a field the proto does not carry — but nothing binds the *preimage* leg, so a field added to `wire.Hook` and to the proto without being added to `ContentPayload` still passes CI.

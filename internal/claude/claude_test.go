@@ -1567,3 +1567,46 @@ func TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared(t *testing.T
 	assert.NotContains(t, string(after), companion,
 		"a companion hook ctxloom wrote and no longer declares must be withdrawn, not orphaned")
 }
+
+// TestClaudeCodeHookWriter_TurnEndReachesStop asserts the unified turn_end
+// event lands in claude-code's native Stop event in the BYTES of
+// .claude/settings.json — not in the writer's return value. A writer that
+// reports success and writes nothing is this codebase's characteristic bug, so
+// the settings file is read back and the command located inside it.
+//
+// No matcher: Stop has no tool to match against, and a matcher written there
+// would be inert.
+func TestClaudeCodeHookWriter_TurnEndReachesStop(t *testing.T) {
+	tmpDir := t.TempDir()
+	writer := &ClaudeCodeHookWriter{}
+
+	cfg := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		TurnEnd: []wire.Hook{{Command: "scripts/hooks/verify-and-track.sh", Type: "command", Timeout: 15}},
+	}}
+	require.NoError(t, writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir))
+
+	raw, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "scripts/hooks/verify-and-track.sh",
+		"the turn_end command must be present in the written settings file")
+
+	var settings map[string]any
+	require.NoError(t, json.Unmarshal(raw, &settings))
+	hooks, ok := settings["hooks"].(map[string]any)
+	require.True(t, ok, "settings carry a hooks object")
+
+	groups, ok := hooks["Stop"].([]any)
+	require.True(t, ok, "turn_end must be written under claude-code's Stop event, got events %v", keysOf(hooks))
+	require.Len(t, groups, 1)
+
+	group := groups[0].(map[string]any)
+	_, hasMatcher := group["matcher"]
+	assert.False(t, hasMatcher, "Stop takes no matcher")
+
+	entries := group["hooks"].([]any)
+	require.Len(t, entries, 1)
+	entry := entries[0].(map[string]any)
+	assert.Equal(t, "scripts/hooks/verify-and-track.sh", entry["command"])
+	assert.Equal(t, "command", entry["type"])
+	assert.Equal(t, float64(15), entry["timeout"])
+}

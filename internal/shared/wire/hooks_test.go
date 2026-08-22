@@ -1,6 +1,9 @@
 package wire
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestHooksConfig_HasAny(t *testing.T) {
 	tests := []struct {
@@ -56,32 +59,53 @@ func TestUnifiedHooks_Append(t *testing.T) {
 	}
 }
 
+// TestUnifiedHooks_Append_AllEvents is REFLECTION-DRIVEN over UnifiedHooks'
+// own fields rather than a hand-written list of them. Append's doc comment
+// names the exact drift this guards: a new unified event added to the struct
+// and not added to Append is dropped SILENTLY — it compiles, it merges, and the
+// hook simply never arrives. A hand-enumerated assertion cannot see that,
+// because the enumeration is the thing that went stale.
 func TestUnifiedHooks_Append_AllEvents(t *testing.T) {
-	dst := UnifiedHooks{}
-	src := UnifiedHooks{
-		PreTool:      []Hook{{Command: "pre-tool"}},
-		PostTool:     []Hook{{Command: "post-tool"}},
-		SessionStart: []Hook{{Command: "session-start"}},
-		SessionEnd:   []Hook{{Command: "session-end"}},
-		PreShell:     []Hook{{Command: "pre-shell"}},
-		PostFileEdit: []Hook{{Command: "post-file-edit"}},
+	typ := reflect.TypeOf(UnifiedHooks{})
+
+	var src UnifiedHooks
+	srcVal := reflect.ValueOf(&src).Elem()
+	for i := 0; i < typ.NumField(); i++ {
+		name := typ.Field(i).Name
+		srcVal.Field(i).Set(reflect.ValueOf([]Hook{{Command: "cmd-" + name}}))
 	}
 
+	var dst UnifiedHooks
 	dst.Append(src)
 
-	for _, c := range []struct {
-		name string
-		got  []Hook
-	}{
-		{"PreTool", dst.PreTool},
-		{"PostTool", dst.PostTool},
-		{"SessionStart", dst.SessionStart},
-		{"SessionEnd", dst.SessionEnd},
-		{"PreShell", dst.PreShell},
-		{"PostFileEdit", dst.PostFileEdit},
-	} {
-		if len(c.got) != 1 {
-			t.Errorf("%s len = %d, want 1", c.name, len(c.got))
+	dstVal := reflect.ValueOf(dst)
+	for i := 0; i < typ.NumField(); i++ {
+		name := typ.Field(i).Name
+		got, _ := dstVal.Field(i).Interface().([]Hook)
+		if len(got) != 1 {
+			t.Errorf("%s: len = %d, want 1 — Append does not carry this event", name, len(got))
+			continue
 		}
+		if got[0].Command != "cmd-"+name {
+			t.Errorf("%s: carried %q, want %q — Append crossed two events' slices", name, got[0].Command, "cmd-"+name)
+		}
+	}
+}
+
+// Every unified event on its own must make HasAny true. Same reflection
+// argument as above: HasAny is a hand-written sum, and an event missing from it
+// makes config Save() delete the whole `hooks` key from the user's file — a
+// silent loss of everything they wrote there, not just the new event.
+func TestHooksConfig_HasAny_EveryUnifiedEventCounts(t *testing.T) {
+	typ := reflect.TypeOf(UnifiedHooks{})
+	for i := 0; i < typ.NumField(); i++ {
+		name := typ.Field(i).Name
+		t.Run(name, func(t *testing.T) {
+			var u UnifiedHooks
+			reflect.ValueOf(&u).Elem().Field(i).Set(reflect.ValueOf([]Hook{{Command: "x"}}))
+			if !(HooksConfig{Unified: u}).HasAny() {
+				t.Errorf("a lone %s hook must make HasAny() true, or config Save() drops the entire hooks key", name)
+			}
+		})
 	}
 }

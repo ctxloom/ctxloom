@@ -47,6 +47,10 @@ type UnifiedHooks struct {
 	PostTool     []Hook `yaml:"post_tool,omitempty" json:"post_tool,omitempty"`
 	SessionStart []Hook `yaml:"session_start,omitempty" json:"session_start,omitempty"`
 	SessionEnd   []Hook `yaml:"session_end,omitempty" json:"session_end,omitempty"`
+	// TurnEnd fires when the agent finishes a turn — once per response, not
+	// once per session. It is the event a close-out contract needs: the point
+	// at which "did you update the docs / the task log" can still be acted on.
+	TurnEnd      []Hook `yaml:"turn_end,omitempty" json:"turn_end,omitempty"`
 	PreShell     []Hook `yaml:"pre_shell,omitempty" json:"pre_shell,omitempty"`
 	PostFileEdit []Hook `yaml:"post_file_edit,omitempty" json:"post_file_edit,omitempty"`
 }
@@ -61,7 +65,7 @@ type HooksConfig struct {
 // whether to emit the `hooks` key at all (vs. delete it from the file).
 func (h HooksConfig) HasAny() bool {
 	u := h.Unified
-	if len(u.PreTool)+len(u.PostTool)+len(u.SessionStart)+len(u.SessionEnd)+len(u.PreShell)+len(u.PostFileEdit) > 0 {
+	if len(u.PreTool)+len(u.PostTool)+len(u.SessionStart)+len(u.SessionEnd)+len(u.TurnEnd)+len(u.PreShell)+len(u.PostFileEdit) > 0 {
 		return true
 	}
 	for _, backend := range h.Plugins {
@@ -95,7 +99,7 @@ type BackendHooks map[string][]Hook
 // The hooks half of this vocabulary owns its merge rule here, alongside the
 // types it merges, for the same reason MergeMCPConfig does. A caller one layer
 // up that re-spells the same appends by hand drifts in one direction only: a
-// seventh unified event reaches Append and is silently dropped by the copy.
+// eighth unified event reaches Append and is silently dropped by the copy.
 // Callers that need to say something about a nil destination wrap this; the
 // wire package has no diagnostic channel and is not the place to decide that.
 func (h *HooksConfig) Append(other HooksConfig) {
@@ -121,6 +125,7 @@ func (u *UnifiedHooks) Append(other UnifiedHooks) {
 	u.PostTool = appendUniqueHooks(u.PostTool, other.PostTool)
 	u.SessionStart = appendUniqueHooks(u.SessionStart, other.SessionStart)
 	u.SessionEnd = appendUniqueHooks(u.SessionEnd, other.SessionEnd)
+	u.TurnEnd = appendUniqueHooks(u.TurnEnd, other.TurnEnd)
 	u.PreShell = appendUniqueHooks(u.PreShell, other.PreShell)
 	u.PostFileEdit = appendUniqueHooks(u.PostFileEdit, other.PostFileEdit)
 }

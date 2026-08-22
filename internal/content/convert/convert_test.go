@@ -342,16 +342,17 @@ func TestPlan_HooksKeepTheirEventBuckets(t *testing.T) {
 	}, byEvent, "every declared event must survive as its own bucket")
 }
 
-// Every one of the six events must convert. An event silently dropped by a
+// Every one of the seven events must convert. An event silently dropped by a
 // missing switch case is invisible: the tree still builds and the hooks simply
 // never fire.
-func TestPlan_EverySixHookEventsConverts(t *testing.T) {
+func TestPlan_EveryHookEventConverts(t *testing.T) {
 	one := []bundles.BundleHook{{Type: "command", Command: "x"}}
 	b := &bundles.Bundle{
 		Name: "vault",
 		Hooks: bundles.BundleHooks{
 			PreTool: one, PostTool: one, SessionStart: one,
 			SessionEnd: one, PreShell: one, PostFileEdit: one,
+			TurnEnd: one,
 		},
 	}
 	items, err := Plan("vault", b, Options{})
@@ -363,7 +364,7 @@ func TestPlan_EverySixHookEventsConverts(t *testing.T) {
 			events[h.Event] = true
 		}
 	}
-	for _, want := range []string{"pre_tool", "post_tool", "session_start", "session_end", "pre_shell", "post_file_edit"} {
+	for _, want := range []string{"pre_tool", "post_tool", "session_start", "session_end", "pre_shell", "post_file_edit", "turn_end"} {
 		assert.True(t, events[want], "event %q was dropped by the converter", want)
 	}
 }

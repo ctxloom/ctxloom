@@ -49,8 +49,8 @@ The tier-1 surface. Each hook may declare:
 | `async` | Run in the background |
 | `pre_tool_fallback` | For `session_start` hooks: may fire on pre-tool instead, on harnesses with no session-start event |
 
-Events: `pre_tool`, `post_tool`, `session_start`, `session_end`, `pre_shell`,
-`post_file_edit`.
+Events: `pre_tool`, `post_tool`, `session_start`, `session_end`, `turn_end`,
+`pre_shell`, `post_file_edit`.
 
 When you approve a hook, your signature covers its **executable surface**: matcher, type,
 command, prompt, and the pre-tool-fallback flag. Change any of those and the approval no

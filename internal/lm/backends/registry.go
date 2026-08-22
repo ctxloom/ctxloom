@@ -658,6 +658,12 @@ func init() {
 		enforcesReadOnlyPlan: true,
 		acpTransport:         kiroACPTransport,
 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseKiroVersion},
+		// kiro has hooks generally but no native session_end event — its only
+		// turn-boundary event is `stop`, which fires once per TURN. See
+		// kiro.NoSessionEndReason and mapHooks' route for the write-time half.
+		unsupportedHookKinds: map[string]string{
+			bundles.HookEventSessionEnd: kiro.NoSessionEndReason,
+		},
 		// kiro's project .kiro dir (kiro.ProjectHome) collapses onto its bare
 		// GLOBAL home (kiro.GlobalHome) exactly when workDir == $HOME --
 		// the same collision class found for claude.
@@ -744,7 +750,7 @@ func init() {
 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseOpencodeVersion},
 		// opencode is the one backend with no hooks surface of any shape:
 		// opencode.json has no hook key, there is no settings event vocabulary
-		// to route the six unified events onto, and OpencodeWriter.WriteSettings
+		// to route the seven unified events onto, and OpencodeWriter.WriteSettings
 		// accepts a *wire.HooksConfig it cannot do anything with. Declared here
 		// so `profile materialize` can SAY so instead of writing four true
 		// "wrote" lines over a silently dropped guardrail.

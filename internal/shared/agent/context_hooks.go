@@ -120,7 +120,7 @@ func MergeHooksConfig(dest *wire.HooksConfig, src *wire.HooksConfig) {
 	dest.Append(*src)
 }
 
-// countHooks totals every hook a HooksConfig carries — the six unified
+// countHooks totals every hook a HooksConfig carries — the seven unified
 // lifecycles plus every plugin-specific list — so a merge that cannot happen can
 // report the SIZE of what it dropped rather than a bare "some hooks".
 func countHooks(h *wire.HooksConfig) int {
@@ -129,7 +129,7 @@ func countHooks(h *wire.HooksConfig) int {
 	}
 	n := len(h.Unified.PreTool) + len(h.Unified.PostTool) +
 		len(h.Unified.SessionStart) + len(h.Unified.SessionEnd) +
-		len(h.Unified.PreShell) + len(h.Unified.PostFileEdit)
+		len(h.Unified.PreShell) + len(h.Unified.PostFileEdit) + len(h.Unified.TurnEnd)
 	for _, backend := range h.Plugins {
 		for _, hooks := range backend {
 			n += len(hooks)

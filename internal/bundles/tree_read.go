@@ -274,6 +274,8 @@ func (r *reader) appendHook(event string, h BundleHook) {
 		r.out.Hooks.PreShell = append(r.out.Hooks.PreShell, h)
 	case HookEventPostFileEdit:
 		r.out.Hooks.PostFileEdit = append(r.out.Hooks.PostFileEdit, h)
+	case HookEventTurnEnd:
+		r.out.Hooks.TurnEnd = append(r.out.Hooks.TurnEnd, h)
 	}
 }
 

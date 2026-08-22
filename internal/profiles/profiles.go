@@ -736,7 +736,8 @@ func (p *Profile) HasContent() bool {
 		len(p.Variables) > 0 ||
 		len(p.Hooks.Unified.PreTool)+len(p.Hooks.Unified.PostTool)+
 			len(p.Hooks.Unified.SessionStart)+len(p.Hooks.Unified.SessionEnd)+
-			len(p.Hooks.Unified.PreShell)+len(p.Hooks.Unified.PostFileEdit) > 0 ||
+			len(p.Hooks.Unified.PreShell)+len(p.Hooks.Unified.PostFileEdit)+
+			len(p.Hooks.Unified.TurnEnd) > 0 ||
 		len(p.Hooks.Plugins) > 0 ||
 		p.LLM != ""
 }

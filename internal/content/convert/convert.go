@@ -116,7 +116,7 @@ type Report struct {
 // hookEvents pairs each event's wire name with its list, in a FIXED order.
 //
 // It is a slice rather than a map so conversion output is deterministic, and it
-// is exhaustive over bundles.BundleHooks by construction — a seventh event
+// is exhaustive over bundles.BundleHooks by construction — an eighth event
 // added to that struct and not added here is caught by
 // TestPlan_EverySixHookEventsConverts rather than by a user noticing their
 // hooks stopped firing.
@@ -134,6 +134,7 @@ func hookEvents(h bundles.BundleHooks) []struct {
 		{"session_end", h.SessionEnd},
 		{"pre_shell", h.PreShell},
 		{"post_file_edit", h.PostFileEdit},
+		{"turn_end", h.TurnEnd},
 	}
 }
 

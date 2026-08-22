@@ -855,7 +855,7 @@ func init() {
 	manageHooksCmd.AddCommand(manageHooksCheckCmd)
 	manageHooksCmd.AddCommand(manageHooksListCmd)
 	manageHooksListCmd.Flags().StringVar(&manageHooksListEvent, "event", "",
-		"Report only this lifecycle event (pre_tool, post_tool, session_start, session_end, pre_shell, post_file_edit)")
+		"Report only this lifecycle event (pre_tool, post_tool, session_start, session_end, pre_shell, post_file_edit, turn_end)")
 	manageHooksListCmd.Flags().StringSliceVar(&manageHooksListProfiles, "profile", nil,
 		"Resolve against these profiles instead of the configured defaults (repeatable)")
 	manageHooksInstallCmd.Flags().BoolVar(&manageHooksForce, "force", false, "Proceed even if the resolved project directory would write Claude Code's user-global settings (not inside a project / $HOME)")

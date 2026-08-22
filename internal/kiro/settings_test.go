@@ -1,6 +1,7 @@
 package kiro
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -35,7 +37,7 @@ func TestKiroWriter_AgentConfigAndHookMapping(t *testing.T) {
 		PreShell:     []wire.Hook{{Command: "ltk evaluate"}},
 		PostFileEdit: []wire.Hook{{Command: "ctxloom hook stamp-plan"}},
 		PreTool:      []wire.Hook{{Matcher: "fs_read", Command: "audit"}},
-		SessionEnd:   []wire.Hook{{Command: "ctxloom hook session-bind"}},
+		TurnEnd:      []wire.Hook{{Command: "ctxloom hook session-bind"}},
 	}}
 	require.NoError(t, w.WriteSettings(hooks, nil, "/proj"))
 
@@ -50,8 +52,82 @@ func TestKiroWriter_AgentConfigAndHookMapping(t *testing.T) {
 	assert.Contains(t, a.Hooks.PreToolUse, kiroHook{Matcher: "fs_read", Command: "audit"})
 	// PostFileEdit defaults to the fs_write matcher.
 	assert.Contains(t, a.Hooks.PostToolUse, kiroHook{Matcher: kiroFileEditMatcher, Command: "ctxloom hook stamp-plan"})
-	// SessionEnd → stop.
+	// TurnEnd → stop. NOT SessionEnd: kiro's stop fires once per TURN, so
+	// session_end is routed nowhere at all (see the Unsupported test below).
 	assert.Contains(t, a.Hooks.Stop, kiroHook{Command: "ctxloom hook session-bind"})
+}
+
+// TestKiroWriter_TurnEndReachesStopInWrittenFile asserts the BYTES of the agent
+// JSON kiro actually reads, not the writer's return: this repo's characteristic
+// failure is a writer that reports success and emits nothing.
+func TestKiroWriter_TurnEndReachesStopInWrittenFile(t *testing.T) {
+	w, fs := newTestWriter()
+	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		TurnEnd: []wire.Hook{{Command: "scripts/hooks/verify-and-track.sh", Type: "command", Timeout: 15}},
+	}}
+	require.NoError(t, w.WriteSettings(hooks, nil, "/proj"))
+
+	raw, err := afero.ReadFile(fs, "/proj/.kiro/agents/ctxloom.json")
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"stop"`)
+	assert.Contains(t, string(raw), "scripts/hooks/verify-and-track.sh")
+
+	a := readAgent(t, fs, "/proj")
+	require.NotNil(t, a.Hooks)
+	assert.Equal(t, []kiroHook{{Command: "scripts/hooks/verify-and-track.sh"}}, a.Hooks.Stop)
+}
+
+// A matcher on turn_end is dropped, not written: kiro's stop has no tool to
+// match against, so a matcher there would be silently inert.
+func TestKiroWriter_TurnEndMatcherIsDropped(t *testing.T) {
+	clidiag.ResetWarnOnce()
+	var buf bytes.Buffer
+	defer clidiag.SetSink(&buf)()
+
+	w, fs := newTestWriter()
+	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		TurnEnd: []wire.Hook{{Matcher: "fs_write", Command: "closeout"}},
+	}}
+	require.NoError(t, w.WriteSettings(hooks, nil, "/proj"))
+
+	raw, err := afero.ReadFile(fs, "/proj/.kiro/agents/ctxloom.json")
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "fs_write")
+
+	a := readAgent(t, fs, "/proj")
+	require.NotNil(t, a.Hooks)
+	assert.Equal(t, []kiroHook{{Command: "closeout"}}, a.Hooks.Stop)
+	assert.Contains(t, buf.String(), "turn_end")
+}
+
+// TestKiroWriter_SessionEndIsUnsupported pins the fixed defect: unified
+// session_end used to be written to kiro's `stop`, which fires once per TURN —
+// the same config.yaml fired once per session on claude-code and once per turn
+// here, with no warning either way. kiro has no session-end trigger at all, so
+// the route now declares the gap: NOTHING is written and the loss is audible.
+func TestKiroWriter_SessionEndIsUnsupported(t *testing.T) {
+	clidiag.ResetWarnOnce()
+	var buf bytes.Buffer
+	defer clidiag.SetSink(&buf)()
+
+	w, fs := newTestWriter()
+	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		SessionEnd: []wire.Hook{{Command: "teardown"}},
+	}}
+	require.NoError(t, w.WriteSettings(hooks, nil, "/proj"))
+
+	raw, err := afero.ReadFile(fs, "/proj/.kiro/agents/ctxloom.json")
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "teardown", "a session_end hook must reach no kiro slot at all")
+	assert.NotContains(t, string(raw), `"stop"`)
+
+	a := readAgent(t, fs, "/proj")
+	assert.Nil(t, a.Hooks, "the only hook was unroutable, so kiro gets no hooks block")
+
+	out := buf.String()
+	assert.Contains(t, out, "kiro")
+	assert.Contains(t, out, "session_end")
+	assert.Contains(t, out, NoSessionEndReason)
 }
 
 func TestKiroWriter_NonCommandHookSkipped(t *testing.T) {

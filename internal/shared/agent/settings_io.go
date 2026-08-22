@@ -89,19 +89,68 @@ func ResolveMCPCommand(override string) string {
 // the builtin bundle's item (a profile's exclude_mcp, or rejecting it) turns
 // ctxloom's own server off.
 //
+// The ctxloom entry is CONSTRUCTED, not copied: see ctxloomOwnMCPServer for
+// which fields the source may contribute and why Env is not among them. Every
+// OTHER name in servers passes through untouched — a third-party MCP server's
+// env is that server's own business and reaches its process verbatim.
+//
 // servers is never mutated: one resolved bundle set is shared across engines
 // and cells, and only some of them carry a container override.
 func ResolveManagedMCPServers(servers map[string]wire.MCPServer, override string) map[string]wire.MCPServer {
-	own, ok := servers[MCPServerName]
+	src, ok := servers[MCPServerName]
 	if !ok {
 		return servers
 	}
 	out := make(map[string]wire.MCPServer, len(servers))
 	maps.Copy(out, servers)
-	own.Command = ResolveMCPCommand(override)
-	own.Args = slices.Clone(CtxloomMCPArgs)
-	out[MCPServerName] = own
+	out[MCPServerName] = ctxloomOwnMCPServer(src, override)
 	return out
+}
+
+// ctxloomOwnMCPServer builds the entry for ctxloom's OWN MCP server from
+// ctxloom's own definition, taking from src only the fields that cannot reach
+// the spawned process.
+//
+// Every field that INFLUENCES THE INVOCATION — Command, Args, Env — is
+// constructed here and the source's value for it is discarded. Command and
+// Args always were; Env is the field this closes. Controlling which binary
+// runs is not control if whoever declared the entry still chooses its
+// environment: an env var reaching `ctxloom mcp serve` selects its config
+// root, its project and session identity, and (CTXLOOM_MCP_SOCKET) the runner
+// it forwards every tool call to, so a foreign Env here is a redirection of
+// ctxloom's own control plane, not a tweak to a third-party server.
+//
+// The DESCRIPTIVE fields — Notes, Installation, and the SCM provenance marker
+// — are carried through. They are never handed to a process by any consumer
+// (claudeCodeMCPServer, mcpServerToTOMLEntry, mcpFileServer and ChatMCPServer
+// each build from Command/Args/Env alone); they reach only the read-only
+// `ctxloom mcp` listing, where the builtin bundle's own notes and its
+// bundle:ctxloom+builtin: source ref are the intended content. Dropping them
+// would blank that listing to fix an exposure they do not have.
+//
+// Discarding rather than REFUSING is deliberate, and is the same shape
+// config.mcpNameClaims.claim uses: the withholding is unconditional. A
+// strictness finding would be disabled by --degraded/CTXLOOM_DEGRADED=1, and
+// this property must hold in every mode. The finding is also the wrong
+// instrument here — since a contested MCP name is refused at bundle
+// resolution, the only source that can still reach this function under the
+// ctxloom name is ctxloom's OWN builtin bundle, so a fatal would only ever
+// abort a launch (or a read-only `ctxloom mcp` listing) over our own shipped
+// content. It is still never silent: a discarded Env is warned about, because
+// an operator who wrote one is entitled to know it did nothing.
+func ctxloomOwnMCPServer(src wire.MCPServer, override string) wire.MCPServer {
+	if len(src.Env) > 0 {
+		clidiag.WarnOnce(CtxloomBinary,
+			"ignoring the env declared for the %q MCP server (%s): ctxloom's own MCP server runs with the environment ctxloom gives it, never one supplied by whatever declared the entry",
+			MCPServerName, strings.Join(slices.Sorted(maps.Keys(src.Env)), ", "))
+	}
+	return wire.MCPServer{
+		Command:      ResolveMCPCommand(override),
+		Args:         slices.Clone(CtxloomMCPArgs),
+		Notes:        src.Notes,
+		Installation: src.Installation,
+		SCM:          src.SCM,
+	}
 }
 
 // SettingsOptions configures a settings-writing operation. It carries the

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -34,18 +35,14 @@ import (
 const initialResizeWait = 300 * time.Millisecond
 
 // ptyDrainGrace bounds drainPTY's wait for the output-copy goroutine to
-// drain whatever the child wrote before RunInteractive forces the pty
-// master closed. Closing is ALWAYS eventually required to unblock the
-// copier — this process keeps its own reference to the pty's slave side
-// open for the whole run (go-pty's design: cmd_unix.go wires the child's
-// stdio directly to pty.slave without ever closing it here), so the master
-// never sees a natural EOF on its own, with or without a wait. This bound
-// is only a safety net for the case drainPTY's FIONREAD poll cannot make
-// progress on: a genuine hang (an orphaned subprocess — an MCP server the
-// child spawned — still holding the pty open) or a platform where the byte
-// count probe is unavailable (pendingPTYBytes, prepare_windows.go). The
-// common case (the copier already kept pace, or nothing was buffered at
-// exit) returns via drainPTY almost immediately — see its doc.
+// finish before RunInteractive forces the pty master closed. Once
+// releasePTYSlave has handed this process's slave fd back, the copier
+// reaches EOF as soon as the child's output is delivered, so the common
+// case does not spend this budget at all. It is the safety net for the two
+// cases where no EOF is coming: an orphaned subprocess — an MCP server the
+// child spawned — that inherited the slave and still holds it open, and a
+// platform whose slave this package cannot reach (ConPTY, where drainPTY
+// falls back to the byte-count poll).
 const ptyDrainGrace = 2 * time.Second
 
 // ptyDrainPollInterval paces drainPTY's FIONREAD poll: short enough that
@@ -93,21 +90,63 @@ func (e *firstError) get() error {
 	return e.err
 }
 
-// drainPTY waits for the copy goroutine to actually drain whatever the
-// child already wrote into the pty before RunInteractive forces the master
-// closed: forcing ptty.Close() immediately after c.Wait(),
-// with zero grace (the historical behavior), raced the as-yet-unscheduled
-// copy goroutine — under CPU load the reader may simply not have run yet,
-// so the forced close truncated or entirely dropped output the child had
-// already fully written and flushed before exiting.
-// TestRunInteractive_CapturesOutput reproduced this on essentially every
-// run once contended enough. Rather than a blind sleep, this polls the
-// pty's actual buffered byte count (pendingPTYBytes) so the common case —
-// the copier already kept pace, nothing left buffered — returns with
-// ~zero added latency; only a genuine race (output landed right as the
-// child exited) or hang burns real wall-clock time, and even then only
-// until the copier is next scheduled, bounded by ptyDrainGrace.
+// releasePTYSlave closes THIS process's own fd for the pty's slave end and
+// reports whether an end-of-file on the master is now reachable.
+//
+// go-pty wires the child's stdin/stdout/stderr straight to pty.slave and
+// keeps that *os.File open for the pty's whole lifetime (cmd_unix.go), so a
+// read on the master never ends by itself even after the child is reaped —
+// which is the only reason RunInteractive has to force the master closed at
+// all. Handing the slave back first turns that forced close into a fallback
+// instead of the primary mechanism: with the child gone and this fd
+// released, the copier's read drains what the child wrote and THEN ends.
+//
+// A pty whose slave this package cannot reach (ConPTY on Windows, where the
+// type assertion fails) reports false and keeps the byte-count fallback.
+// An already-closed slave is success, not failure: the goal is the state,
+// not the syscall.
+func releasePTYSlave(ptty pty.Pty) bool {
+	up, ok := ptty.(pty.UnixPty)
+	if !ok {
+		return false
+	}
+	f := up.Slave()
+	if f == nil {
+		return false
+	}
+	err := f.Close()
+	return err == nil || errors.Is(err, fs.ErrClosed)
+}
+
+// drainPTY makes sure the copy goroutine has actually delivered whatever the
+// child wrote before RunInteractive forces the master closed. Forcing
+// ptty.Close() immediately after c.Wait() with zero grace (the historical
+// behavior) raced the as-yet-unscheduled copy goroutine, so under CPU load
+// the forced close truncated or entirely dropped output the child had
+// already written and flushed before exiting.
+//
+// It JOINS on the copier rather than sampling how much is left, because the
+// byte count cannot answer the question being asked. pendingPTYBytes reports
+// the master's line-discipline read queue; data the slave has written but
+// that the kernel has not yet pushed out of the tty flip buffer is invisible
+// to it. So a zero reading has two meanings — "the copier already took
+// everything" and "the child's bytes have not surfaced yet" — and the second
+// one is precisely the contended case this drain exists for.
+// TestRunInteractive_CapturesOutput failed on exactly that ambiguity: the
+// child exited 0, TIOCINQ read 0 while its 21 bytes were still in flight,
+// the drain returned in ~50us, and the caller got an empty capture at 0.00s
+// elapsed.
+//
+// The byte-count poll survives only where no slave is reachable to release
+// (ConPTY), where it remains better than a blind sleep.
 func drainPTY(ptty pty.Pty, copyDone <-chan struct{}) {
+	if releasePTYSlave(ptty) {
+		select {
+		case <-copyDone:
+		case <-time.After(ptyDrainGrace):
+		}
+		return
+	}
 	deadline := time.Now().Add(ptyDrainGrace)
 	for {
 		select {

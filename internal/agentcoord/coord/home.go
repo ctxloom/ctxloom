@@ -129,8 +129,7 @@ type Home struct {
 	// each turn boundary.
 	selfReported bool
 
-	link     *RunnerLink
-	linkDone chan struct{} // closed when Close ran (stops the redial loops)
+	link *RunnerLink
 
 	// tracked owns Home's own background loops (runnerChannelLoop,
 	// runChannelLoop, and one turnPump per hosted engine). Close/crash join it
@@ -266,7 +265,6 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		consumed:     make(map[string]bool),
 		turnPending:  make(map[string]bool),
 		inflightCtrl: make(map[string]*inflightCtrl),
-		linkDone:     make(chan struct{}),
 	}
 	if (cfg.SpoolTee || cfg.SpoolDelivery) && cfg.Harp != "" {
 		// A runner writes exactly ONE spool: its own harp's out/. The cache is

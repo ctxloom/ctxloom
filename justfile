@@ -510,7 +510,9 @@ vet-integration: _require-generated
 # worktree so the Go build cache hits between runs instead of depositing a full
 # module copy at a fresh absolute path every time (obtuse-equinox) — but a file
 # left over from the previous run is exactly the ghost that would hide a
-# missing one from this run, which is the defect being gated. rm -rf first.
+# missing one from this run, which is the defect being gated. rm -rf first. The
+# stable PATH is what buys the cache hit, not the surviving files, so a passing
+# run also removes them; a failing one leaves the tree to be looked at.
 #
 # -trimpath on every pass, for the same cache reason: without it the compiler
 # embeds the scratch path and none of these entries is ever reusable. Safe
@@ -587,6 +589,8 @@ check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
         echo >&2
         echo "  git status --porcelain --untracked-files=all" >&2
         echo "  git ls-tree -r --name-only $ref -- <the package above>" >&2
+        echo >&2
+        echo "The extracted tree is left at $work to look at." >&2
         exit 1
     }
 
@@ -599,6 +603,7 @@ check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
     go vet -trimpath -tags "mutation arch conformance docker_integration acceptance integration schemagen docsgen" ./... \
         || explain "go vet ./... under the full build-tag matrix"
     echo "check-head-builds: $ref ($short) compiles" >&2
+    rm -rf "$work"
 
 # Run integration tests (requires ctxloom binary)
 test-integration: build _ensure-gotmpdir

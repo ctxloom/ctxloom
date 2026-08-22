@@ -143,10 +143,12 @@ func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string
 		// TestApproval_SurfaceToHumanClosureShapeMirrorsCLIWiring pin
 		// (internal/agentcoord/coord/surface_to_human_test.go). The park's
 		// own targetHarp check (pa.targetHarp == caller.Harp) is what
-		// authorizes the answer — this identity must be the run's parent
-		// harp, which for a depth-1 child is selfHarp (the known
-		// grandchild-targeting gap: approval-surface-slice3.plan.md's "Out of
-		// scope" section).
+		// authorizes the answer, and it targets the ROOT SESSION of the
+		// delegation tree (coord.Coordinator.rootSessionHarp) — selfHarp, at
+		// every depth. It used to target the asking run's immediate parent,
+		// which made a grandchild's approval unanswerable from here; this
+		// wiring did not change when that was fixed, because selfHarp was
+		// always the identity a human answers as.
 		AnswerApproval: func(messageID, childHarp string, d agentcoordpb.ApprovalDecision_Decision, note string) error {
 			if sessionCoord == nil {
 				// Unreachable via the TUI in practice — PendingApprovals above

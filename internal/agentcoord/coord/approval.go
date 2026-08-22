@@ -31,11 +31,22 @@ import (
 // message (relayApproval). For ActionSurfaceToHuman there is no mail; the id
 // is minted the same way but nothing is queued (surfaceApprovalToHuman).
 type pendingApproval struct {
-	// targetHarp is the ONLY identity allowed to resolve this approval (the
-	// role the mail was addressed to, or — for a human-surfaced rung — the
-	// run's parent harp, the identity a human answers as) — defense in depth
-	// beyond "the id exists": a foreign session's in_reply_to guess cannot
-	// answer someone else's approval.
+	// targetHarp is the ONLY identity allowed to resolve this approval —
+	// defense in depth beyond "the id exists": a foreign session's
+	// in_reply_to guess cannot answer someone else's approval, and an
+	// attempt to is REFUSED OUT LOUD (resolveApprovalReply) rather than
+	// quietly demoted to ordinary mail.
+	//
+	// Which identity that is depends on the rung, and the two are NOT the
+	// same harp beyond depth 1:
+	//
+	//   - ActionRelayToRole: the parent ROLE the mail was addressed to
+	//     (rec.ParentHarp) — the agent asked to decide.
+	//   - ActionSurfaceToHuman: the ROOT SESSION of the delegation tree
+	//     (rootSessionHarp), the identity a human answers as. NOT the
+	//     asking run's parent: for a depth >= 2 child that parent is the
+	//     intermediate AGENT, and letting an agent answer a rung whose whole
+	//     meaning is "a human decides this" is an escalation.
 	targetHarp string
 	ch         chan *agentcoordpb.ApprovalDecision // buffered(1)
 	// human, when non-nil, is this entry's PendingApprovals()-visible
@@ -288,6 +299,66 @@ func approvalResponse(d *agentcoordpb.ApprovalDecision) *agentcoordpb.Coordinato
 	}
 }
 
+// maxLineageHops bounds rootSessionHarp's climb. The delegation tree is
+// depth-capped (agentDepthCap / Options.Depth) far below this, so the bound
+// exists only so that a CORRUPT journal — a lineage cycle among distinct
+// harps — terminates. Exceeding it is a fail-CLOSED error, never a
+// "good enough" answer: an approval whose owning session cannot be
+// established has no authorized answerer at all.
+const maxLineageHops = 64
+
+// rootSessionHarp resolves the ROOT of rec's delegation lineage: the depth-0
+// session that owns the whole tree, which for an ActionSurfaceToHuman rung is
+// the identity a HUMAN answers as.
+//
+// It is deliberately NOT rec.ParentHarp. For a depth-1 child the two coincide
+// (its parent IS the owner session), which is why the difference went
+// unnoticed; for a depth >= 2 child the parent is the INTERMEDIATE AGENT.
+// Authorizing that agent to answer meant a rung whose whole meaning is "a
+// human decides this" was answerable by a machine and NOT answerable by the
+// human it claimed to surface to — one defect with a security face and a
+// usability face.
+//
+// The climb follows currentRun(harp).ParentHarp and stops at the first harp
+// that tops the tree: one with NO run of its own (a plugin-hosted top-level
+// session holds only a session credential), one whose run records no parent,
+// or one whose run is its OWN parent (StartOwnedRun journals ParentHarp ==
+// the owner's own harp for a container top-level run).
+//
+// Every failure is fail-CLOSED — an error, never a fallback to some nearer
+// harp — and it can never return rec.Harp: a child must not become the
+// authorized answerer of its own approval.
+func (c *Coordinator) rootSessionHarp(rec RunRecord) (string, error) {
+	if rec.ParentHarp == "" || rec.ParentHarp == rec.Harp {
+		return "", fmt.Errorf("run %s (%s) records no parent to climb", rec.Harp, rec.RunID)
+	}
+	harp := rec.ParentHarp
+	for hop := 0; hop < maxLineageHops; hop++ {
+		var (
+			parent string
+			depth  int
+			known  bool
+		)
+		c.runs.View(func() {
+			if r := c.runsF.currentRun(harp); r != nil {
+				parent, depth, known = r.ParentHarp, r.Depth, true
+			}
+		})
+		if known && parent != "" && parent != harp {
+			harp = parent
+			continue
+		}
+		// harp tops the tree. It must be a SESSION, not a delegated run: a
+		// run claiming depth > 0 with no parent above it is corrupt lineage,
+		// and who may approve is not a thing to answer on a guess.
+		if known && depth > 0 {
+			return "", fmt.Errorf("lineage above %s tops out at %s, itself a delegated run (depth %d)", rec.Harp, harp, depth)
+		}
+		return harp, nil
+	}
+	return "", fmt.Errorf("lineage above %s did not reach a root session within %d hops", rec.Harp, maxLineageHops)
+}
+
 // relayApproval queues req as mail to rung's target role (always the
 // child's own parent — buildLadder refuses any other role in this window),
 // with the request's proto projection as the structured payload, then parks
@@ -374,15 +445,25 @@ func (c *Coordinator) relayApproval(rec RunRecord, req *agentcoordpb.ApprovalReq
 // Resolution still rides resolveApprovalReply/peerSend unchanged: the human
 // answers with AgentSend(caller, to, "", body, structured, inReplyTo=msgID),
 // exactly as a parent answers a relayed approval, and the SAME targetHarp
-// check (pa.targetHarp == caller.Harp) gates who may answer — the run's
-// parent harp today (the identity the interactive owner session — the
-// eventual CLI surface, slice 3 — answers as; there is no separate "human"
-// identity in this window). Timeout still comes from rung.Timeout (the SAME
-// defaultRelayTimeout fallback as a relay rung with no explicit timeout).
+// check (pa.targetHarp == caller.Harp) gates who may answer.
+//
+// WHO that is, is the one thing this rung does NOT share with relayApproval.
+// A relay addresses the asking run's PARENT; this addresses the ROOT SESSION
+// of the delegation tree (rootSessionHarp) — there is no separate "human"
+// identity in this window, so the human's own interactive session is it. The
+// two coincide at depth 1 and diverge below it: this used to use
+// rec.ParentHarp for both, which at depth >= 2 authorized the INTERMEDIATE
+// AGENT to answer a rung reserved for a human, while the human whose decision
+// the rung is named for was refused by the targetHarp gate. Fail CLOSED when
+// no root can be established: park nothing and let the ladder fall through,
+// rather than surface an approval nobody is authorized to answer.
+//
+// Timeout still comes from rung.Timeout (the SAME defaultRelayTimeout
+// fallback as a relay rung with no explicit timeout).
 func (c *Coordinator) surfaceApprovalToHuman(rec RunRecord, req *agentcoordpb.ApprovalRequest, rung LadderRung) (decision *agentcoordpb.ApprovalDecision, timedOut bool) {
-	targetHarp := rec.ParentHarp
-	if targetHarp == "" {
-		clidiag.Warn("ctxloom", "coord: surface approval for %s: no parent harp on the run record", rec.Harp)
+	targetHarp, rerr := c.rootSessionHarp(rec)
+	if rerr != nil {
+		clidiag.Warn("ctxloom", "coord: surface approval for %s: no root session to surface to: %v", rec.Harp, rerr)
 		return nil, true
 	}
 
@@ -468,19 +549,35 @@ func (c *Coordinator) surfaceApprovalToHuman(rec RunRecord, req *agentcoordpb.Ap
 	}
 }
 
-// resolveApprovalReply checks whether inReplyTo names an outstanding
-// relayed approval this caller may answer (only the exact role the mail was
-// addressed to — defense in depth). matched=false lets peerSend fall
-// through to ordinary mail delivery, so a stale/duplicate/foreign
-// in_reply_to degrades gracefully instead of failing the whole agent_send.
+// resolveApprovalReply checks whether inReplyTo names an outstanding approval
+// this caller may answer (only pendingApproval.targetHarp — defense in
+// depth). Two misses, deliberately different:
+//
+//   - NO approval with that id: matched=false, so peerSend falls through to
+//     ordinary mail delivery and a stale or duplicate in_reply_to degrades
+//     gracefully instead of failing the whole agent_send.
+//   - A LIVE approval addressed to SOMEONE ELSE: refused OUT LOUD — an error
+//     and an audit fact, matched=true so nothing falls through. Message ids
+//     are minted at random, so a caller naming another session's live
+//     approval is guessing or buggy; the previous quiet demotion to ordinary
+//     mail reported DELIVERY_QUEUED for an authorization failure and left no
+//     trace anywhere. An unauthorized answer must be visibly rejected, not
+//     silently mislaid.
 func (c *Coordinator) resolveApprovalReply(caller Identity, inReplyTo string, structured json.RawMessage) (disposition string, err error, matched bool) {
 	c.mu.Lock()
 	pa := c.approvals[inReplyTo]
-	if pa == nil || pa.targetHarp != caller.Harp {
-		c.mu.Unlock()
+	authorized := pa != nil && pa.targetHarp == caller.Harp
+	c.mu.Unlock()
+	if pa == nil {
 		return "", nil, false
 	}
-	c.mu.Unlock()
+	if !authorized {
+		c.audit("approval_reply", caller.Harp, map[string]string{
+			"in_reply_to": inReplyTo, "resolution": "refused", "error": "caller is not this approval's authorized answerer",
+		})
+		clidiag.Warn("ctxloom", "coord: agent_send in_reply_to %s: %s is not the session authorized to answer that approval — refused", inReplyTo, caller.Harp)
+		return "", fmt.Errorf("agent_send in_reply_to %s: this session is not authorized to answer that approval", inReplyTo), true
+	}
 
 	// DECODE BEFORE CONSUME. This used to delete the pending
 	// approval FIRST and decode second, with no restore on the error path —

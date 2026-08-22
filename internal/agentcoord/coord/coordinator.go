@@ -818,10 +818,11 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 // (resolveApprovalReply, approval.go): a match resolves the parked ladder
 // rung and returns immediately WITHOUT queuing ordinary mail — the reply's
 // job is to unblock the coordinator's own serveApproval wait on the CHILD's
-// RunChannel, not to start a new mailbox conversation. A miss (no pending
-// approval with that id, or the caller isn't its addressed target) falls
+// RunChannel, not to start a new mailbox conversation. An UNKNOWN id falls
 // through to ordinary delivery, so a stale/duplicate in_reply_to degrades
-// gracefully rather than erroring the send.
+// gracefully rather than erroring the send; naming a LIVE approval the caller
+// is not the authorized answerer of does NOT — that is an authorization
+// failure and errors the send rather than being quietly delivered as mail.
 func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, delivered bool, disposition string, err error) {
 	// THE COLLISION, and where it is resolved (spoolturnresult.go).
 	//

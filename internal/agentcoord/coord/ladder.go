@@ -147,13 +147,14 @@ func presetLadder(perm agent.PermissionMode) Ladder {
 				},
 				Action: ActionAutoDecline,
 			},
-			// KNOWN, ACCEPTED LIMITATION (taskloom slighting-distress):
-			// surfaceApprovalToHuman authorizes an answer against
-			// rec.ParentHarp, which for a depth ≥ 2 child is the
-			// INTERMEDIATE AGENT, not a human — so at that depth this rung
-			// always parks its presetSurfaceTimeout unanswered and falls
-			// through to the relay rung below. A bounded ~10m delay, not a
-			// hang; fixed in coord later.
+			// Answerable at ANY depth: surfaceApprovalToHuman authorizes
+			// the ROOT SESSION of the delegation tree (rootSessionHarp), not
+			// the asking run's parent. It used to authorize the parent, which
+			// below depth 1 is the INTERMEDIATE AGENT — so a grandchild's
+			// surface rung was decidable by a machine and undecidable by the
+			// human it names, and in practice always parked its
+			// presetSurfaceTimeout out before falling through to the relay
+			// rung below.
 			{Action: ActionSurfaceToHuman, Role: ParentAddress, Timeout: presetSurfaceTimeout},
 			{Action: ActionRelayToRole, Role: ParentAddress, Timeout: defaultRelayTimeout},
 		}

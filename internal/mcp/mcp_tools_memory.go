@@ -199,6 +199,49 @@ func withDistillBudget(ctx context.Context) (context.Context, context.CancelFunc
 	return context.WithTimeout(ctx, mcpschema.DistillBudget)
 }
 
+// compactionTargetHarp resolves the harp whose session a compact_session call
+// is asking to distill.
+//
+// That harp is the attribution key for the entire call — most consequentially
+// the path the distilled essence is WRITTEN to. Deriving it from the caller's
+// own identity while the caller named a different session files one session's
+// distilled memory under another session's name, behind a success envelope
+// that echoes back the id that was asked for: nothing errors, the content is
+// correct, and it is correct in the wrong place, so a later resume of the
+// named session loads context that was never distilled for it.
+//
+// session_id is whatever the caller has to hand: the harp itself, or the
+// backend-native id its index entry binds (the production shape — resolved by
+// operations.HarpForSession, which also answers for an id a /clear has since
+// rotated past). Only an EMPTY session_id means "my own session", and that is
+// the one case the caller's identity is the right answer for — a child
+// compacting its own session must not be keyed under the host process's.
+//
+// A named session the index does not know is REFUSED rather than quietly
+// re-pointed at the caller: there is no harp to file the result under, and
+// paying for a distillation in order to write it somewhere wrong is precisely
+// the failure this resolution exists to prevent.
+func (s *ctxServer) compactionTargetHarp(sessionID string) (string, error) {
+	if sessionID == "" {
+		return s.self.Harp, nil
+	}
+	entry, err := operations.GetSession(sessionID)
+	if err != nil {
+		return "", fmt.Errorf("look up session %q in the session index: %w", sessionID, err)
+	}
+	if entry != nil {
+		return entry.HarpName, nil
+	}
+	owner, err := operations.HarpForSession(sessionID)
+	if err != nil {
+		return "", fmt.Errorf("resolve session id %q to its harp: %w", sessionID, err)
+	}
+	if owner == "" {
+		return "", fmt.Errorf("session %q is not in the session index, so there is no session to attribute a distillation to; pass a harp name or a bound session id (list_sessions reports both), or omit session_id to compact this session", sessionID)
+	}
+	return owner, nil
+}
+
 func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolRequest, in compactSessionInput) (*mcp.CallToolResult, *compactSessionResult, error) {
 	model := operations.CompactionModelFor(s.cfg, in.Model)
 
@@ -215,10 +258,23 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 	ctx, cancel := withDistillBudget(ctx)
 	defer cancel()
 
-	// The CALLER's harp (credential-derived on the coordinator's HTTP
-	// surface) — never the compactor's ambient env fallback, which would key
-	// a child's compaction under the host process's session.
-	harp := s.self.Harp
+	// The harp of the session NAMED BY session_id — the attribution key for
+	// everything below: the singleflight key, the heal, the cache read, and
+	// above all the path the essence is written to. Only an empty session_id
+	// resolves to the caller's own harp; see compactionTargetHarp.
+	harp, err := s.compactionTargetHarp(in.SessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// What the caller ASKED for, echoed back unchanged where this reports an
+	// identity of its own. A caller that named a session by its backend-native
+	// id must not be answered with a harp it never mentioned — the same
+	// identity swap the read side already refuses.
+	reportedID := in.SessionID
+	if reportedID == "" {
+		reportedID = harp
+	}
 
 	// eager-trash unification: this used to always recompact unconditionally,
 	// with no heal and no cache check, and re-implemented the model-default
@@ -233,7 +289,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		}
 		if data, rerr := operations.ReadHarpEssence(harp); rerr == nil {
 			if current, known := operations.EssenceCurrent(src, data); current || !known {
-				return &compactSessionResult{SessionID: harp, WasCached: true}, nil
+				return &compactSessionResult{SessionID: reportedID, WasCached: true}, nil
 			}
 		}
 		if src.Entry != nil {
@@ -251,12 +307,14 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 				OutputPath:      result.DistilledPath,
 			}, nil
 		}
-		// No index entry for this harp (e.g. a bare in.SessionID against an
-		// ambient backend with no BindSession yet): nothing for
-		// ResolveAndHeal/DistillEntry to resolve, so this falls back to
-		// compacting directly off the caller's input. OutputDir is left unset
-		// so the essence files itself under the harp's own lineage, which is
-		// the only place anything reads one from.
+		// No index entry for this harp. A NAMED session cannot land here —
+		// compactionTargetHarp resolved it through the index, so its entry
+		// exists — which leaves the default target: the caller's own harp,
+		// against an ambient backend with no BindSession yet. Nothing for
+		// ResolveAndHeal/DistillEntry to resolve, so this compacts directly
+		// off the caller's input. OutputDir is left unset so the essence files
+		// itself under that harp's own lineage, which is the only place
+		// anything reads one from.
 		compactor, cerr := memory.NewCompactor(memory.CompactionConfig{
 			LLM:       s.cfg.GetCompactionLLM(),
 			Model:     model,

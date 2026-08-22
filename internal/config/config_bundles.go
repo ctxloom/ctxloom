@@ -127,6 +127,68 @@ func warnMissingCompanion(bin, hint string) {
 	clidiag.Warn("ctxloom", "%s", msg)
 }
 
+// builtinBundleSetRef is the source ref addServers attributes the in-binary
+// builtin bundle set to. The builtins are merged into one map before
+// ResolveBundleMCPServers sees them (resolveBuiltinBundleMCPServers), so they
+// contest as one source rather than individually.
+const builtinBundleSetRef = "ctxloom builtin bundles"
+
+// mcpNameClaims settles the MCP server-name contest at the BUNDLE-RESOLUTION
+// layer: two ctxloom source refs both declaring one server name, before any
+// engine registry writer sees the composed set.
+//
+// The ruling (human, 2026-08-17): a contest between two DIFFERENT source refs
+// is a LOUD ERROR — a strictness.ClassBundle finding naming both refs and the
+// contested name, and the later claim is WITHHELD — while the SAME ref reached
+// twice (a bundle listed by two profiles in scope, or a companion loadout that
+// a profile also references) dedupes silently.
+//
+// Silence here is a delivery-substitution path: one bundle's server quietly
+// answering for another's declared name, up to a profile bundle shadowing a
+// builtin ctxloom server. Nothing downstream can detect it — the resolved set
+// is keyed BY NAME, so the loser leaves no trace, and the surviving entry
+// carries the WINNER's SCM, so reconciliation attributes it to the wrong
+// bundle. The incumbent is kept rather than dropped because withholding both
+// would, in degraded mode, also remove a working builtin over a contest the
+// user did not create; and in strict mode the finding aborts the launch
+// anyway, so nothing runs on the composed set either way.
+//
+// This is the sibling of agent.MCPNameArbiter and deliberately NOT the same
+// type. That one arbitrates ctxloom-vs-USER inside one engine's registry file:
+// its predicate is a boolean "is this name already present", its verdict is a
+// warning that by contract never fails the write, and its output is the claim
+// ORDER a writer records in its ledger. This one arbitrates
+// ctxloom-vs-ctxloom: its predicate is ref IDENTITY (the same ref must win
+// twice, which a presence check would refuse), its verdict is a fatal finding,
+// and it keeps no ledger because nothing downstream removes by claim order.
+type mcpNameClaims struct {
+	// claimedBy records the source ref that first claimed each name.
+	claimedBy map[string]string
+}
+
+// claim reports whether sourceRef may write name into the resolved server set,
+// recording the first claimant and reporting a contest between two different
+// refs. It is the ONLY place the contest is decided.
+func (c *mcpNameClaims) claim(name, sourceRef string) bool {
+	if c.claimedBy == nil {
+		c.claimedBy = make(map[string]string)
+	}
+	holder, held := c.claimedBy[name]
+	if !held {
+		c.claimedBy[name] = sourceRef
+		return true
+	}
+	if holder == sourceRef {
+		// Same bundle reached twice — dedupe, silently and by ruling.
+		return true
+	}
+	strictness.Fail(strictness.ClassBundle,
+		"rename the server in one of the two bundles, or exclude it with `exclude_mcp:` in your profile",
+		"MCP server name %q is claimed by two different sources: %q claimed it first and %q also declares it; %q's server is withheld so one bundle's server cannot silently answer for another's declared name",
+		name, holder, sourceRef, sourceRef)
+	return false
+}
+
 // ResolveBundleMCPServers loads MCP servers from bundles referenced in the
 // caller's selected profiles (or the configured defaults when none are passed),
 // plus servers shipped by built-in bundles embedded in the binary
@@ -184,23 +246,38 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	}
 
 	// addServers is the ONLY way a server reaches result, so no source can
-	// bypass the exclusion filter by construction.
-	addServers := func(servers map[string]wire.MCPServer) {
-		for name, server := range servers {
+	// bypass the exclusion filter or the name arbiter by construction.
+	//
+	// Names are visited in sorted order so that when one source contests two
+	// names at once, the findings it records come out in a stable order.
+	var claims mcpNameClaims
+	addServers := func(sourceRef string, servers map[string]wire.MCPServer) {
+		names := make([]string, 0, len(servers))
+		for name := range servers {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
 			if excluded[name] {
 				continue
 			}
-			result[name] = server
+			if !claims.claim(name, sourceRef) {
+				continue
+			}
+			result[name] = servers[name]
 		}
 	}
 
 	// Built-in bundles are unconditional — they ship core ctxloom
-	// functionality and aren't gated on profile membership. Run them
-	// first so profile-sourced servers can intentionally override. They ARE
-	// routed through c.ExecutableTrustGate() (AdmitAll on management/listing
-	// paths, which state that they gate nothing) so a builtin item can still be
-	// REJECTED — see resolveBuiltinBundleMCPServers.
-	addServers(resolveBuiltinBundleMCPServers(c.ExecutableTrustGate()))
+	// functionality and aren't gated on profile membership. Resolving them
+	// first only fixes who is the INCUMBENT of a contested name; it grants no
+	// precedence to anyone, because a later source that declares a name a
+	// builtin already claimed is refused loudly rather than allowed to
+	// override (see mcpNameClaims). They ARE routed through
+	// c.ExecutableTrustGate() (AdmitAll on management/listing paths, which
+	// state that they gate nothing) so a builtin item can still be REJECTED —
+	// see resolveBuiltinBundleMCPServers.
+	addServers(builtinBundleSetRef, resolveBuiltinBundleMCPServers(c.ExecutableTrustGate()))
 
 	// BundleLoader includes remote bundles from the active lockfile AND every
 	// discovered companion's loadout, read under its ctxloom:companion@<bin>
@@ -215,14 +292,17 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// deterministic result across runs.
 	cat := bundleLoader.Catalog()
 	for _, ref := range companionRefs(cat) {
-		addServers(loadMCPFromBundleRef(ref, cat, c.ExecutableTrustGate()))
+		addServers(ref, loadMCPFromBundleRef(ref, cat, c.ExecutableTrustGate()))
 	}
 
-	// Finally the profile-referenced bundles, so profile-sourced servers still
-	// override builtin/companion ones of the same name.
+	// Finally the profile-referenced bundles. A bundle listed by two profiles
+	// in scope is the SAME ref reached twice and dedupes silently; a bundle
+	// that declares a name a builtin, a companion, or another profile bundle
+	// already claimed is a contest between two different refs, and
+	// mcpNameClaims withholds it loudly.
 	for _, resolved := range scopedProfiles {
 		for _, bundleRef := range resolved.Bundles {
-			addServers(loadMCPFromBundleRef(bundleRef, cat, c.ExecutableTrustGate()))
+			addServers(bundleRef, loadMCPFromBundleRef(bundleRef, cat, c.ExecutableTrustGate()))
 		}
 	}
 

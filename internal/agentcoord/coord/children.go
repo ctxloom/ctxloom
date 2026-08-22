@@ -336,11 +336,13 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	// that could never message its parent is refused loudly at the verb.
 	url, err := c.spawnReachURL(harp, plan.Runtime)
 	if err != nil {
+		c.releaseAssignedHarp(harp, err)
 		return nil, err
 	}
 
 	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}), caller.Depth+1)
 	if err != nil {
+		c.releaseAssignedHarp(harp, err)
 		return nil, err
 	}
 	c.audit("agent_run", caller.Harp, map[string]string{"agent": agentName, "harp": harp, "run_id": rt.runID})
@@ -374,6 +376,26 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		Queued:   queued,
 		Degraded: plan.Degraded,
 	}, nil
+}
+
+// releaseAssignedHarp gives back a harp AssignSession has already COMMITTED
+// to persistent session accounting, for a spawn that aborted before the run
+// was ever registered. Both of AgentRun's post-assignment refusals reach it:
+// an unresolvable reach-back endpoint, and an enqueue whose journal failed.
+//
+// Without it the verb reports failure while the accounting says a session
+// started — a child that will never exist, holding an address and (in
+// production, via operations.EndSession's other half) a per-session engine
+// home with a credential copy in the project tree. There is no narrower
+// release primitive: MarkSessionEnded is the Spawner's only one, and it is
+// the same call every terminal path already makes, so this adds no surface.
+//
+// It is best-effort and never changes what the caller is told: the refusal
+// the caller already earned is the answer, and a failed release is the
+// implementation's own diagnostic (MarkSessionEnded warns for itself).
+func (c *Coordinator) releaseAssignedHarp(harp string, cause error) {
+	clidiag.Warn("ctxloom", "agent_run: releasing session %s — the spawn was refused before the run was registered: %v", harp, cause)
+	c.spawner.MarkSessionEnded(harp)
 }
 
 // defaultSpawnNoticeAfter is how long agent_run's pre-registration span may

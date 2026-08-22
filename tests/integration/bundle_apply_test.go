@@ -39,6 +39,10 @@ hooks:
 func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, kiroMCPJSON, claudeJSON string) {
 	t.Helper()
 
+	// The trust gate is consulted for every bundle item this apply resolves,
+	// and it reads the USER countersignature store out of the real home.
+	isolatedApprovals(t)
+
 	// This helper runs IN-PROCESS against the developer's real PATH and real
 	// home, and the `session-bind` hook these tests assert on ships in
 	// TASKLOOM's loadout (cmd/taskloom/loadout.yaml), not in an embedded

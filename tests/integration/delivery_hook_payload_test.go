@@ -47,6 +47,10 @@ const hookBundleYAML = "version: \"1.0.0\"\nfragments:\n  sentinel:\n    content
 func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 	t.Helper()
 
+	// Context regeneration resolves every fragment through the trust gate, and
+	// that gate reads the USER countersignature store out of the real home.
+	isolatedApprovals(t)
+
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
 	bundlesDir := filepath.Join(appDir, "content", "bundles") // paths.LocalBundlesPath layout

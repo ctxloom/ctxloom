@@ -81,10 +81,39 @@ func homeApprovalsDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := unsandboxedHomeError(dir); err != nil {
+	if err := unsandboxedHomeError("user countersignature store", dir,
+		"operations.SetHomeApprovalsDirForTesting(t.TempDir()), or an explicit UserStore on the request"); err != nil {
 		return "", err
 	}
 	return dir, nil
+}
+
+// homeAllowedSignersPath is the sibling chokepoint for the OTHER home-rooted
+// store this package WRITES: ~/.ctxloom/allowed_signers, the personal trust
+// root `ctxloom signer trust` adds to. It is the same hazard one notch worse —
+// a stray write there does not withhold content, it TRUSTS a signing key on
+// the developer's machine, permanently — so it gets the same refusal.
+//
+// No override seam, unlike the approvals store: nothing needs one yet, and an
+// injection point no caller uses is a branch no test can hold honest. The
+// guard is the half that has to exist, because it protects callers that have
+// not been written.
+//
+// The READ sites (ListSigners' user listing, config.Config.TrustRoot) are
+// deliberately not routed through here. Their contract on an unresolvable home
+// is to omit the user store silently, so a refusal would degrade rather than
+// fail loud — the wrong shape for a guard. A read of the real trust root from
+// a test is a lesser hazard than a write to it, and worth its own change.
+func homeAllowedSignersPath() (string, error) {
+	path, err := paths.HomeAllowedSignersPath()
+	if err != nil {
+		return "", err
+	}
+	if err := unsandboxedHomeError("user trust root", path,
+		"testsupport.SandboxedMain / testsupport.Isolate, or --project against a temp checkout"); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // unsandboxedHomeError is the belt to the override's braces: under a TEST
@@ -103,7 +132,7 @@ func homeApprovalsDir() (string, error) {
 // sanctioned isolation in this repo satisfies it: testsupport.SandboxedMain
 // and testsupport.Isolate root HOME at a temp dir, t.TempDir() is under the
 // temp root, and tests/integration/testenv's os.MkdirTemp root is too.
-func unsandboxedHomeError(dir string) error {
+func unsandboxedHomeError(what, dir, remedy string) error {
 	if !runningUnderGoTest() {
 		return nil
 	}
@@ -112,11 +141,9 @@ func unsandboxedHomeError(dir string) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"REFUSING to use the user countersignature store at %q from a test binary: it is outside the temp root %q, "+
-			"so a recorded approval or rejection would land in the developer's real home and outlive this run. "+
-			"Isolate the test: operations.SetHomeApprovalsDirForTesting(t.TempDir()), or testsupport.SandboxedMain / testsupport.Isolate, "+
-			"or pass an explicit UserStore on the request",
-		dir, tempRoot)
+		"REFUSING to use the %s at %q from a test binary: it is outside the temp root %q, so anything recorded there "+
+			"would land in the developer's real home and outlive this run. Isolate the test — %s",
+		what, dir, tempRoot, remedy)
 }
 
 // runningUnderGoTest reports whether this process is a `go test` binary.

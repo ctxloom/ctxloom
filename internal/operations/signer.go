@@ -129,7 +129,7 @@ func signerStorePath(cfg *config.Config, project bool) (string, error) {
 		}
 		return paths.AllowedSignersPath(cfg.GetAppPaths()[0]), nil
 	}
-	return paths.HomeAllowedSignersPath()
+	return homeAllowedSignersPath()
 }
 
 // resolveSignerAddPath resolves the allowed_signers file `signer trust`
@@ -148,12 +148,17 @@ func resolveSignerAddPath(cfg *config.Config, project bool) (path string, usedPr
 		// the user store while reporting the project store — the exact
 		// silent-wrong-destination this function exists to prevent. Compare
 		// against home so only a genuine project checkout qualifies.
+		// The raw vocabulary path, deliberately not homeAllowedSignersPath:
+		// this asks "is the resolved app dir the HOME one?", a question about
+		// naming, not a store this branch is about to write. Routing it
+		// through the guard would turn a refusal into "not home", which is
+		// the wrong answer in the one direction that matters.
 		candidate := paths.AllowedSignersPath(cfg.GetAppPaths()[0])
 		if home, herr := paths.HomeAllowedSignersPath(); herr != nil || candidate != home {
 			return candidate, true, "", nil
 		}
 	}
-	path, err = paths.HomeAllowedSignersPath()
+	path, err = homeAllowedSignersPath()
 	if err != nil {
 		return "", false, "", err
 	}

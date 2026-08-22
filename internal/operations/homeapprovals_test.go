@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -141,9 +142,49 @@ func TestHomeApprovalsDir_AllowsASandboxedHome(t *testing.T) {
 // answer forced, since runningUnderGoTest is true by construction here.
 func TestUnsandboxedHomeError_IsInertOutsideATestBinary(t *testing.T) {
 	const realHome = "/home/someone/.ctxloom/approvals"
-	require.Error(t, unsandboxedHomeError(realHome), "precondition: this path is refused UNDER test")
+	require.Error(t, unsandboxedHomeError("user countersignature store", realHome, "isolate it"),
+		"precondition: this path is refused UNDER test")
 
 	assert.True(t, runningUnderGoTest(), "the guard's trigger must be true in a test binary, or it never fires at all")
 	assert.False(t, underTempRoot(realHome, resolveRealPath(os.TempDir())),
 		"a real home approvals store is outside the temp root — the fact the guard turns on")
+}
+
+// TestHomeAllowedSignersPath_RefusesAnUnsandboxedHomeUnderTest covers the
+// sibling home-rooted store this package writes. `ctxloom signer trust`
+// resolves ~/.ctxloom/allowed_signers, so an unguarded test run would add a
+// permanently trusted signing key to the developer's real trust root — the
+// same defect as the approvals store, one notch worse.
+func TestHomeAllowedSignersPath_RefusesAnUnsandboxedHomeUnderTest(t *testing.T) {
+	t.Setenv("HOME", string(filepath.Separator)+"ctxloom-unsandboxed-home")
+
+	path, err := homeAllowedSignersPath()
+	require.Error(t, err, "an unsandboxed HOME must be refused, got %q", path)
+	assert.Empty(t, path)
+	assert.Contains(t, err.Error(), "user trust root", "the refusal must name which store it is about")
+}
+
+// TestSignerStorePath_UserRefusesAnUnsandboxedHome proves the guard is wired
+// into the WRITE-destination resolver `signer trust`/`signer untrust` use, not
+// only into the helper. An unwired guard is no guard.
+func TestSignerStorePath_UserRefusesAnUnsandboxedHome(t *testing.T) {
+	t.Setenv("HOME", string(filepath.Separator)+"ctxloom-unsandboxed-home")
+
+	path, err := signerStorePath(nil, false)
+	require.Error(t, err, "the user allowed_signers destination must be refused, got %q", path)
+
+	path, _, _, err = resolveSignerAddPath(nil, false)
+	require.Error(t, err, "`signer trust`'s user fallback destination must be refused too, got %q", path)
+}
+
+// TestSignerStorePath_ProjectIsUnaffected is the positive control: the guard
+// governs the HOME store only. A project destination is inside the caller's
+// own checkout and must resolve however the caller configured it.
+func TestSignerStorePath_ProjectIsUnaffected(t *testing.T) {
+	t.Setenv("HOME", string(filepath.Separator)+"ctxloom-unsandboxed-home")
+	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
+
+	path, err := signerStorePath(config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), true)
+	require.NoError(t, err)
+	assert.Equal(t, paths.AllowedSignersPath(appDir), path)
 }

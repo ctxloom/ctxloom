@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// slighting-distress: WHO may answer an ActionSurfaceToHuman rung.
+// WHO may answer an ActionSurfaceToHuman rung.
 //
 // The rung's whole meaning is "a human decides this", and the only identity a
 // human answers as is the ROOT SESSION of the delegation tree. The coordinator

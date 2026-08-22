@@ -62,13 +62,7 @@ func TestExcludedScenarios_InvokeCommandsThatStillExist(t *testing.T) {
 	}
 
 	root := cli.GetRootCmd()
-	files, err := filepath.Glob(filepath.Join(featuresDir(t), "*.feature"))
-	if err != nil {
-		t.Fatalf("glob features: %v", err)
-	}
-	if len(files) == 0 {
-		t.Fatal("no feature files found — a silent pass here would prove nothing")
-	}
+	files := excludedScenarioFeatureFiles(t)
 
 	checked := 0
 	for _, path := range files {
@@ -86,7 +80,7 @@ func TestExcludedScenarios_InvokeCommandsThatStillExist(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("found no commands in excluded scenarios — the parse is broken, not the suite clean")
 	}
-	t.Logf("resolved %d command invocation(s) across excluded scenarios", checked)
+	t.Logf("resolved %d command invocation(s) across excluded scenarios in %d feature file(s)", checked, len(files))
 }
 
 type invocation struct {
@@ -214,6 +208,123 @@ func findChild(c *cobra.Command, name string) *cobra.Command {
 type errUnknown string
 
 func (e errUnknown) Error() string { return string(e) }
+
+// excludedScenarioFeatureFiles is the SUBJECT of the rot gate: every feature
+// file in the corpus, found by walking rather than globbing.
+//
+// It is a named symbol rather than an inline call because two things must agree
+// about what the gate looks at — the gate itself and
+// TestExcludedScenarioGate_VisitsEveryFeatureFileIncludingSubdirectories, which
+// proves the set is complete. With the discovery inlined, that proof would be
+// about a helper the gate was free to stop using, and a regression to a flat
+// glob would pass it.
+//
+// A flat filepath.Glob("features/*.feature") is what this replaces, and the
+// replacement is the whole point of the fix. features/ is being split into
+// journeys/ and cli/; the glob had already gone blind to 39 of 71 files while
+// staying green, because its only vacuity guard asked whether ANY file was
+// found and the remaining root files answered yes. Coverage decayed with every
+// slice of the split and nothing could say so. Walking is what completeness_test.go's
+// loadCorpus and feature_parse_test.go's TestFeatureFilesParse already do, for
+// this same reason; this gate was the one that was missed.
+func excludedScenarioFeatureFiles(t *testing.T) []string {
+	t.Helper()
+	return featureFilesOrFail(t, featuresDir(t))
+}
+
+// TestExcludedScenarioGate_VisitsEveryFeatureFileIncludingSubdirectories proves
+// the rot gate's subject is the WHOLE corpus.
+//
+// The assertion is deliberately a SET, not a count and not existence. Existence
+// ("some files were found") is satisfied by the very bug this fixes — the flat
+// glob found 32 files and reported success. A bare count would pass on any 71
+// files, including 71 wrong ones. Set equality against an independent
+// enumeration is the only form that a blind discovery cannot satisfy.
+//
+// The enumeration below is written with os.ReadDir recursion rather than
+// filepath.WalkDir on purpose: reusing WalkDir here would compare the helper
+// against itself, and a walk that skipped a directory would be invisible in
+// both halves.
+//
+// The nested-file guard is what keeps this test honest OVER TIME. Set equality
+// alone would go quiet the day the corpus happened to be flat, and a flat
+// corpus is exactly the condition under which a flat glob is indistinguishable
+// from a walk. Requiring subdirectory files makes the test fail loudly if it
+// ever loses its ability to detect the bug, instead of passing for the wrong
+// reason.
+func TestExcludedScenarioGate_VisitsEveryFeatureFileIncludingSubdirectories(t *testing.T) {
+	dir := featuresDir(t)
+	got := excludedScenarioFeatureFiles(t)
+	want := everyFeatureFileUnder(t, dir)
+
+	if diff := setDifference(want, got); len(diff) > 0 {
+		t.Errorf("the rot gate does not see %d of %d feature file(s): %v\n"+
+			"  A file the gate never opens cannot fail it, so every excluded scenario in these is unguarded.",
+			len(diff), len(want), diff)
+	}
+	if diff := setDifference(got, want); len(diff) > 0 {
+		t.Errorf("the rot gate reports %d file(s) that are not in the corpus: %v", len(diff), diff)
+	}
+
+	nested := 0
+	for _, path := range want {
+		if filepath.Dir(path) != dir {
+			nested++
+		}
+	}
+	if nested == 0 {
+		t.Fatalf("every one of the %d feature file(s) sits at the root of %s, so a flat glob "+
+			"and a recursive walk return the same set and this test can no longer tell them apart. "+
+			"It is asserting nothing until the corpus has subdirectories again.", len(want), dir)
+	}
+	t.Logf("gate sees %d feature file(s): %d at the root of %s, %d in subdirectories",
+		len(got), len(want)-nested, dir, nested)
+}
+
+// everyFeatureFileUnder enumerates .feature files under dir recursively using
+// os.ReadDir, independently of the filepath.WalkDir the gate's own discovery
+// uses. Sorted, so a comparison against it is order-stable.
+func everyFeatureFileUnder(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	var descend func(string)
+	descend = func(d string) {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			t.Fatalf("read dir %s: %v", d, err)
+		}
+		for _, e := range entries {
+			path := filepath.Join(d, e.Name())
+			switch {
+			case e.IsDir():
+				descend(path)
+			case strings.HasSuffix(e.Name(), ".feature"):
+				out = append(out, path)
+			}
+		}
+	}
+	descend(dir)
+	if len(out) == 0 {
+		t.Fatalf("no .feature files under %s — the corpus cannot be empty, so this enumeration is broken", dir)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// setDifference returns the members of a that are absent from b.
+func setDifference(a, b []string) []string {
+	inB := make(map[string]bool, len(b))
+	for _, s := range b {
+		inB[s] = true
+	}
+	var out []string
+	for _, s := range a {
+		if !inB[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 // featuresDir resolves the features directory from this test file's own
 // location, so it does not depend on the working directory the suite runs in.

@@ -220,9 +220,21 @@ Feature: MCP tools
   # backend-native id rather than its harp — files the essence somewhere
   # quiet-ember-drift will never read it from, and every field of the result
   # envelope still looks right.
+  #
+  # THE CALLER HAS A CAPTURED SESSION OF ITS OWN, and that is load-bearing
+  # rather than scene-setting. Without an index entry of its own, a
+  # resolution answering with the caller's harp falls out of the
+  # operations.CompactEntry path into the self-compaction fallback, where
+  # memory.Compactor.resolveHarpName re-derives the harp from the SessionID it
+  # was handed — which is the harp the caller named — and files the essence in
+  # the right place anyway. The location assertion then passes under a
+  # resolution that is plainly wrong. Giving the caller a real session keeps
+  # the mis-resolution on the normal path, where filing under the wrong harp
+  # stays visible.
   Scenario: compact_session resolves a session named by its harp, not only by its bound id
     Given an initialized ctxloom project
     And the session harp is "host-caller-thistle"
+    And a captured session "host-caller-thistle" bound to a backend-native session id
     And a captured session "quiet-ember-drift" bound to a backend-native session id
     And the mock LLM responds "COMPACT-DISTILLED-THE-HARP-NAMED-SESSION"
     When the agent calls tool "compact_session" with:
@@ -246,9 +258,16 @@ Feature: MCP tools
   # nothing may be written: a refusal that still leaves an essence under the
   # caller's harp has already destroyed that caller's own distilled context,
   # essence.md being overwritten in place.
+  #
+  # The caller's own captured session is what makes the second claim bite: a
+  # re-point to a caller with nothing to compact merely fails somewhere else,
+  # while a re-point to a caller that HAS a session succeeds all the way to a
+  # written essence — the exact shape the refusal exists to prevent, and the
+  # only shape in which "nothing was written" is evidence rather than silence.
   Scenario: compact_session refuses a session_id the index cannot resolve
     Given an initialized ctxloom project
     And the session harp is "host-caller-thistle"
+    And a captured session "host-caller-thistle" bound to a backend-native session id
     And a captured session "quiet-ember-drift" bound to a backend-native session id
     And the mock LLM responds "COMPACT-MUST-NOT-RUN-FOR-AN-UNRESOLVABLE-SESSION"
     When the agent calls tool "compact_session" with:

@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Plan is one session plan document.
@@ -239,6 +240,16 @@ type frontmatter struct {
 // here would have the two halves of one format disagreeing about which files
 // even have frontmatter.
 //
+// A REPEATED KEY is tolerated, resolved LAST-WINS, and announced. yaml.v3
+// rejects a repeated key when decoding into a struct and discards the WHOLE
+// mapping with it, which is why the block is walked as a yaml.Node first: a
+// plan that says `title:` twice must not thereby lose its `sessions:` list to
+// the reader while the paired writer keeps appending to it. The most recent
+// value is the one the author most recently meant — the rule the hand-rolled
+// scanner had — and a warning naming the key goes to stderr so the choice is
+// made out loud rather than quietly. Stderr, not stdout: `taskloom plan list`
+// prints a machine-readable listing on stdout that is parsed elsewhere.
+//
 // Parsing is TOLERANT of a malformed field but never of a malformed document.
 // A `sessions:` that is a scalar or a mapping cannot be a list of sessions, so
 // none are reported — inventing one entry from it would be worse than
@@ -252,8 +263,17 @@ func ParseFrontmatter(content string) (title string, sessions []string) {
 	if !ok {
 		return "", nil
 	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(block), &doc); err != nil {
+		return "", nil
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		// An empty block, or one whose root is a sequence or a bare scalar
+		// rather than a mapping: it names nothing, so nothing is claimed.
+		return "", nil
+	}
 	var fm frontmatter
-	if err := yaml.Unmarshal([]byte(block), &fm); err != nil {
+	if err := resolveDuplicateKeys(doc.Content[0]).Decode(&fm); err != nil {
 		var typeErr *yaml.TypeError
 		if !errors.As(err, &typeErr) {
 			return "", nil
@@ -266,6 +286,61 @@ func ParseFrontmatter(content string) (title string, sessions []string) {
 		return fm.Title, nil
 	}
 	return fm.Title, fm.Sessions
+}
+
+// resolveDuplicateKeys returns a copy of a frontmatter mapping in which every
+// key appears once, holding the LAST value the document gave it, and warns
+// once per duplicated key.
+//
+// It exists because the two available behaviours for a repeated key are not
+// equally costly. yaml.v3's own answer — reject the mapping — throws away the
+// keys that were NOT in dispute along with the one that was, so a plan that
+// repeats `title:` reads back as having no sessions at all while
+// memory.StampPlanFile goes on appending to the very list the reader now
+// denies exists. Last-wins keeps the document's other keys and picks the
+// author's most recent word on the disputed one; the warning is what stops
+// that from being a silent guess.
+//
+// A non-scalar key (a sequence or mapping used as a key) is passed through
+// untouched: it has no name to compare, and inventing one to dedup on would be
+// guessing at a shape this format never has.
+func resolveDuplicateKeys(mapping *yaml.Node) *yaml.Node {
+	out := *mapping
+	out.Content = nil
+	valueAt := make(map[string]int, len(mapping.Content)/2)
+	warned := map[string]bool{}
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		key, value := mapping.Content[i], mapping.Content[i+1]
+		if key.Kind != yaml.ScalarNode {
+			out.Content = append(out.Content, key, value)
+			continue
+		}
+		if pos, seen := valueAt[key.Value]; seen {
+			// Overwrite in place rather than append: the key keeps the
+			// position it first held, so the mapping's order is the document's.
+			out.Content[pos] = value
+			if !warned[key.Value] {
+				warned[key.Value] = true
+				clidiag.Warn(diagProg(), "duplicate frontmatter key %q; using the last value", key.Value)
+			}
+			continue
+		}
+		out.Content = append(out.Content, key, value)
+		valueAt[key.Value] = len(out.Content) - 1
+	}
+	return &out
+}
+
+// diagProg is the program name clidiag stamps on this package's warnings. It
+// is read from the running executable rather than hardcoded, because this
+// package is shared: the same duplicate-key warning is emitted under `taskloom
+// plan list` and under ctxloom, and a line reading "ctxloom: warning:" from a
+// taskloom invocation names a program the user did not run.
+func diagProg() string {
+	if prog := filepath.Base(os.Args[0]); prog != "" && prog != "." && prog != string(filepath.Separator) {
+		return prog
+	}
+	return "ctxloom"
 }
 
 // frontmatterBlock returns the text BETWEEN a document's opening and closing

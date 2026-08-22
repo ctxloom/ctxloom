@@ -184,11 +184,17 @@ func TestParseFrontmatter_Characterization(t *testing.T) {
 		// they moved because the guesses went with the scanner. Each is now
 		// whatever YAML says, which is what the writer already believed.
 		{
-			name:    "a duplicate key makes the block invalid YAML, so it carries nothing",
-			content: "---\ntitle: A\ntitle: B\n---\n",
-			// The scanner took the last one and reported "B". YAML rejects the
-			// mapping outright, and a document whose keys contradict each other
-			// has no answer worth guessing at.
+			name:      "a duplicate key takes the last value",
+			content:   "---\ntitle: A\ntitle: B\n---\n",
+			wantTitle: "B",
+			// The scanner took the last one and reported "B", and so does this
+			// reader: ruled 2026-08-22, a repeated key is tolerated, the most
+			// recent value wins, and a warning naming the key says so. Straight
+			// yaml.v3 rejects the mapping outright and takes the keys that were
+			// NOT in dispute down with it, which is how a plan repeating
+			// `title:` came to read back as having no sessions. The warning
+			// itself is asserted in frontmatter_duplicate_key_test.go; this
+			// table pins the value.
 		},
 		{
 			name:      "an indented top-level key is still a key",

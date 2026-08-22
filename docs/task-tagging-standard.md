@@ -151,8 +151,12 @@ Both are repeatable; a task carries as many as it needs.
 ### `touches:` — files this task will EDIT
 
 ```
-touches:internal/agentcoord/coord/children.go
+touches:"internal/agentcoord/coord/children.go"
 ```
+
+**The quotes are REQUIRED.** tagma's tag grammar reserves `/`, so an unquoted
+path is refused at write time — loudly, naming the fix, but refused. The same
+applies to any `sig:` value containing a reserved character.
 
 **"Will edit", not "concerns".** A task that only READS a file does not conflict
 with one that writes it, and conflict prediction is the entire point. Two agents
@@ -174,7 +178,14 @@ tag the files that must be edited by hand and let `area:` carry the rest.
 ```
 sig:coord.Coordinator.terminateRun
 sig:remote.ParseRepoURL
+sig:"justfile.test-mutation-cucumber"
 ```
+
+**Not every addressable unit is a Go symbol.** A justfile recipe, a shell
+function, or a named acceptance scenario is just as greppable and just as worth
+naming. The form is `<file-or-package>.<unit>`; quote it if it carries a
+reserved character. A task located in a justfile with no `sig:` at all has lost
+the half of its address that survives a file move.
 
 Name the function, method or type — never a line number. **A stale symbol fails
 LOUDLY**: the moment anyone greps for it and finds nothing, they know the task
@@ -196,3 +207,52 @@ This is not hypothetical. Two tasks in this log both edit
 `internal/agentcoord/coord/children.go`, and with nothing recording that, the
 collision had to be written into the task bodies as prose. Prose does not
 survive a query.
+
+---
+
+## Four rulings the first tagging pass needed
+
+These came out of applying the standard to a real batch. Each is a case where
+two rules in this document could both be followed and gave different answers.
+
+### A release-blocking `wishlist` is LEGAL
+
+A task can be `triage:severity=wishlist` and `triage:blocks-release=...` at the
+same time, and that is not a contradiction. Severity is the consequence if the
+thing is missing; `blocks-release` is the promise we made about this release.
+A capability we committed to ship is a `wishlist` severity we have decided to
+be blocked by.
+
+Do not inflate a capability's severity to express that it is wanted. Use the
+release tag — that is the axis that carries "wanted", and it is the one that
+gets cleared when the release ships.
+
+### A ruling is preserved; the WORK is cut down
+
+"Record only what is still to do" applies to WORK. It does not apply to a HUMAN
+RULING, which is a decision, not a task step — and decisions exist nowhere else
+once the plan file is gone.
+
+When a ruling has partly landed: keep the live clauses verbatim, and move the
+landed ones under a short CLOSED heading that says what landed and on what
+evidence. Deleting a ruling clause because its work is done destroys the record
+of the decision and invites someone to re-decide it the other way.
+
+### A vacuous test is `serious`; a missing test is not
+
+They are different faults and they rate differently:
+
+- A test that PASSES while proving nothing is `serious`. It actively reports
+  coverage that does not exist, so it is worse than no test — the shape this
+  standard already rates as "succeeds without doing the thing".
+- A test that is ABSENT is `minor`, because the gap is at least honest, and
+  rises only if its absence is hiding a live defect.
+
+"The defect is fixed, only the regression test is missing" is therefore
+`minor`, not `serious`.
+
+### Severity is rated on the REMAINDER
+
+When part of a task has landed, rate what is left, not what the task originally
+described. A `critical` defect that has been fixed but for a missing test is a
+`minor` task, and its body should already have been cut down to match.

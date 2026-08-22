@@ -628,6 +628,11 @@ func (h *Home) ReportRunExited(exitCode int, harnessSessionID string) {
 	if h.cfg.RunID == "" {
 		return // a session-owner runner hosts no spawned run
 	}
+	// The run's terminal is also where its plane-2 responder-side idempotency
+	// records stop being owed — see clearInflightCtrl. Deferred, and above the
+	// link check, because a terminal reached with the link already down is
+	// still a terminal.
+	defer h.clearInflightCtrl()
 	h.mu.Lock()
 	link := h.link
 	h.mu.Unlock()

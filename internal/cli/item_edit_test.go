@@ -174,5 +174,7 @@ func TestEditNoDistillWarning(t *testing.T) {
 // ever touching newLLMDistiller's real backend-resolution/plugin-launch path.
 func TestDistillerForEdit(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{})
-	assert.Nil(t, distillerForEdit(cfg, true), "--no-distill must yield a nil Distiller")
+	d, err := distillerForEdit(cfg, true)
+	require.NoError(t, err, "--no-distill resolves no prompt, so it can never be refused over one")
+	assert.Nil(t, d, "--no-distill must yield a nil Distiller")
 }

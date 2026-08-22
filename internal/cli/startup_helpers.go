@@ -38,9 +38,13 @@ import (
 // do; a run that succeeded at doing none of what was asked is not a success
 // (docs/cli-ux-principles.md §7).
 //
-// Today's sole use: `ctxloom deps upgrade` declining to advance a pin onto
-// content whose publisher signature does not verify over its bytes. The pin it
-// kept is intact and being served; what did not happen is the advance.
+// Today's uses: `ctxloom deps upgrade` declining to advance a pin onto content
+// whose publisher signature does not verify over its bytes (the pin it kept is
+// intact and being served; what did not happen is the advance), and the distill
+// frontends declining to substitute ctxloom's built-in prompt for a project
+// `distill` prompt the trust gate withheld (cli.refuseWithheldDistillPrompt —
+// the content is intact and undistilled; what did not happen is the
+// distillation).
 //
 // Chosen after checking the closest external analogues, both of which land on
 // 2 for "ran fine, something outstanding": terraform's `plan

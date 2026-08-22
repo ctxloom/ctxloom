@@ -202,12 +202,17 @@ func editItem(cmd *cobra.Command, ref string, itemType ItemType, noDistill bool)
 		return err
 	}
 
+	distiller, err := distillerForEdit(cfg, noDistill)
+	if err != nil {
+		return refuseWithheldDistillPrompt(cmd, err)
+	}
+
 	res, err := operations.SetItemContent(context.Background(), cfg, operations.SetItemContentRequest{
 		Bundle:    bundleName,
 		Kind:      itemType,
 		Name:      itemName,
 		Content:   newContent,
-		Distiller: distillerForEdit(cfg, noDistill),
+		Distiller: distiller,
 	})
 	if err != nil {
 		return err
@@ -231,9 +236,13 @@ func editItem(cmd *cobra.Command, ref string, itemType ItemType, noDistill bool)
 // real LLM-backed one otherwise. Split out so the flag's effect — nil vs. a
 // live distiller — is a plain, fast unit-testable decision, independent of
 // whatever backend newLLMDistiller resolves to.
-func distillerForEdit(cfg *config.Config, noDistill bool) operations.Distiller {
+//
+// --no-distill short-circuits BEFORE the prompt is resolved: an edit that asked
+// for no distillation cannot be refused over a distill prompt it will never
+// use. The error arm is the withheld-prompt refusal only.
+func distillerForEdit(cfg *config.Config, noDistill bool) (operations.Distiller, error) {
 	if noDistill {
-		return nil
+		return nil, nil
 	}
 	return newLLMDistiller(cfg)
 }
@@ -269,12 +278,17 @@ func distillItem(cmd *cobra.Command, ref string, itemType ItemType, force bool) 
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	distiller, err := newLLMDistiller(cfg)
+	if err != nil {
+		return refuseWithheldDistillPrompt(cmd, err)
+	}
+
 	res, err := operations.DistillItem(context.Background(), cfg, operations.DistillItemRequest{
 		Bundle:    bundleName,
 		Kind:      itemType,
 		Name:      itemName,
 		Force:     force,
-		Distiller: newLLMDistiller(cfg),
+		Distiller: distiller,
 	})
 	if err != nil {
 		if errors.Is(err, operations.ErrItemNotFound) {

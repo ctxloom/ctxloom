@@ -195,6 +195,17 @@ func TestSpoolSteer_FlagOffKeepsThePlaneTwoRouteAndTouchesNoDisk(t *testing.T) {
 	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
 	require.Eventually(t, func() bool { return sp.engineHome(0) != nil }, conformanceWait, 10*time.Millisecond)
 	runnerHome := sp.engineHome(0)
+	// JOIN on the precondition the plane-2 route actually has, rather than
+	// sampling it: a child that is up but has not yet had its `steer`
+	// capability advertisement land is legitimately routed to the §5.6
+	// MAILBOX fallback by ControlSteer, which parks no control payload and
+	// leaves Applied unspecified — the exact pair of failures this test showed
+	// under CPU starvation. awaitChildUp and a non-nil engineHome do not imply
+	// the advertisement has been recorded. Same idiom as
+	// TestControlSteer_PlaneTwoDeliversReminderAndBodyOnlyViaRecv.
+	require.Eventually(t, func() bool { return c.runCapability(out.Harp, CapSteer) == nil },
+		conformanceWait, 10*time.Millisecond,
+		"the plane-2 route is only reachable once the child advertises %q", CapSteer)
 
 	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "check the lockfile")
 	require.NoError(t, err)

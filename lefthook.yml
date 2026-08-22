@@ -130,6 +130,28 @@ pre-commit:
 
 pre-push:
   commands:
+    committed-build:
+      # Compile the tree that is about to leave the machine. Every other gate
+      # in this repo — build, lint, the unit/integration/acceptance suites —
+      # compiles the WORKING TREE, so "committed" and "compiles" were
+      # independent properties and only the second was ever measured. A commit
+      # that omitted the whole package it was named for passed all of them,
+      # because the files were present locally and simply never staged; nine
+      # unpushed commits then piled up on a tree that could not build.
+      #
+      # PRE-PUSH, not pre-commit, and that is a real trade. The sharpest
+      # version of this check is at commit time — it names the omission at the
+      # moment it happens rather than N commits later — but it costs ~15s, and
+      # a per-commit gate at that price is one people route around with
+      # --no-verify, which would leave the repo worse off than the honest
+      # per-push one. Push is where the cost lands rarely and where the damage
+      # (a broken commit reaching a branch others build on) actually begins.
+      #
+      # Verifies HEAD, not every commit in the push range and not other refs
+      # being pushed in the same invocation. That catches the case this exists
+      # for — the tip you just made — and no more.
+      run: just check-head-builds
+
     cache-report:
       # Bound the Go build cache. ~/.cache/go-build has no native size cap: Go
       # trims entries unused for ~5 days, which bounds it at five days of churn

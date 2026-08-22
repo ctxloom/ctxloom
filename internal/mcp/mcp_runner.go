@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"mime"
 	"net"
 	"net/http"
@@ -31,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/ctxloom/ctxloom/internal/version"
 )
 
@@ -790,9 +790,11 @@ type artifactStamper struct {
 	seen map[string]string // artifact_id → hex sha256 last successfully uploaded
 }
 
-// planCandidates lists the session dir's *.plan.md files as publish
-// candidates — unconditional on every report; publish decides per-file
-// whether content actually changed.
+// planCandidates lists the session's *.plan.md files as publish candidates —
+// unconditional on every report; publish decides per-file whether content
+// actually changed. WHICH directories hold them is plans.SessionPlanPaths'
+// decision, not this file's, so the stamper collects plans from exactly the
+// place mcp.sessionInstructions told the agent to write them.
 //
 // Two "no candidates" outcomes are legitimate and return no error: a stamper
 // with no harp (docgen, tests — there is no session to stamp for) and a
@@ -806,28 +808,19 @@ func (p *artifactStamper) planCandidates() ([]artifactCandidate, error) {
 	if p.harp == "" {
 		return nil, nil
 	}
-	dir, err := paths.HarpDir(p.harp)
-	if err != nil {
-		return nil, fmt.Errorf("resolve session dir for %s: %w", p.harp, err)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read session dir %s: %w", dir, err)
+	found, problems := plans.SessionPlanPaths(p.harp)
+	if len(problems) > 0 {
+		return nil, errors.Join(problems...)
 	}
 	var out []artifactCandidate
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), paths.PlanFileExt) {
-			continue
-		}
+	for _, abs := range found {
+		base := filepath.Base(abs)
 		out = append(out, artifactCandidate{
-			artifactID: "plan/" + strings.TrimSuffix(e.Name(), paths.PlanFileExt),
-			name:       e.Name(),
+			artifactID: "plan/" + strings.TrimSuffix(base, paths.PlanFileExt),
+			name:       base,
 			mediaType:  "text/markdown",
 			kind:       agentcoordpb.ArtifactKind_ARTIFACT_KIND_IMPLEMENTATION_PLAN,
-			absPath:    filepath.Join(dir, e.Name()),
+			absPath:    abs,
 		})
 	}
 	return out, nil

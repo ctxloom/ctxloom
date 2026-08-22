@@ -80,13 +80,23 @@ func sessionInstructions(harp string) string {
 		}
 		sessionLine += fmt.Sprintf(" Resumed from `%s` (restored: %s).", resumed, parts)
 	}
-	// Point the LLM at this session's directory for plans. Implementation
-	// and strategy plans belong here (not in an ad-hoc .plan/ dir) so they
-	// travel with the session and can be recovered on resume. A session
-	// may produce several plans, so each is a separately named file with a
-	// .plan.md suffix sitting directly in the session directory.
-	if sessDir, perr := paths.HarpDir(harp); perr == nil {
-		sessionLine += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). A session may have multiple plans — use distinct names and reference plans by their path.", sessDir, paths.PlanFileExt, filepath.Join(sessDir, "v1-removal"+paths.PlanFileExt))
+	// Point the LLM at this session's plan directory. Implementation and
+	// strategy plans belong here (not in an ad-hoc .plan/ dir) so they travel
+	// with the session and can be recovered on resume. A session may produce
+	// several plans, so each is a separately named file with a .plan.md
+	// suffix.
+	//
+	// The path is paths.HarpPlansDir — the harp's persist/ subdirectory — and
+	// NOT the harp top level. Only persist/ is bind-mounted into a
+	// containerized run (isolation.Container.sessionStateMounts), so an agent
+	// that follows this instruction from inside a container and writes at the
+	// top level writes into container-ephemeral overlay space and loses the
+	// plan on exit: a successful write, a real file, and zero bytes left
+	// behind afterwards. This sentence IS the population source for that
+	// failure — every session is told where to put its plans right here — so
+	// it is the one place the location has to be right.
+	if planDir, perr := paths.HarpPlansDir(harp); perr == nil {
+		sessionLine += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's plan directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). That directory is the one that survives a containerized run — plans written elsewhere under the session directory do not. A session may have multiple plans — use distinct names and reference plans by their path.", planDir, paths.PlanFileExt, filepath.Join(planDir, "v1-removal"+paths.PlanFileExt))
 	}
 	return instructions + sessionLine
 }
@@ -213,6 +223,13 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// credential — see operations.SweepOrphanedSessionHomes. Same fault-tolerance, same
 	// silence when there is nothing to do.
 	operations.SweepOrphanedSessionHomes(os.Stderr)
+
+	// Startup reaper, third half: authored session files (above all the
+	// *.plan.md this server's own instructions ask for) left at a harp
+	// directory's undurable top level, moved into persist/ where a
+	// containerized run's bind mount reaches them — see
+	// operations.SweepHarpArtifacts. Live sessions are passed over.
+	operations.SweepHarpArtifacts(os.Stderr)
 
 	if ctx.Err() != nil {
 		return ctx.Err()

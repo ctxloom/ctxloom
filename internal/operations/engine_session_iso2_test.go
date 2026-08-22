@@ -463,7 +463,7 @@ func TestAcpWorkspaceAxis_SilentWhenNothingWasAsked(t *testing.T) {
 func stubAssignSession(t *testing.T, err error) {
 	t.Helper()
 	prev := assignSession
-	assignSession = func(string, string) (sessions.Entry, error) { return sessions.Entry{}, err }
+	assignSession = func(context.Context, string, string) (sessions.Entry, error) { return sessions.Entry{}, err }
 	t.Cleanup(func() { assignSession = prev })
 }
 

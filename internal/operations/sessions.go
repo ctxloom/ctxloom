@@ -229,34 +229,71 @@ func ForgetSession(harp string) error {
 // production value execs the real CLI through backends' shared cached prober.
 var probeEngineVersion = backends.ProbeEngineVersion
 
-// AssignSession mints a fresh harp for a new run in projectDir under backend
-// and returns the pending index entry (SessionID unbound until the spawned LLM
-// initializes). The pre-launch naming step in `ctxloom run`.
+// AssignSession mints a fresh harp for a new run in projectDir under backend,
+// records the engine's version against it, and returns the pending index entry
+// (SessionID unbound until the spawned LLM initializes). The pre-launch naming
+// step in `ctxloom run` and in the ACP session opener.
 //
-// It is also where the engine's version is PROBED AND RECORDED (task
-// wrought-spearman): session start is the only moment at which "what is
-// installed" and "what will write this session's transcript" are the same
-// fact. Read it back later and a probe would answer for whatever is installed
-// THEN — see sessions.Entry.EngineVersion.
+// It is the composition of its two halves, AssignSessionHarp and
+// RecordSessionEngineVersion, for the callers that want both and can afford
+// to wait for both. A caller that must publish the harp somewhere BEFORE the
+// probe — the delegation spawn path, where the probe used to sit between
+// minting the child's address and registering the child anywhere an operator
+// could see it (task affected-yearly) — calls the two halves itself, in that
+// order.
 //
-// A failed probe does NOT fail the run. The two failure levels are different
-// costs: refusing to START a session because an engine could not be asked its
-// version would deny a user their working engine over a diagnostic, while
-// reading a stored transcript with no idea what wrote it silently returns a
-// plausible-but-wrong conversation. So this warns and records nothing, and the
-// refusal lands where it actually protects something — the read path, which
-// treats an unrecorded version as unknown and stops.
-func AssignSession(projectDir, backend string) (sessions.Entry, error) {
+// ctx bounds the probe. It used to be discarded outright in favour of
+// context.Background(), which meant a wedged `--version` had no deadline at
+// all on any path.
+func AssignSession(ctx context.Context, projectDir, backend string) (sessions.Entry, error) {
+	entry, err := AssignSessionHarp(projectDir, backend)
+	if err != nil {
+		return sessions.Entry{}, err
+	}
+	if version, ok := RecordSessionEngineVersion(ctx, entry.HarpName, backend); ok {
+		entry.EngineVersion = version
+	}
+	return entry, nil
+}
+
+// AssignSessionHarp mints the harp alone: the session's address, written to
+// the index, with nothing else consulted.
+//
+// It is deliberately the CHEAP half. Everything that can block for an
+// unbounded time on the session-start path — an exec of a vendor CLI above
+// all — belongs in RecordSessionEngineVersion, so that a caller whose next
+// act is to publish the harp can do that first and let the slow, optional
+// enrichment follow.
+func AssignSessionHarp(projectDir, backend string) (sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
 		return sessions.Entry{}, err
 	}
-	entry, err := mgr.AssignHarp(projectDir, backend)
-	if err != nil {
-		return sessions.Entry{}, err
-	}
+	return mgr.AssignHarp(projectDir, backend)
+}
 
-	version, perr := probeEngineVersion(context.Background(), backend)
+// RecordSessionEngineVersion probes backend's installed CLI and records what
+// it says against harp, reporting the recorded version and whether anything
+// was recorded.
+//
+// WHY AT SESSION START (task wrought-spearman): this is the only moment at
+// which "what is installed" and "what will write this session's transcript"
+// are the same fact. Read it back later and a probe would answer for whatever
+// is installed THEN — see sessions.Entry.EngineVersion.
+//
+// A failed probe does NOT fail the session. The two failure levels are
+// different costs: refusing to START a session because an engine could not be
+// asked its version would deny a user their working engine over a diagnostic,
+// while reading a stored transcript with no idea what wrote it silently
+// returns a plausible-but-wrong conversation. So this warns and records
+// nothing, and the refusal lands where it actually protects something — the
+// read path, which treats an unrecorded version as unknown and stops.
+//
+// ctx bounds the probe on top of the prober's own budget
+// (engineversion.DefaultProbeTimeout); neither is optional, because this is
+// the step that exec's somebody else's binary.
+func RecordSessionEngineVersion(ctx context.Context, harp, backend string) (string, bool) {
+	version, perr := probeEngineVersion(ctx, backend)
 	if perr != nil {
 		// An engine that declares no version command at all (mock, the
 		// generic acp backend — neither has one binary whose version would
@@ -268,14 +305,18 @@ func AssignSession(projectDir, backend string) (sessions.Entry, error) {
 			clidiag.Warn("ctxloom", "engine version: %v — this session's transcript will not be readable back, "+
 				"because ctxloom will not guess which format wrote it", perr)
 		}
-		return entry, nil
+		return "", false
 	}
-	if rerr := mgr.RecordEngineVersion(entry.HarpName, version); rerr != nil {
-		clidiag.Warn("ctxloom", "engine version: record %s for %s: %v", version, entry.HarpName, rerr)
-		return entry, nil
+	mgr, err := openSessions()
+	if err != nil {
+		clidiag.Warn("ctxloom", "engine version: record %s for %s: %v", version, harp, err)
+		return "", false
 	}
-	entry.EngineVersion = version
-	return entry, nil
+	if rerr := mgr.RecordEngineVersion(harp, version); rerr != nil {
+		clidiag.Warn("ctxloom", "engine version: record %s for %s: %v", version, harp, rerr)
+		return "", false
+	}
+	return version, true
 }
 
 // EndSession ends harp's session: it stamps the entry's end time AND removes

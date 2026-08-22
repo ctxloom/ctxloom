@@ -191,7 +191,9 @@ func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan,
 }
 
 func (s *liveTapSpawner) ResumeContext(context.Context, *coord.SpawnPlan, string) string { return "" }
-func (s *liveTapSpawner) MarkSessionEnded(string)                                        {}
+func (s *liveTapSpawner) RecordEngineVersion(context.Context, string, string)            {}
+
+func (s *liveTapSpawner) MarkSessionEnded(string) {}
 
 // syncBuf is a goroutine-safe io.Writer (the overlay's tty writer runs on
 // its own goroutine, same as overlay_test.go's syncBuffer — re-derived here

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -396,7 +397,7 @@ func TestRunCharacterization_UnknownSavedCommandFails(t *testing.T) {
 func TestRunCharacterization_UnboundResumeSessionDegrades(t *testing.T) {
 	dir := runCLIFixture(t)
 
-	entry, err := operations.AssignSession(dir, "claude-code")
+	entry, err := operations.AssignSession(context.Background(), dir, "claude-code")
 	require.NoError(t, err)
 
 	base := runCLI(t, "run", "--dry-run", "--format", "json", "-p", "dev", "hi")

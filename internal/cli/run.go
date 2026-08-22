@@ -974,7 +974,7 @@ func (st *runState) openSession() func() {
 		confirmUpgrade(pending, commit)
 	}
 
-	entry, err := operations.AssignSession(st.workDir, st.backendName)
+	entry, err := operations.AssignSession(st.ctx, st.workDir, st.backendName)
 	if err != nil {
 		clidiag.Warn("ctxloom", "session naming failed: %v", err)
 		return func() {}

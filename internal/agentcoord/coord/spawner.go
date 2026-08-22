@@ -126,8 +126,27 @@ type Spawner interface {
 	// serialized strictness window.
 	Resolve(ctx context.Context, agentName string) (*SpawnPlan, error)
 	// AssignSession mints the child's harp (its address and continuation
-	// token) in the host-side session accounting.
+	// token) in the host-side session accounting, and does NOTHING ELSE.
+	//
+	// It is on the pre-registration critical path: AgentRun cannot journal
+	// run.enqueued, and therefore cannot show the caller that the child
+	// exists, until it has an address for it. Anything slow that a
+	// starting session also wants — the engine-version probe above all —
+	// belongs in RecordEngineVersion, which runs AFTER the run is
+	// registered. See task affected-yearly: a probe sitting here left a
+	// spawn invisible for minutes, and callers reasonably double-spawned.
 	AssignSession(projectDir, backend string) (string, error)
+	// RecordEngineVersion probes the child engine's installed CLI and
+	// records its version against harp, for the reader selection that
+	// happens when this session's transcript is read back.
+	//
+	// Called from a tracked goroutine AFTER the run is registered, and
+	// therefore explicitly NOT on the path that decides whether agent_run
+	// returns. It reports nothing: every failure here is a diagnostic that
+	// warns at its own level and costs the session nothing (see
+	// operations.RecordSessionEngineVersion), exactly like MarkSessionEnded
+	// below.
+	RecordEngineVersion(ctx context.Context, harp, backend string)
 	// Launch starts the child engine with the composed context riding the
 	// first turn, env as the ENGINE's extra environment (ambient identity),
 	// and runnerEnv stamped per-spawn onto the RUNNER process (the
@@ -473,11 +492,15 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 }
 
 func (s *prodSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.AssignSession(projectDir, backend)
+	entry, err := operations.AssignSessionHarp(projectDir, backend)
 	if err != nil {
 		return "", err
 	}
 	return entry.HarpName, nil
+}
+
+func (s *prodSpawner) RecordEngineVersion(ctx context.Context, harp, backend string) {
+	operations.RecordSessionEngineVersion(ctx, harp, backend)
 }
 
 // prepareAgentChat is operations.PrepareAgentChat's production entry point,

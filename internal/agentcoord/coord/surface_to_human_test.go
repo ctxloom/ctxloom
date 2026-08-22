@@ -222,8 +222,8 @@ func TestApproval_SurfaceToHumanTimeout(t *testing.T) {
 //
 // Slice 3's brief asked for this as a cli-package test (terminalUISources
 // built against a real test coordinator). That harness could not be built:
-// coord.Spawner's five methods (Resolve/AssignSession/Launch/StartEngine/
-// ResumeContext/MarkSessionEnded) require the same machinery fake_test.go
+// coord.Spawner's methods (Resolve/AssignSession/RecordEngineVersion/Launch/
+// StartEngine/ResumeContext/MarkSessionEnded) require the same machinery fake_test.go
 // implements in ~600 unexported lines local to THIS package
 // (fakeAgent/scriptedChat/fakeEngine/fakeSpawner) — cli can only see the
 // exported Spawner interface, not those helpers, so reproducing the harness

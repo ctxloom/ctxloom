@@ -300,6 +300,26 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		return nil, fmt.Errorf("agent_run: refused: this session (depth %d) is already at the maximum delegation depth (delegation.depth = %d) — report the work back to your coordinator (agent_send to \"parent\") and let it fan out, or raise delegation.depth in config.yaml if a deeper tree is actually wanted", caller.Depth, depthCap)
 	}
 
+	// EVERYTHING FROM HERE TO enqueueRun IS THE TRACELESS SPAN. The run has
+	// no id yet, so nothing can be journaled against it, nothing appears in
+	// the roster, and no log line says a spawn is in progress — while three
+	// separate steps below can block for an unbounded time (agent
+	// resolution, the session-index flock inside AssignSession, the
+	// reach-back endpoint). Measured once at 6m59s, against a caller budget
+	// of defaultRequestTimeout: the caller times out, sees nothing anywhere,
+	// concludes the spawn never happened, and retries — which is how one
+	// brief came to be executed by three concurrent children in one checkout
+	// (task affected-yearly).
+	//
+	// Two things close that. The audit fact below is the DURABLE record that
+	// a spawn was accepted, written before the span rather than after it, so
+	// "accepted but not yet registered" is a state an operator can read back
+	// instead of infer. notePendingSpawn is the LIVE one: a span that
+	// outlives its notice budget says so out loud, naming the caller and the
+	// agent, rather than being silent for as long as it takes.
+	c.audit("agent_run.accepted", caller.Harp, map[string]string{"agent": agentName})
+	defer c.notePendingSpawn(caller, agentName)()
+
 	plan, err := c.spawner.Resolve(ctx, agentName)
 	if err != nil {
 		return nil, err
@@ -325,6 +345,17 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	}
 	c.audit("agent_run", caller.Harp, map[string]string{"agent": agentName, "harp": harp, "run_id": rt.runID})
 
+	// The engine-version probe execs the vendor's own CLI, which can hang;
+	// engineversion.DefaultProbeTimeout bounds that, but a bound is not
+	// speed. It runs HERE — after run.enqueued is durable and the run is in
+	// the roster — and deliberately not inside AssignSession, where it used
+	// to sit between minting the child's address and registering the child
+	// anywhere visible. Nothing on the launch path reads what it records:
+	// the recorded version is consumed much later, when this session's
+	// transcript is parsed back (sessions.Entry.EngineVersion).
+	backend := plan.Backend
+	c.goTracked(func() { c.spawner.RecordEngineVersion(c.baseCtx, harp, backend) })
+
 	c.goTracked(func() { c.runChild(rt, prompt, token, url) })
 
 	runtime := plan.Runtime
@@ -343,6 +374,47 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		Queued:   queued,
 		Degraded: plan.Degraded,
 	}, nil
+}
+
+// defaultSpawnNoticeAfter is how long agent_run's pre-registration span may
+// run before it reports itself. Well inside defaultRequestTimeout, the
+// caller's own budget: the point is that a notice exists BEFORE the caller
+// gives up and starts deciding whether to retry, not after.
+const defaultSpawnNoticeAfter = 15 * time.Second
+
+// notePendingSpawn arms the watchdog over agent_run's pre-registration span
+// and returns the function that stands it down. The caller defers that
+// function, so every exit from the span — success, refusal, panic — disarms
+// it.
+//
+// It only REPORTS; it never cancels. Whether a spawn that has been preparing
+// for a quarter of a minute should be abandoned is a policy question with a
+// real cost on the wrong side (a slow-but-working spawn killed at the finish
+// line), and it is not the question this defect is about: the harm measured
+// was a caller with no way to tell a slow spawn from a dead one. A notice
+// answers that; a cancellation does not.
+func (c *Coordinator) notePendingSpawn(caller Identity, agentName string) (settled func()) {
+	after := c.spawnNoticeAfter
+	if after <= 0 {
+		return func() {}
+	}
+	timer := time.AfterFunc(after, func() {
+		c.audit("agent_run.pending", caller.Harp, map[string]string{"agent": agentName, "after": after.String()})
+		clidiag.Warn("ctxloom", "agent_run: %s's spawn of agent %q has been preparing for over %s and is not registered yet, "+
+			"so it is not in the roster and has no run id; it is still starting, NOT lost — do not spawn a second one",
+			callerLabel(caller), agentName, after)
+	})
+	return func() { timer.Stop() }
+}
+
+// callerLabel names a caller for a human-facing line. A depth-0 owner may
+// have no harp (nothing minted one), and "'s spawn" with an empty subject
+// reads as a bug in the message rather than a fact about the caller.
+func callerLabel(caller Identity) string {
+	if caller.Harp == "" {
+		return "this session"
+	}
+	return caller.Harp
 }
 
 // enqueueRun mints the run id + credential, journals the enqueue (fsynced

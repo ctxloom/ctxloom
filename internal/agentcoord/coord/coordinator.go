@@ -171,6 +171,12 @@ type Coordinator struct {
 	// is consumed once into slots at construction and needs no persisted
 	// field).
 	depthCap int
+	// spawnNoticeAfter is how long AgentRun's pre-registration span may run
+	// before notePendingSpawn reports it (defaultSpawnNoticeAfter,
+	// children.go). A field rather than a constant so a test can shrink it;
+	// no Options field, because it is a diagnostic threshold, not a
+	// behaviour an embedder chooses.
+	spawnNoticeAfter time.Duration
 	// endedRunTail / endedRunMaxAge are the one-shot retention reap bounds
 	// (Slice 4 / Fork 2.3) — see Options.EndedRunTail/EndedRunMaxAge.
 	endedRunTail   int
@@ -378,6 +384,7 @@ func New(opts Options) (*Coordinator, error) {
 		spawner:            opts.Spawner,
 		slots:              newTurnSlots(t.concurrencyCap),
 		depthCap:           t.depthCap,
+		spawnNoticeAfter:   defaultSpawnNoticeAfter,
 		endedRunTail:       t.endedRunTail,
 		endedRunMaxAge:     t.endedRunMaxAge,
 		runnerAwaitTimeout: t.runnerAwaitTimeout,

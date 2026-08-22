@@ -37,23 +37,37 @@
 // Stdio variant), and several id types (SessionModeId, TerminalId) are
 // distinct string types rather than aliases.
 //
-// The newline-delimited JSON-RPC 2.0 codec was ALREADY ours before either
-// decision, and stays exactly as it was: the SDK's connection layer is built
-// on golang.org/x/exp/jsonrpc2, which hardcodes the LSP-style Content-Length
-// "HeaderFramer" with no override hook — but ACP frames messages as
-// NEWLINE-DELIMITED JSON over stdio, making that connection layer
-// wire-INCOMPATIBLE with real ACP agents (its own client↔agent tests pass
-// only because both ends share the wrong framer). jsonrpc.go supplies the
-// minimal newline-delimited JSON-RPC 2.0 peer this needs. (The
-// coder/acp-go-sdk fork's OWN connection.go, unlike the abandoned SDK, DOES
-// frame newline-delimited — verified during the SDK1-fork slice — so this
-// redundancy may be worth revisiting in a follow-up; not adopted in this
-// slice per its own scope boundary.)
+// The newline-delimited JSON-RPC 2.0 codec (internal/acp/jsonrpc) was ALREADY
+// ours before either decision, and its original reason no longer holds. That
+// reason was the ABANDONED SDK's connection layer, built on
+// golang.org/x/exp/jsonrpc2, which hardcodes the LSP-style Content-Length
+// "HeaderFramer" with no override hook — wire-INCOMPATIBLE with real ACP
+// agents, whose framing is newline-delimited JSON over stdio. Neither that SDK
+// nor x/exp/jsonrpc2 is a dependency any more. The SDK we DO depend on frames
+// newline-delimited exactly as ACP specifies (acp.Connection.sendMessage
+// appends '\n'; its receive loop is a line-mode bufio.Scanner), so the codec
+// is now REDUNDANT and scheduled for retirement in its favour.
+//
+// What retirement still needs, none of it a veto:
+//   - acp.Connection's receive loop caps a frame at a hardcoded 10 MiB with no
+//     override hook. ctxloom carries base64 image blocks and imposes no
+//     ceiling today, so adopting it as-is would truncate large images. The fix
+//     is one constant in the fork we already maintain — which means a fork
+//     release and a go.mod bump, not a change in this repo.
+//   - acp.SendRequest blocks to completion, but ACP.promptAsync needs
+//     write-then-await ordering so a session/cancel can follow a session/prompt
+//     already on the wire.
+//   - The SDK dispatches each inbound request on its own goroutine, which
+//     loses acpagent.Server's synchronous turn registration and needs a
+//     cancel-arrived-early latch. Its AgentSideConnection has this race, so
+//     only Connection is adoptable.
+//   - It has no handler-panic recovery, and logs through slog rather than
+//     clidiag.
 //
 // # Files
 //
 //	doc.go      — this overview + the SDK decision + the registration TODO
-//	jsonrpc.go  — the newline-delimited JSON-RPC 2.0 codec (framing + duplex peer)
+//	jsonrpc/    — the newline-delimited JSON-RPC 2.0 codec (framing + duplex peer)
 //	mapping.go  — THE CORE: session/update → agent.ChatEvent + permission decision
 //	session.go  — the session lifecycle driver (initialize→new→prompt→cancel) and
 //	              the agent→client callback handler (permission, fs read/write)

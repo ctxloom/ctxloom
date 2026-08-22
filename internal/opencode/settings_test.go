@@ -422,3 +422,96 @@ func TestRemoveSettings_DoesNotDeleteACollidingUserEntry(t *testing.T) {
 	assert.Equal(t, []any{"user-cmd"}, collided["command"],
 		"the user's original definition must survive the whole write/remove cycle")
 }
+
+// TestWriteSettings_CollidingUserEntryPreservedVerbatim tightens the
+// slimy-critter reproduction from "the user's command survived" to "the user's
+// WHOLE entry survived, key for key, byte for byte".
+//
+// Asserting one field is not enough to refute the finding. A writer that
+// MERGED ctxloom's fields into the user's object rather than replacing it —
+// adding "enabled", flipping "type", dropping a key opencode's own schema does
+// not model — would leave "command" untouched and still have mangled the
+// entry. And asserting only that a key named "proj-tool" is still present is
+// the false-green shape this repo has been burned by: a managed entry that
+// overwrote the user's leaves that key present too.
+//
+// The `mcp` decoder (existingMCPServers) keeps each entry as raw bytes and
+// writes them back untouched, so the contract is literally byte equality of
+// the compacted entry, which also catches a reordering or re-encoding round
+// trip that a field-by-field walk would wave through.
+func TestWriteSettings_CollidingUserEntryPreservedVerbatim(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &OpencodeWriter{FS: fs}
+	require.NoError(t, fs.MkdirAll("/proj", 0o755))
+	// Deliberately unlike anything ctxloom would ever write: disabled, a
+	// non-empty environment, and a key opencode does not model at all.
+	existing := `{
+  "theme": "gruvbox",
+  "mcp": {
+    "proj-tool": {
+      "type": "local",
+      "command": ["user-cmd", "--user"],
+      "environment": {"USER_TOKEN": "keep-me"},
+      "enabled": false,
+      "x-user-note": "hand written, do not touch"
+    }
+  }
+}`
+	require.NoError(t, afero.WriteFile(fs, "/proj/opencode.json", []byte(existing), 0o644))
+
+	before := compactMCPEntry(t, fs, "/proj/opencode.json", "proj-tool")
+	require.NotEmpty(t, before, "fixture is broken: the contested entry must exist BEFORE the write")
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	require.NoError(t, w.WriteSettings(nil, map[string]wire.MCPServer{
+		"proj-tool": {Command: "ctxloom-bundled-cmd", Args: []string{"serve"}},
+		"safe":      {Command: "safe-cmd"},
+	}, "/proj"))
+
+	// The subject actually ran: a non-colliding managed server in the SAME
+	// call landed with ctxloom's own definition. Without this, every
+	// assertion below would also pass if WriteSettings had silently done
+	// nothing at all.
+	servers := mcpObject(t, readJSON(t, fs, "/proj/opencode.json"))
+	safe, ok := servers["safe"].(map[string]any)
+	require.True(t, ok, "WriteSettings did no work: the non-colliding managed server is missing; got %#v", servers)
+	assert.Equal(t, []any{"safe-cmd"}, safe["command"], "the non-colliding managed server carries ctxloom's definition")
+
+	after := compactMCPEntry(t, fs, "/proj/opencode.json", "proj-tool")
+	require.NotEmpty(t, after, "the contested entry must still exist AFTER the write")
+	assert.Equal(t, string(before), string(after),
+		"the user's hand-authored entry must survive the write unchanged, not merely keep its name")
+
+	// The specific clobber slimy-critter names: ctxloom's command taking the
+	// user's slot. Meaningful as a negative because this value WAS offered to
+	// the writer in this very call and lands for "safe" two assertions up.
+	assert.NotContains(t, string(after), "ctxloom-bundled-cmd",
+		"ctxloom's managed definition must not have replaced the user's")
+	assert.Contains(t, warnings.String(), "refusing to overwrite MCP server",
+		"the refusal must be loud; got: %q", warnings.String())
+}
+
+// compactMCPEntry returns one `mcp` entry from an opencode.json as compacted
+// JSON bytes. It compacts because the file is written with MarshalIndent, so
+// the same bytes are indented differently depending on nesting depth; the
+// entry's key order and values are what the writer promises to preserve.
+func compactMCPEntry(t *testing.T, fs afero.Fs, path, name string) []byte {
+	t.Helper()
+	data, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	require.NotEmpty(t, data, "%s is empty", path)
+	var cfg map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	rawMCP, ok := cfg["mcp"]
+	require.True(t, ok, "%s has no mcp key", path)
+	var servers map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawMCP, &servers))
+	entry, ok := servers[name]
+	require.True(t, ok, "%s has no mcp entry %q", path, name)
+	var buf bytes.Buffer
+	require.NoError(t, json.Compact(&buf, entry))
+	return buf.Bytes()
+}

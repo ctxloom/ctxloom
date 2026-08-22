@@ -176,7 +176,6 @@ var DefaultTagSchema = []string{
 	`tagma.arity:"triage:level"=scalar`,
 	`tagma.arity:"triage:verdict"=scalar`,
 	`tagma.arity:"triage:audited"=scalar`,
-	`tagma.arity:"repo"=scalar`,
 	`tagma.arity:"triage:kind"=scalar`,
 	`tagma.arity:"triage:effort"=scalar`,
 	`tagma.arity:"triage:blocks-release"=scalar`,

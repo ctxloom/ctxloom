@@ -185,6 +185,26 @@ Feature: MCP tools
     And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
     And the essence the tool reports writing contains "COMPACT-DISTILLED-THE-NAMED-SESSION"
 
+  # The CACHE hit asks the same identity question of a different line of code.
+  # A cached compact_session returns early, having run no distillation to take
+  # an identity from, so it composes one itself — and that line used to compose
+  # it from the CALLER's harp. An agent asking twice about another session was
+  # told, the second time, that it had compacted itself: a well-formed answer
+  # naming the wrong session, and the branch a scenario that only ever calls
+  # once can never reach.
+  Scenario: a cached compact_session still answers for the session it was asked about
+    Given an initialized ctxloom project
+    And the session harp is "host-caller-thistle"
+    And a captured session "quiet-ember-drift" bound to a backend-native session id
+    And the mock LLM responds "COMPACT-DISTILLED-THE-NAMED-SESSION"
+    When the agent calls tool "compact_session" with:
+      | session_id | seeded-quiet-ember-drift |
+    And the agent calls tool "compact_session" with:
+      | session_id | seeded-quiet-ember-drift |
+    Then the tool call succeeds
+    And the tool result field "was_cached" equals "true"
+    And the tool result field "session_id" equals "seeded-quiet-ember-drift"
+
   # get_previous_session takes no arguments at all: it resolves the previous
   # session itself. That makes it the easiest of these to satisfy vacuously —
   # "no previous session" is a perfectly good answer shape — so the assertion

@@ -1603,6 +1603,10 @@ func (c *Coordinator) wakeChild(rt *childRt) {
 		return // spurious wake (a recv or boundary drain consumed it)
 	}
 	if err := c.acquireRunSlot(rt); err != nil {
+		// takeNextMail already journaled the consume, so this return is the
+		// same durable loss sendTurn's drop paths were: the message left the
+		// mailbox to start a turn that is not going to happen.
+		c.requeueUndelivered(rt.harp, msg)
 		return
 	}
 	c.setState(rt, StateExecuting)

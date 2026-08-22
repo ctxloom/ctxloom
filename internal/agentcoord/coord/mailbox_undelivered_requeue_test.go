@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -48,6 +49,31 @@ func TestSendMailTurn_UndeliveredMessageComesBack(t *testing.T) {
 		c.sendMailTurn(rt, msg)
 
 		assertRequeued(t, c, role, msg)
+	})
+
+	t.Run("no execution slot will ever come", func(t *testing.T) {
+		resetStrictness(t)
+		sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+		// Cap of one, and the first run takes it: the second run's enqueue
+		// finds nothing to claim, so wakeChild's acquireRunSlot is a real
+		// blocking acquisition — and a cancelled baseCtx is what ends it.
+		c := newTestCoordinatorCap(t, sp, nil, 1)
+		plan, err := sp.Resolve(context.Background(), "worker")
+		require.NoError(t, err)
+		_, _, err = c.enqueueRun(ownerIdentity(), plan, "child-slot-holder", "brief", false, make(chan struct{}), 1)
+		require.NoError(t, err)
+		rt, _, err := c.enqueueRun(ownerIdentity(), plan, role, "brief", false, make(chan struct{}), 1)
+		require.NoError(t, err)
+		require.Equal(t, slotFree, rt.slot, "the cap is full, so this run holds no slot")
+
+		c.setState(rt, StateIdle)
+		id, _, err := c.queueMail("coordinator-harp", role, "note", "the body that must not be lost")
+		require.NoError(t, err)
+		c.cancel() // the blocking slot acquisition can now only fail
+
+		c.wakeChild(rt)
+
+		assertRequeued(t, c, role, Message{ID: id, From: "coordinator-harp", Kind: "note", Body: "the body that must not be lost"})
 	})
 }
 

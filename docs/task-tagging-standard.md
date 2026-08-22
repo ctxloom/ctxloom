@@ -1,7 +1,6 @@
-# Task Severity Standard — the ctxloom task log
+# Task Tagging Standard — the ctxloom task log
 
-**Status:** proposed standard. **Scope:** every task in the taskloom log, via the
-`triage:severity=` tag.
+**Status:** proposed standard. **Scope:** every task in the taskloom log.
 
 ---
 
@@ -134,3 +133,66 @@ exists.
 
 The question to ask is always the same: **if we shipped without this, what would
 actually happen?** Then find the tier that names that consequence.
+
+---
+
+## Locating the work — `touches:` and `sig:`
+
+Severity says how bad it is. These say WHERE it is, and they answer two
+different questions that need different granularity.
+
+| Tag | Form | Answers |
+|---|---|---|
+| `touches:` | repo-relative **file** path | Can these two tasks run in parallel? |
+| `sig:` | `package.Symbol` / `Type.Method` | What is open against the thing I am about to change? |
+
+Both are repeatable; a task carries as many as it needs.
+
+### `touches:` — files this task will EDIT
+
+```
+touches:internal/agentcoord/coord/children.go
+```
+
+**"Will edit", not "concerns".** A task that only READS a file does not conflict
+with one that writes it, and conflict prediction is the entire point. Two agents
+editing one file collide in git no matter which symbols each of them touched —
+which is why this is file-granular and not package-granular.
+
+It has to be finer than `area:` to earn its place. `area:bus`, `area:config` and
+their peers are already effectively package buckets, and every active task
+carries exactly one. A package-level `touches:` would just be `area:` spelled
+twice.
+
+**Diffuse tasks carry only their two or three PRIMARY files.** A change that
+rewrites 76 call sites gets no useful signal from 76 tags; it gets noise that
+makes every query look like a collision. Where the work is genuinely spread,
+tag the files that must be edited by hand and let `area:` carry the rest.
+
+### `sig:` — the symbols whose contract changes
+
+```
+sig:coord.Coordinator.terminateRun
+sig:remote.ParseRepoURL
+```
+
+Name the function, method or type — never a line number. **A stale symbol fails
+LOUDLY**: the moment anyone greps for it and finds nothing, they know the task
+has drifted. A stale line number silently points at unrelated code and is
+believed. That difference is why line numbers are banned from task bodies as
+well as from these tags.
+
+`sig:` is also what survives a file move, so the two tags degrade differently
+and on purpose: rename a file and `touches:` goes quietly stale while `sig:`
+still finds the work.
+
+### Using them together
+
+Before dispatching parallel work, intersect the `touches:` sets. A non-empty
+intersection means those tasks take turns or share a worktree — it is not a
+reason to skip either, only a reason not to run them at once.
+
+This is not hypothetical. Two tasks in this log both edit
+`internal/agentcoord/coord/children.go`, and with nothing recording that, the
+collision had to be written into the task bodies as prose. Prose does not
+survive a query.

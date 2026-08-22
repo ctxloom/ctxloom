@@ -79,6 +79,55 @@ pre-commit:
           ./bin/archlint ./...
         ARCHLINT_CHECK_ALLOWLISTS=0 ./bin/archlint ./...
 
+    loadout-signatures:
+      # Companion loadouts are signed content: each cmd/<tool>/loadout.yaml has
+      # a detached loadout.yaml.sig covering its exact bytes, and a loadout
+      # whose signature does not cover it is WITHHELD as unverifiable rather
+      # than downgraded to "unsigned, please review". So a .yaml edited without
+      # regenerating its .sig does not ship degraded — it does not ship.
+      #
+      # THE INVARIANT: a loadout's .sig is regenerated (`just sign-loadouts`)
+      # and committed in the SAME change as the .yaml it covers.
+      #
+      # This is easy to violate and was: the two are separate files, the .sig
+      # comes from a separate command, and editing the .yaml alone looks
+      # complete and commits clean. The Go drift gate that catches it
+      # (TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher) lives in the
+      # default suite, so drift can sit on the branch until someone runs the
+      # full suite — long after the human who could re-sign has moved on.
+      # Signing needs the publisher key, so failing at COMMIT time is the only
+      # moment the person holding that key is reliably present.
+      #
+      # ssh-keygen, never `go test`. Verification is a plain SSH signature
+      # check against the compiled-in trust root, so it needs no build at all —
+      # matching archlint's rule that a slow hook is one people learn to bypass.
+      #
+      # Verifies the STAGED bytes (`git show :file`), not the working tree:
+      # what is being committed is what must verify.
+      run: |
+        set -euo pipefail
+        signers=internal/config/embedded_signers.allowed_signers
+        identity=$(grep -v '^#' "$signers" | grep -v '^[[:space:]]*$' | head -1 | awk '{print $1}')
+        for yaml in cmd/*/loadout.yaml; do
+          sig="$yaml.sig"
+          if ! git cat-file -e ":$sig" 2>/dev/null; then
+            echo "$sig is missing from the index — run 'just sign-loadouts' and stage it." >&2
+            echo "A loadout without its signature is withheld, not shipped unsigned." >&2
+            exit 1
+          fi
+          tmpsig=$(mktemp)
+          git show ":$sig" > "$tmpsig"
+          ok=0
+          git show ":$yaml" | ssh-keygen -Y verify -f "$signers" -I "$identity" \
+              -n publish.v1.ctxloom.dev -s "$tmpsig" >/dev/null 2>&1 || ok=1
+          rm -f "$tmpsig"
+          if [ "$ok" -ne 0 ]; then
+            echo "$sig does not cover the staged bytes of $yaml." >&2
+            echo "Run 'just sign-loadouts' and stage both files together." >&2
+            exit 1
+          fi
+        done
+
 pre-push:
   commands:
     cache-report:

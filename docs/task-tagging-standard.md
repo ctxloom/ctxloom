@@ -178,6 +178,41 @@ actually happen?** Then find the tier that names that consequence.
 
 ---
 
+## Work that has LANDED but is not merged — `landed:`
+
+There is a state between "still to do" and "done", and it is where most work
+sits for a while: written, committed, gated, and waiting on a human to merge it.
+
+    landed:"integration/overnight-0822"
+
+`landed:` names the branch carrying the work. It is deliberately NOT any of the
+things it resembles:
+
+- not `Done` — nothing is merged, pushed, or reviewed. Marking it Done makes
+  the log claim a guarantee no one gave.
+- not `triage:verdict=phantom` — phantom means the defect was never real or was
+  already gone. Tagging your own finished work phantom erases the fact that
+  somebody fixed it, and six months later the record says nothing happened.
+- not `In Progress` — nobody is working on it. It is finished and parked.
+
+It is REPEATABLE rather than scalar, because a task can carry the branch plus
+`landed:partial`, meaning that branch fixed part of it and knowingly left the
+rest. A `partial` row still has live work in it and must not be closed on the
+strength of the branch alone; cut it down to what remains at merge instead.
+
+The queryable payoff is the merge checklist, and the audit exclusion:
+
+```
+taskloom list --tag-query 'landed:"integration/overnight-0822"'   # merge these
+taskloom list --tag-query 'landed:partial'                        # cut these down
+```
+
+A backlog audit skips anything carrying `landed:` — it is already dispositioned,
+and re-auditing it wastes an agent and risks laundering finished work into a
+`phantom`.
+
+---
+
 ## Recording an audit verdict — `triage:verdict:` and `triage:audited:`
 
 A backlog audit asks two questions of an old task: is the claim still TRUE, and

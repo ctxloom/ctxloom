@@ -3,6 +3,7 @@ package bundles
 import (
 	"bytes"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 
@@ -470,4 +471,59 @@ func TestLoadFile_ConcurrencyContract(t *testing.T) {
 			"every caller of the same path shares one *Bundle — the reason it must be treated as read-only")
 	}
 	assert.NotSame(t, results[0], results[1], "different bundles stay distinct")
+}
+
+// TestSkillContent_UmaskCheckoutIsDeliveredNotWithheld is the release-blocking
+// case at the level `ctxloom skill list` actually exercises: a bundle whose
+// authored manifest declares 0644/0755 (what an author writes, and what a
+// signature covers) sitting on a tree that a fresh clone under umask 002 left
+// at 0664/0775.
+//
+// Before the exec-bit-only compare this skill was WITHHELD with a
+// declaration-disagreement warning, and there was nothing the author could do
+// about it: `chmod 0644` + `git add` stages nothing, so the repository can
+// never carry a tree that agrees with a 0644 declaration. The skill must
+// simply be delivered — and delivered with its exec bit intact, which is the
+// part of the mode that does mean something.
+func TestSkillContent_UmaskCheckoutIsDeliveredNotWithheld(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	bundlesDir := "/bundles"
+	bundleDir := bundlesDir + "/skill-bundle"
+	skillDir := bundleDir + "/skills/humanize"
+	writeSkillFixture(t, fsys, skillDir, "humanize")
+
+	// The DECLARATION, captured off the tree before any umask touches it.
+	pkg, err := ParseSkillPackage(fsys, skillDir, 0)
+	require.NoError(t, err)
+	yaml := "version: \"1.0\"\nskills:\n  humanize:\n    llm:\n      claude-code:\n        enabled: true\n    files:\n"
+	for _, m := range pkg.Manifest {
+		yaml += "      \"" + m.Path + "\":\n        sha256: " + m.SHA256 + "\n        mode: \"" + m.Mode + "\"\n"
+	}
+	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(yaml), 0644))
+
+	// The TREE, as a clone under umask 002 leaves it.
+	for rel, mode := range map[string]os.FileMode{
+		"SKILL.md": 0o664, "scripts/run.sh": 0o775, "assets/logo.png": 0o664,
+	} {
+		require.NoError(t, fsys.Chmod(skillDir+"/"+rel, mode))
+	}
+	require.Contains(t, yaml, "mode: \"0644\"",
+		"the fixture must actually declare the plain mode the tree no longer carries, or this proves nothing")
+
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
+	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
+
+	require.Len(t, got, 1, "a umask-shaped checkout must be delivered: its contents verify and its exec bits agree")
+	assert.Empty(t, sink.String(), "and delivered with no warning at all — there is nothing for the author to fix")
+
+	modes := map[string]uint32{}
+	for _, f := range got[0].Files {
+		modes[f.RelPath] = f.Mode
+	}
+	assert.NotZero(t, modes["scripts/run.sh"]&0o111, "the exec bit is the part of the mode that survives")
+	assert.Zero(t, modes["SKILL.md"]&0o111, "and a plain file must not gain one")
 }

@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -348,4 +350,75 @@ func mustRaw(t *testing.T, m map[string]any, key string) []byte {
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
 	return b
+}
+
+// TestWriteSettings_RefusesCollisionWithUserAuthoredMCPName pins slimy-critter:
+// opencode's writer used to do a bare `servers[s.Name] = raw`, so a user's
+// hand-authored `mcp` entry was silently replaced the first time a config or
+// bundle happened to declare the same name — the exact opposite of what the
+// kiro/MCPFileConfig writer did on identical input. Both now route the contest
+// through agent.MCPNameArbiter: the user's entry survives byte-for-byte, a
+// warning names it, every OTHER managed server in the same call still lands,
+// and the refused name is never claimed in the ledger.
+func TestWriteSettings_RefusesCollisionWithUserAuthoredMCPName(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &OpencodeWriter{FS: fs}
+	require.NoError(t, fs.MkdirAll("/proj", 0o755))
+	existing := `{
+  "theme": "gruvbox",
+  "mcp": { "proj-tool": { "type": "local", "command": ["user-cmd", "--user"] } }
+}`
+	require.NoError(t, afero.WriteFile(fs, "/proj/opencode.json", []byte(existing), 0o644))
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	bundleMCP := map[string]wire.MCPServer{
+		"proj-tool": {Command: "ctxloom-bundled-cmd", Args: []string{"serve"}},
+		"safe":      {Command: "safe-cmd"},
+	}
+	require.NoError(t, w.WriteSettings(nil, bundleMCP, "/proj"),
+		"a name collision must not fail the whole reconcile")
+
+	servers := mcpObject(t, readJSON(t, fs, "/proj/opencode.json"))
+	collided, ok := servers["proj-tool"].(map[string]any)
+	require.True(t, ok, "the colliding user entry must still be an object; got %#v", servers["proj-tool"])
+	assert.Equal(t, []any{"user-cmd", "--user"}, collided["command"],
+		"the colliding user entry's command must survive byte-for-byte")
+	assert.NotNil(t, servers["safe"], "a non-colliding managed server in the same call must still be written")
+
+	led, err := w.readLedger("/proj")
+	require.NoError(t, err)
+	assert.NotContains(t, led, "proj-tool", "a refused name must never be claimed in the ledger")
+	assert.Contains(t, led, "safe", "the non-colliding managed name must still be claimed in the ledger")
+
+	assert.Contains(t, buf.String(), "proj-tool", "the warning must name the contested server")
+	assert.Contains(t, buf.String(), "refusing to overwrite MCP server",
+		"the contest must be LOUD, not a silent override; got: %q", buf.String())
+}
+
+// TestRemoveSettings_DoesNotDeleteACollidingUserEntry is the second half of
+// slimy-critter, and the reason a refused name must stay out of the ledger:
+// had WriteSettings claimed "proj-tool" while refusing to write it, the next
+// uninstall would have deleted an entry that was the user's all along.
+func TestRemoveSettings_DoesNotDeleteACollidingUserEntry(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &OpencodeWriter{FS: fs}
+	require.NoError(t, fs.MkdirAll("/proj", 0o755))
+	existing := `{"mcp": {"proj-tool": {"type": "local", "command": ["user-cmd"]}}}`
+	require.NoError(t, afero.WriteFile(fs, "/proj/opencode.json", []byte(existing), 0o644))
+
+	restore := clidiag.SetSink(&bytes.Buffer{})
+	defer restore()
+
+	bundleMCP := map[string]wire.MCPServer{"proj-tool": {Command: "ctxloom-bundled-cmd"}}
+	require.NoError(t, w.WriteSettings(nil, bundleMCP, "/proj"))
+	require.NoError(t, w.RemoveSettings("/proj"))
+
+	servers := mcpObject(t, readJSON(t, fs, "/proj/opencode.json"))
+	collided, ok := servers["proj-tool"].(map[string]any)
+	require.True(t, ok, "RemoveSettings must not delete an entry it never claimed; got %#v", servers)
+	assert.Equal(t, []any{"user-cmd"}, collided["command"],
+		"the user's original definition must survive the whole write/remove cycle")
 }

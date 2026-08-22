@@ -79,6 +79,21 @@ type managedConfig struct {
 	mcpServers   []agent.ChatMCPServer
 	readOnly     bool
 	instructions []string
+	// mcpArbiter, when non-nil, settles each managed MCP name against the
+	// entries already in `mcp` through the one shared ruling every engine
+	// writer uses (agent.MCPNameArbiter): a name a user hand-authored is
+	// refused, loudly, rather than silently replaced. The caller must have
+	// dropped its previously-managed names first (stripManagedMCP) and point
+	// the arbiter's Present at what survived, so that what it still finds is
+	// by construction the user's.
+	//
+	// A nil arbiter writes every managed name unconditionally. That is the
+	// TRANSIENT overlay's posture (chat.go, interactive.go): those paths do
+	// no ledger reconcile, so ctxloom's OWN servers from an earlier
+	// materialize are still in the file and would be misread as
+	// hand-authored — and the overlay is snapshotted and restored around the
+	// run, so it cannot persist an overwrite either way.
+	mcpArbiter *agent.MCPNameArbiter
 	// skillPaths registers opencode's Agent Skills directory (or directories)
 	// in the nested `skills.paths` key. VERIFIED against opencode 1.18.1: the
 	// default project skills dir (opencodeSkillDir, ".opencode/skill") is
@@ -98,6 +113,11 @@ type managedConfig struct {
 // value of an unexpected JSON type is a malformed config for opencode and fails
 // loudly; a scalar `permission` (a valid but rare top-level form) is replaced
 // wholesale in read-only mode, since the read-only posture is authoritative.
+//
+// A managed mcp name is written unconditionally unless the caller supplies
+// managedConfig.mcpArbiter, which is what decides whether ctxloom may take a
+// name a user already used — see that field, and agent.MCPNameArbiter for the
+// ruling itself.
 func applyManaged(cfg map[string]json.RawMessage, m managedConfig) (mcpNames []string, err error) {
 	if m.model != "" {
 		raw, e := json.Marshal(m.model)
@@ -108,13 +128,14 @@ func applyManaged(cfg map[string]json.RawMessage, m managedConfig) (mcpNames []s
 	}
 
 	if len(m.mcpServers) > 0 {
-		servers := map[string]json.RawMessage{}
-		if existing, ok := cfg["mcp"]; ok {
-			if e := json.Unmarshal(existing, &servers); e != nil {
-				return nil, fmt.Errorf("existing opencode.json mcp is malformed (refusing to overwrite): %w", e)
-			}
+		servers, decodeErr := existingMCPServers(cfg)
+		if decodeErr != nil {
+			return nil, decodeErr
 		}
 		for _, s := range m.mcpServers {
+			if m.mcpArbiter != nil && !m.mcpArbiter.Claim(s.Name) {
+				continue
+			}
 			var (
 				raw []byte
 				e   error
@@ -307,6 +328,27 @@ func snapshotOpencodeConfig(fs afero.Fs, workDir string) (func() error, error) {
 	}, nil
 }
 
+// existingMCPServers decodes opencode.json's `mcp` object into its per-server
+// raw entries, preserving each entry's original bytes. An absent key is an
+// empty set; a `mcp` value that is not an object FAILS LOUDLY — every caller
+// writes the decoded set straight back, so degrading a malformed value to
+// "empty" would delete the user's servers on a success path.
+//
+// One decoder for the three places that need the set (applyManaged's merge,
+// stripManagedMCP's removal, and WriteSettings' name arbitration) so they
+// cannot disagree about what counts as malformed.
+func existingMCPServers(cfg map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	servers := map[string]json.RawMessage{}
+	raw, ok := cfg["mcp"]
+	if !ok {
+		return servers, nil
+	}
+	if err := json.Unmarshal(raw, &servers); err != nil {
+		return nil, fmt.Errorf("existing opencode.json mcp is malformed (refusing to overwrite): %w", err)
+	}
+	return servers, nil
+}
+
 // stripManagedMCP removes the previously-managed servers (ledger names, plus the
 // well-known ctxloom name for pre-ledger files) from cfg's `mcp` object,
 // preserving user-authored servers. An emptied `mcp` object is dropped entirely.
@@ -316,13 +358,12 @@ func snapshotOpencodeConfig(fs afero.Fs, workDir string) (func() error, error) {
 // managed-server ledger unconditionally, permanently orphaning those servers
 // with no way left to remove them.
 func stripManagedMCP(cfg map[string]json.RawMessage, ledger []string) error {
-	raw, ok := cfg["mcp"]
-	if !ok {
+	if _, ok := cfg["mcp"]; !ok {
 		return nil
 	}
-	servers := map[string]json.RawMessage{}
-	if err := json.Unmarshal(raw, &servers); err != nil {
-		return fmt.Errorf("existing opencode.json mcp is malformed (refusing to modify): %w", err)
+	servers, err := existingMCPServers(cfg)
+	if err != nil {
+		return err
 	}
 	delete(servers, agent.MCPServerName)
 	for _, n := range ledger {
@@ -528,15 +569,29 @@ func (w *OpencodeWriter) WriteSettings(hooks *wire.HooksConfig, bundleMCP map[st
 		if err := stripManagedMCP(cfg, ledger); err != nil {
 			return err
 		}
-		servers := composeManagedServers(bundleMCP)
-		names, err := applyManaged(cfg, managedConfig{mcpServers: servers})
+		// Read the survivors AFTER the strip: every previously-managed name
+		// is gone by now, so whatever is left is an entry ctxloom never
+		// wrote, and agent.MCPNameArbiter — the same ruling kiro's writer
+		// reaches through agent.MCPFileConfig.WriteServers — refuses to take
+		// those names. Its Claimed() set, not applyManaged's write list, is
+		// what the ledger records: a refused name must stay out of it, or the
+		// next RemoveSettings would delete what was the user's all along.
+		surviving, err := existingMCPServers(cfg)
 		if err != nil {
+			return err
+		}
+		arb := &agent.MCPNameArbiter{
+			Present: func(name string) bool { _, ok := surviving[name]; return ok },
+			Label:   ConfigFileName,
+		}
+		servers := composeManagedServers(bundleMCP)
+		if _, err := applyManaged(cfg, managedConfig{mcpServers: servers, mcpArbiter: arb}); err != nil {
 			return err
 		}
 		if err := saveOpencodeConfig(fs, path, cfg); err != nil {
 			return err
 		}
-		return w.writeLedger(projectDir, names)
+		return w.writeLedger(projectDir, arb.Claimed())
 	})
 }
 

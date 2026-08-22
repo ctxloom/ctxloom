@@ -6,12 +6,15 @@
 package plans
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
@@ -204,138 +207,99 @@ func resolveContainedPlanPath(path string) (string, error) {
 	return real, nil
 }
 
+// frontmatter is the only part of a plan's leading YAML this package reads.
+// Unlisted keys are ignored rather than rejected: a plan's frontmatter is the
+// author's, and `status:` or `owner:` sitting beside these two is not an error.
+type frontmatter struct {
+	Title    string   `yaml:"title"`
+	Sessions []string `yaml:"sessions"`
+}
+
 // ParseFrontmatter extracts the `title` scalar and the `sessions:` list from a
-// plan's leading YAML frontmatter. It is tolerant and dependency-free — only
-// those two fields are read; a document with no frontmatter yields ("", nil).
+// plan's leading YAML frontmatter. Only those two fields are read; a document
+// with no frontmatter yields ("", nil).
 //
-// BOTH delimiters are required. An opening `---` that is never closed is not
-// frontmatter: it is a document whose author did something else, and scanning
-// it to EOF makes any body line shaped like `title:` — a heading in a fenced
-// YAML example, a quoted snippet — silently become the plan's title. The
-// paired writer refuses such a document outright rather than guess where the
-// block ends, so accepting it here would have the two halves of one format
-// disagreeing about which files even have frontmatter.
+// The block is handed to yaml.v3 — the same parser the paired WRITER
+// (memory.StampPlanFile, which round-trips the document through yaml.Node)
+// already uses. That is the whole point: one file format needs one definition
+// of what it says. A hand-rolled line scanner stood here and quietly disagreed
+// with the writer about three ordinary shapes the writer preserves character
+// for character — `title: hardening # rev2` (a comment, not part of the
+// value), a doubled quote inside a single-quoted scalar (which is one quote,
+// not two), and a literal block scalar (whose value is the indented text, not
+// the `|`). The reader must report what the file MEANS, not the source text.
+//
+// BOTH delimiters are required, and that check is made HERE rather than left
+// to YAML, which has no notion of frontmatter and would happily parse to EOF.
+// An opening `---` that is never closed is not frontmatter: it is a document
+// whose author did something else, and scanning it to EOF makes any body line
+// shaped like `title:` — a heading in a fenced YAML example, a quoted snippet
+// — silently become the plan's title. The paired writer refuses such a
+// document outright rather than guess where the block ends, so accepting it
+// here would have the two halves of one format disagreeing about which files
+// even have frontmatter.
+//
+// Parsing is TOLERANT of a malformed field but never of a malformed document.
+// A `sessions:` that is a scalar or a mapping cannot be a list of sessions, so
+// none are reported — inventing one entry from it would be worse than
+// reporting none — while a `title:` alongside it still comes back, because one
+// unusable field is no reason to discard a good one. yaml.v3 reports exactly
+// this case as a *yaml.TypeError after decoding everything it could. Any other
+// error means the block is not a YAML document at all, and nothing is claimed
+// about its contents.
 func ParseFrontmatter(content string) (title string, sessions []string) {
+	block, ok := frontmatterBlock(content)
+	if !ok {
+		return "", nil
+	}
+	var fm frontmatter
+	if err := yaml.Unmarshal([]byte(block), &fm); err != nil {
+		var typeErr *yaml.TypeError
+		if !errors.As(err, &typeErr) {
+			return "", nil
+		}
+	}
+	if len(fm.Sessions) == 0 {
+		// An absent key and an empty list are the same answer — no sessions —
+		// and callers marshal this straight to JSON, where a nil slice is the
+		// established shape for it.
+		return fm.Title, nil
+	}
+	return fm.Title, fm.Sessions
+}
+
+// frontmatterBlock returns the text BETWEEN a document's opening and closing
+// `---` fences, and whether the document had both. It is deliberately the only
+// line-oriented step left: fences are a Markdown-frontmatter convention that
+// the YAML parser knows nothing about, so something has to find them, and
+// finding them wrong is what silently turns body prose into metadata.
+//
+// A line is a fence when it is `---` once surrounding whitespace is removed,
+// and a trailing carriage return does not stop it being one, so a CRLF file
+// delimits the same as an LF file. The block itself is returned with its line
+// endings untouched: YAML accepts CRLF, and rewriting the author's bytes
+// before parsing them would be one more place for the two halves of this
+// format to drift apart.
+//
+// The newline that ends the block's LAST line belongs to the block, not to the
+// closing fence, and is kept. It looks like punctuation and is not: a literal
+// block scalar's value is chomped against exactly that byte, so dropping it
+// turns a `title: |` of `wrapped` into "wrapped" where the file says
+// "wrapped\n".
+func frontmatterBlock(content string) (block string, ok bool) {
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return "", nil
+		return "", false
 	}
-	closed := false
-	inSessions := false
-	for _, raw := range lines[1:] {
-		line := strings.TrimRight(raw, "\r")
-		if strings.TrimSpace(line) == "---" {
-			closed = true
-			break
-		}
-		if inSessions {
-			item, isItem, stillOpen := sessionsBlockLine(line)
-			inSessions = stillOpen
-			if isItem {
-				sessions = append(sessions, item)
-				continue
+	for i, raw := range lines[1:] {
+		if strings.TrimSpace(strings.TrimRight(raw, "\r")) == "---" {
+			if i == 0 {
+				return "", true // an immediately closed block holds nothing
 			}
-		}
-		switch {
-		case strings.HasPrefix(line, "title:"):
-			title = unquote(strings.TrimSpace(line[len("title:"):]))
-		case strings.HasPrefix(line, "sessions:"):
-			flow, blockFollows := sessionsKeyLine(line)
-			sessions = append(sessions, flow...)
-			inSessions = blockFollows
+			return strings.Join(lines[1:i+1], "\n") + "\n", true
 		}
 	}
-	if !closed {
-		return "", nil
-	}
-	return title, sessions
-}
-
-// sessionsBlockLine interprets one line while a `sessions:` block is open. It
-// reports the item that line contributes (already unquoted, for the same
-// reason `title` is: a harp is the value, not its YAML spelling, and a quoted
-// entry that kept its quotes would match no harp anywhere else), whether the
-// line was an item at all, and whether the block is still open afterwards — a
-// non-item line that is not indented has left the block.
-func sessionsBlockLine(line string) (item string, isItem, stillOpen bool) {
-	trimmed := strings.TrimSpace(line)
-	if strings.HasPrefix(trimmed, "- ") {
-		return unquote(strings.TrimSpace(trimmed[2:])), true, true
-	}
-	indented := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
-	return "", false, indented
-}
-
-// sessionsKeyLine interprets the `sessions:` key itself. YAML writes a
-// sequence two ways and the paired writer emits both: it round-trips through
-// yaml.Node so an author's FLOW list (`sessions: [a, b]`) keeps its style and
-// is merely extended in place. A bare key means a block list follows on the
-// lines after it.
-func sessionsKeyLine(line string) (flow []string, blockFollows bool) {
-	rest := strings.TrimSpace(line[len("sessions:"):])
-	if rest == "" {
-		return nil, true
-	}
-	return parseFlowSequence(rest), false
-}
-
-// parseFlowSequence reads a single-line YAML flow sequence — `[a, b, "c"]` —
-// into its items. Anything that is not bracketed yields nothing: a plain
-// scalar or an anchor is not a list of sessions, and inventing one entry from
-// it would be worse than reporting none. Commas inside quotes do not separate
-// items, so a quoted value survives intact.
-func parseFlowSequence(s string) []string {
-	if !strings.HasPrefix(s, "[") || !strings.HasSuffix(s, "]") {
-		return nil
-	}
-	items := splitOutsideQuotes(s[1 : len(s)-1])
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		if v := unquote(strings.TrimSpace(item)); v != "" {
-			out = append(out, v)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// splitOutsideQuotes splits on commas that are not inside a quoted run, so a
-// value containing a comma survives as one item. Quotes are kept: unquoting is
-// the caller's step, and stripping them here would lose the information that
-// the comma was protected.
-func splitOutsideQuotes(s string) []string {
-	var items []string
-	var cur strings.Builder
-	var quote byte
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case quote != 0:
-			if c == quote {
-				quote = 0
-			}
-			cur.WriteByte(c)
-		case c == '"' || c == '\'':
-			quote = c
-			cur.WriteByte(c)
-		case c == ',':
-			items = append(items, cur.String())
-			cur.Reset()
-		default:
-			cur.WriteByte(c)
-		}
-	}
-	return append(items, cur.String())
-}
-
-// unquote strips a single pair of matching surrounding quotes, if present.
-func unquote(s string) string {
-	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
-		return s[1 : len(s)-1]
-	}
-	return s
+	return "", false
 }
 
 // SessionPlanPaths returns the absolute paths of ONE harp's plan documents,

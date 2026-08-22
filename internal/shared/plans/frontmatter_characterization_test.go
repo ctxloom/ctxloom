@@ -145,39 +145,47 @@ func TestParseFrontmatter_Characterization(t *testing.T) {
 		},
 
 		// --- the three divergences this rewrite is about -----------------
-		// Each of these is what the HAND-ROLLED reader returns today. The
-		// paired writer round-trips all three verbatim through yaml.Node, so
-		// today the two halves of one file format disagree about the value.
+		// The paired writer round-trips all three of these verbatim through
+		// yaml.Node, so the file on disk means exactly one thing and the
+		// reader now says that thing. The line-scanning reader reported the
+		// source text instead: "hardening # rev2", "it''s done", and "|".
 		{
-			name:      "a trailing comment is part of the title (hand-rolled reader)",
+			name:      "a trailing comment is not part of the title",
 			content:   "---\ntitle: hardening # rev2\n---\n",
-			wantTitle: "hardening # rev2",
+			wantTitle: "hardening",
 		},
 		{
-			name:      "an escaped quote inside a single-quoted title stays doubled (hand-rolled reader)",
+			name:      "a doubled quote inside a single-quoted title is one quote",
 			content:   "---\ntitle: 'it''s done'\n---\n",
-			wantTitle: "it''s done",
+			wantTitle: "it's done",
 		},
 		{
-			name:      "a literal block scalar title reads as its indicator (hand-rolled reader)",
+			name:      "a literal block scalar title is its content, not its indicator",
 			content:   "---\ntitle: |\n  wrapped\n---\n",
-			wantTitle: "|",
+			wantTitle: "wrapped\n",
 		},
 
-		// --- shapes the hand-rolled reader guesses at --------------------
+		// --- shapes the line scanner used to guess at --------------------
+		// None of these were named in the change that prompted this file;
+		// they moved because the guesses went with the scanner. Each is now
+		// whatever YAML says, which is what the writer already believed.
 		{
-			name:      "a duplicate key takes the last one (hand-rolled reader)",
-			content:   "---\ntitle: A\ntitle: B\n---\n",
-			wantTitle: "B",
+			name:    "a duplicate key makes the block invalid YAML, so it carries nothing",
+			content: "---\ntitle: A\ntitle: B\n---\n",
+			// The scanner took the last one and reported "B". YAML rejects the
+			// mapping outright, and a document whose keys contradict each other
+			// has no answer worth guessing at.
 		},
 		{
-			name:    "an indented top-level key is not seen (hand-rolled reader)",
-			content: "---\n  title: A\n---\n",
+			name:      "an indented top-level key is still a key",
+			content:   "---\n  title: A\n---\n",
+			wantTitle: "A",
+			// The scanner matched on a bare "title:" prefix and saw nothing here.
 		},
 		{
-			name:      "a sequence title reads as its source text (hand-rolled reader)",
-			content:   "---\ntitle: [a, b]\n---\n",
-			wantTitle: "[a, b]",
+			name:    "a sequence title is not a title",
+			content: "---\ntitle: [a, b]\n---\n",
+			// The scanner reported the literal text "[a, b]" as the title.
 		},
 	}
 

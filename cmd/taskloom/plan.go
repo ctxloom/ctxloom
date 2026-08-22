@@ -16,7 +16,7 @@ import (
 )
 
 // taskloom owns plans alongside tasks: `plan list` enumerates the session plan
-// documents under ~/.ctxloom/sessions/<harp>/*.plan.md (via the shared plans
+// documents under ~/.ctxloom/sessions/<harp>/persist/*.plan.md (via the shared plans
 // package, so the location/frontmatter logic isn't duplicated), and `plan show`
 // prints one plan's content. The Plan view in the ctxloom VS Code extension
 // reads these.
@@ -25,13 +25,13 @@ var planListGlobal bool
 
 var planCmd = &cobra.Command{
 	Use:   "plan",
-	Short: "Browse session plans (~/.ctxloom/sessions/<harp>/*.plan.md)",
+	Short: "Browse session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md)",
 }
 
 var planListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List session plans",
-	Long: `List session plans (~/.ctxloom/sessions/<harp>/*.plan.md).
+	Long: `List session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md).
 
 By default a listing is scoped to the CURRENT project, resolved exactly the
 way ` + "`taskloom list`" + ` resolves it (--project, else CTXLOOM_PROJECT_ID,

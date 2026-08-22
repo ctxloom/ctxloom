@@ -1,5 +1,5 @@
 // Package plans lists and reads session plan documents
-// (~/.ctxloom/sessions/<harp>/<name>.plan.md). It is shared by taskloom (which
+// (~/.ctxloom/sessions/<harp>/persist/<name>.plan.md). It is shared by taskloom (which
 // surfaces plans via `taskloom plan list/show`) and ctxloom, so the session-dir
 // location and frontmatter parsing live in one place. Pure value DTOs cross the
 // wire; no agent or vscode coupling.

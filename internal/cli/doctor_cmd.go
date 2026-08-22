@@ -206,6 +206,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
 			doctorCheckACPAdapter(cfg),
 			doctorCheckAgents(ctx, cfg, cfgErr),
+			doctorCheckCapabilityLoss(ctx, cfg, cfgErr),
 			doctorCheckVersion(),
 			doctorCheckHooksTrust(ctx, cfg, cfgErr),
 			doctorCheckMCPInvocation(doctorProjectDir(cfg)),
@@ -648,6 +649,46 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) do
 			Detail: fmt.Sprintf("%d agent(s) resolve cleanly: %s", len(names), strings.Join(names, ", "))}
 	}
 	return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: doctorWarn, Detail: strings.Join(failed, "; ")}
+}
+
+// doctorCheckCapabilityLoss names, per configured agent, what the engine it
+// resolves to has NO structural place for — the hooks its profiles actually
+// declare and that engine can never fire.
+//
+// This is doctor's whole job applied to the one class of breakage every other
+// check is legitimately blind to. Hook WIRING (DOCTOR-CHECK-HOOKS-TRUST-d4)
+// reports what landed on each backend's own surface, and every line of it is
+// true; a hook that could never land anywhere is invisible in it by
+// construction. Agent RESOLUTION (DOCTOR-CHECK-AGENTS-b2) reports that the
+// binding is valid, which it is — the engine simply cannot do this. So a user
+// who switched an agent to codex or opencode kept a guardrail in their config,
+// saw two green checks, and lost it silently.
+//
+// It reads capabilityLossByAgent, which is operations.CapabilityLoss (the same
+// backends.UncarriedSurfaces read `profile materialize` prints as "NOT
+// carried" and `agent show` already reuses) asked once per configured agent —
+// not a second computation of the same fact.
+//
+// WARN, not info: the user asked for something their environment cannot give,
+// which is exactly the state doctor's fail-loud signal is for. Nothing is
+// lost when nothing is configured that cannot be carried, and the check then
+// says so rather than staying silent, so a reader can tell "checked, clean"
+// apart from "never checked".
+func doctorCheckCapabilityLoss(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
+	const marker = "DOCTOR-CHECK-CAPABILITY-LOSS-u1"
+	if cfgErr != nil {
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
+	}
+	if cfg == nil {
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "no config to read an engine binding from"}
+	}
+	configured := len(cfg.GetConfiguredAgents())
+	entries := capabilityLossByAgent(ctx, cfg)
+	if len(entries) == 0 {
+		return doctorCheck{Marker: marker, Status: doctorOK, Detail: fmt.Sprintf(
+			"every configured engine carries what its agent's profiles declare (%d agent(s) checked)", configured)}
+	}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: capabilityLossDetail(entries)}
 }
 
 // doctorCheckVersion is deliberately best-effort/skill-guided: there is no

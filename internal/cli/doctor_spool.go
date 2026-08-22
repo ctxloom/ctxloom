@@ -85,10 +85,10 @@ const doctorSpoolStuckMaxNamed = 5
 // check does not touch). The wording below keeps the three apart so a
 // reader knows which one they have.
 //
-// It ALSO surfaces in/failed/: the terminal directory a reader moves an in/
-// entry into when it parsed as a message but could not be classified or
-// delivered (spool.Fail; coord/spooldelivery.go's failSpoolEntry is the one
-// caller today). That move is precisely what closed the visibility gap this
+// It ALSO surfaces in/failed/ AND out/failed/: the terminal directories a reader moves an
+// entry into when it parsed as a message but could not be classified,
+// delivered or routed (spool.Fail; coord/spooldelivery.go's failSpoolEntry and
+// failSpoolOut are its callers). That move is precisely what closed the visibility gap this
 // check used to cover by accident: before spool.Fail existed, an entry the
 // reader could not handle stayed in in/ and eventually aged past
 // doctorSpoolStuckAge, so this check caught it as "stuck" without ever being
@@ -182,28 +182,33 @@ func doctorCheckSpoolBacklog() doctorCheck {
 			}
 		}
 
-		// in/failed/ is deliberately NOT a member of spool.Dirs() (see
-		// spool.FailedDirName's doc), so it is unreachable through
-		// spool.DirPath or spool.Sweep. Read it directly with os.ReadDir, the
-		// same way spool.Fail writes to it — list only, never rename or
-		// delete.
-		failedDir := filepath.Join(root, filepath.FromSlash(string(spool.FailedDirName)))
-		failedEntries, failedErr := os.ReadDir(failedDir)
-		switch {
-		case failedErr == nil:
-			failedDirsSeen++
-			for _, fe := range failedEntries {
-				if fe.IsDir() {
-					continue
+		// The failed/ directories are deliberately NOT members of
+		// spool.Dirs() (see spool.FailedDirName's doc), so they are
+		// unreachable through spool.DirPath or spool.Sweep. Read them
+		// directly with os.ReadDir, the same way spool.Fail writes to them —
+		// list only, never rename or delete. BOTH directions are enumerated
+		// from spool.FailedDirNames rather than named here: a refused
+		// outbound report is exactly as invisible as a refused inbound one if
+		// nothing looks at its directory.
+		for _, failedName := range spool.FailedDirNames() {
+			failedDir := filepath.Join(root, filepath.FromSlash(string(failedName)))
+			failedEntries, failedErr := os.ReadDir(failedDir)
+			switch {
+			case failedErr == nil:
+				failedDirsSeen++
+				for _, fe := range failedEntries {
+					if fe.IsDir() {
+						continue
+					}
+					failed = append(failed, fmt.Sprintf("%s:%s/%s", harp, failedName, fe.Name()))
 				}
-				failed = append(failed, fmt.Sprintf("%s:%s/%s", harp, spool.FailedDirName, fe.Name()))
+			case os.IsNotExist(failedErr):
+				// Normal: a failed/ directory is created lazily on the first
+				// refusal, so a session that has never refused a message has
+				// no such directory at all. Absence must not read as an error.
+			default:
+				sweepErrs = append(sweepErrs, fmt.Sprintf("%s/%s: %v", harp, failedName, failedErr))
 			}
-		case os.IsNotExist(failedErr):
-			// Normal: in/failed/ is created lazily on the first refusal, so
-			// a session that has never refused a message has no such
-			// directory at all. Absence here must not read as an error.
-		default:
-			sweepErrs = append(sweepErrs, fmt.Sprintf("%s/%s: %v", harp, spool.FailedDirName, failedErr))
 		}
 	}
 
@@ -216,9 +221,9 @@ func doctorCheckSpoolBacklog() doctorCheck {
 			"%d session spool(s) checked, 0 entries stuck unconsumed past %s, 0 malformed entries",
 			spoolsFound, doctorSpoolStuckAge)
 		if failedDirsSeen == 0 {
-			detail += "; no session has an in/failed/ directory (created lazily on the first refusal, so its absence is normal)"
+			detail += "; no session has a failed/ directory (in/ or out/; created lazily on the first refusal, so its absence is normal)"
 		} else {
-			detail += fmt.Sprintf("; %d in/failed/ director(ies) checked, all empty", failedDirsSeen)
+			detail += fmt.Sprintf("; %d failed/ director(ies) checked, all empty", failedDirsSeen)
 		}
 		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorOK, Detail: detail}
 	}

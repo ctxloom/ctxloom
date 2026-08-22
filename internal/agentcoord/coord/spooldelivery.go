@@ -510,7 +510,8 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 	if err != nil {
 		clidiag.Warn("ctxloom", "coordinator: refusing an unroutable message from %s: %v", role, err)
 		c.spoolDeliveryCount.failed.Add(1)
-		c.consumeSpool(role, e.Ref)
+		c.noticeSpoolDrop(role, e, err)
+		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
 	if _, _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
@@ -521,11 +522,44 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		clidiag.Warn("ctxloom", "coordinator: refusing %s's spool message %s: %v", role, e.Ref, err)
 		c.spoolDeliveryCount.failed.Add(1)
 		c.replySpoolRefusal(role, msg, err)
-		c.consumeSpool(role, e.Ref)
+		c.noticeSpoolDrop(role, e, err)
+		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
 	c.spoolDeliveryCount.delivered.Add(1)
 	c.consumeSpool(role, e.Ref)
+}
+
+// failSpoolOut is routeSpoolOut's terminal outcome for an out/ entry this
+// coordinator could not route: the file leaves out/ for the local out/failed/
+// directory instead of out/consumed/.
+//
+// The distinction is the whole point, and it is the runner-side failSpoolEntry
+// invariant applied to the direction that never had it. out/consumed/ means
+// ROUTED — that is what the substrate's own contract says a consume-rename is,
+// and what every reader of that directory assumes. A dropped message renamed
+// there is a delivered one as far as disk is concerned: an operator, and an
+// investigator reading the spool after the fact, cannot tell a report the
+// coordinator handed to its parent from one it gave up on. That is not a
+// hypothetical reading; it is how a lost report was written off as an agent
+// that never reported.
+//
+// Leaving the file in out/ instead is not the alternative: the reader would
+// re-parse it, re-fail it and re-warn about it on every sweep for the life of
+// the process while later entries delivered around it, which is the
+// silent-skip this project treats as its characteristic defect.
+func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
+	if err := spool.Fail(spool.NewHomeMapper(), ref); err != nil {
+		if errors.Is(err, spool.ErrAlreadyGone) {
+			// Another pass already moved it; nothing to strand.
+			return
+		}
+		clidiag.Warn("ctxloom", "coordinator: could not route %s's message %s (%v) and could not move it to %s either: %v (it will be re-read, and re-refused, on the next sweep)",
+			role, ref, cause, spool.FailedOutDirName, err)
+		return
+	}
+	clidiag.Warn("ctxloom", "coordinator: %s's message %s could not be routed (%v); moved to %s and NOT retried",
+		role, ref, cause, spool.FailedOutDirName)
 }
 
 // replySpoolRefusal tells a child that the message it wrote could not be
@@ -536,6 +570,66 @@ func (c *Coordinator) replySpoolRefusal(role string, msg Message, cause error) {
 	if _, _, err := c.queueMail(role, role, KindError, body); err != nil {
 		clidiag.Warn("ctxloom", "coordinator: could not tell %s that its message was refused (%v): %v", role, cause, err)
 	}
+}
+
+// noticeSpoolDrop tells the WAITING PARTY that a message its child wrote has
+// been dropped, and hands over the text the child actually wrote.
+//
+// This is the half the refusal path was missing, and it is the half the
+// incident was made of. A child writes its final report, the sweep cannot
+// route it, replySpoolRefusal answers the SENDER — a session that has by then
+// usually exited, whose reply therefore lands in a spool directory nothing
+// will ever read again — the file is consumed, and the parent sits in
+// agent_recv until it times out and concludes the child never reported. The
+// only trace is a clidiag warning on a runner's stderr. Every signal the
+// parent can see says the child was silent.
+//
+// So the notice goes UP, to the party whose work depends on the answer. It is
+// synthesized by the coordinator exactly as KindExited is, and for the same
+// stated reason: the parent always learns. Authorship stays honest — the
+// message is queued FROM the child, because the text below the header is the
+// child's own words — and it borrows no authority the child did not already
+// have, since KindError is in the sender-allowed vocabulary and the parent is
+// a child's only legal recipient anyway.
+//
+// The original TEXT is carried, not just the fact of the drop. A notice that
+// said only "a message was lost" would tell a coordinator to go and ask an
+// agent that no longer exists; carrying the body means a report that could not
+// be routed is still READ, which is the outcome that actually matters.
+func (c *Coordinator) noticeSpoolDrop(role string, e spool.Entry, cause error) {
+	parent := ""
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(role); r != nil {
+			parent = r.ParentHarp
+		}
+	})
+	if parent == "" {
+		clidiag.Warn("ctxloom", "coordinator: dropped %s and cannot tell anyone: %s has no parent on record (%v)", e.Ref, role, cause)
+		return
+	}
+	kind, body := SpoolKindUnkinded, ""
+	if e.Message != nil {
+		kind, body = e.Message.Kind, e.Message.Body
+	}
+	notice := fmt.Sprintf(
+		"UNDELIVERED: a %q message %s wrote to %q could not be routed and has been dropped: %v\n"+
+			"(spool file %s; its sender was told, but a session that has ended cannot read that reply)\n"+
+			"\n--- the message text, as %s wrote it ---\n%s",
+		kind, role, spoolAddressee(e), cause, e.Ref, role, body)
+	if _, _, err := c.queueMail(role, parent, KindError, notice); err != nil {
+		clidiag.Warn("ctxloom", "coordinator: dropped %s and could not tell %s about it: %v (the original cause was %v)", e.Ref, parent, err, cause)
+	}
+}
+
+// spoolAddressee renders who a dropped file claimed to be for. The frontmatter
+// `to` is the file's own claim and never a routing input (SENDER IDENTITY IS
+// THE DIRECTORY); it is quoted here only so the notice can say what the sender
+// believed it was doing.
+func spoolAddressee(e spool.Entry) string {
+	if e.Message == nil || e.Message.To == "" {
+		return "(no recipient)"
+	}
+	return e.Message.To
 }
 
 // spoolSenderIdentity resolves a spool directory's owning harp to the identity

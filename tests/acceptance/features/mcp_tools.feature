@@ -180,10 +180,10 @@ Feature: MCP tools
       | session_id | seeded-quiet-ember-drift |
     Then the tool call succeeds
     And the tool result field "session_id" equals "seeded-quiet-ember-drift"
-    And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
-    And the essence the tool reports writing contains "COMPACT-DISTILLED-THE-NAMED-SESSION"
     And the essence the tool reports writing is filed under session "quiet-ember-drift"
     And no essence was written under session "host-caller-thistle"
+    And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
+    And the essence the tool reports writing contains "COMPACT-DISTILLED-THE-NAMED-SESSION"
 
   # get_previous_session takes no arguments at all: it resolves the previous
   # session itself. That makes it the easiest of these to satisfy vacuously —

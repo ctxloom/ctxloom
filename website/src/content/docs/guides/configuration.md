@@ -128,6 +128,7 @@ hooks:
     post_tool: []
     session_start: []
     session_end: []
+    turn_end: []             # once per TURN, not once per session
     pre_shell: []
     post_file_edit: []
   plugins:                    # backend-specific hooks
@@ -296,6 +297,7 @@ Hook types available:
 | `post_tool` | After tool execution |
 | `session_start` | Session initialization |
 | `session_end` | Session cleanup |
+| `turn_end` | The agent finished a turn (once per response) |
 | `pre_shell` | Before shell execution |
 | `post_file_edit` | After file edit |
 

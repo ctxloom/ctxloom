@@ -63,23 +63,34 @@ no structured-chat path.
 
 ## Hook translation
 
-ctxloom emits six engine-agnostic hook events (`internal/shared/wire/hooks.go`,
-`UnifiedHooks`). Each engine's writer translates them into that engine's native
-events.
+ctxloom emits seven engine-agnostic hook events (`wire.UnifiedHooks`). Each
+engine's writer translates them into that engine's native events. opencode is
+absent from the table on purpose: it has no hook mechanism at all, which its
+registry descriptor declares (`noHooksReason`) rather than leaving the silence
+to be discovered.
 
-| Unified event | claude-code | antigravity | codex | kiro |
-|---|---|---|---|---|
-| `session_start` | `SessionStart` | written through; agy loads no session-start event, so an idempotent hook can opt into `pre_tool_fallback` | `SessionStart` | `agentSpawn` |
-| `session_end` | `SessionEnd` | written through (silently skipped by agy) | **dropped, with a warning** (no such event) | `stop` |
-| `pre_tool` | `PreToolUse` | `PreToolUse` | `PreToolUse` | `preToolUse` |
-| `post_tool` | `PostToolUse` | `PostToolUse` | `PostToolUse` | `postToolUse` |
-| `pre_shell` | `PreToolUse` matcher `Bash` | `PreToolUse` matcher `run_command\|execute_command` | `PreToolUse` matcher `Bash` | `preToolUse` matcher `execute_bash` |
-| `post_file_edit` | `PostToolUse` matcher `Edit\|Write` | `PostToolUse` matcher `write_to_file\|replace_file_content` | `PostToolUse` matcher `Edit\|Write` | `postToolUse` matcher `fs_write` |
+| Unified event | claude-code | codex | kiro |
+|---|---|---|---|
+| `session_start` | `SessionStart` | `SessionStart` | `agentSpawn` |
+| `session_end` | `SessionEnd` | **dropped, with a warning** (no such event) | **dropped, with a warning** (no such event) |
+| `turn_end` | `Stop`, no matcher | `Stop`, matcher dropped | `stop`, matcher dropped |
+| `pre_tool` | `PreToolUse` | `PreToolUse` | `preToolUse` |
+| `post_tool` | `PostToolUse` | `PostToolUse` | `postToolUse` |
+| `pre_shell` | `PreToolUse` matcher `Bash` | `PreToolUse` matcher `Bash` | `preToolUse` matcher `execute_bash` |
+| `post_file_edit` | `PostToolUse` matcher `Edit\|Write` | `PostToolUse` matcher `Edit\|Write` | `postToolUse` matcher `fs_write` |
 
-Antigravity's context is the exception to the hook route: registering the
-context-injection hook there would silently drop the assembled context, so the
-writer diverts it into `.agents/AGENTS.md`, which agy reads at session start
-(`internal/antigravity/antigravity.go`, `addUnifiedHooks`).
+`session_end` and `turn_end` are not interchangeable, and the difference is why
+`turn_end` exists. `session_end` fires ONCE, at teardown; `turn_end` fires every
+time the agent finishes a response, which is the only point at which a close-out
+contract can still be acted on. kiro's `stop` used to be fed from `session_end`,
+which made one config fire per-session on claude-code and per-TURN on kiro with
+no warning either way; kiro has no session-end trigger at all, and now says so.
+
+No engine honours a matcher on its turn-end event — there is no tool to match
+against at a turn boundary. codex goes further and forces the matcher to `None`
+before computing a hook's trust identity, so writing one would produce config
+text its own seeded trust record does not cover. Both writers drop the matcher
+and warn once.
 
 ## Documented divergences (N/A by CLI limitation)
 

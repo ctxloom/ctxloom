@@ -342,4 +342,5 @@ Unified hook events (translated to backend-specific format)
 | `pre_tool` | hookArray | Before tool execution |
 | `session_end` | hookArray | When session ends |
 | `session_start` | hookArray | When session starts |
+| `turn_end` | hookArray | When the agent finishes a turn |
 

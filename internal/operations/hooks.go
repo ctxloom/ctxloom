@@ -61,6 +61,15 @@ type ApplyHooksResult struct {
 // not the reload. Tests and any caller needing a different config inject it
 // through ApplyHooksRequest.ConfigLoader, which is the one honoured seam.
 func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, error) {
+	// Bracket the WHOLE call, config load included, so a TRUST-CLASS finding
+	// recorded anywhere under it becomes an error here rather than a warning
+	// nobody's exit code reflects. See trustStoreFindingsError: this is the
+	// third production site that turns findings into an error, and its absence
+	// is why the same corrupt approvals store aborted `ctxloom run` loudly and
+	// let `ctxloom manage hooks install` report "applied" over zero bytes.
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+
 	backend := req.Backend
 	if backend == "" {
 		backend = "all"
@@ -117,6 +126,16 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	freshCfg.SetExecutableTrustGate(execGate.Authorizer())
 
 	contextHash, regenFailed := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
+
+	// The trust gate, checked BEFORE a single backend is written. A deny-all
+	// posture (unreadable/unconfigured approvals store, unreadable trust root)
+	// withholds every fragment, so regeneration legitimately produces nothing
+	// and returns ("", nil) — the exact shape an empty profile set produces.
+	// Writing on through would strip every native-file backend's managed
+	// context to match a "verdict" no readable store ever gave.
+	if terr := trustStoreFindingsError(mark); terr != nil {
+		return nil, terr
+	}
 
 	// skipContext is true whenever this round must NOT touch a
 	// native-file backend's managed context surface at all — covering BOTH
@@ -215,6 +234,15 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 		ContextHash: contextHash,
 		Errors:      applyErrors,
 	}
+	// The same gate again, for a trust fault first recorded AFTER regeneration
+	// — the executable surfaces (bundle MCP servers, bundle hooks, prompt
+	// command exports) run their own EffectiveTrust pass through execGate, so
+	// a store that only fails there would otherwise still report success.
+	// Since is documented safe to re-read against one mark.
+	if terr := trustStoreFindingsError(mark); terr != nil {
+		return nil, terr
+	}
+
 	if len(applied) == 0 && len(applyErrors) > 0 {
 		result.Status = "failed"
 		// The result is returned alongside the error so a caller that wants
@@ -326,6 +354,39 @@ func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, work
 		return "", true
 	}
 	return contextHash, false
+}
+
+// trustStoreFindingsError renders the TRUST-CLASS findings recorded since mark
+// as one error, or nil when there are none (or the process is degraded, where
+// every class warns and continues by contract).
+//
+// It is deliberately NARROWER than strictness.FindingsError, which renders
+// EVERY class: ApplyHooks reports a per-backend apply failure as partial
+// success on purpose (ClassApply), and widening this to all findings would
+// convert that documented partial into a hard error. ClassTrust is the one
+// class whose meaning is "the trust store could not be read, so every item is
+// being denied" — a whole-session posture, not one backend's bad day, and the
+// only class for which a written-and-stripped context surface is a lie about a
+// verdict rather than a report of one.
+func trustStoreFindingsError(mark strictness.Mark) error {
+	if strictness.Degraded() {
+		return nil
+	}
+	var msgs []string
+	for _, f := range strictness.Since(mark) {
+		if f.Class != strictness.ClassTrust {
+			continue
+		}
+		msg := f.Message
+		if f.FixIt != "" {
+			msg += " (fix: " + f.FixIt + ")"
+		}
+		msgs = append(msgs, msg)
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("refusing to apply hooks or context: %s", strings.Join(msgs, "; "))
 }
 
 // hookBackendNames resolves the backend filter to the list of backends to apply.

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -123,25 +124,43 @@ func TestMigrateHarpArtifacts_NeverOverwrites(t *testing.T) {
 	assert.Equal(t, "the top-level copy", string(still), "and the top-level one must not be destroyed either")
 }
 
-// TestMigrateHarpArtifacts_LeavesSymlinksAlone: moving a symlink one directory
-// deeper silently breaks it when its target is relative, and this sweep has no
-// business rewriting link targets.
-func TestMigrateHarpArtifacts_LeavesSymlinksAlone(t *testing.T) {
+// TestMigrateHarpArtifacts_LeavesIrregularEntriesAlone: a symlink moved one
+// directory deeper silently breaks when its target is relative, and ctxloom's
+// own retired agent-bus.sock sits at the harp top level on real machines. Both
+// are excluded outright rather than skipped, so the tally reports the honest
+// number and doctor does not warn about a file nothing can move.
+func TestMigrateHarpArtifacts_LeavesIrregularEntriesAlone(t *testing.T) {
 	root := t.TempDir()
 	const harp = "brisk-teal-otter"
 	target := writeHarpFile(t, root, harp, "real.md", "body")
 	link := filepath.Join(root, harp, "pointer"+paths.PlanFileExt)
 	require.NoError(t, os.Symlink(filepath.Base(target), link))
+	sock := filepath.Join(root, harp, "agent-bus.sock")
+	l, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	defer func() { _ = l.Close() }()
+
+	names, err := HarpTopLevelArtifacts(filepath.Join(root, harp))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"real.md"}, names,
+		"neither the link nor the socket is reported as authored work at risk — a warning with no action behind it is one a user learns to ignore")
 
 	got, err := MigrateHarpArtifacts(root, nil)
 	require.NoError(t, err)
-	assert.Equal(t, 1, got.Moved, "real.md is a regular file and moves")
-	assert.Equal(t, 1, got.Skipped, "the symlink does not")
+	assert.Equal(t, HarpArtifactMigration{Moved: 1}, got, "real.md moves; nothing else is even a candidate")
 
 	info, err := os.Lstat(link)
 	require.NoError(t, err, "the symlink must still be at the harp top level")
 	assert.NotZero(t, info.Mode()&os.ModeSymlink)
 	assert.NoFileExists(t, filepath.Join(root, harp, paths.PersistDirName, "pointer"+paths.PlanFileExt))
+
+	_, err = os.Lstat(sock)
+	assert.NoError(t, err, "the socket stays where the process that bound it expects it")
+	assert.NoFileExists(t, filepath.Join(root, harp, paths.PersistDirName, "agent-bus.sock"))
+
+	after, err := HarpTopLevelArtifacts(filepath.Join(root, harp))
+	require.NoError(t, err)
+	assert.Empty(t, after, "and after the sweep nothing is left for doctor to warn about — the warning is CLEARABLE")
 }
 
 // TestMigrateHarpArtifacts_MissingRootIsNotAFault: a machine that has never

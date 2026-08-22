@@ -37,8 +37,17 @@ import (
 //
 // THE EXCLUSIONS, each for its own reason:
 //
-//   - Directories. persist/, ephemeral/, segments/ and the rest are already
-//     lifetime-classified; this predicate is about the UNclassified middle.
+//   - Anything that is not a REGULAR FILE. Directories first: persist/,
+//     ephemeral/, segments/ and the rest are already lifetime-classified, and
+//     this predicate is about the UNclassified middle. But also sockets, FIFOs
+//     and symlinks, and that half is not pedantry — ctxloom's own retired
+//     agent-bus.sock sits at the harp top level on real machines, and a
+//     socket is not a design note anybody can lose. It also keeps the check
+//     and the mover in step at the only place they could disagree: the mover
+//     cannot relocate a non-regular entry (a socket is meaningless once
+//     moved, and a relative symlink breaks), so flagging one would be a
+//     warning with no action behind it — the exact shape that teaches a user
+//     to stop reading the report.
 //   - paths.EssenceFileName, paths.CanonicalTranscriptFileName and
 //     paths.LegacyCanonicalTranscriptFileName — ctxloom's own session
 //     bookkeeping, written by ctxloom at the top level by design.
@@ -61,7 +70,10 @@ func HarpTopLevelArtifacts(harpDir string) ([]string, error) {
 	}
 	var out []string
 	for _, e := range entries {
-		if e.IsDir() {
+		// Type() comes from lstat, so a symlink is non-regular here whatever
+		// it points at — the containment question a symlink raises is not one
+		// this predicate should be answering.
+		if !e.Type().IsRegular() {
 			continue
 		}
 		name := e.Name()
@@ -119,10 +131,11 @@ type HarpArtifactMigration struct {
 // — and silently clobbering one with the other would destroy authored work
 // while reporting a successful migration.
 //
-// NEVER FOLLOWS A SYMLINK. A symlink at the top level is left in place: moving
-// one a directory deeper silently breaks it if its target is relative, and
-// this sweep has no business rewriting link targets. It is counted as skipped
-// so the tally, not silence, is what says the directory is not fully migrated.
+// ONLY REGULAR FILES. A symlink, socket or FIFO at the top level is left in
+// place and is not even a candidate (HarpTopLevelArtifacts excludes it):
+// moving a symlink a directory deeper silently breaks it if its target is
+// relative, a moved socket is meaningless, and neither is authored work at
+// risk of being lost.
 //
 // Best-effort per harp and per file: one failure warns and the sweep
 // continues, so a single unreadable directory cannot cost every other harp its
@@ -186,6 +199,10 @@ func migrateOneHarp(harpDir string, names []string, result *HarpArtifactMigratio
 			continue
 		}
 		if !info.Mode().IsRegular() {
+			// HarpTopLevelArtifacts already excludes these, so reaching here
+			// means the entry changed type between the listing and now. Kept
+			// as a backstop rather than trusted away: this branch is the last
+			// thing standing between a rename and a socket or a symlink.
 			clidiag.Warn("ctxloom", "harp artifact migration: %s is not a regular file, leaving it at the harp top level", src)
 			result.Skipped++
 			continue

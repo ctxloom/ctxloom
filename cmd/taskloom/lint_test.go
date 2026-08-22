@@ -90,3 +90,71 @@ func TestRunLintCmd_FlagsOutOfRangeEffort(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, out.String(), "outside the declared range")
 }
+
+// TestRunLintCmd_FlagsLevelOutsideTheLadder pins the range facet against the
+// shipped default's `triage:level` ("1,5"). The ladder has five rungs and
+// nothing either side of them: 0 and 6 are not milder-than-wishlist and
+// worse-than-critical, they are typos, and a typo that lands silently makes
+// a task rank as if it were never triaged at all. Both boundary misses are
+// seeded via addLegacyTags because AddTaskWithTags now refuses them at the
+// write seam -- there is no other way to get such data into the log.
+func TestRunLintCmd_FlagsLevelOutsideTheLadder(t *testing.T) {
+	for _, bad := range []string{"triage:level=0", "triage:level=6"} {
+		t.Run(bad, func(t *testing.T) {
+			taskstest.ProjectDir(t)
+			tc, err := taskContextSingle()
+			require.NoError(t, err)
+
+			harpID := addLegacyTags(t, tc, "triage this", bad)
+
+			var out strings.Builder
+			err = runLintCmd(&out, tc, clifmt.FormatText)
+			require.Error(t, err, "a level outside the declared ladder must exit non-zero")
+			assert.Contains(t, out.String(), harpID)
+			assert.Contains(t, out.String(), "triage:level")
+			assert.Contains(t, out.String(), "outside the declared range")
+		})
+	}
+}
+
+// The negative half of the range check: every rung of the ladder is legal,
+// and a range that rejected a real level would be worse than no range at
+// all. Written through AddTaskWithTags so this also proves the WRITE SEAM
+// accepts 1..5 rather than merely that lint tolerates them.
+func TestRunLintCmd_AcceptsEveryRungOfTheLadder(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+
+	for _, level := range []string{"1", "2", "3", "4", "5"} {
+		_, err = operations.AddTaskWithTags(tc, "rung "+level, "", "", []string{"triage:level=" + level})
+		require.NoError(t, err, "triage:level=%s is a declared rung and must be writable", level)
+	}
+
+	var out strings.Builder
+	err = runLintCmd(&out, tc, clifmt.FormatText)
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "no triage-standard violations found")
+}
+
+// triage:level is declared arity=scalar, so the write seam must collapse a
+// task down to ONE of them. Two levels on one task is not a task that is
+// both critical and minor -- it is a task whose rank depends on which tag
+// the formula's last-write-wins fold happens to land on.
+func TestAddTaskWithTags_CollapsesTwoLevelsToOne(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+
+	res, err := operations.AddTaskWithTags(tc, "double-rated", "", "", []string{"triage:level=1", "triage:level=4"})
+	require.NoError(t, err)
+
+	var levels []string
+	for _, tag := range res.Task.Tags {
+		if strings.HasPrefix(tag, "triage:level") {
+			levels = append(levels, tag)
+		}
+	}
+	assert.Equal(t, []string{"triage:level=4"}, levels,
+		"arity=scalar keeps the LAST value written, never both")
+}

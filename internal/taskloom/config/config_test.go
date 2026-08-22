@@ -343,9 +343,20 @@ func TestTagSchema_AbsentEverywhereDefaultsToBuiltinTriageBaseline(t *testing.T)
 
 	schema, err := cfg.ParsedTagSchema()
 	require.NoError(t, err)
+	assert.True(t, schema.IsScalar("triage:level"))
 	assert.True(t, schema.IsScalar("triage:kind"))
 	assert.True(t, schema.IsScalar("triage:effort"))
 	assert.True(t, schema.IsScalar("triage:blocks-release"))
+
+	// triage:level is the one hand-assigned priority input, so a value
+	// outside the ladder ranks a task as if it were never triaged. The
+	// declared range is what `taskloom lint` and the write seam check
+	// against; without it a typo'd rung is accepted in silence.
+	min, max, ok, err := schema.Range("triage:level")
+	require.NoError(t, err)
+	require.True(t, ok, "triage:level must declare a range")
+	assert.Equal(t, 1.0, min)
+	assert.Equal(t, 5.0, max)
 }
 
 // TestTagSchema_BuiltinBaselineCompilesAndEvaluatesWithoutError is an
@@ -363,20 +374,27 @@ func TestTagSchema_BuiltinBaselineCompilesAndEvaluatesWithoutError(t *testing.T)
 	schema, err := cfg.ParsedTagSchema()
 	require.NoError(t, err)
 
-	all := []tasks.Task{{
-		HarpID:    "a",
-		Status:    tasks.StatusToDo,
-		CreatedAt: time.Now(),
-		Tags: []string{
-			"triage:kind=defect",
-			"triage:effort=1",
-			"triage:blocks-release=0.7.0",
-		},
-	}}
-	results, diag, err := priority.Compute(all, schema, time.Now())
+	now := time.Now()
+	tagged := func(harpID string, tags ...string) tasks.Task {
+		return tasks.Task{HarpID: harpID, Status: tasks.StatusToDo, CreatedAt: now, Tags: tags}
+	}
+	shared := []string{"triage:kind=defect", "triage:effort=1", "triage:blocks-release=0.7.0"}
+	all := []tasks.Task{
+		tagged("critical", append([]string{"triage:level=1"}, shared...)...),
+		tagged("wishlist", append([]string{"triage:level=5"}, shared...)...),
+		tagged("untriaged", shared...),
+	}
+	results, diag, err := priority.Compute(all, schema, now)
 	require.NoError(t, err)
-	assert.False(t, diag.NoPriorityFn, "the baseline declares exactly one priority_fn, on triage:kind")
-	assert.NotZero(t, results["a"].Raw)
+	assert.False(t, diag.NoPriorityFn, "the baseline declares exactly one priority_fn")
+	assert.NotZero(t, results["critical"].Raw)
+
+	// The baseline is not merely evaluable, it is DISCRIMINATING: the whole
+	// point of the level axis is that a worse consequence outranks a milder
+	// one, and that an unrated task sinks below both rather than floating to
+	// the top on an absent tag resolving to zero.
+	assert.Greater(t, results["critical"].Raw, results["wishlist"].Raw)
+	assert.Greater(t, results["wishlist"].Raw, results["untriaged"].Raw)
 }
 
 // TestTagSchema_ExplicitConfigOverridesDefaultEntirely proves an explicit

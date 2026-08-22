@@ -803,6 +803,10 @@
           "$ref": "#/$defs/hookArray",
           "description": "When session ends"
         },
+        "turn_end": {
+          "$ref": "#/$defs/hookArray",
+          "description": "When the agent finishes a turn"
+        },
         "pre_shell": {
           "$ref": "#/$defs/hookArray",
           "description": "Before shell command execution"

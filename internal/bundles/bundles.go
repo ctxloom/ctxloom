@@ -345,6 +345,7 @@ type BundleHooks struct {
 	PostTool     []BundleHook `yaml:"post_tool,omitempty"`
 	SessionStart []BundleHook `yaml:"session_start,omitempty"`
 	SessionEnd   []BundleHook `yaml:"session_end,omitempty"`
+	TurnEnd      []BundleHook `yaml:"turn_end,omitempty"`
 	PreShell     []BundleHook `yaml:"pre_shell,omitempty"`
 	PostFileEdit []BundleHook `yaml:"post_file_edit,omitempty"`
 }
@@ -352,7 +353,7 @@ type BundleHooks struct {
 // HasAny reports whether the bundle ships any hooks. Used by the loader to
 // skip the merge cost for hookless bundles.
 func (h BundleHooks) HasAny() bool {
-	return len(h.PreTool)+len(h.PostTool)+len(h.SessionStart)+len(h.SessionEnd)+len(h.PreShell)+len(h.PostFileEdit) > 0
+	return len(h.PreTool)+len(h.PostTool)+len(h.SessionStart)+len(h.SessionEnd)+len(h.TurnEnd)+len(h.PreShell)+len(h.PostFileEdit) > 0
 }
 
 // Hook event names. They double as the stable event component of a bundle
@@ -365,6 +366,12 @@ const (
 	HookEventSessionEnd   = "session_end"
 	HookEventPreShell     = "pre_shell"
 	HookEventPostFileEdit = "post_file_edit"
+	// HookEventTurnEnd is APPENDED to hookEventOrder rather than slotted in
+	// beside session_end: that order is a hook's trust identity
+	// ("<bundle>#hooks/<event>/<index>" is per-event, but Entries() walks this
+	// slice), and inserting an event mid-list would renumber nothing while
+	// still reordering every hook report against a baselined one.
+	HookEventTurnEnd = "turn_end"
 )
 
 // hookEventOrder is the canonical event order for hook identity + enumeration.
@@ -373,6 +380,7 @@ const (
 var hookEventOrder = []string{
 	HookEventPreTool, HookEventPostTool, HookEventSessionStart,
 	HookEventSessionEnd, HookEventPreShell, HookEventPostFileEdit,
+	HookEventTurnEnd,
 }
 
 // eventHooks returns the hook slice for an event (nil for an unknown event).
@@ -390,6 +398,8 @@ func (h BundleHooks) eventHooks(event string) []BundleHook {
 		return h.PreShell
 	case HookEventPostFileEdit:
 		return h.PostFileEdit
+	case HookEventTurnEnd:
+		return h.TurnEnd
 	}
 	return nil
 }

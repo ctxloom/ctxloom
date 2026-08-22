@@ -371,6 +371,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			SessionEnd:   keep(bundles.HookEventSessionEnd, h.Unified.SessionEnd),
 			PreShell:     keep(bundles.HookEventPreShell, h.Unified.PreShell),
 			PostFileEdit: keep(bundles.HookEventPostFileEdit, h.Unified.PostFileEdit),
+			TurnEnd:      keep(bundles.HookEventTurnEnd, h.Unified.TurnEnd),
 		},
 	}
 	// Plugin-specific (backend-native) hooks gate too; keyed on

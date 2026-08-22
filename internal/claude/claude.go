@@ -892,6 +892,10 @@ func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, uni
 		{Hooks: unified.PostTool, Event: "PostToolUse"},
 		{Hooks: unified.SessionStart, Event: "SessionStart"},
 		{Hooks: unified.SessionEnd, Event: "SessionEnd"},
+		// Stop takes no matcher: Claude Code's Stop event has no tool to match
+		// against, so the route declares none and a hook that carried one is
+		// emitted without it.
+		{Hooks: unified.TurnEnd, Event: "Stop"},
 		{Hooks: unified.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},
 		{Hooks: unified.PostFileEdit, Event: "PostToolUse", DefaultMatcher: "Edit|Write"},
 	}, func(event string, h wire.Hook) {

@@ -235,6 +235,7 @@ func unifiedHooksToProto(u wire.UnifiedHooks) *UnifiedHooks {
 		SessionEnd:   hooksToProto(u.SessionEnd),
 		PreShell:     hooksToProto(u.PreShell),
 		PostFileEdit: hooksToProto(u.PostFileEdit),
+		TurnEnd:      hooksToProto(u.TurnEnd),
 	}
 }
 
@@ -249,6 +250,7 @@ func unifiedHooksFromProto(u *UnifiedHooks) wire.UnifiedHooks {
 		SessionEnd:   hooksFromProto(u.GetSessionEnd()),
 		PreShell:     hooksFromProto(u.GetPreShell()),
 		PostFileEdit: hooksFromProto(u.GetPostFileEdit()),
+		TurnEnd:      hooksFromProto(u.GetTurnEnd()),
 	}
 }
 

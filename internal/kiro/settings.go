@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -134,6 +135,45 @@ type kiroAgent struct {
 	Hooks          *kiroHooks `json:"hooks,omitempty"`
 }
 
+// clearMatchers returns a copy of hooks with every matcher cleared, warning
+// once if it actually dropped one. Kiro's `stop` has no tool to match, so a
+// matcher written there would be silently inert; saying so once is cheaper than
+// a user wondering why their scoped turn-end hook fires on everything.
+func clearMatchers(hooks []wire.Hook) []wire.Hook {
+	if len(hooks) == 0 {
+		return nil
+	}
+	out := make([]wire.Hook, 0, len(hooks))
+	dropped := 0
+	for _, hook := range hooks {
+		if hook.Matcher != "" {
+			dropped++
+			hook.Matcher = ""
+		}
+		out = append(out, hook)
+	}
+	if dropped > 0 {
+		clidiag.WarnOnce("ctxloom", "kiro: %d unified turn_end hook(s) declare a matcher, which kiro's stop event has nothing to match against — the matcher is dropped", dropped)
+	}
+	return out
+}
+
+// NoSessionEndReason is the one-clause reason Kiro has no native event for the
+// unified session_end hook. Kiro's only turn-boundary event is `stop`, which
+// fires once per TURN; it has no session-teardown trigger at all.
+//
+// This used to be where unified session_end hooks were written, which made one
+// config.yaml fire once per session on claude-code and once per turn on kiro,
+// with no warning either way. The route below declares the gap instead, and
+// turn_end — the event that genuinely means "the agent finished a turn" — owns
+// `stop` now.
+//
+// Same double duty as codex.NoSessionEndReason: the write-time route here and
+// internal/lm/backends' registry descriptor (unsupportedHookKinds) read the
+// SAME string, so a caller that never writes settings reports the identical
+// sentence without a second hand-maintained copy.
+const NoSessionEndReason = "kiro has no session-end event"
+
 // mapHooks translates ctxloom's unified hooks into Kiro's agent-JSON hook block
 // and returns the context hash when a context-injection hook was present (that
 // one is diverted to the steering file, since Kiro reads steering rather than
@@ -151,28 +191,41 @@ func (w *KiroWriter) mapHooks(u wire.UnifiedHooks, plugins wire.BackendHooks) (c
 		*dst = append(*dst, kiroHook{Matcher: matcher, Command: hook.Command})
 	}
 
+	// The context-injection hook is diverted before routing — it is the
+	// per-agent special handling agent.HookRoute's doc means by "handled by the
+	// agent before routing and simply omitted from its route table".
+	sessionStart := make([]wire.Hook, 0, len(u.SessionStart))
 	for _, hook := range u.SessionStart {
 		if hook.ContextHash != "" {
 			contextHash = hook.ContextHash
 			continue
 		}
-		add(&h.AgentSpawn, hook, "")
+		sessionStart = append(sessionStart, hook)
 	}
-	for _, hook := range u.SessionEnd {
-		add(&h.Stop, hook, "")
-	}
-	for _, hook := range u.PreTool {
-		add(&h.PreToolUse, hook, "")
-	}
-	for _, hook := range u.PostTool {
-		add(&h.PostToolUse, hook, "")
-	}
-	for _, hook := range u.PreShell {
-		add(&h.PreToolUse, hook, kiroShellMatcher)
-	}
-	for _, hook := range u.PostFileEdit {
-		add(&h.PostToolUse, hook, kiroFileEditMatcher)
-	}
+
+	agent.RouteUnifiedHooks("kiro", []agent.HookRoute{
+		{Hooks: sessionStart, Event: "agentSpawn"},
+		{Hooks: u.SessionEnd, Kind: "session_end", Unsupported: NoSessionEndReason},
+		// `stop` takes no matcher — there is no tool to match against at a
+		// turn boundary — so the route declares no default and any matcher the
+		// user wrote is cleared before the hook is written.
+		{Hooks: clearMatchers(u.TurnEnd), Event: "stop"},
+		{Hooks: u.PreTool, Event: "preToolUse"},
+		{Hooks: u.PostTool, Event: "postToolUse"},
+		{Hooks: u.PreShell, Event: "preToolUse", DefaultMatcher: kiroShellMatcher},
+		{Hooks: u.PostFileEdit, Event: "postToolUse", DefaultMatcher: kiroFileEditMatcher},
+	}, func(event string, hook wire.Hook) {
+		switch event {
+		case "agentSpawn":
+			add(&h.AgentSpawn, hook, "")
+		case "preToolUse":
+			add(&h.PreToolUse, hook, "")
+		case "postToolUse":
+			add(&h.PostToolUse, hook, "")
+		case "stop":
+			add(&h.Stop, hook, "")
+		}
+	})
 
 	for event, hooks := range plugins {
 		for _, hook := range hooks {

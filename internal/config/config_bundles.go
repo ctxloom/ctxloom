@@ -582,6 +582,7 @@ func filterMissingCompanionHooks(in wire.UnifiedHooks) wire.UnifiedHooks {
 		SessionEnd:   keep(in.SessionEnd),
 		PreShell:     keep(in.PreShell),
 		PostFileEdit: keep(in.PostFileEdit),
+		TurnEnd:      keep(in.TurnEnd),
 	}
 }
 
@@ -698,6 +699,7 @@ func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
 	for _, hs := range [][]bundles.BundleHook{
 		b.Hooks.PreTool, b.Hooks.PostTool, b.Hooks.SessionStart,
 		b.Hooks.SessionEnd, b.Hooks.PreShell, b.Hooks.PostFileEdit,
+		b.Hooks.TurnEnd,
 	} {
 		for _, h := range hs {
 			if bin, missing := missingCompanion(h.Command); missing {
@@ -825,6 +827,7 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 		SessionEnd:   convert(bundles.HookEventSessionEnd, bundle.Hooks.SessionEnd),
 		PreShell:     convert(bundles.HookEventPreShell, bundle.Hooks.PreShell),
 		PostFileEdit: convert(bundles.HookEventPostFileEdit, bundle.Hooks.PostFileEdit),
+		TurnEnd:      convert(bundles.HookEventTurnEnd, bundle.Hooks.TurnEnd),
 	}
 }
 

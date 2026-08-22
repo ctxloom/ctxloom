@@ -49,6 +49,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -527,10 +528,37 @@ const NoSessionEndReason = "codex has no session-end event"
 // Codex lacks a SessionEnd event, so unified SessionEnd hooks cannot be emitted
 // — the route declares that gap explicitly so a configured
 // session_end hook is announced as inert instead of vanishing.
+// stripMatchers clears the matcher on every hook, returning a copy. Codex
+// forces the matcher to None on its matcherless events (hooktrust.go's
+// matcherlessHookEvents, which already lists `stop`) before computing the
+// trust identity, so a matcher written under one of them is inert AND absent
+// from the hash — writing it would produce config text that disagrees with the
+// seeded trust record. Dropping it at the route keeps the two in step; the
+// user is told once, because a matcher they wrote is not going to be honoured.
+func stripMatchers(hooks []wire.Hook) []wire.Hook {
+	if len(hooks) == 0 {
+		return nil
+	}
+	out := make([]wire.Hook, 0, len(hooks))
+	dropped := 0
+	for _, h := range hooks {
+		if h.Matcher != "" {
+			dropped++
+			h.Matcher = ""
+		}
+		out = append(out, h)
+	}
+	if dropped > 0 {
+		clidiag.WarnOnce("ctxloom", "codex: %d unified turn_end hook(s) declare a matcher, which codex ignores on its Stop event — the matcher is dropped so the written hook matches its trust record", dropped)
+	}
+	return out
+}
+
 func addUnifiedHooks(cfg map[string]any, u wire.UnifiedHooks) {
 	agent.RouteUnifiedHooks("codex", []agent.HookRoute{
 		{Hooks: u.SessionStart, Event: "SessionStart"},
 		{Hooks: u.SessionEnd, Kind: "session_end", Unsupported: NoSessionEndReason},
+		{Hooks: stripMatchers(u.TurnEnd), Event: "Stop"},
 		{Hooks: u.PreTool, Event: "PreToolUse"},
 		{Hooks: u.PostTool, Event: "PostToolUse"},
 		{Hooks: u.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},

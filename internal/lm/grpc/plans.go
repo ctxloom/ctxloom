@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/plans"
 )
 
 // Plan retrieval: the agent server is co-located with the session files and
@@ -44,10 +45,13 @@ func planFilesFromProto(in []*PlanFile) []agent.PlanFile {
 	return out
 }
 
-// ReadPlanFiles reads the *.plan.md documents in a harp's ctxloom session
-// directory, sorted by name for determinism. Fault tolerant: an unresolved home,
-// a missing directory, or an unreadable file yields fewer (or no) plans rather
-// than an error — distill degrades to "no plans" rather than failing.
+// ReadPlanFiles reads the *.plan.md documents belonging to a harp's ctxloom
+// session, sorted by name for determinism. WHERE it looks is not this file's
+// decision: plans.SessionPlanPaths owns that, so this reader and the location
+// mcp.sessionInstructions hands to the agent cannot drift apart. Fault
+// tolerant: an unresolved home, a missing directory, or an unreadable file
+// yields fewer (or no) plans rather than an error — distill degrades to "no
+// plans" rather than failing.
 //
 // The tolerance is kept, but it is no longer SILENT: every degraded path is
 // warned about. A distill or cross-agent handoff that omitted plan documents
@@ -73,30 +77,17 @@ func readPlanFiles(harp string) ([]agent.PlanFile, []error) {
 	if harp == "" {
 		return nil, nil
 	}
-	var problems []error
-	dir, err := paths.HarpDir(harp)
-	if err != nil {
-		return nil, append(problems, fmt.Errorf("plans for session %s omitted, ctxloom home unresolved: %w", harp, err))
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, append(problems, fmt.Errorf("plans for session %s omitted, session dir unreadable: %w", harp, err))
-	}
+	candidates, problems := plans.SessionPlanPaths(harp)
 	var out []agent.PlanFile
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), paths.PlanFileExt) {
-			continue
-		}
-		content, err := os.ReadFile(filepath.Join(dir, e.Name()))
+	for _, path := range candidates {
+		base := filepath.Base(path)
+		content, err := os.ReadFile(path)
 		if err != nil {
-			problems = append(problems, fmt.Errorf("plan file %s omitted, unreadable: %w", e.Name(), err))
+			problems = append(problems, fmt.Errorf("plan file %s omitted, unreadable: %w", base, err))
 			continue
 		}
 		out = append(out, agent.PlanFile{
-			Name:    strings.TrimSuffix(e.Name(), paths.PlanFileExt),
+			Name:    strings.TrimSuffix(base, paths.PlanFileExt),
 			Content: string(content),
 		})
 	}

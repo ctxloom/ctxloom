@@ -662,6 +662,15 @@ func (st *runState) runStartupTasks() {
 	if !runDryRun {
 		operations.SweepOrphanedSessionHomes(os.Stderr)
 	}
+
+	// Startup reaper, third half: relocate authored session files still
+	// sitting at a harp directory's undurable top level into persist/, the
+	// only part of the harp dir a containerized run can write through to the
+	// host — see operations.SweepHarpArtifacts. A MOVE, not a removal, and
+	// harps whose session is still running are passed over.
+	if !runDryRun {
+		operations.SweepHarpArtifacts(os.Stderr)
+	}
 }
 
 // resolveLaunchSource picks between the run's two launch sources and delegates.

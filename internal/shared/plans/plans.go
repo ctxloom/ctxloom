@@ -326,3 +326,68 @@ func unquote(s string) string {
 	}
 	return s
 }
+
+// SessionPlanPaths returns the absolute paths of ONE harp's plan documents,
+// sorted by base name. It is the single definition of "where does a session's
+// plans live" for the readers that collect a session's own plans — the agent
+// server's plan service (lm/grpc.ReadPlanFiles) and the runner's artifact
+// stamper (mcp.artifactStamper.planCandidates) — so a plan an agent was told
+// to write can never be somewhere none of them look.
+//
+// TWO DIRECTORIES, IN PRECEDENCE ORDER:
+//
+//	<harp>/persist  — paths.HarpPlansDir, where mcp.sessionInstructions now
+//	    tells every session to write. It is the only part of the harp dir a
+//	    containerized run gets bind-mounted, so it is the only location a
+//	    container-authored plan survives in.
+//	<harp>          — the harp TOP LEVEL, where the instruction used to point
+//	    and where hand-authored plans still land. Read, never written to. A
+//	    top-level file whose base name a persist/ file already claimed is
+//	    SKIPPED: persist/ is the durable copy, and a stale pre-migration twin
+//	    must not shadow it.
+//
+// Neither directory is walked recursively, deliberately: <harp>/ephemeral
+// holds scratch git worktrees of the user's project (isolation's
+// findEphemeralWorktrees reaps them), and a recursive walk would pull every
+// *.plan.md checked out inside one into the session's plan list.
+//
+// FAULTS ARE RETURNED, NOT SWALLOWED. A missing directory is genuinely "no
+// plans here" and is silent; an unresolvable home or an unreadable directory
+// is a problem, because a caller that folds an empty result into distilled
+// output makes "this session authored no plans" and "every plan it authored
+// is unreachable" the same observation, permanently.
+func SessionPlanPaths(harp string) ([]string, []error) {
+	if harp == "" {
+		return nil, nil
+	}
+	planDir, err := paths.HarpPlansDir(harp)
+	if err != nil {
+		return nil, []error{fmt.Errorf("plans for session %s omitted, plan dir unresolved: %w", harp, err)}
+	}
+	harpDir, err := paths.HarpDir(harp)
+	if err != nil {
+		return nil, []error{fmt.Errorf("plans for session %s omitted, session dir unresolved: %w", harp, err)}
+	}
+	var out []string
+	var problems []error
+	seen := map[string]bool{}
+	for _, dir := range []string{planDir, harpDir} {
+		entries, rerr := os.ReadDir(dir)
+		if rerr != nil {
+			if !os.IsNotExist(rerr) {
+				problems = append(problems, fmt.Errorf("plans for session %s: directory %s unreadable: %w", harp, dir, rerr))
+			}
+			continue
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, paths.PlanFileExt) || seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, filepath.Join(dir, name))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return filepath.Base(out[i]) < filepath.Base(out[j]) })
+	return out, problems
+}

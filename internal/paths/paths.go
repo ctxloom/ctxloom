@@ -202,8 +202,8 @@ const (
 	EssenceFileName = "essence.md"
 
 	// PlanFileExt is the suffix for a session's plan documents. Plans live
-	// directly in the harp session directory as <descriptive-name>.plan.md
-	// files; a session may hold several.
+	// in the harp's persist/ subdirectory as <descriptive-name>.plan.md files
+	// (HarpPlansDir); a session may hold several.
 	PlanFileExt = ".plan.md"
 
 	// EphemeralDirName is the per-session subdirectory for REGENERABLE state
@@ -240,18 +240,18 @@ const (
 	// (internal/transcript/vendorreader/*) — engine-agnostic by construction, per
 	// this constant's own doc comment above. The old name read as "an ACP
 	// artifact" to anyone browsing a session's persist/ dir, which it never
-	// was. See legacyCanonicalTranscriptFileName for the back-compat reader
+	// was. See LegacyCanonicalTranscriptFileName for the back-compat reader
 	// fallback this rename requires.
 	CanonicalTranscriptFileName = "transcript.jsonl"
 
-	// legacyCanonicalTranscriptFileName is CanonicalTranscriptFileName's
+	// LegacyCanonicalTranscriptFileName is CanonicalTranscriptFileName's
 	// pre-rename value. Read-only: nothing ever writes this name again (every
 	// writer targets HarpCanonicalTranscriptPath, i.e. the current name), but
 	// sessions captured before the rename have ONLY this file on disk, so
 	// ResolveHarpCanonicalTranscriptPath falls back to it rather than
 	// treating an already-captured pre-rename session as if it had no
 	// canonical transcript at all.
-	legacyCanonicalTranscriptFileName = "transcript.acp.jsonl"
+	LegacyCanonicalTranscriptFileName = "transcript.acp.jsonl"
 
 	// CoordDirName is the per-user directory holding one subdirectory of
 	// in-process coordinator state per project: ~/.ctxloom/coord/<project-key>/
@@ -442,6 +442,21 @@ func HarpPersistDir(harp string) (string, error) {
 	return filepath.Join(dir, PersistDirName), nil
 }
 
+// HarpPlansDir returns the directory a session's *.plan.md documents are
+// WRITTEN to: ~/.ctxloom/sessions/<harp>/persist.
+//
+// It is persist/ and not the harp top level because a containerized run only
+// ever gets persist/ bind-mounted (isolation.Container.sessionStateMounts).
+// A plan authored at the harp top level by an agent running in a container is
+// written into container-ephemeral overlay space and is GONE at teardown — the
+// write succeeds, the file exists for the length of the run, and nothing
+// survives. Naming the location once, here, is what keeps the instruction the
+// agent is given (mcp.sessionInstructions) and the readers that later collect
+// plans (plans.SessionPlanPaths) from drifting apart.
+func HarpPlansDir(harp string) (string, error) {
+	return HarpPersistDir(harp)
+}
+
 // HarpTranscriptStoreDir returns ~/.ctxloom/sessions/<harp>/persist/transcripts
 // — the bind-mount source for a containerized engine's native transcript store
 // root (see TranscriptStoreDirName).
@@ -565,7 +580,7 @@ func HarpCanonicalTranscriptPath(harp string) (string, error) {
 // ResolveHarpCanonicalTranscriptPath returns the on-disk path to harp's
 // captured canonical transcript, preferring HarpCanonicalTranscriptPath (the
 // current name) but falling back to the pre-rename
-// legacyCanonicalTranscriptFileName when only THAT one exists on disk — the
+// LegacyCanonicalTranscriptFileName when only THAT one exists on disk — the
 // back-compat path for a session captured before the transcript.acp.jsonl ->
 // transcript.jsonl rename. Returns the current-name path, unstated, when
 // NEITHER file exists, so a caller's own os.Stat still produces a clean
@@ -591,7 +606,7 @@ func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
 		return "", err
 	}
 	current := filepath.Join(dir, CanonicalTranscriptFileName)
-	legacy := filepath.Join(dir, legacyCanonicalTranscriptFileName)
+	legacy := filepath.Join(dir, LegacyCanonicalTranscriptFileName)
 
 	// Only PLAIN ABSENCE licenses moving on. The fallback's whole precondition
 	// is "the current name is not there", and an ELOOP or EACCES does not

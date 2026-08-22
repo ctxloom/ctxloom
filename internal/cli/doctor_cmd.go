@@ -1433,8 +1433,11 @@ const doctorHarpDurabilityMaxNamed = 5
 // alongside the harp directories, so the OUTER iteration skips non-directory
 // entries — an exclusion list aimed at the harp level (as an earlier version
 // of this design proposed) would never see that file at all, since it never
-// walks into a non-directory. Only the INNER iteration, one level under each
-// harp dir, applies the essence/transcript name exclusions.
+// walks into a non-directory. The INNER level is operations.HarpTopLevelArtifacts,
+// which is also what operations.MigrateHarpArtifacts moves. Sharing that one
+// predicate is deliberate: a check that flags a file the mover declines is a
+// warning nobody can ever clear, and the two drifting apart is exactly how
+// this check would come to lie.
 func doctorCheckHarpDurability() doctorCheck {
 	const marker = "DOCTOR-CHECK-HARP-DURABILITY-s9"
 	sessionsRoot, err := paths.HomeSessionsDir()
@@ -1457,30 +1460,11 @@ func doctorCheckHarpDurability() doctorCheck {
 			continue
 		}
 		harp := e.Name()
-		inner, err := os.ReadDir(filepath.Join(sessionsRoot, harp))
+		names, err := operations.HarpTopLevelArtifacts(filepath.Join(sessionsRoot, harp))
 		if err != nil {
 			continue // best-effort; an unreadable harp dir is not this check's job
 		}
-		for _, ie := range inner {
-			name := ie.Name()
-			if ie.IsDir() {
-				continue // persist/, ephemeral/, or any other subdir: not this check's target
-			}
-			switch name {
-			case paths.EssenceFileName, paths.CanonicalTranscriptFileName, "transcript.acp.jsonl", paths.IndexFileName:
-				continue
-			}
-			// One immutable per-vendor-log symlink per binding
-			// (sessions.linkEngineTranscript, fs-consolidation plan C12) —
-			// ctxloom-owned, not an authored artifact at risk of loss. Prefix
-			// match, not an exact name, since the leaf carries the engine and
-			// session id (paths.HarpEngineTranscriptLinkPath). Pre-rename
-			// legacy `transcript.jsonl` root symlinks are already covered by
-			// the CanonicalTranscriptFileName case above (same literal string,
-			// left on disk read-only — see linkEngineTranscript's doc).
-			if strings.HasPrefix(name, paths.EngineTranscriptLinkPrefix) {
-				continue
-			}
+		for _, name := range names {
 			flagged = append(flagged, harp+"/"+name)
 		}
 	}
@@ -1500,7 +1484,7 @@ func doctorCheckHarpDurability() doctorCheck {
 		list += fmt.Sprintf(", … +%d more", more)
 	}
 	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: fmt.Sprintf(
-		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither persist/ (durable, mounted into containers) nor ephemeral/: %s — move them under persist/",
+		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither persist/ (durable, mounted into containers) nor ephemeral/: %s — the next `ctxloom run` or `ctxloom mcp serve` moves them under persist/ (a file whose session is still running waits for that session to end)",
 		len(flagged), list)}
 }
 

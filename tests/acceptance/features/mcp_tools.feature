@@ -205,6 +205,112 @@ Feature: MCP tools
     And the tool result field "was_cached" equals "true"
     And the tool result field "session_id" equals "seeded-quiet-ember-drift"
 
+  # THE OTHER LEG of the same resolution, and a genuinely different line of
+  # code. session_id is whatever the caller has to hand, and the two forms it
+  # accepts do not share a lookup: operations.GetSession matches on HarpName
+  # alone (sessions.Manager.Find), so a caller that names the HARP is answered
+  # by compactionTargetHarp's first branch and never reaches
+  # operations.HarpForSession, which is the only branch the scenario above
+  # exercises. A harp-addressed call was therefore resolved by code no
+  # scenario ran.
+  #
+  # Same two-harp discipline as above, and for the same reason: the caller is
+  # host-caller-thistle and the session it names is quiet-ember-drift, so a
+  # branch that answers with the caller's own identity — or with the entry's
+  # backend-native id rather than its harp — files the essence somewhere
+  # quiet-ember-drift will never read it from, and every field of the result
+  # envelope still looks right.
+  #
+  # THE CALLER HAS A CAPTURED SESSION OF ITS OWN, and that is load-bearing
+  # rather than scene-setting. Without an index entry of its own, a
+  # resolution answering with the caller's harp falls out of the
+  # operations.CompactEntry path into the self-compaction fallback, where
+  # memory.Compactor.resolveHarpName re-derives the harp from the SessionID it
+  # was handed — which is the harp the caller named — and files the essence in
+  # the right place anyway. The location assertion then passes under a
+  # resolution that is plainly wrong. Giving the caller a real session keeps
+  # the mis-resolution on the normal path, where filing under the wrong harp
+  # stays visible.
+  Scenario: compact_session resolves a session named by its harp, not only by its bound id
+    Given an initialized ctxloom project
+    And the session harp is "host-caller-thistle"
+    And a captured session "host-caller-thistle" bound to a backend-native session id
+    And a captured session "quiet-ember-drift" bound to a backend-native session id
+    And the mock LLM responds "COMPACT-DISTILLED-THE-HARP-NAMED-SESSION"
+    When the agent calls tool "compact_session" with:
+      | session_id | quiet-ember-drift |
+    Then the tool call succeeds
+    And the essence the tool reports writing is filed under session "quiet-ember-drift"
+    And no essence was written under session "host-caller-thistle"
+    And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
+    And the essence the tool reports writing contains "COMPACT-DISTILLED-THE-HARP-NAMED-SESSION"
+
+  # THE REFUSAL, which is the most user-visible thing about the resolution and
+  # was the least covered. A session_id the index cannot resolve used to be
+  # quietly re-pointed at the CALLER's own harp: the caller paid for a
+  # distillation of a session it never asked about, filed under a name it never
+  # named, and was told it succeeded. There is no harp to attribute the result
+  # to, so the only honest answer is to refuse before spending anything.
+  #
+  # Two claims, and neither alone is enough. The refusal has to REACH the
+  # caller carrying its own reason — an error whose text names the compaction
+  # failing downstream is a different bug wearing the same exit code — and
+  # nothing may be written: a refusal that still leaves an essence under the
+  # caller's harp has already destroyed that caller's own distilled context,
+  # essence.md being overwritten in place.
+  #
+  # The caller's own captured session is what makes the second claim bite: a
+  # re-point to a caller with nothing to compact merely fails somewhere else,
+  # while a re-point to a caller that HAS a session succeeds all the way to a
+  # written essence — the exact shape the refusal exists to prevent, and the
+  # only shape in which "nothing was written" is evidence rather than silence.
+  Scenario: compact_session refuses a session_id the index cannot resolve
+    Given an initialized ctxloom project
+    And the session harp is "host-caller-thistle"
+    And a captured session "host-caller-thistle" bound to a backend-native session id
+    And a captured session "quiet-ember-drift" bound to a backend-native session id
+    And the mock LLM responds "COMPACT-MUST-NOT-RUN-FOR-AN-UNRESOLVABLE-SESSION"
+    When the agent calls tool "compact_session" with:
+      | session_id | never-recorded-anywhere |
+    Then the tool call fails
+    And the tool failure message contains "is not in the session index"
+    And the tool failure message contains "list_sessions"
+    And no essence was written under session "host-caller-thistle"
+  # RED, AND DELIBERATELY SO — @wip until taskloom unusable-overload is ruled
+  # on. This is the SELF-COMPACTION path: an empty session_id, which
+  # compactionTargetHarp answers with the caller's own harp, and which reaches
+  # the fallback branch of handleCompactSession whenever that harp has no
+  # index entry yet (an ambient backend with no BindSession behind it).
+  #
+  # That branch builds its memory.NewCompactor with no Env at all, so the
+  # distillation subprocess is handed none of llm.configs.<label>.env — the
+  # documented home for a backend's credentials. The named-session path plumbs
+  # it (operations.CompactEntry -> LLMEnvFor(cfg, cfg.FastLabel())); this one
+  # never did. An unconfigured backend does not error, so what a user gets is
+  # a distillation that ran against no credentials and reported success.
+  #
+  # The claim is exactly the env and nothing else. The mock honours
+  # CTXLOOM_MOCK_RESPONSE only when it arrives through the config'd LLM's env
+  # (tests/integration/testenv writes it to llm.configs.mock.env and nowhere
+  # else), so a canned reply in the essence is proof the env crossed, and its
+  # absence — an essence echoing the prompt back instead — is proof it did
+  # not. The scenario takes NO position on which session a self-compaction
+  # ought to pick up, because that is the open question: the ruling is whether
+  # this branch routes through operations.CompactEntry like its sibling (one
+  # path, one behaviour) or keeps its own Env plumbing (two paths, kept
+  # distinct), and the two answers differ in what a self-compaction IS.
+  #
+  # Unskip with the fix. Do not weaken it to green.
+  @wip
+  Scenario: a self-compaction reaches the LLM with the environment its config declares
+    Given an initialized ctxloom project
+    And the session harp is "lone-hushed-quartz"
+    And a captured session "quiet-ember-drift" bound to a backend-native session id
+    And the mock LLM responds "SELF-COMPACT-CROSSED-THE-CONFIGURED-ENV"
+    When the agent calls tool "compact_session"
+    Then the tool call succeeds
+    And the essence the tool reports writing contains "SELF-COMPACT-CROSSED-THE-CONFIGURED-ENV"
+
   # get_previous_session takes no arguments at all: it resolves the previous
   # session itself. That makes it the easiest of these to satisfy vacuously —
   # "no previous session" is a perfectly good answer shape — so the assertion

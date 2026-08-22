@@ -6,43 +6,85 @@
 
 ## TL;DR — five levels, and security is one of the outcomes, not a second scale
 
-**Severity names the CONSEQUENCE, not the category.** A trust-gate escape and an
-unrecoverable data loss are the same severity, because they cost the same. There
+**The level names the CONSEQUENCE, not the category.** A trust-gate escape and
+an unrecoverable data loss are the same level, because they cost the same. There
 is no separate security scale to cross-reference.
 
-| # | `triage:severity=` | Means | Blocks release |
-|---|---|---|---|
-| 1 | `critical` | Data loss or corruption, **or** a trust/isolation boundary breached | yes |
-| 2 | `serious` | Major functionality broken with no workaround — **including succeeding without doing the thing** | yes |
-| 3 | `normal` | Wrong, but a workaround exists; or documentation asserting behaviour the code lacks | no |
-| 4 | `minor` | Low or no user impact — cosmetic, inconsistency, tidy-up | no |
-| 5 | `wishlist` | Does not exist yet — new capability, or a refactor with no live defect | no |
+The tag is `triage:level=<1..5>`, and **the number is the tag** — the words below
+are not values you can write, they are the names of the rungs. This page is the
+legend that makes the integers readable; nothing else in the system carries it,
+so a rung assigned without reading this table is a rung assigned by vibe.
 
-One severity per task. It is a property of the CONSEQUENCE if the task is not
-done, never of how interesting or how large the work is.
+| `triage:level=` | Rung | Means | Blocks release |
+|---|---|---|---|
+| `1` | critical | Data loss or corruption, **or** a trust/isolation boundary breached | yes |
+| `2` | serious | Major functionality broken with no workaround — **including succeeding without doing the thing** | yes |
+| `3` | normal | Wrong, but a workaround exists; or documentation asserting behaviour the code lacks | no |
+| `4` | minor | Low or no user impact — cosmetic, inconsistency, tidy-up | no |
+| `5` | wishlist | Does not exist yet — new capability, or a refactor with no live defect | no |
+
+One level per task — the tag is declared `arity=scalar`, so a second one does
+not sit alongside the first, it replaces it. The value is a property of the
+CONSEQUENCE if the task is not done, never of how interesting or how large the
+work is. `taskloom lint` rejects anything outside 1–5: the ladder has five rungs
+and there is nothing either side of them.
 
 ---
 
-## Severity is not priority, and not kind
+## Why an integer, and not the word
 
-Three independent axes, and conflating them is what makes a log unqueryable:
+Because a number can be compared, and that is the whole payoff:
 
-- **`triage:severity=`** — how bad is it if we ship without this? Derived from
-  consequence.
-- **`triage:priority=`** — what order do we work in? A `minor` bug can outrank a
-  `serious` one when it blocks someone today.
+```
+taskloom list --tag-query 'triage:level<=2'      # everything that blocks a release on consequence
+taskloom list --sort priority
+```
+
+A word-valued tag can only be matched exactly, so "show me everything at least
+as bad as serious" becomes an enumeration that goes stale the moment a rung is
+added. With an integer the query states the intent directly.
+
+The ranking reads the same number. `priority_fn` scores a task at
+`2**(3-level)` — critical 4, serious 2, normal 1, minor 0.5, wishlist 0.25 — so
+**each rung is worth exactly twice the one below it**, then multiplies by the
+age curve, doubles it if the task blocks a release, and divides by declared
+effort.
+
+**An UNRATED task floors at 0.1, below even wishlist.** That is deliberate, not
+an accident of the absent tag: untriaged work sinks to the bottom of
+`--sort priority` and stays there until somebody rates it. The fix is to rate
+the task. `taskloom list --sort priority` reports how many tasks are sitting on
+that floor rather than leaving the ranking to look healthy.
+
+---
+
+## Level is not kind
+
+Two independent axes, and conflating them is what makes a log unqueryable:
+
+- **`triage:level=`** — how bad is it if we ship without this? Derived from
+  consequence. It is the only hand-assigned input to the ranking.
 - **`triage:kind=`** — `defect` / `chore` / `capability`. What SHAPE of work it
-  is. A `wishlist` severity is usually `kind=capability`, but a large chore with
-  no live defect is `wishlist` too.
+  is. A `level=5` task is usually `kind=capability`, but a large chore with no
+  live defect is `level=5` too.
 
-A task carrying only a severity is still findable. A task carrying only a
-priority is not, because priority decays and severity does not.
+`kind` deliberately contributes nothing to the priority score — a kind weight
+would only restate the level in a second, conflicting vocabulary. What it drives
+instead is the ROT CURVE: an aging capability or chore loses urgency over time,
+while an aging exposed defect escalates. How a task's urgency MOVES with age is
+a property of what kind of work it is; how much it matters today is the level.
+
+The factual flags — `triage:data-loss`, `triage:security`, `triage:crashes`,
+`triage:no-workaround`, `triage:regression` — are **searchable labels, not
+score inputs**. They record what is true about an issue so a `--tag-query` can
+find it. The ranking consequence of those facts is exactly what the level is
+for, and having them scored too would count the same fact twice.
 
 ---
 
 ## The levels, in detail
 
-### 1 — `critical`
+### `triage:level=1` — critical
 
 The consequence is unrecoverable or crosses a boundary that is supposed to hold.
 
@@ -55,7 +97,7 @@ The consequence is unrecoverable or crosses a boundary that is supposed to hold.
 Security lands here **by consequence**. Ask what an attacker or an accident
 GETS, not whether the word "security" appears.
 
-### 2 — `serious`
+### `triage:level=2` — serious
 
 The thing is unusable, or — the shape this project actually produces — it
 reports success and did not do the work.
@@ -65,14 +107,14 @@ reports success and did not do the work.
   subject neutered, coverage credited to code that never ran.
 - Major functionality broken with no satisfactory workaround.
 
-**The silent no-op is `serious`, not `normal`**, and this is the one place this
+**The silent no-op is level 2, not level 3**, and this is the one place this
 standard departs from a plain reading of its sources. A loud failure is a
 smaller problem than a quiet one: the loud one is discovered by whoever hit it,
 while the quiet one is discovered by nobody and is indistinguishable from
 working. A green gate that measures nothing is the same defect wearing a
 lab coat.
 
-### 3 — `normal`
+### `triage:level=3` — normal
 
 Wrong, and a user could act on the wrongness, but there is a way around it.
 
@@ -82,28 +124,28 @@ Wrong, and a user could act on the wrongness, but there is a way around it.
   reader trusts INSTEAD of re-deriving the thing — silence would at least have
   made them look.
 
-### 4 — `minor`
+### `triage:level=4` — minor
 
 Real, but nobody is materially worse off: cosmetic issues, naming
 inconsistencies, tidy-ups, dead code with no live consequence.
 
-### 5 — `wishlist`
+### `triage:level=5` — wishlist
 
 The capability does not exist yet. New commands and surfaces, extensions,
 speculative work, and refactors undertaken to enable future work rather than to
 fix a present defect.
 
-A refactor whose absence causes no wrong behaviour today is `wishlist`, however
+A refactor whose absence causes no wrong behaviour today is level 5, however
 much it is wanted.
 
 ---
 
 ## Where this comes from, and where it deliberately diverges
 
-Levels 1–4 are [Mozilla's defect severity
+Rungs 1–4 are [Mozilla's defect severity
 ladder](https://firefox-source-docs.mozilla.org/bug-mgmt/guides/severity.html)
 (S1 catastrophic / S2 serious / S3 normal / S4 trivial), which already puts data
-loss at the top. Level 5 is Debian's `wishlist`, the one tier that survives in
+loss at the top. Rung 5 is Debian's `wishlist`, the one tier that survives in
 almost every tracker.
 
 **The divergence is folding security in.** Mozilla, Chromium and Debian all keep
@@ -114,7 +156,7 @@ different SLA, and an embargo and disclosure workflow.
 ctxloom has none of those: no external reporters, no embargo, one person
 triaging. A second scale would be a cross-reference nobody maintains, and a
 finding filed on the wrong one is a finding nobody sees. So security is folded
-in by consequence — and it can legitimately land at `normal`, since a doc
+in by consequence — and it can legitimately land at level 3, since a doc
 falsely claiming a security property is a false claim, not a breach.
 
 If ctxloom ever takes external vulnerability reports, revisit this: the reason
@@ -125,7 +167,7 @@ first outside reporter.
 
 ## Assigning it
 
-**Read the code, not the task text.** A severity taken from a task's own prose
+**Read the code, not the task text.** A level taken from a task's own prose
 inherits that prose's staleness. Tasks in this log have described functions that
 were deleted commits earlier, and a task tagged as a security escape on the
 strength of its own description turned out to name a parser that no longer
@@ -138,7 +180,7 @@ actually happen?** Then find the tier that names that consequence.
 
 ## Locating the work — `touches:` and `sig:`
 
-Severity says how bad it is. These say WHERE it is, and they answer two
+The level says how bad it is. These say WHERE it is, and they answer two
 different questions that need different granularity.
 
 | Tag | Form | Answers |
@@ -215,17 +257,18 @@ survive a query.
 These came out of applying the standard to a real batch. Each is a case where
 two rules in this document could both be followed and gave different answers.
 
-### A release-blocking `wishlist` is LEGAL
+### A release-blocking `triage:level=5` is LEGAL
 
-A task can be `triage:severity=wishlist` and `triage:blocks-release=...` at the
-same time, and that is not a contradiction. Severity is the consequence if the
+A task can be `triage:level=5` and `triage:blocks-release=...` at the same
+time, and that is not a contradiction. The level is the consequence if the
 thing is missing; `blocks-release` is the promise we made about this release.
-A capability we committed to ship is a `wishlist` severity we have decided to
+A capability we committed to ship is a wishlist-level task we have decided to
 be blocked by.
 
-Do not inflate a capability's severity to express that it is wanted. Use the
+Do not inflate a capability's level to express that it is wanted. Use the
 release tag — that is the axis that carries "wanted", and it is the one that
-gets cleared when the release ships.
+gets cleared when the release ships. The ranking already reads both: a release
+blocker's score is doubled whatever its level.
 
 ### A ruling is preserved; the WORK is cut down
 
@@ -238,21 +281,21 @@ landed ones under a short CLOSED heading that says what landed and on what
 evidence. Deleting a ruling clause because its work is done destroys the record
 of the decision and invites someone to re-decide it the other way.
 
-### A vacuous test is `serious`; a missing test is not
+### A vacuous test is level 2; a missing test is not
 
 They are different faults and they rate differently:
 
-- A test that PASSES while proving nothing is `serious`. It actively reports
+- A test that PASSES while proving nothing is level 2. It actively reports
   coverage that does not exist, so it is worse than no test — the shape this
   standard already rates as "succeeds without doing the thing".
-- A test that is ABSENT is `minor`, because the gap is at least honest, and
+- A test that is ABSENT is level 4, because the gap is at least honest, and
   rises only if its absence is hiding a live defect.
 
-"The defect is fixed, only the regression test is missing" is therefore
-`minor`, not `serious`.
+"The defect is fixed, only the regression test is missing" is therefore level
+4, not level 2.
 
-### Severity is rated on the REMAINDER
+### The level is rated on the REMAINDER
 
 When part of a task has landed, rate what is left, not what the task originally
-described. A `critical` defect that has been fixed but for a missing test is a
-`minor` task, and its body should already have been cut down to match.
+described. A level 1 defect that has been fixed but for a missing test is a
+level 4 task, and its body should already have been cut down to match.

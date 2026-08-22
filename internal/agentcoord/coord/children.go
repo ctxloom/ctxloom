@@ -1618,21 +1618,41 @@ func (c *Coordinator) wakeChild(rt *childRt) {
 // sendTurn's other caller — the briefing — is deliberately unframed: it is the
 // run's own prompt, not a delivery from somebody else.
 func (c *Coordinator) sendMailTurn(rt *childRt, msg Message) {
-	c.sendTurn(rt, frameCoordinatorDelivery(msg.From, msg.Kind, msg.Body))
+	if c.sendTurn(rt, frameCoordinatorDelivery(msg.From, msg.Kind, msg.Body)) {
+		return
+	}
+	// The message is ALREADY journaled as consumed — takeNextMail commits
+	// that at take, before any child has seen anything — so a drop here is
+	// not "a turn was missed", it is a message durably deleted from the
+	// mailbox and delivered to nobody. Put it back.
+	c.requeueUndelivered(rt.harp, msg)
 }
 
-// sendTurn writes one turn to the child's input channel. The driver goroutine
-// is the channel's only writer, so this never races the close in endChild.
-func (c *Coordinator) sendTurn(rt *childRt, text string) {
+// sendTurn writes one turn to the child's input channel, REPORTING whether
+// the turn was actually handed over. The driver goroutine is the channel's
+// only writer, so this never races the close in endChild.
+//
+// The report is load-bearing for the mailbox caller (sendMailTurn): both
+// false paths — a child whose input is already closed, and a coordinator
+// shutting down — used to return silently, and the message the caller was
+// carrying had already been consumed out of the fold. The BRIEFING caller
+// (runChild) has nothing to put back, so for it the warning below is the
+// whole remedy: a first turn that never reached the engine is otherwise
+// indistinguishable from a child that simply said nothing.
+func (c *Coordinator) sendTurn(rt *childRt, text string) bool {
 	c.mu.Lock()
 	in := rt.in
 	c.mu.Unlock()
 	if in == nil {
-		return
+		clidiag.Warn("ctxloom", "agent %s: a turn could not be delivered: the child's input channel is already closed", rt.harp)
+		return false
 	}
 	select {
 	case in <- agent.ChatMessage{Text: text}:
+		return true
 	case <-c.baseCtx.Done():
+		clidiag.Warn("ctxloom", "agent %s: a turn could not be delivered: the coordinator is shutting down", rt.harp)
+		return false
 	}
 }
 

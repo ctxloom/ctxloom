@@ -650,17 +650,13 @@ func (c *Coordinator) spawnReachURL(harp string, runtimeAxis agent.RuntimeAxis) 
 // (D4), launch the engine with the agent's intents honored, deliver the
 // briefing as the first turn, then drive turns from mailbox deliveries.
 func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
-	c.mu.Lock()
-	held := rt.slot == slotHeld
-	c.mu.Unlock()
-	if !held {
-		if err := c.slots.acquire(c.baseCtx); err != nil {
+	if err := c.acquireRunSlot(rt); err != nil {
+		// A terminal that landed while this spawn was parked on the cap has
+		// already ended the run: do NOT go on to launch an engine for it.
+		if !errors.Is(err, errSlotClaimCancelled) {
 			c.failChild(rt, err)
-			return
 		}
-		c.mu.Lock()
-		rt.slot = slotHeld
-		c.mu.Unlock()
+		return
 	}
 	c.setState(rt, StateExecuting)
 
@@ -1481,12 +1477,9 @@ func (c *Coordinator) wakeChild(rt *childRt) {
 	if !ok {
 		return // spurious wake (a recv or boundary drain consumed it)
 	}
-	if err := c.slots.acquire(c.baseCtx); err != nil {
+	if err := c.acquireRunSlot(rt); err != nil {
 		return
 	}
-	c.mu.Lock()
-	rt.slot = slotHeld
-	c.mu.Unlock()
 	c.setState(rt, StateExecuting)
 	c.sendMailTurn(rt, msg)
 }
@@ -1601,6 +1594,46 @@ func (c *Coordinator) runState(runID string) string {
 		}
 	})
 	return state
+}
+
+// errSlotClaimCancelled reports that the run's TERMINAL (terminateRun's
+// releaseSlot, or onRolePark) cancelled a slot claim while its BLOCKING
+// acquisition was still parked. The slot that eventually landed was handed
+// straight back, and the caller must abandon the work it was acquiring for:
+// the run it belongs to has already ended.
+var errSlotClaimCancelled = errors.New("execution slot claim cancelled by the run's terminal")
+
+// acquireRunSlot is the run-start BLOCKING execution-slot acquisition, done
+// under the same claimSlotIntent/commitSlotClaim guard onTurnStarted and
+// onRoleUnpark use. Its three callers (runChild, resumeChild, wakeChild) each
+// used to do a bare c.slots.acquire followed by an unconditional
+// rt.slot = slotHeld, which is precisely the window releaseSlot's doc
+// describes: a terminateRun landing while the acquirer is parked found
+// slotFree, released nothing, and — factRunEnded being exactly-once — never
+// ran again, so the slot the acquire went on to land was held forever by a
+// run that had already ended. That is a PERMANENT cap shrink, and at the
+// default cap of four such races deadlock the coordinator with no diagnostic.
+// The window is widest exactly when the cap binds, which is when it matters.
+//
+// Returns nil when the caller may proceed (the claim landed a real slot, or
+// rt already held/was claiming one and the occupancy is accounted for);
+// the acquire's own error when the acquisition itself failed (baseCtx died,
+// nothing was landed, nothing to give back); and errSlotClaimCancelled when
+// the run terminated mid-wait — the landed slot has already been released
+// here and the caller must simply return.
+func (c *Coordinator) acquireRunSlot(rt *childRt) error {
+	if !c.claimSlotIntent(rt) {
+		return nil
+	}
+	if err := c.slots.acquire(c.baseCtx); err != nil {
+		c.releaseSlotIntent(rt)
+		return err
+	}
+	if !c.commitSlotClaim(rt) {
+		c.slots.release()
+		return errSlotClaimCancelled
+	}
+	return nil
 }
 
 // releaseSlot gives back a slot rt actually HOLDS. If rt is only
@@ -2049,20 +2082,15 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	c.mu.Unlock()
 	c.audit("agent_resume", rec.ParentHarp, map[string]string{"harp": harp, "run_id": rt.runID})
 
-	// Read under c.mu — rt is already published (enqueueRun) at
-	// this point, so onRolePark/onRoleUnpark/onTurnStarted/claimSlotIntent
-	// can all touch rt.slot concurrently; matches runChild's own read.
-	c.mu.Lock()
-	held := rt.slot == slotHeld
-	c.mu.Unlock()
-	if !held {
-		if err := c.slots.acquire(c.baseCtx); err != nil {
+	// rt is already published (enqueueRun) at this point, so
+	// onRolePark/onRoleUnpark/onTurnStarted/claimSlotIntent can all touch
+	// rt.slot concurrently; acquireRunSlot owns the whole check-acquire-commit
+	// under c.mu, exactly as runChild does.
+	if err := c.acquireRunSlot(rt); err != nil {
+		if !errors.Is(err, errSlotClaimCancelled) {
 			c.failChild(rt, err)
-			return
 		}
-		c.mu.Lock()
-		rt.slot = slotHeld
-		c.mu.Unlock()
+		return
 	}
 	c.setState(rt, StateExecuting)
 

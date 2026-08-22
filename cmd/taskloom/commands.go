@@ -181,8 +181,12 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	if r.Notice != "" {
 		clidiag.Fwarn(errw, progName, "%s", r.Notice)
 	}
-	if r.PriorityWarning != "" {
-		clidiag.Fwarn(errw, progName, "%s", r.PriorityWarning)
+	// One Fwarn per line: clidiag prefixes what it is handed, so passing a
+	// multi-line warning as one message leaves every line after the first
+	// unprefixed on stderr — indistinguishable from ordinary output, which
+	// is the contract the diagnostic channel exists to keep.
+	for _, line := range splitLines(r.PriorityWarning) {
+		clidiag.Fwarn(errw, progName, "%s", line)
 	}
 	noteHidden(errw, r.HiddenCompleted, r.HiddenDeferred, r.Filtered)
 	noteOmittedByLimit(errw, r.OmittedByLimit)
@@ -307,6 +311,16 @@ func priorityDiagnosticWarning(d priority.Diagnostics) string {
 	}
 	lines = append(lines, thinCoverageWarnings(d)...)
 	return strings.Join(lines, "\n")
+}
+
+// splitLines splits a possibly-multi-line diagnostic into its lines,
+// yielding nothing at all for an empty one (strings.Split would hand back a
+// single empty line, which renders as a bare "warning:" with no message).
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
 }
 
 // thinCoverageWarnings renders one line per formula-referenced target that

@@ -298,7 +298,14 @@ func registerJ002000Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^ctxloom names what the new engine cannot do that the old one could$`, func(c context.Context) error {
 		// The concrete, verified loss on this exact pair: codex has no
 		// session_end hook, so a team moving claude-code -> codex loses a hook
-		// event they may well depend on, and nothing anywhere says so.
-		return j001900ProbesAnswered(worldFrom(c), "session_end")
+		// event they may well depend on.
+		//
+		// EVERY probed surface must say so, not merely one of them. The any-of
+		// form this used to take let the row go green on `agent show` alone
+		// while `doctor` and `manage check` — the two surfaces above, and the
+		// two a user actually reaches for — still said nothing
+		// (trusting-ambiguity). A step whose prose is "nothing tells her"
+		// cannot be satisfied by one of three telling her.
+		return j001900EveryProbeAnswered(worldFrom(c), "session_end")
 	})
 }

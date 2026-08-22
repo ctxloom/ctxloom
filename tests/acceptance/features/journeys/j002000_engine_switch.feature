@@ -128,11 +128,18 @@ Feature: Engine switch day
   # arriving through a different door: there, a new hire silently inherits less
   # than his deskmate; here, a whole team silently loses something it had.
   #
-  # UNTAGGED (trusting-ambiguity): `agent show <name>` now reports it —
-  # operations.CapabilityLoss wraps the SAME backends.UncarriedSurfaces read
-  # `profile materialize` already performed (whiny-exclusive), against the
-  # resolved agent's ACTUAL backend and profiles rather than a materialize
-  # target. codex declaring only a whole-mechanism noHooksReason (empty for
+  # UNTAGGED (trusting-ambiguity): all three probed surfaces now report it —
+  # `doctor` (DOCTOR-CHECK-CAPABILITY-LOSS-u1), `manage check` (its "Capability
+  # loss" section) and `agent show <name>`. The Then step requires EVERY one of
+  # them, not any one: while only `agent show` was wired, the any-of form left
+  # this row green over a gap that was half present, and a user who ran
+  # `doctor` still learned nothing.
+  #
+  # The mechanism behind all three — operations.CapabilityLoss wraps the SAME
+  # backends.UncarriedSurfaces read `profile materialize` already performed
+  # (whiny-exclusive), against the resolved agent's ACTUAL backend and
+  # profiles rather than a materialize target, read once per configured agent.
+  # codex declaring only a whole-mechanism noHooksReason (empty for
   # codex — it has hooks) could not have caught this: the gap was PER-EVENT,
   # so agentDescriptor gained unsupportedHookKinds (codex: session_end →
   # codex.NoSessionEndReason, the SAME string addUnifiedHooks' route already

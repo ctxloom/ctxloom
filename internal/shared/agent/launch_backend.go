@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"runtime"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -125,6 +127,17 @@ func (b *LaunchBackend) ManagedChatMCPServers(override string) []ChatMCPServer {
 func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, args []string, oneshotStdin io.Reader, modelInfo *ModelInfo, stdout, stderr io.Writer) (*ExecuteResult, error) {
 	if req.DryRun {
 		return &ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
+	}
+	// Refuse an argv the OS cannot exec BEFORE trying, so the failure names
+	// the payload rather than arriving as os/exec's generic "argument list too
+	// long" — which points at the total argument list, the innocent part. This
+	// lives here, once, because every exec-style backend funnels its launch
+	// through this tail; the engines that carry the prompt on argv (codex,
+	// kiro, and claude's interactive arm) are covered without each repeating
+	// the check. See argvlimit.go.
+	if err := checkArgvLimit(b.Name(), args, GetPromptContent(req.Prompt),
+		singleArgLimit(runtime.GOOS, os.Getpagesize())); err != nil {
+		return nil, err
 	}
 	b.TraceArgs(req.Verbosity, args, stderr)
 	env := b.ExecuteEnv(req)

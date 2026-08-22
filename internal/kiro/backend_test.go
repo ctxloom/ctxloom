@@ -6,6 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -289,4 +292,75 @@ func TestKiro_BuildArgs(t *testing.T) {
 			assert.Equal(t, tt.want, b.buildArgs(tt.req, tt.model))
 		})
 	}
+}
+
+// singleArgLimitForTest mirrors, independently of the production code, the
+// largest byte length one argv element may carry on this host: Linux caps a
+// SINGLE argument at MAX_ARG_STRLEN = 32 * PAGE_SIZE bytes INCLUDING the
+// terminating NUL, regardless of the far larger total ARG_MAX. Probed on this
+// box (4096-byte pages): a 131071-byte argument execs, 131072 fails E2BIG.
+func singleArgLimitForTest() int { return 32*os.Getpagesize() - 1 }
+
+// TestKiro_Execute_RefusesOversizedPromptBeforeExec pins the fail-loud half of
+// the argv capacity limit. kiro-cli takes the prompt as the trailing INPUT
+// positional (buildArgs), so a prompt past MAX_ARG_STRLEN cannot exec at all —
+// and before this refusal the user saw only os/exec's generic
+// "fork/exec /path/to/kiro-cli: argument list too long", which names neither
+// the prompt nor its length.
+//
+// Truncating is not an option: a silently shortened prompt would run, answer a
+// question nobody asked, and say nothing about it.
+func TestKiro_Execute_RefusesOversizedPromptBeforeExec(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("MAX_ARG_STRLEN is a Linux per-argument cap; other platforms limit only the total")
+	}
+	oversize := singleArgLimitForTest() + 1
+	prompt := strings.Repeat("x", oversize)
+
+	launched := false
+	b := NewKiro()
+	b.SetLauncher(func(context.Context, agent.LaunchSpec, io.Reader, io.Writer, io.Writer, <-chan agent.WindowSize) (int32, error) {
+		launched = true
+		return 0, nil
+	})
+
+	_, err := b.Execute(context.Background(),
+		&agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: prompt}},
+		io.Discard, io.Discard)
+
+	require.Error(t, err, "a prompt past the single-argument limit cannot exec — it must be refused, not attempted")
+	assert.False(t, launched, "the refusal must happen BEFORE exec, not as a launch failure")
+	assert.Contains(t, err.Error(), strconv.Itoa(oversize),
+		"the refusal must name the PROMPT'S OWN LENGTH as the cause; %q does not", err.Error())
+	assert.Contains(t, err.Error(), "prompt",
+		"the refusal must name the prompt as the oversized payload; %q does not", err.Error())
+	assert.NotContains(t, err.Error(), "truncat",
+		"nothing here may offer to shorten the prompt: %q", err.Error())
+}
+
+// TestKiro_Execute_PromptAtTheLimitReachesArgvUnchanged is the other half. A
+// refusal that fires early breaks every ordinary run, and a prompt of EXACTLY
+// the largest length exec accepts must still travel byte-for-byte.
+func TestKiro_Execute_PromptAtTheLimitReachesArgvUnchanged(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("MAX_ARG_STRLEN is a Linux per-argument cap; other platforms limit only the total")
+	}
+	prompt := strings.Repeat("y", singleArgLimitForTest())
+
+	var got []string
+	b := NewKiro()
+	b.SetLauncher(func(_ context.Context, spec agent.LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+		got = spec.Args
+		return 0, nil
+	})
+
+	_, err := b.Execute(context.Background(),
+		&agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: prompt}},
+		io.Discard, io.Discard)
+
+	require.NoError(t, err, "a prompt at exactly the single-argument limit still execs and must not be refused")
+	require.NotEmpty(t, got, "the engine must actually have been launched")
+	last := got[len(got)-1]
+	require.True(t, last == prompt,
+		"the prompt must reach argv byte-for-byte: got %d bytes, want %d", len(last), len(prompt))
 }

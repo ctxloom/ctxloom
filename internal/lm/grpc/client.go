@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,6 +28,11 @@ import (
 // that happens to match. go-plugin's own ClientConfig.RunnerFunc field is an
 // unnamed func type, so a ContainerRunnerFunc remains assignable to it.
 type ContainerRunnerFunc func(l hclog.Logger, cmd *exec.Cmd, tmpDir string) (runner.Runner, error)
+
+// errRunSendHalfClosed is what a Run-stream pump gets for trying to send after
+// the send direction was half-closed. It is an internal lifecycle signal, not a
+// failure the caller can act on: the pump that receives it simply retires.
+var errRunSendHalfClosed = errors.New("run stream: send direction is already half-closed")
 
 // GRPCClient is the client-side implementation that communicates with the plugin.
 type GRPCClient struct {
@@ -66,11 +72,36 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 		return nil, err
 	}
 
-	var sendMu sync.Mutex
+	// sendClosed rides the same mutex as Send because gRPC forbids CloseSend
+	// concurrently with SendMsg, and once the send direction is half-closed a
+	// later Send is not merely rejected but undefined. Refusing it here makes
+	// the surviving pump (resize) exit on a legible error of our own rather
+	// than on transport behaviour nobody specified.
+	var (
+		sendMu     sync.Mutex
+		sendClosed bool
+	)
 	send := func(in *RunInput) error {
 		sendMu.Lock()
 		defer sendMu.Unlock()
+		if sendClosed {
+			return errRunSendHalfClosed
+		}
 		return stream.Send(in)
+	}
+	// halfClose ends the send direction exactly once. The server's Recv loop
+	// (server.go's Run) treats the resulting io.EOF as "the frontend is done
+	// sending" and closes its own resizeCh and the plugin-side stdin pipe on
+	// exactly that signal — which is the ONLY thing that ever unblocks an
+	// engine reading its stdin to EOF.
+	halfClose := func() {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		if sendClosed {
+			return
+		}
+		sendClosed = true
+		_ = stream.CloseSend()
 	}
 
 	if err := send(&RunInput{Input: &RunInput_Start{Start: req}}); err != nil {
@@ -88,12 +119,10 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 	// channel closing (the already-correct ok==false fast path), so this
 	// turns what was an unconditional 300ms blind wait into an immediate
 	// start. CloseSend is a normal bidi-stream lifecycle call (not a new wire
-	// message) and is safe here because no pump goroutine below will ever
-	// run concurrently with it in this branch.
+	// message); halfClose serializes it against both pumps, which in this
+	// branch do not exist at all.
 	if stdin == nil && resize == nil {
-		sendMu.Lock()
-		_ = stream.CloseSend()
-		sendMu.Unlock()
+		halfClose()
 	}
 
 	// Pump keystrokes. At end of run the goroutine is typically parked in
@@ -118,6 +147,30 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 					}
 				}
 				if rerr != nil {
+					// io.EOF is the SOURCE declaring itself exhausted: no
+					// further byte will ever arrive from it. That is the same
+					// condition the nil-stdin branch above half-closes for,
+					// reached later, so it gets the same answer — otherwise
+					// the plugin-side stdin pipe stays open and an engine
+					// that reads to EOF blocks until the turn's deadline. A
+					// finite non-tty reader (a vpio ProcessSpec.Stdin from a
+					// test, the container-run driver, an embedder) is the
+					// caller shape that hits this.
+					//
+					// Any OTHER read error is NOT "the caller is done
+					// sending" — it is a source that failed, which for a real
+					// terminal may be transient — so it keeps the original
+					// behaviour of leaving the send direction open and
+					// letting the run end on its own terms. A frontend
+					// terminal cannot be truncated by the EOF arm either:
+					// interactiveTerminal only hands over a keystroke source
+					// after putting the tty in RAW mode, where a Ctrl-D is
+					// the literal byte 0x04 and a read returns io.EOF only on
+					// a genuine hangup — after which no keystroke is coming
+					// anyway.
+					if rerr == io.EOF {
+						halfClose()
+					}
 					return
 				}
 			}

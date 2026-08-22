@@ -510,6 +510,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 	if err != nil {
 		clidiag.Warn("ctxloom", "coordinator: refusing an unroutable message from %s: %v", role, err)
 		c.spoolDeliveryCount.failed.Add(1)
+		c.noticeSpoolDrop(role, e, err)
 		c.consumeSpool(role, e.Ref)
 		return
 	}
@@ -521,6 +522,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		clidiag.Warn("ctxloom", "coordinator: refusing %s's spool message %s: %v", role, e.Ref, err)
 		c.spoolDeliveryCount.failed.Add(1)
 		c.replySpoolRefusal(role, msg, err)
+		c.noticeSpoolDrop(role, e, err)
 		c.consumeSpool(role, e.Ref)
 		return
 	}
@@ -536,6 +538,66 @@ func (c *Coordinator) replySpoolRefusal(role string, msg Message, cause error) {
 	if _, _, err := c.queueMail(role, role, KindError, body); err != nil {
 		clidiag.Warn("ctxloom", "coordinator: could not tell %s that its message was refused (%v): %v", role, cause, err)
 	}
+}
+
+// noticeSpoolDrop tells the WAITING PARTY that a message its child wrote has
+// been dropped, and hands over the text the child actually wrote.
+//
+// This is the half the refusal path was missing, and it is the half the
+// incident was made of. A child writes its final report, the sweep cannot
+// route it, replySpoolRefusal answers the SENDER — a session that has by then
+// usually exited, whose reply therefore lands in a spool directory nothing
+// will ever read again — the file is consumed, and the parent sits in
+// agent_recv until it times out and concludes the child never reported. The
+// only trace is a clidiag warning on a runner's stderr. Every signal the
+// parent can see says the child was silent.
+//
+// So the notice goes UP, to the party whose work depends on the answer. It is
+// synthesized by the coordinator exactly as KindExited is, and for the same
+// stated reason: the parent always learns. Authorship stays honest — the
+// message is queued FROM the child, because the text below the header is the
+// child's own words — and it borrows no authority the child did not already
+// have, since KindError is in the sender-allowed vocabulary and the parent is
+// a child's only legal recipient anyway.
+//
+// The original TEXT is carried, not just the fact of the drop. A notice that
+// said only "a message was lost" would tell a coordinator to go and ask an
+// agent that no longer exists; carrying the body means a report that could not
+// be routed is still READ, which is the outcome that actually matters.
+func (c *Coordinator) noticeSpoolDrop(role string, e spool.Entry, cause error) {
+	parent := ""
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(role); r != nil {
+			parent = r.ParentHarp
+		}
+	})
+	if parent == "" {
+		clidiag.Warn("ctxloom", "coordinator: dropped %s and cannot tell anyone: %s has no parent on record (%v)", e.Ref, role, cause)
+		return
+	}
+	kind, body := SpoolKindUnkinded, ""
+	if e.Message != nil {
+		kind, body = e.Message.Kind, e.Message.Body
+	}
+	notice := fmt.Sprintf(
+		"UNDELIVERED: a %q message %s wrote to %q could not be routed and has been dropped: %v\n"+
+			"(spool file %s; its sender was told, but a session that has ended cannot read that reply)\n"+
+			"\n--- the message text, as %s wrote it ---\n%s",
+		kind, role, spoolAddressee(e), cause, e.Ref, role, body)
+	if _, _, err := c.queueMail(role, parent, KindError, notice); err != nil {
+		clidiag.Warn("ctxloom", "coordinator: dropped %s and could not tell %s about it: %v (the original cause was %v)", e.Ref, parent, err, cause)
+	}
+}
+
+// spoolAddressee renders who a dropped file claimed to be for. The frontmatter
+// `to` is the file's own claim and never a routing input (SENDER IDENTITY IS
+// THE DIRECTORY); it is quoted here only so the notice can say what the sender
+// believed it was doing.
+func spoolAddressee(e spool.Entry) string {
+	if e.Message == nil || e.Message.To == "" {
+		return "(no recipient)"
+	}
+	return e.Message.To
 }
 
 // spoolSenderIdentity resolves a spool directory's owning harp to the identity

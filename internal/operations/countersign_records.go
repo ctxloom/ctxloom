@@ -313,7 +313,7 @@ func buildCountersignRecords(cfg *config.Config, fs afero.Fs, injectedUser, inje
 		// countersign.Store now refuses to operate on "", so the fail-closed
 		// gate in EffectiveTrust fires; naming the cause here is what makes
 		// that abort explicable rather than mysterious.
-		userDir, err := paths.HomeApprovalsPath()
+		userDir, err := homeApprovalsDir()
 		if err != nil {
 			clidiag.Warn("ctxloom", "cannot locate the user approvals store (%v) — every personal approval and rejection is unreadable this session", err)
 			userDir = ""

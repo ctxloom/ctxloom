@@ -174,13 +174,17 @@ const (
 //     holds steady at 1 — no escalation, no decay.
 var DefaultTagSchema = []string{
 	`tagma.arity:"triage:level"=scalar`,
+	`tagma.arity:"triage:verdict"=scalar`,
+	`tagma.arity:"triage:audited"=scalar`,
 	`tagma.arity:"triage:kind"=scalar`,
 	`tagma.arity:"triage:effort"=scalar`,
 	`tagma.arity:"triage:blocks-release"=scalar`,
 	`tagma.type:"triage:blocks-release"=` + tagschema.SemverTypeName,
 	`tagma.enum:"triage:kind"="defect,capability,chore"`,
 	`tagma.enum:"triage:exposed"="wire,cli,config,on-disk,api"`,
+	`tagma.enum:"triage:verdict"="holds,phantom,obsolete,partial,unclear"`,
 	`tagma.range:"triage:level"="1,5"`,
+	`tagma.range:"triage:audited"="20250101,20991231"`,
 	`tagma.range:"triage:effort"="0,5"`,
 	`tagma.decay_fn:"triage:kind"="{{triage:exposed=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+90) : {{triage:blind-gate=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+30) : {{triage:kind=capability}} > 0 ? 0.4 + 0.6 * 0.5 ** ({{age_days}}/120) : {{triage:kind=chore}} > 0 ? 0.5 + 0.5 * 0.5 ** ({{age_days}}/180) : 1"`,
 	`tagma.priority_fn:"triage:kind"="({{triage:level}} > 0 ? 2 ** (3 - {{triage:level}}) : 0.1) * {{age_factor}} * (1 + {{triage:blocks-release=*}}) / (1 + {{triage:effort}}/2)"`,

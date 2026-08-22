@@ -145,24 +145,45 @@ Feature: MCP tools
   # against an empty session. So the payload assertion has to follow the
   # output_path the tool reports and read what actually landed there.
   #
-  # WHERE it lands is deliberately NOT asserted, because it is currently
-  # wrong and that is a decision rather than a fix: the essence is filed under
-  # the CALLING session's harp, not the harp of the session named by
-  # session_id, while the result echoes back the id that was asked for
-  # (taskloom onshore-pardon). Asserting the location would mean either
-  # encoding today's behaviour as intended or leaving a red scenario behind;
-  # asserting the CONTENT proves the distillation genuinely ran on the seeded
-  # transcript either way. Tighten this to the requested session's own path
-  # once that decision is made.
-  Scenario: compact_session distills the session it was handed
+  # And then it has to ask WHERE. The handler used to key everything — the
+  # heal, the cache read, the distillation, and the essence's own path — off
+  # the CALLING session's harp, consulting session_id only in a fallback
+  # branch, and even there filing the result under the caller. So a call
+  # naming another session returned that id in its result while writing that
+  # session's distilled memory under the MCP server's own harp: right content,
+  # wrong session, no error anywhere. A later load_session for the named
+  # session reads ~/.ctxloom/sessions/<harp>/essence.md, finds nothing, and
+  # re-derives the whole distillation — every explicit compact_session call
+  # paying for work that is then thrown away — while the caller's own essence
+  # is quietly overwritten by a session that is not theirs.
+  #
+  # The two harps here are deliberately DIFFERENT: the caller is
+  # host-caller-thistle and the session it names is quiet-ember-drift,
+  # addressed by the backend-native id its index entry binds. A scenario where
+  # the caller compacts itself is satisfied by the defect just as well as by
+  # the fix, because both harps are the same string.
+  #
+  # The distillation is proven END TO END rather than by the essence's content
+  # alone, because either half can be faked on its own: RECOVER-IDENTITY-
+  # ROUND-TRIP lives only in the seeded transcript, so the distiller RECEIVING
+  # it proves the right session's history was read; the mock's canned reply
+  # appears nowhere else, so the essence CARRYING it proves that distiller's
+  # output is what landed at the reported path — rather than a placeholder
+  # dump from an empty session, which fills in every bookkeeping field just as
+  # convincingly.
+  Scenario: compact_session files the essence under the session it was handed, not the caller's
     Given an initialized ctxloom project
+    And the session harp is "host-caller-thistle"
     And a captured session "quiet-ember-drift" bound to a backend-native session id
-    And the compaction LLM is a mock that never compresses
+    And the mock LLM responds "COMPACT-DISTILLED-THE-NAMED-SESSION"
     When the agent calls tool "compact_session" with:
       | session_id | seeded-quiet-ember-drift |
     Then the tool call succeeds
     And the tool result field "session_id" equals "seeded-quiet-ember-drift"
-    And the essence the tool reports writing contains "RECOVER-IDENTITY-ROUND-TRIP"
+    And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
+    And the essence the tool reports writing contains "COMPACT-DISTILLED-THE-NAMED-SESSION"
+    And the essence the tool reports writing is filed under session "quiet-ember-drift"
+    And no essence was written under session "host-caller-thistle"
 
   # get_previous_session takes no arguments at all: it resolves the previous
   # session itself. That makes it the easiest of these to satisfy vacuously —

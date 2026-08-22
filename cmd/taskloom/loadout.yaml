@@ -189,19 +189,23 @@ fragments:
       Four independent axes. Conflating them is what makes a log unqueryable;
       the full rules live in `docs/task-tagging-standard.md`.
 
-      - `triage:severity=` — how bad is it if we ship without this?
-        `critical` (data loss, or a trust/isolation boundary breached) >
-        `serious` (unusable, or SUCCEEDS WITHOUT DOING THE THING) >
-        `normal` (wrong, but a workaround exists) > `minor` > `wishlist`
-        (does not exist yet). Security is folded in BY CONSEQUENCE — there is
+      - `triage:level=` — how bad is it if we ship without this, as an
+        INTEGER 1-5, lower is worse. `1` data loss, or a trust/isolation
+        boundary breached. `2` unusable, or SUCCEEDS WITHOUT DOING THE THING.
+        `3` wrong, but a workaround exists. `4` low or no user impact. `5`
+        does not exist yet. Security is folded in BY CONSEQUENCE — there is
         no second security scale to cross-reference.
+        It is an integer so it SORTS and so relational queries work:
+        `--tag-query 'triage:level<=2'` is everything that must not ship.
+        Exactly one per task; the range is enforced, so `0` and `6` are
+        refused.
       - `area:` — which subsystem. Exactly one per task.
       - `touches:` — a repo-relative FILE path this task will EDIT.
         Repeatable. This is what says whether two tasks can run at once: two
         agents editing one file collide whatever symbols each touched.
       - `sig:` — `package.Symbol` whose contract changes. Repeatable.
 
-      Rate severity FROM THE CODE, never from the task's own prose: a task
+      Rate the level FROM THE CODE, never from the task's own prose: a task
       description outlives the code it describes, and tasks here have named
       functions deleted commits earlier.
 

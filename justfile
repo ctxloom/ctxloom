@@ -1522,7 +1522,7 @@ fmt:
     go fmt ./...
 
 # Lint code (delegates to devcontainer for the pinned golangci-lint)
-lint: dev-image
+lint: dev-image _require-generated
     just _run lint
 
 # Build the architectural linter into bin/archlint (delegates to devcontainer).
@@ -1534,7 +1534,7 @@ build-archlint: dev-image
 # A sibling of `lint` rather than part of it, so an architectural failure is
 # attributable and CI's golangci-lint baseline is untouched. Wired into
 # lefthook's pre-commit hook against the prebuilt bin/archlint.
-lint-arch: dev-image
+lint-arch: dev-image _require-generated
     just _run lint-arch
 
 # Whole-program dead-code sweep.

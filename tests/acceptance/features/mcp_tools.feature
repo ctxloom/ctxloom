@@ -233,6 +233,31 @@ Feature: MCP tools
     And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
     And the essence the tool reports writing contains "COMPACT-DISTILLED-THE-HARP-NAMED-SESSION"
 
+  # THE REFUSAL, which is the most user-visible thing about the resolution and
+  # was the least covered. A session_id the index cannot resolve used to be
+  # quietly re-pointed at the CALLER's own harp: the caller paid for a
+  # distillation of a session it never asked about, filed under a name it never
+  # named, and was told it succeeded. There is no harp to attribute the result
+  # to, so the only honest answer is to refuse before spending anything.
+  #
+  # Two claims, and neither alone is enough. The refusal has to REACH the
+  # caller carrying its own reason — an error whose text names the compaction
+  # failing downstream is a different bug wearing the same exit code — and
+  # nothing may be written: a refusal that still leaves an essence under the
+  # caller's harp has already destroyed that caller's own distilled context,
+  # essence.md being overwritten in place.
+  Scenario: compact_session refuses a session_id the index cannot resolve
+    Given an initialized ctxloom project
+    And the session harp is "host-caller-thistle"
+    And a captured session "quiet-ember-drift" bound to a backend-native session id
+    And the mock LLM responds "COMPACT-MUST-NOT-RUN-FOR-AN-UNRESOLVABLE-SESSION"
+    When the agent calls tool "compact_session" with:
+      | session_id | never-recorded-anywhere |
+    Then the tool call fails
+    And the tool failure message contains "is not in the session index"
+    And the tool failure message contains "list_sessions"
+    And no essence was written under session "host-caller-thistle"
+
   # get_previous_session takes no arguments at all: it resolves the previous
   # session itself. That makes it the easiest of these to satisfy vacuously —
   # "no previous session" is a perfectly good answer shape — so the assertion

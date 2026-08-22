@@ -205,6 +205,34 @@ Feature: MCP tools
     And the tool result field "was_cached" equals "true"
     And the tool result field "session_id" equals "seeded-quiet-ember-drift"
 
+  # THE OTHER LEG of the same resolution, and a genuinely different line of
+  # code. session_id is whatever the caller has to hand, and the two forms it
+  # accepts do not share a lookup: operations.GetSession matches on HarpName
+  # alone (sessions.Manager.Find), so a caller that names the HARP is answered
+  # by compactionTargetHarp's first branch and never reaches
+  # operations.HarpForSession, which is the only branch the scenario above
+  # exercises. A harp-addressed call was therefore resolved by code no
+  # scenario ran.
+  #
+  # Same two-harp discipline as above, and for the same reason: the caller is
+  # host-caller-thistle and the session it names is quiet-ember-drift, so a
+  # branch that answers with the caller's own identity — or with the entry's
+  # backend-native id rather than its harp — files the essence somewhere
+  # quiet-ember-drift will never read it from, and every field of the result
+  # envelope still looks right.
+  Scenario: compact_session resolves a session named by its harp, not only by its bound id
+    Given an initialized ctxloom project
+    And the session harp is "host-caller-thistle"
+    And a captured session "quiet-ember-drift" bound to a backend-native session id
+    And the mock LLM responds "COMPACT-DISTILLED-THE-HARP-NAMED-SESSION"
+    When the agent calls tool "compact_session" with:
+      | session_id | quiet-ember-drift |
+    Then the tool call succeeds
+    And the essence the tool reports writing is filed under session "quiet-ember-drift"
+    And no essence was written under session "host-caller-thistle"
+    And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
+    And the essence the tool reports writing contains "COMPACT-DISTILLED-THE-HARP-NAMED-SESSION"
+
   # get_previous_session takes no arguments at all: it resolves the previous
   # session itself. That makes it the easiest of these to satisfy vacuously —
   # "no previous session" is a perfectly good answer shape — so the assertion

@@ -642,7 +642,7 @@ func resolveCountersignStore(cfg *config.Config, fs afero.Fs, project bool, inje
 	if injectedUser != nil {
 		return injectedUser, "user", nil
 	}
-	home, herr := paths.HomeApprovalsPath()
+	home, herr := homeApprovalsDir()
 	if herr != nil {
 		return nil, "", fmt.Errorf("cannot resolve the user approvals store: %w", herr)
 	}

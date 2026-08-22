@@ -177,6 +177,29 @@ func (h *Home) serveCoordinatorRequest(req *agentcoordpb.CoordinatorRequest) {
 	})
 }
 
+// clearInflightCtrl drops this run's responder-side plane-2 idempotency
+// records at the runner's RUN TERMINAL — the exact mirror of the
+// coordinator's clearReqTrack at terminateRun, and the only thing that ever
+// removes an entry. Nothing did before: every served control request left a
+// record behind for the process's whole life, each retaining a full
+// AgentResponse (for a Summarize or a Question, the model's entire answer).
+//
+// The terminal is the ONLY safe moment for it, which is why there is no LRU
+// here: evicting a live request_id would let a reissue start a SECOND
+// dispatch — a second child turn the human never asked for, exactly what
+// these records exist to prevent. Past the terminal no answer is owed, because
+// the coordinator settles the whole down direction there (clearDownTrack) and
+// reissues nothing afterwards.
+//
+// A dispatch still in flight when this runs finishes against a struct that is
+// no longer in the map: it answers on the current stream as usual and leaves
+// nothing behind.
+func (h *Home) clearInflightCtrl() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	clear(h.inflightCtrl)
+}
+
 // controlKinds names what this runner will execute, for a refusal's prose.
 func (h *Home) controlKinds() []string {
 	adv := h.helloCapabilities()

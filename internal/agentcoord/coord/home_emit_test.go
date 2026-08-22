@@ -26,7 +26,6 @@ func testHome(t *testing.T) *Home {
 		pending:     make(map[string]*homeReq),
 		consumed:    make(map[string]bool),
 		turnPending: make(map[string]bool),
-		linkDone:    make(chan struct{}),
 	}
 }
 

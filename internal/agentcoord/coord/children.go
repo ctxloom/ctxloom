@@ -1450,14 +1450,24 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 		// assistant entries only (thinking/tool chatter is the engine
 		// transcript's job, §6b). Both feed bridgeTurnResult at the
 		// boundary — the bridge no longer fires for oneshot alone.
-		if ev.Entry.Content != "" && (rt.oneshot || ev.Entry.Type == agent.EntryTypeAssistant) {
-			c.mu.Lock()
+		//
+		// rt.oneshot is read INSIDE the mutex with the accumulator it
+		// gates. It is childRt state like every other mutable field here
+		// (attachLaunch and StartOwnedRun both write it under c.mu), and
+		// reading it outside — one statement above the Lock that guards
+		// everything it decides — is a plain data race, not merely a stale
+		// read: the -race detector reports it.
+		if ev.Entry.Content == "" {
+			return
+		}
+		c.mu.Lock()
+		if rt.oneshot || ev.Entry.Type == agent.EntryTypeAssistant {
 			rt.turnOutput = append(rt.turnOutput, ev.Entry.Content)
 			if ev.Entry.IsError {
 				rt.turnErrored = true
 			}
-			c.mu.Unlock()
 		}
+		c.mu.Unlock()
 	case ev.Session != nil:
 		// LEGACY path's half of PREREQ A: the migrated path
 		// already records this via StartRunResult/runchannel's

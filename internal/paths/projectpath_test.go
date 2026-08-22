@@ -1,4 +1,4 @@
-package filelock_test
+package paths
 
 import (
 	"os"
@@ -7,9 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 // TestProjectPathFor_LandsUnderStateLocks pins the shape: a lock guarding a
@@ -19,14 +16,14 @@ import (
 // the pattern added alongside this change — unignored.
 func TestProjectPathFor_LandsUnderStateLocks(t *testing.T) {
 	dir := t.TempDir()
-	appDir := filepath.Join(dir, paths.AppDirName)
+	appDir := filepath.Join(dir, AppDirName)
 	protected := filepath.Join(appDir, "config.yaml")
 
-	got, err := filelock.ProjectPathFor(protected)
+	got, err := ProjectPathFor(protected)
 	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(appDir, paths.StateDir, paths.LocksDir, "config.yaml.lock"), got)
-	assert.NotEqual(t, filelock.PathFor(protected), got,
+	assert.Equal(t, filepath.Join(appDir, StateDir, LocksDir, "config.yaml.lock"), got)
+	assert.NotEqual(t, PathFor(protected), got,
 		"the project mapping must not collapse back to the beside-the-file shape")
 }
 
@@ -36,14 +33,14 @@ func TestProjectPathFor_LandsUnderStateLocks(t *testing.T) {
 // having the same basename.
 func TestProjectPathFor_FlattensNestedPaths(t *testing.T) {
 	dir := t.TempDir()
-	appDir := filepath.Join(dir, paths.AppDirName)
+	appDir := filepath.Join(dir, AppDirName)
 
-	nested, err := filelock.ProjectPathFor(filepath.Join(appDir, "content", "bundles", "x.yaml"))
+	nested, err := ProjectPathFor(filepath.Join(appDir, "content", "bundles", "x.yaml"))
 	require.NoError(t, err)
-	root, err := filelock.ProjectPathFor(filepath.Join(appDir, "x.yaml"))
+	root, err := ProjectPathFor(filepath.Join(appDir, "x.yaml"))
 	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(appDir, paths.StateDir, paths.LocksDir), filepath.Dir(nested),
+	assert.Equal(t, filepath.Join(appDir, StateDir, LocksDir), filepath.Dir(nested),
 		"flattening must keep every lock in ONE directory; a lock tree that mirrors the project tree is a second convention")
 	assert.NotEqual(t, root, nested,
 		"two distinct protected files must not be handed the same lock by basename collision")
@@ -58,7 +55,7 @@ func TestProjectPathFor_FlattensNestedPaths(t *testing.T) {
 // plausibly hold of the same file must land on one lock path.
 func TestProjectPathFor_SpellingsOfOneFileMapToOneLock(t *testing.T) {
 	dir := t.TempDir()
-	appDir := filepath.Join(dir, paths.AppDirName)
+	appDir := filepath.Join(dir, AppDirName)
 	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "content"), 0o755))
 
 	canonical := filepath.Join(appDir, "config.yaml")
@@ -69,11 +66,11 @@ func TestProjectPathFor_SpellingsOfOneFileMapToOneLock(t *testing.T) {
 		"unclean separators": appDir + string(filepath.Separator) + string(filepath.Separator) + "config.yaml",
 	}
 
-	want, err := filelock.ProjectPathFor(canonical)
+	want, err := ProjectPathFor(canonical)
 	require.NoError(t, err)
 	for name, spelling := range spellings {
 		t.Run(name, func(t *testing.T) {
-			got, err := filelock.ProjectPathFor(spelling)
+			got, err := ProjectPathFor(spelling)
 			require.NoError(t, err)
 			assert.Equal(t, want, got,
 				"%q and %q name the same file; two lock paths means two writers that do not exclude each other", spelling, canonical)
@@ -87,15 +84,15 @@ func TestProjectPathFor_SpellingsOfOneFileMapToOneLock(t *testing.T) {
 // absolute form, and must not get a second lock.
 func TestProjectPathFor_RelativeSpellingMapsToTheSameLock(t *testing.T) {
 	dir := t.TempDir()
-	appDir := filepath.Join(dir, paths.AppDirName)
+	appDir := filepath.Join(dir, AppDirName)
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	// Chdir is scoped to this test by t.Chdir, which restores it on cleanup.
 	t.Chdir(dir)
 
-	fromAbs, err := filelock.ProjectPathFor(filepath.Join(appDir, "config.yaml"))
+	fromAbs, err := ProjectPathFor(filepath.Join(appDir, "config.yaml"))
 	require.NoError(t, err)
-	fromRel, err := filelock.ProjectPathFor(filepath.Join(paths.AppDirName, "config.yaml"))
+	fromRel, err := ProjectPathFor(filepath.Join(AppDirName, "config.yaml"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fromAbs, fromRel,
@@ -109,8 +106,8 @@ func TestProjectPathFor_RelativeSpellingMapsToTheSameLock(t *testing.T) {
 func TestProjectPathFor_RejectsAPathOutsideAnAppDir(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := filelock.ProjectPathFor(filepath.Join(dir, "elsewhere", "index.yaml"))
+	_, err := ProjectPathFor(filepath.Join(dir, "elsewhere", "index.yaml"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), paths.AppDirName,
+	assert.Contains(t, err.Error(), AppDirName,
 		"the error must name what it was looking for")
 }

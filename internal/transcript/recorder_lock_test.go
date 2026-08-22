@@ -43,7 +43,7 @@ func TestRecorder_DefaultPath_HoldsSharedOwnershipLockUntilClose(t *testing.T) {
 
 	// Before the first Record, nothing has opened the file yet (NewRecorder
 	// is lazy) — a probe must succeed.
-	unlock, acquired, err := filelock.TryLock(filelock.PathFor(canonPath))
+	unlock, acquired, err := filelock.TryLock(paths.PathFor(canonPath))
 	require.NoError(t, err)
 	require.True(t, acquired, "an unopened recorder must not hold the lock yet")
 	unlock()
@@ -53,14 +53,14 @@ func TestRecorder_DefaultPath_HoldsSharedOwnershipLockUntilClose(t *testing.T) {
 	}}))
 
 	// Now the file is open: an independent exclusive probe must be refused.
-	_, acquired, err = filelock.TryLock(filelock.PathFor(canonPath))
+	_, acquired, err = filelock.TryLock(paths.PathFor(canonPath))
 	require.NoError(t, err)
 	assert.False(t, acquired, "a live default-path recorder must hold the canonical transcript's ownership lock")
 
 	require.NoError(t, rec.Close())
 
 	// Close must have released it.
-	unlock, acquired, err = filelock.TryLock(filelock.PathFor(canonPath))
+	unlock, acquired, err = filelock.TryLock(paths.PathFor(canonPath))
 	require.NoError(t, err)
 	assert.True(t, acquired, "Close must release the ownership lock")
 	unlock()
@@ -90,7 +90,7 @@ func TestRecorder_WithPathOverride_TakesNoOwnershipLock(t *testing.T) {
 		Type: agent.EntryTypeUser, Content: "hello",
 	}}))
 
-	unlock, acquired, err := filelock.TryLock(filelock.PathFor(tmpPath))
+	unlock, acquired, err := filelock.TryLock(paths.PathFor(tmpPath))
 	require.NoError(t, err)
 	assert.True(t, acquired, "a WithPath-overridden recorder must not hold a lock on the file it writes")
 	unlock()

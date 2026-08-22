@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // sessionInstance gives a test the per-session codex home a `config_home:
@@ -180,7 +181,7 @@ func TestCodex_HomeKeyedSurfaces_RefuseTheRealHostHome(t *testing.T) {
 	require.NoError(t, err)
 	// paths.AppDirName (~/.ctxloom) is the ONE tolerated entry: this Setup's
 	// managed AGENTS.md write goes through agent.WriteManagedContext, which
-	// (as of the home-lock-dir fix) takes filelock.HomePathFor's lock around
+	// (as of the home-lock-dir fix) takes paths.HomePathFor's lock around
 	// every managed-file RMW regardless of the TARGET's own location — the
 	// lock's home is ctxloom's own ~/.ctxloom, never the engine's ~/.codex,
 	// so its existence here proves nothing about the invariant this test

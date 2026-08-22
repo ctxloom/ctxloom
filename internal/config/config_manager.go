@@ -55,7 +55,7 @@ func (m *Manager) Options() []LoadOption {
 }
 
 // Update runs fn as ONE serialized write transaction: it acquires an advisory
-// file lock (filelock.ProjectPathFor(configPath), which puts the sidecar under
+// file lock (paths.ProjectPathFor(configPath), which puts the sidecar under
 // .ctxloom/state/locks/), re-reads the config FRESH from disk while holding it,
 // hands fn a Draft built from that fresh read, applies whatever fn changed, and
 // persists via saveLocked — all before releasing it.
@@ -103,7 +103,7 @@ func (m *Manager) Update(fn func(*Draft) error) error {
 		// package's, whole — a lock path composed here is a second opinion
 		// about the same resource, which is the one failure that package
 		// cannot detect.
-		lockPath, lerr := filelock.ProjectPathFor(configPath)
+		lockPath, lerr := paths.ProjectPathFor(configPath)
 		if lerr != nil {
 			return fmt.Errorf("config: locating update lock for %s: %w", configPath, lerr)
 		}

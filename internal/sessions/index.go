@@ -1246,7 +1246,7 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSi
 // ".lock" suffix is connascent across every mutating method: they must all name
 // the same file or they silently stop excluding one another — no error, no
 // warning, just two writers in one index.
-func (m *Manager) lockPath() string { return filelock.PathFor(m.path) }
+func (m *Manager) lockPath() string { return paths.PathFor(m.path) }
 
 // lock takes the index's exclusive file lock and returns its release func,
 // already wrapped for return. Every mutating method acquires through here, so

@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -177,8 +178,8 @@ func (s *Snapshot[K]) Note(rec Record[K]) {
 }
 
 // LockPathFor derives the sidecar lock file that guards a store's records
-// file. filelock.PathFor (home-rooted, beside the file) and
-// filelock.ProjectPathFor (inside a project .ctxloom tree, under
+// file. paths.PathFor (home-rooted, beside the file) and
+// paths.ProjectPathFor (inside a project .ctxloom tree, under
 // state/locks/) are the two shapes filelock ships; a domain picks whichever
 // matches where ITS store's file actually lives — see WithLockPathFor.
 type LockPathFor func(protected string) (string, error)
@@ -193,7 +194,7 @@ type Store[K comparable, R comparable] struct {
 	now     func() time.Time
 	reasons Reasons[R]
 	// lockPathFor derives the write lock's sidecar path from s.path. See
-	// LockPathFor and WithLockPathFor; defaults to filelock.PathFor, the
+	// LockPathFor and WithLockPathFor; defaults to paths.PathFor, the
 	// right shape for a home-rooted store like this package's own doc
 	// describes (property 6).
 	lockPathFor LockPathFor
@@ -236,11 +237,11 @@ func WithClock[K comparable](now func() time.Time) Option[K] {
 }
 
 // WithLockPathFor overrides how the store derives its write lock's sidecar
-// path from the records file's own path. The default is filelock.PathFor
+// path from the records file's own path. The default is paths.PathFor
 // (beside the file), right for a home-rooted store (companion_consent's
 // ~/.ctxloom/companion_consent.yaml). A domain whose store instead lives
 // inside a PROJECT .ctxloom tree (dirty_tree_ack's
-// .ctxloom/state/dirty_tree_commit_ack.yaml) passes filelock.ProjectPathFor
+// .ctxloom/state/dirty_tree_commit_ack.yaml) passes paths.ProjectPathFor
 // here — its signature already matches LockPathFor exactly.
 func WithLockPathFor[K comparable](lp LockPathFor) Option[K] {
 	return func(o *options[K]) { o.lockPathFor = lp }
@@ -277,7 +278,7 @@ func NewStore[K comparable, R comparable](
 	}
 	lockPathFor := o.lockPathFor
 	if lockPathFor == nil {
-		lockPathFor = func(protected string) (string, error) { return filelock.PathFor(protected), nil }
+		lockPathFor = func(protected string) (string, error) { return paths.PathFor(protected), nil }
 	}
 	s := &Store[K, R]{
 		fs: fs, path: path, key: key, scope: o.scope, now: o.now, reasons: reasons,

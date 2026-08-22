@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -122,7 +121,7 @@ func TestUpdate_FailsClosedWhenLockCannotBeAcquired(t *testing.T) {
 	appDir := managerTestDir(t)
 	mgr := NewManager(WithAppDir(appDir))
 
-	lockPath, err := filelock.ProjectPathFor(managerConfigPath(t, mgr))
+	lockPath, err := paths.ProjectPathFor(managerConfigPath(t, mgr))
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(lockPath, 0o755))
 

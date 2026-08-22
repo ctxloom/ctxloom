@@ -145,7 +145,7 @@ func TestRefreshVendorTranscript_ConcurrentRebuildsSerialize(t *testing.T) {
 
 	// Stand in for "a first rebuild is already in progress": hold the exact
 	// exclusive lock convertVendorTranscript's probe takes.
-	holder, acquired, err := filelock.TryLock(filelock.PathFor(dest))
+	holder, acquired, err := filelock.TryLock(paths.PathFor(dest))
 	require.NoError(t, err)
 	require.True(t, acquired)
 	defer holder()

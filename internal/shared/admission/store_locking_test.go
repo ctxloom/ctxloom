@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -141,7 +141,7 @@ func TestStore_LockAcquisitionFailureFailsClosedFileUntouched(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, before)
 
-	lockPath := filelock.PathFor(path) // the store's default (no WithLockPathFor override)
+	lockPath := paths.PathFor(path) // the store's default (no WithLockPathFor override)
 	// The seed Set above already acquired-and-released this exact lock file,
 	// which left it on disk as a FILE (filelock never removes its lock
 	// files, only unlocks them) — clear it before replacing it with a

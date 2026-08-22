@@ -42,7 +42,7 @@ const Comment = "# ctxloom private working state (rebuildable/local — cache, s
 // anything but a superseded blanket rule), where it is inert.
 // `.ctxloom/*.lock` is the one entry here for a path current ctxloom does NOT
 // write, and it is deliberate rather than an oversight of the rule above:
-// advisory lock sidecars now live under state/locks (filelock.ProjectPathFor),
+// advisory lock sidecars now live under state/locks (paths.ProjectPathFor),
 // covered by `.ctxloom/state/`, but every project written by an earlier
 // version has a `.ctxloom/config.yaml.lock` sitting at its root — the bug that
 // prompted the move. That file is not going anywhere on its own, and leaving it

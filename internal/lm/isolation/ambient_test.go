@@ -356,7 +356,7 @@ func TestCopyAmbient_SerializesTwoRunsSharingOneInstance(t *testing.T) {
 	withInstanceConfigWriter(t, "claude-code", rec)
 
 	// An instance home INSIDE a .ctxloom tree, which is what
-	// filelock.ProjectPathFor keys on — the real in-tree shape,
+	// paths.ProjectPathFor keys on — the real in-tree shape,
 	// <project>/.ctxloom/state/<harp>/home.
 	project := t.TempDir()
 	instance, err := paths.SessionHomePath(filepath.Join(project, paths.AppDirName), "ugly-icy-squid")

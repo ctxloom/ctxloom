@@ -109,14 +109,16 @@ import (
 // way scan() does).
 var writeDisciplineScopes = []string{"internal", "cmd"}
 
-// writeDisciplineExemptDirs are the packages that ARE the write library (or
-// the lock primitive beside it) and so are structurally, not provisionally,
-// exempt: they are not a second copy of iox, they are the thing this gate
-// protects. Anything else that needs an exception earns a reasoned entry in
+// writeDisciplineExemptDirs are the packages that ARE the write library, and
+// so are structurally, not provisionally, exempt: they are not a second copy
+// of iox, they are the thing this gate protects. The lock primitive
+// (github.com/gofrs/flock) used to have a beside-it exemption here too
+// (internal/shared/filelock, deleted — every lock call site now uses flock
+// directly, so there is no in-tree lock package left to exempt). Anything
+// else that needs an exception earns a reasoned entry in
 // writeDisciplineAllowed instead of a free pass here.
 var writeDisciplineExemptDirs = []string{
 	"internal/shared/iox",
-	"internal/shared/filelock",
 }
 
 // forbiddenOSCalls are the five raw-fs-write entry points this gate forbids

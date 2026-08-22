@@ -255,7 +255,7 @@ func (r *fileRecorder) ensureFile() error {
 		return nil
 	}
 	if r.defaultPath {
-		unlock, err := filelock.LockShared(filelock.PathFor(r.path))
+		unlock, err := filelock.LockShared(paths.PathFor(r.path))
 		if err != nil {
 			return fmt.Errorf("transcript: acquire canonical-transcript ownership lock for %s: %w", r.path, err)
 		}

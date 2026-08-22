@@ -1,6 +1,6 @@
 //go:build !windows
 
-package filelock_test
+package paths
 
 import (
 	"os"
@@ -25,16 +25,16 @@ func TestPathFor_LockOnAResourceExcludesThatResourceAndNoOther(t *testing.T) {
 	protected := filepath.Join(dir, "index.json")
 	other := filepath.Join(dir, "other.json")
 
-	unlock, err := filelock.Lock(filelock.PathFor(protected))
+	unlock, err := filelock.Lock(PathFor(protected))
 	require.NoError(t, err)
 
-	require.False(t, lockFree(t, filelock.PathFor(protected)),
+	require.False(t, lockFree(t, PathFor(protected)),
 		"two writers of the same resource did not exclude each other")
-	require.True(t, lockFree(t, filelock.PathFor(other)),
+	require.True(t, lockFree(t, PathFor(other)),
 		"locking one resource blocked an unrelated one")
 
 	unlock()
-	require.True(t, lockFree(t, filelock.PathFor(protected)), "the lock was not released")
+	require.True(t, lockFree(t, PathFor(protected)), "the lock was not released")
 }
 
 // lockFree reports whether an exclusive lock on path can be taken right now,

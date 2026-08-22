@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
@@ -463,7 +464,7 @@ func appendLine(f *os.File, line []byte) error {
 // — the exclusive write lock and all three shared read locks — goes through
 // here, so they cannot name different files and quietly stop excluding one
 // another.
-func (l *eventLog) lockPath() string { return filelock.PathFor(l.path) }
+func (l *eventLog) lockPath() string { return paths.PathFor(l.path) }
 
 func (l *eventLog) lock() (func(), error) {
 	l.mu.Lock()

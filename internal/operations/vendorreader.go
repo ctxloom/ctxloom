@@ -323,7 +323,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// Recorder to race with, so probing there would only cost a syscall for
 	// no exclusion anybody needs.
 	if refresh {
-		unlock, acquired, lerr := filelock.TryLock(filelock.PathFor(dest))
+		unlock, acquired, lerr := filelock.TryLock(paths.PathFor(dest))
 		if lerr != nil {
 			return false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", e.HarpName, lerr)
 		}

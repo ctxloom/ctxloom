@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
@@ -378,7 +379,7 @@ func primaryAmbientHostRel(spec credentialSeedSpec) string {
 // .ctxloom tree) returns a no-op release rather than failing the run — see
 // CopyAmbient's doc for why that case has no second writer.
 func lockInstanceHome(instanceHome string) func() {
-	lockPath, err := filelock.ProjectPathFor(instanceHome)
+	lockPath, err := paths.ProjectPathFor(instanceHome)
 	if err != nil {
 		return func() {}
 	}

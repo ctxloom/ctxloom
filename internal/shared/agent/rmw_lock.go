@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
@@ -59,18 +60,18 @@ func isOSBackedFs(fs afero.Fs) bool {
 // discard the one guarantee this function exists to provide. The target file
 // is left untouched on that path — fn never runs.
 //
-// The lock lives at filelock.HomePathFor(target), not filelock.PathFor(target)
+// The lock lives at paths.HomePathFor(target), not paths.PathFor(target)
 // beside it — RULED 2026-08-13 (human), closing undated-bronco (fs-consolidation
 // N1): a beside-the-file sidecar for a file this package does NOT own left
 // untracked `.mcp.json.lock`/`.claude/settings.json.lock` litter in every
 // project, and — worse — a ctxloom-owned file inside the user's REAL
 // `~/.claude`/`~/.codex` home, a directory ctxloom otherwise never writes to
-// at all. See filelock.HomePathFor's doc for the full reasoning.
+// at all. See paths.HomePathFor's doc for the full reasoning.
 func WithFileLock(fs afero.Fs, target string, fn func() error) error {
 	if !isOSBackedFs(fs) {
 		return fn()
 	}
-	lockPath, err := filelock.HomePathFor(target)
+	lockPath, err := paths.HomePathFor(target)
 	if err != nil {
 		return fmt.Errorf("agent: deriving home lock path for %s: %w", target, err)
 	}
@@ -84,7 +85,7 @@ func WithFileLock(fs afero.Fs, target string, fn func() error) error {
 }
 
 // cleanupLegacySidecar best-effort removes the beside-file sidecar
-// (filelock.PathFor(target)) C6 left behind before this fix moved
+// (paths.PathFor(target)) C6 left behind before this fix moved
 // cross-binary locking to the home lock dir (undated-bronco, fs-consolidation
 // N1). It runs AFTER the real lock is held, never before, so it cannot race
 // this call's own critical section.
@@ -98,5 +99,5 @@ func WithFileLock(fs afero.Fs, target string, fn func() error) error {
 // mandatory locking may leave the legacy sidecar behind if something else
 // still holds it, which self-heals the next time nobody does.
 func cleanupLegacySidecar(target string) {
-	_ = os.Remove(filelock.PathFor(target))
+	_ = os.Remove(paths.PathFor(target))
 }

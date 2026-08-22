@@ -1,6 +1,6 @@
 //go:build !windows
 
-package filelock_test
+package paths
 
 import (
 	"path/filepath"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
@@ -21,16 +20,16 @@ import (
 // instead of answering.
 func TestProjectPathFor_LockTakenViaOneSpellingExcludesTheOther(t *testing.T) {
 	dir := t.TempDir()
-	appDir := filepath.Join(dir, paths.AppDirName)
+	appDir := filepath.Join(dir, AppDirName)
 	protected := filepath.Join(appDir, "config.yaml")
 	otherSpelling := filepath.Join(appDir, "content", "..", "config.yaml")
 	unrelated := filepath.Join(appDir, "remotes.yaml")
 
-	held, err := filelock.ProjectPathFor(protected)
+	held, err := ProjectPathFor(protected)
 	require.NoError(t, err)
-	viaOther, err := filelock.ProjectPathFor(otherSpelling)
+	viaOther, err := ProjectPathFor(otherSpelling)
 	require.NoError(t, err)
-	viaUnrelated, err := filelock.ProjectPathFor(unrelated)
+	viaUnrelated, err := ProjectPathFor(unrelated)
 	require.NoError(t, err)
 
 	unlock, err := filelock.Lock(held)

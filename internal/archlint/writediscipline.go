@@ -12,12 +12,14 @@ import (
 // only, both the library and the binaries that drive it.
 var writeDisciplineScopes = []string{"internal", "cmd"}
 
-// writeDisciplineExemptDirs are the packages that ARE the write library, or
-// the lock primitive beside it, and so are structurally exempt: they are not a
-// second copy of iox, they are the thing this rule protects.
+// writeDisciplineExemptDirs are the packages that ARE the write library, and
+// so are structurally exempt: they are not a second copy of iox, they are
+// the thing this rule protects. The lock primitive (github.com/gofrs/flock)
+// used to have a beside-it exemption here too (internal/shared/filelock,
+// deleted — every lock call site now uses flock directly, so there is no
+// in-tree lock package left to exempt).
 var writeDisciplineExemptDirs = []string{
 	"internal/shared/iox",
-	"internal/shared/filelock",
 }
 
 // forbiddenOSCalls are the raw-fs-write entry points forbidden outside the

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -26,7 +27,7 @@ import (
 // Mirrors internal/opencode/rmw_lock_test.go's
 // TestWriteOpencodeConfig_SerializesAgainstConcurrentSettingsWrite: writer A
 // takes the exact home lock WriteInstanceConfig's own agent.WithFileLock
-// would take (filelock.HomePathFor(dest)) DIRECTLY, standing in for a
+// would take (paths.HomePathFor(dest)) DIRECTLY, standing in for a
 // concurrent writer already mid-critical-section (a second in-tree
 // delegated child sharing this instance, racing THIS PROCESS rather than
 // isolation.CopyAmbient's caller-side lock — which is a different lock
@@ -47,7 +48,7 @@ func TestWriteInstanceConfig_SerializesAgainstConcurrentWriter(t *testing.T) {
 
 	// Writer A: take the real home lock directly, standing in for a
 	// concurrent WriteInstanceConfig call already mid-critical-section.
-	lockPath, err := filelock.HomePathFor(dest)
+	lockPath, err := paths.HomePathFor(dest)
 	require.NoError(t, err)
 	aUnlock, err := filelock.Lock(lockPath)
 	require.NoError(t, err)
@@ -62,7 +63,7 @@ func TestWriteInstanceConfig_SerializesAgainstConcurrentWriter(t *testing.T) {
 
 	select {
 	case <-bDone:
-		t.Fatal("WriteInstanceConfig completed its read-modify-write while a concurrent writer still held the home lock at filelock.HomePathFor(dest) — it is not serializing against other writers of its own file")
+		t.Fatal("WriteInstanceConfig completed its read-modify-write while a concurrent writer still held the home lock at paths.HomePathFor(dest) — it is not serializing against other writers of its own file")
 	case <-time.After(20 * time.Millisecond):
 	}
 
@@ -76,9 +77,9 @@ func TestWriteInstanceConfig_SerializesAgainstConcurrentWriter(t *testing.T) {
 
 // TestWriteInstanceConfig_LockIsDistinctFromCallersProjectLock proves the
 // nesting claim in WriteInstanceConfig's doc: isolation.CopyAmbient's caller
-// -side lock (filelock.ProjectPathFor(InstanceHome), taken on the instance
+// -side lock (paths.ProjectPathFor(InstanceHome), taken on the instance
 // home directory itself) and this function's own lock
-// (filelock.HomePathFor(dest), taken on the generated .claude.json file) are
+// (paths.HomePathFor(dest), taken on the generated .claude.json file) are
 // different lock NAMESPACES at different PATHS, so a caller already holding
 // its project lock across this call can never deadlock against
 // WriteInstanceConfig's own internal lock.
@@ -98,9 +99,9 @@ func TestWriteInstanceConfig_LockIsDistinctFromCallersProjectLock(t *testing.T) 
 	require.NoError(t, os.MkdirAll(instance, 0o700))
 	dest := filepath.Join(instance, inTreeConfigLeaf, InstanceConfigFileName)
 
-	callerLockPath, err := filelock.ProjectPathFor(instance)
+	callerLockPath, err := paths.ProjectPathFor(instance)
 	require.NoError(t, err)
-	ownLockPath, err := filelock.HomePathFor(dest)
+	ownLockPath, err := paths.HomePathFor(dest)
 	require.NoError(t, err)
 
 	assert.NotEqual(t, callerLockPath, ownLockPath,

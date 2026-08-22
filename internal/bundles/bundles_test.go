@@ -3,6 +3,9 @@ package bundles
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -1952,4 +1955,54 @@ func TestBundleAccessorTier_Characterization(t *testing.T) {
 	assert.Empty(t, empty.MCPNames())
 	assert.Empty(t, empty.SkillNames())
 	assert.Empty(t, empty.ProfileNames())
+}
+
+// TestBundleHooks_EveryEventIsWiredEndToEnd is the tripwire for the seam this
+// package spreads across four hand-written places: the BundleHooks field, the
+// HookEvent* const, hookEventOrder, eventHooks, and (*reader).appendHook. A
+// field added to BundleHooks and missed in any of them fails NOTHING at compile
+// time — the bundle parses, the hook decodes, and it is silently never
+// enumerated, never given a trust identity, and never installed. Reflection
+// over the struct is the only enumeration that cannot itself go stale.
+func TestBundleHooks_EveryEventIsWiredEndToEnd(t *testing.T) {
+	typ := reflect.TypeOf(BundleHooks{})
+
+	// Every field's yaml tag must be an event in hookEventOrder, and vice
+	// versa — the order slice IS the trust-identity and enumeration vocabulary.
+	var tags []string
+	for i := 0; i < typ.NumField(); i++ {
+		tags = append(tags, strings.Split(typ.Field(i).Tag.Get("yaml"), ",")[0])
+	}
+	sortedTags := append([]string(nil), tags...)
+	sortedOrder := append([]string(nil), hookEventOrder...)
+	sort.Strings(sortedTags)
+	sort.Strings(sortedOrder)
+	require.Equal(t, sortedOrder, sortedTags,
+		"every BundleHooks field must appear in hookEventOrder, or its hooks are enumerated by nothing")
+
+	for i := 0; i < typ.NumField(); i++ {
+		event := tags[i]
+		t.Run(event, func(t *testing.T) {
+			hook := BundleHook{Command: "cmd-" + event, Type: "command"}
+
+			// Read side: eventHooks must reach the field.
+			var h BundleHooks
+			reflect.ValueOf(&h).Elem().Field(i).Set(reflect.ValueOf([]BundleHook{hook}))
+			require.Len(t, h.eventHooks(event), 1, "eventHooks(%q) does not reach its field", event)
+			assert.Equal(t, hook.Command, h.eventHooks(event)[0].Command)
+			assert.True(t, h.HasAny(), "HasAny must count %q", event)
+
+			// Identity + enumeration.
+			entries := h.Entries()
+			require.Len(t, entries, 1)
+			assert.Equal(t, event+"/0", entries[0].ID())
+
+			// Write side: the tree reader must land it in the same field.
+			r := &reader{out: &Bundle{}}
+			r.appendHook(event, hook)
+			require.Len(t, r.out.Hooks.eventHooks(event), 1,
+				"(*reader).appendHook drops %q on the floor — hooks/%s/ in a bundle tree would decode and vanish", event, event)
+			assert.Equal(t, hook.Command, r.out.Hooks.eventHooks(event)[0].Command)
+		})
+	}
 }

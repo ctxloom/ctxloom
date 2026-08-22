@@ -135,3 +135,33 @@ func TestManagedConfig_UnparseableSurfaceLabelDegradesRatherThanCorrupting(t *te
 	assert.Equal(t, agent.ApproachUnsafeFile, out.Surfaces[agent.SurfaceSkills],
 		"the readable pairs still apply")
 }
+
+// TestUnifiedHooks_ProtoRoundTrip_PreservesTurnEnd is the wire-boundary half of
+// the seventh unified event. UnifiedHooks is mirrored FIELD BY HAND in
+// unifiedHooksToProto/unifiedHooksFromProto, and this package's own history
+// records the failure mode twice (Skills, DenyTools): the host writes the field
+// into the payload and the wire silently drops it, so the agent launches with a
+// hook it was configured to run and never runs.
+//
+// Every event is populated with a distinguishable command, not just turn_end: a
+// converter that mapped turn_end onto some other event's proto field would pass
+// a turn_end-only assertion and still be wrong.
+func TestUnifiedHooks_ProtoRoundTrip_PreservesTurnEnd(t *testing.T) {
+	in := wire.UnifiedHooks{
+		PreTool:      []wire.Hook{{Command: "pre-tool"}},
+		PostTool:     []wire.Hook{{Command: "post-tool"}},
+		SessionStart: []wire.Hook{{Command: "session-start"}},
+		SessionEnd:   []wire.Hook{{Command: "session-end"}},
+		TurnEnd:      []wire.Hook{{Command: "scripts/hooks/verify-and-track.sh", Type: "command", Timeout: 15}},
+		PreShell:     []wire.Hook{{Command: "pre-shell"}},
+		PostFileEdit: []wire.Hook{{Command: "post-file-edit"}},
+	}
+
+	p := unifiedHooksToProto(in)
+	require.NotNil(t, p)
+	require.Len(t, p.GetTurnEnd(), 1, "turn_end must occupy its own proto field")
+	assert.Equal(t, "scripts/hooks/verify-and-track.sh", p.GetTurnEnd()[0].GetCommand())
+
+	got := unifiedHooksFromProto(p)
+	assert.Equal(t, in, got, "every unified event must survive the round trip unchanged")
+}

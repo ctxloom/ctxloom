@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"reflect"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -203,4 +204,22 @@ func TestMergeHooksConfig_UnifiedHalfMatchesWireAppend(t *testing.T) {
 
 	assert.Equal(t, viaAppend, viaMerge.Unified,
 		"the hand-written unified merge and wire's own Append disagree")
+}
+
+// TestCountHooks_CountsEveryUnifiedEvent keeps the drop-report honest. countHooks
+// is a hand-written sum over UnifiedHooks' fields and its only consumer is the
+// "N hooks lost" warning — an event missing from the sum makes a whole hook set
+// vanish while the warning under-reports the loss, or reports none at all when
+// the lost set was entirely that event.
+func TestCountHooks_CountsEveryUnifiedEvent(t *testing.T) {
+	typ := reflect.TypeOf(wire.UnifiedHooks{})
+	for i := 0; i < typ.NumField(); i++ {
+		name := typ.Field(i).Name
+		t.Run(name, func(t *testing.T) {
+			var u wire.UnifiedHooks
+			reflect.ValueOf(&u).Elem().Field(i).Set(reflect.ValueOf([]wire.Hook{{Command: "x"}}))
+			assert.Equal(t, 1, countHooks(&wire.HooksConfig{Unified: u}),
+				"a lone %s hook must be counted, or the loss it represents is reported as nothing", name)
+		})
+	}
 }

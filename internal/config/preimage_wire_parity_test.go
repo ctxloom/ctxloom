@@ -152,9 +152,9 @@ func preimageSubjects() []preimageSubject {
 	}
 }
 
-// deliverHookToWire puts the item in all six hook events and runs
+// deliverHookToWire puts the item in all seven hook events and runs
 // extractHooksFromBundle — the production path — with a capturing always-allow
-// gate. Using every event is not redundancy: the six slots are wired by hand,
+// gate. Using every event is not redundancy: the seven slots are wired by hand,
 // and a slot that dropped the hook would otherwise be invisible here.
 func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]byte) {
 	t.Helper()
@@ -169,6 +169,7 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 		SessionEnd:   one(),
 		PreShell:     one(),
 		PostFileEdit: one(),
+		TurnEnd:      one(),
 	}}
 
 	var payloads [][]byte
@@ -187,6 +188,7 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 		"session_end":    got.SessionEnd,
 		"pre_shell":      got.PreShell,
 		"post_file_edit": got.PostFileEdit,
+		"turn_end":       got.TurnEnd,
 	} {
 		if len(hooks) != 1 {
 			t.Fatalf("event %s produced %d wire hooks, want 1 — the production path dropped the hook before any field could be checked", label, len(hooks))

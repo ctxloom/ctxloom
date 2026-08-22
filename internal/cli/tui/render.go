@@ -3,9 +3,9 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Role tags per the plan's §4a mockup: fixed-width prefixes so the feed
@@ -156,25 +156,26 @@ func splitLines(s string) []string {
 // wrapLine hard-wraps to width COLUMNS (feed content is left as-is
 // otherwise). Feed content is whatever the engine emitted, so the budget is
 // counted in columns, not runes: a line of double-width text measured in runes
-// runs to twice the pane's width and spills across the divider.
+// runs to twice the pane's width and spills across the divider. It also
+// carries SGR colour verbatim from the transcript, so a break may not land
+// inside an escape sequence — a half-written CSI makes the terminal swallow
+// the rest of the row, the divider and the neighbouring pane with it.
+//
+// ansi.Hardwrap is byte-preserving with preserveSpace set: joining the result
+// reproduces the input exactly, and any style left open at a break is carried
+// onto the next line rather than dropped.
 func wrapLine(s string, width int) []string {
 	if width < 1 {
 		width = 1
 	}
-	var out []string
-	for lipgloss.Width(s) > width {
-		head := truncateCells(s, width)
-		if head == "" {
-			// One rune is wider than the whole budget: emit it alone rather
-			// than fail to advance.
-			_, n := utf8.DecodeRuneInString(s)
-			head = s[:n]
-		}
-		out = append(out, head)
-		s = s[len(head):]
-	}
-	if s != "" || len(out) == 0 {
-		out = append(out, s)
+	out := strings.Split(ansi.Hardwrap(s, width, true), "\n")
+	// A single grapheme wider than the whole budget cannot be split, so
+	// Hardwrap breaks in front of it and leaves an empty first line. Drop it:
+	// the caller's contract is that a non-empty input yields no empty lead.
+	// Only a literally empty string qualifies — a first line holding just an
+	// SGR introducer is zero-width but must still reach the terminal.
+	if len(out) > 1 && out[0] == "" {
+		out = out[1:]
 	}
 	return out
 }
@@ -183,7 +184,7 @@ func truncateLine(s string, width int) string {
 	if width < 1 || lipgloss.Width(s) <= width {
 		return s
 	}
-	return truncateCells(s, width-1) + "…"
+	return ansi.Truncate(s, width, "…")
 }
 
 // renderItems renders the whole feed plus a per-item first-line index (the

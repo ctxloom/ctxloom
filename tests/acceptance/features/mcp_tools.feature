@@ -276,6 +276,40 @@ Feature: MCP tools
     And the tool failure message contains "is not in the session index"
     And the tool failure message contains "list_sessions"
     And no essence was written under session "host-caller-thistle"
+  # RED, AND DELIBERATELY SO — @wip until taskloom unusable-overload is ruled
+  # on. This is the SELF-COMPACTION path: an empty session_id, which
+  # compactionTargetHarp answers with the caller's own harp, and which reaches
+  # the fallback branch of handleCompactSession whenever that harp has no
+  # index entry yet (an ambient backend with no BindSession behind it).
+  #
+  # That branch builds its memory.NewCompactor with no Env at all, so the
+  # distillation subprocess is handed none of llm.configs.<label>.env — the
+  # documented home for a backend's credentials. The named-session path plumbs
+  # it (operations.CompactEntry -> LLMEnvFor(cfg, cfg.FastLabel())); this one
+  # never did. An unconfigured backend does not error, so what a user gets is
+  # a distillation that ran against no credentials and reported success.
+  #
+  # The claim is exactly the env and nothing else. The mock honours
+  # CTXLOOM_MOCK_RESPONSE only when it arrives through the config'd LLM's env
+  # (tests/integration/testenv writes it to llm.configs.mock.env and nowhere
+  # else), so a canned reply in the essence is proof the env crossed, and its
+  # absence — an essence echoing the prompt back instead — is proof it did
+  # not. The scenario takes NO position on which session a self-compaction
+  # ought to pick up, because that is the open question: the ruling is whether
+  # this branch routes through operations.CompactEntry like its sibling (one
+  # path, one behaviour) or keeps its own Env plumbing (two paths, kept
+  # distinct), and the two answers differ in what a self-compaction IS.
+  #
+  # Unskip with the fix. Do not weaken it to green.
+  @wip
+  Scenario: a self-compaction reaches the LLM with the environment its config declares
+    Given an initialized ctxloom project
+    And the session harp is "lone-hushed-quartz"
+    And a captured session "quiet-ember-drift" bound to a backend-native session id
+    And the mock LLM responds "SELF-COMPACT-CROSSED-THE-CONFIGURED-ENV"
+    When the agent calls tool "compact_session"
+    Then the tool call succeeds
+    And the essence the tool reports writing contains "SELF-COMPACT-CROSSED-THE-CONFIGURED-ENV"
 
   # get_previous_session takes no arguments at all: it resolves the previous
   # session itself. That makes it the easiest of these to satisfy vacuously —

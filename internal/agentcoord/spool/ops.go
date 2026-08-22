@@ -95,20 +95,53 @@ func Withdraw(m PathMapper, ref Ref) (Ref, error) {
 // protocol has no reason to know about.
 const FailedDirName Dir = "in/failed"
 
-// Fail moves ref — which must be an in/ entry — into the local in/failed/
-// terminal directory: an entry PRESENT ON DISK and UNREADABLE, distinct both
-// from "not found" (nothing ever arrived) and from "in/consumed/"
+// FailedOutDirName is the same terminal state for the OTHER direction: an
+// out/ entry the coordinator's sweep parsed but could not route.
+//
+// It exists because consumed/ has one meaning and a reader must be able to
+// trust it. out/consumed/ says "the coordinator routed this to its
+// recipient"; a message the sweep gave up on used to be renamed there too,
+// which made a delivered report and a dropped one indistinguishable on disk —
+// and reading a dropped report's presence in out/consumed/ as proof it had
+// been taken is exactly how a lost report was misdiagnosed as an agent that
+// never wrote one.
+const FailedOutDirName Dir = "out/failed"
+
+// FailedDirNames returns every terminal failed/ directory, so a scanner that
+// wants to surface refused messages enumerates them from the authority rather
+// than from a second hand-kept list. A direction added here and to nothing
+// else must make an operator's view incomplete LOUDLY, at a compile or a test,
+// not by quietly not being looked at.
+func FailedDirNames() []Dir { return []Dir{FailedDirName, FailedOutDirName} }
+
+// failedDirFor maps a live direction onto its terminal failed/ sibling.
+func failedDirFor(d Dir) (Dir, error) {
+	switch d {
+	case DirIn:
+		return FailedDirName, nil
+	case DirOut:
+		return FailedOutDirName, nil
+	default:
+		return "", fmt.Errorf("spool: only an %q or %q entry can be marked failed, got %q", string(DirIn), string(DirOut), string(d))
+	}
+}
+
+// Fail moves ref — a live in/ or out/ entry — into its direction's local
+// failed/ terminal directory: an entry PRESENT ON DISK and UNDELIVERED,
+// distinct both from "not found" (nothing ever arrived) and from consumed/
 // (delivered). Like Consume and Withdraw this is a rename, never a delete or
 // an in-place rewrite: a delete would erase the one record that the message
 // ever arrived, and an edit would give a reader two versions of the same
 // file to disagree about.
 //
 // Unlike Consume, nothing on the other end of a channel is watching for
-// this: it returns no Ref for a caller to announce, and FailedDirName must
-// never reach SpoolDirToWire (which refuses it — see its doc).
+// this: it returns no Ref for a caller to announce, and neither failed/
+// directory may ever reach SpoolDirToWire (which refuses them — see
+// FailedOutDirName and FailedDirName).
 func Fail(m PathMapper, ref Ref) error {
-	if ref.Dir != DirIn {
-		return fmt.Errorf("spool: only an in/ entry can be marked failed, got %q", ref.Dir)
+	target, err := failedDirFor(ref.Dir)
+	if err != nil {
+		return err
 	}
 	from, err := m.Resolve(ref)
 	if err != nil {
@@ -118,9 +151,9 @@ func Fail(m PathMapper, ref Ref) error {
 	if err != nil {
 		return err
 	}
-	to := filepath.Join(root, filepath.FromSlash(string(FailedDirName)), ref.Name)
+	to := filepath.Join(root, filepath.FromSlash(string(target)), ref.Name)
 	if err := renameInto(from, to); err != nil {
-		return fmt.Errorf("spool: moving %s to %s: %w", ref, FailedDirName, err)
+		return fmt.Errorf("spool: moving %s to %s: %w", ref, target, err)
 	}
 	return nil
 }

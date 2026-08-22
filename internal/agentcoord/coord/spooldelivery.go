@@ -511,7 +511,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		clidiag.Warn("ctxloom", "coordinator: refusing an unroutable message from %s: %v", role, err)
 		c.spoolDeliveryCount.failed.Add(1)
 		c.noticeSpoolDrop(role, e, err)
-		c.consumeSpool(role, e.Ref)
+		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
 	if _, _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
@@ -523,11 +523,43 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		c.spoolDeliveryCount.failed.Add(1)
 		c.replySpoolRefusal(role, msg, err)
 		c.noticeSpoolDrop(role, e, err)
-		c.consumeSpool(role, e.Ref)
+		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
 	c.spoolDeliveryCount.delivered.Add(1)
 	c.consumeSpool(role, e.Ref)
+}
+
+// failSpoolOut is routeSpoolOut's terminal outcome for an out/ entry this
+// coordinator could not route: the file leaves out/ for the local out/failed/
+// directory instead of out/consumed/.
+//
+// The distinction is the whole point, and it is the runner-side failSpoolEntry
+// invariant applied to the direction that never had it. out/consumed/ means
+// ROUTED — that is what the substrate's own contract says a consume-rename is,
+// and what every reader of that directory assumes. A dropped message renamed
+// there is a delivered one as far as disk is concerned: an operator, and an
+// investigator reading the spool after the fact, cannot tell a report the
+// coordinator handed to its parent from one it gave up on. That is not a
+// hypothetical reading; it is how a lost report was written off as an agent
+// that never reported.
+//
+// Leaving the file in out/ instead is not the alternative: the reader would
+// re-parse it, re-fail it and re-warn about it on every sweep for the life of
+// the process while later entries delivered around it, which is the
+// silent-skip this project treats as its characteristic defect.
+func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
+	if err := spool.Fail(spool.NewHomeMapper(), ref); err != nil {
+		if errors.Is(err, spool.ErrAlreadyGone) {
+			// Another pass already moved it; nothing to strand.
+			return
+		}
+		clidiag.Warn("ctxloom", "coordinator: could not route %s's message %s (%v) and could not move it to %s either: %v (it will be re-read, and re-refused, on the next sweep)",
+			role, ref, cause, spool.FailedOutDirName, err)
+		return
+	}
+	clidiag.Warn("ctxloom", "coordinator: %s's message %s could not be routed (%v); moved to %s and NOT retried",
+		role, ref, cause, spool.FailedOutDirName)
 }
 
 // replySpoolRefusal tells a child that the message it wrote could not be

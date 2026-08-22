@@ -2,6 +2,8 @@ package coord
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +58,54 @@ func recvOwner(c *Coordinator) ([]Message, error) {
 	return c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
 }
 
+// spoolFailedNames lists the bare filenames in a terminal failed/ directory.
+// It cannot go through spool.Sweep: the failed/ directories are deliberately
+// outside the closed Dir set, so DirPath refuses them.
+func spoolFailedNames(t *testing.T, harp string, dir spool.Dir) []string {
+	t.Helper()
+	root, err := spool.Root(spool.NewHomeMapper(), harp)
+	require.NoError(t, err)
+	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(string(dir))))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+// assertDroppedNotConsumed pins the disposition that misled the original
+// investigation: out/consumed/ means ROUTED, so a message the sweep gave up on
+// must NOT be there. It belongs in out/failed/ instead — present on disk,
+// undelivered, and distinguishable from both "never arrived" and "delivered".
+func assertDroppedNotConsumed(t *testing.T, harp, name string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		for _, got := range spoolFailedNames(t, harp, spool.FailedOutDirName) {
+			if got == name {
+				return true
+			}
+		}
+		return false
+	}, conformanceWait, 10*time.Millisecond, "the dropped message must reach %s", spool.FailedOutDirName)
+	for _, e := range spoolEntries(t, harp, spool.DirOutConsumed) {
+		assert.NotEqual(t, name, e.Ref.Name,
+			"a message that was never routed must not sit in %s: reading its presence there as proof the coordinator took it is exactly how a lost report was written off as an agent that never wrote one",
+			spool.DirOutConsumed)
+	}
+	// This one file must be gone from out/; the directory itself may hold
+	// other traffic (the run's automatic turn report), so emptiness is not the
+	// assertion — the SELECTED entry's absence is.
+	for _, e := range spoolEntries(t, harp, spool.DirOut) {
+		assert.NotEqual(t, name, e.Ref.Name, "the entry must not be left in out/ to be re-read, re-refused and re-warned about forever")
+	}
+}
+
 // TestSpoolDrop_UnmappableKindTellsTheParentAndCarriesTheText covers the
 // mailFromSpool half of the drop: a file that parses as a message but carries
 // a kind this build's closed vocabulary cannot resolve. There is no Message to
@@ -88,8 +138,7 @@ func TestSpoolDrop_UnmappableKindTellsTheParentAndCarriesTheText(t *testing.T) {
 
 	// LOUD and TERMINAL: counted, and gone from out/.
 	assert.GreaterOrEqual(t, c.SpoolDeliveryStats().Failed, uint64(1), "a dropped message must be counted, never silently skipped")
-	require.Eventually(t, func() bool { return len(spoolEntries(t, out.Harp, spool.DirOut)) == 0 }, conformanceWait, 10*time.Millisecond,
-		"the undeliverable entry must not sit in out/ being re-read forever")
+	assertDroppedNotConsumed(t, out.Harp, ref.Name)
 	assertNoSecondNotice(t, c, out.Harp, finding)
 }
 
@@ -108,7 +157,7 @@ func TestSpoolDrop_RefusedRoutingTellsTheParentNotOnlyTheSender(t *testing.T) {
 	const finding = "sibling-addressed findings that must not evaporate"
 	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
-	_, err = w.Write(&spool.Message{
+	ref, err := w.Write(&spool.Message{
 		Kind:     KindResult,
 		FromHarp: out.Harp,
 		// Hub-and-spoke: a child may address only its parent. peerSend
@@ -124,7 +173,6 @@ func TestSpoolDrop_RefusedRoutingTellsTheParentNotOnlyTheSender(t *testing.T) {
 	assert.Contains(t, notice.Body, "a-sibling-harp", "the notice must say who the sender believed it was writing to")
 	assert.Contains(t, notice.Body, "could not be routed", "the parent must learn WHY, not merely that something happened")
 
-	require.Eventually(t, func() bool { return len(spoolEntries(t, out.Harp, spool.DirOut)) == 0 }, conformanceWait, 10*time.Millisecond,
-		"the refused entry must reach a terminal state")
+	assertDroppedNotConsumed(t, out.Harp, ref.Name)
 	assertNoSecondNotice(t, c, out.Harp, finding)
 }

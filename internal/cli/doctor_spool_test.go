@@ -218,7 +218,7 @@ func TestDoctorCheckSpoolBacklog_RightState_NoFailedDirIsNormal(t *testing.T) {
 
 	check := doctorCheckSpoolBacklog()
 	assert.Equal(t, doctorOK, check.Status)
-	assert.Contains(t, check.Detail, "no session has an in/failed/ directory")
+	assert.Contains(t, check.Detail, "no session has a failed/ directory")
 	assert.NotContains(t, check.Detail, "checked, all empty",
 		"an absent in/failed/ dir must not be worded as an existing-but-empty one")
 }
@@ -240,8 +240,8 @@ func TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent(t *
 
 	check := doctorCheckSpoolBacklog()
 	assert.Equal(t, doctorOK, check.Status)
-	assert.Contains(t, check.Detail, "1 in/failed/ director(ies) checked, all empty")
-	assert.NotContains(t, check.Detail, "no session has an in/failed/ directory")
+	assert.Contains(t, check.Detail, "1 failed/ director(ies) checked, all empty")
+	assert.NotContains(t, check.Detail, "no session has a failed/ directory")
 }
 
 // TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry constructs a
@@ -295,4 +295,32 @@ func TestDoctorCheckSpoolBacklog_CapsFailedListWithCount(t *testing.T) {
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "8 spool entr(ies) were REFUSED")
 	assert.Contains(t, check.Detail, "more")
+}
+
+// TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry is the
+// out/ twin of the in/failed/ case, and the reason this check enumerates
+// spool.FailedDirNames instead of naming one directory.
+//
+// A child's REPORT that the coordinator's sweep could not route lands in
+// out/failed/ (coord/spooldelivery.go's failSpoolOut). It is exactly as lost
+// as a refused inbound message and exactly as invisible if nothing looks at
+// its directory — and an outbound refusal is the more consequential of the
+// two, because what it drops is a finished agent's findings.
+func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	require.NoError(t, spool.EnsureDirs(mapper, harp))
+
+	w, err := spool.NewWriter(mapper, harp, spool.DirOut, harp)
+	require.NoError(t, err)
+	ref, err := w.Write(&spool.Message{Kind: "result", FromHarp: harp, To: "parent", Body: "my findings"})
+	require.NoError(t, err)
+	require.NoError(t, spool.Fail(mapper, ref))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, doctorWarn, check.Status,
+		"a report ctxloom was given and refused to route must not read as a healthy spool")
+	assert.Contains(t, check.Detail, ref.Name, "the doctor must name the file an operator has to go and read")
+	assert.Contains(t, check.Detail, string(spool.FailedOutDirName))
 }

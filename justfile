@@ -481,6 +481,130 @@ vet-integration: _require-generated
     go vet -tags integration ./tests/...
     go vet -tags "acceptance integration" ./tests/...
 
+# Compile the COMMITTED tree at REF. The one thing no other gate here does.
+#
+# WHY: `build`, `lint`, `test`, `test-integration` and `test-acceptance` all
+# compile the WORKING TREE, so "committed" and "compiles" are independent
+# properties and only the second was ever measured. A commit once omitted the
+# entire package it was named for — the files sat in the working tree the whole
+# time and were simply never staged — and every one of those gates was green
+# while HEAD did not build. Nine unpushed commits accumulated on a tree that
+# could not compile. CI does compile a real checkout, but only after a push,
+# which is the loop this project keeps trying to shorten.
+#
+# The commit-side half of the same trap: `git status --porcelain` collapses a
+# wholly-untracked DIRECTORY to a single "?? path/" entry, so a staging or
+# verification script that filters porcelain output by file extension, or greps
+# '^.[MD]', cannot see a new package at all. Both patterns look careful. Only
+# compiling the committed bytes can tell.
+#
+# MECHANISM: extract REF's tree with `git archive` and compile THAT.
+# Deliberately not `git worktree add --detach`: git exports GIT_INDEX_FILE into
+# every hook's environment, and a `git worktree add` spawned from a hook
+# inherits it and silently overwrites the real index with the tree it checked
+# out (jaded-fade — the full story is in lefthook.yml's reprise comment).
+# `git archive` reads a tree-ish and writes a tar; it touches no index, no ref
+# and no worktree list, so it is safe to run from inside a hook.
+#
+# THE SCRATCH DIRECTORY IS WIPED, NEVER REUSED IN PLACE. Its path is stable per
+# worktree so the Go build cache hits between runs instead of depositing a full
+# module copy at a fresh absolute path every time (obtuse-equinox) — but a file
+# left over from the previous run is exactly the ghost that would hide a
+# missing one from this run, which is the defect being gated. rm -rf first. The
+# stable PATH is what buys the cache hit, not the surviving files, so a passing
+# run also removes them; a failing one leaves the tree to be looked at.
+#
+# -trimpath on every pass, for the same cache reason: without it the compiler
+# embeds the scratch path and none of these entries is ever reusable. Safe
+# here because nothing this recipe runs is a test — the runtime.Caller(0) sites
+# that block -trimpath on the test path never execute.
+#
+# GENERATED PROTOBUF IS SEEDED FROM THIS WORKTREE. *.pb.go is gitignored, so
+# REF's tree has none and every package above a leaf would fail for a reason
+# that has nothing to do with what was committed. A seeded stub is only
+# truthful if REF's .proto bytes are the ones it was generated from, so that is
+# compared per file; drift fails loudly rather than compiling against the wrong
+# ABI (CTXLOOM_HEAD_BUILD_ALLOW_PROTO_DRIFT=1 downgrades it to a warning).
+#
+# COMPILE, NEVER THE SUITE. Running the tests against a detached copy of HEAD
+# produces failures that do not reproduce in the primary checkout (measured:
+# internal/cli's sandbox fail-closed guard, and coord's reannounce escalation),
+# because those tests depend on being in the primary worktree — the same family
+# as the version stamp breaking in linked worktrees. A gate with false reds is
+# a gate people switch off, so this one only ever compiles.
+check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ref="$1"
+    root=$(git rev-parse --show-toplevel)
+    tree=$(git rev-parse --verify "${ref}^{tree}")
+    short=$(git rev-parse --short "$ref")
+    key=$(printf '%s' "$root" | sha256sum | cut -c1-12)
+    work="/var/tmp/ctxloom-committed-build/$key"
+
+    rm -rf "$work"
+    mkdir -p "$work"
+    git archive --format=tar "$tree" | tar -x -C "$work"
+
+    protos=()
+    while IFS= read -r proto; do
+        case "$proto" in internal/agentcoord/google/*) continue ;; esac
+        protos+=("$proto")
+    done < <(git ls-tree -r --name-only "$tree" | grep '\.proto$' || true)
+
+    drift=()
+    for proto in ${protos[@]+"${protos[@]}"}; do
+        cmp -s "$work/$proto" "$root/$proto" || drift+=("$proto")
+    done
+    if [ "${#drift[@]}" -ne 0 ]; then
+        echo "warning: these .proto files differ between $ref and this worktree:" >&2
+        printf '  %s\n' "${drift[@]}" >&2
+        echo "The generated stubs on disk were built from the WORKTREE copy, so compiling" >&2
+        echo "$ref against them proves nothing about the ABI the commit actually declares." >&2
+        if [ "${CTXLOOM_HEAD_BUILD_ALLOW_PROTO_DRIFT:-}" != "1" ]; then
+            echo >&2
+            echo "fix:  commit the .proto change (then this gate is meaningful again)" >&2
+            echo "  or: CTXLOOM_HEAD_BUILD_ALLOW_PROTO_DRIFT=1 just check-head-builds $ref" >&2
+            exit 1
+        fi
+        echo "CTXLOOM_HEAD_BUILD_ALLOW_PROTO_DRIFT=1 — continuing with the worktree stubs." >&2
+    fi
+    for proto in ${protos[@]+"${protos[@]}"}; do
+        stem="${proto%.proto}"
+        for gen in "$stem.pb.go" "${stem}_grpc.pb.go"; do
+            [ -f "$root/$gen" ] || continue
+            cp "$root/$gen" "$work/$gen"
+        done
+    done
+
+    explain() {
+        echo >&2
+        echo "error: the COMMITTED tree at $ref ($short) does not compile ($1)." >&2
+        echo "Your WORKING TREE may well be fine — that is the point of this gate." >&2
+        echo "Look for files that exist here but were never staged; a wholly new" >&2
+        echo "directory shows up in git status as one '?? path/' line and is easy to" >&2
+        echo "filter away by accident. Do NOT run the 'go get' the toolchain suggests" >&2
+        echo "for a missing internal/ package — that package is yours and unstaged," >&2
+        echo "not a dependency:" >&2
+        echo >&2
+        echo "  git status --porcelain --untracked-files=all" >&2
+        echo "  git ls-tree -r --name-only $ref -- <the package above>" >&2
+        echo >&2
+        echo "The extracted tree is left at $work to look at." >&2
+        exit 1
+    }
+
+    cd "$work"
+    export GOWORK=off
+    export GOTMPDIR="{{go_tmp}}"
+    echo "check-head-builds: compiling $ref ($short) from $work" >&2
+    go build -trimpath ./... || explain "go build ./..."
+    go vet -trimpath ./... || explain "go vet ./... — default tags, including _test.go files"
+    go vet -trimpath -tags "mutation arch conformance docker_integration acceptance integration schemagen docsgen" ./... \
+        || explain "go vet ./... under the full build-tag matrix"
+    echo "check-head-builds: $ref ($short) compiles" >&2
+    rm -rf "$work"
+
 # Run integration tests (requires ctxloom binary)
 test-integration: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" go test -v -tags integration ./tests/integration/...

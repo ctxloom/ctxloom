@@ -365,6 +365,10 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	// immediately and then failed to launch was answered with "queued behind
 	// the execution cap" — a statement about a different run, and the one
 	// state the caller is most likely to wait on rather than investigate.
+	c.mu.Lock()
+	queued := rt.slot != slotHeld
+	c.mu.Unlock()
+
 	backend := plan.Backend
 	c.goTracked(func() { c.spawner.RecordEngineVersion(c.baseCtx, harp, backend) })
 
@@ -377,9 +381,6 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	if runtime == "" {
 		runtime = "host"
 	}
-	c.mu.Lock()
-	queued := rt.slot != slotHeld
-	c.mu.Unlock()
 	return &RunOutcome{
 		Harp:     harp,
 		RunID:    rt.runID,

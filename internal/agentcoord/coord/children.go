@@ -336,11 +336,13 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	// that could never message its parent is refused loudly at the verb.
 	url, err := c.spawnReachURL(harp, plan.Runtime)
 	if err != nil {
+		c.releaseAssignedHarp(harp, err)
 		return nil, err
 	}
 
 	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}), caller.Depth+1)
 	if err != nil {
+		c.releaseAssignedHarp(harp, err)
 		return nil, err
 	}
 	c.audit("agent_run", caller.Harp, map[string]string{"agent": agentName, "harp": harp, "run_id": rt.runID})
@@ -353,18 +355,32 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	// anywhere visible. Nothing on the launch path reads what it records:
 	// the recorded version is consumed much later, when this session's
 	// transcript is parsed back (sessions.Entry.EngineVersion).
+	// The QUEUED answer is read HERE, before any goroutine that can change
+	// it exists. rt.slot is the ENQUEUE's own claim — enqueueRun tryAcquires
+	// a free slot precisely so this answer can be truthful — but the moment
+	// runChild is dispatched that field belongs to it: the acquire promotes
+	// a claim to slotHeld, and any terminal releases it back to slotFree.
+	// Read after the dispatch, the disposition reported whatever the child
+	// goroutine happened to have reached by then, so a child admitted
+	// immediately and then failed to launch was answered with "queued behind
+	// the execution cap" — a statement about a different run, and the one
+	// state the caller is most likely to wait on rather than investigate.
+	c.mu.Lock()
+	queued := rt.slot != slotHeld
+	c.mu.Unlock()
+
 	backend := plan.Backend
 	c.goTracked(func() { c.spawner.RecordEngineVersion(c.baseCtx, harp, backend) })
 
 	c.goTracked(func() { c.runChild(rt, prompt, token, url) })
+	if hook := c.spawnDispatchedHook; hook != nil {
+		hook(harp)
+	}
 
 	runtime := plan.Runtime
 	if runtime == "" {
 		runtime = "host"
 	}
-	c.mu.Lock()
-	queued := rt.slot != slotHeld
-	c.mu.Unlock()
 	return &RunOutcome{
 		Harp:     harp,
 		RunID:    rt.runID,
@@ -374,6 +390,26 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		Queued:   queued,
 		Degraded: plan.Degraded,
 	}, nil
+}
+
+// releaseAssignedHarp gives back a harp AssignSession has already COMMITTED
+// to persistent session accounting, for a spawn that aborted before the run
+// was ever registered. Both of AgentRun's post-assignment refusals reach it:
+// an unresolvable reach-back endpoint, and an enqueue whose journal failed.
+//
+// Without it the verb reports failure while the accounting says a session
+// started — a child that will never exist, holding an address and (in
+// production, via operations.EndSession's other half) a per-session engine
+// home with a credential copy in the project tree. There is no narrower
+// release primitive: MarkSessionEnded is the Spawner's only one, and it is
+// the same call every terminal path already makes, so this adds no surface.
+//
+// It is best-effort and never changes what the caller is told: the refusal
+// the caller already earned is the answer, and a failed release is the
+// implementation's own diagnostic (MarkSessionEnded warns for itself).
+func (c *Coordinator) releaseAssignedHarp(harp string, cause error) {
+	clidiag.Warn("ctxloom", "agent_run: releasing session %s — the spawn was refused before the run was registered: %v", harp, cause)
+	c.spawner.MarkSessionEnded(harp)
 }
 
 // defaultSpawnNoticeAfter is how long agent_run's pre-registration span may
@@ -930,7 +966,14 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 			return err
 		}
 	}
-	rctx, rcancel := context.WithTimeout(c.baseCtx, defaultRequestTimeout)
+	// The round trip hangs off the LAUNCH context, not c.baseCtx. ctx is the
+	// cancellable per-harp context agent_stop cancels (launchgate.go); baseCtx
+	// dies only on coordinator shutdown, so binding the request to it left a
+	// stop issued after the dial-home wait — the runner is up, StartRun is on
+	// the wire, the engine has not answered — with nothing to cancel: the
+	// coordinator stayed parked for the whole defaultRequestTimeout while the
+	// operator's stop reported success.
+	rctx, rcancel := context.WithTimeout(ctx, defaultRequestTimeout)
 	resp, err := c.requestRunner(rctx, credHash, &agentcoordpb.RunnerRequest{
 		Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{
 			RunId:       rt.runID,
@@ -1450,14 +1493,24 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 		// assistant entries only (thinking/tool chatter is the engine
 		// transcript's job, §6b). Both feed bridgeTurnResult at the
 		// boundary — the bridge no longer fires for oneshot alone.
-		if ev.Entry.Content != "" && (rt.oneshot || ev.Entry.Type == agent.EntryTypeAssistant) {
-			c.mu.Lock()
+		//
+		// rt.oneshot is read INSIDE the mutex with the accumulator it
+		// gates. It is childRt state like every other mutable field here
+		// (attachLaunch and StartOwnedRun both write it under c.mu), and
+		// reading it outside — one statement above the Lock that guards
+		// everything it decides — is a plain data race, not merely a stale
+		// read: the -race detector reports it.
+		if ev.Entry.Content == "" {
+			return
+		}
+		c.mu.Lock()
+		if rt.oneshot || ev.Entry.Type == agent.EntryTypeAssistant {
 			rt.turnOutput = append(rt.turnOutput, ev.Entry.Content)
 			if ev.Entry.IsError {
 				rt.turnErrored = true
 			}
-			c.mu.Unlock()
 		}
+		c.mu.Unlock()
 	case ev.Session != nil:
 		// LEGACY path's half of PREREQ A: the migrated path
 		// already records this via StartRunResult/runchannel's
@@ -1550,6 +1603,10 @@ func (c *Coordinator) wakeChild(rt *childRt) {
 		return // spurious wake (a recv or boundary drain consumed it)
 	}
 	if err := c.acquireRunSlot(rt); err != nil {
+		// takeNextMail already journaled the consume, so this return is the
+		// same durable loss sendTurn's drop paths were: the message left the
+		// mailbox to start a turn that is not going to happen.
+		c.requeueUndelivered(rt.harp, msg)
 		return
 	}
 	c.setState(rt, StateExecuting)
@@ -1565,21 +1622,41 @@ func (c *Coordinator) wakeChild(rt *childRt) {
 // sendTurn's other caller — the briefing — is deliberately unframed: it is the
 // run's own prompt, not a delivery from somebody else.
 func (c *Coordinator) sendMailTurn(rt *childRt, msg Message) {
-	c.sendTurn(rt, frameCoordinatorDelivery(msg.From, msg.Kind, msg.Body))
+	if c.sendTurn(rt, frameCoordinatorDelivery(msg.From, msg.Kind, msg.Body)) {
+		return
+	}
+	// The message is ALREADY journaled as consumed — takeNextMail commits
+	// that at take, before any child has seen anything — so a drop here is
+	// not "a turn was missed", it is a message durably deleted from the
+	// mailbox and delivered to nobody. Put it back.
+	c.requeueUndelivered(rt.harp, msg)
 }
 
-// sendTurn writes one turn to the child's input channel. The driver goroutine
-// is the channel's only writer, so this never races the close in endChild.
-func (c *Coordinator) sendTurn(rt *childRt, text string) {
+// sendTurn writes one turn to the child's input channel, REPORTING whether
+// the turn was actually handed over. The driver goroutine is the channel's
+// only writer, so this never races the close in endChild.
+//
+// The report is load-bearing for the mailbox caller (sendMailTurn): both
+// false paths — a child whose input is already closed, and a coordinator
+// shutting down — used to return silently, and the message the caller was
+// carrying had already been consumed out of the fold. The BRIEFING caller
+// (runChild) has nothing to put back, so for it the warning below is the
+// whole remedy: a first turn that never reached the engine is otherwise
+// indistinguishable from a child that simply said nothing.
+func (c *Coordinator) sendTurn(rt *childRt, text string) bool {
 	c.mu.Lock()
 	in := rt.in
 	c.mu.Unlock()
 	if in == nil {
-		return
+		clidiag.Warn("ctxloom", "agent %s: a turn could not be delivered: the child's input channel is already closed", rt.harp)
+		return false
 	}
 	select {
 	case in <- agent.ChatMessage{Text: text}:
+		return true
 	case <-c.baseCtx.Done():
+		clidiag.Warn("ctxloom", "agent %s: a turn could not be delivered: the coordinator is shutting down", rt.harp)
+		return false
 	}
 }
 

@@ -164,7 +164,14 @@ type fakeSpawner struct {
 	agents   map[string]fakeAgent // agent name → resolved plan bits
 	resolved []string
 	assigned []string
-	perms    []agent.PermissionMode
+	// sessionsEnded records each MarkSessionEnded call's harp, in call order.
+	sessionsEnded []string
+	// launchErr, when set, fails every legacy Launch with it — a child that
+	// is admitted (it holds an execution slot) and then dies at standup,
+	// which is the shape that separates "queued behind the cap" from
+	// "started and failed".
+	launchErr error
+	perms     []agent.PermissionMode
 	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
 	// spawns a REAL runner half (Home + EngineHost over the coordinator's
 	// live gRPC listeners) around it. chats/kills record per spawn.
@@ -336,7 +343,11 @@ func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText, 
 	s.perms = append(s.perms, plan.Perm)
 	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
+	launchErr := s.launchErr
 	s.mu.Unlock()
+	if launchErr != nil {
+		return nil, launchErr
+	}
 	return e.launch(ctx, contextText, resumeSessionID, env, runnerEnv), nil
 }
 
@@ -546,7 +557,28 @@ func (s *fakeSpawner) probedVersions() []string {
 	return append([]string(nil), s.versionProbes...)
 }
 
-func (s *fakeSpawner) MarkSessionEnded(string) {}
+// MarkSessionEnded records the harps whose session accounting was ended —
+// the Spawner's ONLY release primitive, and therefore what an aborted spawn
+// must call to give back a harp AssignSession already committed.
+func (s *fakeSpawner) MarkSessionEnded(harp string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionsEnded = append(s.sessionsEnded, harp)
+}
+
+// endedSessions is MarkSessionEnded's recording, in call order.
+func (s *fakeSpawner) endedSessions() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.sessionsEnded...)
+}
+
+// assignedSessions is AssignSession's recording, in call order.
+func (s *fakeSpawner) assignedSessions() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.assigned...)
+}
 
 func (s *fakeSpawner) spawnCount() int {
 	s.mu.Lock()

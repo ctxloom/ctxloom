@@ -361,6 +361,15 @@ type Coordinator struct {
 	// must survive to the items fold) without depending on real scheduler
 	// timing.
 	drainHook func(role string)
+	// spawnDispatchedHook, if set (tests only, same package), runs
+	// synchronously in AgentRun immediately after the child's driver
+	// goroutine has been dispatched, with the child's harp. It is the
+	// deterministic seam for the disposition-truthfulness test: the point of
+	// the test is that the dispatched goroutine can reach its terminal — and
+	// so give back the slot the enqueue claimed — before agent_run composes
+	// its answer, and parking here is what makes that ordering a fact rather
+	// than a scheduler coin flip. Nil in production (zero cost).
+	spawnDispatchedHook func(harp string)
 
 	closeOnce sync.Once
 }

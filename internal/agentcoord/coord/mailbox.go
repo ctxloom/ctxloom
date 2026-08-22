@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Typed mailbox failures — the recv timeout is a contract, not a fault: the
@@ -317,6 +319,39 @@ func (c *Coordinator) takeNextMail(role string) (Message, bool, error) {
 	c.unreserve(role, []string{msg.ID})
 	c.noteMailConsumed(role) // real progress: the relaunch budget is forgiven
 	return msg, true, nil
+}
+
+// requeueUndelivered puts back a message takeNextMail already journaled as
+// CONSUMED but that could not be handed to the child (sendTurn's two drop
+// paths: an input channel already closed, and coordinator shutdown).
+// takeNextMail's own doc accepts a crash window between the take and the
+// engine seeing the turn; it does NOT accept the coordinator noticing the
+// non-delivery and doing nothing about it, which is what a bare return was.
+//
+// The requeue carries a FRESH message id. mailFold dedupes queued facts on
+// message_id, so re-queuing under the original id folds to nothing at all
+// and the message stays exactly as lost as before. Everything a recipient
+// acts on — sender, kind, body, structured companion, reply correlation —
+// is preserved.
+//
+// It lands at the BACK of the role's queue. The mailbox fold has no
+// re-insert-at-position fact and inventing one is a change to a persisted
+// format, so ARRIVAL ORDER between a redelivery and mail queued during the
+// drop window is not preserved. Delivery is, and delivery is the guarantee
+// that was broken.
+//
+// A requeue that cannot itself be journaled is the end of the line: it is
+// reported as loudly as a lost message deserves, naming the message and its
+// sender, rather than being swallowed.
+func (c *Coordinator) requeueUndelivered(role string, msg Message) {
+	newID, _, err := c.queueMailPayloadID(newMessageID(), msg.From, role, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo)
+	if err != nil {
+		clidiag.Warn("ctxloom", "agent %s: message %s from %s was consumed but never delivered, and re-queueing it FAILED (%v) — this message is lost",
+			role, msg.ID, msg.From, err)
+		return
+	}
+	clidiag.Warn("ctxloom", "agent %s: message %s from %s could not be delivered to the child; re-queued as %s",
+		role, msg.ID, msg.From, newID)
 }
 
 // unreserve drops ids from the runtime delivery ledger (they are consumed in

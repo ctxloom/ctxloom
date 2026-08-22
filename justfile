@@ -1075,6 +1075,23 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
     set -euo pipefail
     export GOTMPDIR="{{go_tmp}}"
     pkg="$1"; shift
+    # Packages under these trees do not LINK the code they assert on: they exec
+    # a previously built ctxloom as a subprocess (testenv.TestEnvironment), and
+    # nothing in `go test` ties that binary to the source under edit. Without a
+    # build here the recipe measures whatever binary was lying around. Measured
+    # 2026-08-22 on a fresh worktree: `just test-pkg ./tests/integration/ -tags
+    # integration` ran against a ctxloom built three days earlier from a
+    # different, dirty commit, and a zap-sink mutation in cmd/ctxloom/main.go
+    # survived; with the build in place the same mutation dies. Every other
+    # package keeps the fast no-build path — this is the narrow iteration loop
+    # and it stays narrow. testenv.checkBinaryFreshness is the backstop for
+    # invocations that never come through here (a hand-run `go test`).
+    case "$pkg" in
+        *tests/integration*|*tests/acceptance*)
+            echo "test-pkg: $pkg execs the ctxloom binary — building it first" >&2
+            just build
+            ;;
+    esac
     set +e
     output=$(go test -race "$@" "$pkg" 2>&1)
     status=$?
@@ -1147,6 +1164,12 @@ test-mutation-acceptance *ARGS: build
     marker="{{mutation_tmp}}/.cache-sweep.$$"
     : > "$marker"
     export CTXLOOM_BINARY="$(pwd)/ctxloom"
+    # Waive testenv.checkBinaryFreshness for exactly this run. Gremlins rewrites
+    # the source tree under every mutant, so the binary built two lines up is
+    # older than the source by construction — and the guard, doing its job,
+    # would fail each retest and hand back a KILLED verdict for every mutant,
+    # fabricating kills out of the documented NOT COVERED limitation below.
+    export CTXLOOM_TEST_ALLOW_STALE_BINARY=1
     export GOFLAGS="-run=TestAcceptance"
     set +e
     output=$(TMPDIR="{{mutation_tmp}}" gremlins --config .gremlins.acceptance.yaml unleash ./internal/operations {{ARGS}} 2>&1)
@@ -1934,8 +1957,3 @@ dev-shell: dev-image
         -w /workspace \
         {{devcontainer_image}}:latest \
         bash
-
-# TEMP (trust/fail-loudly validation): acceptance without the buf-invoking build
-# chain — proto artifacts are already generated on disk. Remove after use.
-test-acceptance-nobuild: _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...

@@ -194,14 +194,34 @@ func NewTestEnvironment() (*TestEnvironment, error) {
 	env.AppBinary, err = env.findAppBinary()
 	if err != nil {
 		_ = env.Cleanup()
-		return nil, fmt.Errorf("failed to find ctxloom binary: %w", err)
+		// Deliberately unwrapped: both errors findAppBinary can return (the
+		// not-found hint and the multi-line staleness refusal) already name
+		// their own fix, and a "failed to find ctxloom binary:" prefix
+		// mislabels the second one as a lookup failure.
+		return nil, err
 	}
 
 	return env, nil
 }
 
-// findAppBinary locates the ctxloom binary to test.
+// findAppBinary locates the ctxloom binary to test AND vouches for it: every
+// path resolveAppBinary can return is a PREVIOUSLY BUILT binary that nothing
+// ties to the source currently on disk, so the answer is only useful once
+// checkBinaryFreshness has ruled out that it predates that source.
 func (e *TestEnvironment) findAppBinary() (string, error) {
+	bin, err := resolveAppBinary()
+	if err != nil {
+		return "", err
+	}
+	if err := checkBinaryFreshness(bin, findProjectRoot()); err != nil {
+		return "", err
+	}
+	return bin, nil
+}
+
+// resolveAppBinary picks WHICH ctxloom to test, without judging it: an explicit
+// CTXLOOM_BINARY first, then the conventional build locations, then PATH.
+func resolveAppBinary() (string, error) {
 	// First, check if CTXLOOM_BINARY is set (for CI or custom builds)
 	if bin := os.Getenv("CTXLOOM_BINARY"); bin != "" {
 		if _, err := os.Stat(bin); err == nil {
@@ -219,6 +239,153 @@ func (e *TestEnvironment) findAppBinary() (string, error) {
 	}
 
 	return "", fmt.Errorf("ctxloom binary not found; set CTXLOOM_BINARY or ensure ctxloom is in PATH")
+}
+
+// allowStaleBinaryEnv waives the staleness refusal in checkBinaryFreshness.
+//
+// It exists for one caller shape: a runner that DELIBERATELY execs a binary
+// built from different source than the tree on disk. `just
+// test-mutation-acceptance` is the live example — it builds ctxloom once from
+// unmutated source and then lets gremlins rewrite the tree underneath it, so
+// every mutant's source is newer than the binary by construction. Without the
+// waiver the refusal would fail each retest and gremlins would score every one
+// of those mutants KILLED, converting an honest "the exec boundary hides this"
+// NOT COVERED into a fabricated kill.
+//
+// Nothing else should set it. It is not a way to make a red gate green.
+const allowStaleBinaryEnv = "CTXLOOM_TEST_ALLOW_STALE_BINARY"
+
+// binaryFreshnessDirs are the first-party trees whose non-test .go files are
+// compiled into the ctxloom binary — `go list -deps ./cmd/ctxloom` filtered to
+// this module's own import prefixes. tests/ is deliberately absent: a test file
+// is compiled into the TEST process, never into the subprocess under test, so
+// editing one cannot make the binary wrong.
+var binaryFreshnessDirs = []string{"cmd", "container", "internal", "pkg", "resources"}
+
+// binaryFreshnessExtraFiles are non-.go inputs that still change what the
+// binary does: a dependency bump rebuilds it without touching a single
+// first-party source file.
+var binaryFreshnessExtraFiles = []string{"go.mod", "go.sum"}
+
+// sourceStamp is the newest modification time found across the compiled
+// first-party source, and the file that carried it (named in the refusal so the
+// reader can see WHICH edit the binary predates rather than being told to
+// rebuild on faith).
+type sourceStamp struct {
+	newest time.Time
+	path   string
+}
+
+var (
+	sourceStampMu    sync.Mutex
+	sourceStampCache = map[string]sourceStamp{}
+)
+
+// newestCompiledSource returns the sourceStamp for root, scanning at most once
+// per root per process. Integration and acceptance suites build a
+// TestEnvironment per scenario — hundreds of them — and the answer cannot
+// change mid-run for any invocation that is not itself rewriting the tree (the
+// mutation runners, which set allowStaleBinaryEnv and never reach here).
+func newestCompiledSource(root string) sourceStamp {
+	sourceStampMu.Lock()
+	defer sourceStampMu.Unlock()
+	if stamp, ok := sourceStampCache[root]; ok {
+		return stamp
+	}
+	stamp := scanNewestCompiledSource(root)
+	sourceStampCache[root] = stamp
+	return stamp
+}
+
+// scanNewestCompiledSource walks binaryFreshnessDirs under root for the newest
+// non-test .go file, then folds in binaryFreshnessExtraFiles.
+//
+// Every error is swallowed on purpose: this is a guard, not a build step, and a
+// tree it cannot read (a checkout with no cmd/, a permission-denied directory)
+// must degrade to "no opinion" — a zero stamp, which checkBinaryFreshness reads
+// as "cannot judge, allow" — rather than failing suites for a reason unrelated
+// to what they test.
+func scanNewestCompiledSource(root string) sourceStamp {
+	var stamp sourceStamp
+	consider := func(path string, mod time.Time) {
+		if mod.After(stamp.newest) {
+			stamp = sourceStamp{newest: mod, path: path}
+		}
+	}
+
+	for _, dir := range binaryFreshnessDirs {
+		_ = filepath.WalkDir(filepath.Join(root, dir), func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				// testdata is fixture input to tests, not compiled source.
+				if d.Name() == "testdata" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			name := d.Name()
+			if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				return nil
+			}
+			info, ierr := d.Info()
+			if ierr != nil {
+				return nil
+			}
+			consider(path, info.ModTime())
+			return nil
+		})
+	}
+
+	for _, name := range binaryFreshnessExtraFiles {
+		path := filepath.Join(root, name)
+		if info, err := os.Stat(path); err == nil {
+			consider(path, info.ModTime())
+		}
+	}
+
+	return stamp
+}
+
+// checkBinaryFreshness refuses a ctxloom binary that predates the newest source
+// file compiled into it.
+//
+// WHY THIS IS A HARD FAILURE AND NOT A WARNING. The integration and acceptance
+// suites do not link the code they assert on; they exec a previously built
+// ctxloom as a subprocess. Nothing in `go test` ties that binary to the source
+// under edit, so a change to cmd/ or internal/ can be "verified green" having
+// never once been executed — and the staler the binary, the more confident the
+// false green. Measured: pointing the zap sink back at stderr in
+// cmd/ctxloom/main.go left TestLogChannels_* PASSING; the same edit with a
+// rebuild in between killed it immediately. A warning on stderr in the middle
+// of a passing run is precisely what nobody reads, so the only useful verdict
+// is refusal.
+func checkBinaryFreshness(bin, root string) error {
+	if os.Getenv(allowStaleBinaryEnv) != "" {
+		return nil
+	}
+	info, err := os.Stat(bin)
+	if err != nil {
+		return nil // resolution already proved it exists; a race here is not our verdict to give
+	}
+	stamp := newestCompiledSource(root)
+	if stamp.path == "" || !stamp.newest.After(info.ModTime()) {
+		return nil
+	}
+	const stamps = time.RFC3339
+	return fmt.Errorf(
+		"STALE ctxloom binary — refusing to test it.\n"+
+			"  binary: %s (built %s)\n"+
+			"  source: %s (modified %s)\n"+
+			"These tests exec that binary as a subprocess, so it — not the source you\n"+
+			"just edited — is what every assertion below would have measured. Rebuild\n"+
+			"with `just build`, or point CTXLOOM_BINARY at a fresh build.\n"+
+			"To test a deliberately older binary anyway, set %s=1",
+		bin, info.ModTime().Format(stamps),
+		stamp.path, stamp.newest.Format(stamps),
+		allowStaleBinaryEnv,
+	)
 }
 
 // candidateBinaryPaths lists the common locations the built ctxloom binary may

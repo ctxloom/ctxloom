@@ -178,6 +178,36 @@ actually happen?** Then find the tier that names that consequence.
 
 ---
 
+## Work that lives in ANOTHER REPO — `repo:`
+
+`touches:` is repo-relative and exists to predict git collisions *here*. A task
+whose edit target is in a sibling checkout therefore cannot be located at all:
+writing a path anyway invents a conflict that cannot happen, and writing nothing
+leaves the task unaddressable.
+
+    repo:tagma          repo:reprise        repo:ctxloom-vscode
+    repo:ctxloom-personal                   repo:ctxloom-default
+
+`repo:` names the foreign checkout; `sig:` still carries the address inside it,
+because a symbol or recipe name is meaningful in any repo. Omit `touches:`
+entirely for those tasks — its absence is now MEANINGFUL rather than missing,
+and `repo:` is what says so.
+
+Scalar: one task, one foreign repo. A task spanning two is two tasks, because it
+cannot land atomically.
+
+This was not designed up front. Four independent auditors hit the same wall on
+the same day and each invented a different workaround — one wrote a
+ctxloom-relative path that would have been a lie, two omitted `touches:` with a
+prose note, one tagged only the local half of a split task. That is the signal
+that a vocabulary is missing a word.
+
+A SPLIT task — part here, part elsewhere — carries both `repo:` and the local
+`touches:`. Say in the body which half is which, because a reader querying
+`touches:` sees only the local half and will otherwise under-scope it.
+
+---
+
 ## Work that has LANDED but is not merged — `landed:`
 
 There is a state between "still to do" and "done", and it is where most work

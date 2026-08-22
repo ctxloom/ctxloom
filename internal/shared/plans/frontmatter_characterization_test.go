@@ -40,6 +40,20 @@ func TestParseFrontmatter_Characterization(t *testing.T) {
 			content: "---\ntitle: nope\nsessions:\n  - ghost\n\nbody\n",
 		},
 		{
+			// This document parses cleanly all the way to EOF, which the case
+			// above does NOT — "body" on its own line is a YAML syntax error,
+			// so that one still answers "nothing" even with the closing-fence
+			// check deleted, and cannot detect its loss. This one can: run off
+			// the end and `title:` below the unclosed fence becomes the plan's
+			// title, which is the exact hazard the fence check exists for.
+			name:    "an unterminated block whose body is valid YAML is still not frontmatter",
+			content: "---\nsessions:\n  - ghost\n\ntitle: a body line, not this plan's title\n",
+		},
+		{
+			name:    "an unclosed fence with a single key below it yields no title",
+			content: "---\ntitle: a body line, not this plan's title\n",
+		},
+		{
 			name:    "a body line shaped like a key, after a closed block, is ignored",
 			content: "---\nsessions: [a]\n---\ntitle: body line\n",
 			// The block closed before the body began; `title:` below it is prose.

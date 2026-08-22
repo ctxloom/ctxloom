@@ -171,7 +171,7 @@ type fakeSpawner struct {
 	// which is the shape that separates "queued behind the cap" from
 	// "started and failed".
 	launchErr error
-	perms    []agent.PermissionMode
+	perms     []agent.PermissionMode
 	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
 	// spawns a REAL runner half (Home + EngineHost over the coordinator's
 	// live gRPC listeners) around it. chats/kills record per spawn.

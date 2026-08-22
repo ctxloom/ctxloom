@@ -375,3 +375,25 @@ func TestListAllProjects_ByPriority_RanksWithinEachProjectAndReportsWarnings(t *
 	assert.NotContains(t, got.PriorityWarning, "project proj-a:",
 		"a healthy ranking must stay quiet")
 }
+
+// A --global listing interleaves several projects' findings, and the
+// coverage diagnostic is multi-line -- one line per thinly-covered formula
+// term. Attributing only the first line would leave every line after it
+// reading as a finding about whichever project happened to be named last,
+// which is worse than no attribution: it is confident and wrong.
+func TestAttributeToProject_EveryLineNamesItsProject(t *testing.T) {
+	got := attributeToProject("high-tight-gulf", "first finding\nsecond finding\nthird finding")
+
+	assert.Equal(t, []string{
+		"project high-tight-gulf: first finding",
+		"project high-tight-gulf: second finding",
+		"project high-tight-gulf: third finding",
+	}, strings.Split(got, "\n"))
+}
+
+// A project whose ranking is healthy contributes nothing. Returning a bare
+// "project X: " would put an empty finding into the joined warning and make
+// a clean project look like a reported one.
+func TestAttributeToProject_HealthyProjectContributesNothing(t *testing.T) {
+	assert.Empty(t, attributeToProject("high-tight-gulf", ""))
+}

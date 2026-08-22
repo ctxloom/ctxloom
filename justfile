@@ -581,7 +581,9 @@ check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
         echo "Your WORKING TREE may well be fine — that is the point of this gate." >&2
         echo "Look for files that exist here but were never staged; a wholly new" >&2
         echo "directory shows up in git status as one '?? path/' line and is easy to" >&2
-        echo "filter away by accident:" >&2
+        echo "filter away by accident. Do NOT run the 'go get' the toolchain suggests" >&2
+        echo "for a missing internal/ package — that package is yours and unstaged," >&2
+        echo "not a dependency:" >&2
         echo >&2
         echo "  git status --porcelain --untracked-files=all" >&2
         echo "  git ls-tree -r --name-only $ref -- <the package above>" >&2

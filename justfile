@@ -1063,18 +1063,83 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 # `-run` miss the pipefail chain never triggers because a package that
 # doesn't build/vet fails before printing either message.
 #
-# ⚠ THIS RECIPE IS VACUOUS FOR ./tests/acceptance/... — taskloom
-# unvaried-onlooker. It applies no `acceptance` build tag, so every file in
-# that package is excluded from the build, nothing runs, and it exits 0 in
-# about a second REGARDLESS. The `[no tests to run]` guard below does not
-# catch it: a package built to zero test files reports `[no test files]`,
-# which is treated as green. `just test-acceptance` is the only gate that
-# runs those scenarios — do not cite this one for them.
+# BUILD TAGS ARE THE SECOND WAY THIS RECIPE CAN GO FALSELY GREEN, and they
+# need two separate guards because they produce two different symptoms.
+#
+# Symptom 1 — the whole package is hidden. Every *_test.go carries a tag the
+# invocation did not pass, so `go test` compiles zero test files, prints
+# `? ... [no test files]`, and exits 0. That is the SAME message a package
+# with genuinely no tests prints, which is why the `[no tests to run]` guard
+# never caught it. The discriminator is not the message but `go list`: asked
+# under this invocation's own -tags, does the package have *_test.go sitting
+# in IgnoredGoFiles? None means the package really has no tests and it stays
+# green exactly as before; some means a tag hid them, and the run measured
+# nothing. Measured 2026-08-22: internal/lm/conformance was live in that
+# state — `just test-pkg ./internal/lm/conformance/` exited 0 in 1s having
+# compiled not one test.
+#
+# Symptom 2 — PART of the package is hidden, which is tests/acceptance, the
+# case this recipe was actually filed for (taskloom unvaried-onlooker).
+# Neither guard above can see it. Measured 2026-08-22 without the tag: the 11
+# untagged helper test files still compile and 158 of their tests PASS in
+# ~2.3s, so the output is a clean `ok` — while all 15 files of the godog
+# suite are excluded and not one scenario runs. A brief that gates on this
+# recipe for "the acceptance tests" reads green from an instrument that never
+# touched them; that is how an acceptance-suite audit came to report on 25
+# assertions it had not executed. There is no general signal to infer here —
+# a partially tagged package is normal and correct everywhere else in this
+# repo (internal/config, internal/compression and 17 more have tagged test
+# files that a plain run rightly skips) — so the guard is scoped to the one
+# path whose entire purpose IS the tagged suite, alongside the build case
+# below that already special-cases it. It demands the tag AND a -run filter:
+# the tag because otherwise the suite is invisible, and -run because a tagged
+# unfiltered run drives all 515 scenarios (179s idle, 1200s under load) and
+# this recipe is the narrow iteration loop, not `just test-acceptance`.
+# It refuses BEFORE the build below, so a wrong invocation no longer pays
+# ~13s to still run no scenarios.
 test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
     #!/usr/bin/env bash
     set -euo pipefail
     export GOTMPDIR="{{go_tmp}}"
     pkg="$1"; shift
+    # Read the invocation's own -tags/-run out of ARGS, so the guards below
+    # judge the same package view `go test` is about to build.
+    tags=""
+    has_run=0
+    prev=""
+    for a in "$@"; do
+        case "$a" in
+            -tags=*|--tags=*) tags="${a#*=}" ;;
+            -run=*|--run=*|-run|--run) has_run=1 ;;
+        esac
+        case "$prev" in
+            -tags|--tags) tags="$a" ;;
+        esac
+        prev="$a"
+    done
+    case "$pkg" in
+        *tests/acceptance*)
+            case " $tags " in
+                *acceptance*) ;;
+                *)
+                    echo "error: $pkg without '-tags acceptance' compiles the untagged helper tests only —" >&2
+                    echo "       every godog scenario is excluded, so its green would mean nothing." >&2
+                    echo "fix:  just test-pkg $pkg -tags acceptance -run '<TestName>'  # one slice" >&2
+                    echo "  or: just test-acceptance                                   # the whole suite" >&2
+                    exit 1
+                    ;;
+            esac
+            if [ "$has_run" -eq 0 ]; then
+                echo "error: $pkg -tags acceptance without a -run filter drives the ENTIRE godog suite" >&2
+                echo "       (515 scenarios; 179s on an idle box, ~1200s under load). This recipe is the" >&2
+                echo "       narrow iteration loop and does not carry that timeout." >&2
+                echo "fix:  just test-pkg $pkg -tags acceptance -run '<TestName>'" >&2
+                echo "  or: just test-acceptance          # the whole suite, with the 30m budget it needs" >&2
+                echo "  or: just test-acceptance-features # a named slice of feature files" >&2
+                exit 1
+            fi
+            ;;
+    esac
     # Packages under these trees do not LINK the code they assert on: they exec
     # a previously built ctxloom as a subprocess (testenv.TestEnvironment), and
     # nothing in `go test` ties that binary to the source under edit. Without a
@@ -1103,6 +1168,22 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
     if grep -q '\[no tests to run\]' <<<"$output"; then
         echo "error: -run matched no tests in $pkg (typo'd or renamed test name?)" >&2
         exit 1
+    fi
+    # Symptom 1. Only reached when `go test` said [no test files], so the
+    # `go list` costs nothing on the normal path.
+    if grep -q '\[no test files\]' <<<"$output"; then
+        hidden=$(go list -e -tags "$tags" -f '{{{{if and (eq (len .TestGoFiles) 0) (eq (len .XTestGoFiles) 0)}}{{{{$d := .Dir}}{{{{range .IgnoredGoFiles}}{{{{$d}} {{{{.}}
+        {{{{end}}{{{{end}}' "$pkg" 2>/dev/null | awk 'NF==2 && $2 ~ /_test\.go$/')
+        if [ -n "$hidden" ]; then
+            echo "error: a build tag excluded EVERY test file in $pkg, so '[no test files]' above means" >&2
+            echo "       the tag hid them — not that the package has no tests. Nothing was measured:" >&2
+            while read -r dir file; do
+                constraint=$(sed -n 's|^//go:build ||p' "$dir/$file" | head -1)
+                echo "         $file  (//go:build $constraint)" >&2
+            done <<<"$hidden"
+            echo "fix:  just test-pkg $pkg -tags <tag>" >&2
+            exit 1
+        fi
     fi
 
 # ===== Mutation testing =====

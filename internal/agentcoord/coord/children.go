@@ -930,7 +930,14 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 			return err
 		}
 	}
-	rctx, rcancel := context.WithTimeout(c.baseCtx, defaultRequestTimeout)
+	// The round trip hangs off the LAUNCH context, not c.baseCtx. ctx is the
+	// cancellable per-harp context agent_stop cancels (launchgate.go); baseCtx
+	// dies only on coordinator shutdown, so binding the request to it left a
+	// stop issued after the dial-home wait — the runner is up, StartRun is on
+	// the wire, the engine has not answered — with nothing to cancel: the
+	// coordinator stayed parked for the whole defaultRequestTimeout while the
+	// operator's stop reported success.
+	rctx, rcancel := context.WithTimeout(ctx, defaultRequestTimeout)
 	resp, err := c.requestRunner(rctx, credHash, &agentcoordpb.RunnerRequest{
 		Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{
 			RunId:       rt.runID,

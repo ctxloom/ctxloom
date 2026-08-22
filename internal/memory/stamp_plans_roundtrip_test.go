@@ -26,6 +26,16 @@ func TestStampPlanFile_IsReadableByPlansParser(t *testing.T) {
 		initial string
 		// wantSessions is what the reader must report after stamping "wave81".
 		wantSessions []string
+		// wantTitle is what the reader must report for `title` after stamping.
+		// It is asserted for EVERY case, empty included: `sessions` alone was
+		// what this test used to check, and a plan's title is the other half of
+		// what the reader exists to produce.
+		wantTitle string
+		// writerKeeps is a substring the stamped file must still contain: the
+		// title's SOURCE SPELLING, proving the yaml.Node writer round-tripped
+		// it verbatim and that any mismatch above is therefore the reader's
+		// disagreement with YAML and not the writer having rewritten the value.
+		writerKeeps string
 	}{
 		{
 			name:         "no frontmatter at all",
@@ -56,6 +66,33 @@ func TestStampPlanFile_IsReadableByPlansParser(t *testing.T) {
 			name:         "sessions alongside a title",
 			initial:      "---\ntitle: \"My Plan\"\nsessions: [earlier]\n---\n\nbody\n",
 			wantSessions: []string{"earlier", "wave81"},
+			wantTitle:    "My Plan",
+			writerKeeps:  "title: \"My Plan\"",
+		},
+
+		// The three shapes below are ordinary YAML that the writer preserves
+		// character for character, so the file on disk means exactly one thing.
+		// The reader has to agree with that meaning, not with the source text.
+		{
+			name:         "a trailing comment is not part of the title",
+			initial:      "---\ntitle: hardening # rev2\nsessions: [earlier]\n---\n\nbody\n",
+			wantSessions: []string{"earlier", "wave81"},
+			wantTitle:    "hardening",
+			writerKeeps:  "title: hardening # rev2",
+		},
+		{
+			name:         "a doubled quote inside a single-quoted title is one quote",
+			initial:      "---\ntitle: 'it''s done'\nsessions: [earlier]\n---\n\nbody\n",
+			wantSessions: []string{"earlier", "wave81"},
+			wantTitle:    "it's done",
+			writerKeeps:  "title: 'it''s done'",
+		},
+		{
+			name:         "a literal block scalar title is its content, not its indicator",
+			initial:      "---\ntitle: |\n  wrapped\nsessions: [earlier]\n---\n\nbody\n",
+			wantSessions: []string{"earlier", "wave81"},
+			wantTitle:    "wrapped\n",
+			writerKeeps:  "title: |\n  wrapped",
 		},
 	}
 
@@ -77,9 +114,20 @@ func TestStampPlanFile_IsReadableByPlansParser(t *testing.T) {
 			require.Contains(t, string(data), "wave81",
 				"the writer did not record the harp at all; the reader assertion would be vacuous")
 
-			_, got := plans.ParseFrontmatter(string(data))
+			// Fixture check: the title survived the writer's yaml.Node
+			// round-trip with its spelling intact. Without this, a title
+			// mismatch below could equally mean the writer had reformatted the
+			// value, and the test would be accusing the wrong half of the pair.
+			if tc.writerKeeps != "" {
+				require.Contains(t, string(data), tc.writerKeeps,
+					"the writer did not round-trip the title verbatim, so a reader mismatch would be unattributable\n--- file ---\n%s", data)
+			}
+
+			gotTitle, got := plans.ParseFrontmatter(string(data))
 			assert.Equal(t, tc.wantSessions, got,
 				"the reader must recover exactly what the writer recorded\n--- file ---\n%s", data)
+			assert.Equal(t, tc.wantTitle, gotTitle,
+				"the reader must recover the title the file MEANS, not the source text the writer preserved\n--- file ---\n%s", data)
 		})
 	}
 }

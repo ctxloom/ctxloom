@@ -278,10 +278,12 @@ number as a worse outcome has misread this vocabulary.
 deliberate decision as a fault, sending the user to hunt for a problem on their
 machine that isn't there. `0` makes a refusal indistinguishable, to the script
 that ran it, from a run that had nothing to do — the same silence the bullets
-above forbid. The one command using it: `ctxloom deps upgrade`, declining to
-advance a pin onto content whose publisher signature does not verify over its
-bytes (`exitCodeRefused` in `internal/cli/startup_helpers.go`, beside
-`exitCodeFatalFindings`).
+above forbid. The commands using it (`exitCodeRefused` in
+`internal/cli/startup_helpers.go`, beside `exitCodeFatalFindings`): `ctxloom
+deps upgrade`, declining to advance a pin onto content whose publisher signature
+does not verify over its bytes; and the distill frontends, declining to distill
+with ctxloom's built-in default when the project's own `distill` prompt was
+withheld by the trust gate.
 
 A refused command still prints its full explanation on the way out. The code is
 for the script, the message is for the human. Nothing prints an `Error:` line on

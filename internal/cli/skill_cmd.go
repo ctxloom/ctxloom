@@ -479,7 +479,12 @@ func runSkillImport(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(out, "Imported skill %q into bundle %q (%d file(s))\n", res.Name, res.Bundle, res.FileCount)
 		fmt.Fprintf(out, "  %s\n", res.Dir)
 		fmt.Fprintf(out, "  signature: %s\n", res.SignatureState)
-		fmt.Fprintln(out, "Pending review — run: ctxloom review", res.Bundle)
+		// The bundle name is NOT appended as an argument: reviewCmd is
+		// cobra.NoArgs, so `ctxloom review <bundle>` — which this line used to
+		// print — is rejected by the very tool that advised it. The bundle is
+		// already named on the first line of this output; what the user needs
+		// here is a command that runs.
+		fmt.Fprintln(out, "Pending review — run: ctxloom review")
 		return nil
 	})
 }

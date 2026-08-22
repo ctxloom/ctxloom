@@ -120,6 +120,11 @@ Grouped by what you would have to change.
 - Container identity contracts are enforced and ownership residue is surfaced.
 
 **Trust**
+- A `distill` prompt the trust gate withholds now REFUSES the run — `bundle
+  distill`, `fragment distill`, `command distill` and item edits exit 2 and name
+  the item — instead of silently distilling with ctxloom's built-in default. A
+  project that never configured a `distill` prompt is unaffected: absence still
+  falls back to the default, because absence is not a decision.
 - A local attestation overrides a broken or absent remote signature.
 - Countersignatures bind a composite attestation form, not a kind label.
 - The pending-lockfile review ceremony and blind mode are gone.

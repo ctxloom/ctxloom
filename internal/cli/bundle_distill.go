@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/compression"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -99,7 +101,13 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	} else {
 		label = validated
 	}
-	distiller := newLLMDistillerForLabel(cfg, label)
+	distiller, err := newLLMDistillerForLabel(cfg, label)
+	if err != nil {
+		// REFUSE before any file is touched: a withheld distill prompt must
+		// not produce a run that rewrites bundles with the default prompt and
+		// reports "distilled N items".
+		return refuseWithheldDistillPrompt(cmd, err)
+	}
 
 	result := bundleDistillResult{DryRun: bundleDistillDryRun}
 	for _, filePath := range files {
@@ -265,28 +273,55 @@ func printDistillSummary(w *iox.ErrWriter, totalItems, totalFiles, totalSkipped 
 // defaultDistillPrompt is used when no distill prompt is found in bundles.
 var defaultDistillPrompt = resources.MustGetPromptText("distill-default")
 
-// loadDistillPrompt loads the distillation prompt from bundles.
+// loadDistillPrompt resolves the distillation prompt for cfg.
 //
-// It cannot fail: every unavailable source (no config, no `distill` command in
-// any trusted bundle, an empty one) falls back to the embedded default prompt,
-// so there is always a usable prompt and never an error to report. It returns
-// no error rather than a permanently-nil one, so no caller has to decide what
-// to do about a failure that cannot happen (the discarded error was
-// one of three "silent return nil" paths in newLLMDistillerForLabel).
-func loadDistillPrompt() string {
-	cfg, err := config.Load()
-	if err != nil {
-		return defaultDistillPrompt
+// ABSENT AND WITHHELD ARE DIFFERENT ANSWERS, and collapsing them is the defect
+// this function was written around. No configured `distill` command at all —
+// no config, none in any bundle, an empty one — legitimately falls back to the
+// embedded default: a project that never configured a prompt gets ctxloom's.
+// But a command the trust gate WITHHELD is a decision, not an absence. The gate
+// declined to supply that prompt; substituting the default there converts a
+// withheld item into a used one and hands back a distillation the user believes
+// came from their own configured prompt. So that one case returns an error, and
+// the callers refuse (docs/trust-model.md, docs/cli-ux-principles.md §7).
+//
+// cfg is the caller's already-loaded config rather than a second ambient
+// config.Load(), so the prompt is resolved against the very bundles the run is
+// using. A nil cfg has no bundles to consult and yields the default.
+func loadDistillPrompt(cfg *config.Config) (string, error) {
+	if cfg == nil {
+		return defaultDistillPrompt, nil
 	}
 
-	// Try to load "distill" prompt from bundles
 	prompt, err := operations.GetCommand(context.Background(), cfg, operations.GetCommandRequest{Name: "distill"})
-	if err == nil && prompt.Content != "" {
-		return strings.TrimSpace(prompt.Content)
+	switch {
+	case err == nil && prompt.Content != "":
+		return strings.TrimSpace(prompt.Content), nil
+	case errors.Is(err, errs.ErrCommandWithheld):
+		return "", fmt.Errorf("the project's `distill` prompt is withheld by the trust gate, and distilling with ctxloom's built-in default instead would silently substitute a prompt nobody approved (%w) — accept or reject it with `ctxloom review`, or delete the bundle's `distill` command to use the built-in default deliberately", err)
 	}
 
-	// Use default prompt
-	return defaultDistillPrompt
+	// No `distill` command anywhere (or an empty one): the embedded default.
+	return defaultDistillPrompt, nil
+}
+
+// refuseWithheldDistillPrompt reports a withheld distill prompt where a human
+// reads it and returns the exit-2 refusal: the command ran to completion and
+// DELIBERATELY did not distill (docs/cli-ux-principles.md §7). It is not exit 1
+// — nothing failed and there is no fault on the user's machine — and it is
+// emphatically not exit 0 with a default-prompt distillation in place of the
+// configured one.
+//
+// The explanation rides cmd's ERROR writer through an iox.ErrWriter, so a
+// refusal that could not be written is itself reported rather than becoming a
+// silent exit 2.
+func refuseWithheldDistillPrompt(cmd *cobra.Command, err error) error {
+	w := iox.NewErrWriter(cmd.ErrOrStderr())
+	w.Printf("REFUSED: %v\n", err)
+	if werr := w.Err(); werr != nil {
+		return werr
+	}
+	return refusedExit()
 }
 
 // buildSiblingContext creates context about sibling items in a bundle.

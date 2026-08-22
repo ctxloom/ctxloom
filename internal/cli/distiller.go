@@ -11,13 +11,15 @@ import (
 // newLLMDistiller builds an operations.Distiller backed by the fast-role LLM
 // and distill prompt. It is the single construction point shared by every CLI
 // frontend (bundle/fragment/prompt distill and item edits) so distillation
-// wiring lives in one place. Returns nil when no LLM resolves — the operations
-// layer then stores raw content (fault-tolerant), and the caller is told why on
-// stderr.
-func newLLMDistiller(cfg *config.Config) operations.Distiller {
+// wiring lives in one place. Returns a nil Distiller and a nil error when no
+// LLM resolves — the operations layer then stores raw content (fault-tolerant),
+// and the caller is told why on stderr.
+//
+// A NON-NIL ERROR IS A REFUSAL, not a fault: see newLLMDistillerForLabel.
+func newLLMDistiller(cfg *config.Config) (operations.Distiller, error) {
 	if cfg == nil {
 		clidiag.Warn("ctxloom", "no config is available, so nothing can be distilled: content will be stored RAW (undistilled)")
-		return nil
+		return nil, nil
 	}
 	return newLLMDistillerForLabel(cfg, cfg.FastLabel())
 }
@@ -35,27 +37,36 @@ func newLLMDistiller(cfg *config.Config) operations.Distiller {
 // The backend guard below is defensive only — config.ResolveLLM degrades a
 // missing label and an empty type to the built-in default backend
 // (LLMConfig.EffectiveType) and never yields "".
-func newLLMDistillerForLabel(cfg *config.Config, label string) operations.Distiller {
+func newLLMDistillerForLabel(cfg *config.Config, label string) (operations.Distiller, error) {
 	if cfg == nil {
 		clidiag.Warn("ctxloom", "no config is available, so nothing can be distilled: content will be stored RAW (undistilled)")
-		return nil
+		return nil, nil
 	}
 	if label == "" {
 		clidiag.Warn("ctxloom", "no LLM label resolves for distillation (set llm.defaults.fast or llm.defaults.primary in config.yaml, or keep exactly one llm.configs entry): content will be stored RAW (undistilled)")
-		return nil
+		return nil, nil
 	}
 	backend, model := cfg.ResolveLLM(label)
 	if backend == "" {
 		clidiag.Warn("ctxloom", "llm label %q resolves to no backend: content will be stored RAW (undistilled)", label)
-		return nil
+		return nil, nil
+	}
+	// The ONE error this constructor has: the project configured a `distill`
+	// prompt and the trust gate withheld it. Warning-and-continuing here would
+	// be exactly the swallow being fixed — the run would proceed on ctxloom's
+	// own default and report success. The error is returned so the command
+	// refuses (refuseWithheldDistillPrompt), which is a decision, not a fault.
+	prompt, err := loadDistillPrompt(cfg)
+	if err != nil {
+		return nil, err
 	}
 	return &llmDistiller{
 		llmName:  backend,
 		llmLabel: label,
 		llmEnv:   operations.LLMEnvFor(cfg, label),
 		model:    model,
-		prompt:   loadDistillPrompt(),
-	}
+		prompt:   prompt,
+	}, nil
 }
 
 // llmDistiller adapts the cmd distill helpers to the operations.Distiller

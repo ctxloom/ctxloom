@@ -38,7 +38,9 @@ func TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw(t *testing.
 		}})
 		require.Empty(t, cfg.FastLabel(), "fixture precondition: no label resolves")
 
-		assert.Nil(t, newLLMDistiller(cfg))
+		d, err := newLLMDistiller(cfg)
+		require.NoError(t, err, "an unresolvable label is a warning, not a refusal")
+		assert.Nil(t, d)
 		out := warn.String()
 		assert.Contains(t, out, "RAW", "the user must learn the content is stored undistilled")
 		assert.Contains(t, out, "llm.defaults.fast", "and how to fix it")
@@ -46,13 +48,17 @@ func TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw(t *testing.
 
 	t.Run("nil config", func(t *testing.T) {
 		warn := captureWarnings(t)
-		assert.Nil(t, newLLMDistiller(nil))
+		d, err := newLLMDistiller(nil)
+		require.NoError(t, err)
+		assert.Nil(t, d)
 		assert.Contains(t, warn.String(), "RAW")
 	})
 
 	t.Run("explicit empty label", func(t *testing.T) {
 		warn := captureWarnings(t)
-		assert.Nil(t, newLLMDistillerForLabel(config.NewFixture(config.Fixture{}), ""))
+		d, err := newLLMDistillerForLabel(config.NewFixture(config.Fixture{}), "")
+		require.NoError(t, err)
+		assert.Nil(t, d)
 		assert.Contains(t, warn.String(), "RAW")
 	})
 }
@@ -68,8 +74,9 @@ func TestNewLLMDistiller_ResolvableLabelIsSilent(t *testing.T) {
 		},
 	}})
 
-	d := newLLMDistiller(cfg)
+	d, err := newLLMDistiller(cfg)
 
+	require.NoError(t, err)
 	require.NotNil(t, d)
 	// NotContains rather than Empty: loadDistillPrompt loads the ambient config,
 	// which legitimately warns about unrelated ambient conditions (e.g. running
@@ -84,10 +91,13 @@ func TestNewLLMDistiller_ResolvableLabelIsSilent(t *testing.T) {
 	assert.NotEmpty(t, ld.prompt, "a distiller with an EMPTY prompt would silently distill against nothing")
 }
 
-// TestLoadDistillPrompt_AlwaysYieldsAPrompt pins the measured fact that
-// loadDistillPrompt has no failure mode — every unavailable source falls
-// back to the embedded default — so it no longer returns an error for a
-// caller to discard.
-func TestLoadDistillPrompt_AlwaysYieldsAPrompt(t *testing.T) {
-	assert.NotEmpty(t, loadDistillPrompt())
+// TestLoadDistillPrompt_AbsentSourcesYieldTheDefault pins the arm that is
+// legitimately a fallback: nothing configured anywhere (here, no config at
+// all) is an ABSENCE, and an absence gets the embedded default with no error.
+// Its counterpart — a configured prompt the trust gate WITHHELD, which is a
+// decision and not an absence — is TestBundleDistill_WithheldPromptRefuses.
+func TestLoadDistillPrompt_AbsentSourcesYieldTheDefault(t *testing.T) {
+	got, err := loadDistillPrompt(nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, got)
 }

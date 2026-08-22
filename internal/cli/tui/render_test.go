@@ -181,7 +181,7 @@ func TestTruncateLine_CutsOnColumnsAndTerminatesEscapes(t *testing.T) {
 // A grapheme cluster is one glyph, not one column per code point. Summing
 // per-rune widths charges a ZWJ family six columns and a flag four.
 func TestWrapLine_KeepsGraphemeClustersWhole(t *testing.T) {
-	for _, cluster := range []string{"\U0001F468‍\U0001F469‍\U0001F467", "\U0001F1EC\U0001F1E7"} {
+	for _, cluster := range []string{"\U0001F468\u200d\U0001F469\u200d\U0001F467", "\U0001F1EC\U0001F1E7"} {
 		src := strings.Repeat(cluster, 4)
 		lines := wrapLine(src, 4)
 		assert.Equal(t, src, strings.Join(lines, ""), "cluster=%q", cluster)

@@ -1,11 +1,16 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // A ranking in which every task scores exactly Max — what a project with no
@@ -121,4 +126,35 @@ func TestPriorityDiagnosticWarning_TiedAndUncoveredBothReport(t *testing.T) {
 	})
 	assert.Contains(t, msg, "every active task ties")
 	assert.Contains(t, msg, "triage:level")
+}
+
+// The coverage warning is multi-line, and clidiag prefixes what it is handed
+// ONCE. Emitting it as a single message leaves every line after the first
+// bare on stderr, where an unprefixed line is indistinguishable from ordinary
+// output -- the channel split this project already has an integration test
+// for. Every line must carry the prefix.
+func TestRunListCmd_EveryWarningLineIsPrefixedOnStderr(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+
+	// Two tasks that rate each other but leave several formula terms
+	// uncarried, so the coverage warning runs to more than one line.
+	for _, level := range []string{"1", "5"} {
+		_, err = operations.AddTaskWithTags(tc, "rung "+level, "", "", []string{"triage:level=" + level})
+		require.NoError(t, err)
+	}
+
+	var out, errw strings.Builder
+	require.NoError(t, runListCmd(&out, &errw, tc, listOptions{Sort: sortPriority, Format: clifmt.FormatText}))
+
+	var warned int
+	for _, line := range strings.Split(strings.TrimRight(errw.String(), "\n"), "\n") {
+		if !strings.Contains(line, "active tasks carry no") && !strings.Contains(line, "is inert") {
+			continue
+		}
+		warned++
+		assert.Contains(t, line, "taskloom:", "a diagnostic line reached stderr unprefixed: %q", line)
+	}
+	assert.Greater(t, warned, 1, "this population must produce a multi-line coverage warning, or the test proves nothing")
 }

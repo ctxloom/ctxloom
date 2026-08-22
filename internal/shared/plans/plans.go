@@ -94,7 +94,18 @@ func List(root string) ([]Plan, error) {
 		if !strings.HasSuffix(d.Name(), paths.PlanFileExt) {
 			return nil
 		}
-		name := strings.TrimSuffix(strings.Join(segs[1:], "/"), paths.PlanFileExt)
+		// A plan's NAME is stable across the persist/ migration. The path is
+		// <harp>/persist/<name>.plan.md now and was <harp>/<name>.plan.md
+		// before, and letting that show through would rename every plan in
+		// every listing the moment the sweep ran — "design" becoming
+		// "persist/design" for no reason a reader could act on. Only that one
+		// leading segment is dropped; any deeper nesting is a real
+		// distinction the name keeps.
+		rest := segs[1:]
+		if len(rest) > 1 && rest[0] == paths.PersistDirName {
+			rest = rest[1:]
+		}
+		name := strings.TrimSuffix(strings.Join(rest, "/"), paths.PlanFileExt)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {

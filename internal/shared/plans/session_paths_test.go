@@ -99,3 +99,26 @@ func TestSessionPlanPaths_EmptyHarpAndMissingSession(t *testing.T) {
 	assert.Nil(t, got)
 	assert.Empty(t, problems)
 }
+
+// TestList_PlanNameIsStableAcrossTheMigration: a plan keeps the name it had
+// before the sweep moved it under persist/. Letting the directory show through
+// would rename every plan in every listing at the moment of migration —
+// "design" becoming "persist/design" — for no distinction a reader can act on.
+// A genuinely nested plan keeps its subdirectory, because that one IS a
+// distinction.
+func TestList_PlanNameIsStableAcrossTheMigration(t *testing.T) {
+	testsupport.Isolate(t)
+	const harp = "brisk-teal-otter"
+	planDir, err := paths.HarpPlansDir(harp)
+	require.NoError(t, err)
+	writePlan(t, planDir, "design", "# after the sweep")
+	writePlan(t, filepath.Join(planDir, "archive"), "old", "# nested")
+
+	root, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	got, err := List(root)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "archive/old", got[0].Name, "real nesting survives in the name")
+	assert.Equal(t, "design", got[1].Name, "the persist/ segment does not")
+}

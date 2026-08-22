@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -123,4 +124,109 @@ func TestRenderItems_CursorGutterAndIndex(t *testing.T) {
 	require.Len(t, first, 2)
 	assert.True(t, strings.HasPrefix(lines[first[1]], "▸ "), "cursor item carries the gutter marker")
 	assert.True(t, strings.HasPrefix(lines[first[0]], "  "))
+}
+
+// Feed content is engine transcript text verbatim, and engines colour it. A
+// wrap that lands inside an SGR sequence puts a half-written CSI on the wire;
+// the terminal then consumes every following byte until a final byte arrives,
+// eating the rest of the row, the pane divider and the neighbouring pane. The
+// old per-rune column scan did exactly that, charging the parameter bytes of
+// "\x1b[31m" as four columns and cutting between "\x1b[" and "31m".
+func TestWrapLine_NeverSplitsAnEscapeSequence(t *testing.T) {
+	for _, src := range []string{
+		"\x1b[31mERROR\x1b[0m: build failed in pkg/foo",
+		"\x1b[38;5;196mred text here\x1b[0m",
+		"\x1b[38;2;220;50;47mtruecolour output line\x1b[0m",
+		"\x1b[1;4mbold underline\x1b[0m plain \x1b[32mgreen\x1b[0m",
+	} {
+		for width := 1; width <= 24; width++ {
+			lines := wrapLine(src, width)
+			require.NotEmpty(t, lines, "src=%q width=%d", src, width)
+			for i, l := range lines {
+				assertTerminatedEscapes(t, l, "src=%q width=%d line %d", src, width, i)
+			}
+			assert.Equal(t, src, strings.Join(lines, ""),
+				"wrapping loses no bytes: src=%q width=%d", src, width)
+		}
+	}
+}
+
+// The column budget has to be respected on coloured input too: the escape
+// bytes cost nothing, so a coloured line must still fill the pane. The old
+// scan charged them as columns and emitted 5 visible columns against a
+// budget of 10 — at 80 columns that silently discarded most of the pane.
+func TestWrapLine_ColouredLinesUseTheWholeColumnBudget(t *testing.T) {
+	src := "\x1b[31m" + strings.Repeat("x", 40) + "\x1b[0m"
+	lines := wrapLine(src, 10)
+	require.Greater(t, len(lines), 1)
+	for i, l := range lines[:len(lines)-1] {
+		assert.Equal(t, 10, lipgloss.Width(l),
+			"every full line spends the whole budget; line %d = %q", i, l)
+	}
+}
+
+// truncateLine cuts the collapsed tool-call one-liner, which carries the same
+// coloured transcript text.
+func TestTruncateLine_CutsOnColumnsAndTerminatesEscapes(t *testing.T) {
+	src := "\x1b[38;5;196mred text here\x1b[0m"
+	for width := 1; width <= 12; width++ {
+		got := truncateLine(src, width)
+		assertTerminatedEscapes(t, got, "width=%d", width)
+		assert.Equal(t, width, lipgloss.Width(got),
+			"truncation spends the whole budget: width=%d got=%q", width, got)
+	}
+	assert.Equal(t, src, truncateLine(src, 40), "a line inside the budget is untouched")
+}
+
+// A grapheme cluster is one glyph, not one column per code point. Summing
+// per-rune widths charges a ZWJ family six columns and a flag four.
+func TestWrapLine_KeepsGraphemeClustersWhole(t *testing.T) {
+	for _, cluster := range []string{"\U0001F468‍\U0001F469‍\U0001F467", "\U0001F1EC\U0001F1E7"} {
+		src := strings.Repeat(cluster, 4)
+		lines := wrapLine(src, 4)
+		assert.Equal(t, src, strings.Join(lines, ""), "cluster=%q", cluster)
+		for i, l := range lines {
+			assert.LessOrEqual(t, lipgloss.Width(l), 4,
+				"cluster=%q line %d = %q is over budget", cluster, i, l)
+			assert.Equal(t, 0, len(l)%len(cluster),
+				"cluster=%q line %d = %q split a cluster", cluster, i, l)
+		}
+	}
+}
+
+// assertTerminatedEscapes fails if s contains an ANSI escape sequence that is
+// cut short — an ESC with nothing after it, or a CSI whose final byte
+// (0x40-0x7e) never arrives. Those are the bytes that make a terminal swallow
+// the rest of the screen, so this asserts on what is written, not on how a
+// pane looks.
+func assertTerminatedEscapes(t *testing.T, s string, msg string, args ...any) {
+	t.Helper()
+	ctx := fmt.Sprintf(msg, args...)
+	for i := 0; i < len(s); i++ {
+		if s[i] != 0x1b {
+			continue
+		}
+		if i+1 >= len(s) {
+			t.Errorf("%s: trailing bare ESC in %q", ctx, s)
+			return
+		}
+		if s[i+1] != '[' {
+			continue // not a CSI; the two-byte forms are complete as they are
+		}
+		terminated := false
+		for j := i + 2; j < len(s); j++ {
+			if s[j] >= 0x40 && s[j] <= 0x7e {
+				terminated = true
+				i = j
+				break
+			}
+			if s[j] < 0x20 || s[j] > 0x3f {
+				break // not a valid parameter/intermediate byte
+			}
+		}
+		if !terminated {
+			t.Errorf("%s: unterminated CSI at byte %d in %q", ctx, i, s)
+			return
+		}
+	}
 }

@@ -13,6 +13,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/charmbracelet/x/ansi"
+
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -1109,6 +1111,14 @@ func (m Model) rosterLines(height int) []string {
 // double-width runes, and lipgloss-styled roster rows, whose SGR escapes are
 // runes that occupy no column at all. Either one shears the pane divider off
 // its column when counted as runes.
+//
+// Truncation goes through ansi.Truncate rather than a prefix scan of our own
+// because a cut has to respect two things a scan does not: an escape sequence
+// is indivisible (cutting inside one puts an unterminated CSI on the wire, and
+// the terminal then eats every byte after it, including the pane divider),
+// and a grapheme cluster is indivisible (a ZWJ sequence is one two-column
+// glyph, not one column per code point). ansi.Truncate also re-emits the reset
+// for any style still open at the cut, so the pad that follows is unstyled.
 func padCell(s string, w int) string {
 	if w < 1 {
 		return ""
@@ -1116,24 +1126,8 @@ func padCell(s string, w int) string {
 	if n := lipgloss.Width(s); n <= w {
 		return s + strings.Repeat(" ", w-n)
 	}
-	t := truncateCells(s, w-1) + "…"
+	t := ansi.Truncate(s, w, "…")
 	return t + strings.Repeat(" ", w-lipgloss.Width(t))
-}
-
-// truncateCells returns the longest prefix of s occupying at most w columns.
-func truncateCells(s string, w int) string {
-	if w < 1 {
-		return ""
-	}
-	used := 0
-	for i, r := range s {
-		rw := lipgloss.Width(string(r))
-		if used+rw > w {
-			return s[:i]
-		}
-		used += rw
-	}
-	return s
 }
 
 func splitPad(s string, h int) []string {

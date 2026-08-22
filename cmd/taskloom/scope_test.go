@@ -355,13 +355,23 @@ func TestListAllProjects_ByPriority_RanksWithinEachProjectAndReportsWarnings(t *
 	_, err = operations.AddTask(b, "b untagged two", "", "")
 	require.NoError(t, err)
 
+	// A SECOND degenerate project, so the joining of two projects' findings
+	// is observable at all: with only one warning project every separator
+	// looks alike.
+	c := operations.TaskContext{ProjectID: "proj-c", TagSchema: schema}
+	_, err = operations.AddTask(c, "c untagged one", "", "")
+	require.NoError(t, err)
+	_, err = operations.AddTask(c, "c untagged two", "", "")
+	require.NoError(t, err)
+
 	got, err := listAllProjects(nil, "", "", false, true, schema, time.Now(), "", 0)
 	require.NoError(t, err)
-	require.Len(t, got.Rows, 4)
+	require.Len(t, got.Rows, 6)
 
 	// Grouping survives the priority sort: every proj-a row precedes proj-b.
-	assert.Equal(t, []string{"proj-a", "proj-a", "proj-b", "proj-b"},
-		[]string{got.Rows[0].ProjectID, got.Rows[1].ProjectID, got.Rows[2].ProjectID, got.Rows[3].ProjectID})
+	assert.Equal(t, []string{"proj-a", "proj-a", "proj-b", "proj-b", "proj-c", "proj-c"},
+		[]string{got.Rows[0].ProjectID, got.Rows[1].ProjectID, got.Rows[2].ProjectID,
+			got.Rows[3].ProjectID, got.Rows[4].ProjectID, got.Rows[5].ProjectID})
 	assert.Equal(t, "a high", got.Rows[0].Text, "highest impact ranks first inside its own project")
 	assert.Equal(t, "a low", got.Rows[1].Text)
 
@@ -372,6 +382,41 @@ func TestListAllProjects_ByPriority_RanksWithinEachProjectAndReportsWarnings(t *
 
 	assert.Contains(t, got.PriorityWarning, "project proj-b:",
 		"a degenerate per-project ranking must be attributed to that project")
+	assert.Contains(t, got.PriorityWarning, "project proj-c:")
 	assert.NotContains(t, got.PriorityWarning, "project proj-a:",
 		"a healthy ranking must stay quiet")
+
+	// Every finding is one whole line owned by one project. Each project's
+	// warning is itself multi-line (the tied ranking, then the uncovered
+	// formula term), so running two of them together on one line produces a
+	// sentence that reads as a single finding about both.
+	lines := strings.Split(got.PriorityWarning, "\n")
+	assert.Greater(t, len(lines), 2, "two degenerate projects, each reporting more than one finding")
+	for _, line := range lines {
+		assert.Regexp(t, `^project proj-[bc]: \S`, line)
+		assert.Equal(t, 1, strings.Count(line, "project proj-"),
+			"a line must name exactly one project, not run two findings together: %q", line)
+	}
+}
+
+// A --global listing interleaves several projects' findings, and the
+// coverage diagnostic is multi-line -- one line per thinly-covered formula
+// term. Attributing only the first line would leave every line after it
+// reading as a finding about whichever project happened to be named last,
+// which is worse than no attribution: it is confident and wrong.
+func TestAttributeToProject_EveryLineNamesItsProject(t *testing.T) {
+	got := attributeToProject("high-tight-gulf", "first finding\nsecond finding\nthird finding")
+
+	assert.Equal(t, []string{
+		"project high-tight-gulf: first finding",
+		"project high-tight-gulf: second finding",
+		"project high-tight-gulf: third finding",
+	}, strings.Split(got, "\n"))
+}
+
+// A project whose ranking is healthy contributes nothing. Returning a bare
+// "project X: " would put an empty finding into the joined warning and make
+// a clean project look like a reported one.
+func TestAttributeToProject_HealthyProjectContributesNothing(t *testing.T) {
+	assert.Empty(t, attributeToProject("high-tight-gulf", ""))
 }

@@ -75,32 +75,40 @@ func TestHandleTaskList_FiltersByStatusAndTerm(t *testing.T) {
 	assert.Len(t, res.Summary.InProgress, 1)
 }
 
-// TestHandleTaskList_SortPriorityOrdersDescendingByKind exercises
+// TestHandleTaskList_SortPriorityOrdersDescendingByLevel exercises
 // task_list's sort="priority" against the project's DEFAULT tag_schema
-// (taskloomconfig.DefaultTagSchema) end to end: three tasks with different
-// triage:kind values must come back highest-weight (defect) first, each
+// (taskloomconfig.DefaultTagSchema) end to end: three tasks differing ONLY
+// in triage:level must come back worst-consequence (level=1) first, each
 // carrying a populated derived_priority.
-func TestHandleTaskList_SortPriorityOrdersDescendingByKind(t *testing.T) {
+//
+// Every other target either formula reads is applied identically to all
+// three — which is what isolates triage:level as the sole cause of the
+// ordering AND what keeps res.PriorityWarning empty: full per-target
+// coverage is the healthy case the coverage diagnostic must stay quiet on.
+func TestHandleTaskList_SortPriorityOrdersDescendingByLevel(t *testing.T) {
 	withProjectDir(t)
 
-	_, _, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "low weight", Tags: []string{"triage:kind=chore"}})
-	require.NoError(t, err)
-	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "high weight", Tags: []string{"triage:kind=defect"}})
-	require.NoError(t, err)
-	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "mid weight", Tags: []string{"triage:kind=capability"}})
-	require.NoError(t, err)
+	shared := []string{"triage:kind=defect", "triage:effort=1", "triage:blocks-release=0.7.0", "triage:exposed=cli", "triage:blind-gate=lint"}
+	for _, tc := range []struct{ text, level string }{
+		{"low consequence", "triage:level=5"},
+		{"high consequence", "triage:level=1"},
+		{"mid consequence", "triage:level=3"},
+	} {
+		_, _, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: tc.text, Tags: append([]string{tc.level}, shared...)})
+		require.NoError(t, err)
+	}
 
 	_, res, err := handleTaskList(context.Background(), nil, taskListInput{Sort: "priority"})
 	require.NoError(t, err)
 	require.Len(t, res.Tasks, 3)
-	assert.Equal(t, "high weight", res.Tasks[0].Text)
-	assert.Equal(t, "mid weight", res.Tasks[1].Text)
-	assert.Equal(t, "low weight", res.Tasks[2].Text)
+	assert.Equal(t, "high consequence", res.Tasks[0].Text)
+	assert.Equal(t, "mid consequence", res.Tasks[1].Text)
+	assert.Equal(t, "low consequence", res.Tasks[2].Text)
 	for _, row := range res.Tasks {
 		require.NotNil(t, row.DerivedPriority, "sort=priority must populate derived_priority")
 	}
 	assert.Greater(t, *res.Tasks[0].DerivedPriority, *res.Tasks[2].DerivedPriority)
-	assert.Empty(t, res.PriorityWarning, "a real spread of kinds is a meaningful ranking")
+	assert.Empty(t, res.PriorityWarning, "a real spread of levels, every formula term covered, is a meaningful ranking")
 }
 
 // TestHandleTaskList_CompactReturnsCompactRowsAndDefaultsStayFull pins the

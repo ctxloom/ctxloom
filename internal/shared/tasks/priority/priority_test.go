@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
+	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
 )
 
 // fixedNow is the injected "now" every test in this file uses — proof that
@@ -24,74 +25,82 @@ func mustSchema(t *testing.T, decls ...string) *tagschema.Schema {
 	return s
 }
 
-// defaultTriageSchema mirrors internal/taskloom/config.DefaultTagSchema's
-// priority_fn/decay_fn declarations verbatim (both on target "triage:kind"),
-// so these tests exercise the actual shipped formulas, not a simplified
-// stand-in.
+// defaultTriageSchema parses internal/taskloom/config.DefaultTagSchema
+// ITSELF, so every expectation in this file is stated against the formulas
+// the product actually ships. A local copy of the declarations would be a
+// second source of truth that goes stale silently — the shipped formula
+// could be rewritten end to end and this file would keep proving things
+// about the old one, which is the exact failure mode these tests exist to
+// prevent elsewhere.
+//
+// taskloomconfig does not import this package, so reaching for it from this
+// package's test binary introduces no cycle.
 func defaultTriageSchema(t *testing.T) *tagschema.Schema {
 	t.Helper()
-	return mustSchema(t,
-		`tagma.decay_fn:"triage:kind"="{{triage:exposed=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+90) : {{triage:blind-gate=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+30) : {{triage:kind=capability}} > 0 ? 0.4 + 0.6 * 0.5 ** ({{age_days}}/120) : {{triage:kind=chore}} > 0 ? 0.5 + 0.5 * 0.5 ** ({{age_days}}/180) : 1"`,
-		`tagma.priority_fn:"triage:kind"="({{triage:kind=defect}} > 0 ? 3 : {{triage:kind=capability}} > 0 ? 2 : 1) * (1 + {{triage:data-loss}} + {{triage:security=*}} + 0.75*{{triage:no-workaround}} + 0.5*{{triage:crashes}} + 0.5*{{triage:regression=*}}) * {{age_factor}} * (1 + {{triage:blocks-release=*}}) / (1 + {{triage:effort}}/2)"`,
-	)
+	return mustSchema(t, taskloomconfig.DefaultTagSchema...)
 }
 
-// TestCompute_KindOnly proves the base weight priority_fn assigns per
-// triage:kind value (defect=3, capability=2, chore=1, see the ternary
-// chain's own doc) with no other modifiers present — at age_days=0 every
-// decay_fn branch's 0.5**(age_days/K) term is 1, so age_factor is 1
-// regardless of which branch triage:kind selects, isolating the weight
-// itself.
-func TestCompute_KindOnly(t *testing.T) {
+// TestCompute_LevelLadderHalvesWithEachStep proves the base weight
+// priority_fn assigns per triage:level value: 2**(3-level), so each step
+// DOWN the consequence ladder is worth exactly half the step above it. No
+// other tag is applied — with no triage:exposed/blind-gate and no
+// triage:kind, decay_fn's final else branch pins age_factor to the literal
+// 1, isolating the level weight itself.
+func TestCompute_LevelLadderHalvesWithEachStep(t *testing.T) {
 	schema := defaultTriageSchema(t)
-	all := []tasks.Task{
-		{HarpID: "low", Status: tasks.StatusToDo, Tags: []string{`triage:kind=chore`}, CreatedAt: fixedNow},
-		{HarpID: "high", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`}, CreatedAt: fixedNow},
+	want := map[string]float64{"1": 4, "2": 2, "3": 1, "4": 0.5, "5": 0.25}
+
+	var all []tasks.Task
+	for level := range want {
+		all = append(all, tasks.Task{
+			HarpID: level, Status: tasks.StatusToDo,
+			Tags: []string{"triage:level=" + level}, CreatedAt: fixedNow,
+		})
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
 
-	assert.Equal(t, 1.0, results["low"].Raw, "chore weight, no modifiers")
-	assert.Equal(t, 3.0, results["high"].Raw, "defect weight, no modifiers")
-	assert.False(t, results["low"].Overridden)
-	assert.False(t, results["high"].Overridden)
+	for level, weight := range want {
+		assert.Equal(t, weight, results[level].Raw, "triage:level=%s", level)
+		assert.False(t, results[level].Overridden)
+	}
 
-	// Rank-normalized over {1,3}: low is <= itself only (1/2 of the
-	// population) -> 2.5; high is <= both (2/2) -> 5 (the population max
-	// always reaches the ceiling).
-	assert.Equal(t, 2.5, results["low"].Priority)
-	assert.Equal(t, Max, results["high"].Priority)
+	// Rank-normalized over five distinct scores: the worst consequence
+	// always reaches the ceiling, the mildest sits at 1/5 of it.
+	assert.Equal(t, Max, results["1"].Priority)
+	assert.Equal(t, Max/5, results["5"].Priority)
 }
 
-// TestCompute_WithModifiersRaisesRawScore proves defect+data-loss > defect >
-// capability > chore at equal effort — the ranking invariant the schema
-// revision is built around — by layering the additive risk-modifier factors
-// onto a fixed triage:kind weight.
-func TestCompute_WithModifiersRaisesRawScore(t *testing.T) {
+// TestCompute_CriticalOutranksWishlistAndUntagged pins the two orderings the
+// whole level axis exists to produce, plus the guard that makes the second
+// one possible at all.
+//
+// An ABSENT tag resolves to 0 (a Go map's zero value — see lookup), and
+// 2**(3-0) is 8, which is twice the weight of a critical. The
+// `{{triage:level}} > 0` guard is what replaces that with the 0.1 floor, so
+// an untriaged task sinks BELOW even a wishlist rather than displacing every
+// rated task in the log. Delete the guard and this test is the one that
+// notices.
+func TestCompute_CriticalOutranksWishlistAndUntagged(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "chore", Status: tasks.StatusToDo, Tags: []string{`triage:kind=chore`}, CreatedAt: fixedNow},
-		{HarpID: "capability", Status: tasks.StatusToDo, Tags: []string{`triage:kind=capability`}, CreatedAt: fixedNow},
-		{HarpID: "defect", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`}, CreatedAt: fixedNow},
-		{HarpID: "defect-regressed", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`, `triage:regression=abc123`}, CreatedAt: fixedNow},
-		{HarpID: "defect-data-loss", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`, `triage:regression=abc123`, `triage:data-loss`}, CreatedAt: fixedNow},
+		{HarpID: "critical", Status: tasks.StatusToDo, Tags: []string{`triage:level=1`}, CreatedAt: fixedNow},
+		{HarpID: "wishlist", Status: tasks.StatusToDo, Tags: []string{`triage:level=5`}, CreatedAt: fixedNow},
+		{HarpID: "untriaged", Status: tasks.StatusToDo, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
 
-	assert.Equal(t, 1.0, results["chore"].Raw)
-	assert.Equal(t, 2.0, results["capability"].Raw)
-	assert.Equal(t, 3.0, results["defect"].Raw)
-	assert.Equal(t, 4.5, results["defect-regressed"].Raw, "3 * (1 + 0.5)")
-	assert.Equal(t, 7.5, results["defect-data-loss"].Raw, "3 * (1 + 1 + 0.5)")
+	assert.Equal(t, 4.0, results["critical"].Raw)
+	assert.Equal(t, 0.25, results["wishlist"].Raw)
+	assert.Equal(t, 0.1, results["untriaged"].Raw, "an unrated task floors at 0.1, not at the unguarded 2**3 == 8")
 
-	// The invariant: defect+data-loss > defect > capability > chore, at
-	// equal effort (here, effort unset on every task).
-	assert.Greater(t, results["defect-data-loss"].Priority, results["defect"].Priority)
-	assert.Greater(t, results["defect"].Priority, results["capability"].Priority)
-	assert.Greater(t, results["capability"].Priority, results["chore"].Priority)
+	assert.Greater(t, results["critical"].Priority, results["wishlist"].Priority)
+	assert.Greater(t, results["critical"].Priority, results["untriaged"].Priority)
+	assert.Greater(t, results["wishlist"].Priority, results["untriaged"].Priority,
+		"the floor sits BELOW wishlist deliberately: an unrated task must not outrank a rated one")
 }
 
 // TestCompute_EffortAndBlocksReleaseAdjustRawScore pins the two priority_fn
@@ -105,9 +114,9 @@ func TestCompute_WithModifiersRaisesRawScore(t *testing.T) {
 func TestCompute_EffortAndBlocksReleaseAdjustRawScore(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "plain", Status: tasks.StatusToDo, Tags: []string{`triage:kind=capability`}, CreatedAt: fixedNow},
-		{HarpID: "costly", Status: tasks.StatusToDo, Tags: []string{`triage:kind=capability`, `triage:effort=2`}, CreatedAt: fixedNow},
-		{HarpID: "blocker", Status: tasks.StatusToDo, Tags: []string{`triage:kind=capability`, `triage:blocks-release=0.7.0`}, CreatedAt: fixedNow},
+		{HarpID: "plain", Status: tasks.StatusToDo, Tags: []string{`triage:level=2`}, CreatedAt: fixedNow},
+		{HarpID: "costly", Status: tasks.StatusToDo, Tags: []string{`triage:level=2`, `triage:effort=2`}, CreatedAt: fixedNow},
+		{HarpID: "blocker", Status: tasks.StatusToDo, Tags: []string{`triage:level=2`, `triage:blocks-release=0.7.0`}, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
@@ -121,8 +130,8 @@ func TestCompute_EffortAndBlocksReleaseAdjustRawScore(t *testing.T) {
 func TestCompute_ExploitedInWildOverridesToMax(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "boring", Status: tasks.StatusToDo, Tags: []string{`triage:kind=chore`}, CreatedAt: fixedNow},
-		{HarpID: "exploited", Status: tasks.StatusToDo, Tags: []string{`triage:kind=chore`, `triage:exploited-in-wild`}, CreatedAt: fixedNow},
+		{HarpID: "boring", Status: tasks.StatusToDo, Tags: []string{`triage:level=4`}, CreatedAt: fixedNow},
+		{HarpID: "exploited", Status: tasks.StatusToDo, Tags: []string{`triage:level=4`, `triage:exploited-in-wild`}, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
@@ -130,7 +139,7 @@ func TestCompute_ExploitedInWildOverridesToMax(t *testing.T) {
 
 	// Raw is still just the formula's output — the override only affects
 	// display Priority, never Raw.
-	assert.Equal(t, 1.0, results["exploited"].Raw)
+	assert.Equal(t, 0.5, results["exploited"].Raw)
 	assert.Equal(t, Max, results["exploited"].Priority)
 	assert.True(t, results["exploited"].Overridden)
 	assert.False(t, results["boring"].Overridden)
@@ -147,8 +156,8 @@ func TestCompute_DeferredTaskSkipsDecay(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	created := fixedNow.Add(-100 * 24 * time.Hour) // 100 days old
 	all := []tasks.Task{
-		{HarpID: "parked", Status: tasks.StatusDeferred, Trigger: "something", Tags: []string{`triage:kind=defect`, "triage:exposed"}, CreatedAt: created},
-		{HarpID: "active", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`, "triage:exposed"}, CreatedAt: created},
+		{HarpID: "parked", Status: tasks.StatusDeferred, Trigger: "something", Tags: []string{`triage:level=2`, "triage:exposed"}, CreatedAt: created},
+		{HarpID: "active", Status: tasks.StatusToDo, Tags: []string{`triage:level=2`, "triage:exposed"}, CreatedAt: created},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
@@ -156,8 +165,8 @@ func TestCompute_DeferredTaskSkipsDecay(t *testing.T) {
 
 	// active: age_factor = 1 + 100/(100+90); parked: age must not move a
 	// Deferred task's score, so age_factor stays exactly 1 regardless of age.
-	assert.Equal(t, 3.0, results["parked"].Raw, "Deferred: decay is skipped, age_factor pinned to 1")
-	assert.InDelta(t, 3.0*(1+100.0/190.0), results["active"].Raw, 1e-9, "non-Deferred: decay raises the score with age (bare-exposed branch)")
+	assert.Equal(t, 2.0, results["parked"].Raw, "Deferred: decay is skipped, age_factor pinned to 1")
+	assert.InDelta(t, 2.0*(1+100.0/190.0), results["active"].Raw, 1e-9, "non-Deferred: decay raises the score with age (bare-exposed branch)")
 	assert.Greater(t, results["active"].Raw, results["parked"].Raw)
 }
 
@@ -179,16 +188,28 @@ func TestCompute_DecayRaisesRawScoreWithAge(t *testing.T) {
 	assert.Greater(t, results["year-old"].Raw, results["fresh"].Raw)
 }
 
-// TestCompute_KindAgeCrossover_MaxEscalationCapsAt2x locks the INVARIANT the
-// shipped default decay_fn's exposed/blind-gate branches are designed
-// around: 1 + age_days/(age_days+K) asymptotically approaches (but never
-// reaches) 2 as age_days grows without bound, so escalation is capped at
-// exactly 2x a task's bare triage:kind weight, however old it gets. That cap
-// produces an exact crossover point: an ancient LOW-weight (chore=1) exposed
-// task (ceiling ~2.0) must NEVER outrank a merely fresh HIGH-weight
-// (defect=3) task (raw exactly 3.0, no escalation tag), but an ancient
-// MID-weight (capability=2) EXPOSED task (ceiling ~4.0) DOES exceed it.
-func TestCompute_KindAgeCrossover_MaxEscalationCapsAt2x(t *testing.T) {
+// TestCompute_LevelAgeCrossover_EscalationPromotesByAtMostOneLevel locks the
+// INVARIANT the shipped default decay_fn's exposed/blind-gate branches are
+// designed around, now stated in the units the priority ladder actually uses.
+//
+// 1 + age_days/(age_days+K) asymptotically approaches — but never reaches —
+// 2 as age_days grows without bound, so escalation is capped at exactly 2x a
+// task's bare triage:level weight however old it gets. One step of the level
+// ladder is ALSO exactly 2x (2**(3-level)). The two constants meeting is
+// what gives age a bounded, legible authority: an exposed task ages upward
+// toward the weight of the level immediately above it, and can never arrive.
+//
+//   - an ancient exposed MINOR (level 4, base 0.5) climbs toward 1.0, the
+//     weight of a fresh NORMAL (level 3) — and stays strictly below it.
+//   - an ancient exposed NORMAL (level 3, base 1.0) does overtake that fresh
+//     normal, but climbs only toward 2.0, the weight of a fresh SERIOUS
+//     (level 2) — and stays strictly below that too.
+//
+// Age therefore never promotes a task two levels, and never fully promotes
+// it even one. If escalation ever exceeded 2x, an old triviality would
+// outrank a fresh serious defect, and the ranking would be about age rather
+// than consequence.
+func TestCompute_LevelAgeCrossover_EscalationPromotesByAtMostOneLevel(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	// Asymptotically old (bounded by time.Duration's int64-nanosecond range,
 	// ~292 years, so this stays well inside it): age_days/(age_days+90) is
@@ -197,22 +218,26 @@ func TestCompute_KindAgeCrossover_MaxEscalationCapsAt2x(t *testing.T) {
 	ancient := fixedNow.Add(-100_000 * 24 * time.Hour)
 
 	all := []tasks.Task{
-		{HarpID: "ancient-chore-exposed", Status: tasks.StatusToDo, Tags: []string{"triage:kind=chore", "triage:exposed"}, CreatedAt: ancient},
-		{HarpID: "ancient-capability-exposed", Status: tasks.StatusToDo, Tags: []string{"triage:kind=capability", "triage:exposed"}, CreatedAt: ancient},
-		{HarpID: "fresh-defect", Status: tasks.StatusToDo, Tags: []string{"triage:kind=defect"}, CreatedAt: fixedNow},
+		{HarpID: "ancient-minor-exposed", Status: tasks.StatusToDo, Tags: []string{"triage:level=4", "triage:exposed"}, CreatedAt: ancient},
+		{HarpID: "ancient-normal-exposed", Status: tasks.StatusToDo, Tags: []string{"triage:level=3", "triage:exposed"}, CreatedAt: ancient},
+		{HarpID: "fresh-normal", Status: tasks.StatusToDo, Tags: []string{"triage:level=3"}, CreatedAt: fixedNow},
+		{HarpID: "fresh-serious", Status: tasks.StatusToDo, Tags: []string{"triage:level=2"}, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
 
-	assert.InDelta(t, 2.0, results["ancient-chore-exposed"].Raw, 0.01, "chore weight 1 at the ~2x escalation ceiling")
-	assert.InDelta(t, 4.0, results["ancient-capability-exposed"].Raw, 0.01, "capability weight 2 at the ~2x escalation ceiling")
-	assert.Equal(t, 3.0, results["fresh-defect"].Raw, "fresh, no escalation tag: decay_fn's final else branch is the literal 1")
+	assert.InDelta(t, 1.0, results["ancient-minor-exposed"].Raw, 0.01, "level 4 (base 0.5) at the ~2x escalation ceiling")
+	assert.InDelta(t, 2.0, results["ancient-normal-exposed"].Raw, 0.01, "level 3 (base 1.0) at the ~2x escalation ceiling")
+	assert.Equal(t, 1.0, results["fresh-normal"].Raw, "fresh, no escalation tag: decay_fn's final else branch is the literal 1")
+	assert.Equal(t, 2.0, results["fresh-serious"].Raw)
 
-	assert.Less(t, results["ancient-chore-exposed"].Raw, results["fresh-defect"].Raw,
-		"an ancient LOW-weight task must never outrank a fresh HIGH-weight one once escalation is capped at 2x")
-	assert.Greater(t, results["ancient-capability-exposed"].Raw, results["fresh-defect"].Raw,
-		"but a high enough weight DOES cross a fresh higher-weight task once escalated")
+	assert.Less(t, results["ancient-minor-exposed"].Raw, results["fresh-normal"].Raw,
+		"however old it gets, an exposed task never fully reaches the level immediately above it")
+	assert.Greater(t, results["ancient-normal-exposed"].Raw, results["fresh-normal"].Raw,
+		"escalation is real: an aging exposed task does overtake a fresh peer at its own level")
+	assert.Less(t, results["ancient-normal-exposed"].Raw, results["fresh-serious"].Raw,
+		"but it never crosses the next level up, so age can never promote a task two levels")
 }
 
 // TestCompute_TerminalTasksExcludedFromNormalizationPopulation proves a
@@ -374,8 +399,8 @@ func TestCompute_Diagnostics_AllTied(t *testing.T) {
 func TestCompute_Diagnostics_AllTied_FalseWhenScoresDiffer(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "a", Status: tasks.StatusToDo, Tags: []string{"triage:kind=chore"}, CreatedAt: fixedNow},
-		{HarpID: "b", Status: tasks.StatusToDo, Tags: []string{"triage:kind=defect"}, CreatedAt: fixedNow},
+		{HarpID: "a", Status: tasks.StatusToDo, Tags: []string{"triage:level=5"}, CreatedAt: fixedNow},
+		{HarpID: "b", Status: tasks.StatusToDo, Tags: []string{"triage:level=1"}, CreatedAt: fixedNow},
 	}
 	_, diag, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
@@ -505,9 +530,11 @@ func TestResolveTagValues_UniversalPresenceKey_AbsentTag(t *testing.T) {
 func TestCompute_CompositeKeyDrivesDecayEnumBranch(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	old := fixedNow.Add(-120 * 24 * time.Hour) // exactly one capability half-life
+	// Both tasks carry the same triage:level, so the level weight is a shared
+	// constant and any difference between them is decay_fn's alone.
 	all := []tasks.Task{
-		{HarpID: "capability", Status: tasks.StatusToDo, Tags: []string{"triage:kind=capability"}, CreatedAt: old},
-		{HarpID: "plain", Status: tasks.StatusToDo, Tags: []string{"triage:kind=defect"}, CreatedAt: old},
+		{HarpID: "capability", Status: tasks.StatusToDo, Tags: []string{"triage:level=2", "triage:kind=capability"}, CreatedAt: old},
+		{HarpID: "plain", Status: tasks.StatusToDo, Tags: []string{"triage:level=2", "triage:kind=defect"}, CreatedAt: old},
 	}
 	results, _, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
@@ -515,8 +542,10 @@ func TestCompute_CompositeKeyDrivesDecayEnumBranch(t *testing.T) {
 	// capability branch at one half-life: weight 2 * (0.4 + 0.6*0.5) == 1.4.
 	assert.InDelta(t, 1.4, results["capability"].Raw, 1e-9)
 	// plain (defect): no escalation/decay tag present -> decay_fn's final
-	// else (1) -> raw == defect's bare weight, 3.
-	assert.Equal(t, 3.0, results["plain"].Raw)
+	// else (1) -> raw == the level weight itself, 2.
+	assert.Equal(t, 2.0, results["plain"].Raw)
+	assert.Less(t, results["capability"].Raw, results["plain"].Raw,
+		"the capability branch must actually be selected — otherwise both sit at the same untouched weight")
 }
 
 // TestRankNormalize_HigherRawGetsHigherOrEqualPriority is a small property

@@ -181,8 +181,12 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	if r.Notice != "" {
 		clidiag.Fwarn(errw, progName, "%s", r.Notice)
 	}
-	if r.PriorityWarning != "" {
-		clidiag.Fwarn(errw, progName, "%s", r.PriorityWarning)
+	// One Fwarn per line: clidiag prefixes what it is handed, so passing a
+	// multi-line warning as one message leaves every line after the first
+	// unprefixed on stderr — indistinguishable from ordinary output, which
+	// is the contract the diagnostic channel exists to keep.
+	for _, line := range splitLines(r.PriorityWarning) {
+		clidiag.Fwarn(errw, progName, "%s", line)
 	}
 	noteHidden(errw, r.HiddenCompleted, r.HiddenDeferred, r.Filtered)
 	noteOmittedByLimit(errw, r.OmittedByLimit)
@@ -272,25 +276,81 @@ func priorityOf(t tasks.Task) float64 {
 	return *t.DerivedPriority
 }
 
+// thinCoverageFraction is the share of the active population a formula term
+// must reach before this warning stops naming it. Below it, the MAJORITY of
+// tasks are ranked by that term's absence rather than by anything they
+// carry, which makes the term a describer of exceptions rather than of the
+// log — the exact shape of the miss this warning exists to catch, where a
+// hand-applied axis reached a sixth of the log and the ranking read as
+// healthy anyway.
+const thinCoverageFraction = 0.5
+
 // priorityDiagnosticWarning renders a priority.Diagnostics into a
 // plain-English warning when `--sort priority`/task_list's sort="priority"
 // just produced a ranking that EXISTS but is MEANINGLESS (see that type's
 // doc) — or "" when the ranking is fine. NoPriorityFn is checked first and
-// reported on its own (not folded into the tied-scores wording below) since
-// its fix — declare a priority_fn — is a different fix from a genuinely-tied
-// population's (apply the tags the formula reads). The tied wording quotes
-// ScoredTasks against its NonTerminalTasks denominator: the numerator alone
-// says nothing, since the same "only 3" is a healthy ranking of 3 active
-// tasks and a broken one of 300.
+// reported ALONE, short-circuiting everything below: with no formula there
+// is no term whose coverage could be discussed, and the fix (declare a
+// priority_fn) is a different fix from a genuinely-tied population's (apply
+// the tags the formula reads). The tied wording quotes ScoredTasks against
+// its NonTerminalTasks denominator: the numerator alone says nothing, since
+// the same "only 3" is a healthy ranking of 3 active tasks and a broken one
+// of 300.
+//
+// A ranking that is NOT degenerate still gets one line per thinly-covered
+// formula term (see thinCoverageWarnings) — a ranking decided by two of six
+// terms is not wrong, but the four that decided nothing must be visible or
+// the next reader trusts an ordering the data cannot support.
 func priorityDiagnosticWarning(d priority.Diagnostics) string {
-	switch {
-	case d.NoPriorityFn:
+	if d.NoPriorityFn {
 		return "--sort priority is meaningless here: this project's tag_schema declares no priority_fn, so every task's raw score is 0 and the ranking reflects nothing"
-	case d.AllTied:
-		return fmt.Sprintf("--sort priority is meaningless here: every active task ties at the same raw priority score (only %d of %d active tasks carry a tag any priority_fn/decay_fn formula actually reads) — the ranking reflects nothing", d.ScoredTasks, d.NonTerminalTasks)
-	default:
-		return ""
 	}
+	var lines []string
+	if d.AllTied {
+		lines = append(lines, fmt.Sprintf("--sort priority is meaningless here: every active task ties at the same raw priority score (only %d of %d active tasks carry a tag any priority_fn/decay_fn formula actually reads) — the ranking reflects nothing", d.ScoredTasks, d.NonTerminalTasks))
+	}
+	lines = append(lines, thinCoverageWarnings(d)...)
+	return strings.Join(lines, "\n")
+}
+
+// splitLines splits a possibly-multi-line diagnostic into its lines,
+// yielding nothing at all for an empty one (strings.Split would hand back a
+// single empty line, which renders as a bare "warning:" with no message).
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
+// thinCoverageWarnings renders one line per formula-referenced target that
+// reaches fewer than thinCoverageFraction of the active population, worst
+// first (priority.Diagnostics.TargetCoverage is already in that order). A
+// term carried by NO task gets its own wording: it is not thinly grounded,
+// it is inert — it evaluates to the same constant everywhere and can never
+// move the ranking, which is a schema defect rather than a tagging backlog.
+// The thin case instead names the UNCOVERED count, because that is the
+// number a reader has to act on: those tasks are all ranked as if the tag
+// were absent, which for a floor-valued term means ranked at the floor.
+//
+// An empty population yields nothing: with no active tasks every term is
+// trivially uncovered and there is no ranking to mislead anyone.
+func thinCoverageWarnings(d priority.Diagnostics) []string {
+	if d.NonTerminalTasks == 0 {
+		return nil
+	}
+	var out []string
+	for _, c := range d.TargetCoverage {
+		if float64(c.Tasks) >= thinCoverageFraction*float64(d.NonTerminalTasks) {
+			continue
+		}
+		if c.Tasks == 0 {
+			out = append(out, fmt.Sprintf("priority_fn/decay_fn reads %s, which none of the %d active tasks carries — that term is inert and moves no task's rank", c.Target, d.NonTerminalTasks))
+			continue
+		}
+		out = append(out, fmt.Sprintf("%d of %d active tasks carry no %s — they rank as if it were absent, on a formula that reads it", d.NonTerminalTasks-c.Tasks, d.NonTerminalTasks, c.Target))
+	}
+	return out
 }
 
 // wrapTagQueryError adds the postfix-grammar hint to a malformed --tag-query,

@@ -391,7 +391,10 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone, byPr
 			out.Rows = append(out.Rows, taskRow{Task: t, ProjectID: log.projectID})
 		}
 	}
-	out.PriorityWarning = strings.Join(priorityWarnings, "; ")
+	// Joined on newlines, not "; ": each project's warning is already
+	// multi-line, and running them together on one line produces a
+	// paragraph no reader parses.
+	out.PriorityWarning = strings.Join(priorityWarnings, "\n")
 	sortGlobalRows(out.Rows, byPriority)
 	// Applied LAST, after every project has been scanned/filtered/sorted:
 	// limit caps the TOTAL row count across all projects, mirroring the
@@ -508,10 +511,23 @@ func (g globalScan) rank(store *tasks.Store, projectID string, visible []tasks.T
 		return "", fmt.Errorf("compute priorities for project %s: %w", projectID, err)
 	}
 	attachPriority(visible, results)
-	if msg := priorityDiagnosticWarning(diag); msg != "" {
-		return fmt.Sprintf("project %s: %s", projectID, msg), nil
+	return attributeToProject(projectID, priorityDiagnosticWarning(diag)), nil
+}
+
+// attributeToProject prefixes EVERY line of a warning with the project it
+// came from. A --global listing interleaves several projects' findings, and
+// the diagnostic is multi-line (one line per thinly-covered formula term),
+// so attributing only the first line would leave every line after it
+// looking like a finding about whichever project was named last.
+func attributeToProject(projectID, warning string) string {
+	if warning == "" {
+		return ""
 	}
-	return "", nil
+	lines := strings.Split(warning, "\n")
+	for i, line := range lines {
+		lines[i] = fmt.Sprintf("project %s: %s", projectID, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // sortGlobalRows groups rows by project-id (renderGlobalTaskTable relies on

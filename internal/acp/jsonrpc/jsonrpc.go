@@ -4,33 +4,37 @@
 // (internal/acp, spawning `<agent> acp`) and the agent server (internal/
 // acpagent, `ctxloom acp`).
 //
-// Why hand-rolled rather than the SDK's connection: the joshgarnett ACP Go
-// SDK's jsonrpc layer (golang.org/x/exp/jsonrpc2) hardcodes the LSP-style
-// Content-Length HeaderFramer with no override hook, but ACP frames messages
-// as newline-delimited JSON. So the SDK's *connection* is wire-incompatible
-// with real ACP agents, while its *wire types* (…/acp/api, stdlib-only,
-// schema-generated) are exactly right. We reuse the SDK's api types and supply
-// this codec for the framing. See internal/acp/doc.go.
+// This codec is scheduled for retirement in favour of acp.Connection from
+// github.com/coder/acp-go-sdk — already a direct dependency for the wire
+// types, and already newline-framed. It still exists only because adopting
+// that Connection needs accommodations this package does not yet have
+// equivalents for. See internal/acp/doc.go.
 //
 // The codec is a full duplex peer: it issues requests AND serves inbound
 // requests/notifications. Inbound requests are answered through a REPLY
 // CALLBACK so a handler may respond asynchronously — load-bearing for the
 // agent server, whose session/prompt runs a whole engine turn and must not
 // block the read loop (a blocked read loop could never see session/cancel).
-// Per the repo's fault-tolerance ethos it warns and continues on a malformed
-// frame — one that is not a JSON-RPC message, or whose members are the wrong
-// JSON type — rather than tearing the session down. The limit is what the
-// decoder can still frame: a JSON SYNTAX error leaves it at an undefined byte
-// with no trustworthy frame boundary after it, so that (and any transport
-// error) ends the session and releases every parked caller.
+// Per the repo's fault-tolerance ethos it warns and continues on ANY line it
+// cannot read as a JSON-RPC message — malformed JSON, a non-JSON line, or a
+// frame whose members are the wrong JSON type — rather than tearing the
+// session down. Framing is what makes that safe: on a newline-delimited wire
+// the next frame boundary is the next '\n', so a line the parser rejects costs
+// exactly that line. A stray "Debugger attached", a console.log from a
+// user-configured adapter, or an npm notice on the engine's stdout is noise to
+// step over, not a reason to kill a live session. Only a TRANSPORT error ends
+// the session and releases every parked caller.
 package jsonrpc
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -98,7 +102,13 @@ type Handler interface {
 // Conn is a bidirectional JSON-RPC 2.0 peer bound to one reader/writer pair.
 // It is safe for concurrent Call/Notify.
 type Conn struct {
-	dec    *json.Decoder
+	// br frames the inbound stream by LINE, which is the framing ACP
+	// specifies. Reading a whole line before parsing is what bounds the blast
+	// radius of bad input to one frame — a streaming json.Decoder, by
+	// contrast, stops mid-value on a syntax error at a byte offset nothing
+	// downstream can resynchronise from, which is why this codec used to have
+	// to end the session over one line of stdout noise.
+	br     *bufio.Reader
 	w      io.Writer
 	closer io.Closer
 
@@ -134,7 +144,7 @@ type Conn struct {
 // peer ends the stream, and nothing on this side can stop it.
 func NewConn(r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn {
 	return &Conn{
-		dec:     json.NewDecoder(r),
+		br:      bufio.NewReader(r),
 		w:       w,
 		closer:  closer,
 		handler: handler,
@@ -296,56 +306,66 @@ func (c *Conn) Close() error {
 // Done is closed when the read loop exits (EOF, read error, or Close).
 func (c *Conn) Done() <-chan struct{} { return c.done }
 
-// readLoop decodes frames until the stream ends or can no longer be framed,
-// routing each frame to a pending caller (response), the handler
-// (request/notification), or a warning (garbage). A frame the decoder consumed
-// but could not shape is warned and skipped; anything that leaves the stream
-// unframeable ends the session, failing every parked caller and closing done.
+// readLoop reads newline-delimited frames until the TRANSPORT ends, routing
+// each to a pending caller (response), the handler (request/notification), or
+// a warning (garbage). Nothing the peer can put in a line ends the session:
+// only a read error does, and that fails every parked caller and closes done.
 func (c *Conn) readLoop(ctx context.Context) {
 	defer close(c.done)
 	for {
-		var m rpcMessage
-		if err := c.dec.Decode(&m); err != nil {
-			if isRecoverableFrameErr(err) {
-				warnf("acp: dropping a malformed frame and continuing: %v", err)
-				continue
-			}
+		line, err := c.readFrameLine()
+		// A stream may hand back a final unterminated frame together with its
+		// error, so the line is served before the error is acted on.
+		if len(line) > 0 {
+			c.dispatch(ctx, line)
+		}
+		if err != nil {
 			c.readErr.Store(&err)
 			c.failPending()
 			return
 		}
-		// The spec makes this member MUST-be-exactly-"2.0". A mismatch means the
-		// peer is not speaking the protocol we are, which is worth saying out
-		// loud on the first frame that shows it — but not worth dropping the
-		// peer's traffic over, since everything else about the frame may still
-		// be serviceable.
-		if m.JSONRPC != jsonrpcVersion {
-			warnf("acp: peer frame declares jsonrpc %q, not %q", m.JSONRPC, jsonrpcVersion)
-		}
-		switch {
-		case m.Method != "" && len(m.ID) > 0:
-			c.serveRequest(ctx, m)
-		case m.Method != "":
-			c.serveNotification(ctx, m)
-		case len(m.ID) > 0:
-			c.routeResponse(m)
-		default:
-			warnf("acp: dropping unrecognized JSON-RPC frame (no method, no id)")
-		}
 	}
 }
 
-// isRecoverableFrameErr reports whether the read loop may skip a frame the
-// decoder rejected and keep serving the session. It may exactly when the
-// decoder still consumed the whole JSON value, leaving the stream framed at
-// the next one: encoding/json advances past a value before reporting an
-// *UnmarshalTypeError, so a frame whose members are the wrong JSON type costs
-// only that frame. A syntax error is the opposite — the decoder stops at an
-// undefined byte and nothing downstream can be trusted to be a frame boundary
-// — as is any transport error, so those end the session.
-func isRecoverableFrameErr(err error) bool {
-	var typeErr *json.UnmarshalTypeError
-	return errors.As(err, &typeErr)
+// readFrameLine returns the next frame's bytes with the terminator and any
+// surrounding whitespace stripped, which for a blank line is nothing at all.
+// It deliberately imposes NO size ceiling: ACP carries base64 image blocks,
+// and silently truncating one is worse than the memory it costs to read it.
+func (c *Conn) readFrameLine() ([]byte, error) {
+	line, err := c.br.ReadBytes('\n')
+	return bytes.TrimSpace(line), err
+}
+
+// dispatch routes one frame's worth of bytes. A line it cannot read as a
+// JSON-RPC message is warned about and stepped over — on a newline-delimited
+// wire the next frame boundary is the next '\n', so unreadable input costs
+// exactly the line it arrived on. Engines emit real non-JSON on stdout
+// ("Debugger attached", an npm notice, a stray console.log from a
+// user-configured adapter); a live session must survive all of it.
+func (c *Conn) dispatch(ctx context.Context, line []byte) {
+	var m rpcMessage
+	if err := json.Unmarshal(line, &m); err != nil {
+		warnf("acp: dropping a line that is not a JSON-RPC frame and continuing: %v", err)
+		return
+	}
+	// The spec makes this member MUST-be-exactly-"2.0". A mismatch means the
+	// peer is not speaking the protocol we are, which is worth saying out
+	// loud on the first frame that shows it — but not worth dropping the
+	// peer's traffic over, since everything else about the frame may still
+	// be serviceable.
+	if m.JSONRPC != jsonrpcVersion {
+		warnf("acp: peer frame declares jsonrpc %q, not %q", m.JSONRPC, jsonrpcVersion)
+	}
+	switch {
+	case m.Method != "" && len(m.ID) > 0:
+		c.serveRequest(ctx, m)
+	case m.Method != "":
+		c.serveNotification(ctx, m)
+	case len(m.ID) > 0:
+		c.routeResponse(m)
+	default:
+		warnf("acp: dropping unrecognized JSON-RPC frame (no method, no id)")
+	}
 }
 
 // serveNotification dispatches an inbound notification with the same panic
@@ -444,26 +464,40 @@ func (c *Conn) routeResponse(m rpcMessage) {
 }
 
 // responseID resolves a response frame's id member to the integer id this
-// codec allocated for the waiting caller. JSON-RPC 2.0 permits a String id,
-// and a peer that echoes our numeric id back stringified ("1") is answering
-// the request we sent: refusing to recognise it parks the caller until its
-// deadline for a turn that actually completed. Only the MATCHING side is
-// lenient — outbound ids stay integers. false means the member is neither an
-// integer nor an integer-valued string.
+// codec allocated for the waiting caller. Matching is deliberately lenient
+// about SPELLING, because every spelling below denotes the same id we sent and
+// refusing one parks the caller until its deadline for a turn that actually
+// completed: JSON-RPC 2.0 permits a String id, so a peer echoing 1 back as
+// "1"; and JSON numbers have no integer type, so a peer whose runtime holds
+// ids as floats echoes 1 back as 1.0 or 1e0. Only the MATCHING side is
+// lenient — outbound ids stay integers. false means the member does not denote
+// an integer at all.
 func responseID(raw json.RawMessage) (int64, bool) {
-	var id int64
-	if err := json.Unmarshal(raw, &id); err == nil {
-		return id, true
+	var num json.Number
+	if err := json.Unmarshal(raw, &num); err == nil {
+		return integralID(num)
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return 0, false
 	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
+	return integralID(json.Number(s))
+}
+
+// integralID reads a JSON number as the integer id it denotes. Int64 covers
+// the spellings that are already integers; the float fallback covers the ones
+// that are not written as integers but denote one, and rejects both a genuine
+// fraction and a magnitude no int64 can hold — for which the conversion below
+// would otherwise be undefined rather than wrong-but-detectable.
+func integralID(num json.Number) (int64, bool) {
+	if id, err := num.Int64(); err == nil {
+		return id, true
+	}
+	f, err := num.Float64()
+	if err != nil || f != math.Trunc(f) || f < math.MinInt64 || f >= math.MaxInt64 {
 		return 0, false
 	}
-	return n, true
+	return int64(f), true
 }
 
 // isNullID reports whether a frame's id member is the JSON literal null. The

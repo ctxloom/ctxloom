@@ -2,6 +2,7 @@ package acpagent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -168,26 +169,38 @@ func startServer(t *testing.T, open ChatOpener) *testClient {
 	return c
 }
 
+// writeFrame puts one frame on the wire ACP actually specifies: newline-
+// delimited JSON, one frame per line. Tests here compose params as readable
+// multi-line string literals, so the assembled frame is COMPACTED before it is
+// written — an embedded newline does not make a frame prettier on this wire,
+// it splits it into several unparseable ones, which is what a real peer would
+// make of it too.
+func (c *testClient) writeFrame(frame string) {
+	c.t.Helper()
+	var line bytes.Buffer
+	require.NoError(c.t, json.Compact(&line, []byte(frame)), "the test composed a frame that is not JSON")
+	line.WriteByte('\n')
+	_, err := c.w.Write(line.Bytes())
+	require.NoError(c.t, err)
+}
+
 func (c *testClient) send(method string, params string) int {
+	c.t.Helper()
 	c.nextID++
 	id := c.nextID
-	line := `{"jsonrpc":"2.0","id":` + strconv.Itoa(id) + `,"method":"` + method + `","params":` + params + `}` + "\n"
-	_, err := c.w.Write([]byte(line))
-	require.NoError(c.t, err)
+	c.writeFrame(`{"jsonrpc":"2.0","id":` + strconv.Itoa(id) + `,"method":"` + method + `","params":` + params + `}`)
 	return id
 }
 
 func (c *testClient) notify(method string, params string) {
-	line := `{"jsonrpc":"2.0","method":"` + method + `","params":` + params + `}` + "\n"
-	_, err := c.w.Write([]byte(line))
-	require.NoError(c.t, err)
+	c.t.Helper()
+	c.writeFrame(`{"jsonrpc":"2.0","method":"` + method + `","params":` + params + `}`)
 }
 
 // respond answers an agent→client request frame.
 func (c *testClient) respond(req frame, result string) {
-	line := `{"jsonrpc":"2.0","id":` + string(req.ID) + `,"result":` + result + `}` + "\n"
-	_, err := c.w.Write([]byte(line))
-	require.NoError(c.t, err)
+	c.t.Helper()
+	c.writeFrame(`{"jsonrpc":"2.0","id":` + string(req.ID) + `,"result":` + result + `}`)
 }
 
 // waitResponse blocks until the response for id arrives, then returns it plus

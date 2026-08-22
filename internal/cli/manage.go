@@ -410,25 +410,32 @@ func runManageCheck(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	return emit(cmd, result, func() error {
-		printHarnessStatus(result)
+		printHarnessStatus(cmd.OutOrStdout(), result, capabilityLossByAgent(cmd.Context(), cfg))
 		return nil
 	})
 }
 
-// printHarnessStatus renders the wiring report.
-func printHarnessStatus(r *operations.HarnessStatusResult) {
-	fmt.Printf("Project: %s\n", r.WorkDir)
-	fmt.Printf("Statusline (HUD): %v\n\n", r.ManageStatusline)
+// printHarnessStatus renders the wiring report. losses is the CAPABILITY half
+// of it (capabilityLossByAgent): what this project's configured agents ask for
+// that their engines have no structural place for. It belongs in this report
+// rather than in a separate command for the same reason materialize interleaves
+// its "NOT carried" lines with its "wrote" lines — every wiring line here is
+// true, and a reader who sees only what ctxloom DID wire must not come away
+// with that as the whole story.
+func printHarnessStatus(w io.Writer, r *operations.HarnessStatusResult, losses []agentCapabilityLoss) {
+	fmt.Fprintf(w, "Project: %s\n", r.WorkDir)
+	fmt.Fprintf(w, "Statusline (HUD): %v\n\n", r.ManageStatusline)
 	for _, b := range r.Backends {
 		if !b.SettingsExists {
-			fmt.Printf("  %s: not configured\n", b.Backend)
+			fmt.Fprintf(w, "  %s: not configured\n", b.Backend)
 			continue
 		}
-		fmt.Printf("  %s: hooks=%v statusline=%v mcp=%v\n", b.Backend, b.HooksPresent, b.StatusLine, b.MCPPresent)
+		fmt.Fprintf(w, "  %s: hooks=%v statusline=%v mcp=%v\n", b.Backend, b.HooksPresent, b.StatusLine, b.MCPPresent)
 	}
-	printSurfaceCurrencies(r.Surfaces)
-	fmt.Println()
-	printCompanionStatus(os.Stdout)
+	printSurfaceCurrencies(w, r.Surfaces)
+	renderCapabilityLosses(w, losses)
+	fmt.Fprintln(w)
+	printCompanionStatus(w)
 }
 
 // printSurfaceCurrencies renders the DELIVERY half of the wiring report — see
@@ -438,17 +445,17 @@ func printHarnessStatus(r *operations.HarnessStatusResult) {
 // offers a read half and has anything materialized here), matching the "no
 // false alarms" rule the field itself already applies — a bare, unlabeled
 // section would be worse than no section.
-func printSurfaceCurrencies(surfaces []operations.SurfaceCurrency) {
+func printSurfaceCurrencies(w io.Writer, surfaces []operations.SurfaceCurrency) {
 	if len(surfaces) == 0 {
 		return
 	}
-	fmt.Println("\nMaterialized surfaces:")
+	fmt.Fprintln(w, "\nMaterialized surfaces:")
 	for _, s := range surfaces {
 		if s.Detail != "" {
-			fmt.Printf("  %s (%s): %s — %s\n", s.Route, s.Backend, s.Status, s.Detail)
+			fmt.Fprintf(w, "  %s (%s): %s — %s\n", s.Route, s.Backend, s.Status, s.Detail)
 			continue
 		}
-		fmt.Printf("  %s (%s): %s\n", s.Route, s.Backend, s.Status)
+		fmt.Fprintf(w, "  %s (%s): %s\n", s.Route, s.Backend, s.Status)
 	}
 }
 

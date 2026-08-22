@@ -355,6 +355,47 @@ func j001900ProbesAnswered(w *World, wants ...string) error {
 	return fmt.Errorf("%s", b.String())
 }
 
+// j001900EveryProbeAnswered is j001900ProbesAnswered's STRICT twin: every
+// probed invocation must report all of wants, not merely one of them.
+//
+// A step whose prose is "nothing tells her" must not be satisfiable by exactly
+// one of three surfaces telling her. That is not hypothetical: wiring `agent
+// show` alone turned J002000's row green while `doctor` and `manage check` —
+// two of the three surfaces the same step probes, and the two a user is far
+// likelier to run — still said nothing, so the row passed over a gap that was
+// half present (trusting-ambiguity).
+//
+// The any-of form stays right for a question whose OWNER is genuinely
+// undecided: there, demanding every inspector answer would be demanding
+// duplication. Use this one when each probed surface is one the scenario
+// names as owing the answer.
+func j001900EveryProbeAnswered(w *World, wants ...string) error {
+	st := j001900Of(w)
+	if len(st.probes) == 0 {
+		return fmt.Errorf("no inspector was probed — the step that asks the question did not run")
+	}
+	var silent []j001900ProbeResult
+	for _, p := range st.probes {
+		for _, want := range wants {
+			if !strings.Contains(p.output, want) {
+				silent = append(silent, p)
+				break
+			}
+		}
+	}
+	if len(silent) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d of the %d probed invocations did not report all of %v. Each one is a surface a user would "+
+		"reasonably run to find this out, so a row that only ONE of them answers leaves the others silently broken:\n",
+		len(silent), len(st.probes), wants)
+	for _, p := range silent {
+		fmt.Fprintf(&b, "\n  $ ctxloom %s   (exit %d)\n%s\n", strings.Join(p.args, " "), p.exit, indentBlock(p.output))
+	}
+	return fmt.Errorf("%s", b.String())
+}
+
 // indentBlock indents a captured output block so a multi-probe failure message
 // stays readable in godog's report.
 func indentBlock(s string) string {

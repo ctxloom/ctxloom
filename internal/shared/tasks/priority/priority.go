@@ -91,6 +91,12 @@ type Result struct {
 // asked for `--sort priority` and gets a degenerate Diagnostics back must
 // tell the user, not render the numbers as if they meant something — see
 // cmd/taskloom's priorityDiagnosticWarning.
+//
+// The boolean fields name a ranking that is degenerate outright. The two
+// counts and TargetCoverage measure how WELL grounded a ranking that is not
+// outright degenerate actually is — a ranking can be non-tied, fully
+// populated, and still be decided by one of six formula terms because the
+// other five are carried by nothing.
 type Diagnostics struct {
 	// NoPriorityFn is true when schema declares no priority_fn at all: every
 	// task's Raw is 0, so rank-normalization's percentile math still runs but
@@ -124,6 +130,39 @@ type Diagnostics struct {
 	// cannot recompute it without re-implementing this package's terminal-
 	// status predicate.
 	NonTerminalTasks int
+
+	// TargetCoverage reports, for EVERY tag target any declared
+	// priority_fn/decay_fn reads, how many non-terminal tasks actually carry
+	// it. ScoredTasks answers "did ANY formula term reach this task"; this
+	// answers "did THIS term reach any task", and only the second one can
+	// see a formula whose terms are individually dead. A schema can reference
+	// six targets, have two of them applied to half the log and the other
+	// four applied to nothing, and still report a healthy ScoredTasks — the
+	// ranking is then decided entirely by the two, and the four contribute a
+	// constant. Every entry is reported, healthy or not: this type carries
+	// the MEASUREMENT, and what counts as too thin to be worth warning about
+	// is the renderer's policy (see cmd/taskloom's priorityDiagnosticWarning).
+	//
+	// Entries are sorted worst coverage first (ascending Tasks, then Target)
+	// so a renderer that shows only the head shows the most alarming rows.
+	// Nil when no formula is declared, or when it references no tag at all.
+	TargetCoverage []TargetCoverage
+}
+
+// TargetCoverage is one formula-referenced tag target and the number of
+// non-terminal tasks carrying it — the per-term half of Diagnostics's
+// coverage signal. Tasks counts PRESENCE of the target on a task, valued or
+// bare, exactly as a formula's own Tag(...) lookup sees it.
+type TargetCoverage struct {
+	// Target is the bare "ns:key" a formula placeholder named, stripped of
+	// any "=value" qualifier: "{{triage:blocks-release=*}}" reports as
+	// "triage:blocks-release".
+	Target string
+
+	// Tasks is how many non-terminal tasks carry Target. Zero means the term
+	// is inert — it evaluates to the same absent-tag constant for every task
+	// in the project and can never move the ranking.
+	Tasks int
 }
 
 // Compute derives a Result for every task in all (any status). Raw scores
@@ -155,6 +194,7 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 	overridden := make(map[string]bool, len(all))
 	nonTerminal := make([]string, 0, len(all))
 	scoredTasks := 0
+	carriers := make(map[string]int, len(referenced))
 
 	for _, t := range all {
 		tagValues := resolveTagValues(t.Tags)
@@ -226,6 +266,7 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 			if hasAnyTarget(tagValues, referenced) {
 				scoredTasks++
 			}
+			countCarriers(tagValues, referenced, carriers)
 		}
 	}
 
@@ -233,6 +274,7 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 		NoPriorityFn:     priorityFn == nil,
 		ScoredTasks:      scoredTasks,
 		NonTerminalTasks: len(nonTerminal),
+		TargetCoverage:   coverage(referenced, carriers),
 	}
 	if len(nonTerminal) > 1 {
 		first := raw[nonTerminal[0]]
@@ -402,6 +444,44 @@ func hasAnyTarget(tagValues map[string]float64, targets map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// countCarriers increments carriers[target] for every target in targets that
+// tagValues (one non-terminal task's resolveTagValues result) carries. It is
+// hasAnyTarget's per-target counterpart: the same presence test, but tallied
+// per term instead of collapsed to a single boolean, which is the difference
+// between "this task was scored by something" and "this term scored
+// something".
+func countCarriers(tagValues map[string]float64, targets map[string]bool, carriers map[string]int) {
+	for target := range targets {
+		if _, ok := tagValues[target]; ok {
+			carriers[target]++
+		}
+	}
+}
+
+// coverage turns the referenced-target set and its carrier tally into
+// Diagnostics.TargetCoverage: one entry per REFERENCED target — including
+// every target with no carrier at all, which is exactly the row a caller
+// needs and the one a map built only from observed tags would omit — sorted
+// worst coverage first (ascending count, then target name for determinism).
+// Returns nil for an empty target set so an unconfigured project reports no
+// coverage rather than an empty-but-present slice.
+func coverage(targets map[string]bool, carriers map[string]int) []TargetCoverage {
+	if len(targets) == 0 {
+		return nil
+	}
+	out := make([]TargetCoverage, 0, len(targets))
+	for target := range targets {
+		out = append(out, TargetCoverage{Target: target, Tasks: carriers[target]})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Tasks != out[j].Tasks {
+			return out[i].Tasks < out[j].Tasks
+		}
+		return out[i].Target < out[j].Target
+	})
+	return out
 }
 
 // lookup adapts a plain map into the func(string) float64 shape

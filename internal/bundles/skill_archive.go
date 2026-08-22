@@ -784,6 +784,16 @@ func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts E
 // author has not said what they meant. Calling that tampering sent authors
 // hunting for an attacker over a missing YAML line; skillModeDisagreement says
 // what is actually wrong.
+//
+// And the mode comparison reads only the EXEC BIT (skillModeExecutable), not
+// the whole four-digit mode. The rest of a mode does not round-trip: git
+// records the exec bit and nothing else, so a `chmod 0644` cannot be staged
+// and a 0644 declaration can never be made to agree with the tree the next
+// person clones. Comparing the full mode therefore withheld content that
+// verifies, over umask/filesystem/platform noise, with no repair available in
+// the repository. It stays a real check in the one direction that carries
+// meaning: a declared-executable file found non-executable (and the reverse)
+// is still refused, because that one changes whether the file RUNS.
 func VerifyExtractedManifest(fsys afero.Fs, dir string, manifest SkillManifest) error {
 	name := filepath.Base(filepath.Clean(dir))
 	actual, err := buildSkillManifest(fsys, dir, name, DefaultMaxSkillPackageBytes)
@@ -795,6 +805,14 @@ func VerifyExtractedManifest(fsys afero.Fs, dir string, manifest SkillManifest) 
 	if len(actual) != len(expected) {
 		return fmt.Errorf("skill archive: extracted tree has %d files, signed manifest lists %d — rejected (integrity mismatch)", len(actual), len(expected))
 	}
+	// Two empty manifests compare "identical" vacuously, and an empty skill
+	// materializes without complaint and delivers nothing — the silent no-op
+	// this whole verification exists to prevent. A package with no files is
+	// never a package that verified.
+	if len(expected) == 0 {
+		return fmt.Errorf("skill archive: %q has NO files; refusing to treat an empty tree as a verified package "+
+			"(an empty manifest matches an empty directory trivially, and delivers nothing)", name)
+	}
 	for i := range expected {
 		if actual[i].Path != expected[i].Path {
 			return fmt.Errorf("skill archive: extracted tree does not match the signed manifest's file list (expected %q, found %q) — rejected (integrity mismatch)", expected[i].Path, actual[i].Path)
@@ -802,8 +820,16 @@ func VerifyExtractedManifest(fsys afero.Fs, dir string, manifest SkillManifest) 
 		if actual[i].SHA256 != expected[i].SHA256 {
 			return fmt.Errorf("skill archive: file %q content does not match the signed manifest (sha256 mismatch) — rejected (integrity mismatch)", expected[i].Path)
 		}
-		if actual[i].Mode != expected[i].Mode {
-			return skillModeDisagreement(expected[i].Path, expected[i].Mode, actual[i].Mode)
+		declaredExec, derr := skillModeExecutable(expected[i].Mode)
+		if derr != nil {
+			return fmt.Errorf("skill package: file %q declares an unreadable mode: %w", expected[i].Path, derr)
+		}
+		onDiskExec, oerr := skillModeExecutable(actual[i].Mode)
+		if oerr != nil {
+			return fmt.Errorf("skill package: file %q has an unreadable on-disk mode: %w", actual[i].Path, oerr)
+		}
+		if declaredExec != onDiskExec {
+			return skillModeDisagreement(expected[i].Path, expected[i].Mode, actual[i].Mode, declaredExec)
 		}
 	}
 	return nil
@@ -819,30 +845,27 @@ func VerifyExtractedManifest(fsys afero.Fs, dir string, manifest SkillManifest) 
 // it to `executable:`. The package is still refused (the declaration and the
 // tree have to agree before anything is delivered), but refused for the reason
 // it is actually refused for, naming the line to add.
-func skillModeDisagreement(path, declared, onDisk string) error {
-	const (
-		exec  = "0755"
-		plain = "0644"
-	)
-	switch {
-	case declared == plain && onDisk == exec:
-		return fmt.Errorf("skill package: file %q is DECLARED non-executable (mode %s) but is executable (mode %s) on disk — "+
-			"the declaration is what travels (a mode bit is not portable and no signature covers it), so this file would be "+
-			"delivered non-executable and would not run; add %q to the package sidecar's executable: list and re-sign, "+
-			"or clear its exec bit. This is a declaration that disagrees with the tree, NOT tampering: the file's contents verify",
-			path, declared, onDisk, path)
-	case declared == exec && onDisk == plain:
+//
+// declaredExec is the caller's already-computed answer for the DECLARED side.
+// Since the only disagreement that reaches here is an EXEC-BIT disagreement,
+// that single bool settles which of the two remedies applies. There is no
+// third, vaguer case to fall through to any more, and the modes are printed as
+// they actually read rather than assumed to be a bare 0644/0755 — a file
+// declared 0755 and found 0664 gets the "the exec bit was lost" message it
+// always should have got.
+func skillModeDisagreement(path, declared, onDisk string, declaredExec bool) error {
+	if declaredExec {
 		return fmt.Errorf("skill package: file %q is DECLARED executable (mode %s) but is non-executable (mode %s) on disk — "+
 			"the exec bit was lost somewhere between authoring and here (a checkout on a filesystem without one, an archive "+
 			"that dropped it, a umask); restore it, or remove %q from the package sidecar's executable: list. "+
 			"This is a declaration that disagrees with the tree, NOT tampering: the file's contents verify",
 			path, declared, onDisk, path)
-	default:
-		return fmt.Errorf("skill package: file %q is DECLARED mode %s but is mode %s on disk — "+
-			"the declaration and the tree must agree before the package is delivered; fix whichever is wrong and re-sign. "+
-			"This is a declaration that disagrees with the tree, NOT tampering: the file's contents verify",
-			path, declared, onDisk)
 	}
+	return fmt.Errorf("skill package: file %q is DECLARED non-executable (mode %s) but is executable (mode %s) on disk — "+
+		"the declaration is what travels (a mode bit is not portable and no signature covers it), so this file would be "+
+		"delivered non-executable and would not run; add %q to the package sidecar's executable: list and re-sign, "+
+		"or clear its exec bit. This is a declaration that disagrees with the tree, NOT tampering: the file's contents verify",
+		path, declared, onDisk, path)
 }
 
 // PublisherSkillSignatureVerifier is the PRODUCTION skill-manifest signature

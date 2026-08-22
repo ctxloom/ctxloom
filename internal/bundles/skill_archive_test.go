@@ -1666,3 +1666,189 @@ func TestVerifyExtractedManifest_ContentAndFileListStillReportIntegrity(t *testi
 	assert.Contains(t, verr.Error(), "integrity mismatch",
 		"a content hash IS attested; a difference there is exactly what tampering looks like")
 }
+
+// =============================================================================
+// Only the EXEC BIT is compared — the rest of a mode does not round-trip
+// =============================================================================
+
+// declaredThenChmod writes the standard fixture, captures the manifest as it
+// reads BEFORE any chmod (that is the DECLARATION side — 0644/0755, what an
+// author writes and what a signature covers), then re-modes the files on disk
+// to whatever the caller asks for (that is the FILESYSTEM side). It returns
+// the declaration.
+//
+// The two sides are captured in that order deliberately: it is the only way to
+// build a package whose declared and on-disk modes genuinely differ without
+// hand-writing mode strings that could drift from what SkillManifestEntryFor
+// actually emits.
+func declaredThenChmod(t *testing.T, fsys afero.Fs, dir string, onDisk map[string]os.FileMode) SkillManifest {
+	t.Helper()
+	writeSkillFixture(t, fsys, dir, "humanize")
+	pkg, err := ParseSkillPackage(fsys, dir, 0)
+	require.NoError(t, err)
+	declared := pkg.Manifest
+
+	for rel, mode := range onDisk {
+		require.NoError(t, fsys.Chmod(filepath.Join(dir, filepath.FromSlash(rel)), mode))
+	}
+
+	// Guard against a vacuous test: if the chmod did not actually land (an
+	// afero backend that ignores modes, say), "declared and on-disk differ"
+	// would be false and every assertion below would pass for the wrong
+	// reason. Require a real, observable difference first.
+	after, err := ParseSkillPackage(fsys, dir, 0)
+	require.NoError(t, err)
+	byPath := map[string]string{}
+	for _, e := range after.Manifest {
+		byPath[e.Path] = e.Mode
+	}
+	changed := 0
+	for _, e := range declared {
+		if byPath[e.Path] != e.Mode {
+			changed++
+		}
+	}
+	require.NotZero(t, changed,
+		"fixture setup produced no on-disk mode difference at all — the comparison under test would be trivially satisfied")
+	return declared
+}
+
+// TestVerifyExtractedManifest_NonExecModeBitsAreNotADisagreement is the
+// release-blocking case: a fresh clone under umask 002 lands every file at
+// 0664/0775, the package declares 0644/0755, and the full-mode compare
+// withheld content that verifies.
+//
+// There is no repair for it in the repository either: `chmod 0644` followed by
+// `git add` stages NOTHING, because git records the exec bit and nothing else,
+// so the tree can never be made to agree with a 0644 declaration for the next
+// person who clones. The group/other bits are umask, filesystem, and platform
+// noise; they carry no meaning about the package and are not compared.
+func TestVerifyExtractedManifest_NonExecModeBitsAreNotADisagreement(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	dir := "/bundle/skills/humanize"
+	declared := declaredThenChmod(t, fsys, dir, map[string]os.FileMode{
+		"SKILL.md":        0o664,
+		"scripts/run.sh":  0o775,
+		"assets/logo.png": 0o664,
+	})
+
+	err := VerifyExtractedManifest(fsys, dir, declared)
+
+	require.NoError(t, err,
+		"a mode difference confined to the group/other write bits is umask noise, not a declaration the author got wrong")
+}
+
+// TestVerifyExtractedManifest_ExecBitDifferenceIsStillRefused is the half that
+// stops the fix degenerating into "ignore mode entirely". The exec bit is the
+// one part of a mode that IS semantically the skill's content — it decides
+// whether a scripts/ file runs — and it is the one part git round-trips, so a
+// disagreement there is both meaningful and repairable.
+//
+// Both directions are covered, and both are stated in umask-shaped modes
+// (0664/0775) rather than a bare 0644/0755, because those are the modes a real
+// clone produces and an exec-bit compare has to reach the right message for
+// them too.
+func TestVerifyExtractedManifest_ExecBitDifferenceIsStillRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		path     string
+		onDisk   os.FileMode
+		wantSaid string
+		wantFix  string
+	}{
+		{
+			name:     "declared non-executable, executable on disk",
+			path:     "assets/logo.png", // fixture declares 0644
+			onDisk:   0o775,
+			wantSaid: "DECLARED non-executable",
+			wantFix:  "executable:",
+		},
+		{
+			name:     "declared executable, non-executable on disk",
+			path:     "scripts/run.sh", // fixture declares 0755
+			onDisk:   0o664,
+			wantSaid: "DECLARED executable",
+			wantFix:  "the exec bit was lost",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fsys := afero.NewMemMapFs()
+			dir := "/bundle/skills/humanize"
+			declared := declaredThenChmod(t, fsys, dir, map[string]os.FileMode{tc.path: tc.onDisk})
+
+			err := VerifyExtractedManifest(fsys, dir, declared)
+
+			require.Error(t, err,
+				"an exec-bit disagreement changes whether the file RUNS; it must still withhold the package")
+			assert.Contains(t, err.Error(), tc.wantSaid)
+			assert.Contains(t, err.Error(), tc.wantFix)
+			assert.Contains(t, err.Error(), tc.path)
+			assert.Contains(t, err.Error(), "NOT tampering",
+				"the withholding message stays non-accusatory: no signature covers a mode bit")
+			assert.NotContains(t, err.Error(), "integrity mismatch")
+		})
+	}
+}
+
+// TestVerifyExtractedManifest_LooseModeDoesNotLoosenContent pins the inverse
+// defect: relaxing the mode compare must not let two genuinely different files
+// through. The modes here differ only in umask noise (so the mode check is
+// satisfied and cannot be what refuses the package) while the content differs
+// — and content is what a signature actually attests.
+func TestVerifyExtractedManifest_LooseModeDoesNotLoosenContent(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	dir := "/bundle/skills/humanize"
+	declared := declaredThenChmod(t, fsys, dir, map[string]os.FileMode{
+		"scripts/run.sh": 0o775,
+	})
+	require.NoError(t, afero.WriteFile(fsys, dir+"/scripts/run.sh", []byte("#!/bin/sh\nrm -rf /\n"), 0o775))
+
+	err := VerifyExtractedManifest(fsys, dir, declared)
+
+	require.Error(t, err, "a swapped file body must be refused however permissive the mode compare has become")
+	assert.Contains(t, err.Error(), "integrity mismatch",
+		"a content hash IS attested; a difference there is exactly what tampering looks like")
+	assert.Contains(t, err.Error(), "scripts/run.sh")
+}
+
+// TestVerifyExtractedManifest_EmptyManifestIsNotAVerifiedPackage guards the
+// vacuous case: len(actual) == len(expected) == 0 satisfies every comparison in
+// the loop by never entering it, and an empty skill materializes without
+// complaint and delivers nothing — ctxloom's characteristic silent no-op.
+func TestVerifyExtractedManifest_EmptyManifestIsNotAVerifiedPackage(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	dir := "/bundle/skills/humanize"
+	require.NoError(t, fsys.MkdirAll(dir, 0o755))
+
+	err := VerifyExtractedManifest(fsys, dir, SkillManifest{})
+
+	require.Error(t, err, "two empty manifests match trivially; that is not a package that verified")
+	assert.Contains(t, err.Error(), "NO files")
+}
+
+// TestSkillModeExecutable_UnparseableModeIsAnErrorNotFalse pins the fail-loud
+// half of the predicate. A mode string that does not parse must never quietly
+// answer "not executable": that answer would make a package declaring garbage
+// agree with a plain file on disk and verify.
+func TestSkillModeExecutable_UnparseableModeIsAnErrorNotFalse(t *testing.T) {
+	for _, mode := range []string{"", "rwxr-xr-x", "0o755", "8888", "-1"} {
+		t.Run(mode, func(t *testing.T) {
+			exec, err := skillModeExecutable(mode)
+			require.Error(t, err, "an unreadable mode is a refusal, never a silent 'non-executable'")
+			assert.False(t, exec)
+			assert.Contains(t, err.Error(), mode)
+		})
+	}
+
+	for _, tc := range []struct {
+		mode string
+		want bool
+	}{
+		{"0644", false}, {"0664", false}, {"0600", false},
+		{"0755", true}, {"0775", true}, {"0700", true}, {"0744", true},
+	} {
+		exec, err := skillModeExecutable(tc.mode)
+		require.NoError(t, err)
+		assert.Equal(t, tc.want, exec, "mode %s", tc.mode)
+	}
+}

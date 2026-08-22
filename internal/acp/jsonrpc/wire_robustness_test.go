@@ -168,6 +168,50 @@ func TestRouteResponse_StringEchoedIDIsMatched(t *testing.T) {
 	assert.Equal(t, "end_turn", got.StopReason)
 }
 
+// TestRouteResponse_FloatEchoedIDIsMatched pins the same leniency for the
+// other spelling a real peer produces. JSON has one number type, so a runtime
+// holding request ids as floats echoes the id 1 back as `1.0` — the same id,
+// spelled the only way that runtime can spell it. Matching unmarshalled the
+// member into an int64 (which rejects 1.0) and otherwise into a string (which
+// rejects a bare number), so the response was dropped as "matching no
+// outstanding request" and the caller stayed parked until its deadline for a
+// turn that had already completed.
+func TestRouteResponse_FloatEchoedIDIsMatched(t *testing.T) {
+	conn, _ := newScriptedConn([]string{
+		`{"jsonrpc":"2.0","id":1.0,"result":{"stopReason":"end_turn"}}`,
+	}, &mockHandler{})
+
+	await, err := conn.Go("session/prompt", nil)
+	require.NoError(t, err)
+	conn.Start(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var got struct {
+		StopReason string `json:"stopReason"`
+	}
+	require.NoError(t, await(ctx, &got), "a float-spelled echo of our own id must still match its caller")
+	assert.Equal(t, "end_turn", got.StopReason)
+}
+
+// TestResponseID_RejectsIDsThatDenoteNoInteger keeps the leniency above from
+// widening into matching the wrong caller. A fractional id, a magnitude no
+// int64 can hold, and a non-numeric string each denote no id this codec ever
+// allocated, and must be reported as unmatched rather than silently truncated
+// or wrapped into some other caller's slot.
+func TestResponseID_RejectsIDsThatDenoteNoInteger(t *testing.T) {
+	for _, raw := range []string{`1.5`, `1e300`, `-1e300`, `"session-a"`, `null`, `{}`, `[1]`} {
+		_, ok := responseID(json.RawMessage(raw))
+		assert.False(t, ok, "id %s denotes no integer request id", raw)
+	}
+	for raw, want := range map[string]int64{`1`: 1, `1.0`: 1, `"1"`: 1, `1e0`: 1, `-7`: -7, `"2"`: 2} {
+		got, ok := responseID(json.RawMessage(raw))
+		if assert.True(t, ok, "id %s denotes an integer request id", raw) {
+			assert.Equal(t, want, got, "id %s", raw)
+		}
+	}
+}
+
 // eofAfter is a reader that ends the stream with err on its first Read, used to
 // stand in for a transport that annotates its end-of-stream.
 type eofAfter struct{ err error }
@@ -220,17 +264,30 @@ func TestReadLoop_MalformedFrameDoesNotEndTheSession(t *testing.T) {
 	waitDone(t, conn)
 }
 
-// TestReadLoop_UnrecoverableFrameEndsTheSession is the other half:
-// a SYNTAX error leaves json.Decoder at an undefined position in the byte
-// stream, so there is no honest way to resume — the session must end and every
-// parked caller must be released rather than left hanging. This pins the limit
-// the corrected package doc now states, so that "warns and continues" is never
-// widened to cover a stream we can no longer frame.
-func TestReadLoop_UnrecoverableFrameEndsTheSession(t *testing.T) {
+// TestReadLoop_StdoutNoiseIsSteppedOverAndTheSessionSurvives REVERSES the
+// contract this suite used to pin, under the name
+// TestReadLoop_UnrecoverableFrameEndsTheSession:
+// a JSON syntax error ended the session, on the reasoning that
+// json.Decoder is left at an undefined byte with no trustworthy frame boundary
+// after it. That reasoning was true of the decoder and false of the wire. ACP
+// frames messages as newline-delimited JSON, so the next frame boundary is the
+// next newline no matter what the bytes before it were — and an engine's
+// stdout is a SHARED channel that really does carry non-JSON: a runtime's
+// "Debugger attached", an npm notice, a stray console.log from a
+// user-configured adapter. Ending an ACP session over one such line meant a
+// prompt already in flight died, and every parked caller with it, because a
+// tool the user does not control wrote a diagnostic. Noise is stepped over;
+// only the transport ending ends the session.
+func TestReadLoop_StdoutNoiseIsSteppedOverAndTheSessionSurvives(t *testing.T) {
+	notified := make(chan string, 4)
 	conn, _ := newScriptedConn([]string{
+		`Debugger attached.`,
 		`{"jsonrpc":"2.0", this is not JSON at all`,
+		``,
+		`npm notice New major version of npm available!`,
+		`{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn"}}`,
 		`{"jsonrpc":"2.0","method":"session/update"}`,
-	}, &mockHandler{})
+	}, notifyRecorder(notified))
 
 	await, err := conn.Go("session/prompt", nil)
 	require.NoError(t, err)
@@ -238,7 +295,38 @@ func TestReadLoop_UnrecoverableFrameEndsTheSession(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	assert.Error(t, await(ctx, nil), "a parked caller must be released, not left hanging, when the stream cannot be framed")
+	var got struct {
+		StopReason string `json:"stopReason"`
+	}
+	require.NoError(t, await(ctx, &got), "the turn completed behind the noise: its caller must be answered, not released with an error")
+	assert.Equal(t, "end_turn", got.StopReason, "the real result must survive the noise ahead of it")
+
+	select {
+	case m := <-notified:
+		assert.Equal(t, "session/update", m, "the session must still be serving traffic after the noise")
+	case <-time.After(5 * time.Second):
+		t.Fatal("no frame after the non-JSON lines was ever dispatched: the session was torn down instead")
+	}
+	waitDone(t, conn)
+}
+
+// TestReadLoop_TransportErrorStillEndsTheSession keeps the OTHER half of the
+// reversal honest. Tolerating unreadable LINES must not become tolerating an
+// unreadable STREAM: when the transport itself fails there are no more frames
+// coming, and a caller parked on a response has to be released rather than
+// left hanging until its deadline.
+func TestReadLoop_TransportErrorStillEndsTheSession(t *testing.T) {
+	conn := NewConn(eofAfter{err: errors.New("read |0: file already closed")}, &lockedBuffer{}, nil, &mockHandler{})
+
+	await, err := conn.Go("session/prompt", nil)
+	require.NoError(t, err)
+	conn.Start(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	aerr := await(ctx, nil)
+	require.Error(t, aerr, "a parked caller must be released when the transport dies")
+	assert.Contains(t, aerr.Error(), "file already closed", "the transport's own failure must reach the caller, not be flattened to a clean hangup")
 	waitDone(t, conn)
 }
 

@@ -166,6 +166,11 @@ type fakeSpawner struct {
 	assigned []string
 	// sessionsEnded records each MarkSessionEnded call's harp, in call order.
 	sessionsEnded []string
+	// launchErr, when set, fails every legacy Launch with it — a child that
+	// is admitted (it holds an execution slot) and then dies at standup,
+	// which is the shape that separates "queued behind the cap" from
+	// "started and failed".
+	launchErr error
 	perms    []agent.PermissionMode
 	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
 	// spawns a REAL runner half (Home + EngineHost over the coordinator's
@@ -338,7 +343,11 @@ func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText, 
 	s.perms = append(s.perms, plan.Perm)
 	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
+	launchErr := s.launchErr
 	s.mu.Unlock()
+	if launchErr != nil {
+		return nil, launchErr
+	}
 	return e.launch(ctx, contextText, resumeSessionID, env, runnerEnv), nil
 }
 

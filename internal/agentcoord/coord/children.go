@@ -355,10 +355,23 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	// anywhere visible. Nothing on the launch path reads what it records:
 	// the recorded version is consumed much later, when this session's
 	// transcript is parsed back (sessions.Entry.EngineVersion).
+	// The QUEUED answer is read HERE, before any goroutine that can change
+	// it exists. rt.slot is the ENQUEUE's own claim — enqueueRun tryAcquires
+	// a free slot precisely so this answer can be truthful — but the moment
+	// runChild is dispatched that field belongs to it: the acquire promotes
+	// a claim to slotHeld, and any terminal releases it back to slotFree.
+	// Read after the dispatch, the disposition reported whatever the child
+	// goroutine happened to have reached by then, so a child admitted
+	// immediately and then failed to launch was answered with "queued behind
+	// the execution cap" — a statement about a different run, and the one
+	// state the caller is most likely to wait on rather than investigate.
 	backend := plan.Backend
 	c.goTracked(func() { c.spawner.RecordEngineVersion(c.baseCtx, harp, backend) })
 
 	c.goTracked(func() { c.runChild(rt, prompt, token, url) })
+	if hook := c.spawnDispatchedHook; hook != nil {
+		hook(harp)
+	}
 
 	runtime := plan.Runtime
 	if runtime == "" {

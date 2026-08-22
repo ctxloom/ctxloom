@@ -138,6 +138,13 @@ UPDATE THE WORK TRACKING
 - Update the relevant `*.plan.md` and any other tracking the turn invalidated.
 - If a task or plan turned out to be STALE, correct it rather than working
   around it — a stale task gets the same work done twice.
+- RE-TAG WHAT YOU MOVED. If you renamed, split or deleted a file, fix the
+  `touches:` tags naming it; if you changed or removed a symbol's contract, fix
+  the `sig:` tags naming it. Find them with
+  `taskloom list --term <old path or symbol> --json`. These tags are what tells
+  the next dispatch which tasks collide, so a stale one either hides a real
+  collision or invents one — and nothing else in this checklist will catch it,
+  because a tag has no compiler and no gate. See docs/task-tagging-standard.md.
 
 FIX WHAT YOU FOUND — filing is the exception, not the default
 - A defect, stale task, red gate, surviving mutation or untested claim you

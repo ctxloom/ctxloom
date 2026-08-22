@@ -213,6 +213,25 @@ type fakeSpawner struct {
 	// plan.DirtyTreeHandler, in spawn order — the identical threading proof
 	// as workspaces, for AgentRun's dirty_tree_handler override.
 	dirtyTreeHandlers []operations.DirtyTreeHandler
+	// versionProbes records each RecordEngineVersion call's harp, in call
+	// order — the SLOW, post-registration half of session start (the real
+	// one execs a vendor CLI).
+	versionProbes []string
+	// versionProbeEntered, when non-nil, receives the harp the moment
+	// RecordEngineVersion is entered, and versionProbeGate then holds it
+	// there until the test closes the gate. Together they are the seam the
+	// pre-existing fakes lacked entirely: a spawn step that is SLOW rather
+	// than merely failing, which is what makes "the run is registered
+	// before the slow step runs" assertable by ORDER instead of by clock.
+	versionProbeEntered chan string
+	versionProbeGate    chan struct{}
+	// resolveEntered / resolveGate are the same slow-step seam over the
+	// FIRST pre-registration step, agent resolution. Together with the
+	// version-probe pair they are what lets a test park agent_run inside
+	// the span that used to be traceless and look at what the world can
+	// see from outside it.
+	resolveEntered chan string
+	resolveGate    chan struct{}
 }
 
 type fakeAgent struct {
@@ -251,7 +270,8 @@ func newFakeSpawner(agents map[string]fakeAgent, next func() *fakeEngine) *fakeS
 	return &fakeSpawner{next: next, agents: agents}
 }
 
-func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, error) {
+func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan, error) {
+	s.awaitResolveGate(ctx, agentName)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a, ok := s.agents[agentName]
@@ -476,6 +496,54 @@ func (s *fakeSpawner) lastDirtyTreeHandler() operations.DirtyTreeHandler {
 
 func (s *fakeSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {
 	return plan.Context
+}
+
+// awaitResolveGate parks Resolve, WITHOUT holding s.mu (a gated resolve that
+// held the fake's own mutex would wedge every other observation the test
+// wants to make while it is parked).
+func (s *fakeSpawner) awaitResolveGate(ctx context.Context, agentName string) {
+	s.mu.Lock()
+	entered, gate := s.resolveEntered, s.resolveGate
+	s.mu.Unlock()
+	if entered != nil {
+		select {
+		case entered <- agentName:
+		default:
+		}
+	}
+	if gate == nil {
+		return
+	}
+	select {
+	case <-gate:
+	case <-ctx.Done():
+	}
+}
+
+func (s *fakeSpawner) RecordEngineVersion(ctx context.Context, harp, _ string) {
+	s.mu.Lock()
+	s.versionProbes = append(s.versionProbes, harp)
+	entered, gate := s.versionProbeEntered, s.versionProbeGate
+	s.mu.Unlock()
+	if entered != nil {
+		select {
+		case entered <- harp:
+		default:
+		}
+	}
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+	}
+}
+
+// probedVersions returns the harps RecordEngineVersion has been called for.
+func (s *fakeSpawner) probedVersions() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.versionProbes...)
 }
 
 func (s *fakeSpawner) MarkSessionEnded(string) {}

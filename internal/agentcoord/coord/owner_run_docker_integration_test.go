@@ -120,7 +120,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 
 	// The owner's session harp (its address + the transcript-mount key), minted
 	// through the same accounting the host uses.
-	entry, err := operations.AssignSession(projectDir, "mock")
+	entry, err := operations.AssignSession(context.Background(), projectDir, "mock")
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 
@@ -233,7 +233,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	image := buildBusIntegrationImage(t)
 	projectDir := testsupport.ProjectDir(t)
 
-	entry, err := operations.AssignSession(projectDir, "mock")
+	entry, err := operations.AssignSession(context.Background(), projectDir, "mock")
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 

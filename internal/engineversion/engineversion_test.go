@@ -224,3 +224,60 @@ func TestFirstSemverToken_ToleratesShapeButStillRefusesJunk(t *testing.T) {
 	assert.ErrorContains(t, err, "no semver-shaped token",
 		"tolerant is not the same as credulous: output with no version in it must refuse")
 }
+
+// A version probe is an exec of somebody else's CLI, and the caller on the
+// delegation spawn path handed down a context with no deadline at all — so a
+// `--version` that never returned parked a whole agent spawn for as long as
+// it hung, before the spawn was registered anywhere an operator could see it
+// (task affected-yearly). The prober now carries its own budget, and blowing
+// it is a refusal like every other failure here, not a guessed version.
+func TestProber_AHungVersionCommandIsRefusedAtTheProbeBudget(t *testing.T) {
+	bin := fakeBinary(t, "v1")
+	p, _ := probeAtToken0(t, bin, "", nil)
+	p.timeout = 20 * time.Millisecond
+	// A binary that never answers on its own: it returns only when the
+	// context it was handed is cut, which is precisely what the budget must
+	// do and what nothing did before.
+	p.run = func(ctx context.Context, _ string, _ []string) (string, error) {
+		<-ctx.Done()
+		return "", errors.New("signal: killed")
+	}
+
+	_, err := p.Probe(context.Background(), "claude-code")
+	require.Error(t, err, "an unbounded probe must not be able to succeed by hanging")
+
+	var failed *CommandFailedError
+	require.ErrorAs(t, err, &failed, "a blown budget is a typed refusal, like every other failure here")
+	assert.True(t, errors.Is(err, context.DeadlineExceeded),
+		"and it names the budget as the cause — exec reports only 'signal: killed', which explains nothing")
+	assert.Contains(t, err.Error(), "20ms", "the message states the budget it exceeded")
+}
+
+// The budget is only worth having if it is on by default: every production
+// Prober comes from NewProber, and the callers this defect was found through
+// pass a context that carries no deadline of its own.
+func TestNewProber_CarriesTheProbeBudgetByDefault(t *testing.T) {
+	p := NewProber(func(string) (string, Command, error) { return "", Command{}, nil })
+	assert.Equal(t, DefaultProbeTimeout, p.timeout,
+		"a prober built the production way must bound its own exec")
+	assert.Positive(t, DefaultProbeTimeout, "and the bound must actually be a bound")
+}
+
+// The prober's budget must never LENGTHEN a caller's own deadline: a caller
+// that has already decided how long it can wait keeps that answer.
+func TestProber_ATighterCallerDeadlineStillWins(t *testing.T) {
+	bin := fakeBinary(t, "v1")
+	p, _ := probeAtToken0(t, bin, "", nil)
+	p.timeout = time.Hour
+	p.run = func(ctx context.Context, _ string, _ []string) (string, error) {
+		<-ctx.Done()
+		return "", errors.New("signal: killed")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err := p.Probe(ctx, "claude-code")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, context.DeadlineExceeded),
+		"the caller's deadline cut the probe; the prober's hour-long backstop did not override it")
+}

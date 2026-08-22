@@ -34,14 +34,36 @@ package engineversion
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 )
+
+// DefaultProbeTimeout bounds ONE version probe's execution.
+//
+// A probe is an exec of somebody else's CLI, and that CLI can hang: a vendor
+// binary that waits on a network call, a login prompt, or a lock never
+// returns on its own. Before this budget existed the only deadline was the
+// caller's context, and the caller on the delegation spawn path handed down
+// context.Background() — so `claude --version` sitting forever parked
+// coord.Coordinator.AgentRun forever too, before the run was registered
+// anywhere an operator could see it (task affected-yearly).
+//
+// Generous rather than tight: this is a "that binary is not coming back"
+// backstop, not a performance budget. A healthy `--version` answers in
+// milliseconds and the answer is then cached by binary fingerprint, so the
+// budget is reached only by a genuinely stuck process.
+//
+// Exceeding it is a REFUSAL like every other failure here — a
+// *CommandFailedError wrapping context.DeadlineExceeded, never a guessed
+// version.
+const DefaultProbeTimeout = 10 * time.Second
 
 // Command declares HOW to ask one engine's binary for its own version: the
 // arguments to pass, and how to read a version out of what it prints.
@@ -169,6 +191,13 @@ type Prober struct {
 	// branch (success, non-zero exit, junk output) without installing engines.
 	run func(ctx context.Context, binary string, args []string) (string, error)
 
+	// timeout bounds one probe's execution, on top of whatever deadline the
+	// caller's context already carries — see DefaultProbeTimeout. Zero or
+	// negative leaves the caller's context as the only bound, which is what
+	// the callers on the spawn path historically got wrong; nothing in
+	// production sets it that way.
+	timeout time.Duration
+
 	mu    sync.Mutex
 	cache map[string]string
 }
@@ -179,6 +208,7 @@ func NewProber(resolve Resolver) *Prober {
 	return &Prober{
 		resolve: resolve,
 		run:     runVersionCommand,
+		timeout: DefaultProbeTimeout,
 		cache:   map[string]string{},
 	}
 }
@@ -209,9 +239,11 @@ func (p *Prober) Probe(ctx context.Context, engine string) (string, error) {
 		return v, nil
 	}
 
-	out, err := p.run(ctx, binary, cmd.Args)
+	pctx, cancel := p.probeContext(ctx)
+	defer cancel()
+	out, err := p.run(pctx, binary, cmd.Args)
 	if err != nil {
-		return "", &CommandFailedError{Engine: engine, Binary: binary, Args: cmd.Args, Output: out, Err: err}
+		return "", &CommandFailedError{Engine: engine, Binary: binary, Args: cmd.Args, Output: out, Err: p.explainCancellation(err, pctx)}
 	}
 	version, err := cmd.Parse(out)
 	if err != nil {
@@ -220,6 +252,36 @@ func (p *Prober) Probe(ctx context.Context, engine string) (string, error) {
 
 	p.store(fp, version)
 	return version, nil
+}
+
+// probeContext applies the prober's own budget to the caller's context.
+//
+// It never LENGTHENS the caller's deadline: context.WithTimeout keeps
+// whichever bound fires first, so a caller with a tighter budget still wins.
+// What it guarantees is a bound where the caller supplied none.
+func (p *Prober) probeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if p.timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, p.timeout)
+}
+
+// explainCancellation folds the reason a probe was cut short into its error.
+//
+// exec.CommandContext kills the child on cancellation and reports the KILL
+// ("signal: killed"), not the cause, so an unexplained "signal: killed" is
+// what a stuck vendor CLI looks like from here. Wrapping the context's own
+// error keeps errors.Is(err, context.DeadlineExceeded) true for a caller that
+// wants to distinguish "the engine is wedged" from "the engine said no".
+func (p *Prober) explainCancellation(err error, pctx context.Context) error {
+	cerr := pctx.Err()
+	if cerr == nil || errors.Is(err, cerr) {
+		return err
+	}
+	if errors.Is(cerr, context.DeadlineExceeded) {
+		return fmt.Errorf("%v (killed after the %s version-probe budget): %w", err, p.timeout, cerr)
+	}
+	return fmt.Errorf("%v: %w", err, cerr)
 }
 
 func (p *Prober) cached(fp string) (string, bool) {

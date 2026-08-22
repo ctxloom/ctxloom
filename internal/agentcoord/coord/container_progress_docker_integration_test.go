@@ -138,7 +138,7 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*SpawnPl
 }
 
 func (s *progressSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.AssignSession(projectDir, backend)
+	entry, err := operations.AssignSession(context.Background(), projectDir, backend)
 	if err != nil {
 		return "", err
 	}
@@ -204,6 +204,8 @@ func (s *progressSpawner) record(name string, kill func()) {
 func (s *progressSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {
 	return plan.Context
 }
+func (s *progressSpawner) RecordEngineVersion(context.Context, string, string) {}
+
 func (s *progressSpawner) MarkSessionEnded(string) {}
 
 func (s *progressSpawner) containerNames() []string {

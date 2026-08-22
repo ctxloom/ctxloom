@@ -297,7 +297,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 		replay = entries
 		contextText = JoinLeadBlocks(contextText, RenderResumedTranscript(harp, replay))
-	} else if entry, aerr := assignSession(req.Cwd, backendName); aerr != nil {
+	} else if entry, aerr := assignSession(ctx, req.Cwd, backendName); aerr != nil {
 		// The harp is the load-bearing identifier for THREE separate
 		// facilities, and every one of them is off for the rest of this
 		// session (see the `if harp != ""` guards below and the closeOnce

@@ -78,7 +78,7 @@ type unknownAgentError struct{ name string }
 func (e *unknownAgentError) Error() string { return "directBusSpawner: unknown agent " + e.name }
 
 func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.AssignSession(projectDir, backend)
+	entry, err := operations.AssignSession(context.Background(), projectDir, backend)
 	if err != nil {
 		return "", err
 	}
@@ -124,6 +124,8 @@ func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env
 func (s *directBusSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {
 	return plan.Context
 }
+func (s *directBusSpawner) RecordEngineVersion(context.Context, string, string) {}
+
 func (s *directBusSpawner) MarkSessionEnded(string) {}
 
 func (s *directBusSpawner) containerNames() []string {

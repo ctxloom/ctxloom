@@ -804,6 +804,50 @@ func TestPadCell_FramesDisplayCellsNotRunes(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got, "…"), "and is marked: %q", got)
 }
 
+// The case above never reaches the truncation branch on styled input: its
+// styled string is 11 columns against a 20-column budget, so it takes the
+// padding branch, and its CJK cases are one code point per cluster, where a
+// per-rune column scan is accidentally right. This forces the truncation
+// branch on the material the overlay actually frames — engine transcript text
+// with SGR colour in it — where a per-rune scan cut inside the escape and put
+// an unterminated CSI on the wire.
+func TestPadCell_TruncatesColouredInputWithoutTearingTheEscape(t *testing.T) {
+	for _, src := range []string{
+		"\x1b[31mERROR\x1b[0m: build failed in pkg/foo",
+		"\x1b[38;5;196mred text here\x1b[0m",
+		"\x1b[38;2;220;50;47mtruecolour output line\x1b[0m",
+	} {
+		for w := 1; w <= 12; w++ {
+			got := padCell(src, w)
+			assertTerminatedEscapes(t, got, "src=%q w=%d", src, w)
+			assert.Equal(t, w, lipgloss.Width(got),
+				"padCell frames exactly w columns: src=%q w=%d got=%q", src, w, got)
+		}
+	}
+}
+
+// The pane divider is the visible consequence: every row is
+// padCell(roster) + "│" + padCell(feed), so if a padCell cut tears an escape
+// the terminal eats the divider and the pane beside it. Assert the divider
+// lands on one column for every row, over coloured content, at real geometry.
+func TestPadCell_DividerHoldsItsColumnOverColouredRows(t *testing.T) {
+	rows := []string{
+		"\x1b[7m selected-agent \x1b[0m",
+		"\x1b[38;2;220;50;47mred-agent is running a very long tool call\x1b[0m",
+		"\x1b[32mok\x1b[0m",
+		"plain-agent",
+	}
+	const rosterW, feedW = 22, 58
+	for i, r := range rows {
+		line := padCell(r, rosterW) + "│" + padCell(rows[len(rows)-1-i], feedW)
+		assertTerminatedEscapes(t, line, "row %d", i)
+		assert.Equal(t, rosterW, lipgloss.Width(padCell(r, rosterW)),
+			"row %d roster cell is off its column", i)
+		assert.Equal(t, rosterW+feedW+1, lipgloss.Width(line),
+			"row %d total width shifted: %q", i, line)
+	}
+}
+
 func TestModel_RosterLinesWindowAroundSelection(t *testing.T) {
 	rows := make([]RosterRow, 20)
 	for i := range rows {

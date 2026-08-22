@@ -230,3 +230,29 @@ func assertTerminatedEscapes(t *testing.T, s string, msg string, args ...any) {
 		}
 	}
 }
+
+// The production reach: itemsFromFeedEvent copies engine transcript content
+// into feedItem.text verbatim, and engines colour that content, so every byte
+// renderItems emits at real terminal geometry has to be safe to write. This
+// covers all three cut sites at once — the wrap in renderItem, the
+// truncateLine in the collapsed tool_use and thinking bodies.
+func TestRenderItems_EmitsNoTornEscapesOverColouredTranscriptContent(t *testing.T) {
+	red := "\x1b[38;2;220;50;47m"
+	items := []feedItem{
+		{role: "assistant", text: red + "an assistant reply that runs well past the pane\x1b[0m"},
+		{role: "thinking", text: "\x1b[2mfirst thought line\x1b[0m\nsecond line\nthird line"},
+		{role: "tool_use", toolName: "\x1b[36mBash\x1b[0m", toolInput: `{"command":"` + red + `go build ./...\x1b[0m"}`},
+		{role: "tool_result", toolOutput: "\x1b[31mERROR\x1b[0m: build failed in pkg/foo\nand a second line"},
+		{role: "notice", text: "\x1b[33m… 12 live events dropped\x1b[0m"},
+	}
+	for _, width := range []int{20, 40, 47, 60, 80, 120} {
+		lines, first := renderItems(items, width, map[int]bool{1: true, 3: true}, 0)
+		require.Len(t, first, len(items), "width=%d", width)
+		require.NotEmpty(t, lines, "width=%d", width)
+		for i, l := range lines {
+			assertTerminatedEscapes(t, l, "width=%d line %d", width, i)
+			assert.LessOrEqual(t, lipgloss.Width(l), width,
+				"width=%d line %d overflows the pane: %q", width, i, l)
+		}
+	}
+}

@@ -73,12 +73,9 @@ type mcpFile struct {
 // A name derived this round that is NOT in the ledger but IS already present
 // in the registry is a hand-authored entry ctxloom never wrote (the ledger
 // unconditionally drops every name it lists just below, so anything still
-// present afterward was never the ledger's to begin with). WriteServers
-// refuses to overwrite it: that one name is skipped (warned, not claimed in
-// the ledger) and every other managed name is still written — a single
-// collision must not block the rest of the reconcile, and claiming the name
-// anyway would compound today's silent overwrite into a silent deletion the
-// next time RemoveServers or a config change drops it from the managed set.
+// present afterward was never the ledger's to begin with). MCPNameArbiter —
+// the one place that contest is settled, for every engine writer, not just
+// this one — decides what happens to it.
 func (c MCPFileConfig) WriteServers(bundleMCP map[string]wire.MCPServer) error {
 	// The lock spans load through save+ledger-write: this is the whole RMW
 	// cycle a concurrent WriteServers/RemoveServers on the SAME registry file
@@ -101,38 +98,27 @@ func (c MCPFileConfig) WriteServers(bundleMCP map[string]wire.MCPServer) error {
 
 		c.dropManaged(mf, ledgerNames)
 
-		// seen dedupes `managed` so the ledger records each name once.
-		var managed []string
-		seen := make(map[string]bool)
-		collisionWarned := make(map[string]bool)
-		add := func(name string, s mcpFileServer) {
-			if !seen[name] {
-				if _, exists := mf.Servers[name]; exists {
-					if !collisionWarned[name] {
-						collisionWarned[name] = true
-						c.Warn("refusing to overwrite MCP server %q in %s: a hand-authored entry already uses this name and ctxloom did not create it; rename it in your config or bundle, or rename/remove the existing entry, to let ctxloom manage %q", name, c.Label, name)
-					}
-					return
-				}
-				if handDeleted[name] {
-					c.Warn("recreating MCP server %q in %s: it was removed by hand since the last write, but config, a bundle, or a plugin still declares it; remove it from there instead if you want ctxloom to stop managing it", name, c.Label)
-				}
-			}
-			c.setServer(mf, name, s)
-			if !seen[name] {
-				seen[name] = true
-				managed = append(managed, name)
-			}
+		// Present is read AFTER dropManaged, so anything it still finds is by
+		// construction an entry ctxloom never wrote. The arbiter also dedupes
+		// its Claimed() set, so the ledger records each name once.
+		arb := &MCPNameArbiter{
+			Present:     func(name string) bool { _, ok := mf.Servers[name]; return ok },
+			HandDeleted: handDeleted,
+			Label:       c.Label,
+			Warn:        c.Warn,
 		}
 
 		for name, server := range ResolveManagedMCPServers(bundleMCP, c.CommandOverride) {
-			add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
+			if !arb.Claim(name) {
+				continue
+			}
+			c.setServer(mf, name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
 		}
 
 		if err := c.save(mf); err != nil {
 			return err
 		}
-		return c.writeLedger(managed)
+		return c.writeLedger(arb.Claimed())
 	})
 }
 

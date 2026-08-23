@@ -1,12 +1,12 @@
 package testsupport
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // SandboxOffEnv disables SandboxedMain's process-wide sandbox. It exists for
@@ -91,76 +91,16 @@ func RequireIsolatedAppDir(t *testing.T) {
 }
 
 // AppDirIsolationError reports why ctxloom's app-directory resolution could
-// escape the OS temp root, or nil when it cannot. See appDirIsolationError.
+// escape the OS temp root, or nil when it cannot.
+//
+// The predicate itself lives in taskstest, next to the Isolate it now guards:
+// the internal/shared tree is self-contained and cannot import testsupport,
+// so a shared-side caller forces the body shared-side. This is a re-export,
+// not a copy — two bodies is how the two EnvKeys lists drifted to cover 3 of
+// ~18 variables with nothing to catch it.
 func AppDirIsolationError() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot resolve the home directory: %w", err)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("cannot resolve the working directory: %w", err)
-	}
-	return appDirIsolationError(home, cwd, os.TempDir())
+	return taskstest.AppDirIsolationError()
 }
-
-// appDirIsolationError is the pure predicate behind AppDirIsolationError, with
-// the three inputs injected so it can be driven RED in a unit test without
-// going anywhere near the real home (sandbox_test.go).
-//
-// It mirrors the two routes config.findAppDir resolves by — deliberately as a
-// STRICTER superset, not a second copy of that function:
-//
-//  1. the home fallback, ~/.ctxloom — so os.UserHomeDir() must be inside
-//     tempRoot;
-//  2. the walk UP FROM cwd, which findAppDir stops at os.TempDir() — so no
-//     ancestor of cwd, up to that same boundary, may hold a .ctxloom that
-//     lives outside tempRoot.
-//
-// Anything findAppDir would resolve is therefore inside tempRoot whenever this
-// returns nil. It never tries to predict WHICH directory findAppDir picks;
-// asserting "not the user's real one" needs only the weaker containment fact,
-// and a predictor would have to be kept in lockstep with findAppDir forever.
-func appDirIsolationError(home, cwd, tempRoot string) error {
-	tempRoot = resolvePath(tempRoot)
-
-	if !underRoot(home, tempRoot) {
-		return fmt.Errorf("HOME resolves to %q, outside the temp root %q: the ~/.ctxloom fallback would hit the developer's real home", home, tempRoot)
-	}
-	if esc, err := escapingAppDirAncestor(cwd, tempRoot); err != nil {
-		return err
-	} else if esc != "" {
-		return fmt.Errorf("the working directory %q has an ancestor app dir at %q, outside the temp root %q: findAppDir's walk-up would adopt it as the project", cwd, esc, tempRoot)
-	}
-	return nil
-}
-
-// escapingAppDirAncestor walks up from cwd exactly as config.findAppDir does —
-// same AppDirName marker, same "stop at the OS temp root" boundary — and
-// returns the first app dir it finds that is NOT inside tempRoot.
-func escapingAppDirAncestor(cwd, tempRoot string) (string, error) {
-	dir := resolvePath(cwd)
-	if dir == "" {
-		return "", errors.New("the working directory does not exist")
-	}
-	for dir != tempRoot {
-		candidate := filepath.Join(dir, appDirName)
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() && !underRoot(candidate, tempRoot) {
-			return candidate, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return "", nil
-}
-
-// appDirName duplicates paths.AppDirName rather than importing it: this
-// package is imported BY internal/config's own tests (package config), so any
-// edge from testsupport into the config/paths tree risks an import cycle.
-const appDirName = ".ctxloom"
 
 // enterSandbox roots HOME and the working directory at fresh temp directories
 // and clears every EnvKeys variable, process-wide (os.Setenv, not t.Setenv:
@@ -273,35 +213,4 @@ func removeAllForced(root string) {
 		return nil
 	})
 	_ = os.RemoveAll(root)
-}
-
-// underRoot reports whether path is root itself or lives beneath it, comparing
-// symlink-resolved paths (the OS temp root is a symlink on macOS, and t.TempDir
-// hands back the unresolved form).
-func underRoot(path, root string) bool {
-	path, root = resolvePath(path), resolvePath(root)
-	if path == "" || root == "" {
-		return false
-	}
-	if path == root {
-		return true
-	}
-	return strings.HasPrefix(path, root+string(filepath.Separator))
-}
-
-// resolvePath returns p symlink-resolved and cleaned, falling back to the
-// cleaned absolute form when the path does not exist (a nonexistent path still
-// has to compare sensibly against a root).
-func resolvePath(p string) string {
-	if p == "" {
-		return ""
-	}
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return filepath.Clean(p)
-	}
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		return real
-	}
-	return filepath.Clean(abs)
 }

@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // The per-item command bodies behind `fragment|command
@@ -46,18 +48,11 @@ func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled, 
 		return err
 	}
 
-	out := cmd.OutOrStdout()
-	content := item.Content
-	if showDistilled && item.Distilled != "" {
+	content, distilled := item.Content, showDistilled && item.Distilled != ""
+	if distilled {
 		content = item.Distilled
-		fmt.Fprintln(out, "# (distilled version)")
 	}
-
-	fmt.Fprintf(out, "%s\n\n", itemName)
-	fmt.Fprint(out, content)
-	if !strings.HasSuffix(content, "\n") {
-		fmt.Fprintln(out)
-	}
+	printItemBody(cmd.OutOrStdout(), ref, itemName, content, distilled)
 
 	// TTY-gated interactive trust review (-i). The content above is emitted
 	// identically whether or not -i is set, and all trust UI goes to stderr, so
@@ -67,6 +62,24 @@ func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled, 
 		return offerItemTrust(cmd, cfg, ref)
 	}
 	return nil
+}
+
+// printItemBody renders what `fragment show` and `command show` display: the
+// distilled marker when the distilled form was asked for and exists, the item's
+// name, then its body.
+//
+// The body and the name are both PUBLISHER-AUTHORED, so both go through the
+// shared termsafe seam (delicious-goatskin): a fragment body carrying a
+// cursor-up plus erase-line pair could otherwise rewrite the name line above
+// it, and this is the path the report confirmed exploitable. ref names the item
+// in the alteration notice, which goes to the diagnostic channel so a
+// redirected `show > file` is not polluted by it.
+func printItemBody(w io.Writer, ref, itemName, content string, distilled bool) {
+	if distilled {
+		fmt.Fprintln(w, "# (distilled version)")
+	}
+	fmt.Fprintf(w, "%s\n\n", termsafe.Field(itemName))
+	_ = publisherBody("", "", true).Render(w, ref, content)
 }
 
 // createItem creates a new item in a bundle. Thin wrapper over the

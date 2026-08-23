@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
@@ -256,14 +257,19 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 	}
 	fmt.Fprintf(w, "%d item(s) pending review (%d update(s)):\n", res.Total, res.Updates)
 	for _, b := range res.Bundles {
-		fmt.Fprintf(w, "\n%s", b.Ref)
+		// Every interpolation below is a string the PUBLISHER chose, on the
+		// one surface whose job is to tell a human which publisher they are
+		// about to trust. termsafe.Field keeps each of them on the line it was
+		// written into, so none can erase or impersonate the ctxloom-authored
+		// lines around it (delicious-goatskin).
+		fmt.Fprintf(w, "\n%s", termsafe.Field(b.Ref))
 		if b.Remote != "" {
-			fmt.Fprintf(w, " (remote: %s)", b.Remote)
+			fmt.Fprintf(w, " (remote: %s)", termsafe.Field(b.Remote))
 		}
 		fmt.Fprintln(w)
 		renderReviewPublisher(w, b)
 		for _, it := range b.Items {
-			fmt.Fprintf(w, "  %-8s %s/%s\n", it.Status, it.Kind, it.Name)
+			fmt.Fprintf(w, "  %-8s %s/%s\n", it.Status, termsafe.Field(it.Kind), termsafe.Field(it.Name))
 		}
 	}
 	fmt.Fprintln(w, "\nRun 'ctxloom review' in a terminal to review interactively, or use the")
@@ -290,13 +296,13 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 func renderReviewPublisher(w io.Writer, b operations.ReviewBundle) {
 	switch b.Publisher {
 	case bundles.ReasonUntrustedSigner:
-		fmt.Fprintf(w, "  signer:  untrusted key %s\n", b.SignerFingerprint)
+		fmt.Fprintf(w, "  signer:  untrusted key %s\n", termsafe.Field(b.SignerFingerprint))
 		fmt.Fprintln(w, "           Signed, but by a key this machine does not trust to publish.")
 		fmt.Fprintln(w, "           That fingerprint is a string to COMPARE, not a name: confirm it")
 		fmt.Fprintln(w, "           with the publisher out of band, then trust the key by principal:")
 		fmt.Fprintln(w, "             ctxloom signer trust <principal> --key <key.pub>")
 	case bundles.ReasonTrustedSigner:
-		fmt.Fprintf(w, "  signer:  %s — a key you trust to publish\n", b.Signer)
+		fmt.Fprintf(w, "  signer:  %s — a key you trust to publish\n", termsafe.Field(b.Signer))
 		fmt.Fprintln(w, "           Read the items and decide: ctxloom review")
 	case bundles.ReasonUnsigned:
 		fmt.Fprintln(w, "  signer:  none — these bytes carry no publisher signature")
@@ -462,9 +468,9 @@ func printReviewBundleHeader(w io.Writer, b operations.ReviewBundle) {
 			updates++
 		}
 	}
-	fmt.Fprintf(w, "\n━━ %s", b.Ref)
+	fmt.Fprintf(w, "\n━━ %s", termsafe.Field(b.Ref))
 	if b.Remote != "" {
-		fmt.Fprintf(w, " (remote: %s)", b.Remote)
+		fmt.Fprintf(w, " (remote: %s)", termsafe.Field(b.Remote))
 	}
 	fmt.Fprintf(w, " — %d pending", len(b.Items))
 	if updates > 0 {
@@ -482,7 +488,7 @@ func printReviewItem(w io.Writer, idx, count int, item operations.ReviewItem) {
 	if item.Status == operations.ReviewStatusUpdate {
 		label = "UPDATE — changed since acceptance"
 	}
-	fmt.Fprintf(w, "\n[%d/%d] %s/%s (%s)\n", idx, count, item.Kind, item.Name, label)
+	fmt.Fprintf(w, "\n[%d/%d] %s/%s (%s)\n", idx, count, termsafe.Field(item.Kind), termsafe.Field(item.Name), label)
 	if item.AlternateContent != "" {
 		// Both forms follow, so the exposed one must be named too — an
 		// unlabelled block above a labelled one reads as "the only form".
@@ -504,7 +510,9 @@ func printReviewItemBody(w io.Writer, item operations.ReviewItem) {
 	case isUpdate && item.PreviousContent != "":
 		switch diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent); {
 		case diff != "":
-			fmt.Fprint(w, indentBlock(diff))
+			// BOTH sides of this diff are publisher bytes, so the update path
+			// is sanitised exactly like the full-content path below it.
+			printPublisherBlock(w, item.Ref, diff)
 			return
 		case item.PreviousContent == item.CurrentContent:
 			// An item is labelled UPDATE whenever a prior approval exists, not
@@ -521,7 +529,7 @@ func printReviewItemBody(w io.Writer, item operations.ReviewItem) {
 		// exempt: mcp/hooks always render as what they run, never as a diff.
 		fmt.Fprintln(w, "  (no snapshot of the previously accepted content — showing it in full)")
 	}
-	fmt.Fprint(w, indentBlock(item.CurrentContent))
+	printPublisherBlock(w, item.Ref, item.CurrentContent)
 }
 
 // printReviewAlternateForm shows the item's OTHER form when it has one.
@@ -535,7 +543,7 @@ func printReviewAlternateForm(w io.Writer, item operations.ReviewItem) {
 		return
 	}
 	fmt.Fprintf(w, "\n  --- %s form (also covered by this approval) ---\n", item.AlternateForm)
-	fmt.Fprint(w, indentBlock(item.AlternateContent))
+	printPublisherBlock(w, item.Ref, item.AlternateContent)
 }
 
 // unifiedReviewDiff renders a unified diff of the accepted vs incoming
@@ -560,20 +568,20 @@ func unifiedReviewDiff(previous, current string) string {
 	return text
 }
 
-// indentBlock indents every line of text by two spaces (trailing newline
-// guaranteed) so item content reads as a block under its header.
-func indentBlock(text string) string {
-	text = strings.TrimRight(text, "\n")
-	if text == "" {
-		return "  (empty)\n"
-	}
-	var b strings.Builder
-	for _, line := range strings.Split(text, "\n") {
-		b.WriteString("  ")
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return b.String()
+// printPublisherBlock writes one block of publisher-authored bytes under an
+// item's header: indented two spaces, "(empty)" when there is nothing, and
+// rendered inert by the shared termsafe seam so the block cannot rewrite the
+// lines above it — which on THIS surface are the ones naming the bundle, the
+// signer, and the decision being asked for.
+//
+// ref names the item in the alteration notice, which goes to the diagnostic
+// channel rather than into the content the reviewer is reading.
+//
+// The write error is dropped for the same reason the fmt.Fprint it replaced
+// dropped it: this is one line of a rendering loop with no error path of its
+// own, and every other line of the walk is written the same way.
+func printPublisherBlock(w io.Writer, ref, text string) {
+	_ = publisherBody("  ", "(empty)", true).Render(w, ref, text)
 }
 
 // printReviewSummary reports the session tally.

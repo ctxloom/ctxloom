@@ -56,6 +56,31 @@ func (c countersignRecords) bothStores() []*countersign.Store {
 	return []*countersign.Store{c.user, c.project}
 }
 
+// INVARIANT, and it is about the PAIR rather than either store.
+//
+// The two stores are not two copies of one thing. The USER store
+// (~/.ctxloom/approvals) is personal, machine-global, never committed. The
+// PROJECT store (<repo>/.ctxloom/approvals) is committable and is how a team
+// or a CI run INHERITS a decision. A container or CI runner therefore has NO
+// user store BY DESIGN and draws its trust from the project store alone.
+//
+// So an ABSENT user store beside a readable project store is a SUPPORTED
+// configuration and must keep deciding, not fail the run — and the same holds
+// with the two positions swapped, for a project that has never committed an
+// approval. Absence is tolerated per-store (countersign.Store.Readable), and
+// that tolerance is the ONLY reason containerized and CI runs work.
+//
+// What is NOT tolerated, in either position, is a store that EXISTS and cannot
+// be read: that one might be HIDING a rejection, and no amount of health in
+// the other store makes it safe to guess. Do not "simplify" this into "either
+// store readable is enough" — that reads as an equivalent relaxation and is
+// not one. TestCountersignRecords_AbsentUserStore_ProjectStoreStillDecides and
+// its UnreadableProjectStore twin hold both halves.
+//
+// The gap this leaves is named where it lives, in countersign.Store.Readable:
+// absence cannot be told from "the store failed to mount" without PROVISIONING
+// the directory, which is an on-disk-layout decision.
+//
 // readable probes both physical stores backing this records value,
 // distinguishing "neither has been written to yet" (nil — the normal
 // fresh-project/fresh-user shape) from "one of them exists but cannot be

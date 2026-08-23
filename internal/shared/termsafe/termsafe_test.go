@@ -167,6 +167,8 @@ func TestNotice_NamesRefAndEveryAlterationAndIsItselfInert(t *testing.T) {
 	assert.Contains(t, got, "truncated")
 	assert.Contains(t, got, "--format json")
 	assert.NotContains(t, got, "\n", "the notice is one line")
+	assert.NotContains(t, got, "ctxloom:",
+		"the notice is a message body; the diagnostic channel owns the prefix, and prefixing here read \"ctxloom: warning: ctxloom: ...\"")
 
 	assert.Empty(t, Notice("probe#fragments/x", Sanitize("clean", DefaultMaxBytes, true)),
 		"unaltered content gets no notice")

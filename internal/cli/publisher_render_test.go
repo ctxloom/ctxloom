@@ -156,6 +156,10 @@ func TestPrintReviewItemBody_OverLongBodyIsCappedAndAnnounced(t *testing.T) {
 	assert.Contains(t, diag.String(), "acme/evil#fragments/f1")
 	assert.Contains(t, diag.String(), "truncated to")
 	assert.Contains(t, diag.String(), "--format json")
+	// The notice is a message BODY: the diagnostic channel supplies the
+	// "ctxloom: warning: " prefix, and carrying one here too made the live
+	// repro read "ctxloom: warning: ctxloom: ...".
+	assert.NotContains(t, diag.String(), "warning: ctxloom:")
 }
 
 // An empty body still reads as an empty body, not as a missing one: the

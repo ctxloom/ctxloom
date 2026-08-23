@@ -131,6 +131,10 @@ func Field(s string) string {
 //
 // ref goes through Field because a bundle/item ref is publisher-authored too:
 // a warning that its subject could overwrite would be worse than no warning.
+//
+// The line is a message BODY with no channel prefix of its own: the diagnostic
+// channel it is handed to owns that, and prefixing here made ctxloom's own
+// warning read "ctxloom: warning: ctxloom: ..." in the live repro.
 func Notice(ref string, r Result) string {
 	if !r.Altered() {
 		return ""
@@ -146,7 +150,7 @@ func Notice(ref string, r Result) string {
 		parts = append(parts, fmt.Sprintf("truncated to %d of %d bytes", len(r.Text), r.TruncatedFrom))
 	}
 	return fmt.Sprintf(
-		"ctxloom: %s is publisher-authored and was rendered inert for this terminal (%s); use --format json for the raw bytes",
+		"%s is publisher-authored and was rendered inert for this terminal (%s); use --format json for the raw bytes",
 		Field(ref), strings.Join(parts, ", "))
 }
 

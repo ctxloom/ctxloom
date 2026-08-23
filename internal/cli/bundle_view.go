@@ -89,6 +89,11 @@ func runBundleView(cmd *cobra.Command, args []string) error {
 		content = buf.Bytes()
 	}
 
+	// Content carries the RAW bytes: a json/yaml/toml consumer is not a
+	// terminal, its own grammar already renders a control byte inert inside a
+	// string, and escaping the payload a second time would corrupt what a
+	// script parses. The terminal rendering is the sanitised one, and only it
+	// (delicious-goatskin).
 	result := bundleViewResult{
 		Bundle:    bundleName,
 		Path:      itemPath,
@@ -96,9 +101,22 @@ func runBundleView(cmd *cobra.Command, args []string) error {
 		Content:   string(content),
 	}
 	return emit(cmd, result, func() error {
-		_, err := cmd.OutOrStdout().Write(content)
-		return err
+		return writeBundleViewText(cmd.OutOrStdout(), ref, itemPath, content)
 	})
+}
+
+// writeBundleViewText writes `bundle view`'s --format text rendering: the same
+// information, rendered inert for a terminal by the shared termsafe seam.
+//
+// Blank-line collapsing is applied to an ITEM body and not to the whole-bundle
+// dump. An item body is content surrounded by ctxloom's own framing, and
+// collapsing bounds how far a publisher can push that framing off the screen;
+// the bare `bundle view <name>` dump is a DOCUMENT that people redirect to a
+// file, and handing back a document that is not the one on disk would be a
+// different bug from the one being fixed. Escaping applies to both, because a
+// terminal is on the other end of both.
+func writeBundleViewText(w io.Writer, ref, itemPath string, content []byte) error {
+	return publisherBody("", "", itemPath != "").Render(w, ref, string(content))
 }
 
 // renderBundleViewItem renders one item out of an already-loaded bundle,

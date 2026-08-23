@@ -8,7 +8,7 @@
 // rule, no per-site judgment. Before R6, three functions answered "does
 // exclusive ownership excuse the lock" three different ways: B5
 // (claude.claudeInstanceConfig.WriteInstanceConfig) relied on the CALLER's
-// project filelock — a second, invisible lock idiom over the SAME class of
+// project lock — a second, invisible lock idiom over the SAME class of
 // file the SettingsWriter family already self-locks. This gate is the
 // write-discipline gate's idiom (tests/arch/write_discipline_test.go)
 // applied to that ratchet: a reasoned, symbol-keyed allowlist that stops the
@@ -77,7 +77,7 @@
 //     invisible — this is a naming-convention gate, exactly like
 //     write_discipline_test.go's isAferoFsLikeName.
 //   - config.Manager.Update (M7, internal/config) is a DIFFERENT, already-
-//     transactional lock idiom (its own filelock.ProjectPathFor-keyed lock,
+//     transactional lock idiom (its own paths.ProjectPathFor-keyed lock,
 //     not agent.WithFileLock) and internal/config is out of scope entirely —
 //     this gate is specifically about the SettingsWriter/R6 class of
 //     foreign-engine-directory files, not ctxloom's own config.yaml.
@@ -119,10 +119,11 @@ import (
 
 // lockDisciplineScopes are the packages this gate walks: the four engine
 // SettingsWriter implementors plus the shared reconcilers they and R6's
-// exclusively-owned-file writers call into. internal/shared/ledger and
-// internal/shared/filelock are the lock/record PRIMITIVES themselves (like
-// write_discipline_test.go's iox/filelock exemption) and are excluded below,
-// not scanned here — their own callers are what must hold the lock.
+// exclusively-owned-file writers call into. internal/shared/ledger and the
+// lock primitive itself (github.com/gofrs/flock, called directly at each
+// call site — see internal/shared/agent/rendezvous.go) are the lock/record
+// PRIMITIVES and are simply not named here, not scanned at all — their own
+// callers are what must hold the lock.
 var lockDisciplineScopes = []string{
 	"internal/claude",
 	"internal/codex",

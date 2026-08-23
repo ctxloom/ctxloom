@@ -8,7 +8,7 @@ import (
 
 // unwritableRegistry seeds a registry file containing seed, pre-creates its
 // lock sidecar, then makes the containing directory unwritable — so the
-// filelock still opens (the sidecar already exists) and loadLocked still
+// lock file still opens (the sidecar already exists) and loadLocked still
 // reads, but saveLocked's atomic write cannot create its temp file. That is
 // the only shape that reaches a mutator's persist-failure path without
 // failing earlier.

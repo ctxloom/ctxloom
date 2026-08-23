@@ -114,3 +114,28 @@ func EncodeDeny(reason string) ([]byte, error) {
 		PermissionDecisionReason: reason,
 	}})
 }
+
+// --- Stop wire shape -------------------------------------------------------
+
+// StopPayload is the JSON Claude Code writes to a Stop hook's stdin. It fires
+// when a turn is about to end; transcript_path points at the session's own
+// native JSONL store, which is what makes the TURN (rather than the working
+// tree) measurable from a hook.
+//
+// StopHookActive is set when the turn is already resuming because a Stop hook
+// blocked. A hook that blocks again while it is true is an infinite loop, so
+// every Stop hook must exit first and unconditionally on it.
+type StopPayload struct {
+	SessionID      string `json:"session_id,omitempty"`
+	TranscriptPath string `json:"transcript_path,omitempty"`
+	Cwd            string `json:"cwd,omitempty"`
+	HookEventName  string `json:"hook_event_name,omitempty"`
+	StopHookActive bool   `json:"stop_hook_active,omitempty"`
+}
+
+// DecodeStopPayload parses a Stop hook stdin payload.
+func DecodeStopPayload(data []byte) (StopPayload, error) {
+	var p StopPayload
+	err := json.Unmarshal(data, &p)
+	return p, err
+}

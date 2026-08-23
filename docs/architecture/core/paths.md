@@ -173,7 +173,7 @@ this package.
 | `StatePath` | `<appPath>/state` — the third tier | 2 |
 | `TrustObjectsPath` | `<appPath>/state/trust/objects` — review snapshots | 1 |
 | `LegacyTrustObjectsPath` | `<appPath>/cache/trust/objects` — the retired location, read only by the one-time migration | 1 |
-| `LocksPath` | `<appPath>/state/locks` — advisory lock sidecars; the protected-path→lock-name mapping is `filelock.ProjectPathFor` | 1 |
+| `LocksPath` | `<appPath>/state/locks` — advisory lock sidecars; the protected-path→lock-name mapping is `ProjectPathFor` (lockpath.go) | 1 |
 | `DirtyTreeCommitAckPath` | `<appPath>/state/dirty_tree_commit_ack.yaml` | 2 |
 | `SessionStatePath` | `<appPath>/state/<harp>` — **validates the harp**, returns an error | 1 |
 | `SessionHomePath` | `<appPath>/state/<harp>/home` — the per-session engine config-home instance; returns an error | 4 |
@@ -204,12 +204,13 @@ eight `RootHome` rows (sessions, approvals, allowed/distrusted signers,
 trigger cache, coord, companion consent, locks) and their per-row reasoning
 are documented in full in [layout.md](../../layout.md)'s "The home tree"
 table — this page states the mechanism, that page states the list. The
-`locks` row (`HomeLocksDirName`) has no dedicated `Home*` resolver function
-the way its siblings do: `filelock.HomePathFor` derives
-`~/.ctxloom/locks/<flattened-absolute-target>.lock` itself, carrying its own
-internal copy of the `"locks"` leaf name rather than depending on this
-package for it — see `HomeLocksDirName`'s doc comment for why (the
-path-authority gate flags exactly the alternative).
+`locks` row (`HomeLocksDirName`) has its own dedicated resolvers: `HomeLocksDir`
+(the directory) and `HomePathFor` (`lockpath.go`, the per-protected-file lock
+path within it) both live in this package now — the deleted `internal/shared/
+filelock` package used to carry its own internal copy of the `"locks"` leaf
+name to dodge the path-authority gate (a Join call outside this package
+mixing a literal `paths.X` selector with a bare local segment); moving the
+whole derivation here removed the need for that copy entirely.
 
 ## Invariants
 

@@ -6,20 +6,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
-// This file pins a fix: a live transcript.Recorder holds a SHARED filelock on the
+// This file pins a fix: a live transcript.Recorder holds a SHARED lock on the
 // canonical transcript's default path for its whole lifetime
 // (fileRecorder.ensureFile), and RefreshVendorTranscript's rebuild takes the
-// matching EXCLUSIVE filelock.TryLock before replacing that same file
+// matching EXCLUSIVE TryLock before replacing that same file
 // (convertVendorTranscript's ownership probe). The two can therefore never
 // both proceed at once: a rebuild that would have renamed a fresh conversion
 // over the recorder's open inode — silently orphaning it, losing every event
@@ -145,10 +145,11 @@ func TestRefreshVendorTranscript_ConcurrentRebuildsSerialize(t *testing.T) {
 
 	// Stand in for "a first rebuild is already in progress": hold the exact
 	// exclusive lock convertVendorTranscript's probe takes.
-	holder, acquired, err := filelock.TryLock(filelock.PathFor(dest))
+	holder := flock.New(paths.PathFor(dest))
+	acquired, err := holder.TryLock()
 	require.NoError(t, err)
 	require.True(t, acquired)
-	defer holder()
+	defer func() { _ = holder.Unlock() }()
 
 	converted, err = RefreshVendorTranscript(context.Background(), e)
 	require.NoError(t, err, "losing the race to a concurrent rebuild is not an error")

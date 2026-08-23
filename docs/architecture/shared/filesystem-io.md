@@ -1,6 +1,8 @@
 # Filesystem and I/O primitives
 
-Three leaf packages own how ctxloom touches the filesystem: `internal/shared/iox` replaces a file's contents without any reader ever seeing a torn state and latches write errors on a formatted output stream; `internal/shared/filelock` serializes access to every mutable on-disk store with `flock(2)`-family advisory locks that work cross-process *and* intra-process; `internal/shared/watch` turns fsnotify into a filtered, optionally-recursive change-signal channel. `iox` and `watch` have zero internal imports; `filelock` has exactly one, `internal/paths`, for `paths.AppDirName`/`paths.LocksPath` — the `.ctxloom` directory name has exactly one home, and filelock's project-scoped lock path needs to name it rather than duplicate the literal. That one import is deliberate and stays acyclic: `internal/paths` depends on nothing in this trio, so `internal/config` and `internal/shared/tasks` can both depend on `filelock` without creating a cycle.
+Two leaf packages own how ctxloom touches the filesystem: `internal/shared/iox` replaces a file's contents without any reader ever seeing a torn state and latches write errors on a formatted output stream; `internal/shared/watch` turns fsnotify into a filtered, optionally-recursive change-signal channel. Neither has any internal import.
+
+Advisory file locking is no longer a package of its own. `internal/shared/filelock` (a hand-rolled `flock(2)`/`LockFileEx` wrapper) was DELETED (factual-oven, part of the marshy-capture umbrella, 2026-08): the tree had carried two lock implementations — this one, at ~150 call sites, and `github.com/gofrs/flock`, already a direct dependency and already used in production by `internal/shared/agent/rendezvous.go` — and the fix was to end the split by standardizing on the library, not to keep growing the hand-rolled one. Every former `filelock.Lock`/`TryLock`/`LockShared` call site now constructs a `*flock.Flock` directly (`flock.New(path, flock.SetPermissions(0o644))`, then `.Lock()`/`.TryLock()`/`.RLock()`/`.Unlock()`), following `rendezvous.go`'s idiom — see that file for the reference shape. What `filelock` also owned — `PathFor`, `ProjectPathFor` and `HomePathFor`, the protected-path→lock-name derivation — was PATH POLICY, not locking, and moved to `internal/paths` (`internal/paths/lockpath.go`), which already owned the home/project tiering those functions depend on.
 
 The contract they jointly own: **a mutable store is written atomically under an advisory lock named `<protected-path>.lock`, and observers learn it changed from a `watch.Watcher` that carries no data.**
 
@@ -12,17 +14,21 @@ flowchart TD
     EW["ErrWriter — sticky-error io.Writer"]
   end
 
-  subgraph fl["internal/shared/filelock"]
-    L["Lock(path) (unlock func(), err)"]
-    LS["LockShared(path) (unlock func(), err)"]
-    LFU["lockFile — filelock_unix.go (!windows)<br/>syscall.Flock LOCK_EX / LOCK_SH"]
-    LFW["lockFile — filelock_windows.go<br/>LockFileEx via kernel32 LazyDLL"]
-    ED["ensureDir(path)"]
-    L --> LFU & LFW
-    LS --> LFU & LFW
-    LFU --> ED
-    LFW --> ED
+  subgraph fl["github.com/gofrs/flock (third-party, not an internal package)"]
+    FN["flock.New(path, SetPermissions(perm)) *Flock"]
+    FL["(*Flock).Lock() error — blocking exclusive"]
+    FT["(*Flock).TryLock() (bool, error) — non-blocking exclusive"]
+    FR["(*Flock).RLock() error — blocking shared"]
+    FU["(*Flock).Unlock() error — always safe, even unlocked"]
+    FN --> FL & FT & FR
+    FL & FT & FR --> FU
   end
+  subgraph pp["internal/paths (lockpath.go)"]
+    PF["PathFor(protected) string"]
+    PPF["ProjectPathFor(protected) (string, error)"]
+    HPF["HomePathFor(protected) (string, error)"]
+  end
+  pp -.->|"derives the path each call site locks"| fl
 
   subgraph wt["internal/shared/watch"]
     NEW["New(root, recursive, filter)"]
@@ -38,13 +44,11 @@ flowchart TD
   end
 
   stores["mutable stores:<br/>sessions/index.go · config · tasks log ·<br/>projectid registry · remote lockfile · memory essence"]
-  L --> stores
+  fl --> stores
   WFA --> stores
   WFAF --> stores
   stores -.->|"change signal, no payload"| W
   EW --> cli["internal/cli + cmd/taskloom renderers<br/>(55 construction sites, 155 Printf calls)"]
-
-  callers["callers concatenate the .lock suffix themselves<br/>22 sites across 4 packages"] -.-> L
 ```
 
 ## `internal/shared/iox`
@@ -66,23 +70,29 @@ Two unrelated primitives in one package: crash-safe atomic replace, and a sticky
 
 Principal `WriteFileAtomic` consumers: `internal/sessions/index.go:214,763`, `internal/memory/stamp.go:50,99`, `internal/memory/compactor.go:1001,1021,1032`, `internal/shared/tasks/projectid/registry.go:99`, `internal/shared/tasks/projectid/marker.go:51`, `cmd/taskloom/manage.go:200`, `cmd/ltk/manage.go:228`. `WriteFileAtomicFs` consumers: `internal/config/config_save.go:60,131`, `internal/ltk/state/state.go:116`, `internal/remote/lockfile.go:124`, `internal/opencode/settings.go:682`, `internal/shared/agent/mcpfile.go:270`.
 
-## `internal/shared/filelock`
+## Advisory locking (`github.com/gofrs/flock` + `internal/paths`)
 
-Blocking exclusive/shared advisory locks, portable across Unix (`flock(2)`) and Windows (`LockFileEx`). Declares no types; the return value is a bare closure.
+No longer an internal package (see the deletion note above). Every lock call site is now:
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `Lock(path string) (func(), error)` | `internal/shared/filelock/filelock.go:25` | Exclusive blocking lock; `return lockFile(path, false)`. 19 production call sites |
-| `LockShared(path string) (func(), error)` | `internal/shared/filelock/filelock.go:33` | Shared blocking lock; `return lockFile(path, true)`. 3 production call sites, all in `internal/shared/tasks/log.go:554,578,598` |
-| `ensureDir(path string) error` | `internal/shared/filelock/filelock.go:38` | Guards `""`/`"."`, then `os.MkdirAll(dir, 0o755)`. Returns `MkdirAll`'s error unwrapped |
-| `lockFile(path string, shared bool)` (unix) | `internal/shared/filelock/filelock_unix.go:11` | `ensureDir` → `os.OpenFile(O_CREATE\|O_RDWR, 0644)` → `syscall.Flock` → release closure. Closes the fd on flock failure |
-| unlock closure (unix) | `internal/shared/filelock/filelock_unix.go:31` | `Flock(LOCK_UN)` then `f.Close()`, both discarded via `_ =`; returns no error |
-| `lockFile(path string, shared bool)` (windows) | `internal/shared/filelock/filelock_windows.go:23` | Same shape via `lockFileEx`; release closure at `:44`. Two unchecked `f.Close()` calls (`:40`, `:46`) |
-| `lockFileEx(handle, flags)` | `internal/shared/filelock/filelock_windows.go:52` | `procLockFileEx.Call(handle, flags, 0, 0xFFFFFFFF, 0xFFFFFFFF, &overlapped)`; error consulted only when `r1 == 0` |
-| `unlockFileEx(handle)` | `internal/shared/filelock/filelock_windows.go:73` | Mirror for `UnlockFileEx`; its only caller (`filelock_windows.go:45`) drops the return |
-| `modkernel32`, `procLockFileEx`, `procUnlockFileEx`, `lockfileExclusiveLock = 0x00000002` | `internal/shared/filelock/filelock_windows.go:11-20` | Hand-rolled `syscall.LazyDLL`/`LazyProc` binding to `kernel32.dll` |
+```go
+lockPath, err := paths.HomePathFor(target)  // or PathFor / ProjectPathFor
+...
+if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil { ... }
+fl := flock.New(lockPath, flock.SetPermissions(0o644))
+stop := lockwait.Watch(lockPath)
+err = fl.Lock()  // or fl.TryLock() / fl.RLock()
+stop()
+if err != nil { ... }
+defer func() { _ = fl.Unlock() }()
+```
 
-Call sites, by protected store: `internal/sessions/index.go:194,232,272,601,632,665,695,736` (index); `internal/config/config_manager.go:128` and `internal/config/config_save.go:99` (config); `internal/shared/tasks/log.go:333` (exclusive, event-log mutation) and `:554,578,598` (shared, reads); `internal/shared/tasks/projectid/registry.go:162,206,238`.
+`internal/shared/agent/rendezvous.go` is the reference idiom (it predates and motivated the migration). `internal/shared/lockwait` (`Watch(label) (stop func())`) is a small, lock-agnostic package that carries forward the deleted `filelock` package's "still waiting" stderr notice on a slow blocking acquisition — it holds no lock itself, purely a watchdog goroutine, used at every `Lock`/`RLock` call site.
+
+`os.MkdirAll` before `flock.New` is now each call site's own responsibility: unlike the deleted `filelock.Lock`'s internal `ensureDir`, `flock.New` does not create the lock's parent directory — a real behavioral difference call sites had to account for, not just a rename.
+
+`PathFor(protected) string`, `ProjectPathFor(protected) (string, error)` and `HomePathFor(protected) (string, error)` (`internal/paths/lockpath.go`) are the protected-path→lock-name derivation the deleted package used to own — PATH POLICY, not locking, which is why they live in `internal/paths` rather than beside the lock calls. `PathFor` sits beside the protected file (home-rooted stores); `ProjectPathFor` maps into a project `.ctxloom/state/locks/`; `HomePathFor` maps into `~/.ctxloom/locks/` for a FOREIGN file (an engine's own settings.json/config.toml) more than one ctxloom-family binary may read-modify-write. See their doc comments for the full reasoning, including the deliberately-accepted flattening collisions.
+
+Call sites, by protected store: `internal/sessions/index.go` (index, `lock()`); `internal/config/config_manager.go` (`Update`); `internal/shared/tasks/log.go` (`lock()` exclusive, event-log mutation; `lockShared()` for the three read paths); `internal/shared/tasks/projectid/registry.go` (`mutate`); `internal/shared/admission/store.go` (`lockedRMW`); `internal/shared/agent/rmw_lock.go` (`WithFileLock`, the `SettingsWriter`/R6 family's shared lock idiom); `internal/lm/isolation/ambient.go` (`lockInstanceHome`, warn-and-proceed rather than fail-closed); `internal/operations/vendorreader.go` (`TryLock` ownership probe); `internal/transcript/recorder.go` (`RLock` ownership, held for the recorder's lifetime).
 
 ## `internal/shared/watch`
 
@@ -127,17 +137,15 @@ Both debounce at 100ms and emit a content-free `{"event":"changed","kind":…}` 
 - Not goroutine-safe (`err` is unsynchronised). One instance per goroutine.
 - `Write` honours the `io.Writer` contract: non-nil error whenever `n < len(p)`. `WriteRaw` is the same operation with the return values dropped.
 
-**Locking (`filelock`)**
+**Locking (`gofrs/flock` + `internal/paths`)**
 
-- `flock(2)`, not `fcntl(2)`. Locks are owned by the *open file description*, so two independent `os.OpenFile` calls in one process genuinely conflict. This is depended on: `internal/config/config_save.go:110-117` documents `saveLocked` existing because a second `Lock` on the same path from the same process self-deadlocks.
-- **Non-reentrant.** A goroutine holding the lock must not call anything that re-acquires it.
-- `Lock`/`LockShared` are **blocking with no timeout, no context, and no try variant**. Contention therefore never produces an error — real vs documented: the "fall back to unlocked rather than blocking" rationale at several call sites describes an outcome these functions cannot produce. The only errors returnable are environmental and persistent: `ensureDir` failure, `os.OpenFile` failure, and `flock`/`LockFileEx` failure (EACCES, EROFS, ENOSPC, ENOLCK, EOPNOTSUPP).
-- On error, `unlock` is `nil`. `unlock, _ := filelock.Lock(p); defer unlock()` panics; no in-tree caller does this, and nothing in the API prevents it.
-- The returned closure takes no arguments and **returns no error**: a failed release is unreportable. Acceptable only because the lock file carries no data.
-- **The `<protected-path> + ".lock"` naming convention is the package's real invariant and the package does not own it.** All 22 call sites concatenate the suffix by hand, in four packages; a fifth (`cmd/taskloom/watch.go:53-54`) encodes it independently in order to *exclude* `.lock` from a watch. A typo yields a lock nobody else takes — mutual exclusion silently absent, no error.
-- Permission asymmetry: the lock *directory* is created `0o755` (`filelock.go:43`), the lock *file* `0644` (`filelock_unix.go:16`). Under a shared or UID-remapped `~/.ctxloom` (a live container configuration), user B cannot open user A's lock file `O_RDWR`.
-- Every error is returned bare — the caller cannot tell a locking failure from any other `mkdir`/`open` failure.
-- Lock files are never removed; they accumulate one per protected store. Harmless — `flock` releases on fd close, including process death.
+- `flock(2)` on Unix (via `golang.org/x/sys/unix`), a comparable mandatory-lock API on Windows — `*flock.Flock` handles the platform split internally; ctxloom code is platform-agnostic.
+- **Non-reentrant.** A goroutine holding the lock must not call anything that re-acquires the same `*flock.Flock`.
+- `Lock`/`RLock` are **blocking with no timeout**; `TryLock` is the non-blocking variant, returning `(false, nil)` on contention rather than an error. `flock.Flock` also offers `TryLockContext`/`TryRLockContext` (poll-with-context) that no call site in this codebase currently uses.
+- `flock.Flock.Unlock()` is always safe to call — on an unlocked `*flock.Flock`, and safe to call twice — so the old "on error, unlock is nil" hazard (a custom closure that could be nil) is gone: every call site holds a concrete, always-non-nil `*flock.Flock` value, not a closure the package's own bookkeeping could get wrong.
+- `flock.New` does NOT create the lock file's parent directory (unlike the deleted `filelock.Lock`'s internal `ensureDir`) — every call site does its own `os.MkdirAll` first.
+- **The `<protected-path> + ".lock"` / flattened-name naming convention is `internal/paths`' invariant now** (`PathFor`/`ProjectPathFor`/`HomePathFor`, `internal/paths/lockpath.go`), not re-derived at each call site — see those functions' own docs for the collision stance and the home/project boundary.
+- Lock files are never removed; they accumulate one per protected store. Harmless — the OS releases the lock on fd close, including process death.
 
 **Watching (`watch`)**
 

@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -87,7 +86,7 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 			assert.Equal(t, Mount{
 				Host:      wantLocks,
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "locks"),
-			}, mounts[4], "the home-rooted locks dir binds to the container home's .ctxloom/locks — the same directory filelock.HomePathFor resolves to when $HOME is the container home, so host and container flock the same inode for an identical-path engine-settings file")
+			}, mounts[4], "the home-rooted locks dir binds to the container home's .ctxloom/locks — the same directory paths.HomePathFor resolves to when $HOME is the container home, so host and container flock the same inode for an identical-path engine-settings file")
 
 			for _, m := range mounts {
 				assert.False(t, m.ReadOnly, "state mounts are RW: the engine/taskloom writes them")
@@ -262,7 +261,7 @@ func TestSessionStateMounts_LocksDirMount_Unconditional(t *testing.T) {
 
 // TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir pins the
 // path-resolution equivalence the lock-path fix depends on, WITHOUT a live
-// container: filelock.HomePathFor, invoked as if $HOME were the container's
+// container: paths.HomePathFor, invoked as if $HOME were the container's
 // fresh home (the -e HOME=<container home> every container run sets — see
 // renderRunSpec), must resolve an identical-path engine-settings file's lock
 // sidecar to a path directly under this Container's locks-dir mount target.
@@ -281,8 +280,8 @@ func TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir(t *testing.T) {
 	projectDir := t.TempDir()
 	protected := filepath.Join(projectDir, ".claude", "settings.json")
 
-	// The host side: filelock.HomePathFor under the REAL (isolated) host home.
-	hostLockPath, err := filelock.HomePathFor(protected)
+	// The host side: paths.HomePathFor under the REAL (isolated) host home.
+	hostLockPath, err := paths.HomePathFor(protected)
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(hostLockPath, filepath.Join(realHome, ".ctxloom", "locks")+string(filepath.Separator)))
 
@@ -291,7 +290,7 @@ func TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir(t *testing.T) {
 	// container, since renderRunSpec sets HOME=defaultContainerHome for every
 	// container run.
 	t.Setenv("HOME", defaultContainerHome)
-	containerLockPath, err := filelock.HomePathFor(protected)
+	containerLockPath, err := paths.HomePathFor(protected)
 	require.NoError(t, err)
 	// Restore before touching sessionStateMounts below: that call runs on
 	// THIS host process (sessionStateMounts always resolves against the

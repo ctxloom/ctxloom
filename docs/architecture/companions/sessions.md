@@ -12,7 +12,8 @@ and a staleness fingerprint (`SetSummary`); the resume picker, `session list`, a
 tools read through `Find` / `ListForProject` / `ListAll` / `Reconcile`.
 
 Dependency direction is clean: this package depends on `internal/paths`, `internal/shared/{harp,
-filelock,iox,upgrade,clidiag}` and nothing above it.
+iox,upgrade,clidiag}`, and `github.com/gofrs/flock` (a third-party module, not an internal/shared
+package), and nothing above it.
 
 ---
 
@@ -61,7 +62,7 @@ classDiagram
     Index "1" o-- "*" Entry
     Manager ..> tsNormalizeUpgrade : indexUpgrades pipeline
     Manager ..> paths : HarpDir · SessionIndexPath · HarpTranscriptStoreDir
-    Manager ..> filelock : Lock(path + ".lock")
+    Manager ..> flock : Lock(path + ".lock")
     Manager ..> iox : WriteFileAtomic
     Manager ..> harp : GenerateName
 ```
@@ -165,7 +166,7 @@ flowchart LR
   silently forgotten; `operations.isUnrecoverable` has no canonical branch because the field is
   never populated on that path.
 - **`Reconcile` invokes the caller's predicate while holding both `mu` and the blocking flock**
-  (`index.go:707`); `internal/shared/filelock` documents the lock as blocking with no timeout, and
+  (`index.go:707`); `github.com/gofrs/flock`'s `Lock` is blocking with no timeout, and
   `Open("")` mints a fresh `Manager` per call so re-entry is not self-detectable.
 - **`pendingUpgrade` is cleared as a side effect of every *read*.** `Find`/`ListForProject`/
   `ListAll` all funnel through `Load` → `loadLocked:142`, which unconditionally nils it. Benign

@@ -33,6 +33,20 @@ type countersignRecords struct {
 	user    *countersign.Store
 	project *countersign.Store
 	root    signing.TrustRoot
+	// fault is the store-RESOLUTION error, held as an error rather than
+	// encoded into a value. It is set when the USER store's directory could
+	// not be resolved at all (homeApprovalsDir failed — an unresolvable
+	// $HOME under a systemd unit, `env -i`, a container with no HOME), which
+	// is countersign.StateUnconfigured before a Store even exists to ask.
+	//
+	// It exists because the alternative was `userDir = ""`, and a fault
+	// written down as a value is a fault whose CAUSE is gone: the resulting
+	// inert store does fail closed, but the only thing it can say about
+	// itself afterwards is countersign.Store.configured's second-hand guess
+	// ("no directory configured (unresolvable home directory?)"), question
+	// mark included. readable() returns this first so the error a human can
+	// act on is the one they are shown.
+	fault error
 }
 
 // bothStores is a small ordered-iteration helper; the order is irrelevant to
@@ -42,6 +56,31 @@ func (c countersignRecords) bothStores() []*countersign.Store {
 	return []*countersign.Store{c.user, c.project}
 }
 
+// INVARIANT, and it is about the PAIR rather than either store.
+//
+// The two stores are not two copies of one thing. The USER store
+// (~/.ctxloom/approvals) is personal, machine-global, never committed. The
+// PROJECT store (<repo>/.ctxloom/approvals) is committable and is how a team
+// or a CI run INHERITS a decision. A container or CI runner therefore has NO
+// user store BY DESIGN and draws its trust from the project store alone.
+//
+// So an ABSENT user store beside a readable project store is a SUPPORTED
+// configuration and must keep deciding, not fail the run — and the same holds
+// with the two positions swapped, for a project that has never committed an
+// approval. Absence is tolerated per-store (countersign.Store.Readable), and
+// that tolerance is the ONLY reason containerized and CI runs work.
+//
+// What is NOT tolerated, in either position, is a store that EXISTS and cannot
+// be read: that one might be HIDING a rejection, and no amount of health in
+// the other store makes it safe to guess. Do not "simplify" this into "either
+// store readable is enough" — that reads as an equivalent relaxation and is
+// not one. TestCountersignRecords_AbsentUserStore_ProjectStoreStillDecides and
+// its UnreadableProjectStore twin hold both halves.
+//
+// The gap this leaves is named where it lives, in countersign.Store.Readable:
+// absence cannot be told from "the store failed to mount" without PROVISIONING
+// the directory, which is an on-disk-layout decision.
+//
 // readable probes both physical stores backing this records value,
 // distinguishing "neither has been written to yet" (nil — the normal
 // fresh-project/fresh-user shape) from "one of them exists but cannot be
@@ -51,6 +90,9 @@ func (c countersignRecords) bothStores() []*countersign.Store {
 // only by EffectiveTrust's records-construction preamble — Rejected/Approved
 // themselves stay pure and never consult this.
 func (c countersignRecords) readable() error {
+	if c.fault != nil {
+		return fmt.Errorf("user approvals store: %w", c.fault)
+	}
 	if err := c.user.Readable(); err != nil {
 		return fmt.Errorf("user approvals store: %w", err)
 	}
@@ -305,17 +347,22 @@ func buildCountersignRecords(cfg *config.Config, fs afero.Fs, injectedUser, inje
 	baseDir := getBaseDir(cfg)
 
 	user := injectedUser
+	var fault error
 	if user == nil {
 		// An unresolvable home directory used to leave userDir == "", which
 		// is NOT "an empty user store" — every read then resolved against the
 		// process working directory (see countersign.Store.configured), and
 		// every rejection recorded in the real user store went unseen.
-		// countersign.Store now refuses to operate on "", so the fail-closed
-		// gate in EffectiveTrust fires; naming the cause here is what makes
-		// that abort explicable rather than mysterious.
+		// countersign.Store refuses to operate on "", so the fail-closed gate
+		// in EffectiveTrust fires either way — but the RESOLVER's error is
+		// now kept as an error on the records value (fault) instead of being
+		// spent on a warning and thrown away. The store built over "" stays,
+		// so every read path keeps its inert, working-directory-proof
+		// behaviour; it is the DIAGNOSIS that stops being lost.
 		userDir, err := homeApprovalsDir()
 		if err != nil {
 			clidiag.Warn("ctxloom", "cannot locate the user approvals store (%v) — every personal approval and rejection is unreadable this session", err)
+			fault = err
 			userDir = ""
 		}
 		user = countersign.NewStore(userDir, f)
@@ -334,7 +381,7 @@ func buildCountersignRecords(cfg *config.Config, fs afero.Fs, injectedUser, inje
 		}
 	}
 
-	return countersignRecords{user: user, project: project, root: root}
+	return countersignRecords{user: user, project: project, root: root, fault: fault}
 }
 
 // newCountersignRecords builds the default ReviewRecords for cfg — the S6

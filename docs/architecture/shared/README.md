@@ -39,7 +39,7 @@ The largest package in the layer (26 internal importers). It has no single respo
 
 | Page | Purpose |
 |---|---|
-| [`filesystem-io.md`](filesystem-io.md) | Atomic writes and error-latching writers (`iox`), advisory file locking (`filelock`), and filesystem watching (`watch`). |
+| [`filesystem-io.md`](filesystem-io.md) | Atomic writes and error-latching writers (`iox`), advisory file locking (`github.com/gofrs/flock` + `internal/paths`'s lock-path derivation), and filesystem watching (`watch`). |
 | [`process-execution.md`](process-execution.md) | Starting and observing children: pty-attached runs (`ptyrunner`), liveness checks (`pidalive`), stderr tail capture (`stderrtail`), and login-shell `PATH` resolution (`shellenv`). |
 | [`identity-and-primitives.md`](identity-and-primitives.md) | Harp ID minting and markers, git-root discovery, sets and sorted keys, text helpers, and token estimation. |
 | [`wire-types.md`](wire-types.md) | The engine-agnostic hook and MCP-server vocabulary that crosses the host↔engine boundary, and the merge/append/default-resolve operations on it. |

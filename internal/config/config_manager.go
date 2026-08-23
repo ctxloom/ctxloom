@@ -2,11 +2,23 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+)
+
+// lockFileMode and lockDirMode are the modes the config-update lock's
+// sidecar and its parent directory are created with, before umask — not
+// group- or world-WRITABLE, matching every other lock site in this project
+// (see internal/shared/agent/rmw_lock.go's identically-reasoned pair).
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
 )
 
 // Draft is the mutable view a Manager.Update transaction sees: every
@@ -55,7 +67,7 @@ func (m *Manager) Options() []LoadOption {
 }
 
 // Update runs fn as ONE serialized write transaction: it acquires an advisory
-// file lock (filelock.ProjectPathFor(configPath), which puts the sidecar under
+// file lock (paths.ProjectPathFor(configPath), which puts the sidecar under
 // .ctxloom/state/locks/), re-reads the config FRESH from disk while holding it,
 // hands fn a Draft built from that fresh read, applies whatever fn changed, and
 // persists via saveLocked — all before releasing it.
@@ -74,7 +86,7 @@ func (m *Manager) Options() []LoadOption {
 //     very next Load() sees the write.
 //   - A lock ACQUISITION failure (as opposed to ordinary blocking on
 //     contention, which the lock already waits out) fails the whole call
-//     closed — filelock.Lock can only error on a persistent environmental
+//     closed — flock.Flock.Lock can only error on a persistent environmental
 //     failure, exactly when writing unlocked would be least safe, so this
 //     never silently degrades to an unlocked read-modify-write.
 func (m *Manager) Update(fn func(*Draft) error) error {
@@ -90,28 +102,34 @@ func (m *Manager) Update(fn func(*Draft) error) error {
 		return fmt.Errorf("resolve config path: %w", err)
 	}
 
-	// See Save's identical fix: filelock.Lock is BLOCKING, so an error from
-	// it is a persistent environmental failure, never transient contention.
-	// Proceeding unlocked on that failure is exactly backwards: it discards
-	// the read-modify-write serialization this method exists to provide,
-	// silently, on every subsequent Update call. Fail closed.
+	// flock.Flock.Lock is BLOCKING, so an error from it is a persistent
+	// environmental failure, never transient contention. Proceeding unlocked
+	// on that failure is exactly backwards: it discards the read-modify-write
+	// serialization this method exists to provide, silently, on every
+	// subsequent Update call. Fail closed.
 	if !injectedFS {
 		// ProjectPathFor, not PathFor: config.yaml lives in the project's
 		// .ctxloom tree, so its sidecar belongs under state/locks rather than
 		// beside it, where `.ctxloom/config.yaml.lock` showed up untracked in
-		// every freshly initialized project. The derivation is the filelock
-		// package's, whole — a lock path composed here is a second opinion
-		// about the same resource, which is the one failure that package
-		// cannot detect.
-		lockPath, lerr := filelock.ProjectPathFor(configPath)
+		// every freshly initialized project. The derivation is
+		// internal/paths', whole — a lock path composed here is a second
+		// opinion about the same resource, which is the one failure that
+		// package cannot detect.
+		lockPath, lerr := paths.ProjectPathFor(configPath)
 		if lerr != nil {
 			return fmt.Errorf("config: locating update lock for %s: %w", configPath, lerr)
 		}
-		unlock, lerr := filelock.Lock(lockPath)
+		if lerr := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); lerr != nil {
+			return fmt.Errorf("config: preparing update lock directory for %s: %w", configPath, lerr)
+		}
+		fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+		stop := lockwait.Watch(lockPath)
+		lerr = fl.Lock()
+		stop()
 		if lerr != nil {
 			return fmt.Errorf("config: acquiring update lock for %s: %w", configPath, lerr)
 		}
-		defer unlock()
+		defer func() { _ = fl.Unlock() }()
 	}
 
 	// Re-read FRESH now that the lock is held: this is the "read" half of

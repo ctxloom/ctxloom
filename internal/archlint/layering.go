@@ -54,6 +54,20 @@ var layeringRules = []layeringRule{
 		Forbid: []string{"internal/cli"},
 	},
 	{
+		// pkg/clifmt is the CLI output layer, and it SHIPS AS A STANDALONE
+		// LIBRARY independent of ctxloom (ruled 2026-08-22). It sits at the
+		// outermost edge of the hexagon: adapters import it, it imports
+		// nothing of ours. Depending on cobra or any other external module is
+		// fine and is NOT checked here -- LocalDir returns "" for anything
+		// outside this repo, so only in-repo imports reach this rule. The
+		// property holds today (clifmt has zero non-test ctxloom imports);
+		// this rule is what keeps it true through the canonical-struct
+		// redesign that is about to touch this package.
+		Name:   "clifmt-must-not-import-ctxloom",
+		From:   "pkg/clifmt",
+		Forbid: []string{"internal", "cmd"},
+	},
+	{
 		// operations is the ports-and-adapters core: it may depend only on the
 		// injected, polymorphic internal/lm/backends seam, never on a concrete
 		// engine package, so backend identity cannot be branched on directly.

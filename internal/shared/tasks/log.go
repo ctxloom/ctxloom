@@ -12,9 +12,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/gofrs/flock"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
+)
+
+// lockFileMode and lockDirMode are the modes this log's advisory-lock
+// sidecar and its parent directory are created with, before umask — not
+// group- or world-WRITABLE, matching every other lock site in this project
+// (see internal/shared/agent/rmw_lock.go's identically-reasoned pair).
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
 )
 
 // Event is one line in a per-project append-only task log (ADR 0025). The log
@@ -463,19 +475,59 @@ func appendLine(f *os.File, line []byte) error {
 // — the exclusive write lock and all three shared read locks — goes through
 // here, so they cannot name different files and quietly stop excluding one
 // another.
-func (l *eventLog) lockPath() string { return filelock.PathFor(l.path) }
+func (l *eventLog) lockPath() string { return paths.PathFor(l.path) }
+
+// newFileLock creates the lock file's parent directory if needed and
+// returns a *flock.Flock ready to Lock/RLock at path. Every acquisition in
+// this file goes through it, so a directory-preparation failure and the
+// lock's permissions cannot drift between the exclusive and shared call
+// sites below.
+func newFileLock(path string) (*flock.Flock, error) {
+	if err := os.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
+		return nil, fmt.Errorf("prepare lock directory for %s: %w", path, err)
+	}
+	return flock.New(path, flock.SetPermissions(lockFileMode)), nil
+}
 
 func (l *eventLog) lock() (func(), error) {
 	l.mu.Lock()
-	unlock, err := filelock.Lock(l.lockPath())
+	fl, err := newFileLock(l.lockPath())
+	if err != nil {
+		l.mu.Unlock()
+		return nil, fmt.Errorf("lock: %w", err)
+	}
+	stop := lockwait.Watch(l.lockPath())
+	err = fl.Lock()
+	stop()
 	if err != nil {
 		l.mu.Unlock()
 		return nil, fmt.Errorf("lock: %w", err)
 	}
 	return func() {
-		unlock()
+		_ = fl.Unlock()
 		l.mu.Unlock()
 	}, nil
+}
+
+// lockShared best-effort takes a shared cross-process read lock, returning a
+// release function that is always safe to defer unconditionally — a no-op
+// if no lock was actually taken. Every read call site below shares this:
+// reads must never block on a lock failure (the in-process l.mu still
+// serializes same-process access), so preparing the lock directory or the
+// RLock call itself failing silently falls back to an unlocked read rather
+// than propagating an error.
+func (l *eventLog) lockShared() (unlock func()) {
+	fl, err := newFileLock(l.lockPath())
+	if err != nil {
+		return func() {}
+	}
+	stop := lockwait.Watch(l.lockPath())
+	err = fl.RLock()
+	stop()
+	if err != nil {
+		return func() {}
+	}
+	return func() { _ = fl.Unlock() }
 }
 
 // addWithTags is the sole append path for a new task. It stamps an initial
@@ -688,9 +740,7 @@ func (l *eventLog) removeTags(harpID string, tags []string) (Task, error) {
 func (l *eventLog) currentTags(harpID string) ([]string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if unlock, err := filelock.LockShared(l.lockPath()); err == nil {
-		defer unlock()
-	}
+	defer l.lockShared()()
 	f, err := l.foldChecked()
 	if err != nil {
 		return nil, err
@@ -713,9 +763,7 @@ func (l *eventLog) snapshot() ([]Task, error) {
 	// one silently missing task. Best-effort: a lock failure falls back to
 	// an unlocked read rather than failing, since reads must never block (the
 	// in-process mu still serializes same-process access).
-	if unlock, err := filelock.LockShared(l.lockPath()); err == nil {
-		defer unlock()
-	}
+	defer l.lockShared()()
 	f, err := l.foldChecked()
 	if err != nil {
 		return nil, err
@@ -730,9 +778,7 @@ func (l *eventLog) snapshot() ([]Task, error) {
 func (l *eventLog) deferredSince() (map[string]time.Time, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if unlock, err := filelock.LockShared(l.lockPath()); err == nil {
-		defer unlock()
-	}
+	defer l.lockShared()()
 	f, err := l.foldChecked()
 	if err != nil {
 		return nil, err

@@ -10,8 +10,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 func newLog(t *testing.T, session string) *Store {
@@ -511,7 +509,7 @@ func TestLogMintUniqueUnderConcurrency(t *testing.T) {
 
 func TestLogRepairReintroducesDisplacedAdd(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
-	// Two adds claim the same harp (a concurrent-mint collision the filelock
+	// Two adds claim the same harp (a concurrent-mint collision the file lock
 	// would normally prevent). The first holds it; the second is displaced.
 	raw := `{"op":"add","task":"alpha","text":"first writer","status":"To Do","ts":"2026-01-01T00:00:00Z"}
 {"op":"add","task":"alpha","text":"displaced writer","status":"To Do","ts":"2026-01-01T00:00:01Z"}
@@ -885,7 +883,7 @@ func TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite(t *testing.T) {
 // test exists to catch: it would make every read of a store whose .lock is
 // unusable fail, on a path whose whole point is that it stays available.
 //
-// The lock failure is produced structurally — a DIRECTORY where filelock
+// The lock failure is produced structurally — a DIRECTORY where the lock
 // wants to open a file — so no mocking is involved.
 func TestReads_FallBackToUnlockedWhenTheSharedLockCannotBeTaken(t *testing.T) {
 	s := newLog(t, "sess")
@@ -980,7 +978,7 @@ func TestApply_EventsForAnUnknownHarpAreSilentlyDropped(t *testing.T) {
 	}
 }
 
-// blockLockPath makes filelock.LockShared fail on path, structurally: a
+// blockLockPath makes a shared lock fail to acquire on path, structurally: a
 // DIRECTORY cannot be opened as a lock file. Nothing is mocked, so the
 // fallback under test is the real one.
 func blockLockPath(t *testing.T, path string) {
@@ -991,7 +989,11 @@ func blockLockPath(t *testing.T, path string) {
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatalf("block the lock path: %v", err)
 	}
-	if _, err := filelock.LockShared(path); err == nil {
+	fl, err := newFileLock(path)
+	if err == nil {
+		err = fl.RLock()
+	}
+	if err == nil {
 		t.Fatalf("the shared lock at %s was acquired; this test no longer exercises the fallback", path)
 	}
 }

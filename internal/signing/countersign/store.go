@@ -95,72 +95,46 @@ func (s *Store) configured() error {
 	return fmt.Errorf("countersignature store: no directory configured (unresolvable home directory?)")
 }
 
-// Readable probes whether this store can actually be read, distinguishing
-// two situations a caller must NOT treat alike:
+// Readable is the two-answer projection of Resolve that EffectiveTrust's
+// fail-closed preamble consults: nil means "you may take a verdict from this
+// store", non-nil means "deny everything and say why".
 //
-//   - The directory does not exist yet. This is the normal shape for a
-//     fresh project or a user who has never run `ctxloom review` —
-//     "nothing recorded" — and Readable returns nil.
-//   - The directory exists but cannot be listed (permission denied, an I/O
-//     error), or it lists fine but one of the record files inside it
-//     cannot be opened (permission denied, corrupted at the filesystem
-//     level). Either way Readable returns a non-nil error.
+// It is deliberately NOT a bare `_, err := s.Resolve(); return err`. Two of
+// Resolve's fault states are tolerated here, and each tolerance is a decision
+// with a reason:
 //
-// The distinction matters because this store's silence is load-bearing: an
-// empty store means "nothing rejected", but a store this process simply
-// cannot SEE might be hiding a REJECTION — and rejection is supposed to be
-// supreme (spec §9.3). A caller that cannot tell "empty" from "blind" and
-// treats both as "nothing rejected" has silently reopened a gate a human
-// closed. This method exists so the caller (EffectiveTrust's
-// records-construction preamble) can fail closed instead.
+//   - A nil *Store. "No project store configured" is a supported caller
+//     shape; a nil store holds no records and cannot hide one.
+//   - StateAbsent. A directory that has never been written to is the normal
+//     fresh-project / fresh-user shape, and it is ALSO what an approvals
+//     volume that failed to mount looks like. Those two are indistinguishable
+//     from the filesystem alone, so denying on absence would deny every fresh
+//     checkout — an outage — while admitting on absence discards a rejection
+//     an operator believes is in force. Telling them apart requires the store
+//     directory to be PROVISIONED (created by init, tracked in the committable
+//     project store) so that absence can only mean "it went away"; that is an
+//     on-disk-layout decision, not one this function may take, and until it is
+//     taken this tolerance is the documented, deliberate hole. Resolve is the
+//     seam it closes through: the state is already named and already
+//     distinguishable, so the change is this branch and the two tests that
+//     pin it (TestStore_Readable_AbsentDirectory_IsNotAnError here, and
+//     operations' TestEffectiveTrust_AbsentApprovalsStore_NormalPending).
 //
-// It does NOT verify any signature — a record that parses fine but fails
-// cryptographic verification (untrusted signer, bytes that no longer match)
-// is not an error here: that is the normal "not proven" outcome verified
-// exists to report, and every session carrying one stale record would
-// otherwise deny everything.
-//
-// It DOES parse every .sig record. A file that will not even
-// unarmor is indistinguishable from a SUPPRESSED REJECTION, and the verify
-// path cannot make that distinction on the caller's behalf: it collapses an
-// unarmor failure into the same quiet (false, "") as "no such record", which
-// on the reject path silently un-rejects the item. Readable is the only pass
-// that sees every file in the store rather than the ones whose index hash a
-// particular query happens to reconstruct, so it is the only place the
-// corrupt-content variant of "this store might be hiding a rejection" can be
-// caught. Non-record files (the display-only index.yaml, editor leftovers)
-// are not signatures and are not parsed as such.
+// StateUnconfigured and StateUnreadable are reported. An unconfigured store
+// would otherwise read the PROCESS WORKING DIRECTORY (filepath.Join("", x) ==
+// x) where an unsigned marker is honoured with no verification at all; an
+// unreadable one might be hiding a REJECTION, and rejection is supreme
+// (spec §9.3). A caller that cannot tell "empty" from "blind" and treats both
+// as "nothing rejected" has silently reopened a gate a human closed.
 func (s *Store) Readable() error {
 	if s == nil {
 		return nil
 	}
-	if err := s.configured(); err != nil {
-		return err
+	state, err := s.Resolve()
+	if state == StateAbsent {
+		return nil
 	}
-	entries, err := afero.ReadDir(s.fs, s.dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("countersignature store %s: %w", s.dir, err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(s.dir, entry.Name())
-		data, ferr := afero.ReadFile(s.fs, path)
-		if ferr != nil {
-			return fmt.Errorf("countersignature store %s: cannot read %s: %w", s.dir, entry.Name(), ferr)
-		}
-		if filepath.Ext(entry.Name()) != ".sig" {
-			continue
-		}
-		if perr := signing.ParseArmored(data); perr != nil {
-			return fmt.Errorf("countersignature store %s: record %s is unparseable (a corrupted record cannot be told apart from a suppressed rejection): %w", s.dir, entry.Name(), perr)
-		}
-	}
-	return nil
+	return err
 }
 
 // indexHash is the filename's content-addressed key: sha256 of the FULL
@@ -669,11 +643,16 @@ func (s *Store) AppendIndex(e IndexEntry) error {
 	if err := s.configured(); err != nil {
 		return err
 	}
-	existing, err := s.readIndex()
-	if err != nil {
-		return fmt.Errorf("refusing to rewrite the countersignature index: %w", err)
-	}
-	return s.writeIndex(append(existing, e))
+	// The read and the write are ONE transaction. Splitting them — which is
+	// what this was before lockedIndexUpdate — is a lost update: see
+	// indexlock.go for the measurement.
+	return s.lockedIndexUpdate(func() error {
+		existing, err := s.readIndex()
+		if err != nil {
+			return fmt.Errorf("refusing to rewrite the countersignature index: %w", err)
+		}
+		return s.writeIndex(append(existing, e))
+	})
 }
 
 // writeIndex replaces the sidecar index with entries, atomically, through

@@ -47,13 +47,13 @@ classDiagram
         +WriteMarker(dir, id) error
     }
 
-    Manager --> Registry : loads/saves YAML under filelock
+    Manager --> Registry : loads/saves YAML under an advisory lock
     Registry "1" *-- "n" Entry
     Manager ..> Resolution : returns
     Resolution --> Action
     Manager ..> MarkerFuncs : Resolve / oldTreeGone / mintInto
     MarkerFuncs ..> paths : ProjectMarkerPath, ValidateProjectID
-    Manager ..> filelock : Mint / Adopt / Repoint
+    Manager ..> flock : Mint / Adopt / Repoint
     Manager ..> harp : generateUniqueID
     Manager ..> iox : atomic writes
 ```
@@ -90,9 +90,9 @@ Resolution order in `Resolve` (`internal/shared/tasks/projectid/resolve.go:39`):
 | `(*Manager).ResolveByPath` | `internal/shared/tasks/projectid/registry.go:104` | First entry whose `cleanPath` matches. Returns `(nil, nil)` for "not found" — a deliberate tri-state every caller handles. |
 | `(*Manager).EntriesAtPath` | `internal/shared/tasks/projectid/registry.go:127` | **Every** entry at a path, not just the first — the accessor that exists because a path *can* be registered under two ids. |
 | `(*Manager).ResolveByID` | `internal/shared/tasks/projectid/registry.go:143` | Entry with the given id, or nil. |
-| `(*Manager).Mint` | `internal/shared/tasks/projectid/registry.go:158` | Under `mu` + filelock: re-checks for an existing entry at this path (a real TOCTOU fix — two processes first-launching the same tree can both reach here), else appends a fresh unique id and saves. |
-| `(*Manager).Adopt` | `internal/shared/tasks/projectid/registry.go:202` | Under `mu` + filelock: re-points an entry matching **the id**, else appends it. Performs no path-collision check. Its early-return path returns a populated `Entry` alongside a possibly non-nil save error — the only return in the file that does not zero its value on failure. |
-| `(*Manager).Repoint` | `internal/shared/tasks/projectid/registry.go:234` | Under `mu` + filelock: updates an id's path; errors when the id is absent. Package-internal. |
+| `(*Manager).Mint` | `internal/shared/tasks/projectid/registry.go:158` | Under `mu` + the advisory lock: re-checks for an existing entry at this path (a real TOCTOU fix — two processes first-launching the same tree can both reach here), else appends a fresh unique id and saves. |
+| `(*Manager).Adopt` | `internal/shared/tasks/projectid/registry.go:202` | Under `mu` + the advisory lock: re-points an entry matching **the id**, else appends it. Performs no path-collision check. Its early-return path returns a populated `Entry` alongside a possibly non-nil save error — the only return in the file that does not zero its value on failure. |
+| `(*Manager).Repoint` | `internal/shared/tasks/projectid/registry.go:234` | Under `mu` + the advisory lock: updates an id's path; errors when the id is absent. Package-internal. |
 | `cleanPath` | `internal/shared/tasks/projectid/registry.go:265` | Canonicalises via `EvalSymlinks`, falling back to lexical `filepath.Clean` on error. The comparison key for every path lookup. |
 | `generateUniqueID` | `internal/shared/tasks/projectid/registry.go:279` | `harp.UniqueFrom(used, harp.GenerateName)` — project-ids come from the harp generator; a collision with a session harp is harmless. |
 | `Resolve` | `internal/shared/tasks/projectid/resolve.go:39` | The decision procedure: registry-by-path → marker → resolve-by-id → adopt / heal / `moveOrFork` → mint. |
@@ -104,7 +104,7 @@ Resolution order in `Resolve` (`internal/shared/tasks/projectid/resolve.go:39`):
 
 **Locking and mutation**
 
-- All registry mutation goes through `Mint`, `Adopt`, and `Repoint`. Each must take `mu` **then** the cooperative file lock **then** `loadLocked` — in that order. The ordering is encoded only as three copy-pasted 8-line preambles (`registry.go:159`, `:203`, `:235`); a fourth mutator written without the filelock would compile, pass single-process tests, and corrupt the registry only under concurrency.
+- All registry mutation goes through `Mint`, `Adopt`, and `Repoint`. Each must take `mu` **then** the cooperative file lock **then** `loadLocked` — in that order. The ordering is encoded only as three copy-pasted 8-line preambles (`registry.go:159`, `:203`, `:235`); a fourth mutator written without the lock would compile, pass single-process tests, and corrupt the registry only under concurrency.
 - `Manager` is the sole writer of `~/.ctxloom/projects/index.yaml`. Exporting `Registry` and `Load` leaks the on-disk representation and would let a caller mutate `reg.Projects` outside the lock — the exact invariant `Manager`'s doc exists to protect. No caller does today.
 - `saveLocked` writes the *whole* registry atomically; there is no partial update.
 - `Mint` re-checks for an entry at the target path **after** acquiring the lock. That re-check is the entire defence against two processes minting two ids for one brand-new tree. `Adopt` has no equivalent check.

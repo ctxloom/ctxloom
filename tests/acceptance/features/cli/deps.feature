@@ -378,3 +378,19 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the file "out/CLAUDE.md" contains "MARKER-STALE-CHECKOUT-current"
       And the file "out/CLAUDE.md" does not contain "Demo fragment content."
+
+  # verify-corpus is the gate that stops a schema tightening from shipping ahead
+  # of the content it breaks, so its own failure mode matters more than most:
+  # the corpus it could not read must never be reported as the corpus it read
+  # and found clean. The command's contract spells three distinct answers —
+  # 0 every bundle in a NON-EMPTY corpus parsed, 1 at least one would not parse,
+  # 2 the corpus could not be checked at all.
+  #
+  # 2 is the one asserted here, because it is the one that can rot into a false
+  # pass. A project with no remote clones has nothing to parse, and "nothing
+  # broke" is trivially true of a corpus nobody opened. The exact code is
+  # asserted rather than mere failure: collapsing 2 into 1 would hide exactly
+  # the distinction this command exists to make.
+  Scenario: An empty corpus is reported as unchecked, never as clean
+    When I run "ctxloom deps verify-corpus"
+    Then the command exits with code 2

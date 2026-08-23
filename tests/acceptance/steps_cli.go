@@ -57,6 +57,19 @@ func registerCLISteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// An EXACT exit code, for commands whose contract distinguishes kinds of
+	// failure. "the command fails" only proves non-zero, which collapses
+	// distinctions a caller is meant to branch on — most sharply "I found
+	// breakage" versus "I could not look", where treating the second as the
+	// first reports a clean corpus that was never read.
+	ctx.Step(`^the command exits with code (\d+)$`, func(c context.Context, want int) error {
+		w := worldFrom(c)
+		if got := w.env.LastExitCode(); got != want {
+			return fmt.Errorf("expected exit code %d, got %d; output:\n%s", want, got, w.env.LastOutput())
+		}
+		return nil
+	})
+
 	ctx.Step(`^the output contains "([^"]*)"$`, func(c context.Context, want string) error {
 		w := worldFrom(c)
 		if !strings.Contains(w.env.LastOutput(), want) {

@@ -76,6 +76,9 @@ func TestStore_ConcurrentSignatureWrites_LoseNothing(t *testing.T) {
 // vanished presents to `ctxloom review` as first-time content, so substituted
 // bytes are shown without the diff that would expose the substitution.
 func TestStore_ConcurrentIndexAppends_LoseNothing(t *testing.T) {
+	// The lock lives under ~/.ctxloom/locks; sandbox HOME so this test never
+	// creates a file in the developer's real home.
+	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	dir := t.TempDir()
 	s := NewStore(dir, fs)

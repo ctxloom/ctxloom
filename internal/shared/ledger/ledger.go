@@ -135,6 +135,33 @@ func (l Ledger) Read(s Surface) ([]string, error) {
 // untouched, and rewrites the marker atomically so a crash cannot leave a torn
 // ledger that silently orphans managed content.
 //
+// THE CALLER MUST HOLD A LOCK ACROSS ITS WHOLE READ-MODIFY-WRITE. This is a
+// read-modify-write of the WHOLE marker (readAll, replace one surface,
+// rewrite every surface) and it does not serialize itself. Atomicity here
+// prevents a TORN marker; it does nothing about writer B reading the marker
+// before writer A's rename lands and then rewriting it without A's surface.
+// MEASURED: 20 concurrent unserialized Writes to 20 different surfaces lose
+// 11 to 15 of them, and lose ZERO once serialized — see
+// TestLedger_IsNotSelfSerializing_TheCallerMustLock.
+//
+// The lock is deliberately NOT here. Every production caller already wraps
+// its whole load-modify-save-and-ledger-write cycle in agent.WithFileLock,
+// keyed on the settings file it is editing (claude, codex, opencode,
+// agent.MCPFileConfig), and tests/arch/lock_discipline_test.go excludes this
+// package from its scan for exactly that reason: this is the primitive, and
+// "their own callers are what must hold the lock". A second lock in here
+// would be a second idiom over the same file with no way to make the two
+// agree.
+//
+// The cost of that placement, stated so nobody has to rediscover it: the
+// caller's lock is keyed on the SETTINGS FILE, not on this marker. Two
+// callers holding two different settings-file locks while writing
+// CO-LOCATED surfaces into one marker do not exclude each other — which is
+// the same directory-sharing case the co-location invariant in this package's
+// doc exists to protect. A lost update there leaves the surviving marker
+// claiming fewer entries than ctxloom actually wrote, so the next cleanup
+// treats the lost surface's files as content nobody claims and orphans them.
+//
 // The marker is removed only when EVERY surface is empty: removing it because
 // one surface emptied would strand a co-located surface's entries.
 func (l Ledger) Write(s Surface, names []string) error {

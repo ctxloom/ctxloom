@@ -643,11 +643,16 @@ func (s *Store) AppendIndex(e IndexEntry) error {
 	if err := s.configured(); err != nil {
 		return err
 	}
-	existing, err := s.readIndex()
-	if err != nil {
-		return fmt.Errorf("refusing to rewrite the countersignature index: %w", err)
-	}
-	return s.writeIndex(append(existing, e))
+	// The read and the write are ONE transaction. Splitting them — which is
+	// what this was before lockedIndexUpdate — is a lost update: see
+	// indexlock.go for the measurement.
+	return s.lockedIndexUpdate(func() error {
+		existing, err := s.readIndex()
+		if err != nil {
+			return fmt.Errorf("refusing to rewrite the countersignature index: %w", err)
+		}
+		return s.writeIndex(append(existing, e))
+	})
 }
 
 // writeIndex replaces the sidecar index with entries, atomically, through

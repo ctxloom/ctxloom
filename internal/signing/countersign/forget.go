@@ -151,21 +151,29 @@ func (s *Store) ForgetIndex(ref string) (int, error) {
 	if err := s.configured(); err != nil {
 		return 0, err
 	}
-	existing, err := s.readIndex()
-	if err != nil {
-		return 0, fmt.Errorf("refusing to rewrite the countersignature index: %w", err)
-	}
-	kept := make([]IndexEntry, 0, len(existing))
-	for _, e := range existing {
-		if e.Ref != ref {
-			kept = append(kept, e)
+	// One transaction, for AppendIndex's reason: a forget that read the index
+	// before a concurrent append landed would rewrite the file without that
+	// append's entry, so the two racing writers lose an approval history
+	// between them. See indexlock.go.
+	var dropped int
+	err := s.lockedIndexUpdate(func() error {
+		existing, rerr := s.readIndex()
+		if rerr != nil {
+			return fmt.Errorf("refusing to rewrite the countersignature index: %w", rerr)
 		}
-	}
-	dropped := len(existing) - len(kept)
-	if dropped == 0 {
-		return 0, nil
-	}
-	if err := s.writeIndex(kept); err != nil {
+		kept := make([]IndexEntry, 0, len(existing))
+		for _, e := range existing {
+			if e.Ref != ref {
+				kept = append(kept, e)
+			}
+		}
+		dropped = len(existing) - len(kept)
+		if dropped == 0 {
+			return nil
+		}
+		return s.writeIndex(kept)
+	})
+	if err != nil {
 		return 0, err
 	}
 	return dropped, nil

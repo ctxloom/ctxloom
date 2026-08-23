@@ -123,7 +123,28 @@ var EnvKeys = []string{
 // the duration of the test, returning the temp home. Because it uses t.Setenv
 // (which restores prior values on cleanup and rejects t.Parallel), the calling
 // test must not be parallel.
+//
+// It then REFUSES to continue if the environment it just installed still lets
+// ctxloom's app-directory resolution reach outside the OS temp root — see
+// requireIsolatedAppDir for what that means and why rooting HOME alone does
+// not achieve it. Isolate covering only half the resolution, silently, is how
+// a test run rewrote a developer's real global config.
 func Isolate(t *testing.T) string {
+	t.Helper()
+	home := isolateEnv(t)
+	requireIsolatedAppDir(t, callerPackage())
+	return home
+}
+
+// isolateEnv is Isolate without the isolation CHECK: it installs the temp
+// HOME and clears the environment, and reports nothing.
+//
+// It is split out for an ordering reason, not as a way to opt out. ProjectDir
+// isolates the environment BEFORE it changes the working directory, and the
+// check reads the working directory — so a check inside this body would fire
+// on every ProjectDir caller for a cwd ProjectDir is about to replace. Both
+// exported helpers run the check; they differ only in when.
+func isolateEnv(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -154,11 +175,16 @@ func ResetProcessOverrides(t *testing.T) {
 // ProjectDir isolates the environment (see Isolate) and switches the working
 // directory to a fresh temp dir, restoring the original cwd on cleanup. It
 // returns the project directory.
+//
+// The isolation check runs AFTER the chdir, not before: the fresh temp dir is
+// precisely what makes the working-directory route safe here, so checking
+// first would fail on a cwd this function is about to discard.
 func ProjectDir(t *testing.T) string {
 	t.Helper()
-	Isolate(t)
+	isolateEnv(t)
 	dir := t.TempDir()
 	ChangeDir(t, dir)
+	requireIsolatedAppDir(t, callerPackage())
 	return dir
 }
 

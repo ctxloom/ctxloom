@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // executeFailingUnderFormat drives the REAL rootCmd — the tree the binary ships
@@ -146,7 +147,12 @@ func TestMain(m *testing.M) {
 		// so a pin expecting 1 fails loudly instead of hanging.
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	// SandboxedMain, not m.Run: it installs a temp HOME and a temp working
+	// directory for the whole binary, which is what closes config.findAppDir's
+	// walk-up from the working directory into this checkout's .ctxloom. The
+	// branch above deliberately runs BEFORE it — that child inherits the
+	// parent's sandbox through the environment and cwd it was launched with.
+	os.Exit(testsupport.SandboxedMain(m))
 }
 
 // runMainForExitStatus re-executes this test binary as taskloom and reports the

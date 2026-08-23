@@ -135,6 +135,20 @@ func registerSessionHookSteps(ctx *godog.ScenarioContext) {
 	// check: an engine injects whatever arrives on this channel verbatim, so a
 	// marker naming an empty harp would be written into the transcript as
 	// fact. Diagnostics on stderr are expected and deliberately not counted.
+	// turn-changed's ENTIRE result is one word on stdout; its exit status is
+	// always 0 and carries no meaning. So this compares stdout ALONE, exactly:
+	// a substring check would let "unchanged" satisfy a test expecting
+	// "changed", which is the precise inversion the close-out contract depends
+	// on. Diagnostics belong on stderr and are deliberately not read here.
+	ctx.Step(`^the turn verdict on stdout is "([^"]*)"$`, func(c context.Context, want string) error {
+		w := worldFrom(c)
+		got := strings.TrimSpace(w.env.LastStdout())
+		if got != want {
+			return fmt.Errorf("turn verdict: want %q, got %q (stdout alone)", want, got)
+		}
+		return nil
+	})
+
 	ctx.Step(`^the hook writes nothing to stdout$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if out := strings.TrimSpace(w.env.LastStdout()); out != "" {

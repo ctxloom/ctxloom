@@ -1,10 +1,11 @@
 Feature: The machine callbacks every session fires — do they deliver, and do they stay on their channel?
 
-  Four hidden commands run on every ctxloom session, invoked by the host
+  Five hidden commands run on every ctxloom session, invoked by the host
   engine rather than by a person: `hook inject-context` hands the engine the
   project's assembled context at SessionStart, `hook session-bind` records
   which backend session belongs to which harp, `hook stamp-plan` marks a plan
-  file with the session that edited it, and `hook hud` renders the statusline.
+  file with the session that edited it, `hook hud` renders the statusline, and
+  `hook turn-changed` decides whether a finishing turn changed anything.
   Nobody types any of them, so nobody notices when one stops working.
 
   They share a contract that makes them unusually easy to break quietly. A
@@ -140,3 +141,31 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
     And the output contains "Opus 5"
     And the output contains "42%"
     And the output contains "brisk-copper-moth"
+
+  # turn-changed decides whether the close-out contract speaks at all, and it
+  # is the ONE hook here whose failure mode is silence rather than corruption:
+  # a wrong "unchanged" suppresses the checklist on a turn that changed things,
+  # which is the defect this command was written to fix. So it fails SAFE — it
+  # reports "changed" for anything it cannot read, and only the exact word
+  # "unchanged" silences the contract.
+  #
+  # The two scenarios below pin that direction from both approaches: a
+  # transcript that is named but absent, and a payload that names none at all.
+  # Classification of a real transcript's contents is a unit concern and lives
+  # in internal/turnchange; what is asserted here is the CLI contract, because
+  # the shell hook reads this word and nothing else.
+  Scenario: A transcript the hook cannot read must not silence the close-out
+    When I run "ctxloom hook turn-changed" with input:
+      """
+      {"hook_event_name":"Stop","transcript_path":"/nonexistent/no-such-transcript.jsonl"}
+      """
+    Then the command succeeds
+    And the turn verdict on stdout is "changed"
+
+  Scenario: A payload naming no transcript at all must not silence the close-out
+    When I run "ctxloom hook turn-changed" with input:
+      """
+      {"hook_event_name":"Stop"}
+      """
+    Then the command succeeds
+    And the turn verdict on stdout is "changed"

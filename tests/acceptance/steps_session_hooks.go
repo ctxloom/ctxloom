@@ -1,7 +1,8 @@
 //go:build acceptance
 
-// The four hidden machine callbacks (session_hooks.feature): `hook
-// inject-context`, `hook session-bind`, `hook stamp-plan` and `hook hud`.
+// The hidden machine callbacks (session_hooks.feature): `hook
+// inject-context`, `hook session-bind`, `hook stamp-plan`, `hook hud` and
+// `hook turn-changed`.
 //
 // Every assertion about what a hook DELIVERS reads stdout alone, never the
 // combined stream. That is not fastidiousness: stdout is the host engine's

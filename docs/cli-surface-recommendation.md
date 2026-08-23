@@ -355,7 +355,7 @@ renames cost nothing if the reorg's spelling table is handed to their author:
   scenario ("use the deprecated spelling for the matrix, add one canonical")
   collapses to a single spelling — a simplification, not a loss.
   `manage install --engine X` is unchanged.
-- **J001900:** untouched — the four hidden `hook` leaves are outside this
+- **J001900:** untouched — the hidden `hook` leaves are outside this
   proposal.
 - **J001300:** `acp entries` → `acp list`, `acp server` → `acp serve`;
   `acp client` unchanged. The gaps doc's note that `agent.feature:52` covers

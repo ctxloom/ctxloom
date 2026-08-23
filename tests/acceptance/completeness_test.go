@@ -179,8 +179,8 @@ var excludedTemplates = map[string]string{}
 // intended: the ratchet only tracks the debt down if closing gaps costs the
 // allowlist its slack.
 //
-// LOWERED again, 21 to 17, by session_hooks.feature retiring the four hidden
-// hook callbacks, then 17 to 14 by mcp_tools.feature retiring compact_session,
+// LOWERED again, 21 to 17, by session_hooks.feature retiring four of the
+// hidden hook callbacks, then 17 to 14 by mcp_tools.feature retiring compact_session,
 // get_previous_session and list_sessions, then 14 to 10 by manage.feature
 // retiring the codex and kiro engine-matrix rows, then 10 to 9 by mcp.feature
 // retiring `mcp server edit`, then 9 to 8 by mcp_tools.feature retiring

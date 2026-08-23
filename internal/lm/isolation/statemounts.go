@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	taskpaths "github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 )
 
@@ -88,7 +87,7 @@ func safePathSegment(s string) bool {
 //	    file this run's config-overlay write mounts expose (.claude/
 //	    settings.json, .mcp.json, and their kiro/codex/opencode counterparts)
 //	    is bind-mounted host↔container at an IDENTICAL absolute path, but
-//	    filelock.HomePathFor resolves its lock sidecar against EACH SIDE'S OWN
+//	    paths.HomePathFor resolves its lock sidecar against EACH SIDE'S OWN
 //	    $HOME — the host's real home on one side, the container's fresh
 //	    defaultContainerHome on the other. Same protected path, same flattened
 //	    lock name, two DIFFERENT files: host and container flocks land on
@@ -181,14 +180,14 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 			return nil, fmt.Errorf("container task-store mount: %w", err)
 		}
 		// The lock rides along because the log alone is only half the
-		// protocol: every writer of this log takes filelock.PathFor(log)
+		// protocol: every writer of this log takes paths.PathFor(log)
 		// first, and a lock file the container cannot see is a lock that
 		// excludes nothing across the boundary.
 		//
 		// Both sources must exist, as FILES, before `run`: a runtime asked to
 		// bind a source that is not there creates a DIRECTORY in its place,
 		// and neither the log nor the lock survives that.
-		for _, src := range []string{logPath, filelock.PathFor(logPath)} {
+		for _, src := range []string{logPath, paths.PathFor(logPath)} {
 			if err := ensureFile(src); err != nil {
 				return nil, fmt.Errorf("container task-store mount: %w", err)
 			}

@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 func TestDirtyTreeCommitAcknowledged_AbsentRecordDefaultsFalse(t *testing.T) {
@@ -112,11 +111,12 @@ func TestDirtyTreeCommitAcknowledged_UnreadableStoreWarnsAndDenies(t *testing.T)
 }
 
 // TestSetDirtyTreeCommitAck_LocksUnderStateLocksNotBesideTheAckFile pins
-// WHICH of filelock's two lock shapes dirtyTreeAckStore actually wired up.
+// WHICH of internal/paths' two lock-path shapes dirtyTreeAckStore actually
+// wired up.
 // The ack record lives inside a PROJECT .ctxloom tree
 // (paths.DirtyTreeCommitAckPath, under .ctxloom/state/), the shape
-// filelock.ProjectPathFor exists for — admission.Store's own DEFAULT
-// (filelock.PathFor, beside the file) is the wrong one here and would leave
+// paths.ProjectPathFor exists for — admission.Store's own DEFAULT
+// (paths.PathFor, beside the file) is the wrong one here and would leave
 // `.ctxloom/state/dirty_tree_commit_ack.yaml.lock` sitting next to the
 // record it guards. A real OS filesystem is required: Store skips locking
 // entirely for a non-OS-backed one (see admission.isOSBackedFs), so this
@@ -130,11 +130,11 @@ func TestSetDirtyTreeCommitAck_LocksUnderStateLocksNotBesideTheAckFile(t *testin
 	require.NoError(t, SetDirtyTreeCommitAck(fs, appDir, true))
 
 	ackPath := paths.DirtyTreeCommitAckPath(appDir)
-	want, err := filelock.ProjectPathFor(ackPath)
+	want, err := paths.ProjectPathFor(ackPath)
 	require.NoError(t, err)
 	assert.FileExists(t, want, "the write lock must be taken under state/locks")
 
 	besideTheFile := ackPath + ".lock"
 	assert.NoFileExists(t, besideTheFile,
-		"a lock beside the ack file means the WithLockPathFor(filelock.ProjectPathFor) wiring regressed to the store's home-rooted default")
+		"a lock beside the ack file means the WithLockPathFor(paths.ProjectPathFor) wiring regressed to the store's home-rooted default")
 }

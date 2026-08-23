@@ -15,12 +15,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/flock"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	corepaths "github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+)
+
+// lockFileMode and lockDirMode are the modes this registry's advisory-lock
+// sidecar and its parent directory are created with, before umask — not
+// group- or world-WRITABLE, matching every other lock site in this project
+// (see internal/shared/agent/rmw_lock.go's identically-reasoned pair).
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
 )
 
 // Entry is one row in the project registry: a stable project-id and the path
@@ -158,11 +169,18 @@ func (m *Manager) mutate(fn func(reg *registry) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(filelock.PathFor(m.path))
+	lockPath := corepaths.PathFor(m.path)
+	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
+		return fmt.Errorf("lock: prepare lock directory: %w", err)
+	}
+	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+	stop := lockwait.Watch(lockPath)
+	err := fl.Lock()
+	stop()
 	if err != nil {
 		return fmt.Errorf("lock: %w", err)
 	}
-	defer unlock()
+	defer func() { _ = fl.Unlock() }()
 
 	reg, err := m.loadLocked()
 	if err != nil {
@@ -176,7 +194,7 @@ func (m *Manager) mutate(fn func(reg *registry) error) error {
 func (m *Manager) Mint(projectDir string) (Entry, error) {
 	var out Entry
 	err := m.mutate(func(reg *registry) error {
-		// Re-check under the filelock that no entry already maps this exact
+		// Re-check under the lock that no entry already maps this exact
 		// tree: Resolve decides "mint" with the registry unlocked, so two
 		// processes first-launching the same brand-new tree can both reach
 		// here. The first to win the lock appends; the second must return that

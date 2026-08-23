@@ -44,7 +44,7 @@ flowchart TD
     folded -->|"anomalyError()"| ERR{{"hard error on unresolved<br/>harp collision — READS ONLY"}}
     eventLog --> QA
     QA --> tagma[["tagma (external)"]]
-    eventLog --> filelock[["filelock"]]
+    eventLog --> flocklib[["gofrs/flock"]]
     eventLog --> harp[["harp"]]
     RTS --> projectid[["projectid (see tasks-identity.md)"]]
 

@@ -52,7 +52,7 @@ const (
 	// under AppDirName (.ctxloom): .ctxloom/* is gitignored PRIVATE working
 	// state (see the root .gitignore), while .taskloom/config.yaml and (in
 	// repo-homed mode) .taskloom/tasks.jsonl are meant to be COMMITTED. Only
-	// the filelock sidecar (RepoTasksFileName + ".lock") is gitignored.
+	// the advisory-lock sidecar (RepoTasksFileName + ".lock") is gitignored.
 	RepoDirName = ".taskloom"
 
 	// RepoTasksFileName is the repo-homed task log's file name, alongside

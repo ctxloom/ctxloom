@@ -136,14 +136,14 @@ var _ agent.InstanceConfigWriter = (*claudeInstanceConfig)(nil)
 // dest (the .claude.json path itself) — NOT reliance on a caller's lock.
 //
 // This does NOT double-acquire with isolation.CopyAmbient's caller-side lock
-// (isolation.lockInstanceHome): that lock is filelock.ProjectPathFor(instanceHome)
+// (isolation.lockInstanceHome): that lock is paths.ProjectPathFor(instanceHome)
 // — a DIFFERENT lock namespace (project-tree-relative) at a DIFFERENT path
 // (InstanceHome itself, not InstanceHome/claude/.claude.json) than the
-// filelock.HomePathFor(dest) this function's own WithFileLock takes. flock is
+// paths.HomePathFor(dest) this function's own WithFileLock takes. flock is
 // per-inode; two distinct paths in two distinct lock trees never contend, so
 // nesting is safe. It is also NOT redundant: lockInstanceHome silently
 // no-ops when InstanceHome is not inside any .ctxloom tree (the harpless
-// worktree fallback — see its doc), while filelock.HomePathFor always
+// worktree fallback — see its doc), while paths.HomePathFor always
 // resolves (it only needs the real OS home directory), so this function's own
 // lock is the ONLY guarantee in that fallback case. No ledger is added here:
 // unlike a shared settings.json, ctxloom owns the WHOLE file, so there is no

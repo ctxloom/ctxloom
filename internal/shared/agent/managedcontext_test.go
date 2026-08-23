@@ -6,11 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -68,7 +69,7 @@ func TestWriteManagedContext_PreservesPositionOfTrailingUserContent(t *testing.T
 // deterministic-seam idiom as rmw_lock_test.go's
 // TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive: writer A takes
 // the EXACT lock WithFileLock derives for this target
-// (filelock.HomePathFor), directly, before writer B's real
+// (paths.HomePathFor), directly, before writer B's real
 // WriteManagedContext call is ever spawned — that physically excludes B
 // regardless of goroutine scheduling, so the only role the sleep plays is
 // giving a BROKEN implementation time to prove itself broken.
@@ -92,10 +93,11 @@ func TestWriteManagedContext_SerializesConcurrentSplices(t *testing.T) {
 
 	// Writer A: take the real home lock directly, standing in for
 	// WriteManagedContext already being mid-critical-section.
-	lockPath, err := filelock.HomePathFor(path)
+	lockPath, err := paths.HomePathFor(path)
 	require.NoError(t, err)
-	aUnlock, err := filelock.Lock(lockPath)
-	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o755))
+	aLock := flock.New(lockPath)
+	require.NoError(t, aLock.Lock())
 
 	bDone := make(chan error, 1)
 	go func() {
@@ -109,7 +111,7 @@ func TestWriteManagedContext_SerializesConcurrentSplices(t *testing.T) {
 	case <-time.After(20 * time.Millisecond):
 	}
 
-	aUnlock()
+	require.NoError(t, aLock.Unlock())
 	require.NoError(t, <-bDone)
 
 	data, err := os.ReadFile(path)

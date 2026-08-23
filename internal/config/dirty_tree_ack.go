@@ -6,7 +6,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 // ===== Dirty-tree-commit human acknowledgement ===============================
@@ -69,11 +68,11 @@ func dirtyTreeAckReasons() admission.Reasons[dirtyTreeAckReason] {
 // fs defaults to the OS filesystem when nil, matching every other store
 // constructor in this package.
 //
-// WithLockPathFor(filelock.ProjectPathFor): this record lives inside a
+// WithLockPathFor(paths.ProjectPathFor): this record lives inside a
 // PROJECT .ctxloom tree (paths.DirtyTreeCommitAckPath, under
 // .ctxloom/state/), not under the user's home the way companion_consent's
-// store does — the same distinction filelock.ProjectPathFor's own doc draws,
-// and the reason admission.Store's default (filelock.PathFor, beside-file) is
+// store does — the same distinction paths.ProjectPathFor's own doc draws,
+// and the reason admission.Store's default (paths.PathFor, beside-file) is
 // wrong here: a beside-the-file lock would land inside .ctxloom/state/ itself
 // as an untracked sibling, one more surface for a stray file to turn up on
 // where the home-rooted convention has none of that problem to begin with.
@@ -82,7 +81,7 @@ func dirtyTreeAckStore(fs afero.Fs, appPath string) *admission.Store[dirtyTreeAc
 		fs = afero.NewOsFs()
 	}
 	return admission.NewStore(fs, paths.DirtyTreeCommitAckPath(appPath), dirtyTreeAckKeyFunc, dirtyTreeAckReasons(),
-		admission.WithLockPathFor[dirtyTreeAckKey](filelock.ProjectPathFor))
+		admission.WithLockPathFor[dirtyTreeAckKey](paths.ProjectPathFor))
 }
 
 // DirtyTreeCommitAcknowledged reports whether appPath's checkout has a

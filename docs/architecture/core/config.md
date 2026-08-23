@@ -74,7 +74,7 @@ Write path, and what the writers touch:
 flowchart TD
     CALLER["cli / operations mutator"] --> UPD["Manager.Update fn *Draft<br/>config_manager.go:113"]
     UPD --> P1["loadUncached — path resolution only"]
-    P1 --> LOCK["filelock on config.yaml"]
+    P1 --> LOCK["advisory lock on config.yaml"]
     LOCK --> P2["loadUncached again — fresh state under the lock"]
     P2 --> TODOC["toDoc → *Draft = *configDoc<br/>config.go:333"]
     TODOC --> FN["caller mutates the Draft"]

@@ -7,11 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -46,7 +47,7 @@ func writeRMWDoc(t *testing.T, path string, d rmwDoc) {
 // ~/.claude/settings.json, .mcp.json, and codex's config.toml.
 //
 // The seam is deterministic, not wall-clock: writer A holds the EXACT same
-// home lock WithFileLock itself takes (filelock.HomePathFor(target)),
+// home lock WithFileLock itself takes (paths.HomePathFor(target)),
 // acquired directly, before writer B's real WithFileLock call is ever
 // spawned. That physically prevents B's call from completing until A
 // releases, regardless of goroutine scheduling — the only place a small
@@ -54,7 +55,7 @@ func writeRMWDoc(t *testing.T, path string, d rmwDoc) {
 // prove itself broken by letting B run unexcluded), not a mechanism this
 // test relies on for correctness.
 //
-// MUTATION KILL: comment out (or no-op) the filelock.Lock call inside
+// MUTATION KILL: comment out (or no-op) the fl.Lock call inside
 // WithFileLock, leaving it just `return fn()`, and this test goes red —
 // writer B's goroutine completes its read-modify-write immediately (nothing
 // blocks it), tripping the "B completed while A still held the lock"
@@ -77,10 +78,11 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 
 	// Writer A: take the real home lock directly, standing in for
 	// WithFileLock already being mid-critical-section.
-	lockPath, err := filelock.HomePathFor(target)
+	lockPath, err := paths.HomePathFor(target)
 	require.NoError(t, err)
-	aUnlock, err := filelock.Lock(lockPath)
-	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o755))
+	aLock := flock.New(lockPath)
+	require.NoError(t, aLock.Lock())
 
 	bDone := make(chan error, 1)
 	go func() { bDone <- appendAndWrite("writer-b") }()
@@ -100,7 +102,7 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 	d := readRMWDoc(t, target)
 	d.Managed = append(d.Managed, "writer-a")
 	writeRMWDoc(t, target, d)
-	aUnlock()
+	require.NoError(t, aLock.Unlock())
 
 	require.NoError(t, <-bDone)
 
@@ -112,7 +114,7 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 // TestWithFileLock_FailsClosedOnLockAcquisitionError pins the fail-closed
 // stance WithFileLock shares with config.Manager.Update: a lock
 // ACQUISITION failure (as opposed to ordinary blocking on contention, which
-// filelock.Lock already waits out) must propagate as an error, and fn must
+// flock.Flock.Lock already waits out) must propagate as an error, and fn must
 // NEVER run — degrading to an unlocked read-modify-write on that failure
 // would silently discard the one guarantee this function exists to provide,
 // on exactly the environmental-fault path where writing unlocked is least
@@ -129,7 +131,7 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 	original := []byte(`{"hello":"world"}`)
 	require.NoError(t, os.WriteFile(target, original, 0o644))
 
-	lockPath, err := filelock.HomePathFor(target)
+	lockPath, err := paths.HomePathFor(target)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(lockPath, 0o755))
 
@@ -149,7 +151,7 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 
 // TestWithFileLock_RemovesLegacyBesideFileSidecar pins the cleanup half of
 // the home-lock-dir fix: a `<target>.lock` sidecar C6 left behind (via the
-// old filelock.PathFor-based WithFileLock) must be gone after the FIRST call
+// old paths.PathFor-based WithFileLock) must be gone after the FIRST call
 // through the new, home-rooted WithFileLock — not because anything still
 // reads it, but because leaving it behind means every subsequent run repeats
 // the exact untracked-litter/foreign-home-write problem this fix exists to
@@ -164,7 +166,7 @@ func TestWithFileLock_RemovesLegacyBesideFileSidecar(t *testing.T) {
 	target := filepath.Join(dir, "settings.json")
 	require.NoError(t, os.WriteFile(target, []byte(`{"managed":[]}`), 0o644))
 
-	legacySidecar := filelock.PathFor(target)
+	legacySidecar := paths.PathFor(target)
 	require.NoError(t, os.WriteFile(legacySidecar, []byte{}, 0o644))
 
 	err := WithFileLock(afero.NewOsFs(), target, func() error { return nil })
@@ -197,4 +199,39 @@ func TestWithFileLock_SkipsLockingForNonOSBackedFs(t *testing.T) {
 
 	_, statErr := os.Stat(bogusPath + ".lock")
 	assert.True(t, os.IsNotExist(statErr), "a non-OS-backed fs must never cause a REAL lock file to be created on disk")
+}
+
+// TestFlockUnlock_SafeWithoutASuccessfulLock and
+// TestFlockUnlock_SafeCalledTwice carry forward the deleted
+// internal/shared/filelock package's unlock_contract_test.go /
+// trylock_test.go contracts: releasing a lock is always safe, whether or
+// not anything was actually acquired, and safe to call more than once.
+//
+// filelock's own version of this contract existed because IT invented a
+// custom `unlock func()` closure that could, if the package's internal
+// bookkeeping had a bug, come back nil — a nil release panics the standard
+// `unlock, err := Lock(p); defer unlock()` caller shape immediately on the
+// error path. Every call site in this codebase now uses a *flock.Flock
+// value directly (WithFileLock, config.Manager.Update, eventLog.lock, ...),
+// and flock.Flock.Unlock() is a method on a struct that flock.New always
+// returns non-nil — there is no separate closure value that could be nil,
+// so that half of the old contract is now impossible BY CONSTRUCTION rather
+// than merely tested for. What remains genuinely worth pinning is the part
+// that depends on gofrs/flock's own implementation choice, not Go's type
+// system: that Unlock() itself tolerates being called on a Flock that was
+// never locked, and tolerates being called twice.
+func TestFlockUnlock_SafeWithoutASuccessfulLock(t *testing.T) {
+	fl := flock.New(filepath.Join(t.TempDir(), "never-locked.lock"))
+	assert.NotPanics(t, func() {
+		require.NoError(t, fl.Unlock())
+	})
+}
+
+func TestFlockUnlock_SafeCalledTwice(t *testing.T) {
+	fl := flock.New(filepath.Join(t.TempDir(), "double-unlock.lock"))
+	require.NoError(t, fl.Lock())
+	require.NoError(t, fl.Unlock())
+	assert.NotPanics(t, func() {
+		require.NoError(t, fl.Unlock())
+	})
 }

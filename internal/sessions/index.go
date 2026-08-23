@@ -22,14 +22,25 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/flock"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+)
+
+// lockFileMode and lockDirMode are the modes the session index's advisory-
+// lock sidecar and its parent directory are created with, before umask —
+// not group- or world-WRITABLE, matching every other lock site in this
+// project (see internal/shared/agent/rmw_lock.go's identically-reasoned
+// pair).
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
 )
 
 // Entry is one row in index.yaml. The YAML keys are the on-disk contract; the
@@ -1246,18 +1257,25 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSi
 // ".lock" suffix is connascent across every mutating method: they must all name
 // the same file or they silently stop excluding one another — no error, no
 // warning, just two writers in one index.
-func (m *Manager) lockPath() string { return filelock.PathFor(m.path) }
+func (m *Manager) lockPath() string { return paths.PathFor(m.path) }
 
 // lock takes the index's exclusive file lock and returns its release func,
 // already wrapped for return. Every mutating method acquires through here, so
 // the lock's identity and the error's shape are decided once rather than
 // re-agreed at each call site.
 func (m *Manager) lock() (func(), error) {
-	unlock, err := filelock.Lock(m.lockPath())
+	lockPath := m.lockPath()
+	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
+		return nil, fmt.Errorf("lock: prepare lock directory: %w", err)
+	}
+	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+	stop := lockwait.Watch(lockPath)
+	err := fl.Lock()
+	stop()
 	if err != nil {
 		return nil, fmt.Errorf("lock: %w", err)
 	}
-	return unlock, nil
+	return func() { _ = fl.Unlock() }, nil
 }
 
 // saveLocked atomically replaces the index file with idx.

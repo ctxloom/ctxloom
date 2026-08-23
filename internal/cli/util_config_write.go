@@ -569,7 +569,7 @@ func resolveAppliedTransforms(tl hew.TransformList, doc hew.Document, target str
 // hewjson.Apply just walked — see hew.Resolve's doc: "the pre-image is the
 // right document to resolve against") and writes one hew §9.7 application
 // record to ~/.ctxloom/records/, home-rooted for the same reason
-// filelock.HomePathFor's lock sidecars are: file is FOREIGN, ctxloom does
+// paths.HomePathFor's lock sidecars are: file is FOREIGN, ctxloom does
 // not own it, and so must never leave its own state beside it.
 //
 // What this achieves, precisely, and what it does not: hew's Resolve
@@ -706,10 +706,11 @@ func freeRecordPath(fs afero.Fs, dir, target string, at time.Time) (string, erro
 }
 
 // applicationRecordFilename flattens target the same way
-// filelock.HomePathFor's flattenLockName flattens a protected path into one
+// paths.HomePathFor's flattenLockName flattens a protected path into one
 // filename component (forward-slash it, then "/" -> "__"); the two are
 // independent copies of the same convention, not a shared function, for the
-// reason HomeLocksDirName's doc gives for filelock's own copy — crossing a
+// reason HomeLocksDirName's doc gives for a package outside internal/paths
+// keeping its own copy — crossing a
 // package boundary to share three lines of string manipulation is not worth
 // the coupling. Suffixed with a sortable UTC timestamp because a record is
 // an audit trail entry, not a mutable sidecar: two applies against the same

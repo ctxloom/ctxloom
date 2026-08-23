@@ -1,6 +1,6 @@
 //go:build !windows
 
-package filelock_test
+package paths
 
 import (
 	"os"
@@ -8,33 +8,32 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 // The derivation is only worth anything if the file it names is the file that
 // actually excludes. Held via PathFor(p), a lock must be unavailable to
 // anything else asking for PathFor(p) — and must leave PathFor(q) alone.
 //
-// The probe is a non-blocking flock(2) rather than a second filelock.Lock:
-// this package's Lock is deliberately blocking, so probing with it would park
-// instead of answering.
+// The probe is a non-blocking flock(2) rather than a second blocking Lock:
+// a real acquisition on PathFor(protected) is deliberately blocking, so
+// probing with it would park instead of answering.
 func TestPathFor_LockOnAResourceExcludesThatResourceAndNoOther(t *testing.T) {
 	dir := t.TempDir()
 	protected := filepath.Join(dir, "index.json")
 	other := filepath.Join(dir, "other.json")
 
-	unlock, err := filelock.Lock(filelock.PathFor(protected))
-	require.NoError(t, err)
+	held := flock.New(PathFor(protected))
+	require.NoError(t, held.Lock())
 
-	require.False(t, lockFree(t, filelock.PathFor(protected)),
+	require.False(t, lockFree(t, PathFor(protected)),
 		"two writers of the same resource did not exclude each other")
-	require.True(t, lockFree(t, filelock.PathFor(other)),
+	require.True(t, lockFree(t, PathFor(other)),
 		"locking one resource blocked an unrelated one")
 
-	unlock()
-	require.True(t, lockFree(t, filelock.PathFor(protected)), "the lock was not released")
+	require.NoError(t, held.Unlock())
+	require.True(t, lockFree(t, PathFor(protected)), "the lock was not released")
 }
 
 // lockFree reports whether an exclusive lock on path can be taken right now,

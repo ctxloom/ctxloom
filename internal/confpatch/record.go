@@ -267,8 +267,8 @@ func recordFilename(target string, at time.Time) string {
 }
 
 // flattenTarget turns a path into one filename component, the same way
-// filelock's HomePathFor flattens a protected path: forward-slash it, then
-// "/" -> "__".
+// paths.HomePathFor's flattenLockName flattens a protected path: forward-slash
+// it, then "/" -> "__".
 func flattenTarget(target string) string {
 	return strings.ReplaceAll(filepath.ToSlash(target), "/", "__")
 }

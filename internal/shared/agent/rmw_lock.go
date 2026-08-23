@@ -3,11 +3,29 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
+
+// lockFileMode is the mode a lock file is created with, before umask —
+// matching the mode this project's other advisory locks use (see
+// rendezvous.go's own flock.New calls, which take the library default; this
+// one is set explicitly because it is deliberately not group- or
+// world-WRITABLE: acquiring a lock opens the file for writing, so its write
+// bits are exactly the list of accounts that can take it, and through that,
+// block every other account's writes to the resource it protects. Widening
+// this is a decision about who may block whom, not a formatting one.
+const lockFileMode = 0o644
+
+// lockDirMode is the mode the lock file's parent directory is created with,
+// before umask — the execute bit a directory needs to be traversable at all,
+// paired with the same not-group-or-world-writable stance as lockFileMode.
+const lockDirMode = 0o755
 
 // isOSBackedFs reports whether fs is the real operating-system filesystem, as
 // opposed to a test double (afero.MemMapFs, a ReadOnlyFs wrapping one, ...).
@@ -53,38 +71,44 @@ func isOSBackedFs(fs afero.Fs) bool {
 // identically-shaped useLock (C5), both exist to avoid.
 //
 // A lock ACQUISITION failure fails the whole call closed, matching
-// config.Manager.Update's stance verbatim: filelock.Lock only errors on a
+// config.Manager.Update's stance verbatim: flock.Flock.Lock only errors on a
 // persistent environmental failure (never ordinary contention, which it
 // already waits out), so proceeding unlocked on that failure would silently
 // discard the one guarantee this function exists to provide. The target file
 // is left untouched on that path — fn never runs.
 //
-// The lock lives at filelock.HomePathFor(target), not filelock.PathFor(target)
+// The lock lives at paths.HomePathFor(target), not paths.PathFor(target)
 // beside it — RULED 2026-08-13 (human), closing undated-bronco (fs-consolidation
 // N1): a beside-the-file sidecar for a file this package does NOT own left
 // untracked `.mcp.json.lock`/`.claude/settings.json.lock` litter in every
 // project, and — worse — a ctxloom-owned file inside the user's REAL
 // `~/.claude`/`~/.codex` home, a directory ctxloom otherwise never writes to
-// at all. See filelock.HomePathFor's doc for the full reasoning.
+// at all. See paths.HomePathFor's doc for the full reasoning.
 func WithFileLock(fs afero.Fs, target string, fn func() error) error {
 	if !isOSBackedFs(fs) {
 		return fn()
 	}
-	lockPath, err := filelock.HomePathFor(target)
+	lockPath, err := paths.HomePathFor(target)
 	if err != nil {
 		return fmt.Errorf("agent: deriving home lock path for %s: %w", target, err)
 	}
-	unlock, err := filelock.Lock(lockPath)
+	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
+		return fmt.Errorf("agent: preparing settings lock directory for %s: %w", target, err)
+	}
+	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+	stop := lockwait.Watch(lockPath)
+	err = fl.Lock()
+	stop()
 	if err != nil {
 		return fmt.Errorf("agent: acquiring settings lock for %s: %w", target, err)
 	}
-	defer unlock()
+	defer func() { _ = fl.Unlock() }()
 	cleanupLegacySidecar(target)
 	return fn()
 }
 
 // cleanupLegacySidecar best-effort removes the beside-file sidecar
-// (filelock.PathFor(target)) C6 left behind before this fix moved
+// (paths.PathFor(target)) C6 left behind before this fix moved
 // cross-binary locking to the home lock dir (undated-bronco, fs-consolidation
 // N1). It runs AFTER the real lock is held, never before, so it cannot race
 // this call's own critical section.
@@ -98,5 +122,5 @@ func WithFileLock(fs afero.Fs, target string, fn func() error) error {
 // mandatory locking may leave the legacy sidecar behind if something else
 // still holds it, which self-heals the next time nobody does.
 func cleanupLegacySidecar(target string) {
-	_ = os.Remove(filelock.PathFor(target))
+	_ = os.Remove(paths.PathFor(target))
 }

@@ -22,17 +22,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofrs/flock"
+
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
 	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
 	kiroreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/kiro"
+)
+
+// lockFileMode and lockDirMode are the modes the canonical-transcript
+// ownership lock's sidecar and its parent directory are created with,
+// before umask — not group- or world-WRITABLE, matching every other lock
+// site in this project (see internal/shared/agent/rmw_lock.go's
+// identically-reasoned pair).
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
 )
 
 // vendorLocate resolves the vendor-native transcript locator (the src string
@@ -323,11 +334,16 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// Recorder to race with, so probing there would only cost a syscall for
 	// no exclusion anybody needs.
 	if refresh {
-		unlock, acquired, lerr := filelock.TryLock(filelock.PathFor(dest))
+		lockPath := paths.PathFor(dest)
+		if lerr := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); lerr != nil {
+			return false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", e.HarpName, lerr)
+		}
+		fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+		acquired, lerr := fl.TryLock()
 		if lerr != nil {
 			return false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", e.HarpName, lerr)
 		}
-		defer unlock()
+		defer func() { _ = fl.Unlock() }()
 		if !acquired {
 			clidiag.Warn("ctxloom", "rebuild %s: canonical transcript %s is owned by a live recorder (or another rebuild is already in progress); skipping this rebuild — the existing file is current", e.HarpName, dest)
 			return false, nil

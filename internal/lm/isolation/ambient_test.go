@@ -32,7 +32,7 @@ var errAssertProjector = errors.New("projector refused this credential")
 type recordingInstanceConfig struct {
 	mu       sync.Mutex
 	requests []agent.InstanceConfigRequest
-	// inFlight/maxInFlight measure overlap, so the filelock test observes
+	// inFlight/maxInFlight measure overlap, so the serialization test observes
 	// serialization rather than asserting a lock file exists.
 	inFlight    atomic.Int32
 	maxInFlight atomic.Int32
@@ -340,7 +340,7 @@ func TestCopyAmbient_Kiro_DeclaredEmptyCopiesNothing(t *testing.T) {
 }
 
 // TestCopyAmbient_SerializesTwoRunsSharingOneInstance is the S5-flagged
-// filelock, the plan-1.6 item S5 skipped: two runs WITHIN one session (a
+// lock, the plan-1.6 item S5 skipped: two runs WITHIN one session (a
 // coordinator and its in-tree delegated child, which inherits the harp) share
 // ONE instance home, and both load-modify-write the same config file. Without
 // the lock their reads and writes interleave and one run's generated content is
@@ -356,7 +356,7 @@ func TestCopyAmbient_SerializesTwoRunsSharingOneInstance(t *testing.T) {
 	withInstanceConfigWriter(t, "claude-code", rec)
 
 	// An instance home INSIDE a .ctxloom tree, which is what
-	// filelock.ProjectPathFor keys on — the real in-tree shape,
+	// paths.ProjectPathFor keys on — the real in-tree shape,
 	// <project>/.ctxloom/state/<harp>/home.
 	project := t.TempDir()
 	instance, err := paths.SessionHomePath(filepath.Join(project, paths.AppDirName), "ugly-icy-squid")

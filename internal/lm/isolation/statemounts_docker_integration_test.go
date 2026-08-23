@@ -20,18 +20,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 // TestContainerLockMount_HostAndContainerReadSameLockFile proves the fix end
-// to end: a lock sidecar the HOST writes via filelock.HomePathFor for an
+// to end: a lock sidecar the HOST writes via paths.HomePathFor for an
 // identical-path engine-settings file is readable INSIDE the container at
-// the path the CONTAINER's own filelock.HomePathFor resolves to (its $HOME
+// the path the CONTAINER's own paths.HomePathFor resolves to (its $HOME
 // is defaultContainerHome, the same -e HOME=... every real container run
 // sets — runtime.go's renderRunSpec). Before the fix that path was under a
 // locks dir nothing mounted; after it, the two names collide on the SAME
@@ -44,7 +45,7 @@ func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 	rt := ProbeRuntime("docker")
 	require.Equal(t, "docker", rt.Name())
 
-	testsupport.Isolate(t) // fake $HOME: filelock/paths resolve here, never the real user's ~/.ctxloom
+	testsupport.Isolate(t) // fake $HOME: paths resolves here, never the real user's ~/.ctxloom
 	projectDir := t.TempDir()
 	// An engine-settings file at the SAME absolute path a container's
 	// identical-path project bind mount would give it — the scenario the
@@ -65,16 +66,16 @@ func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 	}
 	require.True(t, found, "sessionStateMounts must carry the locks-dir mount")
 
-	// The host side: filelock's real resolver, the same one every
+	// The host side: paths.HomePathFor's real resolver, the same one every
 	// ctxloom-family binary calls before read-modify-writing a foreign
 	// engine-settings file.
-	hostLockPath, err := filelock.HomePathFor(protected)
+	hostLockPath, err := paths.HomePathFor(protected)
 	require.NoError(t, err)
-	unlock, err := filelock.Lock(hostLockPath)
-	require.NoError(t, err)
+	hostLock := flock.New(hostLockPath)
+	require.NoError(t, hostLock.Lock())
 	const proof = "host-side-lock-proof"
 	require.NoError(t, os.WriteFile(hostLockPath, []byte(proof), 0o644))
-	unlock()
+	require.NoError(t, hostLock.Unlock())
 
 	// The container side: same basename (flattening depends only on the
 	// protected path, never on $HOME — see flattenLockName's doc), under
@@ -100,5 +101,5 @@ func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 	out, err := readAllWithDeadline(ac.Stdout, 10*time.Second)
 	require.NoError(t, err, "read the container's stdout")
 	assert.Equal(t, proof, strings.TrimSpace(string(out)),
-		"the container, reading at the path its OWN filelock.HomePathFor resolves to, must see the exact bytes the host wrote under ITS OWN HomePathFor — same protected path, same lock file, both sides of the boundary")
+		"the container, reading at the path its OWN paths.HomePathFor resolves to, must see the exact bytes the host wrote under ITS OWN HomePathFor — same protected path, same lock file, both sides of the boundary")
 }

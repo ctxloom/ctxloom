@@ -1,4 +1,4 @@
-package filelock_test
+package paths
 
 import (
 	"path/filepath"
@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -21,13 +20,13 @@ func TestHomePathFor_LandsUnderHomeLocks(t *testing.T) {
 	home := testsupport.Isolate(t)
 	protected := filepath.Join(home, "project", ".claude", "settings.json")
 
-	got, err := filelock.HomePathFor(protected)
+	got, err := HomePathFor(protected)
 	require.NoError(t, err)
 
 	wantDir := filepath.Join(home, ".ctxloom", "locks")
 	assert.Equal(t, wantDir, filepath.Dir(got),
 		"the lock must sit in the home locks directory, not beside the protected file")
-	assert.NotEqual(t, filelock.PathFor(protected), got,
+	assert.NotEqual(t, PathFor(protected), got,
 		"the home mapping must not collapse back to the beside-the-file shape")
 }
 
@@ -42,9 +41,9 @@ func TestHomePathFor_LandsUnderHomeLocks(t *testing.T) {
 func TestHomePathFor_FlattensDistinctPathsToDistinctNames(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	nested, err := filelock.HomePathFor(filepath.Join(home, "proj", "a", ".claude", "settings.json"))
+	nested, err := HomePathFor(filepath.Join(home, "proj", "a", ".claude", "settings.json"))
 	require.NoError(t, err)
-	other, err := filelock.HomePathFor(filepath.Join(home, "proj", "b", ".mcp.json"))
+	other, err := HomePathFor(filepath.Join(home, "proj", "b", ".mcp.json"))
 	require.NoError(t, err)
 
 	wantDir := filepath.Join(home, ".ctxloom", "locks")
@@ -71,10 +70,10 @@ func TestHomePathFor_SpellingsOfOneFileMapToOneLock(t *testing.T) {
 		filepath.Join(home, "proj") + string(filepath.Separator) + string(filepath.Separator) + filepath.Join(".claude", "settings.json"),
 	}
 
-	want, err := filelock.HomePathFor(target)
+	want, err := HomePathFor(target)
 	require.NoError(t, err)
 	for _, spelling := range spellings {
-		got, err := filelock.HomePathFor(spelling)
+		got, err := HomePathFor(spelling)
 		require.NoError(t, err)
 		assert.Equal(t, want, got, "%q and %q name the same file; two lock paths means two writers that do not exclude each other", spelling, target)
 	}
@@ -90,9 +89,9 @@ func TestHomePathFor_SpellingsOfOneFileMapToOneLock(t *testing.T) {
 func TestHomePathFor_CollisionsAfterFlatteningShareOneLock(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	withSeparator, err := filelock.HomePathFor(filepath.Join(home, "a", "b", "c"))
+	withSeparator, err := HomePathFor(filepath.Join(home, "a", "b", "c"))
 	require.NoError(t, err)
-	withUnderscore, err := filelock.HomePathFor(filepath.Join(home, "a", "b__c"))
+	withUnderscore, err := HomePathFor(filepath.Join(home, "a", "b__c"))
 	require.NoError(t, err)
 
 	assert.Equal(t, withSeparator, withUnderscore,
@@ -106,7 +105,7 @@ func TestHomePathFor_FailsClosedWhenHomeCannotBeResolved(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv("HOME", "")
 
-	got, err := filelock.HomePathFor("/some/foreign/settings.json")
+	got, err := HomePathFor("/some/foreign/settings.json")
 	require.Error(t, err)
 	assert.Empty(t, got)
 	assert.Contains(t, err.Error(), "/some/foreign/settings.json",

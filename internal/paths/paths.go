@@ -127,7 +127,7 @@ const (
 	ContextCacheDir = "context"
 
 	// LocksDir is the StateDir subdirectory holding the advisory lock sidecars
-	// that guard project-scoped files (filelock.ProjectPathFor). It is state,
+	// that guard project-scoped files (ProjectPathFor, lockpath.go). It is state,
 	// not cache: a lock file is a fact about THIS machine's concurrent
 	// processes and nothing rebuilds it — though nothing is lost either when it
 	// is absent, which is why it earns no Layout row (see Layout's doc on what
@@ -290,25 +290,20 @@ const (
 
 	// HomeLocksDirName is the home-rooted directory holding advisory-lock
 	// sidecars for FOREIGN files a ctxloom-family binary (ctxloom, ltk,
-	// taskloom) does not own — see filelock.HomePathFor. It shares its
+	// taskloom) does not own — see HomePathFor (lockpath.go). It shares its
 	// STRING VALUE with LocksDir (both are "locks"), but the two constants
 	// name DIFFERENT directories at different roots and must not be
 	// collapsed into one: this one sits directly under ~/.ctxloom
 	// (RootHome, see Layout's HomeLocksDirName row below); LocksDir sits
 	// under a PROJECT .ctxloom's state/ (RootProject, via
-	// filelock.ProjectPathFor/LocksPath).
+	// ProjectPathFor/LocksPath).
 	//
-	// filelock is documented as a zero-internal-import leaf package
-	// (docs/architecture/shared/filesystem-io.md) and, independent of that,
-	// referencing this constant from inside filelock.HomePathFor's own
-	// filepath.Join call would trip tests/arch's path-authority gate (which
-	// flags a Join call mixing a "paths.X" selector with a bare local
-	// segment) — so filelock carries its OWN internal copy of this same
-	// value (homeLocksLeaf, filelock.go) rather than importing it from here.
-	// THE TWO MUST BE KEPT IN SYNC BY HAND: filelock's own lockSuffix doc
-	// names an un-synced duplicate spelling of one resource's name as that
-	// package's worst failure mode; this is that same hazard spanning a
-	// package boundary instead of one call site.
+	// PathFor, ProjectPathFor and HomePathFor (lockpath.go) all live in this
+	// package and reference this constant directly — the former split
+	// across a package boundary (filelock carrying its own hand-synced
+	// copy to dodge this package's path-authority gate) is gone now that
+	// the lock-path derivation and the constant it depends on are both
+	// here.
 	HomeLocksDirName = "locks"
 
 	// HomeRecordsDirName is the home-rooted directory holding hew §9.7
@@ -675,9 +670,7 @@ func CoordProjectStateDir(projectKey string) (string, error) {
 
 // HomeLocksDir returns ~/.ctxloom/locks — the home-rooted directory holding
 // advisory-lock sidecars for FOREIGN files a ctxloom-family binary does not
-// own (see filelock.HomePathFor and HomeLocksDirName's doc; filelock keeps
-// its own copy of the "locks" leaf name rather than importing this constant,
-// for the path-authority-gate reason HomeLocksDirName's own doc explains).
+// own (see HomePathFor, lockpath.go, and HomeLocksDirName's doc).
 func HomeLocksDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -907,9 +900,9 @@ func StatePath(appPath string) string {
 
 // LocksPath returns the project's advisory-lock directory (under state/) — one
 // flat directory holding every lock sidecar guarding a file in this .ctxloom
-// tree. filelock.ProjectPathFor owns the protected-path→lock-name mapping;
-// this function owns only WHERE that mapping puts its results, so the location
-// moves in one place if it ever moves again.
+// tree. ProjectPathFor (lockpath.go) owns the protected-path→lock-name
+// mapping; this function owns only WHERE that mapping puts its results, so
+// the location moves in one place if it ever moves again.
 func LocksPath(appPath string) string {
 	return filepath.Join(StatePath(appPath), LocksDir)
 }
@@ -1191,7 +1184,7 @@ func Layout() []Entry {
 		// closeout), same C13 shape as the seven RootHome rows above it.
 		{
 			Rel: filepath.Join(AppDirName, HomeLocksDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "cross-binary lock sidecars for foreign engine-settings files (filelock.HomePathFor); harmless — a lock file carries no data and is recreated on next use, though a write in flight when it disappears loses its mutual exclusion for that one operation",
+			Lost: "cross-binary lock sidecars for foreign engine-settings files (HomePathFor, lockpath.go); harmless — a lock file carries no data and is recreated on next use, though a write in flight when it disappears loses its mutual exclusion for that one operation",
 		},
 		// Added alongside `util config-write`'s hew adoption (P5 slice 1):
 		// same RootHome/PresenceIfUsed shape as the locks row above it, for

@@ -86,7 +86,7 @@ Fixed residents at the root of `state/`:
 |---|---|---|
 | `state/dirty_tree_commit_ack.yaml` | the record that a human authorized ctxloom to auto-commit a dirty tree here (`paths.DirtyTreeCommitAckPath`) | you are asked again |
 | `state/trust/objects` | content-addressed copies of the bytes a human approved at review (`paths.TrustObjectsPath`) | update review degrades from a diff to a full-content dump; committed approval signatures still verify |
-| `state/locks/` | advisory lock sidecars guarding project files (`paths.LocksPath`, named by `filelock.ProjectPathFor`) | nothing |
+| `state/locks/` | advisory lock sidecars guarding project files (`paths.LocksPath`, named by `paths.ProjectPathFor`) | nothing |
 
 Two more local-only paths live at the `.ctxloom` root rather than under
 `state/`, and are gitignored individually:
@@ -123,7 +123,7 @@ what actually exists is worth telling you about.
 | `~/.ctxloom/cache/triggers/` | cached revive-trigger verdicts (`paths.TriggerCacheDir`) | nothing durable — the next trigger check recomputes them, just not for free |
 | `~/.ctxloom/coord/` | coordinator state, one subdirectory per project (`paths.HomeCoordDir`) | a LIVE coordinator loses its lock and journal outright; a recent-but-exited one's history becomes unrecoverable |
 | `~/.ctxloom/companion_consent.yaml` | which companion binaries you agreed ctxloom may execute (`paths.HomeCompanionConsentPath`) | you are asked again |
-| `~/.ctxloom/locks/` | cross-binary advisory lock sidecars for FOREIGN files (an engine's own settings.json/.mcp.json/config.toml) that more than one ctxloom-family binary — ctxloom, `ltk`, `taskloom` — may write (`filelock.HomePathFor`) | harmless — a lock file carries no data and is recreated on next use; a write in flight when it disappears loses its mutual exclusion for that one operation |
+| `~/.ctxloom/locks/` | cross-binary advisory lock sidecars for FOREIGN files (an engine's own settings.json/.mcp.json/config.toml) that more than one ctxloom-family binary — ctxloom, `ltk`, `taskloom` — may write (`paths.HomePathFor`) | harmless — a lock file carries no data and is recreated on next use; a write in flight when it disappears loses its mutual exclusion for that one operation |
 
 Two more home-rooted paths exist and are deliberately **not** in the table
 above: `~/.ctxloom/tasks/` is taskloom's own per-project task-log store

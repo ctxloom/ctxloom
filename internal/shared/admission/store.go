@@ -9,12 +9,13 @@ import (
 	"sort"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
 
 // The trust-on-first-use store: the first time a given thing would be
@@ -43,6 +44,18 @@ import (
 // "nothing recorded" is exactly the reading that re-opens a door a human
 // closed.
 const storeVersion = 1
+
+// lockFileMode and lockDirMode are the modes the write-lock sidecar and its
+// parent directory are created with, before umask — not group- or
+// world-WRITABLE, so acquiring the lock stays limited to the owner. This is
+// the advisory-lock convention every lock site in this project shares (see
+// internal/shared/agent/rmw_lock.go's identically-reasoned pair); it is
+// deliberately NOT the stricter 0o600/0o700 this store's own DATA file uses
+// (write, below) — the lock sidecar is not the trust-sensitive payload.
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
+)
 
 // Record is one recorded human decision.
 type Record[K comparable] struct {
@@ -180,8 +193,9 @@ func (s *Snapshot[K]) Note(rec Record[K]) {
 // LockPathFor derives the sidecar lock file that guards a store's records
 // file. paths.PathFor (home-rooted, beside the file) and
 // paths.ProjectPathFor (inside a project .ctxloom tree, under
-// state/locks/) are the two shapes filelock ships; a domain picks whichever
-// matches where ITS store's file actually lives — see WithLockPathFor.
+// state/locks/) are the two shapes internal/paths ships; a domain picks
+// whichever matches where ITS store's file actually lives — see
+// WithLockPathFor.
 type LockPathFor func(protected string) (string, error)
 
 // Store is one domain's personal record of admission decisions: a single
@@ -515,11 +529,17 @@ func (s *Store[K, R]) lockedRMW(fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("admission: locating write lock for %s: %w", s.path, err)
 	}
-	unlock, err := filelock.Lock(lockPath)
+	if err := s.fs.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
+		return fmt.Errorf("admission: preparing write lock directory for %s: %w", s.path, err)
+	}
+	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+	stop := lockwait.Watch(lockPath)
+	err = fl.Lock()
+	stop()
 	if err != nil {
 		return fmt.Errorf("admission: acquiring write lock for %s: %w", s.path, err)
 	}
-	defer unlock()
+	defer func() { _ = fl.Unlock() }()
 	return fn()
 }
 

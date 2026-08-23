@@ -21,7 +21,7 @@ import (
 // managerTestDir isolates the environment and returns a fresh, real (OS
 // filesystem) .ctxloom directory for a Manager to operate on. A real
 // filesystem is required, not afero.NewMemMapFs: Manager.Update's advisory
-// filelock is skipped entirely for an injected test fs (no cross-process
+// lock is skipped entirely for an injected test fs (no cross-process
 // readers to protect), so the lock-holding tests below need real files.
 func managerTestDir(t *testing.T) string {
 	t.Helper()
@@ -53,7 +53,8 @@ func managerConfigPath(t *testing.T, mgr *Manager) string {
 // The assertion is on the file the transaction ACTUALLY took, observed after a
 // real Update, rather than on a path recomputed here: recomputing would pass
 // just as happily if Update locked somewhere else entirely, which is precisely
-// the divergence filelock's one-name-per-resource invariant is about.
+// the divergence paths.PathFor/paths.ProjectPathFor's one-name-per-resource
+// invariant is about.
 func TestUpdate_LocksUnderStateLocksNotBesideTheConfig(t *testing.T) {
 	appDir := managerTestDir(t)
 	mgr := NewManager(WithAppDir(appDir))
@@ -113,7 +114,7 @@ func TestUpdate_SerializesConcurrentWritersInProcess(t *testing.T) {
 
 // TestUpdate_FailsClosedWhenLockCannotBeAcquired pins Manager.Update's half
 // of the fail-closed-on-lock-failure fix: a lock ACQUISITION failure (as
-// opposed to blocking on contention, which filelock.Lock already handles by
+// opposed to blocking on contention, which flock.Flock.Lock already handles by
 // waiting) used to degrade to an unlocked read-modify-write, silently.
 // Forced here by making the lock file's path a pre-existing directory so
 // os.OpenFile(O_CREATE|O_RDWR) fails outright, with no contention involved.

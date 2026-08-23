@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -55,7 +55,7 @@ func writeRMWDoc(t *testing.T, path string, d rmwDoc) {
 // prove itself broken by letting B run unexcluded), not a mechanism this
 // test relies on for correctness.
 //
-// MUTATION KILL: comment out (or no-op) the filelock.Lock call inside
+// MUTATION KILL: comment out (or no-op) the fl.Lock call inside
 // WithFileLock, leaving it just `return fn()`, and this test goes red —
 // writer B's goroutine completes its read-modify-write immediately (nothing
 // blocks it), tripping the "B completed while A still held the lock"
@@ -80,8 +80,9 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 	// WithFileLock already being mid-critical-section.
 	lockPath, err := paths.HomePathFor(target)
 	require.NoError(t, err)
-	aUnlock, err := filelock.Lock(lockPath)
-	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o755))
+	aLock := flock.New(lockPath)
+	require.NoError(t, aLock.Lock())
 
 	bDone := make(chan error, 1)
 	go func() { bDone <- appendAndWrite("writer-b") }()
@@ -101,7 +102,7 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 	d := readRMWDoc(t, target)
 	d.Managed = append(d.Managed, "writer-a")
 	writeRMWDoc(t, target, d)
-	aUnlock()
+	require.NoError(t, aLock.Unlock())
 
 	require.NoError(t, <-bDone)
 
@@ -113,7 +114,7 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 // TestWithFileLock_FailsClosedOnLockAcquisitionError pins the fail-closed
 // stance WithFileLock shares with config.Manager.Update: a lock
 // ACQUISITION failure (as opposed to ordinary blocking on contention, which
-// filelock.Lock already waits out) must propagate as an error, and fn must
+// flock.Flock.Lock already waits out) must propagate as an error, and fn must
 // NEVER run — degrading to an unlocked read-modify-write on that failure
 // would silently discard the one guarantee this function exists to provide,
 // on exactly the environmental-fault path where writing unlocked is least

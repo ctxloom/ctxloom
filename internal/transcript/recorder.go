@@ -9,10 +9,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/flock"
+
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+)
+
+// lockFileMode and lockDirMode are the modes the canonical-transcript
+// ownership lock's sidecar and its parent directory are created with,
+// before umask — not group- or world-WRITABLE, matching every other lock
+// site in this project (see internal/shared/agent/rmw_lock.go's
+// identically-reasoned pair).
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
 )
 
 // Recorder appends one canonical JSONL line per agent.ChatEvent to a harp's
@@ -246,20 +258,27 @@ func openAppendFile(path string) (io.WriteCloser, error) {
 // lock on the canonical transcript here, held for the recorder's lifetime
 // and released in Close. This is the other half of the easeful-dial fix:
 // operations.convertVendorTranscript's refresh path takes the matching
-// EXCLUSIVE lock (filelock.TryLock) before rebuilding the same file, so a
-// rebuild that lands while this recorder is live sees the shared lock held
-// and skips rather than renaming the inode this recorder is still appending
-// to out from under it.
+// EXCLUSIVE lock (TryLock) before rebuilding the same file, so a rebuild
+// that lands while this recorder is live sees the shared lock held and
+// skips rather than renaming the inode this recorder is still appending to
+// out from under it.
 func (r *fileRecorder) ensureFile() error {
 	if r.file != nil {
 		return nil
 	}
 	if r.defaultPath {
-		unlock, err := filelock.LockShared(paths.PathFor(r.path))
+		lockPath := paths.PathFor(r.path)
+		if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
+			return fmt.Errorf("transcript: prepare canonical-transcript ownership lock directory for %s: %w", r.path, err)
+		}
+		fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+		stop := lockwait.Watch(lockPath)
+		err := fl.RLock()
+		stop()
 		if err != nil {
 			return fmt.Errorf("transcript: acquire canonical-transcript ownership lock for %s: %w", r.path, err)
 		}
-		r.unlock = unlock
+		r.unlock = func() { _ = fl.Unlock() }
 	}
 	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		r.releaseLock()

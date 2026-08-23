@@ -1,16 +1,17 @@
 package opencode
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -48,8 +49,9 @@ func TestWriteOpencodeConfig_SerializesAgainstConcurrentSettingsWrite(t *testing
 	// concurrent SettingsWriter call already mid-critical-section.
 	lockPath, err := paths.HomePathFor(target)
 	require.NoError(t, err)
-	aUnlock, err := filelock.Lock(lockPath)
-	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o755))
+	aLock := flock.New(lockPath)
+	require.NoError(t, aLock.Lock())
 
 	bDone := make(chan error, 1)
 	go func() {
@@ -62,7 +64,7 @@ func TestWriteOpencodeConfig_SerializesAgainstConcurrentSettingsWrite(t *testing
 	case <-time.After(20 * time.Millisecond):
 	}
 
-	aUnlock()
+	require.NoError(t, aLock.Unlock())
 	require.NoError(t, <-bDone)
 
 	after, err := afero.ReadFile(osfs, target)

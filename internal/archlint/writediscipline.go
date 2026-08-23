@@ -12,14 +12,12 @@ import (
 // only, both the library and the binaries that drive it.
 var writeDisciplineScopes = []string{"internal", "cmd"}
 
-// writeDisciplineExemptDirs are the packages that ARE the write library, and
-// so are structurally exempt: they are not a second copy of iox, they are
-// the thing this rule protects. The lock primitive (github.com/gofrs/flock)
-// used to have a beside-it exemption here too (internal/shared/filelock,
-// deleted — every lock call site now uses flock directly, so there is no
-// in-tree lock package left to exempt).
+// writeDisciplineExemptDirs are the packages that ARE the write library, or
+// the lock primitive beside it, and so are structurally exempt: they are not a
+// second copy of iox, they are the thing this rule protects.
 var writeDisciplineExemptDirs = []string{
 	"internal/shared/iox",
+	"internal/shared/filelock",
 }
 
 // forbiddenOSCalls are the raw-fs-write entry points forbidden outside the
@@ -263,7 +261,7 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/shared/agent/settings_io.go#RefuseCorrupt":                      "pre-ratchet baseline — internal/shared/agent is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
 	"internal/shared/logsink/logsink.go#Open":                                 "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/shared/logsink/logsink.go#rollIfOversized":                      "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/shared/tasks/log.go#eventLog.append":                            "O_APPEND write of one event line onto a log that must never lose prior entries — already runs under filelock.Lock (eventLog.lock, callers hold it across append) with its own f.Sync() (appendLine). NOT a 'migrate to iox' candidate: iox's whole family is REPLACE-file-contents (unique temp + rename over the target), and has no append primitive to migrate an O_APPEND writer onto — this entry is a legitimate, permanent exemption, not a queued fix (fs-consolidation closing verification, stale-reason finding)",
+	"internal/shared/tasks/log.go#eventLog.append":                            "O_APPEND write of one event line onto a log that must never lose prior entries — already runs under a flock.Flock lock (eventLog.lock, callers hold it across append) with its own f.Sync() (appendLine). NOT a 'migrate to iox' candidate: iox's whole family is REPLACE-file-contents (unique temp + rename over the target), and has no append primitive to migrate an O_APPEND writer onto — this entry is a legitimate, permanent exemption, not a queued fix (fs-consolidation closing verification, stale-reason finding)",
 	"internal/shared/tasks/taskstest/gitfixture.go#RealGitWorktreeFixture":    "test fixture package, not shipped production code — pre-ratchet baseline (fs-consolidation plan C10)",
 	"internal/testsupport/containercell/containercell.go#Runtime.buildImage":  "test harness, never linked into a binary — pre-ratchet baseline (fs-consolidation plan C10)",
 	"internal/testsupport/containercell/containercell.go#buildBinary":         "test harness, never linked into a binary — pre-ratchet baseline (fs-consolidation plan C10)",

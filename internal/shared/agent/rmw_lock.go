@@ -3,12 +3,29 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
+
+// lockFileMode is the mode a lock file is created with, before umask —
+// matching the mode this project's other advisory locks use (see
+// rendezvous.go's own flock.New calls, which take the library default; this
+// one is set explicitly because it is deliberately not group- or
+// world-WRITABLE: acquiring a lock opens the file for writing, so its write
+// bits are exactly the list of accounts that can take it, and through that,
+// block every other account's writes to the resource it protects. Widening
+// this is a decision about who may block whom, not a formatting one.
+const lockFileMode = 0o644
+
+// lockDirMode is the mode the lock file's parent directory is created with,
+// before umask — the execute bit a directory needs to be traversable at all,
+// paired with the same not-group-or-world-writable stance as lockFileMode.
+const lockDirMode = 0o755
 
 // isOSBackedFs reports whether fs is the real operating-system filesystem, as
 // opposed to a test double (afero.MemMapFs, a ReadOnlyFs wrapping one, ...).
@@ -54,7 +71,7 @@ func isOSBackedFs(fs afero.Fs) bool {
 // identically-shaped useLock (C5), both exist to avoid.
 //
 // A lock ACQUISITION failure fails the whole call closed, matching
-// config.Manager.Update's stance verbatim: filelock.Lock only errors on a
+// config.Manager.Update's stance verbatim: flock.Flock.Lock only errors on a
 // persistent environmental failure (never ordinary contention, which it
 // already waits out), so proceeding unlocked on that failure would silently
 // discard the one guarantee this function exists to provide. The target file
@@ -75,11 +92,17 @@ func WithFileLock(fs afero.Fs, target string, fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("agent: deriving home lock path for %s: %w", target, err)
 	}
-	unlock, err := filelock.Lock(lockPath)
+	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
+		return fmt.Errorf("agent: preparing settings lock directory for %s: %w", target, err)
+	}
+	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+	stop := lockwait.Watch(lockPath)
+	err = fl.Lock()
+	stop()
 	if err != nil {
 		return fmt.Errorf("agent: acquiring settings lock for %s: %w", target, err)
 	}
-	defer unlock()
+	defer func() { _ = fl.Unlock() }()
 	cleanupLegacySidecar(target)
 	return fn()
 }

@@ -3,13 +3,16 @@ package isolation
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/gofrs/flock"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
 
 // AmbientFile is one file whose ORIGIN is the user's real host home and which
@@ -241,7 +244,7 @@ func credentialProjectorFor(engine string) agent.CredentialProjector {
 // real-home byte-identity gate is what proves it, because a path assertion can
 // only say where ctxloom MEANT to write.
 //
-// The whole operation is serialized under the project filelock keyed to
+// The whole operation is serialized under the project lock keyed to
 // req.InstanceHome, so two runs sharing ONE session instance (a coordinator and
 // its in-tree delegated child, which inherits the harp) cannot interleave their
 // load-modify-write of the same config file. An instance home outside any
@@ -374,19 +377,36 @@ func primaryAmbientHostRel(spec credentialSeedSpec) string {
 	return ""
 }
 
-// lockInstanceHome takes the project filelock for instanceHome and returns the
+// lockFileMode and lockDirMode are the modes this instance-home lock's
+// sidecar and its parent directory are created with, before umask — not
+// group- or world-WRITABLE, matching every other lock site in this project
+// (see internal/shared/agent/rmw_lock.go's identically-reasoned pair).
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
+)
+
+// lockInstanceHome takes the project lock for instanceHome and returns the
 // release. A home that cannot be keyed to a lock location (one outside any
-// .ctxloom tree) returns a no-op release rather than failing the run — see
-// CopyAmbient's doc for why that case has no second writer.
+// .ctxloom tree), or an acquisition failure, returns a no-op release rather
+// than failing the run — see CopyAmbient's doc for why that case has no
+// second writer.
 func lockInstanceHome(instanceHome string) func() {
 	lockPath, err := paths.ProjectPathFor(instanceHome)
 	if err != nil {
 		return func() {}
 	}
-	unlock, err := filelock.Lock(lockPath)
+	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
+		clidiag.Warn("ctxloom", "ambient copy-in: could not prepare the instance lock directory for %s (%v); proceeding unserialized", lockPath, err)
+		return func() {}
+	}
+	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+	stop := lockwait.Watch(lockPath)
+	err = fl.Lock()
+	stop()
 	if err != nil {
 		clidiag.Warn("ctxloom", "ambient copy-in: could not take the instance lock %s (%v); proceeding unserialized", lockPath, err)
 		return func() {}
 	}
-	return unlock
+	return func() { _ = fl.Unlock() }
 }

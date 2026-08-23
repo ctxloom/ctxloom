@@ -111,7 +111,8 @@ func TestDirtyTreeCommitAcknowledged_UnreadableStoreWarnsAndDenies(t *testing.T)
 }
 
 // TestSetDirtyTreeCommitAck_LocksUnderStateLocksNotBesideTheAckFile pins
-// WHICH of filelock's two lock shapes dirtyTreeAckStore actually wired up.
+// WHICH of internal/paths' two lock-path shapes dirtyTreeAckStore actually
+// wired up.
 // The ack record lives inside a PROJECT .ctxloom tree
 // (paths.DirtyTreeCommitAckPath, under .ctxloom/state/), the shape
 // paths.ProjectPathFor exists for — admission.Store's own DEFAULT

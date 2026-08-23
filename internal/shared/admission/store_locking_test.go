@@ -143,9 +143,9 @@ func TestStore_LockAcquisitionFailureFailsClosedFileUntouched(t *testing.T) {
 
 	lockPath := paths.PathFor(path) // the store's default (no WithLockPathFor override)
 	// The seed Set above already acquired-and-released this exact lock file,
-	// which left it on disk as a FILE (filelock never removes its lock
-	// files, only unlocks them) — clear it before replacing it with a
-	// directory, or MkdirAll fails trying to turn a file into one.
+	// which left it on disk as a FILE (a flock.Flock acquisition never
+	// removes its lock file, only unlocks it) — clear it before replacing it
+	// with a directory, or MkdirAll fails trying to turn a file into one.
 	require.NoError(t, os.RemoveAll(lockPath))
 	require.NoError(t, os.MkdirAll(lockPath, 0o755))
 

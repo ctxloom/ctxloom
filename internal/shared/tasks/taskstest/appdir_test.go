@@ -161,6 +161,53 @@ func TestCallerPackageFrom_KeysOnTheTestNotTheHelper(t *testing.T) {
 	}
 }
 
+// ratchetEntryFacts is what the repository says about one ratchet entry.
+type ratchetEntryFacts struct {
+	exists         bool
+	adoptedSandbox bool
+	callsIsolate   bool
+	escapesAppDir  bool
+}
+
+// staleReason names why an entry no longer exempts anything, or "" while it
+// still does. It is a pure function over the four facts so every arm can be
+// driven — including "the package no longer has an app dir above it", which
+// no entry in a checkout that ships its own .ctxloom can currently exhibit,
+// and which would otherwise be an assertion nothing could ever fail.
+func (f ratchetEntryFacts) staleReason() string {
+	switch {
+	case !f.exists:
+		return "there is no such package"
+	case f.adoptedSandbox:
+		return "it has adopted the process-wide sandbox"
+	case !f.callsIsolate:
+		return "it no longer calls the isolation helpers, so its exemption reaches nothing"
+	case !f.escapesAppDir:
+		return "it has no app dir above it outside the temp root, so nothing about it escapes"
+	}
+	return ""
+}
+
+func TestRatchetEntryFacts_StaleReason(t *testing.T) {
+	live := ratchetEntryFacts{exists: true, callsIsolate: true, escapesAppDir: true}
+	assert.Empty(t, live.staleReason(), "a package that still escapes and still isolates is live")
+
+	for _, tc := range []struct {
+		name  string
+		facts ratchetEntryFacts
+		want  string
+	}{
+		{"deleted package", ratchetEntryFacts{}, "there is no such package"},
+		{"swept onto the sandbox", ratchetEntryFacts{exists: true, adoptedSandbox: true, callsIsolate: true, escapesAppDir: true}, "it has adopted the process-wide sandbox"},
+		{"stopped isolating", ratchetEntryFacts{exists: true, escapesAppDir: true}, "it no longer calls the isolation helpers, so its exemption reaches nothing"},
+		{"nothing left to escape into", ratchetEntryFacts{exists: true, callsIsolate: true}, "it has no app dir above it outside the temp root, so nothing about it escapes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.facts.staleReason())
+		})
+	}
+}
+
 // TestAppDirEscapeRatchet_IsLive is the ratchet's liveness twin, in the shape
 // of TestArch_LayeringAllowlist_IsLive: an exemption that no longer exempts
 // anything must FAIL, not sit there. A stale entry is worse than no entry —
@@ -172,25 +219,30 @@ func TestAppDirEscapeRatchet_IsLive(t *testing.T) {
 
 	for pkg := range appDirEscapeRatchet {
 		t.Run(pkg, func(t *testing.T) {
-			dir := filepath.Join(root, filepath.FromSlash(pkg))
-			info, err := os.Stat(dir)
-			require.NoErrorf(t, err, "%s is on the ratchet but there is no such package; delete the entry", pkg)
-			require.Truef(t, info.IsDir(), "%s is not a directory", pkg)
-
-			sources := testSourcesIn(t, dir)
-			for name, src := range sources {
-				assert.NotContainsf(t, src, sandboxedMainMarker,
-					"%s has adopted the process-wide sandbox (%s); delete its ratchet entry", pkg, name)
-			}
-			assert.Truef(t, anyContains(sources, "Isolate(", "ProjectDir("),
-				"%s no longer calls the isolation helpers, so its exemption reaches nothing; delete the entry", pkg)
-
-			esc, err := escapingAppDirAncestor(dir, tempRoot)
-			require.NoError(t, err)
-			assert.NotEmptyf(t, esc,
-				"%s has no app dir above it outside the temp root, so nothing about it escapes; delete the entry", pkg)
+			facts := observeRatchetEntry(t, filepath.Join(root, filepath.FromSlash(pkg)), tempRoot)
+			assert.Emptyf(t, facts.staleReason(),
+				"%s is on appDirEscapeRatchet, but %s; delete the entry", pkg, facts.staleReason())
 		})
 	}
+}
+
+// observeRatchetEntry reads the four facts staleReason judges off disk.
+func observeRatchetEntry(t *testing.T, dir, tempRoot string) ratchetEntryFacts {
+	t.Helper()
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return ratchetEntryFacts{}
+	}
+	facts := ratchetEntryFacts{exists: true}
+
+	sources := testSourcesIn(t, dir)
+	facts.adoptedSandbox = anyContains(sources, sandboxedMainMarker)
+	facts.callsIsolate = anyContains(sources, "Isolate(", "ProjectDir(")
+
+	esc, err := escapingAppDirAncestor(dir, tempRoot)
+	require.NoError(t, err)
+	facts.escapesAppDir = esc != ""
+	return facts
 }
 
 // sandboxedMainMarker is assembled rather than written out because this file

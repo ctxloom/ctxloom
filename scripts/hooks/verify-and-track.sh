@@ -8,9 +8,9 @@
 #   1. stop_hook_active. Claude Code sets it when the turn is already resuming
 #      because a Stop hook blocked. Blocking again is how a Stop hook becomes
 #      an infinite loop, so this exits first and unconditionally.
-#   2. a clean tree. A turn that answered a question has nothing to verify;
-#      nagging it burns tokens and trains the reader to skim past the
-#      checklist on the turns where it matters.
+#   2. a turn that changed nothing. A turn that answered a question has
+#      nothing to verify; nagging it burns tokens and trains the reader to
+#      skim past the checklist on the turns where it matters.
 #
 # Exits 0 silently when either guard says stay quiet.
 
@@ -22,30 +22,26 @@ if [ "$(jq -r '.stop_hook_active // false' <<<"$input" 2>/dev/null)" = "true" ];
   exit 0
 fi
 
-top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-[ -n "$top" ] || exit 0
-cd "$top" || exit 0
-
-# Nothing changed on disk -> nothing to close out.
+# Did THIS TURN change anything? -> `ctxloom hook turn-changed`, which reads
+# the session transcript named by the payload and answers "changed" or
+# "unchanged".
 #
-# Tool-generated churn does not count. ctxloom, its engine exports and the
-# harness rewrite .ctxloom/, .codex/, .kiro/ and .claude/ as a side effect of
-# simply running, so in this repo those paths are dirty more or less
-# permanently. Counting them made the guard fire on EVERY turn — including
-# turns whose own work was fully committed, and conversational turns that
-# changed nothing — which is precisely the nagging the clean-tree guard exists
-# to prevent. A checklist that appears unconditionally is one people learn to
-# scroll past.
-# The list is "paths ctxloom or the harness rewrite as a side effect of merely
-# running", not an ad-hoc allowlist: the engine export dirs, and .gitignore,
-# which gitignore.Ensure maintains. Untracked entries are excluded too — they
-# are overwhelmingly scratch files, and a genuinely new source file is
-# accompanied by a modification somewhere that does trip this.
-dirty=$(git status --porcelain 2>/dev/null |
-  grep -vE '^..[[:space:]]*\.(ctxloom|codex|kiro|claude)/' |
-  grep -vE '^..[[:space:]]*\.gitignore$' |
-  grep -vE '^\?\?')
-[ -n "$dirty" ] || exit 0
+# The question used to be "is this checkout dirty", and that is the wrong
+# proxy. It goes silent on precisely the sessions carrying the most
+# close-out debt: a coordinator dispatches every edit into a separate git
+# worktree, so its own tree stays clean-except-excluded for a whole night of
+# work while it closes, cuts and files dozens of tasks. The turn is the unit
+# of work, not the checkout the hook happens to run in — and measured on the
+# turn, a subagent editing another worktree counts, while a conversational
+# turn still does not.
+#
+# Only the exact word "unchanged" silences the contract. A missing binary, a
+# crash, an unreadable transcript or any future word all leave it firing:
+# silence is the failure this guard exists to prevent, and a spurious
+# checklist is much the cheaper error.
+if [ "$(printf '%s' "$input" | ctxloom hook turn-changed 2>/dev/null)" = "unchanged" ]; then
+  exit 0
+fi
 
 read -r -d '' reason <<'EOF' || true
 This turn changed files. Before ending it, close out the work — and report

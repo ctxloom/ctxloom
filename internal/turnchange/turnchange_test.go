@@ -217,8 +217,6 @@ func TestBashCommandChanges(t *testing.T) {
 
 // --- transcript-level (vendor reader) -------------------------------------
 
-const userLine = `{"type":"user","isSidechain":false,"cwd":"/repo","sessionId":"s","version":"2.1.44","message":{"role":"user","content":[{"type":"text","text":"%s"}]},"uuid":"%s","timestamp":"2026-08-22T10:00:00.000Z"}`
-
 func assistantToolLine(uuid, msgID, tool, input string, sidechain bool) string {
 	return `{"type":"assistant","isSidechain":` + boolStr(sidechain) + `,"cwd":"/repo","sessionId":"s","version":"2.1.44","message":{"model":"m","id":"` + msgID +
 		`","type":"message","role":"assistant","content":[{"type":"tool_use","id":"t-` + uuid + `","name":"` + tool + `","input":` + input +

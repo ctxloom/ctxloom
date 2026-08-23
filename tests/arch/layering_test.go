@@ -100,6 +100,17 @@ var layeringRules = []layeringRule{
 		from:   "internal/operations",
 		forbid: []string{"internal/cli"},
 	},
+	{
+		// pkg/clifmt is the CLI output layer and SHIPS AS A STANDALONE
+		// LIBRARY independent of ctxloom (ruled 2026-08-22). It is the
+		// outermost edge: adapters import it, it imports nothing of ours.
+		// External modules (cobra, and whatever a consumer brings) are
+		// deliberately unchecked -- localDir returns "" for anything outside
+		// this repo, so only in-repo imports reach this rule.
+		name:   "clifmt-must-not-import-ctxloom",
+		from:   "pkg/clifmt",
+		forbid: []string{"internal", "cmd"},
+	},
 }
 
 // underRule reports whether dir is inside the from-subtree (or is from

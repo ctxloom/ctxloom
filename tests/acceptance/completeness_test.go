@@ -134,8 +134,12 @@ var excludedTools = map[string]string{}
 var excludedTemplates = map[string]string{}
 
 // maxKnownUncoveredTotal is a RATCHET on the combined size of every
-// knownUncovered* allowlist (currently 3 CLI leaves + 0 MCP tools + 3
-// runner-only MCP tools = 6). It exists because assertExactUncovered's
+// knownUncovered* allowlist (currently 0 MCP tools + 3 runner-only MCP tools
+// = 3). CLI leaves are NOT counted here: they are decided from real coverage
+// data by TestCLICoverage_EveryLeafActuallyRan in the test-acceptance-cover
+// lane, which reads block counters rather than this corpus.
+//
+// It exists because assertExactUncovered's
 // exact-set check only catches a leaf/tool going uncovered WITHOUT anyone
 // updating the matching allowlist — it does nothing to stop someone from
 // adding a new gap AND an allowlist entry for it in the same change, which

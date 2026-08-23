@@ -47,8 +47,9 @@ func TestProjectPathFor_FlattensNestedPaths(t *testing.T) {
 }
 
 // TestProjectPathFor_SpellingsOfOneFileMapToOneLock is THE test this mapping
-// exists for. filelock's own doc calls one-name-per-resource its most breakable
-// invariant: two writers of the same file that name its lock differently do not
+// exists for. lockSuffix's own doc (lockpath.go) calls one-name-per-resource
+// this file's most breakable invariant: two writers of the same file that
+// name its lock differently do not
 // exclude each other, and nothing reports it — no error, no warning, just two
 // writers where there was meant to be one. A mapping that goes through a
 // relative path is exactly where that breaks, so every spelling a caller can

@@ -40,7 +40,7 @@ import (
 )
 
 // Store is the §9.7 application-record store. Records are home-rooted (see
-// paths.HomeRecordsDir) for the same reason filelock's lock sidecars are: the
+// paths.HomeRecordsDir) for the same reason HomePathFor's lock sidecars are: the
 // target file is FOREIGN, ctxloom does not own it, and so must never leave its
 // own state beside it.
 type Store struct {

@@ -8,7 +8,7 @@
 // rule, no per-site judgment. Before R6, three functions answered "does
 // exclusive ownership excuse the lock" three different ways: B5
 // (claude.claudeInstanceConfig.WriteInstanceConfig) relied on the CALLER's
-// project filelock — a second, invisible lock idiom over the SAME class of
+// project lock — a second, invisible lock idiom over the SAME class of
 // file the SettingsWriter family already self-locks. This gate is the
 // write-discipline gate's idiom (tests/arch/write_discipline_test.go)
 // applied to that ratchet: a reasoned, symbol-keyed allowlist that stops the

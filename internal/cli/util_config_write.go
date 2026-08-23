@@ -709,7 +709,8 @@ func freeRecordPath(fs afero.Fs, dir, target string, at time.Time) (string, erro
 // paths.HomePathFor's flattenLockName flattens a protected path into one
 // filename component (forward-slash it, then "/" -> "__"); the two are
 // independent copies of the same convention, not a shared function, for the
-// reason HomeLocksDirName's doc gives for filelock's own copy — crossing a
+// reason HomeLocksDirName's doc gives for a package outside internal/paths
+// keeping its own copy — crossing a
 // package boundary to share three lines of string manipulation is not worth
 // the coupling. Suffixed with a sortable UTC timestamp because a record is
 // an audit trail entry, not a mutable sidecar: two applies against the same

@@ -12,12 +12,15 @@ import (
 // only, both the library and the binaries that drive it.
 var writeDisciplineScopes = []string{"internal", "cmd"}
 
-// writeDisciplineExemptDirs are the packages that ARE the write library, or
-// the lock primitive beside it, and so are structurally exempt: they are not a
-// second copy of iox, they are the thing this rule protects.
+// writeDisciplineExemptDirs are the packages that ARE the write library, and
+// so are structurally exempt: they are not a second copy of iox, they are
+// the thing this rule protects. The lock primitive is github.com/gofrs/flock,
+// a third-party module rather than an in-tree package, so unlike its
+// predecessor (internal/shared/filelock, deleted — every lock call site
+// calls flock.New directly per internal/shared/agent/rendezvous.go's idiom)
+// there is nothing beside iox left to name here.
 var writeDisciplineExemptDirs = []string{
 	"internal/shared/iox",
-	"internal/shared/filelock",
 }
 
 // forbiddenOSCalls are the raw-fs-write entry points forbidden outside the
@@ -221,7 +224,7 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/agentcoord/coord/homeartifacts.go#Home.DownloadArtifact":        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/coord/httpserver.go#coordServing.saveEndpointLocked": "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/coord/journal.go#openStoreFromOffset":                "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/agentcoord/coord/statedir.go#claimOwner":                        "advisory lock file's own O_EXCL create — mechanically parallel to filelock's exemption but not itself filelock (fs-consolidation plan C10 to decide: fold into filelock or exempt structurally)",
+	"internal/agentcoord/coord/statedir.go#claimOwner":                        "advisory lock file's own O_EXCL create — mechanically parallel to the old filelock package's (deleted) exemption but never itself part of it (fs-consolidation plan C10 to decide: fold into a shared lock-file-create helper or exempt structurally)",
 	"internal/agentcoord/mcpschema/gen/main.go#generateXmlLike":               "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/mcpschema/gen/main.go#writeSpec":                     "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/spool/ops.go#renameInto":                             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
@@ -241,7 +244,7 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/lm/isolation/imagebuild.go#buildBaseImage":                      "C10 isolation sweep: writes inside os.MkdirTemp(\"\", \"ctxloom-imgbase-\"), reaped by the same function's RemoveAll — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority — no concurrent-writer risk).",
 	"internal/lm/isolation/imagebuild.go#buildImage":                          "C10 isolation sweep: writes inside os.MkdirTemp(\"\", \"ctxloom-imgbuild-\"), reaped by the same function's RemoveAll — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority — no concurrent-writer risk).",
 	"internal/lm/isolation/sharedfs.go#probeOneRoot":                          "C10 isolation sweep: writes a marker file inside os.MkdirTemp(root, probeScratchPrefix), deferred RemoveAll in the same function — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority).",
-	"internal/lm/isolation/statemounts.go#ensureFile":                         "C10 isolation sweep: the plan's 'all ~26 seams are temp-dir-scoped' claim is WRONG for this one — ensureFile's caller passes the LIVE ~/.ctxloom/tasks/<project>.jsonl path (taskpaths.HomeTasksLogPath) and its filelock sidecar, to stand up the container bind-mount SOURCE before `run`. Not a write-discipline risk in practice: O_CREATE|O_WRONLY with no O_TRUNC only creates-if-absent and immediately Closes, matching the doc's 'never truncating a log that already has tasks in it' — but it is not temp-scoped, and iox's whole-file-replace API is the wrong shape for a create-if-absent primitive anyway. Reported, not migrated.",
+	"internal/lm/isolation/statemounts.go#ensureFile":                         "C10 isolation sweep: the plan's 'all ~26 seams are temp-dir-scoped' claim is WRONG for this one — ensureFile's caller passes the LIVE ~/.ctxloom/tasks/<project>.jsonl path (taskpaths.HomeTasksLogPath) and its advisory-lock sidecar, to stand up the container bind-mount SOURCE before `run`. Not a write-discipline risk in practice: O_CREATE|O_WRONLY with no O_TRUNC only creates-if-absent and immediately Closes, matching the doc's 'never truncating a log that already has tasks in it' — but it is not temp-scoped, and iox's whole-file-replace API is the wrong shape for a create-if-absent primitive anyway. Reported, not migrated.",
 	"internal/lm/isolation/traceprobe.go#traceProbeFromEnv":                   "C10 isolation sweep: writes into the probe's own trace dir, reaped by RemoveAll per the adjacent comment — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority).",
 	"internal/lm/isolation/worktree_reap.go#recordWorktreeOwner":              "C10 isolation sweep: writes the owner-pid marker beside one ephemeral git worktree's own scratch path (isolation.worktreeScratchPath) — single-writer, session-scoped like a temp dir, verified (not literally MkdirTemp, but no concurrent-writer exposure). Migration deferred to a future slice (mechanical, low priority).",
 	"internal/ltk/tools/extract-defaults/main.go#main":                        "pre-ratchet baseline, standalone codegen tool under internal/ltk — migrate to iox (fs-consolidation plan C3/C10)",

@@ -1,7 +1,7 @@
 // Package tests holds binary-level integration tests: they build the real
 // `tasks` binary and drive it as separate OS processes. The in-process unit
 // tests only prove the sync.Mutex serializes goroutines within one process;
-// these prove the on-disk filelock serializes independent processes.
+// these prove the on-disk advisory lock serializes independent processes.
 package tests
 
 import (
@@ -223,7 +223,7 @@ func TestCrossProcessConcurrentAdd(t *testing.T) {
 
 // TestCrossProcessReadDuringWrites ensures concurrent readers (`tasks list`)
 // never observe a torn store while writers (`tasks add`) are mutating it —
-// the filelock + O_APPEND write path must present readers an all-or-nothing
+// the advisory lock + O_APPEND write path must present readers an all-or-nothing
 // view.
 func TestCrossProcessReadDuringWrites(t *testing.T) {
 	e := newEnv(t)
@@ -286,7 +286,7 @@ func TestCrossProcessReadDuringWrites(t *testing.T) {
 // the N distinct tags survives the fold, and the on-disk log carries exactly
 // N `tag` events (plus the one seeding `add`), none of them torn. The
 // in-process unit tests already prove the fold-time union logic is correct
-// given a well-formed log; this proves the cross-process filelock actually
+// given a well-formed log; this proves the cross-process advisory lock actually
 // serializes N independent `tag` writers the same way it serializes `add`
 // writers in TestCrossProcessConcurrentAdd — a genuinely different code path
 // (store.AddTags reads-folds-appends under the same lock, but a lost

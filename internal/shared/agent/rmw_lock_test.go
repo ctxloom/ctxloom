@@ -200,3 +200,38 @@ func TestWithFileLock_SkipsLockingForNonOSBackedFs(t *testing.T) {
 	_, statErr := os.Stat(bogusPath + ".lock")
 	assert.True(t, os.IsNotExist(statErr), "a non-OS-backed fs must never cause a REAL lock file to be created on disk")
 }
+
+// TestFlockUnlock_SafeWithoutASuccessfulLock and
+// TestFlockUnlock_SafeCalledTwice carry forward the deleted
+// internal/shared/filelock package's unlock_contract_test.go /
+// trylock_test.go contracts: releasing a lock is always safe, whether or
+// not anything was actually acquired, and safe to call more than once.
+//
+// filelock's own version of this contract existed because IT invented a
+// custom `unlock func()` closure that could, if the package's internal
+// bookkeeping had a bug, come back nil — a nil release panics the standard
+// `unlock, err := Lock(p); defer unlock()` caller shape immediately on the
+// error path. Every call site in this codebase now uses a *flock.Flock
+// value directly (WithFileLock, config.Manager.Update, eventLog.lock, ...),
+// and flock.Flock.Unlock() is a method on a struct that flock.New always
+// returns non-nil — there is no separate closure value that could be nil,
+// so that half of the old contract is now impossible BY CONSTRUCTION rather
+// than merely tested for. What remains genuinely worth pinning is the part
+// that depends on gofrs/flock's own implementation choice, not Go's type
+// system: that Unlock() itself tolerates being called on a Flock that was
+// never locked, and tolerates being called twice.
+func TestFlockUnlock_SafeWithoutASuccessfulLock(t *testing.T) {
+	fl := flock.New(filepath.Join(t.TempDir(), "never-locked.lock"))
+	assert.NotPanics(t, func() {
+		require.NoError(t, fl.Unlock())
+	})
+}
+
+func TestFlockUnlock_SafeCalledTwice(t *testing.T) {
+	fl := flock.New(filepath.Join(t.TempDir(), "double-unlock.lock"))
+	require.NoError(t, fl.Lock())
+	require.NoError(t, fl.Unlock())
+	assert.NotPanics(t, func() {
+		require.NoError(t, fl.Unlock())
+	})
+}

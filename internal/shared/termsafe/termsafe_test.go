@@ -80,15 +80,27 @@ func TestSanitize_LeavesLegitimateInvisiblesAlone(t *testing.T) {
 // screen with blank lines. One blank line survives, so paragraph structure is
 // preserved; the count is reported so the collapse is never silent.
 func TestSanitize_CollapsesBlankLineRuns(t *testing.T) {
-	got := Sanitize("a\n\n\n\n\nb", DefaultMaxBytes, true)
-	assert.Equal(t, "a\n\nb", got.Text)
+	got := Sanitize("a\n\n\n\n\n\n\nb", DefaultMaxBytes, true)
+	assert.Equal(t, "a\n\n\n\nb", got.Text)
 	assert.Equal(t, 3, got.BlankLines)
 	assert.True(t, got.Altered())
 
-	off := Sanitize("a\n\n\n\n\nb", DefaultMaxBytes, false)
-	assert.Equal(t, "a\n\n\n\n\nb", off.Text)
+	off := Sanitize("a\n\n\n\n\n\n\nb", DefaultMaxBytes, false)
+	assert.Equal(t, "a\n\n\n\n\n\n\nb", off.Text)
 	assert.Equal(t, 0, off.BlankLines)
 	assert.False(t, off.Altered())
+}
+
+// The bound sits above what real prose does, so an ordinary body with a blank
+// line or two in it renders untouched and raises NO notice. A sanitiser that
+// warned about every double-spaced fragment would train the reader to ignore
+// the warning on the one body that earned it.
+func TestSanitize_OrdinaryBlankLinesAreNotCollapsedAndRaiseNoNotice(t *testing.T) {
+	for _, body := range []string{"a\n\nb", "a\n\n\nb", "a\n\n\n\nb"} {
+		got := Sanitize(body, DefaultMaxBytes, true)
+		assert.Equal(t, body, got.Text)
+		assert.False(t, got.Altered(), "%q must render untouched", body)
+	}
 }
 
 // An over-long body is capped, and the ORIGINAL length is carried out so the
@@ -155,7 +167,7 @@ func TestField_CapsWithAVisibleMarker(t *testing.T) {
 // The ref is itself run through Field, because it is publisher-authored too:
 // a notice that could be overwritten is worse than no notice.
 func TestNotice_NamesRefAndEveryAlterationAndIsItselfInert(t *testing.T) {
-	r := Sanitize("a\x1b[2K\n\n\n\nb", 6, true)
+	r := Sanitize("a\x1b[2K\n\n\n\n\n\n\nb", 6, true)
 	require.True(t, r.Altered())
 
 	got := Notice("probe\x1b[1A#fragments/x", r)

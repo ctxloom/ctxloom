@@ -44,6 +44,15 @@ const (
 	// does is itself worth being told about.
 	DefaultMaxBytes = 256 << 10
 
+	// maxNewlineRun bounds a run of consecutive newlines: four of them, so
+	// three blank lines survive. This is a BOUND on how far a publisher can
+	// push the framing around its content up the screen, not a style rule, so
+	// it is deliberately set above anything real prose does. Set tighter, it
+	// fires on an ordinary double-blank-line body and the alteration notice
+	// becomes noise a reader learns to ignore — which would cost more than it
+	// buys on a surface whose whole job is to be believed.
+	maxNewlineRun = 4
+
 	// DefaultFieldMaxBytes caps one rendered identifier — a bundle ref, an
 	// item name, a remote, a signer principal. These sit inside a line, so the
 	// budget is a line's worth and not a screen's.
@@ -87,7 +96,7 @@ func (r Result) Altered() bool {
 // defence: there is no CSI/OSC/DCS/SS3 parser here to get subtly wrong, and a
 // sequence whose introducer is inert is inert however it was spelled.
 //
-// collapseBlankLines caps a run of blank lines at one, which bounds how far a
+// collapseBlankLines bounds a run of blank lines, which bounds how far a
 // publisher can push the surrounding warning up the screen. It is a caller's
 // choice because it is the one alteration that changes a DOCUMENT rather than
 // defusing it — see Renderer.CollapseBlankLines.
@@ -283,9 +292,9 @@ func isBidiControl(r rune) bool {
 	return false
 }
 
-// collapseBlankRuns caps any run of newlines at two — one blank line, so
-// paragraph structure survives — and returns the text with the number of
-// newlines removed. That count is what keeps the collapse from being silent.
+// collapseBlankRuns caps any run of newlines at maxNewlineRun and returns the
+// text with the number of newlines removed. That count is what keeps the
+// collapse from being silent.
 func collapseBlankRuns(s string) (string, int) {
 	var (
 		b       strings.Builder
@@ -296,7 +305,7 @@ func collapseBlankRuns(s string) (string, int) {
 	for _, r := range s {
 		if r == '\n' {
 			run++
-			if run > 2 {
+			if run > maxNewlineRun {
 				removed++
 				continue
 			}

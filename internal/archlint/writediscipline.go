@@ -220,6 +220,7 @@ func inScopes(dir string, scopes []string) bool {
 // writeDisciplineAllowed is the ratchet baseline: a durable symbol reference
 // ("file.go#Symbol") mapped to the fix required to remove the entry.
 var writeDisciplineAllowed = map[string]string{
+	"internal/operations/harp_artifacts.go#migrateOneHarp":                    "the flagged call MOVES an existing file — os.Rename of one regular file from a harp's top level into its persist/ dir — and iox has no move primitive to delegate to: WriteFileAtomic, WriteFileAtomicFs and NewAtomicFile all write NEW BYTES to a destination path. Copy-then-delete would satisfy the gate and WEAKEN the guarantee this path exists to keep: rename(2) leaves the user's authored plan file at exactly one of src or dst, while a read-write-unlink pair has a window in which a crash leaves it at neither, and these are documents the user wrote. Removing this entry requires a rename/move primitive on iox (a public API addition), not a rewrite of this call site.",
 	"internal/agentcoord/coord/artifactstore.go#artifactStore.publish":        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/coord/homeartifacts.go#Home.DownloadArtifact":        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/agentcoord/coord/httpserver.go#coordServing.saveEndpointLocked": "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",

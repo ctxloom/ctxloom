@@ -2,6 +2,7 @@ package kiro
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -70,6 +71,24 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns kiro's context identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *contextSurface) UnsafeInfo() string { return "kiro/context" }
+
+// State implements agent.StateReader: what .kiro/steering/ctxloom-context.md
+// currently carries. The steering file is ctxloom's OUTRIGHT — kiro has no
+// hand-authored half of it, and writeSteering rewrites it whole — so it reads
+// through agent.ReadOwnedContext (the whole payload) rather than
+// ReadManagedContext (a marker section), and strips the front matter
+// writeSteering framed the context with so the comparison is context against
+// context.
+func (s *contextSurface) State(dir string) (agent.DeliveryState, error) {
+	fs := agent.GetFS(s.fs)
+	w := &KiroWriter{FS: fs}
+	state, err := agent.ReadOwnedContext(fs, w.steeringPath(dir), steeringRel())
+	if err != nil {
+		return nil, err
+	}
+	state.Content = strings.TrimPrefix(state.Content, steeringFrontMatter)
+	return state, nil
+}
 
 // mcpSurface is kiro's MCP surface: .kiro/settings/mcp.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
@@ -280,4 +299,6 @@ var (
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}
+	// The steering-file context route also answers for what it delivered.
+	_ agent.StateReader = (*contextSurface)(nil)
 )

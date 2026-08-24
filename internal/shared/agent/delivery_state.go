@@ -139,3 +139,59 @@ func managedSection(content string) (string, bool) {
 	}
 	return strings.Trim(rest[:end], "\n"), true
 }
+
+// OwnedFileDeliveryState is the DeliveryState of a route that owns its file
+// OUTRIGHT — no marker convention, because nothing hand-authored ever lives in
+// it.
+//
+// It is a separate type from FileDeliveryState rather than a flag on it
+// because the two answer "delivered?" from different evidence: the marker file
+// compares a SECTION and must ignore everything around it, while a
+// ctxloom-owned file compares the WHOLE payload. Reading an owned file through
+// FileDeliveryState would find no markers and report every delivered kiro or
+// opencode surface as missing — the exact false alarm StateReader's doc warns
+// about.
+type OwnedFileDeliveryState struct {
+	// Rel is the surface's path relative to the project dir.
+	Rel string
+	// Found reports that the file exists at all.
+	Found bool
+	// Content is the ctxloom-written payload, with any writer-added frame
+	// (kiro's steering front matter) already stripped by the reader — so it
+	// compares against the composed context directly.
+	Content string
+}
+
+func (s OwnedFileDeliveryState) Route() string { return s.Rel }
+
+// Currency compares the whole owned payload against the composed context.
+func (s OwnedFileDeliveryState) Currency(intended string) Currency {
+	switch {
+	case !s.Found:
+		return Currency{Status: StatusMissing, Detail: fmt.Sprintf("%s does not exist", s.Rel)}
+	case strings.TrimSpace(s.Content) == strings.TrimSpace(intended):
+		return Currency{Status: StatusDelivered}
+	default:
+		return Currency{Status: StatusStale,
+			Detail: fmt.Sprintf("%s no longer matches the composed context", s.Rel)}
+	}
+}
+
+// ReadOwnedContext is ReadManagedContext's sibling for a wholly ctxloom-owned
+// context file: it reports what the file currently holds, verbatim. A caller
+// whose writer frames the payload (kiro's `inclusion: always` front matter)
+// strips that frame off the returned Content before comparing — the frame is
+// the writer's, so only the writer's package knows it.
+//
+// An absent file is NOT an error: it is the missing verdict, which is the whole
+// question a currency read is asked.
+func ReadOwnedContext(fsys afero.Fs, path, rel string) (OwnedFileDeliveryState, error) {
+	raw, err := afero.ReadFile(fsys, path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return OwnedFileDeliveryState{Rel: rel}, nil
+		}
+		return OwnedFileDeliveryState{Rel: rel}, fmt.Errorf("read %s: %w", path, err)
+	}
+	return OwnedFileDeliveryState{Rel: rel, Found: true, Content: string(raw)}, nil
+}

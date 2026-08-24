@@ -116,6 +116,20 @@ func TestSurfaceCurrencies_ReportsMissingForEveryFileDefaultedEngine(t *testing.
 
 // --- ARM TWO: the alarm STAYS SILENT where nothing was expected --------------
 
+// TestSurfaceCurrencies_LeavesTheHermeticMockEngineOutOfTheReport keeps a test
+// engine out of a user's wiring report. mock has no settings surface and is
+// absent from every other line of `manage check`; a missing verdict that fires
+// on an ABSENT file would have put MOCK_CONTEXT.md in front of every real user.
+func TestSurfaceCurrencies_LeavesTheHermeticMockEngineOutOfTheReport(t *testing.T) {
+	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
+
+	surfaces, _ := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
+
+	got, ok := currencyFor(surfaces, "mock")
+	assert.False(t, ok, "mock must not appear in the report; got %+v", got)
+	assert.NotEmpty(t, surfaces, "the real engines are still reported")
+}
+
 // TestSurfaceCurrencies_StaysSilentForCodex is the false-alarm guard the
 // ruling names by engine. codex HAS a native context file (AGENTS.md) and now
 // HAS a read half for it — but its DECLARED default context route is the hook

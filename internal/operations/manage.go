@@ -201,6 +201,14 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 // route offers no read half (agent.StateReader). Either way the backend is
 // structurally ABSENT from the report rather than reported as unreadable.
 //
+// It walks backends.BackendsWithSettings, the SAME set the wiring half above
+// enumerates, rather than backends.List. The difference is the hermetic `mock`
+// engine, which has no settings surface and is absent from every other line of
+// this report — before the missing verdict existed it surfaced here only in the
+// hermetic tests that materialize a MOCK_CONTEXT.md, but a verdict that fires on
+// an ABSENT file would put a test engine in front of every real user. One
+// report, one set of engines.
+//
 // A materialized file that is present reports delivered or stale. A file that
 // is ABSENT reports missing only when materialization was actually EXPECTED —
 // see contextFileExpected. That predicate is the whole of the "no false alarms"
@@ -234,7 +242,7 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 		return intended, true
 	}
 
-	for _, name := range backends.List() {
+	for _, name := range backends.BackendsWithSettings() {
 		set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
 		reader, ok := contextFileReader(set)
 		if !ok {

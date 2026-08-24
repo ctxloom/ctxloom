@@ -126,13 +126,26 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Then none of the per-agent worktree config artifacts appear in the project's git status
     And the shared git exclude file carries the ctxloom per-agent worktree config block
 
-  # LOCKED — the runtime axis's fail-loud/degrade contract (isolation.go's
-  # warnUnknownAxes / chainFor / prepareChain): an EXPLICITLY-requested
-  # container that cannot actually launch here (no reachable daemon, absent
-  # image, unresolvable auth — any reason within "container isolation was
-  # requested but could not start") is a fatal ClassIsolation finding that
-  # aborts the run (exit 3) rather than silently landing unsandboxed on the
-  # host; --degraded downgrades that to a warned, working host run.
+  # LOCKED — the runtime axis's fail-loud/degrade contract: an EXPLICITLY-
+  # requested container that cannot launch here is a fatal ClassIsolation
+  # finding that aborts the run (exit 3) rather than silently landing
+  # unsandboxed on the host; --degraded downgrades that to a warned, working
+  # host run.
+  #
+  # WHAT THIS SCENARIO ACTUALLY REACHES: isolation.chainFor, via the
+  # NO-REACHABLE-DAEMON reason only. It does NOT reach isolation.prepareChain's
+  # downgrade branch, and an earlier version of this comment claimed it did.
+  # With no runtime, chainFor never puts a container tier in the chain, so
+  # prepareChain's `IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next)`
+  # never evaluates — measured, by mutation: BOTH operands of that condition can
+  # be replaced with `true` and this suite stays green, as can `continue` ->
+  # `break` on the line below it.
+  #
+  # So the other reasons named in prepareChain's own comment — absent image,
+  # shared-fs probe, unresolvable auth, i.e. a REACHABLE runtime whose
+  # PrepareWorkspace fails — are UNCOVERED here. Covering them needs a scenario
+  # that reaches a reachable-runtime-but-failing-prepare state; see
+  # uninvited-maternity. Do not read this scenario as proof of that path.
   Scenario Outline: Requesting a container with no runtime fails loud, or degrades under --degraded
     When Alice runs the container-bound agent with flags "<flags>"
     Then the run <outcome>

@@ -483,5 +483,27 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine   | runtime | workspace | marker                            |
       | opencode | host    | none      | P6-WAKE-MARKER-OPENCODE-71a0d9be  |
 
+    # THE ISOLATED CELL. Every row above runs host/none — isolated on NEITHER
+    # axis — so they prove the round trip works, not that it survives the
+    # isolation boundary. This row is the same eleven steps with the child's
+    # PROCESS in a rootless container and its FILES in a worktree: the two axes
+    # are independent (see j002200_isolation.feature's header), and answering
+    # "does delegation still work when isolated" needs both set at once, not
+    # either alone.
+    #
+    # It is NOT a relabelling of the rows above. steps_p6_steer_echo.go refuses
+    # any pair p6BuildableCells does not declare, so this row runs a genuinely
+    # different fixture — `runtime: container-rootless` on the agent binding,
+    # `workspace: worktree` at the top level, and the fixture COMMITTED, because
+    # a worktree spawn refuses a dirty checkout.
+    #
+    # container-rootful is absent rather than declared-and-skipped: no box this
+    # suite has run on has had a reachable rootful daemon, and a row that can
+    # only ever skip looks like coverage.
+    @claude-code @container-rootless @ws-worktree
+    Examples:
+      | engine      | runtime            | workspace | marker                                    |
+      | claude-code | container-rootless | worktree  | P6-WAKE-MARKER-CLAUDE-CODE-CTRWT-9d4f21ab |
+
   # Back to: tests/acceptance/features/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).

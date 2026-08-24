@@ -70,6 +70,47 @@ func p6Cell(engine, runtime, workspace string) probeCellID {
 	return probeCellID{Probe: probeP6, Engine: engine, Runtime: runtime, Workspace: workspace}
 }
 
+// p6BuildableCells is what the P6 fixture can actually CONSTRUCT — the axes
+// steps_p6_steer_echo.go writes a real config.yaml and a real project tree for.
+// It is deliberately NOT derived from the registry: the registry says which
+// cells are DECLARED, and if declaring one silently taught the fixture to claim
+// it, the guard below would wave through exactly the row it exists to catch —
+// a container-labelled cell that ran on the host.
+//
+// Engine is absent on purpose. Engine availability is decided at runtime by
+// probeEngine (an unavailable engine SKIPS, loudly, by name); the axes are
+// decided by whether this fixture builds them at all, which is a property of
+// the code here and not of the box it runs on.
+var p6BuildableCells = []struct{ Runtime, Workspace string }{
+	// The original cell: proves the round trip with no isolation on either axis.
+	{Runtime: "host", Workspace: "none"},
+	// The isolated cell: the same round trip with the process in a rootless
+	// container AND the files in a worktree, which is the only configuration
+	// that answers whether delegation survives the boundary rather than merely
+	// working beside it.
+	{Runtime: "container-rootless", Workspace: "worktree"},
+}
+
+// p6FixtureBuilds reports whether the fixture constructs this axis pair.
+func p6FixtureBuilds(runtime, workspace string) bool {
+	for _, c := range p6BuildableCells {
+		if c.Runtime == runtime && c.Workspace == workspace {
+			return true
+		}
+	}
+	return false
+}
+
+// p6BuildableAxes renders the buildable set for a refusal message, so the error
+// names what IS available rather than only what was refused.
+func p6BuildableAxes() string {
+	parts := make([]string, 0, len(p6BuildableCells))
+	for _, c := range p6BuildableCells {
+		parts = append(parts, fmt.Sprintf("runtime=%s/workspace=%s", c.Runtime, c.Workspace))
+	}
+	return strings.Join(parts, " and ")
+}
+
 // p6SteerBody is the message the coordinator sends mid-session. The harp is
 // stated ONCE and framed as data to be returned verbatim; the instruction
 // around it is deliberately explicit and redundant, because a vaguely worded

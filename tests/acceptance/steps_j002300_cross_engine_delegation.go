@@ -175,20 +175,38 @@ const j002300PerEngineAgent = "delegate"
 // names its llm config after the registry key and points primary+fast at it,
 // so the agent binding just names that same key.
 //
-// `workspace: none` matches j002300HermeticConfigYAML's own reasoning: this
-// row proves the delegation round trip, not workspace isolation
-// (j002200_isolation.feature's job), and the fixture's freshly written,
-// uncommitted bundle/profile files would otherwise make a worktree spawn
-// refuse to start ("refusing to auto-commit for delegated agent").
-func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec) string {
-	return a.config + fmt.Sprintf(`workspace: none
+// The AXES ARE THE CALLER'S, not this function's. j002300's own per-engine row
+// asks for host/none: that row proves the delegation round trip, not workspace
+// isolation (j002200_isolation.feature's job). P6's container cell asks for
+// container-rootless/worktree, because a round trip that has only ever run
+// unisolated cannot answer whether delegation survives the boundary — which is
+// the whole question isolation exists to settle.
+//
+// A worktree caller MUST commit the fixture first. The bundle/profile files are
+// written moments earlier and a worktree spawn refuses to start against a dirty
+// checkout ("refusing to auto-commit for delegated agent", operations'
+// delegate.go) — a worktree checkout only ever contains committed state. That
+// is the caller's job because only the caller knows when its fixture is
+// complete; see steps_p6_steer_echo.go, which commits before it spawns.
+//
+// runtime rides the AGENT BINDING and workspace rides the top level, matching
+// j002200ConfigYAML's mock-container binding — the two axes are independent and
+// are written where each one actually lives. runtime is emitted only when it is
+// not "host": host is the schema's default, and writing it explicitly would put
+// a key in the fixture that the host rows never had.
+func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec, runtime, workspace string) string {
+	runtimeLine := ""
+	if runtime != "" && runtime != "host" {
+		runtimeLine = fmt.Sprintf("    runtime: %s\n", runtime)
+	}
+	return a.config + fmt.Sprintf(`workspace: %s
 agents:
   %s:
     llm: %s
-    profiles:
+%s    profiles:
       - %s
     permissions: bypass
-`, s.Name, llmKey, s.Profile)
+`, workspace, s.Name, llmKey, runtimeLine, s.Profile)
 }
 
 // j002300WriteAgent writes one agent's bundle + profile files.
@@ -458,7 +476,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if err := j002300WriteAgent(w, spec); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec)); err != nil {
+			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, "host", "none")); err != nil {
 				return err
 			}
 			// Subscription path: MAP this engine at its real credential

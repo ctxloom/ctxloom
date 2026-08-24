@@ -1838,6 +1838,20 @@ func startContainerInteractive(ctx context.Context, policy isolation.Policy, ws 
 		return nil, nil, err
 	}
 
+	// The launcher below execs into handle.Name. StartRunner returns as soon as
+	// the runtime CLI process is spawned, which is NOT the container running —
+	// without this the exec was issued before the `run` reached the daemon and
+	// failed with a "No such container" that named nothing, while the real
+	// reason (a rejected mount, an unauthenticated engine) went to the runner's
+	// stderr and was thrown away. Wait for the container, and on failure return
+	// the runner's own stderr so the caller learns the actual cause.
+	if rerr := isolation.AwaitContainerRunning(rt, handle); rerr != nil {
+		if handle.Kill != nil {
+			handle.Kill()
+		}
+		return nil, nil, rerr
+	}
+
 	launcher := dockerexec.NewLauncher(rt, handle.Name, dockerexec.TurnSpec{
 		Backend:   backendName,
 		Label:     label,

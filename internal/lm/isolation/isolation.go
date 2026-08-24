@@ -21,7 +21,9 @@ package isolation
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
+	"time"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -116,6 +118,77 @@ type RunnerHandle struct {
 	// Nil-safe via StderrTailOf: not every policy fills it, and a caller
 	// asking a dead runner why it died must not itself panic.
 	StderrTail func() string
+}
+
+// containerReadyPoll / containerReadyBound bound AwaitContainerRunning. The
+// bound is a backstop, NOT the decision: the two real signals are the container
+// being observed running (success) and the runner process exiting (failure). A
+// run that neither starts nor exits within the bound is a wedged daemon, which
+// is the only case the clock decides.
+const (
+	containerReadyPoll  = 20 * time.Millisecond
+	containerReadyBound = 30 * time.Second
+)
+
+// AwaitContainerRunning blocks until h's container is OBSERVED running.
+//
+// The docker-exec interactive transport hands h.Name straight to a launcher
+// that runs `exec -i <name>`. StartRunner returns as soon as the runtime CLI
+// PROCESS is spawned — that says nothing about whether the daemon created the
+// container, resolved its mounts, or started it. Without this barrier the exec
+// was issued BEFORE the `run` (measured: 0.33ms earlier) and failed with a
+// "No such container" that names nothing, while the real reason went to the
+// runner's stderr and was discarded.
+//
+// Deliberately NOT inside StartRunner: that path is shared with the owned-run
+// (delegated) transport, which does not exec into the container and works
+// today. Only the arm that execs needs the barrier.
+//
+// A runtime with no Binary (Host, or a test fake) cannot be inspected, so this
+// reports ready immediately rather than stalling a caller that has no daemon.
+func AwaitContainerRunning(rt Runtime, h *RunnerHandle) error {
+	if rt == nil || rt.Binary() == "" || h == nil || h.Name == "" {
+		return nil
+	}
+	exited := make(chan error, 1)
+	if wait := WaitOf(h); wait != nil {
+		go func() { exited <- wait() }()
+	}
+	deadline := time.Now().Add(containerReadyBound)
+	for {
+		if containerObservedRunning(rt, h.Name) {
+			return nil
+		}
+		select {
+		case werr := <-exited:
+			// The runner died before the container came up. Its stderr is the
+			// only copy of the reason: the daemon writes it there and --rm then
+			// destroys the container, so `logs` is already too late.
+			if s := StderrTailOf(h); s != "" {
+				return fmt.Errorf("runner container %q exited before it was running: %w (stderr: %s)", h.Name, werr, s)
+			}
+			return fmt.Errorf("runner container %q exited before it was running: %w", h.Name, werr)
+		default:
+		}
+		if time.Now().After(deadline) {
+			if s := StderrTailOf(h); s != "" {
+				return fmt.Errorf("runner container %q was not running after %s (stderr: %s)", h.Name, containerReadyBound, s)
+			}
+			return fmt.Errorf("runner container %q was not running after %s", h.Name, containerReadyBound)
+		}
+		time.Sleep(containerReadyPoll)
+	}
+}
+
+// containerObservedRunning reports whether name is running right now. Any error
+// — the container not existing yet, an unreadable daemon — is "not yet"; the
+// caller's other arms carry the real verdicts.
+func containerObservedRunning(rt Runtime, name string) bool {
+	cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, rt.Binary(),
+		"container", "inspect", "-f", "{{.State.Running}}", name).Output()
+	return err == nil && strings.TrimSpace(string(out)) == "true"
 }
 
 // StderrTailOf reads h's bounded stderr tail, tolerating a nil handle or a

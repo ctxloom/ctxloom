@@ -31,7 +31,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -543,7 +542,20 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return tsFragmentNotReappeared(worldFrom(c))
 	})
 
-	// --- GAP D2: an unreadable lockfile withholds, rather than un-retracting --
+	// --- GAP D2: an unparseable lockfile means the bundle never loads --------
+
+	// Companion loadouts are the reason this row used to be green or red by
+	// accident. They are remote-posture refs, so they DO reach EffectiveTrust's
+	// retraction-readable arm and raise its fatal finding — and on a machine
+	// with ltk or taskloom installed that finding, not this publisher's bundle,
+	// was what aborted the session. Switching companions off is what makes the
+	// assertions below about the behaviour under test rather than about $PATH.
+	ctx.Step(`^companion content is switched off, so only this publisher's bundle can speak$`, func(c context.Context) error {
+		// SetChildEnv, not SetEnv: isolatedEnv scrubs the ctxloom variables it
+		// recognises, and this is the door through that scrub.
+		worldFrom(c).env.SetChildEnv("CTXLOOM_NO_COMPANIONS", "1")
+		return nil
+	})
 
 	ctx.Step(`^her lockfile is corrupted, an unparseable lock\.yaml$`, func(c context.Context) error {
 		w := worldFrom(c)
@@ -556,32 +568,64 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			"version: 1\nbundles:\n  broken:\n    sha: \"abc\n    pinned: true\n")
 	})
 
-	// Fail-closed, the same shape as the corrupted approvals store above: the
-	// unreadable lockfile records a fatal ClassTrust finding, so `profile
-	// materialize` ABORTS pre-write rather than delivering a surface built on
-	// retraction state nobody could read. The message discipline is asserted
-	// too, because this is a fault a user cannot otherwise diagnose — nothing
-	// they typed mentions lock.yaml — so the abort must name the file, say
-	// what it withheld and why, and name the recovery.
-	ctx.Step(`^her session refuses to start, telling her the retraction state cannot be established, and naming how to recover$`, func(c context.Context) error {
+	// Fail-closed, the same shape as the corrupted approvals store above, but
+	// raised a layer EARLIER and by a different class. The lockfile is the only
+	// record of the SHA a remote bundle is served at, so a lockfile that does
+	// not parse means config builds no remote reader at all: the bundle the
+	// profile references is simply "not found", and every MCP server and hook it
+	// ships goes unapplied. Both are fatal ClassBundle findings, so `profile
+	// materialize` ABORTS rather than delivering a surface with a silent hole
+	// in it.
+	//
+	// The message discipline is asserted too, because this is a fault a user
+	// cannot otherwise diagnose — nothing they typed mentions a lockfile — so
+	// the abort must name the file it could not parse, the bundle that cost
+	// them, and the recovery. Naming the BUNDLE is also what keeps this
+	// scenario honest: the finding quotes this publisher's canonical ref, so no
+	// unrelated content on the host can satisfy it.
+	ctx.Step(`^her session refuses to start, naming the lockfile it could not parse and the remote bundle it therefore never loaded$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := tsRefuseIfOnlyCompanionsCanTrip(); err != nil {
-			return err
-		}
 		out := w.env.LastOutput()
 		w.docStepMaterialized = tsAbortExcerpt(out)
 		if code := w.env.LastExitCode(); code == 0 {
-			return fmt.Errorf("materialize exited 0 on an unreadable lockfile; it must refuse to start. output:\n%s", out)
+			return fmt.Errorf("materialize exited 0 on an unparseable lockfile; it must refuse to start. output:\n%s", out)
 		}
+		ts := tsOf(w)
 		for _, want := range []string{
-			"cannot establish retraction state", // the reason
-			"lock.yaml",                         // the file
-			"withholding remote content",        // what it did, as policy
-			"ctxloom remote lock",               // the recovery
-			"left intact",                       // the reassurance: nothing was destroyed
+			"failed to load the remote lockfile", // the file
+			"failed to parse lockfile",           // why it could not be read
+			"no remote bundles loaded",           // the blast radius
+			// The bundle, by the lockfile key the loader reports it under
+			// ("<url>@bundles/<name>") rather than tsRef's canonical
+			// "ctxloom+<url>//bundles/<name>#<selector>" form. Naming THIS
+			// scenario's own remote is what no unrelated content on the host
+			// can satisfy.
+			ts.url + "@bundles/" + ts.bundleName,
+			"bundle not found",  // its fate: never loaded, so never judged
+			"ctxloom deps pull", // the recovery
 		} {
 			if !strings.Contains(out, want) {
-				return fmt.Errorf("materialize output is missing %q — an abort on a corrupt lockfile a user cannot otherwise diagnose must name the reason, the file, and the recovery; output:\n%s", want, out)
+				return fmt.Errorf("materialize output is missing %q — an abort on a corrupt lockfile a user cannot otherwise diagnose must name the file, the bundle it cost them, and the recovery; output:\n%s", want, out)
+			}
+		}
+		return nil
+	})
+
+	// The negative half, and the whole point of the rewrite: with companions
+	// off, NOTHING in this run reaches EffectiveTrust's retraction-readable arm,
+	// because the only remote content in the project never loaded. If that
+	// finding ever appears here it means a remote bundle WAS served without a
+	// readable lockfile entry behind it — the SHA pin bypassed — which is a
+	// bigger problem than the one this scenario is named after.
+	ctx.Step(`^nothing is reported about that bundle's trust, because it was never loaded to be judged$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		for _, forbidden := range []string{
+			"cannot establish retraction state",
+			"withholding remote content",
+		} {
+			if strings.Contains(out, forbidden) {
+				return fmt.Errorf("materialize reported %q — the trust gate spoke about content that cannot have been loaded, so a remote bundle was served without a readable lockfile pin behind it; output:\n%s", forbidden, out)
 			}
 		}
 		return nil
@@ -1186,42 +1230,4 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		}
 		return fmt.Errorf("`review --list` listed no line for fragments/context; output:\n%s", out)
 	})
-}
-
-// tsRefuseIfOnlyCompanionsCanTrip is the fail-loud guard for the one scenario
-// in this file that is green for the wrong reason (taskloom alive-rover).
-//
-// MEASURED here, by instrumenting operations.EffectiveTrust's
-// retraction-readable arm and running the scenario alone: with the lockfile
-// corrupted, the refs that reach that arm are ltk's and taskloom's — seven
-// COMPANION items — and the remote `trustdemo` bundle this scenario is named
-// after reaches it ZERO times. The mechanism is remote.BundleReader: it serves
-// a remote bundle's bytes only at the SHA its lockfile entry records, so an
-// unparseable lock.yaml means ErrBundleNotInLockfile and the bundle is never
-// loaded, hence never trust-evaluated, hence produces no finding. The abort
-// the assertions below read is therefore raised entirely by companion content
-// tripping the same gate.
-//
-// That makes the outcome depend on whether the machine has ltk/taskloom on
-// PATH rather than on the behaviour under test: someone could delete the
-// retraction-readability check for remote content and this scenario would
-// stay green wherever companions are installed. The fixture cannot fix it —
-// there is no way to keep a remote bundle loadable through a lockfile that
-// does not parse — so the honest interim is to fail LOUDLY, naming the
-// reason, on any machine where the accident that makes it pass is absent,
-// rather than failing with a message about retraction state that would send
-// the reader hunting in the wrong place.
-func tsRefuseIfOnlyCompanionsCanTrip() error {
-	for _, bin := range []string{"ltk", "taskloom"} {
-		if _, err := exec.LookPath(bin); err == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("this scenario cannot certify what it claims on this machine: " +
-		"the retraction-readability gate is reached ONLY by companion content (ltk/taskloom), " +
-		"because a remote bundle is served at its locked SHA and an unparseable lock.yaml " +
-		"means it is never loaded at all — so with no companion on PATH nothing trips the gate " +
-		"and the session does not abort. This is not a regression in the code under test; " +
-		"it is the fixture gap filed as taskloom alive-rover, which needs the REMOTE bundle " +
-		"to produce the finding")
 }

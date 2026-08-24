@@ -216,36 +216,40 @@ exactly such a malformed ref and confirms the tool fails closed, in its own
 words, rather than guessing local.
 <!-- /doc:scenario -->
 
-<!-- doc:scenario: An unreadable lockfile withholds remote content, rather than silently un-retracting it -->
-Retraction is the only control on this page that is not the reader's own
-decision. Everything else here — approve, reject — is something a human did
-about bytes they looked at. A retraction is the PUBLISHER saying "withdraw
-this," and the reason they usually say it is that the content turned out to be
-harmful. That record lives in one place on disk, `.ctxloom/lock.yaml`, learned
-at the last sync that had the network in hand.
+<!-- doc:scenario: An unparseable lockfile stops the remote bundle loading at all, so trust never gets a say -->
+The lockfile is not bookkeeping. `.ctxloom/lock.yaml` is where a remote
+bundle's pinned SHA lives, and pinning is the security control this whole page
+rests on: every decision above is about bytes read at one exact commit. It is
+also where a publisher's RETRACTION is recorded — the one control here that is
+not the reader's own decision, the PUBLISHER saying "withdraw this," usually
+because the content turned out to be harmful.
 
-Which raises a question the rest of this page never asks: what happens when
-that file cannot be read? "I cannot read the retraction record" and "nothing
-is retracted" are different statements, and for a long time the tool collapsed
-them into the second one — so a corrupt lockfile quietly served the withdrawn
-bundle again, exit 0, no warning. A control that switches itself off when its
-own state goes missing is not a control.
+So: what happens when that file cannot be read at all?
 
-This scenario proves the posture is now the other one. It delivers the
-publisher's fragment normally, corrupts the lockfile, and asks for another
-session: the content is withheld and the session refuses to start. The refusal
-is deliberately talkative, because this is a fault nobody can diagnose from
-what they typed — nothing about `ctxloom run` mentions a lockfile — so it
-names the file, says what it withheld and why, and names the recovery. It can
-afford to say "the file is left intact" because a companion guard makes that
-true: nothing overwrites an unparseable lockfile, so the holds and retractions
-inside it are still there to read by hand.
+The answer is one layer earlier than you would expect, and this scenario exists
+to say so plainly. Trust never gets a say, because there is nothing for it to
+have a say ABOUT. With no parseable lockfile there is no SHA to serve the
+bundle at, so no remote reader is built, and the bundle the profile references
+is simply not found — its fragment undelivered, its MCP servers and hooks
+unapplied. The session refuses to start and says all three things: the lockfile
+it could not parse, the bundle that cost, and the recovery. Content is
+withheld, but by NOT LOADING, not by a trust decision.
 
-The boundary this must NOT trip is the ordinary one: a project with no
-lockfile at all has no pins and legitimately nothing retracted, and it keeps
-working untouched. Absent is not corrupt. That case is pinned in the unit
-suite rather than here, because it is the ABSENCE of behaviour and there is no
-scenario to watch.
+What this scenario deliberately does NOT claim is the retraction gate itself —
+"I cannot read the retraction record" and "nothing is retracted" are different
+statements, and collapsing them into the second would switch off a control
+exactly when its own state goes missing. That gate is real and it is proven,
+but as a unit claim rather than here, because no end-to-end session can reach
+it through a lockfile that does not parse. The boundary it must not trip — a
+project with no lockfile at all has no pins and nothing retracted, and keeps
+working untouched — is pinned in the same place. Absent is not corrupt.
+
+The scenario switches companion content off before it starts, and that is
+load-bearing rather than tidiness. Companion loadouts are remote-posture
+content too, so on a machine that happens to have them installed THEY raise the
+trust finding, and the page would then be reporting the host's PATH rather than
+the behaviour under test. With them off, exactly one voice is left in the run:
+this publisher's bundle.
 <!-- /doc:scenario -->
 
 <!-- doc:outro -->

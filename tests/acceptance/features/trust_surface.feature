@@ -276,38 +276,40 @@ Feature: The trust surface — what "review" actually controls
   # GAP D2 — the RETRACTION half of the same posture (U085-F02). The write
   # side of a corrupt lock.yaml was already refused (it is the only on-disk
   # record of publisher retractions, so overwriting it un-retracts silently).
-  # The READ side still failed OPEN: EffectiveTrust's retraction lookup
-  # degraded an unparseable lock.yaml to "nothing is retracted", so a bundle
-  # the publisher deliberately WITHDREW was served to the assistant again,
-  # exit 0. "I cannot read the retraction record" is not "nothing is
-  # retracted"; collapsing the two inverts the one control that exists for
-  # "this content turned out to be harmful". Now it withholds, records a
-  # fatal trust finding, and names the recovery. The BOUNDARY that must not
-  # trip — a project with no lock.yaml at all has nothing retracted and keeps
-  # working — is pinned in internal/operations/trust_retraction_readable_test.go.
-  # ⚠ THIS SCENARIO IS GREEN FOR THE WRONG REASON — taskloom alive-rover.
-  # RE-MEASURED 2026-08-07 by instrumenting operations.EffectiveTrust's
-  # retraction-readable arm and running this scenario alone: with the lockfile
-  # corrupted, that arm is reached by SEVEN refs, all of them companion items
-  # (ltk fragment/prompt/hook, taskloom fragment/mcp/hooks), and by the remote
-  # `trustdemo` bundle this scenario is named after ZERO times. Mechanism:
-  # remote.BundleReader serves a remote bundle only at the SHA its lockfile
-  # entry records, so an unparseable lock.yaml yields ErrBundleNotInLockfile
-  # and the bundle is never loaded, never trust-evaluated, and produces no
-  # finding. The abort asserted below is raised entirely by companion content.
-  # The outcome therefore depends on whether the machine has ltk/taskloom on
-  # PATH, not on the behaviour under test: delete the retraction-readability
-  # check for remote content and this row stays green wherever companions are
-  # installed. No fixture can fix that — there is no way to keep a remote
-  # bundle loadable through a lockfile that does not parse — so
-  # tsRefuseIfOnlyCompanionsCanTrip now fails LOUDLY, naming this gap, on any
-  # machine where the accident that makes it pass is absent. Do not read a
-  # pass here as coverage of the sentence below until the fixture makes the
-  # REMOTE bundle produce the finding.
-  Scenario: An unreadable lockfile withholds remote content, rather than silently un-retracting it
-    Given a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook
+  # The READ side is EffectiveTrust's fail-closed arm: an unparseable lock.yaml
+  # must not degrade to "nothing is retracted". That arm is a unit claim, and
+  # it is pinned as one, in internal/operations/trust_retraction_readable_test.go
+  # — together with the BOUNDARY that must not trip, a project with no lock.yaml
+  # at all, which has nothing retracted and keeps working.
+  #
+  # This scenario proves the OUTER posture instead, because that is the one an
+  # end-to-end session can actually reach. Measured by instrumenting the
+  # retraction-readable arm and running this row alone: with the lockfile
+  # corrupted the remote bundle reaches that arm ZERO times. It never gets
+  # that far. The lockfile is the only record of the SHA a remote bundle is
+  # served at, so a lockfile that does not parse means no remote reader is
+  # built, the bundle is "not found", and there is no content for any trust
+  # decision to be about. Content IS withheld — by NOT LOADING, one layer
+  # above the trust gate.
+  #
+  # THE COMPANION SWITCH IS LOAD-BEARING, not tidiness. Companion loadouts
+  # (ltk, taskloom) are remote-posture refs that DO reach the retraction arm,
+  # so on a machine that happens to have them installed they raise the fatal
+  # trust finding this scenario used to read — and the row then passed, or not,
+  # according to the host's PATH rather than the behaviour under test. Switching
+  # companions off leaves exactly one voice in the run: this publisher's bundle.
+  #
+  # ACCEPTED, at ruling: under a corrupt lock the TRUST surface stays silent
+  # about content sitting on disk. The operator is told the lockfile is
+  # unreadable and the bundle could not be loaded, which is true and
+  # actionable; they are not told that a trust decision was skipped.
+  Scenario: An unparseable lockfile stops the remote bundle loading at all, so trust never gets a say
+    Given companion content is switched off, so only this publisher's bundle can speak
+    And a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice starts a session
     Then the fragment is present in her assistant's delivered surface
     When her lockfile is corrupted, an unparseable lock.yaml
     And Alice starts a session
-    Then her session refuses to start, telling her the retraction state cannot be established, and naming how to recover
+    Then her session refuses to start, naming the lockfile it could not parse and the remote bundle it therefore never loaded
+    And nothing is reported about that bundle's trust, because it was never loaded to be judged
+    And the fragment is absent from her assistant's delivered surface

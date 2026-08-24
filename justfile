@@ -2114,10 +2114,37 @@ _run +ARGS:
         gobuild_mount=()
         gbc="$HOME/.cache/go-build"
         if mkdir -p "$gbc" 2>/dev/null; then gobuild_mount=(-v "$gbc:/tmp/.gocache"); fi
+        # A LINKED WORKTREE's .git is a gitdir POINTER to <common>/worktrees/<n>,
+        # outside the workspace mount, so without <common> present at that exact
+        # absolute path every git call in the container fails with exit 128 — and
+        # the version stamper turns that into an empty commit hash rather than an
+        # error, so the build SUCCEEDS carrying a binary that cannot say what it
+        # was built from.
+        #
+        # READ-WRITE and whole-common-dir, matching the adjudicated posture in
+        # isolation.gitCommonDirMount — see its DECISION block for why the
+        # exposure is accepted and why a surgical partial mount is not viable
+        # (git needs write access to refs/logs and the packed-refs/objects
+        # layout). Do not re-derive that reasoning here; that function owns it,
+        # and TestGitCommonDirMount_WholeCommonDirReadWrite pins it in both
+        # directions.
+        #
+        # --mount, not -v: MEASURED — the `-v src:dst:ro` form mis-parses a
+        # destination ending in `.git`, silently landing the bind at a truncated
+        # path (…/main/o), so the mount reports success and .git is still absent.
+        # --mount takes named keys and has no colon ambiguity.
+        git_mount=()
+        if [ -f .git ]; then
+            gitcommon="$(git rev-parse --git-common-dir 2>/dev/null)"
+            if [ -n "$gitcommon" ] && gitcommon="$(cd "$gitcommon" 2>/dev/null && pwd -P)"; then
+                git_mount=(--mount "type=bind,src=$gitcommon,dst=$gitcommon")
+            fi
+        fi
         {{container_cmd}} run --rm \
             "${user_flag[@]}" \
             "${cache_mount[@]}" \
             "${gobuild_mount[@]}" \
+            "${git_mount[@]}" \
             -e HOME=/tmp \
             -e GOMODCACHE=/tmp/gomodcache \
             -e GOCACHE=/tmp/.gocache \

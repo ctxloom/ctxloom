@@ -33,7 +33,12 @@ listing says so on stderr.
 By default only active tasks are shown: completed (Done/Archived) and
 Deferred tasks are hidden. Pass --all to include them, or name a status
 explicitly with --status (an explicit status filter is honored verbatim;
-see "taskloom statuses" for the taxonomy). When a --term or --tag-query
+see "taskloom statuses" for the taxonomy). --status also accepts the @-classes
+--status @open (every non-terminal status) and --status @terminal (every
+completed one), expanded from that same taxonomy at RUNTIME: a status added to
+it is picked up by the right class with nothing here to keep in sync. Classes
+mix freely with literal statuses in one filter, since this is sugar over the
+already-repeatable --status. When a --term or --tag-query
 filter also matches hidden tasks, a note on stderr says how many, so
 matches never vanish silently.
 
@@ -71,6 +76,13 @@ taskloom list [flags]
   # In Progress tasks mentioning "docs"
   taskloom list --status "In Progress" --term docs
 
+  # every task that is not finished — To Do, In Progress, Deferred, and
+  # whatever else the taxonomy calls non-terminal
+  taskloom list --status @open
+
+  # a class mixed with a literal
+  taskloom list --status @terminal --status "In Progress"
+
   # every project's tasks, not just the current one
   taskloom list --global
 ```
@@ -84,7 +96,7 @@ taskloom list [flags]
   -h, --help               help for list
       --limit int          cap the number of rows returned (0 = no cap); omitted rows are reported on stderr, and status/summary counts are never affected
       --sort string        sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged
-      --status strings     filter by status (repeatable)
+      --status strings     filter by status (repeatable); also accepts the classes "@open" (every non-terminal status) and "@terminal" (every completed one), expanded from the live taxonomy and mixable with literal statuses
       --tag-query string   filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")
       --term string        filter by case-insensitive substring of task text
 ```

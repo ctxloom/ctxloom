@@ -9,18 +9,36 @@ This page is generated from `taskloom show --help`.
 
 ## taskloom show
 
-Show one task's full detail
+Show one or more tasks' full detail
 
 ### Synopsis
 
-Show a single task in full — its status, tags, trigger, and complete
+Show tasks in full — status, tags, trigger, and complete
 (never-truncated) text. This is the full-text companion to `taskloom list`,
-which prints one-line summaries: copy a harp id from the list and pass it here
-to read the whole task. --format json/yaml/toml/markdown emit the structured
-task for scripting.
+which prints one-line summaries: copy harp ids from the list and pass them here
+to read the whole tasks. Several ids may be given in one call; output follows
+ARGUMENT ORDER, not store order, and the store is read once however many ids
+are asked for.
+
+Every id must resolve. When any is unknown the call FAILS and names every id
+that was not found — a partial result that looks complete is exactly the silent
+truncation this project's diagnostics exist to prevent — so nothing is printed
+at all rather than the subset that happened to resolve.
+
+--format json/yaml/toml/markdown emit an ARRAY of structured tasks, always:
+one id yields a one-element array, not a bare object, so a consumer never has
+to branch on how many ids it asked for.
 
 ```
-taskloom show <harp-id> [flags]
+taskloom show <harp-id> [harp-id...] [flags]
+```
+
+### Examples
+
+```
+  taskloom show swift-amber-falcon
+  taskloom show swift-amber-falcon brisk-copper-otter
+  taskloom show swift-amber-falcon brisk-copper-otter --format json
 ```
 
 ### Options

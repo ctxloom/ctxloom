@@ -690,6 +690,20 @@ func ListTagCounts(tc TaskContext) (*TagListResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
+	return &TagListResult{Path: store.Path(), Tags: TagCountsOf(list), Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+}
+
+// TagCountsOf is the tag-counting body itself, over whatever task set a
+// caller hands it: ListTagCounts passes the whole project, `taskloom tags`
+// passes the set its filters selected. Both count the same way — Active is
+// the members visible in the default list view (not completed, not Deferred),
+// Total is every member carrying the tag — so a filtered count and a
+// whole-project count are the same number computed over different
+// populations, never two different definitions of the word.
+//
+// Results are sorted by tag name, so output is diffable regardless of the
+// order the tasks arrived in.
+func TagCountsOf(list []tasks.Task) []TagCount {
 	counts := make(map[string]*TagCount)
 	for _, t := range list {
 		active := !t.Checked && t.Status != tasks.StatusDeferred
@@ -710,7 +724,7 @@ func ListTagCounts(tc TaskContext) (*TagListResult, error) {
 		out = append(out, *c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Tag < out[j].Tag })
-	return &TagListResult{Path: store.Path(), Tags: out, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return out
 }
 
 // DeferredSince resolves the project's task store and returns, for every

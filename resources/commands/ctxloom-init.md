@@ -197,10 +197,10 @@ skip any they do not want. Explain what each is for and let them choose — but
 do offer all of them, because an agent whose profile nobody authored falls back
 to nothing, not to something sensible.
 
-What each profile CONSIDERED is recorded per profile — included and declined
-alike, keyed by the item's canonical ref — so an item turned down for the
-distiller is still offered for the working profile. Ask in each profile's own
-context rather than once globally.
+Decide inclusion per profile, in each profile's own context, rather than once
+globally: an item turned down for the distiller may still belong in the working
+profile. Nothing durable records what a profile CONSIDERED and declined, so do
+not imply a declined item is remembered — ask again where it is relevant.
 
 ### 3d. Default
 

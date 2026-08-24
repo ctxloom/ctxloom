@@ -82,6 +82,11 @@ func warnUnknownProfileKeys(path string, doc *yaml.Node) {
 		if s := keymatch.Nearest(key, names); s != "" {
 			msg += " — did you mean `" + s + "`?"
 		}
-		clidiag.Warn("ctxloom", "%s", msg)
+		// WarnOnce, not Warn: a profile is loaded many times in one command
+		// (every loader build re-reads it), so an unknown key otherwise
+		// prints once per load — a fresh `ctxloom init` emitted the same
+		// line ~25 times. Dedup is keyed on the rendered line, so distinct
+		// keys and distinct files each still report.
+		clidiag.WarnOnce("ctxloom", "%s", msg)
 	}
 }

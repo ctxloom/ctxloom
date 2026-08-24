@@ -2,8 +2,11 @@ package isolation
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -45,4 +48,41 @@ func TestAwaitContainerRunning_NoRuntimeBinaryIsImmediatelyReady(t *testing.T) {
 		"a runtime with no binary cannot be inspected and must not block")
 	require.NoError(t, AwaitContainerRunning(newReapRuntime(), nil),
 		"a nil handle has no container to wait for")
+}
+
+// The HAPPY path: once the container is observed running, the barrier returns
+// ready and the caller may exec. Without this, only the failure arms were
+// pinned — and a barrier that never reports ready would have passed them all
+// while blocking every container run for the full backstop.
+//
+// No daemon: containerObservedRunning shells out to the runtime binary and
+// compares stdout to "true", so a stub binary that prints it is a faithful
+// stand-in for an inspect that says the container is up.
+func TestAwaitContainerRunning_ObservedRunningIsReady(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake-runtime")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\necho true\n"), 0o755))
+
+	rt := reapRuntime{name: "docker", bin: bin, run: func(RunSpec) []string { return nil }}
+
+	// The runner is alive: its waiter never fires, so ONLY the observed-running
+	// arm can end this call. Released at test end so the goroutine does not leak.
+	alive := make(chan struct{})
+	t.Cleanup(func() { close(alive) })
+
+	h := &RunnerHandle{
+		Name:       "ctxloom-iso-alive-probe",
+		Wait:       func() error { <-alive; return nil },
+		StderrTail: func() string { return "" },
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- AwaitContainerRunning(rt, h) }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err, "a container the runtime reports running must be ready")
+	case <-time.After(5 * time.Second):
+		t.Fatal("barrier did not report ready for a running container — it would stall every container run")
+	}
 }

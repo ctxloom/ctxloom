@@ -572,8 +572,16 @@ func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID strin
 		// when one was EXPLICITLY requested (chainFor builds it solely for
 		// WantsContainer), so a container→non-container transition here is a
 		// requested-container-unsatisfiable event: a fail-loudly finding
-		// (ClassIsolation) naming the reason (image absent, shared-fs probe, no
-		// resolvable auth). The warning still streams to stderr in both modes
+		// (ClassIsolation) naming the reason.
+		//
+		// WHICH reasons actually arrive here is NOT settled, and this comment
+		// used to assert three of them. Measured 2026-08-24: an ABSENT IMAGE
+		// does NOT reach this branch on the container-rootless path — the image
+		// is content-addressed, so a fresh composition has none, and ctxloom
+		// BUILDS it rather than failing prepare. Shared-fs-probe and
+		// unresolvable-auth remain unverified in both directions; do not treat
+		// either as demonstrated. Naming an unreached reason here is what let
+		// the paired feature claim coverage it did not have (uninvited-maternity). The warning still streams to stderr in both modes
 		// (strictness.Fail wraps clidiag.Warn), so a failed or denied container
 		// start can't be mistaken for a normal host run; in strict mode the choke
 		// owner additionally aborts on it before the unsandboxed engine launches,

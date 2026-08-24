@@ -43,6 +43,6 @@
 TestAcceptanceMutation/bundle_sign            31         6  recorded
 TestAcceptanceMutation/trust_cascade         132        51  recorded
 TestAcceptanceMutation/signer_store          138        83  stale
-TestAcceptanceMutation/isolation_axes         44        32  recorded
+TestAcceptanceMutation/isolation_axes         43        31  recorded
 TestAcceptanceMutation/remote_registry         -         -  unknown
 TestTrustCascadeGuardMutation                  -         -  unknown

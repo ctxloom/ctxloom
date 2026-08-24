@@ -25,8 +25,25 @@ func newCmd(withJSON bool) (*cobra.Command, *bytes.Buffer) {
 	return c, &buf
 }
 
+// withTTY overrides isInteractiveTerminal for the duration of one test,
+// restoring the original (production) implementation on cleanup — the same
+// seam technique internal/cli's terminal predicates use, since a test
+// binary's own stdout is never a real terminal.
+func withTTY(t *testing.T, interactive bool) {
+	t.Helper()
+	orig := isInteractiveTerminal
+	isInteractiveTerminal = func() bool { return interactive }
+	t.Cleanup(func() { isInteractiveTerminal = orig })
+}
+
 func TestEmit_TextRunsClosure(t *testing.T) {
 	c, buf := newCmd(false)
+	// Pin format explicitly: this test is about Emit's text/data dispatch,
+	// not about the TTY-driven default (covered separately below), and a
+	// test binary's stdout is never a terminal.
+	if err := c.Flags().Set("format", "text"); err != nil {
+		t.Fatal(err)
+	}
 	err := Emit(c, struct {
 		Name string `json:"name"`
 	}{Name: "x"}, func() error {
@@ -226,6 +243,10 @@ func TestResolve_OnlySeesInheritedFormatOnceExecutionHasBegun(t *testing.T) {
 func TestEmitError_RendersInTheSelectedFormat(t *testing.T) {
 	t.Run("text keeps the human line", func(t *testing.T) {
 		c, _ := newCmd(false)
+		// Pin format explicitly — see TestEmit_TextRunsClosure's comment.
+		if err := c.Flags().Set("format", "text"); err != nil {
+			t.Fatal(err)
+		}
 		var buf bytes.Buffer
 		if err := EmitError(&buf, c, errors.New("boom")); err != nil {
 			t.Fatal(err)
@@ -275,6 +296,75 @@ func TestEmitError_RendersInTheSelectedFormat(t *testing.T) {
 		}
 		if out.Len() != 0 {
 			t.Fatalf("a failure must not land on stdout, got %q", out.String())
+		}
+	})
+}
+
+// TestResolve_DefaultFollowsTTY pins both arms of the TTY-driven default an
+// UNSET --format now resolves to: json off a terminal (the fix — a piped or
+// scripted invocation used to silently get a human rendering it could
+// misparse), text ON one (unchanged — a human at a terminal keeps today's
+// rendering). A test proving only the json half would let the human-facing
+// arm regress unnoticed, which is exactly the gap this task calls out.
+func TestResolve_DefaultFollowsTTY(t *testing.T) {
+	t.Run("non-terminal stdout defaults to json", func(t *testing.T) {
+		withTTY(t, false)
+		c, _ := newCmd(false) // --format never Set: this is the "left at default" case
+		got, err := Resolve(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != clifmt.FormatJSON {
+			t.Fatalf("a non-TTY invocation with --format left unset must default to json, got %q", got)
+		}
+	})
+
+	t.Run("terminal stdout keeps text", func(t *testing.T) {
+		withTTY(t, true)
+		c, _ := newCmd(false)
+		got, err := Resolve(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != clifmt.FormatText {
+			t.Fatalf("a TTY-attached invocation with --format left unset must default to text, got %q", got)
+		}
+	})
+}
+
+// TestResolve_ExplicitFormatBeatsTTYDefaultBothWays pins the DoD requirement
+// that an explicit --format always wins over the TTY-driven default,
+// regardless of which direction it disagrees with: --format text into a
+// non-terminal still renders text, and --format json at a terminal still
+// renders json.
+func TestResolve_ExplicitFormatBeatsTTYDefaultBothWays(t *testing.T) {
+	t.Run("--format text survives a non-terminal", func(t *testing.T) {
+		withTTY(t, false)
+		c, _ := newCmd(false)
+		if err := c.Flags().Set("format", "text"); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Resolve(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != clifmt.FormatText {
+			t.Fatalf("an explicit --format text must survive a non-TTY default of json, got %q", got)
+		}
+	})
+
+	t.Run("--format json survives a terminal", func(t *testing.T) {
+		withTTY(t, true)
+		c, _ := newCmd(false)
+		if err := c.Flags().Set("format", "json"); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Resolve(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != clifmt.FormatJSON {
+			t.Fatalf("an explicit --format json must survive a TTY default of text, got %q", got)
 		}
 	})
 }

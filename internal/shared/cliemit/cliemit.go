@@ -13,8 +13,10 @@ package cliemit
 import (
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -73,12 +75,41 @@ func EmitVersion(cmd *cobra.Command, emitFn func(cmd *cobra.Command, data any, t
 	})
 }
 
+// isInteractiveTerminal reports whether stdout is attached to a terminal —
+// i.e. a human is presumably watching it directly rather than a pipe, file
+// redirect, or another process consuming it. Only stdout is checked, not
+// stdin: format selection is a question about who consumes OUTPUT, and
+// `echo x | taskloom show foo` (stdin piped, stdout at a human's terminal)
+// must still render for the human reading their screen. That differs on
+// purpose from cmd/taskloom's isInteractiveTerminal, which ANDs stdin and
+// stdout — that one gates an interactive PICKER, which additionally needs to
+// *read* from stdin, so it has a real stake in stdin's state that format
+// selection does not.
+//
+// A var rather than a plain func so tests can present either side of the
+// human/machine split without a real terminal — see internal/cli's
+// isInteractiveTerminal for the same seam technique and its rationale: a test
+// binary's stdout is never a terminal, so every unmocked test is permanently
+// on the machine side.
+var isInteractiveTerminal = func() bool {
+	return term.IsTerminal(int(os.Stdout.Fd()))
+}
+
 // Resolve reads the inherited global --format value and parses it via clifmt.
 // A set --json flag (the backward-compatible shorthand a few commands still
-// carry) is honored as --format json so existing scripts keep working. An unset
-// --format (e.g. a unit test that never registered it) reads as "" and is
-// treated as text; any other unrecognized value is an error wrapping
-// clifmt.ErrUnsupportedFormat.
+// carry) is honored as --format json so existing scripts keep working.
+//
+// When --format was not explicitly set, the default now depends on whether
+// stdout is a terminal: a human at one keeps today's text rendering; anything
+// else (piped, redirected, or an unset flag in a unit test) defaults to json,
+// so an agent or script parsing the output fails loudly on a format change
+// instead of silently misparsing a human rendering (offsets, wrapped lines)
+// that was never a stable contract. An explicit --format/--json always wins
+// over this default in both directions — this branch only fires when the
+// flag was never Changed. An unset --format (e.g. a unit test that never
+// registered it) still reads as text unconditionally, since there is no flag
+// to have been left at its default; any other unrecognized explicit value is
+// an error wrapping clifmt.ErrUnsupportedFormat.
 //
 // ORDERING (connascence of execution): Resolve reads cmd.Flags(), and cobra
 // merges a parent's PERSISTENT flags into a child's flag set during
@@ -90,17 +121,26 @@ func EmitVersion(cmd *cobra.Command, emitFn func(cmd *cobra.Command, data any, t
 // ABSENT flag is the affordance above: it lets a command be driven without a
 // root, and turning it into an error breaks that contract at 30-plus call
 // sites. A flag registered with the WRONG TYPE is a wiring bug — the value
-// the user typed cannot be read at all — and is reported.
+// the user typed cannot be read at all — and is reported. That type check
+// runs before the Changed check below so a wrongly-wired flag is still
+// reported even when nothing explicitly set it.
 func Resolve(cmd *cobra.Command) (clifmt.Format, error) {
 	if f := cmd.Flags().Lookup("json"); f != nil && f.Changed {
 		return clifmt.FormatJSON, nil
 	}
-	if cmd.Flags().Lookup("format") == nil {
+	formatFlag := cmd.Flags().Lookup("format")
+	if formatFlag == nil {
 		return clifmt.FormatText, nil
 	}
 	raw, err := cmd.Flags().GetString("format")
 	if err != nil {
 		return "", fmt.Errorf("cliemit: --format on %q is not a string flag: %w", cmd.CommandPath(), err)
+	}
+	if !formatFlag.Changed {
+		if isInteractiveTerminal() {
+			return clifmt.FormatText, nil
+		}
+		return clifmt.FormatJSON, nil
 	}
 	if raw == "" {
 		return clifmt.FormatText, nil

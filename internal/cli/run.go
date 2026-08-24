@@ -509,10 +509,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// assign into runnerHandle/ownedRun/client BEFORE checking its own error,
 	// means every early return in between is covered instead of only the
 	// successful-setup path.
-	defer st.teardownTransport()
+	defer st.teardownAll()
 
 	st.prepareWorkspace()
-	defer st.cleanupWorkspace()
 
 	// Fail-loudly re-gate: isolation resolves in prepareWorkspace, AFTER the
 	// startup gate, so a requested-container-degraded-to-host finding
@@ -1287,6 +1286,24 @@ func (st *runState) warnHostBypassStopgap() {
 // teardownTransport kills whichever transport this run stood up. See runRun's
 // own comment at the deferral site for why it is registered before the
 // workspace is prepared rather than after the transport is chosen.
+// teardownAll unwinds a run in the ONE order that is safe: the transport
+// first, then the workspace it was running in.
+//
+// A named method rather than two defers because two defers run LIFO —
+// workspace first — which removed the scratch tree (config overlays, socket
+// dir, credential mount sources) out from under a still-live transport.
+// isolation.containerWorkspace.Cleanup states the contract that violated:
+// "safe to call once after the run's client is killed". Order is the whole
+// invariant here.
+//
+// Registration stays before prepareWorkspace and before startTransport can
+// return early — a defer only protects returns reached after it — which is why
+// cleanupWorkspace must tolerate a workspace that does not exist yet.
+func (st *runState) teardownAll() {
+	st.teardownTransport()
+	st.cleanupWorkspace()
+}
+
 func (st *runState) teardownTransport() {
 	if st.client != nil {
 		st.client.Kill()
@@ -1358,6 +1375,11 @@ func (st *runState) prepareWorkspace() {
 // warnCleanupResidue), and this runs post-gate where no choke owner could act
 // on an error anyway.
 func (st *runState) cleanupWorkspace() {
+	// Nil until prepareWorkspace runs, and teardownAll is deferred BEFORE it:
+	// an early return out of the startup gate arrives here with no workspace.
+	if st.ws == nil {
+		return
+	}
 	_ = st.ws.Cleanup()
 }
 

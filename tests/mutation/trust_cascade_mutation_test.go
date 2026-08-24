@@ -15,14 +15,21 @@
 // must not be edited casually: if scoping breaks, ooze mutates the whole
 // module and the run becomes both meaningless and enormous.
 //
-// WHY THIS EXISTS (do not re-litigate):
-// gremlins mutates source then runs `go test`, but the acceptance suite
-// drives a PRE-BUILT ctxloom binary via exec.Command
-// (tests/integration/testenv/environment.go). A gremlins mutant compiled
-// into that already-built binary is not there — the mutant can never be
-// killed even in principle, and gremlins measured exactly that: 92 mutants
-// on this same file, 0 runnable, 92 NOT COVERED, while 16 real scenarios
-// were passing.
+// THE INVARIANT (do not re-litigate): acceptance mutation runs through ooze
+// ONLY, via `just test-mutation-cucumber`. There is no gremlins profile for
+// the acceptance suite and there must not be one.
+//
+// gremlins is COVERAGE-GATED: it mutates source, runs `go test`, and scores
+// a mutant only where Go's coverage instrumentation says the mutated line was
+// executed by the test process. The acceptance suite executes almost nothing
+// in its own process — it execs a PRE-BUILT ctxloom binary via exec.Command
+// (tests/integration/testenv/environment.go). The mutant is therefore never
+// present in the process under test, and Go coverage cannot observe across
+// the exec boundary, so every mutant reports NOT COVERED while real scenarios
+// pass. That is a property of how the suite is built, not a misconfiguration:
+// no exclusion list, include list, coverage flag or threshold changes it, and
+// a gremlins profile aimed at this suite can only ever measure nothing or go
+// vacuously green over an empty mutant set.
 //
 // ooze's laboratory.Test symlinks the whole repo into a tmpdir, overwrites
 // ONLY the mutated file with real mutated bytes at that path (never the

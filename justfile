@@ -1336,68 +1336,6 @@ test-mutation-pkg PKG *ARGS:
     # `set -e` above means this line is reached only on a green run.
     just _sweep-cache "$marker"
 
-# Run mutation tests against the ACCEPTANCE/journey suite
-# (.gremlins.acceptance.yaml), not the unit suite .gremlins.yaml normally
-# measures. See that config's header comment for why this profile exists and
-# its one load-bearing subtlety: GOFLAGS restricts every `go test` gremlins
-# runs here (both the coverage gather and every per-mutant retest) to the
-# acceptance package's entrypoint (TestAcceptance) only, so a KILLED verdict
-# can only have come from the journeys, never from internal/operations' own
-# (extensive) unit tests riding along on the `./...` scan that
-# unleash.integration:true forces.
-#
-# Builds the ctxloom binary once, up front, at an ABSOLUTE path outside any of
-# gremlins' per-worker scratch copies — the acceptance suite always execs a
-# pre-built binary (tests/integration/testenv's exec.Command), so CTXLOOM_BINARY
-# must resolve regardless of which copy's cwd is active when a worker runs.
-#
-# KNOWN LIMITATION (see the config file's own comment, confirmed empirically
-# before this recipe was written): mutating source under internal/operations
-# can never change what that already-built, frozen binary does when the suite
-# execs it, so a mutant whose only effect is on a subprocess-only code path
-# will report NOT COVERED here even when the journeys genuinely exercise it —
-# Go's coverage instrumentation cannot see across the exec boundary. That is a
-# floor on what this tool can prove, not proof the journeys don't cover it.
-#
-# Pass --dry-run to only count candidate mutants without executing anything
-# (use this first — see the config's scope-narrowing comment on cost).
-test-mutation-acceptance *ARGS: build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p "{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-* "{{mutation_tmp}}"/.cache-sweep.*' EXIT
-    marker="{{mutation_tmp}}/.cache-sweep.$$"
-    : > "$marker"
-    export CTXLOOM_BINARY="$(pwd)/ctxloom"
-    # Waive testenv.checkBinaryFreshness for exactly this run. Gremlins rewrites
-    # the source tree under every mutant, so the binary built two lines up is
-    # older than the source by construction — and the guard, doing its job,
-    # would fail each retest and hand back a KILLED verdict for every mutant,
-    # fabricating kills out of the documented NOT COVERED limitation below.
-    export CTXLOOM_TEST_ALLOW_STALE_BINARY=1
-    export GOFLAGS="-run=TestAcceptance"
-    set +e
-    output=$(TMPDIR="{{mutation_tmp}}" gremlins --config .gremlins.acceptance.yaml unleash ./internal/operations {{ARGS}} 2>&1)
-    status=$?
-    set -e
-    printf '%s\n' "$output"
-    if [ "$status" -ne 0 ]; then
-        exit "$status"
-    fi
-    # A run with zero RUNNABLE mutants has measured nothing, and must not report
-    # success: the configured threshold is efficacy (killed/(killed+lived)), a
-    # ratio over an empty set, so it is satisfied vacuously and the gate goes
-    # green while proving exactly nothing about the suite.
-    if grep -qE 'Runnable: 0([^0-9]|$)' <<<"$output"; then
-        echo "error: 0 runnable mutants — this gate measured NOTHING (efficacy over an empty mutant set passes vacuously)." >&2
-        echo "       Coverage-gated mutation testing cannot observe this suite: it execs a PRE-BUILT ctxloom binary, so a" >&2
-        echo "       mutant is never present in the process under test and Go coverage cannot cross the exec boundary." >&2
-        echo "       \`just test-mutation-cucumber\` is the harness that actually works — it rebuilds the binary from each mutant." >&2
-        exit 1
-    fi
-    # Past every "this measured nothing" guard, so the run is genuinely green.
-    just _sweep-cache "$marker"
-
 # Install gremlins
 test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
@@ -1424,13 +1362,14 @@ test-mutation-container:
         -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
 
 # Mutate one source file per target and drive the CUCUMBER acceptance suite
-# against a binary rebuilt from each mutant (github.com/gtramontina/ooze), not
-# `go test` against source like test-mutation-acceptance above. That is the
-# whole point: test-mutation-acceptance mutates source and runs `go test`,
-# but the acceptance suite execs a PRE-BUILT ctxloom binary
-# (tests/integration/testenv/environment.go) — a gremlins mutant never
-# reaches that already-compiled process (measured: 92 mutants on
-# internal/operations/trust.go, 0 runnable, 92 NOT COVERED). ooze's laboratory
+# against a binary rebuilt from each mutant (github.com/gtramontina/ooze).
+#
+# THIS IS THE ONLY HARNESS THAT CAN MEASURE THE ACCEPTANCE SUITE. The gremlins
+# recipes above mutate source and run `go test`, which is coverage-gated; the
+# acceptance suite execs a PRE-BUILT ctxloom binary
+# (tests/integration/testenv/environment.go), so the mutant is never in the
+# process under test and Go coverage cannot cross the exec boundary. See the
+# doc comment on tests/mutation/trust_cascade_mutation_test.go. ooze's laboratory
 # instead symlinks the repo into a tmpdir, overwrites ONLY the mutated file
 # with real bytes at that path (never the source tree), and runs
 # tests/mutation/run_scoped_suite.sh with that tmpdir as cwd — which

@@ -1,11 +1,8 @@
 package coord
 
 import (
-	"context"
-
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -14,14 +11,12 @@ import (
 // Wave C4 deliverable 1 (manly-grant (7)): the unary at-least-once event-plane
 // fallback the contract describes as "for constrained agents (batch CI, flaky
 // networks) and for replaying a locally journaled event log ... dedupe on
-// (run_id, seq)". Two entry points:
-//   - Coordinator.PublishEvents is the trusted, in-process core: an
-//     already-authorized caller (the oneshot bridging in children.go) hands it
-//     events for a run_id it already owns — the same shape as serveSpawnAgent
-//     calling AgentRun directly with an already-validated Identity.
-//   - coordService.PublishEvents is the credential-authenticated, ownership-
-//     checked gRPC entry point for a real external/out-of-process publisher
-//     (a batch-CI runner, or a runner replaying its own journaled log).
+// (run_id, seq)". It is reachable in-process only: Coordinator.PublishEvents is
+// the trusted core, called by an already-authorized caller (the oneshot
+// bridging in children.go) with events for a run_id it already owns — the same
+// shape as serveSpawnAgent calling AgentRun directly with an already-validated
+// Identity. CoordinatorService exposes no unary publish RPC, so there is no
+// authenticated wire surface to defend here.
 
 // PublishEvents journals a batch of AgentEvents, deduped on (run_id, seq)
 // against the SAME durable items store/fold the streaming RunChannel plane-1
@@ -41,8 +36,8 @@ func (c *Coordinator) PublishEvents(events []*agentcoordpb.AgentEvent) *agentcoo
 		// CommittedSeqByRun with no Rejected entries is byte-identical to a
 		// batch that committed in full. A publisher whose event assembly
 		// produced nothing would read success, so this is said out loud
-		// instead. The gRPC entry point refuses an empty request outright; an
-		// in-process caller (which owns the events it built) gets the warning.
+		// instead: the in-process caller, which owns the events it built, gets
+		// the warning on the diagnostic channel.
 		clidiag.Warn("ctxloom", "coordinator: PublishEvents was called with no events — nothing was journaled "+
 			"(the response cannot distinguish that from a fully committed batch); check the caller's event assembly")
 		return resp
@@ -127,31 +122,4 @@ func rejectEvent(ev *agentcoordpb.AgentEvent, code codes.Code, msg string) *agen
 		Seq:    ev.GetSeq(),
 		Reason: &rpcstatus.Status{Code: int32(code), Message: msg},
 	}
-}
-
-// PublishEvents is the gRPC entry point: identity re-verified per this
-// package's per-request discipline (grpcServer's unary interceptor already
-// ran auth; handlers re-check anyway — see its doc), then ownership-checked
-// exactly like RunChannel's Hello: every event's run_id must be the one this
-// credential was issued for (a foreign run_id is rejected, never silently
-// filed under someone else's watermark).
-func (s *coordService) PublishEvents(ctx context.Context, req *agentcoordpb.PublishEventsRequest) (*agentcoordpb.PublishEventsResponse, error) {
-	c := s.c
-	id, ok := c.Identify(mdToken(ctx))
-	if !ok {
-		return nil, status.Error(codes.Unauthenticated, "unknown or revoked credential")
-	}
-	// An empty batch is refused rather than answered with a response that reads
-	// as "all committed": the response has no way to say "you sent nothing", so
-	// a publisher whose event assembly produced nothing would take the success
-	// at face value.
-	if len(req.GetEvents()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "no events to publish: an empty batch commits nothing and cannot be distinguished from a full commit in the response")
-	}
-	for _, ev := range req.GetEvents() {
-		if ev.GetRunId() != id.RunID {
-			return nil, status.Errorf(codes.PermissionDenied, "run %q was not issued to this credential", ev.GetRunId())
-		}
-	}
-	return c.PublishEvents(req.GetEvents()), nil
 }

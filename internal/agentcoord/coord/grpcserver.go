@@ -98,8 +98,8 @@ func mdToken(ctx context.Context) string {
 }
 
 // coordService implements agentcoord.v1.CoordinatorService: RunnerChannel
-// (Wave B1), RunChannel (Wave C1/B1.6), and PublishEvents (Wave C4, this
-// file's sibling publish.go) are all live.
+// (Wave B1) and RunChannel (Wave C1/B1.6) are both live, and they are the
+// service's whole surface.
 type coordService struct {
 	agentcoordpb.UnimplementedCoordinatorServiceServer
 	c *Coordinator
@@ -124,7 +124,7 @@ const artifactUploadFullMethod = "/agentcoord.v1.ArtifactTransferService/UploadA
 // verification (identity is re-checked per request too — every handler calls
 // Identify again rather than trusting a cached principal). D1: a consumer
 // credential authenticates ConsumerService only — presenting one on
-// RunnerChannel/RunChannel/PublishEvents is a rejected identity, not just an
+// RunnerChannel/RunChannel is a rejected identity, not just an
 // unauthorized verb, so a leaked viewer credential cannot mutate anything or
 // impersonate a runner/child (read-only scope enforced server-side). E1a
 // extends the same rule to UploadArtifact (mutating) while leaving

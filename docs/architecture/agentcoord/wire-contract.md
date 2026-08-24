@@ -47,11 +47,15 @@ flowchart TD
 |---|---|---|---|
 | `CoordinatorService.RunnerChannel` | `coordination.proto:208` | bidi; runner lifecycle keyed by credential hash | server `coord/grpcserver.go:156`, client `coord/runnerlink.go:107` |
 | `CoordinatorService.RunChannel` | `coordination.proto:221` | bidi; ONE run's three planes | server `coord/runchannel.go:116`, client `coord/home.go:259` |
-| `CoordinatorService.PublishEvents` | `coordination.proto:232` | unary at-least-once event fallback | served `coord/publish.go:117`; **no non-test gRPC client** (the in-process `Coordinator.PublishEvents` is live at `children.go:1123`) |
 | `ConsumerService.WatchRuns` | `coordination.proto:772` | snapshot frame, then live events | `coord/consumer.go:274`; client `operations/sessionfeed.go:181` |
 | `ConsumerService.ListRuns` | `coordination.proto:776` | roster poll | `coord/consumer.go:266` |
 | `ArtifactTransferService.UploadArtifact` | `artifacts.proto:88` | chunked upload, server-hashed | `coord/artifacts.go:81`; client `coord/homeartifacts.go:36` |
 | `ArtifactTransferService.DownloadArtifact` | `artifacts.proto:95` | header-first stream | `coord/artifacts.go:198`; client `coord/homeartifacts.go:88` |
+
+`CoordinatorService` carries no unary RPC: the at-least-once event fallback exists
+only as the in-process `coord.Coordinator.PublishEvents`, called by the oneshot
+bridging in `children.go` for a run it already owns. There is no authenticated wire
+surface for it, because there was never a non-test client to serve.
 
 `ConsumerService` is deliberately read-only — steer/inject is excluded and the proto
 says why. Consumer credentials are refused on `CoordinatorService` by the auth

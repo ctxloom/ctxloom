@@ -577,6 +577,16 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	// materialize` ABORTS rather than delivering a surface with a silent hole
 	// in it.
 	//
+	// THE GATE IS THE LOCKFILE LOAD, not the byte read:
+	// config.Config.remoteBundleReaders refuses the moment
+	// remote.LockfileManager.Load fails, so no reader is ever constructed and
+	// remote.BundleReader.readableEntry — the ErrBundleNotInLockfile that
+	// serves a remote bundle only at its pinned SHA — is never asked anything
+	// on this path. A mutation aimed at readableEntry therefore SURVIVES here
+	// (the internal/remote unit suite is what kills it); a mutation that
+	// degrades the load refusal to "nothing is pinned" is the one these
+	// assertions kill.
+	//
 	// The message discipline is asserted too, because this is a fault a user
 	// cannot otherwise diagnose — nothing they typed mentions a lockfile — so
 	// the abort must name the file it could not parse, the bundle that cost

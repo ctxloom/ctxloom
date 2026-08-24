@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // The `fragment list` / `command list` read path: the normalized listing row
@@ -102,16 +103,17 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 		// name/source are bundle-authored (a fragment/command key from the
 		// bundle's own YAML) and reach this listing row without having
 		// passed through remote.NormalizeRef — the same display-surface gap
-		// review.go's classify() had (see its comment). Strip (not
+		// review.go's classify() had (see its comment). termsafe.Field (not
 		// NormalizeRef) so a malicious name cannot repaint `fragment/command
 		// list` output; this is a listing, not an ingest boundary, so it does
-		// not own the loud warning.
-		cleanName, _ := remote.StripRefControlChars(name)
-		cleanSource, _ := remote.StripRefControlChars(source)
+		// not own the loud warning. Field ESCAPES rather than deletes: two
+		// items whose names differ only by a control byte stay
+		// distinguishable in the listing, where deletion collapsed them onto
+		// one indistinguishable row.
 		return itemRow{
-			Name:        cleanName,
+			Name:        termsafe.Field(name),
 			Tags:        tags,
-			Bundle:      cleanSource,
+			Bundle:      termsafe.Field(source),
 			Ref:         remote.NormalizeRef(source + "#" + itemRefPrefix(itemType) + name),
 			Remote:      remoteName,
 			BundleLabel: bundleLabel,

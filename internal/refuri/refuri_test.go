@@ -9,7 +9,7 @@ import (
 
 // TestIsRefControlRune_ExhaustiveC0AndDEL is a direct, white-box test of the
 // predicate itself — the refuri mirror of
-// remote.TestStripRefControlChars_ExhaustiveC0AndDEL. Every one of the 33 code
+// remote.TestNormalizeRef_ExhaustiveC0AndDEL. Every one of the 33 code
 // points named by the comment (C0 0x00-0x1F, plus DEL 0x7F) must match, and
 // nothing else in the 0x00-0xFF byte range may. This is the exact parity claim
 // the audit exists to pin: the two predicates share one formula

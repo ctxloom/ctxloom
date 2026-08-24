@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -195,12 +195,13 @@ func printBundleItemTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 	res := stamper.ForRef(ref)
 	// name is bundle-authored and reaches this print RAW; ForRef normalizes
 	// its own copy for the trust decision (via trust.Ref.Key), but never
-	// hands the cleaned string back. Strip (not NormalizeRef) so a malicious
-	// name cannot repaint this terminal line without a second, redundant
-	// warning on top of the one ForRef's ingest already emitted for the
-	// same bytes.
-	cleanName, _ := remote.StripRefControlChars(name)
-	fmt.Fprintf(w, "  %s/%s: %s\n", kind.Dir(), cleanName, stampedTrust(res))
+	// hands the cleaned string back. termsafe.Field (not NormalizeRef) so a
+	// malicious name cannot repaint this terminal line without a second,
+	// redundant warning on top of the one ForRef's ingest already emitted for
+	// the same bytes -- and it ESCAPES rather than deletes, so the reviewer
+	// sees that the publisher put a control byte here instead of being shown
+	// a name that silently lost one.
+	fmt.Fprintf(w, "  %s/%s: %s\n", kind.Dir(), termsafe.Field(name), stampedTrust(res))
 }
 
 // printBundleHookTrust stamps one bundle hook by its (bundle, entry) identity and
@@ -213,6 +214,5 @@ func printBundleHookTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 	// entry.ID() is bundle-authored ("<event>/<index>", but the event name
 	// comes straight from the bundle's hooks config) — same rationale as
 	// printBundleItemTrust above.
-	cleanID, _ := remote.StripRefControlChars(entry.ID())
-	fmt.Fprintf(w, "  hooks/%s: %s\n", cleanID, stampedTrust(res))
+	fmt.Fprintf(w, "  hooks/%s: %s\n", termsafe.Field(entry.ID()), stampedTrust(res))
 }

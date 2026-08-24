@@ -33,24 +33,16 @@ import (
 // signed and must not depend on any caller having come through this door. The
 // second layer does not import this one — a defence in depth that shares an
 // implementation is one layer.
+//
+// Deleting is the INGEST answer and is confined to it. Nothing here is
+// exported for a display path to borrow: a string on its way to a terminal is
+// shared/termsafe's business, and termsafe ESCAPES rather than deletes so the
+// human reading a trust line can see that a publisher put a control byte
+// there. Deletion on a display surface is lossy AND silent — two refs
+// differing only by a control character render identically — which is exactly
+// the forgery the trust surface exists to prevent.
 func isRefControlChar(r rune) bool {
 	return r < 0x20 || r == 0x7f
-}
-
-// StripRefControlChars removes every control character from ref, reporting
-// whether anything was actually removed. Pure: it emits no diagnostic. Use
-// NormalizeRef at an ingest boundary; use this where the caller wants to decide
-// what to say about the removal itself.
-func StripRefControlChars(ref string) (clean string, stripped bool) {
-	if strings.IndexFunc(ref, isRefControlChar) == -1 {
-		return ref, false
-	}
-	return strings.Map(func(r rune) rune {
-		if isRefControlChar(r) {
-			return -1
-		}
-		return r
-	}, ref), true
 }
 
 // NormalizeRef is the ingest normaliser every reference passes through as it
@@ -65,11 +57,17 @@ func StripRefControlChars(ref string) (clean string, stripped bool) {
 // being complained about, so the diagnostic itself cannot be used to paint the
 // terminal.
 func NormalizeRef(ref string) string {
-	clean, stripped := StripRefControlChars(ref)
-	if stripped {
-		clidiag.WarnOnce("ctxloom", "reference %q contained control characters and was read as %q "+
-			"— a ctxloom reference cannot carry them; this is a bug upstream or an attempt to forge one", ref, clean)
+	if strings.IndexFunc(ref, isRefControlChar) == -1 {
+		return ref
 	}
+	clean := strings.Map(func(r rune) rune {
+		if isRefControlChar(r) {
+			return -1
+		}
+		return r
+	}, ref)
+	clidiag.WarnOnce("ctxloom", "reference %q contained control characters and was read as %q "+
+		"— a ctxloom reference cannot carry them; this is a bug upstream or an attempt to forge one", ref, clean)
 	return clean
 }
 

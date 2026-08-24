@@ -2,7 +2,6 @@ package coord
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -97,12 +94,9 @@ func TestPublishEvents_DistinctSeqsInOneBatchAllLand(t *testing.T) {
 // CommittedSeqByRun and no Rejected entries — byte-identical to "everything you
 // sent is committed", which for a publisher whose event assembly silently
 // produced nothing is this project's characteristic failure: a green signal
-// carrying zero payload. The gRPC entry point passed an empty request straight
-// through.
-//
-// The in-process core cannot signal it (it returns only a response, and the
-// response has no field that means "you sent nothing"), so it says so on the
-// diagnostic channel.
+// carrying zero payload. The core cannot signal it in-band (it returns only a
+// response, and the response has no field that means "you sent nothing"), so it
+// says so on the diagnostic channel.
 func TestPublishEvents_EmptyBatchIsNotSilent(t *testing.T) {
 	c, _ := newPublishCoordinator(t)
 
@@ -116,21 +110,4 @@ func TestPublishEvents_EmptyBatchIsNotSilent(t *testing.T) {
 	assert.Empty(t, resp.GetCommittedSeqByRun())
 	assert.Contains(t, buf.String(), "no events",
 		"an empty publish must be announced: the response cannot distinguish it from a full commit")
-}
-
-// TestPublishEventsGRPC_RejectsAnEmptyRequest is F22's wire half: a real
-// publisher sending an empty batch gets a typed refusal instead of a success it
-// can only misread.
-func TestPublishEventsGRPC_RejectsAnEmptyRequest(t *testing.T) {
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, func() *fakeEngine { return &fakeEngine{oneshot: true} })
-	c := newTestCoordinator(t, sp, nil)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "hello", "", "")
-	require.NoError(t, err)
-	h := childHome(t, c, out.RunID)
-
-	client := agentcoordpb.NewCoordinatorServiceClient(h.conn)
-	_, err = client.PublishEvents(context.Background(), &agentcoordpb.PublishEventsRequest{})
-	require.Error(t, err, "an empty batch must not answer with a success response")
-	assert.Equal(t, codes.InvalidArgument, status.Code(err))
-	assert.Contains(t, err.Error(), "no events")
 }

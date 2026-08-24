@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,617** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,618** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 201 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 213 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 213 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 212 |
 | `open` | no commit names this ID | **24** |
 
-**Totals: 2268 findings across 162 units — 1,617 resolved, 24 still open, 627 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,618 resolved, 24 still open, 626 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -337,7 +337,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 0 | 13 | 6 | 6 |
 | MED | 999 | 627 | 16 | 117 | 98 | 141 |
-| LOW | 871 | 627 | 8 | 66 | 105 | 65 |
+| LOW | 871 | 628 | 8 | 66 | 105 | 64 |
 | (unparsed) | 22 | 12 | 0 | 5 | 4 | 1 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -552,6 +552,8 @@ passed `--settings`" identically to "ctxloom passed it and wrote nothing there"
 (U079-F08). Recounted (`just test-pkg ./tests/docs/ -tags arch`): RESOLVED
 1116->1125, PARTIAL 62->66, REFUTED 110->113, open 841->825, MED resolved
 351->357, LOW resolved 415->418.
+
+Updated again 2026-08-24: U016-F21 moves from ESCALATED to RESOLVED at `e97323a0`. The escalation asked whether an authenticated RPC with no non-test client should be kept for a future publisher or removed; the answer was remove, because unused authenticated surface is attack surface that earns nothing and the break is free while nothing consumes it. The `rpc PublishEvents` line and `coordService.PublishEvents` are gone; the in-process `coord.Coordinator.PublishEvents` the oneshot bridging depends on is untouched. Recounted (`just test-arch`): RESOLVED 1617->1618, ESCALATED 213->212.
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
 
@@ -2047,7 +2049,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U015-F03 | **RESOLVED** `cac52a3e` `127539ad` | **`schema.go:70`** | TRIVIAL | `strings.NewReader(string(schemaJSON))` copies the entire embedded schema (142 `$defs`) into a fresh string purely to get an `io.Reader`. | U015.md |
 | U015-F04 | **PARTIAL** `02d788fe` | **`schema.go:20-23`, `:26-28`** | COUPLING | The re-vendor instructions and the pinned-provenance constants can drift apart silently: the documented `curl` command fetches `main` (`schema.go:28`), while `SchemaSourceURL` (`:46`) pins the comm... | U015.md |
 | U016-F20 | **ESCALATED** `45c3f42b` | `coordination.proto:83-101, 1218-1219` | CORRECTNESS | Historical field renumbering left no `reserved` tombstones, and the safety argument for that is not recorded in the file. | U016.md |
-| U016-F21 | **ESCALATED** `8ad8145a` | `coordination.proto:232` | NOPAY | `CoordinatorService.PublishEvents` is served but has no non-test client. | U016.md |
+| U016-F21 | **RESOLVED** `e97323a0` | `coordination.proto:232` | NOPAY | `CoordinatorService.PublishEvents` is served but has no non-test client. | U016.md |
 | U019-F11 | **RESOLVED** `aa6d4ff1` | `checkpoint.go:71–74` | ERRHANDLING | `loadItemsSnapshot` treats **every** `os.ReadFile` error as the normal "no checkpoint yet" case, silently. A permission error, an EISDIR, or an I/O error is indistinguishable from a missing file an... | U019.md |
 | U019-F12 | **PARTIAL** `82f4ba0d` | `artifactstore.go:20–24` | CORRECTNESS | The store's doc claims a corrupt read is *"caught before any download places them (artifacts.go)"*. `artifacts.go`'s `DownloadArtifact` hashes **nothing** — it sends `rec.SHA256` in the header and ... | U019.md |
 | U019-F13 | **RESOLVED** `e41c35d0` | `artifactstore.go:47, artifacts.go:218` | CORRECTNESS | `artifactStore.path` does a bare `filepath.Join(s.dir, shaHex)` with no validation, and `DownloadArtifact` feeds it `rec.SHA256` — a string read back out of the runs journal. Safe today because `re... | U019.md |

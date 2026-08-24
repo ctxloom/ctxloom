@@ -244,12 +244,6 @@ service CoordinatorService {
   // deferred with the artifact family: it will land on a dedicated
   // ArtifactTransfer service in artifacts.proto when a consumer exists.
   // The design file is the source of record for those shapes.
-
-  // Unary at-least-once fallback for constrained agents (batch CI,
-  // flaky networks) and for replaying a locally journaled event log.
-  // Safe to retry: dedupe on (run_id, seq). Event plane only — no
-  // request/response semantics here.
-  rpc PublishEvents(PublishEventsRequest) returns (PublishEventsResponse);
 }
 
 // =============================================================================

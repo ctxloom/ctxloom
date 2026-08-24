@@ -19,6 +19,11 @@ Lets a GUI render status groups and pickers from the source of truth instead of
 hardcoding the status set. "terminal" marks completed statuses (Done/Archived);
 "requires_trigger" marks statuses that need a revive condition (Deferred).
 
+This is also the taxonomy the --status filter's @-classes are expanded from:
+"@open" is every entry whose terminal bit is false, "@terminal" every entry
+whose terminal bit is true. "@" is RESERVED as that class prefix, so it is
+refused as the first character of a status name.
+
 ```
 taskloom statuses [flags]
 ```

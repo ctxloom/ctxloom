@@ -62,7 +62,12 @@ listing says so on stderr.
 By default only active tasks are shown: completed (Done/Archived) and
 Deferred tasks are hidden. Pass --all to include them, or name a status
 explicitly with --status (an explicit status filter is honored verbatim;
-see "taskloom statuses" for the taxonomy). When a --term or --tag-query
+see "taskloom statuses" for the taxonomy). --status also accepts the @-classes
+--status @open (every non-terminal status) and --status @terminal (every
+completed one), expanded from that same taxonomy at RUNTIME: a status added to
+it is picked up by the right class with nothing here to keep in sync. Classes
+mix freely with literal statuses in one filter, since this is sugar over the
+already-repeatable --status. When a --term or --tag-query
 filter also matches hidden tasks, a note on stderr says how many, so
 matches never vanish silently.
 
@@ -91,6 +96,13 @@ tags in use (with counts) via "taskloom tags".`,
 
   # In Progress tasks mentioning "docs"
   taskloom list --status "In Progress" --term docs
+
+  # every task that is not finished — To Do, In Progress, Deferred, and
+  # whatever else the taxonomy calls non-terminal
+  taskloom list --status @open
+
+  # a class mixed with a literal
+  taskloom list --status @terminal --status "In Progress"
 
   # every project's tasks, not just the current one
   taskloom list --global`,
@@ -704,7 +716,12 @@ var statusesCmd = &cobra.Command{
 
 Lets a GUI render status groups and pickers from the source of truth instead of
 hardcoding the status set. "terminal" marks completed statuses (Done/Archived);
-"requires_trigger" marks statuses that need a revive condition (Deferred).`,
+"requires_trigger" marks statuses that need a revive condition (Deferred).
+
+This is also the taxonomy the --status filter's @-classes are expanded from:
+"@open" is every entry whose terminal bit is false, "@terminal" every entry
+whose terminal bit is true. "@" is RESERVED as that class prefix, so it is
+refused as the first character of a status name.`,
 	Args: cobra.NoArgs,
 	RunE: runStatusesCmd,
 }
@@ -728,7 +745,7 @@ func runStatusesCmd(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	listCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, "filter by status (repeatable)")
+	listCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, `filter by status (repeatable); also accepts the classes "@open" (every non-terminal status) and "@terminal" (every completed one), expanded from the live taxonomy and mixable with literal statuses`)
 	listCmd.Flags().StringVar(&tasksListTerm, "term", "", "filter by case-insensitive substring of task text")
 	listCmd.Flags().StringVar(&tasksListTagQuery, "tag-query", "", `filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")`)
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include the tasks hidden by default: completed (Done/Archived) and Deferred")

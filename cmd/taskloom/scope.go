@@ -118,6 +118,16 @@ func listTasksScoped(tc operations.TaskContext, opts listOptions) (*scopedListRe
 	if opts.Sort != "" && opts.Sort != sortPriority {
 		return nil, fmt.Errorf("taskloom: unknown sort value %q (must be %q)", opts.Sort, sortPriority)
 	}
+	// The ONE place a status filter's @-classes are expanded, so every
+	// surface that reaches a store through here — `taskloom list`, `taskloom
+	// tags`, the task_list MCP tool — accepts them identically and none of
+	// them re-derives which statuses a class covers. opts is a value, so the
+	// rewrite is local to this listing.
+	statuses, err := tasks.ExpandStatusClasses(opts.Statuses)
+	if err != nil {
+		return nil, err
+	}
+	opts.Statuses = statuses
 	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir, tc.WorkDirIsBoundary)
 	if err != nil {
 		return nil, err

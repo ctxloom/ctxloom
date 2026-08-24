@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -110,8 +111,8 @@ type HarnessStatusResult struct {
 	// by `ctxloom run` and the VSCode companion's title-bar warning.
 	RootFallback bool `json:"root_fallback"`
 	// Surfaces reports delivery currency for the native context files
-	// (CLAUDE.md and its per-backend analogues) that are ACTUALLY materialized
-	// on disk under WorkDir — see SurfaceCurrency. This is the read half of the
+	// (CLAUDE.md and its per-backend analogues) under WorkDir — see
+	// SurfaceCurrency. This is the read half of the
 	// engine-delivery seam (docs/design/engine-delivery-seam.design.md): the
 	// hop wiring alone (Backends, above) cannot answer, because "hooks
 	// present" says nothing about whether a materialized native file's
@@ -119,9 +120,11 @@ type HarnessStatusResult struct {
 	// compose (J001900's B6 finding — this command used to report on WIRING
 	// only, never on DELIVERY, so a stale `profile materialize` output was
 	// invisible to it). A backend with no read half yet, or with nothing
-	// materialized here, is simply absent from this list — never reported as
-	// an implicit "missing", which would be a false alarm for the (default)
-	// hook-delivered case.
+	// materialized here AND no engine-declared expectation of one, is simply
+	// absent from this list. A missing verdict appears only where the engine
+	// itself declares the native file its default context route AND the
+	// composed context has something to put in it — see
+	// surfaceCurrencies/contextFileExpected.
 	Surfaces []SurfaceCurrency `json:"surfaces,omitempty"`
 	// Errors records per-backend status-read failures; non-empty means the
 	// report is partial. One backend's corrupt/unreadable settings.json no
@@ -130,9 +133,11 @@ type HarnessStatusResult struct {
 }
 
 // SurfaceCurrency reports one backend's native context-surface delivery
-// currency: whether a file already materialized on disk (CLAUDE.md,
-// MOCK_CONTEXT.md, …) still carries what the project's default profiles
-// currently compose. Route/Status/Detail mirror agent.DeliveryState's
+// currency: whether the file (CLAUDE.md, AGENTS.md, .kiro/steering/
+// ctxloom-context.md, MOCK_CONTEXT.md, …) still carries what the project's
+// default profiles currently compose — or, where the engine declares that file
+// its default context route and there is context to deliver, that it is not
+// there at all. Route/Status/Detail mirror agent.DeliveryState's
 // Route()/Currency() verbatim — this is that read half rendered for a report,
 // not a second judgment about what the surface holds.
 type SurfaceCurrency struct {
@@ -185,40 +190,61 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 	return result, nil
 }
 
-// surfaceCurrencies walks every registered backend's context surface and
-// reports delivery currency for the ones that (a) offer a read half
-// (agent.StateReader — today: claude-code and mock, see
-// docs/design/engine-delivery-seam.design.md step 3) and (b) actually have
-// something materialized under workDir. A backend with no read half yet is
-// structurally absent from the result rather than reported as unreadable; a
-// backend whose surface was never materialized (Currency == StatusMissing) is
-// likewise omitted — a project that delivers context purely through the
-// SessionStart hook (the default) has nothing here to report, and reporting
-// it anyway would be exactly the false-alarm noise that trains a user to
-// ignore this command.
+// surfaceCurrencies walks every registered backend's NATIVE-FILE context
+// surface and reports its delivery currency.
 //
-// The composed ("intended") context is assembled AT MOST ONCE, lazily, and
-// only once a materialized surface is actually found on disk — a read-only
-// status command has no business running full context assembly (with its
-// withheld-content advisories) when nothing on disk needs comparing against
-// it. It reads via the existing AssembleContext, never regenerateContext:
+// It resolves agent.ApproachUnsafeFile deliberately, not the backend's default
+// approach: "materialized native file" IS that approach, and asking for the
+// default gets codex's hook route — a content-addressed <hash>.md whose name a
+// harpless caller cannot even derive. A backend that declares no file approach
+// for context (or no context surface at all) is skipped; so is one whose file
+// route offers no read half (agent.StateReader). Either way the backend is
+// structurally ABSENT from the report rather than reported as unreadable.
+//
+// It walks backends.BackendsWithSettings, the SAME set the wiring half above
+// enumerates, rather than backends.List. The difference is the hermetic `mock`
+// engine, which has no settings surface and is absent from every other line of
+// this report — before the missing verdict existed it surfaced here only in the
+// hermetic tests that materialize a MOCK_CONTEXT.md, but a verdict that fires on
+// an ABSENT file would put a test engine in front of every real user. One
+// report, one set of engines.
+//
+// A materialized file that is present reports delivered or stale. A file that
+// is ABSENT reports missing only when materialization was actually EXPECTED —
+// see contextFileExpected. That predicate is the whole of the "no false alarms"
+// rule here: without it every hook-delivered project would be told its CLAUDE.md
+// is gone, which is the fastest way to teach a user to skip this section.
+//
+// The composed ("intended") context is assembled AT MOST ONCE, lazily, and only
+// once some backend actually has a readable file route to answer for — every
+// verdict now depends on it, missing included, because "does this loadout carry
+// anything for the file surface" cannot be answered without composing it. It
+// reads via the existing AssembleContext, never regenerateContext:
 // this is the read half the design doc calls out — "a status command that
 // rewrites the surface it inspects is its own bug" — so it must never write.
 func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, workDir string) (surfaces []SurfaceCurrency, errs []string) {
 	var intended string
-	var composed bool
+	var composed, composeFailed bool
+	compose := func() (string, bool) {
+		if composeFailed {
+			return "", false
+		}
+		if !composed {
+			asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: cfg.DefaultAgentProfiles()})
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("failed to compose the current context to compare materialized surfaces against: %v", err))
+				composeFailed = true
+				return "", false
+			}
+			intended = asm.Context
+			composed = true
+		}
+		return intended, true
+	}
 
-	for _, name := range backends.List() {
+	for _, name := range backends.BackendsWithSettings() {
 		set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
-		approach, ok := set.DefaultApproach(agent.SurfaceContext)
-		if !ok {
-			continue
-		}
-		delivery, err := set.SurfaceFor(agent.SurfaceContext, approach)
-		if err != nil {
-			continue
-		}
-		reader, ok := delivery.(agent.StateReader)
+		reader, ok := contextFileReader(set)
 		if !ok {
 			continue
 		}
@@ -227,23 +253,14 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 			errs = append(errs, fmt.Sprintf("failed to read %s's materialized context surface: %v", name, err))
 			continue
 		}
-		// Cheap existence probe: Currency's not-found/no-managed-section cases
-		// ignore the argument entirely, so this costs no extra I/O (State
-		// already read the file) and, critically, no AssembleContext call for
-		// the common case where this backend has nothing materialized here.
-		if state.Currency("").Status == agent.StatusMissing {
+		current, ok := compose()
+		if !ok {
+			return surfaces, errs
+		}
+		cur, report := reportableContextCurrency(state, current, contextFileExpected(set))
+		if !report {
 			continue
 		}
-		if !composed {
-			asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: cfg.DefaultAgentProfiles()})
-			if err != nil {
-				errs = append(errs, fmt.Sprintf("failed to compose the current context to compare materialized surfaces against: %v", err))
-				return surfaces, errs
-			}
-			intended = asm.Context
-			composed = true
-		}
-		cur := state.Currency(intended)
 		surfaces = append(surfaces, SurfaceCurrency{
 			Backend: name,
 			Route:   state.Route(),
@@ -252,6 +269,83 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 		})
 	}
 	return surfaces, errs
+}
+
+// reportableContextCurrency is the whole "report it or stay quiet" rule, in one
+// place so the two halves cannot drift apart.
+//
+// A file that EXISTS is always reported — delivered or stale — for any engine
+// that can read it, expectation or not: content sitting on disk that nobody
+// composes any more is exactly the drift this report is for, and the engine
+// clearly did materialize there at some point.
+//
+// A file that is ABSENT is reported only when BOTH halves of the ruling hold:
+// the engine declares that file its context route (expected — see
+// contextFileExpected), AND the composed loadout actually carries context to
+// put in it. The second half is the rule backends.UncarriedSurfaces already
+// states — "A capability gap nobody asked to use costs nothing and stays
+// quiet" — read against agent.SurfaceInputs.Context, the field the native-file
+// route is fed from. Either half false is silence.
+func reportableContextCurrency(state agent.DeliveryState, intended string, expected bool) (agent.Currency, bool) {
+	cur := state.Currency(intended)
+	if cur.Status != agent.StatusMissing {
+		return cur, true
+	}
+	if !expected || strings.TrimSpace(intended) == "" {
+		return agent.Currency{}, false
+	}
+	return cur, true
+}
+
+// contextFileReader resolves a backend's materialized-file context route to its
+// read half, or reports false when it has none to read.
+//
+// It asks for agent.ApproachUnsafeFile by name. An empty SupportedApproaches
+// for the kind means the backend has no distinct context surface at all — a
+// FOLD, not a loss (backends.UncarriedSurfaces' doc: "reporting a folded
+// surface as lost would be a false alarm"), so it is skipped in silence rather
+// than reported as an unreadable route.
+func contextFileReader(set agent.SurfaceSet) (agent.StateReader, bool) {
+	if !slices.Contains(set.SupportedApproaches(agent.SurfaceContext), agent.ApproachUnsafeFile) {
+		return nil, false
+	}
+	delivery, err := set.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
+	if err != nil {
+		return nil, false
+	}
+	reader, ok := delivery.(agent.StateReader)
+	return reader, ok
+}
+
+// contextFileExpected reports whether an ABSENT native context file is worth a
+// missing verdict for this backend — the capability half of the rule
+// backends.UncarriedSurfaces already states: "A capability gap nobody asked to
+// use costs nothing and stays quiet."
+//
+// The expectation is a property of the ENGINE, read from what the engine itself
+// declares, never from a user-facing mode key and never inferred from
+// wire.HooksConfig. An engine whose DEFAULT context approach is the native file
+// (claude-code, kiro, opencode, mock) delivers context by materializing that
+// file, so its absence is a real finding. An engine whose default is some other
+// route does not: codex's default is agent.ApproachHook — a per-run
+// content-addressed cache file plus a SessionStart hook, with AGENTS.md as the
+// second, opt-in route — so a harpless caller like `manage check` has no
+// grounds to expect a file and must stay quiet. That is the same fact
+// backends.LaunchOnlySurfaces encodes for codex's OTHER surfaces, and its doc
+// is the reason this is not a "does the engine HAVE a file route" test: codex
+// HAS one, and reporting it missing would be the false alarm that gets the real
+// line ignored.
+//
+// LaunchOnlySurfaces itself is deliberately NOT called here. It answers about
+// hooks, MCP, commands and skills — never about a context surface — so a call
+// would return nil for every backend and every input, and a guard that can
+// never fire is worse than none: it reads as a check and is not one. The
+// declared default approach is where the same fact about codex is legible for
+// the context kind, and TestSurfaceCurrencies_StaysSilentForCodex is what keeps
+// it honest.
+func contextFileExpected(set agent.SurfaceSet) bool {
+	def, ok := set.DefaultApproach(agent.SurfaceContext)
+	return ok && def == agent.ApproachUnsafeFile
 }
 
 // SetStatuslineRequest contains parameters for toggling the ctxloom HUD statusline.

@@ -173,6 +173,29 @@ func (s *agentsMDSurface) Deliver(dir string) (agent.Delivered, error) {
 // cells.go).
 func (s *agentsMDSurface) UnsafeInfo() string { return "codex/agents-md" }
 
+// State implements agent.StateReader for codex's NATIVE context route: what
+// AGENTS.md currently carries in its managed section, read through the shared
+// agent.ReadManagedContext — the same split CodexHookWriter.WriteContext
+// merges through, so the read and the write cannot disagree about where the
+// section lives or how it is framed.
+//
+// Only this route has a read half. The sibling contextSurface writes a
+// content-addressed <hash>.md the SessionStart hook consumes, and its path is
+// derived from the fragments of ONE run; a harpless reader (`manage check`)
+// has no hash to name, so asking it for state could only ever report a file
+// that was never supposed to be sitting there — the false alarm agent.StateReader's
+// doc calls out. AGENTS.md, by contrast, is workspace-fixed and readable by
+// anyone standing in the project.
+func (s *agentsMDSurface) State(dir string) (agent.DeliveryState, error) {
+	fs := agent.GetFS(s.fs)
+	w := &CodexHookWriter{FS: fs}
+	state, err := agent.ReadManagedContext(fs, w.agentsMDPath(dir), AgentsMDFile)
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
 // configSurface is codex's folded settings + hooks + MCP surface: the single
 // .codex/config.toml written by CodexHookWriter.WriteSettings, which owns the
 // [hooks] and [mcp_servers] tables together. Delivery-ONLY — codex has no
@@ -440,4 +463,6 @@ var (
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}
+	// The native AGENTS.md route also answers for what it delivered.
+	_ agent.StateReader = (*agentsMDSurface)(nil)
 )

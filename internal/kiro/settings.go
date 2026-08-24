@@ -26,6 +26,13 @@ const ConfigDirName = ".kiro"
 // context (front-matter `inclusion: always`, auto-loaded by Kiro every session).
 const steeringFileName = "ctxloom-context.md"
 
+// steeringFrontMatter is the frame writeSteering wraps the assembled context
+// in. It is a CONSTANT rather than a literal spelled at each end because the
+// read side (contextSurface.State) has to strip exactly what the write side
+// added: two independent spellings would drift and report every delivered
+// steering file as stale by a two-line diff the user cannot act on.
+const steeringFrontMatter = "---\ninclusion: always\n---\n\n"
+
 // kiroSkillsGlob is the agent `resources` entry that surfaces ctxloom-written
 // skills (agentskills SKILL.md files under .kiro/skills/) to the agent.
 const kiroSkillsGlob = "skill://.kiro/skills/**/SKILL.md"
@@ -342,10 +349,16 @@ func (w *KiroWriter) reconcileSteering(projectDir, hash string) error {
 // (hash-addressed) and WriteContext (string-addressed). Non-empty content is
 // written with the `inclusion: always` front-matter; empty content removes the
 // file. It reports the workspace-relative path written or removed.
+// steeringRel is the steering file's path relative to the project dir — the
+// one spelling both the write report and the currency read name it by.
+func steeringRel() string {
+	return filepath.Join(ConfigDirName, "steering", steeringFileName)
+}
+
 func (w *KiroWriter) writeSteering(projectDir, content string) (agent.ContextReport, error) {
 	fs := w.getFS()
 	path := w.steeringPath(projectDir)
-	rel := filepath.Join(ConfigDirName, "steering", steeringFileName)
+	rel := steeringRel()
 
 	if content == "" {
 		exists, err := afero.Exists(fs, path)
@@ -362,7 +375,7 @@ func (w *KiroWriter) writeSteering(projectDir, content string) (agent.ContextRep
 	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return agent.ContextReport{}, fmt.Errorf("failed to create %s steering directory: %w", ConfigDirName, err)
 	}
-	body := "---\ninclusion: always\n---\n\n" + content + "\n"
+	body := steeringFrontMatter + content + "\n"
 	if err := agent.AtomicWriteFile(fs, path, []byte(body), steeringFileName); err != nil {
 		return agent.ContextReport{}, err
 	}

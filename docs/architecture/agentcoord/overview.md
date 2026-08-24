@@ -70,7 +70,7 @@ sequenceDiagram
   P->>CO: agent_run{role, input.prompt}
   CO->>SP: Resolve(agent) → SpawnPlan (profiles, engine, runtime, ladder, MCP)
   CO->>CO: AssignSession → harp; enqueueRun → mint run_id + bearer token<br/>journal factRunEnqueued (children.go:272)
-  CO->>CO: turnSlots.acquire (cap = delegation.concurrency, default 4)
+  CO->>CO: slots.Acquire (cap = delegation.concurrency, default 4)
   CO-->>P: RunOutcome{harp, run_id, engine, queued} — "spawned" (fixed at enqueue)
   CO->>SP: StartEngine → runner process with reach-back trio in env
   H->>CO: RunnerHello / RunChannel Hello (bearer token)

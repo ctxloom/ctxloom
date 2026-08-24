@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -63,7 +65,7 @@ type Options struct {
 	// Clock overrides command time (tests). Nil = time.Now.
 	Clock func() time.Time
 	// ConcurrencyCap overrides the number of concurrently EXECUTING child
-	// turns the coordinator admits (turnSlots' cap). <= 0 keeps the package
+	// turns the coordinator admits (Coordinator.slots' cap). <= 0 keeps the package
 	// default (agentConcurrencyCap, children.go). This is a RESOURCE
 	// ceiling — it bounds how many live engine processes run at once, not
 	// how many turns a run may take — and is not a correctness gate: the
@@ -164,7 +166,17 @@ type Coordinator struct {
 	artifacts *artifactStore
 
 	spawner Spawner
-	slots   *turnSlots
+	// slots is the execution-slot cap: at most concurrencyCap child turns may
+	// be EXECUTING at once, one token each. Acquisition is FIFO (a waiter
+	// parked on a full semaphore is served before a later TryAcquire), so
+	// enqueued children start in spawn order. It is a runtime scheduling
+	// PRIMITIVE — the authoritative queue is the queueFold; waiters are
+	// rebuilt from it on restart (adoption). Release PANICS on an
+	// over-release rather than handing back a token nobody took: a silently
+	// inflated cap admits more live engine processes than configured and is
+	// invisible until the box runs out of memory, so the crash is the wanted
+	// behaviour (see slotState's doc for the two defects being guarded).
+	slots *semaphore.Weighted
 	// depthCap is the resolved maximum nesting depth of the delegation tree
 	// (Options.Depth, <= 0 falls back to agentDepthCap) — AgentRun's "may
 	// this run spawn" guard reads it per call, unlike concurrencyCap (which
@@ -391,7 +403,7 @@ func New(opts Options) (*Coordinator, error) {
 		now:                t.now,
 		releaseOwner:       claim.release,
 		spawner:            opts.Spawner,
-		slots:              newTurnSlots(t.concurrencyCap),
+		slots:              semaphore.NewWeighted(int64(t.concurrencyCap)),
 		depthCap:           t.depthCap,
 		spawnNoticeAfter:   defaultSpawnNoticeAfter,
 		endedRunTail:       t.endedRunTail,

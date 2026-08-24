@@ -241,14 +241,10 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 
 	// Quiescence (assertion (f)): every slot is free and no child holds one
 	// — this is exactly the check an R1-style double-acquire regression
-	// would fail (slots.free would be short, or rt.slot stuck at
+	// would fail (the free count would be short, or rt.slot stuck at
 	// slotClaimed/slotHeld).
-	c.slots.mu.Lock()
-	freeSlots := c.slots.free
-	waiters := len(c.slots.waiters)
-	c.slots.mu.Unlock()
-	assert.Equal(t, n, freeSlots, "slots.free must equal the cap at quiescence")
-	assert.Zero(t, waiters, "no waiter should remain parked at quiescence")
+	assert.True(t, slotsIdleWith(c.slots, n),
+		"every one of the cap's slots must be free and no waiter parked at quiescence")
 	c.mu.Lock()
 	for _, h := range harps {
 		if rt := c.byHarp[h]; rt != nil {

@@ -716,7 +716,7 @@ type UIConfig struct {
 // switch. See each field's doc.
 type DelegationConfig struct {
 	// Concurrency is the maximum number of delegated child turns EXECUTING
-	// at once (agentcoord/coord's turnSlots — each is a live engine
+	// at once (agentcoord/coord's execution-slot cap — each is a live engine
 	// process; a child waiting on a message yields its slot). <= 0 means
 	// "use the built-in default" (coord.agentConcurrencyCap). This bounds
 	// resource load only, not correctness — the coordinator's own state is

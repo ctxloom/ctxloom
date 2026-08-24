@@ -30,20 +30,14 @@ func TestOnTurnStarted_AfterTheRunsTerminal_DoesNotLeakAnExecutionSlot(t *testin
 
 	c.terminateRun(out.RunID, CauseStopped, "test terminal")
 	require.Eventually(t, func() bool { return c.runEnded(out.RunID) }, conformanceWait, 10*time.Millisecond)
-	require.Eventually(t, func() bool {
-		c.slots.mu.Lock()
-		defer c.slots.mu.Unlock()
-		return c.slots.free == 2
-	}, conformanceWait, 10*time.Millisecond, "precondition: the terminal gives the slot back")
+	require.Eventually(t, func() bool { return slotsIdleWith(c.slots, 2) }, conformanceWait, 10*time.Millisecond,
+		"precondition: the terminal gives the slot back")
 
 	// THE RACE: a ctxloom/turn_started frame that was already on the wire when
 	// the channel was severed reaches handleCustomEvent now.
 	c.onTurnStarted(out.Harp)
 
-	c.slots.mu.Lock()
-	free := c.slots.free
-	c.slots.mu.Unlock()
-	assert.Equal(t, 2, free,
+	assert.True(t, slotsIdleWith(c.slots, 2),
 		"a turn-start for an ENDED run must not take a slot: nothing would ever release it, and the execution cap would shrink permanently")
 
 	c.mu.Lock()

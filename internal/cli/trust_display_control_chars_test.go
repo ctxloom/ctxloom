@@ -2,10 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -117,8 +119,50 @@ func TestPrintBundleHookTrust_ControlBytesAreEscapedNotDeleted(t *testing.T) {
 // Its row() closure builds Name/Bundle/Ref straight from the operations
 // projection's Name/Source fields, which are just as bundle-authored as the
 // name printBundleItemTrust receives, and reached the listing unnormalized for
-// the same reason. There is no seam to inject a malicious ListFragments
-// result here, so it shares the mechanism the tests above pin
-// (shared/termsafe.Field); see
-// internal/operations.TestPendingReview_MaliciousItemNameCannotReachDisplay
-// for the equivalent end-to-end proof on the review surface.
+// the same reason.
+//
+// The listing is a trust surface in its own right: `fragment list --format
+// json` carries the trust stamp each row was decided under, so a row a reader
+// cannot tell apart from another row is a row they cannot decide about. The
+// two names below differ ONLY by an ESC and must not arrive as the same
+// string.
+//
+// Ref is deliberately NOT asserted to differ: it is the canonical identifier
+// `show` and assemble accept, it goes through remote.NormalizeRef, and
+// deleting is still the right ingest answer there. Display and ingest are two
+// policies on purpose — what changed is that the DISPLAY field stopped
+// borrowing the ingest one.
+func TestListItemRows_ControlBytesInNameAreEscapedNotDeleted(t *testing.T) {
+	appDir := t.TempDir()
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	const clean = "go-testing"
+	hostile := "go-\x1btesting"
+	// One bundle carrying both, so the listing has to keep them apart.
+	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
+		Name: "demo",
+		Fragments: map[string]operations.BundleFragmentInput{
+			clean:   {Content: "clean body", NoDistill: true},
+			hostile: {Content: "hostile body", NoDistill: true},
+		},
+	})
+	require.NoError(t, err)
+
+	rows, err := listItemRows(cfg, ItemTypeFragment)
+	require.NoError(t, err)
+
+	names := map[string]bool{}
+	for _, r := range rows {
+		if r.Bundle == "demo" {
+			names[r.Name] = true
+		}
+	}
+
+	assert.True(t, names["go-^[testing"],
+		"the ESC must render as visible caret notation; got names %v", names)
+	assert.True(t, names[clean], "the clean name must still render byte for byte; got names %v", names)
+	assert.Len(t, names, 2,
+		"two names differing only by a control byte must not collapse onto one listing row; got %v", names)
+	for name := range names {
+		assert.NotContains(t, name, "\x1b", "no live ESC may reach the listing")
+	}
+}

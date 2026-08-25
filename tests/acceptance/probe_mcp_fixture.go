@@ -23,12 +23,13 @@
 // connecting to the server ctxloom registered on its behalf and calling the
 // tool. That is the whole probe: the nonce IS the round trip, in one string.
 //
-// THE RESIDUAL, AND WHAT CLOSES IT. The harp is a literal inside this script, and
-// the script's path is named in the project's config.yaml, which an agent with
-// shell and file tools could read. So the echo alone is NOT proof: an engine that
-// catted the script would produce a green-looking answer without ever speaking
-// MCP, and a probe that accepted it would be measuring a filesystem, not a
-// protocol. Two things close that hole and neither is optional:
+// THE RESIDUAL, AND WHAT CLOSES IT. The harp sits in a file beside the server
+// binary, and that directory's path is named in the project's config.yaml, which
+// an agent with shell and file tools could read. So the echo alone is NOT proof:
+// an engine that catted the nonce file would produce a green-looking answer
+// without ever speaking MCP, and a probe that accepted it would be measuring a
+// filesystem, not a protocol. Two things close that hole and neither is
+// optional:
 //
 //  1. The script lives OUTSIDE the cell's workspace (probeMCPWriteFixture takes
 //     a directory the caller must site outside the project), so nothing in the
@@ -62,11 +63,13 @@
 // verdict a byte-identical CORRECT answer with no tool call and requires a red.
 // If that test is ever deleted or loosened, this probe is a string comparison.
 //
-// WHY PYTHON. The design's own words: "a self-contained stdio JSON-RPC responder,
-// no deps". Python 3 is in the base image and on every dev box this suite runs
-// on; the script imports only json/os/sys/time. A cell whose interpreter is
-// missing SKIPS LOUDLY rather than reporting an MCP failure that is really a
-// missing interpreter — a delivery red must mean delivery.
+// WHY A GO BINARY. The design asks for "a self-contained stdio JSON-RPC
+// responder, no deps", and the binary is the only form that holds ON EVERY AXIS:
+// a container cell runs the server INSIDE the container as a child of the
+// engine, where the agent image ships no interpreter. A scripted fixture would
+// make this probe measure interpreter availability instead of the axis under
+// test. Go is already the toolchain, so it costs no new dependency — see
+// probeMCPBuildServer, and cmd/mockengine for the same shape.
 package acceptance
 
 import (

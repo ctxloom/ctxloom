@@ -182,12 +182,27 @@ const j002300PerEngineAgent = "delegate"
 // unisolated cannot answer whether delegation survives the boundary — which is
 // the whole question isolation exists to settle.
 //
-// A worktree caller MUST commit the fixture first. The bundle/profile files are
-// written moments earlier and a worktree spawn refuses to start against a dirty
-// checkout ("refusing to auto-commit for delegated agent", operations'
-// delegate.go) — a worktree checkout only ever contains committed state. That
-// is the caller's job because only the caller knows when its fixture is
-// complete; see steps_p6_steer_echo.go, which commits before it spawns.
+// A WORKTREE CALLER NEEDS BOTH A COMMIT AND dirty_tree_handler: "copy", and
+// MEASURED 2026-08-24, either one alone is not enough:
+//
+//   - the COMMIT gives the repo a HEAD to branch from. TestEnvironment.
+//     InitGitRepo only runs `git init` plus user config, and AddGitWorktree
+//     documents that `git worktree add -b` needs a valid HEAD, so without a
+//     commit the spawn cannot carve a worktree at all.
+//   - "copy" covers everything written AFTER that commit. ctxloom materializes
+//     its own managed files during session startup — .ctxloom-managed,
+//     .ctxloom/project-id, .claude/settings.json, .claude/commands/*.md,
+//     .ctxloom/cache/context/* and more — so a fixture that commits and stops
+//     is dirty again by the time agent_run runs.
+//
+// The first live run of the container cell failed exactly there: the child
+// never launched, and the refusal listed ctxloom's own files, not the
+// fixture's. The default "commit" handler cannot rescue it either — that path
+// requires dirty_tree_commit_ack, "a human act only; it cannot be set from
+// config.yaml, an environment variable, or any per-call parameter", so no
+// automated cell can ever satisfy it. "copy" reproduces the changes as
+// uncommitted WIP inside the child's worktree, which is what a fixture wants:
+// the child sees the bundle and profile that carry its marker.
 //
 // runtime rides the AGENT BINDING and workspace rides the top level, matching
 // j002200ConfigYAML's mock-container binding — the two axes are independent and
@@ -199,14 +214,21 @@ func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec,
 	if runtime != "" && runtime != "host" {
 		runtimeLine = fmt.Sprintf("    runtime: %s\n", runtime)
 	}
+	// "copy" is scoped to the worktree axis: on a shared workspace the child
+	// runs in the project itself, so there is no second checkout to reproduce
+	// into and the key would be inert noise in the host rows' fixture.
+	dirtyLine := ""
+	if workspace == "worktree" {
+		dirtyLine = "dirty_tree_handler: copy\n"
+	}
 	return a.config + fmt.Sprintf(`workspace: %s
-agents:
+%sagents:
   %s:
     llm: %s
 %s    profiles:
       - %s
     permissions: bypass
-`, workspace, s.Name, llmKey, runtimeLine, s.Profile)
+`, workspace, dirtyLine, s.Name, llmKey, runtimeLine, s.Profile)
 }
 
 // j002300WriteAgent writes one agent's bundle + profile files.

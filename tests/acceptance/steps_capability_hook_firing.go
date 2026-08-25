@@ -166,7 +166,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 				"bundles:\n  - ctxloom:local@bundles/bundle-"+hookProbeAgent+"\n"); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", hookProbeConfigYAML(a, key, engine)); err != nil {
+			if err := w.env.WriteFile(".ctxloom/config.yaml", hookProbeConfigYAML(a, key, engine, h.runtime)); err != nil {
 				return err
 			}
 			if err := w.env.GitCommit("hook-probe fixture: " + engine + " " + runtime + "/" + workspace); err != nil {
@@ -321,7 +321,7 @@ func lastRunes(s string, n int) string {
 	return "…" + string(r[len(r)-n:])
 }
 
-func hookProbeConfigYAML(a liveAgent, llmKey, engine string) string {
+func hookProbeConfigYAML(a liveAgent, llmKey, engine, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
@@ -329,6 +329,7 @@ func hookProbeConfigYAML(a liveAgent, llmKey, engine string) string {
 	if hookProbeNeedsProjectConfigHome(engine) {
 		b.WriteString("    config_home: project\n")
 	}
+	b.WriteString(runtimeBindingLine(runtime))
 	return b.String()
 }
 

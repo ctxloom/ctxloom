@@ -76,31 +76,31 @@ func TestP6Fixture_ContainerCellIsNotAHostCellWearingALabel(t *testing.T) {
 	assert.Greater(t, idxRuntime, idxAgents, "runtime must appear after agents:, i.e. within the binding")
 }
 
-// TestP6Fixture_HomeConfigPinsTheImageToOneEngine: the container cell must
-// compose an agent image carrying ONLY the engine it exercises.
+// TestP6Fixture_HomeConfigCarriesTheMailPlaneAndNoImagePin replaces
+// TestP6Fixture_HomeConfigPinsTheImageToOneEngine, whose subject no longer
+// exists.
 //
-// Unset, isolation.resolveEngines returns composableEngines() — claude-code,
-// codex, kiro and opencode — so the image installs all four via four
-// third-party installers, and this cell then depends on three other vendors
-// staying reachable. That is not hypothetical: its first container run died
-// building that image when opencode's installer could not fetch its version.
+// THAT TEST PINNED A WORKAROUND. P6's container cell used to write
+// `isolation_engines: [<engine>]` into the HOME layer, because an agent image
+// composed ALL FOUR engines and this cell's first container run died building
+// one when opencode's installer could not fetch its version — a cell exercising
+// one engine failing on a different vendor's availability.
 //
-// The pin lives in the HOME layer because isolation_engines is machine-scoped;
-// a project file carrying it is dropped with a warning rather than applied, so
-// pinning there would look applied and not be.
-func TestP6Fixture_HomeConfigPinsTheImageToOneEngine(t *testing.T) {
-	ctr := p6SpoolHomeConfigYAML("claude-code", "container-rootless")
-	host := p6SpoolHomeConfigYAML("claude-code", "host")
+// The image is now ONE ENGINE BY CONSTRUCTION (frosted-pony, 2026-08-25), so
+// the pin is inert and the config no longer varies by axis at all. The
+// invariant it was defending did not disappear; it MOVED, and it is asserted
+// where it can actually be checked — TestComposeAgentContainerfile_ExactlyOneEngineStage
+// reads the generated Containerfile and reds if a second engine's installer
+// appears. A YAML fixture could never have proven that.
+//
+// What is left worth pinning here is the mail plane, and the ABSENCE of the
+// pin: re-adding it would look like configuration and do nothing.
+func TestP6Fixture_HomeConfigCarriesTheMailPlaneAndNoImagePin(t *testing.T) {
+	cfg := p6SpoolHomeConfigYAML()
 
-	require.NotEqual(t, host, ctr,
-		"identical bytes would mean the runtime axis was dropped on the way in")
-	assert.Contains(t, ctr, "isolation_engines:\n  - claude-code",
-		"the container cell must pin the image composition to its own engine")
-	assert.NotContains(t, host, "isolation_engines",
-		"a host row builds no image, so pinning its composition would be inert noise")
-	// The mail plane must survive on both, or the cell has no bus to measure.
-	for _, c := range []string{ctr, host} {
-		assert.Contains(t, c, "spool_tee: true")
-		assert.Contains(t, c, "spool_delivery: true")
-	}
+	assert.NotContains(t, cfg, "isolation_engines",
+		"the image is one-engine by construction now; an isolation_engines pin here would look like configuration and do nothing")
+	// The mail plane must survive, or the cell has no bus to measure.
+	assert.Contains(t, cfg, "spool_tee: true")
+	assert.Contains(t, cfg, "spool_delivery: true")
 }

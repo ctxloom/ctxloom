@@ -311,8 +311,8 @@ func TestP4PermissionValue_MapsThePairAndPanicsOnAnythingElse(t *testing.T) {
 func TestP4ConfigYAML_CarriesThePostureOntoTheProductionBindingSurface(t *testing.T) {
 	a := liveAgent{config: fmt.Sprintf("version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
 
-	plan := p4ConfigYAML(a, "claude", p4Plan)
-	control := p4ConfigYAML(a, "claude", p4Control)
+	plan := p4ConfigYAML(a, "claude", p4Plan, "host")
+	control := p4ConfigYAML(a, "claude", p4Control, "host")
 
 	assert.Contains(t, plan, "permissions: plan",
 		"the plan cell must bind permissions: plan on the agent — the production surface a project commits, not a harness substitute")

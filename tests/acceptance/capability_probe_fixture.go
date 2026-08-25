@@ -89,9 +89,9 @@ func matrixBundleYAML(nonce string) string {
 // whichever caller supplies it. Dropping either from this switch would
 // silently stop writing `runtime:` for whichever probe still passes it — an
 // axis a cell asked for that quietly runs on the host instead, this
-// codebase's characteristic silent no-op — so a caller adding a THIRD
-// ownership mode must add its new value here rather than assume the
-// fallthrough covers it.
+// codebase's characteristic silent no-op. The line itself is now written by
+// runtimeBindingLine, which passes an unrecognised value THROUGH to the schema
+// rather than dropping it, so a third ownership mode needs no edit here.
 //
 // The workspace axis is NOT written here: it rides the `--workspace` flag on
 // the run, mirroring the isolation probe, so a cell exercises the same public
@@ -106,9 +106,31 @@ func matrixConfigYAML(a liveAgent, llmKey, runtime string) string {
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
 		matrixAgent, llmKey, matrixAgent)
-	switch runtime {
-	case "container-rootless", "container-rootful":
-		fmt.Fprintf(&b, "    runtime: %s\n", runtime)
-	}
+	b.WriteString(runtimeBindingLine(runtime))
 	return b.String()
+}
+
+// runtimeBindingLine renders the agent-binding line that puts a cell on the
+// requested CONTAINERIZATION axis, or "" for the host axis (the schema's
+// default — writing it explicitly would put a key in the fixture that the host
+// rows never had).
+//
+// ONE WRITER for a line four fixtures need. Copies of this switch had already
+// reached three files, and two of them DISAGREED: this one allow-listed the two
+// container values, while j002300PerEngineConfigYAML wrote anything that was
+// not "host". The difference is not cosmetic — under an allowlist an
+// unrecognised runtime writes NOTHING, so a cell that asked for a container
+// quietly runs on the HOST and reports itself containerized, which is this
+// codebase's characteristic silent no-op.
+//
+// The pass-through behaviour is kept deliberately: an unknown value reaches
+// config's schema and is REFUSED there, loudly, instead of being dropped here.
+// That also removes the maintenance note the allowlist needed — a third
+// ownership mode no longer has to be added to this function to avoid being
+// silently ignored.
+func runtimeBindingLine(runtime string) string {
+	if runtime == "" || runtime == "host" {
+		return ""
+	}
+	return fmt.Sprintf("    runtime: %s\n", runtime)
 }

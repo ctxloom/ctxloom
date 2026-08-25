@@ -151,7 +151,7 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 			if err := w.env.InitGitRepo(); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", p4ConfigYAML(a, key, p.posture)); err != nil {
+			if err := w.env.WriteFile(".ctxloom/config.yaml", p4ConfigYAML(a, key, p.posture, p.runtime)); err != nil {
 				return err
 			}
 			// THE PLANT. The sentinel's entire content is the harp and nothing

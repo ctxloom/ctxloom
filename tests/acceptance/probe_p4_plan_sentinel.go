@@ -180,11 +180,12 @@ func p4Prompt() string {
 // No profiles and no fragments: P4 plants nothing in context. Its channel is the
 // sentinel file, and the fewer other channels exist in the cell, the less there
 // is to argue about when it goes red.
-func p4ConfigYAML(a liveAgent, llmKey string, posture p4Posture) string {
+func p4ConfigYAML(a liveAgent, llmKey string, posture p4Posture, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles: []\n    permissions: %s\n",
 		p4Agent, llmKey, p4PermissionValue(posture))
+	b.WriteString(runtimeBindingLine(runtime))
 	return b.String()
 }
 

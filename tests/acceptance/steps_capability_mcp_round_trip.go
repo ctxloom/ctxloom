@@ -88,13 +88,15 @@ const mcpProbeFixtureDirName = "p2-mcp-fixture"
 // are kept SEPARATE and the assertion reads stdout alone, for the same reason
 // the floor does: ctxloom's human-readable diagnostics go to stderr by contract.
 type mcpProbeState struct {
-	engine   string
-	nonce    string
-	fixture  probeMCPFixture
-	stdout   string
-	stderr   string
-	exitCode int
-	runErr   error
+	engine    string
+	runtime   string
+	workspace string
+	nonce     string
+	fixture   probeMCPFixture
+	stdout    string
+	stderr    string
+	exitCode  int
+	runErr    error
 }
 
 func mcpProbeOf(w *World) *mcpProbeState {
@@ -115,7 +117,7 @@ func mcpProbeOf(w *World) *mcpProbeState {
 // bats-excretion for the seam that would close it. A cell here that claimed
 // another axis would be addressing something the registry says does not run.
 func (m *mcpProbeState) cell() probeCellID {
-	return probeCellID{Probe: probeP2, Engine: m.engine, Runtime: "host", Workspace: "none"}
+	return probeCellID{Probe: probeP2, Engine: m.engine, Runtime: m.runtime, Workspace: m.workspace}
 }
 
 // mcpProbePrompt is the whole task. Three things it must do at once: name the
@@ -157,11 +159,12 @@ func mcpProbeBundleYAML() string {
 // config (liveAgents[key].config — one source of truth for the backend type and
 // the cheap pinned model the whole @live lane shares), one agent binding, and
 // the fixture MCP server registered at top level.
-func mcpProbeConfigYAML(a liveAgent, llmKey, binaryPath, fixtureDir string) string {
+func mcpProbeConfigYAML(a liveAgent, llmKey, binaryPath, fixtureDir, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
 		mcpProbeAgent, llmKey, mcpProbeAgent)
+	b.WriteString(runtimeBindingLine(runtime))
 	b.WriteString(probeMCPConfigYAML(binaryPath, fixtureDir))
 	return b.String()
 }
@@ -185,9 +188,10 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			// host/none fixture while its tags, its registry row and its evidence all
 			// said something else. Refusing here makes the columns load-bearing.
 			if runtime != "host" || workspace != "none" {
-				return fmt.Errorf("probe-p2-mcp: this probe's runnable cells are host/none only, got runtime=%q workspace=%q. The container rows are DEFERRED in the probe registry because the fixture is sited outside the workspace ON THE HOST and a container cell runs the server inside the container, where that path does not exist (task bats-excretion). This step also hard-codes --workspace none and writes no runtime:, so a row claiming another axis would run a HOST fixture under that cell's name",
+				return fmt.Errorf("probe-p2-mcp: this probe's runnable cells are host/none only, got runtime=%q workspace=%q. The AXES ARE NOW WIRED — the binding carries `runtime:` and the run passes --workspace — so this guard no longer stands for that reason. What remains is DELIVERY: the fixture MCP server is sited OUTSIDE the workspace on the HOST, and a container cell runs the server inside the container where that path does not exist. Site the fixture in the workspace first (task bats-excretion), then drop this guard",
 					runtime, workspace)
 			}
+			m.runtime, m.workspace = runtime, workspace
 
 			a, key, err := probeCellGate(c, w, mcpProbeFamily, m.cell())
 			if err != nil {
@@ -239,7 +243,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			if err := w.env.WriteFile(".ctxloom/config.yaml",
-				mcpProbeConfigYAML(a, key, m.fixture.Binary, m.fixture.Dir)); err != nil {
+				mcpProbeConfigYAML(a, key, m.fixture.Binary, m.fixture.Dir, m.runtime)); err != nil {
 				return err
 			}
 			// Committed, like the floor's fixture and for the same reason: every
@@ -272,7 +276,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 		}
 
 		cmd := w.env.Command(nil, "run", "--agent", mcpProbeAgent,
-			"--workspace", "none", "--one-shot", mcpProbePrompt())
+			"--workspace", m.workspace, "--one-shot", mcpProbePrompt())
 		// Production's own credential machinery, resolving against the REAL host
 		// home — see probeHostCredentialEnv, whose doc comment carries the full
 		// argument.

@@ -210,10 +210,7 @@ const j002300PerEngineAgent = "delegate"
 // not "host": host is the schema's default, and writing it explicitly would put
 // a key in the fixture that the host rows never had.
 func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec, runtime, workspace string) string {
-	runtimeLine := ""
-	if runtime != "" && runtime != "host" {
-		runtimeLine = fmt.Sprintf("    runtime: %s\n", runtime)
-	}
+	runtimeLine := runtimeBindingLine(runtime)
 	// "copy" is scoped to the worktree axis: on a shared workspace the child
 	// runs in the project itself, so there is no second checkout to reproduce
 	// into and the key would be inert noise in the host rows' fixture.

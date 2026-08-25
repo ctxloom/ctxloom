@@ -307,6 +307,10 @@ var probeRegistry = []probeSpec{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "hook",
 				Status: probeLiveVerified,
 				Reason: "measured 2026-08-16 after the deliverSet fix landed: 1 scenario / 3 steps green, nonce harp \"obese-hilly-gusto\" echoed back exactly, no degrade warning. MUTATION-CONFIRMED: reverting the fix reproduces the exact pre-fix shape live — CONTEXT-DELIVERY failure, well-formed JSON carrying none of a freshly minted nonce (\"aloof-dire-reach\") — and restoring it goes green again. Doubles as the negative control for the system-prompt cell's side channel."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Variant: "system-prompt",
+				Status: probeWired, Reason: "DECLARED, NOT YET MEASURED. Asks what P0 cannot: P0 proves DEFAULT composed context survives the container axis, this asks whether the PINNED system-prompt route does. Different claim — appendFlagDelivery writes an out-of-cwd scratch file consumed via --append-system-prompt-file, not a file in the mounted tree, so whether it is written host-side or in-container decides the cell. A red here would be a product finding about containerized context delivery, not a fixture fault."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Variant: "system-prompt",
+				Status: probeWired, Reason: "DECLARED, NOT YET MEASURED. The mixed corner of the row above, and it lands with it rather than after it: P6 measured that its host/worktree cell failed where both-off and both-on passed, so a container row without its worktree partner rebuilds exactly the blind spot the pair exists to close."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "unsafe-file-shared",
 				Status: probeLiveVerified, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion, and the worktree axis is where that matters. Measured 2026-08-13: 1 scenario / 3 steps green in 5.5s, harp \"snug-void-rebel\", no degrade warning. CLAUDE.md into an isolated checkout delivers."},
 			// RETRACTED after S4's hook-firing probe

@@ -24,6 +24,8 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -187,6 +189,57 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				if err := w.env.GitCommit("p6 fixture: bundle, profile and config for the steer-echo child"); err != nil {
 					return err
 				}
+			}
+
+			// CREDENTIALS DIVERGE BY RUNTIME, and the container half is why this
+			// cell took four live runs to reach the bus.
+			//
+			// HOST: seedLiveCredentials MAPS the engine at its real credential
+			// directory by exporting CLAUDE_CONFIG_DIR (credentialSeedSpecs'
+			// HomeVars) into the fake home. A host engine reads that var.
+			//
+			// CONTAINER: it cannot, and not by oversight.
+			// isolation.claudeAuthEnvVars — the ONLY env allowed to cross into a
+			// container — is the five ANTHROPIC_* vars; CLAUDE_CONFIG_DIR is
+			// deliberately absent. A container authenticates by BIND-MOUNTING
+			// the host's own ~/.claude/.credentials.json into the per-agent home
+			// (isolation.claudeCredentialMounts), READ-WRITE, because the engine
+			// ROTATES that credential and the refreshed token must land back on
+			// the host file.
+			//
+			// COPYING IS THEREFORE NOT A SUBSTITUTE: a copy takes the rotation
+			// with it and the host credential goes stale. A SYMLINK is, and that
+			// is what this does. isolation.hostHomeDir is os.UserHomeDir, so the
+			// mount resolves under the harness's fake $HOME; linking the real
+			// credential into it makes fileExists() true and hands the mount the
+			// link path, which the runtime resolves host-side to the real file.
+			// MEASURED: a write from inside the container lands on the real host
+			// file, so rotation survives.
+			//
+			// Repointing $HOME at the real home would also work and is what P0's
+			// container cells do — but P0 runs a subprocess it fully controls,
+			// while this cell's coordinator is a long-lived session whose own
+			// machine-scoped config (the mail plane, the image pin) lives in the
+			// fake home. Repointing would silently drop those and read the
+			// developer's real ~/.ctxloom/config.yaml instead.
+			if runtime != "" && runtime != "host" {
+				if realHomeDir == "" {
+					return fmt.Errorf("p6: container cell needs the real host home to resolve the credential mount, and none was captured — refusing rather than running a cell that would report an engine failure that is the harness's own doing")
+				}
+				src := filepath.Join(realHomeDir, ".claude", ".credentials.json")
+				if _, err := os.Stat(src); err != nil {
+					return fmt.Errorf("p6: container cell needs %s to mount into the per-agent home (isolation.claudeCredentialMounts), and it is not readable: %w", src, err)
+				}
+				dstDir := filepath.Join(w.env.HomeDir, ".claude")
+				if err := os.MkdirAll(dstDir, 0o755); err != nil {
+					return err
+				}
+				dst := filepath.Join(dstDir, ".credentials.json")
+				_ = os.Remove(dst)
+				if err := os.Symlink(src, dst); err != nil {
+					return fmt.Errorf("p6: link the real claude credential into the fixture home: %w", err)
+				}
+				return nil
 			}
 
 			// Subscription path: MAP this engine at its real credential

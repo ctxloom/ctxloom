@@ -26,8 +26,8 @@ func TestP6Fixture_ContainerCellIsNotAHostCellWearingALabel(t *testing.T) {
 	require.True(t, ok, "claude-code must be a registered live engine or the cell could never run")
 	spec := &j002300AgentSpec{Name: "delegate", Profile: "p", Bundle: "b", Fragment: "marker", Guidance: "m"}
 
-	host := j002300PerEngineConfigYAML(a, "claude-code", spec, "host", "none")
-	ctr := j002300PerEngineConfigYAML(a, "claude-code", spec, "container-rootless", "worktree")
+	host := j002300PerEngineConfigYAML(a, "claude-code", spec, "claude-code", "host", "none")
+	ctr := j002300PerEngineConfigYAML(a, "claude-code", spec, "claude-code", "container-rootless", "worktree")
 
 	require.NotEqual(t, host, ctr,
 		"the container cell and the host cell must not render the same config — identical bytes mean the axes were dropped and the container row runs on the host")
@@ -62,6 +62,14 @@ func TestP6Fixture_ContainerCellIsNotAHostCellWearingALabel(t *testing.T) {
 		"the worktree cell must reproduce uncommitted state into the child's checkout, or the child never launches")
 	assert.NotContains(t, host, "dirty_tree_handler",
 		"a shared-workspace run has no second checkout to reproduce into; the key would be inert noise in the host rows")
+
+	// The container image must be pinned to the engine under test: unset,
+	// isolation.resolveEngines composes ALL FOUR engines, so this cell could
+	// fail on another vendor's installer outage (measured: it did).
+	assert.Contains(t, ctr, "isolation_engines:\n  - claude-code",
+		"the container cell must compose only the engine it exercises")
+	assert.NotContains(t, host, "isolation_engines",
+		"a host run builds no image, so pinning its composition would be inert noise")
 
 	idxAgents := strings.Index(ctr, "agents:")
 	idxRuntime := strings.Index(ctr, "runtime: container-rootless")

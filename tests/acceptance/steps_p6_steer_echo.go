@@ -152,7 +152,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			if err := j002300WriteAgent(w, spec); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, runtime, workspace)); err != nil {
+			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, engine, runtime, workspace)); err != nil {
 				return err
 			}
 			// The mail plane, in the layer that is allowed to carry it.

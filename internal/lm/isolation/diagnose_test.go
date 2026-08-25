@@ -171,6 +171,7 @@ func TestDiagnoseStaleness_NamesTheNotCheckedCases(t *testing.T) {
 		c := Container{
 			runtime:    fakeRuntime{name: "docker", binary: "true", available: true},
 			image:      "ctxloom-agent-diagnose-unverifiable:latest",
+			engine:     "claude-code",
 			engineSpec: spec,
 		}
 		sources, devBase, _ := c.containerBuildSources("")

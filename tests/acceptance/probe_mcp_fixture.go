@@ -132,7 +132,6 @@ const (
 // with no "id" is a NOTIFICATION and is never answered, because answering one
 // is a protocol violation that some clients treat as fatal.
 
-
 // probeMCPFixture is a written-out fixture server: where its script is, where
 // its call log will be, and which nonce it will hand back.
 type probeMCPFixture struct {

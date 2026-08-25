@@ -145,29 +145,29 @@ func TestBuildSources_Composable(t *testing.T) {
 		p := engineContainerSpecFor(backend)
 		require.NotNil(t, p.engineInstall, "backend %q must be composable", backend)
 
-		got := buildSources(p, buildSourcesOptions{})
+		got := buildSources(p, buildSourcesOptions{engine: backend})
 		require.Len(t, got, 1, "backend %q: default-base only", backend)
-		assert.Contains(t, got[0].desc, "composed agent stage")
+		assert.Contains(t, got[0].desc, "agent stage (engine:")
 		assert.Contains(t, got[0].desc, "embedded default base")
 		require.NotNil(t, got[0].base)
 
-		override := buildSources(p, buildSourcesOptions{baseOverride: "my-base:latest"})
+		override := buildSources(p, buildSourcesOptions{engine: backend, baseOverride: "my-base:latest"})
 		require.Len(t, override, 1, "an explicit base-image override wins outright")
 		assert.Contains(t, override[0].desc, "my-base:latest")
 		assert.Nil(t, override[0].base)
 
-		userBase := buildSources(p, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base"})
+		userBase := buildSources(p, buildSourcesOptions{engine: backend, baseContainerfile: "/proj/Containerfile.base"})
 		require.Len(t, userBase, 2, "user base Containerfile leads, default base falls back")
 		assert.Contains(t, userBase[0].desc, "user base Containerfile /proj/Containerfile.base")
 		assert.Contains(t, userBase[1].desc, "embedded default base")
 
 		dev := &baseStage{desc: "test devcontainer", containerfile: []byte("FROM debian:13\n"), kind: baseStageKindDevcontainer}
-		withDev := buildSources(p, buildSourcesOptions{devBase: dev})
+		withDev := buildSources(p, buildSourcesOptions{engine: backend, devBase: dev})
 		require.Len(t, withDev, 2, "auto-detected devcontainer base, default base falls back")
 		assert.Contains(t, withDev[0].desc, "auto-detected project devcontainer")
 		assert.Contains(t, withDev[1].desc, "embedded default base")
 
-		all := buildSources(p, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base", devBase: dev})
+		all := buildSources(p, buildSourcesOptions{engine: backend, baseContainerfile: "/proj/Containerfile.base", devBase: dev})
 		require.Len(t, all, 3, "explicit user base beats the auto-detected devcontainer, default base still falls back")
 		assert.Contains(t, all[0].desc, "user base Containerfile")
 		assert.Contains(t, all[1].desc, "auto-detected project devcontainer")
@@ -188,33 +188,90 @@ func TestBuildSources_MockIsComposable(t *testing.T) {
 	p := engineContainerSpecFor("mock")
 	require.NotNil(t, p.engineInstall, "precondition: mock is composable")
 
-	got := buildSources(p, buildSourcesOptions{})
+	got := buildSources(p, buildSourcesOptions{engine: "mock"})
 	require.NotEmpty(t, got, "mock must have a local-build recipe now (previously nil/empty — 'no local build recipe for this engine')")
-	assert.Contains(t, got[0].desc, "composed agent stage")
+	assert.Contains(t, got[0].desc, "agent stage (engine:")
 }
 
-// TestComposeAgentContainerfile_EngineOrderAndGates pins composeAgentContainerfile's
-// shape: one RUN fragment per selected engine in the given order, plus the
-// shared identity/entrypoint/companion scaffolding every composed image needs.
-func TestComposeAgentContainerfile_EngineOrderAndGates(t *testing.T) {
-	cf := string(composeAgentContainerfile([]string{"claude-code", "kiro"}))
-	assert.Contains(t, cf, "ARG BASE_IMAGE=ctxloom-agent-base:latest\n")
-	assert.Contains(t, cf, "FROM ${BASE_IMAGE}\n")
-	assert.Contains(t, cf, baseContractLayer, "best-effort tool layer for an arbitrary base")
-	assert.Contains(t, cf, overlayUserLayer)
-	assert.Contains(t, cf, overlayUserGate)
-	assert.Contains(t, cf, "claude --version", "claude's engine fragment is included")
-	assert.Contains(t, cf, "kiro-cli --version", "kiro's engine fragment is included")
-	assert.Less(t, strings.Index(cf, "claude --version"), strings.Index(cf, "kiro-cli --version"), "engines compose in the GIVEN order")
-	assert.Contains(t, cf, "COPY ctxloom /usr/local/bin/ctxloom\n")
-	assert.Contains(t, cf, "COPY companions/ /usr/local/bin/\n")
-	assert.Contains(t, cf, "RUN /usr/local/bin/ctxloom version\n")
-	assert.Contains(t, cf, companionGate)
+// TestComposeAgentContainerfile_ExactlyOneEngineStage is the assertion this
+// design OWES, and it is not ordinary coverage.
+//
+// Image identity is content-addressed, so a wrong composition BUILDS, RUNS and
+// is simply the wrong thing: green gates, plausible output, no signal. No
+// ordinary gate can catch it — which is why shipping the split without this
+// assertion was ruled unacceptable. It pins the two claims a reader of
+// `docker images` cannot verify by looking:
+//
+//  1. exactly ONE engine stage is present, and
+//  2. it is the engine that was asked for.
+//
+// The whole point of one-image-per-engine is that a run cannot be broken by a
+// vendor it does not use. A second engine's installer sneaking into the file
+// silently restores exactly that coupling.
+func TestComposeAgentContainerfile_ExactlyOneEngineStage(t *testing.T) {
+	// Every other engine's PROOF-OF-PRESENCE string, so a stray fragment is
+	// caught by what it installs rather than by a comment we control.
+	others := map[string][]string{
+		"claude-code": {"claude --version"},
+		"kiro":        {"kiro-cli --version"},
+		"codex":       {"codex-acp"},
+		"opencode":    {"opencode --version"},
+	}
+	for _, engine := range composableEngines() {
+		t.Run(engine, func(t *testing.T) {
+			cf := string(composeAgentContainerfile(engine))
 
-	// A backend with no known fragment is silently skipped (resolveEngines
-	// already warns about it before this is ever called with such a name).
-	single := string(composeAgentContainerfile([]string{"claude-code"}))
-	assert.NotContains(t, single, "kiro-cli", "only the requested engine's fragment is baked")
+			stages := strings.Count(cf, "# engine: ")
+			require.Equal(t, 2, stages,
+				"expected the header line and EXACTLY ONE engine stage marker; a second means another vendor's installer is in this image and can break a run that never uses it")
+
+			for other, proofs := range others {
+				if other == engine {
+					continue
+				}
+				for _, proof := range proofs {
+					assert.NotContains(t, cf, proof,
+						"engine %q's image must not carry %q — one image per engine is the whole defence against a foreign installer failing the build", engine, other)
+				}
+			}
+
+			// ...and the engine asked for is actually the one baked. An image
+			// carrying no engine at all builds, tags and passes every image
+			// gate, then fails every run with the binary simply absent.
+			for _, proof := range others[engine] {
+				assert.Contains(t, cf, proof, "the requested engine's own installer must be present")
+			}
+			assert.Contains(t, cf, `LABEL ctxloom.engine="`+engine+`"`,
+				"the engine is labelled on the image so a wrong one is visible without reading the Containerfile")
+		})
+	}
+}
+
+// TestComposeAgentContainerfile_EngineInstallPrecedesTheVolatileLayers pins the
+// LAYER ORDER, which is load-bearing for exactly the failure that produced this
+// design: [base] -> [engine install] -> [version labels + ctxloom binary].
+//
+// Docker invalidates every layer after a changed one. The version ARG/LABEL
+// interpolate a string that changes on EVERY build, so while they sat ABOVE the
+// engine install they invalidated the engine layer every single time — re-running
+// the vendor installer on every ctxloom change. That is how a claude-code cell
+// came to die on opencode's installer hitting GitHub's anonymous API quota.
+func TestComposeAgentContainerfile_EngineInstallPrecedesTheVolatileLayers(t *testing.T) {
+	cf := string(composeAgentContainerfile("claude-code"))
+	engineAt := strings.Index(cf, "claude --version")
+	require.Positive(t, engineAt, "the engine fragment must be present for this ordering test to mean anything")
+
+	for _, volatile := range []string{
+		`ARG CTXLOOM_VERSION=""`,
+		`LABEL ctxloom.version=`,
+		"COPY ctxloom /usr/local/bin/ctxloom",
+		"COPY companions/ /usr/local/bin/",
+	} {
+		at := strings.Index(cf, volatile)
+		require.Positive(t, at, "%q must be present", volatile)
+		assert.Greater(t, at, engineAt,
+			"%q changes on every build and MUST sit below the engine install, or every ctxloom rebuild re-runs the vendor installer", volatile)
+	}
 }
 
 // TestComposeAgentContainerfile_CodexIncludesACPAdapter pins the real gap
@@ -226,7 +283,7 @@ func TestComposeAgentContainerfile_EngineOrderAndGates(t *testing.T) {
 // claude's fragment, which has always installed BOTH claude and
 // claude-code-acp in one npm line.
 func TestComposeAgentContainerfile_CodexIncludesACPAdapter(t *testing.T) {
-	cf := string(composeAgentContainerfile([]string{"codex"}))
+	cf := string(composeAgentContainerfile("codex"))
 	assert.Contains(t, cf, "codex-acp", "the codex-acp adapter must be installed alongside codex itself")
 	assert.Contains(t, cf, "command -v codex-acp", "a hard validate gate must prove the adapter actually landed, not just be requested")
 }
@@ -476,6 +533,7 @@ func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T)
 	c := Container{
 		runtime:    fakeRuntime{name: "docker", binary: script, available: true},
 		image:      "ctxloom-agent-stale-unbuildable-test:latest",
+		engine:     "claude-code",
 		engineSpec: engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 	}
 	require.NoError(t, c.ensureImage(context.Background()),
@@ -498,7 +556,7 @@ func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T)
 func TestComposableBuildSources_EmptyEnginesFailsLoud(t *testing.T) {
 	resetStrictness(t)
 	p := engineContainerSpec{engineInstall: []byte("RUN something\n")}
-	sources := composableBuildSources(p, buildSourcesOptions{engines: []string{"totally-unknown-engine"}})
+	sources := composableBuildSources(p, buildSourcesOptions{engine: "totally-unknown-engine"})
 	assert.Nil(t, sources, "no build source at all for a resolved-empty engine set")
 
 	findings := strictness.All()
@@ -534,9 +592,9 @@ func TestEnsureImage_ParallelCallersShareOneBuild(t *testing.T) {
 	// of rebuilding. This spec is COMPOSABLE (engineInstall != nil), so its
 	// real provenance comes from composedIdentity (content+engine-keyed),
 	// never the legacy HostProvenanceDigest — computed here with the same
-	// nil devBase/nil engines ensureImage itself resolves for this Container
+	// nil devBase; the engine is the one ensureImage itself resolves for this Container
 	// (appRoot == "" short-circuits devcontainer auto-detection to nil).
-	_, provenance, ok := composedIdentity(spec, "", nil, nil)
+	_, provenance, ok := composedIdentity(spec, "", nil, "claude-code")
 	require.True(t, ok, "precondition: a composable spec always resolves a provenance")
 	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
 	script := filepath.Join(dir, "fake-docker")
@@ -545,6 +603,7 @@ func TestEnsureImage_ParallelCallersShareOneBuild(t *testing.T) {
 	c := Container{
 		runtime:    fakeRuntime{name: "docker", binary: script, available: true},
 		image:      "ctxloom-agent-dedup-test:latest",
+		engine:     "claude-code",
 		engineSpec: spec,
 	}
 
@@ -783,6 +842,7 @@ func TestEnsureImage_UnverifiableProvenanceIsNotCurrent(t *testing.T) {
 	c := Container{
 		runtime:    fakeRuntime{name: "docker", binary: script, available: true},
 		image:      "ctxloom-agent-unverifiable-provenance-test:latest",
+		engine:     "claude-code",
 		engineSpec: engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 	}
 	require.NoError(t, c.ensureImage(context.Background()),
@@ -813,6 +873,7 @@ func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
 		return Container{
 			runtime:    fakeRuntime{name: "docker", binary: script, available: true},
 			image:      "ctxloom-agent-stale-test:latest",
+			engine:     "claude-code",
 			engineSpec: engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 		}
 	}
@@ -857,6 +918,7 @@ func TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded(t *testing.T) {
 			runtime:           fakeRuntime{name: "docker", binary: script, available: true},
 			image:             "ctxloom-agent-userbase-test:latest",
 			baseContainerfile: base,
+			engine:            "claude-code",
 			engineSpec:        engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 		}
 	}
@@ -1057,7 +1119,7 @@ func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
 
 	dir := t.TempDir()
 	spec := engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")}
-	_, provenance, ok := composedIdentity(spec, "", nil, nil)
+	_, provenance, ok := composedIdentity(spec, "", nil, "claude-code")
 	require.True(t, ok)
 	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
 
@@ -1072,8 +1134,8 @@ func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
 	podmanRT, podmanLog := newRuntime("podman")
 
 	image := "ctxloom-agent-flightkey-test:latest"
-	require.NoError(t, (Container{runtime: dockerRT, image: image, engineSpec: spec}).ensureImage(context.Background()))
-	require.NoError(t, (Container{runtime: podmanRT, image: image, engineSpec: spec}).ensureImage(context.Background()))
+	require.NoError(t, (Container{runtime: dockerRT, image: image, engine: "claude-code", engineSpec: spec}).ensureImage(context.Background()))
+	require.NoError(t, (Container{runtime: podmanRT, image: image, engine: "claude-code", engineSpec: spec}).ensureImage(context.Background()))
 
 	assert.Len(t, buildInvocations(t, dockerLog), 2, "the first daemon builds base + agent stage")
 	assert.Len(t, buildInvocations(t, podmanLog), 2,
@@ -1103,7 +1165,7 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 
 	firstContent, err := stage.content()
 	require.NoError(t, err)
-	firstAgentTag, firstProvenance, ok := composedIdentity(spec, path, nil, nil)
+	firstAgentTag, firstProvenance, ok := composedIdentity(spec, path, nil, "claude-code")
 	require.True(t, ok)
 	firstBaseTag := baseImageTagFor(firstContent)
 
@@ -1111,7 +1173,7 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 
 	secondContent, err := stage.content()
 	require.NoError(t, err)
-	secondAgentTag, secondProvenance, ok := composedIdentity(spec, path, nil, nil)
+	secondAgentTag, secondProvenance, ok := composedIdentity(spec, path, nil, "claude-code")
 	require.True(t, ok)
 
 	assert.NotEqual(t, firstBaseTag, baseImageTagFor(secondContent),

@@ -57,27 +57,32 @@ func baseContentHash(content []byte) string {
 }
 
 // composedContentHash digests a resolved base's content TOGETHER WITH the
-// engine set composed onto it — the content-key for a COMPOSABLE spec's
-// shared agent image tag and provenance suffix (locked decision 4/§4): a
-// change to the base content, a devcontainer.json edit, OR an engine-set
-// change produces a different hash, so any of the three lands on a fresh tag
-// (simply absent, therefore built) through the SAME mechanism baseContentHash
-// gives the stage-1 base tag alone.
-func composedContentHash(content []byte, engines []string) string {
+// ENGINE keyed onto it — the content-key for a COMPOSABLE spec's agent image
+// tag and provenance suffix: a change to the base content, a devcontainer.json
+// edit, OR a different engine produces a different hash, so any of the three
+// lands on a fresh tag (simply absent, therefore built) through the SAME
+// mechanism baseContentHash gives the stage-1 base tag alone.
+func composedContentHash(content []byte, engine string) string {
 	h := sha256.New()
 	h.Write(content)
 	h.Write([]byte{0})
-	h.Write([]byte(strings.Join(engines, ",")))
+	h.Write([]byte(engine))
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 // composedImageTagFor is the shared image tag a COMPOSABLE spec's build
-// resolves to: one tag per (resolved base content, engine set) — identical
-// (base, engines) across different backends/sessions shares the SAME tag (and
-// the runtime's layer cache), since "one instance can run any of its
-// composed engines" (locked decision 3).
-func composedImageTagFor(content []byte, engines []string) string {
-	return "ctxloom-agent:" + composedContentHash(content, engines)
+// resolves to: one tag per (resolved base content, ENGINE) — the same
+// (base, engine) across different projects and sessions shares the SAME tag
+// and the runtime's layer cache. One engine per image, so the identity is a
+// function of the engine alone and cannot shift when some other project binds
+// a different set.
+// The ENGINE IS IN THE TAG, not only in the hash. A hash-only tag made two
+// images for different engines indistinguishable in `docker images`, so a
+// wrong-engine image could not be spotted by looking — and image identity is
+// content-addressed, meaning a wrong composition builds, runs, and is simply
+// the wrong thing. Naming the engine makes that visible at a glance.
+func composedImageTagFor(content []byte, engine string) string {
+	return "ctxloom-agent-" + engine + ":" + composedContentHash(content, engine)
 }
 
 // baseForIdentity resolves WHICH base stage a spec's local build would use
@@ -101,7 +106,7 @@ func baseForIdentity(baseContainerfile string, devBase *baseStage) *baseStage {
 // isn't composable (no known engine fragment) or the resolved base's content
 // can't be read — callers fall back to the spec's static image field and
 // the legacy HostProvenanceDigest.
-func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *baseStage, engines []string) (image, provenance string, ok bool) {
+func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *baseStage, engine string) (image, provenance string, ok bool) {
 	if p.engineInstall == nil {
 		return "", "", false
 	}
@@ -109,10 +114,9 @@ func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *
 	if err != nil {
 		return "", "", false
 	}
-	resolved := resolveEngines(engines)
-	image = composedImageTagFor(content, resolved)
+	image = composedImageTagFor(content, engine)
 	if bd := hostBinariesDigest(); bd != "" {
-		provenance = bd + "-" + composedContentHash(content, resolved)
+		provenance = bd + "-" + composedContentHash(content, engine)
 	}
 	return image, provenance, true
 }
@@ -258,15 +262,17 @@ type buildSourcesOptions struct {
 	// devBase is the auto-detected project devcontainer base (nil = none
 	// detected, or opted out) — see resolveDevBase.
 	devBase *baseStage
-	// engines is the resolved isolation_engines set for a COMPOSABLE spec
-	// (p.engineInstall != nil); ignored for a non-composable spec.
-	engines []string
+	// engine is THIS agent's engine for a COMPOSABLE spec (p.engineInstall !=
+	// nil); ignored for a non-composable spec. One engine, not a set: an agent
+	// image carries exactly the engine that agent runs, so there is no
+	// composition to resolve and no other vendor's installer to fail on.
+	engine string
 }
 
 // buildSources orders a spec's local-build sources. An explicit base-IMAGE
 // override wins outright (the caller asserts the client lives there). A
 // COMPOSABLE spec (engineInstall != nil — claude-code/codex/kiro/
-// opencode) then builds the SAME composed multi-engine Containerfile
+// opencode) then builds the generated SINGLE-ENGINE Containerfile
 // (composeAgentContainerfile) onto, in order: the explicit user base
 // Containerfile, the auto-detected project devcontainer, and the embedded
 // default base — precedence locked decision 8 (explicit beats auto-detect
@@ -303,40 +309,39 @@ func buildSources(p engineContainerSpec, opts buildSourcesOptions) []buildSource
 }
 
 // composableBuildSources builds the ordered source list for a COMPOSABLE
-// spec: the same generated multi-engine Containerfile (one build per
-// engine in composeAgentContainerfile's deterministic order) layered onto
-// each candidate base in precedence order.
+// spec: the generated SINGLE-ENGINE Containerfile layered onto each candidate
+// base in precedence order.
 func composableBuildSources(p engineContainerSpec, opts buildSourcesOptions) []buildSource {
-	engines := resolveEngines(opts.engines)
-	if len(engines) == 0 {
-		// composeAgentContainerfile(nil) still renders a
+	engine := opts.engine
+	if engineContainerSpecFor(engine).engineInstall == nil {
+		// composeAgentContainerfile with an unknown engine still renders a
 		// complete, buildable Containerfile with ZERO engine-install layers —
 		// it builds, tags, and passes every image gate, then fails every run
 		// with the engine binary simply absent. Fail loud here instead of
 		// silently building a green, empty image.
 		strictness.Fail(strictness.ClassIsolation, noComposableEnginesFixIt,
-			"isolation_engines resolved to no known engine; the composed agent image would contain no engine at all")
+			"no known engine-install recipe for engine %q; the agent image would contain no engine at all", engine)
 		return nil
 	}
-	composed := composeAgentContainerfile(engines)
-	enginesDesc := strings.Join(engines, "+")
+	composed := composeAgentContainerfile(engine)
+	enginesDesc := engine
 	var out []buildSource
 	if opts.baseContainerfile != "" {
 		out = append(out, buildSource{
-			desc:          fmt.Sprintf("composed agent stage (engines: %s) on the user base Containerfile %s", enginesDesc, opts.baseContainerfile),
+			desc:          fmt.Sprintf("agent stage (engine: %s) on the user base Containerfile %s", enginesDesc, opts.baseContainerfile),
 			containerfile: composed,
 			base:          userBaseStage(opts.baseContainerfile),
 		})
 	}
 	if opts.devBase != nil {
 		out = append(out, buildSource{
-			desc:          fmt.Sprintf("composed agent stage (engines: %s) on the auto-detected project devcontainer (%s)", enginesDesc, opts.devBase.desc),
+			desc:          fmt.Sprintf("agent stage (engine: %s) on the auto-detected project devcontainer (%s)", enginesDesc, opts.devBase.desc),
 			containerfile: composed,
 			base:          opts.devBase,
 		})
 	}
 	out = append(out, buildSource{
-		desc:          fmt.Sprintf("composed agent stage (engines: %s) on the embedded default base", enginesDesc),
+		desc:          fmt.Sprintf("agent stage (engine: %s) on the embedded default base", enginesDesc),
 		containerfile: composed,
 		base:          defaultBaseStage(),
 	})
@@ -395,27 +400,30 @@ const baseContractLayer = `RUN (command -v apt-get >/dev/null 2>&1 \
 // composeAgentContainerfile generates the MULTI-ENGINE agent Containerfile
 // (locked decisions 2-4): the base-contract fragment (best-
 // effort tool layer for an ARBITRARY base) → the common scaffold (identity/
-// entrypoint/labels — the exact overlayUserLayer/overlayUserGate contract
-// overlayContainerfile already uses) → one engine-install RUN layer PER
-// SELECTED ENGINE in composableEngines() order (a SEPARATE, independently-
-// cacheable layer per engine: editing one engine's fragment busts only the
-// layers after it, OCI being linear) → the running ctxloom binary + companions
-// + the ctxloom/companion ABI gates. `engines` should already be resolveEngines-
+// entrypoint — the exact overlayUserLayer/overlayUserGate contract
+// overlayContainerfile already uses) → THE one engine-install RUN layer →
+// the version labels, the running ctxloom binary + companions, and the
+// ctxloom/companion ABI gates. The engine sits ABOVE everything that changes
+// per build, so a ctxloom rebuild never re-runs the vendor installer. `engine`
 // filtered; an engine with no known fragment (engineContainerSpecFor(e).engineInstall
 // == nil) is silently skipped here — resolveEngines already warned about it,
 // so this is defensive, not a second warning site.
-func composeAgentContainerfile(engines []string) []byte {
+func composeAgentContainerfile(engine string) []byte {
 	var b strings.Builder
-	b.WriteString("# Generated by ctxloom: a composed MULTI-ENGINE agent image — the running\n")
-	b.WriteString("# ctxloom binary plus one independently-built layer per selected engine\n")
-	b.WriteString("# (each via its OWN official installer), layered onto the resolved base via\n")
-	b.WriteString("# ARG BASE_IMAGE (the embedded default, a user Containerfile, or the\n")
-	b.WriteString("# project's auto-detected .devcontainer/devcontainer.json).\n")
+	b.WriteString("# Generated by ctxloom: a SINGLE-ENGINE agent image — one engine (via its\n")
+	b.WriteString("# OWN official installer) plus the running ctxloom binary, layered onto the\n")
+	b.WriteString("# resolved base via ARG BASE_IMAGE (the embedded default, a user\n")
+	b.WriteString("# Containerfile, or the project's auto-detected .devcontainer/devcontainer.json).\n")
 	b.WriteString("#\n")
-	b.WriteString("# engines: " + strings.Join(engines, ", ") + "\n")
+	b.WriteString("# ONE ENGINE PER IMAGE, and that is the design rather than a simplification.\n")
+	b.WriteString("# A composed multi-engine image made every run hostage to every OTHER\n")
+	b.WriteString("# vendor's installer. Image identity is now a function of ONE engine, so it\n")
+	b.WriteString("# caches across projects and cannot fail on a vendor this run does not use.\n")
 	b.WriteString("#\n")
-	b.WriteString("# AUTH is NOT baked in for any engine — it crosses at RUN time, chosen by the\n")
-	b.WriteString("# container policy per backend. This image ships no secrets.\n")
+	b.WriteString("# engine: " + engine + "\n")
+	b.WriteString("#\n")
+	b.WriteString("# AUTH is NOT baked in — it crosses at RUN time, chosen by the container\n")
+	b.WriteString("# policy per backend. This image ships no secrets.\n")
 	b.WriteString("ARG BASE_IMAGE=ctxloom-agent-base:latest\n")
 	b.WriteString("FROM ${BASE_IMAGE}\n")
 	b.WriteString(baseContractLayer + "\n")
@@ -424,18 +432,27 @@ func composeAgentContainerfile(engines []string) []byte {
 	b.WriteString("COPY ctxloom-entrypoint /usr/local/bin/ctxloom-entrypoint\n")
 	b.WriteString("RUN chmod 0755 /usr/local/bin/ctxloom-entrypoint\n")
 	b.WriteString("ENTRYPOINT [\"/usr/local/bin/ctxloom-entrypoint\"]\n")
+	// LAYER ORDER IS LOAD-BEARING: [base tooling] -> [engine install] -> [ctxloom
+	// binary + companions]. Docker invalidates every layer after a changed one,
+	// and the ctxloom binary changes on essentially every build while an engine
+	// installer almost never does — so the binary goes LAST and a ctxloom rebuild
+	// invalidates only a thin COPY.
+	//
+	// THE VERSION LABELS MUST STAY BELOW THE ENGINE INSTALL. They interpolate ARG
+	// CTXLOOM_VERSION, which changes on every build; sited ABOVE the engine (where
+	// they were until 2026-08-25) they invalidated the engine layer every single
+	// time, re-running the vendor installer on every ctxloom change. That is the
+	// path that killed a live probe cell when one of those installers hit
+	// GitHub's anonymous API quota.
+	if frag := engineContainerSpecFor(engine).engineInstall; frag != nil {
+		b.WriteString("# engine: " + engine + "\n")
+		b.Write(frag)
+	}
 	b.WriteString("ARG CTXLOOM_VERSION=\"\"\n")
 	b.WriteString("ARG CTXLOOM_PROVENANCE=\"\"\n")
 	b.WriteString("LABEL ctxloom.version=\"${CTXLOOM_VERSION}\"\n")
 	b.WriteString("LABEL ctxloom.provenance=\"${CTXLOOM_PROVENANCE}\"\n")
-	for _, e := range engines {
-		frag := engineContainerSpecFor(e).engineInstall
-		if frag == nil {
-			continue
-		}
-		b.WriteString("# engine: " + e + "\n")
-		b.Write(frag)
-	}
+	b.WriteString("LABEL ctxloom.engine=\"" + engine + "\"\n")
 	b.WriteString("COPY ctxloom /usr/local/bin/ctxloom\n")
 	b.WriteString("COPY companions/ /usr/local/bin/\n")
 	b.WriteString("RUN /usr/local/bin/ctxloom version\n")
@@ -1006,9 +1023,9 @@ type ImageBuildOptions struct {
 	// (config isolation_devcontainer_service).
 	DevcontainerService string
 	// Engines selects which engine fragments compose into a COMPOSABLE
-	// backend's shared agent image (config isolation_engines / --engines);
-	// empty = every engine with a known official-installer fragment
-	// (composableEngines()). Ignored for a non-composable backend.
+	// WHICH per-engine images to build (config isolation_engines / --engines);
+	// empty = just this invocation's backend. NOT a composition set: an agent
+	// image carries exactly ONE engine. Ignored for a non-composable backend.
 	Engines []string
 	// Runtime prefers a container runtime by name ("docker" | "podman");
 	// empty auto-detects.
@@ -1052,7 +1069,7 @@ func selectBuildRuntime(prefer string) (Runtime, error) {
 
 // BuildAgentImage builds the agent image for the REGISTERED backend name from
 // the best available source — the caller's base-image overlay, the composed
-// multi-engine agent stage on a user base Containerfile / the auto-detected
+// single-engine agent stage on a user base Containerfile / the auto-detected
 // project devcontainer / the embedded default base (locked decision 8:
 // explicit beats auto-detect beats default), or (for a non-composable
 // backend) the client's official image / embedded install recipe — layering
@@ -1077,7 +1094,7 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 		baseOverride:      opts.BaseImage,
 		baseContainerfile: opts.BaseContainerfile,
 		devBase:           devBase,
-		engines:           opts.Engines,
+		engine:            backend,
 	})
 	if len(sources) == 0 {
 		return "", fmt.Errorf("backend %q has no local build recipe (no official client image and no embedded Containerfile); pass --base-image with the client preinstalled", backend)
@@ -1090,7 +1107,7 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 	if err != nil {
 		return "", err
 	}
-	image, provenance, composable := composedIdentity(p, opts.BaseContainerfile, devBase, opts.Engines)
+	image, provenance, composable := composedIdentity(p, opts.BaseContainerfile, devBase, backend)
 	if !composable {
 		image, provenance = p.image, HostProvenanceDigest(opts.BaseContainerfile)
 	}

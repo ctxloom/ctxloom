@@ -35,6 +35,13 @@ type Fake struct {
 	IgnoredContent map[string]bool
 	// CommonDirValue is what CommonDir returns (empty → "<dir>/.git").
 	CommonDirValue string
+	// CommonDirErr, when set, is returned by CommonDir instead of
+	// CommonDirValue. A caller that resolves the common dir to build a
+	// container gitdir mount must UNWIND anything it already created when
+	// that resolution fails; this injector is the only way to reach that
+	// unwind path, which is otherwise indistinguishable from the mount
+	// simply succeeding.
+	CommonDirErr error
 	// TrackedFiles is what ListTracked returns (the repo-tracked config files a
 	// worktree carries); nil → none, so the skip-worktree pass is a no-op.
 	TrackedFiles []string
@@ -141,6 +148,9 @@ func (f *Fake) IsRepo(dir string) bool {
 func (f *Fake) CommonDir(_ context.Context, dir string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.CommonDirErr != nil {
+		return "", f.CommonDirErr
+	}
 	if f.CommonDirValue != "" {
 		return f.CommonDirValue, nil
 	}

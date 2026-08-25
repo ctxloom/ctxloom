@@ -96,12 +96,13 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 
 			// The axes come from the Examples table because the drift test reads
 			// them there (featureCellKeys matches engine/runtime/workspace by
-			// column NAME), and they are checked against what this fixture
-			// actually builds. j002300PerEngineConfigYAML writes `workspace:
-			// none` and no `runtime: container`, so a row claiming any other
-			// cell would be addressable, runnable, and a lie about what it ran.
-			if runtime != "host" || workspace != "none" {
-				return fmt.Errorf("p6: this outline builds a host/none fixture (j002300PerEngineConfigYAML writes workspace: none and no container runtime), but the row asks for runtime=%q workspace=%q. The registry declares P6 on host/none only; adding an axis means building the fixture for it, not relabelling this one", runtime, workspace)
+			// column NAME), and they are checked against what this fixture can
+			// actually BUILD — not merely against what it can name. A row whose
+			// axes this fixture does not construct would be addressable,
+			// runnable, and a lie about what it ran, so it is refused here
+			// rather than allowed to report a host run as a container one.
+			if !p6FixtureBuilds(runtime, workspace) {
+				return fmt.Errorf("p6: this fixture builds %s, but the row asks for runtime=%q workspace=%q. Adding an axis means building the fixture for it, not relabelling an existing one", p6BuildableAxes(), runtime, workspace)
 			}
 			if err := p6RefuseEmptyMarker(engine, marker); err != nil {
 				return err
@@ -151,13 +152,27 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			if err := j002300WriteAgent(w, spec); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec)); err != nil {
+			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, runtime, workspace)); err != nil {
 				return err
 			}
 			// The mail plane, in the layer that is allowed to carry it.
 			if err := w.env.WriteHomeFile(".ctxloom/config.yaml", p6SpoolHomeConfigYAML()); err != nil {
 				return err
 			}
+			// A WORKTREE SPAWN REFUSES A DIRTY CHECKOUT. Everything above wrote
+			// bundle/profile/config files into the project moments ago, and
+			// operations' delegate.go refuses to auto-commit on the fixture's
+			// behalf ("refusing to auto-commit for delegated agent") because a
+			// worktree checkout only ever contains committed state. Committing
+			// here is what makes the worktree axis reachable at all; without it
+			// the cell dies before a single turn is spent, which reads as a bus
+			// failure and is not one.
+			if workspace == "worktree" {
+				if err := w.env.GitCommit("p6 fixture: bundle, profile and config for the steer-echo child"); err != nil {
+					return err
+				}
+			}
+
 			// Subscription path: MAP this engine at its real credential
 			// directory, never copy — see seedLiveCredentials.
 			return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)

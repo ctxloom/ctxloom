@@ -465,6 +465,32 @@ var probeRegistry = []probeSpec{
 				"measured 2026-08-13: FIRST live proof of coordinator→child mid-session steer on kiro. 1 scenario / 11 steps green, echo `fluid-paced-badge`, steer on disk in the child's in plane. Assertion-side mutation went RED with a BUS-DELIVERY shape. NOTE this engine's P0 host/none cell is red-mapped for terminal decoration on one-shot stdout — that defect is in the run-output channel and does not touch the bus, which is why this cell is green while that one is not."),
 			hostCell("opencode", probeLiveVerified,
 				"measured 2026-08-13: FIRST live proof of coordinator→child mid-session steer on opencode, the engine whose delegated-child path shipped on the StartRun/runner model with no live round trip behind it. 1 scenario / 11 steps green, echo `slack-inept-prude`; slowest of the four (the echo turn landed ~79s after the steer), so do not shorten the 240s budget on its account. Assertion-side mutation went RED with a BUS-DELIVERY shape."),
+			// THE ISOLATED CELL. Every row above runs host/none — isolated on
+			// NEITHER axis — so until this one goes green, "delegation works"
+			// and "delegation works across the isolation boundary" are
+			// different claims and only the first is proven. That gap is what
+			// uninvited-maternity is about: a container boundary nothing
+			// exercises end to end.
+			//
+			// WIRED, not deferred, and the difference is load-bearing: a
+			// DEFERRED cell must carry no runnable Examples row (a scenario for
+			// a capability the engine declares gone would skip forever and read
+			// as coverage), which is exactly what
+			// TestProbeRegistry_WiredProbesMatchTheirFeatureFile refused when
+			// this cell was first written deferred. Wired says the opposite and
+			// true thing: the row runs, and no evidence has been recorded yet.
+			//
+			// UNVERIFIED on purpose. The fixture is built
+			// (p6BuildableCells declares the pair; j002300PerEngineConfigYAML
+			// writes `runtime: container-rootless` on the binding and
+			// `workspace: worktree` at the top level; the P6 step commits the
+			// fixture because a worktree spawn refuses a dirty checkout) but no
+			// paid turn has been spent on it here. It stays deferred until a run
+			// records what it measured, rather than inheriting the host rows'
+			// evidence — they ran a different configuration.
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree",
+				Status: probeWired,
+				Reason: "NOT YET RUN. claude-code is the only engine wired for this pair, and container-rootless is the only container ownership any box this suite has run on can reach (containercell.probeDocker asserts a host has at most one; this one runs rootless 29.3.0), so container-rootful is deliberately absent rather than declared-and-skipped. Run it with `just isolation-probe`-style tag addressing: ACCEPTANCE_TAGS=\"@live && @probe-p6-steer-echo && @claude-code && @container-rootless\". Expect roughly a minute, not seconds — P0 measured its container leg at 57s including the image build. When it runs, replace this with what was measured (harp echoed, steer on disk) or with the failure shape, and say which."},
 		},
 	},
 	{

@@ -155,6 +155,30 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       |            | aborts with an isolation finding  |
       | --degraded | runs on the host                  |
 
+  # LOCKED — isolation.prepareChain's container-to-host DOWNGRADE: the sibling
+  # gate the row above deliberately EXCLUDES. There a container is never
+  # selected (no runtime); here one IS selected and then fails to START.
+  #
+  # Reaching it needs both halves at once, which is why it did not exist before:
+  # the runtime must report itself reachable (so chainFor puts a container
+  # policy in the chain) AND the image must be unproducible. The DEFAULT image
+  # name is content-addressed, so it is absent but BUILDABLE and ctxloom builds
+  # it — measured. An isolation_images override is "run AS-IS and never built",
+  # so it is absent AND unbuildable, and isolation.Container.ensureImage errors.
+  #
+  # What this pins is the security half of the contract: prepareChain's
+  # `IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next)` guards the
+  # finding that says the session is NOT sandboxed. Both operands of that
+  # condition could be replaced with `true` with the suite staying green.
+  Scenario Outline: A container that was selected and cannot start fails loud, or degrades
+    When Alice runs a container-bound agent whose image cannot be produced, with flags "<flags>"
+    Then the run <outcome>
+
+    Examples:
+      | flags      | outcome                            |
+      |            | aborts at the container START gate  |
+      | --degraded | runs on the host                    |
+
   # ===========================================================================
   # THE CONTAINER CREDENTIAL AXIS — real-home mount, not a copy (unripe-juiciness).
   #

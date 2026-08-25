@@ -1,9 +1,9 @@
 ---
-name: good-night
+name: unattended
 description: Work an admitted queue of tasks autonomously and unattended — overnight or while the human is away — getting as far as is safely feasible and stopping short of any decision that is hard to reverse or that endangers the environment. Use when the human says "good night", "run overnight", "work the queue while I'm out", "grind on this unattended", or hands over a tagged backlog and leaves. Coordinator role.
 ---
 
-# good-night
+# unattended
 
 You are running **unattended**. Nobody will answer a question, approve a
 prompt, or rescue a wedged run until morning. That single fact changes what
@@ -48,6 +48,21 @@ how a night gets wasted.
    stop and say so** — you cannot tell your breakage from pre-existing
    breakage, and you will spend the night chasing someone else's bug.
 4. **Pin the base SHA.** Record it. Every branch you cut starts here.
+   **COMMIT FIRST, so the baseline is attributable.** An unattended run that
+   starts on a dirty tree cannot tell its own changes from what was already
+   there, and neither can the human reading the diff in the morning. Commit the
+   outstanding work, then pin the SHA of THAT commit.
+
+   This is baseline hygiene and nothing else — it does NOT quiet the Stop
+   hook. That guard reads the TURN (a file write, a mutating shell command, a
+   dispatched agent), not the tree, so a committed clean checkout still trips
+   it. The marker in step 8 is what silences it.
+
+   **Never sweep work you do not own.** If the tree carries changes belonging to
+   another session or to the human, STOP AND ASK while they are still awake —
+   `git add -A` across somebody else's in-flight edits is exactly the
+   irreversible mistake this run exists to avoid. Committing your own outstanding
+   work is hygiene; committing theirs is data loss with a commit message on it.
 5. **Check for other sessions' in-flight work.** `taskloom list` for In
    Progress items touching your files, and `git worktree list`. Another
    coordinator may be live in this repo right now. Route around their files;
@@ -57,6 +72,29 @@ how a night gets wasted.
 7. **Write the report file's header immediately** — queue, baseline, base SHA,
    start time. If you die in the first ten minutes, the human still learns
    something.
+8. **Write the unattended marker** — LAST, once the human has actually gone:
+
+   ```sh
+   mkdir -p .ctxloom/state && date -u +%Y-%m-%dT%H:%M:%SZ > .ctxloom/state/unattended
+   ```
+
+   This
+   silences the Stop hook's close-out checklist, which otherwise fires on every
+   turn that changed anything and costs a full turn per unit of work; with the
+   loop woken only by background jobs finishing, that tax comes straight out of
+   the night. Do it last on purpose: the triage above happens while the human is
+   still awake, and that conversation should behave normally.
+
+   **The contract it silences still binds you.** Nothing about the checklist
+   going quiet changes what you owe: verify against the real gate and read exit
+   codes, kill a mutation for every test you write or change and report the
+   survivors, keep the task log true, and say "not done" where that is the
+   truth. The checklist was a reminder, not the rule. This skill is the rule.
+
+   The path is already gitignored (ctxloom's own `.ctxloom/.gitignore` ignores
+   `/state`), so it never shows up in a diff. It expires after 12 hours, so a run
+   that dies cannot silence interactive sessions indefinitely — but that is a
+   backstop, not permission to skip the cleanup below.
 
 ---
 
@@ -211,6 +249,17 @@ kept for themselves. Instead, **deepen what you already did**:
 
 Write no new features and start no new queue items. Then clean up and finish.
 
+**Removing the marker is part of that cleanup, and it is not optional:**
+
+```sh
+rm -f .ctxloom/state/unattended
+```
+
+The marker you wrote at pre-flight silences the close-out checklist for every
+session in this project, not just yours. Clear it before you write the final
+report, and say in the report's environment section that you did — "cleaned up"
+has been false before, so `ls` the path rather than trusting the command's exit.
+
 ---
 
 ## The morning report
@@ -233,7 +282,8 @@ readable **cold in about a minute**, by someone with no memory of last night:
    Lead with it rather than burying it. The report's value is being true, not
    being impressive.
 5. **Environment state** — worktrees created and reaped, processes started and
-   stopped, anything left running and why.
+   stopped, anything left running and why, and whether the unattended marker was
+   cleared (`.ctxloom/state/unattended` must not exist).
 6. **Where to pick up.**
 
 State uncertainty plainly. "I could not verify X without Y" is a useful

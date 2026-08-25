@@ -505,5 +505,22 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine      | runtime            | workspace | marker                                    |
       | claude-code | container-rootless | worktree  | P6-WAKE-MARKER-CLAUDE-CODE-CTRWT-9d4f21ab |
 
+    # THE TWO MIXED CORNERS, completing the matrix. host/none and
+    # container-rootless/worktree prove the bus with BOTH boundaries off and
+    # BOTH on; these prove it with exactly one present. The axes are
+    # independent, so a bus that survives the combination could still fail on a
+    # single boundary — worktree alone relocates the child's files and its
+    # config home, container alone relocates its process and its credentials,
+    # and each could break the mail plane on its own.
+    @claude-code @host @ws-worktree
+    Examples:
+      | engine      | runtime | workspace | marker                                   |
+      | claude-code | host    | worktree  | P6-WAKE-MARKER-CLAUDE-CODE-HOSTWT-3e7c15 |
+
+    @claude-code @container-rootless @ws-none
+    Examples:
+      | engine      | runtime            | workspace | marker                                   |
+      | claude-code | container-rootless | none      | P6-WAKE-MARKER-CLAUDE-CODE-CTRNONE-b82a4 |
+
   # Back to: tests/acceptance/features/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).

@@ -45,14 +45,10 @@ type mcpTestClient struct {
 
 func startFixtureServer(t *testing.T, nonce string) (*mcpTestClient, probeMCPFixture) {
 	t.Helper()
-	interp, why := probeMCPInterpreterAvailable()
-	if interp == "" {
-		t.Skipf("%s", why)
-	}
 	f, err := probeMCPWriteFixture(t.TempDir(), nonce)
 	require.NoError(t, err)
 
-	cmd := exec.Command(interp, f.Script)
+	cmd := exec.Command(f.Binary, f.Dir)
 	in, err := cmd.StdinPipe()
 	require.NoError(t, err)
 	out, err := cmd.StdoutPipe()
@@ -203,16 +199,24 @@ func TestProbeMCPFixture_ScriptDoesNotLeakIntoTheWorkspace(t *testing.T) {
 		require.Contains(t, err.Error(), "empty nonce")
 	})
 
-	t.Run("the written script carries the nonce and the log path", func(t *testing.T) {
+	t.Run("the nonce lives beside the binary and NEVER in the registration", func(t *testing.T) {
 		const nonce = "brisk-cobalt-heron"
 		f, err := probeMCPWriteFixture(t.TempDir(), nonce)
 		require.NoError(t, err)
-		src, err := probeFileArtifact("script", f.Script)
+
+		got, err := probeFileArtifact("nonce", f.NoncePath)
 		require.NoError(t, err)
-		require.Contains(t, src.Body, nonce)
-		require.Contains(t, src.Body, f.CallLog)
-		require.NotContains(t, src.Body, probeMCPNoncePlaceholder,
-			"an unsubstituted placeholder would make the server serve the literal placeholder, and every cell would red as a VALUE failure")
+		require.Contains(t, got.Body, nonce)
+
+		// THE INVARIANT THAT REPLACED "the script carries the nonce". The
+		// server is now a binary taking the fixture DIRECTORY as its only
+		// argument, and config.yaml — which lives inside the workspace and is
+		// readable by the agent under test — must not carry the harp. A nonce
+		// on argv would be reachable without a tool call, and every cell would
+		// pass while proving nothing.
+		reg := probeMCPConfigYAML(f.Binary, f.Dir)
+		require.NotContains(t, reg, nonce,
+			"the registration names the fixture directory, never the harp: a nonce in config.yaml is readable from the agent's own workspace, so the round-trip assertion would pass without a round trip")
 	})
 
 	t.Run("the call log is absent until the server runs", func(t *testing.T) {
@@ -230,10 +234,10 @@ func TestProbeMCPFixture_ScriptDoesNotLeakIntoTheWorkspace(t *testing.T) {
 // wire.MCPConfig parses — nothing engine-specific, because the whole claim is
 // that ctxloom carried it to each engine's own surface.
 func TestProbeMCPFixture_ConfigRegistrationIsTheProductionSurface(t *testing.T) {
-	got := probeMCPConfigYAML("/usr/bin/python3", "/tmp/x y/nonce_mcp_server.py")
+	got := probeMCPConfigYAML("/opt/fix ture/nonce-mcp-server", "/tmp/x y/fixture")
 	require.Contains(t, got, "mcp:\n  servers:\n    "+probeMCPServerName+":\n")
-	require.Contains(t, got, `command: "/usr/bin/python3"`)
-	require.Contains(t, got, `- "/tmp/x y/nonce_mcp_server.py"`,
+	require.Contains(t, got, `command: "/opt/fix ture/nonce-mcp-server"`)
+	require.Contains(t, got, `- "/tmp/x y/fixture"`,
 		"paths are quoted: a temp directory with a space in it would otherwise produce a YAML list item that parses as something else entirely")
 	require.NotContains(t, got, "mcpServers",
 		"the fixture must write ctxloom's config grammar, not an engine's native file — writing the engine file directly would bypass the delivery this probe exists to test")

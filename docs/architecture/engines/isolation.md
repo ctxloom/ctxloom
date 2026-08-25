@@ -120,21 +120,32 @@ devcontainer > embedded default**. The embedded default (`defaultBaseStage`) is
 `FROM node:22-slim` and bakes `git`, `ripgrep`, `curl`, `ca-certificates`,
 `unzip`, `jq`, `strace` plus `TERM=xterm-256color`.
 
-**Stage 2 (agent)**, rendered by `composeAgentContainerfile(engines)`, in order:
+**Stage 2 (agent)**, rendered by `composeAgentContainerfile(engine)` — ONE
+engine per image — in order:
 
 1. `ARG BASE_IMAGE` → `FROM ${BASE_IMAGE}`
 2. `baseContractLayer` — best-effort apt tool layer
 3. `overlayUserLayer` — creates uid/gid 1000 `ctxloom`, installs gosu where apt exists
 4. `overlayUserGate` — **fails the build** without `id ctxloom` and without a privilege-drop path (`setpriv`, or `gosu` + `usermod` + `groupmod`)
 5. `COPY ctxloom-entrypoint` + `ENTRYPOINT`
-6. version/provenance `LABEL`s
-7. **one `RUN` layer per engine** (independently cacheable)
+6. **the engine's one `RUN` install layer**
+7. version/provenance/engine `LABEL`s
 8. `COPY ctxloom` + `COPY companions/`
 9. `RUN /usr/local/bin/ctxloom version`
 10. `companionGate` — drops ABI-incompatible companions with a warning rather than failing
 
 Identity is content-keyed: `composedContentHash` is `sha256(base content ‖ NUL ‖
-joined engines)`, tagged `ctxloom-agent:<hash>` by `composedImageTagFor`.
+engine)`, tagged `ctxloom-agent-<engine>:<hash>` by `composedImageTagFor` — the
+engine is in the TAG, not only the hash, so a wrong image is visible in
+`docker images` rather than only by recomputing a digest.
+
+**THE ORDER ABOVE IS LOAD-BEARING.** The version `LABEL`s interpolate
+`ARG CTXLOOM_VERSION`, which changes on every build, and docker invalidates
+every layer after a changed one — so while they sat ABOVE the engine install
+(until 2026-08-25) every ctxloom rebuild re-ran the vendor's installer. That is
+how a claude-code cell came to die three times on opencode's installer
+exhausting GitHub's anonymous API quota. The engine install goes above
+everything that changes per build; the ctxloom binary goes last.
 Provenance (`HostProvenanceDigest`) hashes the running ctxloom plus each present
 companion and is stamped as `LABEL ctxloom.provenance`, checked by `imageStale`.
 
@@ -430,9 +441,9 @@ the run carries — never fixed at construction time. `composableEngines()`
 returns exactly `["claude-code", "codex", "kiro", "opencode"]` (the antigravity
 engine's container spec — and the engine itself — was removed after 0.7.0;
 `acp.isolationBackendFor` fails a containerized `"agy"` loudly rather than
-routing it to a spec that no longer exists). `resolveEngines` filters a
-configured `isolation_engines` set against that list, in that order, never
-widening.
+routing it to a spec that no longer exists). `isolation_engines` / `--engines` names WHICH per-engine images to build (an
+image carries one engine, so there is no set to compose); `container build`
+loops over them.
 
 | Backend | Image | Install fragment | Build validate gate | `overlayDirs` | `transcriptStoreRel` |
 |---|---|---|---|---|---|
@@ -517,7 +528,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 10. **A user-owned (run-as-is) image must satisfy the identity contract** — a ctxloom-governed entrypoint or a non-root user, else `ClassIsolation` (`Container.checkRunAsIsIdentity`).
 11. **The engine never runs as root in a governed image** unless `--degraded` sets `CTXLOOM_ALLOW_ROOT=1`; the build itself fails without a privilege-drop path (`overlayUserGate`).
 12. **The build gates that the engine is runnable**, not merely installed.
-13. **A composed base stage is content-keyed** — base content and engine set are both in the tag.
+13. **An agent image is content-keyed** — base content and the ONE engine are both in the tag.
 14. **Identical-path bind mounts are verified, not assumed**; an empty root set is an error, not an "ok".
 15. **Commits from an agent never impersonate the human** — `gitIdentity` yields `"ctxloom agent <id>" <sanitized>@agents.ctxloom.local`.
 16. **Worktree teardown leaks rather than destroys** — `force=false`, unknown-dirty treated as dirty, and a WIP-bearing orphan is SPARED (`teardownWorktree`, `worktree_reap.go`).
@@ -540,7 +551,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 
 **Green build, nothing delivered**
 
-- **`composeAgentContainerfile(nil)` renders a complete, buildable, gate-passing image with zero engine layers.** Reachable via a typo'd `isolation_engines`: `resolveEngines` warns about unknown *names* but never about the resulting empty *set*, and no `len(engines)==0` guard exists anywhere in the package.
+- ~~**`composeAgentContainerfile(nil)` renders a complete, buildable, gate-passing image with zero engine layers.**~~ CLOSED 2026-08-25 by the one-image-per-engine split: `composableBuildSources` raises a fatal `ClassIsolation` finding when the engine has no known install recipe, rather than building a green, empty image.
 - **The staleness gate fails open**: `combineProvenance` returns `""` on unresolvable provenance and `imageStale("")` returns `false`, so any present image runs as-is with no diagnostic.
 - **A stale image that cannot rebuild because `resolveSelfExe` failed launches with no warning and no finding**, while the parallel "rebuild failed" path raises a fatal `ClassIsolation` for the identical outcome. `selfLinuxExe` errors unconditionally off Linux, so this is the **default path on macOS and Windows** dev hosts.
 - **`overlayContainerfile` emits its client-validation `RUN` only when `validate != ""`**, and the default profile's `validate` is `""` — so `container build <unprofiled> --base-image X` tags an image never checked to contain any engine.

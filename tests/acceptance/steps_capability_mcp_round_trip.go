@@ -78,9 +78,9 @@ const mcpProbeAgent = "nonce"
 const mcpProbeRunTimeout = 8 * time.Minute
 
 // mcpProbeFixtureDirName is the fixture server's directory, created as a SIBLING
-// of the project directory. Siting is load-bearing, not cosmetic: the script
-// holds the minted harp as a literal, so a script inside the project would hand
-// the agent the answer through a channel this probe does not test. It stays
+// of the project directory. Siting is load-bearing, not cosmetic: the nonce file
+// sits in this directory, so a directory inside the project would hand the agent
+// the answer through a channel this probe does not test. It stays
 // under the test environment's own root so the harness cleans it up.
 const mcpProbeFixtureDirName = "p2-mcp-fixture"
 
@@ -106,10 +106,14 @@ func mcpProbeOf(w *World) *mcpProbeState {
 
 // cell is this cell's identity in the ladder's vocabulary. Runtime and workspace
 // are FIXED rather than read from the Examples table because P2's runnable cells
-// are host/none only — the container rows are registry-deferred (container MCP
-// reach-back is the undesigned endpoint-discovery gap), so a cell here that
-// claimed another axis would be addressing something the registry says does not
-// run.
+// are host/none only — the container rows are registry-deferred, and the reason
+// is NOT the old "reach-back is undesigned" one (that was a misattribution: the
+// cross-container-comms gap governed the coordinator bus, never this fixture).
+// The real blocker is delivery: the fixture is sited outside the workspace ON
+// THE HOST, and a container cell runs the server inside the container where that
+// path does not exist. See the P2 rows in capability_probe_registry.go, and task
+// bats-excretion for the seam that would close it. A cell here that claimed
+// another axis would be addressing something the registry says does not run.
 func (m *mcpProbeState) cell() probeCellID {
 	return probeCellID{Probe: probeP2, Engine: m.engine, Runtime: "host", Workspace: "none"}
 }
@@ -181,7 +185,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			// host/none fixture while its tags, its registry row and its evidence all
 			// said something else. Refusing here makes the columns load-bearing.
 			if runtime != "host" || workspace != "none" {
-				return fmt.Errorf("probe-p2-mcp: this probe's runnable cells are host/none only, got runtime=%q workspace=%q. The container rows are DEFERRED in the probe registry (container MCP reach-back is the undesigned endpoint-discovery gap); a worktree row was never designed. Add the axis to the registry first, or the cell would run a host fixture under another cell's name",
+				return fmt.Errorf("probe-p2-mcp: this probe's runnable cells are host/none only, got runtime=%q workspace=%q. The container rows are DEFERRED in the probe registry because the fixture is sited outside the workspace ON THE HOST and a container cell runs the server inside the container, where that path does not exist (task bats-excretion). This step also hard-codes --workspace none and writes no runtime:, so a row claiming another axis would run a HOST fixture under that cell's name",
 					runtime, workspace)
 			}
 
@@ -201,12 +205,12 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			}
 			m.nonce = nonce
 
-			// OUTSIDE the project, checked here rather than assumed: the script
-			// carries the harp as a literal, and a script the agent could read would
+			// OUTSIDE the project, checked here rather than assumed: the nonce file
+			// lives in this directory, and a nonce the agent could read would
 			// satisfy this probe through a channel it does not test.
 			fixtureDir := filepath.Join(filepath.Dir(w.env.ProjectDir), mcpProbeFixtureDirName)
 			if within, err := filepath.Rel(w.env.ProjectDir, fixtureDir); err == nil && !strings.HasPrefix(within, "..") {
-				return fmt.Errorf("probe-p2-mcp: the fixture MCP server directory %s is INSIDE the cell's workspace %s — the script holds the minted harp, so the agent could read the answer without ever calling the tool and the cell would false-green",
+				return fmt.Errorf("probe-p2-mcp: the fixture MCP server directory %s is INSIDE the cell's workspace %s — the nonce file lives there, so the agent could read the answer without ever calling the tool and the cell would false-green",
 					fixtureDir, w.env.ProjectDir)
 			}
 			m.fixture, err = probeMCPWriteFixture(fixtureDir, nonce)

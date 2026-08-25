@@ -54,10 +54,13 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
   MCP-delivery failure that is really a trust decision.
 
   HOST/NONE ONLY, and the blanks have reasons. The four container rows are
-  recorded in the probe registry as DEFERRED, not red: MCP reach-back from inside
-  a container is the undesigned endpoint-discovery gap (the value crosses no
-  boundary today because nothing tells the in-container engine where to reach),
-  and measuring an undesigned thing as a defect would put a design decision in
+  recorded in the probe registry as DEFERRED, not red: the fixture server is
+  sited outside the workspace ON THE HOST, and a container cell runs it INSIDE
+  the container as a child of the engine, where that path does not exist. (The
+  reason recorded here until 2026-08-25 blamed an undesigned MCP reach-back gap;
+  that was a misattribution — the cross-container-comms finding governed the
+  COORDINATOR bus and never this fixture.) Measuring an undelivered fixture as a
+  defect would put a harness gap in
   the engine's column. They get cells when that is designed. Every cell here
   self-skips LOUDLY, naming the engine and the reason — an absent or
   unauthenticated engine, or a missing python3 for the fixture server, which

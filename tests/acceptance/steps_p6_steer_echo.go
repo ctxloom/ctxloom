@@ -222,9 +222,29 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			// machine-scoped config (the mail plane, the image pin) lives in the
 			// fake home. Repointing would silently drop those and read the
 			// developer's real ~/.ctxloom/config.yaml instead.
-			if runtime != "" && runtime != "host" {
+			// WHICH CELLS NEED THE LINK: any run whose credential is resolved
+			// from $HOME rather than from an env var. That is BOTH isolated
+			// axes, for two different mechanisms:
+			//
+			//   container -> isolation.claudeCredentialMounts BIND-MOUNTS
+			//                ~/.claude/.credentials.json into the per-agent home
+			//   worktree  -> credentialSeedSpecs["claude-code"].sourceFiles SEEDS
+			//                the same file into a per-agent config-home
+			//
+			// Both take their source path from isolation.hostHomeDir
+			// (os.UserHomeDir), so both are blind to the CLAUDE_CONFIG_DIR that
+			// seedLiveCredentials exports. Only host+none reads that var and so
+			// only host+none works without the link.
+			//
+			// MEASURED: gating this on runtime alone left host/worktree failing
+			// with "no host claude credentials found to seed the per-agent
+			// config-home — the agent would start logged out". Neither extreme
+			// corner could catch it: host/none seeds no per-agent home, and
+			// container/worktree was already covered by the runtime gate. That
+			// is precisely what the mixed corners exist to find.
+			if (runtime != "" && runtime != "host") || workspace == "worktree" {
 				if realHomeDir == "" {
-					return fmt.Errorf("p6: container cell needs the real host home to resolve the credential mount, and none was captured — refusing rather than running a cell that would report an engine failure that is the harness's own doing")
+					return fmt.Errorf("p6: an isolated cell needs the real host home to resolve the credential (mounted for a container, seeded for a worktree), and none was captured — refusing rather than running a cell that would report an engine failure that is the harness's own doing")
 				}
 				src := filepath.Join(realHomeDir, ".claude", ".credentials.json")
 				if _, err := os.Stat(src); err != nil {
@@ -239,7 +259,12 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				if err := os.Symlink(src, dst); err != nil {
 					return fmt.Errorf("p6: link the real claude credential into the fixture home: %w", err)
 				}
-				return nil
+				if workspace != "worktree" {
+					return nil
+				}
+				// host+worktree still wants the env mapping as well: the seed
+				// path reads the linked file, and the engine itself reads the
+				// exported var. Falling through gives it both.
 			}
 
 			// Subscription path: MAP this engine at its real credential

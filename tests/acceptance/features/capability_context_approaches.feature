@@ -120,6 +120,31 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
       | engine      | runtime | workspace | approach      | variant       |
       | claude-code | host    | none      | system-prompt | system-prompt |
 
+    # THE CONTAINER CELLS, and they ask a question no other probe answers.
+    # P0 proves a nonce planted in DEFAULT composed context survives both axes.
+    # These ask whether the PINNED system-prompt route does — and that is not
+    # the same claim, because this delivery writes an out-of-cwd scratch file
+    # (appendFlagDelivery, consumed via --append-system-prompt-file) rather than
+    # a file in the tree the container already mounts. If the scratch file is
+    # written host-side, a container cell CANNOT see it, and the cell reds as a
+    # CONTEXT-DELIVERY failure. That red would be a real product finding about
+    # containerized context delivery, not a fixture fault — which is why these
+    # rows are worth their turns either way.
+    #
+    # BOTH workspace values, for the reason P6 measured the hard way: its
+    # host/worktree cell failed where both-off and both-on passed. The defect
+    # lives where exactly ONE boundary is on, so a container row without its
+    # worktree partner rebuilds the blind spot it was added to remove.
+    @claude-code @container-rootless @ws-none @var-system-prompt
+    Examples:
+      | engine      | runtime            | workspace | approach      | variant       |
+      | claude-code | container-rootless | none      | system-prompt | system-prompt |
+
+    @claude-code @container-rootless @ws-worktree @var-system-prompt
+    Examples:
+      | engine      | runtime            | workspace | approach      | variant       |
+      | claude-code | container-rootless | worktree  | system-prompt | system-prompt |
+
     # FIXED 2026-08-16 (was RED, MEASURED 2026-08-13, AND THE FINDING WAS A
     # PRODUCT ONE). claude's hook route should carry context through a
     # SessionStart inject-context hook ctxloom writes into .claude/settings.json

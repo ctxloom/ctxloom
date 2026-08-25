@@ -92,169 +92,52 @@ const (
 // an object of. Named once so the prompt and the assertion cannot drift apart.
 const probeMCPExpectedKey = "nonce"
 
-// probeMCPInterpreter is the stdio server's interpreter. Named so the skip
-// message and the registered command cannot disagree about what was looked for.
-const probeMCPInterpreter = "python3"
-
-// probeMCPScriptName / probeMCPLogName are the fixture's two files. The log is a
-// SIBLING of the script rather than a temp file the server invents, because the
-// verdict must be able to read exactly the log the server wrote — a server that
-// chose its own path would leave the assertion guessing, and an assertion that
-// guesses at its evidence is how a probe comes to pass by reading nothing.
+// probeMCPBinaryName / probeMCPNonceName / probeMCPLogName are the fixture's
+// three files, all SIBLINGS in one directory rather than paths the server
+// invents, because the verdict must read exactly the log the server wrote — a
+// server that chose its own path would leave the assertion guessing, and an
+// assertion that guesses at its evidence is how a probe comes to pass by
+// reading nothing.
+//
+// THE NONCE IS A FILE, NOT AN ARGUMENT. The server's command and args are
+// registered in the project's config.yaml, which lives INSIDE the workspace and
+// is readable by the agent under test. A nonce on argv would therefore be
+// reachable without ever calling the tool, and the cell would pass while
+// proving nothing — the exact false green this probe exists to prevent. The
+// fixture directory is sited outside the workspace by the caller.
 const (
-	probeMCPScriptName = "nonce_mcp_server.py"
+	probeMCPBinaryName = "nonce-mcp-server"
+	probeMCPNonceName  = "nonce.txt"
 	probeMCPLogName    = "nonce_mcp_calls.jsonl"
 )
 
-// probeMCPNoncePlaceholder / probeMCPLogPlaceholder are substituted into the
-// script source. Substitution is by textual replacement rather than
-// fmt.Sprintf because the script is full of Python %-formatting, and a format
-// string that also contains the program's own percent signs is a bug waiting
-// for the first "%s" nobody escaped.
-const (
-	probeMCPNoncePlaceholder = "@@CTXLOOM_PROBE_NONCE@@"
-	probeMCPLogPlaceholder   = "@@CTXLOOM_PROBE_LOG@@"
-)
-
-// probeMCPServerSource is the whole server: a line-delimited JSON-RPC 2.0
+// The fixture server is cmd/probe-mcp-server: a line-delimited JSON-RPC 2.0
 // responder over stdio, which is what MCP's stdio transport is.
 //
+// IT IS A BINARY, NOT A SCRIPT, and that is load-bearing rather than stylistic.
+// A container cell runs the server INSIDE the container as a child of the
+// engine, and the agent image ships no interpreter beyond a shell — so a
+// scripted fixture makes this probe measure interpreter availability instead of
+// the axis under test. cmd/mockengine is the same shape and the same precedent:
+// a test-support executable spawned as a subprocess.
+//
 // It answers more than the round trip strictly needs — ping, resources/list,
-// prompts/list, and a proper -32601 for anything else — because four different
-// vendor clients drive it and a server that hangs up on a handshake method it
-// did not expect would red a cell for the FIXTURE's incompleteness while
-// reporting an MCP-delivery failure. The one behaviour that is not politeness:
-// a message with no "id" is a NOTIFICATION and is never answered, because
-// answering one is a protocol violation that some clients treat as fatal.
-const probeMCPServerSource = `#!/usr/bin/env python3
-"""ctxloom capability-probe P2 fixture: a stdio MCP server serving one tool.
+// prompts/list, and a proper -32601 for anything else — because several vendor
+// clients drive it and a server that hangs up on a handshake method it did not
+// expect would red a cell for the FIXTURE's incompleteness while reporting an
+// MCP-delivery failure. The one behaviour that is not politeness: a message
+// with no "id" is a NOTIFICATION and is never answered, because answering one
+// is a protocol violation that some clients treat as fatal.
 
-The nonce below is a harp minted by the acceptance fixture for exactly one cell.
-It is the ONLY copy that an engine can reach through a protocol, which is the
-entire point of the probe: an engine that produces this string called the tool.
-"""
-import json
-import os
-import sys
-import time
-
-NONCE = "@@CTXLOOM_PROBE_NONCE@@"
-CALL_LOG = "@@CTXLOOM_PROBE_LOG@@"
-TOOL = "get_nonce"
-PROTOCOL_FALLBACK = "2025-06-18"
-
-
-def record(event, detail):
-    """Append one evidence line. O_APPEND + one write() per line keeps records
-    whole even if a client starts the server more than once."""
-    try:
-        line = json.dumps({"ts": time.time(), "pid": os.getpid(),
-                           "event": event, "detail": detail}) + "\n"
-        fd = os.open(CALL_LOG, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        try:
-            os.write(fd, line.encode("utf-8"))
-        finally:
-            os.close(fd)
-    except Exception:
-        # Evidence must never take the server down: a crashed server would be
-        # reported as an MCP-delivery failure, which is a different finding.
-        pass
-
-
-def send(msg):
-    sys.stdout.write(json.dumps(msg) + "\n")
-    sys.stdout.flush()
-
-
-def reply(rid, result):
-    send({"jsonrpc": "2.0", "id": rid, "result": result})
-
-
-def fail(rid, code, message):
-    send({"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": message}})
-
-
-def handle(req):
-    method = req.get("method")
-    rid = req.get("id")
-    record("request", {"method": method, "has_id": rid is not None})
-
-    # A JSON-RPC NOTIFICATION carries no id and MUST NOT be answered.
-    if rid is None:
-        return
-
-    if method == "initialize":
-        params = req.get("params") or {}
-        version = params.get("protocolVersion") or PROTOCOL_FALLBACK
-        reply(rid, {
-            "protocolVersion": version,
-            "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "ctxloom-probe-nonce", "version": "1.0.0"},
-        })
-    elif method == "tools/list":
-        reply(rid, {"tools": [{
-            "name": TOOL,
-            "description": (
-                "Returns this session's nonce string. The value exists nowhere "
-                "else: it cannot be guessed, recalled, or found in context."
-            ),
-            "inputSchema": {"type": "object", "properties": {}},
-        }]})
-    elif method == "tools/call":
-        params = req.get("params") or {}
-        name = params.get("name")
-        # A client may present the tool under its own namespaced name.
-        called = name == TOOL or (isinstance(name, str) and name.endswith(TOOL))
-        if called:
-            # THE EVIDENCE LINE. The verdict requires one of these; without it
-            # an echoed nonce proves only that something read a file. The
-            # returned VALUE is deliberately not recorded — a log carrying the
-            # nonce would become a second channel to it.
-            record("tool_call", {"name": name})
-            reply(rid, {"content": [{"type": "text", "text": NONCE}],
-                        "isError": False})
-        else:
-            record("tool_call_unknown", {"name": name})
-            fail(rid, -32602, "unknown tool: " + repr(name))
-    elif method == "ping":
-        reply(rid, {})
-    elif method == "resources/list":
-        reply(rid, {"resources": []})
-    elif method == "prompts/list":
-        reply(rid, {"prompts": []})
-    else:
-        fail(rid, -32601, "method not found: " + repr(method))
-
-
-def main():
-    record("start", {"argv": sys.argv[1:]})
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            req = json.loads(line)
-        except ValueError:
-            record("unparseable", {"bytes": len(line)})
-            continue
-        try:
-            handle(req)
-        except Exception as exc:  # never die mid-session: report and continue
-            record("handler_error", {"error": repr(exc)})
-    record("eof", {})
-
-
-if __name__ == "__main__":
-    main()
-`
 
 // probeMCPFixture is a written-out fixture server: where its script is, where
 // its call log will be, and which nonce it will hand back.
 type probeMCPFixture struct {
-	Dir     string
-	Script  string
-	CallLog string
-	Nonce   string
+	Dir       string
+	Binary    string
+	NoncePath string
+	CallLog   string
+	Nonce     string
 }
 
 // probeMCPWriteFixture materializes the server for one cell.
@@ -263,7 +146,7 @@ type probeMCPFixture struct {
 // cannot check that for itself — it does not know where the workspace is — so
 // the requirement is stated here and enforced at the one call site that matters
 // (the Given step, which passes a sibling of the project directory). Putting the
-// script inside the tree the agent can list would hand the agent the nonce
+// nonce inside the tree the agent can list would hand the agent the harp
 // through a channel this probe does not test.
 //
 // An EMPTY nonce is refused rather than written: the harp is the entire content
@@ -277,18 +160,20 @@ func probeMCPWriteFixture(dir, nonce string) (probeMCPFixture, error) {
 		return probeMCPFixture{}, fmt.Errorf("capability probe P2: creating the fixture MCP server directory: %w", err)
 	}
 	f := probeMCPFixture{
-		Dir:     dir,
-		Script:  filepath.Join(dir, probeMCPScriptName),
-		CallLog: filepath.Join(dir, probeMCPLogName),
-		Nonce:   nonce,
+		Dir:       dir,
+		Binary:    filepath.Join(dir, probeMCPBinaryName),
+		NoncePath: filepath.Join(dir, probeMCPNonceName),
+		CallLog:   filepath.Join(dir, probeMCPLogName),
+		Nonce:     nonce,
 	}
-	src := strings.ReplaceAll(probeMCPServerSource, probeMCPNoncePlaceholder, nonce)
-	src = strings.ReplaceAll(src, probeMCPLogPlaceholder, f.CallLog)
-	if strings.Contains(src, probeMCPNoncePlaceholder) || strings.Contains(src, probeMCPLogPlaceholder) {
-		return probeMCPFixture{}, fmt.Errorf("capability probe P2: the fixture server template still holds an unsubstituted placeholder — the server would serve a literal placeholder instead of the minted harp")
+	// The nonce goes to a FILE beside the binary, never to argv: the server's
+	// command and args are registered in config.yaml, inside the workspace the
+	// agent can read.
+	if err := os.WriteFile(f.NoncePath, []byte(nonce+"\n"), 0o600); err != nil {
+		return probeMCPFixture{}, fmt.Errorf("capability probe P2: writing the fixture nonce: %w", err)
 	}
-	if err := os.WriteFile(f.Script, []byte(src), 0o700); err != nil {
-		return probeMCPFixture{}, fmt.Errorf("capability probe P2: writing the fixture MCP server: %w", err)
+	if err := probeMCPBuildServer(f.Binary); err != nil {
+		return probeMCPFixture{}, err
 	}
 	// The log is NOT pre-created. Its absence and its emptiness must be
 	// distinguishable from each other in the verdict: "the server never ran"
@@ -316,12 +201,17 @@ func probeMCPWriteFixture(dir, nonce string) (probeMCPFixture, error) {
 // → each engine's native surface — claude's --mcp-config scratch file,
 // codex's config.toml [mcp_servers], kiro's .kiro/settings/mcp.json,
 // opencode's opencode.json `mcp`. Nothing in this fixture writes an engine file.
-func probeMCPConfigYAML(interpreter, scriptPath string) string {
+//
+// The registered args carry the fixture DIRECTORY, never the nonce. config.yaml
+// lives inside the workspace and the agent under test can read it, so a nonce
+// here would be reachable without a tool call and the cell would pass while
+// proving nothing.
+func probeMCPConfigYAML(binaryPath, fixtureDir string) string {
 	var b strings.Builder
 	b.WriteString("mcp:\n  servers:\n    " + probeMCPServerName + ":\n")
-	fmt.Fprintf(&b, "      command: %q\n", interpreter)
+	fmt.Fprintf(&b, "      command: %q\n", binaryPath)
 	b.WriteString("      args:\n")
-	fmt.Fprintf(&b, "        - %q\n", scriptPath)
+	fmt.Fprintf(&b, "        - %q\n", fixtureDir)
 	return b.String()
 }
 
@@ -490,14 +380,30 @@ func probeMCPCallLogSummary(calls []probeMCPCall) string {
 	return strings.Join(parts, " ")
 }
 
-// probeMCPInterpreterAvailable reports whether the fixture's interpreter is on
-// PATH, and why not when it is not. A cell with no interpreter must SKIP, never
-// red: an MCP-delivery failure has to mean MCP delivery failed, and a missing
-// python3 would otherwise be reported as a capability the engine lacks.
-func probeMCPInterpreterAvailable() (string, string) {
-	path, err := exec.LookPath(probeMCPInterpreter)
+// probeMCPBuildServer builds cmd/probe-mcp-server to dest.
+//
+// A BUILD FAILURE IS A HARNESS FAULT AND MUST BE LOUD. The interpreter check
+// this replaced could SKIP, because a missing python3 said nothing about the
+// engine. A fixture that will not compile says nothing about the engine either,
+// but it is our bug rather than an environmental one, so it errors instead of
+// skipping — a silently skipped cell is the false green this ladder exists to
+// prevent.
+//
+// CGO_ENABLED=0 is deliberate: a container cell runs this binary INSIDE the
+// agent image, and a cgo-linked binary would depend on that image's libc. A
+// static binary runs anywhere the GOOS/GOARCH match.
+//
+// KNOWN GAP, stated rather than hidden: the build targets the HOST platform. On
+// a linux host driving a linux container — every cell we run today — that is
+// the same platform. A macOS or Windows host driving a linux container would
+// need GOOS/GOARCH overridden here, and the cell would fail with an exec-format
+// error that names this function.
+func probeMCPBuildServer(dest string) error {
+	cmd := exec.Command("go", "build", "-o", dest, "github.com/ctxloom/ctxloom/cmd/probe-mcp-server")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Sprintf("the fixture MCP server needs %s on PATH and it is not there (%v) — skipping rather than reporting an MCP-delivery failure that is really a missing interpreter", probeMCPInterpreter, err)
+		return fmt.Errorf("capability probe P2: building the fixture MCP server (%s): %w\n%s", dest, err, out)
 	}
-	return path, ""
+	return nil
 }

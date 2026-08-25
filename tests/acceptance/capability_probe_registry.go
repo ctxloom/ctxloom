@@ -307,6 +307,10 @@ var probeRegistry = []probeSpec{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: "hook",
 				Status: probeLiveVerified,
 				Reason: "measured 2026-08-16 after the deliverSet fix landed: 1 scenario / 3 steps green, nonce harp \"obese-hilly-gusto\" echoed back exactly, no degrade warning. MUTATION-CONFIRMED: reverting the fix reproduces the exact pre-fix shape live — CONTEXT-DELIVERY failure, well-formed JSON carrying none of a freshly minted nonce (\"aloof-dire-reach\") — and restoring it goes green again. Doubles as the negative control for the system-prompt cell's side channel."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Variant: "system-prompt",
+				Status: probeLiveVerified, Reason: "measured 2026-08-25: 1 scenario / 3 steps green in 71s, nonce harp \"soft-grand-trout\" echoed back exactly, no degrade warning. ANSWERS WHAT P0 CANNOT: P0 proves DEFAULT composed context survives this axis; this proves the PINNED system-prompt route does. That was genuinely open, because appendFlagDelivery writes an OUT-OF-CWD scratch file consumed via --append-system-prompt-file rather than a file in the mounted tree — had it been written host-side the cell would have red as a CONTEXT-DELIVERY failure. Delivery reaches into the container correctly."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Variant: "system-prompt",
+				Status: probeLiveVerified, Reason: "measured 2026-08-25: 1 scenario / 3 steps green in 71s, nonce harp \"weird-idle-punch\" echoed back exactly, no degrade warning. THE MIXED CORNER, and it was run because P6 measured what skipping one costs — its host/worktree cell failed where both-off and both-on passed, since the axes resolve credentials by DIFFERENT mechanisms (a container bind-mounts, a worktree seeds via credentialSeedSpecs). Here both boundaries hold together: the system-prompt scratch file survives a container whose workspace is also an isolated checkout."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "unsafe-file-shared",
 				Status: probeLiveVerified, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion, and the worktree axis is where that matters. Measured 2026-08-13: 1 scenario / 3 steps green in 5.5s, harp \"snug-void-rebel\", no degrade warning. CLAUDE.md into an isolated checkout delivers."},
 			// RETRACTED after S4's hook-firing probe
@@ -372,14 +376,41 @@ var probeRegistry = []probeSpec{
 			},
 			hostCell("opencode", probeLiveVerified,
 				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 56s, harp \"petty-ratty-study\". The call log carries the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call / notifications/cancelled / eof — so this row evidences discovery AND invocation, not just the echo. Path: config mcp.servers → ManagedConfig.MCP → opencode.json's mcp block (folded into opencode's settings surface)."),
-			{Engine: "claude-code", Runtime: "container", Workspace: "none", Status: probeDeferred,
-				Reason: "container MCP reach-back is undesigned — the endpoint DISCOVERY gap, not the transport (cross-container-comms finding). Deferred rather than red so an undesigned thing is not measured as a defect."},
-			{Engine: "codex", Runtime: "container", Workspace: "none", Status: probeDeferred,
-				Reason: "container MCP reach-back is undesigned — see the claude-code container row"},
-			{Engine: "kiro", Runtime: "container", Workspace: "none", Status: probeDeferred,
-				Reason: "container MCP reach-back is undesigned — see the claude-code container row"},
-			{Engine: "opencode", Runtime: "container", Workspace: "none", Status: probeDeferred,
-				Reason: "container MCP reach-back is undesigned — see the claude-code container row"},
+			// THE CONTAINER CELLS. These four rows previously read
+			// "container MCP reach-back is undesigned — the endpoint DISCOVERY
+			// gap ... (cross-container-comms finding)" and carried a bare
+			// Runtime "container". BOTH were wrong, in different ways:
+			//
+			//  1. MISATTRIBUTED BLOCKER. The cross-container-comms finding is
+			//     real and is now CLOSED (host-controlled discovery marker,
+			//     coord.containerReachIPs' advertise policy, acp.reachBackBridge)
+			//     — but it describes the COORDINATOR bus, which never governed
+			//     this probe's own fixture stdio server. The actual blocker was
+			//     that the fixture was a python3 script and the agent image has
+			//     no interpreter; a stdio MCP server is a CHILD OF THE ENGINE, so
+			//     a container cell runs it inside the container. That is fixed by
+			//     cmd/probe-mcp-server.
+			//  2. STALE VOCABULARY. "container" stopped being a runtime value
+			//     when the axis split into container-rootless / container-rootful,
+			//     which differ in who owns the daemon and therefore which uid a
+			//     run's writes land as. A row naming the retired value cannot be
+			//     selected by `just capability-probe` at all — it builds the tag
+			//     @{{RUNTIME}} — so these rows were unrunnable by construction,
+			//     which is part of why the false reason was never revisited.
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Status: probeDeferred,
+				Reason: "ONE blocker left, and it is a human decision, not an obstacle. The interpreter problem is GONE (cmd/probe-mcp-server). What remains: the fixture dir is sited outside the workspace ON THE HOST, and a container cell runs the server INSIDE the container, where that path does not exist. Delivering it needs a probe-only bind-mount seam in internal/lm/isolation. isolation.ProbeTraceEnvVar is the exact precedent — and its own doc carries the security argument for why a second one is not a mechanical addition: the gate is an inherited ENV VAR, so any parent process or CI job that exports it changes what an ordinary `ctxloom run` mounts. Filed for a ruling rather than taken unattended."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeDeferred,
+				Reason: "blocked on the same fixture-delivery seam as the container/none row. It is listed separately because it must land WITH that row, never after it: P6 measured what skipping a mixed corner costs — its host/worktree cell failed where both-off and both-on passed, because the axes resolve the credential by DIFFERENT mechanisms (a container bind-mounts it, a worktree seeds it via credentialSeedSpecs). A container row shipped without its worktree partner rebuilds exactly that blind spot."},
+			// codex/kiro/opencode: deferred to 0.8.0 by decision, NOT by a
+			// technical blocker. Their runtime value is corrected here so the
+			// retired "container" spelling does not outlive the split, but they
+			// are deliberately not admitted — 0.7.0 propagates claude-code only.
+			{Engine: "codex", Runtime: "container-rootless", Workspace: "none", Status: probeDeferred,
+				Reason: "deferred to 0.8.0 — 0.7.0 propagates claude-code onto the container axis only. No technical blocker is known for this cell now that the fixture needs no interpreter; it is unbuilt by scope, not by obstacle."},
+			{Engine: "kiro", Runtime: "container-rootless", Workspace: "none", Status: probeDeferred,
+				Reason: "deferred to 0.8.0 — see the codex container row. Note kiro's host cell is RED on INVOCATION (it lists the tool and never calls it), so a container cell would measure that defect again rather than the axis."},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeDeferred,
+				Reason: "deferred to 0.8.0 — see the codex container row"},
 		},
 	},
 	{

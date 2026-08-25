@@ -153,12 +153,12 @@ func mcpProbeBundleYAML() string {
 // config (liveAgents[key].config — one source of truth for the backend type and
 // the cheap pinned model the whole @live lane shares), one agent binding, and
 // the fixture MCP server registered at top level.
-func mcpProbeConfigYAML(a liveAgent, llmKey, interpreter, scriptPath string) string {
+func mcpProbeConfigYAML(a liveAgent, llmKey, binaryPath, fixtureDir string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
 		mcpProbeAgent, llmKey, mcpProbeAgent)
-	b.WriteString(probeMCPConfigYAML(interpreter, scriptPath))
+	b.WriteString(probeMCPConfigYAML(binaryPath, fixtureDir))
 	return b.String()
 }
 
@@ -190,14 +190,10 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 
-			// The fixture's own dependency, gated BEFORE a paid turn and named. A
-			// missing interpreter must skip and never red: an MCP-DELIVERY failure
-			// has to mean MCP delivery failed, and reporting a missing python3 as
-			// one would put a fixture fault in the engine's column of the matrix.
-			interpreter, why := probeMCPInterpreterAvailable()
-			if interpreter == "" {
-				return probeCellSkip(mcpProbeFamily, m.cell(), why)
-			}
+			// No interpreter gate: the fixture BUILDS its server from
+			// cmd/probe-mcp-server, so there is no environmental dependency left to
+			// skip on. A build failure is our bug and errors loudly rather than
+			// skipping — see probeMCPBuildServer.
 
 			nonce, err := probeHarps.Mint(m.cell())
 			if err != nil {
@@ -225,8 +221,8 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			// record of which harp it used — and the harp's second job is to be the
 			// thing a human greps for across transcripts and spools.
 			w.docStepMaterialized += fmt.Sprintf("\nprobe-p2-mcp %s: minted nonce harp %q, served only by %s\n",
-				m.cell(), m.nonce, m.fixture.Script)
-			fmt.Printf("MINT probe-p2-mcp %s: nonce harp %q (served by %s)\n", m.cell(), m.nonce, m.fixture.Script)
+				m.cell(), m.nonce, m.fixture.Binary)
+			fmt.Printf("MINT probe-p2-mcp %s: nonce harp %q (served by %s)\n", m.cell(), m.nonce, m.fixture.Binary)
 
 			if err := w.env.InitGitRepo(); err != nil {
 				return err
@@ -239,7 +235,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			if err := w.env.WriteFile(".ctxloom/config.yaml",
-				mcpProbeConfigYAML(a, key, interpreter, m.fixture.Script)); err != nil {
+				mcpProbeConfigYAML(a, key, m.fixture.Binary, m.fixture.Dir)); err != nil {
 				return err
 			}
 			// Committed, like the floor's fixture and for the same reason: every

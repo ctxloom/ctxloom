@@ -487,11 +487,11 @@ var probeRegistry = []probeSpec{
 			// config home; container alone relocates its process and its
 			// credentials. Either could break the mail plane by itself.
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree",
-				Status: probeWired,
-				Reason: "NOT YET RUN. Needs no new fixture code: every axis-dependent step is conditioned on the AXIS rather than the cell (the fixture commit gates on workspace, the credential symlink and image pin gate on runtime), so this corner is built by the same code the other two use. That orthogonality is exactly what this row checks."},
+				Status: probeLiveVerified,
+				Reason: "measured 2026-08-24: 11/11 steps in 15s, steer harp `sweet-jumpy-tiger` echoed back. THIS CORNER FOUND A BUG THE EXTREMES COULD NOT, which is the argument for it existing. Its first run failed with \"worktree isolation: no host claude credentials found to seed the per-agent config-home — the agent would start logged out\": both isolated axes resolve the credential from isolation.hostHomeDir ($HOME) by DIFFERENT mechanisms — a container BIND-MOUNTS the file (claudeCredentialMounts), a worktree SEEDS it (credentialSeedSpecs sourceFiles) — and only host+none reads the exported CLAUDE_CONFIG_DIR. host/none seeds no per-agent home and container/worktree was already covered by the runtime gate, so the defect lived exactly where ONE boundary is present. Fixed 5399eff5."},
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none",
-				Status: probeWired,
-				Reason: "NOT YET RUN. The container half without the worktree half: the child's process is isolated and its credentials are mounted, but it shares the project working directory. Proves the bus survives the runtime boundary on its own."},
+				Status: probeLiveVerified,
+				Reason: "measured 2026-08-24: 11/11 steps in 29s. The container half without the worktree half — the child's process is isolated and its credential mounted, but it shares the project working directory. Completes the claude matrix: with host/none, host/worktree and container-rootless/worktree, coordinator<->child messaging is now proven on every combination of the two axes rather than only on the diagonal."},
 		},
 	},
 	{

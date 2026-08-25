@@ -109,11 +109,24 @@ func runContainerBuild(cmd *cobra.Command, args []string) error {
 		KeepCache:           containerBuildKeepCache,
 	}, cfg, backend, cmd.ErrOrStderr())
 	opts.Output = os.Stdout
-	image, err := isolation.BuildAgentImage(cmd.Context(), backend, opts)
-	if err != nil {
-		return err
+
+	// --engines / isolation_engines names WHICH IMAGES TO BUILD, not what goes
+	// inside one image. An agent image carries exactly ONE engine, so there is
+	// no composition to select — but pre-building several at once is still
+	// useful, and a flag that silently did nothing would be worse than no flag
+	// (this codebase's characteristic failure: exit 0, a success message, and
+	// the thing not done).
+	targets := opts.Engines
+	if len(targets) == 0 {
+		targets = []string{backend}
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Built %s for backend %s\n", image, backend)
+	for _, engine := range targets {
+		image, err := isolation.BuildAgentImage(cmd.Context(), engine, opts)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Built %s for backend %s\n", image, engine)
+	}
 	return nil
 }
 

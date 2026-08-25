@@ -529,7 +529,7 @@ func TestContainerFor_PropagatesEveryImageConfigField(t *testing.T) {
 	assert.Equal(t, img.AppRoot, c.appRoot)
 	assert.Equal(t, img.NoDevcontainerBase, c.noDevcontainerBase)
 	assert.Equal(t, img.DevcontainerService, c.devcontainerService)
-	assert.Equal(t, img.Engines, c.engines)
+	assert.Equal(t, "claude-code", c.engine, "the container carries ITS engine — one image per engine, so there is no set to select")
 
 	over := containerFor(rt, "claude-code", ImageConfig{Image: "user/agent:1"})
 	assert.Equal(t, "user/agent:1", over.image)

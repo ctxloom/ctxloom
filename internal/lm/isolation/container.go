@@ -101,10 +101,11 @@ type Container struct {
 	// when the detected devcontainer.json declares dockerComposeFile (config
 	// isolation_devcontainer_service).
 	devcontainerService string
-	// engines selects which engine fragments compose into a COMPOSABLE
-	// backend's shared agent image (config isolation_engines); empty = every
-	// engine with a known official-installer fragment (composableEngines()).
-	engines []string
+	// engine is THIS container's engine — the backend it was built for. It
+	// keys the agent image: ONE engine per image, so the image identity is a
+	// function of the engine alone, cacheable across projects and structurally
+	// incapable of failing on another vendor's installer.
+	engine string
 	// state is the run's session identity (harp + project id), stamped by
 	// Prepare (withSessionState); it scopes the read-write state mounts that
 	// keep transcripts/session artifacts/task writes durable across teardown
@@ -144,6 +145,7 @@ func NewContainerFor(rt Runtime, backend string) Container {
 		runtime:    rt,
 		base:       hostBase{},
 		image:      p.image,
+		engine:     backend,
 		engineSpec: p,
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
@@ -168,14 +170,13 @@ func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 	c.appRoot = img.AppRoot
 	c.noDevcontainerBase = img.NoDevcontainerBase
 	c.devcontainerService = img.DevcontainerService
-	c.engines = img.Engines
 	if img.Image != "" {
 		c.image = img.Image
 		c.engineSpec.engineInstall = nil
 		return c
 	}
 	devBase, _ := resolveDevBase(c.appRoot, c.noDevcontainerBase, c.devcontainerService)
-	if image, _, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engines); ok {
+	if image, _, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engine); ok {
 		c.image = image
 	}
 	return c
@@ -195,7 +196,7 @@ func (c Container) containerBuildSources(baseOverride string) (sources []buildSo
 		baseOverride:      baseOverride,
 		baseContainerfile: c.baseContainerfile,
 		devBase:           devBase,
-		engines:           c.engines,
+		engine:            c.engine,
 	})
 	return sources, devBase, err
 }
@@ -204,7 +205,7 @@ func (c Container) containerBuildSources(baseOverride string) (sources []buildSo
 // resolved devcontainer base: composedIdentity's engine-aware digest for a
 // COMPOSABLE spec, else the legacy HostProvenanceDigest.
 func (c Container) provenanceFor(devBase *baseStage) string {
-	if _, prov, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engines); ok {
+	if _, prov, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engine); ok {
 		return prov
 	}
 	return HostProvenanceDigest(c.baseContainerfile)

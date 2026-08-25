@@ -209,7 +209,7 @@ const j002300PerEngineAgent = "delegate"
 // are written where each one actually lives. runtime is emitted only when it is
 // not "host": host is the schema's default, and writing it explicitly would put
 // a key in the fixture that the host rows never had.
-func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec, engine, runtime, workspace string) string {
+func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec, runtime, workspace string) string {
 	runtimeLine := ""
 	if runtime != "" && runtime != "host" {
 		runtimeLine = fmt.Sprintf("    runtime: %s\n", runtime)
@@ -221,27 +221,14 @@ func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec,
 	if workspace == "worktree" {
 		dirtyLine = "dirty_tree_handler: copy\n"
 	}
-	// PIN THE IMAGE TO THE ENGINE UNDER TEST. isolation.resolveEngines returns
-	// composableEngines() — ALL FOUR — when isolation_engines is unset, so the
-	// default agent image installs claude-code, codex, kiro AND opencode, each
-	// via its own third-party installer. MEASURED 2026-08-24: this cell's first
-	// container attempt died building that image because opencode's installer
-	// could not fetch its version (GitHub's API rate limit for this box's egress
-	// IP), and ctxloom then correctly refused the run rather than launching
-	// unsandboxed. A cell that exercises ONE engine must not be able to fail on
-	// a DIFFERENT engine's vendor availability, so pin the composition.
-	enginesLine := ""
-	if runtime != "" && runtime != "host" {
-		enginesLine = fmt.Sprintf("isolation_engines:\n  - %s\n", engine)
-	}
 	return a.config + fmt.Sprintf(`workspace: %s
-%s%sagents:
+%sagents:
   %s:
     llm: %s
 %s    profiles:
       - %s
     permissions: bypass
-`, workspace, dirtyLine, enginesLine, s.Name, llmKey, runtimeLine, s.Profile)
+`, workspace, dirtyLine, s.Name, llmKey, runtimeLine, s.Profile)
 }
 
 // j002300WriteAgent writes one agent's bundle + profile files.
@@ -511,7 +498,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if err := j002300WriteAgent(w, spec); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, engine, "host", "none")); err != nil {
+			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, "host", "none")); err != nil {
 				return err
 			}
 			// Subscription path: MAP this engine at its real credential

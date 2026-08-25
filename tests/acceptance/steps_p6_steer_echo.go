@@ -71,8 +71,24 @@ func p6Of(w *World) *p6State {
 // reach any scenario here. A machine-wide soak flag is invisible to the
 // acceptance suite by construction. Nothing in the lane would have told anyone
 // that; the first cell to assert on spool bytes finds it immediately.
-func p6SpoolHomeConfigYAML() string {
-	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `# P6 (capability probe p6-steer-echo): the mail-plane cutover, on for this
+func p6SpoolHomeConfigYAML(engine, runtime string) string {
+	// isolation_engines PINS THE AGENT IMAGE to the engine this cell exercises,
+	// and it is here rather than in the project file for the same reason the
+	// delegation keys are: a project config carrying a machine-scoped key is
+	// DROPPED with a warning, not applied.
+	//
+	// Unset, isolation.resolveEngines returns composableEngines() — all four —
+	// so every agent image installs claude-code, codex, kiro AND opencode via
+	// four third-party installers. MEASURED 2026-08-24: this cell's container
+	// run died building that image because opencode's installer could not reach
+	// its version endpoint, and a cell exercising ONE engine must not be able
+	// to fail on a DIFFERENT engine's vendor availability. Only container
+	// runtimes build an image, so a host row writes nothing.
+	pin := ""
+	if runtime != "" && runtime != "host" {
+		pin = fmt.Sprintf("isolation_engines:\n  - %s\n", engine)
+	}
+	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + pin + `# P6 (capability probe p6-steer-echo): the mail-plane cutover, on for this
 # scenario. Machine-scoped keys, so they must be written in the HOME layer —
 # a project file declaring them does not survive a real config Load.
 delegation:
@@ -152,11 +168,11 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			if err := j002300WriteAgent(w, spec); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, engine, runtime, workspace)); err != nil {
+			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, runtime, workspace)); err != nil {
 				return err
 			}
 			// The mail plane, in the layer that is allowed to carry it.
-			if err := w.env.WriteHomeFile(".ctxloom/config.yaml", p6SpoolHomeConfigYAML()); err != nil {
+			if err := w.env.WriteHomeFile(".ctxloom/config.yaml", p6SpoolHomeConfigYAML(engine, runtime)); err != nil {
 				return err
 			}
 			// A WORKTREE SPAWN REFUSES A DIRTY CHECKOUT. Everything above wrote

@@ -89,6 +89,18 @@ var p6BuildableCells = []struct{ Runtime, Workspace string }{
 	// that answers whether delegation survives the boundary rather than merely
 	// working beside it.
 	{Runtime: "container-rootless", Workspace: "worktree"},
+	// THE TWO MIXED CORNERS. The axes are independent, so proving both-off and
+	// both-on leaves the interesting half untested: a bus that works unisolated
+	// and fully isolated could still fail when exactly one boundary is present.
+	// These two are what make the claim "message passing survives EACH axis"
+	// rather than "survives the combination".
+	//
+	// They need no new fixture code. Every axis-dependent step is already
+	// conditioned on the AXIS, not on the cell: the fixture commit gates on
+	// workspace, the credential symlink and the image pin gate on runtime. That
+	// orthogonality is the design, and these rows are what checks it holds.
+	{Runtime: "host", Workspace: "worktree"},
+	{Runtime: "container-rootless", Workspace: "none"},
 }
 
 // p6FixtureBuilds reports whether the fixture constructs this axis pair.

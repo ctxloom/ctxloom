@@ -24,6 +24,28 @@ import (
 // declared pair must be buildable, and pairs the fixture does NOT construct must
 // be refused. Without the negative half a guard stuck at `true` would pass.
 func TestP6Fixture_DeclaresOnlyAxesItBuilds(t *testing.T) {
+	// THE FOUR CORNERS MUST BE DECLARED, asserted POSITIVELY and by name.
+	// Without this the test is satisfied by whatever the slice happens to hold:
+	// it iterates the declarations and checks each is buildable, so DELETING a
+	// corner simply shortens the loop and stays green. Measured — dropping
+	// {container-rootless, none} survived mutation until this assertion existed.
+	//
+	// The matrix is the product of the two independent axes, and a corner that
+	// silently disappears takes its live cell with it: the Examples row would
+	// then be refused by the axis guard, which reads as "that cell was never
+	// meant to run" rather than "somebody deleted it".
+	for _, want := range [][2]string{
+		{"host", "none"},
+		{"host", "worktree"},
+		{"container-rootless", "none"},
+		{"container-rootless", "worktree"},
+	} {
+		assert.True(t, p6FixtureBuilds(want[0], want[1]),
+			"matrix corner runtime=%q workspace=%q must be declared buildable; if it was removed on purpose, remove its Examples row too", want[0], want[1])
+	}
+	assert.Len(t, p6BuildableCells, 4,
+		"the buildable set is exactly the four claude matrix corners — a fifth entry means a cell nothing else in this test knows about")
+
 	require.NotEmpty(t, p6BuildableCells)
 	for _, c := range p6BuildableCells {
 		assert.True(t, p6FixtureBuilds(c.Runtime, c.Workspace),
@@ -34,11 +56,16 @@ func TestP6Fixture_DeclaresOnlyAxesItBuilds(t *testing.T) {
 	// Pairs the fixture does not construct. container-rootful is here on
 	// purpose: it is a real axis value that no box this suite runs on can
 	// reach, so it must be refused rather than silently treated as rootless.
+	// container-rootful is the important one: it is a REAL axis value that no
+	// box this suite runs on can reach, so it must be refused rather than
+	// silently treated as rootless — the ownership substitution the isolation
+	// doctrine forbids outright. "container" is the retired undifferentiated
+	// spelling, which must not resolve either.
 	for _, c := range [][2]string{
-		{"container-rootless", "none"},
-		{"host", "worktree"},
 		{"container-rootful", "worktree"},
+		{"container-rootful", "none"},
 		{"container", "worktree"},
+		{"host", "shared"},
 		{"", ""},
 	} {
 		assert.False(t, p6FixtureBuilds(c[0], c[1]),

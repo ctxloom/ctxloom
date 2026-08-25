@@ -480,6 +480,18 @@ var probeRegistry = []probeSpec{
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree",
 				Status: probeLiveVerified,
 				Reason: "measured 2026-08-24: 1 scenario / 11 steps green in 59s. A real claude-code child ran in a rootless container on an isolated worktree, reported wake marker P6-WAKE-MARKER-CLAUDE-CODE-CTRWT-9d4f21ab from its own composed context, then echoed back the harp `stony-worse-muck` that the coordinator steered into its LIVE session mid-flight, with the steer on disk in the child's own spool. FIVE RUNS TO GET HERE, and the four failures are the useful part because each was a different real gap, recorded in uninvited-maternity: (1) the fixture committed before ctxloom materialized its own managed files, so agent_run refused a dirty tree — fixed with dirty_tree_handler: copy, since the default \"commit\" handler needs dirty_tree_commit_ack, a human act no automated cell can perform; (2) the image build ran opencode's installer for a claude cell and died on GitHub's rate limit — see frosted-pony, and the cell now pins isolation_engines; (3) that pin went into the PROJECT config, where a machine-scoped key is dropped with a warning rather than applied; (4) container auth mounts the host's ~/.claude/.credentials.json READ-WRITE (rotation must write back), resolves it from $HOME which is the harness's fake home, and cannot use CLAUDE_CONFIG_DIR because claudeAuthEnvVars excludes it — fixed by SYMLINKING the real credential in, verified against docker directly. container-rootful is absent rather than declared-and-skipped: no box this suite runs on has a reachable rootful daemon."},
+			// THE TWO MIXED CORNERS. host/none and container-rootless/worktree
+			// prove the bus with both boundaries off and both on; these prove it
+			// with exactly ONE present, which is the half a combination test
+			// cannot reach. worktree alone relocates the child's files and its
+			// config home; container alone relocates its process and its
+			// credentials. Either could break the mail plane by itself.
+			{Engine: "claude-code", Runtime: "host", Workspace: "worktree",
+				Status: probeWired,
+				Reason: "NOT YET RUN. Needs no new fixture code: every axis-dependent step is conditioned on the AXIS rather than the cell (the fixture commit gates on workspace, the credential symlink and image pin gate on runtime), so this corner is built by the same code the other two use. That orthogonality is exactly what this row checks."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none",
+				Status: probeWired,
+				Reason: "NOT YET RUN. The container half without the worktree half: the child's process is isolated and its credentials are mounted, but it shares the project working directory. Proves the bus survives the runtime boundary on its own."},
 		},
 	},
 	{

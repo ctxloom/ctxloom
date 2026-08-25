@@ -472,25 +472,14 @@ var probeRegistry = []probeSpec{
 			// uninvited-maternity is about: a container boundary nothing
 			// exercises end to end.
 			//
-			// WIRED, not deferred, and the difference is load-bearing: a
-			// DEFERRED cell must carry no runnable Examples row (a scenario for
-			// a capability the engine declares gone would skip forever and read
-			// as coverage), which is exactly what
-			// TestProbeRegistry_WiredProbesMatchTheirFeatureFile refused when
-			// this cell was first written deferred. Wired says the opposite and
-			// true thing: the row runs, and no evidence has been recorded yet.
-			//
-			// UNVERIFIED on purpose. The fixture is built
-			// (p6BuildableCells declares the pair; j002300PerEngineConfigYAML
-			// writes `runtime: container-rootless` on the binding and
-			// `workspace: worktree` at the top level; the P6 step commits the
-			// fixture because a worktree spawn refuses a dirty checkout) but no
-			// paid turn has been spent on it here. It stays deferred until a run
-			// records what it measured, rather than inheriting the host rows'
-			// evidence — they ran a different configuration.
+			// THE ISOLATED CELL, and the first proof that delegation survives
+			// the isolation boundary. Every other row here runs host/none —
+			// isolated on NEITHER axis — so until this one went green,
+			// "delegation works" and "delegation works when isolated" were
+			// different claims and only the first had evidence.
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree",
-				Status: probeWired,
-				Reason: "NOT YET RUN. claude-code is the only engine wired for this pair, and container-rootless is the only container ownership any box this suite has run on can reach (containercell.probeDocker asserts a host has at most one; this one runs rootless 29.3.0), so container-rootful is deliberately absent rather than declared-and-skipped. Run it with `just isolation-probe`-style tag addressing: ACCEPTANCE_TAGS=\"@live && @probe-p6-steer-echo && @claude-code && @container-rootless\". Expect roughly a minute, not seconds — P0 measured its container leg at 57s including the image build. When it runs, replace this with what was measured (harp echoed, steer on disk) or with the failure shape, and say which."},
+				Status: probeLiveVerified,
+				Reason: "measured 2026-08-24: 1 scenario / 11 steps green in 59s. A real claude-code child ran in a rootless container on an isolated worktree, reported wake marker P6-WAKE-MARKER-CLAUDE-CODE-CTRWT-9d4f21ab from its own composed context, then echoed back the harp `stony-worse-muck` that the coordinator steered into its LIVE session mid-flight, with the steer on disk in the child's own spool. FIVE RUNS TO GET HERE, and the four failures are the useful part because each was a different real gap, recorded in uninvited-maternity: (1) the fixture committed before ctxloom materialized its own managed files, so agent_run refused a dirty tree — fixed with dirty_tree_handler: copy, since the default \"commit\" handler needs dirty_tree_commit_ack, a human act no automated cell can perform; (2) the image build ran opencode's installer for a claude cell and died on GitHub's rate limit — see frosted-pony, and the cell now pins isolation_engines; (3) that pin went into the PROJECT config, where a machine-scoped key is dropped with a warning rather than applied; (4) container auth mounts the host's ~/.claude/.credentials.json READ-WRITE (rotation must write back), resolves it from $HOME which is the harness's fake home, and cannot use CLAUDE_CONFIG_DIR because claudeAuthEnvVars excludes it — fixed by SYMLINKING the real credential in, verified against docker directly. container-rootful is absent rather than declared-and-skipped: no box this suite runs on has a reachable rootful daemon."},
 		},
 	},
 	{

@@ -121,15 +121,22 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
     # guard that quietly destroyed anyway would still pass a scenario that
     # only checked exit code — the manifest-still-contains check is what
     # actually catches that.
-    Scenario: Bare command remove reports and destroys nothing
+    Scenario Outline: Bare command remove reports and destroys nothing
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a command "review" in bundle "demo" exists
-      When I run "ctxloom command remove demo#commands/review"
+      When I run "ctxloom command remove demo#commands/review <flags>"
       Then the command succeeds
-      And the output contains "Nothing was removed"
-      And the output contains "--yes"
+      And the output reports "applied" as "<reports nothing removed>"
+      And the output reports "apply" as "<names the apply command>"
       And the file ".ctxloom/content/bundles/demo.yaml" contains "COMMAND-BODY-review"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | reports nothing removed | names the apply command |
+      |               | false                   | ctxloom command remove demo#commands/review --yes |
+      | --format json | false                   | ctxloom command remove demo#commands/review --yes |
+      | --format text | Nothing was removed     | ctxloom command remove demo#commands/review --yes |
+
 
     # Both halves are asserted on payload, separately: a remove that only
     # trimmed the cached listing (leaving the YAML entry behind) and a remove
@@ -159,17 +166,23 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
     # before it even decides whether to redistill). A warning is the only
     # place that fact is visible to the author — a silent skip would read
     # identically to "already up to date and nothing to do".
-    Scenario: Editing with --no-distill warns instead of leaving a stale distillation unmentioned
+    Scenario Outline: Editing with --no-distill warns instead of leaving a stale distillation unmentioned
       Given a ctxloom project with a marker editor
       And a bundle "demo" exists
       And a command "review" in bundle "demo" exists
       When Alice edits it without redistilling:
         """
-        ctxloom command edit demo#commands/review --no-distill
+        ctxloom command edit demo#commands/review --no-distill <flags>
         """
       Then the command succeeds
-      And the output contains "distilled form not refreshed (--no-distill)"
+      And the output reports "distilled" as "<says the distillation was not refreshed>"
       And the file ".ctxloom/content/bundles/demo.yaml" contains "EDITED-BY-TEST"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | says the distillation was not refreshed  |
+      |               | false                                    |
+      | --format json | false                                    |
+      | --format text | distilled form not refreshed (--no-distill) |
 
     # editInEditor returns whatever bytes are on disk with no length check, so
     # a crashed editor, a truncated write, or a wrapper script that never
@@ -195,7 +208,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
     # answer is the same whether or not an LLM is even configured — the
     # author's own declaration wins first, and distill says so rather than
     # exiting 0 with no explanation of which of the two reasons applied.
-    Scenario: Distilling a command marked no_distill reports why it did nothing
+    Scenario Outline: Distilling a command marked no_distill reports why it did nothing
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/content/bundles/demo.yaml":
         """
@@ -207,10 +220,16 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         """
       When Alice tries to distill it anyway:
         """
-        ctxloom command distill demo#commands/review
+        ctxloom command distill demo#commands/review <flags>
         """
       Then the command succeeds
-      And the output contains "is marked as no_distill"
+      And the output reports "reason" as "<names no_distill as the reason>"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names no_distill as the reason |
+      |               | no_distill                     |
+      | --format json | no_distill                     |
+      | --format text | is marked as no_distill        |
 
   Rule: A --bundle filter that names nothing is refused, not answered empty
 

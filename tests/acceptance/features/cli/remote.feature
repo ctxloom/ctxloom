@@ -65,15 +65,22 @@ Feature: remote — registering the sources content comes from, and browsing the
     # that quietly destroyed anyway would still pass a scenario that only
     # checked exit code — the follow-up `remote list` is what actually
     # catches that.
-    Scenario: Bare remote remove reports and destroys nothing
+    Scenario Outline: Bare remote remove reports and destroys nothing
       Given an initialized ctxloom project
       And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
-      When I run "ctxloom remote remove origin"
+      When I run "ctxloom remote remove origin <flags>"
       Then the command succeeds
-      And the output contains "Nothing was removed"
-      And the output contains "--yes"
+      And the output reports "applied" as "<reports nothing removed>"
+      And the output reports "apply" as "<names the apply command>"
       When I run "ctxloom remote list"
       Then the output contains "origin"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | reports nothing removed | names the apply command |
+      |               | false                   | ctxloom remote remove origin --yes |
+      | --format json | false                   | ctxloom remote remove origin --yes |
+      | --format text | Nothing was removed     | ctxloom remote remove origin --yes |
+
 
     Scenario: Removing a remote takes it out of the registry
       Given an initialized ctxloom project

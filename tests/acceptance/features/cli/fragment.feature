@@ -73,15 +73,22 @@ Feature: fragment — reusable context units, and the engine surface each one re
     # guard that quietly destroyed anyway would still pass a scenario that
     # only checked exit code — the manifest-still-contains check is what
     # actually catches that.
-    Scenario: Bare fragment remove reports and destroys nothing
+    Scenario Outline: Bare fragment remove reports and destroys nothing
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a fragment "testing" in bundle "demo" exists
-      When I run "ctxloom fragment remove demo#fragments/testing"
+      When I run "ctxloom fragment remove demo#fragments/testing <flags>"
       Then the command succeeds
-      And the output contains "Nothing was removed"
-      And the output contains "--yes"
+      And the output reports "applied" as "<reports nothing removed>"
+      And the output reports "apply" as "<names the apply command>"
       And the file ".ctxloom/content/bundles/demo.yaml" contains "FRAGMENT-BODY-testing"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | reports nothing removed | names the apply command |
+      |               | false                   | ctxloom fragment remove demo#fragments/testing --yes |
+      | --format json | false                   | ctxloom fragment remove demo#fragments/testing --yes |
+      | --format text | Nothing was removed     | ctxloom fragment remove demo#fragments/testing --yes |
+
 
     # Both halves are asserted on payload, separately: a remove that only
     # trimmed the cached listing (leaving the YAML entry behind) and a remove

@@ -51,21 +51,28 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     `remove` leaf in this CLI shares.
 
 
-    Scenario: Removing a skill drops both its bundle.yaml registration and its on-disk directory
+    Scenario Outline: Removing a skill drops both its bundle.yaml registration and its on-disk directory
       Given Alice's project has a directory-form bundle "vault"
       And I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
-      When I run "ctxloom skill remove vault#skills/reviewer"
+      When I run "ctxloom skill remove vault#skills/reviewer <flags>"
       Then the command succeeds
-      And the output contains "Nothing was removed"
-      And the output contains "--yes"
+      And the output reports "applied" as "<reports nothing removed>"
+      And the output reports "apply" as "<names the apply command>"
       When I run "ctxloom skill list"
       Then the skill list output includes "reviewer" from bundle "vault"
       When I run "ctxloom skill remove vault#skills/reviewer --yes"
       Then the command succeeds
-      And the output contains "Removed skill"
+      And the output reports "name" as "reviewer"
+      And the output reports "bundle" as "vault"
       And the file ".ctxloom/content/bundles/vault/skills/reviewer" does not exist
       When I run "ctxloom skill list"
       Then the output does not contain "reviewer"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | reports nothing removed | names the apply command                          |
+      |               | false                   | ctxloom skill remove vault#skills/reviewer --yes |
+      | --format json | false                   | ctxloom skill remove vault#skills/reviewer --yes |
+      | --format text | Nothing was removed     | ctxloom skill remove vault#skills/reviewer --yes |
 
     Scenario: Removing a skill nobody created is refused, not silently reported as done
       Given Alice's project has a directory-form bundle "vault"

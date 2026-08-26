@@ -148,7 +148,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// STATIC in the native file, so re-injecting it at launch would double it.
 	// Each write reconciles (managed entries overwritten, foreign ones
 	// preserved).
-	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles).Wire()
+	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles).WireDeclared()
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
 	commands := backends.CommandExportsFor(backend, backends.LoadCommandExports(cfg, req.Profiles))
 	skills := backends.SkillExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
@@ -181,7 +181,9 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// team's session_start guardrail and said nothing.
 	// Reported, not fatal: the rest of the tree is still worth having, and the
 	// decision to ship it anyway belongs to whoever now knows.
-	res.NotCarried = backends.UncarriedSurfaces(backend, inputs)
+	if !cfg.ShouldSilenceUnsupported() {
+		res.NotCarried = backends.UncarriedSurfaces(backend, inputs)
+	}
 	// The OTHER half of the same report, for the other kind of absence: a
 	// surface this engine delivers only at launch, into a per-session engine
 	// home, which THIS harpless call has no way to name (codex — see

@@ -343,6 +343,54 @@ func (m *ManagedHooks) Wire() *wire.HooksConfig {
 	return out
 }
 
+// WireDeclared is Wire restricted to hooks somebody DECLARED — bundles,
+// profiles, companions, builtins — excluding the ones ctxloom assembles for
+// its own machinery (HookOriginContext: context injection, the PostToolUse
+// reflect hook).
+//
+// It exists for CAPABILITY-LOSS reporting, which asks a different question
+// than delivery does. "This backend cannot carry your hooks" is worth saying;
+// "this backend cannot carry a hook ctxloom added on your behalf, which you
+// never declared and did not know existed" is the capability gap nobody asked
+// to use that UncarriedSurfaces already refuses to report. Feeding it the
+// declared set keeps that rule intact without teaching it about provenance.
+//
+// Delivery still uses Wire: a managed hook that CAN be carried must be, and
+// this projection is not a filter on what gets written.
+func (m *ManagedHooks) WireDeclared() *wire.HooksConfig {
+	out := &wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)}
+	if m == nil {
+		return out
+	}
+	for _, event := range HookEvents() {
+		setUnifiedEventHooks(&out.Unified, event, wireHooks(declaredOnly(m.events[event])))
+	}
+	for backend, events := range m.plugins {
+		bh := make(wire.BackendHooks, len(events))
+		for event, hooks := range events {
+			bh[event] = wireHooks(declaredOnly(hooks))
+		}
+		out.Plugins[backend] = bh
+	}
+	return out
+}
+
+// declaredOnly drops hooks ctxloom assembled for itself, keeping every hook
+// that came from content a user or a bundle author wrote.
+func declaredOnly(hooks []ResolvedHook) []ResolvedHook {
+	out := make([]ResolvedHook, 0, len(hooks))
+	for _, h := range hooks {
+		if h.Source.Origin == HookOriginContext {
+			continue
+		}
+		out = append(out, h)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // wireHooks strips the model down to the wire form. nil for an empty list —
 // see Wire on why that distinction is preserved rather than smoothed over.
 func wireHooks(hooks []ResolvedHook) []wire.Hook {

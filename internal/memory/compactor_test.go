@@ -34,18 +34,33 @@ func TestCompactor_SessionToText(t *testing.T) {
 			{Type: agent.EntryTypeUser, Content: "Hello"},
 			{Type: agent.EntryTypeAssistant, Content: "Hi there!"},
 			{Type: agent.EntryTypeToolUse, ToolName: "Read", ToolInput: []byte(`{"path":"/test"}`)},
-			{Type: agent.EntryTypeToolResult, ToolName: "Read", ToolOutput: "file contents"},
+			{Type: agent.EntryTypeToolResult, ToolName: "Read", ToolOutput: "REDERIVABLE_FILE_CONTENTS"},
+			{Type: agent.EntryTypeToolUse, ToolName: "Write", ToolInput: []byte(`{"path":"/w"}`)},
+			{Type: agent.EntryTypeToolResult, ToolName: "Write", ToolOutput: "AUTHORITATIVE_WRITE_RESULT"},
 			{Type: agent.EntryTypeSystem, Content: "System message"},
 		},
 	}
 
-	text := c.sessionToText(session)
+	text, _ := c.sessionToText(session)
 
 	assert.Contains(t, text, "## User\nHello")
 	assert.Contains(t, text, "## Assistant\nHi there!")
-	assert.Contains(t, text, "## Tool Call: Read")
-	assert.Contains(t, text, "## Tool Result: Read")
 	assert.Contains(t, text, "## System: System message")
+
+	// Both CALLS survive: the essence must still record what was examined.
+	assert.Contains(t, text, "## Tool Call: Read")
+	assert.Contains(t, text, "## Tool Call: Write")
+
+	// The re-derivable RESULT does not. Asserting the absence of the header
+	// alone would be satisfied by the renderer never running, so assert the
+	// payload bytes are gone and that the authoritative result's payload
+	// survived in the same text -- one of these failing localizes the defect.
+	assert.NotContains(t, text, "REDERIVABLE_FILE_CONTENTS")
+	// The authoritative result survives as its SHAPE, not its body: the
+	// header alone would be satisfied by a renderer emitting nothing.
+	assert.NotContains(t, text, "AUTHORITATIVE_WRITE_RESULT")
+	assert.Contains(t, text, "## Tool Result: Write")
+	assert.Contains(t, text, "bytes, 1 lines]")
 }
 
 // TestCompactor_SessionToText_ThinkingExcludedByDefault is the
@@ -62,12 +77,12 @@ func TestCompactor_SessionToText_ThinkingExcludedByDefault(t *testing.T) {
 		},
 	}
 
-	suppressed := (&Compactor{config: CompactionConfig{}}).sessionToText(session)
+	suppressed, _ := (&Compactor{config: CompactionConfig{}}).sessionToText(session)
 	assert.Contains(t, suppressed, "ASK")
 	assert.Contains(t, suppressed, "CONCLUSION")
 	assert.NotContains(t, suppressed, "SCRATCH_REASONING_TEXT", "thinking content must not reach distillation by default")
 
-	included := (&Compactor{config: CompactionConfig{IncludeThinking: true}}).sessionToText(session)
+	included, _ := (&Compactor{config: CompactionConfig{IncludeThinking: true}}).sessionToText(session)
 	assert.Contains(t, included, "SCRATCH_REASONING_TEXT", "IncludeThinking:true must preserve the escape hatch")
 }
 
@@ -87,7 +102,7 @@ func TestCompactor_SessionToText_TruncatesLargeContent(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session)
+	text, _ := c.sessionToText(session)
 
 	// Should be truncated with "..."
 	assert.Contains(t, text, "...")
@@ -102,7 +117,7 @@ func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session)
+	text, _ := c.sessionToText(session)
 
 	assert.Contains(t, text, "[ERROR]")
 }
@@ -1109,6 +1124,12 @@ func TestCompact_AllChunksFailed_KeepsPreviousEssence(t *testing.T) {
 	_, err = compactor.Compact(context.Background())
 	require.Error(t, err, "an all-chunks-failed distillation must not report success")
 	assert.Contains(t, err.Error(), "all 1 chunks")
+	// The aggregate is the ONLY diagnosis most callers ever get: warnf is
+	// dropped whenever Progress is nil, which is every MCP relay call. A
+	// cause-free "all N chunks failed" sent a real investigation to the
+	// wrong subsystem entirely.
+	assert.Contains(t, err.Error(), "chunk 1", "the aggregate must name which chunk it sampled")
+	assert.Contains(t, err.Error(), "backend down", "the aggregate must carry the underlying cause")
 
 	got, err := os.ReadFile(essencePath)
 	require.NoError(t, err)
@@ -1579,7 +1600,8 @@ func TestCompactor_DistillChunks_PreservesOrderConcurrently(t *testing.T) {
 	}
 
 	chunks := []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf"}
-	out, failed := c.distillChunks(context.Background(), chunks)
+	out, failed, cause := c.distillChunks(context.Background(), chunks)
+	require.NoError(t, cause, "no chunk failed, so distillChunks must report no cause")
 
 	require.Equal(t, 0, failed)
 	require.Len(t, out, len(chunks))
@@ -1794,7 +1816,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	// to nothing. If either half stops holding, this test is no longer about
 	// the defect it names.
 	require.NotEmpty(t, thinkingOnly)
-	probe := (&Compactor{}).sessionToText(&agent.Session{Entries: thinkingOnly})
+	probe, _ := (&Compactor{}).sessionToText(&agent.Session{Entries: thinkingOnly})
 	require.Empty(t, strings.TrimSpace(probe),
 		"fixture is not hostile: these entries render to non-empty text")
 

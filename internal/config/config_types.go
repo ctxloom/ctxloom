@@ -201,10 +201,33 @@ func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
 
 // SettingsConfig holds misc behavioral settings (mapstructure key "config").
 type SettingsConfig struct {
-	UseDistilled     *bool       `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"`         // Prefer .distilled.md versions (default true)
-	CompactionChunks int         `mapstructure:"compaction_chunks" yaml:"compaction_chunks,omitempty"` // Target tokens per compaction chunk (default 8000)
-	Statusline       *bool       `mapstructure:"statusline" yaml:"statusline,omitempty"`               // Manage the ctxloom HUD statusline (default true)
-	Sign             *SignConfig `mapstructure:"sign" yaml:"sign,omitempty"`                           // Publisher-signing defaults (spec §7A.3)
+	UseDistilled     *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"`         // Prefer .distilled.md versions (default true)
+	CompactionChunks int   `mapstructure:"compaction_chunks" yaml:"compaction_chunks,omitempty"` // Target tokens per compaction chunk (default 8000)
+	Statusline       *bool `mapstructure:"statusline" yaml:"statusline,omitempty"`               // Manage the ctxloom HUD statusline (default true)
+	// ToolReflectBytes is the tool-result size, in bytes, at or above which the
+	// PostToolUse reflect hook fires. Distillation reduces a tool result to its
+	// SHAPE, so whatever the agent does not say it learned is not recoverable
+	// from the essence. Firing on every call would cost more than the bodies it
+	// replaces; firing only on large results targets where the loss actually
+	// is. 0 means the default (see Config.GetToolReflectBytes); negative
+	// disables the hook.
+	ToolReflectBytes int `mapstructure:"tool_reflect_bytes" yaml:"tool_reflect_bytes,omitempty"`
+	// EssenceMaxChars is the target size of a finished session essence. 0 means
+	// the default (see Config.GetEssenceMaxChars). The essence is re-injected
+	// into a fresh context window on resume, so this trades detail retained
+	// against context spent on every resume.
+	EssenceMaxChars int `mapstructure:"essence_max_chars" yaml:"essence_max_chars,omitempty"`
+	// SilenceUnsupported suppresses capability-loss reporting: the "NOT
+	// carried" lines naming what the selected engine has no structural place
+	// for. Default false, because a loss the user's own bundles asked for is
+	// worth hearing once. Set true when the answer is known and the line is
+	// just noise -- someone who runs opencode deliberately and does not want
+	// to be told it has no hook mechanism on every check.
+	//
+	// It silences only DECLARED losses; ctxloom's own machinery is already
+	// excluded upstream (ManagedHooks.WireDeclared).
+	SilenceUnsupported bool        `mapstructure:"silence_unsupported" yaml:"silence_unsupported,omitempty"`
+	Sign               *SignConfig `mapstructure:"sign" yaml:"sign,omitempty"` // Publisher-signing defaults (spec §7A.3)
 }
 
 // SignConfig holds the publisher-signing defaults (signature-envelope spec
@@ -231,7 +254,7 @@ type SignConfig struct {
 // empty. It MUST cover every field, or setting only an uncovered field would
 // silently drop the whole block on the next Save.
 func (s SettingsConfig) hasAny() bool {
-	return s.UseDistilled != nil || s.CompactionChunks > 0 || s.Statusline != nil || s.Sign != nil
+	return s.UseDistilled != nil || s.CompactionChunks > 0 || s.Statusline != nil || s.Sign != nil || s.ToolReflectBytes != 0 || s.EssenceMaxChars != 0 || s.SilenceUnsupported
 }
 
 // ShouldSignByDefault reports whether publish commands should sign unless

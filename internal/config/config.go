@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
@@ -970,6 +971,47 @@ func (c *Config) GetCompactionChunkSize() int {
 		return c.settings.CompactionChunks
 	}
 	return 8000
+}
+
+// GetToolReflectBytes returns the tool-result size at or above which the
+// PostToolUse reflect hook fires, and whether the hook is enabled at all.
+//
+// The default is agent.DefaultToolReflectBytes, which is shared with the
+// distiller so the two enforcement points cannot disagree. A negative value
+// disables the hook, which is why "enabled" is returned rather than inferred
+// from a zero.
+func (c *Config) GetToolReflectBytes() (threshold int, enabled bool) {
+	switch {
+	case c.settings.ToolReflectBytes < 0:
+		return 0, false
+	case c.settings.ToolReflectBytes > 0:
+		return c.settings.ToolReflectBytes, true
+	default:
+		return agent.DefaultToolReflectBytes, true
+	}
+}
+
+// GetEssenceMaxChars returns the target size of a finished session essence,
+// defaulting to agent.DefaultEssenceChars.
+//
+// This is a TARGET handed to the distilling model, not the hard ceiling. The
+// ceiling is memory.MaxEssenceChars, which is derived from the tool-result cap
+// MCP clients enforce and refuses anything larger. A target above the ceiling
+// would instruct the model to produce output the code must then reject, which
+// is the exact contradiction the absolute budget replaced; the compactor
+// clamps rather than honouring one.
+func (c *Config) GetEssenceMaxChars() int {
+	if c.settings.EssenceMaxChars > 0 {
+		return c.settings.EssenceMaxChars
+	}
+	return agent.DefaultEssenceChars
+}
+
+// ShouldSilenceUnsupported reports whether capability-loss lines are
+// suppressed. Defaults to false: a loss stays audible unless the user has said
+// they already know.
+func (c *Config) ShouldSilenceUnsupported() bool {
+	return c.settings.SilenceUnsupported
 }
 
 // ShouldUseDistilled reports whether to prefer distilled fragment/prompt

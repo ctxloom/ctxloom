@@ -210,13 +210,12 @@ func TestSpoolApproval_RelayRidesFilesAndAuditsIdentically(t *testing.T) {
 	mailSp := relayGrandchildSpawner(conformanceWait, commandExecRequest("perm-1"))
 	mailC := newTestCoordinatorDepthCap(t, mailSp, nil, relayGenerationDepth)
 	require.False(t, mailC.SpoolDeliveryEnabled())
+	mailAskIDs := armRelayedApprovalIDs(mailC)
 	mailMiddle, _, mailMiddleHome := spawnRelayGenerations(t, mailC, mailSp)
 
-	var mailAskID string
-	require.Eventually(t, func() bool {
-		mailAskID = pendingApprovalID(mailC, mailMiddle.Harp)
-		return mailAskID != ""
-	}, conformanceWait, 10*time.Millisecond, "the relay never reached the answerer's mailbox")
+	mailAskID := awaitRelayedApprovalID(t, mailAskIDs)
+	require.Equal(t, mailMiddle.Harp, relayTargetHarp(t, mailC, mailAskID),
+		"the relay must address the answerer's mailbox")
 	resp, err = mailMiddleHome.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
 			ToRole: ParentAddress, Text: "reviewed", InReplyTo: mailAskID, Structured: decisionStruct,
@@ -287,20 +286,54 @@ func TestSpoolApproval_CoordinatorRefusalIsACancelNotAUserDecision(t *testing.T)
 	assert.True(t, sawBottom)
 }
 
-// pendingApprovalID drains the ANSWERER's mailbox for a relayed
-// approval_request and returns its correlation id — the mailbox carrier's twin
-// of relayedApprovalID.
-func pendingApprovalID(c *Coordinator, harp string) string {
-	msgs, err := c.recvMail(context.Background(), harp, 10*time.Millisecond)
-	if err != nil {
-		return ""
-	}
-	for _, m := range msgs {
-		if m.Kind == KindApprovalRequest {
-			return m.ID
+// armRelayedApprovalIDs is the mailbox carrier's twin of relayedApprovalID: it
+// installs the register-before-publish seam and returns the channel each
+// relayed approval's correlation id arrives on. Install it BEFORE spawning
+// anything that can ask.
+//
+// It must NOT be a mailbox drain, and that is the whole reason it exists in
+// this shape. The answerer harp has a LIVE runner Home long-polling its own
+// mailbox, and Coordinator.tryClaimDeliverable hands each message to exactly
+// ONE claimer — so a test that calls recvMail on the same role is a second
+// consumer racing that runner, and whichever wins, the other never sees the
+// message at all. relayedApprovalID survives the identical race only because it
+// also reads spool.DirInConsumed, i.e. it can still observe a message the
+// runner already took. This is that same property on the plane that has no file
+// to re-read: the seam fires at the instant the mail becomes observable, which
+// no claim can take away.
+func armRelayedApprovalIDs(c *Coordinator) <-chan string {
+	ids := make(chan string, 8)
+	c.onApprovalMailQueued = func(msgID string) {
+		select {
+		case ids <- msgID:
+		default:
 		}
 	}
-	return ""
+	return ids
+}
+
+// awaitRelayedApprovalID returns the next correlation id armRelayedApprovalIDs
+// captured, failing the test if no relay is queued within conformanceWait.
+func awaitRelayedApprovalID(t *testing.T, ids <-chan string) string {
+	t.Helper()
+	select {
+	case id := <-ids:
+		return id
+	case <-time.After(conformanceWait):
+		t.Fatal("the relay never queued its mail to the answerer")
+		return ""
+	}
+}
+
+// relayTargetHarp is the harp the coordinator registered askID's relay against
+// — the mailbox the ask was addressed to.
+func relayTargetHarp(t *testing.T, c *Coordinator, askID string) string {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	pa := c.approvals[askID]
+	require.NotNil(t, pa, "the relay's waiter must still be registered under %s", askID)
+	return pa.targetHarp
 }
 
 func mustMarshal(t *testing.T, v any) []byte {

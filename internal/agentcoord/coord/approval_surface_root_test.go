@@ -172,13 +172,12 @@ func TestApproval_RelayToRoleAtDepthTwo_StillTargetsTheDirectParent(t *testing.T
 	sp := relayGrandchildSpawner(parkedLongEnough, commandExecRequest("perm-1"))
 	c := newTestCoordinatorDepthCap(t, sp, nil, relayGenerationDepth)
 
+	askIDs := armRelayedApprovalIDs(c)
 	middle, grandchild, _ := spawnRelayGenerations(t, c, sp)
 
-	var askID string
-	require.Eventually(t, func() bool {
-		askID = pendingApprovalID(c, middle.Harp)
-		return askID != ""
-	}, conformanceWait, 10*time.Millisecond, "the relay never reached the intermediate agent's mailbox")
+	askID := awaitRelayedApprovalID(t, askIDs)
+	require.Equal(t, middle.Harp, relayTargetHarp(t, c, askID),
+		"the relay must address the INTERMEDIATE agent's mailbox, not the root's")
 
 	// The ROOT is not this rung's answerer — a relay is addressed to a role.
 	_, err := c.AgentSend(ownerIdentity(), grandchild.Harp, "", "reviewed", approvalDecisionJSON(t, "DECISION_ACCEPT"), askID)

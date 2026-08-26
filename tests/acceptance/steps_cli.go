@@ -409,51 +409,80 @@ func jsonAtPath(doc any, path string) (any, error) {
 			walked = "$"
 			continue
 		}
-		switch {
-		case walked == "":
-			walked = seg
-		case strings.HasPrefix(seg, "["):
-			walked += seg
-		default:
-			walked += "." + seg
+		walked = jsonWalkedPath(walked, seg)
+
+		next, err := jsonStepInto(cur, seg, walked)
+		if err != nil {
+			return nil, err
 		}
-		// A "[field=value]" segment SELECTS the array element that carries
-		// that value, so an assertion can name the object it means instead of
-		// its index. A list's position is an implementation detail; which
-		// bundle was signed, or which store an entry came from, is the claim.
-		if field, want, ok := jsonPathPredicate(seg); ok {
-			entries, isArray := cur.([]any)
-			if !isArray {
-				return nil, fmt.Errorf("JSON output at %q is a %s, so %q selects nothing", walked, jsonKind(cur), seg)
-			}
-			match, err := jsonSelect(entries, field, want)
-			if err != nil {
-				return nil, fmt.Errorf("at %q: %w", walked, err)
-			}
-			cur = match
-			continue
-		}
-		switch node := cur.(type) {
-		case map[string]any:
-			v, ok := node[seg]
-			if !ok {
-				return nil, fmt.Errorf("JSON output has nothing at %q (no %q key)", walked, seg)
-			}
-			cur = v
-		case []any:
-			i, err := strconv.Atoi(seg)
-			if err != nil {
-				return nil, fmt.Errorf("JSON output at %q is an array, so %q must be an index", walked, seg)
-			}
-			if i < 0 || i >= len(node) {
-				return nil, fmt.Errorf("JSON output at %q indexes element %d of a %d-element array", walked, i, len(node))
-			}
-			cur = node[i]
-		default:
-			return nil, fmt.Errorf("JSON output at %q is a %s, so %q addresses nothing beneath it", walked, jsonKind(cur), seg)
-		}
+		cur = next
 	}
 	return cur, nil
+}
+
+// jsonWalkedPath extends the breadcrumb of what has been walked so far. It
+// exists so a failure names the path the reader wrote ("entries[0].Source")
+// rather than the segment it died on, which alone says nothing about where.
+func jsonWalkedPath(walked, seg string) string {
+	switch {
+	case walked == "":
+		return seg
+	case strings.HasPrefix(seg, "["):
+		return walked + seg
+	default:
+		return walked + "." + seg
+	}
+}
+
+// jsonStepInto resolves one path segment against the current node. A segment
+// either SELECTS out of an array by predicate or DESCENDS into a container;
+// walked is carried only to name the position in an error.
+func jsonStepInto(cur any, seg, walked string) (any, error) {
+	// A "[field=value]" segment SELECTS the array element that carries
+	// that value, so an assertion can name the object it means instead of
+	// its index. A list's position is an implementation detail; which
+	// bundle was signed, or which store an entry came from, is the claim.
+	if field, want, ok := jsonPathPredicate(seg); ok {
+		return jsonSelectAt(cur, seg, walked, field, want)
+	}
+	return jsonDescend(cur, seg, walked)
+}
+
+// jsonSelectAt applies a "[field=value]" predicate to an array node.
+func jsonSelectAt(cur any, seg, walked, field, want string) (any, error) {
+	entries, isArray := cur.([]any)
+	if !isArray {
+		return nil, fmt.Errorf("JSON output at %q is a %s, so %q selects nothing", walked, jsonKind(cur), seg)
+	}
+	match, err := jsonSelect(entries, field, want)
+	if err != nil {
+		return nil, fmt.Errorf("at %q: %w", walked, err)
+	}
+	return match, nil
+}
+
+// jsonDescend reads seg as an object key or an array index, depending on what
+// the current node actually is.
+func jsonDescend(cur any, seg, walked string) (any, error) {
+	switch node := cur.(type) {
+	case map[string]any:
+		v, ok := node[seg]
+		if !ok {
+			return nil, fmt.Errorf("JSON output has nothing at %q (no %q key)", walked, seg)
+		}
+		return v, nil
+	case []any:
+		i, err := strconv.Atoi(seg)
+		if err != nil {
+			return nil, fmt.Errorf("JSON output at %q is an array, so %q must be an index", walked, seg)
+		}
+		if i < 0 || i >= len(node) {
+			return nil, fmt.Errorf("JSON output at %q indexes element %d of a %d-element array", walked, i, len(node))
+		}
+		return node[i], nil
+	default:
+		return nil, fmt.Errorf("JSON output at %q is a %s, so %q addresses nothing beneath it", walked, jsonKind(cur), seg)
+	}
 }
 
 // lastOutputJSONDoc decodes the last command's STDOUT as a JSON document of

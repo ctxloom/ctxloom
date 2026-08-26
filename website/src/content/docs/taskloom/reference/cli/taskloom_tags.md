@@ -15,13 +15,33 @@ List the tags in use, with per-tag task counts
 
 List every tag currently in use across the project's tasks, with counts.
 
-Counts cover ALL tasks: "active" is the number visible in the default list
-view (not completed, not Deferred), "total" includes completed and Deferred
-tasks too. A tag with 0 active but many total marks a finished workstream;
-a tag with a single total next to a popular near-twin is probably a typo.
+"active" is the number of tasks carrying the tag that are visible in the
+default list view (not completed, not Deferred); "total" is every task
+carrying it, however parked or finished. A tag with 0 active but many total
+marks a finished workstream; a tag with a single total next to a popular
+near-twin is probably a typo.
 
-Apply tags with "taskloom tag" or "taskloom add --tag"; filter by them with
-"taskloom list --tag-query".
+The SAME filter and scope axes `taskloom list` takes narrow the population the
+counts are computed over: --status (including the @open/@terminal classes),
+--term, --tag-query, and --global/--project. With no flags the counts cover
+the whole project, exactly as they always have. This is what answers "how
+does this filtered set break down by tag" in one call — the audit found that
+question being scraped instead, by piping a tag-query listing through grep,
+sort and uniq -c.
+
+--term filters TASKS by a substring of their text, precisely as
+`taskloom list --term` does: it narrows which tasks are counted. It does NOT
+filter tag NAMES by substring — every tag carried by a matching task is
+listed, whatever it is called. Filtering the vocabulary itself stays a job
+for grep or jq over this command's --format json output.
+
+There is no --all: the two count columns already carry that distinction.
+"active" IS the default-list-view population and "total" IS the
+everything-included one, so the tasks hidden from a listing are always
+counted here, and a flag to reveal them would have nothing left to reveal.
+
+Apply tags with "taskloom tag" or "taskloom add --tag"; filter tasks by them
+with "taskloom list --tag-query".
 
 ```
 taskloom tags [flags]
@@ -32,12 +52,25 @@ taskloom tags [flags]
 ```
   taskloom tags
   taskloom tags --json
+
+  # how the release-tagged work breaks down by every other tag
+  taskloom tags --tag-query release
+
+  # the tag distribution of everything still open
+  taskloom tags --status @open
+
+  # tags in use across every privately-homed project
+  taskloom tags --global
 ```
 
 ### Options
 
 ```
-  -h, --help   help for tags
+      --global                          count across every privately-homed project instead of just the current one (repo-homed projects are never included -- see "taskloom list --help")
+  -h, --help                            help for tags
+      --status taskloom list --status   count only tasks in these statuses (repeatable); accepts the "@open"/"@terminal" classes exactly as taskloom list --status does
+      --tag-query string                count only tasks matching this postfix tag query, e.g. "urgent/release/and" (see "taskloom list --help" for the grammar)
+      --term string                     count only tasks whose TEXT contains this case-insensitive substring (this narrows the tasks counted, never the tag names listed)
 ```
 
 ### Options inherited from parent commands

@@ -146,7 +146,7 @@ type Identity struct {
 	// Consumer marks a D1 read-only watch credential (coord/consumer.go): it
 	// authenticates ConsumerService (WatchRuns/ListRuns) ONLY — the gRPC auth
 	// interceptor rejects it on every CoordinatorService method (RunnerChannel/
-	// RunChannel/PublishEvents), so a leaked viewer credential cannot mutate
+	// RunChannel), so a leaked viewer credential cannot mutate
 	// anything or impersonate a runner/child. Never journaled: minted fresh
 	// per coordinator process, verified in-memory only (creds.go).
 	Consumer bool `json:"-"`

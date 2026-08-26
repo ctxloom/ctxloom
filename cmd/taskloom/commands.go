@@ -62,7 +62,12 @@ listing says so on stderr.
 By default only active tasks are shown: completed (Done/Archived) and
 Deferred tasks are hidden. Pass --all to include them, or name a status
 explicitly with --status (an explicit status filter is honored verbatim;
-see "taskloom statuses" for the taxonomy). When a --term or --tag-query
+see "taskloom statuses" for the taxonomy). --status also accepts the @-classes
+--status @open (every non-terminal status) and --status @terminal (every
+completed one), expanded from that same taxonomy at RUNTIME: a status added to
+it is picked up by the right class with nothing here to keep in sync. Classes
+mix freely with literal statuses in one filter, since this is sugar over the
+already-repeatable --status. When a --term or --tag-query
 filter also matches hidden tasks, a note on stderr says how many, so
 matches never vanish silently.
 
@@ -91,6 +96,13 @@ tags in use (with counts) via "taskloom tags".`,
 
   # In Progress tasks mentioning "docs"
   taskloom list --status "In Progress" --term docs
+
+  # every task that is not finished — To Do, In Progress, Deferred, and
+  # whatever else the taxonomy calls non-terminal
+  taskloom list --status @open
+
+  # a class mixed with a literal
+  taskloom list --status @terminal --status "In Progress"
 
   # every project's tasks, not just the current one
   taskloom list --global`,
@@ -608,58 +620,156 @@ func runTag(cmd *cobra.Command, args []string) error {
 	})
 }
 
+var (
+	tasksTagsStatuses []string
+	tasksTagsTerm     string
+	tasksTagsTagQuery string
+	tasksTagsGlobal   bool
+)
+
 var tagsCmd = &cobra.Command{
 	Use:   "tags",
 	Short: "List the tags in use, with per-tag task counts",
 	Long: `List every tag currently in use across the project's tasks, with counts.
 
-Counts cover ALL tasks: "active" is the number visible in the default list
-view (not completed, not Deferred), "total" includes completed and Deferred
-tasks too. A tag with 0 active but many total marks a finished workstream;
-a tag with a single total next to a popular near-twin is probably a typo.
+"active" is the number of tasks carrying the tag that are visible in the
+default list view (not completed, not Deferred); "total" is every task
+carrying it, however parked or finished. A tag with 0 active but many total
+marks a finished workstream; a tag with a single total next to a popular
+near-twin is probably a typo.
 
-Apply tags with "taskloom tag" or "taskloom add --tag"; filter by them with
-"taskloom list --tag-query".`,
+The SAME filter and scope axes ` + "`taskloom list`" + ` takes narrow the population the
+counts are computed over: --status (including the @open/@terminal classes),
+--term, --tag-query, and --global/--project. With no flags the counts cover
+the whole project, exactly as they always have. This is what answers "how
+does this filtered set break down by tag" in one call — the audit found that
+question being scraped instead, by piping a tag-query listing through grep,
+sort and uniq -c.
+
+--term filters TASKS by a substring of their text, precisely as
+` + "`taskloom list --term`" + ` does: it narrows which tasks are counted. It does NOT
+filter tag NAMES by substring — every tag carried by a matching task is
+listed, whatever it is called. Filtering the vocabulary itself stays a job
+for grep or jq over this command's --format json output.
+
+There is no --all: the two count columns already carry that distinction.
+"active" IS the default-list-view population and "total" IS the
+everything-included one, so the tasks hidden from a listing are always
+counted here, and a flag to reveal them would have nothing left to reveal.
+
+Apply tags with "taskloom tag" or "taskloom add --tag"; filter tasks by them
+with "taskloom list --tag-query".`,
 	Example: `  taskloom tags
-  taskloom tags --json`,
+  taskloom tags --json
+
+  # how the release-tagged work breaks down by every other tag
+  taskloom tags --tag-query release
+
+  # the tag distribution of everything still open
+  taskloom tags --status @open
+
+  # tags in use across every privately-homed project
+  taskloom tags --global`,
 	Args: cobra.NoArgs,
 	RunE: runTags,
 }
 
 func runTags(cmd *cobra.Command, args []string) error {
-	tc, err := taskContextSingle()
+	format, err := cliemit.Resolve(cmd)
 	if err != nil {
 		return err
 	}
-	res, err := operations.ListTagCounts(tc)
+	tc, err := taskContext()
 	if err != nil {
 		return err
 	}
-	warnTask(res.Warning)
-	return cliemit.Emit(cmd, res.Tags, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("Project: %s\n\n", formatProjectLabel(res.ProjectDir, res.ProjectID))
-		// The vocabulary enumeration goes through the same display-hide
-		// filter as list/show: a tag hidden by tag_schema's tagma.hide:*
-		// declarations shouldn't surface here either — see hideConfigFor.
-		visible := visibleTagCounts(res.Tags, hideConfigFor(tc))
-		if len(visible) == 0 {
-			w.Println("(no tags in use — apply one with `taskloom tag <harp-id> --add <tag>`)")
-			return w.Err()
-		}
-		// Pad the tag column so the counts align; the counts are labeled so
-		// the output is self-describing without a header row.
-		tagWidth := 0
-		for _, t := range visible {
-			if len(t.Tag) > tagWidth {
-				tagWidth = len(t.Tag)
-			}
-		}
-		for _, t := range visible {
-			w.Printf("%-*s  %3d active  %3d total\n", tagWidth, t.Tag, t.Active, t.Total)
-		}
-		return w.Err()
+	// Mirrors runList: the tag-schema drives both the tag-query index's type
+	// comparison and the display-hide config this command applies.
+	tc, err = resolveTagSchema(tc)
+	if err != nil {
+		return err
+	}
+	return runTagsCmd(cmd.OutOrStdout(), os.Stderr, tc, listOptions{
+		Statuses: tasksTagsStatuses,
+		Term:     tasksTagsTerm,
+		TagQuery: tasksTagsTagQuery,
+		Global:   tasksTagsGlobal,
+		Format:   format,
 	})
+}
+
+// runTagsCmd is tagsCmd's RunE body, factored out so it can be driven in
+// tests without cobra machinery — out/errw are separate for the same reason
+// runListCmd's are: stdout stays parseable, stderr carries the diagnostics.
+//
+// It counts over the task set listTasksScoped selects, which is what gives
+// `tags` list's filter and scope axes without a second copy of any of that
+// machinery. All is forced on: a tag's `total` is by definition the count
+// over every matching task, completed and Deferred included, so letting the
+// default active-only view reach this population would silently redefine
+// `total` as `active`.
+func runTagsCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions) error {
+	opts.All = true
+	r, err := listTasksScoped(tc, opts)
+	if err != nil {
+		return err
+	}
+	if r.Notice != "" {
+		clidiag.Fwarn(errw, progName, "%s", r.Notice)
+	}
+	counts := operations.TagCountsOf(tasksOfRows(r.Rows))
+	// The vocabulary enumeration goes through the same display-hide filter
+	// as list/show: a tag hidden by tag_schema's tagma.hide:* declarations
+	// shouldn't surface here either — see hideConfigFor.
+	visible := visibleTagCounts(counts, hideConfigFor(r.TC))
+	if opts.Format != clifmt.FormatText {
+		return clifmt.Render(out, visible, opts.Format)
+	}
+	w := iox.NewErrWriter(out)
+	if r.Global {
+		w.Printf("Projects: %d (--global)\n\n", r.ProjectCount)
+	} else {
+		w.Printf("Project: %s\n\n", formatProjectLabel(r.ProjectDir, r.ProjectID))
+	}
+	if err := w.Err(); err != nil {
+		return err
+	}
+	return renderTagCounts(out, visible)
+}
+
+// tasksOfRows strips the per-row project attribution a scoped listing carries,
+// leaving the plain tasks the tag counter works over. Both scopes populate
+// Rows (the single-project path attributes every row to the one project), so
+// counting from Rows means the two scopes share one code path.
+func tasksOfRows(rows []taskRow) []tasks.Task {
+	out := make([]tasks.Task, len(rows))
+	for i, r := range rows {
+		out[i] = r.Task
+	}
+	return out
+}
+
+// renderTagCounts prints the human `tags` table: one padded row per tag with
+// its two labeled counts, or a hint when the population carries no tags at
+// all — an empty table would otherwise read as a broken command.
+func renderTagCounts(out io.Writer, visible []operations.TagCount) error {
+	w := iox.NewErrWriter(out)
+	if len(visible) == 0 {
+		w.Println("(no tags in use — apply one with `taskloom tag <harp-id> --add <tag>`)")
+		return w.Err()
+	}
+	// Pad the tag column so the counts align; the counts are labeled so
+	// the output is self-describing without a header row.
+	tagWidth := 0
+	for _, t := range visible {
+		if len(t.Tag) > tagWidth {
+			tagWidth = len(t.Tag)
+		}
+	}
+	for _, t := range visible {
+		w.Printf("%-*s  %3d active  %3d total\n", tagWidth, t.Tag, t.Active, t.Total)
+	}
+	return w.Err()
 }
 
 var summaryCmd = &cobra.Command{
@@ -704,7 +814,12 @@ var statusesCmd = &cobra.Command{
 
 Lets a GUI render status groups and pickers from the source of truth instead of
 hardcoding the status set. "terminal" marks completed statuses (Done/Archived);
-"requires_trigger" marks statuses that need a revive condition (Deferred).`,
+"requires_trigger" marks statuses that need a revive condition (Deferred).
+
+This is also the taxonomy the --status filter's @-classes are expanded from:
+"@open" is every entry whose terminal bit is false, "@terminal" every entry
+whose terminal bit is true. "@" is RESERVED as that class prefix, so it is
+refused as the first character of a status name.`,
 	Args: cobra.NoArgs,
 	RunE: runStatusesCmd,
 }
@@ -728,7 +843,7 @@ func runStatusesCmd(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	listCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, "filter by status (repeatable)")
+	listCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, `filter by status (repeatable); also accepts the classes "@open" (every non-terminal status) and "@terminal" (every completed one), expanded from the live taxonomy and mixable with literal statuses`)
 	listCmd.Flags().StringVar(&tasksListTerm, "term", "", "filter by case-insensitive substring of task text")
 	listCmd.Flags().StringVar(&tasksListTagQuery, "tag-query", "", `filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")`)
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include the tasks hidden by default: completed (Done/Archived) and Deferred")
@@ -745,6 +860,11 @@ func init() {
 
 	tagCmd.Flags().StringArrayVar(&tasksTagAdd, "add", nil, "tag to add (repeatable)")
 	tagCmd.Flags().StringArrayVar(&tasksTagRemove, "remove", nil, "tag to remove (repeatable)")
+
+	tagsCmd.Flags().StringSliceVar(&tasksTagsStatuses, "status", nil, `count only tasks in these statuses (repeatable); accepts the "@open"/"@terminal" classes exactly as `+"`taskloom list --status`"+` does`)
+	tagsCmd.Flags().StringVar(&tasksTagsTerm, "term", "", "count only tasks whose TEXT contains this case-insensitive substring (this narrows the tasks counted, never the tag names listed)")
+	tagsCmd.Flags().StringVar(&tasksTagsTagQuery, "tag-query", "", `count only tasks matching this postfix tag query, e.g. "urgent/release/and" (see "taskloom list --help" for the grammar)`)
+	tagsCmd.Flags().BoolVar(&tasksTagsGlobal, "global", false, "count across every privately-homed project instead of just the current one (repo-homed projects are never included -- see \"taskloom list --help\")")
 
 	rootCmd.AddCommand(listCmd, addCmd, statusCmd, editCmd, tagCmd, tagsCmd, summaryCmd, statusesCmd)
 }

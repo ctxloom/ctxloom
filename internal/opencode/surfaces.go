@@ -49,6 +49,27 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns opencode's context identity for the DeliverShared fallback's warning.
 func (s *contextSurface) UnsafeInfo() string { return "opencode/context" }
 
+// State implements agent.StateReader: what .opencode/ctxloom-context.md
+// currently carries. That file is ctxloom's OUTRIGHT — OpencodeWriter.WriteContext
+// writes it whole and removes it whole — so it reads through
+// agent.ReadOwnedContext, not the marker split ReadManagedContext performs for
+// the engines whose context shares a file with hand-authored prose.
+//
+// It answers for the PAYLOAD file only, not for the `instructions` reference
+// WriteContext also puts in opencode.json alongside it. That reference is the
+// config surface's half of the same write, and a currency report for the
+// context route that went missing whenever a user reordered their opencode.json
+// would be reporting the wrong file's fault against this one's name.
+func (s *contextSurface) State(dir string) (agent.DeliveryState, error) {
+	fs := agent.GetFS(s.fs)
+	w := &OpencodeWriter{FS: fs}
+	state, err := agent.ReadOwnedContext(fs, w.contextFilePath(dir), opencodeContextFile)
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
 // configSurface is opencode's folded settings + MCP surface: opencode.json's `mcp`
 // key, written via the reused OpencodeWriter.WriteSettings.
 type configSurface struct {
@@ -162,4 +183,6 @@ func (Surfaces) SharedRealization(agent.SurfaceKind, agent.Approach) (func() (ag
 // Compile-time capability contracts.
 var (
 	_ agent.SurfaceSet = Surfaces{}
+	// The ctxloom-owned context file also answers for what it delivered.
+	_ agent.StateReader = (*contextSurface)(nil)
 )

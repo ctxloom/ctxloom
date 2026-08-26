@@ -325,7 +325,7 @@ func TestConsumerService_ListRuns(t *testing.T) {
 // TestConsumer_CredentialRejectedOnCoordinatorService is the read-only scope
 // enforcement: a consumer credential authenticates ConsumerService only — it
 // must be a rejected IDENTITY (PermissionDenied), not merely an unauthorized
-// verb, on RunnerChannel/RunChannel/PublishEvents.
+// verb, on RunnerChannel/RunChannel.
 func TestConsumer_CredentialRejectedOnCoordinatorService(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
@@ -342,7 +342,10 @@ func TestConsumer_CredentialRejectedOnCoordinatorService(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 	coordClient := agentcoordpb.NewCoordinatorServiceClient(conn)
 
-	_, err = coordClient.PublishEvents(context.Background(), &agentcoordpb.PublishEventsRequest{})
+	runStream, err := coordClient.RunChannel(context.Background())
+	require.NoError(t, err) // stream establishment succeeds; the interceptor rejects per-stream
+	_ = runStream.Send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Hello{Hello: &agentcoordpb.Hello{}}})
+	_, err = runStream.Recv()
 	require.Error(t, err)
 	assert.Equal(t, codes.PermissionDenied, status.Code(err), "a consumer credential must not authenticate CoordinatorService: %v", err)
 

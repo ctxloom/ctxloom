@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,6 +114,29 @@ func VendorReaderEngineNames() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// VendorReaderAdaptersFor returns the version-scoped transcript adapters
+// ctxloom carries for one engine, and whether that engine has a vendor reader
+// at all (opencode/acp/mock do not — see vendorReaderRegistry's doc).
+//
+// Exported read-only, for `ctxloom doctor`'s transcript-reader check: a user
+// meeting a vendorreader refusal needs the detected engine version against the
+// ranges ctxloom actually carries, and that is the whole diagnosis. It reads
+// THIS registry — the same one conversion reads — rather than having doctor
+// import the three reader packages and assemble a fifth engine-identity roster
+// of its own (the four that already exist are enumerated in
+// tests/arch/engine_identity_arch_test.go).
+//
+// The slice is copied: it is built from the reader packages' VersionedAdapters
+// package vars, which are FACTS those packages state about themselves, and a
+// caller must not be able to rewrite them through a read.
+func VendorReaderAdaptersFor(engine string) ([]vendorreader.VersionedAdapter, bool) {
+	reg, ok := vendorReaderRegistry[engine]
+	if !ok {
+		return nil, false
+	}
+	return slices.Clone(reg.adapters), true
 }
 
 // locateBoundTranscript is the locate func shared by every JSONL-per-session

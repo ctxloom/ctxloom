@@ -128,7 +128,7 @@ func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 // slot) WHILE A is still blocked — only possible if A yielded its slot.
 //
 // The slot-yield invariant is proven by B reaching StateExecuting (which
-// happens in runChild the instant slots.acquire returns, BEFORE the engine
+// happens in runChild the instant slots.Acquire returns, BEFORE the engine
 // turn) while A holds the only cap-1 slot parked — not by racing B's full
 // engine-turn completion latency against a wall-clock deadline. That earlier
 // shape flaked under full-suite load: B's *result* rides a whole

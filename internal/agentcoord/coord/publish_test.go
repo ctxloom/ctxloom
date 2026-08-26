@@ -84,29 +84,6 @@ func TestPublishEvents_RejectsMalformed(t *testing.T) {
 	assert.Empty(t, resp.GetCommittedSeqByRun())
 }
 
-// TestPublishEvents_GRPCOwnershipCheck pins the gRPC entry point's
-// credential-ownership gate: a run_id foreign to the connecting credential is
-// refused outright (never silently filed under someone else's watermark),
-// mirroring RunChannel's Hello check.
-func TestPublishEvents_GRPCOwnershipCheck(t *testing.T) {
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, func() *fakeEngine { return &fakeEngine{oneshot: true} })
-	c := newTestCoordinator(t, sp, nil)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "hello", "", "")
-	require.NoError(t, err)
-	h := childHome(t, c, out.RunID)
-
-	// h's connection already carries its bearer credential via
-	// grpc.WithPerRPCCredentials (NewHome) — a direct unary call over it is
-	// authenticated exactly like the runner's own RunChannel/RunnerChannel
-	// dials.
-	client := agentcoordpb.NewCoordinatorServiceClient(h.conn)
-	_, err = client.PublishEvents(context.Background(), &agentcoordpb.PublishEventsRequest{
-		Events: []*agentcoordpb.AgentEvent{runCompletedEvent("someone-elses-run", 1, "nope")},
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "was not issued to this credential")
-}
-
 // TestOneshotChild_PublishesRunCompletedAndMailsParent is the production-path
 // proof: a oneshot-fallback child's completed turn both (a) journals a
 // RunCompleted fact via PublishEvents (durable event-log record, manly-grant

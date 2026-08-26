@@ -542,6 +542,9 @@ func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Tas
 	if status == "" {
 		status = StatusToDo
 	}
+	if err := ValidateStatusName(status); err != nil {
+		return Task{}, err
+	}
 	trigger = strings.TrimSpace(trigger)
 	if err := validateStatusTrigger(status, trigger); err != nil {
 		return Task{}, err
@@ -585,6 +588,9 @@ func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Tas
 func (l *eventLog) setStatus(harpID, status, trigger string) (Task, error) {
 	if status == "" {
 		return Task{}, fmt.Errorf("status required")
+	}
+	if err := ValidateStatusName(status); err != nil {
+		return Task{}, err
 	}
 	release, err := l.lock()
 	if err != nil {

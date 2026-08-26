@@ -21,7 +21,7 @@ flowchart TD
   URL --> EQ["enqueueRun — mint run_id + token,<br/>journal factRunEnqueued<br/>children.go:272"]
   EQ --> RT[("childRt<br/>children.go:75")]
   EQ --> RC["runChild :529"]
-  RC -->|slot| TS[("turnSlots :1774<br/>free + FIFO waiters")]
+  RC -->|slot| TS[("Coordinator.slots<br/>semaphore.Weighted + FIFO waiters")]
   RC -->|"ViaStartRun && url != ''"| VSR["runChildViaStartRun :616"] --> ISR["issueStartRun :661"]
   RC -->|legacy / degraded| LA["spawner.Launch → attachLaunch :1282"] --> DC["driveChild :1010"]
 
@@ -53,7 +53,7 @@ flowchart TD
 | `EngineSpawn` | `spawner.go:434` | `StartEngine` result: a spawned-but-not-chatting runner plus HarnessSpec inputs and a `Kill` |
 | `childRt` | `children.go:75` | the non-durable runtime attachment of one live run: identity, `slotHeld`, legacy channels (`in`/`close`/`wake`/`oneshot`), migrated state (`viaStartRun`/`finalMsgs`/`stderrTail`/`runFailure`), turn accumulators, `launchCancel` |
 | `RunOutcome` | `children.go:169` | `agent_run`'s return payload, **fixed at enqueue** |
-| `turnSlots` | `children.go:1774` | counting semaphore with FIFO waiters bounding concurrently executing child turns |
+| `Coordinator.slots` | `coordinator.go` | `semaphore.Weighted` (`golang.org/x/sync`) with FIFO waiters, bounding concurrently executing child turns. `Release` panics on an over-release rather than handing back a token nobody took — a silently inflated cap admits more live engine processes than configured |
 | `launchState` | `launchgate.go:143` | one harp's `{cancel, gen}` cancellation registry + `fails` retry counter + `stopped` flag |
 | `OwnerRunSpec` / `OwnedRunStarter` | `owner_run.go:31,58` | host-resolved parameters for a parent-less container run, and the seam that lets `coord` spawn a runner without importing `lm/isolation` |
 
@@ -89,7 +89,7 @@ logic reads.
 
 | Function | file:line | Contract |
 |---|---|---|
-| `turnSlots.tryAcquire` / `acquire` / `release` | `children.go:1782,1792,1821` | non-blocking queue-respecting acquire; FIFO blocking acquire with a correct cancel/grant race resolution; hand-off to the oldest waiter |
+| `Coordinator.slots.TryAcquire` / `Acquire` / `Release` | `golang.org/x/sync/semaphore` | non-blocking queue-respecting acquire; FIFO blocking acquire with a correct cancel/grant race resolution; hand-off to the oldest waiter; panic on an over-release |
 | `claimSlotIntent` / `releaseSlotIntent` | `children.go:1261,1276` | atomically claim the right to acquire, and roll it back |
 | `releaseSlot` | `children.go:1237` | clear `slotHeld` and release the semaphore if it was set |
 | `onRolePark` / `onRoleUnpark` | `children.go:1732,1754` | yield the slot when a role parks in `agent_recv` or on an approval; re-acquire (**blocking**, bounded only by process shutdown) when it resumes |

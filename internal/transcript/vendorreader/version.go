@@ -177,14 +177,37 @@ func (e *UnsupportedVersionError) Unwrap() error { return e.Err }
 //
 // harp is used only to name the session in a refusal; it may be empty.
 //
+// This is SelectVersionedAdapter narrowed to the parser, which is all a
+// conversion needs. Selection and refusals are that function's, not a second
+// copy of them.
+func SelectAdapter(engine, recordedVersion, harp string, candidates []VersionedAdapter) (VendorAdapter, error) {
+	selected, err := SelectVersionedAdapter(engine, recordedVersion, harp, candidates)
+	if err != nil {
+		return nil, err
+	}
+	return selected.Adapter, nil
+}
+
+// SelectVersionedAdapter is the selection itself, returning the WHOLE
+// candidate that matched — its parser, the range it declares, and the version
+// that range was validated at — rather than only the parser.
+//
+// It exists because a REPORT needs what a conversion does not. `ctxloom
+// doctor` tells a user which reader the engine version on their machine
+// selects and what it was validated against, which is the diagnosis a
+// vendorreader refusal otherwise leaves them to reconstruct by hand. Deriving
+// that by matching SelectAdapter's returned parser back against the candidate
+// list would be a SECOND selector, free to disagree with this one about which
+// adapter is in use — so the report and the conversion ask the same function.
+//
 // The first matching candidate wins. Overlapping ranges are therefore resolved
 // by declaration order rather than by "closest" or "newest", which is the
 // honest behaviour: two adapters both claiming a version is a mistake in the
 // declarations, and silently preferring one by some derived score would hide
 // it. Keep the ranges disjoint.
-func SelectAdapter(engine, recordedVersion, harp string, candidates []VersionedAdapter) (VendorAdapter, error) {
+func SelectVersionedAdapter(engine, recordedVersion, harp string, candidates []VersionedAdapter) (VersionedAdapter, error) {
 	if strings.TrimSpace(recordedVersion) == "" {
-		return nil, &NoRecordedVersionError{Engine: engine, Harp: harp}
+		return VersionedAdapter{}, &NoRecordedVersionError{Engine: engine, Harp: harp}
 	}
 
 	known := make([]VersionRange, 0, len(candidates))
@@ -197,11 +220,11 @@ func SelectAdapter(engine, recordedVersion, harp string, candidates []VersionedA
 		if err != nil {
 			// The recorded value is not a version at all. Every candidate
 			// would fail identically, so report it once, here.
-			return nil, &UnsupportedVersionError{Engine: engine, Version: recordedVersion, Known: known, Err: err}
+			return VersionedAdapter{}, &UnsupportedVersionError{Engine: engine, Version: recordedVersion, Known: known, Err: err}
 		}
 		if ok {
-			return c.Adapter, nil
+			return c, nil
 		}
 	}
-	return nil, &UnsupportedVersionError{Engine: engine, Version: recordedVersion, Known: known}
+	return VersionedAdapter{}, &UnsupportedVersionError{Engine: engine, Version: recordedVersion, Known: known}
 }

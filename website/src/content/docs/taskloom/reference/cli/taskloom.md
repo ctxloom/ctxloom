@@ -49,7 +49,7 @@ vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-que
 * [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md)
 * [taskloom repair](/taskloom/reference/cli/taskloom_repair/)	 - Re-introduce any task displaced by an unresolved harp-id collision
 * [taskloom run](/taskloom/reference/cli/taskloom_run/)	 - Browse a task and launch an agent on it (via ctxloom run)
-* [taskloom show](/taskloom/reference/cli/taskloom_show/)	 - Show one task's full detail
+* [taskloom show](/taskloom/reference/cli/taskloom_show/)	 - Show one or more tasks' full detail
 * [taskloom status](/taskloom/reference/cli/taskloom_status/)	 - Change the status of a task
 * [taskloom statuses](/taskloom/reference/cli/taskloom_statuses/)	 - List the task status taxonomy (name, order, terminal, requires_trigger)
 * [taskloom summary](/taskloom/reference/cli/taskloom_summary/)	 - Show per-status counts and active in-progress tasks

@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
@@ -51,7 +50,8 @@ const (
 	// re-enable one further level with no other code change — the property
 	// this design is meant to have, even though the value stays 1 today.
 	agentDepthCap = config.DefaultDelegationDepth
-	// agentConcurrencyCap is the BUILT-IN DEFAULT for turnSlots' cap: the
+	// agentConcurrencyCap is the BUILT-IN DEFAULT for the execution-slot cap
+	// (Coordinator.slots): the
 	// maximum number of delegated child turns EXECUTING at once (each a live
 	// engine process). NOT a correctness gate: the coordinator's own state is
 	// partitioned by child identity and safe under real concurrency by
@@ -60,7 +60,7 @@ const (
 	// (unset) falls back to this constant. Renamed from agentTurnCap: "turn
 	// cap" read as a per-run quota, which it never was. The cap counts
 	// EXECUTING turns only — a child parked in agent_recv or idle at a turn
-	// boundary yields its slot (turnSlots is a resource limiter: the slot is
+	// boundary yields its slot (Coordinator.slots is a resource limiter: the slot is
 	// acquired before spawner.Launch/StartEngine, never a serialization
 	// primitive).
 	agentConcurrencyCap = 4
@@ -79,7 +79,7 @@ const (
 )
 
 // slotState is a childRt's three-valued relationship to the D4 execution-
-// slot cap (turnSlots), replacing a single overloaded bool. The
+// slot cap (Coordinator.slots), replacing a single overloaded bool. The
 // old `slotHeld` bool did double duty as both "I am ATTEMPTING to acquire a
 // slot" (set true by claimSlotIntent BEFORE a potentially long BLOCKING
 // acquire — onRoleUnpark's) and "I actually HOLD a slot" (the only fact
@@ -87,8 +87,9 @@ const (
 // an unbounded gap between them, and a concurrent releaseSlot/onRolePark
 // landing inside that gap could not tell which one it was looking at:
 //   - reading the bit true while only "claiming" (not yet acquired) and
-//     releasing anyway calls turnSlots.release() for a slot nobody holds,
-//     INFLATING the cap; and
+//     releasing anyway releases a token nobody holds, which since the cap
+//     is a semaphore.Weighted PANICS on the spot rather than INFLATING the
+//     cap silently; and
 //   - clearing the bit under a claim that goes on to acquire for real
 //     leaves that later-arriving slot with no bit ever set again, LEAKING
 //     it forever (nothing will ever see "held" for it again).
@@ -101,7 +102,7 @@ const (
 	slotFree    slotState = iota // holds nothing, wants nothing
 	slotClaimed                  // won the right to attempt acquisition; a tryAcquire
 	// or blocking acquire may be in flight right now — NOT yet a real slot
-	slotHeld // a real turnSlots slot is actually held — the only state a
+	slotHeld // a real execution slot is actually held — the only state a
 	// release may act on
 )
 
@@ -135,7 +136,7 @@ type childRt struct {
 	plan  *SpawnPlan
 
 	// slot is this childRt's relationship to the D4 execution-slot cap
-	// (turnSlots) — see slotState's doc for why this is a
+	// (Coordinator.slots) — see slotState's doc for why this is a
 	// tri-state, not a bool. slotCancel is set by releaseSlot/onRolePark
 	// when they find slot == slotClaimed (an acquisition is in flight and
 	// must not be released yet); commitSlotClaim consults it once that
@@ -539,7 +540,7 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 	// Claim a free slot now when one exists so `queued` is truthful at
 	// return. Set BEFORE publication — after it, rt.slot belongs to
 	// the mutex (the park hooks may touch it).
-	if c.slots.tryAcquire() {
+	if c.slots.TryAcquire(1) {
 		rt.slot = slotHeld
 	}
 	c.mu.Lock()
@@ -1157,13 +1158,13 @@ func (c *Coordinator) onTurnStarted(role string) {
 		return
 	}
 	if c.claimSlotIntent(rt) {
-		if !c.slots.tryAcquire() {
+		if !c.slots.TryAcquire(1) {
 			c.releaseSlotIntent(rt)
 		} else if !c.commitSlotClaim(rt) {
 			// Cancelled between the claim and this (non-blocking)
 			// tryAcquire landing — the same reason onRoleUnpark must
 			// handle it below, just a far smaller window here.
-			c.slots.release()
+			c.slots.Release(1)
 		}
 	}
 	c.setState(rt, StateExecuting)
@@ -1755,7 +1756,7 @@ var errSlotClaimCancelled = errors.New("execution slot claim cancelled by the ru
 // acquireRunSlot is the run-start BLOCKING execution-slot acquisition, done
 // under the same claimSlotIntent/commitSlotClaim guard onTurnStarted and
 // onRoleUnpark use. Its three callers (runChild, resumeChild, wakeChild) each
-// used to do a bare c.slots.acquire followed by an unconditional
+// used to do a bare c.slots.Acquire followed by an unconditional
 // rt.slot = slotHeld, which is precisely the window releaseSlot's doc
 // describes: a terminateRun landing while the acquirer is parked found
 // slotFree, released nothing, and — factRunEnded being exactly-once — never
@@ -1774,12 +1775,12 @@ func (c *Coordinator) acquireRunSlot(rt *childRt) error {
 	if !c.claimSlotIntent(rt) {
 		return nil
 	}
-	if err := c.slots.acquire(c.baseCtx); err != nil {
+	if err := c.slots.Acquire(c.baseCtx, 1); err != nil {
 		c.releaseSlotIntent(rt)
 		return err
 	}
 	if !c.commitSlotClaim(rt) {
-		c.slots.release()
+		c.slots.Release(1)
 		return errSlotClaimCancelled
 	}
 	return nil
@@ -1798,7 +1799,7 @@ func (c *Coordinator) releaseSlot(rt *childRt) {
 	case slotHeld:
 		rt.slot = slotFree
 		c.mu.Unlock()
-		c.slots.release()
+		c.slots.Release(1)
 	case slotClaimed:
 		rt.slotCancel = true
 		c.mu.Unlock()
@@ -1816,7 +1817,7 @@ func (c *Coordinator) releaseSlot(rt *childRt) {
 // pattern above. Returns false when rt already holds (or already owns
 // claiming) a slot: the caller then does nothing further — the occupancy
 // is already correctly accounted for. Deliberately NOT combined with the
-// actual turnSlots acquisition (which can block for onRoleUnpark's caller,
+// actual semaphore acquisition (which can block for onRoleUnpark's caller,
 // runtimeSlots.acquire) — holding c.mu across a blocking acquire would
 // stall every OTHER coordinator operation needing c.mu for as long as the
 // slot wait takes. The winner does NOT yet hold a real slot: it
@@ -1834,16 +1835,16 @@ func (c *Coordinator) claimSlotIntent(rt *childRt) bool {
 }
 
 // commitSlotClaim finalizes a claimSlotIntent win once its acquisition
-// (tryAcquire or a blocking acquire) has actually landed a real turnSlots
+// (TryAcquire or a blocking Acquire) has actually landed a real execution
 // slot. If nothing cancelled the claim while the acquisition was
 // in flight, the state becomes slotHeld — the ONLY state releaseSlot/
 // onRolePark may release against. If a concurrent releaseSlot/onRolePark
 // fired WHILE the acquisition was still pending (slotCancel), the claim
 // instead reverts to slotFree and the caller MUST immediately give the
-// just-landed slot back (c.slots.release()) — it was rendered unwanted the
+// just-landed slot back (c.slots.Release(1)) — it was rendered unwanted the
 // moment it arrived, and nothing else will ever release it: the racing
 // releaseSlot/onRolePark call already ran and deliberately did NOT call
-// turnSlots.release() itself, because at that moment the slot was only
+// the release itself, because at that moment the slot was only
 // claimed, not held (see releaseSlot's doc).
 func (c *Coordinator) commitSlotClaim(rt *childRt) (keep bool) {
 	c.mu.Lock()
@@ -1860,8 +1861,8 @@ func (c *Coordinator) commitSlotClaim(rt *childRt) (keep bool) {
 // releaseSlotIntent undoes a claimSlotIntent win whose acquisition attempt
 // itself did not pan out (tryAcquire found no free slot, or a blocking
 // acquire's ctx was cancelled) — no real slot was ever landed, so this is
-// pure bookkeeping, never a turnSlots.release() call. Never leave rt.slot
-// reading slotHeld/slotClaimed when no turnSlots slot is actually held
+// pure bookkeeping, never a c.slots.Release(1) call. Never leave rt.slot
+// reading slotHeld/slotClaimed when no execution slot is actually held
 // (assertion (f), slot conservation, exists specifically to catch a
 // regression here).
 func (c *Coordinator) releaseSlotIntent(rt *childRt) {
@@ -2356,7 +2357,7 @@ func (c *Coordinator) driveQueued(harp string) string {
 // session) park without slot bookkeeping.
 //
 // onRoleUnpark's re-acquisition can be a genuinely long BLOCKING
-// wait (turnSlots.acquire). If onRolePark lands while rt is only
+// wait (c.slots.Acquire). If onRolePark lands while rt is only
 // slotClaimed for that wait (not yet slotHeld), releasing here would give
 // back a slot nobody has actually taken from the pool yet — see
 // releaseSlot's doc, which this mirrors exactly (kept separate rather than
@@ -2379,7 +2380,7 @@ func (c *Coordinator) onRolePark(role string) {
 	c.mu.Unlock()
 	if wasHeld {
 		c.setState(rt, StateParked)
-		c.slots.release()
+		c.slots.Release(1)
 	}
 }
 
@@ -2403,78 +2404,14 @@ func (c *Coordinator) onRoleUnpark(role string) {
 		return
 	}
 	if c.claimSlotIntent(rt) {
-		if err := c.slots.acquire(c.baseCtx); err != nil {
+		if err := c.slots.Acquire(c.baseCtx, 1); err != nil {
 			c.releaseSlotIntent(rt)
 			return
 		}
 		if !c.commitSlotClaim(rt) {
-			c.slots.release()
+			c.slots.Release(1)
 			return
 		}
 	}
 	c.setState(rt, StateExecuting)
-}
-
-// turnSlots is the D4 execution-slot queue: a fixed cap with FIFO waiters, so
-// enqueued children start in spawn order. It is a runtime scheduling
-// PRIMITIVE — the authoritative queue is the queueFold; waiters are rebuilt
-// from it on restart (adoption).
-type turnSlots struct {
-	mu      sync.Mutex
-	free    int
-	waiters []chan struct{}
-}
-
-func newTurnSlots(n int) *turnSlots { return &turnSlots{free: n} }
-
-func (s *turnSlots) tryAcquire() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.free > 0 && len(s.waiters) == 0 {
-		s.free--
-		return true
-	}
-	return false
-}
-
-func (s *turnSlots) acquire(ctx context.Context) error {
-	s.mu.Lock()
-	if s.free > 0 && len(s.waiters) == 0 {
-		s.free--
-		s.mu.Unlock()
-		return nil
-	}
-	ch := make(chan struct{})
-	s.waiters = append(s.waiters, ch)
-	s.mu.Unlock()
-	select {
-	case <-ch:
-		return nil
-	case <-ctx.Done():
-		s.mu.Lock()
-		for i, w := range s.waiters {
-			if w == ch {
-				s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
-				s.mu.Unlock()
-				return ctx.Err()
-			}
-		}
-		s.mu.Unlock()
-		// The grant raced the cancel: the slot is ours, give it back.
-		s.release()
-		return ctx.Err()
-	}
-}
-
-func (s *turnSlots) release() {
-	s.mu.Lock()
-	if len(s.waiters) > 0 {
-		ch := s.waiters[0]
-		s.waiters = s.waiters[1:]
-		s.mu.Unlock()
-		close(ch)
-		return
-	}
-	s.free++
-	s.mu.Unlock()
 }

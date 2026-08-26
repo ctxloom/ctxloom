@@ -13,7 +13,7 @@ import (
 // A finding claimed a DECIDED approval "can be blocked indefinitely by peer
 // slot contention": serveApproval parks the child (yielding its execution
 // slot) for the relay, and onRoleUnpark then makes a blocking
-// turnSlots.acquire before the decision can be returned.
+// c.slots.Acquire before the decision can be returned.
 //
 // The mechanism is real; the defect is not. It is the execution-slot cap
 // doing its job — a child that resumes an EXECUTING turn must hold a slot,
@@ -46,16 +46,12 @@ func TestApproval_DecisionSurvivesSlotContention(t *testing.T) {
 
 	// The park must have YIELDED the child's slot: a child waiting on a human
 	// consumes no compute and must not starve its peers up to the ceiling.
-	require.Eventually(t, func() bool {
-		c.slots.mu.Lock()
-		defer c.slots.mu.Unlock()
-		return c.slots.free == 1
-	}, conformanceWait, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return slotsIdleWith(c.slots, 1) }, conformanceWait, 10*time.Millisecond,
 		"a child parked on an approval must hold no execution slot")
 
 	// Someone else takes the freed slot, so the child's reacquire below has
 	// to block — the exact contention the row is about.
-	require.True(t, c.slots.tryAcquire(), "the yielded slot must be takeable by a peer")
+	require.True(t, c.slots.TryAcquire(1), "the yielded slot must be takeable by a peer")
 
 	decision, err := json.Marshal(map[string]any{"decision": "DECISION_ACCEPT", "note": "reviewed"})
 	require.NoError(t, err)
@@ -72,7 +68,7 @@ func TestApproval_DecisionSurvivesSlotContention(t *testing.T) {
 
 	// The peer finishes; the waiting child gets its slot and its decision —
 	// which was never lost, only deferred.
-	c.slots.release()
+	c.slots.Release(1)
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
 		return sc != nil && len(sc.recordedAnswers()) == 1

@@ -244,13 +244,16 @@ func resolveAppBinary() (string, error) {
 // allowStaleBinaryEnv waives the staleness refusal in checkBinaryFreshness.
 //
 // It exists for one caller shape: a runner that DELIBERATELY execs a binary
-// built from different source than the tree on disk. `just
-// test-mutation-acceptance` is the live example — it builds ctxloom once from
-// unmutated source and then lets gremlins rewrite the tree underneath it, so
-// every mutant's source is newer than the binary by construction. Without the
-// waiver the refusal would fail each retest and gremlins would score every one
-// of those mutants KILLED, converting an honest "the exec boundary hides this"
-// NOT COVERED into a fabricated kill.
+// built from different source than the tree on disk, where the mismatch is the
+// point rather than a mistake — a source-rewriting mutation runner that does
+// not rebuild between mutants, say, whose every mutant's source is newer than
+// the binary by construction. Without the waiver the refusal fires on each
+// retest and the runner scores those mutants KILLED, fabricating kills out of
+// a staleness it created itself.
+//
+// No runner in this repo sets it today: the acceptance mutation harness
+// (tests/mutation) rebuilds ctxloom from each mutant, so its binary is fresh
+// by construction and it must NOT waive the check.
 //
 // Nothing else should set it. It is not a way to make a red gate green.
 const allowStaleBinaryEnv = "CTXLOOM_TEST_ALLOW_STALE_BINARY"
@@ -284,8 +287,8 @@ var (
 // newestCompiledSource returns the sourceStamp for root, scanning at most once
 // per root per process. Integration and acceptance suites build a
 // TestEnvironment per scenario — hundreds of them — and the answer cannot
-// change mid-run for any invocation that is not itself rewriting the tree (the
-// mutation runners, which set allowStaleBinaryEnv and never reach here).
+// change mid-run for any invocation that is not itself rewriting the tree (such
+// a runner sets allowStaleBinaryEnv and never reaches here).
 func newestCompiledSource(root string) sourceStamp {
 	sourceStampMu.Lock()
 	defer sourceStampMu.Unlock()

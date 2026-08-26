@@ -45,7 +45,9 @@ After the closing `---` and a blank line, emit the full structured body:
 
 ## Rules
 
-- Be extremely concise - target 30-50% of original size
+- Keep this chunk's summary under ~2,500 characters. This is an ABSOLUTE
+  budget, not a proportion of the input: a longer chunk gets compressed
+  harder, not summarized longer.
 - Use bullet points and short sentences
 - **Never drop identifiers under compression.** Preserve verbatim, character-for-character: exact file paths, directory paths, function/type/symbol names, command lines, session IDs and harp names (e.g. `soft-idle-scone`, UUIDs), and URLs. These are load-bearing for resuming work — paraphrasing or omitting one loses the thread. When in doubt, keep the identifier.
 - Keep error messages and their solutions

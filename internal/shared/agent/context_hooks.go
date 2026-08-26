@@ -44,6 +44,36 @@ func NewContextInjectionChunkHook(hash, workDir string, part, total int) wire.Ho
 	}
 }
 
+// DefaultToolReflectBytes is the tool-result size at or above which a result
+// is considered to carry information worth stating. It lives here because TWO
+// mechanisms enforce the same policy and must not drift: the PostToolUse hook
+// (which asks the agent to reflect, where the engine supports that event) and
+// distillation (which decides whether a result's body can be reduced to its
+// shape). Two copies of this number would be two policies.
+//
+// Measured, not chosen: across four real transcripts the median tool result is
+// 447 bytes and 13% exceed 2KB, but those 13% carry roughly 1MB of body that
+// distillation would otherwise discard.
+const DefaultToolReflectBytes = 2048
+
+// ToolReflectTimeout is the timeout, in seconds, for the PostToolUse reflect
+// hook. It is short because the hook does no I/O beyond reading its own stdin:
+// a slow one would stall every tool call in the session.
+const ToolReflectTimeout = 5
+
+// NewToolReflectHook creates the PostToolUse hook that asks the agent to state
+// what it learned from a large tool result. minBytes is resolved from config by
+// the caller and interpolated here, so the threshold lives in one place rather
+// than being re-decided inside the hook.
+func NewToolReflectHook(minBytes int) wire.Hook {
+	return wire.Hook{
+		Command: fmt.Sprintf("%s hook tool-reflect --min-output-bytes %d",
+			shellSingleQuote(CtxloomCommand()), minBytes),
+		Type:    "command",
+		Timeout: ToolReflectTimeout,
+	}
+}
+
 // absOrSelf resolves workDir to an absolute path (Claude Code may launch the
 // hook from a different cwd), falling back to the input on error.
 func absOrSelf(workDir string) string {

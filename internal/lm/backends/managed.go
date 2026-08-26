@@ -277,6 +277,14 @@ func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, con
 		return
 	}
 	m.mergeUnified(cfg.ResolveBundleHooks(profileNames), bundleSource)
+	// The PostToolUse reflect hook rides the same managed set as context
+	// injection, and for the same reason: it exists to keep the distilled
+	// essence honest, so it belongs to ctxloom rather than to any bundle.
+	if minBytes, enabled := cfg.GetToolReflectBytes(); enabled {
+		m.mergeUnified(
+			wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewToolReflectHook(minBytes)}},
+			fixedSource(HookSource{Origin: HookOriginContext}))
+	}
 	if contextHash != "" {
 		m.mergeUnified(
 			wire.UnifiedHooks{SessionStart: agent.NewContextInjectionHooks(contextHash, workDir)},

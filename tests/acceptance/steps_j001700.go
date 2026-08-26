@@ -25,6 +25,7 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,6 +33,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -69,6 +71,15 @@ type j001700State struct {
 	embeddedShowBefore   string // `signer show <embedded principal>` output BEFORE the removal attempt
 	embeddedRemoveOutput string // `signer remove <embedded principal> --project` output
 	embeddedShowAfter    string // `signer show <embedded principal>` output AFTER the removal attempt
+
+	// The format each of the three calls above actually resolved to — off a
+	// terminal (this harness, always) that can differ from row to row of the
+	// tabled scenario, so it travels WITH each output snapshot rather than
+	// being re-derived from whatever command happens to have run last by the
+	// time the Then steps read it.
+	embeddedShowBeforeFormat   clifmt.Format
+	embeddedRemoveOutputFormat clifmt.Format
+	embeddedShowAfterFormat    clifmt.Format
 }
 
 // j001700Of returns (lazily creating) this scenario's J001700 fixture state.
@@ -341,24 +352,30 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		return ensureProjectWithEngine(worldFrom(c), "claude-code", "claude-code")
 	})
 
-	ctx.Step(`^Trent removes ctxloom's own publisher key from the project's trust store$`, func(c context.Context) error {
+	ctx.Step(`^Trent removes ctxloom's own publisher key from the project's trust store, asking for "([^"]*)"$`, func(c context.Context, flags string) error {
 		w := worldFrom(c)
 		j001700 := j001700Of(w)
+		flagArgs, err := shellSplit(flags)
+		if err != nil {
+			return fmt.Errorf("parse flags %q: %w", flags, err)
+		}
+		run := func(rest ...string) (string, clifmt.Format) {
+			args := append(append([]string{}, flagArgs...), rest...)
+			_ = w.env.Run(args...)
+			return w.env.LastOutput(), formatAskedFor(w)
+		}
 		// "before" listing: the embedded principal must already be visible —
 		// tagged embedded, not yet distrusted.
-		_ = w.env.Run("signer", "show", j001700EmbeddedPrincipal)
-		j001700.embeddedShowBefore = w.env.LastOutput()
+		j001700.embeddedShowBefore, j001700.embeddedShowBeforeFormat = run("signer", "show", j001700EmbeddedPrincipal)
 		// The removal attempt, aimed straight at the REAL embedded
 		// principal — not a stand-in for it. It cannot delete the compiled-in
 		// bytes, but it DOES now persist a local suppression.
-		_ = w.env.Run("signer", "untrust", j001700EmbeddedPrincipal, "--project")
-		j001700.embeddedRemoveOutput = w.env.LastOutput()
+		j001700.embeddedRemoveOutput, j001700.embeddedRemoveOutputFormat = run("signer", "untrust", j001700EmbeddedPrincipal, "--project")
 		// "after" listing: still visible, now tagged locally distrusted.
-		_ = w.env.Run("signer", "show", j001700EmbeddedPrincipal)
-		j001700.embeddedShowAfter = w.env.LastOutput()
-		w.docStepMaterialized = "$ ctxloom signer show " + j001700EmbeddedPrincipal + "\n" + j001700.embeddedShowBefore +
-			"\n$ ctxloom signer untrust " + j001700EmbeddedPrincipal + " --project\n" + j001700.embeddedRemoveOutput +
-			"\n$ ctxloom signer show " + j001700EmbeddedPrincipal + "\n" + j001700.embeddedShowAfter
+		j001700.embeddedShowAfter, j001700.embeddedShowAfterFormat = run("signer", "show", j001700EmbeddedPrincipal)
+		w.docStepMaterialized = "$ ctxloom " + flags + " signer show " + j001700EmbeddedPrincipal + "\n" + j001700.embeddedShowBefore +
+			"\n$ ctxloom " + flags + " signer untrust " + j001700EmbeddedPrincipal + " --project\n" + j001700.embeddedRemoveOutput +
+			"\n$ ctxloom " + flags + " signer show " + j001700EmbeddedPrincipal + "\n" + j001700.embeddedShowAfter
 		return nil
 	})
 
@@ -369,14 +386,35 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		// with an empty evidence pane proves nothing to a reader of the
 		// published page, however green it is in the suite.
 		w.docStepMaterialized = "$ ctxloom signer untrust " + j001700EmbeddedPrincipal + " --project\n" + j001700.embeddedRemoveOutput
-		if strings.Contains(j001700.embeddedRemoveOutput, "no entry for") {
-			return fmt.Errorf("'signer remove' must no longer report a bare \"no entry for\" for the embedded principal — it has a real local-suppression effect now; output:\n%s", j001700.embeddedRemoveOutput)
+		if !j001700.embeddedRemoveOutputFormat.Structured() {
+			if strings.Contains(j001700.embeddedRemoveOutput, "no entry for") {
+				return fmt.Errorf("'signer remove' must no longer report a bare \"no entry for\" for the embedded principal — it has a real local-suppression effect now; output:\n%s", j001700.embeddedRemoveOutput)
+			}
+			if !strings.Contains(j001700.embeddedRemoveOutput, "cannot be deleted") {
+				return fmt.Errorf("expected 'signer remove' to say the embedded key cannot be deleted; output:\n%s", j001700.embeddedRemoveOutput)
+			}
+			if !strings.Contains(j001700.embeddedRemoveOutput, "DISTRUSTED") {
+				return fmt.Errorf("expected 'signer remove' to report the embedded key is now DISTRUSTED locally; output:\n%s", j001700.embeddedRemoveOutput)
+			}
+			return nil
 		}
-		if !strings.Contains(j001700.embeddedRemoveOutput, "cannot be deleted") {
-			return fmt.Errorf("expected 'signer remove' to say the embedded key cannot be deleted; output:\n%s", j001700.embeddedRemoveOutput)
+		// The structured payload states the same two facts by field rather
+		// than by sentence: EmbeddedSuppressed is operations.RemoveSignerResult's
+		// "the compiled-in key cannot be deleted, but a local suppression was
+		// recorded" flag, and SuppressionPath is where that record landed.
+		suppressed, err := jsonAtPathFrom(j001700.embeddedRemoveOutput, "EmbeddedSuppressed")
+		if err != nil {
+			return fmt.Errorf("%w; output:\n%s", err, j001700.embeddedRemoveOutput)
 		}
-		if !strings.Contains(j001700.embeddedRemoveOutput, "DISTRUSTED") {
-			return fmt.Errorf("expected 'signer remove' to report the embedded key is now DISTRUSTED locally; output:\n%s", j001700.embeddedRemoveOutput)
+		if got, _ := jsonScalar(suppressed); got != "true" {
+			return fmt.Errorf("json EmbeddedSuppressed = %q, want %q (the embedded key cannot be deleted); output:\n%s", got, "true", j001700.embeddedRemoveOutput)
+		}
+		suppressionPath, err := jsonAtPathFrom(j001700.embeddedRemoveOutput, "SuppressionPath")
+		if err != nil {
+			return fmt.Errorf("%w; output:\n%s", err, j001700.embeddedRemoveOutput)
+		}
+		if got, ok := jsonScalar(suppressionPath); !ok || got == "" {
+			return fmt.Errorf("json SuppressionPath is empty, want the path the local distrust record was written to; output:\n%s", j001700.embeddedRemoveOutput)
 		}
 		return nil
 	})
@@ -390,20 +428,65 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		// distrusted" tag.
 		w.docStepMaterialized = "$ ctxloom signer show " + j001700EmbeddedPrincipal + "   # before the removal attempt\n" + j001700.embeddedShowBefore +
 			"\n$ ctxloom signer show " + j001700EmbeddedPrincipal + "   # after the removal attempt\n" + j001700.embeddedShowAfter
-		for _, out := range []string{j001700.embeddedShowBefore, j001700.embeddedShowAfter} {
-			if !strings.Contains(out, j001700EmbeddedPrincipal) {
-				return fmt.Errorf("expected 'signer show' to list the embedded principal; output:\n%s", out)
+		check := func(raw string, format clifmt.Format, wantSuppressed bool, label string) error {
+			if !format.Structured() {
+				if !strings.Contains(raw, j001700EmbeddedPrincipal) {
+					return fmt.Errorf("expected 'signer show' (%s) to list the embedded principal; output:\n%s", label, raw)
+				}
+				if !strings.Contains(raw, "embedded") {
+					return fmt.Errorf("expected 'signer show' (%s) to tag the entry \"embedded\"; output:\n%s", label, raw)
+				}
+				if got := strings.Contains(raw, "DISTRUSTED"); got != wantSuppressed {
+					return fmt.Errorf("'signer show' (%s) reports DISTRUSTED=%v, want %v; output:\n%s", label, got, wantSuppressed, raw)
+				}
+				return nil
 			}
-			if !strings.Contains(out, "embedded") {
-				return fmt.Errorf("expected 'signer show' to tag the entry \"embedded\"; output:\n%s", out)
+			// operations.ShowSigner narrows to the one listing for the
+			// requested principal, so the JSON payload is a one-element array —
+			// the same shape "0.Entry.Principals.0"/"0.Source"/"0.Suppressed"
+			// addresses for both the before and after snapshot.
+			principal, err := jsonAtPathFrom(raw, "0.Entry.Principals.0")
+			if err != nil {
+				return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
 			}
+			if got, _ := jsonScalar(principal); got != j001700EmbeddedPrincipal {
+				return fmt.Errorf("'signer show' (%s) json principal = %q, want %q; output:\n%s", label, got, j001700EmbeddedPrincipal, raw)
+			}
+			source, err := jsonAtPathFrom(raw, "0.Source")
+			if err != nil {
+				return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
+			}
+			if got, _ := jsonScalar(source); got != "embedded" {
+				return fmt.Errorf("'signer show' (%s) json Source = %q, want %q; output:\n%s", label, got, "embedded", raw)
+			}
+			suppressed, err := jsonAtPathFrom(raw, "0.Suppressed")
+			if err != nil {
+				return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
+			}
+			want := fmt.Sprintf("%v", wantSuppressed)
+			if got, _ := jsonScalar(suppressed); got != want {
+				return fmt.Errorf("'signer show' (%s) json Suppressed = %s, want %s; output:\n%s", label, got, want, raw)
+			}
+			return nil
 		}
-		if strings.Contains(j001700.embeddedShowBefore, "DISTRUSTED") {
-			return fmt.Errorf("the BEFORE listing must not already show the key as locally distrusted; output:\n%s", j001700.embeddedShowBefore)
+		if err := check(j001700.embeddedShowBefore, j001700.embeddedShowBeforeFormat, false, "before"); err != nil {
+			return err
 		}
-		if !strings.Contains(j001700.embeddedShowAfter, "DISTRUSTED") {
-			return fmt.Errorf("the AFTER listing must show the key as locally distrusted; output:\n%s", j001700.embeddedShowAfter)
+		if err := check(j001700.embeddedShowAfter, j001700.embeddedShowAfterFormat, true, "after"); err != nil {
+			return err
 		}
 		return nil
 	})
+}
+
+// jsonAtPathFrom decodes raw as a JSON document and addresses it with
+// jsonAtPath (steps_cli.go) — for a snapshot captured several commands ago,
+// where lastOutputStructured's "the LAST command's stdout" premise no longer
+// holds.
+func jsonAtPathFrom(raw, path string) (any, error) {
+	var doc any
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		return nil, fmt.Errorf("not valid JSON: %w", err)
+	}
+	return jsonAtPath(doc, path)
 }

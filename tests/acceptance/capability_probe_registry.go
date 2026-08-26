@@ -351,18 +351,25 @@ var probeRegistry = []probeSpec{
 		// real engines on real subscriptions. Three went green and one went red,
 		// and the red is the interesting one — see kiro below.
 		//
-		// What every row shares is the delivery path under test: config.yaml
-		// `mcp.servers` (the ungated production surface — a bundle's MCP block
-		// passes the executable trust gate, and a withheld server would red as an
-		// MCP-delivery failure that is really a trust decision) → ManagedConfig.MCP
-		// → that engine's own native file. Nothing in the fixture writes an engine
-		// file, so a green row is ctxloom's delivery working, not a file we wrote
-		// being read back.
+		// What every row shares is the delivery path under test: the fixture's own
+		// BUNDLE `mcp:` block → ManagedConfig.MCP → that engine's own native file.
+		// Nothing in the fixture writes an engine file, so a green row is ctxloom's
+		// delivery working, not a file we wrote being read back.
+		//
+		// IT WAS config.yaml's `mcp.servers`, chosen because it was ungated where a
+		// bundle's MCP block passes the executable trust gate — a withheld server
+		// would red as an MCP-delivery failure that is really a trust decision.
+		// c5228d46 DELETED that key on 2026-08-19, so the choice is gone and every
+		// row measured before that date measured a path that no longer exists. The
+		// trust gate is now simply part of what a real user traverses, and the
+		// hazard it posed is DISTINGUISHABLE rather than avoided: a withheld server
+		// never starts, so the call log is ABSENT rather than empty, and those are
+		// different findings in the verdict.
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,
-				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 9.9s, harp \"messy-plump-exit\", served only by the fixture server's get_nonce tool and echoed back exactly. Path: config mcp.servers → ManagedConfig.MCP → claude's --mcp-config scratch file (shared cell; layered rather than strict, so a user's own .mcp.json still loads). FIRST proof anywhere that a non-forwarder MCP server reaches a real engine through ctxloom and gets called."),
+				"RE-MEASURED 2026-08-26 on the BUNDLE surface after c5228d46 deleted config.yaml's mcp.servers key: 1 scenario / 3 steps green, harp \"tidy-jaded-cusp\", call log carrying the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call. This row proves the migrated registration path works end to end, and it doubles as the CONTROL for the two container rows below, which share this fixture and stop one step short of the call. Prior measurement 2026-08-13 on the now-deleted config surface: 1 scenario / 3 steps green in 9.9s, harp \"messy-plump-exit\", served only by the fixture server's get_nonce tool and echoed back exactly. Path: config mcp.servers → ManagedConfig.MCP → claude's --mcp-config scratch file (shared cell; layered rather than strict, so a user's own .mcp.json still loads). FIRST proof anywhere that a non-forwarder MCP server reaches a real engine through ctxloom and gets called."),
 			hostCell("codex", probeLiveVerified,
-				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 89s, harp \"lunar-soft-navy\". Path: config mcp.servers → ManagedConfig.MCP → codex's folded config.toml [mcp_servers] table (codex advertises no distinct SurfaceMCP — MCP folds into its config surface)."),
+				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 89s, harp \"lunar-soft-navy\". Path: config mcp.servers → ManagedConfig.MCP → codex's folded config.toml [mcp_servers] table (codex advertises no distinct SurfaceMCP — MCP folds into its config surface). EVIDENCE PREDATES THE SURFACE CHANGE and has NOT been re-measured: this run used config.yaml's top-level mcp.servers key, which c5228d46 DELETED on 2026-08-19 — an MCP server is now declared in a bundle, and composing that bundle is what registers it. The fixture was migrated to the bundle surface on 2026-08-26 and only the claude row was re-run. What this row measured about THE ENGINE (that it connects and calls) is very likely still true; what it says about THE DELIVERY PATH is about a path that no longer exists. Re-run before citing it."),
 			// KIRO IS RED, AND THE RED IS PRECISE. The fixture server's own call
 			// log — the evidence this probe exists to collect — says registration
 			// and DISCOVERY both worked and only INVOCATION did not. That is a
@@ -372,14 +379,19 @@ var probeRegistry = []probeSpec{
 				Reason:          "delivery path under test: config mcp.servers → ManagedConfig.MCP → .kiro/settings/mcp.json, written through the shared MCPFileConfig reconciler",
 				ExpectedFailure: channelMCPToolResult.Shape,
 				ExpectedFailureNote: "measured 2026-08-13, twice. The fixture server's call log read: start request(initialize) request(notifications/initialized) request(tools/list) eof — so ctxloom's registration DID reach kiro, kiro DID spawn the server, complete the handshake and enumerate its tools, and then never called get_nonce. Registration and discovery work; invocation does not. kiro's own stderr looped on `Tool validation failed: No tool with \"dummy\" is found` for six minutes before giving up, and the model's answer was the string \"non-verbatim placeholder - tool not found\" — kiro believed no such tool existed while having just listed it. " +
-					"DIAGNOSTIC NOTE for whoever picks this up: the first attempt reported OUTPUT-FORMAT instead, because kiro's separate ANSI-decoration defect (P0's kiro host/none row owns that one) reds the form check, and the form check used to run first. mcpProbeAssert now asks the tool-path question ahead of the form question for exactly this reason. Do not read the two findings as one: the decoration defect is ctxloom-side and cosmetic to this probe, the invocation failure is not.",
+					"DIAGNOSTIC NOTE for whoever picks this up: the first attempt reported OUTPUT-FORMAT instead, because kiro's separate ANSI-decoration defect (P0's kiro host/none row owns that one) reds the form check, and the form check used to run first. mcpProbeAssert now asks the tool-path question ahead of the form question for exactly this reason. Do not read the two findings as one: the decoration defect is ctxloom-side and cosmetic to this probe, the invocation failure is not. EVIDENCE PREDATES THE SURFACE CHANGE and has NOT been re-measured: this run used config.yaml's top-level mcp.servers key, which c5228d46 DELETED on 2026-08-19 — an MCP server is now declared in a bundle, and composing that bundle is what registers it. The fixture was migrated to the bundle surface on 2026-08-26 and only the claude row was re-run. What this row measured about THE ENGINE (that it connects and calls) is very likely still true; what it says about THE DELIVERY PATH is about a path that no longer exists. Re-run before citing it.",
 			},
 			hostCell("opencode", probeLiveVerified,
-				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 56s, harp \"petty-ratty-study\". The call log carries the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call / notifications/cancelled / eof — so this row evidences discovery AND invocation, not just the echo. Path: config mcp.servers → ManagedConfig.MCP → opencode.json's mcp block (folded into opencode's settings surface)."),
+				"measured 2026-08-13 on this branch: 1 scenario / 3 steps green in 56s, harp \"petty-ratty-study\". The call log carries the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call / notifications/cancelled / eof — so this row evidences discovery AND invocation, not just the echo. Path: config mcp.servers → ManagedConfig.MCP → opencode.json's mcp block (folded into opencode's settings surface). EVIDENCE PREDATES THE SURFACE CHANGE and has NOT been re-measured: this run used config.yaml's top-level mcp.servers key, which c5228d46 DELETED on 2026-08-19 — an MCP server is now declared in a bundle, and composing that bundle is what registers it. The fixture was migrated to the bundle surface on 2026-08-26 and only the claude row was re-run. What this row measured about THE ENGINE (that it connects and calls) is very likely still true; what it says about THE DELIVERY PATH is about a path that no longer exists. Re-run before citing it."),
 			// THE CONTAINER CELLS. These four rows previously read
 			// "container MCP reach-back is undesigned — the endpoint DISCOVERY
 			// gap ... (cross-container-comms finding)" and carried a bare
 			// Runtime "container". BOTH were wrong, in different ways:
+			//
+			// The BLOCKER NAMED IN 1 AND 2 IS NOW GONE for the two claude rows
+			// below; the history is kept because it records two DIFFERENT ways a
+			// row's stated reason went stale while reading as authoritative, and
+			// a third one (the bind-mount seam) has since joined them.
 			//
 			//  1. MISATTRIBUTED BLOCKER. The cross-container-comms finding is
 			//     real and is now CLOSED (host-controlled discovery marker,
@@ -397,10 +409,14 @@ var probeRegistry = []probeSpec{
 			//     selected by `just capability-probe` at all — it builds the tag
 			//     @{{RUNTIME}} — so these rows were unrunnable by construction,
 			//     which is part of why the false reason was never revisited.
-			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Status: probeDeferred,
-				Reason: "ONE blocker left, and it is a human decision, not an obstacle. The interpreter problem is GONE (cmd/probe-mcp-server). What remains: the fixture dir is sited outside the workspace ON THE HOST, and a container cell runs the server INSIDE the container, where that path does not exist. Delivering it needs a probe-only bind-mount seam in internal/lm/isolation. isolation.ProbeTraceEnvVar is the exact precedent — and its own doc carries the security argument for why a second one is not a mechanical addition: the gate is an inherited ENV VAR, so any parent process or CI job that exports it changes what an ordinary `ctxloom run` mounts. Filed for a ruling rather than taken unattended."},
-			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeDeferred,
-				Reason: "blocked on the same fixture-delivery seam as the container/none row. It is listed separately because it must land WITH that row, never after it: P6 measured what skipping a mixed corner costs — its host/worktree cell failed where both-off and both-on passed, because the axes resolve the credential by DIFFERENT mechanisms (a container bind-mounts it, a worktree seeds it via credentialSeedSpecs). A container row shipped without its worktree partner rebuilds exactly that blind spot."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Status: probeWired,
+				ExpectedFailure:     channelMCPToolResult.Shape,
+				ExpectedFailureNote: "measured TWICE, 2026-08-26, identical both times: the fixture server STARTED INSIDE THE CONTAINER and its call log read `start request(initialize) request(notifications/initialized) request(tools/list)` — then nothing. So ctxloom's delivery is PROVEN on this axis: the bundle's mcp: block reached a containerized claude, the engine spawned the server in-container, completed the handshake and enumerated the tool. get_nonce was never called. The identical fixture on host/none calls it reliably (same day, full round trip logged), so this is not the fixture and not the prompt. SAME SHAPE as kiro's host row: registration and discovery work, invocation does not. Root cause not isolated; do NOT loosen this cell to green.",
+				Reason:              "THE SEAM WAS NEVER NEEDED, and this row previously said it was. The old reason called for a probe-only bind-mount in internal/lm/isolation modelled on isolation.ProbeTraceEnvVar; the premise under it was that the fixture must stay OUTSIDE the workspace, which was defence in depth misread as the mechanism. What actually keeps this probe honest is mcpProbeAssert's demand for a tools/call in the fixture server's OWN log — reading the nonce file cannot forge that. So the fixture moved INTO the workspace, which a container cell bind-mounts at the same absolute path (isolation.buildRunSpec's identity mapper), and the registration names it by a WORKSPACE-RELATIVE path so one fixture shape serves every axis. No production change was made and none is wanted: ProbeTraceEnvVar stays the only such seam."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired,
+				ExpectedFailure:     channelMCPToolResult.Shape,
+				ExpectedFailureNote: "measured 2026-08-26: IDENTICAL to the container/none row above (server started in-container, handshake and tools/list completed, get_nonce never called), so the mixed corner adds no separate defect. It DID prove the evidence path: probeCellRunDir resolved the per-agent checkout from `git worktree list --porcelain` and read the call log out of it, which works here because the server's writes leave the checkout dirty and the WIP-safe teardown spares it. P3's worktree cell shows the other side of that — its hook never fired, the checkout stayed clean, teardown pruned it, and there was no evidence left to read.",
+				Reason:              "LANDED WITH the container/none row, never after it, for the reason that kept them paired while both were deferred: P6 measured what skipping a mixed corner costs — its host/worktree cell failed where both-off and both-on passed, because the axes resolve the credential by DIFFERENT mechanisms (a container bind-mounts it, a worktree seeds it via credentialSeedSpecs). This row carries one thing its partner does not: the engine runs a per-agent CHECKOUT, so the fixture arrives only because it is committed, and its call log is written there rather than in the project. probeCellRunDir resolves that checkout from `git worktree list --porcelain` AFTER the run; reading the project copy instead would report that the server never ran."},
 			// codex/kiro/opencode: deferred to 0.8.0 by decision, NOT by a
 			// technical blocker. Their runtime value is corrected here so the
 			// retired "container" spelling does not outlive the split, but they
@@ -433,6 +449,29 @@ var probeRegistry = []probeSpec{
 				Reason: "opencode declares hooks absent: noHooksReason (\"opencode has no hook mechanism\"). Not a gap - a declared absence, gated by ABSENCE, which is why capability_hook_firing.feature carries no Examples row for it."},
 			{Engine: "codex", Runtime: "host", Workspace: "none", Variant: "session-end", Status: probeGatedOut,
 				Reason: "unsupportedHookKinds[bundles.HookEventSessionEnd] / codex.NoSessionEndReason (\"codex has no session-end event\") - codex declares this one kind unsupported while supporting the rest, which is the reason P3 plants on session_start; gated by ABSENCE, so this variant gets no Examples row"},
+			// THE CONTAINER CELLS. P3 had NO container rows at all until the
+			// fixture moved into the workspace: the stamp file was a host-
+			// absolute path, so a containerized engine would have written it
+			// into a filesystem namespace the assertion cannot read and the cell
+			// would have reported a hook-firing failure that was really a mount
+			// gap. That is now fixed at the fixture rather than with a mount:
+			// the script resolves its stamp from `dirname "$0"`, so the proof
+			// lands beside the script wherever the workspace was mounted or
+			// checked out.
+			//
+			// claude-code only, and that is SCOPE rather than obstacle — 0.7.0
+			// propagates claude onto the container axis. codex is red on the
+			// host row for a vendor hook-trust gate it would hit identically
+			// here; kiro and opencode are unbuilt for the same 0.8.0 reason as
+			// their P2 rows.
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Status: probeWired,
+				ExpectedFailure:     "HOOK-DELIVERY failure",
+				ExpectedFailureNote: "MEASURED 2026-08-26 and it is a CAPABILITY FINDING: a containerized claude run does not produce the stamp. exit 0, the turn answered normally, no stamp file on the bind-mounted workspace. CONTROLLED AGAINST THE OBVIOUS HARNESS CAUSE: the run was repeated with the hook command written as a HOST-ABSOLUTE path (valid in-container under the identity mapper) instead of the workspace-relative one, and it did not fire either — so the relative path is not the cause. The identical fixture on host/none fires reliably the same day. NOT YET ISOLATED between ctxloom never writing the hook into the container and claude never running one it was given: the carriage scan reads the project tree and the session root on the HOST, and a container's settings are written where neither looks, so carriage is unobservable here rather than absent. Isolating it needs a scan inside the container.",
+				Reason:              "the workspace is bind-mounted at the same absolute path (isolation.buildRunSpec's identity mapper), so the hook command ctxloom writes resolves in-container and the stamp lands on a host-readable path. Stage (a) only, as on claude's host row and for the same declared reason: claude's SurfaceFor resolves ApproachHook to noopContextDelivery, so ctxloom does not deliver claude's context through a hook and this cell must not assert an echo production never asked for."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired,
+				ExpectedFailure:     "HOOK-DELIVERY failure",
+				ExpectedFailureNote: "measured 2026-08-26, and it fails EARLIER than its container/none partner: probeCellRunDir found ZERO per-agent worktrees after the run, so there was no checkout left to read the stamp from. That is the compound of two things — the hook did not fire (the partner row's finding), so the checkout stayed clean, and a clean checkout is pruned by the WIP-safe teardown before the assertion runs. The refusal is deliberate: substituting the project directory here would let a cell that never got its checkout pass on the host fixture's evidence. Contrast P2's worktree row, where the server's own writes leave the tree dirty and the checkout survives to be read.",
+				Reason:              "the mixed corner, landed WITH its container/none partner rather than after it — P6's host/worktree cell is the measured precedent for what skipping one costs. The engine runs a per-agent CHECKOUT here, so the hook script arrives only because the fixture is committed, and the stamp is written there; probeCellRunDir resolves that checkout AFTER the run. Reading the project copy instead would report a hook that never fired."},
 		},
 	},
 	{

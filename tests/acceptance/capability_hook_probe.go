@@ -22,8 +22,8 @@
 // already controls.
 //
 // THE ASSERTION IS A FILE, NOT A SENTENCE. The hook's whole job is one line:
-// append the harp it was handed on ITS OWN ARGV to a stamp file at an absolute
-// path outside the engine's working directory. Then the verdict reads that
+// append the harp it was handed on ITS OWN ARGV to a stamp file beside the
+// script itself, inside the cell's workspace. Then the verdict reads that
 // file's BYTES. Nothing about this can flake on an engine's prose habits, on
 // markdown fences, or on a model deciding to be chatty — the three things that
 // red a cell for reasons unrelated to the capability under test (the design's
@@ -94,6 +94,13 @@ const hookProbeAgent = "hookprobe"
 // object of. Named once so the prompt and the verdict cannot drift apart.
 const hookProbeEchoKey = "hook"
 
+// hookProbeFixtureDirName is the fixture's directory, INSIDE the cell's
+// workspace. See the siting argument at the Given step that creates it: the
+// probe's guarantee is hookProbeAssertStamp's demand that the file EXIST with
+// the argv harp in it, which reading a path cannot satisfy, so the directory can
+// live where a container cell and a per-agent worktree can both reach it.
+const hookProbeFixtureDirName = "p3-hook-probe"
+
 // hookProbeScript renders the stamp script: the simplest thing that can prove
 // an engine exec'd it.
 //
@@ -106,10 +113,15 @@ const hookProbeEchoKey = "hook"
 //   - the append is `>>`, not `>`: a second firing must ADD a line rather than
 //     silently replace one, so an engine that fires the hook twice is visible
 //     in the evidence instead of being flattened into a single-line pass.
-//   - the stamp path is single-quoted and absolute, resolved by the fixture,
-//     because a hook may be exec'd from a cwd nobody promised us — claude
-//     documents exactly that — and a relative path would land the proof
-//     somewhere the verdict never looks.
+//   - the stamp path is single-quoted and resolved against `dirname "$0"` — the
+//     script's OWN directory — never against cwd. A hook may be exec'd from a
+//     cwd nobody promised us (claude documents exactly that), so a cwd-relative
+//     path would land the proof somewhere the verdict never looks. This was an
+//     absolute path baked in by the fixture, which satisfied the same
+//     requirement until the probe gained container and worktree axes: a
+//     host-absolute path exists in NEITHER a container's filesystem namespace
+//     nor a per-agent checkout. $0 satisfies it on every axis at once, because
+//     the script travels with the workspace.
 //   - the exit is explicit `exit 0`. A hook that exits non-zero is, on some
 //     engines, a hook that BLOCKS the turn; the probe must observe firing
 //     without altering the run it is observing.
@@ -123,10 +135,19 @@ func hookProbeScript(stampPath, echoHarp string) string {
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
 	b.WriteString("# ctxloom capability probe P3 (hook firing) — fixture-written, single purpose.\n")
-	b.WriteString("# Appends the harp it was handed on argv to a stamp file the engine's cwd\n")
-	b.WriteString("# cannot reach. Its EXISTENCE with those bytes is the proof that the vendor\n")
-	b.WriteString("# binary read the settings ctxloom wrote and exec'd the command in them.\n")
-	fmt.Fprintf(&b, "printf '%%s\\n' \"$1\" >> %s\n", shellQuoteForProbe(stampPath))
+	b.WriteString("# Appends the harp it was handed on argv to a stamp file BESIDE ITSELF.\n")
+	b.WriteString("# Its EXISTENCE with those bytes is the proof that the vendor binary read\n")
+	b.WriteString("# the settings ctxloom wrote and exec'd the command in them.\n")
+	b.WriteString("#\n")
+	b.WriteString("# The stamp resolves from $0, not from cwd and not from an absolute path\n")
+	b.WriteString("# baked in when the fixture was written. Both alternatives break a cell on\n")
+	b.WriteString("# an axis this probe now runs: cwd is whatever the vendor binary chose to\n")
+	b.WriteString("# exec the hook from, and a host-absolute path does not exist inside a\n")
+	b.WriteString("# container or inside a per-agent worktree. $0 is the script's own\n")
+	b.WriteString("# location, so the stamp lands next to it wherever the workspace was\n")
+	b.WriteString("# mounted or checked out — and that is a host-readable path by\n")
+	b.WriteString("# construction, because the workspace is what gets bind-mounted.\n")
+	fmt.Fprintf(&b, "printf '%%s\\n' \"$1\" >> \"$(dirname \"$0\")\"/%s\n", shellQuoteForProbe(stampPath))
 	if echoHarp != "" {
 		// The engine's own SessionStart hook-output envelope. additionalContext
 		// is the field the harness folds into the conversation, so a harp that
@@ -211,6 +232,9 @@ type hookProbeState struct {
 	echoHarp  string // planted in the hook's STDOUT; empty for a stage-(a)-only cell
 
 	scriptPath string
+	scriptAbs  string
+	relDir     string
+	stampRel   string
 	stampPath  string
 	stampBody  string // the stamp file's bytes, read after the run
 	stampErr   error  // why the stamp file could not be read; nil once read

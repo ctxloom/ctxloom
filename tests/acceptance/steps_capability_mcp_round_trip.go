@@ -22,16 +22,15 @@
 // the cell would prove the engine can read a file we wrote, which nobody
 // doubted, instead of proving ctxloom delivers.
 //
-// THE CHANNEL IS THE TOOL RESULT, AND THE PROBE ENFORCES THAT STRUCTURALLY.
-// The minted harp lives only inside the fixture server, and the fixture server
-// lives OUTSIDE the cell's workspace (a sibling of the project directory, never
-// in it) so nothing the agent can list contains the value. But siting alone is
-// an argument, and this suite does not accept arguments: the server records
-// every tools/call it serves, and the verdict requires one. An engine that found
-// the harp some other way reds on the tool path with its output printed beside
-// the finding. See probe_mcp_fixture.go for the fixture and mcpProbeAssert for
-// the verdict — both untagged, both hermetically tested, because they are the
-// two places this cell's honesty actually lives.
+// THE CHANNEL IS THE TOOL RESULT, AND THE PROBE ENFORCES THAT STRUCTURALLY —
+// which is the only reason the fixture can sit where it now does. It lives
+// INSIDE the cell's workspace, so an agent that goes looking CAN read the nonce
+// file; siting was never what stopped it. The server records every tools/call it
+// serves and the verdict requires one, so an engine that found the harp some
+// other way reds on the tool path with its output printed beside the finding.
+// See probe_mcp_fixture.go for the fixture and mcpProbeAssert for the verdict —
+// both untagged, both hermetically tested, because they are the two places this
+// cell's honesty actually lives.
 //
 // PERMISSIONS ARE BYPASS ON PURPOSE. The design gives approval mediation to P5;
 // a cell that had to answer a permission prompt would be measuring two
@@ -67,21 +66,38 @@ const mcpProbeAgent = "nonce"
 
 // mcpProbeRunTimeout bounds one cell, at the floor's own eight minutes.
 //
-// It was six, on the reasoning that every P2 cell is host/none and has no image
-// to pull. Measured: kiro's cell spent six minutes in a tool-
-// validation retry loop and finished at 6m00.3s — inside the bound by three
-// tenths of a second. Had it lost that race the cell would have reported a RUN
-// failure, which blames the engine for the harness's impatience and would have
-// buried the actual finding (registration and discovery both worked; invocation
-// never happened). A cell that genuinely hangs still fails here — it just fails
-// after saying so, rather than by being killed next to a real result.
+// It was six, on the reasoning that every P2 cell was host/none with no image to
+// pull. Measured: kiro's cell spent six minutes in a tool-validation retry loop
+// and finished at 6m00.3s — inside the bound by three tenths of a second. Had it
+// lost that race the cell would have reported a RUN failure, which blames the
+// engine for the harness's impatience and would have buried the actual finding
+// (registration and discovery both worked; invocation never happened). A cell
+// that genuinely hangs still fails here — it just fails after saying so, rather
+// than by being killed next to a real result.
+//
+// That original reasoning no longer holds anyway: a container cell DOES pay for
+// an image, so the floor's eight minutes is now the operative number rather than
+// a generous one, and it is why the six was not restored.
 const mcpProbeRunTimeout = 8 * time.Minute
 
-// mcpProbeFixtureDirName is the fixture server's directory, created as a SIBLING
-// of the project directory. Siting is load-bearing, not cosmetic: the nonce file
-// sits in this directory, so a directory inside the project would hand the agent
-// the answer through a channel this probe does not test. It stays
-// under the test environment's own root so the harness cleans it up.
+// mcpProbeFixtureDirName is the fixture server's directory, created INSIDE the
+// cell's workspace.
+//
+// IT USED TO BE A SIBLING OF THE PROJECT, and that placement was defence in
+// depth misread as the mechanism. The nonce file sits in this directory, so a
+// reader concluded that an in-workspace fixture would hand the agent the answer.
+// It would — and the cell would still RED, because neither verdict accepts an
+// echoed nonce: mcpProbeAssert requires the fixture server's OWN call log to
+// carry a tools/call. An engine that reads the nonce file and echoes it never
+// makes that entry appear. This is measured, not argued: the codex P3 row of
+// 2026-08-13 answered with the correct harp after grepping it out of the
+// fixture's own script, and red anyway.
+//
+// So the siting stopped an agent STUMBLING onto the path; it never stopped a
+// determined one, which has shell tools. Giving it up buys the container axis:
+// the workspace is what gets bind-mounted into a container cell, so a fixture
+// sited here runs in-container and writes its log where the host assertion can
+// read it. Out-of-workspace siting could never do that.
 const mcpProbeFixtureDirName = "p2-mcp-fixture"
 
 // mcpProbeState is one cell's fixture and its captured result. stdout and stderr
@@ -93,6 +109,7 @@ type mcpProbeState struct {
 	workspace string
 	nonce     string
 	fixture   probeMCPFixture
+	relDir    string
 	stdout    string
 	stderr    string
 	exitCode  int
@@ -106,16 +123,11 @@ func mcpProbeOf(w *World) *mcpProbeState {
 	return w.mcpProbe
 }
 
-// cell is this cell's identity in the ladder's vocabulary. Runtime and workspace
-// are FIXED rather than read from the Examples table because P2's runnable cells
-// are host/none only — the container rows are registry-deferred, and the reason
-// is NOT the old "reach-back is undesigned" one (that was a misattribution: the
-// cross-container-comms gap governed the coordinator bus, never this fixture).
-// The real blocker is delivery: the fixture is sited outside the workspace ON
-// THE HOST, and a container cell runs the server inside the container where that
-// path does not exist. See the P2 rows in capability_probe_registry.go, and task
-// bats-excretion for the seam that would close it. A cell here that claimed
-// another axis would be addressing something the registry says does not run.
+// cell is this cell's identity in the ladder's vocabulary, read from the
+// Examples table on both axes. Every axis this probe declares is runnable: the
+// wiring landed first (the binding carries `runtime:`, the run passes
+// --workspace) and the fixture is now workspace-sited, which is what a container
+// cell needs to reach it. See the P2 rows in capability_probe_registry.go.
 func (m *mcpProbeState) cell() probeCellID {
 	return probeCellID{Probe: probeP2, Engine: m.engine, Runtime: m.runtime, Workspace: m.workspace}
 }
@@ -149,23 +161,26 @@ func mcpProbePrompt() string {
 // harp in THIS string is the foreign-channel attack on P2, and the cell must
 // still red because the tool was never called. The fragment states the channel
 // in prose instead, which is true and carries no value.
-func mcpProbeBundleYAML() string {
+func mcpProbeBundleYAML(binaryPath, fixtureDir string) string {
 	return fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  nonce_channel:\n    content: %q\n",
 		"This session's nonce is not written down anywhere. The only way to obtain it is to call the "+
-			probeMCPToolName+" tool on the "+probeMCPServerName+" MCP server.")
+			probeMCPToolName+" tool on the "+probeMCPServerName+" MCP server.") +
+		probeMCPBundleBlock(binaryPath, fixtureDir)
 }
 
 // mcpProbeConfigYAML renders config.yaml for one cell: the engine's OWN registry
 // config (liveAgents[key].config — one source of truth for the backend type and
-// the cheap pinned model the whole @live lane shares), one agent binding, and
-// the fixture MCP server registered at top level.
-func mcpProbeConfigYAML(a liveAgent, llmKey, binaryPath, fixtureDir, runtime string) string {
+// the cheap pinned model the whole @live lane shares) and one agent binding.
+//
+// The fixture MCP server is NOT here. It is declared in the bundle the binding's
+// profile composes — see probeMCPBundleBlock, which carries why config.yaml
+// stopped being an option.
+func mcpProbeConfigYAML(a liveAgent, llmKey, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
 		mcpProbeAgent, llmKey, mcpProbeAgent)
 	b.WriteString(runtimeBindingLine(runtime))
-	b.WriteString(probeMCPConfigYAML(binaryPath, fixtureDir))
 	return b.String()
 }
 
@@ -181,16 +196,6 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			m := mcpProbeOf(w)
 			m.engine = engine
 
-			// The axes are read from the table and CHECKED rather than ignored. P2's
-			// runnable cells are host/none only — the container rows are registry-
-			// deferred because MCP reach-back from inside a container is undesigned —
-			// so a row that quietly claimed another axis would run this cell's
-			// host/none fixture while its tags, its registry row and its evidence all
-			// said something else. Refusing here makes the columns load-bearing.
-			if runtime != "host" || workspace != "none" {
-				return fmt.Errorf("probe-p2-mcp: this probe's runnable cells are host/none only, got runtime=%q workspace=%q. The AXES ARE NOW WIRED — the binding carries `runtime:` and the run passes --workspace — so this guard no longer stands for that reason. What remains is DELIVERY: the fixture MCP server is sited OUTSIDE the workspace on the HOST, and a container cell runs the server inside the container where that path does not exist. Site the fixture in the workspace first (task bats-excretion), then drop this guard",
-					runtime, workspace)
-			}
 			m.runtime, m.workspace = runtime, workspace
 
 			a, key, err := probeCellGate(c, w, mcpProbeFamily, m.cell())
@@ -209,18 +214,25 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			}
 			m.nonce = nonce
 
-			// OUTSIDE the project, checked here rather than assumed: the nonce file
-			// lives in this directory, and a nonce the agent could read would
-			// satisfy this probe through a channel it does not test.
-			fixtureDir := filepath.Join(filepath.Dir(w.env.ProjectDir), mcpProbeFixtureDirName)
-			if within, err := filepath.Rel(w.env.ProjectDir, fixtureDir); err == nil && !strings.HasPrefix(within, "..") {
-				return fmt.Errorf("probe-p2-mcp: the fixture MCP server directory %s is INSIDE the cell's workspace %s — the nonce file lives there, so the agent could read the answer without ever calling the tool and the cell would false-green",
-					fixtureDir, w.env.ProjectDir)
-			}
+			// INSIDE the workspace, which is what a container cell can reach — see
+			// mcpProbeFixtureDirName for why the old sibling-of-the-project siting
+			// was defence in depth rather than the mechanism.
+			fixtureDir := filepath.Join(w.env.ProjectDir, mcpProbeFixtureDirName)
 			m.fixture, err = probeMCPWriteFixture(fixtureDir, nonce)
 			if err != nil {
 				return err
 			}
+			// The registration names the fixture by a WORKSPACE-RELATIVE path, and
+			// this is the single reason one fixture shape serves host, container/none
+			// and container/worktree alike. probeMCPWorkspaceRel carries the full
+			// argument; it refuses a path that escapes the workspace, so a future
+			// edit that moves the fixture back outside fails HERE rather than as an
+			// unexplained MCP-delivery red on a container cell.
+			relBinary, relDir, err := probeMCPWorkspaceRel(w.env.ProjectDir, m.fixture)
+			if err != nil {
+				return err
+			}
+			m.relDir = relDir
 
 			// Evidence. The sidecar goes to CTXLOOM_DOC_CAPTURE_DIR, outside the
 			// cell's workspace; the printed line goes to the test runner's stdout,
@@ -235,7 +247,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			if err := w.env.InitGitRepo(); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/content/bundles/bundle-"+mcpProbeAgent+".yaml", mcpProbeBundleYAML()); err != nil {
+			if err := w.env.WriteFile(".ctxloom/content/bundles/bundle-"+mcpProbeAgent+".yaml", mcpProbeBundleYAML(relBinary, relDir)); err != nil {
 				return err
 			}
 			if err := w.env.WriteFile(".ctxloom/profiles/"+mcpProbeAgent+"-profile.yaml",
@@ -243,7 +255,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			if err := w.env.WriteFile(".ctxloom/config.yaml",
-				mcpProbeConfigYAML(a, key, m.fixture.Binary, m.fixture.Dir, m.runtime)); err != nil {
+				mcpProbeConfigYAML(a, key, m.runtime)); err != nil {
 				return err
 			}
 			// Committed, like the floor's fixture and for the same reason: every
@@ -253,15 +265,22 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 
-			// A LAST CHECK BEFORE PAYING FOR A TURN: the harp must not be anywhere in
-			// the workspace. This is the probe's channel claim, asserted rather than
-			// asserted-about — a fixture change that started writing the nonce into
-			// the bundle, the config or the profile would otherwise turn every cell
-			// green while proving nothing, and it would look exactly like success.
-			if leaked, err := mcpProbeWorkspaceCarriesNonce(w.env.ProjectDir, m.nonce); err != nil {
+			// A LAST CHECK BEFORE PAYING FOR A TURN: the harp must not appear in any
+			// surface the FIXTURE authors — the bundle, the profile, the config. That
+			// is the false green this scan was written against and still catches: a
+			// fixture change that started writing the nonce into composed context
+			// would turn every cell green while proving nothing, and it would look
+			// exactly like success.
+			//
+			// The fixture's OWN directory is excluded, because the nonce file living
+			// there is now the design rather than a leak. That narrows the scan and
+			// the narrowing is honest: the claim it defends was never "the agent
+			// cannot read the value" — mcpProbeAssert's call-log requirement is what
+			// defends that, and it is untouched.
+			if leaked, err := mcpProbeWorkspaceCarriesNonce(w.env.ProjectDir, m.nonce, mcpProbeFixtureDirName); err != nil {
 				return err
 			} else if leaked != "" {
-				return fmt.Errorf("probe-p2-mcp %s: the minted harp %q appears in the cell's own workspace at %s. The nonce must exist ONLY in the fixture MCP server's tool result; a workspace copy is a channel this probe does not test, and the cell would pass without a round trip",
+				return fmt.Errorf("probe-p2-mcp %s: the minted harp %q appears at %s, a surface the fixture itself authored. The nonce must reach the agent ONLY through the fixture MCP server's tool result; a copy in composed context is a channel this probe does not test",
 					m.cell(), m.nonce, leaked)
 			}
 			return nil
@@ -311,7 +330,12 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		m := mcpProbeOf(w)
 
-		calls, logFound, err := probeMCPCallLog(m.fixture.CallLog)
+		runDir, err := probeCellRunDir(mcpProbeFamily, w.env.ProjectDir, m.workspace)
+		if err != nil {
+			return err
+		}
+		callLog := filepath.Join(runDir, m.relDir, probeMCPLogName)
+		calls, logFound, err := probeMCPCallLog(callLog)
 		if err != nil {
 			return err
 		}
@@ -320,7 +344,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 		// conversation actually got.
 		w.docStepMaterialized = fmt.Sprintf(
 			"probe-p2-mcp %s nonce=%s exit=%d\nMCP call log (%s, present=%t): %s\nstdout:\n%s\nstderr:\n%s",
-			m.cell(), m.nonce, m.exitCode, m.fixture.CallLog, logFound,
+			m.cell(), m.nonce, m.exitCode, callLog, logFound,
 			probeMCPCallLogSummary(calls), m.stdout, m.stderr)
 		// Also printed UNCONDITIONALLY, and this is not belt-and-braces. The
 		// sidecar above only materializes under CTXLOOM_DOC_CAPTURE_DIR, and the
@@ -345,22 +369,27 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 }
 
 // mcpProbeWorkspaceCarriesNonce walks the cell's workspace looking for the
-// minted harp, and returns the first path holding it.
+// minted harp, skipping skipDir, and returns the first path holding it.
 //
-// This is the probe's channel claim, made checkable. P2 asserts the nonce is
-// reachable ONLY through the tool result; the claim is true today because the
-// fixture writes the harp into one file outside the tree, but "the fixture does
-// not do that" is a property of code somebody will edit. A future fixture that
-// helpfully logged the harp into the config, the bundle or a session file would
-// make every cell pass while proving nothing — and it would look like success,
-// which is the failure mode this whole ladder is built against.
+// This is the probe's AUTHORING claim, made checkable: whatever else is true,
+// the harp must not appear in a surface the fixture itself wrote. "The fixture
+// does not do that" is a property of code somebody will edit, and a future
+// fixture that helpfully logged the harp into the config, the bundle or a
+// session file would make every cell pass while proving nothing — the failure
+// mode this whole ladder is built against.
+//
+// skipDir is the fixture's own directory, and excluding it is not a weakening of
+// the above: the nonce file there is the fixture's design, and the claim that
+// the agent reached the value THROUGH THE TOOL is defended by mcpProbeAssert's
+// call-log requirement, which no siting decision can substitute for. An EMPTY
+// skipDir scans everything, which is what the hermetic tests use.
 //
 // It reads the tree as bytes and does not care what a file IS: a binary that
 // happens to contain the harp is as much a channel as a YAML that does.
 // Unreadable entries are an ERROR rather than a skip, for the reason
 // probeFileArtifact gives — a scan that quietly skips what it cannot read
 // reports no leak for the wrong reason.
-func mcpProbeWorkspaceCarriesNonce(dir, nonce string) (string, error) {
+func mcpProbeWorkspaceCarriesNonce(dir, nonce, skipDir string) (string, error) {
 	if nonce == "" {
 		return "", fmt.Errorf("probe-p2-mcp: workspace scan was given an empty nonce — every file contains the empty string, so this scan would report a leak everywhere or nowhere depending on nothing")
 	}
@@ -374,6 +403,11 @@ func mcpProbeWorkspaceCarriesNonce(dir, nonce string) (string, error) {
 			// can hold no plaintext the tree does not already hold — scanning it
 			// finds nothing and walks a lot.
 			if d.Name() == ".git" {
+				return fs.SkipDir
+			}
+			// The fixture's own directory, matched at the workspace root only so
+			// a same-named directory deeper in the tree is still scanned.
+			if skipDir != "" && path == filepath.Join(dir, skipDir) {
 				return fs.SkipDir
 			}
 			return nil

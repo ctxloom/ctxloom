@@ -26,6 +26,7 @@ package acceptance
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -133,4 +134,53 @@ func runtimeBindingLine(runtime string) string {
 		return ""
 	}
 	return fmt.Sprintf("    runtime: %s\n", runtime)
+}
+
+// probeCellRunDir is the directory the cell's engine actually ran in, which is
+// NOT always the project directory the fixture was written to.
+//
+// A workspace=none cell runs the project itself. A workspace=worktree cell runs
+// a per-agent git checkout that ctxloom creates at a path chosen at run time —
+// so the fixture's committed bytes arrive THERE, the engine runs THERE, and
+// whatever the fixture writes (P2's call log, P3's stamp file) lands THERE.
+// Reading the project's copy for such a cell finds nothing and reports "it never
+// ran", which is a false and expensive finding: it blames the engine for a path
+// the harness got wrong.
+//
+// `git worktree list --porcelain` is ground truth for where that checkout is,
+// and it is asked AFTER the run for a reason — before it, the checkout does not
+// exist yet.
+//
+// Exactly one non-project worktree is expected. ZERO means ctxloom did not
+// create one, which is a real finding about the workspace axis and must not be
+// smoothed into "then use the project dir" — that substitution would let a cell
+// that never got its checkout pass on the host fixture's evidence. MORE THAN ONE
+// means a previous cell leaked its checkout and this cell cannot tell whose
+// evidence it is reading. Both are refused rather than guessed at.
+//
+// SHARED BY P2 AND P3 on purpose: both probes ask the identical question, and a
+// second copy is the hand-copied rule this project pays for most often.
+func probeCellRunDir(family, projectDir, workspace string) (string, error) {
+	if workspace != "worktree" {
+		return projectDir, nil
+	}
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = projectDir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("%s: listing worktrees of %s to locate the cell's per-agent checkout: %w", family, projectDir, err)
+	}
+	var found []string
+	for _, line := range strings.Split(string(out), "\n") {
+		path, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree ")
+		if !ok || path == projectDir {
+			continue
+		}
+		found = append(found, path)
+	}
+	if len(found) != 1 {
+		return "", fmt.Errorf("%s: expected exactly ONE per-agent worktree of %s after a workspace=worktree run, found %d %v — zero means ctxloom never created the checkout this axis is defined by, and more than one means this cell cannot tell whose evidence it is about to read",
+			family, projectDir, len(found), found)
+	}
+	return found[0], nil
 }

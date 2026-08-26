@@ -21,7 +21,7 @@ func TestProbeConfigYAML_TaggedProbesCarryTheRuntimeAxis(t *testing.T) {
 	a := liveAgent{config: fmt.Sprintf("version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
 
 	builders := map[string]func(string) string{
-		"p2 mcpProbeConfigYAML":  func(rt string) string { return mcpProbeConfigYAML(a, "claude", "/fix/bin", "/fix", rt) },
+		"p2 mcpProbeConfigYAML":  func(rt string) string { return mcpProbeConfigYAML(a, "claude", rt) },
 		"p3 hookProbeConfigYAML": func(rt string) string { return hookProbeConfigYAML(a, "claude", "claude-code", rt) },
 	}
 

@@ -281,14 +281,23 @@ func TestHookProbeIngestsHookStdout_MatchesTheDeclaredApproachTables(t *testing.
 
 // The script IS the probe. If it stops stamping, every cell that uses it becomes
 // a tautology — a green proving nothing — so the stamp line is pinned here.
-func TestHookProbeScript_StampsItsArgvToTheAbsolutePath(t *testing.T) {
-	script := hookProbeScript("/tmp/p3/stamp.txt", "")
+//
+// The path is pinned as SCRIPT-RELATIVE, resolved from $0. That is not a style
+// choice: a cwd-relative path lands the proof wherever the vendor binary chose
+// to exec the hook from, and a host-absolute path does not exist inside a
+// container or a per-agent worktree — so either one silently reds a container or
+// worktree cell as "the hook never fired" when it fired perfectly.
+func TestHookProbeScript_StampsItsArgvBesideItself(t *testing.T) {
+	script := hookProbeScript("stamp.txt", "")
 
 	if !strings.Contains(script, `"$1"`) {
 		t.Error("the script must read the harp from its ARGV: that is the planted channel, and a harp baked into the script body would prove only that the fixture can write a file")
 	}
-	if !strings.Contains(script, ">> '/tmp/p3/stamp.txt'") {
-		t.Errorf("the script must APPEND to the absolute stamp path (append, so a second firing is visible rather than flattened), got:\n%s", script)
+	if !strings.Contains(script, `>> "$(dirname "$0")"/'stamp.txt'`) {
+		t.Errorf("the script must APPEND to a stamp path resolved from $0 (append, so a second firing is visible rather than flattened; from $0, so the proof lands beside the script on every axis), got:\n%s", script)
+	}
+	if strings.Contains(script, ">> '/") {
+		t.Errorf("the stamp path must not be host-absolute — such a path exists in neither a container's filesystem namespace nor a per-agent worktree, and the cell would red as a hook that never fired, got:\n%s", script)
 	}
 	if strings.Contains(script, "hookSpecificOutput") {
 		t.Error("a stage-(a)-only script must print NOTHING on stdout: an engine that ingests hook output would be handed context this cell never intended to plant")
@@ -296,7 +305,7 @@ func TestHookProbeScript_StampsItsArgvToTheAbsolutePath(t *testing.T) {
 }
 
 func TestHookProbeScript_EchoCellEmitsTheEngineHookOutputEnvelope(t *testing.T) {
-	script := hookProbeScript("/tmp/p3/stamp.txt", "brave-copper-otter")
+	script := hookProbeScript("stamp.txt", "brave-copper-otter")
 	for _, want := range []string{"hookSpecificOutput", "additionalContext", "brave-copper-otter"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("a stage-(b) script must emit the engine's own hook-output envelope carrying the stdout harp; %q missing from:\n%s", want, script)
@@ -311,8 +320,8 @@ func TestHookProbeScript_EchoCellEmitsTheEngineHookOutputEnvelope(t *testing.T) 
 // broken quote here would not fail loudly — it would produce a hook that runs
 // and stamps the wrong thing, or nothing.
 func TestHookProbeScript_QuotesHostilePaths(t *testing.T) {
-	script := hookProbeScript("/tmp/it's a dir/$HOME/stamp.txt", "")
-	if !strings.Contains(script, `'/tmp/it'\''s a dir/$HOME/stamp.txt'`) {
+	script := hookProbeScript("it's a dir/$HOME/stamp.txt", "")
+	if !strings.Contains(script, `'it'\''s a dir/$HOME/stamp.txt'`) {
 		t.Errorf("a path with a quote, a space and a $ must be single-quoted and escaped, got:\n%s", script)
 	}
 }

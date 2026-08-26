@@ -16,10 +16,10 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
   most often.
 
   THE PROOF IS A FILE, NOT A SENTENCE. The hook ctxloom delivers does one thing:
-  it appends the harp it was handed ON ITS OWN ARGV to a stamp file at an
-  absolute path outside the engine's working directory. The assertion reads that
-  file's BYTES. An engine cannot fake this by being clever with the settings
-  file it was given — the harp sits in that file in plain text and any engine
+  it appends the harp it was handed ON ITS OWN ARGV to a stamp file beside the
+  script itself, resolved from the script's own location rather than from a cwd
+  nobody promised us. The assertion reads that file's BYTES. An engine cannot
+  fake this by being clever with the settings file it was given — the harp sits in that file in plain text and any engine
   could quote it back — because only an engine that actually EXECUTED the
   command can make the stamp file exist at all. Quotable versus executable is
   the whole probe.
@@ -57,12 +57,23 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
   "codex has no session-end event"), which is precisely why this probe plants on
   session_start: it is the one kind all three engines carry.
 
-  HOST/NONE ONLY, AND THE REASON IS PHYSICAL. The stamp file is an absolute HOST
-  path. A containerized engine would write it inside another filesystem
-  namespace, and this assertion — reading the host path — would report a
-  hook-firing failure that is really a mount gap. A container row needs a
-  mounted stamp path designed first; the step refuses the axis loudly rather
-  than running a cell that would lie.
+  THE CONTAINER AXIS, AND THE REASON IT WAITED. This probe was host/none only,
+  and the reason was physical rather than cautious: the stamp file was an
+  absolute HOST path, so a containerized engine would have written it inside
+  another filesystem namespace and this assertion — reading the host path —
+  would have reported a hook-firing failure that was really a mount gap. That is
+  now fixed AT THE FIXTURE, which is why it needed no mount and no production
+  change: the script resolves its stamp from `dirname "$0"`, so the proof lands
+  beside the script wherever the workspace was mounted or checked out, and the
+  workspace is the one thing a container cell bind-mounts. The stamp is then read
+  from the directory the engine ACTUALLY RAN IN, which for a worktree cell is a
+  per-agent checkout rather than the project.
+
+  Moving the fixture inside the workspace does mean an agent can now READ the
+  stamp script. That costs nothing: the verdict demands the file EXIST carrying
+  this cell's argv harp, and reading a path does not create a file. The codex row
+  below is the measured proof — it found its harp by grepping the fixture's own
+  script, answered correctly, and red anyway.
 
   ADDRESSING ONE CELL. Every Examples block carries its engine and both axes as
   tags, so an ACCEPTANCE_TAGS expression of the live tag, this probe's tag, the
@@ -82,6 +93,48 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
     Examples:
       | engine      | runtime | workspace |
       | claude-code | host    | none      |
+
+    # The container cells, added once the stamp stopped being a host-absolute
+    # path. A PAIR on purpose: P6's host/worktree cell failed where both-off and
+    # both-on passed, so a container row without its worktree partner rebuilds
+    # that blind spot. Stage (a) only, as on claude's host row — claude's
+    # SurfaceFor resolves ApproachHook to noopContextDelivery, so ctxloom never
+    # delivers claude's context through a hook and this cell must not assert an
+    # echo production never asked for.
+    # @wip — RED, and it is a CAPABILITY FINDING measured 2026-08-26: a
+    # containerized claude run does not produce the stamp. exit 0, the turn
+    # answered normally, no stamp on the bind-mounted workspace.
+    #
+    # CONTROLLED AGAINST THE OBVIOUS HARNESS CAUSE: re-run with the hook command
+    # written as a HOST-ABSOLUTE path (valid in-container under the identity
+    # mapper) instead of the workspace-relative one — it did not fire either, so
+    # the relative path is not the cause. The identical fixture fires reliably on
+    # host/none the same day.
+    #
+    # NOT YET ISOLATED between "ctxloom never wrote the hook into the container"
+    # and "claude never ran one it was given": the carriage scan reads the
+    # project tree and the session root ON THE HOST, and a container's settings
+    # are written where neither looks, so carriage is unobservable here rather
+    # than absent. Isolating it needs a scan inside the container.
+    @claude-code @container-rootless @ws-none @probe-p3-hook-firing @wip
+    Examples:
+      | engine      | runtime            | workspace |
+      | claude-code | container-rootless | none      |
+
+    # The worktree partner. The hook script reaches the per-agent checkout only
+    # because the fixture is COMMITTED, and the stamp is written there rather
+    # than in the project — probeCellRunDir resolves that checkout after the run.
+    # @wip — RED, and it fails EARLIER than its partner above (2026-08-26):
+    # probeCellRunDir found ZERO per-agent worktrees after the run, so there was
+    # no checkout left to read a stamp from. That is a compound of two things —
+    # the hook did not fire, so the checkout stayed clean, and a clean checkout
+    # is pruned by the WIP-safe teardown before the assertion runs. The refusal
+    # is deliberate: falling back to the project directory would let a cell that
+    # never got its checkout pass on the host fixture's evidence.
+    @claude-code @container-rootless @ws-worktree @probe-p3-hook-firing @wip
+    Examples:
+      | engine      | runtime            | workspace |
+      | claude-code | container-rootless | worktree  |
 
     # @wip — RED, and it is a CAPABILITY FINDING: codex hooks written by ctxloom
     # NEVER FIRE. This is the row that made building this probe worth it.

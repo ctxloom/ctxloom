@@ -31,14 +31,21 @@
 // filesystem, not a protocol. Two things close that hole and neither is
 // optional:
 //
-//  1. The script lives OUTSIDE the cell's workspace (probeMCPWriteFixture takes
-//     a directory the caller must site outside the project), so nothing in the
-//     agent's tree contains the value.
-//  2. The server APPENDS A CALL RECORD for every tools/call it serves, and the
-//     verdict requires one. A run that never called the tool fails on the call
-//     log no matter what its stdout says.
+//	THE SERVER APPENDS A CALL RECORD for every tools/call it serves, and the
+//	verdict requires one. A run that never called the tool fails on the call log
+//	no matter what its stdout says.
 //
-// (2) is the structural one. It is what makes the probe non-tautological: the
+// THERE USED TO BE A SECOND ONE — the fixture sited outside the cell's workspace
+// so nothing in the agent's tree held the value — and it was retired
+// deliberately, not lost. It was defence in depth, never the mechanism: it stops
+// an agent stumbling onto the path and does nothing against one that goes
+// looking, which any engine with shell tools can. Measured: the codex P3 row of
+// 2026-08-13 grepped the harp out of the fixture's own script, answered
+// correctly, and RED anyway on the effect. Retiring it is what buys the
+// container axis — the workspace is the thing bind-mounted into a container
+// cell, so a fixture outside it is unreachable there by construction.
+//
+// The call record is the structural one. It is what makes the probe non-tautological: the
 // assertion demands the TOOL PATH, not merely the value, so planting the harp in
 // composed context — the classic false green, and the mutation this file's tests
 // perform deliberately — still reds the cell. The call log deliberately records
@@ -144,12 +151,10 @@ type probeMCPFixture struct {
 
 // probeMCPWriteFixture materializes the server for one cell.
 //
-// dir MUST be sited OUTSIDE the cell's workspace by the caller. This function
-// cannot check that for itself — it does not know where the workspace is — so
-// the requirement is stated here and enforced at the one call site that matters
-// (the Given step, which passes a sibling of the project directory). Putting the
-// nonce inside the tree the agent can list would hand the agent the harp
-// through a channel this probe does not test.
+// dir is sited INSIDE the cell's workspace by the caller, which is what lets a
+// container cell reach it — see this file's header for why the old
+// outside-the-workspace requirement was defence in depth rather than the
+// mechanism, and probeMCPWorkspaceRel for the paths the config registers.
 //
 // An EMPTY nonce is refused rather than written: the harp is the entire content
 // of the round trip, and a server serving "" would satisfy strings.Contains
@@ -185,35 +190,74 @@ func probeMCPWriteFixture(dir, nonce string) (probeMCPFixture, error) {
 	return f, nil
 }
 
-// probeMCPConfigYAML is the registration: a top-level `mcp.servers` entry in the
-// project's config.yaml.
+// probeMCPWorkspaceRel renders the fixture's binary and directory as paths
+// RELATIVE to the cell's workspace root, which is the form the registration must
+// carry.
 //
-// THIS IS A PRODUCTION SURFACE, chosen deliberately over the bundle route. Both
-// exist (wire.MCPConfig from config, BundleMCP from a bundle's `mcp:` block) and
-// both converge on the same per-engine writers, but a BUNDLE's MCP servers pass
-// through the executable trust gate (extractMCPFromBundle → bundles.Decide),
-// which withholds an unsigned local bundle's arbitrary command. A probe that
-// tripped that gate would red with an MCP-delivery failure that is really a
-// trust decision — the exact channel confusion this ladder's failure taxonomy
-// exists to prevent. Config-level servers are ungated by design (wire.MCPServer's
-// own security note: config.yaml is trusted local configuration), so this route
-// tests the MCP path and nothing else.
+// WHY RELATIVE, AND WHY IT IS THE WHOLE REASON BOTH CONTAINER AXES WORK. The
+// registration is committed into the cell's tree, and the tree is then run from
+// two different absolute locations: a /none cell runs the project directory
+// itself (bind-mounted into a container at the SAME absolute path, per
+// isolation.buildRunSpec's identity mapper), while a /worktree cell runs a
+// per-agent checkout that ctxloom creates at a path nothing here can know in
+// advance. An absolute path baked in at fixture-write time is therefore correct
+// for at most one of them, and WRONG SILENTLY for the other: the server simply
+// fails to spawn, and the cell reds as an MCP-delivery failure that is really a
+// harness path bug. A workspace-relative path resolves against the engine's cwd,
+// which IS the workspace on every axis, so one fixture shape serves all of them.
 //
-// From here the value is production's all the way down: config → ManagedConfig.MCP
-// → each engine's native surface — claude's --mcp-config scratch file,
-// codex's config.toml [mcp_servers], kiro's .kiro/settings/mcp.json,
-// opencode's opencode.json `mcp`. Nothing in this fixture writes an engine file.
+// The absolute forms on probeMCPFixture stay as they are — the HOST-side verdict
+// reads the call log through them, and for a /worktree cell the reader must
+// resolve the checkout first (see mcpProbeCallLogPath).
 //
-// The registered args carry the fixture DIRECTORY, never the nonce. config.yaml
-// lives inside the workspace and the agent under test can read it, so a nonce
-// here would be reachable without a tool call and the cell would pass while
-// proving nothing.
-func probeMCPConfigYAML(binaryPath, fixtureDir string) string {
+// An error rather than a best-effort relative path: filepath.Rel escaping the
+// workspace (a "../" result) means the caller sited the fixture outside it, and
+// the registration would then name a path no container cell can reach. That is
+// the exact defect this function exists to make impossible, so it must not be
+// representable in the returned value.
+func probeMCPWorkspaceRel(workspaceDir string, f probeMCPFixture) (relBinary, relDir string, err error) {
+	for _, p := range []struct {
+		abs string
+		out *string
+	}{{f.Binary, &relBinary}, {f.Dir, &relDir}} {
+		rel, rerr := filepath.Rel(workspaceDir, p.abs)
+		if rerr != nil {
+			return "", "", fmt.Errorf("capability probe P2: relativizing the fixture path %s against the cell workspace %s: %w", p.abs, workspaceDir, rerr)
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", "", fmt.Errorf("capability probe P2: the fixture path %s is OUTSIDE the cell workspace %s (relative form %q) — the registration would name a path a container cell cannot reach, because the workspace is the only thing bind-mounted in", p.abs, workspaceDir, rel)
+		}
+		*p.out = rel
+	}
+	return relBinary, relDir, nil
+}
+
+// probeMCPBundleBlock is the registration: an `mcp:` block in the fixture's own
+// BUNDLE, which is the only surface that still exists.
+//
+// IT WAS A TOP-LEVEL `mcp.servers` KEY IN config.yaml, and this probe's design
+// chose that deliberately over a bundle — a bundle's MCP servers pass the
+// executable trust gate (bundles.Decide), and a withheld server would red as an
+// MCP-delivery failure that is really a trust decision, which is the exact
+// channel confusion this ladder refuses.
+//
+// THAT SURFACE WAS DELETED on 2026-08-19 by c5228d46 ("MCP servers come from
+// bundles only; ctxloom's own ships as a builtin"): there is no `mcp:` key in
+// config.yaml and none on a profile. An MCP server is declared in a bundle and
+// COMPOSING that bundle is what registers it. So the choice above is no longer
+// available, and the trust gate is now part of what any real user traverses —
+// which makes routing through it correct rather than merely tolerable.
+//
+// A red that is really a trust decision is still the hazard the old comment
+// named. It is now DISTINGUISHABLE rather than avoided: a withheld server never
+// starts, so the call log is ABSENT rather than empty, and probeMCPCallLog
+// reports those as different findings.
+func probeMCPBundleBlock(binaryPath, fixtureDir string) string {
 	var b strings.Builder
-	b.WriteString("mcp:\n  servers:\n    " + probeMCPServerName + ":\n")
-	fmt.Fprintf(&b, "      command: %q\n", binaryPath)
-	b.WriteString("      args:\n")
-	fmt.Fprintf(&b, "        - %q\n", fixtureDir)
+	b.WriteString("mcp:\n  " + probeMCPServerName + ":\n")
+	fmt.Fprintf(&b, "    command: %q\n", binaryPath)
+	b.WriteString("    args:\n")
+	fmt.Fprintf(&b, "      - %q\n", fixtureDir)
 	return b.String()
 }
 

@@ -214,7 +214,7 @@ func TestProbeMCPFixture_ScriptDoesNotLeakIntoTheWorkspace(t *testing.T) {
 		// readable by the agent under test — must not carry the harp. A nonce
 		// on argv would be reachable without a tool call, and every cell would
 		// pass while proving nothing.
-		reg := probeMCPConfigYAML(f.Binary, f.Dir)
+		reg := probeMCPBundleBlock(f.Binary, f.Dir)
 		require.NotContains(t, reg, nonce,
 			"the registration names the fixture directory, never the harp: a nonce in config.yaml is readable from the agent's own workspace, so the round-trip assertion would pass without a round trip")
 	})
@@ -229,13 +229,20 @@ func TestProbeMCPFixture_ScriptDoesNotLeakIntoTheWorkspace(t *testing.T) {
 	})
 }
 
-// TestProbeMCPFixture_ConfigRegistrationIsTheProductionSurface pins what the
-// fixture writes into config.yaml. It must be the plain `mcp.servers` grammar
-// wire.MCPConfig parses — nothing engine-specific, because the whole claim is
-// that ctxloom carried it to each engine's own surface.
-func TestProbeMCPFixture_ConfigRegistrationIsTheProductionSurface(t *testing.T) {
-	got := probeMCPConfigYAML("/opt/fix ture/nonce-mcp-server", "/tmp/x y/fixture")
-	require.Contains(t, got, "mcp:\n  servers:\n    "+probeMCPServerName+":\n")
+// TestProbeMCPFixture_BundleRegistrationIsTheProductionSurface pins what the
+// fixture writes into its BUNDLE. It must be the plain bundle `mcp:` grammar —
+// nothing engine-specific, because the whole claim is that ctxloom carried it to
+// each engine's own surface.
+//
+// The config.yaml `mcp.servers` grammar this used to pin was DELETED on
+// 2026-08-19 (c5228d46): composing a bundle is now the only thing that registers
+// a server. Pinning the retired grammar is what let this probe keep reporting a
+// production surface that no longer existed.
+func TestProbeMCPFixture_BundleRegistrationIsTheProductionSurface(t *testing.T) {
+	got := probeMCPBundleBlock("/opt/fix ture/nonce-mcp-server", "/tmp/x y/fixture")
+	require.Contains(t, got, "mcp:\n  "+probeMCPServerName+":\n")
+	require.NotContains(t, got, "servers:",
+		"`mcp.servers` was the config.yaml grammar and it no longer parses anywhere; a bundle declares servers directly under mcp:")
 	require.Contains(t, got, `command: "/opt/fix ture/nonce-mcp-server"`)
 	require.Contains(t, got, `- "/tmp/x y/fixture"`,
 		"paths are quoted: a temp directory with a space in it would otherwise produce a YAML list item that parses as something else entirely")
@@ -451,3 +458,40 @@ func TestProbeMCPSummary_ShowsHowFarTheHandshakeGot(t *testing.T) {
 type errFake string
 
 func (e errFake) Error() string { return string(e) }
+
+// probeMCPWorkspaceRel decides what path the REGISTRATION carries, and getting
+// it wrong does not fail loudly — the server simply never spawns and the cell
+// reds as an MCP-delivery failure that is really a harness path bug. So both
+// arms are pinned: the relative form it must produce, and the refusal that stops
+// an out-of-workspace fixture from being registered at all.
+func TestProbeMCPWorkspaceRel_RendersPathsTheContainerCellCanResolve(t *testing.T) {
+	ws := "/tmp/cell/project"
+	f := probeMCPFixture{
+		Dir:    ws + "/p2-mcp-fixture",
+		Binary: ws + "/p2-mcp-fixture/probe-mcp-server",
+	}
+	relBinary, relDir, err := probeMCPWorkspaceRel(ws, f)
+	if err != nil {
+		t.Fatalf("relativizing a fixture that IS inside the workspace must succeed: %v", err)
+	}
+	if relDir != "p2-mcp-fixture" {
+		t.Errorf("relDir = %q, want %q — the registration must name the fixture relative to the workspace root, because that is the only form that resolves on host, container/none and container/worktree alike", relDir, "p2-mcp-fixture")
+	}
+	if relBinary != "p2-mcp-fixture/probe-mcp-server" {
+		t.Errorf("relBinary = %q, want %q", relBinary, "p2-mcp-fixture/probe-mcp-server")
+	}
+	if filepath.IsAbs(relBinary) || filepath.IsAbs(relDir) {
+		t.Errorf("neither form may be absolute: an absolute host path exists in no container's filesystem namespace, got %q and %q", relBinary, relDir)
+	}
+}
+
+func TestProbeMCPWorkspaceRel_RefusesAFixtureOutsideTheWorkspace(t *testing.T) {
+	ws := "/tmp/cell/project"
+	f := probeMCPFixture{
+		Dir:    "/tmp/cell/p2-mcp-fixture",
+		Binary: "/tmp/cell/p2-mcp-fixture/probe-mcp-server",
+	}
+	if _, _, err := probeMCPWorkspaceRel(ws, f); err == nil {
+		t.Fatal("a fixture sited OUTSIDE the workspace must be refused: the registration would name a path no container cell can reach, because the workspace is the only thing bind-mounted in — and the resulting red would blame the engine")
+	}
+}

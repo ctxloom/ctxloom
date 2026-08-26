@@ -19,11 +19,15 @@
 //     a box that runs these one at a time, all day — would let a cell pass on
 //     evidence a previous run produced. The Given step deletes it and refuses
 //     to continue if it cannot.
-//  2. The stamp path lives OUTSIDE the project directory the engine is launched
-//     in. Inside the cwd, the agent could stumble into it (or be handed it by a
-//     context surface) and the probe would be measuring reachability rather
-//     than execution. A sibling of the project under the same temp root keeps
-//     it absolute, private, and swept up with the rest of the scenario.
+//  2. The stamp path lives INSIDE the cell's workspace, and the stamp is read
+//     back from the directory the engine ACTUALLY RAN IN (probeCellRunDir),
+//     which for a workspace=worktree cell is a per-agent checkout rather than
+//     the project. It used to sit outside the project so the agent could not
+//     stumble into it; that was defence in depth, not the mechanism, and it
+//     made the container axis unreachable — the workspace is the only thing
+//     bind-mounted into a container cell. What actually separates reachability
+//     from execution is that the verdict demands the file EXIST with the argv
+//     harp in it, and reading a path does not create a file.
 //  3. The fixture is COMMITTED, as the matrix floor commits its own, so every
 //     cell of every engine runs against a byte-identical tree and a difference
 //     between cells is the engine rather than the fixture's cleanliness.
@@ -50,10 +54,15 @@ import (
 	"github.com/cucumber/godog"
 )
 
-// hookProbeRunTimeout bounds one cell's live run. Shorter than the matrix
-// floor's container-sized budget because every P3 cell is a HOST cell buying
-// one small turn; a cell that hangs past this is hung, not cold.
-const hookProbeRunTimeout = 4 * time.Minute
+// hookProbeRunTimeout bounds one cell's live run.
+//
+// It was four minutes, against the matrix floor's container-sized budget, on the
+// reasoning that every P3 cell was a HOST cell buying one small turn. That
+// stopped being true when the probe gained container cells, which pay for an
+// image before they buy the turn — so this now matches the floor. A cell that
+// hangs past it is hung, not cold; the risk of the shorter bound was reporting a
+// RUN failure for the harness's impatience and burying the real finding.
+const hookProbeRunTimeout = 8 * time.Minute
 
 func hookProbeOf(w *World) *hookProbeState {
 	if w.hookProbe == nil {
@@ -73,17 +82,6 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			w := worldFrom(c)
 			h := hookProbeOf(w)
 
-			// P3 is a host/none probe by declaration, and the reason is
-			// physical rather than cautious: the stamp file is an absolute HOST
-			// path, so a containerized engine would write it into a filesystem
-			// namespace this assertion cannot read and the cell would report a
-			// hook-firing failure that is really a mount gap. If a container
-			// row is ever added, it needs a mounted stamp path first — and that
-			// belongs in the registry as a conscious edit, not here as a
-			// silently tolerated axis.
-			if runtime != "host" || workspace != "none" {
-				return fmt.Errorf("hook-probe: cell [runtime=%s workspace=%s] is not declared for this probe — P3 is host/none only, because the stamp file is an absolute HOST path a container cell could not write where this assertion reads. Add the axis to the registry with a mounted stamp path before writing an Examples row for it", runtime, workspace)
-			}
 			h.engine, h.runtime, h.workspace = engine, runtime, workspace
 
 			a, key, err := probeCellGate(c, w, hookProbeFamily, h.cell())
@@ -109,18 +107,31 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 				h.echoHarp = echoHarp
 			}
 
-			// The stamp directory: absolute, and a SIBLING of the project
-			// rather than a child of it. The engine is launched with the
-			// project as its cwd and is handed context surfaces rooted there;
-			// a stamp file inside that tree would be reachable by an agent
-			// that went looking, and this probe's whole claim is that only
-			// EXECUTION can produce the file.
-			stampDir := filepath.Join(filepath.Dir(w.env.ProjectDir), "p3-hook-probe")
+			// The stamp directory sits INSIDE the workspace, which is what a
+			// container cell can reach and a per-agent worktree carries.
+			//
+			// It was a sibling of the project, on the argument that a stamp
+			// inside the tree is reachable by an agent that goes looking. It
+			// is — and that never mattered: this probe's claim is that only
+			// EXECUTION can produce the file, and READING a path does not
+			// create it. hookProbeAssertStamp judges the file's existence and
+			// its argv harp, so an agent that finds the script and echoes its
+			// contents still reds. Measured on the codex row of 2026-08-13,
+			// which did exactly that and red anyway.
+			h.relDir = hookProbeFixtureDirName
+			h.stampRel = filepath.Join(h.relDir, "stamp-"+engine+".txt")
+			stampDir := filepath.Join(w.env.ProjectDir, h.relDir)
 			if err := os.MkdirAll(stampDir, 0o755); err != nil {
-				return fmt.Errorf("hook-probe: creating the out-of-cwd stamp directory %s: %w", stampDir, err)
+				return fmt.Errorf("hook-probe: creating the in-workspace stamp directory %s: %w", stampDir, err)
 			}
-			h.scriptPath = filepath.Join(stampDir, "stamp-"+engine+".sh")
-			h.stampPath = filepath.Join(stampDir, "stamp-"+engine+".txt")
+			// Two forms of the script path, and both are needed. The RELATIVE
+			// one goes into the hook command and is therefore what the carriage
+			// scan looks for; it resolves against the engine's cwd, which is
+			// the workspace on every axis. The ABSOLUTE one is where this
+			// process writes the bytes.
+			h.scriptPath = filepath.Join(h.relDir, "stamp-"+engine+".sh")
+			h.scriptAbs = filepath.Join(w.env.ProjectDir, h.scriptPath)
+			h.stampPath = filepath.Join(w.env.ProjectDir, h.stampRel)
 
 			// The stamp file must not pre-exist. A leftover from an earlier
 			// cell on this box would let this one pass on somebody else's
@@ -134,8 +145,8 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("hook-probe: the stamp file %s still exists after removal — this cell cannot distinguish its own hook's output from what was already there", h.stampPath)
 			}
 
-			if err := os.WriteFile(h.scriptPath, []byte(hookProbeScript(h.stampPath, h.echoHarp)), 0o755); err != nil {
-				return fmt.Errorf("hook-probe: writing the stamp script %s: %w", h.scriptPath, err)
+			if err := os.WriteFile(h.scriptAbs, []byte(hookProbeScript(filepath.Base(h.stampRel), h.echoHarp)), 0o755); err != nil {
+				return fmt.Errorf("hook-probe: writing the stamp script %s: %w", h.scriptAbs, err)
 			}
 
 			// Evidence, printed unconditionally in the loud idiom: a GREEN cell
@@ -147,7 +158,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			fmt.Printf("MINT hook-probe %s: argv harp %q, stdout harp %q, stamp %s\n",
 				h.cell(), h.stampHarp, h.echoHarp, h.stampPath)
 			w.docStepMaterialized += fmt.Sprintf("\nhook-probe %s: argv harp %q, stdout harp %q\nstamp path: %s\nhook script:\n%s\n",
-				h.cell(), h.stampHarp, h.echoHarp, h.stampPath, hookProbeScript(h.stampPath, h.echoHarp))
+				h.cell(), h.stampHarp, h.echoHarp, h.stampPath, hookProbeScript(filepath.Base(h.stampRel), h.echoHarp))
 
 			if err := w.env.InitGitRepo(); err != nil {
 				return err
@@ -251,6 +262,17 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// reason to use it here: a scan or a read that quietly treats "not
 		// there" as "nothing in it" would turn the central finding of this probe
 		// — the hook did not fire — into a check that passed over nothing.
+		// Resolved AFTER the run, because a workspace=worktree cell wrote its
+		// stamp into a per-agent checkout that did not exist before it — see
+		// probeCellRunDir. Reading the project's copy for such a cell would find
+		// nothing and report "the hook never fired", the exact false finding this
+		// probe exists to make impossible.
+		runDir, err := probeCellRunDir(hookProbeFamily, w.env.ProjectDir, h.workspace)
+		if err != nil {
+			return err
+		}
+		h.stampPath = filepath.Join(runDir, h.stampRel)
+
 		art, err := probeFileArtifact("the session_start hook's stamp file", h.stampPath)
 		h.stampErr = err
 		if err == nil {

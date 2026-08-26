@@ -2679,7 +2679,14 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 
 	out := make([]bundles.Reader, 0, len(rawBytes))
 	for _, canonical := range collections.SortedKeys(rawBytes) {
-		if _, ok := lock.Bundles[canonical]; !ok {
+		entry, ok := lock.Bundles[canonical]
+		// A DIRECTORY-form entry belongs to treeBundleReaders below and to
+		// nothing here, even if the byte source served its manifest: presenting
+		// a tree's bundle.yaml as a lone document would drop every skill in it
+		// (a skill needs a real directory) and check a signature over the
+		// manifest alone rather than over the tree. Skipping it is what keeps
+		// exactly one reader per canonical ref.
+		if !ok || entry.Tree {
 			continue
 		}
 		tree, terr := documentTree(canonical, rawBytes[canonical], signatureFor(ctx, reader, canonical))
@@ -2689,7 +2696,7 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 		}
 		out = append(out, bundles.NewRepoFSReader(tree, canonical,
 			bundles.WithTrustRoot(root),
-			bundles.WithPinnedRevision(lock.Bundles[canonical].SHA)))
+			bundles.WithPinnedRevision(entry.SHA)))
 	}
 	out = append(out, c.treeBundleReaders(lock, root, failures)...)
 	reportBundleLoadFailures(failures)

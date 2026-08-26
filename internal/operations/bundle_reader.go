@@ -2,6 +2,7 @@ package operations
 
 import (
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -11,9 +12,9 @@ import (
 // the standard cached fetcher factory and the active lockfile on disk.
 // Returns nil if the lockfile can't be loaded.
 //
-// Used by the review-flow tools (show_bundle_verbatim, etc.) that need
-// reader access independent of the bundles.Loader seeding pipeline that
-// cfg.BundleLoader already encapsulates.
+// It serves callers that need reader access independent of the bundles.Loader
+// seeding pipeline cfg.BundleLoader encapsulates — the installed-probe path
+// below being the one that must never be given a source it cannot read with.
 //
 // A nil return is NOT a neutral value downstream. isInstalled treats a nil
 // source as "nothing is installed", so an unreadable lockfile makes every
@@ -37,6 +38,19 @@ func NewBundleReaderForConfig(cfg *config.Config) remote.BundleByteSource {
 		return nil
 	}
 	return remote.NewCachingBundleReader(
-		remote.NewBundleReader(nil, NewCachedFetcherFactory(cfg), remote.LoadAuth(baseDir), lock),
+		remote.NewBundleReader(nil, NewCachedFetcherFactory(cfg), remote.LoadAuth(baseDir), lock,
+			// A DIRECTORY-form bundle must be readable HERE, because isInstalled
+			// decides installedness by reading the bundle's bytes. Without this
+			// the reader refuses every tree entry, so a fully pulled skill
+			// bundle reports as missing on every probe and is re-pulled on every
+			// sync, forever — the read is the probe, so a form it cannot read is
+			// a form it can never call installed.
+			//
+			// The walker lives in the content layer, above remote, so it is
+			// composed in here for the same reason NewPuller composes it (see
+			// remote.TreeFetchFunc). The cached fetcher factory keeps the walk on
+			// the local clone.
+			remote.WithReaderTreeFetcher(remotetree.PullTreeFetcher),
+		),
 	)
 }

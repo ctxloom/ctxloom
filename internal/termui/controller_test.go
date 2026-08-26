@@ -390,9 +390,19 @@ func TestController_ApprovalPollFeedsBarAndRingsBellOnce(t *testing.T) {
 }
 
 func TestController_RosterPollFeedsBar(t *testing.T) {
+	const interval = 5 * time.Millisecond
+	var fetches atomic.Int64
+	var closing atomic.Bool
 	h := newCtlHarness(t, func(o *Options) {
-		o.RosterInterval = 5 * time.Millisecond
+		o.RosterInterval = interval
 		o.FetchRoster = func() ([]RosterEntry, error) {
+			fetches.Add(1)
+			if closing.Load() {
+				// Straggler poll after Close: error out so pollRoster skips
+				// SetRoster→RequestPaint and never reads the nowNanos seam
+				// again (see the drain note below).
+				return nil, fmt.Errorf("test: fetch after close")
+			}
 			return []RosterEntry{{Harp: "swift-elm-fox", State: "executing", LastActivityUnix: 1}}, nil
 		}
 	})
@@ -401,7 +411,28 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 	waitFor(t, "roster digest on the bar", func() bool {
 		return strings.Contains(h.tty.String(), "swift-elm-fox→executing")
 	})
+	closing.Store(true)
 	h.c.Close()
+	// Close signals pollRoster (close(stopRoster)) but does not JOIN its
+	// goroutine, whose select between an already-fired ticker and the close
+	// has no ordering guarantee. Left alone, that goroutine outlives this
+	// test and reaches RequestPaint's read of the package-level nowNanos
+	// seam concurrently with a later test's unsynchronized swap of it
+	// (surround_test.go / tear_test.go / incident_repro_test.go) — and the
+	// race detector attributes that leaked-goroutine race to whichever test
+	// is running when it pairs the accesses: observed once under full-suite
+	// load as a spurious failure of the deterministic, unrelated
+	// TestVTGuard_ChildDECSCClearedBySoftResetAndAltLeave. Two layers close
+	// it down (deadline-poll pattern, not a blind sleep): the closing flag
+	// above makes any post-Close fetch inert (error → no seam read), and
+	// this drain waits out a full ticker-cadence window with no new fetch —
+	// meaning the poller has exited, or at worst will next observe the
+	// closed stopRoster / the closing flag without ever touching the seam.
+	waitFor(t, "roster poll goroutine drained", func() bool {
+		before := fetches.Load()
+		time.Sleep(4 * interval)
+		return fetches.Load() == before
+	})
 }
 
 // TestController_RosterFetchWarnsAfterConsecutiveFailures pins the safe half:

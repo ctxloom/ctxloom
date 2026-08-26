@@ -649,7 +649,12 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the remedy it named is not the review queue, which has nothing to offer her$`, func(c context.Context) error {
 		w := worldFrom(c)
 		out := j001900Of(w).syncOutput
-		_ = w.env.Run("review", "--list")
+		// Pinned to --format text: this is an internal diagnostic probe (not
+		// this row's own `When`), and the claim it checks is the exact prose
+		// "Nothing is pending review." — a fact that has no JSON row of its
+		// own to prove here, since this step's whole job is re-confirming a
+		// dead end, not exercising review --list's own format handling.
+		_ = w.env.Run("--format", "text", "review", "--list")
 		reviewSays := w.env.LastStdout()
 		if !strings.Contains(reviewSays, "Nothing is pending review") {
 			return fmt.Errorf("`review --list` no longer answers 'Nothing is pending review.' here — if tampered content became "+
@@ -774,7 +779,38 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^the installed-bundle listing names the runbook as held$`, func(c context.Context) error {
-		return j001900OutputNamesAll(worldFrom(c), "the installed-bundle listing", j001900Bundle, "held")
+		w := worldFrom(c)
+		if !formatAskedFor(w).Structured() {
+			return j001900OutputNamesAll(w, "the installed-bundle listing", j001900Bundle, "held")
+		}
+		// The predicate selector needs an EXACT Name match, and a remote-sourced
+		// bundle's Name is its full canonical ask ("file:///.../remote.git@bundles/deploy-runbook"),
+		// not the bare bundle name — so this scans for the entry whose Name
+		// carries the runbook rather than addressing one exactly by it.
+		entries, err := lastOutputJSONArray(w, "$")
+		if err != nil {
+			return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
+		}
+		for _, e := range entries {
+			name, err := jsonAtPath(e, "Name")
+			if err != nil {
+				continue
+			}
+			got, ok := jsonScalar(name)
+			if !ok || !strings.Contains(got, j001900Bundle) {
+				continue
+			}
+			held, err := jsonAtPath(e, "Held")
+			if err != nil {
+				return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
+			}
+			if hs, _ := jsonScalar(held); hs != "true" {
+				return fmt.Errorf("the installed-bundle JSON listing's %q entry has Held=%s, want true; stdout:\n%s",
+					got, hs, w.env.LastStdout())
+			}
+			return nil
+		}
+		return fmt.Errorf("no entry in the installed-bundle JSON listing names %q; stdout:\n%s", j001900Bundle, w.env.LastStdout())
 	})
 
 	ctx.Step(`^her assistant still receives the older deploy guidance and not the newer$`, func(c context.Context) error {
@@ -854,7 +890,20 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 	// section — writeBulletList's "Profiles:" heading plus the "- default"
 	// bullet under it — so that same deletion turns it red.
 	ctx.Step(`^the agent listing names the profile it composes$`, func(c context.Context) error {
-		return j001900OutputNamesAll(worldFrom(c), "the agent listing", "Profiles:", "- default")
+		w := worldFrom(c)
+		if !formatAskedFor(w).Structured() {
+			return j001900OutputNamesAll(w, "the agent listing", "Profiles:", "- default")
+		}
+		entries, err := lastOutputJSONArray(w, "definition.profiles")
+		if err != nil {
+			return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
+		}
+		for _, e := range entries {
+			if got, ok := jsonScalar(e); ok && got == "default" {
+				return nil
+			}
+		}
+		return fmt.Errorf("the agent JSON listing's definition.profiles does not name %q; stdout:\n%s", "default", w.env.LastStdout())
 	})
 
 	ctx.Step(`^the dry run shows her the deploy guidance that would be composed$`, func(c context.Context) error {

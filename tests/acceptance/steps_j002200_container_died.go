@@ -77,25 +77,36 @@ case "$1" in
 esac
 `
 
+// j002200InstallDiedStub writes that daemon onto a PATH of its own and returns
+// the stub's path, having confirmed that "docker" now resolves TO IT. Without
+// that last check the row would silently run against a real daemon.
+func j002200InstallDiedStub(w *World) (string, error) {
+	binDir := filepath.Join(w.env.Root, "j002200-died-runtime-bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return "", fmt.Errorf("create died-runtime bin dir: %w", err)
+	}
+	stub := filepath.Join(binDir, "docker")
+	if err := os.WriteFile(stub, []byte(j002200DiedRuntimeScript), 0o755); err != nil {
+		return "", fmt.Errorf("write stub docker: %w", err)
+	}
+	w.env.SetEnv("PATH", isoSanitizedPATH(binDir))
+
+	found, err := exec.LookPath("docker")
+	if err != nil || found != stub {
+		return "", fmt.Errorf("stub install failed: docker resolves to %q (err=%v), not the stub %q — this row would run against a real daemon", found, err, stub)
+	}
+	return stub, nil
+}
+
 // j002200StubDiedRuntime installs that daemon and PROVES each probe answers as
 // the scenario needs before the run starts. Every check here corresponds to a
 // gate this row must NOT hit: a stub that silently stopped resolving, or that
 // reported the image absent, would hand the assertion to a different gate and
 // the row would stay green while testing nothing.
 func j002200StubDiedRuntime(w *World) error {
-	binDir := filepath.Join(w.env.Root, "j002200-died-runtime-bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return fmt.Errorf("create died-runtime bin dir: %w", err)
-	}
-	stub := filepath.Join(binDir, "docker")
-	if err := os.WriteFile(stub, []byte(j002200DiedRuntimeScript), 0o755); err != nil {
-		return fmt.Errorf("write stub docker: %w", err)
-	}
-	w.env.SetEnv("PATH", isoSanitizedPATH(binDir))
-
-	found, err := exec.LookPath("docker")
-	if err != nil || found != stub {
-		return fmt.Errorf("stub install failed: docker resolves to %q (err=%v), not the stub %q — this row would run against a real daemon", found, err, stub)
+	stub, err := j002200InstallDiedStub(w)
+	if err != nil {
+		return err
 	}
 	if err := exec.Command(stub, "info").Run(); err != nil {
 		return fmt.Errorf("stub docker does not report a reachable daemon (%v); chainFor would take the runtime-unreachable branch and this row would assert the wrong gate", err)

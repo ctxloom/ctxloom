@@ -21,6 +21,11 @@ func TestSessionStoreContract(t *testing.T) {
 	}{
 		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
 		{"Manager", func(t *testing.T) Store {
+			// HOME too, not just the index — see newManager's doc in
+			// index_test.go. Open redirects the index FILE; harp DIRECTORIES
+			// still resolve through $HOME, so without this every BindSession
+			// below mkdirs in the real session store.
+			requireIsolatedSessionRoot(t)
 			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
 			if err != nil {
 				t.Fatalf("Open: %v", err)
@@ -137,6 +142,11 @@ func TestSessionStoreContract_FindPopulatesCanonicalTranscript(t *testing.T) {
 	}{
 		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
 		{"Manager", func(t *testing.T) Store {
+			// HOME too, not just the index — see newManager's doc in
+			// index_test.go. Open redirects the index FILE; harp DIRECTORIES
+			// still resolve through $HOME, so without this every BindSession
+			// below mkdirs in the real session store.
+			requireIsolatedSessionRoot(t)
 			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
 			if err != nil {
 				t.Fatalf("Open: %v", err)
@@ -196,6 +206,11 @@ func TestSessionStoreContract_RotationLineage(t *testing.T) {
 	}{
 		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
 		{"Manager", func(t *testing.T) Store {
+			// HOME too, not just the index — see newManager's doc in
+			// index_test.go. Open redirects the index FILE; harp DIRECTORIES
+			// still resolve through $HOME, so without this every BindSession
+			// below mkdirs in the real session store.
+			requireIsolatedSessionRoot(t)
 			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
 			if err != nil {
 				t.Fatalf("Open: %v", err)
@@ -265,6 +280,11 @@ func TestSessionStoreContract_AppendRotations(t *testing.T) {
 	}{
 		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
 		{"Manager", func(t *testing.T) Store {
+			// HOME too, not just the index — see newManager's doc in
+			// index_test.go. Open redirects the index FILE; harp DIRECTORIES
+			// still resolve through $HOME, so without this every BindSession
+			// below mkdirs in the real session store.
+			requireIsolatedSessionRoot(t)
 			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
 			if err != nil {
 				t.Fatalf("Open: %v", err)
@@ -335,6 +355,11 @@ func TestSessionStoreContract_RenameRefusesUnsafeNames(t *testing.T) {
 	}{
 		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
 		{"Manager", func(t *testing.T) Store {
+			// HOME too, not just the index — see newManager's doc in
+			// index_test.go. Open redirects the index FILE; harp DIRECTORIES
+			// still resolve through $HOME, so without this every BindSession
+			// below mkdirs in the real session store.
+			requireIsolatedSessionRoot(t)
 			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
 			if err != nil {
 				t.Fatalf("Open: %v", err)

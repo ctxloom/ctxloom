@@ -3,6 +3,7 @@ package sessions
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,12 +15,41 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
+// newManager opens a Manager against an isolated index AND an isolated HOME.
+//
+// BOTH are required, and that is the trap this helper exists to close. Open's
+// argument redirects only the INDEX FILE. Every harp DIRECTORY path bottoms out
+// at paths.HomeSessionsDir -> os.UserHomeDir -> $HOME, so a Manager opened on a
+// temp index still mkdirs ~/.ctxloom/sessions/<harp>/ in the developer's REAL
+// home the moment BindSession links a transcript. Index isolation looks like
+// isolation and is not.
+//
+// Measured 2026-08-26: this helper and store_test.go's Manager adapter had
+// minted 2078 harp directories in the real session root — 82% of everything
+// there — each holding nothing but dangling symlinks to fixture paths like
+// "/t1" and "/orig". 15 per run, across roughly 139 runs.
 func newManager(t *testing.T) *Manager {
 	t.Helper()
+	requireIsolatedSessionRoot(t)
 	dir := t.TempDir()
 	m, err := Open(filepath.Join(dir, "index.yaml"))
 	require.NoError(t, err)
 	return m
+}
+
+// requireIsolatedSessionRoot isolates HOME and then PROVES the isolation took,
+// rather than trusting that it did. Asserting the resolved root is what makes
+// this a guard: a future helper that opens a Manager without it, or an Isolate
+// that stops redirecting HOME, fails here loudly instead of quietly writing
+// into the real session store again.
+func requireIsolatedSessionRoot(t *testing.T) {
+	t.Helper()
+	testsupport.Isolate(t)
+	root, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(root, os.TempDir()),
+		"session root %q is not under %q — HOME was not isolated, so every BindSession in this test would mkdir a harp dir in the real session store",
+		root, os.TempDir())
 }
 
 func TestOpen_CreatesParentDir(t *testing.T) {

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -14,36 +13,37 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// treeBundleReaders resolves the entries the byte reader legitimately refused.
+// treeBundleReaders builds one reader per DIRECTORY-form lockfile entry, over
+// the tree `deps pull` installed.
 //
-// remote.BundleReader serves SINGLE-FILE bundles and says so
-// (ErrTreeBundleUnreadable) rather than hunting a "<name>.yaml" no publisher
-// wrote. Those refusals are not failures — they are the tree-form entries, and
-// this is where they get read, through a reader over the tree `deps pull`
-// installed. Any OTHER failure is left in the map untouched for
-// reportBundleLoadFailures.
+// The set comes from the lockfile's own Tree flag — the recorded FACT about how
+// each bundle was published — and deliberately NOT from which reads the byte
+// source refused. A refusal is a property of how that source happens to be
+// wired: remote.WithReaderTreeFetcher makes the same entry readable, and a
+// caller that wired one would silently empty this set and re-present every
+// skill bundle as a single document, losing its skills. Dispatching on the fact
+// cannot be turned off by wiring.
 //
-// A tree whose directory cannot even be opened REPLACES the sentinel with its
-// own error, so the user is told what actually went wrong instead of "the tree
-// read path does not exist". A tree that opens but does not match what its
-// publisher signed is the READER's answer, not this function's: it is a fact
-// about bytes, established where the bytes are read.
+// Any byte-source failure recorded against a tree entry is therefore CLEARED
+// once its reader is built: it described a road not taken. Failures for other
+// entries are left untouched for reportBundleLoadFailures.
+//
+// A tree whose directory cannot even be opened REPLACES that entry's failure
+// with its own, so the user is told what actually went wrong. A tree that opens
+// but does not match what its publisher signed is the READER's answer, not this
+// function's: it is a fact about bytes, established where the bytes are read.
 func (c *Config) treeBundleReaders(lock *remote.Lockfile, root signing.TrustRoot, failures map[string]error) []bundles.Reader {
-	var refused []string
-	for canonical, err := range failures {
-		if errors.Is(err, remote.ErrTreeBundleUnreadable) {
-			refused = append(refused, canonical)
+	var trees []string
+	for canonical, entry := range lock.Bundles {
+		if entry.Tree {
+			trees = append(trees, canonical)
 		}
 	}
-	sort.Strings(refused) // deterministic reader order across runs
+	sort.Strings(trees) // deterministic reader order across runs
 
 	var out []bundles.Reader
-	for _, canonical := range refused {
-		entry, ok := lock.Bundles[canonical]
-		if !ok {
-			continue
-		}
-		reader, err := c.treeBundleReader(canonical, entry, root)
+	for _, canonical := range trees {
+		reader, err := c.treeBundleReader(canonical, lock.Bundles[canonical], root)
 		if err != nil {
 			failures[canonical] = err
 			continue

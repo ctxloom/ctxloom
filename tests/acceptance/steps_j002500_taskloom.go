@@ -562,16 +562,28 @@ func j002500ToolDetail(w *World, toolName string) (*testenv.ToolDetail, error) {
 	return nil, fmt.Errorf("tool %q not found; available: %v", toolName, names)
 }
 
-// parseTaskloomAddHarp extracts the harp id `taskloom add` printed to
-// stdout — its first tab-separated field. Shared by both "taskloom has
-// tasks:" (a table of several) and "taskloom adds a task ..." (a single
-// one), which previously duplicated this verbatim.
+// parseTaskloomAddHarp extracts the harp id `taskloom add` reported. Shared
+// by both "taskloom has tasks:" (a table of several) and "taskloom adds a
+// task ..." (a single one), which previously duplicated this verbatim.
+//
+// `taskloom add` is never asked for a format at these call sites, and
+// taskloom shares ctxloom's cliemit.Resolve, so off a terminal (this harness,
+// always) its stdout is the JSON tasks.Task object, not the tab-separated
+// text line this used to parse. That text-only shape is gone now, not just
+// no-longer-default: reverting to a TSV-first parse would break exactly as
+// hard as this JSON-only one breaks a raw text line, so there is no format
+// worth branching on here — decode the one shape the CLI now emits.
 func parseTaskloomAddHarp(out string) (string, error) {
-	fields := strings.SplitN(strings.TrimSpace(out), "\t", 2)
-	if len(fields) == 0 || fields[0] == "" {
-		return "", fmt.Errorf("could not parse harp id from output %q", out)
+	var t struct {
+		HarpID string `json:"harp_id"`
 	}
-	return fields[0], nil
+	if err := json.Unmarshal([]byte(out), &t); err != nil {
+		return "", fmt.Errorf("could not parse harp id from output %q: %w", out, err)
+	}
+	if t.HarpID == "" {
+		return "", fmt.Errorf("could not parse harp id from output %q: empty harp_id", out)
+	}
+	return t.HarpID, nil
 }
 
 // splitCSV splits a comma-separated cell value into trimmed, non-empty

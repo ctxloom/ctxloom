@@ -194,18 +194,47 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 	// true "wrote" lines and says nothing about the settings, MCP servers,
 	// prompts and skills that went nowhere is this project's signature failure
 	// — the loss has to be stated in the same report as the wins.
+	// Neither call site (cli/mcp.feature, cli/manage.feature,
+	// journeys/j000400_multi_engine.feature) asks for a format, so off a
+	// terminal (this harness, always) they are all exercising the SAME
+	// derived-default row: `profile materialize` is wired to emit(), and its
+	// JSON MaterializeProfileResult carries the loss in a structured
+	// not_carried array (agent.SurfaceLoss{surface,detail,reason}) rather than
+	// the "NOT carried: ..." text line this used to scan for. Branching here
+	// on the format actually resolved fixes all three call sites without
+	// threading a <flags> table through scenarios that were never about
+	// --format in the first place.
 	ctx.Step(`^the materialize report says (\S+) delivers those surfaces per-session at launch$`,
 		func(c context.Context, engine string) error {
 			w := worldFrom(c)
 			out := w.env.LastOutput()
 			w.docStepMaterialized = fmt.Sprintf("materialize report for %s:\n%s", engine, out)
-			if !strings.Contains(out, "delivered per-session at launch") {
-				return fmt.Errorf("the %s materialize report never says where those surfaces DO come from, so a user reads it as %s simply losing them; report:\n%s", engine, engine, out)
+			if !formatAskedFor(w).Structured() {
+				if !strings.Contains(out, "delivered per-session at launch") {
+					return fmt.Errorf("the %s materialize report never says where those surfaces DO come from, so a user reads it as %s simply losing them; report:\n%s", engine, engine, out)
+				}
+				if !strings.Contains(out, "NOT carried") {
+					return fmt.Errorf("the %s materialize report does not list the undelivered surfaces at all; report:\n%s", engine, out)
+				}
+				return nil
 			}
-			if !strings.Contains(out, "NOT carried") {
-				return fmt.Errorf("the %s materialize report does not list the undelivered surfaces at all; report:\n%s", engine, out)
+			losses, err := lastOutputJSONArray(w, "not_carried")
+			if err != nil {
+				return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
 			}
-			return nil
+			if len(losses) == 0 {
+				return fmt.Errorf("the %s materialize JSON report's not_carried array is empty, so nothing says where those surfaces DO come from; stdout:\n%s", engine, w.env.LastStdout())
+			}
+			for _, loss := range losses {
+				reason, err := jsonAtPath(loss, "reason")
+				if err != nil {
+					continue
+				}
+				if got, ok := jsonScalar(reason); ok && strings.Contains(got, "delivered per-session at launch") {
+					return nil
+				}
+			}
+			return fmt.Errorf("no entry in the %s materialize JSON report's not_carried array names \"delivered per-session at launch\"; stdout:\n%s", engine, w.env.LastStdout())
 		})
 
 	// The other half of the same finding, and the one that is @wip: the loss

@@ -56,15 +56,25 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     # still satisfy an assertion that only checks for the name. The bundle
     # identity exists nowhere in the output except because the lookup really
     # resolved the registered server.
-    Scenario: Showing an MCP server's configuration
+    # Tabled by format: `mcp server show` is wired to emit(), so off a
+    # terminal (which this harness always is) the no-flag row now gets the
+    # JSON GetMCPServerResult, not the "Command:"/"Args:" text lines the old
+    # assertion checked unconditionally.
+    Scenario Outline: Showing an MCP server's configuration
       Given an initialized ctxloom project
       When Alice inspects the server's configuration:
         """
-        ctxloom mcp server show ctxloom
+        ctxloom <flags> mcp server show ctxloom
         """
       Then the command succeeds
-      And the output contains "ctxloom+builtin:ctxloom-mcp"
-      And the output contains "mcp serve"
+      And the output reports "entries.0.source" as "<names the bundle>"
+      And the output reports "entries.0.args" containing "<names the verb>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | names the bundle            | names the verb |
+        |               | ctxloom+builtin:ctxloom-mcp | serve           |
+        | --format json | ctxloom+builtin:ctxloom-mcp | serve           |
+        | --format text | ctxloom+builtin:ctxloom-mcp | mcp serve       |
 
   Rule: There is no config-level MCP store to create in or remove from
 

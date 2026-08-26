@@ -180,6 +180,12 @@ func TestRenderResultBody_ExcerptOnlyWhenUnreflected(t *testing.T) {
 	if !strings.Contains(without, "FINDABLE_MARKER") {
 		t.Fatalf("dropped the only record of an uncommented result: %q", without)
 	}
+	// The excerpt is PREFIXED by the shape, so a reader can see how much was
+	// left out. Asserting only that the excerpt is present let an empty shape
+	// prefix survive unnoticed -- caught by mutation, not by review.
+	if !strings.HasPrefix(without, resultShape(body)) {
+		t.Fatalf("excerpt is not prefixed by the result's shape: %q", without)
+	}
 	if len(without) > resultExcerptBytes*2 {
 		t.Fatalf("excerpt is unbounded at %d bytes", len(without))
 	}

@@ -30,14 +30,36 @@ Feature: deps — the installed dependency closure, and everything that moves it
     been deleted — and the reason it deliberately says nothing about whether
     anything newer exists upstream.
 
-    Scenario: A project with nothing installed says so, and says what to run
+    # Tabled by format: `deps list` is wired to emit(), so off a terminal
+    # (which this harness always is) the no-flag row now gets the JSON
+    # depsListing (an empty "deps" array), not the "No dependencies
+    # installed." text line. Reuses the branch's shared empty-collection step.
+    Scenario Outline: A project with nothing installed reports an empty closure
       Given an initialized ctxloom project
       When Alice asks what she has installed:
         """
-        ctxloom deps list
+        ctxloom <flags> deps list
         """
       Then the command succeeds
-      And the output contains "No dependencies installed"
+      And the output reports "deps" as empty, which reads "No dependencies installed"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         |
+        |               |
+        | --format json |
+        | --format text |
+
+    # NOT tabled, pinned to --format text: this remedy line
+    # ("run 'ctxloom deps pull' to install it") is written straight to
+    # renderDepsList's text-only branch — depsListing carries only {deps,
+    # count}, no hint field — so a json row has nothing to assert here.
+    Scenario: A project with nothing installed says what to run next
+      Given an initialized ctxloom project
+      When Alice asks what she has installed:
+        """
+        ctxloom --format text deps list
+        """
+      Then the command succeeds
       And the output contains "ctxloom deps pull"
 
     Scenario: The listing names each dependency, its commit and its origin
@@ -56,12 +78,20 @@ Feature: deps — the installed dependency closure, and everything that moves it
 
     # The bare noun answers rather than teaches, through the same seam
     # `ctxloom remote` uses.
-    Scenario: Bare deps lists the closure
+    # Tabled by format: same reasoning as the Outline above — bare `deps`
+    # aliases to `deps list`.
+    Scenario Outline: Bare deps lists the closure
       Given an initialized ctxloom project
-      When I run "ctxloom deps"
+      When I run "ctxloom <flags> deps"
       Then the command succeeds
-      And the output contains "No dependencies installed"
+      And the output reports "deps" as empty, which reads "No dependencies installed"
       And the output does not contain "Available Commands:"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         |
+        |               |
+        | --format json |
+        | --format text |
 
     # A hold changes what `upgrade` is allowed to do, so a listing that could
     # not show it would be a listing you cannot plan from.

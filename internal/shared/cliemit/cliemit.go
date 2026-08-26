@@ -54,9 +54,23 @@ func Emit(cmd *cobra.Command, data any, text func() error) error {
 // The rendering error is returned for callers that can act on it; a process
 // tail writing to os.Stderr has no further fallback and discards it.
 func EmitError(w io.Writer, cmd *cobra.Command, err error) error {
-	format, ferr := Resolve(cmd)
-	if ferr != nil {
-		format = clifmt.FormatText
+	// ONLY an EXPLICIT request restructures the error stream. Resolve derives a
+	// format from stdout not being a terminal, and that derivation is about who
+	// consumes OUTPUT — it says nothing about the error stream, which is a
+	// different fd with a different reader. Honouring it here turned every
+	// piped or redirected invocation's human "Error: ..." line into a JSON
+	// envelope, which is precisely what this binary's own guard
+	// (TestExecuteError_HumanStreamIsUnchangedInTheRealProcess) exists to
+	// prevent, and it regressed the moment format defaulting became
+	// terminal-aware. Explicit's doc states the rule this now obeys: a derived
+	// format is not a request, so no caller may treat it as one.
+	format := clifmt.FormatText
+	if Explicit(cmd) {
+		if resolved, ferr := Resolve(cmd); ferr == nil {
+			// A --format that will not even parse cannot be a reason to lose
+			// the original error, so an unresolvable format keeps text.
+			format = resolved
+		}
 	}
 	return clifmt.RenderError(w, err, format)
 }

@@ -31,6 +31,11 @@ func TestWatch_RejectsAFormatItCannotProduce(t *testing.T) {
 		t.Run(format, func(t *testing.T) {
 			c := &cobra.Command{}
 			c.Flags().String("format", format, "")
+			// SET, not merely defaulted: checkWatchFormat refuses a format
+			// someone ASKED for, and Resolve ignores a flag that was never
+			// Changed — deriving json from a test binary's non-terminal stdout,
+			// which watch can produce, so nothing would be refused.
+			require.NoError(t, c.Flags().Set("format", format))
 			err := checkWatchFormat(c)
 			require.Error(t, err, "answering a %s request with JSONL is a silent wrong answer", format)
 			assert.Contains(t, err.Error(), format, "the rejection must name the format asked for")

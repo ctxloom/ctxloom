@@ -108,6 +108,13 @@ func TestFormatBranchParity_HandRolledSitesAgreeWithEmit(t *testing.T) {
 	} {
 		c := &cobra.Command{}
 		c.Flags().String("format", string(format), "")
+		// SET it, do not merely default it. Resolve deliberately ignores a
+		// flag that was never Changed and derives the format from stdout not
+		// being a terminal — and a test binary's stdout never is, so a defaulted
+		// flag reads as json and the text case could never run its closure. The
+		// parity this test asserts is about a format the invocation SELECTED, so
+		// the fixture has to select one.
+		require.NoError(t, c.Flags().Set("format", string(format)))
 		var out bytes.Buffer
 		c.SetOut(&out)
 

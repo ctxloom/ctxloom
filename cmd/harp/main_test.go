@@ -64,7 +64,13 @@ func runHarp(t *testing.T, args ...string) string {
 // TestRunGenerate_DefaultTextOneName pins the zero-flag behavior: one name,
 // default 3 components (2 separators), newline-terminated.
 func TestRunGenerate_DefaultTextOneName(t *testing.T) {
-	out := runHarp(t)
+	// --format text is REQUESTED, not assumed. cliemit.Resolve derives the
+	// format from stdout when the flag was never set, and a test binary's stdout
+	// is never a terminal — so an unset flag reads as json and this test's
+	// subject, the TEXT rendering, would never run. The sibling cases below
+	// already name their format for the same reason; "Default" here means the
+	// zero-flag name shape (one name, three components), not the format.
+	out := runHarp(t, "--format", "text")
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) != 1 {
 		t.Fatalf("expected 1 line, got %d: %q", len(lines), out)
@@ -76,7 +82,7 @@ func TestRunGenerate_DefaultTextOneName(t *testing.T) {
 
 // TestRunGenerate_Number pins -n/--number: N newline-separated names.
 func TestRunGenerate_Number(t *testing.T) {
-	out := runHarp(t, "-n", "5")
+	out := runHarp(t, "-n", "5", "--format", "text")
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) != 5 {
 		t.Fatalf("expected 5 lines, got %d: %q", len(lines), out)
@@ -127,7 +133,7 @@ func TestRunGenerate_Separator(t *testing.T) {
 
 // TestRunGenerate_MaxLen pins --max-len.
 func TestRunGenerate_MaxLen(t *testing.T) {
-	out := runHarp(t, "--max-len", "4", "-c", "2", "-s", "-")
+	out := runHarp(t, "--max-len", "4", "-c", "2", "-s", "-", "--format", "text")
 	for _, word := range strings.Split(strings.TrimRight(out, "\n"), "-") {
 		if len(word) > 4 {
 			t.Errorf("word %q exceeds --max-len 4", word)
@@ -222,7 +228,7 @@ func TestRunGenerate_UnsupportedFormat(t *testing.T) {
 
 // TestNewVersionCmd pins `harp version`'s text and json shapes.
 func TestNewVersionCmd(t *testing.T) {
-	text := runHarp(t, "version")
+	text := runHarp(t, "version", "--format", "text")
 	if strings.TrimSpace(text) != Version {
 		t.Errorf("version text = %q, want %q", strings.TrimSpace(text), Version)
 	}

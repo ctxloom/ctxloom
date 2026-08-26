@@ -76,7 +76,12 @@ retry the right way. See docs/RULES.md for the full rule model.`,
 // the human line: a format that will not parse must not cost the caller the
 // original error.
 func reportExecuteError(w io.Writer, root *cobra.Command, err error) {
-	if format, ferr := cliemit.Resolve(root); ferr == nil && format.Structured() {
+	// Explicit gates this, not Resolve alone. Resolve DERIVES a format from
+	// stdout not being a terminal, and a derived format is not a request — so
+	// without this gate every piped or redirected `ltk` lost its "ltk: <err>"
+	// line to a structured envelope nobody asked for, which is exactly what the
+	// guard below this function's own doc promises cannot happen.
+	if format, ferr := cliemit.Resolve(root); cliemit.Explicit(root) && ferr == nil && format.Structured() {
 		// EmitError only fails when w does, and w is the only channel that
 		// failure could have been reported on.
 		_ = cliemit.EmitError(w, root, err)

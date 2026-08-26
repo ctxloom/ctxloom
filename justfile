@@ -944,7 +944,7 @@ test-acceptance-container: build _ensure-gotmpdir
 # it is built at runtime from the mounted workspace by test-acceptance-live-container.
 container-build-acceptance: dev-image
     {{container_cmd}} build -t {{registry}}/ctxloom-acceptance:latest \
-        --build-arg BASE_IMAGE={{devcontainer_image}}:latest \
+        --build-arg BASE_IMAGE={{devcontainer_image}}:{{devcontainer_tag}} \
         -f .devcontainer/acceptance.Dockerfile .
 
 # Run the full acceptance suite (incl. @live real-agent scenarios) inside the
@@ -2094,6 +2094,28 @@ container_cmd := env_var_or_default("CONTAINER_CMD", "docker")
 # Devcontainer image name
 devcontainer_image := "ctxloom-devcontainer"
 
+# devcontainer_tag keys the image to the TOOL VERSIONS THIS TREE DECLARES, so a
+# worktree can never build against another worktree's toolchain.
+#
+# It used to be ":latest" for every tree. Docker rebuilds a tag when a build arg
+# changes, so with several worktrees pinning different versions in
+# .devcontainer/tool-versions.env the image content reflected whichever tree
+# built MOST RECENTLY -- not the tree being built. Nothing warned, and the
+# second tree's build "succeeded" against a toolchain it never asked for.
+#
+# That is a measurement bug, not an inconvenience: this project verifies by
+# running checks against a binary built from the tree under test, and a wrong
+# TOOLCHAIN is invisible where a wrong binary at least has a version stamp.
+# Keying the tag by content means two trees with the same pins SHARE an image
+# (no duplicate builds for the common case) and two trees with different pins
+# cannot collide.
+# The fallback is guarded on the RESULT being non-empty, not on an exit code: a
+# pipeline reports its LAST command's status, so `sha256sum ... | cut || echo`
+# tests cut, which succeeds on empty input. On a host with no sha256sum that
+# spelled the tag as empty, producing "ctxloom-devcontainer:" -- a build that
+# fails obscurely instead of falling back.
+devcontainer_tag := `t=$(sha256sum .devcontainer/tool-versions.env 2>/dev/null | cut -c1-12); [ -n "$t" ] || t=$(shasum -a 256 .devcontainer/tool-versions.env 2>/dev/null | cut -c1-12); [ -n "$t" ] || t=latest; echo "$t"`
+
 # Build devcontainer image. Tool versions (Go, buf, protoc-gen-go, ...) are
 # NOT hardcoded here or in the Dockerfile — .devcontainer/tool-versions.env is
 # their one source of truth, and every entry in it is passed through as a
@@ -2111,7 +2133,7 @@ dev-image:
         [[ -z "$line" || "$line" == \#* ]] && continue
         build_args+=(--build-arg "$line")
     done < .devcontainer/tool-versions.env
-    {{container_cmd}} build "${build_args[@]}" -t {{devcontainer_image}}:latest -f .devcontainer/Dockerfile .
+    {{container_cmd}} build "${build_args[@]}" -t {{devcontainer_image}}:{{devcontainer_tag}} -f .devcontainer/Dockerfile .
 
 # Internal helper: run just target inside devcontainer
 # Mounts justfile.container as /workspace/justfile (overlay pattern)
@@ -2152,7 +2174,13 @@ _run +ARGS:
         # each other's output only when their `go version` matches; mismatched
         # entries coexist safely as plain cache misses, never wrong builds.
         gobuild_mount=()
-        gbc="$HOME/.cache/go-build"
+        # PER-WORKTREE build cache. Every tree used to mount the one host cache
+        # at $HOME/.cache/go-build, so concurrent builds from different
+        # worktrees evicted each other's objects mid-link:
+        #     link: cannot reopen /tmp/.gocache/b8/b8421...-d(_x002.o)
+        # which reads exactly like a compile error in whatever you just changed,
+        # and is not. Keyed by worktree path so trees cannot trim each other.
+        gbc="$HOME/.cache/ctxloom-go-build/$(pwd -P | sha256sum | cut -c1-12)"
         if mkdir -p "$gbc" 2>/dev/null; then gobuild_mount=(-v "$gbc:/tmp/.gocache"); fi
         # A LINKED WORKTREE's .git is a gitdir POINTER to <common>/worktrees/<n>,
         # outside the workspace mount, so without <common> present at that exact
@@ -2192,7 +2220,7 @@ _run +ARGS:
             -v "$(pwd):/workspace" \
             -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
             -w /workspace \
-            {{devcontainer_image}}:latest \
+            {{devcontainer_image}}:{{devcontainer_tag}} \
             just {{ARGS}}
     fi
 
@@ -2227,5 +2255,5 @@ dev-shell: dev-image
         -v "$(pwd):/workspace" \
         -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
         -w /workspace \
-        {{devcontainer_image}}:latest \
+        {{devcontainer_image}}:{{devcontainer_tag}} \
         bash

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -455,5 +456,28 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 	}
 	if strings.Contains(all, rawBody) {
 		t.Fatalf("raw result body reached the distiller; it should have been replaced by the finding")
+	}
+}
+
+// TestResultShape_DistinguishesEmptyFromDiscarded pins that a result which
+// produced NOTHING and one whose body was reduced are different strings.
+// Rendering both as an absence makes "the command returned no matches" and
+// "the output was dropped" indistinguishable in the essence -- and the first
+// is a finding.
+func TestResultShape_DistinguishesEmptyFromDiscarded(t *testing.T) {
+	empty := resultShape("")
+	if !strings.Contains(empty, "no output") {
+		t.Fatalf("an empty result does not say so: %q", empty)
+	}
+
+	body := resultShape("line one\nline two\nline three")
+	if strings.Contains(body, "no output") {
+		t.Fatalf("a non-empty result reported as empty: %q", body)
+	}
+	if !strings.Contains(body, "3 lines") {
+		t.Fatalf("line count wrong or missing: %q", body)
+	}
+	if !strings.Contains(body, strconv.Itoa(len("line one\nline two\nline three"))) {
+		t.Fatalf("byte count missing: %q", body)
 	}
 }

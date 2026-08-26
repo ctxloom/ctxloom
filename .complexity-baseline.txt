@@ -20,14 +20,13 @@
 # means violations were fixed (good, expected); a GROWING baseline means you are
 # knowingly accepting new or worsened debt, and that decision belongs in the commit
 # message, not silently in this file.
-./cmd/ltk/manage.go|(f*manageFlags)runInstall cmd * cobra . Command , _ [ ] string|1|11|runInstall|126-164
 ./cmd/ltk/manage_test.go|TestWriteFileAtomicReplace t * testing . T|1|11|TestWriteFileAtomicReplace|211-248
 ./cmd/mockengine/main.go|run args [ ] string|1|12|run|63-163
+./cmd/probe-mcp-server/main.go|(s*server)handle req map [ string ] any|1|13|handle|95-154
 ./cmd/taskloom/commands_test.go| t * testing . T|1|11||82-106
-./cmd/taskloom/manage.go|manageUninstall name , dir string , global bool , errOut io . Writer|1|11|manageUninstall|131-178
 ./cmd/taskloom/mcp_docgen_test.go|TestNewMCPServerRegistersTaskTools t * testing . T|1|17|TestNewMCPServerRegistersTaskTools|15-74
-./internal/acp/acp.go|(b*ACP)Configure cfg agent . BackendConfig|1|19|Configure|224-299
-./internal/acp/container_transport.go|(b*ACP)containerTransport ctx context . Context , argv [ ] string , env map [ string ] string , workDir string|1|11|containerTransport|69-163
+./internal/acp/acp.go|(b*ACP)Configure cfg agent . BackendConfig|1|19|Configure|226-301
+./internal/acp/container_transport.go|(b*ACP)containerTransport ctx context . Context , argv [ ] string , env map [ string ] string , workDir string , runtimeAxis isolation . RuntimeAxis|1|11|containerTransport|74-174
 ./internal/acp/fsconfine.go|resolveRealPath path string|1|11|resolveRealPath|138-181
 ./internal/acp/session.go|(b*ACP)Chat parentCtx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|24|Chat|42-277
 ./internal/acpagent/mapping.go|(sess*session)mapEvent ev agent . ChatEvent|1|13|mapEvent|83-143
@@ -35,76 +34,120 @@
 ./internal/acptest/schema.go|closeInstanceRoots node interface { } , mixins map [ string ] bool , isInstanceRoot bool|1|17|closeInstanceRoots|360-395
 ./internal/acptest/schema.go|collectMixinRefs node interface { } , out map [ string ] bool , shared bool|1|17|collectMixinRefs|273-324
 ./internal/acptest/schema_test.go| node interface { } , path string|1|11||132-158
-./internal/agentcoord/coord/children.go| c * Coordinator|1|16||1516-1661
+./internal/agentcoord/coord/approval.go|(c*Coordinator)serveApproval caller Identity , req * agentcoordpb . ApprovalRequest|1|11|serveApproval|145-242
+./internal/agentcoord/coord/children.go| c * Coordinator|1|17||1891-2051
+./internal/agentcoord/coord/children.go|(c*Coordinator)AgentRun ctx context . Context , caller Identity , agentName , prompt , workspace string , dirtyTreeHandler operations . DirtyTreeHandler|1|11|AgentRun|273-393
+./internal/agentcoord/coord/concurrencycap_concurrent_test.go|TestCoordinator_ConcurrentTurnsInvariants t * testing . T|1|12|TestCoordinator_ConcurrentTurnsInvariants|42-323
+./internal/agentcoord/coord/enginehost_control.go|(eh*EngineHost)enqueueTurn ctx context . Context , tag turnTag , text string|1|13|enqueueTurn|76-125
 ./internal/agentcoord/coord/enginehost_reannounce_test.go|(s*steppedChat)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|13|Chat|45-91
-./internal/agentcoord/coord/enginehost_test.go|(s*scriptedChat)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|19|Chat|263-323
-./internal/agentcoord/coord/fake_test.go||1|17||92-145
-./internal/agentcoord/coord/folds.go| f * mailFold|1|11||467-508
-./internal/agentcoord/coord/folds.go| f * queueFold|1|11||285-305
-./internal/agentcoord/coord/folds.go| f * rosterFold|1|12||363-408
-./internal/agentcoord/coord/home.go| h * Home|1|13||425-460
-./internal/agentcoord/coord/home.go|(h*Home)runChannelOnce client agentcoordpb . CoordinatorServiceClient|1|12|runChannelOnce|276-342
+./internal/agentcoord/coord/enginehost_test.go|(s*scriptedChat)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|19|Chat|326-386
+./internal/agentcoord/coord/fake_test.go||1|17||91-144
+./internal/agentcoord/coord/folds.go| f * mailFold|1|11||493-534
+./internal/agentcoord/coord/folds.go| f * queueFold|1|11||311-331
+./internal/agentcoord/coord/folds.go| f * rosterFold|1|12||389-434
+./internal/agentcoord/coord/home.go| h * Home|1|13||524-559
+./internal/agentcoord/coord/home.go|(h*Home)runChannelOnce client agentcoordpb . CoordinatorServiceClient|1|12|runChannelOnce|357-427
 ./internal/agentcoord/coord/homeartifacts.go|(h*Home)DownloadArtifact ctx context . Context , agentID , artifactID , destPath string|1|16|DownloadArtifact|88-170
-./internal/agentcoord/coord/httpserver.go|(s*coordServing)ensureWide|1|12|ensureWide|233-294
-./internal/agentcoord/coord/ladder.go|buildLadder agentName string , raw [ ] agents . EscalationRung , perm agent . PermissionMode|1|14|buildLadder|134-188
+./internal/agentcoord/coord/httpserver.go|(s*coordServing)ensureWide|1|12|ensureWide|237-298
+./internal/agentcoord/coord/ladder.go|buildLadder agentName string , raw [ ] agents . EscalationRung , perm agent . PermissionMode|1|14|buildLadder|171-225
 ./internal/agentcoord/coord/livetap_test.go|(c*liveTapChat)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|12|Chat|91-130
-./internal/agentcoord/coord/mailbox.go|(c*Coordinator)queueMailPayloadID msgID , from , to , kind , body string , structured json . RawMessage , inReplyTo string|1|11|queueMailPayloadID|86-134
-./internal/agentcoord/coord/mailbox.go|(c*Coordinator)recvMail ctx context . Context , role string , wait time . Duration|1|11|recvMail|279-327
-./internal/agentcoord/coord/owner_run.go| c * Coordinator|1|11||71-186
+./internal/agentcoord/coord/mailbox.go|(c*Coordinator)queueMailPayloadID msgID , from , to , kind , body string , structured json . RawMessage , inReplyTo string|1|12|queueMailPayloadID|100-163
+./internal/agentcoord/coord/mailbox_completeness_test.go|TestRecvPreempted_ConcurrentOverlapLosesNoMessage t * testing . T|1|16|TestRecvPreempted_ConcurrentOverlapLosesNoMessage|106-191
+./internal/agentcoord/coord/owner_run.go| c * Coordinator|1|11||80-219
 ./internal/agentcoord/coord/replay_test.go| t * testing . T|1|11||98-169
 ./internal/agentcoord/coord/reports.go|(f*reportsFold)apply fact Fact|1|12|apply|116-174
-./internal/agentcoord/coord/runchannel.go| c * Coordinator|1|14||365-447
-./internal/agentcoord/coord/runchannel.go| c * Coordinator|2|11||467-534
-./internal/agentcoord/coord/runchannel.go|(s*coordService)RunChannel stream grpc . BidiStreamingServer [ agentcoordpb . AgentFrame , agentcoordpb . CoordinatorFrame ]|1|13|RunChannel|148-275
-./internal/agentcoord/coord/turncap_concurrent_test.go|TestCoordinator_ConcurrentTurnsInvariants t * testing . T|1|12|TestCoordinator_ConcurrentTurnsInvariants|41-322
+./internal/agentcoord/coord/runchannel.go| c * Coordinator|1|14||375-457
+./internal/agentcoord/coord/runchannel.go| c * Coordinator|2|11||477-544
+./internal/agentcoord/coord/runchannel.go| c * Coordinator|3|11||1002-1060
+./internal/agentcoord/coord/runchannel.go|(s*coordService)RunChannel stream grpc . BidiStreamingServer [ agentcoordpb . AgentFrame , agentcoordpb . CoordinatorFrame ]|1|13|RunChannel|151-283
+./internal/agentcoord/coord/spoolcontrol.go|(c*Coordinator)controlAsk ctx context . Context , by ControlInitiator , harp , kind , text string|1|11|controlAsk|261-331
+./internal/agentcoord/coord/spooldelivery.go|(h*Home)sendPeerViaSpool req * agentcoordpb . AgentRequest|1|12|sendPeerViaSpool|959-1021
 ./internal/agentcoord/mcpschema/arch_test.go| n ast . Node|1|12||216-239
 ./internal/agentcoord/mcpschema/arch_test.go|readsInScope specs [ ] string|1|12|readsInScope|177-213
 ./internal/agentcoord/mcpschema/arch_test.go|rosterStateConstants file string|1|13|rosterStateConstants|301-333
 ./internal/agentcoord/mcpschema/arch_test.go|snake s string|1|13|snake|247-266
+./internal/agentcoord/spool/main_test.go|runProbe phase string|1|15|runProbe|219-292
+./internal/agentcoord/spool/message.go|(m*Message)decodeHead|1|19|decodeHead|147-203
+./internal/archlint/layering.go|runLayering pass * analysis . Pass|1|12|runLayering|100-139
+./internal/archlint/ledgerdiscipline.go| n ast . Node|1|13||68-106
+./internal/archlint/ledgerdiscipline.go|runLedgerDiscipline pass * analysis . Pass|1|13|runLedgerDiscipline|47-126
+./internal/archlint/lockdiscipline.go|runLockDiscipline pass * analysis . Pass|1|13|runLockDiscipline|63-128
+./internal/archlint/reminderframe.go|runReminderFrame pass * analysis . Pass|1|11|runReminderFrame|49-82
+./internal/archlint/testsupport.go|runTestSupport pass * analysis . Pass|1|17|runTestSupport|65-130
+./internal/archlint/vocabulary.go| n ast . Node|1|12||98-136
+./internal/archlint/vocabulary.go|discoverVocabularies files [ ] * ast . File|1|14|discoverVocabularies|211-252
+./internal/archlint/writediscipline.go| n ast . Node|1|16||131-169
 ./internal/buildpins/ciworkflows_arch_test.go|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile t * testing . T|1|12|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile|128-183
 ./internal/buildpins/ciworkflows_arch_test.go|TestArch_CIWorkflows_KeepInlineShellOutOfSteps t * testing . T|1|12|TestArch_CIWorkflows_KeepInlineShellOutOfSteps|192-250
 ./internal/buildpins/toolversions_test.go|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv t * testing . T|1|12|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv|179-227
-./internal/bundles/bundles.go|detectLegacySkillsKey data [ ] byte|1|13|detectLegacySkillsKey|943-990
-./internal/bundles/loader_skills.go|(l*Loader)skillContent bundle * Bundle , name string , entry BundleSkill|1|11|skillContent|96-172
-./internal/bundles/skill_archive.go|DetectArchiveFormat data [ ] byte|1|13|DetectArchiveFormat|62-74
-./internal/bundles/skill_archive.go|ImportSkillArchive fsys afero . Fs , archive [ ] byte , destParent string , opts ExtractOptions , validate func afero . Fs , string error|1|14|ImportSkillArchive|679-758
-./internal/bundles/skill_archive.go|symlinkEscapesRoot fsys afero . Fs , root , target string|1|12|symlinkEscapesRoot|569-602
-./internal/claude/claude_test.go|TestClaudeCodeHookWriter_MCPServerEnvPreserved t * testing . T|1|11|TestClaudeCodeHookWriter_MCPServerEnvPreserved|580-655
-./internal/claude/claudecode.go|(b*ClaudeCode)Execute ctx context . Context , req * agent . ExecuteRequest , stdout , stderr io . Writer|1|14|Execute|106-164
-./internal/cli/acp_door_equivalence_test.go|(doorBackend)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|13|Chat|103-135
-./internal/cli/bundle_distill.go|runBundleDistill cmd * cobra . Command , args [ ] string|1|11|runBundleDistill|79-162
+./internal/bundles/authorizer.go|(r Reason)Explain detail string|1|14|Explain|320-359
+./internal/bundles/authorizer.go|(r Reason)String|1|17|String|267-304
+./internal/bundles/bundles.go|detectLegacySkillsKey data [ ] byte|1|13|detectLegacySkillsKey|1140-1187
+./internal/bundles/catalog.go|(c Catalog)selfContained ask string|1|11|selfContained|387-419
+./internal/bundles/loader_content.go|(l*Loader)expandBundleRef ref string|1|11|expandBundleRef|697-769
+./internal/bundles/loader_skills.go|(c Catalog)skillContent read BundleRead , name string , entry BundleSkill|1|11|skillContent|144-228
+./internal/bundles/loader_version.go|(l*Loader)bundleAtVersion bundleRef , commit string|1|12|bundleAtVersion|40-122
+./internal/bundles/skill_archive.go|DetectArchiveFormat data [ ] byte|1|13|DetectArchiveFormat|63-75
+./internal/bundles/skill_archive.go|ImportSkillArchive fsys afero . Fs , archive [ ] byte , destParent string , opts ExtractOptions , validate func afero . Fs , string error|1|14|ImportSkillArchive|684-763
+./internal/bundles/skill_archive.go|symlinkEscapesRoot fsys afero . Fs , root , target string|1|12|symlinkEscapesRoot|574-607
+./internal/bundles/strict.go|collectKeySites t reflect . Type , path string , out map [ string ] keySite|1|13|collectKeySites|120-158
+./internal/claude/claude.go||1|14||204-271
+./internal/claude/claude.go|(w*ClaudeCodeHookWriter)Status projectDir string|1|11|Status|1105-1148
+./internal/claude/claude.go|(w*ClaudeCodeHookWriter)mergeDenyTools settings * claudeCodeSettings , denyTools [ ] string , prev [ ] string|1|12|mergeDenyTools|756-801
+./internal/claude/claude_test.go|TestClaudeCodeHookWriter_MCPServerEnvPreserved t * testing . T|1|11|TestClaudeCodeHookWriter_MCPServerEnvPreserved|603-671
+./internal/claude/claude_test.go|TestClaudeCodeHookWriter_MCPServerInjection t * testing . T|1|12|TestClaudeCodeHookWriter_MCPServerInjection|503-566
+./internal/claude/claudecode.go|(b*ClaudeCode)Execute ctx context . Context , req * agent . ExecuteRequest , stdout , stderr io . Writer|1|14|Execute|112-170
+./internal/cli/agent.go|buildSetAgentRequest cmd * cobra . Command , name string|1|11|buildSetAgentRequest|423-464
+./internal/cli/bundle_distill.go|runBundleDistill cmd * cobra . Command , args [ ] string|1|12|runBundleDistill|81-170
 ./internal/cli/bundle_items.go|runBundleMCPEdit cmd * cobra . Command , args [ ] string|1|11|runBundleMCPEdit|33-100
-./internal/cli/init_helpers_test.go|TestWriteInitialConfig t * testing . T|1|11|TestWriteInitialConfig|70-108
-./internal/cli/manage.go|runManageInstall cmd * cobra . Command , _ [ ] string|1|12|runManageInstall|84-184
+./internal/cli/bundle_view.go|renderBundleViewItem out io . Writer , bundle * bundles . Bundle , itemPath string , useDistilled bool|1|12|renderBundleViewItem|121-171
+./internal/cli/doctor_cmd.go|doctorCheckForeignWorktrees ctx context . Context , g git . Git , workDir string|1|18|doctorCheckForeignWorktrees|1370-1451
+./internal/cli/doctor_cmd.go|doctorCheckHarpDurability|1|11|doctorCheckHarpDurability|1482-1530
+./internal/cli/doctor_cmd.go|doctorCheckLocalTierState cfg * config . Config|1|15|doctorCheckLocalTierState|1075-1126
+./internal/cli/doctor_cmd.go|doctorCheckSetupCompanions cfg * config . Config , cfgErr error|1|12|doctorCheckSetupCompanions|944-1000
+./internal/cli/doctor_codex_home.go|doctorMostRecentCodexInstance projectDir string|1|11|doctorMostRecentCodexInstance|106-141
+./internal/cli/doctor_mcp_invocation.go|doctorCheckMCPInvocation projectDir string|1|12|doctorCheckMCPInvocation|79-144
+./internal/cli/doctor_spool.go|doctorCheckSpoolBacklog|1|35|doctorCheckSpoolBacklog|124-285
+./internal/cli/hook_hud.go|formatHud session agentSessionJSON , info ctxloomHudInfo|1|11|formatHud|227-288
+./internal/cli/init_helpers_test.go|TestWriteInitialConfig t * testing . T|1|12|TestWriteInitialConfig|71-112
+./internal/cli/manage.go|runManageInstall cmd * cobra . Command , _ [ ] string|1|13|runManageInstall|86-190
 ./internal/cli/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|34-76
-./internal/cli/mcp_runner.go| ctx context . Context , req * mcp . CallToolRequest|1|14||635-707
-./internal/cli/mcp_tools_memory.go|(s*ctxServer)handleGetPreviousSession ctx context . Context , _ * mcp . CallToolRequest , in getPreviousSessionInput|1|14|handleGetPreviousSession|456-525
-./internal/cli/mcp_tools_memory.go|(s*ctxServer)loadOrDistillSession ctx context . Context , sessionID , backendName , model string , redistillWhenUnknown bool|1|16|loadOrDistillSession|658-752
+./internal/cli/profile_materialize_surfaces.go|surfaceHelpFor engines [ ] string|1|11|surfaceHelpFor|92-154
+./internal/cli/publish_carry_matrix_test.go|runCarryCase t * testing . T , tc carryCase|1|11|runCarryCase|239-310
 ./internal/cli/remote_discover.go|runRemoteDiscover cmd * cobra . Command , args [ ] string , loadConfig func * config . Config , error , fetcher remote . Fetcher|1|11|runRemoteDiscover|51-134
-./internal/cli/run_owned.go|renderOwnedRunEvents ctx context . Context , out io . Writer , format , runID string , events < - chan * agentcoordpb . AgentEvent , turnIdle chan < - string , capture bool|1|27|renderOwnedRunEvents|295-404
-./internal/cli/run_owned.go|runStructuredREPLViaCoord ctx context . Context , sess * ownedRunSession , format string , stdin io . Reader , stdout io . Writer|1|13|runStructuredREPLViaCoord|140-213
-./internal/cli/run_structured.go|decodeMessageLine s string|1|11|decodeMessageLine|432-464
-./internal/cli/tui/model.go| m Model|1|25||349-421
-./internal/cli/tui/model.go| m Model|2|11||553-607
+./internal/cli/run_owned.go|renderOwnedRunEvents ctx context . Context , out io . Writer , format , runID string , events < - chan * agentcoordpb . AgentEvent , turnIdle chan < - string , capture bool|1|27|renderOwnedRunEvents|205-314
+./internal/cli/run_structured.go|decodeMessageLine s string|1|11|decodeMessageLine|459-491
+./internal/cli/session_cmd.go|runSessionDistill cmd * cobra . Command , args [ ] string|1|13|runSessionDistill|312-389
+./internal/cli/session_distill.go|distillMissingOrStale cmd * cobra . Command , entries [ ] sessions . Entry , appDir string|1|11|distillMissingOrStale|27-81
+./internal/cli/tui/model.go| m Model|1|27||419-502
+./internal/cli/tui/model.go| m Model|2|11||596-626
+./internal/cli/tui/model.go| m Model|3|11||768-822
+./internal/cli/tui/model.go|(m Model)Update msg tea . Msg|1|12|Update|258-287
+./internal/cli/tui/render_test.go|assertTerminatedEscapes t * testing . T , s string , msg string , args ... any|1|11|assertTerminatedEscapes|202-232
+./internal/cli/util_config_write.go||1|11||194-267
+./internal/cli/util_config_write.go|buildAndWriteApplicationRecord fs afero . Fs , target string , format hew . FormatID , tl hew . TransformList , patchBytes , before , after [ ] byte|1|11|buildAndWriteApplicationRecord|585-649
+./internal/codex/hooktrust.go|hookIdentityHash eventLabel string , matcher string , hasMatcher bool , entry map [ string ] any|1|11|hookIdentityHash|153-202
+./internal/codex/hooktrust.go|seedHookTrust cfg map [ string ] any , sourcePath string|1|16|seedHookTrust|249-319
+./internal/codex/instanceconfig.go|(w*codexInstanceConfig)WriteInstanceConfig req agent . InstanceConfigRequest|1|11|WriteInstanceConfig|65-112
 ./internal/compression/code_python.go|(c*CodeCompressor)extractPythonClassBody node * sitter . Node , source [ ] byte , out * strings . Builder|1|13|extractPythonClassBody|186-224
-./internal/config/config_migrate.go|(geminiToAntigravityUpgrade)Apply root * yaml . Node|1|19|Apply|316-369
-./internal/config/config_migrate.go|(llmRenameUpgrade)Apply root * yaml . Node|1|16|Apply|86-123
-./internal/config/config_migrate.go|(u agentProfileCanonicalizeUpgrade)Apply root * yaml . Node|1|11|Apply|397-425
-./internal/config/config_migrate.go|migrateDefaultAgentV6 root * yaml . Node|1|14|migrateDefaultAgentV6|559-607
-./internal/config/config_migrate.go|migrateLLMv3 root * yaml . Node|1|31|migrateLLMv3|166-252
-./internal/config/config_migrate.go|migrateProfilesV3 root * yaml . Node|1|13|migrateProfilesV3|256-288
-./internal/config/config_resolve.go|mergeProfileValues builder * profileBuilder , profile Profile|1|13|mergeProfileValues|324-371
-./internal/config/fixture_alias_test.go|containerAliases v reflect . Value , path string , out map [ uintptr ] string|1|17|containerAliases|36-74
-./internal/config/unknown_keys.go|classifyValidationError configPath string , validator * schema . ConfigValidator , err error|1|11|classifyValidationError|88-128
-./internal/content/attest/attest.go|verifyForm ctx context . Context , item content . Item , f signing . Form , m content . Manifest , mv Verdict , root signing . TrustRoot , now time . Time|1|11|verifyForm|338-401
-./internal/content/document.go|NewDocumentStore bundles map [ BundleID ] DocumentBundle , prov Provenance|1|12|NewDocumentStore|52-97
+./internal/config/companion_admission.go|admitCompanion bin string , store * admission . Store [ CompanionKey , CompanionAdmissionReason ] , consent * admission . Snapshot [ CompanionKey ] , fault error , prompt bool ,|1|16|admitCompanion|208-313
+./internal/config/config.go|loadConfigLayer cfg * Config , layer layerscope . Layer , appPath , homeAppPath , configPath string , validator * schema . ConfigValidator , fs afero . Fs|1|11|loadConfigLayer|1775-1884
+./internal/config/config.go|loadLayeredConfig cfg * Config , homeConfigPath , projectConfigPath string , validator * schema . ConfigValidator , fs afero . Fs , product confload . Product , overrides confload . Overrides|1|12|loadLayeredConfig|1615-1667
+./internal/config/config_migrate.go|(u agentProfileCanonicalizeUpgrade)Apply root * yaml . Node|1|11|Apply|79-107
+./internal/config/fixture_alias_test.go|containerAliases v reflect . Value , path string , out map [ uintptr ] string|1|17|containerAliases|35-73
+./internal/config/layerscope/schema_walk_test.go|walkSchemaLeavesDepth root , node map [ string ] any , path [ ] string , visit func path [ ] string , depth int|1|14|walkSchemaLeavesDepth|65-107
+./internal/config/unknown_keys.go|classifyValidationError configPath string , validator * schema . ConfigValidator , err error|1|11|classifyValidationError|91-131
+./internal/confpatch/confpatch.go||1|18||139-228
+./internal/confpatch/record.go|(s*Store)Last target string|1|11|Last|112-153
+./internal/content/attest/attest.go|verifyForm ctx context . Context , item content . Item , f signing . Form , m content . Manifest , mv Verdict , root signing . TrustRoot , now time . Time|1|11|verifyForm|373-436
+./internal/content/document.go|NewDocumentStore bundles map [ BundleID ] DocumentBundle , prov Provenance|1|12|NewDocumentStore|54-102
 ./internal/content/document_test.go|TestDocumentStore_ReadsABundleWithNoFilesystem t * testing . T|1|19|TestDocumentStore_ReadsABundleWithNoFilesystem|30-94
 ./internal/content/manifest.go|(m Manifest)VerifyContents ctx context . Context , b Bundle|1|13|VerifyContents|292-332
 ./internal/content/registry_ext_test.go|TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI t * testing . T|1|24|TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI|155-252
-./internal/content/surface_skill.go|(t skillType)Encode s Surface|1|14|Encode|173-221
-./internal/content/surface_skill.go|detectSkill src Source|1|11|detectSkill|82-112
-./internal/content/tree.go|(b*treeBundle)Item ctx context . Context , ref trust . Ref|1|12|Item|207-247
-./internal/content/tree.go|(b*treeBundle)walk t SurfaceType , relDir string , depth int|1|16|walk|382-442
+./internal/content/surface_skill.go|(t skillType)Encode s Surface|1|14|Encode|215-263
+./internal/content/surface_skill.go|detectSkill src Source|1|11|detectSkill|124-154
+./internal/content/tree.go|(b*treeBundle)Item ctx context . Context , ref trust . Ref|1|12|Item|282-322
+./internal/content/tree.go|(b*treeBundle)walk t SurfaceType , relDir string , depth int|1|15|walk|454-511
 ./internal/content/tree_test.go|TestForm_RawAndDistilledAreIndependent t * testing . T|1|17|TestForm_RawAndDistilledAreIndependent|235-298
 ./internal/content/tree_test.go|TestHook_SingleHookInAnEventResolvesIdentically t * testing . T|1|11|TestHook_SingleHookInAnEventResolvesIdentically|576-608
 ./internal/content/tree_test.go|TestHook_TwoHooksInOneEventHaveNameIdentity t * testing . T|1|13|TestHook_TwoHooksInOneEventHaveNameIdentity|518-570
@@ -112,8 +155,8 @@
 ./internal/content/tree_test.go|TestProfile_PriorityOrderingRoundTrips t * testing . T|1|16|TestProfile_PriorityOrderingRoundTrips|721-777
 ./internal/content/tree_test.go|TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability t * testing . T|1|18|TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability|392-470
 ./internal/content/tree_test.go|TestSurfaces_DecodeAuthoredFields t * testing . T|1|40|TestSurfaces_DecodeAuthoredFields|612-716
-./internal/content/writer.go|(s*TreeStore)Delete ctx context . Context , ref trust . Ref|1|14|Delete|107-161
-./internal/content/writer.go|(s*TreeStore)Put ctx context . Context , ref trust . Ref , f signing . Form , surface Surface|1|20|Put|25-89
+./internal/content/writer.go|(s*TreeStore)Delete ctx context . Context , ref trust . Ref|1|14|Delete|117-171
+./internal/content/writer.go|(s*TreeStore)Put ctx context . Context , ref trust . Ref , f signing . Form , surface Surface|1|20|Put|27-99
 ./internal/content/writer_test.go|TestWriter_FragmentRoundTrip t * testing . T|1|18|TestWriter_FragmentRoundTrip|20-98
 ./internal/content/writer_test.go|TestWriter_PutSignatureRoundTrip t * testing . T|1|16|TestWriter_PutSignatureRoundTrip|235-298
 ./internal/docsgen/command.go| cmd * cobra . Command , _ [ ] string|1|14||32-68
@@ -122,116 +165,143 @@
 ./internal/docsgen/docsgen_test.go|TestGenMarkdown t * testing . T|1|13|TestGenMarkdown|80-134
 ./internal/docsgen/mcp.go|GenMCPTools ctx context . Context , p * Product , dir string|1|14|GenMCPTools|42-108
 ./internal/docsgen/mcp.go|enumerateMCPSurface ctx context . Context , server * mcp . Server|1|12|enumerateMCPSurface|113-174
-./internal/enginepins/engineversions_test.go|TestDetectScriptHandlesEveryMatrixEngine t * testing . T|1|12|TestDetectScriptHandlesEveryMatrixEngine|171-215
+./internal/enginepins/engineversions_test.go|TestDetectScriptHandlesEveryMatrixEngine t * testing . T|1|12|TestDetectScriptHandlesEveryMatrixEngine|170-214
 ./internal/kiro/backend.go|(b*Kiro)buildArgs req * agent . ExecuteRequest , model string|1|11|buildArgs|180-239
-./internal/kiro/settings.go|(w*KiroWriter)mapHooks u wire . UnifiedHooks , plugins wire . BackendHooks|1|14|mapHooks|139-192
 ./internal/liveness/arch_test.go| n ast . Node|1|14||238-268
 ./internal/liveness/arch_test.go| n ast . Node|2|17||323-355
-./internal/lm/backends/mock_chat.go|(b*Mock)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|22|Chat|35-95
-./internal/lm/grpc/arch_test.go|TestArch_ProtoConverters_EveryPairIsSwept t * testing . T|1|21|TestArch_ProtoConverters_EveryPairIsSwept|346-427
-./internal/lm/grpc/arch_test.go|(f*parityFiller)fill v reflect . Value , path string , depth int|1|21|fill|100-186
-./internal/lm/grpc/canonical_source.go|(f*CanonicalFallbackSource)ListSessions ctx context . Context|1|15|ListSessions|217-284
-./internal/lm/grpc/client.go|(c*GRPCClient)RunWithModelInfo ctx context . Context , req * RunStart , stdin io . Reader , stdout , stderr io . Writer , resize < - chan * WindowSize|1|15|RunWithModelInfo|62-170
-./internal/lm/isolation/statemounts.go|(c Container)sessionStateMounts|1|12|sessionStateMounts|101-174
+./internal/lm/backends/mock.go|writeMockRecord recordFile string , in mockRecordFields , managed * agent . ManagedConfig|1|11|writeMockRecord|227-287
+./internal/lm/backends/mock_chat.go|(b*Mock)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|23|Chat|34-97
+./internal/lm/grpc/arch_test.go|TestArch_ProtoConverters_EveryPairIsSwept t * testing . T|1|24|TestArch_ProtoConverters_EveryPairIsSwept|379-473
+./internal/lm/grpc/arch_test.go|(f*parityFiller)fill v reflect . Value , path string , depth int|1|23|fill|100-202
+./internal/lm/grpc/canonical_source.go|(f*CanonicalFallbackSource)ListSessions ctx context . Context|1|15|ListSessions|236-303
+./internal/lm/grpc/client.go|(c*GRPCClient)RunWithModelInfo ctx context . Context , req * RunStart , stdin io . Reader , stdout , stderr io . Writer , resize < - chan * WindowSize|1|15|RunWithModelInfo|69-224
+./internal/lm/isolation/isolation.go|AwaitContainerRunning rt Runtime , h * RunnerHandle|1|12|AwaitContainerRunning|149-181
+./internal/lm/isolation/statemounts.go|(c Container)sessionStateMounts|1|14|sessionStateMounts|129-219
 ./internal/lm/isolation/traceprobe_test.go|TestParseStraceReads t * testing . T|1|11|TestParseStraceReads|27-61
 ./internal/lm/isolation/traceprobe_test.go|TestRenderRunSpec_TraceProbe t * testing . T|1|11|TestRenderRunSpec_TraceProbe|81-122
 ./internal/ltk/engine/encode_parity_test.go| t * testing . T|1|11||72-110
-./internal/ltk/frontend/cmd/cmd.go|(p*parser)parsePipeline conn ir . Connector|1|11|parsePipeline|296-325
-./internal/ltk/frontend/cmd/cmd.go|(l*lexer)run|1|13|run|108-145
+./internal/ltk/frontend/cmd/cmd.go|(p*parser)parsePipeline conn ir . Connector|1|11|parsePipeline|295-324
+./internal/ltk/frontend/cmd/cmd.go|(l*lexer)run|1|13|run|107-144
 ./internal/ltk/frontend/wrap.go|envSplitString prog string , args [ ] string|1|14|envSplitString|211-238
 ./internal/ltk/frontend/wrap.go|(r*Registry)expandWrappers ctx context . Context , s * ir . Script , depth int|1|14|expandWrappers|98-157
-./internal/ltk/frontend/wrap.go|skipEnv args [ ] string|1|19|skipEnv|527-556
-./internal/ltk/frontend/wrap.go|skipStdbuf args [ ] string|1|13|skipStdbuf|709-730
-./internal/ltk/frontend/wrap.go|skipTime args [ ] string|1|18|skipTime|737-762
-./internal/ltk/frontend/wrap.go|skipTimeout args [ ] string|1|15|skipTimeout|629-657
-./internal/ltk/frontend/wrap.go|skipXargs args [ ] string|1|33|skipXargs|769-798
+./internal/ltk/frontend/wrap.go|skipEnv args [ ] string|1|19|skipEnv|516-545
+./internal/ltk/frontend/wrap.go|skipStdbuf args [ ] string|1|13|skipStdbuf|698-719
+./internal/ltk/frontend/wrap.go|skipTime args [ ] string|1|18|skipTime|726-751
+./internal/ltk/frontend/wrap.go|skipTimeout args [ ] string|1|15|skipTimeout|618-646
+./internal/ltk/frontend/wrap.go|skipXargs args [ ] string|1|33|skipXargs|758-787
 ./internal/ltk/scm/submodules.go|configValue raw string|1|11|configValue|151-185
 ./internal/ltk/shellenv/name_collision_test.go| path string , d fs . DirEntry , err error|1|11||39-78
 ./internal/ltk/state/confirm_test.go|TestConfirmByRepeatDelayBand t * testing . T|1|12|TestConfirmByRepeatDelayBand|38-70
 ./internal/ltk/state/confirm_test.go|TestTheTwoRebukesAreChosenByTheSameBranch t * testing . T|1|14|TestTheTwoRebukesAreChosenByTheSameBranch|188-223
-./internal/memory/compactor.go|(c*Compactor)Compact ctx context . Context|1|12|Compact|252-354
-./internal/memory/compactor.go|NewCompactor config CompactionConfig|1|11|NewCompactor|157-249
-./internal/memory/compactor.go|chunkText text string , targetTokens int|1|12|chunkText|951-1024
-./internal/memory/compactor.go|(c*Compactor)loadSessionToCompact ctx context . Context|1|11|loadSessionToCompact|517-582
+./internal/mcp/mcp_discovery.go|probeWellKnownRunner cwd string|1|13|probeWellKnownRunner|211-262
+./internal/mcp/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|38-80
+./internal/mcp/mcp_runner.go| ctx context . Context , req * mcp . CallToolRequest|1|14||662-734
+./internal/mcp/mcp_server.go|ServeStdio ctx context . Context , cwd string , gate func error|1|12|ServeStdio|119-190
+./internal/mcp/mcp_tools_memory.go|(s*ctxServer)handleGetPreviousSession ctx context . Context , _ * mcp . CallToolRequest , in getPreviousSessionInput|1|14|handleGetPreviousSession|574-643
+./internal/mcp/mcp_tools_memory.go|(s*ctxServer)loadOrDistillSession ctx context . Context , sessionID , backendName , model string , policy sessionLoadPolicy|1|29|loadOrDistillSession|826-972
+./internal/memory/compactor.go|(c*Compactor)Compact ctx context . Context|1|12|Compact|262-364
+./internal/memory/compactor.go|NewCompactor config CompactionConfig|1|11|NewCompactor|167-259
+./internal/memory/compactor.go|chunkText text string , targetTokens int|1|12|chunkText|968-1041
+./internal/memory/compactor.go|(c*Compactor)loadSessionToCompact ctx context . Context|1|11|loadSessionToCompact|534-599
 ./internal/memory/stamp_test.go|TestStampPlanFile_PreservesFileMode t * testing . T|1|12|TestStampPlanFile_PreservesFileMode|236-280
 ./internal/mockengine/container_docker_integration_test.go|TestMockEngineContainer_CodexDiscoversDeliveredSurfaces t * testing . T|1|18|TestMockEngineContainer_CodexDiscoversDeliveredSurfaces|303-403
 ./internal/mockengine/container_docker_integration_test.go|TestMockEngineContainer_DiscoversDeliveredSurfaces t * testing . T|1|16|TestMockEngineContainer_DiscoversDeliveredSurfaces|121-220
-./internal/mockengine/discovery_unreadable_test.go|TestObservePath_UnreadableEntryIsMarked t * testing . T|1|11|TestObservePath_UnreadableEntryIsMarked|69-103
-./internal/opencode/chat.go|(b*Opencode)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|17|Chat|56-149
+./internal/mockengine/discovery_unreadable_test.go|TestObservePath_UnreadableEntryIsMarked t * testing . T|1|11|TestObservePath_UnreadableEntryIsMarked|68-102
+./internal/opencode/chat.go|(b*Opencode)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|17|Chat|60-153
 ./internal/opencode/interactive.go|(b*Opencode)launchInteractive ctx context . Context , req * agent . ExecuteRequest , modelInfo * agent . ModelInfo , stdout , stderr io . Writer|1|21|launchInteractive|38-130
-./internal/opencode/settings.go|(w*OpencodeWriter)Status projectDir string|1|12|Status|652-688
-./internal/opencode/settings.go|(w*OpencodeWriter)WriteContext req agent . ContextWriteRequest|1|13|WriteContext|542-590
-./internal/opencode/settings.go|applyManaged cfg map [ string ] json . RawMessage , m managedConfig|1|29|applyManaged|112-230
-./internal/opencode/settings.go|stripManagedSkillPath cfg map [ string ] json . RawMessage , path string|1|12|stripManagedSkillPath|368-405
-./internal/operations/agents.go|SetAgent mgr * config . Manager , cfg * config . Config , req SetAgentRequest|1|15|SetAgent|157-252
+./internal/opencode/settings.go||1|13||614-658
+./internal/opencode/settings.go|(w*OpencodeWriter)Status projectDir string|1|12|Status|728-764
+./internal/opencode/settings.go|applyManaged cfg map [ string ] json . RawMessage , m managedConfig|1|30|applyManaged|121-240
+./internal/opencode/settings.go|stripManagedSkillPath cfg map [ string ] json . RawMessage , path string|1|12|stripManagedSkillPath|416-453
+./internal/operations/agents.go|validateAgentAxes cfg * config . Config , name string , req SetAgentRequest|1|17|validateAgentAxes|205-261
+./internal/operations/agents.go|validateContainerAuth cfg * config . Config , name string , req SetAgentRequest|1|11|validateContainerAuth|282-330
 ./internal/operations/bundle_distill.go|DistillBundleFile ctx context . Context , req DistillBundleFileRequest|1|14|DistillBundleFile|74-138
-./internal/operations/bundle_transfer.go|ExportBundle _ context . Context , cfg * config . Config , req ExportBundleRequest|1|16|ExportBundle|51-117
-./internal/operations/bundle_transfer.go|ImportBundle _ context . Context , cfg * config . Config , req ImportBundleRequest|1|14|ImportBundle|209-277
-./internal/operations/bundles.go|CreateBundle ctx context . Context , cfg * config . Config , req CreateBundleRequest|1|11|CreateBundle|145-207
-./internal/operations/bundles.go|PushBundle ctx context . Context , cfg * config . Config , req PushBundleRequest|1|13|PushBundle|690-771
+./internal/operations/bundle_transfer.go|ExportBundle _ context . Context , cfg * config . Config , req ExportBundleRequest|1|14|ExportBundle|52-115
+./internal/operations/bundle_transfer.go|ImportBundle _ context . Context , cfg * config . Config , req ImportBundleRequest|1|14|ImportBundle|254-324
+./internal/operations/bundles.go|CreateBundle ctx context . Context , cfg * config . Config , req CreateBundleRequest|1|11|CreateBundle|144-206
+./internal/operations/bundles.go|PushBundle ctx context . Context , cfg * config . Config , req PushBundleRequest|1|13|PushBundle|704-797
 ./internal/operations/constraint_resolve.go| ref * remote . Reference|1|15||83-132
-./internal/operations/context.go|collectProfileFragments cfg * config . Config , loader * bundles . Loader , profileNames [ ] string , profileLoaderFunc func ProfileLoader , fromDefaults bool|1|12|collectProfileFragments|283-348
-./internal/operations/countersign_records.go|attestationFormFor kind trust . ItemKind , layout signing . Form|1|13|attestationFormFor|176-208
-./internal/operations/engine_session.go||1|11||151-266
-./internal/operations/engine_session.go|OpenEngineSession ctx context . Context , req OpenRequest , acpCoord EngineSessionCoordinator , flagProfile , flagAgent , llmOverride , flagWorkspace string|1|21|OpenEngineSession|106-468
-./internal/operations/hooks.go|ApplyHooks ctx context . Context , req ApplyHooksRequest|1|16|ApplyHooks|63-227
+./internal/operations/context.go|collectProfileFragments cfg * config . Config , loader * bundles . Loader , profileNames [ ] string , profileLoaderFunc func ProfileLoader , fromDefaults bool|1|13|collectProfileFragments|300-373
+./internal/operations/countersign_records.go|(c countersignRecords)Rejected ref trust . Ref , payload [ ] byte|1|11|Rejected|119-158
+./internal/operations/countersign_records.go|attestationFormFor kind trust . ItemKind , layout signing . Form|1|13|attestationFormFor|230-262
+./internal/operations/delegate.go|PrepareAgentChat ctx context . Context , cfg * config . Config , req AgentChatRequest|1|11|PrepareAgentChat|189-248
+./internal/operations/engine_session.go||1|11||158-273
+./internal/operations/engine_session.go|OpenEngineSession ctx context . Context , req OpenRequest , acpCoord EngineSessionCoordinator , flagProfile , flagAgent , llmOverride , flagWorkspace string|1|22|OpenEngineSession|113-479
+./internal/operations/forget.go|ForgetItemDecision cfg * config . Config , req ForgetItemDecisionRequest|1|15|ForgetItemDecision|132-216
+./internal/operations/hooks.go|ApplyHooks ctx context . Context , req ApplyHooksRequest|1|18|ApplyHooks|63-255
+./internal/operations/init.go|InitializeProject _ context . Context , req InitializeProjectRequest|1|12|InitializeProject|75-134
 ./internal/operations/items.go|DistillItem ctx context . Context , cfg * config . Config , req DistillItemRequest|1|13|DistillItem|332-385
 ./internal/operations/items.go|SetItemContent ctx context . Context , cfg * config . Config , req SetItemContentRequest|1|11|SetItemContent|229-297
-./internal/operations/lockfile.go|LockDependencies ctx context . Context , cfg * config . Config , req LockDependenciesRequest|1|18|LockDependencies|50-163
-./internal/operations/oneshot.go|runResolvedAgent ctx context . Context , req resolvedRunRequest|1|16|runResolvedAgent|365-558
-./internal/operations/profile_transfer.go|ImportProfile _ context . Context , cfg * config . Config , req ImportProfileRequest|1|11|ImportProfile|136-177
+./internal/operations/lockfile.go|LockDependencies ctx context . Context , cfg * config . Config , req LockDependenciesRequest|1|15|LockDependencies|50-169
+./internal/operations/oneshot.go|runResolvedAgent ctx context . Context , req resolvedRunRequest|1|16|runResolvedAgent|434-646
+./internal/operations/profile_transfer.go|ImportProfile _ context . Context , cfg * config . Config , req ImportProfileRequest|1|11|ImportProfile|139-182
 ./internal/operations/profiles.go|UpdateProfile ctx context . Context , cfg * config . Config , req UpdateProfileRequest|1|11|UpdateProfile|330-417
 ./internal/operations/remotes.go|AddRemote ctx context . Context , cfg * config . Config , req AddRemoteRequest|1|17|AddRemote|129-221
-./internal/operations/resume.go|RenderResumedTranscript harp string , entries [ ] agent . SessionEntry|1|13|RenderResumedTranscript|42-101
-./internal/operations/review.go|PendingReview cfg * config . Config , req PendingReviewRequest|1|11|PendingReview|110-164
-./internal/operations/review.go|(e*reviewEnumerator)pendingItems bundleRef string , bundle * bundles . Bundle|1|17|pendingItems|176-282
+./internal/operations/remotes.go|EditRemote _ context . Context , cfg * config . Config , req EditRemoteRequest|1|13|EditRemote|264-315
+./internal/operations/resume.go|RenderResumedTranscript harp string , entries [ ] agent . SessionEntry|1|13|RenderResumedTranscript|84-143
+./internal/operations/review.go|(e*reviewEnumerator)pendingItems bundleRef string , read bundles . BundleRead|1|16|pendingItems|234-338
+./internal/operations/session_adopt.go|ScanAdoptCandidates harp string|1|20|ScanAdoptCandidates|117-241
+./internal/operations/session_purge.go|PurgeSession harp string , req PurgeSessionRequest|1|26|PurgeSession|151-262
 ./internal/operations/sessionfeed.go||1|31||296-436
-./internal/operations/signer.go|removeFromAllowedSignersFile fs afero . Fs , path , principal string|1|14|removeFromAllowedSignersFile|436-500
-./internal/operations/skills.go|CreateSkill _ context . Context , cfg * config . Config , req CreateSkillRequest|1|14|CreateSkill|230-293
-./internal/operations/skills.go|ExportSkill _ context . Context , cfg * config . Config , req ExportSkillRequest|1|19|ExportSkill|445-530
-./internal/operations/skills.go|ImportSkill _ context . Context , cfg * config . Config , req ImportSkillRequest|1|16|ImportSkill|598-704
-./internal/operations/sync.go|SyncDependencies ctx context . Context , cfg * config . Config , req SyncDependenciesRequest|1|16|SyncDependencies|113-223
-./internal/operations/sync.go|collectRemoteReferences cfg * config . Config , profileNames [ ] string|1|11|collectRemoteReferences|338-395
-./internal/operations/task_triggers.go|EvaluateTriggers ctx context . Context , cfg * config . Config , req EvaluateTriggersRequest|1|27|EvaluateTriggers|165-354
-./internal/operations/task_triggers.go|buildBatch ctx context . Context , deferred , other [ ] tasks . Task , since map [ string ] time . Time , req EvaluateTriggersRequest|1|11|buildBatch|359-411
-./internal/operations/task_triggers.go|escalateNeedsInvestigation ctx context . Context , p escalationParams , verdicts [ ] triggers . Verdict|1|16|escalateNeedsInvestigation|683-775
+./internal/operations/signer.go|removeFromAllowedSignersFile fs afero . Fs , path , principal string|1|14|removeFromAllowedSignersFile|490-562
+./internal/operations/skills.go|CreateSkill _ context . Context , cfg * config . Config , req CreateSkillRequest|1|14|CreateSkill|232-297
+./internal/operations/skills.go|ExportSkill _ context . Context , cfg * config . Config , req ExportSkillRequest|1|19|ExportSkill|521-608
+./internal/operations/skills.go|ImportSkill _ context . Context , cfg * config . Config , req ImportSkillRequest|1|16|ImportSkill|676-782
+./internal/operations/task_triggers.go|EvaluateTriggers ctx context . Context , cfg * config . Config , req EvaluateTriggersRequest|1|27|EvaluateTriggers|165-355
+./internal/operations/task_triggers.go|buildBatch ctx context . Context , deferred , other [ ] tasks . Task , since map [ string ] time . Time , req EvaluateTriggersRequest|1|11|buildBatch|360-412
+./internal/operations/task_triggers.go|escalateNeedsInvestigation ctx context . Context , p escalationParams , verdicts [ ] triggers . Verdict|1|16|escalateNeedsInvestigation|696-788
 ./internal/operations/task_triggers_query.go| path string , d fs . DirEntry , err error|1|16||253-305
 ./internal/operations/task_triggers_query.go|queryGitLogPath ctx context . Context , gitClient git . Git , repoDir string , q triggers . Query|1|14|queryGitLogPath|383-434
 ./internal/operations/task_triggers_query.go|queryGrep repoDir string , q triggers . Query , budget grepBudget|1|19|queryGrep|198-341
-./internal/operations/tooling.go|ScaffoldContainerBase mgr * config . Manager , cfg * config . Config , relPath string , force bool|1|19|ScaffoldContainerBase|109-175
-./internal/operations/trust.go|EffectiveTrust cfg * config . Config , req EffectiveTrustRequest|1|15|EffectiveTrust|279-431
-./internal/operations/trust.go|SetBlacklist cfg * config . Config , req SetBlacklistRequest|1|13|SetBlacklist|795-859
-./internal/operations/trust.go|SetItemTrust cfg * config . Config , req SetItemTrustRequest|1|12|SetItemTrust|676-753
-./internal/operations/trust.go|computeItemPayloadPair loader * bundles . Loader , tRef trust . Ref , loadRef string|1|16|computeItemPayloadPair|998-1075
-./internal/operations/upgrade.go|UpgradeDependencies ctx context . Context , cfg * config . Config|1|15|UpgradeDependencies|29-127
-./internal/operations/vendorimport_kiro.go|locateKiroConversationInDB ctx context . Context , dbPath string , e sessions . Entry|1|11|locateKiroConversationInDB|140-176
-./internal/profiles/profiles.go|(p*Profile)HasContent|1|15|HasContent|676-694
-./internal/profiles/profiles.go|(l*Loader)resolveProfileRecursive name string , visited map [ string ] bool , depth int , memo map [ string ] * ResolvedProfile|1|14|resolveProfileRecursive|854-1006
-./internal/profiles/store_test.go| t * testing . T|1|13||25-63
+./internal/operations/tooling.go|ScaffoldContainerBase mgr * config . Manager , cfg * config . Config , relPath string , force bool|1|19|ScaffoldContainerBase|108-178
+./internal/operations/trust.go|EffectiveTrust cfg * config . Config , req EffectiveTrustRequest|1|17|EffectiveTrust|306-488
+./internal/operations/trust.go|SetBlacklist cfg * config . Config , req SetBlacklistRequest|1|13|SetBlacklist|968-1031
+./internal/operations/trust.go|SetItemTrust cfg * config . Config , req SetItemTrustRequest|1|12|SetItemTrust|844-920
+./internal/operations/trust.go|computeItemPayloadPair cat bundles . Catalog , tRef trust . Ref , key trust . BundleKey|1|16|computeItemPayloadPair|1056-1133
+./internal/operations/upgrade.go|UpgradeDependencies ctx context . Context , cfg * config . Config|1|19|UpgradeDependencies|56-189
+./internal/operations/vendorreader.go|appendRotationSegment ctx context . Context , adapter vendorreader . VendorAdapter , e sessions . Entry , rot sessions . Rotation , af * iox . AtomicFile|1|13|appendRotationSegment|445-498
+./internal/operations/vendorreader.go|convertVendorTranscript ctx context . Context , e sessions . Entry , refresh bool|1|24|convertVendorTranscript|256-431
+./internal/operations/vendorreader_kiro.go|locateKiroConversationInDB ctx context . Context , dbPath string , e sessions . Entry|1|11|locateKiroConversationInDB|140-176
+./internal/profiles/profiles.go|(p*Profile)HasContent|1|14|HasContent|725-743
+./internal/profiles/profiles.go|(l*Loader)resolveProfileRecursive name string , visited map [ string ] bool , depth int , memo map [ string ] * ResolvedProfile|1|15|resolveProfileRecursive|903-1063
 ./internal/projectroot/projectroot_test.go|TestPackageDocNamesEveryExportedSurface t * testing . T|1|18|TestPackageDocNamesEveryExportedSurface|235-288
 ./internal/projectroot/worktree.go|DetectWorktree fs afero . Fs , dir string|1|12|DetectWorktree|74-133
+./internal/refuri/refuri.go|Parse raw string|1|11|Parse|186-266
+./internal/refuri/refuri.go|(p*Parts)parseExternal u * url . URL|1|12|parseExternal|269-326
+./internal/remote/git_publisher.go|(p*GitPublisher)CreateOrUpdateFile ctx context . Context , _ , _ , filePath , branch , message string , content [ ] byte|1|12|CreateOrUpdateFile|181-227
+./internal/remote/publish.go|(pm*PublishManager)preparePublish ctx context . Context , localPath , remoteName string , opts PublishOptions|1|12|preparePublish|295-404
+./internal/remote/registry.go|(r*Registry)Update name string , edit RemoteEdit|1|16|Update|281-347
 ./internal/remote/registry.go|(r*Registry)save|1|11|save|105-171
-./internal/remote/repo_cache.go|(c*RepoCache)safeRepoPath parts ... string|1|11|safeRepoPath|386-407
-./internal/remote/repourl.go|ParseRepoURL raw string|1|15|ParseRepoURL|145-222
-./internal/sessions/store_test.go| t * testing . T|1|23||33-114
+./internal/remote/repo_cache.go|(c*RepoCache)safeRepoPath parts ... string|1|11|safeRepoPath|380-401
+./internal/remote/repourl.go|ParseRepoURL raw string|1|15|ParseRepoURL|171-253
+./internal/sessions/index.go|(m*Manager)AppendRotations harpName string , rotations [ ] Rotation|1|11|AppendRotations|476-523
+./internal/sessions/index.go|(m*Manager)BindSession harpName , sessionID , transcriptPath string|1|16|BindSession|369-446
+./internal/sessions/index.go|linkEngineTranscript harpName , engine , sessionID , transcriptPath string|1|15|linkEngineTranscript|560-622
+./internal/sessions/memstore.go|(m*MemStore)BindSession harpName , sessionID , transcriptPath string|1|12|BindSession|158-196
+./internal/sessions/store_test.go| t * testing . T|1|26||33-122
+./internal/sessions/store_test.go| t * testing . T|2|17||208-247
+./internal/sessions/store_test.go| t * testing . T|3|13||277-322
 ./internal/sessions/transcript_locate_test.go|TestFind_FillsTranscriptByLocation t * testing . T|1|14|TestFind_FillsTranscriptByLocation|131-176
-./internal/shared/agent/commandfiles_golden_test.go|oldWriteManagedCommandFiles fs afero . Fs , dir , manifestName string , cmds [ ] CommandExport , render func CommandExport relPath string , content [ ] byte , err error , opts ... ManagedWriteOption|1|23|oldWriteManagedCommandFiles|22-89
-./internal/shared/agent/enginecli.go|(c EngineCLI)ParseArgv argv [ ] string|1|14|ParseArgv|477-525
-./internal/shared/agent/enginecli.go|(c EngineCLI)Validate|1|17|Validate|294-341
-./internal/shared/agent/launch_backend.go|(b*LaunchBackend)deliverSet set SurfaceSet , req * SetupRequest|1|12|deliverSet|328-378
-./internal/shared/agent/managedcontext.go|WriteManagedContext fs afero . Fs , path , rel , content , desc string|1|12|WriteManagedContext|37-82
-./internal/shared/agent/mcpfile.go|(c MCPFileConfig)WriteServers mcp * wire . MCPConfig , bundleMCP map [ string ] wire . MCPServer|1|11|WriteServers|73-118
-./internal/shared/agent/oneshot_turn.go|RunOneshotTurn prompt * Fragment , modelInfo * ModelInfo , verbosity uint32 , stdout , stderr io . Writer , runChat func in < - chan ChatMessage , out chan < - ChatEvent error|1|13|RunOneshotTurn|28-90
-./internal/shared/agent/packagefiles.go| T|1|29||68-191
+./internal/shared/agent/commandfiles_golden_test.go|oldWriteManagedCommandFiles fs afero . Fs , dir , manifestName string , cmds [ ] CommandExport , render func CommandExport relPath string , content [ ] byte , err error , opts ... ManagedWriteOption|1|23|oldWriteManagedCommandFiles|23-94
+./internal/shared/agent/enginecli.go|(c EngineCLI)ParseArgv argv [ ] string|1|14|ParseArgv|476-524
+./internal/shared/agent/enginecli.go|(c EngineCLI)Validate|1|17|Validate|293-340
+./internal/shared/agent/launch_backend.go|(b*LaunchBackend)deliverSet set SurfaceSet , req * SetupRequest|1|23|deliverSet|379-480
+./internal/shared/agent/managedcontext.go|writeManagedContextLocked fs afero . Fs , path , rel , content , desc string|1|12|writeManagedContextLocked|61-106
+./internal/shared/agent/oneshot_turn.go|RunOneshotTurn prompt * Fragment , modelInfo * ModelInfo , verbosity uint32 , stdout , stderr io . Writer , runChat func in < - chan ChatMessage , out chan < - ChatEvent error|1|13|RunOneshotTurn|58-120
+./internal/shared/agent/packagefiles.go| T|1|38||104-377
 ./internal/shared/harpmarker/marker.go|findInValue v any|1|12|findInValue|97-129
-./internal/shared/plans/plans.go| path string , d fs . DirEntry , err error|1|11||70-118
+./internal/shared/iox/atomicfile.go|(a*AtomicFile)Commit|1|14|Commit|103-145
+./internal/shared/iox/atomicwrite_fs.go|WriteFileAtomicFs fs afero . Fs , path string , data [ ] byte , perm os . FileMode , opts ... Option|1|14|WriteFileAtomicFs|36-93
+./internal/shared/iox/atomicwrite_parity_test.go| t * testing . T|1|12||60-146
+./internal/shared/plans/plans.go| path string , d fs . DirEntry , err error|1|13||74-133
+./internal/shared/plans/plans.go|SessionPlanPaths harp string|1|11|SessionPlanPaths|409-443
 ./internal/shared/plans/plans_test.go|TestList t * testing . T|1|11|TestList|61-88
 ./internal/shared/plans/plans_test.go|TestPlan_JSONShape_IncludesSessions t * testing . T|1|11|TestPlan_JSONShape_IncludesSessions|203-243
 ./internal/shared/tasks/compact_test.go|TestTaskCompact t * testing . T|1|13|TestTaskCompact|55-109
 ./internal/shared/tasks/fold_chronological_test.go|TestDeferredSince_UnchangedByChronologicalFold t * testing . T|1|13|TestDeferredSince_UnchangedByChronologicalFold|208-254
 ./internal/shared/tasks/fold_chronological_test.go|TestFold_SimulatedUnionMerge t * testing . T|1|13|TestFold_SimulatedUnionMerge|107-156
-./internal/shared/tasks/log_test.go|TestLogCurrentTags t * testing . T|1|11|TestLogCurrentTags|112-141
-./internal/shared/tasks/log_test.go|TestLogRepairReintroducesDisplacedAdd t * testing . T|1|14|TestLogRepairReintroducesDisplacedAdd|512-566
+./internal/shared/tasks/log_test.go|TestLogCurrentTags t * testing . T|1|11|TestLogCurrentTags|110-139
+./internal/shared/tasks/log_test.go|TestLogRepairReintroducesDisplacedAdd t * testing . T|1|14|TestLogRepairReintroducesDisplacedAdd|510-564
 ./internal/shared/tasks/operations/operations.go|ListTasks tc TaskContext , opts ListOptions|1|12|ListTasks|215-262
 ./internal/shared/tasks/operations/operations.go|TagTask tc TaskContext , harpID string , add , remove [ ] string|1|14|TagTask|332-382
 ./internal/shared/tasks/operations/operations.go|scalarCollapse schema * tagschema . Schema , existingTags , incoming [ ] string|1|14|scalarCollapse|398-446
@@ -243,32 +313,39 @@
 ./internal/shared/tasks/operations/operations_test.go|TestListTasksLimitCapsRowsButNotSummaryCounts t * testing . T|1|16|TestListTasksLimitCapsRowsButNotSummaryCounts|421-473
 ./internal/shared/tasks/operations/operations_test.go|TestScalarCollapse_TagTaskCollapsesToNewestValueHistoryPreserved t * testing . T|1|13|TestScalarCollapse_TagTaskCollapsesToNewestValueHistoryPreserved|1067-1100
 ./internal/shared/tasks/operations/operations_test.go|TestTagTask_ScalarCollapseAddsBeforeUntag t * testing . T|1|13|TestTagTask_ScalarCollapseAddsBeforeUntag|1111-1143
-./internal/shared/tasks/priority/priority.go|Compute all [ ] tasks . Task , schema * tagschema . Schema , now time . Time|1|21|Compute|147-261
+./internal/shared/tasks/priority/priority.go|Compute all [ ] tasks . Task , schema * tagschema . Schema , now time . Time|1|21|Compute|186-303
 ./internal/shared/tasks/projectid/registry_concurrency_test.go|TestMutators_NoLostUpdatesUnderConcurrency t * testing . T|1|14|TestMutators_NoLostUpdatesUnderConcurrency|15-82
 ./internal/shared/tasks/projectid/resolve.go|(m*Manager)Resolve projectDir string|1|12|Resolve|39-117
 ./internal/shared/tasks/projectid/resolve_action_test.go|TestResolutionActionWarningContract t * testing . T|1|15|TestResolutionActionWarningContract|16-64
 ./internal/shared/tasks/projectid/resolve_unreadable_test.go|TestResolveFailsLoudWhenPathResolutionIsDenied t * testing . T|1|11|TestResolveFailsLoudWhenPathResolutionIsDenied|23-69
 ./internal/shared/tasks/task_test.go|TestUnionAndSubtractTags t * testing . T|1|12|TestUnionAndSubtractTags|285-307
+./internal/shared/tasks/taskstest/gitfixture_test.go| path string , d os . DirEntry , err error|1|11||78-110
 ./internal/shared/textutil/cohesion_test.go|TestPackage_ExportsOnlyByteBudgetedShortening t * testing . T|1|11|TestPackage_ExportsOnlyByteBudgetedShortening|27-64
 ./internal/shared/watch/stream.go|Stream ctx context . Context , w * Watcher , debounce time . Duration , emit func error|1|14|Stream|36-105
 ./internal/shared/watch/watch_test.go|TestSkipDir_PrunesSubtree t * testing . T|1|12|TestSkipDir_PrunesSubtree|246-295
-./internal/shared/wire/tagparity_test.go|TestEveryStructTypeIsRegistered t * testing . T|1|11|TestEveryStructTypeIsRegistered|81-127
-./internal/signing/countersign/store.go|(s*Store)candidates header signing . CountersignHeader , payload [ ] byte|1|11|candidates|334-369
+./internal/shared/wire/arch_test.go|TestArch_WireTagParity_AllTypesRegistered t * testing . T|1|11|TestArch_WireTagParity_AllTypesRegistered|95-141
+./internal/signing/countersign/forget.go|(s*Store)forget header signing . CountersignHeader , payload [ ] byte|1|12|forget|62-105
+./internal/signing/countersign/store.go|(s*Store)candidates header signing . CountersignHeader , payload [ ] byte|1|11|candidates|319-354
+./internal/taskloom/engine/enginename_parity_test.go| path string , d os . DirEntry , err error|1|12||244-270
 ./internal/termui/gate.go|(g*outputGate)Release pre [ ] byte|1|11|Release|89-129
 ./internal/termui/interceptor.go|(ic*interceptor)scan chunk [ ] byte|1|14|scan|99-149
 ./internal/termui/prefixkey.go|ParsePrefixKey s string|1|18|ParsePrefixKey|15-56
-./internal/termui/surround.go| s * surround|1|13||144-203
+./internal/termui/surround.go| s * surround|1|13||150-209
 ./internal/termui/tear_test.go|TestSurround_StressScriptedChildNoTearNoBleed t * testing . T|1|12|TestSurround_StressScriptedChildNoTearNoBleed|514-556
 ./internal/termui/tear_test.go|(e*vtEmu)stepCSI b [ ] byte|1|17|stepCSI|162-218
 ./internal/termui/tear_test.go|(e*vtEmu)stepEscape b [ ] byte|1|16|stepEscape|116-160
 ./internal/termui/vtguard.go|(g*vtGuard)finishCSI|1|31|finishCSI|274-354
 ./internal/termui/vtguard.go|(g*vtGuard)stepEsc b byte|1|17|stepEsc|124-186
-./internal/testsupport/parity/parity.go|fieldDiffs want , got reflect . Value , path string|1|11|fieldDiffs|286-323
+./internal/testsupport/containercell/containercell.go|(r Runtime)buildImage ctx context . Context , tag , binaryPath string , withProbeCat bool|1|11|buildImage|395-436
+./internal/testsupport/parity/parity.go|fieldDiffs want , got reflect . Value , path string|1|11|fieldDiffs|289-326
 ./internal/testsupport/sandbox.go|enterSandbox|1|13|enterSandbox|169-214
-./internal/transcript/importer/claude/claude_test.go|TestConvert_RealFieldsSurvive t * testing . T|1|19|TestConvert_RealFieldsSurvive|176-241
-./internal/transcript/importer/codex/codex_test.go|TestConvert_RealFieldsSurvive t * testing . T|1|11|TestConvert_RealFieldsSurvive|185-257
-./internal/transcript/importer/kiro/kiro_test.go|TestConvert_RealFieldsSurvive t * testing . T|1|11|TestConvert_RealFieldsSurvive|262-321
-./internal/transcript/recorder.go|(r*fileRecorder)record ev agent . ChatEvent|1|11|record|187-246
+./internal/transcript/recorder.go|(r*fileRecorder)record ev agent . ChatEvent|1|11|record|306-365
+./internal/transcript/vendorreader/claude/claude_test.go|TestConvert_RealFieldsSurvive t * testing . T|1|19|TestConvert_RealFieldsSurvive|178-243
+./internal/transcript/vendorreader/claude/locate.go|(l Locator)Discover workDir string|1|17|Discover|43-116
+./internal/transcript/vendorreader/codex/codex_test.go|TestConvert_RealFieldsSurvive t * testing . T|1|11|TestConvert_RealFieldsSurvive|185-257
+./internal/transcript/vendorreader/kiro/kiro_test.go|TestConvert_RealFieldsSurvive t * testing . T|1|11|TestConvert_RealFieldsSurvive|262-321
+./internal/turnchange/turnchange.go|isAssignment tok string|1|11|isAssignment|260-273
+./internal/turnchange/turnchange.go|matchHarmlessRedirection s string|1|20|matchHarmlessRedirection|340-373
 ./pkg/clifmt/format_test.go|TestFormatEnumerationsAgree t * testing . T|1|14|TestFormatEnumerationsAgree|107-142
 ./pkg/clifmt/markdown.go|renderMarkdown w io . Writer , v any|1|13|renderMarkdown|13-65
 ./pkg/clifmt/noderender.go| w io . Writer , label string , depth D|1|13||14-62
@@ -277,27 +354,60 @@
 ./pkg/clifmt/reflectmodel.go|scalarString v reflect . Value|1|11|scalarString|223-252
 ./pkg/clifmt/text.go|renderText w io . Writer , v any|1|13|renderText|16-68
 ./scripts/audit_sha_credits.py|find_negation_window( rid , commit_body )|1|11|find_negation_window|178-206
-./scripts/gendocs/main_test.go|TestCtxloomProduct t * testing . T|1|12|TestCtxloomProduct|22-62
+./scripts/gendocs/main_test.go|TestCtxloomProduct t * testing . T|1|12|TestCtxloomProduct|23-63
 ./scripts/gendocs/main_test.go|TestEveryHiddenTopLevelCommandIsDecided t * testing . T|1|14|TestEveryHiddenTopLevelCommandIsDecided|156-193
 ./scripts/gendocs/main_test.go|TestMCPIntro_StandaloneSurfaceClaimsAreTrue t * testing . T|1|22|TestMCPIntro_StandaloneSurfaceClaimsAreTrue|230-316
-./tests/acceptance/completeness_test.go| t * testing . T|1|11||343-383
-./tests/acceptance/isolation_probe.go|probeContainerUnexpected diff [ ] string , containerHome string|1|12|probeContainerUnexpected|540-583
-./tests/acceptance/isolation_probe.go|runProbeContainer w * World , backendType , runtimeBin string|1|11|runProbeContainer|876-964
-./tests/acceptance/isolation_probe.go|runProbeWorktree w * World , backendType string , forcedPath probeAuthPath , degraded bool|1|14|runProbeWorktree|779-863
-./tests/acceptance/steps_cli.go|shellSplit cmdline string|1|18|shellSplit|104-157
-./tests/acceptance/steps_doc_capture.go| c context . Context , st * godog . Step , status godog . StepResultStatus , err error|1|18||192-285
-./tests/acceptance/steps_isolation_probe.go| c context . Context , engine , axisStr string|1|13||190-253
-./tests/acceptance/steps_j002500_taskloom.go| c context . Context , untagged , tagged string|1|11||225-248
-./tests/acceptance/steps_j002300_cross_engine_delegation.go| c context . Context|1|15||315-376
-./tests/acceptance/steps_j001600_signing.go|j001600SeedFromDisk w * World , name string|1|11|j001600SeedFromDisk|288-328
-./tests/acceptance/steps_j000400.go|j000400AssertHook w * World , engine string|1|11|j000400AssertHook|419-483
-./tests/acceptance/steps_j002100_delegation.go| c context . Context|1|12||520-562
-./tests/acceptance/steps_j002100_delegation.go|j002100AttachedCapabilities w * World|1|12|j002100AttachedCapabilities|569-606
+./tests/acceptance/capability_hook_probe.go| path string , d os . DirEntry , err error|1|15||449-485
+./tests/acceptance/capability_probe_gate_live.go|probeContainerRuntimeForAxis ctx context . Context , axis , what string|1|11|probeContainerRuntimeForAxis|119-175
+./tests/acceptance/capability_probe_registry_test.go| t * testing . T|1|11||276-324
+./tests/acceptance/capability_probe_registry_test.go|TestProbeRegistry_CellsAreWellFormedAndEvidenced t * testing . T|1|24|TestProbeRegistry_CellsAreWellFormedAndEvidenced|143-226
+./tests/acceptance/capability_probe_registry_test.go|TestProbeRegistry_EveryCapabilityIsProbedOrExcused t * testing . T|1|11|TestProbeRegistry_EveryCapabilityIsProbedOrExcused|43-79
+./tests/acceptance/capability_probe_registry_test.go|TestProbeRegistry_ProbeRowsAreWellFormed t * testing . T|1|15|TestProbeRegistry_ProbeRowsAreWellFormed|103-139
+./tests/acceptance/capability_probe_registry_test.go|featureCellKeys t * testing . T , path string , doc * messages . GherkinDocument|1|19|featureCellKeys|362-414
+./tests/acceptance/cli_coverage_gate_test.go|TestCLICoverage_EveryLeafActuallyRan t * testing . T|1|12|TestCLICoverage_EveryLeafActuallyRan|99-146
+./tests/acceptance/cli_coverage_gate_test.go|readCoverProfile path string|1|13|readCoverProfile|234-293
+./tests/acceptance/cli_flag_gate_test.go|TestCLICoverage_EveryChangedFlagWasPassed t * testing . T|1|21|TestCLICoverage_EveryChangedFlagWasPassed|95-216
+./tests/acceptance/cli_flag_gate_test.go|changedFlagSites srcDir string|1|16|changedFlagSites|242-313
+./tests/acceptance/completeness_test.go|expandOutlineRows text string|1|11|expandOutlineRows|475-514
+./tests/acceptance/isolation_probe.go|probeContainerUnexpected diff [ ] string , containerHome string|1|12|probeContainerUnexpected|559-602
+./tests/acceptance/isolation_probe.go|runProbeContainer w * World , backendType string , axis probeAxis , runtimeBin string|1|11|runProbeContainer|897-987
+./tests/acceptance/isolation_probe.go|runProbeWorktree w * World , backendType string , forcedPath probeAuthPath , degraded bool|1|14|runProbeWorktree|789-883
+./tests/acceptance/probe_p6_steer_echo.go|p6ReadSpoolCensus root , harp string|1|12|p6ReadSpoolCensus|291-329
+./tests/acceptance/steps_capability_hook_firing.go| c context . Context , engine , runtime , workspace string|1|16||81-198
+./tests/acceptance/steps_capability_mcp_round_trip.go| c context . Context , engine , runtime , workspace string|1|12||194-287
+./tests/acceptance/steps_cli.go|shellSplit cmdline string|1|17|shellSplit|420-473
+./tests/acceptance/steps_cli_acp.go| c context . Context|1|13||30-92
+./tests/acceptance/steps_doc_capture.go| c context . Context , st * godog . Step , status godog . StepResultStatus , err error|1|21||202-321
+./tests/acceptance/steps_isolation_probe.go| c context . Context , engine , axisStr string|1|13||153-216
+./tests/acceptance/steps_j001600_signing.go| c context . Context|1|13||1307-1353
+./tests/acceptance/steps_j001600_signing.go|j001600SeedFromDisk w * World , name string|1|11|j001600SeedFromDisk|411-451
 ./tests/acceptance/steps_j001700.go| c context . Context , bundleName string|1|18||94-181
-./tests/acceptance/steps_j002200_isolation.go| c context . Context|1|11||173-198
-./tests/acceptance/steps_skill.go| c context . Context , ref , skillMDPath , scriptPath string|1|12||195-247
+./tests/acceptance/steps_j001800_guardrails.go| c context . Context|1|14||286-335
+./tests/acceptance/steps_j002100_delegation.go| c context . Context|1|12||667-709
+./tests/acceptance/steps_j002100_delegation.go|j002100AttachedCapabilities w * World|1|12|j002100AttachedCapabilities|716-753
+./tests/acceptance/steps_j002200_isolation.go| c context . Context|1|11||267-292
+./tests/acceptance/steps_j002200_isolation_matrix.go| c context . Context|1|12||1283-1329
+./tests/acceptance/steps_j002300_cross_engine_delegation.go| c context . Context , budgetSec int , name , want string|1|11||648-686
+./tests/acceptance/steps_j002500_taskloom.go| c context . Context , untagged , tagged string|1|11||225-248
+./tests/acceptance/steps_p6_steer_echo.go| c context . Context , engine , runtime , workspace , marker string|1|20||104-267
+./tests/acceptance/steps_skill.go| c context . Context , ref , skillMDPath , scriptPath string|1|12||195-246
+./tests/acceptance/steps_trust_surface.go|tsAssertCollisionRoles w * World , mcpApproved bool|1|11|tsAssertCollisionRoles|1061-1109
 ./tests/arch/arch_test.go| p string , d fs . DirEntry , err error|1|18||118-166
 ./tests/arch/arch_test.go|TestArch_ShippedBinaries_DoNotDependOnTestSupport t * testing . T|1|13|TestArch_ShippedBinaries_DoNotDependOnTestSupport|204-248
+./tests/arch/config_schema_enum_test.go| node any , path [ ] string|1|11||72-100
+./tests/arch/corpus_floors_test.go| p string , d fs . DirEntry , err error|1|13||105-141
+./tests/arch/corpus_floors_test.go|countDocumented f * ast . File|1|11|countDocumented|151-175
+./tests/arch/corpus_floors_test.go|countVocabularies f * ast . File|1|11|countVocabularies|182-205
+./tests/arch/ledger_discipline_test.go| n ast . Node|1|13||218-269
+./tests/arch/path_authority_test.go| p string , d fs . DirEntry , err error|1|11||115-143
+./tests/arch/real_home_immutability_arch_test.go|TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch t * testing . T|1|14|TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch|193-270
+./tests/arch/session_bind_single_writer_arch_test.go| p string , d fs . DirEntry , err error|1|14||74-116
+./tests/arch/vocabulary_adoption_test.go| n ast . Node|1|12||332-353
+./tests/arch/vocabulary_adoption_test.go| p string , d fs . DirEntry , err error|1|13||141-186
+./tests/arch/vocabulary_adoption_test.go| n ast . Node|2|12||434-468
+./tests/arch/vocabulary_adoption_test.go|vocabDiscover files [ ] vocabFile|1|21|vocabDiscover|218-286
 ./tests/docs/arch_test.go|TestArch_FlowPartition_IsTotalAndDisjoint t * testing . T|1|15|TestArch_FlowPartition_IsTotalAndDisjoint|315-373
 ./tests/integration/testenv/gitserve_acceptance.go|(e*TestEnvironment)SeedRemote files map [ string ] string|1|12|SeedRemote|17-67
-./tests/integration/testenv/mcpclient.go| c * MCPClient|1|11||424-468
+./tests/integration/testenv/mcpclient.go| c * MCPClient|1|11||465-509
+./tests/integration/testenv/mock_lm.go|(m*MockLM)WriteConfig|1|11|WriteConfig|76-136
+./tests/mutation/survivor_baseline_test.go|TestSurvivorBaseline_RowsAreWellFormed t * testing . T|1|11|TestSurvivorBaseline_RowsAreWellFormed|117-144

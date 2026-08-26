@@ -351,3 +351,34 @@ func TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry(t *testing.T)
 		}
 	}
 }
+
+// TestSessionToText_ErrorBodyIsNotTruncatedAtTheDisplayCap pins the one result
+// kind kept for its CONTENT. Errors were being cut at the ordinary 500-byte
+// display cap, which removes exactly the stack trace a fix has to answer to --
+// 9 of 26 real error results were affected, for about 750 bytes per session.
+func TestSessionToText_ErrorBodyIsNotTruncatedAtTheDisplayCap(t *testing.T) {
+	// Longer than the display cap, shorter than the error bound.
+	tail := "TRAILING_ROOT_CAUSE"
+	body := strings.Repeat("e", 900) + tail
+
+	c := &Compactor{config: CompactionConfig{}}
+	text, _ := c.sessionToText(&agent.Session{Entries: []agent.SessionEntry{
+		{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: body, IsError: true},
+	}})
+
+	if !strings.Contains(text, tail) {
+		t.Fatalf("error body was truncated before its root cause: %q", text)
+	}
+	if !strings.Contains(text, "[ERROR]") {
+		t.Fatalf("error marker lost: %q", text)
+	}
+}
+
+// TestRenderErrorBody_BoundsAPathologicalError pins the other side: an error
+// far beyond the bound is still cut, so one runaway result cannot dominate.
+func TestRenderErrorBody_BoundsAPathologicalError(t *testing.T) {
+	got := renderErrorBody(strings.Repeat("x", maxErrorBytes*3))
+	if len(got) > maxErrorBytes {
+		t.Fatalf("unbounded error body: %d bytes", len(got))
+	}
+}

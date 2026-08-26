@@ -388,3 +388,26 @@ func renderResultBody(out string, reflected bool) string {
 	}
 	return shape + " unreflected; excerpt follows\n" + excerpt
 }
+
+// maxErrorBytes bounds an error body. Errors are the one result kind kept for
+// their CONTENT rather than their shape -- what broke, and what a fix has to
+// answer to -- and truncating one at the ordinary display cap cuts exactly the
+// stack trace or compiler output that carries the answer.
+//
+// Measured across four real transcripts: 26 error results, median 300 bytes,
+// largest 1,381, and 9 of them were being truncated by the 500-byte cap.
+// Keeping every one whole costs about 750 bytes per session. The bound here is
+// an order of magnitude above the largest observed, so it never bites in
+// practice and still stops a pathological megabyte error from dominating the
+// transcript.
+const maxErrorBytes = 16384
+
+// renderErrorBody keeps an error result's content, bounded. Rune-safe: a
+// mid-rune split makes the chunk invalid UTF-8, which fails proto3 string
+// marshaling and silently turns it into a failure marker.
+func renderErrorBody(out string) string {
+	if len(out) <= maxErrorBytes {
+		return out
+	}
+	return textutil.TruncateBytes(out, maxErrorBytes)
+}

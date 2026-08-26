@@ -1054,7 +1054,7 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 		// where the first 500 bytes of 47 lines is an artifact. The content
 		// itself is re-derivable: the call above names what was asked.
 		if entry.IsError {
-			builder.WriteString(truncateForSummary(entry.ToolOutput))
+			builder.WriteString(renderErrorBody(entry.ToolOutput))
 			builder.WriteString(" [ERROR]")
 		} else {
 			// selectForDistill already reduced this to a shape line, or to a

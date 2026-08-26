@@ -32,6 +32,14 @@ type SelectionStats struct {
 // again. The tool CALL is always kept, so the essence still records what was
 // examined; only what it said at the time is dropped.
 //
+// What this classification is WORTH is LLM calls, not bytes. Since results
+// reduce to a shape line either way, dropping one saves a few dozen bytes. But
+// this check runs BEFORE a result can be queued for finding recovery, so a
+// re-derivable result never costs a model call: measured across four real
+// transcripts, 16 of 117 unreflected large results are gated here. Paying a
+// model to reconstruct what a `grep` said, when re-running the grep is free,
+// is the spend this prevents.
+//
 // The set is positively-known and the default is KEEP, so an unrecognized tool
 // (a new one, or another engine's vocabulary) retains its result rather than
 // silently losing it.

@@ -1,9 +1,13 @@
 package memory
 
 import (
+	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -173,5 +177,123 @@ func TestRenderResultBody_ExcerptOnlyWhenUnreflected(t *testing.T) {
 	}
 	if len(without) > resultExcerptBytes*2 {
 		t.Fatalf("excerpt is unbounded at %d bytes", len(without))
+	}
+}
+
+// unreflectedSelection builds a Selection holding exactly one large tool result
+// the agent never commented on -- the only shape that reaches repairResults.
+func unreflectedSelection(t *testing.T) Selection {
+	t.Helper()
+	sel := selectForDistill([]agent.SessionEntry{
+		{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go vet ./..."}`)},
+		{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: bigBody()},
+		{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"ls"}`)},
+	})
+	if len(sel.Repairs) != 1 {
+		t.Fatalf("fixture did not produce exactly one repair: %d", len(sel.Repairs))
+	}
+	return sel
+}
+
+// TestRepairResults_WritesRecoveredFindingIntoTheEntry pins the whole point of
+// the repair pass: the recovered sentence must reach the entry that gets
+// rendered. Asserting only the returned count would pass with a pass that
+// called the model and threw the answer away -- this project's characteristic
+// silent no-op.
+func TestRepairResults_WritesRecoveredFindingIntoTheEntry(t *testing.T) {
+	const finding = "go vet reported no findings across the module."
+	mock := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			_, _ = stdout.Write([]byte(finding))
+			return 0, nil
+		},
+	}
+	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+	sel := unreflectedSelection(t)
+
+	got := c.repairResults(context.Background(), sel)
+
+	if got != 1 {
+		t.Fatalf("repairResults reported %d recovered, want 1", got)
+	}
+	body := sel.Entries[sel.Repairs[0].Index].ToolOutput
+	if !strings.Contains(body, finding) {
+		t.Fatalf("recovered finding never reached the entry: %q", body)
+	}
+	if strings.Contains(body, bigBody()) {
+		t.Fatal("entry still carries the raw body; the finding was meant to replace the excerpt")
+	}
+}
+
+// TestRepairResults_FailedRecoveryLeavesTheExcerpt pins the degrade path. A
+// failed LLM call must leave the deterministic rendering standing, never an
+// empty result -- the excerpt is the whole reason tier 3 exists.
+func TestRepairResults_FailedRecoveryLeavesTheExcerpt(t *testing.T) {
+	mock := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			return 0, errors.New("plugin unreachable")
+		},
+	}
+	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+	sel := unreflectedSelection(t)
+	before := sel.Entries[sel.Repairs[0].Index].ToolOutput
+
+	if got := c.repairResults(context.Background(), sel); got != 0 {
+		t.Fatalf("repairResults counted %d recovered despite a failing client", got)
+	}
+	after := sel.Entries[sel.Repairs[0].Index].ToolOutput
+	if after != before {
+		t.Fatalf("failed recovery mutated the entry:\n before %q\n after  %q", before, after)
+	}
+	if strings.TrimSpace(after) == "" {
+		t.Fatal("failed recovery left an empty body")
+	}
+}
+
+// TestRepairResults_NoConclusionLeavesTheExcerpt pins the prompt's own escape
+// hatch. A model with nothing to say must not overwrite the excerpt with a
+// confident nothing.
+func TestRepairResults_NoConclusionLeavesTheExcerpt(t *testing.T) {
+	mock := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			_, _ = stdout.Write([]byte("  " + noConclusionAvailable + "\n"))
+			return 0, nil
+		},
+	}
+	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+	sel := unreflectedSelection(t)
+	before := sel.Entries[sel.Repairs[0].Index].ToolOutput
+
+	if got := c.repairResults(context.Background(), sel); got != 0 {
+		t.Fatalf("counted a recovery for %q", noConclusionAvailable)
+	}
+	if after := sel.Entries[sel.Repairs[0].Index].ToolOutput; after != before {
+		t.Fatalf("escape-hatch answer overwrote the excerpt: %q", after)
+	}
+}
+
+// TestRepairResults_NoCandidatesMakesNoCall pins that a session where every
+// result was commented on costs nothing. Spawning a plugin subprocess per
+// result would make reflection more expensive than not reflecting.
+func TestRepairResults_NoCandidatesMakesNoCall(t *testing.T) {
+	mock := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			t.Fatal("repairResults called the model with no repair candidates")
+			return 0, nil
+		},
+	}
+	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+
+	sel := selectForDistill([]agent.SessionEntry{
+		{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go vet ./..."}`)},
+		{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: bigBody()},
+		{Type: agent.EntryTypeAssistant, Content: "Vet was clean."},
+	})
+
+	if got := c.repairResults(context.Background(), sel); got != 0 {
+		t.Fatalf("recovered %d findings when none were missing", got)
+	}
+	if mock.RunCalls != 0 {
+		t.Fatalf("made %d model calls with no candidates", mock.RunCalls)
 	}
 }

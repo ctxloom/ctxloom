@@ -165,6 +165,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ000800Steps(ctx)
 	registerJ000400Steps(ctx)
 	registerCLIManageShapeSteps(ctx)
+	registerCLIFormatSteps(ctx)
 	registerCLISessionSteps(ctx)
 	registerJ002100Steps(ctx)
 	registerJ001700Steps(ctx)

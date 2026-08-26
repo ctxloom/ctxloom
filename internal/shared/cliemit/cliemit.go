@@ -147,3 +147,22 @@ func Resolve(cmd *cobra.Command) (clifmt.Format, error) {
 	}
 	return clifmt.ParseFormat(raw)
 }
+
+// Explicit reports whether the caller actually ASKED for a format — `--json`,
+// or `--format` typed on the command line — as opposed to one Resolve derived
+// from stdout not being a terminal.
+//
+// The distinction is load-bearing and not cosmetic: a derived format is not a
+// request, so no caller may treat it as one. A command that renders nothing
+// through emit() is a real defect when someone typed `--format json` and got
+// silence, and is nothing at all when the format was merely inferred from a
+// pipe. Collapsing the two makes every command carrying format debt fail for
+// every scripted caller. See internal/cli's checkFormatWasHonored, the one
+// consumer that depends on it.
+func Explicit(cmd *cobra.Command) bool {
+	if f := cmd.Flags().Lookup("json"); f != nil && f.Changed {
+		return true
+	}
+	f := cmd.Flags().Lookup("format")
+	return f != nil && f.Changed
+}

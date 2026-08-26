@@ -133,6 +133,14 @@ func checkFormatWasHonored(cmd *cobra.Command) error {
 	if ferr != nil || format == clifmt.FormatText || formatWasHonored {
 		return nil
 	}
+	// Only a format the caller ASKED for can be dishonored. Off a terminal
+	// Resolve defaults to JSON, so without this every command carrying format
+	// debt would fail for every piped or scripted caller — after doing its
+	// work, which for `run` means burning the LLM call and then reporting
+	// failure.
+	if !cliemit.Explicit(cmd) {
+		return nil
+	}
 	return fmt.Errorf("%s: --format %s was accepted but this command does not support it yet (nothing was rendered through it) — rerun without --format, or see format_coverage_test.go's formatDebtAllowlist for the tracked fix", cmd.CommandPath(), format)
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -304,4 +305,22 @@ func TestFormatDebtCommands_AreTrackedAndRefuseNonTextLoudly(t *testing.T) {
 	require.Error(t, err, "--format json on an unwired command must not exit 0 pretending to have honored it")
 	assert.Contains(t, err.Error(), "does not support it yet")
 	assert.Contains(t, err.Error(), "formatDebtAllowlist", "the error names where the tracked fix lives")
+}
+
+func TestCheckFormatWasHonored_DerivedJSONIsNotADishonoredRequest(t *testing.T) {
+	withFormatGuardReset(t)
+	cmd := &cobra.Command{}
+	cmd.Flags().String("format", string(clifmt.FormatText), "")
+	cmd.Use = "widget frobnicate"
+
+	// The flag is never Set, so it is not Changed. A test binary's stdout is
+	// never a terminal, so Resolve derives JSON — the same path a piped or
+	// scripted caller takes in production.
+	got, rerr := cliemit.Resolve(cmd)
+	require.NoError(t, rerr)
+	require.Equal(t, clifmt.FormatJSON, got)
+
+	// formatWasHonored stays false: the command rendered nothing through
+	// emit(). Nobody asked for JSON, so there is no request to dishonor.
+	assert.NoError(t, checkFormatWasHonored(cmd))
 }

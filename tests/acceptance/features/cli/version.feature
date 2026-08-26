@@ -17,17 +17,24 @@ Feature: version — the one question a build must always be able to answer
     # The version this binary was stamped with is not knowable to the suite —
     # the CLI is stamped by ldflags at build time and the test process is not —
     # so the assertion is the strongest one that IS available: the printed
-    # string is version-SHAPED, and all three surfaces report it identically,
-    # with the json form carrying the name alongside it.
+    # string is version-SHAPED, and every row agrees with `ctxloom --version`,
+    # which never goes through cliemit.Resolve and so is the fixed point.
     #
     # This replaces `the output matches "."` — one arbitrary character, which
     # the literal "MUTATION-not-the-version" satisfies exactly as well as the
     # truth does, and which a build stamping an empty string would fail only by
     # accident.
-    # The step drives all three spellings itself and cross-checks them against
-    # each other, because the claim IS the agreement between them — three
-    # separate scenarios could each pass while reporting three different
-    # strings.
-    Scenario: The version reads the same however it is asked for
+    #
+    # The no-flag row is the important one: off a terminal (which this harness
+    # always is) `ctxloom version` now resolves to the SAME JSON the
+    # `--format json` row gets, per cliemit.Resolve's derived default. Only an
+    # explicit `--format text` still gets the prose rendering.
+    Scenario Outline: The version reads the same however it is asked for
       Given an initialized ctxloom project
-      Then every version surface reports the same version-shaped string
+      Then the version reported for "<flags>" agrees with "ctxloom --version"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         |
+        |               |
+        | --format json |
+        | --format text |

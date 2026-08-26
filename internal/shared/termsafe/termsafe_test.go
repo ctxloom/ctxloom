@@ -44,24 +44,31 @@ func TestSanitize_KeepsNewlineAndTabEscapesEveryOtherControl(t *testing.T) {
 		name string
 		in   string
 		want string
+		// wantEscaped pins the COUNT beside the text: a rendering that looks
+		// right while reporting nothing escaped leaves Altered() false, and a
+		// caller that gates its warning on Altered() then stays silent about a
+		// body it did in fact rewrite.
+		wantEscaped int
 	}{
-		{"newline kept", "a\nb", "a\nb"},
-		{"tab kept", "a\tb", "a\tb"},
-		{"NUL", "a\x00b", "a^@b"},
-		{"BEL", "a\ab", "a^Gb"},
-		{"backspace", "a\bb", "a^Hb"},
-		{"vertical tab", "a\vb", "a^Kb"},
-		{"DEL", "a\x7fb", "a^?b"},
-		{"C1 CSI", "a\u009bb", `a\u009bb`},
-		{"C1 NEL", "a\u0085b", `a\u0085b`},
-		{"bidi override", "a\u202eb", `a\u202eb`},
-		{"bidi isolate", "a\u2066b", `a\u2066b`},
-		{"RLM", "a\u200fb", `a\u200fb`},
-		{"invalid utf8 byte", "a\xffb", `a\xffb`},
+		{"newline kept", "a\nb", "a\nb", 0},
+		{"tab kept", "a\tb", "a\tb", 0},
+		{"NUL", "a\x00b", "a^@b", 1},
+		{"BEL", "a\ab", "a^Gb", 1},
+		{"backspace", "a\bb", "a^Hb", 1},
+		{"vertical tab", "a\vb", "a^Kb", 1},
+		{"DEL", "a\x7fb", "a^?b", 1},
+		{"C1 CSI", "a\u009bb", `a\u009bb`, 1},
+		{"C1 NEL", "a\u0085b", `a\u0085b`, 1},
+		{"bidi override", "a\u202eb", `a\u202eb`, 1},
+		{"bidi isolate", "a\u2066b", `a\u2066b`, 1},
+		{"RLM", "a\u200fb", `a\u200fb`, 1},
+		{"invalid utf8 byte", "a\xffb", `a\xffb`, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, Sanitize(tc.in, DefaultMaxBytes, true).Text)
+			got := Sanitize(tc.in, DefaultMaxBytes, true)
+			assert.Equal(t, tc.want, got.Text)
+			assert.Equal(t, tc.wantEscaped, got.Escaped)
 		})
 	}
 }

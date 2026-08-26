@@ -250,26 +250,37 @@ func escapeControls(s string, keepNewlineTab bool) Result {
 			continue
 		}
 		i += size
-		switch {
-		case (r == '\n' || r == '\t') && keepNewlineTab:
-			b.WriteRune(r)
-		case r < 0x20:
-			// Caret notation: the control's printable partner 0x40 above it,
-			// which is what `cat -v` prints and what the exploit report used.
-			b.WriteByte('^')
-			b.WriteByte(byte(r) + '@')
+		if writeRuneEscaped(&b, r, keepNewlineTab) {
 			escaped++
-		case r == 0x7f:
-			b.WriteString("^?")
-			escaped++
-		case r >= 0x80 && r <= 0x9f, isBidiControl(r):
-			fmt.Fprintf(&b, `\u%04x`, r)
-			escaped++
-		default:
-			b.WriteRune(r)
 		}
 	}
 	return Result{Text: b.String(), Escaped: escaped}
+}
+
+// writeRuneEscaped writes r to b in its safe rendering and reports whether that
+// rendering ESCAPED it — i.e. whether the rune reached the writer as something
+// other than itself. The bool is the counted unit: Result.Escaped is the number
+// of runes the reader is not seeing verbatim.
+func writeRuneEscaped(b *strings.Builder, r rune, keepNewlineTab bool) bool {
+	switch {
+	case (r == '\n' || r == '\t') && keepNewlineTab:
+		b.WriteRune(r)
+	case r < 0x20:
+		// Caret notation: the control's printable partner 0x40 above it,
+		// which is what `cat -v` prints and what the exploit report used.
+		b.WriteByte('^')
+		b.WriteByte(byte(r) + '@')
+		return true
+	case r == 0x7f:
+		b.WriteString("^?")
+		return true
+	case r >= 0x80 && r <= 0x9f, isBidiControl(r):
+		fmt.Fprintf(b, `\u%04x`, r)
+		return true
+	default:
+		b.WriteRune(r)
+	}
+	return false
 }
 
 // isBidiControl reports whether r is a bidirectional formatting control.

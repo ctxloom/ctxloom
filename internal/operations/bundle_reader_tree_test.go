@@ -1,14 +1,18 @@
 package operations
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // One pulled directory-form bundle, as the pinned clone holds it.
@@ -81,4 +85,35 @@ func TestBundleReaderTreeSeam_ServesTheManifestBytes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "version: 1.0.0\ndescription: atelier\n", string(data),
 		"the tree's bundle.yaml, served through the same call a single-file bundle uses")
+}
+
+// The PRODUCTION composition point must carry the tree surface. Everything
+// above builds a reader by hand, which proves the seam works and says nothing
+// about whether the reader every sync probe actually uses was given one.
+//
+// ErrTreeBundleUnreadable is precisely what a reader with NO tree surface
+// answers for a directory-form entry, so its absence here discriminates the
+// wiring and nothing else. The read still fails — there is no clone behind this
+// fixture — but it fails for a transport reason, one step past the refusal.
+func TestNewBundleReaderForConfig_CarriesTheTreeReadSurface(t *testing.T) {
+	appDir := filepath.Join(testsupport.ProjectDir(t), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+
+	lm := remote.NewLockfileManager(appDir)
+	require.NoError(t, lm.Save(treeProbeLock()))
+	// Prove the fixture really records a DIRECTORY-form entry through the
+	// code's own loader; a lockfile that lost the flag would make the
+	// assertion below pass for the wrong reason.
+	reloaded, err := lm.Load()
+	require.NoError(t, err)
+	require.True(t, reloaded.Bundles[treeProbeCanonical].Tree, "fixture is not directory-form")
+
+	reader := NewBundleReaderForConfig(config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
+	require.NotNil(t, reader)
+
+	_, readErr := reader.ReadBundleBytes(t.Context(), treeProbeCanonical)
+
+	require.Error(t, readErr, "there is no clone behind this fixture")
+	assert.NotErrorIs(t, readErr, remote.ErrTreeBundleUnreadable,
+		"the probe's own reader must not refuse directory-form bundles outright")
 }

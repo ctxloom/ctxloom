@@ -47,7 +47,12 @@ Feature: profile — the composition that decides what an agent actually receive
 
   Rule: A created profile is a real file, and every read surface agrees with it
 
-    Scenario: Creating a profile writes its definition and it is listed back
+    # ONE BODY, ONCE PER ENCODING. Off a terminal ctxloom derives JSON, so the
+    # no-flag row exercises the DEFAULT every script receives; the explicit
+    # rows prove a typed --format wins in both directions. The count claim
+    # rides the text column — the payload is a bare array with no length
+    # field — while the structured rows address the entry BY PATH.
+    Scenario Outline: Creating a profile writes its definition and it is listed back
       Given an initialized ctxloom project
       And a bundle "demo" exists
       When Alice names the context she wants to work in:
@@ -60,13 +65,18 @@ Feature: profile — the composition that decides what an agent actually receive
       # an empty bundles list would satisfy a name check and assemble nothing.
       And the file ".ctxloom/profiles/dev.yaml" contains "- demo"
       And the file ".ctxloom/profiles/dev.yaml" contains "day-to-day-work"
-      When I run "ctxloom profile list"
+      When I run "ctxloom profile list <flags>"
       Then the command succeeds
-      And the output contains "Profiles (1):"
-      And the output contains "dev"
-      And the output contains "day-to-day-work"
+      And the output reports "$.0.name" as "<the sole entry>"
+      And the output reports "$.0.description" as "<names the description>"
       When the agent reads resource "ctxloom://profiles"
       Then the resource contains "dev"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the sole entry | names the description |
+        |               | dev            | day-to-day-work        |
+        | --format json | dev            | day-to-day-work        |
+        | --format text | Profiles (1):  | day-to-day-work        |
 
     # A profile with nothing to draw on has nothing to compose, so creation
     # refuses rather than writing a file that would assemble to nothing later
@@ -85,18 +95,23 @@ Feature: profile — the composition that decides what an agent actually receive
       And the output contains "at least one parent (--parent) or bundle (-b) is required"
       And the file ".ctxloom/profiles/hollow.yaml" does not exist
 
-    Scenario: Showing a profile reads its composition back
+    Scenario Outline: Showing a profile reads its composition back
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" with bundle "demo"
       When Alice checks what the profile is composed of:
         """
-        ctxloom profile show dev
+        ctxloom profile show dev <flags>
         """
       Then the command succeeds
-      And the output contains "Profile: dev"
-      And the output contains "Bundles:"
-      And the output contains "- demo"
+      And the output reports "name" as "<names the profile>"
+      And the output reports "bundles" containing "<the composed bundle>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | names the profile | the composed bundle |
+        |               | dev                | demo                 |
+        | --format json | dev                | demo                 |
+        | --format text | Profile: dev       | - demo               |
 
     Scenario: Reading a single profile over MCP
       Given an initialized ctxloom project
@@ -109,17 +124,23 @@ Feature: profile — the composition that decides what an agent actually receive
     # `ctxloom remote` and `ctxloom deps` use. The `ls` alias is driven in the
     # same fixture, because an alias that reached a different path would be a
     # second listing nobody is testing.
-    Scenario: Bare profile lists the profiles, and so does ls
+    Scenario Outline: Bare profile lists the profiles, and so does ls
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" with bundle "demo"
-      When I run "ctxloom profile"
+      When I run "ctxloom profile <flags>"
       Then the command succeeds
-      And the output contains "dev"
+      And the output reports "$.0.name" as "<the sole entry>"
       And the output does not contain "Available Commands:"
-      When I run "ctxloom profile ls"
+      When I run "ctxloom profile ls <flags>"
       Then the command succeeds
-      And the output contains "dev"
+      And the output reports "$.0.name" as "<the sole entry>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the sole entry |
+        |               | dev            |
+        | --format json | dev            |
+        | --format text | dev            |
 
   Rule: Composition is by attachment, and detaching takes the content back out
 
@@ -163,7 +184,7 @@ Feature: profile — the composition that decides what an agent actually receive
     # "the parent's content is gone" is distinguishable from "the profile
     # stopped resolving at all" — which is what a broken detach looks like
     # from the outside.
-    Scenario: A parent profile's content is inherited, and detaching the parent takes it away
+    Scenario Outline: A parent profile's content is inherited, and detaching the parent takes it away
       Given an initialized ctxloom project
       And a bundle "house-style" exists
       And a fragment "house-rules" in bundle "house-style" exists
@@ -175,10 +196,9 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile create dev --parent base -b demo -d day-to-day-work
         """
       Then the command succeeds
-      When I run "ctxloom profile show dev"
+      When I run "ctxloom profile show dev <flags>"
       Then the command succeeds
-      And the output contains "Parents:"
-      And the output contains "- base"
+      And the output reports "parents" containing "<inherits the parent>"
       When I run "ctxloom profile materialize dev --target inherited"
       Then the command succeeds
       And the file "inherited/CLAUDE.md" contains "FRAGMENT-BODY-house-rules"
@@ -192,6 +212,12 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command succeeds
       And the file "standalone/CLAUDE.md" does not contain "FRAGMENT-BODY-house-rules"
       And the file "standalone/CLAUDE.md" contains "FRAGMENT-BODY-testing"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | inherits the parent |
+        |               | base                 |
+        | --format json | base                 |
+        | --format text | - base               |
 
     # A parent that does not exist is a composition that can never assemble.
     # Refusing at creation is friction up front; accepting it would defer the
@@ -211,6 +237,12 @@ Feature: profile — the composition that decides what an agent actually receive
       And the file ".ctxloom/profiles/dev.yaml" does not exist
 
     # `modify` with nothing to do must not read as a successful change.
+    #
+    # NOT TABLED. `profile modify` is format debt
+    # (format_coverage_test.go's formatDebtAllowlist): it prints this prose
+    # regardless of the resolved format, and an EXPLICIT --format json
+    # request errors outright rather than rendering one — so there is no
+    # json row this scenario could give.
     Scenario: A modify that was told to change nothing says so
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -304,6 +336,9 @@ Feature: profile — the composition that decides what an agent actually receive
     # code, passing even against an edit path that returned immediately and did
     # nothing. The description-rewriting editor keeps the document valid, so
     # the round-trip is assertable on the file AND on the read-back surface.
+    #
+    # NOT TABLED. `profile edit` is format debt, the same allowlist entry as
+    # `profile modify` above: prose only, no json row to give.
     Scenario: Editing a profile in the configured editor round-trips into the file
       Given a ctxloom project with a description-rewriting editor
       And a bundle "demo" exists
@@ -319,7 +354,7 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command succeeds
       And the output contains "EDITED-BY-TEST"
 
-    Scenario: The description can be set by flag instead
+    Scenario Outline: The description can be set by flag instead
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" with bundle "demo"
@@ -331,8 +366,14 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command succeeds
       And the file ".ctxloom/profiles/dev.yaml" contains "updated-desc"
       And the file ".ctxloom/profiles/dev.yaml" does not contain "acceptance fixture profile"
-      When I run "ctxloom profile show dev"
-      Then the output contains "updated-desc"
+      When I run "ctxloom profile show dev <flags>"
+      Then the output reports "description" as "<the new description>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the new description |
+        |               | updated-desc         |
+        | --format json | updated-desc         |
+        | --format text | updated-desc         |
 
     # The engine a profile prefers to launch is its own axis, distinct from
     # the description above — a labeled llm config, read back out of the
@@ -360,7 +401,7 @@ Feature: profile — the composition that decides what an agent actually receive
     # scenario would pass just as happily against a `remove` that reported and
     # destroyed nothing, since the re-import would recreate the file either
     # way.
-    Scenario: Export, remove, and re-import a profile
+    Scenario Outline: Export, remove, and re-import a profile
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" with bundle "demo"
@@ -378,12 +419,17 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile import pexport/dev.yaml -f
         """
       Then the command succeeds
-      When I run "ctxloom profile list"
-      Then the output contains "dev"
-      When I run "ctxloom profile show dev"
+      When I run "ctxloom profile list <flags>"
+      Then the output reports "$.0.name" as "<the reimported profile>"
+      When I run "ctxloom profile show dev <flags>"
       Then the command succeeds
-      And the output contains "Bundles:"
-      And the output contains "- demo"
+      And the output reports "bundles" containing "<the composed bundle>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the reimported profile | the composed bundle |
+        |               | dev                     | demo                 |
+        | --format json | dev                     | demo                 |
+        | --format text | dev                     | - demo               |
 
     # The clobber guard, proven by what SURVIVES the refusal rather than by the
     # error text: a guard that printed the message and overwrote anyway would
@@ -445,23 +491,34 @@ Feature: profile — the composition that decides what an agent actually receive
     # the profile in place. A guard that quietly destroyed anyway would still
     # pass a scenario that only checked exit code or the report text — the
     # file-exists check and the follow-up listing are what actually catch that.
-    Scenario: Bare profile remove reports what would go and destroys nothing
+    Scenario Outline: Bare profile remove reports what would go and destroys nothing
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" with bundle "demo"
       When Alice asks what removing the profile would cost:
         """
-        ctxloom profile remove dev
+        ctxloom profile remove dev <flags>
         """
       Then the command succeeds
-      And the output contains "Would remove profile"
-      And the output contains "1 bundle(s)"
-      And the output contains "Nothing was removed. Re-run with --yes to apply:"
-      And the output contains "ctxloom profile remove dev --yes"
+      And the output reports "applied" as "<nothing was applied>"
+      And the output reports "detail" containing "<the cost>"
+      And the output reports "apply" as "<the command to actually do it>"
       And the file ".ctxloom/profiles/dev.yaml" exists
-      When I run "ctxloom profile list"
-      Then the output contains "dev"
+      When I run "ctxloom profile list <flags>"
+      Then the output reports "$.0.name" as "<the profile survives>"
 
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | nothing was applied                              | the cost    | the command to actually do it    | the profile survives |
+        |               | false                                             | 1 bundle(s) | ctxloom profile remove dev --yes | dev                   |
+        | --format json | false                                             | 1 bundle(s) | ctxloom profile remove dev --yes | dev                   |
+        | --format text | Nothing was removed. Re-run with --yes to apply: | 1 bundle(s) | ctxloom profile remove dev --yes | dev                   |
+
+    # NOT TABLED. `profile list`'s payload is a bare array with no length
+    # field, so an EMPTY result has no path a structured row could address —
+    # the same gap the count claim in the scenario above works around by
+    # riding the text column only. Pinned to --format text explicitly, since
+    # the derived default off a terminal is JSON and a bare "output contains"
+    # would otherwise read the wrong encoding.
     Scenario: Removing a profile with --yes takes the file and the listing entry
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -472,20 +529,26 @@ Feature: profile — the composition that decides what an agent actually receive
         """
       Then the command succeeds
       And the file ".ctxloom/profiles/dev.yaml" does not exist
-      When I run "ctxloom profile list"
+      When I run "ctxloom profile list --format text"
       Then the output contains "No profiles defined."
 
     # The aliases are not decoration: `rm` is what a person's fingers type, and
     # an alias that reached a different code path — a different default, a
     # missing preview — would be a destroyer with no guard on it.
-    Scenario: The rm alias previews and destroys exactly as remove does
+    Scenario Outline: The rm alias previews and destroys exactly as remove does
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" with bundle "demo"
-      When I run "ctxloom profile rm dev"
+      When I run "ctxloom profile rm dev <flags>"
       Then the command succeeds
-      And the output contains "Nothing was removed"
+      And the output reports "applied" as "<nothing was applied>"
       And the file ".ctxloom/profiles/dev.yaml" exists
       When I run "ctxloom profile del dev --yes"
       Then the command succeeds
       And the file ".ctxloom/profiles/dev.yaml" does not exist
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | nothing was applied                              |
+        |               | false                                             |
+        | --format json | false                                             |
+        | --format text | Nothing was removed. Re-run with --yes to apply: |

@@ -133,8 +133,8 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 		mark := strictness.Checkpoint()
 		path, src := findAppDir(afero.NewOsFs())
 
-		assert.Empty(t, strictness.Since(mark),
-			"degraded mode must not collect the finding (warn-and-continue only)")
+		assert.Empty(t, strictness.Actionable(strictness.Since(mark)),
+			"degraded mode still COLLECTS the finding; what must be empty is what the gate acts on")
 		assert.Equal(t, wantSrc, src)
 		assert.Equal(t, wantPath, path)
 	})

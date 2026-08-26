@@ -474,7 +474,8 @@ func TestPrepareAgentChat_ClaudeModelEmptyFailsLoud(t *testing.T) {
 		require.NoError(t, err)
 		defer p.Abort()
 		assert.Empty(t, rs.Model, "degraded mode launches anyway rather than fabricating a model")
-		assert.Empty(t, strictness.All(), "degraded mode records nothing (Fail is a no-op)")
+		assert.Empty(t, strictness.Actionable(strictness.All()),
+			"degraded mode still COLLECTS the finding; what must be empty is what the gate acts on")
 	})
 }
 

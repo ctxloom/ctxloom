@@ -214,7 +214,8 @@ func TestRecordWarningsTo_UnknownKeyDegradesToWarning(t *testing.T) {
 	}})
 
 	assert.Contains(t, buf.String(), "profilez", "degraded mode still prints the warning")
-	assert.Empty(t, strictness.All(), "degraded mode records no fatal finding")
+	assert.Empty(t, strictness.Actionable(strictness.All()),
+		"degraded mode still COLLECTS the finding; what must be empty is what the gate acts on")
 }
 
 func TestRecordWarningsTo_NoWarningsIsSilent(t *testing.T) {

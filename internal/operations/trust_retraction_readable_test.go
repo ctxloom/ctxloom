@@ -329,7 +329,7 @@ func TestContentGate_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 }
 
 // TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues pins the
-// documented escape hatch: `--degraded` (CTXLOOM_DEGRADED=1) records no
+// documented escape hatch: `--degraded` (CTXLOOM_DEGRADED=1) makes no
 // finding, so no choke owner aborts. The DENY is not relaxed — degraded mode
 // governs whether a fault is FATAL, never whether unreadable trust state may
 // be treated as trustworthy.
@@ -350,5 +350,6 @@ func TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues(t *testing
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision, "degraded mode governs FATALITY, never whether unreadable trust state may be trusted")
-	assert.Empty(t, strictness.Since(mark), "degraded mode records no finding (warn-and-continue)")
+	assert.Empty(t, strictness.Actionable(strictness.Since(mark)),
+		"degraded mode still COLLECTS the finding; what must be empty is what the gate acts on")
 }

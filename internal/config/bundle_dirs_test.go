@@ -91,7 +91,11 @@ func TestGetBundleDirs_LegacyRemoteArtifactsInCache_NoFinding(t *testing.T) {
 	assert.Empty(t, strictness.Since(mark))
 }
 
-func TestGetBundleDirs_AuthoredBundlesInCache_DegradedRecordsNothing(t *testing.T) {
+// TestGetBundleDirs_AuthoredBundlesInCache_DegradedIsNotActionable pins what
+// --degraded actually promises: it suppresses FATALITY, not RECORDING. The
+// finding is still collected, so a degraded run can answer "what did you
+// skip?"; what must be empty is the set the startup gate acts on.
+func TestGetBundleDirs_AuthoredBundlesInCache_DegradedIsNotActionable(t *testing.T) {
 	strictness.Reset()
 	strictness.SetDegraded(true)
 	t.Cleanup(func() {
@@ -106,5 +110,8 @@ func TestGetBundleDirs_AuthoredBundlesInCache_DegradedRecordsNothing(t *testing.
 	cfg := &Config{appPaths: []string{appDir}}
 	_ = cfg.GetBundleDirs()
 
-	assert.Empty(t, strictness.Since(mark))
+	assert.Empty(t, strictness.Actionable(strictness.Since(mark)),
+		"degraded mode still COLLECTS the finding; what must be empty is what the gate acts on")
+	assert.NotEmpty(t, strictness.Since(mark),
+		"the finding must still be RECORDED, or a degraded run cannot report what it skipped")
 }

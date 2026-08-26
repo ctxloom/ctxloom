@@ -26,6 +26,9 @@ func CapabilityLoss(cfg *config.Config, backend string, profileNames []string) [
 	if cfg == nil || backend == "" {
 		return nil
 	}
-	hooks := backends.AssembleManagedHooks(cfg, "", "", profileNames).Wire()
+	if cfg.ShouldSilenceUnsupported() {
+		return nil
+	}
+	hooks := backends.AssembleManagedHooks(cfg, "", "", profileNames).WireDeclared()
 	return backends.UncarriedSurfaces(backend, agent.SurfaceInputs{Hooks: hooks})
 }

@@ -481,3 +481,58 @@ func TestResultShape_DistinguishesEmptyFromDiscarded(t *testing.T) {
 		t.Fatalf("byte count missing: %q", body)
 	}
 }
+
+// TestReducePrompt_CarriesTheConfiguredBudget pins that the budget reaches the
+// MODEL. It is injected at runtime rather than written into the prompt file,
+// so a config value that never made it into the prompt would leave the reduce
+// pass with no size instruction at all -- and nothing else would notice.
+func TestReducePrompt_CarriesTheConfiguredBudget(t *testing.T) {
+	c := &Compactor{config: CompactionConfig{EssenceMaxChars: 7331}}
+
+	got := c.reducePrompt()
+
+	if !strings.Contains(got, "7331") {
+		t.Fatalf("configured budget absent from the reduce prompt: %q", truncateForSummary(got))
+	}
+	if !strings.Contains(got, "Open Items") {
+		t.Fatal("budget injection dropped the reduce instruction itself")
+	}
+}
+
+// TestNewCompactor_ClampsBudgetToTheHardCeiling pins that a target above
+// MaxEssenceChars is refused rather than honoured. Handing the model a target
+// larger than the ceiling Compact enforces recreates exactly the contradiction
+// the absolute budget was introduced to remove.
+func TestNewCompactor_ClampsBudgetToTheHardCeiling(t *testing.T) {
+	testsupport.Isolate(t)
+	c, err := NewCompactor(CompactionConfig{
+		BackendOverride: &mockBackend{history: &mockSessionHistory{}},
+		EssenceMaxChars: MaxEssenceChars * 4,
+		OutputDir:       t.TempDir(),
+		HarpName:        "clamp-under-test",
+	})
+	if err != nil {
+		t.Fatalf("NewCompactor: %v", err)
+	}
+	if c.config.EssenceMaxChars != MaxEssenceChars {
+		t.Fatalf("budget %d was not clamped to the %d ceiling",
+			c.config.EssenceMaxChars, MaxEssenceChars)
+	}
+}
+
+// TestNewCompactor_DefaultsTheBudget pins that an unset budget takes the shared
+// default rather than zero -- a zero would render "under 0 characters".
+func TestNewCompactor_DefaultsTheBudget(t *testing.T) {
+	testsupport.Isolate(t)
+	c, err := NewCompactor(CompactionConfig{
+		BackendOverride: &mockBackend{history: &mockSessionHistory{}},
+		OutputDir:       t.TempDir(),
+		HarpName:        "default-under-test",
+	})
+	if err != nil {
+		t.Fatalf("NewCompactor: %v", err)
+	}
+	if c.config.EssenceMaxChars != agent.DefaultEssenceChars {
+		t.Fatalf("unset budget = %d, want %d", c.config.EssenceMaxChars, agent.DefaultEssenceChars)
+	}
+}

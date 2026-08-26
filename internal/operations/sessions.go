@@ -5,10 +5,12 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -51,7 +53,56 @@ func isUnrecoverable(e sessions.Entry) bool {
 	if e.TranscriptPath == "" {
 		return false // pending/unbound: the session is still in progress
 	}
+	// AUTHORED CONTENT OUTLIVES THE TRANSCRIPT IT WAS WRITTEN BESIDE. A plan or
+	// a report under persist/ is something a person (or an agent on their
+	// behalf) WROTE; the vendor transcript is a log that vendor may prune on its
+	// own schedule. Judging recoverability on the log alone therefore reaps the
+	// irreplaceable half to reclaim the replaceable one — measured on this box
+	// as 22 indexed harps carrying plans with no transcript, every one of them
+	// one reap away.
+	//
+	// Checked LAST, so it costs a directory read only for an entry already bound
+	// to a transcript that is gone. Consulting the filesystem is inside
+	// Reconcile's predicate contract (Entry + filesystem, never the index).
+	if hasAuthoredPersistContent(e.HarpName) {
+		return false
+	}
 	return transcriptGone(e.TranscriptPath)
+}
+
+// hasAuthoredPersistContent reports whether the harp's persist/ directory holds
+// anything authored, as opposed to anything ctxloom wrote there itself.
+//
+// The test is a `.md` leaf, and the narrowness is deliberate. persist/ mixes the
+// two kinds: plans and reports (`<name>.plan.md`, `<name>.report.md`) are
+// authored and cannot be regenerated from anything, while transcript.jsonl,
+// context-metrics.jsonl, diagnostics.log and transcript.jsonl.lock are ctxloom's
+// own machine-written bookkeeping. A broader test — "persist/ is non-empty" —
+// would keep every session that ever merely RAN alive forever, which turns
+// pruning off rather than making it correct, and the ruling is explicit that
+// pruning stays.
+//
+// A missing or unreadable directory yields false: absence of evidence that a
+// human wrote something is not, on its own, a reason to keep a row, and the
+// caller has already exhausted every other recoverability signal by this point.
+func hasAuthoredPersistContent(harp string) bool {
+	if harp == "" {
+		return false
+	}
+	dir, err := paths.HarpPersistDir(harp)
+	if err != nil {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") {
+			return true
+		}
+	}
+	return false
 }
 
 // transcriptGone reports whether the transcript file is genuinely absent

@@ -330,3 +330,57 @@ func TestHarpForSession_ResolvesRotatedAwaySessionID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got, "an id the index never saw resolves to nothing")
 }
+
+// A plan or report under persist/ is authored content that nothing can
+// regenerate, and it must outlive the vendor transcript it happened to be
+// written beside. Measured on a real box: 22 indexed harps carried plans with no
+// transcript and were one reap away, because the predicate judged recoverability
+// on the log alone.
+//
+// Every arm redirects HOME to a temp dir. paths.HomeSessionsDir resolves through
+// os.UserHomeDir, so this exercises the real path-building code while never
+// reading or writing the user's actual ~/.ctxloom.
+func TestIsUnrecoverable_AuthoredPersistContentOutlivesAMissingTranscript(t *testing.T) {
+	seed := func(t *testing.T, harp string, persistFiles ...string) string {
+		t.Helper()
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		persist := filepath.Join(home, ".ctxloom", "sessions", harp, "persist")
+		require.NoError(t, os.MkdirAll(persist, 0o755))
+		for _, name := range persistFiles {
+			require.NoError(t, os.WriteFile(filepath.Join(persist, name), []byte("x\n"), 0o600))
+		}
+		// A transcript path that is BOUND but GONE — the only shape that reaches
+		// the new check, since an unbound entry is already treated as pending.
+		return filepath.Join(home, "vendor-transcript-that-was-pruned.jsonl")
+	}
+
+	t.Run("a plan keeps the session", func(t *testing.T) {
+		missing := seed(t, "tidy-plump-reeds", "v1-removal.plan.md")
+		assert.False(t, isUnrecoverable(sessions.Entry{HarpName: "tidy-plump-reeds", TranscriptPath: missing}),
+			"a session whose transcript the vendor pruned still holds a plan nobody can regenerate; reaping it to reclaim a replaceable log is the loss this predicate exists to prevent")
+	})
+
+	t.Run("a report keeps the session", func(t *testing.T) {
+		missing := seed(t, "brave-lucky-stone", "overnight.report.md")
+		assert.False(t, isUnrecoverable(sessions.Entry{HarpName: "brave-lucky-stone", TranscriptPath: missing}))
+	})
+
+	t.Run("ctxloom's own machine files do NOT keep it", func(t *testing.T) {
+		missing := seed(t, "muddy-plain-cider", "transcript.jsonl", "diagnostics.log", "context-metrics.jsonl")
+		assert.True(t, isUnrecoverable(sessions.Entry{HarpName: "muddy-plain-cider", TranscriptPath: missing}),
+			"persist/ is never empty for a session that merely RAN — keeping a row on machine-written logs alone would turn pruning off rather than making it correct, and the ruling is explicit that pruning stays")
+	})
+
+	t.Run("an empty persist dir does NOT keep it", func(t *testing.T) {
+		missing := seed(t, "silly-grand-manor")
+		assert.True(t, isUnrecoverable(sessions.Entry{HarpName: "silly-grand-manor", TranscriptPath: missing}))
+	})
+
+	t.Run("a purged row is never resurrected by its leftovers", func(t *testing.T) {
+		missing := seed(t, "royal-eager-vault", "v1-removal.plan.md")
+		purged := time.Now()
+		assert.False(t, isUnrecoverable(sessions.Entry{HarpName: "royal-eager-vault", TranscriptPath: missing, PurgedAt: &purged}),
+			"purge is a deliberate destruction and the row IS the record; the plan check must not be what decides this")
+	})
+}

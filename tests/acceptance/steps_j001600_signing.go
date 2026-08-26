@@ -63,6 +63,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -1182,72 +1183,17 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// The four facts are read off ONE entry, never gathered across the
-	// listing: an entry for the right principal in the wrong store, beside a
-	// different principal's entry in the right one, is exactly the collapse
-	// this scenario exists to catch. The rendered listing puts all four on one
-	// LINE, which is the same "one entry" rule spelled in prose.
-	//
-	// In a structured payload the fingerprint is not a field — it is derived
-	// from the key — so this reads the key back out and fingerprints it. That
-	// is the same claim the rendered line makes and a stronger one than
-	// matching its text: a listing carrying the WRONG key cannot produce
-	// Trent's fingerprint, however it chose to print itself.
+	// Both readings assert the same claim against the two output shapes; the
+	// rule each one enforces is stated where it is implemented.
 	ctx.Step(`^the listing names "([^"]*)" in the "([^"]*)" store, with Trent's fingerprint and the publish namespace$`, func(c context.Context, principal, store string) error {
 		w := worldFrom(c)
 		fp := j001600Of(w).signer.Fingerprint()
 		format := formatAskedFor(w)
 
 		if !format.Structured() {
-			out := w.env.LastOutput()
-			for _, line := range strings.Split(out, "\n") {
-				if !strings.Contains(line, principal) {
-					continue
-				}
-				if strings.Contains(line, store) && strings.Contains(line, fp) && strings.Contains(line, signing.NamespacePublish) {
-					return nil
-				}
-			}
-			return fmt.Errorf("no line of the %s listing names %q in the %q store with fingerprint %s and namespace %s; output was:\n%s",
-				format, principal, store, fp, signing.NamespacePublish, out)
+			return j001600RenderedListingNames(w, format, principal, store, fp)
 		}
-
-		doc, err := lastOutputStructured(w, format)
-		if err != nil {
-			return err
-		}
-		entries, ok := doc.([]any)
-		if !ok {
-			return fmt.Errorf("the %s listing is a %s, not the array of entries the signer listings emit; stdout:\n%s",
-				format, jsonKind(doc), w.env.LastStdout())
-		}
-		if len(entries) == 0 {
-			return fmt.Errorf("the %s listing is EMPTY, so it names nobody and %q cannot be in it; stdout:\n%s",
-				format, principal, w.env.LastStdout())
-		}
-		for _, e := range entries {
-			if got, err := jsonAtPath(e, "Source"); err != nil || !jsonScalarIs(got, store) {
-				continue
-			}
-			if !jsonArrayHas(e, "Entry.Principals", principal) {
-				continue
-			}
-			if !jsonArrayHas(e, "Entry.Namespaces", signing.NamespacePublish) {
-				continue
-			}
-			got, err := j001600ListedKeyFingerprint(e)
-			if err != nil {
-				return fmt.Errorf("the entry for %q in the %q store carries a key this assertion cannot read back: %v; stdout:\n%s",
-					principal, store, err, w.env.LastStdout())
-			}
-			if got != fp {
-				return fmt.Errorf("the entry for %q in the %q store carries fingerprint %s, want Trent's %s; stdout:\n%s",
-					principal, store, got, fp, w.env.LastStdout())
-			}
-			return nil
-		}
-		return fmt.Errorf("no entry of the %s listing names %q in the %q store with fingerprint %s and namespace %s; stdout:\n%s",
-			format, principal, store, fp, signing.NamespacePublish, w.env.LastStdout())
+		return j001600StructuredListingNames(w, format, principal, store, fp)
 	})
 
 	// --- Consumption: what actually reaches the assistant --------------------
@@ -1523,6 +1469,78 @@ func j001600MarkerFor(which string) (string, error) {
 	default:
 		return "", fmt.Errorf("no J001600 marker is defined for %q", which)
 	}
+}
+
+// j001600RenderedListingNames reads the four facts off ONE LINE of a rendered
+// listing. One line is the whole point: an entry for the right principal in the
+// wrong store, beside a different principal's entry in the right one, satisfies
+// four independent line-wide searches and is exactly the collapse this
+// assertion exists to catch.
+func j001600RenderedListingNames(w *World, format clifmt.Format, principal, store, fp string) error {
+	out := w.env.LastOutput()
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, principal) {
+			continue
+		}
+		if strings.Contains(line, store) && strings.Contains(line, fp) && strings.Contains(line, signing.NamespacePublish) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no line of the %s listing names %q in the %q store with fingerprint %s and namespace %s; output was:\n%s",
+		format, principal, store, fp, signing.NamespacePublish, out)
+}
+
+// j001600StructuredListingNames reads the same four facts off ONE ENTRY of a
+// structured listing — the payload's spelling of the one-line rule above.
+//
+// The fingerprint is not a field here: it is derived from the key, so this
+// reads the key back out and fingerprints it. That is a STRONGER claim than
+// matching rendered text, because a listing carrying the wrong key cannot
+// produce Trent's fingerprint however it chose to print itself.
+func j001600StructuredListingNames(w *World, format clifmt.Format, principal, store, fp string) error {
+	doc, err := lastOutputStructured(w, format)
+	if err != nil {
+		return err
+	}
+	entries, ok := doc.([]any)
+	if !ok {
+		return fmt.Errorf("the %s listing is a %s, not the array of entries the signer listings emit; stdout:\n%s",
+			format, jsonKind(doc), w.env.LastStdout())
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("the %s listing is EMPTY, so it names nobody and %q cannot be in it; stdout:\n%s",
+			format, principal, w.env.LastStdout())
+	}
+	for _, e := range entries {
+		if !j001600EntryMatches(e, principal, store) {
+			continue
+		}
+		got, err := j001600ListedKeyFingerprint(e)
+		if err != nil {
+			return fmt.Errorf("the entry for %q in the %q store carries a key this assertion cannot read back: %v; stdout:\n%s",
+				principal, store, err, w.env.LastStdout())
+		}
+		if got != fp {
+			return fmt.Errorf("the entry for %q in the %q store carries fingerprint %s, want Trent's %s; stdout:\n%s",
+				principal, store, got, fp, w.env.LastStdout())
+		}
+		return nil
+	}
+	return fmt.Errorf("no entry of the %s listing names %q in the %q store with fingerprint %s and namespace %s; stdout:\n%s",
+		format, principal, store, fp, signing.NamespacePublish, w.env.LastStdout())
+}
+
+// j001600EntryMatches reports whether ONE listing entry carries the store, the
+// principal and the publish namespace together. All three are read off the same
+// entry, never gathered across the listing.
+func j001600EntryMatches(entry any, principal, store string) bool {
+	if got, err := jsonAtPath(entry, "Source"); err != nil || !jsonScalarIs(got, store) {
+		return false
+	}
+	if !jsonArrayHas(entry, "Entry.Principals", principal) {
+		return false
+	}
+	return jsonArrayHas(entry, "Entry.Namespaces", signing.NamespacePublish)
 }
 
 // j001600ListedKeyFingerprint rebuilds the SSH public key a signer listing

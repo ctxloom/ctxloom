@@ -3,7 +3,9 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -295,5 +297,57 @@ func TestRepairResults_NoCandidatesMakesNoCall(t *testing.T) {
 	}
 	if mock.RunCalls != 0 {
 		t.Fatalf("made %d model calls with no candidates", mock.RunCalls)
+	}
+}
+
+// TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry drives ENOUGH
+// candidates to exceed distillConcurrency, so the pass actually runs in
+// parallel. The single-candidate tests above cannot exercise that: they spawn
+// one goroutine, so a race detector run over them proves nothing.
+//
+// Each recovery is keyed to its own entry, which is the property concurrency
+// can break -- a shared index, or a captured loop variable, would land every
+// finding on one entry and leave the rest holding excerpts.
+func TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry(t *testing.T) {
+	const candidates = distillConcurrency * 3
+
+	var entries []agent.SessionEntry
+	for i := 0; i < candidates; i++ {
+		cmd := fmt.Sprintf(`{"command":"go test ./pkg%d/..."}`, i)
+		entries = append(entries,
+			agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(cmd)},
+			agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolName: "Bash",
+				ToolOutput: fmt.Sprintf("PKG%d_MARKER%s", i, bigBody())},
+			agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"true"}`)},
+		)
+	}
+	sel := selectForDistill(entries)
+	if len(sel.Repairs) != candidates {
+		t.Fatalf("want %d repair candidates, got %d", candidates, len(sel.Repairs))
+	}
+
+	// Echo the pkg number back out of the prompt so each answer is distinct and
+	// traceable to the call that produced it.
+	pkgRE := regexp.MustCompile(`go test \./pkg(\d+)/`)
+	mock := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			m := pkgRE.FindStringSubmatch(req.GetPrompt().GetContent())
+			if m == nil {
+				return 0, errors.New("prompt did not carry the tool call")
+			}
+			_, _ = fmt.Fprintf(stdout, "FINDING_FOR_PKG%s", m[1])
+			return 0, nil
+		},
+	}
+	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+
+	if got := c.repairResults(context.Background(), sel); got != candidates {
+		t.Fatalf("recovered %d of %d", got, candidates)
+	}
+	for i, r := range sel.Repairs {
+		want := fmt.Sprintf("FINDING_FOR_PKG%d", i)
+		if body := sel.Entries[r.Index].ToolOutput; !strings.Contains(body, want) {
+			t.Fatalf("repair %d holds the wrong finding (%q missing): %q", i, want, body)
+		}
 	}
 }

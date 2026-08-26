@@ -184,9 +184,46 @@ fragments:
       the task to record what is now done and what remains, instead of
       leaving it whole and letting the next person redo the finished half.
 
+      ## Filing a task
+
+      ONE issue per task. A row carrying two questions gets one of them
+      answered and the other silently dropped; a row carrying a question AND
+      the work it gates cannot be closed without lying about one half. If you
+      are about to write "and also", stop and file two, each naming the other.
+
+      LOOK BEFORE YOU FILE. Search by AREA and by SYMPTOM, not just by the
+      title you have in mind — a task about your code is often named for the
+      thing it broke:
+
+          taskloom list --all --json | jq -r '.[]|select(.text|test("<symbol>"))|.harp_id'
+          taskloom list --term <symbol|path|error> --json
+          taskloom list --tag-query <area>
+
+      A duplicate is worse than a missing task: two rows describing one
+      problem drift apart, and whichever is read first looks complete.
+
+      WRITE IT ACTIONABLE COLD. The reader has no memory of the session that
+      filed it and cannot ask you. State what is wrong or wanted, HOW IT WAS
+      FOUND so they can reproduce it, and what would settle it. For a decision,
+      state the QUESTION and the options — not just the problem — and tag it
+      `human` so it is findable as one queue.
+
+      RECORD THE LOCATION WHILE YOU HAVE IT. Scouting and verifying is the only
+      moment `touches:` and `sig:` are free: the path and the symbol are already
+      in front of you. Filled in then, they cost nothing; recovered later, they
+      cost the same search twice. A task without them cannot tell a dispatcher
+      whether it collides with anything.
+
+      LINK RELATED WORK with `relates:<harp>`, on both rows. Prose that says
+      "see <harp>" is invisible to a query, so the connection exists only for
+      whoever happens to read that paragraph. A split, a root cause and its
+      symptom, a decision and the work it gates — link them, or the second one
+      gets solved twice.
+
       ## The tag axes, and what each one answers
 
-      Four independent axes. Conflating them is what makes a log unqueryable;
+      Independent axes, each answering a different question. Conflating them is
+      what makes a log unqueryable;
       the full rules live in `docs/task-tagging-standard.md`.
 
       - `triage:level=` — how bad is it if we ship without this, as an

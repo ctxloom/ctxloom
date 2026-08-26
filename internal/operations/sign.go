@@ -84,7 +84,7 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 		return SignTarget{}, errSignBuiltin(ref)
 	}
 	if trust.IsRetiredAskSpelling(ref) {
-		return SignTarget{}, fmt.Errorf("ctxloom sign: %w: %q — see `ctxloom sign --help`; "+
+		return SignTarget{}, fmt.Errorf("ctxloom bundle sign: %w: %q — see `ctxloom bundle sign --help`; "+
 			"re-run `ctxloom init` to migrate a project", errs.ErrRetiredRefSpelling, ref)
 	}
 
@@ -93,11 +93,11 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 		return SignTarget{BundleName: ref}, nil
 	}
 	if base == "" {
-		return SignTarget{}, fmt.Errorf("ctxloom sign: %q names no bundle before its #<kind>/<name> selector", ref)
+		return SignTarget{}, fmt.Errorf("ctxloom bundle sign: %q names no bundle before its #<kind>/<name> selector", ref)
 	}
 	kind, name, err := trust.ParseSelector(sel)
 	if err != nil {
-		return SignTarget{}, fmt.Errorf("ctxloom sign: invalid ref %q: %w", ref, err)
+		return SignTarget{}, fmt.Errorf("ctxloom bundle sign: invalid ref %q: %w", ref, err)
 	}
 	return SignTarget{BundleName: base, ItemNote: itemNote(kind, name)}, nil
 }
@@ -113,13 +113,13 @@ func itemNote(kind trust.ItemKind, name string) string {
 
 // errSignBuiltin refuses a builtin bundle, whatever spelling named it.
 func errSignBuiltin(ref string) error {
-	return fmt.Errorf("ctxloom sign: %q is a builtin bundle — builtins are never signed "+
+	return fmt.Errorf("ctxloom bundle sign: %q is a builtin bundle — builtins are never signed "+
 		"(signing bytes compiled into the binary that verifies them is circular)", ref)
 }
 
 // errSignRemote refuses a bundle this project does not author.
 func errSignRemote(ref string) error {
-	return fmt.Errorf("ctxloom sign: %q does not resolve to a bundle you author locally — "+
+	return fmt.Errorf("ctxloom bundle sign: %q does not resolve to a bundle you author locally — "+
 		"ctxloom cannot sign a remote bundle's tree from here; only that remote's own publisher can", ref)
 }
 
@@ -286,7 +286,7 @@ func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) 
 
 // ListLocalBundleNames returns every bundle name found in the project's
 // authored bundle directories (cfg.GetBundleDirs() — the committed
-// .ctxloom/content/bundles tree) — the set `ctxloom sign --all` signs. In a
+// .ctxloom/content/bundles tree) — the set `ctxloom bundle sign --all` signs. In a
 // publishing repo that set IS the repo's shipped content, which is the whole
 // point: the thing you publish must be the thing you can sign. Remote (seeded)
 // and builtin bundles are never included, nor is anything in the gitignored

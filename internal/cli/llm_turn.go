@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // runStartHandoffFile is the fixed name of the 0600 RunStart handoff dropped in
@@ -58,7 +57,7 @@ func runLLMTurn(cmd *cobra.Command, args []string) error {
 	// turn) — but a fatal-class FINDING (a corrupted/malformed
 	// config.yaml) is a different, stronger signal and still aborts unless
 	// --degraded, same as the other two process-owning entry points.
-	startupMark := strictness.Checkpoint()
+	gates := newPhaseGates(os.Stderr)
 
 	backendName := args[0]
 	backend := backends.Get(backendName)
@@ -88,7 +87,7 @@ func runLLMTurn(cmd *cobra.Command, args []string) error {
 	}
 	defer standup.teardown()
 
-	if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+	if ferr := gates.close(PhaseStartup); ferr != nil {
 		return ferr
 	}
 

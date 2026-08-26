@@ -209,7 +209,8 @@ func TestChainFor_OwnershipMismatch_FatalUnlessDegraded(t *testing.T) {
 		require.Len(t, chain, 1)
 		assert.IsType(t, None{}, chain[0],
 			"--degraded drops the container boundary; it does not authorize the OTHER ownership mode, which is the same silent substitution wearing a flag")
-		assert.Empty(t, strictness.All(), "the degrade is the accepted outcome, so no finding")
+		assert.NotEmpty(t, strictness.All(),
+			"the host degrade is the accepted OUTCOME; the finding is still recorded, it just aborts nothing")
 	})
 
 	t.Run("a MATCHING ownership still builds the container tier", func(t *testing.T) {

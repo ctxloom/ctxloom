@@ -166,6 +166,81 @@ agent's coordinator credential is readable by any other same-uid process
 actual boundary — see [Isolation](architecture/engines/isolation.md) and
 [the trust model](trust-model.md).
 
+## Symbol tools
+
+Symbol intelligence — go-to-definition, find-references, workspace symbol
+search — is not a property of the agent. It is a property of the CHECKOUT a
+language server rooted itself at, and a server roots once, at start, from the
+launching session's working directory.
+
+That single fact is why symbol tools are currently off rather than merely
+unconfigured, and it bites in a specific direction worth stating plainly:
+
+**A symbol tool that is rooted at the wrong checkout does not report an error.
+It reports that your symbol does not exist.** For a worktree-isolated agent
+this is the default discovery verb answering confidently and wrongly, and
+neither the agent nor its coordinator can tell from the answer.
+
+### What was measured
+
+Against Claude's own Go LSP plugin, with a canary symbol planted in a git
+worktree and absent from the main checkout:
+
+| Operation | Rooted at the launching checkout | Same repo, different worktree |
+|---|---|---|
+| workspace symbol search | resolves correctly | **empty result — silently wrong** |
+| hover / definition | full signature and docs | errors, naming the missing package metadata |
+
+The loud arm is survivable; a caller sees a failure. The silent arm is the
+hazard, because "no symbols found" and "that symbol does not exist" are the
+same response.
+
+The language server itself names the remedy in its diagnostic — a `go.work`
+spanning the other directory. Treat that as unmeasured: it is Go-specific, and
+a tracked `go.work` naming machine-specific worktree paths carries the same
+portability defect as any generated file that hard-codes one developer's
+absolute paths.
+
+Serena was evaluated for the same job and is deliberately UNLINKED for the same
+underlying reason. The rationale lives next to the decision, in the `serena`
+comments in the profiles under `.ctxloom/profiles/` — that is the authority,
+not this page.
+
+### Why a delegated child has none
+
+A ctxloom `agent_run` child is a separate session with its own engine process,
+and it is worth being precise about what it does and does not receive, because
+the two halves have different answers:
+
+- **MCP reaches it.** Its tools arrive over the runner-terminated ACP surface
+  rather than from a config file, so the absence of an `.mcp.json` on its argv
+  is not a gap.
+- **Settings do not.** Plugin enablement lives in settings, nothing passes a
+  settings path on the child's launch, and so no plugin — and therefore no
+  symbol tool — reaches it.
+
+This is an unwired seam rather than a limitation of the engine: ctxloom
+constructs that launch, and an agent already carries the profile(s) that would
+declare what it needs. Delivering it is `agent.SurfaceKind` work aimed at the
+delegated-child launch.
+
+Distinguish this from an engine's own IN-PROCESS subagent (Claude Code's task
+tool), which launches no MCP server and inherits its parent's connections. That
+one genuinely cannot be given its own correctly-rooted server, and it is why
+per-agent rooting cannot be fixed at that layer.
+
+### What to trust today
+
+On the `runtime` axis, a container is the only configuration where correct
+rooting is structural rather than incidental: the workspace is mounted at one
+path and there is no second checkout for a server to prefer. That guarantee is
+about ambiguity, not availability — the language server must still be present
+in the image, and its cost there is real enough to have been weighed and
+rejected once already.
+
+Until then, an agent working in an isolated workspace should treat a symbol
+tool's silence as unproven rather than as absence, and reach for text search.
+
 ## Sources
 
 - Claude Code: <https://code.claude.com/docs>

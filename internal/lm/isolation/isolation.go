@@ -661,8 +661,8 @@ func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID strin
 		// (strictness.Fail wraps clidiag.Warn), so a failed or denied container
 		// start can't be mistaken for a normal host run; in strict mode the choke
 		// owner additionally aborts on it before the unsandboxed engine launches,
-		// while --degraded records nothing and the chain falls back to the host as
-		// before. The runtime-unreachable reason is recorded earlier in chainFor;
+		// while --degraded records the finding but acts on none of it, and the chain
+		// falls back to the host as before. The runtime-unreachable reason is recorded earlier in chainFor;
 		// the handshake-timeout reason surfaces as a fatal SpawnClient error at the
 		// choke owner. The `continue` is unchanged — the chain still walks to None
 		// so a degraded run gets a workspace.

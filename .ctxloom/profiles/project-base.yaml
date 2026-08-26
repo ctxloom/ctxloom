@@ -10,15 +10,40 @@ description: 'Project-wide base: context every role working in this repo needs, 
 # coordinator, every code-review lens, the finder. Context that only one role
 # needs belongs in that role's own profile, not here.
 bundles:
+    # Writing discipline that binds every role, because every role writes
+    # comments, docs and config annotations. Its load-bearing rule: naming one
+    # thing from another creates a BINDING, and an UNCHECKED binding — prose,
+    # a comment, a doc — does not go red when it goes false. It keeps its
+    # authority while lying. Prefer no binding; if you must, make it checked.
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/core-practices
     # How ctxloom itself resolves configuration: home < project < ENV <
     # --config-set, the two override channels, and why a command's own flags
     # are deliberately NOT a config source.
     - ctxloom-project#fragments/config-hierarchy
+    # The launch posture: REFUSE when something is amiss and state the remedy,
+    # rather than quietly launching something lesser. `--degraded` lowers every
+    # finding to a warning and ALWAYS reaches a working LLM -- except where
+    # launching is itself the harm, which is the one thing degraded mode may
+    # not wave through. Here because it binds every role: the check that
+    # decides its own fatality, the brief that omits the remedy, and the test
+    # that pins only one of the two arms are the same defect at three layers.
+    - ctxloom-project#fragments/fail-loud-launch
     # A test passes when it is green AND a mutation to the code it names kills
     # it. Here because it binds every role: whoever writes the test, whoever
     # briefs the work, and whoever reviews it. An audit on 2026-08-04 found 25
     # assertions in this repo that were green and proved nothing.
     - ctxloom-project#fragments/green-is-not-passing
+    # Which command actually proves a change here, and how to read what it
+    # says: the real gate versus the one that only compiles, the exit codes
+    # that report success while telling you otherwise, and which mutation
+    # method can reach code driven through the CLI. Named by the close-out
+    # hook, which carries the checklist and leaves the why here.
+    - ctxloom-project#fragments/turn-gates
+    # State what a tool call is for before making it, and what its result
+    # told you afterwards. Not a style note: distillation reduces a tool
+    # result to its shape, so a finding nobody states is not recoverable from
+    # the essence — and an unstated one now costs an LLM call to reconstruct.
+    - ctxloom-project#fragments/tool-intent-and-finding
     # This project is a PROTOTYPE and is developed as one: delete and rebuild
     # rather than accommodate, own a red you did not cause, and reduce before
     # implementing. It belongs here rather than in one role's profile because
@@ -26,30 +51,3 @@ bundles:
     # implementer that files a task instead of fixing what it can, or waves a
     # failure through as pre-existing, is the same defect one layer down.
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/prototyping
-
-# THE CLOSE-OUT CONTRACT, as a hook rather than as prose.
-#
-# scripts/hooks/verify-and-track.sh hands the agent this project's end-of-turn
-# checklist — verify against a fresh build, gate on exit codes, kill a mutation
-# per changed test, update the task log, and update the documentation and
-# comments the change invalidated. An instruction competes for attention with
-# the task; a hook does not.
-#
-# It is declared HERE rather than in .claude/settings.local.json, where it used
-# to live, for the two reasons that made the local file a bad home: that file is
-# git-excluded, so the contract died on a clone and existed on exactly one
-# machine; and it is claude-code-only, so a codex or kiro session got no
-# close-out contract at all and nobody could tell.
-#
-# It rides `turn_end`, the unified event added for exactly this: once per TURN,
-# not once per session. session_end fires too late to act on and, on kiro, does
-# not fire at all.
-#
-# 15s: the script runs `git status`/`git diff --stat` and reads the task log; it
-# runs no build and no test suite of its own.
-hooks:
-    unified:
-        turn_end:
-            - command: scripts/hooks/verify-and-track.sh
-              type: command
-              timeout: 15

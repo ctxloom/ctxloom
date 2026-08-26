@@ -896,7 +896,8 @@ func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
 		strictness.SetDegraded(true)
 		c := setup(t)
 		require.NoError(t, c.ensureImage(context.Background()))
-		assert.Empty(t, strictness.All(), "--degraded records nothing and runs the stale image as before")
+		assert.NotEmpty(t, strictness.All(),
+			"--degraded keeps the finding (fatality is what it suppresses) and still runs the stale image")
 	})
 }
 
@@ -942,7 +943,8 @@ func TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded(t *testing.T) {
 		strictness.SetDegraded(true)
 		c := setup(t)
 		_ = c.ensureImage(context.Background())
-		assert.Empty(t, strictness.All())
+		assert.NotEmpty(t, strictness.All(),
+			"the fall-through is the accepted outcome; the finding is still recorded")
 	})
 }
 

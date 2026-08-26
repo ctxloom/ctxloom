@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/mcp"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // runMCPServerSDK is the cobra RunE for `ctxloom mcp serve`. The SDK's
@@ -31,9 +30,9 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 
 	// Fail-loudly gate: checkpoint before the boot sequence so every
 	// fatal-class finding it records is caught by the gate below.
-	startupMark := strictness.Checkpoint()
+	gates := newPhaseGates(os.Stderr)
 
 	return mcp.ServeStdio(ctx, cwd, func() error {
-		return failOnFindings(os.Stderr, startupMark)
+		return gates.close(PhaseStartup)
 	})
 }

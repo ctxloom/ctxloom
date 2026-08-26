@@ -359,6 +359,28 @@ survive a query.
 
 ---
 
+## Linking one task to another — `relates:`
+
+`relates:<harp-id>`, on BOTH rows. Repeatable.
+
+Prose that says "see `<harp>`" is invisible to a query: the connection exists
+only for whoever happens to read that paragraph, and the second row does not
+know it has a sibling at all. `relates:` makes the link findable from either
+end — `--tag-query 'relates:<harp>'`.
+
+Use it where two rows describe one situation from different sides: a task split
+in two, a root cause and the symptom filed against it, a decision and the work
+it gates, a premise correction and the ruling it suspends.
+
+It is deliberately NOT a dependency or an ordering. It says these belong
+together, nothing more. If one genuinely blocks another, say so in the body
+where you can explain what unblocks it — a tag cannot carry that.
+
+Unlike `touches:`/`sig:`, nothing recomputes this: a harp is a stable
+identifier, so the tag does not rot when code moves, but it also will not
+appear on its own. Add it when you file the second row, while you still
+remember the first.
+
 ## Four rulings the first tagging pass needed
 
 These came out of applying the standard to a real batch. Each is a case where

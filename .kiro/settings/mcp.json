@@ -5,7 +5,7 @@
         "mcp",
         "serve"
       ],
-      "command": "/home/babbitt/go/bin/ctxloom"
+      "command": "/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom"
     },
     "sequential-thinking": {
       "args": [
@@ -13,17 +13,6 @@
         "@modelcontextprotocol/server-sequential-thinking"
       ],
       "command": "npx"
-    },
-    "serena": {
-      "args": [
-        "start-mcp-server",
-        "--context",
-        "claude-code",
-        "--project-from-cwd",
-        "--open-web-dashboard",
-        "false"
-      ],
-      "command": "serena"
     },
     "taskloom": {
       "args": [

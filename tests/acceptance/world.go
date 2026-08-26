@@ -172,6 +172,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ002200Steps(ctx)
 	registerJ002200MatrixSteps(ctx)
 	registerJ002200StartGateSteps(ctx)
+	registerJ002200ContainerDiedSteps(ctx)
 	registerIsolationProbeSteps(ctx)
 	registerEngineMatrixSteps(ctx)
 	registerContextApproachSteps(ctx)

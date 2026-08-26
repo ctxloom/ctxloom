@@ -323,11 +323,12 @@ type runState struct {
 	// of killing the process mid-raw-mode. Set by withShutdownSignals.
 	ctx context.Context
 
-	// The two fail-loudly gate anchors. They TILE: postStartupMark is captured
-	// the instant gate 1 passes, so a finding recorded anywhere between the
-	// windows still aborts at gate 2 instead of falling into an ungated hole.
-	startupMark     strictness.Mark // runRun, before any startup choke fires
-	postStartupMark strictness.Mark // gateStartup, immediately after gate 1 passes
+	// The fail-loudly gates. Windows TILE by construction: phaseGates.close
+	// re-opens as it closes, so a finding recorded anywhere between two gates
+	// still aborts at the next one instead of falling into an ungated hole.
+	// The tiling is no longer a convention two comments describe; it is what
+	// closing a phase IS.
+	gates *phaseGates
 
 	cfg    *config.Config // loadConfig
 	prompt string         // resolvePrompt
@@ -431,9 +432,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// Fail-loudly gate: checkpoint before any startup choke fires, so
 		// every fatal finding collected across config load, sync, and
 		// assembly is caught at one place (gateStartup below) and the launch
-		// aborts with the full list. Degraded mode records nothing, so the
-		// gate is a no-op.
-		startupMark: strictness.Checkpoint(),
+		// aborts with the full list. Degraded mode still RECORDS, but the gate
+		// acts only on a NonDegradable finding there.
+		gates: newPhaseGates(os.Stderr),
 	}
 
 	if err := st.validateFlags(); err != nil {
@@ -523,7 +524,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// aborts (exit 3) before an UNSANDBOXED engine is spawned — unless
 	// --degraded, which records nothing and proceeds on the host per the
 	// degrade chain.
-	if ferr := failOnFindings(os.Stderr, st.postStartupMark); ferr != nil {
+	if ferr := st.gates.close(PhaseWorkspace); ferr != nil {
 		return ferr
 	}
 
@@ -824,11 +825,9 @@ func (st *runState) gateStartup() error {
 	// key the user didn't configure is a wrong-context session's cousin).
 	validateTerminalUIConfig(st.cfg)
 
-	if ferr := failOnFindings(os.Stderr, st.startupMark); ferr != nil {
-		return ferr
-	}
-	st.postStartupMark = strictness.Checkpoint()
-	return nil
+	// close() opens the workspace window as it closes the startup one, so the
+	// two abut with no ungated instant between them.
+	return st.gates.close(PhaseStartup)
 }
 
 // prepareRequestInputs resolves everything the RunStart payload is built from
@@ -1442,6 +1441,14 @@ func (st *runState) startTransport() error {
 	switch runTransport(st.policy.Name(), st.mode) {
 	case armDockerExecInteractive:
 		handle, launcher, lerr := startContainerInteractive(st.ctx, st.policy, st.ws, st.req, st.backendName, st.label, runVerbosity, st.activeHarp, st.runnerSpawnEnv)
+		// Gate BEFORE the plain error return: a container that never reached
+		// running state records a NonDegradable ClassIsolation finding, and
+		// this is the window that turns it into exit 3. Without a gate here it
+		// would be recorded and checked by nothing — the run would warn and
+		// exit 1, which is the failure this whole path exists to fix.
+		if ferr := st.gates.close(PhaseTransportStart); ferr != nil {
+			return ferr
+		}
 		if lerr != nil {
 			return fmt.Errorf("failed to start container interactive turn: %w", lerr)
 		}
@@ -1477,6 +1484,13 @@ func (st *runState) startTransport() error {
 		// sees it, leaking the running container.
 		st.runnerHandle = handle
 		st.ownedRun = sess
+		// The await itself lives inside startContainerOwnedRun's starter —
+		// after StartRunner, before StartOwnedRun waits for a dial-home the
+		// container can never make. This is only the gate that turns the
+		// finding it records into exit 3.
+		if ferr := st.gates.close(PhaseTransportStart); ferr != nil {
+			return ferr
+		}
 		if oerr != nil {
 			return fmt.Errorf("failed to start container oneshot run: %w", oerr)
 		}
@@ -1871,6 +1885,18 @@ func startContainerInteractive(ctx context.Context, policy isolation.Policy, ws 
 		if handle.Kill != nil {
 			handle.Kill()
 		}
+		// NON-DEGRADABLE, and this is the one isolation raise site in the
+		// product that is. Every other one reports a boundary that could not be
+		// BUILT, whose sanctioned degraded outcome is a warned host fallback —
+		// their fix-its say so, offering --degraded by name. This one reports a
+		// boundary that was requested, accepted, and then died: falling back
+		// now would run on the host a session that was already told it had a
+		// container. The launch IS the exposure, so it must not launch in
+		// either mode, and the remedy deliberately does NOT offer --degraded
+		// because that escape hatch would not work.
+		strictness.FailAlways(strictness.ClassIsolation,
+			"check the container runtime and the agent image can start (`docker logs `/`podman logs ` the named container); this run cannot fall back to the host without silently dropping the boundary it was given",
+			"container %q was started but never reached running state, so the isolation it promised does not exist: %v", handle.Name, rerr)
 		return nil, nil, rerr
 	}
 

@@ -179,6 +179,37 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       |            | aborts at the container START gate  |
       | --degraded | runs on the host                    |
 
+  # THE BOUNDARY THAT WAS ACCEPTED AND THEN LOST, which is a different fault
+  # from every gate above and the only one that is NOT degradable.
+  #
+  # The rows above cover a container that could never be BUILT or SELECTED:
+  # nothing was promised, so --degraded warns and lands on the host, and that
+  # is the sanctioned outcome. Here the runtime is reachable, the ownership
+  # matches, the image is present, and the daemon ACCEPTS the run — then the
+  # container never reaches running. The session was already told it had a
+  # boundary. Falling back now would run on the host something that believes
+  # it is sandboxed, so the launch itself is the harm and --degraded must NOT
+  # rescue it: both rows below expect exit 3.
+  #
+  # This is also the only row that exercises the transport-start gate. The
+  # finding is raised in startContainerInteractive and gated in startTransport,
+  # and DELETING THAT GATE leaves every unit test green — the finding is simply
+  # recorded and checked by nothing, so the run warns and exits 1. That is the
+  # characteristic defect of this codebase (a green-looking no-op) reproduced
+  # inside the fix meant to prevent it, and this row is what kills it.
+  #
+  # The engine-never-ran assertion is not decoration: an abort that still
+  # launched the engine would satisfy an exit-code check alone while doing the
+  # exact thing the finding claims to have prevented.
+  Scenario Outline: A container accepted by the daemon that never runs is fatal in BOTH modes
+    When Alice runs a container-bound agent whose container dies at the daemon, with flags "<flags>"
+    Then the run aborts because the container never reached running state
+
+    Examples:
+      | flags      |
+      |            |
+      | --degraded |
+
   # ===========================================================================
   # THE CONTAINER CREDENTIAL AXIS — real-home mount, not a copy (unripe-juiciness).
   #

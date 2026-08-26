@@ -89,30 +89,76 @@ func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *c
 	return cfg
 }
 
-// failOnFindings is the strict startup gate for process-owning entry points
-// (`ctxloom run`, `ctxloom mcp`): when strict mode collected fatal findings
-// since mark, it prints ALL of them — never just the first — each with its
-// fix-it, plus the --degraded escape hatch, and returns an ExitError carrying
-// the distinct findings exit code (3). Returns nil in degraded mode or when
-// nothing was collected.
-func failOnFindings(w io.Writer, mark strictness.Mark) error {
-	msg := formatFindings(strictness.Since(mark))
+// Phase names a window of a process's lifecycle that findings are gated
+// against. It appears in the abort header, so a caller reading "aborting
+// container start" is told WHICH phase refused rather than being sent to
+// startup for a fault that happened long after it.
+type Phase string
+
+const (
+	PhaseStartup        Phase = "startup"
+	PhaseWorkspace      Phase = "workspace"
+	PhaseTransportStart Phase = "transport start"
+)
+
+// phaseGates tiles a process's fatality windows. close() reports the phase's
+// findings, returns the abort error if any survived, and OPENS THE NEXT WINDOW
+// in the same call — so a finding recorded anywhere between two gates is
+// caught, and no caller can forget to re-open.
+//
+// That last property is the whole reason this type exists. run previously
+// achieved the same tiling by convention: gate 1 captured the next mark by
+// hand immediately after passing, and two comments explained that the windows
+// must abut. Nothing enforced it, and a third window added the same way would
+// have been a fourth copy of a rule with no owner. Here the re-open is not
+// something a caller does; it is what closing IS.
+//
+// Single-window entry points use it too, calling close() exactly once. They
+// cannot violate the tiling property, but routing them through the same type
+// means there is ONE gate mechanism in the product rather than a tiling one
+// and a single-shot one that must be kept agreeing.
+type phaseGates struct {
+	w    io.Writer
+	mark strictness.Mark
+}
+
+// newPhaseGates opens the first window. Everything recorded from here until
+// the first close() belongs to that phase.
+func newPhaseGates(w io.Writer) *phaseGates {
+	return &phaseGates{w: w, mark: strictness.Checkpoint()}
+}
+
+// close ends the current window, reporting and aborting on anything actionable
+// it collected, then opens the next. The next window is opened even when this
+// one aborts: the caller may ignore the error (a degraded run does), and the
+// following phase must still be gated rather than silently unwatched.
+func (g *phaseGates) close(p Phase) error {
+	found := strictness.Since(g.mark)
+	g.mark = strictness.Checkpoint()
+	msg := formatFindings(p, found)
 	if msg == "" {
 		return nil
 	}
-	fmt.Fprintln(w, msg)
+	fmt.Fprintln(g.w, msg)
 	return &ExitError{Code: exitCodeFatalFindings}
 }
 
 // formatFindings renders the collected findings block: a header naming the
-// count and the escape hatch, then one "[class] message" + "fix:" pair per
-// finding. Empty when there is nothing to report or the process is degraded.
-func formatFindings(findings []strictness.Finding) string {
-	if len(findings) == 0 || strictness.Degraded() {
+// PHASE, the count and the escape hatch, then one "[class] message" + "fix:"
+// pair per finding. Empty when nothing is actionable in the current mode —
+// which under --degraded means everything except a NonDegradable finding.
+//
+// The header keeps the stable "ctxloom: aborting " prefix ahead of the phase
+// so a test asking "did this abort at all" can match the prefix and catch
+// every phase. Pinning such a check to one phase's wording is how a negative
+// assertion silently stops catching the phases added after it.
+func formatFindings(p Phase, findings []strictness.Finding) string {
+	findings = strictness.Actionable(findings)
+	if len(findings) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "ctxloom: aborting startup: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:", len(findings))
+	fmt.Fprintf(&b, "ctxloom: aborting %s: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:", p, len(findings))
 	for _, f := range findings {
 		fmt.Fprintf(&b, "\n  - [%s] %s", f.Class, f.Message)
 		if f.FixIt != "" {

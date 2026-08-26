@@ -137,11 +137,14 @@ func TestDockerIsRootless_ProbeErrorRoutesAFinding(t *testing.T) {
 	assert.False(t, dockerIsRootless())
 	assert.Empty(t, strictness.All())
 
-	// Degraded: the assumption is warned about, never collected.
+	// Degraded: the assumption is warned about AND collected — degraded
+	// suppresses fatality, not recording, so the run can still account for the
+	// boundary it assumed rather than verified.
+	strictness.Reset()
 	strictness.SetDegraded(true)
 	dockerSecurityOptions = func() (string, error) { return "", errors.New("probe timed out") }
 	assert.False(t, dockerIsRootless())
-	assert.Empty(t, strictness.All())
+	assert.NotEmpty(t, strictness.All())
 }
 
 // TestNewDockerRuntime_ProbesOnlyReachableDaemons: with no reachable docker

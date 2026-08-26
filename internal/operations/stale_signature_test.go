@@ -69,7 +69,7 @@ func TestExportBundle_StaleSignature_Refuses(t *testing.T) {
 	_, err := ExportBundle(context.Background(), cfg, ExportBundleRequest{Name: "seed", DestDir: "/out", FS: fs})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no longer covers")
-	assert.Contains(t, err.Error(), "ctxloom sign seed")
+	assert.Contains(t, err.Error(), "ctxloom bundle sign seed")
 
 	sigExists, _ := afero.Exists(fs, "/out/seed.yaml.sig")
 	assert.False(t, sigExists, "a stale signature must never be published")

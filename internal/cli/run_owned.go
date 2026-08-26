@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Phase 2a-B host side: a TOP-LEVEL container run that is a
@@ -79,6 +80,22 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 			return nil, err
 		}
 		handle = h
+		// Await the container HERE, inside the starter, not after
+		// StartOwnedRun returns. StartRunner returning is not the container
+		// running, and the very next thing StartOwnedRun does is wait for the
+		// runner to dial home — which a container that never came up can never
+		// do, so a check placed after the call would never be reached. The
+		// interactive arm learned this; the oneshot arm was left unguarded,
+		// which is the arm every CI and acceptance run takes.
+		//
+		// Kill is returned ALONGSIDE the error so the caller still registers
+		// teardown: a container that failed to reach running may still exist.
+		if rerr := isolation.AwaitContainerRunning(operations.RuntimeForPolicy(spec.Policy), h); rerr != nil {
+			strictness.FailAlways(strictness.ClassIsolation,
+				"check the container runtime and the agent image can start (`docker logs `/`podman logs ` the named container); this run cannot fall back to the host without silently dropping the boundary it was given",
+				"container %q was started but never reached running state, so the isolation it promised does not exist: %v", h.Name, rerr)
+			return h.Kill, rerr
+		}
 		return h.Kill, nil
 	}
 

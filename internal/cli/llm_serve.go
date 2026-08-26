@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 var llmServeCmd = &cobra.Command{
@@ -33,7 +32,7 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 	// entry point below instead of silently serving an empty/partial
 	// context. Degraded mode (--degraded / CTXLOOM_DEGRADED=1) is the
 	// escape hatch, same as `ctxloom run`/`ctxloom mcp`.
-	startupMark := strictness.Checkpoint()
+	gates := newPhaseGates(os.Stderr)
 
 	backendName := args[0]
 
@@ -51,7 +50,7 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+	if ferr := gates.close(PhaseStartup); ferr != nil {
 		return ferr
 	}
 

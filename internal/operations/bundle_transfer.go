@@ -128,7 +128,7 @@ func staleSignatureError(bundlePath string, err error) error {
 	base := filepath.Base(bundlePath)
 	name := strings.TrimSuffix(base, ".yaml")
 	return fmt.Errorf("%s no longer covers %s — the bundle changed after it was signed; "+
-		"re-sign with `ctxloom sign %s`, or delete %s to publish it unsigned "+
+		"re-sign with `ctxloom bundle sign %s`, or delete %s to publish it unsigned "+
 		"(publishing this pair would make every consumer see tampering): %w",
 		base+sigSuffix, base, name, base+sigSuffix, err)
 }

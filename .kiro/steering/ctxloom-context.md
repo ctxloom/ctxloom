@@ -2,6 +2,114 @@
 inclusion: always
 ---
 
+# Documentation Guidelines
+
+Ask first before creating any *.md file, planning/strategy document, tracking file, or meta-documentation (exception: README updates when adding features). No progress notes in code ("refactored X to Y", changelog-style comments) and no change history in files ("Updated on...", "Previously this was..."); history belongs in version control and commit messages.
+
+---
+
+# Do not build bindings you cannot check
+
+Naming one thing from another creates a BINDING: a coupling that has to be
+maintained for as long as both sides exist. Some bindings earn that. Most do
+not, and the ones that do the most damage are the ones nothing enforces.
+
+The decisive question is not "is this true?" — you would not write it otherwise.
+It is: **when this stops being true, what catches it?**
+
+    CHECKED    a symbol reference in code; a generated table; an asserted count.
+               Breaks loudly, at the moment it breaks, in front of whoever
+               broke it.
+
+    UNCHECKED  prose, comments, docs, READMEs, config annotations. Nothing
+               compiles them and no test reads them. When they go false they
+               do not go red — they quietly start lying, and they keep their
+               authority while doing it.
+
+An unchecked binding needs a very good reason. The default is not to create one.
+
+## Prefer no binding at all
+
+Most of the time the coupling is unnecessary, because the fact is DERIVABLE.
+Say what the relationship IS, not what the contents currently ARE:
+
+- "the skill(s) it carries" — not their names
+- "its members", "the formats it covers", "each leg in turn"
+- plural-agnostic, count-agnostic, role-descriptive
+
+This costs nothing to write, and it cannot rot. A reader who wants the list can
+produce it in seconds; they cannot recover a stale list without doing exactly
+that anyway. Restating derivable state is a maintenance contract paid forever
+to save someone a lookup they can do for free.
+
+## Stress it before you write it
+
+If you are about to name something specific, imagine the target changing in the
+three ordinary ways:
+
+- it **gains** a member
+- it **loses** one
+- it is **renamed**
+
+Does your sentence go false? If yes, and nothing would catch it, you are writing
+a liability. Rephrase it, or do not write it.
+
+## The shapes this takes
+
+Every one of these was true when written. That is the point: nothing separates a
+stale one from a live one except going and checking — the work the binding was
+supposed to save.
+
+- naming the members of something: a member is added, the list is now wrong
+- a census or line count: drifts on the next commit
+- a listed set of supported formats or backends: one is dropped
+- "unlike X, this one ..." — X is deleted, and the sentence now contrasts with
+  nothing
+- "see X, the live example" — X is deleted
+- a rule hand-copied into several places: one copy is retired and the others
+  keep asserting it. This is the expensive one. A retired rule left copies
+  behind, one of which named a formula as the entire defense against an attack
+  — so an auditor checking that defense would have verified a rule the code had
+  stopped using, and concluded it held.
+
+## If you must bind, make it checked
+
+In descending order of preference:
+
+1. **Generate it.** A table produced from the source cannot drift.
+2. **Assert it.** A test that fails when the count or the set changes turns an
+   unchecked binding into a checked one.
+3. **Cite by SYMBOL** — a function, type, or exact string someone can grep.
+   A stale symbol fails loudly the moment anyone looks; a stale line number
+   silently points at unrelated code and gets believed.
+
+"I will keep it updated" is not a mechanism. It is the absence of one, and it
+has never held.
+
+## What DOES earn an unchecked binding
+
+Three things, and they are all judgment a reader cannot derive:
+
+1. **A WHY.** A rationale, a constraint, a rejected alternative, a trap. "This
+   is a local copy, and that is not a preference: the remote fetcher resolves a
+   ref to a single file, so a directory-form bundle cannot be fetched at all."
+   Nobody can compute that. It is the entire value of the comment.
+2. **An invariant that genuinely depends on that exact thing** — then cite it by
+   symbol, per above.
+3. **A pointer somebody could not find alone**: where the authority lives, which
+   of two similar mechanisms governs, what to search for.
+
+If what you are writing is none of these, it is decoration with a maintenance
+bill attached.
+
+## When you find one already stale, delete it
+
+Prefer deleting an unmaintained list or census over correcting it. Correcting
+one entry makes every remaining entry look verified, which is worse than the
+honest signal that nobody is maintaining any of it.
+
+---
+
 # Configuration precedence
 
 Every binary in the ctxloom family (ctxloom, taskloom, ltk) resolves
@@ -56,6 +164,371 @@ back to whatever the shell handed over, while `--config-set` preserves
 the typed case. That is why `--config-set` can mint a brand-new
 case-sensitive key (`agents.MyCoder.runtime=container`,
 `llm.configs.big.env.GEMINI_API_KEY=...`) and env fundamentally cannot.
+
+---
+
+# Refuse when something is amiss; `--degraded` is the way through
+
+**The default posture is REFUSE, not proceed.** When ctxloom finds something
+wrong at startup — broken config, an unresolvable profile or bundle, a failed
+hook apply, an invalid document — it ABORTS the launch and says what is wrong
+and how to fix it. It does not quietly launch something lesser.
+
+This is a deliberate pivot away from always-launch. Always-launch produced
+CONFIDENT WRONG WORK: a bad or missing agent name silently degraded to
+`host`+`none`, discarding the runtime and permissions that were asked for, with
+only a stderr warning nobody read. The agent then ran unisolated while everyone
+believed otherwise. A launch that succeeds without doing the thing is worse
+than one that refuses, because nothing downstream can tell the difference.
+
+## `--degraded` always reaches a working LLM
+
+`--degraded` (and `CTXLOOM_DEGRADED=1`; the flag wins) lowers every finding
+from an error to a WARNING and continues. That is a promise, not a
+best-effort: **degraded mode always gets the user into a working LLM.** If a
+degraded run can still refuse to launch for an ordinary finding, degraded mode
+is broken.
+
+So the two modes divide cleanly:
+
+    default      refuse, and explain the remedy
+    --degraded   warn, and launch anyway
+
+## The one exception: launching is itself the danger
+
+Security findings where starting the LLM is the harm do NOT yield to
+`--degraded`. A breached trust or isolation boundary — credentials reachable
+that should not be, an ownership mismatch on the runtime axis, unverifiable
+content admitted to an execution surface — stays fatal in both modes.
+
+The test is not "is this serious?" but **"does launching cause the harm?"** A
+profile that fails to parse is serious and still degradable: the user gets a
+working LLM with less context. A container runtime that cannot provide the
+isolation it claimed is not degradable, because the launch IS the exposure.
+`--degraded` falls back to the HOST, never to a different ownership mode.
+
+## How to write one of these, mechanically
+
+Report the finding; let `strictness` decide its fatality:
+
+    strictness.FailOnce(strictness.ClassConfig, "<the remedy>", ...)
+
+`internal/profiles/profiles.go` already does exactly this for the
+empty-profile cases. `strictness` owns the fatal-vs-warn decision centrally and
+`SetDegraded` flips it process-wide, which is what makes the guarantee above
+hold everywhere at once.
+
+Therefore, at the site of a check:
+
+- **Do NOT branch on degraded state.** No `if strictness.Degraded()`, no
+  `strict bool` parameter, no per-call fatality argument. A check that decides
+  its own fatality is a second policy that will disagree with the first.
+- **Do state the REMEDY, not just the complaint.** The refusal is the entire
+  user interface for the failure. "invalid profile" is a dead end; "give the
+  profile something to select (parents, bundles, fragments, select_tags) or
+  delete it" is error correction. Write the sentence that ends the problem.
+- **Do make sure the remedy is followable.** A message advising an action the
+  caller cannot take — telling them to drop a flag they never passed — is
+  proof the check is firing outside its own design premise. Fix the premise,
+  not the wording.
+- **Report every problem, not the first.** `FailOnce` records and the startup
+  gate decides; a user fixing four things one launch at a time is paying for
+  our convenience.
+
+## Testing it
+
+Pin BOTH arms, and mutate each. The same bad input must REFUSE by default
+(nonzero exit, nothing launched) and WARN-then-launch under `--degraded`. A
+test covering only the refusal lets degraded mode silently start refusing too,
+which breaks the guarantee for every existing user; a test covering only the
+degraded arm lets the refusal rot into a no-op. Assert the EFFECT — exit status
+and whether an engine actually started — never the message text alone.
+
+---
+
+# A test does not pass until a mutation dies
+
+A test is not passing because it is green. It is passing when it is
+green AND a mutation to the production code it names makes it FAIL.
+Green alone means the test ran. It does not mean the test looked.
+
+Apply it in both directions:
+
+- **Writing a test**: after it goes green, break the behaviour it
+  names — in `internal/` or `cmd/`, not in the test — and confirm it
+  goes red. Revert. If nothing you can break makes it fail, you have
+  written a tautology, and it is worse than no test because it
+  reports coverage you do not have.
+- **Trusting a test**: a suite's green tells you nothing about a
+  specific claim until someone has killed a mutation against it.
+  "It passes" is not evidence. "It failed when I broke X" is.
+
+## Why this is a rule here and not a preference
+
+An audit of this project's acceptance suite on 2026-08-04 read 380
+scenarios, ran 41 mutations, and found 25 assertions that passed
+while proving nothing. Not edge cases — one asserted that the output
+matched the regex `.` (any one character). Others asserted an
+argument the command had echoed back, or a MIME type that is a
+static field on the envelope, or the ABSENCE of something the
+fixture never created. Several were satisfied by the subject never
+running at all: a scenario titled "the same engines proceed" passed
+when the engine never launched, and one titled "a per-item
+acceptance and a rejection ARE RECORDED" passed with the record
+store neutered to write nothing.
+
+Every one of those had been green for as long as it had existed.
+
+## The shapes that produce a false green
+
+- asserting exit 0 without asserting the EFFECT (this project's
+  characteristic silent no-op: exit 0, a success message, zero bytes)
+- asserting a name, a header, or an argument the command echoes
+- asserting a file exists without asserting its content or mode
+- asserting the tool's REPORT of what it did instead of the state it
+  changed
+- absence-satisfies-absence: asserting something is missing in a
+  fixture where it was never present
+- a substring so generic it survives gutting the thing under test
+
+## Where the bar is already met, and worth copying
+
+`tests/acceptance/steps_skill.go` compares bytes with an explicit
+zero-length guard — "comparing two empty reads is trivially
+identical" — which is the line that stops a byte comparison from
+being vacuous. `j002600` asserts an exact file COUNT rather than
+existence. `run.feature`'s recorded-input assertion reads what the
+engine actually received rather than what the CLI said it sent.
+
+## Test against a FRESH BUILD, never the installed binary
+
+Any manual or agent-driven verification runs against a binary built
+from the tree under test — `just build`, then `./ctxloom` — never
+`ctxloom` from `$PATH`.
+
+The installed binary is a different program. On 2026-08-05 a check
+of whether a newly added fragment was delivered came back "missing";
+the installed `ctxloom` was `v0.7.0-cefeb77-20260728T201548-dirty`,
+eight days and ~150 commits behind the tree, and dirty on top. Built
+from source, the same check passed. The measurement was wrong, not
+the code — and a wrong measurement that agrees with your fear is the
+expensive kind.
+
+`just test-acceptance` already does this correctly: it depends on
+`build` and drives the binary it just produced. The exposure is
+hand-run commands and agent verification, which reach for `$PATH`
+by default.
+
+The `$PATH` binary's currency may NOT be assumed in either direction. It
+may be current, stale, or dirty, and you cannot tell by looking -- which is
+exactly why verification drives the binary `just build` just produced rather
+than reasoning about which program answered. A stale binary plus an
+exit-code check agrees with anything.
+
+---
+
+# Which gate is real in this repo, and how to read one
+
+Companion to green-is-not-passing, which says a test is not passing until a
+mutation dies. This says which command actually proves that here, and how to
+read what it tells you.
+
+## The gates, and what each one is worth
+
+    just build                    ~4s
+    just lint                    ~19s
+    just test-arch               ~20s   the architectural class gates, -tags arch
+    just test-integration        ~30s
+    just test-acceptance        ~510s   THE REAL GATE
+    just test-acceptance-focus features/<f>.feature   ~10-17s, one feature
+
+`just test` only COMPILES the integration suite. It is not the gate, and a green
+one proves far less than it looks like it does.
+
+Iterate on the narrow target; run `test-acceptance` before claiming anything is
+done. When you need a single acceptance scenario — hand-mutating one, say —
+`test-acceptance-focus` runs a whole feature in seconds, so acceptance mutation
+is cheap and there is no excuse for skipping it.
+
+## Read the EXIT CODE — and know where that is not enough
+
+Gate on the exit status, never on grepping output for "PASS" or "ok". Then know
+the three inversions, each of which reports success while telling you otherwise:
+
+- `gofmt -l` LISTS unformatted files and exits 0. Check whether the OUTPUT is
+  empty, not the status.
+- `go test -run <pattern>` whose pattern matches NOTHING exits 0 having run no
+  test. Confirm it actually ran.
+- a pipeline reports the LAST command's status, so `cmd | tail; echo $?` gives
+  tail's exit. Redirect to a file and check directly, or use PIPESTATUS.
+
+The shape to watch for throughout: exit 0, a success message, and zero bytes
+written.
+
+## Which mutation method reaches which code
+
+gremlins is COVERAGE-GATED: it mutates source and runs `go test`. The acceptance
+suite and the testenv integration tests exec a PRE-BUILT binary, and Go coverage
+does not cross an exec boundary — so those mutants report NOT COVERED and are
+never attempted. There, HAND mutation is the only real method, not a poor
+substitute.
+
+    unit-testable code      just test-mutation-diff <BASE>
+    anything via the CLI    hand mutation
+
+HAND MUTATION MUST REBUILD. Those suites exec a previously built binary and
+`just test-pkg` does not rebuild. Edit production code, run `just build`, THEN
+the gate. Skip the build and the mutation survives against the old binary — you
+will call a good test vacuous, or a vacuous one fine.
+
+When a mutation SURVIVES, suspect you aimed at the wrong layer before concluding
+the test is vacuous. The tell is that the mutated code is demonstrably live
+elsewhere: if breaking it reddens some other package's tests, the code is
+reachable, just not from the path under test. Find the reachable gate and kill
+that instead.
+
+## A fresh worktree cannot commit until it is built
+
+`just build` first, and make sure `bin/archlint` exists there. Without a built
+tree the pre-commit hook fails with an `archvocabulary: failed prerequisites`
+cascade that looks like a broken analyzer and is not.
+
+`test-pkg` takes a package PATTERN — `./internal/cli`, with the leading `./`.
+Without it you get a misleading "is not in std" error.
+
+---
+
+# Say what you are looking for, and what you found
+
+Two short statements per tool call. They are not narration — they are the only
+part of a tool interaction that survives distillation.
+
+- BEFORE a tool call: what you are trying to learn or change.
+- AFTER the result: what you actually learned — including "nothing" and "not
+  what I expected", which are results.
+
+## Why this is a rule and not a style preference
+
+A session transcript is distilled into an essence that a later session resumes
+from, and tool RESULTS do not survive that. They are reduced to their shape —
+`[2,431 bytes, 47 lines]` — because a truncated fragment of a grep is neither
+the information nor a summary of it, and the content is re-derivable by asking
+again.
+
+What is NOT re-derivable is what you were trying to find out, and what the
+answer changed. Omit it and the essence records that a command ran and how many
+lines it printed, with the reasoning gone.
+
+Measured on this project's own transcripts: tool traffic is 50-69% of a
+session. Bash already enforces the first half — `description` is a required
+field, at 100% coverage across 1,286 calls. The second half is stated after
+12% of tool results. That gap is the entire cost.
+
+## What this looks like
+
+Weak: "Let me check the config."
+Strong: "Checking whether the byte cap applies per-argument or to the whole
+object — it decides whether eliding one key buys anything."
+
+Weak: "Done." (the result's shape already said that)
+Strong: "It caps the whole object, so eliding the payload should free budget
+for the path — but 210 of 210 paths were already visible, so it does not."
+
+A finding that overturns what you expected is the most valuable thing you can
+write. Say it plainly and carry on.
+
+---
+
+# "Pre-existing" Is Not a Disposition
+
+"Pre-existing" = HISTORY, not decision. Own all shipped failures.
+
+## Valid responses
+1. **Fix it**
+2. **File task** — sufficient context: failure, reproduction, ruled-out causes
+
+NOT: "Noted, pre-existing" or unread-report mentions.
+
+## Verify before claiming
+- `git log -S '<symbol>'` — when introduced?
+- `git log -- <path>` — current/today's work touch this?
+
+Failures in recent tests ≠ pre-existing. Verify; assumption often inverted.
+
+## Default rule
+**Unexplained red: yours until proven otherwise.**
+
+Intermittent failures in untouched packages appear external, wave through unvetted. Omitting verification defaults failures to someone else's backlog. Defects skip triage, reach CI, dismissed again.
+
+Example: Two agents labeled same test "pre-existing/unrelated"—actually introduced hours earlier by their commit (real capture-integrity bug).
+
+---
+
+# Prototype Mode
+
+Build correctly. No compromise.
+
+## No Backwards Compatibility
+
+- Delete deprecated code immediately
+- Remove old APIs entirely
+- Break dependencies requiring compromise
+- Rip out legacy patterns on sight
+- Wrong? Delete and rebuild correctly
+
+## No Legacy Accommodation
+
+- Bad format → new format, don't support both
+- Wrong API → new API, don't wrap old
+- Broken behavior → fix code, don't preserve bug
+- Migration = someone else's problem
+
+## Hard Changes Only
+
+When existing code resists:
+1. Delete offending code
+2. Rebuild correctly
+3. Fix everything that breaks
+4. Never add shims/flags/fallbacks
+
+"This breaks X" → fix X
+
+## In Practice
+
+- Rename correctly, fix all refs
+- Correct signatures, fix all callers
+- Restructure data, fix all consumers
+- Remove bad params, fix call sites
+- Correct return types, fix handlers
+
+## Forbidden Patterns
+
+Never use:
+- `// Deprecated` comments — delete now
+- `@deprecated` annotations — delete code
+- Feature flags for old behavior
+- Version checks/legacy conditionals
+- Old→new wrapper functions
+- Defaults preserving old behavior
+- Union types for old+new formats
+- Any "backwards compatibility" comments
+- Fallback logic for renames
+- Multi-version case handling
+- "Handle both formats" logic when you control data generation
+
+## Standard
+
+One version: correct one.
+
+No v1 compat. No migration period. No deprecation cycle. Only correct implementation, built correctly, now.
+
+Writing code for "the old way"? Stop. Delete it. Only the new way exists.
+
+---
+
+# Reductive Development
+
+(Greenfield/prototype scope; use backwards-compat judgment on production systems.) Before any significant task — new feature, multi-line bug fix, refactor, multi-file change; skip for typos/comments/single-line/docs-only — pause and reduce first: scan for duplication (duplicate functions, copy-pasted logic, multiple implementations of one concept) and reduction targets (dead code, unused imports/params, over-engineered abstractions, delegate-only wrappers, compat shims), clean those up, then do the task. Rules: preserve test coverage, keep tests green, delete over deprecate.
 
 ---
 
@@ -795,131 +1268,9 @@ Cooperative redirect, not a sandbox. Explicit workarounds are possible; for stri
 
 ---
 
-# serena: address code by symbol, not by file and line
+# String Handling
 
-Serena puts a language server behind MCP tools that name SYMBOLS.
-Prefer them over Read/Grep/Edit whenever the question or the change
-is about a symbol.
-
-## Reach for these first
-
-- `get_symbols_overview` — what is in this file? The first call on
-  an unfamiliar one.
-- `find_symbol` — locate a definition by name path (`Type/method`).
-  `include_body: true` reads ONE symbol instead of a whole file.
-- `find_referencing_symbols` — every caller of a symbol. That is the
-  blast-radius question, and grep answers it with false positives
-  and misses aliased or qualified uses.
-- `replace_symbol_body`, `insert_before_symbol`,
-  `insert_after_symbol`, `rename_symbol`, `safe_delete_symbol` —
-  edit by identity. `safe_delete_symbol` refuses while references
-  remain, which a string edit cannot check.
-
-## Why this is stated here
-
-Serena's own registration injects an INDIRECTION — "call
-`initial_instructions` before starting a coding task". An agent that
-skips that call never learns the tools exist, and skipping it is the
-normal outcome rather than the exception. This says it inline so the
-guidance does not depend on a tool call nobody makes.
-
-## Where they do not help
-
-Non-code files (YAML, Markdown, JSON), whole-file reads you actually
-need, and languages with no server configured. Read and Edit stay
-correct there, as does a line-oriented edit INSIDE a symbol body
-once you have located it.
-
-## Delegating
-
-Name the symbol tools in sub-agent briefs. An implementer told to
-"read before you write" reaches for Read unless told otherwise.
-
-## Containers
-
-An agent bound to `runtime: container` cannot see a host-installed
-serena. Either install serena in the image, or keep serena on
-host-runtime agents.
-
----
-
-# A test does not pass until a mutation dies
-
-A test is not passing because it is green. It is passing when it is
-green AND a mutation to the production code it names makes it FAIL.
-Green alone means the test ran. It does not mean the test looked.
-
-Apply it in both directions:
-
-- **Writing a test**: after it goes green, break the behaviour it
-  names — in `internal/` or `cmd/`, not in the test — and confirm it
-  goes red. Revert. If nothing you can break makes it fail, you have
-  written a tautology, and it is worse than no test because it
-  reports coverage you do not have.
-- **Trusting a test**: a suite's green tells you nothing about a
-  specific claim until someone has killed a mutation against it.
-  "It passes" is not evidence. "It failed when I broke X" is.
-
-## Why this is a rule here and not a preference
-
-An audit of this project's acceptance suite on 2026-08-04 read 380
-scenarios, ran 41 mutations, and found 25 assertions that passed
-while proving nothing. Not edge cases — one asserted that the output
-matched the regex `.` (any one character). Others asserted an
-argument the command had echoed back, or a MIME type that is a
-static field on the envelope, or the ABSENCE of something the
-fixture never created. Several were satisfied by the subject never
-running at all: a scenario titled "the same engines proceed" passed
-when the engine never launched, and one titled "a per-item
-acceptance and a rejection ARE RECORDED" passed with the record
-store neutered to write nothing.
-
-Every one of those had been green for as long as it had existed.
-
-## The shapes that produce a false green
-
-- asserting exit 0 without asserting the EFFECT (this project's
-  characteristic silent no-op: exit 0, a success message, zero bytes)
-- asserting a name, a header, or an argument the command echoes
-- asserting a file exists without asserting its content or mode
-- asserting the tool's REPORT of what it did instead of the state it
-  changed
-- absence-satisfies-absence: asserting something is missing in a
-  fixture where it was never present
-- a substring so generic it survives gutting the thing under test
-
-## Where the bar is already met, and worth copying
-
-`tests/acceptance/steps_skill.go` compares bytes with an explicit
-zero-length guard — "comparing two empty reads is trivially
-identical" — which is the line that stops a byte comparison from
-being vacuous. `j002600` asserts an exact file COUNT rather than
-existence. `run.feature`'s recorded-input assertion reads what the
-engine actually received rather than what the CLI said it sent.
-
-## Test against a FRESH BUILD, never the installed binary
-
-Any manual or agent-driven verification runs against a binary built
-from the tree under test — `just build`, then `./ctxloom` — never
-`ctxloom` from `$PATH`.
-
-The installed binary is a different program. On 2026-08-05 a check
-of whether a newly added fragment was delivered came back "missing";
-the installed `ctxloom` was `v0.7.0-cefeb77-20260728T201548-dirty`,
-eight days and ~150 commits behind the tree, and dirty on top. Built
-from source, the same check passed. The measurement was wrong, not
-the code — and a wrong measurement that agrees with your fear is the
-expensive kind.
-
-`just test-acceptance` already does this correctly: it depends on
-`build` and drives the binary it just produced. The exposure is
-hand-run commands and agent verification, which reach for `$PATH`
-by default.
-
-**`release/0.7` will not be installed** until every journey runs
-with mutation testing validating the tests' quality. Until then,
-`ctxloom` on `$PATH` is deliberately old, and anything it tells you
-about this branch is a coincidence.
+Never branch on string approximations of messages (startswith/contains/substring) unless explicitly instructed — use typed errors or error codes (`errors.Is(err, ErrConnectionRefused)`, not `strings.Contains(err.Error(), ...)`). Define all error messages as constants/sentinel errors and reuse them in test assertions — no magic strings.
 
 ---
 
@@ -962,97 +1313,3 @@ credentials/state to a global path regardless.
 A bad or missing agent name silently degrades to `host`+`none` with only
 a stderr warning, discarding the runtime and permissions you asked for —
 confirm the name resolves before trusting the isolation you requested.
-
----
-
-# llm-tool-killer (ltk)
-
-This project may run **ltk**, a pre-tool hook that inspects each shell
-command before it executes and redirects it when a rule matches. Where
-ctxloom shapes the context you see, ltk guides the commands you run.
-
-## What it does
-
-ltk parses the real command (resolving variables, unwrapping trivial
-wrappers and sub-shells) and matches it against the project's rules in
-`.ltk/config.yaml`. The first matching `deny` wins and returns a
-`message`/`suggest` telling you what to run instead. Example:
-
-    go test ./...   ->   blocked: "Run tests through the task runner."
-                    ->   retry with `just test`
-
-## How to work with it
-
-- Treat a redirect as guidance, not a failure: read the suggestion and
-  retry the command the way the rule asks.
-- Prefer the project's task runner (e.g. `just <target>`) over invoking
-  build/test/lint tools directly.
-- **Agents do not cut releases.** ltk blocks `git tag` and release
-  commands. Prepare the version bump and PR; a human (or CI) cuts the tag.
-
-## What it is not
-
-ltk is a cooperative redirect, not a sandbox. If explicitly instructed
-to work around a rule the agent can, so it makes the easy, accidental
-path the right one rather than enforcing hard isolation. For strict
-"never" boundaries, run the agent in a container.
-
----
-
-# taskloom
-
-Persistent task tracking. Tasks live in a per-project append-only log
-(~/.ctxloom/tasks/<project-id>.jsonl) and are keyed by harp IDs
-(e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
-`Deferred`, `Done`, `Archived`.
-
-## MCP tools (served by `taskloom mcp`)
-
-- `task_list({statuses?, term?, include_completed?, include_summary?})`
-  — list/filter tasks. Set `include_summary: true` to also get
-  per-status counts plus the in-progress harp IDs.
-- `task_add({text, status?, trigger?})` — add a task with a fresh
-  harp ID. Default status is `"To Do"`; `"Deferred"` requires a
-  `trigger` (the condition that should revive it).
-- `task_set_status({harp_id, status, trigger?})` — move a task
-  between statuses.
-- `task_edit({harp_id, text})` — replace a task's text in place.
-
-Tasks are created and updated only through these tools (or the
-`taskloom` CLI). The harp ID appears in `task_list` output so you can
-reference a specific task in later calls.
-
-Write `text` subject-first: the first line is what the task IS
-(~80 characters or fewer — list views show only that line,
-truncated there). Put provenance like dates or session names on a
-later line, not the first.
-
-## Check the log before you start, and again before you finish
-
-**Before starting work**, look for open tasks that touch what you are
-about to change. One may already hold the root cause, a decision
-someone already made, or a constraint you would otherwise rediscover
-the hard way — and it may show that someone else is mid-flight in the
-same files. Search by AREA, not just by title, since a task about your
-code may be named for its symptom:
-
-    taskloom list --term <symbol, path, or error string>
-    taskloom list --tag-query <area>
-
-**Before finishing**, scan again for tasks in the same area. If your
-change satisfies one, say so and offer to close it — quote what the
-task asked for and what you actually did, so the reader can judge
-rather than take your word. If it satisfies a task only in part, edit
-the task to record what is now done and what remains, instead of
-leaving it whole and letting the next person redo the finished half.
-
-Both halves matter for the same reason: a task nobody rereads gets
-solved twice, and a task silently satisfied but left open is
-indistinguishable from work never done.
-
-## Plan stamping
-
-When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
-`docs/*-plan.md`), the active session's harp name is auto-stamped
-into the file's YAML frontmatter `sessions:` list. Plans and
-sessions cross-reference without a separate database.

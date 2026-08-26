@@ -69,7 +69,7 @@ func TestFSStore_Save_DropsStaleSignatureAndWarns(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "the stale signature must be removed, not left to accuse the publisher of tampering")
 	assert.Contains(t, warnings.String(), "ctxloom: warning:")
 	assert.Contains(t, warnings.String(), "my-tools.yaml.sig")
-	assert.Contains(t, warnings.String(), "ctxloom sign my-tools")
+	assert.Contains(t, warnings.String(), "ctxloom bundle sign my-tools")
 }
 
 // Removing a signature is fine; removing one QUIETLY is not. A save that does

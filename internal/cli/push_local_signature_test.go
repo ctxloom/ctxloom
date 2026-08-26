@@ -117,7 +117,7 @@ func TestPushBundleCfg_StaleLocalSignature_PlainPushRefusesAndNamesTheRemedy(t *
 	err = pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false)
 	require.Error(t, err, "push refuses a bundle whose local signature is stale")
 	assert.Contains(t, err.Error(), "no longer covers")
-	assert.Contains(t, err.Error(), "ctxloom sign for-push", "remedy 1: re-sign")
+	assert.Contains(t, err.Error(), "ctxloom bundle sign for-push", "remedy 1: re-sign")
 	assert.Contains(t, err.Error(), "publish it unsigned", "remedy 2: drop the sidecar")
 
 	assert.Empty(t, pub.files, "a refused push publishes nothing at all")

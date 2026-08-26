@@ -33,13 +33,13 @@ func TestFailOnFindings_StrictAbortsWithFindingsExitCode(t *testing.T) {
 	t.Run("strict mode aborts, lists finding + fix-it", func(t *testing.T) {
 		resetStrictness(t)
 
-		mark := strictness.Checkpoint()
+		var buf bytes.Buffer
+		gates := newPhaseGates(&buf)
 		strictness.Fail(strictness.ClassSync,
 			"check the remote/network, or pass --degraded to launch anyway",
 			"sync failed: %v", "boom")
 
-		var buf bytes.Buffer
-		err := failOnFindings(&buf, mark)
+		err := gates.close(PhaseStartup)
 
 		require.Error(t, err, "a collected fatal finding must abort startup in strict mode")
 		var exitErr *ExitError
@@ -59,13 +59,13 @@ func TestFailOnFindings_StrictAbortsWithFindingsExitCode(t *testing.T) {
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 
-		mark := strictness.Checkpoint()
+		var buf bytes.Buffer
+		gates := newPhaseGates(&buf)
 		strictness.Fail(strictness.ClassSync,
 			"check the remote/network, or pass --degraded to launch anyway",
 			"sync failed: %v", "boom")
 
-		var buf bytes.Buffer
-		err := failOnFindings(&buf, mark)
+		err := gates.close(PhaseStartup)
 
 		assert.NoError(t, err, "degraded mode is the escape hatch — it must launch anyway")
 		assert.Empty(t, buf.String(), "degraded mode renders no findings block")
@@ -84,12 +84,12 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 	t.Run("strict mode aborts exit 3, names the lost boundary + escape hatch", func(t *testing.T) {
 		resetStrictness(t)
 
-		mark := strictness.Checkpoint()
+		var buf bytes.Buffer
+		gates := newPhaseGates(&buf)
 		strictness.Fail(strictness.ClassIsolation, fixit,
 			"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", "agent-a", "image absent")
 
-		var buf bytes.Buffer
-		err := failOnFindings(&buf, mark)
+		err := gates.close(PhaseWorkspace)
 
 		require.Error(t, err, "an explicitly-requested unsatisfiable container must abort before an unsandboxed launch")
 		var exitErr *ExitError
@@ -106,12 +106,12 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 
-		mark := strictness.Checkpoint()
+		var buf bytes.Buffer
+		gates := newPhaseGates(&buf)
 		strictness.Fail(strictness.ClassIsolation, fixit,
 			"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", "agent-a", "image absent")
 
-		var buf bytes.Buffer
-		err := failOnFindings(&buf, mark)
+		err := gates.close(PhaseWorkspace)
 
 		assert.NoError(t, err, "--degraded downgrades the isolation finding to the plain host degrade")
 		assert.Empty(t, buf.String(), "degraded mode renders no findings block")
@@ -128,31 +128,34 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 func TestStartupGates_TileWithoutHole(t *testing.T) {
 	resetStrictness(t)
 
+	var out bytes.Buffer
+	gates := newPhaseGates(&out)
+
 	// Gate 1 passes clean.
-	startupMark := strictness.Checkpoint()
-	var gate1 bytes.Buffer
-	require.NoError(t, failOnFindings(&gate1, startupMark), "gate 1 passes with nothing recorded")
+	require.NoError(t, gates.close(PhaseStartup), "gate 1 passes with nothing recorded")
 
-	// run.go's anchoring: the gate-2 mark is captured immediately after gate 1.
-	postStartupMark := strictness.Checkpoint()
-
-	// A fault fires IN THE GAP — after gate 1, before isolation.Prepare.
+	// A fault fires IN THE GAP — after gate 1, before the workspace phase does
+	// anything. Under the old hand-anchored scheme this was the hole: a gate
+	// anchored when the next phase STARTED could not see it, and the tiling
+	// that closed the hole was a convention two comments described.
 	strictness.Fail(strictness.ClassTrust, "remove or restore the trust store", "trust store unreadable: boom")
 
-	// The OLD anchoring (a checkpoint taken only when Prepare runs) misses it…
+	// The contrast, kept because it is what makes the property non-obvious: a
+	// mark taken AFTER the gap genuinely cannot see the gap finding.
 	lateMark := strictness.Checkpoint()
-	var lateGate bytes.Buffer
-	assert.NoError(t, failOnFindings(&lateGate, lateMark),
-		"a gate anchored AFTER the gap cannot see the gap finding — the hole this test pins closed")
+	assert.Empty(t, strictness.Since(lateMark),
+		"a window opened after the gap cannot see the gap finding — the hole this test pins closed")
 
-	// …the tiled anchoring catches it.
-	var gate2 bytes.Buffer
-	err := failOnFindings(&gate2, postStartupMark)
-	require.Error(t, err, "gate 2 anchored at the post-gate-1 checkpoint must catch a gap finding")
+	// close() re-opened as it closed, so gate 2's window began the instant gate
+	// 1 ended and the gap finding is inside it. No caller anchored anything.
+	err := gates.close(PhaseWorkspace)
+	require.Error(t, err, "the window gate 1 opened as it closed must catch a gap finding")
 	var exitErr *ExitError
 	require.ErrorAs(t, err, &exitErr)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
-	assert.Contains(t, gate2.String(), "trust store unreadable")
+	assert.Contains(t, out.String(), "trust store unreadable")
+	assert.Contains(t, out.String(), "aborting workspace",
+		"the header must name the phase that refused, not the phase before it")
 }
 
 func TestLoadConfigOrFallback_Success(t *testing.T) {
@@ -187,4 +190,81 @@ func TestLoadConfigOrFallback_FailureReturnsMinimalDefault(t *testing.T) {
 		"warning must include the underlying error for diagnosis")
 	assert.Contains(t, out, ".ctxloom",
 		"warning must tell the user where the fallback is rooted")
+}
+
+// TestPhaseGates_NonDegradableSurvivesDegraded pins the property the whole
+// per-finding mechanism exists for, at the gate rather than in strictness: a
+// finding whose harm IS the launch must abort under --degraded, while an
+// ordinary finding in the same window must not.
+//
+// Both arms are asserted because either alone is vacuous. "The non-degradable
+// one aborts" passes if degraded were ignored entirely; "the ordinary one does
+// not" passes if nothing ever aborted.
+func TestPhaseGates_NonDegradableSurvivesDegraded(t *testing.T) {
+	t.Run("degraded still aborts on a non-degradable finding", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+
+		var buf bytes.Buffer
+		gates := newPhaseGates(&buf)
+		strictness.Fail(strictness.ClassSync, "ordinary remedy", "an ordinary degradable fault")
+		strictness.FailAlways(strictness.ClassIsolation, "start the runtime it promised",
+			"container %q was started but never reached running state", "agent-a")
+
+		err := gates.close(PhaseTransportStart)
+
+		require.Error(t, err, "--degraded must not swallow a finding whose harm is the launch itself")
+		var exitErr *ExitError
+		require.ErrorAs(t, err, &exitErr)
+		assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
+
+		out := buf.String()
+		assert.Contains(t, out, "never reached running state", "the abort must name the fault")
+		assert.Contains(t, out, "aborting transport start", "the header must name the phase that refused")
+		assert.NotContains(t, out, "an ordinary degradable fault",
+			"the degradable finding must not be dragged into the abort alongside it")
+	})
+
+	t.Run("degraded alone still never aborts", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+
+		var buf bytes.Buffer
+		gates := newPhaseGates(&buf)
+		strictness.Fail(strictness.ClassSync, "ordinary remedy", "an ordinary degradable fault")
+
+		assert.NoError(t, gates.close(PhaseTransportStart), "an ordinary finding still degrades")
+		assert.Empty(t, buf.String())
+	})
+}
+
+// TestPhaseGates_WindowsAreDisjoint pins the half of tiling that the
+// contiguity test cannot see, and that a mutation proved was unasserted.
+//
+// Tiling is TWO properties: windows must abut (no finding falls in a gap) and
+// they must be DISJOINT (a finding belongs to exactly one phase). A close()
+// that reports but never re-opens still satisfies contiguity — its window
+// simply never advances, so it accumulates and the gap finding is caught for
+// the wrong reason. What it breaks is disjointness: every later gate
+// re-reports every earlier finding, so one broken config aborts three phases
+// and the operator is told the same thing three times with three different
+// phase names.
+func TestPhaseGates_WindowsAreDisjoint(t *testing.T) {
+	resetStrictness(t)
+
+	var out bytes.Buffer
+	gates := newPhaseGates(&out)
+
+	strictness.Fail(strictness.ClassConfig, "fix the config", "fault ALPHA")
+	require.Error(t, gates.close(PhaseStartup), "phase 1 aborts on its own finding")
+	require.Contains(t, out.String(), "fault ALPHA")
+
+	out.Reset()
+	strictness.Fail(strictness.ClassSync, "fix the sync", "fault BRAVO")
+	require.Error(t, gates.close(PhaseWorkspace), "phase 2 aborts on its own finding")
+
+	second := out.String()
+	assert.Contains(t, second, "fault BRAVO", "phase 2 must report what phase 2 collected")
+	assert.NotContains(t, second, "fault ALPHA",
+		"phase 1's finding must NOT reappear: close() re-opens, so each finding belongs to exactly one phase")
 }

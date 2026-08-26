@@ -327,8 +327,9 @@ var prepareIsolation = isolation.Prepare
 // deliver less than what was asked for. In strict mode that fails THE MEMBER
 // (an error Part in the fan; other members continue — partial success is
 // still success), never the whole call. Returns nil in degraded mode
-// (recording is disabled there, so found is empty anyway) or when no
-// ClassIsolation finding was collected. The finding's own Message fully
+// (findings ARE recorded there now — degraded suppresses fatality, not
+// recording — so this early return, not an empty slice, is what keeps a
+// degraded fan running) or when no ClassIsolation finding was collected. The finding's own Message fully
 // describes WHICH case fired — this wrapper adds no case-specific wording, so
 // it never misdescribes one case using the other's vocabulary.
 func isolationGateErr(found []strictness.Finding) error {

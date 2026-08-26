@@ -420,7 +420,7 @@ func signKeyResolutionDetail(ctx context.Context, discoverer *agentkey.Discovere
 		return true, fmt.Sprintf("signing key resolves via %s (%s)", discovered.Source, discovered.Fingerprint)
 	}
 
-	const why = "needed to approve reviewed content (`ctxloom review`) and to publish or sign your own content (`ctxloom sign`) — merely consuming already-trusted/embedded content does not require a signing key"
+	const why = "needed to approve reviewed content (`ctxloom review`) and to publish or sign your own content (`ctxloom bundle sign`) — merely consuming already-trusted/embedded content does not require a signing key"
 
 	var ambig *agentkey.AmbiguousKeyError
 	if errors.As(err, &ambig) {

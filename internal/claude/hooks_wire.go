@@ -99,6 +99,34 @@ type SessionStartSpecificOutput struct {
 	AdditionalContext string `json:"additionalContext,omitempty"`
 }
 
+// --- PostToolUse wire shapes -----------------------------------------------
+
+// HookEventPostToolUse is the event name a PostToolUse decision carries back.
+const HookEventPostToolUse = "PostToolUse"
+
+// PostToolUsePayload is the JSON written to a PostToolUse hook's stdin.
+// ToolResponse is left RAW because its shape is per-tool (a string for some,
+// an object for others) and this hook only needs its size -- decoding it into
+// a concrete type would make the hook fail on every tool it had not modelled.
+type PostToolUsePayload struct {
+	SessionID    string          `json:"session_id"`
+	ToolName     string          `json:"tool_name"`
+	ToolResponse json.RawMessage `json:"tool_response"`
+}
+
+// PostToolUseOutput is the JSON a PostToolUse hook writes to stdout. An empty
+// output injects nothing, which is the common case: the hook stays silent
+// below its threshold.
+type PostToolUseOutput struct {
+	HookSpecificOutput *PostToolUseSpecificOutput `json:"hookSpecificOutput,omitempty"`
+}
+
+// PostToolUseSpecificOutput carries context injected after a tool call.
+type PostToolUseSpecificOutput struct {
+	HookEventName     string `json:"hookEventName"`
+	AdditionalContext string `json:"additionalContext,omitempty"`
+}
+
 // DecodeHookPayload parses a hook stdin payload.
 func DecodeHookPayload(data []byte) (HookPayload, error) {
 	var p HookPayload

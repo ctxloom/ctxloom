@@ -226,7 +226,7 @@ func (e *AmbiguousKeyNameError) Error() string {
 	}
 	b.WriteString("\nNarrow the name, or disambiguate with the fingerprint:\n")
 	if len(e.Candidates) > 0 {
-		fmt.Fprintf(&b, "  ctxloom sign <bundle> --key %s\n", e.Candidates[0].Fingerprint)
+		fmt.Fprintf(&b, "  ctxloom bundle sign <bundle> --key %s\n", e.Candidates[0].Fingerprint)
 	}
 	return b.String()
 }

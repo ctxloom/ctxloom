@@ -129,8 +129,9 @@ func TestCheckRunAsIsIdentity_UninspectableIsAFinding(t *testing.T) {
 }
 
 // TestCheckRunAsIsIdentity_DegradedWarnsAndProceeds: --degraded is the one
-// warn-and-continue home — nothing is recorded (no gate can abort), but the
-// warning still streams so a wrong-identity run is never invisible.
+// warn-and-continue home — the finding IS recorded (degraded suppresses
+// fatality, not recording) but no gate acts on it, and the warning still
+// streams so a wrong-identity run is never invisible.
 func TestCheckRunAsIsIdentity_DegradedWarnsAndProceeds(t *testing.T) {
 	resetStrictness(t)
 	strictness.SetDegraded(true)
@@ -140,7 +141,8 @@ func TestCheckRunAsIsIdentity_DegradedWarnsAndProceeds(t *testing.T) {
 	c.checkRunAsIsIdentity(context.Background())
 	stderr := done()
 
-	assert.Empty(t, strictness.All(), "degraded records nothing")
+	assert.NotEmpty(t, strictness.All(),
+		"degraded suppresses fatality, not recording: the finding is kept so the run can account for what it skipped")
 	assert.Contains(t, stderr, "user/own:img", "the warning still streams")
 }
 

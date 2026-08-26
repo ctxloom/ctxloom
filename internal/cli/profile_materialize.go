@@ -11,7 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 var (
@@ -72,7 +71,7 @@ func runProfileMaterialize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	mark := strictness.Checkpoint()
+	gates := newPhaseGates(os.Stderr)
 	res, err := operations.MaterializeProfile(cmd.Context(), cfg, operations.MaterializeProfileRequest{
 		Profiles: args,
 		Target:   materializeTarget,
@@ -82,7 +81,7 @@ func runProfileMaterialize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if ferr := failOnFindings(os.Stderr, mark); ferr != nil {
+	if ferr := gates.close(PhaseStartup); ferr != nil {
 		return ferr
 	}
 	return emit(cmd, res, func() error {

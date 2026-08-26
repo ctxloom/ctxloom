@@ -8,8 +8,11 @@
 // pre-launch with a distinct exit code listing every finding and its fix.
 //
 // Degraded mode (`--degraded` flag / CTXLOOM_DEGRADED=1 env, flag wins) is the
-// escape hatch: recording is disabled, so every choke degrades to today's
-// warn-and-continue behavior verbatim. There is deliberately NO config key for
+// escape hatch: it suppresses FATALITY, not RECORDING. Findings are still
+// warned and still collected -- so a degraded run can answer "what did you
+// skip?", and the retained records can feed metrics -- while the gates
+// (formatFindings, FindingsError) render nothing and abort nothing, leaving
+// every choke at warn-and-continue. There is deliberately NO config key for
 // the mode — a broken config cannot excuse itself (bootstrap circularity).
 package strictness
 
@@ -85,6 +88,18 @@ type Finding struct {
 	Class   Class
 	Message string
 	FixIt   string
+	// NonDegradable keeps this finding fatal under --degraded as well as in
+	// strict mode. It is declared per FINDING, never per class, because the
+	// class-wide reading is refuted by the code: an ownership mismatch is
+	// ClassIsolation and its sanctioned degraded outcome is a HOST fallback
+	// that launches, while a container that died at the daemon is the same
+	// class and must not launch at all. The discriminator is the doctrine's
+	// own — does LAUNCHING cause the harm? — which is a property of the
+	// specific fault, not of its category.
+	//
+	// The zero value is DEGRADABLE so no existing raise site changes meaning:
+	// non-degradability is opt-in, via FailAlways.
+	NonDegradable bool
 }
 
 var (
@@ -351,8 +366,8 @@ func Close(mark Mark) {
 // import one another — but all three already import this leaf package, so
 // hoisting the render here removes the duplication without an import cycle.
 func FindingsError(mark Mark) error {
-	found := Since(mark)
-	if len(found) == 0 || Degraded() {
+	found := Actionable(Since(mark))
+	if len(found) == 0 {
 		return nil
 	}
 	var b strings.Builder
@@ -396,7 +411,7 @@ func Reset() {
 func Fail(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
 	clidiag.Warn(prog, "%s", msg)
-	record(class, fixit, msg, false)
+	record(class, fixit, msg, false, false)
 }
 
 // FailOnce is Fail with dedup on BOTH halves — but the two dedups have
@@ -411,14 +426,58 @@ func Fail(class Class, fixit, format string, args ...any) {
 func FailOnce(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
 	clidiag.WarnOnce(prog, "%s", msg)
-	record(class, fixit, msg, true)
+	record(class, fixit, msg, true, false)
+}
+
+// FailAlways is Fail for a fault whose HARM IS THE LAUNCH ITSELF: it records a
+// NonDegradable finding, so the gates act on it under --degraded exactly as
+// they do in strict mode.
+//
+// Reach for it only when proceeding causes the damage, never merely because a
+// fault is serious. The test is the doctrine's: a profile that fails to parse
+// is serious and still degradable -- the user gets a working LLM with less
+// context. A container runtime that cannot provide the isolation it claimed is
+// not, because the launch IS the exposure.
+//
+// Be sure the remedy is honest before using this. A fix-it that offers
+// --degraded as its way out cannot belong to a NonDegradable finding: the
+// escape hatch it names would not work, and a remedy the caller cannot follow
+// is proof the check is firing outside its own design premise. Every existing
+// ClassIsolation raise site fails that test today, which is why none of them
+// uses this.
+func FailAlways(class Class, fixit, format string, args ...any) {
+	msg := detailOr(class, fmt.Sprintf(format, args...))
+	clidiag.Warn(prog, "%s", msg)
+	record(class, fixit, msg, false, true)
+}
+
+// Actionable returns the findings a gate must ACT on in the current mode: every
+// finding in strict mode, and only the NonDegradable ones under --degraded.
+//
+// It is the single place the mode is consulted when deciding fatality, so the
+// renderers and the class-filtered gates cannot drift into disagreeing about
+// what --degraded means. A gate that filters by class should filter its own
+// class and then pass the result through here, rather than testing Degraded()
+// itself.
+func Actionable(found []Finding) []Finding {
+	if !Degraded() {
+		return found
+	}
+	var out []Finding
+	for _, f := range found {
+		if f.NonDegradable {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // Record collects a finding WITHOUT printing anything — for chokes that
 // already own their (richer) stderr reporting, e.g. the sync summary's
-// per-item failure breakdown. No-op in degraded mode.
+// per-item failure breakdown. Still collects in degraded mode: degraded
+// suppresses fatality, not recording.
 func Record(class Class, fixit, format string, args ...any) {
-	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), false)
+	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), false, false)
 }
 
 // RecordOnce is Record with FailOnce's recording dedup: for a choke that owns
@@ -434,7 +493,7 @@ func Record(class Class, fixit, format string, args ...any) {
 // let a long-lived server refuse one session over a broken config and then open
 // the next one silently on the same config.
 func RecordOnce(class Class, fixit, format string, args ...any) {
-	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), true)
+	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), true, false)
 }
 
 // detailOr substitutes a statement of what is known for a message that
@@ -460,7 +519,7 @@ func detailOr(class Class, msg string) string {
 // BOTH the process-wide log (All()/Reset()'s view) and the CALLING
 // GOROUTINE's own window (Since()'s view) — never any other goroutine's
 // window, which is the per-window ownership fix.
-func record(class Class, fixit, msg string, once bool) {
+func record(class Class, fixit, msg string, once, nonDegradable bool) {
 	// Fetch the recording goroutine's OWN window generation before
 	// taking mu, so the FailOnce dedup key below is scoped to this
 	// goroutine's last-checkpointed generation — never the live global
@@ -472,10 +531,6 @@ func record(class Class, fixit, msg string, once bool) {
 	w.mu.Unlock()
 
 	mu.Lock()
-	if degraded {
-		mu.Unlock()
-		return
-	}
 	if once {
 		key := fmt.Sprintf("%d\x00%s\x00%s", gen, class, msg)
 		if _, seen := onceRecorded[key]; seen {
@@ -484,7 +539,7 @@ func record(class Class, fixit, msg string, once bool) {
 		}
 		onceRecorded[key] = struct{}{}
 	}
-	f := Finding{Class: class, Message: msg, FixIt: fixit}
+	f := Finding{Class: class, Message: msg, FixIt: fixit, NonDegradable: nonDegradable}
 	findings = append(findings, f)
 	mu.Unlock()
 

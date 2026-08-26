@@ -102,7 +102,7 @@ func TestResolveSignTarget_RetiredSpellingsRefusedWithAHint(t *testing.T) {
 		_, err := ResolveSignTarget(ref)
 		require.Error(t, err, ref)
 		assert.ErrorIs(t, err, errs.ErrRetiredRefSpelling, ref)
-		assert.Contains(t, err.Error(), "ctxloom sign --help", ref)
+		assert.Contains(t, err.Error(), "ctxloom bundle sign --help", ref)
 	}
 }
 
@@ -126,7 +126,7 @@ func TestResolveSignTarget_EmptyRefErrors(t *testing.T) {
 // --- SignBundleFile -----------------------------------------------------
 
 // TestSignBundleFile_WritesSigThatVerifyPublisherAccepts is the core
-// red-line assertion: ctxloom sign writes a .sig VerifyPublisher (the real
+// red-line assertion: ctxloom bundle sign writes a .sig VerifyPublisher (the real
 // production verification path) accepts as a valid publish signature, over
 // the exact bundle file bytes.
 func TestSignBundleFile_WritesSigThatVerifyPublisherAccepts(t *testing.T) {

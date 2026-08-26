@@ -161,3 +161,10 @@ DECISIONS.md
 # Coverage-instrumented ctxloom (just build-cover). Same name as the shipped
 # binary on purpose — see cmd/ctxloom/justfile — so it needs its own directory.
 .coverbin/
+
+# ctxloom private working state (rebuildable/local — cache, sessions, project id, local state)
+.ctxloom/cache/
+.ctxloom/sessions/
+.ctxloom/project-id
+.ctxloom/state/
+.ctxloom/*.lock

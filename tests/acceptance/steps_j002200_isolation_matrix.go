@@ -1158,7 +1158,10 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(out, needle) {
 			return fmt.Errorf("output does not contain %q; output:\n%s", needle, out)
 		}
-		if strings.Contains(out, "aborting startup") {
+		// Match the stable "aborting " PREFIX, not one phase word: this is a
+		// NEGATIVE assertion, so pinning it to a single phase would silently
+		// stop catching aborts from every phase added later.
+		if strings.Contains(out, "ctxloom: aborting ") {
 			return fmt.Errorf("run unexpectedly aborted (should be a non-fatal warning, not a ClassIsolation fatal); output:\n%s", out)
 		}
 		return nil

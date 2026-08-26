@@ -157,7 +157,7 @@ func (s *fsStore) invalidateStaleSignature(path string, data []byte) error {
 			"(publishing it would make every consumer see tampering): %w", filepath.Base(path), filepath.Base(sigPath), err)
 	}
 	name := strings.TrimSuffix(filepath.Base(path), ".yaml")
-	clidiag.Fwarn(s.warnOut, "ctxloom", "signature removed: %s changed, so %s no longer covers it — re-sign with `ctxloom sign %s`",
+	clidiag.Fwarn(s.warnOut, "ctxloom", "signature removed: %s changed, so %s no longer covers it — re-sign with `ctxloom bundle sign %s`",
 		filepath.Base(path), filepath.Base(sigPath), name)
 	return nil
 }

@@ -214,7 +214,7 @@ func setupSignTestDir(t *testing.T) (string, *config.Config) {
 	return appDir, cfg
 }
 
-// `ctxloom sign --all` over a project whose bundle dirs used to resolve to
+// `ctxloom bundle sign --all` over a project whose bundle dirs used to resolve to
 // nothing printed "no local bundles to sign" and exited 0 — signing nothing
 // looked exactly like having nothing to sign. That is also the visible face
 // of the known GetBundleDirs-points-at-cache/bundles defect: the command

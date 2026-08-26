@@ -130,6 +130,10 @@ type CompactionResult struct {
 	TotalTokensOut int
 	DistilledPath  string
 	Duration       time.Duration
+	// Selection reports what selectForDistill removed before any LLM call.
+	// Without it a small essence from a well-filtered transcript and one from a
+	// distiller that said nothing are indistinguishable at the output.
+	Selection SelectionStats
 }
 
 // Compactor handles session log compaction.
@@ -288,7 +292,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 
 	// Convert entries to text for chunking. Plans live in separate files now, so
 	// there are no in-transcript plan blocks to placeholder out.
-	logText := c.sessionToText(session)
+	sel := selectForDistill(session.Entries)
+	if n := c.repairResults(ctx, sel); n > 0 {
+		c.progressf("ctxloom: recovered %d finding(s) from uncommented results...\n", n)
+	}
+	logText := c.renderEntries(sel.Entries)
+	result.Selection = sel.Stats
 	result.TotalTokensIn = tokens.Estimate(logText)
 
 	// A session with zero main-thread entries has nothing to
@@ -304,14 +313,14 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	chunks := chunkText(logText, c.config.ChunkSize)
 	result.ChunksCreated = len(chunks)
 
-	distilled, failedChunks := c.distillChunks(ctx, chunks)
+	distilled, failedChunks, chunkCause := c.distillChunks(ctx, chunks)
 	// A totally failed distillation (e.g. LLM backend down) would replace a
 	// previously good essence with nothing but failure markers — that's data
 	// loss, not graceful degradation. Abort the save and keep the old essence.
 	// Partial success still saves, per the fault-tolerance philosophy.
 	if len(chunks) > 0 && failedChunks == len(chunks) {
 		c.warnf("distillation failed for all %d chunks; keeping previous essence", len(chunks))
-		return nil, fmt.Errorf("distillation failed for all %d chunks", len(chunks))
+		return nil, fmt.Errorf("distillation failed for all %d chunks: %w", len(chunks), chunkCause)
 	}
 	if failedChunks > 0 {
 		c.warnf("distillation failed for %d of %d chunks; summary is incomplete", failedChunks, len(chunks))
@@ -624,15 +633,21 @@ func (c *Compactor) warnf(format string, args ...any) {
 }
 
 // distillChunks distills the chunks concurrently (bounded by distillConcurrency)
-// and returns the outputs in chunk order plus how many chunks failed. Chunks are
+// and returns the outputs in chunk order, how many chunks failed, and a
+// representative cause when any did (nil otherwise). Chunks are
 // independent — the overlap between them is context padding, not a data
 // dependency — so they distill in parallel; results are written into their own
 // slice slots so order is preserved regardless of completion order. Per CLAUDE.md
 // fault tolerance, a failed chunk is warned and replaced with an HTML-comment
 // marker rather than aborting; the caller decides whether a total failure aborts
 // the save. A failing chunk does NOT cancel its siblings.
-func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]string, int) {
+func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]string, int, error) {
 	distilled := make([]string, len(chunks))
+	// Per-chunk causes, kept by index. The aggregate "all N chunks failed"
+	// error is the only thing most callers ever see, and a cause-free one is
+	// undiagnosable: warnf is the sole other channel and it is silently
+	// dropped whenever Progress is nil, which is exactly the MCP relay case.
+	causes := make([]error, len(chunks))
 	var failed atomic.Int64
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, distillConcurrency)
@@ -649,6 +664,7 @@ func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]strin
 			if err != nil {
 				c.warnf("chunk %d failed: %v", i+1, err)
 				distilled[i] = fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err)
+				causes[i] = err
 				failed.Add(1)
 				return
 			}
@@ -656,7 +672,17 @@ func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]strin
 		}(i, chunk)
 	}
 	wg.Wait()
-	return distilled, int(failed.Load())
+	// Lowest-indexed cause, not first-to-fail: a representative error that is
+	// the same on every re-run of the same failure, so the message a user
+	// reports is the message the next reader reproduces.
+	var cause error
+	for i, e := range causes {
+		if e != nil {
+			cause = fmt.Errorf("chunk %d: %w", i+1, e)
+			break
+		}
+	}
+	return distilled, int(failed.Load()), cause
 }
 
 // finalCompressionPass merges the per-chunk distillations into one coherent
@@ -891,12 +917,79 @@ func buildPickerDetail(body string) []string {
 // sessionToText converts a session to readable text for distillation. Plans
 // live in separate .plan.md files (re-attached verbatim from RenderPlans), so
 // the transcript text is rendered straight through.
-func (c *Compactor) sessionToText(session *agent.Session) string {
+func (c *Compactor) sessionToText(session *agent.Session) (string, SelectionStats) {
+	sel := selectForDistill(session.Entries)
+	return c.renderEntries(sel.Entries), sel.Stats
+}
+
+// renderEntries writes already-selected entries as the text handed to
+// distillation. Split from selection so the LLM repair pass (repairResults)
+// has somewhere to sit between the two: it rewrites entries, and rendering
+// must see the rewritten ones.
+func (c *Compactor) renderEntries(entries []agent.SessionEntry) string {
 	var builder strings.Builder
-	for _, entry := range session.Entries {
+	for _, entry := range entries {
 		appendEntryText(&builder, entry, c.config.IncludeThinking)
 	}
 	return builder.String()
+}
+
+// repairResults recovers a finding for each large tool result the agent never
+// commented on, and writes it into the entry in place of the excerpt.
+//
+// Bounded by the same concurrency limit as chunk distillation, because each
+// repair spawns its own plugin subprocess. A repair that fails leaves the
+// entry exactly as selection rendered it -- shape line plus excerpt -- so the
+// worst case is the deterministic behaviour, never an empty result. That is
+// why no error is returned: there is no failure mode here that should abort a
+// compaction which would otherwise succeed.
+func (c *Compactor) repairResults(ctx context.Context, sel Selection) int {
+	if len(sel.Repairs) == 0 {
+		return 0
+	}
+	var recovered atomic.Int64
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, distillConcurrency)
+
+	for _, r := range sel.Repairs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(r ResultRepair) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			finding, err := c.recoverFinding(ctx, r)
+			if err != nil {
+				c.warnf("finding recovery failed for %s: %v", r.ToolName, err)
+				return
+			}
+			if finding == "" {
+				return
+			}
+			sel.Entries[r.Index].ToolOutput = resultShape(r.Body) + " recovered finding: " + finding
+			recovered.Add(1)
+		}(r)
+	}
+	wg.Wait()
+	return int(recovered.Load())
+}
+
+// recoverFinding asks the fast model what one unreflected result told the
+// agent. An answer of "no conclusion available" -- the prompt's own escape
+// hatch -- is reported as no finding, so a model with nothing to say leaves
+// the deterministic excerpt standing rather than replacing it with a
+// confident nothing.
+func (c *Compactor) recoverFinding(ctx context.Context, r ResultRepair) (string, error) {
+	content := fmt.Sprintf("<tool_call>\n%s %s\n</tool_call>\n\n<tool_result>\n%s\n</tool_result>",
+		r.ToolName, r.Intent, r.Body)
+	out, err := c.runDistill(ctx, resultFindingPrompt, content)
+	if err != nil {
+		return "", err
+	}
+	out = strings.TrimSpace(out)
+	if strings.EqualFold(out, noConclusionAvailable) {
+		return "", nil
+	}
+	return out, nil
 }
 
 // truncateForSummary caps an argument/output string at 500 bytes with an
@@ -943,15 +1036,30 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 	case agent.EntryTypeToolUse:
 		_, _ = fmt.Fprintf(builder, "## Tool Call: %s\n", entry.ToolName)
 		if len(entry.ToolInput) > 0 {
-			_, _ = fmt.Fprintf(builder, "Arguments: %s\n", truncateForSummary(string(entry.ToolInput)))
+			_, _ = fmt.Fprintf(builder, "Arguments: %s\n", truncateForSummary(renderToolArgs(entry.ToolInput)))
 		}
 		builder.WriteString("\n")
 
 	case agent.EntryTypeToolResult:
 		_, _ = fmt.Fprintf(builder, "## Tool Result: %s\n", entry.ToolName)
-		builder.WriteString(truncateForSummary(entry.ToolOutput))
+		// An ERROR keeps its body whole: errors measured at a fraction of a
+		// percent of transcript bytes while carrying the highest signal per
+		// byte in the file -- what broke, and what the fix had to answer to.
+		//
+		// Every other result is reduced to its SHAPE. A uniform truncation of
+		// the body cost roughly a quarter of the rendered transcript to
+		// deliver severed fragments -- half a table, the first lines of a
+		// grep -- which is neither the information nor a summary of it. The
+		// shape line is smaller AND says more, because "47 lines" is a fact
+		// where the first 500 bytes of 47 lines is an artifact. The content
+		// itself is re-derivable: the call above names what was asked.
 		if entry.IsError {
+			builder.WriteString(truncateForSummary(entry.ToolOutput))
 			builder.WriteString(" [ERROR]")
+		} else {
+			// selectForDistill already reduced this to a shape line, or to a
+			// shape line plus an excerpt where nothing was said about it.
+			builder.WriteString(entry.ToolOutput)
 		}
 		builder.WriteString("\n\n")
 
@@ -1376,3 +1484,12 @@ var sessionDistillPrompt = resources.MustGetPromptText("session-distill")
 // frontmatter the picker needs, and forbids dropping file paths / session IDs
 // during the merge.
 var sessionDistillReducePrompt = resources.MustGetPromptText("session-distill-reduce")
+
+// resultFindingPrompt recovers the finding an agent never stated for a large
+// tool result. See repairResults.
+var resultFindingPrompt = resources.MustGetPromptText("result-finding")
+
+// noConclusionAvailable is the exact escape hatch result-finding.md instructs
+// the model to emit when a result supports no conclusion. It is a constant so
+// the prompt and the code that reads its answer cannot drift apart.
+const noConclusionAvailable = "no conclusion available"

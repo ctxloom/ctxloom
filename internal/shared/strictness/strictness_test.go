@@ -44,17 +44,23 @@ func TestFail_StrictCollectsFindings(t *testing.T) {
 	assert.Equal(t, "ctxloom deps pull", got[1].FixIt)
 }
 
-// Degraded mode is the escape hatch: Fail/FailOnce/Record become pure
-// warn-and-continue — nothing is ever recorded, so no choke owner can abort.
-func TestDegraded_NothingRecorded(t *testing.T) {
+// Degraded mode suppresses FATALITY, not RECORDING. Fail/FailOnce/Record
+// still warn AND still collect, so a degraded run can answer "what did you
+// skip?" and the retained records can feed metrics; what degraded changes is
+// that no gate acts on them. Asserting the COLLECTION and the SILENT GATE
+// together is the point: either alone is satisfied by the other mode.
+func TestDegraded_RecordsButNeverAborts(t *testing.T) {
 	resetForTest(t)
+	mark := Checkpoint()
 	SetDegraded(true)
 
 	Fail(ClassConfig, "", "broken config")
 	FailOnce(ClassRef, "", "missing parent")
 	Record(ClassSync, "", "unfetchable")
 
-	assert.Empty(t, All(), "degraded mode must not collect findings")
+	require.Len(t, All(), 3, "degraded still collects every finding")
+	assert.NoError(t, FindingsError(mark),
+		"the GATE is what degraded silences: findings exist, nothing aborts on them")
 	assert.True(t, Degraded())
 }
 
@@ -243,16 +249,16 @@ func TestFailOnce_SameMessageUnderTwoClassesRecordsBothButPrintsOnce(t *testing.
 		"collapsing the keys onto the message alone would lose this fault and its fix-it entirely")
 }
 
-// mu co-guards the MODE and the COLLECTION on purpose: record's degraded check
-// and its append are ONE critical section, so entering degraded mode is
-// linearizable with respect to recording — once SetDegraded(true) returns, no
-// further finding can ever be collected. The mode is not "unrelated to the
-// collection"; it is the predicate that gates it. Moving degraded onto its own
-// lock or an atomic.Bool loses exactly this: a recorder that read the flag
-// before the flip can still be queued on mu and appends after, so the escape
-// hatch would no longer mean what it says. Pinned so the tidy-up is not
-// applied without noticing what it costs.
-func TestSetDegraded_IsLinearizableWithRecording(t *testing.T) {
+// Recording no longer consults the mode at all: degraded suppresses FATALITY,
+// not RECORDING, so a concurrent SetDegraded(true) can neither lose a finding
+// nor block one. The count must keep GROWING across the flip -- that is what
+// dies if anyone reinstates record's old degraded early-return, which used to
+// make the flip linearizable with collection and now would silently discard
+// the audit trail a degraded run exists to leave behind.
+//
+// The mode's observer is the GATE, asserted here alongside so the pair reads
+// together: findings accumulate, FindingsError stays silent.
+func TestSetDegraded_DoesNotStopRecording(t *testing.T) {
 	resetForTest(t)
 
 	var wg sync.WaitGroup
@@ -275,13 +281,16 @@ func TestSetDegraded_IsLinearizableWithRecording(t *testing.T) {
 		runtime.Gosched()
 	}
 
+	mark := Checkpoint()
 	SetDegraded(true)
 	atFlip := len(All())
 	close(stop)
 	wg.Wait()
 
-	assert.Equal(t, atFlip, len(All()),
-		"nothing may be collected after SetDegraded(true) returns — record's mode check and its append are one critical section under mu")
+	assert.Greater(t, len(All()), atFlip,
+		"recording must continue across the flip: degraded suppresses fatality, not the audit trail")
+	assert.NoError(t, FindingsError(mark),
+		"the gate is the mode's only observer — it stays silent while collection continues")
 }
 
 // goroutineID's ParseInt cannot fail, so its swallowed error is a dead branch:
@@ -516,4 +525,45 @@ func TestFailOnce_ConcurrentWindows_DedupDoesNotCrossWindows(t *testing.T) {
 
 	require.Len(t, foundA, 1, "goroutine A's own FailOnce must land in its own window")
 	require.Len(t, foundB, 1, "goroutine B's FailOnce for the SAME message must still record — it is a DIFFERENT goroutine's window/generation, not a repeat within A's, and must not be swallowed by a dedup key collision on the shared live generation counter")
+}
+
+// TestFailAlways_SurvivesDegraded pins the ONE property NonDegradable exists
+// for: a fault whose harm is the launch itself must still abort under
+// --degraded, while an ordinary finding raised in the same window must not.
+//
+// Both halves are asserted together deliberately. "The non-degradable one
+// aborts" alone passes if degraded were ignored entirely; "the ordinary one
+// does not" alone passes if nothing ever aborted. Only the pair distinguishes
+// a working filter from either failure.
+func TestFailAlways_SurvivesDegraded(t *testing.T) {
+	resetForTest(t)
+	mark := Checkpoint()
+	SetDegraded(true)
+
+	Fail(ClassConfig, "edit the config", "an ordinary degradable fault")
+	FailAlways(ClassIsolation, "start the runtime it claimed", "the launch itself is the harm")
+
+	require.Len(t, All(), 2, "degraded records both; it is fatality that differs")
+
+	act := Actionable(Since(mark))
+	require.Len(t, act, 1, "only the non-degradable finding may survive --degraded")
+	assert.Equal(t, ClassIsolation, act[0].Class)
+	assert.True(t, act[0].NonDegradable)
+
+	err := FindingsError(mark)
+	require.Error(t, err, "a non-degradable finding must still abort under --degraded")
+	assert.Contains(t, err.Error(), "the launch itself is the harm")
+	assert.NotContains(t, err.Error(), "an ordinary degradable fault",
+		"the degradable finding must not be dragged into the abort alongside it")
+}
+
+// TestActionable_StrictModePassesEverything is the other arm: outside degraded
+// mode the filter must be transparent, or it would silently narrow every gate
+// in the product to non-degradable faults only.
+func TestActionable_StrictModePassesEverything(t *testing.T) {
+	resetForTest(t)
+	Fail(ClassConfig, "", "degradable")
+	FailAlways(ClassIsolation, "", "non-degradable")
+
+	assert.Len(t, Actionable(All()), 2, "strict mode acts on every finding")
 }

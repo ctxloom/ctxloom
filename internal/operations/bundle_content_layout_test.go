@@ -33,7 +33,7 @@ func TestCreateBundle_WritesToCommittedContentTree(t *testing.T) {
 }
 
 // The publishing-repo acceptance case: a repo whose bundles live in
-// .ctxloom/content/bundles/ must be enumerable by `ctxloom sign --all`.
+// .ctxloom/content/bundles/ must be enumerable by `ctxloom bundle sign --all`.
 func TestListLocalBundleNames_FindsContentTreeBundles(t *testing.T) {
 	// Real tempdir: GetBundleDirs os.Stat-gates on the real filesystem.
 	fs := afero.NewOsFs()

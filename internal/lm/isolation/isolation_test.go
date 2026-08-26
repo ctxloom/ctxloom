@@ -141,7 +141,8 @@ func TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign(t *testing.T) {
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 		warnUnknownAxes(Axes{Runtime: "hyperdrive"})
-		assert.Empty(t, strictness.All(), "--degraded is the escape hatch: warn, then host")
+		assert.NotEmpty(t, strictness.All(),
+			"--degraded is the escape hatch: warn, RECORD, then host — it suppresses fatality, not recording")
 	})
 
 	t.Run("recognized and empty axis values are silent", func(t *testing.T) {
@@ -219,7 +220,8 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.IsType(t, None{}, policy)
-		assert.Empty(t, strictness.All(), "--degraded is the escape hatch: no finding, just the host degrade")
+		assert.NotEmpty(t, strictness.All(),
+			"--degraded still records the finding; what it declines to do is abort on it")
 	})
 
 	t.Run("a workspace-axis degrade (worktree→none) is not an isolation finding", func(t *testing.T) {
@@ -314,7 +316,8 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 		chain := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1)
 		assert.IsType(t, None{}, chain[0])
-		assert.Empty(t, strictness.All())
+		assert.NotEmpty(t, strictness.All(),
+			"the host degrade is the accepted outcome; the finding is still recorded")
 	})
 }
 

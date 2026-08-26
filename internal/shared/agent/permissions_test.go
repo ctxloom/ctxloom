@@ -168,7 +168,11 @@ func TestResolveDefault_UnparseableFloorsUnderDegraded(t *testing.T) {
 	mode, honoured := ResolveDefault([]string{"plann"}, true)
 	assert.Equal(t, PermissionFloor, mode, "degraded narrows, it never widens")
 	assert.False(t, honoured)
-	assert.Empty(t, strictness.All(), "degraded mode collects no findings")
+	// Degraded suppresses FATALITY, not RECORDING: the finding is still
+	// collected so a degraded run can account for what it skipped. What
+	// degraded must never do is CHANGE THE FLOOR, which the assertions above
+	// are the real subject of.
+	assert.NotEmpty(t, strictness.All(), "degraded mode still collects findings; it only declines to abort on them")
 }
 
 // TestPermissionFloorIsTheMostRestrictive pins WHICH posture the floor is: plan

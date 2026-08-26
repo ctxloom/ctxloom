@@ -51,7 +51,7 @@ func checkSystemDeps(engine string) error {
 	}
 
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
-		clidiag.Warn("ctxloom", "ssh-keygen not found on PATH — recommended, not required (`ctxloom sign` itself is pure Go and never execs ssh-keygen): it's the tool you'd run by hand to generate a new SSH key if you don't already have one to sign with (`ssh-keygen -t ed25519-sk`)")
+		clidiag.Warn("ctxloom", "ssh-keygen not found on PATH — recommended, not required (`ctxloom bundle sign` itself is pure Go and never execs ssh-keygen): it's the tool you'd run by hand to generate a new SSH key if you don't already have one to sign with (`ssh-keygen -t ed25519-sk`)")
 	}
 	warnIfNoSignKey()
 	warnIfGitIdentityMissing()

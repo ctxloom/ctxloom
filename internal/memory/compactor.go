@@ -174,12 +174,44 @@ func (s memoryHistorySource) CurrentSession(_ context.Context) (*agent.Session, 
 
 // NewCompactor creates a new compactor with the given config.
 func NewCompactor(config CompactionConfig) (*Compactor, error) {
+	applyCompactionDefaults(&config)
+	clampCompactionBounds(&config)
+	source, plans, sourceErr := resolveTranscriptSource(config)
+
+	return &Compactor{
+		config:        config,
+		source:        source,
+		plans:         plans,
+		clientFactory: config.ClientFactory,
+		sourceErr:     sourceErr,
+	}, nil
+}
+
+// applyCompactionDefaults fills the fields a zero value leaves unusable. These
+// are plain fallbacks — nothing here rejects or rewrites a value the caller
+// actually chose; that is clampCompactionBounds' job.
+func applyCompactionDefaults(config *CompactionConfig) {
 	if config.ChunkSize <= 0 {
 		config.ChunkSize = DefaultChunkTokens
 	}
 	if config.EssenceMaxChars <= 0 {
 		config.EssenceMaxChars = agent.DefaultEssenceChars
 	}
+	if config.Backend == "" {
+		config.Backend = "claude-code"
+	}
+	if config.LLM == "" {
+		config.LLM = "claude-code"
+	}
+	if config.ClientFactory == nil {
+		config.ClientFactory = pb.DefaultClientFactory()
+	}
+}
+
+// clampCompactionBounds overrides values the caller DID choose but that the
+// pipeline cannot honour. Both rules warn: a silently rewritten setting is
+// indistinguishable from one that was never read.
+func clampCompactionBounds(config *CompactionConfig) {
 	// A target above the hard ceiling instructs the model to produce something
 	// Compact is obliged to refuse -- the same contradiction the absolute budget
 	// was introduced to remove. Clamp and say so rather than honour it.
@@ -202,81 +234,67 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		}
 		config.ChunkSize = MinOverlappingChunkTokens
 	}
-	if config.Backend == "" {
-		config.Backend = "claude-code"
-	}
-	if config.LLM == "" {
-		config.LLM = "claude-code"
-	}
-	if config.ClientFactory == nil {
-		config.ClientFactory = pb.DefaultClientFactory()
-	}
+}
 
-	// Resolve the transcript source. Production reads go over gRPC via the
-	// agent server (pb.SessionReader) so the same path serves a remote agent and
-	// ctxloom never parses backend files in-process. Tests inject a backend whose
-	// in-process SessionHistory is adapted to the same SessionSource contract.
-	var (
-		source    pb.SessionSource
-		sourceErr error
-		plans     func(context.Context, string) ([]agent.PlanFile, error)
-	)
+// resolveTranscriptSource picks where the transcript and the plan files are
+// read from. Production reads go over gRPC via the agent server
+// (pb.SessionReader) so the same path serves a remote agent and ctxloom never
+// parses backend files in-process. Tests inject a backend whose in-process
+// SessionHistory is adapted to the same SessionSource contract.
+//
+// A nil source is not an error here: loadSessionToCompact reports "no history".
+// The returned error carries the one case where the reason matters downstream.
+func resolveTranscriptSource(config CompactionConfig) (pb.SessionSource, func(context.Context, string) ([]agent.PlanFile, error), error) {
 	if config.BackendOverride != nil {
+		var source pb.SessionSource
 		if h := config.BackendOverride.History(); h != nil {
 			source = memoryHistorySource{history: h, workDir: config.WorkDir}
 		}
 		// h == nil leaves source nil → loadSessionToCompact reports "no history".
 		// Tests read plan files directly from the (isolated) session dir.
-		plans = func(_ context.Context, harp string) ([]agent.PlanFile, error) {
+		plans := func(_ context.Context, harp string) ([]agent.PlanFile, error) {
 			return pb.ReadPlanFiles(harp), nil
 		}
-	} else {
-		reader := pb.NewSessionReaderWithFactory(config.Backend, 0, config.ClientFactory)
-		// GetPlans reads *.plan.md straight from the harp's ctxloom session dir
-		// (internal/lm/grpc/plans.go) — it never touches Backend.History(), so it
-		// works identically whether or not config.Backend still has a legacy
-		// scraper reader.
-		plans = reader.GetPlans
-		// S4: prefer ctxloom's own captured transcript over the
-		// legacy per-engine scraper reader now behind it. A session-index open
-		// failure (rare — a corrupt/unwritable ~/.ctxloom/sessions/index.yaml)
-		// degrades to the legacy-only reader rather than failing compaction
-		// outright; distillation must never block on the canonical layer.
-		//
-		// S5: config.Backend may be a retired-scraper backend
-		// (codex/kiro/claude-code — scraper deleted outright). Such a
-		// backend's plugin-side History() is now nil, so `reader` used as the
-		// legacy leg would only ever error; pass nil instead so
-		// CanonicalFallbackSource serves canonical-only and never makes that
-		// doomed round trip.
-		var legacy pb.SessionSource
-		if !pb.IsRetiredScraperBackend(config.Backend) {
-			legacy = reader
-		}
-		store, sErr := sessions.Open("")
-		switch {
-		case sErr == nil:
-			source = pb.NewCanonicalFallbackSource(legacy, config.WorkDir, store)
-		case legacy != nil:
-			source = legacy
-		default:
-			// A retired-scraper backend has no legacy leg, so the canonical
-			// layer is the ONLY transcript source and its index failing to open
-			// is the whole reason there is nothing to read. Carry that reason:
-			// the alternative is telling the user their backend does not support
-			// session history, which is a different problem with a different
-			// remedy and is not what happened.
-			sourceErr = fmt.Errorf("session index unavailable: %w", sErr)
-		}
+		return source, plans, nil
 	}
 
-	return &Compactor{
-		config:        config,
-		source:        source,
-		plans:         plans,
-		clientFactory: config.ClientFactory,
-		sourceErr:     sourceErr,
-	}, nil
+	reader := pb.NewSessionReaderWithFactory(config.Backend, 0, config.ClientFactory)
+	// GetPlans reads *.plan.md straight from the harp's ctxloom session dir
+	// (internal/lm/grpc/plans.go) — it never touches Backend.History(), so it
+	// works identically whether or not config.Backend still has a legacy
+	// scraper reader.
+	plans := reader.GetPlans
+	// S4: prefer ctxloom's own captured transcript over the
+	// legacy per-engine scraper reader now behind it. A session-index open
+	// failure (rare — a corrupt/unwritable ~/.ctxloom/sessions/index.yaml)
+	// degrades to the legacy-only reader rather than failing compaction
+	// outright; distillation must never block on the canonical layer.
+	//
+	// S5: config.Backend may be a retired-scraper backend
+	// (codex/kiro/claude-code — scraper deleted outright). Such a
+	// backend's plugin-side History() is now nil, so `reader` used as the
+	// legacy leg would only ever error; pass nil instead so
+	// CanonicalFallbackSource serves canonical-only and never makes that
+	// doomed round trip.
+	var legacy pb.SessionSource
+	if !pb.IsRetiredScraperBackend(config.Backend) {
+		legacy = reader
+	}
+	store, sErr := sessions.Open("")
+	switch {
+	case sErr == nil:
+		return pb.NewCanonicalFallbackSource(legacy, config.WorkDir, store), plans, nil
+	case legacy != nil:
+		return legacy, plans, nil
+	default:
+		// A retired-scraper backend has no legacy leg, so the canonical
+		// layer is the ONLY transcript source and its index failing to open
+		// is the whole reason there is nothing to read. Carry that reason:
+		// the alternative is telling the user their backend does not support
+		// session history, which is a different problem with a different
+		// remedy and is not what happened.
+		return nil, plans, fmt.Errorf("session index unavailable: %w", sErr)
+	}
 }
 
 // Compact performs compaction on a session.
@@ -330,40 +348,9 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	chunks := chunkText(logText, c.config.ChunkSize)
 	result.ChunksCreated = len(chunks)
 
-	distilled, failedChunks, chunkCause := c.distillChunks(ctx, chunks)
-	// A totally failed distillation (e.g. LLM backend down) would replace a
-	// previously good essence with nothing but failure markers — that's data
-	// loss, not graceful degradation. Abort the save and keep the old essence.
-	// Partial success still saves, per the fault-tolerance philosophy.
-	if len(chunks) > 0 && failedChunks == len(chunks) {
-		c.warnf("distillation failed for all %d chunks; keeping previous essence", len(chunks))
-		return nil, fmt.Errorf("distillation failed for all %d chunks: %w", len(chunks), chunkCause)
-	}
-	if failedChunks > 0 {
-		c.warnf("distillation failed for %d of %d chunks; summary is incomplete", failedChunks, len(chunks))
-	}
-
-	combined := strings.Join(distilled, "\n\n---\n\n")
-	result.TotalTokensOut = tokens.Estimate(combined)
-
-	// Any multi-chunk session needs the reduce pass: it unifies the concatenated
-	// per-chunk summaries into one canonical essence (YAML frontmatter + the
-	// "### Open Items" section the picker derives its summary and detail lines
-	// from). Gating it on size left small multi-chunk sessions with raw map
-	// output — no frontmatter, no Open Items. Single-chunk sessions already
-	// produce one canonical map output, so they skip it.
-	if len(chunks) > 1 {
-		reduced, rerr := c.finalCompressionPass(ctx, combined)
-		if rerr != nil {
-			// finalCompressionPass only returns an error when the reduce call
-			// failed AND its un-reduced input was itself over MaxEssenceChars
-			// (see its doc comment) — a genuine "cannot bound the output"
-			// case, not a normal degrade. Fail loud rather than save/return
-			// the oversized, un-reduced combined text.
-			return nil, rerr
-		}
-		combined = reduced
-		result.TotalTokensOut = tokens.Estimate(combined)
+	combined, err := c.mapReduceChunks(ctx, chunks, result)
+	if err != nil {
+		return nil, err
 	}
 
 	// Pull the LLM-emitted YAML frontmatter (Phase 3.5.2). If it's
@@ -387,6 +374,51 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	}
 
 	return c.finishDistill(session, harpName, sourceSize, plans, result, summary, cleanedBody, start)
+}
+
+// mapReduceChunks runs the map pass over chunks and, for a multi-chunk session,
+// the reduce pass that unifies them — returning the combined essence text and
+// stamping result.TotalTokensOut with what it actually produced.
+//
+// An error from here is a REFUSAL to save: both cases below would otherwise
+// overwrite a previously good essence with something worse than nothing.
+func (c *Compactor) mapReduceChunks(ctx context.Context, chunks []string, result *CompactionResult) (string, error) {
+	distilled, failedChunks, chunkCause := c.distillChunks(ctx, chunks)
+	// A totally failed distillation (e.g. LLM backend down) would replace a
+	// previously good essence with nothing but failure markers — that's data
+	// loss, not graceful degradation. Abort the save and keep the old essence.
+	// Partial success still saves, per the fault-tolerance philosophy.
+	if len(chunks) > 0 && failedChunks == len(chunks) {
+		c.warnf("distillation failed for all %d chunks; keeping previous essence", len(chunks))
+		return "", fmt.Errorf("distillation failed for all %d chunks: %w", len(chunks), chunkCause)
+	}
+	if failedChunks > 0 {
+		c.warnf("distillation failed for %d of %d chunks; summary is incomplete", failedChunks, len(chunks))
+	}
+
+	combined := strings.Join(distilled, "\n\n---\n\n")
+	result.TotalTokensOut = tokens.Estimate(combined)
+
+	// Any multi-chunk session needs the reduce pass: it unifies the concatenated
+	// per-chunk summaries into one canonical essence (YAML frontmatter + the
+	// "### Open Items" section the picker derives its summary and detail lines
+	// from). Gating it on size left small multi-chunk sessions with raw map
+	// output — no frontmatter, no Open Items. Single-chunk sessions already
+	// produce one canonical map output, so they skip it.
+	if len(chunks) > 1 {
+		reduced, rerr := c.finalCompressionPass(ctx, combined)
+		if rerr != nil {
+			// finalCompressionPass only returns an error when the reduce call
+			// failed AND its un-reduced input was itself over MaxEssenceChars
+			// (see its doc comment) — a genuine "cannot bound the output"
+			// case, not a normal degrade. Fail loud rather than save/return
+			// the oversized, un-reduced combined text.
+			return "", rerr
+		}
+		combined = reduced
+		result.TotalTokensOut = tokens.Estimate(combined)
+	}
+	return combined, nil
 }
 
 // isEmptySession reports whether a session has no main-thread content at all

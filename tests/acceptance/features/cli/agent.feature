@@ -34,66 +34,104 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     that recorded the name and dropped the engine, the profiles and the
     runtime — which is a binding that binds nothing, reported as success.
 
-    Scenario: A project with no bindings says so, and says where to define one
+    # Emptiness is the one claim the value-addressing steps cannot make, so it
+    # is asserted positively: the payload IS empty, and the renderer says so in
+    # its own words. Both sentences the text arm owes the reader are kept, each
+    # on its own line, because they answer different questions — that there are
+    # none, and where you would write one.
+    Scenario Outline: A project with no bindings says so, and says where to define one
       Given an initialized ctxloom project
       When Alice asks what agents this project defines:
         """
-        ctxloom agent list
+        ctxloom agent list <flags>
         """
       Then the command succeeds
-      And the output contains "No agents defined"
-      And the output contains "'agents:' in .ctxloom/config.yaml"
+      And the output reports "$" as empty, saying "No agents defined"
+      And the output reports "$" as empty, saying "'agents:' in .ctxloom/config.yaml"
 
-    Scenario: Creating a binding records every axis, and the listing reads each one back
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         |
+        |               |
+        | --format json |
+        | --format text |
+
+    # The "Created agent" line is composed by the renderer from the request, so
+    # it has no field of its own. The structured rows pin the ENTRY the write
+    # returned instead — which is the same claim made against the thing that
+    # was actually stored, rather than against the echo.
+    Scenario Outline: Creating a binding records every axis, and the listing reads each one back
       Given an initialized ctxloom project
       And a profile "dev" exists
       When Alice binds an engine and a runtime to a profile:
         """
-        ctxloom agent create developer --llm claude-code --profiles dev --runtime container-rootless
+        ctxloom agent create developer --llm claude-code --profiles dev --runtime container-rootless <flags>
         """
       Then the command succeeds
-      And the output contains "Created agent"
+      And the output reports "name" as "<the binding written>"
       # The EFFECT, not the echo: the confirmation above is printed from the
       # request, so it is true of a writer that saved nothing.
       And the file ".ctxloom/config.yaml" contains "developer"
-      When I run "ctxloom agent list"
+      When I run "ctxloom agent list <flags>"
       Then the command succeeds
-      And the output contains "developer"
-      And the output contains "llm: claude-code"
-      And the output contains "profiles: dev"
-      And the output contains "runtime: container-rootless"
+      And the output reports "[name=developer].llm" as "<the engine>"
+      And the output reports "[name=developer].profiles" containing "<the profile>"
+      And the output reports "[name=developer].runtime" as "<the runtime>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the binding written | the engine       | the profile   | the runtime                   |
+        |               | developer           | claude-code      | dev           | container-rootless            |
+        | --format json | developer           | claude-code      | dev           | container-rootless            |
+        | --format text | Created agent       | llm: claude-code | profiles: dev | runtime: container-rootless   |
 
     # The bare noun answers the question somebody typing it has, rather than
-    # teaching them what they could have typed instead.
-    Scenario: Bare agent lists the bindings
+    # teaching them what they could have typed instead. The help-banner check
+    # needs no row of its own: cobra's usage block is prose in every encoding,
+    # so its absence is the same assertion whichever one is resolved.
+    Scenario Outline: Bare agent lists the bindings
       Given an initialized ctxloom project
       And a profile "dev" exists
       And I run "ctxloom agent create developer --profiles dev"
-      When I run "ctxloom agent"
+      When I run "ctxloom agent <flags>"
       Then the command succeeds
-      And the output contains "developer"
+      And the output reports "[name=developer].name" as "<the binding listed>"
       And the output does not contain "Available Commands:"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the binding listed |
+        |               | developer          |
+        | --format json | developer          |
+        | --format text | developer          |
 
     # `show` answers two questions a listing cannot: what the definition
     # DECLARES, and what that declaration actually RESOLVES to. Both halves are
     # asserted, because a binding whose engine resolves to nothing still lists
     # perfectly.
-    Scenario: Showing one binding reports what was declared and what it resolves to
+    # "Composed fragments: N" is a length the renderer computes; the payload
+    # carries the fragments themselves and no count. The structured rows name
+    # a fragment that must actually be in the composition, which is the
+    # stronger claim — a resolution that composed the wrong things reports a
+    # perfectly good number.
+    Scenario Outline: Showing one binding reports what was declared and what it resolves to
       Given an initialized ctxloom project
       And a profile "dev" exists
       And I run "ctxloom agent create developer --llm claude-code --profiles dev --runtime container-rootless"
       When Alice inspects one binding:
         """
-        ctxloom agent show developer
+        ctxloom agent show developer <flags>
         """
       Then the command succeeds
-      And the output contains "Agent: developer"
-      And the output contains "Engine (declared): claude-code"
-      And the output contains "Runtime: container-rootless"
-      And the output contains "Profiles"
-      And the output contains "dev"
-      And the output contains "Resolved llm:"
-      And the output contains "Composed fragments:"
+      And the output reports "definition.name" as "<the binding named>"
+      And the output reports "definition.llm" as "<the engine declared>"
+      And the output reports "definition.runtime" as "<the runtime declared>"
+      And the output reports "definition.profiles" containing "<the profile declared>"
+      And the output reports "resolved.label" as "<what the engine resolves to>"
+      And the output reports "resolved.fragments" containing "<what the profiles compose>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the binding named | the engine declared         | the runtime declared        | the profile declared | what the engine resolves to | what the profiles compose               |
+        |               | developer         | claude-code                 | container-rootless          | dev                  | claude-code                 | ctxloom+local:dev-base#fragments/example |
+        | --format json | developer         | claude-code                 | container-rootless          | dev                  | claude-code                 | ctxloom+local:dev-base#fragments/example |
+        | --format text | Agent: developer  | Engine (declared): claude-code | Runtime: container-rootless | dev                  | Resolved llm:               | Composed fragments:                     |
 
     # Reporting nothing for a name nobody defined would be a listing of one,
     # not an answer: "this agent has no axes set" and "this agent does not
@@ -130,7 +168,11 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     # a `create` that refused loudly and overwrote anyway would pass an
     # exit-code-and-message scenario, and that is precisely the defect the
     # guard exists to stop.
-    Scenario: Create refuses an existing name, and leaves the live binding untouched
+    # Only the SURVIVING BINDING is tabled. A command that fails writes its
+    # error to stderr and leaves stdout empty in every encoding, so the two
+    # refusal-message assertions are prose whichever format is resolved — they
+    # are not a rendering the table could vary.
+    Scenario Outline: Create refuses an existing name, and leaves the live binding untouched
       Given an initialized ctxloom project
       And a profile "dev" exists
       And a profile "ops" exists
@@ -142,15 +184,21 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command fails
       And the output contains "already exists"
       And the output contains "ctxloom agent edit developer"
-      When I run "ctxloom agent show developer"
+      When I run "ctxloom agent show developer <flags>"
       Then the command succeeds
-      And the output contains "dev"
+      And the output reports "definition.profiles" containing "<the profile that survived>"
       And the output does not contain "ops"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the profile that survived |
+        |               | dev                       |
+        | --format json | dev                       |
+        | --format text | dev                       |
 
     # The other half: a typo'd `edit` must not quietly mint a brand-new agent.
     # The listing afterward is what proves nothing was created — the refusal
     # message alone is true of a command that refused AND wrote.
-    Scenario: Edit refuses a name no agent has, and creates nothing
+    Scenario Outline: Edit refuses a name no agent has, and creates nothing
       Given an initialized ctxloom project
       And a profile "dev" exists
       When Alice edits a name she has not defined:
@@ -160,47 +208,70 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command fails
       And the output contains "no agent named"
       And the output contains "ctxloom agent create nosuchagent"
-      When I run "ctxloom agent list"
+      When I run "ctxloom agent list <flags>"
       Then the command succeeds
-      And the output contains "No agents defined"
+      And the output reports "$" as empty, saying "No agents defined"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         |
+        |               |
+        | --format json |
+        | --format text |
 
     # THE LOSS THIS SPLIT EXISTS TO PREVENT. Every field the invocation did not
     # name survives — asserted one axis at a time, because a merge that kept
     # the engine and wiped the profiles would satisfy any single one of them.
-    Scenario: An edit naming only --runtime leaves every other axis intact
+    # The text arm reads the surviving profiles off one comma-joined line; the
+    # payload carries them as an array, so BOTH are named individually. A
+    # single membership check would pass against a merge that kept one profile
+    # and dropped the other, which is exactly the loss under test.
+    Scenario Outline: An edit naming only --runtime leaves every other axis intact
       Given an initialized ctxloom project
       And a profile "dev" exists
       And a profile "ops" exists
       And I run "ctxloom agent create developer --llm claude-code --profiles dev,ops --runtime host --permissions plan"
       When Alice moves one binding into a container and changes nothing else:
         """
-        ctxloom agent edit developer --runtime container-rootless
+        ctxloom agent edit developer --runtime container-rootless <flags>
         """
       Then the command succeeds
-      And the output contains "Updated agent"
-      When I run "ctxloom agent list"
+      And the output reports "name" as "<the binding written>"
+      When I run "ctxloom agent list <flags>"
       Then the command succeeds
-      And the output contains "runtime: container-rootless"
-      And the output contains "llm: claude-code"
-      And the output contains "profiles: dev, ops"
-      And the output contains "permissions: plan"
+      And the output reports "[name=developer].runtime" as "<the axis that changed>"
+      And the output reports "[name=developer].llm" as "<the engine that survived>"
+      And the output reports "[name=developer].profiles" containing "<the first profile>"
+      And the output reports "[name=developer].profiles" containing "<the second profile>"
+      And the output reports "[name=developer].permissions" as "<the posture that survived>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the binding written | the axis that changed       | the engine that survived | the first profile | the second profile | the posture that survived |
+        |               | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
+        | --format json | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
+        | --format text | Updated agent       | runtime: container-rootless | llm: claude-code         | profiles: dev, ops | ops               | permissions: plan         |
 
     # --surface is the delivery-preference axis (kind=approach, repeatable):
     # which mechanism a surface reaches the engine through, distinct from
     # llm/profiles/runtime/permissions above. It carries no listing render
     # (agent list never prints a "surfaces:" line), so the only honest read
     # of the effect is the binding it was written to.
-    Scenario: Setting a surface delivery preference records it in the binding
+    Scenario Outline: Setting a surface delivery preference records it in the binding
       Given an initialized ctxloom project
       And a profile "dev" exists
       And I run "ctxloom agent create developer --llm claude-code --profiles dev"
       When Alice sets how this binding's context should be delivered:
         """
-        ctxloom agent edit developer --surface context=system-prompt
+        ctxloom agent edit developer --surface context=system-prompt <flags>
         """
       Then the command succeeds
-      And the output contains "Updated agent"
+      And the output reports "name" as "<the binding written>"
       And the file ".ctxloom/config.yaml" contains "context: system-prompt"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the binding written |
+        |               | developer           |
+        | --format json | developer           |
+        | --format text | Updated agent       |
 
   Rule: --config-home decides WHOSE engine config home this binding's runs get
 
@@ -246,20 +317,28 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     context is now whatever the default agent composes, so there is no "unset",
     only a different name.
 
+    # NOT TABLED BY FORMAT, and the reason is a tracked debt rather than a
+    # choice: `agent default` never routes its result through emit(), so it is
+    # carried in internal/cli's formatDebtAllowlist. It renders prose whatever
+    # format resolves, and asking it for a structured one FAILS the command
+    # outright — so the derived default off a terminal cannot be used here
+    # either. `--format text` is stated explicitly to name the only encoding
+    # this command can currently answer in. When the allowlist entry is paid
+    # down, this becomes an Outline like its neighbours.
     Scenario: With nothing bound, the report says so; naming an agent binds it
       Given an initialized ctxloom project
-      When I run "ctxloom agent default"
+      When I run "ctxloom agent default --format text"
       Then the command succeeds
       And the output contains "No default agent set."
       Given a profile "dev" exists
       And I run "ctxloom agent create developer --profiles dev"
       When Alice makes one binding the one a bare run picks up:
         """
-        ctxloom agent default developer
+        ctxloom agent default developer --format text
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" contains "default_agent: developer"
-      When I run "ctxloom agent default"
+      When I run "ctxloom agent default --format text"
       Then the command succeeds
       And the output contains "Default agent: developer"
 
@@ -267,9 +346,11 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     # with a warning rather than refused, because the ordinary order of work is
     # to name the default and then define it. The warning is what stops that
     # from being a silent misconfiguration.
+    # Same format debt as the scenario above: `agent default` is on
+    # formatDebtAllowlist, so `--format text` is named rather than derived.
     Scenario: Naming an agent that does not exist yet warns, and still binds it
       Given an initialized ctxloom project
-      When I run "ctxloom agent default ghost"
+      When I run "ctxloom agent default ghost --format text"
       Then the command succeeds
       And the output contains "not defined yet"
       And the file ".ctxloom/config.yaml" contains "default_agent: ghost"
@@ -280,33 +361,51 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     naming the exact invocation that would. A plan and an outcome otherwise
     render identically, and the difference is the whole point.
 
-    Scenario: Bare remove reports and destroys nothing
+    # `applied` is the payload's own answer to "did anything happen", not a
+    # word the renderer chose — so a preview that quietly destroyed would have
+    # to lie in a field rather than merely print the wrong sentence.
+    Scenario Outline: Bare remove reports and destroys nothing
       Given an initialized ctxloom project
       And a profile "dev" exists
       And I run "ctxloom agent create developer --profiles dev"
-      When I run "ctxloom agent remove developer"
+      When I run "ctxloom agent remove developer <flags>"
       Then the command succeeds
-      And the output contains "Nothing was removed"
-      And the output contains "ctxloom agent remove developer --yes"
+      And the output reports "applied" as "<nothing was applied>"
+      And the output reports "apply" as "<the invocation that would>"
       # The follow-up listing is what actually catches a guard that reported
       # and destroyed anyway; the exit code cannot see it.
-      When I run "ctxloom agent list"
-      Then the output contains "developer"
+      When I run "ctxloom agent list <flags>"
+      Then the output reports "[name=developer].name" as "<the binding that survived>"
 
-    Scenario: --yes takes the binding out of the config it was written to
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | nothing was applied | the invocation that would          | the binding that survived |
+        |               | false               | ctxloom agent remove developer --yes | developer               |
+        | --format json | false               | ctxloom agent remove developer --yes | developer               |
+        | --format text | Nothing was removed | ctxloom agent remove developer --yes | developer               |
+
+    # `status` is the one verb in this noun that IS a payload field rather than
+    # a rendered word, so the removal can be asserted structurally where the
+    # create/edit confirmations could not be.
+    Scenario Outline: --yes takes the binding out of the config it was written to
       Given an initialized ctxloom project
       And a profile "dev" exists
       And I run "ctxloom agent create developer --profiles dev"
       And the file ".ctxloom/config.yaml" contains "developer"
       When Alice retires a binding for good:
         """
-        ctxloom agent remove developer --yes
+        ctxloom agent remove developer --yes <flags>
         """
       Then the command succeeds
-      And the output contains "Removed agent"
+      And the output reports "status" as "<the binding is gone>"
       And the file ".ctxloom/config.yaml" does not contain "developer"
-      When I run "ctxloom agent list"
-      Then the output contains "No agents defined"
+      When I run "ctxloom agent list <flags>"
+      Then the output reports "$" as empty, saying "No agents defined"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the binding is gone |
+        |               | removed             |
+        | --format json | removed             |
+        | --format text | Removed agent       |
 
     Scenario: Removing a binding nobody defined fails rather than reporting success
       Given an initialized ctxloom project

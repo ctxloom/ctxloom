@@ -66,7 +66,7 @@ func buildMockEngineImage(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "mockengine")
-	build := exec.Command("go", "build", "-o", bin, "github.com/ctxloom/ctxloom/cmd/mockengine")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "github.com/ctxloom/ctxloom/cmd/mockengine")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static mockengine: %v\n%s", err, out)

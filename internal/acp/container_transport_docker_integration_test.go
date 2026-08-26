@@ -124,7 +124,7 @@ func buildHarnessImage(t *testing.T) {
 	dir := t.TempDir()
 
 	bin := filepath.Join(dir, "acpl1harness")
-	build := exec.Command("go", "build", "-o", bin, "github.com/ctxloom/ctxloom/cmd/acpl1harness")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "github.com/ctxloom/ctxloom/cmd/acpl1harness")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static acpl1harness: %v\n%s", err, out)

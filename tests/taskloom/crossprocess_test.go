@@ -47,7 +47,7 @@ func tasksBinary(t *testing.T) string {
 		}
 		binDir = dir
 		binPath = filepath.Join(dir, "tasks")
-		cmd := exec.Command("go", "build", "-o", binPath, "github.com/ctxloom/ctxloom/cmd/taskloom")
+		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", binPath, "github.com/ctxloom/ctxloom/cmd/taskloom")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			buildErr = fmt.Errorf("build tasks binary: %v\n%s", err, out)

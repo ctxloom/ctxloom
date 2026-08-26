@@ -87,7 +87,7 @@ func buildIntegrationImage(t *testing.T) {
 	// HOST arch: `FROM alpine:latest` resolves the host's arch, so a hardcoded
 	// GOARCH=amd64 binary would `exec format error` on an arm64 host.
 	bin := filepath.Join(dir, "ctxloom")
-	build := exec.Command("go", "build", "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static ctxloom: %v\n%s", err, out)

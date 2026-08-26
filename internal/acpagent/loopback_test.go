@@ -93,7 +93,7 @@ func l1Binary(t *testing.T) string {
 		// against (that guidance is about matching CI's build flags for the
 		// SHIPPED ctxloom binary; this is a disposable test fixture that
 		// carries no version stamp and is never released).
-		cmd := exec.Command("go", "build", "-o", bin, "./cmd/acpl1harness")
+		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "./cmd/acpl1harness")
 		cmd.Dir = root
 		var out bytes.Buffer
 		cmd.Stdout = &out

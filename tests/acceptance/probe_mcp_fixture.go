@@ -445,7 +445,7 @@ func probeMCPCallLogSummary(calls []probeMCPCall) string {
 // need GOOS/GOARCH overridden here, and the cell would fail with an exec-format
 // error that names this function.
 func probeMCPBuildServer(dest string) error {
-	cmd := exec.Command("go", "build", "-o", dest, "github.com/ctxloom/ctxloom/cmd/probe-mcp-server")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", dest, "github.com/ctxloom/ctxloom/cmd/probe-mcp-server")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

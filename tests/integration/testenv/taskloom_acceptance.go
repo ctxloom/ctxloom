@@ -67,7 +67,7 @@ func TaskloomBinary() (string, error) {
 		}
 		taskloomBinDir = dir
 		taskloomBinPath = filepath.Join(dir, "taskloom")
-		cmd := exec.Command("go", "build", "-o", taskloomBinPath, "github.com/ctxloom/ctxloom/cmd/taskloom")
+		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", taskloomBinPath, "github.com/ctxloom/ctxloom/cmd/taskloom")
 		cmd.Dir = findProjectRoot()
 		cmd.Env = realProcessEnv
 		out, err := cmd.CombinedOutput()

@@ -402,6 +402,9 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 // entry points may disagree about the BYTES (one of them never opens the
 // file); they must not disagree in silence.
 func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: mode 0o000 does not deny a read, so the unreadable fixture cannot be built")
+	}
 	harp := "plump-loose-sash"
 	essencePath := seedDistilledEssence(t, harp, "## Summary\n\nunreadable\n")
 	require.NoError(t, os.Chmod(essencePath, 0o000))

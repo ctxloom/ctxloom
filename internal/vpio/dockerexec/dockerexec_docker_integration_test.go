@@ -139,7 +139,7 @@ func buildDockerExecIntegrationImage(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "ctxloom")
-	build := exec.Command("go", "build", "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static ctxloom: %v\n%s", err, out)

@@ -313,7 +313,7 @@ func buildBinary(ctx context.Context) (string, error) {
 	defer func() { _ = os.RemoveAll(staging) }()
 
 	tmp := filepath.Join(staging, "ctxloom")
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", tmp, "./cmd/ctxloom")
+	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", tmp, "./cmd/ctxloom")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64", "GOWORK=off")
 	if out, berr := cmd.CombinedOutput(); berr != nil {
@@ -499,7 +499,7 @@ func buildProbeCat(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("stage probe cat go.mod: %w", err)
 	}
 	out := filepath.Join(dir, "cat")
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, ".")
+	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", out, ".")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64", "GOWORK=off", "GOFLAGS=", "GOPROXY=off")
 	if b, berr := cmd.CombinedOutput(); berr != nil {

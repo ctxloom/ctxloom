@@ -39,7 +39,7 @@ func buildCtxloomBinary(t *testing.T) string {
 	binPath := filepath.Join(binDir, binName)
 
 	// The ctxloom main package now lives at ./cmd/ctxloom (was the repo root).
-	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/ctxloom")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", binPath, "./cmd/ctxloom")
 	cmd.Dir = moduleRoot
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "go build failed: %s", out)

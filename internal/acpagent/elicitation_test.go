@@ -1,3 +1,28 @@
+//go:build acp_elicitation
+
+// EXCLUDED FROM THE BUILD ON PURPOSE, and a t.Skip could not do this job: the
+// test drives Server.forwardElicitation, a production method that DOES NOT
+// EXIST. A skip runs after compilation, so a skipped version of this file would
+// still red the whole package.
+//
+// WHY IT IS IN THE TREE AT ALL. ACP elicitation has no end-to-end path —
+// agent.ChatEvent/ChatMessage carry no elicitation variant, so nothing can
+// ORIGINATE an elicitation, and the forward primitive was never written. This
+// file is the SPEC for the primitive: it drives the server-side forward at its
+// own seam, mirroring forwardPermission/forwardTerminal via s.conn.Call, and it
+// says what the missing method must satisfy. It nearly died twice — its branch
+// was deleted and the commit survived only as a dangling object until a backlog
+// audit rescued it (task much-jiffy).
+//
+// THE COST, stated so it does not read later as an oversight: nothing compiles
+// this file, so it WILL drift against the tree as this package moves, exactly
+// as it already did (jsonrpc.NewConn lost a parameter while it sat on a branch,
+// and that was repaired on the way in). It is preserved and greppable, not
+// maintained. Build it with `-tags acp_elicitation` to see what it needs.
+//
+// TO REVIVE: write Server.forwardElicitation, add the elicitation variant to
+// the agent IR, then delete this build tag.
+
 package acpagent
 
 import (
@@ -30,7 +55,7 @@ func startServerWithHandle(t *testing.T, open ChatOpener) (*testClient, *Server)
 	serverR, clientW := io.Pipe()
 
 	s := &Server{open: open, ctx: ctx, sessions: make(map[api.SessionId]*session)}
-	s.conn = jsonrpc.NewConn(ctx, serverR, serverW, nil, s)
+	s.conn = jsonrpc.NewConn(serverR, serverW, nil, s)
 	s.conn.Start(ctx)
 	t.Cleanup(func() { cancel(); _ = clientW.Close(); _ = serverW.Close(); s.closeAllSessions() })
 
@@ -69,6 +94,17 @@ func startServerWithHandle(t *testing.T, open ChatOpener) (*testClient, *Server)
 // (reusing s.conn.Call, the same machinery forwardPermission/forwardTerminal
 // use) and returns the client's decoded response.
 func TestServe_Elicitation_ForwardsToClient(t *testing.T) {
+	// SKIPPED, NOT DELETED, and the reason is the finding. ACP elicitation has
+	// no end-to-end path: agent.ChatEvent/ChatMessage carry no elicitation
+	// variant, so nothing in the tree can ORIGINATE one, and the GREEN forward
+	// primitive was never written. This test drives the server-side forward at
+	// its own seam and documents the shape the primitive must satisfy.
+	//
+	// It is kept because it nearly died twice: its original branch was deleted
+	// and the commit survived only as a dangling object until a backlog audit
+	// rescued it (task much-jiffy). Unskip it when the IR carrier lands.
+	t.Skip("ACP elicitation has no IR source yet — agent.ChatEvent carries no elicitation variant; see much-jiffy")
+
 	eng := newFakeEngine()
 	go eng.pump()
 	c, s := startServerWithHandle(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
@@ -129,6 +165,17 @@ func TestServe_Elicitation_ForwardsToClient(t *testing.T) {
 // discipline: a client that never advertised elicitation gets a clear error,
 // never a silent no-op, when the agent tries to elicit.
 func TestServe_Elicitation_RefusedWhenClientLacksCapability(t *testing.T) {
+	// SKIPPED, NOT DELETED, and the reason is the finding. ACP elicitation has
+	// no end-to-end path: agent.ChatEvent/ChatMessage carry no elicitation
+	// variant, so nothing in the tree can ORIGINATE one, and the GREEN forward
+	// primitive was never written. This test drives the server-side forward at
+	// its own seam and documents the shape the primitive must satisfy.
+	//
+	// It is kept because it nearly died twice: its original branch was deleted
+	// and the commit survived only as a dangling object until a backlog audit
+	// rescued it (task much-jiffy). Unskip it when the IR carrier lands.
+	t.Skip("ACP elicitation has no IR source yet — agent.ChatEvent carries no elicitation variant; see much-jiffy")
+
 	eng := newFakeEngine()
 	go eng.pump()
 	c, s := startServerWithHandle(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
@@ -148,4 +195,3 @@ func TestServe_Elicitation_RefusedWhenClientLacksCapability(t *testing.T) {
 	_, err := s.forwardElicitation(sess, req)
 	require.Error(t, err, "an elicitation to a non-advertising client must be refused, never silently dropped")
 }
-

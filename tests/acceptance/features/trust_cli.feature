@@ -31,7 +31,15 @@ Feature: Trusting and untrusting ITEM CONTENT, on the noun that owns it
   # a state assertion there would be tautological a second time. The rejection
   # beats that local allowance, so it is asserted both ways, including that it
   # left the bundle's OTHER fragment alone.
-  Scenario: A per-item acceptance and a rejection are recorded
+  # Tabled by format: both `bundle trust` and `bundle reject` are wired to
+  # emit(), so off a terminal (which this harness always is) the no-flag row
+  # now gets the JSON result object the operations layer returns, not the
+  # prose lines the old assertion checked unconditionally. The store-effect
+  # steps (approvals store / withheld-from-agent) are unaffected by
+  # --format — they read the record ctxloom wrote, not the CLI's rendering
+  # of it — so they stay as they were, run once per row under whichever
+  # <flags> that row names.
+  Scenario Outline: A per-item acceptance and a rejection are recorded
     # Acceptance now countersigns content BYTES (a signing-key fingerprint),
     # not a hash-pair ledger entry — there is no "sha256:" content hash to
     # print. With no signing key configured the fixture takes the unsigned
@@ -39,17 +47,23 @@ Feature: Trusting and untrusting ITEM CONTENT, on the noun that owns it
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a fragment "guide" in bundle "demo" exists
-    When I run "ctxloom bundle trust demo#fragments/guide"
+    When I run "ctxloom <flags> bundle trust demo#fragments/guide"
     Then the command succeeds
-    And the output contains "Approved demo#fragments/guide"
-    And the output contains "UNSIGNED"
+    And the output reports "ref" as "<names the trusted item>"
+    And the output reports "unsigned" as "<shown as unsigned>"
     And the approvals store holds an acceptance of "demo#fragments/guide" over the fragment's current bytes
-    When I run "ctxloom bundle reject demo#fragments/guide"
+    When I run "ctxloom <flags> bundle reject demo#fragments/guide"
     Then the command succeeds
-    And the output contains "Rejected demo#fragments/guide"
-    And the output contains "rejected in form(s) raw"
+    And the output reports "ref" as "<names the rejected item>"
+    And the output reports "content_forms" containing "<names the form>"
     And the approvals store holds a rejection of "demo#fragments/guide": a sticky ref block and a content block over the same bytes
     And "demo#fragments/guide" is withheld from the agent, and the bundle's other fragment is not
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names the trusted item          | shown as unsigned | names the rejected item          | names the form            |
+      |               | demo#fragments/guide             | true               | demo#fragments/guide              | raw                        |
+      | --format json | demo#fragments/guide             | true               | demo#fragments/guide              | raw                        |
+      | --format text | Approved demo#fragments/guide    | UNSIGNED           | Rejected demo#fragments/guide     | rejected in form(s) raw   |
 
   # THE OTHER THREE DECISIONS MOVED, and each to the noun that owns it, now
   # that every noun has a comprehensive spec of its own:

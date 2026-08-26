@@ -187,13 +187,13 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent show developer <flags>"
       Then the command succeeds
       And the output reports "definition.profiles" containing "<the profile that survived>"
-      And the output does not contain "ops"
+      And the output reports "resolved.profiles" not containing "<the profile that did not survive>"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | the profile that survived |
-        |               | dev                       |
-        | --format json | dev                       |
-        | --format text | dev                       |
+        | flags         | the profile that survived | the profile that did not survive |
+        |               | dev                        | ops                               |
+        | --format json | dev                        | ops                               |
+        | --format text | dev                        | ops                               |
 
     # The other half: a typo'd `edit` must not quietly mint a brand-new agent.
     # The listing afterward is what proves nothing was created — the refusal

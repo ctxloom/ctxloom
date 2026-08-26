@@ -27,11 +27,13 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/cucumber/godog"
 )
 
-// registerCLIFormatSteps registers the empty-payload assertion.
+// registerCLIFormatSteps registers the format-aware assertions steps_cli.go's
+// three (as/matching/containing) cannot express.
 func registerCLIFormatSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the output reports "([^"]*)" as empty, saying "([^"]*)"$`,
 		func(c context.Context, path, saying string) error {
@@ -57,5 +59,46 @@ func registerCLIFormatSteps(ctx *godog.ScenarioContext) {
 				}
 				return fmt.Errorf("is %v, so the command did find something", v)
 			})
+		})
+
+	// The negation of steps_cli.go's "containing", PATH-SCOPED rather than a
+	// whole-output substring search. A whole-output "does not contain X" is
+	// defeated by a large structured payload that carries unrelated prose
+	// (a composed fragment's own text) which can contain X as a substring of
+	// an unrelated word — e.g. a payload proving profile "ops" did NOT survive
+	// false-passed on a stray "the field split dr-OPS- every" in embedded
+	// fragment content, once agent show started carrying full composed
+	// context. Scoping to the array at PATH removes that false floor: the
+	// rendered branch still matches prose as a substring (unchanged from
+	// "containing"'s own text arm), since text renders stay short and never
+	// carry that embedded prose.
+	ctx.Step(`^the output reports "([^"]*)" not containing "([^"]*)"$`,
+		func(c context.Context, path, expected string) error {
+			w := worldFrom(c)
+			format := formatAskedFor(w)
+			if !format.Structured() {
+				if strings.Contains(w.env.LastOutput(), expected) {
+					return fmt.Errorf("the %s rendering unexpectedly reports %q; output:\n%s", format, expected, w.env.LastOutput())
+				}
+				return nil
+			}
+			doc, err := lastOutputStructured(w, format)
+			if err != nil {
+				return err
+			}
+			v, err := jsonAtPath(doc, path)
+			if err != nil {
+				return fmt.Errorf("%v; %s stdout:\n%s", err, format, w.env.LastStdout())
+			}
+			entries, ok := v.([]any)
+			if !ok {
+				return fmt.Errorf("the %s payload at %q is a %s, not an array; stdout:\n%s", format, path, jsonKind(v), w.env.LastStdout())
+			}
+			for _, e := range entries {
+				if got, ok := jsonScalar(e); ok && got == expected {
+					return fmt.Errorf("the %s payload at %q contains %q, which should not have survived; stdout:\n%s", format, path, expected, w.env.LastStdout())
+				}
+			}
+			return nil
 		})
 }

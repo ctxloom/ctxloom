@@ -50,11 +50,21 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the output contains "amber-swift-owl"
 
-    Scenario: A fresh project has recorded nothing
+    # Tabled by format: `session list` is wired to emit(), so off a terminal
+    # (which this harness always is) the no-flag row now gets the JSON rows
+    # array (empty here), not the "(no sessions)" text line. Reuses the
+    # branch's shared empty-collection step rather than a new spelling.
+    Scenario Outline: A fresh project has recorded nothing
       Given an initialized ctxloom project
-      When I run "ctxloom session list"
+      When I run "ctxloom <flags> session list"
       Then the command succeeds
-      And the output contains "no sessions"
+      And the output reports "$" as empty, which reads "no sessions"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         |
+        |               |
+        | --format json |
+        | --format text |
 
     Scenario: Showing a session prints its distilled essence
       Given an initialized ctxloom project
@@ -119,14 +129,26 @@ Feature: session — the record of what your assistant did, and the tools to pru
     index changes. --apply seeds the harp's Rotations through the session
     store.
 
-    Scenario: A dry run reports the orphan and changes nothing
+    # Tabled by format: `session adopt` is wired to emit(), so off a terminal
+    # (which this harness always is) the no-flag row now gets the JSON
+    # sessionAdoptResult, not renderSessionAdopt's "would adopt" verb-tensed
+    # summary line. "would adopt" is prose the text renderer builds from the
+    # candidate's verdict ("adopt") plus the dry-run/--apply state; the JSON
+    # row asserts that same underlying verdict directly instead.
+    Scenario Outline: A dry run reports the orphan and changes nothing
       Given an initialized ctxloom project
       And a recorded session "amber-swift-owl" with a claude vendor transcript spanning "2026-04-10T00:00:00Z" to "2026-04-10T01:00:00Z"
       And an orphaned claude vendor transcript "orphan-one" for "amber-swift-owl" spanning "2026-04-05T00:00:00Z" to "2026-04-05T01:00:00Z"
-      When I run "ctxloom session adopt amber-swift-owl"
+      When I run "ctxloom <flags> session adopt amber-swift-owl"
       Then the command succeeds
-      And the output contains "orphan-one"
-      And the output contains "would adopt"
+      And the output reports "candidates[session_id=orphan-one].session_id" as "<names the orphan>"
+      And the output reports "candidates[session_id=orphan-one].verdict" as "<names the verdict>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | names the orphan | names the verdict |
+        |               | orphan-one        | adopt              |
+        | --format json | orphan-one        | adopt              |
+        | --format text | orphan-one        | would adopt        |
 
     Scenario: --apply seeds the lineage through the store
       Given an initialized ctxloom project

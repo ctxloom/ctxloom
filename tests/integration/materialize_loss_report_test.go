@@ -69,7 +69,13 @@ func setupLossFixture(t *testing.T) *testenv.TestEnvironment {
 func TestMaterializeReport_NamesTheHooksOpencodeCannotCarry(t *testing.T) {
 	env := setupLossFixture(t)
 
-	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-opencode", "--backend", "opencode"),
+	// `--format text` is asked for outright. Off a terminal the default is now
+	// machine-readable, and the loss AS DATA is already pinned by name in
+	// TestMaterializeReport_JSONCarriesTheLoss — so re-pointing this at the
+	// JSON would delete the prose half rather than move it. The prose half is
+	// this file's whole subject: a structured field no CLI prints is the same
+	// silence with extra steps.
+	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-opencode", "--backend", "opencode", "--format", "text"),
 		"a structural capability gap is reported, not fatal — the rest of the tree is still worth having")
 
 	out := env.LastOutput()
@@ -122,7 +128,9 @@ func TestMaterializeReport_JSONCarriesTheLoss(t *testing.T) {
 func TestMaterializeReport_SaysNothingWhenNothingIsLost(t *testing.T) {
 	env := setupLossFixture(t)
 
-	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-claude", "--backend", "claude-code"))
+	// Explicit text for the same reason as its twin above: the silence being
+	// proven is a silence in the PROSE report.
+	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-claude", "--backend", "claude-code", "--format", "text"))
 
 	out := env.LastOutput()
 	assert.Contains(t, out, "wrote settings", "precondition: claude-code's settings surface (which carries the hook) landed")

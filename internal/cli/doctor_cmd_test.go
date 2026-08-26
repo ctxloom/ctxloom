@@ -793,6 +793,55 @@ func execDoctor(t *testing.T, root string, args ...string) (string, error) {
 	return buf.String(), err
 }
 
+// doctorChecksOf parses `ctxloom doctor`'s structured report out of what the
+// command wrote.
+//
+// A test binary's stdout is never a terminal, so cliemit.Resolve hands doctor
+// the machine-readable default and the report arrives as JSON — the same bytes
+// every piped or scripted caller now gets. Reading the record beats scanning
+// the rendered lines: doctorCheck.Status is pinned as a field rather than as a
+// "[warn]" substring the renderer happened to place near a marker, and the
+// human rendering keeps its own coverage in
+// TestDoctorStatus_WireValuesAreUnchanged, which drives renderDoctorReport
+// directly.
+func doctorChecksOf(t *testing.T, out string) []doctorCheck {
+	t.Helper()
+	var report doctorReport
+	require.NoErrorf(t, json.Unmarshal([]byte(out), &report),
+		"doctor must emit a parseable report off a terminal:\n%s", out)
+	require.NotEmptyf(t, report.Checks, "the report carried no checks at all:\n%s", out)
+	return report.Checks
+}
+
+// doctorCheckNamed returns the ONE check carrying marker, failing when none or
+// several do. A check that was never wired fails here as a missing RECORD,
+// which is the distinction a whole-output substring search cannot make.
+func doctorCheckNamed(t *testing.T, out, marker string) doctorCheck {
+	t.Helper()
+	var found []doctorCheck
+	for _, c := range doctorChecksOf(t, out) {
+		if c.Marker == marker {
+			found = append(found, c)
+		}
+	}
+	require.Lenf(t, found, 1, "expected exactly one %s check in:\n%s", marker, out)
+	return found[0]
+}
+
+// doctorMarkersWithStatus lists every marker in the report reporting want —
+// for the assertions that are about the report AS A WHOLE ("nothing warns",
+// "something warns") rather than about one named check.
+func doctorMarkersWithStatus(t *testing.T, out string, want doctorStatus) []string {
+	t.Helper()
+	var markers []string
+	for _, c := range doctorChecksOf(t, out) {
+		if c.Status == want {
+			markers = append(markers, c.Marker)
+		}
+	}
+	return markers
+}
+
 // startFakeSSHAgent starts a REAL ssh-agent-protocol server (agent.ServeAgent
 // over a unix socket — the same wire protocol agentkey's production
 // dialEnvAgent speaks) backed by an in-memory keyring holding exactly the
@@ -831,7 +880,8 @@ func TestDoctorCmd_AlwaysExitsCleanEvenWhenMisconfigured(t *testing.T) {
 	// its documented contract: always exits 0, never blocks.
 	out, err := runDoctor(t, root)
 	require.NoError(t, err, "`ctxloom doctor` must never fail the process even when it finds a misconfiguration")
-	assert.Contains(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4 [warn]", "the misconfiguration must still be VISIBLE in the report")
+	assert.Equal(t, doctorWarn, doctorCheckNamed(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4").Status,
+		"the misconfiguration must still be VISIBLE in the report:\n"+out)
 }
 
 func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
@@ -859,14 +909,20 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	scaffoldLocalTierState(t, root)
 	out, err := runDoctorClean(t, root, sock)
 	require.NoError(t, err)
-	assert.Contains(t, out, "DOCTOR-CHECK-SETUP-MARKER-e5 [ok]")
-	assert.Contains(t, out, "DOCTOR-CHECK-DEPS-a1 [ok]")
-	assert.Contains(t, out, "DOCTOR-CHECK-SIGNKEY-k1 [ok]")
-	assert.Contains(t, out, "DOCTOR-CHECK-GITIDENT-l2 [ok]")
-	assert.Contains(t, out, "DOCTOR-CHECK-ACPADAPTER-m3 [ok]")
-	assert.Contains(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4 [ok]")
-	assert.Contains(t, out, "DOCTOR-CHECK-LOCAL-STATE-p6 [ok]")
-	assert.NotContains(t, out, "[warn]", "a fully-wired project must show no warn lines")
+	for _, marker := range []string{
+		"DOCTOR-CHECK-SETUP-MARKER-e5",
+		"DOCTOR-CHECK-DEPS-a1",
+		"DOCTOR-CHECK-SIGNKEY-k1",
+		"DOCTOR-CHECK-GITIDENT-l2",
+		"DOCTOR-CHECK-ACPADAPTER-m3",
+		"DOCTOR-CHECK-HOOKS-TRUST-d4",
+		"DOCTOR-CHECK-LOCAL-STATE-p6",
+	} {
+		check := doctorCheckNamed(t, out, marker)
+		assert.Equalf(t, doctorOK, check.Status, "%s must resolve ok on a fully-wired project: %s", marker, check.Detail)
+	}
+	assert.Empty(t, doctorMarkersWithStatus(t, out, doctorWarn),
+		"a fully-wired project must produce no warn check at all:\n"+out)
 }
 
 // scaffoldLocalTierState creates a stand-in for every paths.TierLocal path
@@ -1063,7 +1119,9 @@ func TestDoctorCmd_ReadOnly(t *testing.T) {
 	before2 := hashTree(t, root)
 	out, err := runDoctor(t, root)
 	require.NoError(t, err)
-	assert.Contains(t, out, "[warn]") // the misconfiguration IS detected...
+	// the misconfiguration IS detected — named, not merely "something warned",
+	// so a doctor that lost this check cannot satisfy the precondition...
+	assert.Equal(t, doctorWarn, doctorCheckNamed(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4").Status, out)
 	after2 := hashTree(t, root)
 	assert.Equal(t, before2, after2, "...but detecting it must not itself write anything")
 }

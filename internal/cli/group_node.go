@@ -188,6 +188,13 @@ func groupNodeFormatRefusal(cmd *cobra.Command) error {
 	if format == clifmt.FormatText {
 		return nil
 	}
+	// Only a format the caller ASKED for can be refused. Off a terminal
+	// Resolve derives json, and a namespace that prints help has nothing to
+	// encode either way — refusing then would tell the caller to drop a flag
+	// they never passed, and would break every scripted bare-namespace call.
+	if !cliemit.Explicit(cmd) {
+		return nil
+	}
 	return fmt.Errorf("%s: --format %s cannot be honored by a command group: %s prints help, and help is not a payload any encoding can carry — name a subcommand that produces one (see '%s --help')",
 		cmd.CommandPath(), format, cmd.CommandPath(), cmd.CommandPath())
 }

@@ -497,7 +497,14 @@ func TestReviewWantsListing(t *testing.T) {
 		interactive bool
 		want        bool
 	}{
-		{"tty, default format, walks", "", false, true, false},
+		// An UNSET --format is resolved against stdout, and a test binary's
+		// stdout is never a terminal — so the default lands machine-readable
+		// here and the listing wins even with interactive true. The other half
+		// of that default (a real terminal resolving to text, which is what
+		// makes the walk below reachable for a human) is cliemit's own
+		// contract, pinned by cliemit.TestResolve_DefaultFollowsTTY; it cannot
+		// be presented from this package, whose seam is a different one.
+		{"default format off a terminal, lists", "", false, true, true},
 		{"tty, explicit text, walks", "text", false, true, false},
 		{"tty, --list, lists", "", true, true, true},
 		{"no tty, lists", "", false, false, true},

@@ -161,10 +161,10 @@ func TestDoctorCmd_TranscriptReaderCheckIsWiredIntoTheReport(t *testing.T) {
 	out, err := runDoctor(t, root)
 	require.NoError(t, err)
 
-	line := lineContaining(t, out, doctorTranscriptReaderMarker)
-	assert.Contains(t, line, "claude-code", "the report line must name the configured engine")
-	assert.Contains(t, line, claudereader.VersionedAdapters[0].Versions.String(),
-		"the report line must carry the range ctxloom actually carries a reader for")
+	check := doctorCheckNamed(t, out, doctorTranscriptReaderMarker)
+	assert.Contains(t, check.Detail, "claude-code", "the check must name the configured engine")
+	assert.Contains(t, check.Detail, claudereader.VersionedAdapters[0].Versions.String(),
+		"the check must carry the range ctxloom actually carries a reader for")
 }
 
 // TestDoctorCmd_TranscriptReaderCheckIsNotInDepsScope keeps --deps what it is:

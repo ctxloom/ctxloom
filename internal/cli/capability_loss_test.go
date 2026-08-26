@@ -119,15 +119,15 @@ func TestDoctorCmd_CapabilityLoss_NamesTheHooksOpencodeCannotCarry(t *testing.T)
 	out, err := runDoctor(t, root)
 	require.NoError(t, err, "doctor stays diagnostic-only: a capability gap is reported, never fatal")
 
-	line := lineContaining(t, out, "DOCTOR-CHECK-CAPABILITY-LOSS-u1")
-	assert.Contains(t, line, "[warn]",
+	check := doctorCheckNamed(t, out, "DOCTOR-CHECK-CAPABILITY-LOSS-u1")
+	assert.Equal(t, doctorWarn, check.Status,
 		"a configured agent whose engine drops a hook it was given is a WARN — doctor's fail-loud signal:\n"+out)
-	assert.Contains(t, line, "default",
-		"the line must name WHICH agent loses it, or a multi-agent roster is unactionable:\n"+out)
-	assert.Contains(t, line, "session_start",
-		"naming the hook event the user actually wrote is what makes the line actionable rather than ominous:\n"+out)
-	assert.Contains(t, line, "opencode has no hook mechanism",
-		"the line must say WHY the engine cannot give it, so a reader can tell a capability gap from a ctxloom bug:\n"+out)
+	assert.Contains(t, check.Detail, "default",
+		"the detail must name WHICH agent loses it, or a multi-agent roster is unactionable:\n"+out)
+	assert.Contains(t, check.Detail, "session_start",
+		"naming the hook event the user actually wrote is what makes the detail actionable rather than ominous:\n"+out)
+	assert.Contains(t, check.Detail, "opencode has no hook mechanism",
+		"the detail must say WHY the engine cannot give it, so a reader can tell a capability gap from a ctxloom bug:\n"+out)
 }
 
 // TestDoctorCmd_CapabilityLoss_NamesThePerEventGapCodexHas covers the OTHER
@@ -141,13 +141,13 @@ func TestDoctorCmd_CapabilityLoss_NamesThePerEventGapCodexHas(t *testing.T) {
 	out, err := runDoctor(t, root)
 	require.NoError(t, err)
 
-	line := lineContaining(t, out, "DOCTOR-CHECK-CAPABILITY-LOSS-u1")
-	assert.Contains(t, line, "[warn]", out)
-	assert.Contains(t, line, "session_end",
+	check := doctorCheckNamed(t, out, "DOCTOR-CHECK-CAPABILITY-LOSS-u1")
+	assert.Equal(t, doctorWarn, check.Status, out)
+	assert.Contains(t, check.Detail, "session_end",
 		"the per-EVENT gap must name the event, not just the surface:\n"+out)
-	assert.Contains(t, line, "codex has no session-end event", out)
-	assert.NotContains(t, line, "session_start",
-		"codex DOES carry session_start here; reporting it as lost would be the false alarm that teaches readers to skip the line:\n"+out)
+	assert.Contains(t, check.Detail, "codex has no session-end event", out)
+	assert.NotContains(t, check.Detail, "session_start",
+		"codex DOES carry session_start here; reporting it as lost would be the false alarm that teaches readers to skip the check that matters:\n"+out)
 }
 
 // TestDoctorCmd_CapabilityLoss_StaysQuietWhenNothingIsLost is the false-alarm
@@ -162,13 +162,13 @@ func TestDoctorCmd_CapabilityLoss_StaysQuietWhenNothingIsLost(t *testing.T) {
 	out, err := runDoctor(t, root)
 	require.NoError(t, err)
 
-	line := lineContaining(t, out, "DOCTOR-CHECK-CAPABILITY-LOSS-u1")
-	assert.Contains(t, line, "[ok]",
+	check := doctorCheckNamed(t, out, "DOCTOR-CHECK-CAPABILITY-LOSS-u1")
+	assert.Equal(t, doctorOK, check.Status,
 		"the check must RUN and say so — silence from a check that was never wired is not the same as silence from a clean project:\n"+out)
 	assert.NotContains(t, out, "NOT carried",
 		"claude-code carries both hooks, so there is nothing to report as lost:\n"+out)
-	assert.NotContains(t, line, "session_start",
-		"a clean project's line must not name a hook as lost:\n"+out)
+	assert.NotContains(t, check.Detail, "session_start",
+		"a clean project's detail must not name a hook as lost:\n"+out)
 	assert.NotContains(t, out, "no hook mechanism", out)
 }
 
@@ -178,6 +178,14 @@ func TestDoctorCmd_CapabilityLoss_StaysQuietWhenNothingIsLost(t *testing.T) {
 // returns everything it wrote. Built the same way execDoctor is: a cobra
 // stand-in carrying the persistent flags emit() reads, since this command has
 // no parent here to inherit them from.
+//
+// `--format text` is asked for EXPLICITLY, and that is not a way around the
+// machine-readable default a non-terminal now resolves to. The human report is
+// the only surface that carries the capability loss at all: runManageCheck
+// emits operations.HarnessStatusResult as its structured value and passes
+// capabilityLossByAgent to the TEXT closure alone, so the loss has no field on
+// the wire to assert against. Until it does, text is where this contract
+// lives, and asking for it explicitly is what the ruling says wins.
 func execManageCheck(t *testing.T, root string) (string, error) {
 	t.Helper()
 	t.Chdir(root)
@@ -194,7 +202,7 @@ func execManageCheck(t *testing.T, root string) (string, error) {
 	c.SetOut(buf)
 	c.SetErr(buf)
 	c.SetContext(context.Background())
-	c.SetArgs(nil)
+	c.SetArgs([]string{"--format", "text"})
 	err := c.Execute()
 	return buf.String(), err
 }

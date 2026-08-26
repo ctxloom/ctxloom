@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -265,12 +266,33 @@ bundles:
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "agent test")
 
 	assert.Equal(t, 0, env.LastExitCode(), env.LastOutput())
-	out := env.LastOutput()
-	assert.Contains(t, out, "Agent-composed content", "the agent's composed profile context is previewed")
-	assert.Contains(t, out, "=== Agent ===")
-	assert.Contains(t, out, "runtime: container-rootless", "the agent's declared runtime axis surfaces")
-	assert.Contains(t, out, "workspace: none", "an unset session workspace renders as the axis default")
-	assert.Contains(t, out, "agent-profile", "the agent's profile set scopes the preview")
+
+	// The preview is read as DATA. Off a terminal the default is now
+	// machine-readable, and this is the only test of the --agent arm's preview
+	// on the wire at all — run_characterization_test.go's dryRunJSON cases all
+	// drive the profile arm. Reading the fields also bites harder than the
+	// prose did: the axes are pinned by equality rather than by a substring
+	// that "runtime: container-rootless-something" would also satisfy.
+	var got struct {
+		Agent     string   `json:"agent"`
+		Workspace string   `json:"workspace"`
+		Runtime   string   `json:"runtime"`
+		Profiles  []string `json:"profiles"`
+		Context   string   `json:"context"`
+	}
+	out := env.LastStdout()
+	require.NoError(t, json.Unmarshal([]byte(out), &got),
+		"`run --agent --dry-run` must emit its preview as a JSON document off a terminal:\n"+out)
+
+	assert.Equal(t, "dev", got.Agent, "the preview names the binding it resolved")
+	assert.Equal(t, "container-rootless", got.Runtime, "the agent's declared runtime axis surfaces")
+	// The two axes are independent and only the DECLARED one is reported: the
+	// invocation set no --workspace, so that field stays empty in the same
+	// payload that carries a runtime. A preview that filled it in would be
+	// inventing an isolation guarantee nobody asked for.
+	assert.Empty(t, got.Workspace, "an unset session workspace is reported as unset, not defaulted:\n"+out)
+	assert.Equal(t, []string{"agent-profile"}, got.Profiles, "the agent's profile set scopes the preview")
+	assert.Contains(t, got.Context, "Agent-composed content", "the agent's composed profile context is previewed")
 }
 
 // TestRun_AgentCreate_RejectsUnknownRuntime pins the fix for the defect

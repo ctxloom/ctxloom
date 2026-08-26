@@ -129,7 +129,12 @@ func TestDepsBare_ListsTheClosure(t *testing.T) {
 func TestDepsList_IsOfflineAndSaysSoWhenEmpty(t *testing.T) {
 	remoteBareFixture(t)
 
-	out, err := runRoot(t, "deps", "list")
+	// `--format text` is the subject here, not a way around the
+	// machine-readable default a non-terminal resolves to: an empty JSON array
+	// is a complete and correct answer that says nothing about what to run
+	// next. The remedy sentence exists only in the human rendering, so the
+	// human rendering is what this asks for.
+	out, err := runRoot(t, "deps", "list", "--format", "text")
 
 	require.NoError(t, err)
 	assert.Contains(t, out, "No dependencies installed")

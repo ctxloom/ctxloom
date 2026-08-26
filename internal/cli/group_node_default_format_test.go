@@ -52,14 +52,25 @@ func TestGroupNodeDefault_BareNounHonorsFormat(t *testing.T) {
 	assert.Equal(t, harp, rows[0]["harp"])
 }
 
-// The text default is unchanged: no --format still renders the human table.
-func TestGroupNodeDefault_BareNounStillDefaultsToText(t *testing.T) {
+// TestGroupNodeDefault_BareNounRendersTheTextTable is the other half of the
+// pair above: the bare noun reaches the child's TEXT closure too, and renders
+// the human table rather than a value.
+//
+// It asks for `--format text` outright. An unset --format is resolved against
+// stdout, and a test binary's stdout is never a terminal, so the default lands
+// machine-readable here — that default is cliemit's contract (pinned by
+// cliemit.TestResolve_DefaultFollowsTTY) and cannot be presented from this
+// package. What is unique to this path, and covered nowhere else, is that a
+// bare noun reaches the text renderer at all: the same structural gap the test
+// above closes could just as easily leave the human table unreachable, and an
+// explicit text run is the only way to see it.
+func TestGroupNodeDefault_BareNounRendersTheTextTable(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	resetRootFormat(t)
 	t.Cleanup(func() { resetRootFormat(t) })
 
-	out, err := execRootCmd(t, "session")
+	out, err := execRootCmd(t, "session", "--format", "text")
 	require.NoError(t, err)
 	assert.Contains(t, out, "HARP")
 	assert.Contains(t, out, harp)

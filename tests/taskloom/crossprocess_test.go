@@ -297,11 +297,21 @@ func TestCrossProcessConcurrentTag(t *testing.T) {
 	harpEnv := []string{"CTXLOOM_SESSION_HARP=cross-proc-tag-harp"}
 
 	// Seed the one task every goroutine will tag concurrently.
-	addOut, addErr, err := e.run(harpEnv, "add", "tag-me")
+	// --format json, and PARSED rather than scraped. This split on a TAB and
+	// took field 0, which silently stopped being the harp id the moment the
+	// default format became terminal-aware: a subprocess has no tty, so `add`
+	// answers with a JSON object and field 0 became "{". The failure surfaced
+	// three steps later as "add tags: task not found: {", which is the shape
+	// text-scraping always fails in here — a confident wrong answer rather than
+	// an error at the point of the mistake.
+	addOut, addErr, err := e.run(harpEnv, "add", "tag-me", "--format", "json")
 	require.NoErrorf(t, err, "seed task failed: %s", addErr)
-	fields := strings.Split(strings.TrimSpace(addOut), "\t")
-	require.GreaterOrEqualf(t, len(fields), 1, "unexpected add output: %q", addOut)
-	harpID := fields[0]
+	var added struct {
+		HarpID string `json:"harp_id"`
+	}
+	require.NoErrorf(t, json.Unmarshal([]byte(addOut), &added), "unexpected add output: %q", addOut)
+	require.NotEmptyf(t, added.HarpID, "add returned no harp_id: %q", addOut)
+	harpID := added.HarpID
 
 	const n = 40
 	var wg sync.WaitGroup

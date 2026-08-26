@@ -43,6 +43,10 @@ var EnvKeys = []string{
 	"CTXLOOM_DEGRADED",
 	"CTXLOOM_VERBOSE",
 	"CTXLOOM_NO_COMPANIONS",
+	// Read by cmd/validate to override the build stamp. Ambient in any shell
+	// that exported it, and an unisolated test would then validate against the
+	// HOST's stamp instead of its own fixture's.
+	"CTXLOOM_VERSION_STAMP",
 	// The agentcoord runner-handshake vars: read via the coord.Env* constants
 	// (os.Getenv(coord.EnvMCPSocket), not a literal "CTXLOOM_..." string), so
 	// TestEnvKeysCoversProductionReads' literal-string regex can't discover

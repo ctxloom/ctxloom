@@ -197,6 +197,15 @@ func TestSuppressedEmbeddedPrincipals_UnreadableStore_IsLoud(t *testing.T) {
 // one either method reads. Both properties are what the resolution step buys;
 // pinning them here keeps a single shared resolver honest.
 func TestTrustRootFilesystemResolution_NilFSFallsBackAndInjectedFSIsHonored(t *testing.T) {
+	// HOME is rooted at a temp dir because the nil-filesystem subtest falls back
+	// to the REAL OS filesystem by design, and distrustedSignersPaths includes a
+	// HOME-rooted path (paths.HomeDistrustedSignersPath). Without this the
+	// "nothing is suppressed" assertion reads the developer's own
+	// ~/.ctxloom/distrusted_signers and fails on any machine that has ever
+	// suppressed a key — passing on a clean checkout and CI while being wrong.
+	// Measured 2026-08-26: it returned map[ben+ctxloom@abbitt.me:true] here.
+	t.Setenv("HOME", t.TempDir())
+
 	t.Run("nil filesystem does not panic", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{"/nonexistent-ctxloom-project/.ctxloom"}}
 		require.Nil(t, cfg.fs, "the fixture must exercise the nil-filesystem path")

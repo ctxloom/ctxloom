@@ -46,7 +46,7 @@ vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-que
 * [taskloom loadout](/taskloom/reference/cli/taskloom_loadout/)	 - Print taskloom's ctxloom loadout — the bundle content taskloom contributes to a session
 * [taskloom manage](/taskloom/reference/cli/taskloom_manage/)	 - Register the taskloom MCP server with agent backends
 * [taskloom mcp](/taskloom/reference/cli/taskloom_mcp/)	 - Serve the task tools over MCP on stdio
-* [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (~/.ctxloom/sessions/<harp>/*.plan.md)
+* [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md)
 * [taskloom repair](/taskloom/reference/cli/taskloom_repair/)	 - Re-introduce any task displaced by an unresolved harp-id collision
 * [taskloom run](/taskloom/reference/cli/taskloom_run/)	 - Browse a task and launch an agent on it (via ctxloom run)
 * [taskloom show](/taskloom/reference/cli/taskloom_show/)	 - Show one task's full detail

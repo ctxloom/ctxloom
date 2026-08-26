@@ -16,14 +16,16 @@ List configured MCP servers, or serve ctxloom as one
 The MCP (Model Context Protocol) noun: the servers this project hands to
 every engine, and ctxloom's own stdio server.
 
-  ctxloom mcp              List the configured MCP servers (this project's
-                           own, plus whether ctxloom auto-registers itself)
+  ctxloom mcp              List the MCP servers this project registers
   ctxloom mcp serve        Serve ctxloom AS an MCP server over stdio. This is
                            the invocation an engine's settings name, and the
                            only one that speaks the protocol.
-  ctxloom mcp server       Create, show, edit and delete configured servers
-  ctxloom mcp register     Toggle ctxloom's own auto-registration
-  ctxloom mcp unregister
+  ctxloom mcp server       List, show and edit registered servers
+
+Every server here comes from a BUNDLE — ctxloom's own included, which ships
+in the builtin ctxloom bundle. Add one by composing a bundle that declares it;
+withhold one with a profile's exclude_mcp, or with
+  ctxloom bundle reject <bundle>#mcp/<name>
 
 Tools ctxloom serves under 'mcp serve':
   Context:  assemble_context, search_content, search_library
@@ -55,8 +57,6 @@ ctxloom mcp [flags]
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
-* [ctxloom mcp register](/reference/cli/ctxloom_mcp_register/)	 - Enable auto-registration of ctxloom's own MCP server
 * [ctxloom mcp serve](/reference/cli/ctxloom_mcp_serve/)	 - Serve ctxloom as an MCP server over stdio
-* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, create, edit, or delete configured MCP servers
-* [ctxloom mcp unregister](/reference/cli/ctxloom_mcp_unregister/)	 - Disable auto-registration of ctxloom's own MCP server
+* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, or edit the MCP servers this project registers
 

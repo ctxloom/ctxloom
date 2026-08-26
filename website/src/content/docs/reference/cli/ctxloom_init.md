@@ -25,6 +25,12 @@ init scaffolds a LOCAL default coding profile (.ctxloom/profiles/default.yaml,
 inheriting the ctxloom-default baseline) and wires the trusted ctxloom-default
 remote so its code-review lens profiles are available.
 
+It then installs the dependencies that scaffold declares ('ctxloom deps pull'),
+because a declared-but-uninstalled remote parent is SKIPPED at assembly: without
+this the project reads as initialized while composing less context than its
+configuration says. --no-pull suppresses it; a pull that cannot reach its remote
+never rolls the init back — it warns and leaves a usable project.
+
 When run interactively (TTY detected), init will guide you through:
   1. Selecting an AI engine (claude-code, codex, etc.)
   2. Optionally adding a personal ctxloom repository as a remote
@@ -45,6 +51,7 @@ Examples:
   ctxloom init --home              # Initialize in ~/.ctxloom
   ctxloom init --engine codex       # Pre-select engine
   ctxloom init --non-interactive   # Skip all prompts
+  ctxloom init --no-pull           # Scaffold without installing dependencies
 
 ```
 ctxloom init [flags]
@@ -56,6 +63,7 @@ ctxloom init [flags]
       --engine string        Pre-select AI engine (claude-code, codex, etc.)
       --forge string         Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host
       --home                 Initialize in user home directory instead of current directory
+      --no-pull              Skip the dependency pull init ends with; declared dependencies stay uninstalled until 'ctxloom deps pull' runs
       --non-interactive      Skip interactive prompts (use defaults and flags)
       --remote stringArray   Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable
       --skip-launch          Skip auto-launching the AI after init

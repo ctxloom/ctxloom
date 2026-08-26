@@ -1320,6 +1320,32 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
 # existed here and CI ran past it. The recipes below are host-only and keep
 # using the shared `mutation_tmp`.
 
+# --- content bundle signing ------------------------------------------------
+#
+# This project AUTHORS two bundles (ctxloom-project and unattended); everything
+# else under .ctxloom/content/bundles/ is pulled from a remote and is not ours
+# to sign. `ctxloom sign --all` signs exactly the ones we author.
+#
+# THE KEY IS BAKED IN, and which one is a RULE rather than a preference: ctxloom
+# and ctxloom-default are signed with the CTXLOOM publishing identity, personal
+# content with the personal one.
+#
+# Leaving it to `git config user.signingkey` is what let this drift — that
+# lookup answers from whichever repository you happen to be in, so the same
+# command signs as a different identity depending on where it runs, and nobody
+# finds out until a consumer's trust check fails. Signing is also required after
+# ANY edit to bundle content: publishing an unsigned edit is refused as tampered.
+SIGN_KEY := "ben+ctxloom@abbitt.me"
+
+# Sign every local bundle this project authors.
+sign-bundles KEY=SIGN_KEY:
+    ctxloom bundle sign --all --key {{KEY}}
+
+# Sign one bundle, or an item ref (which resolves to its containing bundle).
+#   just sign-bundle unattended
+sign-bundle REF KEY=SIGN_KEY:
+    ctxloom bundle sign {{REF}} --key {{KEY}}
+
 # Run mutation tests on specific package
 # gremlins appends /... to the target itself; passing it here yields
 # ./pkg/.../... which matches nothing and fails with "no packages to test".
@@ -1843,6 +1869,20 @@ gen-mcp-schemas:
 
 # Generate the reference docs for all three binaries from their sources of
 # truth: the CLI reference (man pages + website markdown) from each cobra
+# CI drift gates for the two generated trees above. They are thin wrappers on
+# purpose: the implementations live in justfile.container, and CI invokes them by
+# these names. WITHOUT A TOP-LEVEL WRAPPER CI CANNOT REACH THEM AT ALL — `_run`
+# only routes a recipe that exists here, so `just gen-docs-check` fails with
+# "Justfile does not contain recipe" rather than running the gate. That was live:
+# both steps sit behind complexity-check in the lint job, which had been failing
+# since 2026-08-08, so neither drift gate had run in weeks and the breakage was
+# invisible.
+gen-docs-check: dev-image
+    just _run gen-docs-check
+
+gen-mcp-schemas-check: dev-image
+    just _run gen-mcp-schemas-check
+
 # command tree, the MCP reference from the live tool/resource registrations, and
 # ctxloom's and taskloom's config references from their tracked JSON Schemas. One generator
 # (internal/docsgen) serves all three; taskloom and ltk keep their trees in

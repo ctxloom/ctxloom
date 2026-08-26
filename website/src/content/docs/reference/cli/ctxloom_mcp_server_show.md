@@ -15,12 +15,6 @@ Show details of an MCP server configuration
 ctxloom mcp server show <name> [flags]
 ```
 
-### Options
-
-```
-  -i, --interactive   Review the server's effective trust (interactive terminal only)
-```
-
 ### Options inherited from parent commands
 
 ```
@@ -33,5 +27,5 @@ ctxloom mcp server show <name> [flags]
 
 ### SEE ALSO
 
-* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, create, edit, or delete configured MCP servers
+* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, or edit the MCP servers this project registers
 

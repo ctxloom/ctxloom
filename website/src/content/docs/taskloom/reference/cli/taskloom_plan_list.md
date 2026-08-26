@@ -13,7 +13,7 @@ List session plans
 
 ### Synopsis
 
-List session plans (~/.ctxloom/sessions/<harp>/*.plan.md).
+List session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md).
 
 By default a listing is scoped to the CURRENT project, resolved exactly the
 way `taskloom list` resolves it (--project, else CTXLOOM_PROJECT_ID,
@@ -54,5 +54,5 @@ taskloom plan list [flags]
 
 ### SEE ALSO
 
-* [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (~/.ctxloom/sessions/<harp>/*.plan.md)
+* [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md)
 

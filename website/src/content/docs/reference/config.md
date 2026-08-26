@@ -31,16 +31,13 @@ Schema for ctxloom config.yaml files
 | `delegation` | object | The project-wide agent-delegation settings. Grouped because each governs delegation, not because they share a mechanism — they differ in kind (see each member's own description). |
 | `dirty_tree_handler` | string | Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it — requires a human dirty-tree-commit acknowledgement recorded via `ctxloom init` or `ctxloom manage dirty-tree-ack grant` (NOT a config key — see .ctxloom/state/dirty_tree_commit_ack.yaml), and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter. A value outside this set is REFUSED, never resolved to the default: the default is the one handler that writes to your repository. Allowed values: `commit`, `copy`, `stale`, `fail`. |
 | `editor` | object | Editor configuration for fragment/prompt editing |
-| `hooks` | hooksConfig | Hooks configuration applied globally |
 | `isolation_base_containerfile` | string | USER-PROVIDED base Containerfile for locally-built agent images: local builds (on-the-fly and `ctxloom container build`) build the shared base stage from this file — your tools, your certs — and layer the engine's agent stage on top, instead of an auto-detected devcontainer or the embedded default base. Relative paths resolve against the project root. Beats devcontainer auto-detection. |
 | `isolation_devcontainer_base` | boolean | Toggles auto-detecting the project's .devcontainer/devcontainer.json (or .devcontainer.json) as the locally-built agent image's BASE — "an isolated agent should run in the environment the human develops in". Default true; set false to opt out and use the embedded default base (or an explicit isolation_base_containerfile) instead. A devcontainer.json declaring "features" is NOT honored (a loud warning names what is skipped); one declaring dockerComposeFile needs isolation_devcontainer_service (or its own "service" key) to resolve one service as the base. |
 | `isolation_devcontainer_service` | string | Docker-compose service to adopt as the agent image's base when the auto-detected devcontainer.json declares dockerComposeFile — a multi-service compose project does not map to one agent container, so this (or the devcontainer.json's own "service" key) is required to resolve one; its absence is a fail-loud finding, never a silent fallback to the default base. |
 | `isolation_engines` | string[] | Selects which engine fragments compose into the shared multi-engine agent image (claude-code, codex, kiro, opencode today — each via its OWN official installer, one independently-cacheable Containerfile layer). Empty/unset = every known engine (the biggest image, "one instance runs any engine"); an unrecognized name is dropped with a warning. |
 | `isolation_images` | map → string | Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (claude-code, kiro, ...). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER — except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity — its writes into the mounted project would land root-owned or otherwise not yours — is a fatal startup finding; --degraded launches it anyway with the image's own identity. |
 | `llm` | object | Large language model configuration: a registry of arbitrarily-labeled backend configs plus a role→label map |
-| `mcp` | mcpConfig | MCP (Model Context Protocol) server configuration |
 | `permissions` | string | Project default for the launch-time permission posture of engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. 'default' (prompt on each gated call), 'acceptEdits' (auto-accept file edits, prompt for the rest), 'plan' (read-only), 'bypass' (skip all in-engine prompting). Resolution: `run --permissions` > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's built-in default (bypass for the claude-code host stopgap, prompt elsewhere) — so a narrower posture declared anywhere above always wins, and a declared project default beats a silent engine fallback. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
-| `profiles` | object | Named profile definitions |
 | `runtime` | string | Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container-rootless' and 'container-rootful' run it inside the backend's agent image, and name WHO OWNS the container runtime daemon — they are not interchangeable, because a rootful daemon maps the engine's writes to a different uid than a rootless one, so a run that picked the wrong one produces files the other side cannot edit. There is deliberately no bare 'container': it could only be satisfied by guessing an ownership mode. An agent binding's own `runtime` overrides this default. A value outside this set is REFUSED, never degraded: asserted past the parser it would read as not-a-container — the bare host — so a run that asked for a container boundary would execute outside one, unsandboxed, having said so to nobody. Independent of `workspace` — the two axes are never bound together. Allowed values: `host`, `container-rootless`, `container-rootful`. |
 | `sync` | object | Remote dependency sync behavior |
 | `ui` | object | Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section. |
@@ -126,44 +123,6 @@ Role → config-label map. Roles select which labeled config plays which part.
 |-------|------|-------------|
 | `fast` | string | Label of the config for the compression role (distill, compaction) |
 | `primary` | string | Label of the config for the coding/interactive role |
-
-### profiles
-
-Named profile definitions
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `definitions` | map → object | Named collections of context fragments and variables |
-
-#### profiles.definitions (map values)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `bundle_items` | string[] | Cherry-picked bundle items (e.g. remote/bundle:fragments/name) |
-| `bundles` | string[] | Bundle references (e.g. remote/bundle-name) |
-| `commands` | string[] | Slash-command exports curated for this profile (each a "<bundle>#commands/<name>" ref, optionally version-pinned with a trailing "@<commit>"). When a resolved active profile declares a NON-EMPTY list, ONLY these commands are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in). |
-| `deny_tools` | string[] | Per-engine tool identifiers this profile denies at launch (e.g. "Task" for Claude Code's built-in sub-agent tool). Accumulates through profile inheritance like exclude_mcp — a child cannot un-deny what a parent denied. Currently reaches the claude-code backend only; other backends ignore it. |
-| `description` | string | Human-readable description of this profile |
-| `exclude_fragments` | string[] | Fragment names to exclude from this profile (filtered after inheritance) |
-| `exclude_mcp` | string[] | MCP server names to exclude from this profile (filtered after inheritance) |
-| `fragments` | (mixed)[] | Explicit fragment references to include: a plain path string, or an object with a name and optional priority (FragmentRef.UnmarshalYAML accepts both) |
-| `hooks` | hooksConfig | Hooks configuration for this profile (inherited from parents) |
-| `llm` | string | Preferred LLM config label/backend to launch for this profile (overridable by `run --llm`) |
-| `mcp` | mcpConfig | MCP servers for this profile (inherited) |
-| `parents` | string[] | Parent profiles to inherit from (processed depth-first) |
-| `select_tags` | string[] | Fragment tags to select content by: fragments carrying any of these tags are included. |
-| `skills` | string[] | Agent Skill packages curated for this profile (each a "<bundle>#skills/<name>" ref). When a resolved active profile declares a NON-EMPTY list, ONLY these skills are exported per-engine (force-enabled), suppressing the global bundle-wide auto-export for that profile; an empty list keeps today's global auto-export (every profile-referenced bundle's skills, each still gated by its own per-engine enablement). |
-| `tags` | string[] | Descriptive tags for listing/discovery only — NOT content-selecting. Use `select_tags` to pull in fragments by tag. |
-| `variables` | map → string | Variable values for template substitution in fragments |
-
-##### profiles.definitions (map values).fragments (items)
-
-###### object
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | **Required.** Fragment path/name |
-| `priority` | integer | Higher = more important; bookend-placed in context (default: 0) |
 
 ### sync
 
@@ -307,28 +266,6 @@ Generic Agent Client Protocol client: drives any ACP-capable agent chosen by con
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `strip_env` | string[] | Inherited environment variables removed from the spawned agent's env. |
 | `type` | string | Must be `acp`. |
-
-### mcpConfig
-
-MCP (Model Context Protocol) server configuration
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `auto_register_ctxloom` | boolean | Whether to automatically register ctxloom's own MCP server (default: true) |
-| `plugins` | map → map → mcpServer | Backend-specific MCP server configurations (keyed by backend name) |
-| `servers` | map → mcpServer | Unified MCP server configurations (applied to all backends) |
-
-### mcpServer
-
-MCP server configuration
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `args` | string[] | Arguments for the server command |
-| `command` | string | **Required.** Command to run the MCP server |
-| `env` | map → string | Environment variables for the server |
-| `installation` | string | Setup/installation instructions (not sent to AI) |
-| `notes` | string | Human-readable notes about the server (not sent to AI) |
 
 ### unifiedHooks
 

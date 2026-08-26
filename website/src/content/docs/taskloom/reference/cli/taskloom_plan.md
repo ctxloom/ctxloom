@@ -9,7 +9,7 @@ This page is generated from `taskloom plan --help`.
 
 ## taskloom plan
 
-Browse session plans (~/.ctxloom/sessions/<harp>/*.plan.md)
+Browse session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md)
 
 ### Options
 

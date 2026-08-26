@@ -184,52 +184,22 @@ test-arch: _require-generated
 
 # ===== Generated code preconditions =====
 
-# Fail LOUDLY when a checkout has no generated protobuf.
+# _require-generated makes generated protobuf present and current by simply
+# running the generator. buf is idempotent and cheap when nothing changed, so
+# there is nothing to decide here — asking "is it missing? is it stale?" only
+# adds a heuristic that can be wrong, and being wrong means compiling against a
+# stale ABI.
 #
-# .gitignore excludes *.pb.go (only the .proto sources are tracked — see task
-# ratty-amuck: tracking the artifacts was tried and reverted, generating them
-# is the standing answer), so a freshly created git worktree has none of the
-# seven generated files. Every package above a leaf then fails to COMPILE
-# with go's module-resolution message:
+# *.pb.go is gitignored, so a fresh clone or `git worktree add` never has it and
+# every package above a leaf then fails to build with a misleading "no required
+# module provides package github.com/ctxloom/ctxloom/...". That used to be a
+# manual step on every new worktree, and worktree-per-unit-of-work is how this
+# repo says to work, so the friction sat on the common path.
 #
-#   internal/agentcoord/coord/approval.go:13:2: no required module provides
-#   package github.com/ctxloom/ctxloom/internal/agentcoord; to add it:
-#           go get github.com/ctxloom/ctxloom/internal/agentcoord
-#
-# which names neither protobuf nor the worktree, and whose suggested fix
-# (`go get` an internal package of this very module) is actively wrong. Every
-# delegated agent in this project has paid that tax. The recipes that invoke
-# `go` on the whole tree WITHOUT first going through the container `build`
-# (which runs `proto` itself) depend on this, so the first thing such a
-# worktree prints is the actual problem.
-#
-# The expected file set is DERIVED, not listed: every tracked .proto outside
-# the vendored internal/agentcoord/google (excluded from codegen by
-# buf.gen.yaml) must have a sibling <name>.pb.go, plus <name>_grpc.pb.go when
-# it declares a service. Adding a proto extends the check for free.
-_require-generated:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    missing=()
-    while IFS= read -r proto; do
-        case "$proto" in internal/agentcoord/google/*) continue ;; esac
-        stem="${proto%.proto}"
-        [ -f "$stem.pb.go" ] || missing+=("$stem.pb.go")
-        if grep -q '^service ' "$proto"; then
-            [ -f "${stem}_grpc.pb.go" ] || missing+=("${stem}_grpc.pb.go")
-        fi
-    done < <(git ls-files '*.proto' | sort)
-    if [ "${#missing[@]}" -ne 0 ]; then
-        echo "error: generated protobuf missing in this worktree (*.pb.go is gitignored, so a fresh git worktree never has it):" >&2
-        printf '  %s\n' "${missing[@]}" >&2
-        echo >&2
-        echo "Without these, every package above a leaf fails to build with a misleading" >&2
-        echo "\"no required module provides package github.com/ctxloom/ctxloom/...\" — that is" >&2
-        echo "THIS, not your change. Do NOT run the 'go get' go suggests, and do NOT copy" >&2
-        echo "*.pb.go from another checkout (a stale one still compiles, against the wrong ABI)." >&2
-        echo >&2
-        echo "fix:  just proto                        # host: regenerates via the devcontainer" >&2
-        echo "  or: just build                        # host: proto + schemas + binary" >&2
-        echo "  or: just -f justfile.container proto   # already inside the devcontainer" >&2
-        exit 1
-    fi
+# What this replaced was worse than a manual step: an enumeration of
+# `git ls-files '*.proto'`, a hard-coded skip of internal/agentcoord/google/*,
+# and a derivation of "<stem>.pb.go plus <stem>_grpc.pb.go when the file
+# declares a service" — three separate re-implementations of what buf actually
+# emits, maintained by nobody and caught by nothing when buf.gen.yaml changes.
+# It also tested existence ONLY, so a .pb.go older than its .proto passed.
+_require-generated: proto

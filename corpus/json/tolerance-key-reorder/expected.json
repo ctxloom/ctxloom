@@ -1,0 +1,8 @@
+{
+  "server": {
+    "timeout": 60,
+    "retries": 3,
+    "port": 8080,
+    "host": "localhost"
+  }
+}

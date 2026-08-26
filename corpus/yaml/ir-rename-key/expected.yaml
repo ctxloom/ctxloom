@@ -1,0 +1,4 @@
+server:
+  # how long to wait upstream
+  timeout_seconds: 30
+  port: 8080

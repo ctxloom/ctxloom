@@ -1,0 +1,11 @@
+name: markdown/replace-code-block
+seams: [e2e]
+kind: ok
+format: markdown
+ops: [OP-42]
+why: |
+  Block-granular margins: every line of a multi-line block carries the same margin
+  (a block with mixed margins is HEW001). Addressed by heading path plus
+  kind-scoped ordinal — which is a positional address wearing a structural coat,
+  and is exactly the weakness §8.7 has to weigh against plain patch(1).
+spec: "§4.5, §8.6, §8.7, §11 OP-42"

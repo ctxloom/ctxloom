@@ -1,0 +1,11 @@
+name: json/whole-file-replace
+seams: [e2e]
+kind: ok
+format: json
+ops: [OP-52]
+why: |
+  A `replace` at the root anchor. This is what ctxloom's M4 and kiro's dedicated
+  agent files do — whole-file ownership — and it is listed as a catalog entry only
+  so that nobody invents a file-level operation for something the node model
+  already covers.
+spec: "§11 OP-52"

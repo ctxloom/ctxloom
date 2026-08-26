@@ -1,0 +1,6 @@
+{
+  "mcpServers": [
+    { "name": "ctxloom", "command": "ctxloom" },
+    { "name": "taskloom", "command": "taskloom" }
+  ]
+}

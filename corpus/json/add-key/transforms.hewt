@@ -1,0 +1,14 @@
+hew-transforms: 1
+target: target.json
+format: json
+transforms:
+  - op: test
+    path: /server/host
+    value: localhost
+  - op: test
+    path: /server/port
+    value: 8080
+  - op: add
+    path: /server/tls
+    after: /server/host
+    value: true

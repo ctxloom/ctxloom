@@ -1,0 +1,11 @@
+name: yaml/list-insert-middle
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-13]
+why: |
+  Insertion position falls out of the surrounding context with no keyword at all
+  (§6.2) — the operation ytt spells `@overlay/insert after=`, spruce spells
+  `(( insert after ))` and RFC 5261 spells `pos="after"`, all of which compile to
+  one core `add` plus placement.
+spec: "§6.2, §11 OP-13, §11.10"

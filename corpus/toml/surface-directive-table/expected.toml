@@ -1,0 +1,8 @@
+[mcp_servers]
+
+[mcp_servers.ctxloom]
+command = "ctxloom"
+
+[mcp_servers.taskloom]
+command = "taskloom"
+args = ["mcp"]

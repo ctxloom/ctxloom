@@ -1,0 +1,3 @@
+server:
+  # TODO: revisit this
+  timeout: 30

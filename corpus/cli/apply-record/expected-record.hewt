@@ -1,0 +1,16 @@
+hew-record: 1
+patch:
+  source: patch.hew
+targets:
+  - target: target.json
+    format: json
+    committed: true
+    transforms:
+      - op: test
+        path: /mcpServers/0/name
+        value: ctxloom
+      - op: add
+        path: /mcpServers/1
+        value:
+          name: taskloom
+          command: taskloom

@@ -1,0 +1,12 @@
+hew-transforms: 1
+target: target.yaml
+format: yaml
+transforms:
+  - op: test
+    path: /server/host
+    value: localhost
+  - op: copy
+    from: /server/host
+    path: /network/host
+  - op: remove
+    path: /server/host

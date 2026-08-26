@@ -1,0 +1,9 @@
+name: toml/tolerance-key-reorder
+seams: [e2e]
+kind: ok
+format: toml
+ops: [OP-01]
+why: |
+  TOLERANCE ROW for TOML: keys reordered within a table, plus a new table added
+  above. Table order and key order are both formatting, not identity.
+spec: "§6.4.1, §6.4.5"

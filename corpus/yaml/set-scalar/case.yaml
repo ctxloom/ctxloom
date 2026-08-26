@@ -1,0 +1,10 @@
+name: yaml/set-scalar
+seams: [parse, apply-ir, e2e]
+kind: ok
+format: yaml
+ops: [OP-01]
+why: |
+  The canonical change from the notation survey, in hew. The comment above `port`
+  is a context line and survives untouched, which no op-list notation can express
+  at all.
+spec: "§5, §11 OP-01"

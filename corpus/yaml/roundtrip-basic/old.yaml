@@ -1,0 +1,14 @@
+name: myapp
+version: 1.2.0
+server:
+  host: localhost
+  port: 8080
+  timeout: 30
+tags:
+  - alpha
+  - beta
+mcpServers:
+  - name: filesystem
+    command: npx
+  - name: github
+    command: npx

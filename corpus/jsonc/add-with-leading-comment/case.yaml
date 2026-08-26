@@ -1,0 +1,11 @@
+name: jsonc/add-with-leading-comment
+seams: [parse, apply-ir, e2e]
+kind: ok
+format: jsonc
+ops: [OP-31]
+why: |
+  A patch CAN carry a comment for the node it adds (O23, decided yes). The mirror
+  spelling is two `+` lines; the parser desugars it into two `add` records — a
+  comment node at a comment address plus the member — so the IR carries no
+  `comment:` qualifier (§11.10 reduction 3).
+spec: "§8.2, §9.6, §11 OP-31, §11.10"

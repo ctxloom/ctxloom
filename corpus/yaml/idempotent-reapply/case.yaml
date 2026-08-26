@@ -1,0 +1,11 @@
+name: yaml/idempotent-reapply
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-01]
+why: |
+  `! idempotent`: the before-image does not match but the after-image does, so the
+  hunk is satisfied and contributes zero ops. Every ctxloom managed-file writer is
+  idempotent by construction, which is why this directive exists — and why O3 asks
+  whether it should be the default.
+spec: "§7.5"

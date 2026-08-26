@@ -1,0 +1,14 @@
+name: cli/apply-ops-output
+seams: [cli]
+kind: cli
+format: json
+argv: ["apply", "--ops", "patch.hew"]
+exit: 0
+stdout: expected-ops.json
+target_unchanged: true
+ops: [OP-01]
+why: |
+  `--ops` prints the RESOLVED RFC 6901 form (§9.2) and writes nothing — key-match
+  segments have become indices against this target. It is a derived artifact for
+  interop; hew cannot read it back.
+spec: "§9.2, Appendix B.1"

@@ -1,0 +1,8 @@
+hew: 1
+
+--- target.tf format=hcl
+
+@@ / @@
+- provider "azurerm" {
+-   features {}
+- }

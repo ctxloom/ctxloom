@@ -1,0 +1,7 @@
+hew: 1
+
+--- target.yaml format=yaml
+
+@@ /mcpServers/name=github @@
+- command: npx
++ command: npx-18

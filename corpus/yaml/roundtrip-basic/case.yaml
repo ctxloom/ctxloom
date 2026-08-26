@@ -1,0 +1,11 @@
+name: yaml/roundtrip-basic
+seams: [diff, render, parse, apply-ir, e2e]
+kind: ok
+format: yaml
+ops: [OP-01, OP-05, OP-11, OP-16]
+why: |
+  RT1 for YAML over the survey's canonical four-operation change-set. Pins
+  determinism (§9.4-R1), the default context radius (§9.4-R2), and address
+  preference — the differ must emit `name=github` context for the keyed array,
+  not an index (§9.4-R4).
+spec: "§9.4, §13.5"

@@ -1,0 +1,12 @@
+name: markdown/managed-region-replace
+seams: [e2e]
+kind: ok
+format: markdown
+ops: [OP-45]
+why: |
+  ctxloom's M2 (agent.WriteManagedContext) expressed as a patch, and the STRONGEST
+  case for keeping Markdown in the implement tier: the marker pair is a real
+  structural address, the markers themselves are never part of the node's value so
+  no operation can destroy them, and user content outside is preserved in position.
+  If the §8.7 evaluation narrows Markdown to one operation, this is the one.
+spec: "§8.6, §8.7.3, §11 OP-45"

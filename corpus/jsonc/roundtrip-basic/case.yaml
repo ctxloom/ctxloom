@@ -1,0 +1,9 @@
+name: jsonc/roundtrip-basic
+seams: [diff, render, parse, apply-ir, e2e]
+kind: ok
+format: jsonc
+ops: [OP-01, OP-31]
+why: |
+  RT1 for JSONC, including a comment added alongside the member it documents —
+  the capability no surveyed patch format has.
+spec: "§9.4, §13.5"

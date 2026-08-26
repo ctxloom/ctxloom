@@ -1,0 +1,7 @@
+{
+    // reformatted by the user's editor
+    "server": {
+        "port":   8080,
+        "timeout": 30
+    }
+}

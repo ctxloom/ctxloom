@@ -1,0 +1,10 @@
+name: toml/add-comment-line
+seams: [e2e]
+kind: ok
+format: toml
+ops: [OP-30]
+why: |
+  A `+` comment line adds a standalone comment node. NO surveyed patch format can
+  do this; it is required by ctxloom's own managed-marker practice, where every
+  managed region carries an explanatory header.
+spec: "§11 OP-30"

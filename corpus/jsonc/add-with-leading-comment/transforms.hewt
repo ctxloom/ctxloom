@@ -1,0 +1,16 @@
+hew-transforms: 1
+target: target.jsonc
+format: jsonc
+transforms:
+  - op: test
+    path: /port
+    value: 8080
+  - op: add
+    path: /#0
+    after: /port
+    value:
+      comment: added by taskloom manage install
+  - op: add
+    path: /telemetry
+    after: /#0
+    value: false

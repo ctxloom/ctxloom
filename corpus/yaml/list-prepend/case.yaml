@@ -1,0 +1,7 @@
+name: yaml/list-prepend
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-12]
+why: A `+` whose only sibling context follows it prepends.
+spec: "§6.2, §11 OP-12"

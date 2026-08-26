@@ -1,0 +1,11 @@
+hew: 1
+
+--- target.yaml format=yaml
+
+@@ / @@
+? expect /version = 1.2.0
+? absent /env/ANTHROPIC_API_KEY
+? kind /permissions = map
+  permissions:
+    deny:
+      - Bash(rm -rf *)

@@ -1,0 +1,11 @@
+name: yaml/canonical-four-ops
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-01, OP-05, OP-11, OP-16]
+why: |
+  The survey's canonical change-set — modify a nested scalar, remove a key, append
+  to a plain list, add a keyed-array element — as one hew file, so the notation can
+  be compared line for line against the thirteen renderings in
+  patch-notation-survey.md.
+spec: "§5"

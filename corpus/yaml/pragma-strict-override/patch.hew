@@ -1,0 +1,9 @@
+hew: 1
+idempotent: true
+
+--- target.yaml format=yaml
+
+@@ /server @@
+! strict
+- timeout: 30
++ timeout: 60

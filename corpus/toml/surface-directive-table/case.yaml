@@ -1,0 +1,11 @@
+name: toml/surface-directive-table
+seams: [parse, apply-ir, e2e]
+kind: ok
+format: toml
+ops: [OP-02, OP-38]
+why: |
+  THE TOML wrinkle, second half: a CREATION adopts the surface of the nearest
+  existing ancestor unless `! surface` overrides. Here the ancestor exists only as
+  a table header, and the directive makes the intent explicit rather than implicit.
+  This is codex's real `[mcp_servers.x]` registration.
+spec: "§8.4 rules 3-4, §11 OP-38"

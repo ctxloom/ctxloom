@@ -1,0 +1,5 @@
+{
+  "port": 8080,
+  // added by taskloom manage install
+  "telemetry": false
+}

@@ -1,0 +1,5 @@
+{
+  "mcpServers": [
+    { "name": "ctxloom", "command": "ctxloom" }
+  ]
+}

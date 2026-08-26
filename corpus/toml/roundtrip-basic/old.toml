@@ -1,0 +1,5 @@
+title = "config"
+tool.ctxloom.timeout = 30
+
+[server]
+port = 8080

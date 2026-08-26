@@ -1,0 +1,10 @@
+name: yaml/default-key-absent
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-04]
+why: |
+  `! default` seeds a key only when it is missing. Absent here, so it is created.
+  Paired with yaml/default-key-present, which is the same patch against a target
+  that already has the key.
+spec: "§7.7, §11 OP-04"

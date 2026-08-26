@@ -1,0 +1,10 @@
+name: yaml/replace-comment
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-33]
+why: |
+  Comments are nodes. Replacing one is `replace` at a comment address (§4.5b) —
+  the addressing that had to exist for OP-32/OP-33 and that let the comment
+  attachment qualifier be reduced away entirely (§11.10 reduction 3).
+spec: "§4.5b, §11 OP-33"

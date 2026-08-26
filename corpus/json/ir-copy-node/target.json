@@ -1,0 +1,4 @@
+{
+  "defaults": { "timeout": 30, "retries": 3 },
+  "service_a": { "port": 8080 }
+}

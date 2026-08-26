@@ -1,0 +1,13 @@
+name: cli/apply-in-place
+seams: [cli]
+kind: cli
+format: yaml
+argv: ["apply", "-i", "patch.hew"]
+exit: 0
+stdout: ""
+expected: expected.yaml
+ops: [OP-01]
+why: |
+  In-place is the default when the patch declares a target and no -o is given; -i
+  states it. Quiet on success except the per-file line on stderr.
+spec: "Appendix B.1"

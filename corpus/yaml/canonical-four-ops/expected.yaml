@@ -1,0 +1,16 @@
+name: myapp
+version: 1.2.0
+server:
+  port: 8080
+  timeout: 60
+tags:
+  - alpha
+  - beta
+  - gamma
+mcpServers:
+  - name: filesystem
+    command: npx
+  - name: github
+    command: npx
+  - name: ctxloom
+    command: ctxloom

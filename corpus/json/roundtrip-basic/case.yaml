@@ -1,0 +1,11 @@
+name: json/roundtrip-basic
+seams: [diff, render, parse, apply-ir, e2e]
+kind: ok
+format: json
+ops: [OP-01, OP-02, OP-11]
+why: |
+  RT1, the full round trip: apply(parse(render(diff(old, new))), old) == new,
+  byte for byte. Also pins the default context radius of 1 sibling (§9.4-R2) —
+  `name` appears as context because it neighbours a change, `keep` does not
+  because it neighbours nothing.
+spec: "§9.4, §13.5"

@@ -1,0 +1,7 @@
+hew: 1
+
+--- target.json format=json
+
+@@ /servers @@
+- { "name": "legacy", "command": "old" }
+  { "name": "github" }

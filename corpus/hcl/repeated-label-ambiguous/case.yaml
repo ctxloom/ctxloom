@@ -1,0 +1,16 @@
+name: hcl/repeated-label-ambiguous
+seams: [e2e]
+kind: error
+format: hcl
+error: HEW012
+error_seam: apply-ir
+error_path: /provider/"aws"
+patch_line: 5
+message_contains: ["ambiguous-match", "provider", "aws"]
+ops: [OP-37]
+why: |
+  THE HCL wrinkle. `(type, labels)` repeats legally, so `/provider/"aws"` names two
+  nodes and the path alone is `HEW012`. A path/pointer scheme built for "one key
+  names one child" has no answer here; hew's answer is the ordinal annotation, and
+  this case is the reason it exists.
+spec: "§4.3, §8.5, §11 OP-37"

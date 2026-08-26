@@ -1,0 +1,11 @@
+name: jsonc/tolerance-reformat
+seams: [e2e]
+kind: ok
+format: jsonc
+ops: [OP-01]
+why: |
+  TOLERANCE ROW: whitespace, indentation and quoting style changed. The target
+  now uses 4-space indent and the patch was written against 2-space. Matching
+  compares values, not bytes (§6.3), so it applies — and the output keeps the
+  target's 4-space indent, not the patch's.
+spec: "§6.3, §6.4.5"

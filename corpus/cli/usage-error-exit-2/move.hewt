@@ -1,0 +1,7 @@
+hew-transforms: 1
+target: target.yaml
+format: yaml
+transforms:
+  - op: replace
+    path: /server/timeout
+    value: 60

@@ -1,0 +1,16 @@
+name: cli/multi-target-commit
+seams: [cli]
+kind: cli
+format: json
+argv: ["apply", "-i", "patch.hew"]
+exit: 0
+expected_targets:
+  first.json: expected-first.json
+  second.json: expected-second.json
+ops: [OP-01]
+why: |
+  The success half of the O12 pair: both sections stage, so both commit. Held
+  beside cli/multi-target-atomic so the two differ in exactly one byte of input
+  (second.json's timeout) and therefore isolate the all-or-nothing rule rather
+  than any other behaviour.
+spec: "§10.5"

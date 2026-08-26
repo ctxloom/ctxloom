@@ -1,0 +1,17 @@
+name: hcl/ordinal-shifted-target
+seams: [e2e]
+kind: error
+format: hcl
+error: HEW010
+error_seam: apply-ir
+error_path: /provider/"aws"[1]/alias
+patch_line: 8
+message_contains: ["stale-target", "east"]
+ops: [OP-37]
+why: |
+  TOLERANCE ROW, the position-fragile one. A third `provider "aws"` block was
+  inserted FIRST since the patch was written, so ord=1 now selects the wrong block.
+  The required distinguishing assert (`alias = "east"`) catches it and the patch
+  fails by name. This case is the proof that §6.4.3's MUST is load-bearing and not
+  ceremony.
+spec: "§6.4.3, §6.4.5"

@@ -1,0 +1,8 @@
+{
+  // ctxloom settings
+  "server": {
+    "timeout": 60,
+    // slow upstream
+    "retries": 5
+  }
+}

@@ -1,0 +1,7 @@
+# rewritten header comment
+name: myapp
+newkey: added-since
+server:
+  port: 8080
+  timeout: 60
+  extra: also-added

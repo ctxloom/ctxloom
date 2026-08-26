@@ -1,0 +1,15 @@
+name: json/stale-context
+seams: [e2e]
+kind: error
+format: json
+error: HEW010
+error_seam: apply-ir
+error_path: /server/port
+patch_line: 6
+message_contains: ["stale-target", "8080", "9090"]
+ops: [OP-24]
+why: |
+  THE case for the whole format. An unchanged context line drifted, so the patch
+  refuses — proving that context lines are assertions, not decoration (§9.0). The
+  line the patch WANTED to change is untouched and the file is byte-identical.
+spec: "§1, §9.0, §10.5"

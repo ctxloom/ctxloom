@@ -1,0 +1,15 @@
+name: json/assert-exhaustive-fail
+seams: [e2e]
+kind: error
+format: json
+error: HEW011
+error_seam: apply-ir
+error_path: /permissions
+patch_line: 6
+message_contains: ["assertion-failed", "exhaustive"]
+ops: [OP-26]
+why: |
+  `? exhaustive` upgrades subset matching to exact-set. The target has grown a
+  third key, so the assertion fails by name. This is the case RFC 7386 handles by
+  accident (restating the whole object) and expensively.
+spec: "§6.1, §7.1, §11 OP-26"

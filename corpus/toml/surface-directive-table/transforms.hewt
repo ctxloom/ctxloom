@@ -1,0 +1,13 @@
+hew-transforms: 1
+target: target.toml
+format: toml
+transforms:
+  - op: test
+    path: /mcp_servers/taskloom
+    absent: true
+  - op: add
+    path: /mcp_servers/taskloom
+    surface: table
+    value:
+      command: taskloom
+      args: [mcp]

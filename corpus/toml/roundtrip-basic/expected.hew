@@ -1,0 +1,11 @@
+hew: 1
+
+--- new.toml format=toml
+
+@@ /tool/ctxloom @@
+- timeout = 30
++ timeout = 60
+
+@@ /server @@
+  port = 8080
++ tls = true

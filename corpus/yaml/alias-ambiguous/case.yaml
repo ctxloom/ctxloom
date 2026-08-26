@@ -1,0 +1,15 @@
+name: yaml/alias-ambiguous
+seams: [e2e]
+kind: error
+format: yaml
+error: HEW040
+error_seam: apply-ir
+error_path: /service_a/timeout
+patch_line: 6
+message_contains: ["anchor-ambiguity", "defaults"]
+ops: [OP-40, OP-41]
+why: |
+  THE YAML wrinkle. With neither directive, hew refuses: rewriting the anchor
+  would silently change service_b, and forking would silently break intentional
+  sharing. Both answers are destructive in one direction, so there is no default.
+spec: "§8.3"

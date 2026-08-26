@@ -1,0 +1,15 @@
+name: yaml/merge-key-remove
+seams: [e2e]
+kind: error
+format: yaml
+error: HEW013
+error_seam: apply-ir
+error_path: /service_a/retries
+patch_line: 6
+message_contains: ["no-match", "defaults"]
+ops: [OP-05]
+why: |
+  A key a mapping has only VIA a merge key is not present at that site. You cannot
+  delete an inherited key, only shadow it — and the error names the anchor the key
+  came from so the author knows where to look.
+spec: "§8.3"

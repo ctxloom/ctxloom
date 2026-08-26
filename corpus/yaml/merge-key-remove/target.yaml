@@ -1,0 +1,5 @@
+defaults: &defaults
+  retries: 3
+service_a:
+  <<: *defaults
+  port: 8080

@@ -1,0 +1,10 @@
+name: toml/array-of-tables-add
+seams: [e2e]
+kind: ok
+format: toml
+ops: [OP-16]
+why: |
+  Array-of-tables children are sequence elements and support key-match addressing,
+  so TOML gets the same identity-addressed keyed-array operation as JSON and YAML —
+  a gap the survey found in EVERY existing tool, none of which target TOML at all.
+spec: "§8.4, §11 OP-16"

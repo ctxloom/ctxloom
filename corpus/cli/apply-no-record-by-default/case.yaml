@@ -1,0 +1,14 @@
+name: cli/apply-no-record-by-default
+seams: [cli]
+kind: cli
+format: json
+argv: ["apply", "-i", "patch.hew"]
+exit: 0
+expected: expected.json
+no_files_created: ["*.hewt"]
+ops: [OP-01]
+why: |
+  No `--record`, no record. hew does not litter — the same discipline that made
+  agent.AtomicWriteFile stop writing .bak files, which had accumulated into the
+  hundreds while being least useful in the case that actually recurs.
+spec: "§9.7"

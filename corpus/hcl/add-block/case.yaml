@@ -1,0 +1,10 @@
+name: hcl/add-block
+seams: [e2e]
+kind: ok
+format: hcl
+ops: [OP-34]
+why: |
+  A block is added as a `+` run covering its braces. The label lives in the ADDRESS
+  (`/provider/"aws"`), never in the value — the reduction that kept labels out of
+  the transform record entirely (§11.10 reduction 4).
+spec: "§8.5, §11 OP-34, §11.10"

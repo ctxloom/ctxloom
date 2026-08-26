@@ -1,0 +1,10 @@
+hew: 1
+
+--- target.toml format=toml
+
+@@ /mcp_servers @@
+? absent /mcp_servers/taskloom
+! surface table
++ [mcp_servers.taskloom]
++ command = "taskloom"
++ args = ["mcp"]

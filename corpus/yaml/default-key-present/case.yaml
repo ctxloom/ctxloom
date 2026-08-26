@@ -1,0 +1,10 @@
+name: yaml/default-key-present
+seams: [e2e]
+kind: ok
+format: yaml
+ops: [OP-04]
+why: |
+  The same patch as yaml/default-key-absent against a target that already has the
+  key. The user's value wins; zero ops; exit 0; the file is byte-identical. This
+  is the ONE case where doing nothing is correct, and it is opted into explicitly.
+spec: "§7.7, §11 OP-04"

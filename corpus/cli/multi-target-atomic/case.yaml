@@ -1,0 +1,18 @@
+name: cli/multi-target-atomic
+seams: [cli]
+kind: cli
+format: json
+argv: ["apply", "-i", "patch.hew"]
+exit: 1
+stderr_contains: ["HEW010", "stale-target", "second.json"]
+targets_unchanged: ["first.json", "second.json"]
+ops: [OP-01]
+why: |
+  RULED O12, and the case that proves it. A two-target patch whose SECOND section
+  fails must leave the FIRST target byte-identical — the first section stages
+  successfully in memory, the second fails, and the commit phase never runs. This
+  is what exit 1 has always promised ("nothing happened, and here is why") and it
+  matters precisely because keeping several engines' configs consistent is hew's
+  motivating use case: a half-applied cross-engine patch leaves the engines
+  disagreeing, which is worse than leaving them all stale.
+spec: "§10.5, Appendix B.3"

@@ -1,0 +1,7 @@
+name: json/keyed-array-remove
+seams: [e2e]
+kind: ok
+format: json
+ops: [OP-17]
+why: Removal by identity, not by index — the M3 "withdraw what I own" operation.
+spec: "§11 OP-17"

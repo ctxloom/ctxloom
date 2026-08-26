@@ -1,0 +1,14 @@
+name: cli/stale-exit-1
+seams: [cli]
+kind: cli
+format: yaml
+argv: ["apply", "-i", "patch.hew"]
+exit: 1
+stderr_contains: ["HEW010", "stale-target", "target.yaml", "patch.hew:6"]
+target_unchanged: true
+ops: [OP-01]
+why: |
+  Exit 1 means "the patch did not apply and NOTHING was modified" — deliberately
+  unlike patch(1), where exit 1 means "some hunks failed and .rej files were
+  written". A caller may treat exit 1 as "unchanged", which is the contract.
+spec: "§10.5, Appendix B.3"

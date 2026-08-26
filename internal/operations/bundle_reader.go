@@ -12,9 +12,9 @@ import (
 // the standard cached fetcher factory and the active lockfile on disk.
 // Returns nil if the lockfile can't be loaded.
 //
-// Used by the review-flow tools (show_bundle_verbatim, etc.) that need
-// reader access independent of the bundles.Loader seeding pipeline that
-// cfg.BundleLoader already encapsulates.
+// It serves callers that need reader access independent of the bundles.Loader
+// seeding pipeline cfg.BundleLoader encapsulates — the installed-probe path
+// below being the one that must never be given a source it cannot read with.
 //
 // A nil return is NOT a neutral value downstream. isInstalled treats a nil
 // source as "nothing is installed", so an unreadable lockfile makes every

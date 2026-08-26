@@ -30,9 +30,8 @@ var ErrTreeBundleUnreadable = errors.New("directory-form bundle: this reader has
 
 // BundleByteSource is the read surface every bundle-byte producer must
 // satisfy. BundleReader is the canonical implementation (git-cache-backed,
-// SHA-pinned); CachingBundleReader is the in-memory decorator. Callers that
-// need either form (operations.SeededBundlesFrom, show_bundle_verbatim, …)
-// program against this interface.
+// SHA-pinned); CachingBundleReader is the in-memory decorator. A caller that
+// must accept either form programs against this interface.
 type BundleByteSource interface {
 	// ReadBundleBytes returns the raw bundle YAML for name at its locked SHA.
 	ReadBundleBytes(ctx context.Context, name string) ([]byte, error)
@@ -150,8 +149,7 @@ func (r *BundleReader) HasBundle(bundleName string) bool {
 }
 
 // LockEntryFor returns the lockfile entry for bundleName (or zero+false).
-// Exposed so callers (e.g. show_bundle_verbatim) can render provenance
-// alongside the bytes.
+// Exposed so a caller can render provenance alongside the bytes.
 func (r *BundleReader) LockEntryFor(bundleName string) (LockEntry, bool) {
 	if r == nil || r.lock == nil {
 		return LockEntry{}, false

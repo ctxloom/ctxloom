@@ -490,9 +490,11 @@ gen-living-docs: build
 
 # ===== Validation =====
 
-# Validate fragment YAML files
+# Validate fragment YAML files, and refuse a malformed version stamp before the
+# build bakes it in. The stamp rides an env var rather than an argument so every
+# other caller of this gate is unchanged.
 validate:
-    go run ./cmd/validate
+    CTXLOOM_VERSION_STAMP={{version}} go run ./cmd/validate
 
 # Generate protobuf code
 proto:

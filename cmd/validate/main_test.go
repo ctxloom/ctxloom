@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -171,4 +172,40 @@ agents:
 	n, err := validateAll(projectOnly())
 	assert.NoError(t, err)
 	assert.Equal(t, 1, n)
+}
+
+// TestCheckStamp_RefusesAnEmptyShaStamp is the gate half of the empty-stamp
+// defect: version.ValidStamp knows the shape, and this proves the BUILD
+// actually consults it. A validator nothing calls is a rule nothing enforces.
+func TestCheckStamp_RefusesAnEmptyShaStamp(t *testing.T) {
+	t.Setenv(stampEnv, "v0.7.0--20260826T043946")
+
+	err := checkStamp()
+
+	if err == nil {
+		t.Fatal("build gate accepted a stamp with an empty sha; the binary could not name its own commit")
+	}
+	if !strings.Contains(err.Error(), "malformed") {
+		t.Fatalf("error does not say what is wrong: %v", err)
+	}
+}
+
+// TestCheckStamp_PassesARealStamp pins that the gate does not block ordinary
+// builds -- a check that refuses everything is as broken as one that refuses
+// nothing, and far more obvious to whoever it blocks.
+func TestCheckStamp_PassesARealStamp(t *testing.T) {
+	t.Setenv(stampEnv, "v0.7.0-49f95f1-20260826T130349-dirty")
+	if err := checkStamp(); err != nil {
+		t.Fatalf("gate refused a real stamp: %v", err)
+	}
+}
+
+// TestCheckStamp_SilentWhenUnset pins that callers who do not pass a stamp are
+// unaffected, which is what keeps every existing invocation of this gate
+// working unchanged.
+func TestCheckStamp_SilentWhenUnset(t *testing.T) {
+	t.Setenv(stampEnv, "")
+	if err := checkStamp(); err != nil {
+		t.Fatalf("gate fired with no stamp supplied: %v", err)
+	}
 }

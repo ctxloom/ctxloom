@@ -991,6 +991,29 @@ func (c *Config) GetToolReflectBytes() (threshold int, enabled bool) {
 	}
 }
 
+// GetEssenceMaxChars returns the target size of a finished session essence,
+// defaulting to agent.DefaultEssenceChars.
+//
+// This is a TARGET handed to the distilling model, not the hard ceiling. The
+// ceiling is memory.MaxEssenceChars, which is derived from the tool-result cap
+// MCP clients enforce and refuses anything larger. A target above the ceiling
+// would instruct the model to produce output the code must then reject, which
+// is the exact contradiction the absolute budget replaced; the compactor
+// clamps rather than honouring one.
+func (c *Config) GetEssenceMaxChars() int {
+	if c.settings.EssenceMaxChars > 0 {
+		return c.settings.EssenceMaxChars
+	}
+	return agent.DefaultEssenceChars
+}
+
+// ShouldSilenceUnsupported reports whether capability-loss lines are
+// suppressed. Defaults to false: a loss stays audible unless the user has said
+// they already know.
+func (c *Config) ShouldSilenceUnsupported() bool {
+	return c.settings.SilenceUnsupported
+}
+
 // ShouldUseDistilled reports whether to prefer distilled fragment/prompt
 // versions. Defaults to true.
 func (c *Config) ShouldUseDistilled() bool {

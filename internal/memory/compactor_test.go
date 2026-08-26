@@ -51,16 +51,20 @@ func TestCompactor_SessionToText(t *testing.T) {
 	assert.Contains(t, text, "## Tool Call: Read")
 	assert.Contains(t, text, "## Tool Call: Write")
 
-	// The re-derivable RESULT does not. Asserting the absence of the header
-	// alone would be satisfied by the renderer never running, so assert the
-	// payload bytes are gone and that the authoritative result's payload
-	// survived in the same text -- one of these failing localizes the defect.
+	// Neither RESULT keeps its body. Every non-error result reduces to its
+	// shape, whatever tool produced it -- a uniform truncation cost roughly a
+	// quarter of the rendered transcript to deliver severed fragments.
+	//
+	// Asserting the absence of the bodies alone would be satisfied by a
+	// renderer that never ran, so the shape lines are asserted alongside them:
+	// both headers present, both payloads gone, and a shape carrying real
+	// counts rather than an empty marker.
 	assert.NotContains(t, text, "REDERIVABLE_FILE_CONTENTS")
-	// The authoritative result survives as its SHAPE, not its body: the
-	// header alone would be satisfied by a renderer emitting nothing.
 	assert.NotContains(t, text, "AUTHORITATIVE_WRITE_RESULT")
+	assert.Contains(t, text, "## Tool Result: Read")
 	assert.Contains(t, text, "## Tool Result: Write")
-	assert.Contains(t, text, "bytes, 1 lines]")
+	assert.Equal(t, 2, strings.Count(text, "bytes, 1 lines]"),
+		"both results must render a shape line with real counts")
 }
 
 // TestCompactor_SessionToText_ThinkingExcludedByDefault is the

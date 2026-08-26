@@ -36,8 +36,7 @@ After the closing `---` and a blank line, emit the unified body with these secti
 - **Never drop identifiers under the merge.** Carry through verbatim, character-for-character, every: file path, directory path, function/type/symbol name, command line, session ID and harp name (e.g. `soft-idle-scone`, UUIDs), and URL that appears in any partial summary. Losing one breaks resuming the work. When two partials mention the same path, keep it once; never paraphrase it away.
 - Deduplicate overlapping bullets, but if two partials disagree, keep both and note the divergence rather than silently picking one.
 - Output the frontmatter summary line first, always.
-- **The finished essence must be under 10,000 characters.** This is an
-  absolute budget and does not scale with how long the session was: the
-  essence is re-injected into a FRESH context window at resume, and that
-  window does not grow because the session did. A longer session means
-  more compression, not a longer essence.
+- A character budget is appended below. It is an ABSOLUTE budget and does not
+  scale with how long the session was: the essence is re-injected into a FRESH
+  context window at resume, and that window does not grow because the session
+  did. A longer session means more compression, not a longer essence.

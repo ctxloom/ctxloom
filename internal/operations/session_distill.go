@@ -99,6 +99,7 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 		Env:              LLMEnvFor(cfg, cfg.FastLabel()),
 		Backend:          backendName,
 		ChunkSize:        cfg.GetCompactionChunkSize(),
+		EssenceMaxChars:  cfg.GetEssenceMaxChars(),
 		SessionID:        sessionID,
 		PreloadedSession: preloaded,
 		WorkDir:          entry.ProjectDir,

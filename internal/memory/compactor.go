@@ -120,6 +120,11 @@ type CompactionConfig struct {
 	// essence; it is not exposed as a CLI/MCP flag yet (deliberately deferred,
 	// narrow use case — wire one if the need becomes real).
 	IncludeThinking bool
+	// EssenceMaxChars is the target size handed to the reduce pass. 0 takes
+	// agent.DefaultEssenceChars. Clamped to MaxEssenceChars, which is the hard
+	// refusal ceiling: a target above it would ask the model for output Compact
+	// must then reject.
+	EssenceMaxChars int
 }
 
 // CompactionResult holds the result of a compaction operation.
@@ -171,6 +176,18 @@ func (s memoryHistorySource) CurrentSession(_ context.Context) (*agent.Session, 
 func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	if config.ChunkSize <= 0 {
 		config.ChunkSize = DefaultChunkTokens
+	}
+	if config.EssenceMaxChars <= 0 {
+		config.EssenceMaxChars = agent.DefaultEssenceChars
+	}
+	// A target above the hard ceiling instructs the model to produce something
+	// Compact is obliged to refuse -- the same contradiction the absolute budget
+	// was introduced to remove. Clamp and say so rather than honour it.
+	if config.EssenceMaxChars > MaxEssenceChars {
+		clidiag.Warn("ctxloom",
+			"essence_max_chars %d exceeds the %d-char ceiling a distilled essence may reach; using %d",
+			config.EssenceMaxChars, MaxEssenceChars, MaxEssenceChars)
+		config.EssenceMaxChars = MaxEssenceChars
 	}
 	// config.compaction_chunks is user-settable and is the only input the fixed
 	// ChunkOverlapTokens is ever weighed against. A value inside the band is a
@@ -702,7 +719,7 @@ func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]strin
 // same passthrough, so this fails loud instead.
 func (c *Compactor) finalCompressionPass(ctx context.Context, combined string) (string, error) {
 	c.progressf("ctxloom: final compression pass...\n")
-	final, err := c.runDistill(ctx, sessionDistillReducePrompt, combined)
+	final, err := c.runDistill(ctx, c.reducePrompt(), combined)
 	if err != nil {
 		if len(combined) > MaxEssenceChars {
 			return "", fmt.Errorf("final compression pass failed (%w) and the un-reduced input is %d chars, over the %d-char bound (MaxEssenceChars) — refusing to fall back to an unbounded summary", err, len(combined), MaxEssenceChars)
@@ -1054,7 +1071,7 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 		// where the first 500 bytes of 47 lines is an artifact. The content
 		// itself is re-derivable: the call above names what was asked.
 		if entry.IsError {
-			builder.WriteString(truncateForSummary(entry.ToolOutput))
+			builder.WriteString(renderErrorBody(entry.ToolOutput))
 			builder.WriteString(" [ERROR]")
 		} else {
 			// selectForDistill already reduced this to a shape line, or to a
@@ -1484,6 +1501,15 @@ var sessionDistillPrompt = resources.MustGetPromptText("session-distill")
 // frontmatter the picker needs, and forbids dropping file paths / session IDs
 // during the merge.
 var sessionDistillReducePrompt = resources.MustGetPromptText("session-distill-reduce")
+
+// reducePrompt is the reduce instruction with this compactor's essence budget
+// appended. The number is injected rather than written into the prompt file so
+// there is ONE source for it -- a budget stated in prose and a budget resolved
+// from config would drift, and only the prose one is visible to the model.
+func (c *Compactor) reducePrompt() string {
+	return fmt.Sprintf("%s\n- The finished essence must be under %d characters.\n",
+		sessionDistillReducePrompt, c.config.EssenceMaxChars)
+}
 
 // resultFindingPrompt recovers the finding an agent never stated for a large
 // tool result. See repairResults.

@@ -3,18 +3,10 @@ package memory
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
-)
-
-// Drop reasons, reported through SelectionStats.Dropped. They are constants
-// rather than literals so a test can assert on the same string the production
-// path records.
-const (
-	DropReasonReDerivable = "re-derivable tool result"
 )
 
 // SelectionStats reports what selectForDistill removed and what it cost.
@@ -22,100 +14,8 @@ const (
 // from a well-filtered transcript from one produced by a distiller that failed
 // to say anything — the two are otherwise indistinguishable at the output.
 type SelectionStats struct {
-	Dropped   map[string]int
 	BytesIn   int
 	BytesKept int
-}
-
-// inspectionTools name tools whose RESULT is re-derivable: it reports the state
-// of something at a past moment, and the current state is recoverable by asking
-// again. The tool CALL is always kept, so the essence still records what was
-// examined; only what it said at the time is dropped.
-//
-// The set is positively-known and the default is KEEP, so an unrecognized tool
-// (a new one, or another engine's vocabulary) retains its result rather than
-// silently losing it.
-var inspectionTools = map[string]bool{
-	"Read": true, "Grep": true, "Glob": true, "LS": true,
-	"NotebookRead": true, "WebFetch": true, "WebSearch": true,
-	"ToolSearch": true,
-}
-
-// inspectionCommands name shell commands that only report state. Bash is the
-// largest single source of tool-result bytes and is NOT uniformly re-derivable
-// — `just test` and `git commit` are authoritative results that cannot be
-// recovered by re-running them — so Bash is classified by what it ran, against
-// this positively-known list, defaulting to keep.
-var inspectionCommands = map[string]bool{
-	"cat": true, "ls": true, "head": true, "tail": true, "wc": true,
-	"grep": true, "rg": true, "find": true, "sed": true, "awk": true,
-	"jq": true, "stat": true, "file": true, "tree": true, "du": true,
-	"df": true, "pwd": true, "which": true, "printenv": true, "basename": true,
-	"dirname": true, "realpath": true, "readlink": true, "sort": true,
-	"uniq": true, "cut": true, "nl": true, "column": true, "yq": true,
-}
-
-// inspectionGitSubcommands are the read-only halves of git. `git` alone is
-// ambiguous — `git log` is re-derivable and `git commit` emphatically is not.
-var inspectionGitSubcommands = map[string]bool{
-	"log": true, "status": true, "diff": true, "show": true, "blame": true,
-	"branch": true, "cherry": true, "describe": true, "ls-files": true,
-	"rev-parse": true, "remote": true, "worktree": true, "config": true,
-}
-
-// shellSplit splits a command line on the operators that chain independent
-// commands. A pipeline or conjunction is only re-derivable if EVERY segment is
-// — `cat x && git commit` leads with an inspection word and mutates.
-var shellSplit = regexp.MustCompile(`\|\||&&|[;|]`)
-
-// isReDerivable reports whether a tool result restates recoverable state.
-func isReDerivable(toolName string, toolInput json.RawMessage) bool {
-	if inspectionTools[toolName] {
-		return true
-	}
-	if toolName != "Bash" {
-		return false
-	}
-	var in struct {
-		Command string `json:"command"`
-	}
-	if err := json.Unmarshal(toolInput, &in); err != nil || strings.TrimSpace(in.Command) == "" {
-		// An unparseable or absent command tells us nothing, and "nothing" must
-		// not read as "safe to drop".
-		return false
-	}
-	for _, seg := range shellSplit.Split(in.Command, -1) {
-		if !segmentIsInspection(seg) {
-			return false
-		}
-	}
-	return true
-}
-
-// segmentIsInspection classifies one command segment by its leading word.
-func segmentIsInspection(seg string) bool {
-	fields := strings.Fields(strings.TrimSpace(seg))
-	// Step past leading environment assignments (FOO=bar cmd ...).
-	for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "-") {
-		fields = fields[1:]
-	}
-	if len(fields) == 0 {
-		return false
-	}
-	cmd := fields[0]
-	if i := strings.LastIndex(cmd, "/"); i >= 0 {
-		cmd = cmd[i+1:]
-	}
-	if cmd == "git" {
-		for _, f := range fields[1:] {
-			if strings.HasPrefix(f, "-") {
-				continue
-			}
-			return inspectionGitSubcommands[f]
-		}
-		return false
-	}
-	return inspectionCommands[cmd]
 }
 
 // ResultRepair names a large tool result the agent never commented on. The
@@ -155,7 +55,7 @@ type Selection struct {
 // across real sessions — filtering them saves nothing and discards the highest
 // signal-per-byte content in the file.
 func selectForDistill(entries []agent.SessionEntry) Selection {
-	stats := SelectionStats{Dropped: map[string]int{}}
+	var stats SelectionStats
 	kept := make([]agent.SessionEntry, 0, len(entries))
 	var repairs []ResultRepair
 
@@ -181,10 +81,6 @@ func selectForDistill(entries []agent.SessionEntry) Selection {
 				in, ok := inputByID[e.ToolCallID]
 				if !ok {
 					in = lastInputByName[e.ToolName]
-				}
-				if isReDerivable(e.ToolName, in) {
-					stats.Dropped[DropReasonReDerivable]++
-					continue
 				}
 				// Decided HERE rather than in the renderer because it needs
 				// sequence context the renderer does not have: whether the
@@ -379,4 +275,27 @@ func renderResultBody(out string, reflected bool) string {
 		excerpt = textutil.TruncateBytes(excerpt, resultExcerptBytes)
 	}
 	return shape + " unreflected; excerpt follows\n" + excerpt
+}
+
+// maxErrorBytes bounds an error body. Errors are the one result kind kept for
+// their CONTENT rather than their shape -- what broke, and what a fix has to
+// answer to -- and truncating one at the ordinary display cap cuts exactly the
+// stack trace or compiler output that carries the answer.
+//
+// Measured across four real transcripts: 26 error results, median 300 bytes,
+// largest 1,381, and 9 of them were being truncated by the 500-byte cap.
+// Keeping every one whole costs about 750 bytes per session. The bound here is
+// an order of magnitude above the largest observed, so it never bites in
+// practice and still stops a pathological megabyte error from dominating the
+// transcript.
+const maxErrorBytes = 16384
+
+// renderErrorBody keeps an error result's content, bounded. Rune-safe: a
+// mid-rune split makes the chunk invalid UTF-8, which fails proto3 string
+// marshaling and silently turns it into a failure marker.
+func renderErrorBody(out string) string {
+	if len(out) <= maxErrorBytes {
+		return out
+	}
+	return textutil.TruncateBytes(out, maxErrorBytes)
 }

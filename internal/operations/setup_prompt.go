@@ -38,11 +38,30 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 	if loader == nil {
 		return builtin
 	}
-	// Agent-setup guidance is NOT an exposure surface: it composes text for the
-	// setup interview, not for an agent's context, and it resolves ungated.
-	// AdmitAll says so as a value; a nil authorizer here would be an omission,
-	// and this pipeline would then deliver nothing.
-	pipe := bundles.NewPipeline(loader, bundles.AdmitAll(), false)
+	// Agent-setup guidance IS an exposure surface, and used not to be gated.
+	// It was the one bundle path building its pipeline with AdmitAll while
+	// hooks, MCP servers, skills and tooling all ran through the trust gate --
+	// so text from an unreviewed remote bundle reached the engine at init
+	// without anyone having looked at it. Trusted-content-reaching-an-agent is
+	// an execution vector here: agents run with tool access, and the unattended
+	// protocol runs them with no human present.
+	//
+	// The old rationale was that init runs at PermissionDefault inside the
+	// vendor TUI, making the engine's own approval prompts the consent surface.
+	// That is real but CONDITIONAL: discoveryPermissionMode honours a project's
+	// declared top-level permissions and only falls back to PermissionDefault,
+	// so a project could lose the mitigation silently.
+	//
+	// Gating costs little, because the decision function admits local, builtin
+	// and trusted-signer content outright (see trust.Ref.IsLocal and
+	// EffectiveTrust's SourceTrustedSigner tier). A project's OWN bundles and
+	// anything signed by a key the user already trusts still contribute; only
+	// an unreviewed REMOTE bundle is withheld, which is the same deal every
+	// sibling surface already gets.
+	//
+	// preferDistilled stays false: this changes WHO is admitted, not which
+	// bytes an admitted command contributes.
+	pipe := bundles.NewPipeline(loader, buildContentGate(cfg, nil, cfgFS(cfg)), false)
 	infos, err := loader.ListAllCommands()
 	if err != nil {
 		// Falling back to the built-in prompt on a listing failure is correct

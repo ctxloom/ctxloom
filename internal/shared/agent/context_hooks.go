@@ -56,6 +56,24 @@ func NewContextInjectionChunkHook(hash, workDir string, part, total int) wire.Ho
 // distillation would otherwise discard.
 const DefaultToolReflectBytes = 2048
 
+// DefaultEssenceChars is the target size, in characters, of a finished
+// session essence. It lives here for the same reason DefaultToolReflectBytes
+// does: config resolves it and the compactor consumes it, and two copies of a
+// number that must agree is how they stop agreeing.
+//
+// It is ABSOLUTE rather than a proportion of the transcript, and that is the
+// whole point. The essence is re-injected into a FRESH context window on
+// resume, and that window does not grow because the session was longer -- so a
+// longer session needs MORE compression, not a longer essence. The proportional
+// target this replaced ("30-50% of original size") was indexed to the wrong
+// quantity and produced essences of 115KB, 170KB and 377KB against a 100,000
+// char hard refusal ceiling.
+//
+// 10,000 codifies observed healthy behaviour rather than inventing a number:
+// across 66 essences on disk the MEDIAN is 8,977 bytes. It is roughly 2,500
+// tokens, about 1% of a 200k window.
+const DefaultEssenceChars = 10_000
+
 // ToolReflectTimeout is the timeout, in seconds, for the PostToolUse reflect
 // hook. It is short because the hook does no I/O beyond reading its own stdin:
 // a slow one would stall every tool call in the session.

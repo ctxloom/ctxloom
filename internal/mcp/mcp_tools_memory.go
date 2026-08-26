@@ -316,13 +316,14 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// itself under that harp's own lineage, which is the only place
 		// anything reads one from.
 		compactor, cerr := memory.NewCompactor(memory.CompactionConfig{
-			LLM:       s.cfg.GetCompactionLLM(),
-			Model:     model,
-			Backend:   backend,
-			ChunkSize: s.cfg.GetCompactionChunkSize(),
-			SessionID: in.SessionID,
-			WorkDir:   workDir,
-			HarpName:  harp,
+			LLM:             s.cfg.GetCompactionLLM(),
+			Model:           model,
+			Backend:         backend,
+			ChunkSize:       s.cfg.GetCompactionChunkSize(),
+			EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
+			SessionID:       in.SessionID,
+			WorkDir:         workDir,
+			HarpName:        harp,
 		})
 		if cerr != nil {
 			return nil, fmt.Errorf("create compactor: %w", cerr)
@@ -1113,13 +1114,14 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 		makeCompactor = memory.NewCompactor
 	}
 	compactor, err := makeCompactor(memory.CompactionConfig{
-		LLM:       s.cfg.GetCompactionLLM(),
-		Model:     model,
-		Backend:   backendName,
-		ChunkSize: s.cfg.GetCompactionChunkSize(),
-		SessionID: sessionID,
-		WorkDir:   workDir,
-		HarpName:  harp,
+		LLM:             s.cfg.GetCompactionLLM(),
+		Model:           model,
+		Backend:         backendName,
+		ChunkSize:       s.cfg.GetCompactionChunkSize(),
+		EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
+		SessionID:       sessionID,
+		WorkDir:         workDir,
+		HarpName:        harp,
 	})
 	if err != nil {
 		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't start distillation for session %s: %v", sessionID, err)}, nil

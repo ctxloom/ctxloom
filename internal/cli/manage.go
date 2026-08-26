@@ -409,8 +409,12 @@ func runManageCheck(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// Computed ONCE and stored on the result, so the json and text paths report
+	// the same losses. Rendering it only inside the text closure is how the
+	// machine-readable form came to omit it entirely.
+	result.CapabilityLoss = capabilityLossByAgent(cmd.Context(), cfg)
 	return emit(cmd, result, func() error {
-		printHarnessStatus(cmd.OutOrStdout(), result, capabilityLossByAgent(cmd.Context(), cfg))
+		printHarnessStatus(cmd.OutOrStdout(), result, result.CapabilityLoss)
 		return nil
 	})
 }
@@ -422,7 +426,7 @@ func runManageCheck(cmd *cobra.Command, _ []string) error {
 // its "NOT carried" lines with its "wrote" lines — every wiring line here is
 // true, and a reader who sees only what ctxloom DID wire must not come away
 // with that as the whole story.
-func printHarnessStatus(w io.Writer, r *operations.HarnessStatusResult, losses []agentCapabilityLoss) {
+func printHarnessStatus(w io.Writer, r *operations.HarnessStatusResult, losses []operations.AgentSurfaceLoss) {
 	fmt.Fprintf(w, "Project: %s\n", r.WorkDir)
 	fmt.Fprintf(w, "Statusline (HUD): %v\n\n", r.ManageStatusline)
 	for _, b := range r.Backends {

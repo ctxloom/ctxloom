@@ -100,6 +100,16 @@ type BackendWiring struct {
 }
 
 // HarnessStatusResult reports ctxloom's project wiring across backends.
+// AgentSurfaceLoss pairs one configured agent with what the engine it resolves
+// to has no structural place for. The agent NAME travels with the loss because
+// a roster-wide report is otherwise unactionable: "hooks are being dropped" is
+// not something a user with four agents can go and fix.
+type AgentSurfaceLoss struct {
+	Agent   string              `json:"agent"`
+	Backend string              `json:"backend"`
+	Losses  []agent.SurfaceLoss `json:"losses"`
+}
+
 type HarnessStatusResult struct {
 	WorkDir          string          `json:"work_dir"`
 	ManageStatusline bool            `json:"manage_statusline"`
@@ -110,6 +120,15 @@ type HarnessStatusResult struct {
 	// root. The single source of truth for the not-a-stable-root warning, shared
 	// by `ctxloom run` and the VSCode companion's title-bar warning.
 	RootFallback bool `json:"root_fallback"`
+	// CapabilityLoss names, per configured agent, what its resolved engine has
+	// no structural place for. Omitted when nothing is lost, matching the
+	// "only when it costs something" rule the text renderer already follows.
+	//
+	// It is on the wire because this report's machine-readable form is now the
+	// DEFAULT for every scripted caller: off a terminal the resolved format is
+	// json, so a report that carried the loss only in its text rendering would
+	// state it to a human and withhold it from every script, CI job and agent.
+	CapabilityLoss []AgentSurfaceLoss `json:"capability_loss,omitempty"`
 	// Surfaces reports delivery currency for the native context files
 	// (CLAUDE.md and its per-backend analogues) under WorkDir — see
 	// SurfaceCurrency. This is the read half of the

@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // This file is the roster-wide read of capability loss: for every agent this
@@ -25,16 +24,6 @@ import (
 // what a user's engine can carry, which is the failure this whole report
 // exists to prevent.
 
-// agentCapabilityLoss pairs one configured agent with what the engine it
-// resolves to cannot carry. The agent NAME is carried alongside the loss
-// because a roster-wide report is otherwise unactionable: "hooks are being
-// dropped" is not something a user with four agents can go and fix.
-type agentCapabilityLoss struct {
-	Agent   string
-	Backend string
-	Losses  []agent.SurfaceLoss
-}
-
 // capabilityLossByAgent reports, per configured agent, what its resolved
 // engine binding drops of the hooks its profiles actually configure. Agents
 // that lose nothing are omitted entirely rather than listed as clean: the same
@@ -49,7 +38,7 @@ type agentCapabilityLoss struct {
 // binding to name a loss against, and the resolution failure is already its
 // own finding (DOCTOR-CHECK-AGENTS-b2). Saying it twice in two vocabularies
 // would make neither line believable.
-func capabilityLossByAgent(ctx context.Context, cfg *config.Config) []agentCapabilityLoss {
+func capabilityLossByAgent(ctx context.Context, cfg *config.Config) []operations.AgentSurfaceLoss {
 	if cfg == nil {
 		return nil
 	}
@@ -59,7 +48,7 @@ func capabilityLossByAgent(ctx context.Context, cfg *config.Config) []agentCapab
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	var out []agentCapabilityLoss
+	var out []operations.AgentSurfaceLoss
 	for _, name := range names {
 		resolved, err := operations.ResolveAgent(ctx, cfg, name, "")
 		if err != nil {
@@ -69,7 +58,7 @@ func capabilityLossByAgent(ctx context.Context, cfg *config.Config) []agentCapab
 		if len(losses) == 0 {
 			continue
 		}
-		out = append(out, agentCapabilityLoss{Agent: name, Backend: resolved.Backend, Losses: losses})
+		out = append(out, operations.AgentSurfaceLoss{Agent: name, Backend: resolved.Backend, Losses: losses})
 	}
 	return out
 }
@@ -78,7 +67,7 @@ func capabilityLossByAgent(ctx context.Context, cfg *config.Config) []agentCapab
 // words `profile materialize` and `agent show` use — SurfaceLoss.String() is
 // the one renderer, so the four surfaces cannot describe one engine's gap
 // four different ways — prefixed with the agent that is paying for it.
-func capabilityLossLines(entries []agentCapabilityLoss) []string {
+func capabilityLossLines(entries []operations.AgentSurfaceLoss) []string {
 	var lines []string
 	for _, e := range entries {
 		for _, loss := range e.Losses {
@@ -93,7 +82,7 @@ func capabilityLossLines(entries []agentCapabilityLoss) []string {
 // rule and UncarriedSurfaces' own: a bare, unlabelled "Capability loss:"
 // heading over an empty list is the fastest way to teach a reader to skip the
 // line that matters.
-func renderCapabilityLosses(w io.Writer, entries []agentCapabilityLoss) {
+func renderCapabilityLosses(w io.Writer, entries []operations.AgentSurfaceLoss) {
 	lines := capabilityLossLines(entries)
 	if len(lines) == 0 {
 		return
@@ -107,7 +96,7 @@ func renderCapabilityLosses(w io.Writer, entries []agentCapabilityLoss) {
 // capabilityLossDetail folds the same lines into doctor's one-line-per-check
 // Detail shape, dropping the repeated "NOT carried by" prefix the marker and
 // status already imply.
-func capabilityLossDetail(entries []agentCapabilityLoss) string {
+func capabilityLossDetail(entries []operations.AgentSurfaceLoss) string {
 	parts := make([]string, 0, len(entries))
 	for _, e := range entries {
 		for _, loss := range e.Losses {

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,14 +180,19 @@ func TestDoctorCmd_CapabilityLoss_StaysQuietWhenNothingIsLost(t *testing.T) {
 // stand-in carrying the persistent flags emit() reads, since this command has
 // no parent here to inherit them from.
 //
-// `--format text` is asked for EXPLICITLY, and that is not a way around the
-// machine-readable default a non-terminal now resolves to. The human report is
-// the only surface that carries the capability loss at all: runManageCheck
-// emits operations.HarnessStatusResult as its structured value and passes
-// capabilityLossByAgent to the TEXT closure alone, so the loss has no field on
-// the wire to assert against. Until it does, text is where this contract
-// lives, and asking for it explicitly is what the ruling says wins.
+// The format is asked for EXPLICITLY, which is not a way around the
+// machine-readable default a non-terminal resolves to — an explicit flag
+// winning is the rule, so each arm can be driven deliberately. Both surfaces
+// now carry the capability loss: runManageCheck stores it on
+// HarnessStatusResult.CapabilityLoss before emitting, and the text closure
+// renders that same value.
 func execManageCheck(t *testing.T, root string) (string, error) {
+	t.Helper()
+	return execManageCheckAs(t, root, formatText)
+}
+
+// execManageCheckAs drives manage check in a named format.
+func execManageCheckAs(t *testing.T, root, format string) (string, error) {
 	t.Helper()
 	t.Chdir(root)
 	buf := &bytes.Buffer{}
@@ -202,7 +208,7 @@ func execManageCheck(t *testing.T, root string) (string, error) {
 	c.SetOut(buf)
 	c.SetErr(buf)
 	c.SetContext(context.Background())
-	c.SetArgs([]string{"--format", "text"})
+	c.SetArgs([]string{"--format", format})
 	err := c.Execute()
 	return buf.String(), err
 }
@@ -240,4 +246,41 @@ func TestManageCheck_CapabilityLoss_StaysQuietWhenNothingIsLost(t *testing.T) {
 	assert.NotContains(t, out, "NOT carried",
 		"claude-code carries this fixture's hooks; a loss section here would be a false alarm:\n"+out)
 	assert.NotContains(t, out, "no hook mechanism", out)
+}
+
+// TestManageCheck_CapabilityLoss_JSONCarriesTheLoss pins the machine-readable
+// half. It matters more than the text half: off a terminal the resolved format
+// is json, so this is what every script, CI job and agent receives by default.
+// A report that named the loss only in prose would state it to a human and
+// withhold it from every machine consumer.
+func TestManageCheck_CapabilityLoss_JSONCarriesTheLoss(t *testing.T) {
+	root, cfg := setupCapabilityLossProject(t, "opencode")
+	requireFixtureLosesSomething(t, cfg, "session_start", "opencode has no hook mechanism")
+
+	out, err := execManageCheckAs(t, root, "json")
+	require.NoError(t, err)
+
+	var got operations.HarnessStatusResult
+	require.NoError(t, json.Unmarshal([]byte(out), &got), "manage check --format json must emit parseable JSON:\n"+out)
+
+	require.Len(t, got.CapabilityLoss, 1, "exactly the one configured agent loses something:\n"+out)
+	entry := got.CapabilityLoss[0]
+	assert.Equal(t, "default", entry.Agent, "the payload must name WHICH agent loses it")
+	assert.Equal(t, "opencode", entry.Backend, "the payload must name the engine that cannot carry it")
+	require.NotEmpty(t, entry.Losses, "an agent listed as losing something must say what")
+	assert.Equal(t, "hooks", entry.Losses[0].Surface, "the surface is named in the user's own vocabulary")
+	assert.Contains(t, entry.Losses[0].Detail, "session_start", "the detail must name the hook event actually requested")
+}
+
+// TestManageCheck_CapabilityLoss_JSONOmitsTheKeyWhenNothingIsLost is the
+// false-alarm twin: omitempty means a healthy project carries no key at all,
+// not an empty array a consumer must special-case.
+func TestManageCheck_CapabilityLoss_JSONOmitsTheKeyWhenNothingIsLost(t *testing.T) {
+	root, cfg := setupCapabilityLossProject(t, "claude-code")
+	requireFixtureLosesNothing(t, cfg)
+
+	out, err := execManageCheckAs(t, root, "json")
+	require.NoError(t, err)
+
+	assert.NotContains(t, out, "capability_loss", "claude-code carries this fixture's hooks; the key must be absent entirely:\n"+out)
 }

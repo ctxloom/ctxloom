@@ -1,4 +1,4 @@
-package testsupport
+package taskstest
 
 import (
 	"os"

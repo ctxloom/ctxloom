@@ -7,10 +7,12 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestRenderToolArgs_ElidesCodeKeepsIdentity pins both directions in one
@@ -380,5 +382,78 @@ func TestRenderErrorBody_BoundsAPathologicalError(t *testing.T) {
 	got := renderErrorBody(strings.Repeat("x", maxErrorBytes*3))
 	if len(got) > maxErrorBytes {
 		t.Fatalf("unbounded error body: %d bytes", len(got))
+	}
+}
+
+// TestCompact_RecoveredFindingReachesTheDistiller is the end-to-end proof that
+// the three tiers connect: an uncommented large tool result gets a finding
+// recovered, and it is the FINDING -- not the raw body -- that the distiller
+// is asked to summarize.
+//
+// The assertion reads what the distilling backend actually RECEIVED, not what
+// Compact reported doing. Every cheaper check here is satisfied by a pipeline
+// that recovers a finding and then throws it away.
+func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
+	testsupport.Isolate(t)
+	const (
+		finding  = "RECOVERED_FINDING_MARKER"
+		rawBody  = "RAW_BODY_MARKER"
+		toolCall = "<tool_call>"
+	)
+
+	history := &mockSessionHistory{currentSession: &agent.Session{
+		ID: "e2e-session",
+		Entries: []agent.SessionEntry{
+			{Type: agent.EntryTypeUser, Content: "why is the suite slow"},
+			{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go test ./..."}`)},
+			{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: rawBody + bigBody()},
+			// No assistant turn here: nothing was said, so the finding is lost
+			// unless recovery supplies one.
+			{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"true"}`)},
+		},
+	}}
+
+	var mu sync.Mutex
+	var distillerSaw []string
+	mock := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			prompt := req.GetPrompt().GetContent()
+			if strings.Contains(prompt, toolCall) {
+				_, _ = stdout.Write([]byte(finding)) // the recovery call
+				return 0, nil
+			}
+			mu.Lock()
+			distillerSaw = append(distillerSaw, prompt) // the chunk/reduce calls
+			mu.Unlock()
+			_, _ = stdout.Write([]byte("---\nsummary: e2e\n---\n\n### Open Items\n- none\n"))
+			return 0, nil
+		},
+	}
+
+	c, err := NewCompactor(CompactionConfig{
+		BackendOverride: &mockBackend{history: history},
+		ClientFactory:   pb.MockClientFactory(mock),
+		OutputDir:       t.TempDir(),
+		HarpName:        "e2e-under-test",
+	})
+	if err != nil {
+		t.Fatalf("NewCompactor: %v", err)
+	}
+
+	if _, err := c.Compact(context.Background()); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(distillerSaw) == 0 {
+		t.Fatal("the distiller was never called; the pipeline short-circuited")
+	}
+	all := strings.Join(distillerSaw, "\n")
+	if !strings.Contains(all, finding) {
+		t.Fatalf("recovered finding never reached the distiller:\n%s", truncateForSummary(all))
+	}
+	if strings.Contains(all, rawBody) {
+		t.Fatalf("raw result body reached the distiller; it should have been replaced by the finding")
 	}
 }

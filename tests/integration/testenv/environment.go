@@ -838,6 +838,18 @@ func (e *TestEnvironment) LastStdout() string {
 	return e.runs[len(e.runs)-1].Stdout
 }
 
+// LastArgs returns the argv the last command was invoked with, which is where
+// a format-aware assertion reads the encoding that was ASKED for. Reading it
+// off the invocation rather than sniffing the payload is what lets a scenario
+// tell "the command honoured --format text" apart from "the command emitted
+// something that happens to parse that way".
+func (e *TestEnvironment) LastArgs() []string {
+	if len(e.runs) == 0 {
+		return nil
+	}
+	return e.runs[len(e.runs)-1].Args
+}
+
 // NthLastOutput returns the combined stdout/stderr of the n-th most recent
 // command (n=0 is the same value LastOutput returns, n=1 the command before
 // that, and so on), or "" if fewer than n+1 commands have run yet. Lets a

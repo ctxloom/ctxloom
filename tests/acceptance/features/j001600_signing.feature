@@ -32,12 +32,18 @@ Feature: A signature somebody can check
   # The output must NAME which link of the discovery chain answered, so a
   # signature produced by an ambient developer agent could never be mistaken
   # for this one.
-  Scenario: Trent signs a bundle with the key he already signs his commits with
+  Scenario Outline: Trent signs a bundle with the key he already signs his commits with
     Given Trent's project publishes a bundle "secure-coding" carrying the fragment "tdd"
-    When I run "ctxloom bundle sign secure-coding"
+    When I run "ctxloom bundle sign secure-coding <flags>"
     Then the command succeeds
-    And the output contains "signed by git config user.signingkey"
+    And the output reports "signed[bundle=secure-coding].signed_by" as "<names the key>"
     And the signature beside bundle "secure-coding" is non-empty and verifies against the bundle's bytes on disk
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names the key                        |
+      |               | git config user.signingkey           |
+      | --format json | git config user.signingkey           |
+      | --format text | signed by git config user.signingkey |
 
   # COUNTED, not asserted-by-message: "signed everything" that signs nothing
   # and exits 0 is this codebase's characteristic failure, and --all over a
@@ -120,13 +126,19 @@ Feature: A signature somebody can check
   # A publisher signature covers the whole bundle FILE, so an item ref resolves
   # to its containing bundle. The count assertion is the load-bearing one: a
   # per-fragment .sig would be a signature over a preimage no verifier reads.
-  Scenario: Signing one fragment signs the bundle that contains it, and says so
+  Scenario Outline: Signing one fragment signs the bundle that contains it, and says so
     Given Trent's project publishes a bundle "my-tools" carrying the fragment "go-testing"
-    When I run "ctxloom bundle sign my-tools#fragments/go-testing"
+    When I run "ctxloom bundle sign my-tools#fragments/go-testing <flags>"
     Then the command succeeds
-    And the output contains "Signing bundle my-tools (contains fragments/go-testing)"
+    And the output reports "signed[bundle=my-tools].item_note" as "<names the item>"
     And the signature beside bundle "my-tools" is non-empty and verifies against the bundle's bytes on disk
     And exactly 1 signature file exists in the published bundle tree
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names the item                                          |
+      |               | fragments/go-testing                                    |
+      | --format json | fragments/go-testing                                    |
+      | --format text | Signing bundle my-tools (contains fragments/go-testing) |
 
   # `bundle sign` is the ONLY spelling: the deprecated top-level `ctxloom
   # sign` twin this scenario pair used to cover is deleted (verb-spine reorg
@@ -142,14 +154,20 @@ Feature: A signature somebody can check
   # clone inherits, as opposed to the user store that follows one person. BOTH
   # paths are asserted — a trust root written to the wrong store is invisible
   # until a teammate's clone silently trusts nothing.
-  Scenario: Trent distributes his trust root in the store his teammates inherit by cloning
+  Scenario Outline: Trent distributes his trust root in the store his teammates inherit by cloning
     When I run "ctxloom signer trust context@acme.example --key acme-publish.pub --project --yes"
     Then the command succeeds
     And the project store ".ctxloom/allowed_signers" trusts "context@acme.example" for publishing, with Trent's own key
     And the user store ".ctxloom/allowed_signers" was never written
-    When I run "ctxloom signer list"
+    When I run "ctxloom signer list <flags>"
     Then the command succeeds
     And the listing names "context@acme.example" in the "project" store, with Trent's fingerprint and the publish namespace
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         |
+      |               |
+      | --format json |
+      | --format text |
 
   # The project store is now the DEFAULT — --project above is no longer the
   # thing that made this land where a clone inherits it, it is just still
@@ -176,13 +194,19 @@ Feature: A signature somebody can check
   # A principal can hold entries in both stores at once, and `show` is the only
   # command that has to render BOTH — a listing that silently collapses them
   # hides half of what is actually trusted.
-  Scenario: A signer trusted in both stores is shown from both
+  Scenario Outline: A signer trusted in both stores is shown from both
     Given Trent's key is trusted in the committable project store as "context@acme.example"
     And Trent's key is also trusted in his personal user store as "context@acme.example"
-    When I run "ctxloom signer show context@acme.example"
+    When I run "ctxloom signer show context@acme.example <flags>"
     Then the command succeeds
     And the listing names "context@acme.example" in the "project" store, with Trent's fingerprint and the publish namespace
     And the listing names "context@acme.example" in the "user" store, with Trent's fingerprint and the publish namespace
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         |
+      |               |
+      | --format json |
+      | --format text |
 
   # The acceptance binds to the item's CURRENT content hashes, so a later
   # revision returns it to pending rather than riding the old decision.
@@ -218,34 +242,46 @@ Feature: A signature somebody can check
   # survives content changes) and the item's content hashes on the denylist (so
   # a renamed or moved identical copy stays rejected too). Asserted through
   # what ctxloom reports it wrote AND through what stops being delivered.
-  Scenario: Alice rejects one item and it stays out, though the signature still verifies
+  Scenario Outline: Alice rejects one item and it stays out, though the signature still verifies
     Given Trent's project publishes the "secure-coding" bundle his team depends on
     And Trent has signed the bundle "secure-coding"
     And Trent's key is trusted in the committable project store as "context@acme.example"
     And Alice's own review key is trusted for approve and reject as "reviewer@acme.example"
     And Trent publishes the signed bundle to his company repo, and Alice references it
     And her assistant receives the "curl-pipe-sh" guidance
-    When I run "ctxloom bundle reject" on the published "curl-pipe-sh" fragment
-    Then the output contains "ref block: recorded"
-    And the output contains "content:   rejected in form(s)"
+    When I run "ctxloom bundle reject <flags>" on the published "curl-pipe-sh" fragment
+    Then the output reports "status" as "<the ref block>"
+    And the output reports "content_forms" containing "<the content>"
     And her assistant does not receive the "curl-pipe-sh" guidance
     And the content Trent signed still verifies against the bytes he published
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | the ref block       | the content           |
+      |               | rejected            | raw                   |
+      | --format json | rejected            | raw                   |
+      | --format text | ref block: recorded | rejected in form(s)   |
 
   # Removing a signer means "I will review this myself from now on", not
   # "deny" — so the content is held, not refused. The assertion that makes the
   # removal real rather than cosmetic is on the STORE FILE, not the listing.
-  Scenario: Withdrawing trust in Trent's key removes the key line itself
+  Scenario Outline: Withdrawing trust in Trent's key removes the key line itself
     Given Trent's project publishes the "secure-coding" bundle his team depends on
     And Trent has signed the bundle "secure-coding"
     And Trent's key is trusted in the committable project store as "context@acme.example"
     And Trent publishes the signed bundle to his company repo, and Alice references it
     And her assistant receives the "tdd" guidance
-    When I run "ctxloom signer untrust context@acme.example --project"
+    When I run "ctxloom signer untrust context@acme.example --project <flags>"
     Then the command succeeds
-    And the output contains "removed 1 entry for context@acme.example"
+    And the output reports "Removed" as "<one entry gone>"
     And the project store ".ctxloom/allowed_signers" no longer names Trent's key
     And the project store ".ctxloom/allowed_signers" holds nothing at all
     And her assistant does not receive the "tdd" guidance
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | one entry gone                           |
+      |               | 1                                        |
+      | --format json | 1                                        |
+      | --format text | removed 1 entry for context@acme.example |
 
   # The scenario above removes the store's ONLY entry, so it can never see what
   # a removal does to the lines it keeps. That is the whole of the removal
@@ -255,12 +291,12 @@ Feature: A signature somebody can check
   # newline that makes the last line readable at all — leaves a command that
   # exits 0 and prints exactly the right count over a trust root that has
   # quietly changed. Only the file's contents can tell the two apart.
-  Scenario: Removing one signer leaves every other entry in the store intact
+  Scenario Outline: Removing one signer leaves every other entry in the store intact
     Given Trent's team trusts "alpha@acme.example,context@acme.example,omega@acme.example" in the committable project store
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,context@acme.example,omega@acme.example"
-    When I run "ctxloom signer untrust context@acme.example --project"
+    When I run "ctxloom signer untrust context@acme.example --project <flags>"
     Then the command succeeds
-    And the output contains "removed 1 entry for context@acme.example"
+    And the output reports "Removed" as "<context gone>"
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,omega@acme.example"
     # Down to a SINGLE survivor, because "join the kept lines and terminate the
     # result" behaves differently at one than at several: a rewrite that only
@@ -268,36 +304,52 @@ Feature: A signature somebody can check
     # surviving entry unterminated, and an unterminated final line is one
     # ssh-keygen does not read — the key stops counting while `list` and the
     # exit code both still look right.
-    When I run "ctxloom signer untrust omega@acme.example --project"
+    When I run "ctxloom signer untrust omega@acme.example --project <flags>"
     Then the command succeeds
-    And the output contains "removed 1 entry for omega@acme.example"
+    And the output reports "Removed" as "<omega gone>"
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | context gone                             | omega gone                             |
+      |               | 1                                        | 1                                      |
+      | --format json | 1                                        | 1                                      |
+      | --format text | removed 1 entry for context@acme.example | removed 1 entry for omega@acme.example |
 
   # "Nothing to remove" must be a no-op on disk as well as a message. A remove
   # that reports "no entry" while rewriting the store has still edited the
   # trust root, and a remove that reports having removed something when it
   # removed nothing tells an operator a key is gone while it still signs.
-  Scenario: Removing a principal the store does not hold changes nothing
+  Scenario Outline: Removing a principal the store does not hold changes nothing
     Given Trent's team trusts "alpha@acme.example,omega@acme.example" in the committable project store
     And I note exactly what the project store ".ctxloom/allowed_signers" holds
-    When I run "ctxloom signer untrust nobody@acme.example --project"
+    When I run "ctxloom signer untrust nobody@acme.example --project <flags>"
     Then the command succeeds
-    And the output contains "no entry for nobody@acme.example"
-    And the output does not contain "removed"
+    And the output reports "Removed" as "<nothing removed>"
     And the project store ".ctxloom/allowed_signers" is byte-for-byte what it was
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,omega@acme.example"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | nothing removed                  |
+      |               | 0                                |
+      | --format json | 0                                |
+      | --format text | no entry for nobody@acme.example |
 
   # No store file at all is the state every project starts in, and it is
   # "nothing to remove", not "removed something". Reporting a removal against
   # a file that does not exist tells an operator they have withdrawn trust
   # they never granted — and leaves them believing a key is handled.
-  Scenario: Removing a signer when the project has no store yet reports nothing removed
+  Scenario Outline: Removing a signer when the project has no store yet reports nothing removed
     Given the file ".ctxloom/allowed_signers" does not exist
-    When I run "ctxloom signer untrust nobody@acme.example --project"
+    When I run "ctxloom signer untrust nobody@acme.example --project <flags>"
     Then the command succeeds
-    And the output contains "no entry for nobody@acme.example"
-    And the output does not contain "removed"
+    And the output reports "Removed" as "<nothing removed>"
     And the file ".ctxloom/allowed_signers" does not exist
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | nothing removed                  |
+      |               | 0                                |
+      | --format json | 0                                |
+      | --format text | no entry for nobody@acme.example |
 
   # A line the parser cannot read contributes no entry, so a principal hiding
   # in it looks ABSENT. Reporting "no entry for X" there would tell an operator
@@ -350,33 +402,48 @@ Feature: A signature somebody can check
   # but it must still be left in place rather than quietly dropped by the
   # rewrite. Losing it would be the rewrite silently editing a line it could
   # not read, which is the one thing a trust root must never do.
-  Scenario: Removing a signer alongside an unreadable line warns but keeps the line
+  Scenario Outline: Removing a signer alongside an unreadable line warns but keeps the line
     Given Trent's team trusts "alpha@acme.example,context@acme.example" in the committable project store
     And one line in the project store ".ctxloom/allowed_signers" cannot be read
-    When I run "ctxloom signer untrust context@acme.example --project"
+    When I run "ctxloom signer untrust context@acme.example --project <flags>"
     Then the command succeeds
-    And the output contains "removed 1 entry for context@acme.example"
+    And the output reports "Removed" as "<one entry gone>"
     And the project store ".ctxloom/allowed_signers" still holds the line that could not be read
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | one entry gone                           |
+      |               | 1                                        |
+      | --format json | 1                                        |
+      | --format text | removed 1 entry for context@acme.example |
 
   # ctxloom's own compiled-in release key is the one entry no `delete` can
   # edit, so the withdrawal has to be a RECORD the read side subtracts. The
   # record is only worth anything if it names the embedded entry's own
   # principal strings: the subtraction is a literal membership check, so a
   # record naming anything else reports success and suppresses nothing.
-  Scenario: Withdrawing trust in ctxloom's own embedded key records a suppression the read side can honour
+  Scenario Outline: Withdrawing trust in ctxloom's own embedded key records a suppression the read side can honour
     Given ctxloom's own compiled-in publishing key is trusted
-    When I run "ctxloom signer untrust ben+ctxloom@abbitt.me --project"
+    When I run "ctxloom signer untrust ben+ctxloom@abbitt.me --project <flags>"
     Then the command succeeds
-    And the output contains "cannot be deleted"
-    And the output contains "DISTRUSTED"
-    # The message must NAME the file it recorded the withdrawal in. A
+    And the output reports "Removed" as "<not deleted>"
+    And the output reports "EmbeddedSuppressed" as "<distrust recorded>"
+    # The report must NAME the file it recorded the withdrawal in. A
     # suppression an operator cannot locate is one they cannot audit or undo,
     # and "recorded in " with nothing after it reads as success either way.
-    And the output contains ".ctxloom/distrusted_signers"
+    And the output reports "SuppressionPath" matching "<names the file>"
     And the distrusted store ".ctxloom/distrusted_signers" records every principal that entry names
-    When I run "ctxloom signer list"
+    # And the read side must SHOW the suppression it now honours, against the
+    # embedded entry specifically — a listing that reports it against some
+    # other entry would be the same defect wearing the right word.
+    When I run "ctxloom signer list <flags>"
     Then the command succeeds
-    And the output contains "LOCALLY DISTRUSTED"
+    And the output reports "$[Source=embedded].Suppressed" as "<shown as distrusted>"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | not deleted       | distrust recorded | names the file                 | shown as distrusted |
+      |               | 0                 | true              | /\.ctxloom/distrusted_signers$ | true                |
+      | --format json | 0                 | true              | /\.ctxloom/distrusted_signers$ | true                |
+      | --format text | cannot be deleted | DISTRUSTED        | .ctxloom/distrusted_signers    | LOCALLY DISTRUSTED  |
 
   # Withdrawing twice must leave one record, not two. Idempotence here is a
   # property of the FILE — the second run takes the "already suppressed" path

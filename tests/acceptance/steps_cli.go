@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 func registerCLISteps(ctx *godog.ScenarioContext) {
@@ -113,7 +116,7 @@ func registerCLISteps(ctx *godog.ScenarioContext) {
 // cannot satisfy at any price.
 func registerJSONOutputSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the output is valid JSON$`, func(c context.Context) error {
-		_, err := lastOutputJSON(worldFrom(c))
+		_, err := lastOutputJSONDoc(worldFrom(c))
 		return err
 	})
 
@@ -188,35 +191,404 @@ func registerJSONOutputSteps(ctx *godog.ScenarioContext) {
 			}
 			return nil
 		})
+
+	// --- Format-aware assertions ------------------------------------------
+	//
+	// ONE scenario body, every encoding. Off a terminal the CLI derives JSON,
+	// an explicit --format wins in both directions, and a Scenario Outline
+	// drives the same command once per format — so an assertion that only
+	// speaks JSON would force a scenario per format and delete the human
+	// renderer's only coverage.
+	//
+	// These read the encoding off the INVOCATION (see formatAskedFor), then:
+	//
+	//   json, yaml, toml   decode, resolve the dotted PATH, compare the value
+	//                      there. json/yaml/toml decode to the same generic
+	//                      shapes, so ONE path addresses all three and one
+	//                      expected value serves all three.
+	//   text, markdown     the row's own expected column carries that
+	//                      renderer's prose, matched as a substring — which is
+	//                      exactly the assertion these scenarios always made.
+	//
+	// So the Examples table varies the expected value BY ROW while the path
+	// stays fixed in the step: each row states the fact as its own format
+	// spells it, and a row that passes no --format at all asserts the derived
+	// default is the structured payload.
+	//
+	// Substring matching is confined to the RENDERED formats on purpose. A
+	// substring of a JSON blob matches across field boundaries — "raw" is
+	// satisfied by a key, a different array, or a fragment of a path — which
+	// is the vacuous-assertion shape this suite was audited for. Structured
+	// rows are always path-exact.
+
+	ctx.Step(`^the output reports "([^"]*)" as "([^"]*)"$`,
+		func(c context.Context, path, expected string) error {
+			return assertOutputReports(worldFrom(c), path, expected, func(v any) error {
+				got, ok := jsonScalar(v)
+				if !ok {
+					return fmt.Errorf("is a %s, not a scalar — address one element or field", jsonKind(v))
+				}
+				if got != expected {
+					return fmt.Errorf("is %q, want %q", got, expected)
+				}
+				return nil
+			})
+		})
+
+	// For values no test can know in advance — a temp-directory path, a
+	// version stamp — where the claim is still about the value and not merely
+	// that some key exists. The rendered rows carry a plain substring; only
+	// the structured rows read the column as a pattern.
+	ctx.Step(`^the output reports "([^"]*)" matching "([^"]*)"$`,
+		func(c context.Context, path, expected string) error {
+			return assertOutputReports(worldFrom(c), path, expected, func(v any) error {
+				re, err := regexp.Compile(expected)
+				if err != nil {
+					return fmt.Errorf("cannot be matched: %q is not a valid regexp: %v", expected, err)
+				}
+				got, ok := jsonScalar(v)
+				if !ok {
+					return fmt.Errorf("is a %s, not a scalar — address one element or field", jsonKind(v))
+				}
+				if !re.MatchString(got) {
+					return fmt.Errorf("is %q, which does not match %q", got, expected)
+				}
+				return nil
+			})
+		})
+
+	// Membership in an array of scalars — a list of forms, names, tags —
+	// where position is an implementation detail and presence is the contract.
+	ctx.Step(`^the output reports "([^"]*)" containing "([^"]*)"$`,
+		func(c context.Context, path, expected string) error {
+			return assertOutputReports(worldFrom(c), path, expected, func(v any) error {
+				entries, ok := v.([]any)
+				if !ok {
+					return fmt.Errorf("is a %s, not an array", jsonKind(v))
+				}
+				// "every element" and "some element" are both vacuously
+				// satisfiable over an empty array, which is the silent-no-op
+				// shape: an empty list contains nothing, so say so.
+				if len(entries) == 0 {
+					return fmt.Errorf("is EMPTY, so it contains nothing and %q is not in it", expected)
+				}
+				for _, e := range entries {
+					if got, ok := jsonScalar(e); ok && got == expected {
+						return nil
+					}
+				}
+				return fmt.Errorf("does not contain %q", expected)
+			})
+		})
 }
 
-// lastOutputJSON decodes the last command's STDOUT as a JSON object. Parsing
-// the combined stream cannot work — one stderr advisory line concatenated
-// onto the payload makes it unparseable — so this reads stdout alone.
-func lastOutputJSON(w *World) (map[string]any, error) {
+// assertOutputReports is the one format branch every format-aware step shares:
+// a rendered format is matched as prose, a structured one is decoded and
+// addressed by path.
+func assertOutputReports(w *World, path, expected string, check func(any) error) error {
+	format := formatAskedFor(w)
+	if !format.Structured() {
+		if !strings.Contains(w.env.LastOutput(), expected) {
+			return fmt.Errorf("the %s rendering does not report %q; output:\n%s", format, expected, w.env.LastOutput())
+		}
+		return nil
+	}
+	doc, err := lastOutputStructured(w, format)
+	if err != nil {
+		return err
+	}
+	v, err := jsonAtPath(doc, path)
+	if err != nil {
+		return fmt.Errorf("%v; %s stdout:\n%s", err, format, w.env.LastStdout())
+	}
+	if err := check(v); err != nil {
+		return fmt.Errorf("the %s payload at %q %v; stdout:\n%s", format, path, err, w.env.LastStdout())
+	}
+	return nil
+}
+
+// formatAskedFor reports the encoding the last command was asked for, read off
+// its own command line: an explicit --format/-o value, --json, or — when
+// nothing was asked for — the format the CLI DERIVES for a stdout that is not
+// a terminal.
+//
+// That default is load-bearing rather than a convenience. This harness
+// captures stdout through a pipe and is never a terminal, so a row that passes
+// no --format at all is exercising the derived default; resolving it to the
+// structured payload here is what makes such a row a test of that rule instead
+// of a test of whatever the command happened to emit.
+func formatAskedFor(w *World) clifmt.Format {
+	fields := w.env.LastArgs()
+	for i, f := range fields {
+		switch {
+		case f == "--json":
+			return clifmt.FormatJSON
+		case f == "--format" || f == "-o":
+			if i+1 < len(fields) {
+				if parsed, err := clifmt.ParseFormat(fields[i+1]); err == nil {
+					return parsed
+				}
+			}
+		case strings.HasPrefix(f, "--format="):
+			if parsed, err := clifmt.ParseFormat(strings.TrimPrefix(f, "--format=")); err == nil {
+				return parsed
+			}
+		}
+	}
+	return derivedNonTerminalFormat
+}
+
+// derivedNonTerminalFormat is what cliemit.Resolve settles on when stdout is
+// not a terminal and no format was asked for. Naming it once keeps every
+// no-flag Examples row asserting the same rule.
+const derivedNonTerminalFormat = clifmt.FormatJSON
+
+// lastOutputStructured decodes the last command's STDOUT in the structured
+// encoding it was asked for.
+//
+// The switch is on the FORMAT, not on JSON alone, because that is the seam the
+// other structured encodings extend through: every structured encoder decodes
+// to the same generic Go shapes, so a new case is a decoder call and nothing
+// else — no second path grammar and no second expected value. Only the
+// encodings this suite actually drives are wired, so no untested decoder is
+// carried on the promise of a scenario that does not exist.
+func lastOutputStructured(w *World, format clifmt.Format) (any, error) {
+	stdout := w.env.LastStdout()
+	if strings.TrimSpace(stdout) == "" {
+		return nil, fmt.Errorf("stdout is empty — nothing to decode as %s; combined output:\n%s", format, w.env.LastOutput())
+	}
+	var doc any
+	switch format {
+	case clifmt.FormatJSON:
+		if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+			return nil, fmt.Errorf("stdout is not valid %s: %v; stdout:\n%s", format, err, stdout)
+		}
+	default:
+		return nil, fmt.Errorf("no scenario drives %s yet, so this suite decodes no %s payload; stdout:\n%s", format, format, stdout)
+	}
+	return doc, nil
+}
+
+// jsonScalar renders a decoded JSON value for comparison, and reports whether
+// it IS one. Containers and null are refused rather than stringified: a
+// comparison against "[map[...]]" or "<nil>" is one nobody wrote on purpose
+// and one that a missing field can satisfy.
+func jsonScalar(v any) (string, bool) {
+	switch v.(type) {
+	case map[string]any, []any, nil:
+		return "", false
+	}
+	return fmt.Sprintf("%v", v), true
+}
+
+func jsonKind(v any) string {
+	switch v.(type) {
+	case map[string]any:
+		return "object"
+	case []any:
+		return "array"
+	case nil:
+		return "null"
+	}
+	return "scalar"
+}
+
+// jsonAtPath walks a dotted path from a decoded document. "$" (or the empty
+// path) is the document itself; a numeric segment indexes an array; anything
+// else is an object key.
+func jsonAtPath(doc any, path string) (any, error) {
+	if path == "" || path == "$" {
+		return doc, nil
+	}
+	cur := doc
+	walked := ""
+	for i, seg := range jsonPathSegments(path) {
+		// A leading "$" names the document itself, so it addresses nothing
+		// further and is skipped rather than looked up as a key.
+		if i == 0 && seg == "$" {
+			walked = "$"
+			continue
+		}
+		switch {
+		case walked == "":
+			walked = seg
+		case strings.HasPrefix(seg, "["):
+			walked += seg
+		default:
+			walked += "." + seg
+		}
+		// A "[field=value]" segment SELECTS the array element that carries
+		// that value, so an assertion can name the object it means instead of
+		// its index. A list's position is an implementation detail; which
+		// bundle was signed, or which store an entry came from, is the claim.
+		if field, want, ok := jsonPathPredicate(seg); ok {
+			entries, isArray := cur.([]any)
+			if !isArray {
+				return nil, fmt.Errorf("JSON output at %q is a %s, so %q selects nothing", walked, jsonKind(cur), seg)
+			}
+			match, err := jsonSelect(entries, field, want)
+			if err != nil {
+				return nil, fmt.Errorf("at %q: %w", walked, err)
+			}
+			cur = match
+			continue
+		}
+		switch node := cur.(type) {
+		case map[string]any:
+			v, ok := node[seg]
+			if !ok {
+				return nil, fmt.Errorf("JSON output has nothing at %q (no %q key)", walked, seg)
+			}
+			cur = v
+		case []any:
+			i, err := strconv.Atoi(seg)
+			if err != nil {
+				return nil, fmt.Errorf("JSON output at %q is an array, so %q must be an index", walked, seg)
+			}
+			if i < 0 || i >= len(node) {
+				return nil, fmt.Errorf("JSON output at %q indexes element %d of a %d-element array", walked, i, len(node))
+			}
+			cur = node[i]
+		default:
+			return nil, fmt.Errorf("JSON output at %q is a %s, so %q addresses nothing beneath it", walked, jsonKind(cur), seg)
+		}
+	}
+	return cur, nil
+}
+
+// lastOutputJSONDoc decodes the last command's STDOUT as a JSON document of
+// whatever shape it has — a bare top-level array is as valid a payload as an
+// object, and several commands emit one. Parsing the combined stream cannot
+// work — one stderr advisory line concatenated onto the payload makes it
+// unparseable — so this reads stdout alone.
+func lastOutputJSONDoc(w *World) (any, error) {
 	stdout := w.env.LastStdout()
 	if strings.TrimSpace(stdout) == "" {
 		return nil, fmt.Errorf("stdout is empty — nothing to parse as JSON; combined output:\n%s", w.env.LastOutput())
 	}
-	var obj map[string]any
-	if err := json.Unmarshal([]byte(stdout), &obj); err != nil {
-		return nil, fmt.Errorf("stdout is not a JSON object: %v; stdout:\n%s", err, stdout)
+	var doc any
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		return nil, fmt.Errorf("stdout is not valid JSON: %v; stdout:\n%s", err, stdout)
+	}
+	return doc, nil
+}
+
+// jsonPathSegments splits a dotted path into segments, breaking a
+// "[field=value]" predicate out as its own segment whether or not a dot
+// precedes it — so "signed[bundle=x].signed_by" reads the way a jq user would
+// write it — and keeping the predicate whole even though the field inside it
+// may itself be dotted.
+func jsonPathSegments(path string) []string {
+	var segs []string
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() > 0 {
+			segs = append(segs, cur.String())
+			cur.Reset()
+		}
+	}
+	depth := 0
+	for _, r := range path {
+		switch r {
+		case '[':
+			if depth == 0 {
+				flush()
+			}
+			depth++
+			cur.WriteRune(r)
+		case ']':
+			if depth > 0 {
+				depth--
+			}
+			cur.WriteRune(r)
+			if depth == 0 {
+				flush()
+			}
+		case '.':
+			if depth == 0 {
+				flush()
+				continue
+			}
+			cur.WriteRune(r)
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush()
+	return segs
+}
+
+func jsonPathPredicate(seg string) (field, want string, ok bool) {
+	if !strings.HasPrefix(seg, "[") || !strings.HasSuffix(seg, "]") {
+		return "", "", false
+	}
+	inner := seg[1 : len(seg)-1]
+	field, want, ok = strings.Cut(inner, "=")
+	return field, want, ok
+}
+
+// jsonSelect returns the one array element whose field holds want. AMBIGUITY
+// IS AN ERROR: if two elements match, the assertion that follows would read a
+// value off whichever came first, and "the entry for X" would silently become
+// "some entry for X".
+func jsonSelect(entries []any, field, want string) (any, error) {
+	var found []any
+	for _, e := range entries {
+		v, err := jsonAtPath(e, field)
+		if err != nil {
+			continue
+		}
+		if got, ok := jsonScalar(v); ok && got == want {
+			found = append(found, e)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return nil, fmt.Errorf("no element of the %d-element array has %s=%q", len(entries), field, want)
+	case 1:
+		return found[0], nil
+	default:
+		return nil, fmt.Errorf("%d elements have %s=%q, so this selects no single one", len(found), field, want)
+	}
+}
+
+// lastOutputJSON decodes the last command's STDOUT as a JSON OBJECT, for the
+// callers whose claim is about the top-level object's own keys.
+func lastOutputJSON(w *World) (map[string]any, error) {
+	doc, err := lastOutputJSONDoc(w)
+	if err != nil {
+		return nil, err
+	}
+	obj, ok := doc.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("stdout is not a JSON object but a %s; stdout:\n%s", jsonKind(doc), w.env.LastStdout())
 	}
 	return obj, nil
 }
 
-func lastOutputJSONArray(w *World, key string) ([]any, error) {
-	obj, err := lastOutputJSON(w)
+// lastOutputJSONAt resolves a dotted path against the last command's payload.
+func lastOutputJSONAt(w *World, path string) (any, error) {
+	doc, err := lastOutputJSONDoc(w)
 	if err != nil {
 		return nil, err
 	}
-	raw, ok := obj[key]
-	if !ok {
-		return nil, fmt.Errorf("JSON output has no %q key; stdout:\n%s", key, w.env.LastStdout())
+	v, err := jsonAtPath(doc, path)
+	if err != nil {
+		return nil, fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
 	}
-	entries, ok := raw.([]any)
+	return v, nil
+}
+
+// lastOutputJSONArray resolves an array by PATH, so the membership steps reach
+// a nested array and a bare top-level one ("$") as readily as a flat key.
+func lastOutputJSONArray(w *World, path string) ([]any, error) {
+	v, err := lastOutputJSONAt(w, path)
+	if err != nil {
+		return nil, err
+	}
+	entries, ok := v.([]any)
 	if !ok {
-		return nil, fmt.Errorf("JSON output key %q is not an array; stdout:\n%s", key, w.env.LastStdout())
+		return nil, fmt.Errorf("JSON output at %q is a %s, not an array; stdout:\n%s", path, jsonKind(v), w.env.LastStdout())
 	}
 	return entries, nil
 }

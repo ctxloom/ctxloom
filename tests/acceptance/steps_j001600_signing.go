@@ -41,6 +41,8 @@ package acceptance
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -1180,20 +1182,72 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// The four facts are read off ONE entry, never gathered across the
+	// listing: an entry for the right principal in the wrong store, beside a
+	// different principal's entry in the right one, is exactly the collapse
+	// this scenario exists to catch. The rendered listing puts all four on one
+	// LINE, which is the same "one entry" rule spelled in prose.
+	//
+	// In a structured payload the fingerprint is not a field — it is derived
+	// from the key — so this reads the key back out and fingerprints it. That
+	// is the same claim the rendered line makes and a stronger one than
+	// matching its text: a listing carrying the WRONG key cannot produce
+	// Trent's fingerprint, however it chose to print itself.
 	ctx.Step(`^the listing names "([^"]*)" in the "([^"]*)" store, with Trent's fingerprint and the publish namespace$`, func(c context.Context, principal, store string) error {
 		w := worldFrom(c)
-		out := w.env.LastOutput()
 		fp := j001600Of(w).signer.Fingerprint()
-		for _, line := range strings.Split(out, "\n") {
-			if !strings.Contains(line, principal) {
+		format := formatAskedFor(w)
+
+		if !format.Structured() {
+			out := w.env.LastOutput()
+			for _, line := range strings.Split(out, "\n") {
+				if !strings.Contains(line, principal) {
+					continue
+				}
+				if strings.Contains(line, store) && strings.Contains(line, fp) && strings.Contains(line, signing.NamespacePublish) {
+					return nil
+				}
+			}
+			return fmt.Errorf("no line of the %s listing names %q in the %q store with fingerprint %s and namespace %s; output was:\n%s",
+				format, principal, store, fp, signing.NamespacePublish, out)
+		}
+
+		doc, err := lastOutputStructured(w, format)
+		if err != nil {
+			return err
+		}
+		entries, ok := doc.([]any)
+		if !ok {
+			return fmt.Errorf("the %s listing is a %s, not the array of entries the signer listings emit; stdout:\n%s",
+				format, jsonKind(doc), w.env.LastStdout())
+		}
+		if len(entries) == 0 {
+			return fmt.Errorf("the %s listing is EMPTY, so it names nobody and %q cannot be in it; stdout:\n%s",
+				format, principal, w.env.LastStdout())
+		}
+		for _, e := range entries {
+			if got, err := jsonAtPath(e, "Source"); err != nil || !jsonScalarIs(got, store) {
 				continue
 			}
-			if strings.Contains(line, store) && strings.Contains(line, fp) && strings.Contains(line, signing.NamespacePublish) {
-				return nil
+			if !jsonArrayHas(e, "Entry.Principals", principal) {
+				continue
 			}
+			if !jsonArrayHas(e, "Entry.Namespaces", signing.NamespacePublish) {
+				continue
+			}
+			got, err := j001600ListedKeyFingerprint(e)
+			if err != nil {
+				return fmt.Errorf("the entry for %q in the %q store carries a key this assertion cannot read back: %v; stdout:\n%s",
+					principal, store, err, w.env.LastStdout())
+			}
+			if got != fp {
+				return fmt.Errorf("the entry for %q in the %q store carries fingerprint %s, want Trent's %s; stdout:\n%s",
+					principal, store, got, fp, w.env.LastStdout())
+			}
+			return nil
 		}
-		return fmt.Errorf("no line names %q in the %q store with fingerprint %s and namespace %s; output was:\n%s",
-			principal, store, fp, signing.NamespacePublish, out)
+		return fmt.Errorf("no entry of the %s listing names %q in the %q store with fingerprint %s and namespace %s; stdout:\n%s",
+			format, principal, store, fp, signing.NamespacePublish, w.env.LastStdout())
 	})
 
 	// --- Consumption: what actually reaches the assistant --------------------
@@ -1259,8 +1313,13 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return runOK(worldFrom(c), "bundle", "trust", j001600ItemRef(worldFrom(c), frag))
 	})
 
-	ctx.Step(`^I run "ctxloom bundle reject" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
-		return runOK(worldFrom(c), "bundle", "reject", j001600ItemRef(worldFrom(c), frag))
+	// The trailing flags are optional so a Scenario Outline can drive this one
+	// command once per output format: the ref is built here, but WHICH
+	// encoding to render it in is the scenario's to vary.
+	ctx.Step(`^I run "ctxloom bundle reject\s*([^"]*)" on the published "([^"]*)" fragment$`, func(c context.Context, flags, frag string) error {
+		w := worldFrom(c)
+		args := append([]string{"bundle", "reject"}, strings.Fields(flags)...)
+		return runOK(w, append(args, j001600ItemRef(w, frag))...)
 	})
 
 	// "try to run", not runOK: this scenario's whole subject is a REFUSAL, so
@@ -1464,4 +1523,72 @@ func j001600MarkerFor(which string) (string, error) {
 	default:
 		return "", fmt.Errorf("no J001600 marker is defined for %q", which)
 	}
+}
+
+// j001600ListedKeyFingerprint rebuilds the SSH public key a signer listing
+// serialized, and fingerprints it.
+//
+// allowedsigners.Entry.PublicKey is an ssh.PublicKey INTERFACE, so it reaches
+// a structured payload as whatever the concrete key type encodes to — for
+// ed25519, the bare 32-byte key, with the type carried separately in KeyType.
+// The wire blob a fingerprint is taken over therefore has to be reassembled
+// from the two.
+func j001600ListedKeyFingerprint(entry any) (string, error) {
+	kt, err := jsonAtPath(entry, "Entry.KeyType")
+	if err != nil {
+		return "", err
+	}
+	keyType, _ := jsonScalar(kt)
+	if keyType != ssh.KeyAlgoED25519 {
+		return "", fmt.Errorf("key type %q is not one this assertion can rebuild (only %s)", keyType, ssh.KeyAlgoED25519)
+	}
+	pk, err := jsonAtPath(entry, "Entry.PublicKey")
+	if err != nil {
+		return "", err
+	}
+	raw, err := j001600KeyBytes(pk)
+	if err != nil {
+		return "", err
+	}
+	if len(raw) != ed25519.PublicKeySize {
+		return "", fmt.Errorf("%s key is %d bytes, want %d", keyType, len(raw), ed25519.PublicKeySize)
+	}
+	pub, err := ssh.NewPublicKey(ed25519.PublicKey(raw))
+	if err != nil {
+		return "", fmt.Errorf("rebuild %s key: %w", keyType, err)
+	}
+	return ssh.FingerprintSHA256(pub), nil
+}
+
+// j001600KeyBytes decodes the base64 blob a []byte reaches a JSON payload as.
+func j001600KeyBytes(v any) ([]byte, error) {
+	key, ok := v.(string)
+	if !ok {
+		return nil, fmt.Errorf("the key is a %s, not an encoded key blob", jsonKind(v))
+	}
+	return base64.StdEncoding.DecodeString(key)
+}
+
+// jsonScalarIs reports whether a decoded value is the scalar want.
+func jsonScalarIs(v any, want string) bool {
+	got, ok := jsonScalar(v)
+	return ok && got == want
+}
+
+// jsonArrayHas reports whether the array at path within obj contains want.
+func jsonArrayHas(obj any, path, want string) bool {
+	v, err := jsonAtPath(obj, path)
+	if err != nil {
+		return false
+	}
+	entries, ok := v.([]any)
+	if !ok {
+		return false
+	}
+	for _, e := range entries {
+		if jsonScalarIs(e, want) {
+			return true
+		}
+	}
+	return false
 }

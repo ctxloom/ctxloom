@@ -74,35 +74,51 @@ Feature: bundle — the container authored content lives in, and everything that
     # inside. "the output contains demo" is satisfied by the name line alone,
     # which a renderer that lost every count would still print — so the counts
     # are asserted, and asserted again after the manifest changes underneath
-    # them, so a hard-coded summary cannot pass twice.
-    Scenario: The listing summarizes each bundle by version and by what it holds
+    # them, so a hard-coded summary cannot pass twice. `bundle list`'s payload
+    # is a bare array of bundle objects (PascalCase — this type carries no
+    # json tags of its own), so cardinality is read off the array itself
+    # rather than a "count" field neither format has here.
+    Scenario Outline: The listing summarizes each bundle by version and by what it holds
       Given an initialized ctxloom project
       And a bundle "demo" exists
       When Alice asks what this project has authored:
         """
-        ctxloom bundle list --no-companions
+        ctxloom bundle list --no-companions <flags>
         """
       Then the command succeeds
-      And the output contains "Installed bundles (1):"
-      And the output contains "demo (v1.0.0)"
-      And the output contains "Contains: 1 fragments, 1 commands"
+      And the output reports "$" having "<bundle count>" entries
+      And the output reports "[Name=demo].Version" as "<the version>"
+      And the output reports "[Name=demo].FragmentCount" as "<the fragment count>"
+      And the output reports "[Name=demo].CommandCount" as "<the command count>"
       # Move the manifest and the summary has to move with it.
       When I run "ctxloom bundle edit demo --version 2.0.0 --add-fragment testing"
       Then the command succeeds
-      When I run "ctxloom bundle list"
-      Then the output contains "demo (v2.0.0)"
-      And the output contains "Contains: 2 fragments, 1 commands"
+      When I run "ctxloom bundle list <flags>"
+      Then the output reports "[Name=demo].Version" as "<the version after edit>"
+      And the output reports "[Name=demo].FragmentCount" as "<the fragment count after edit>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | bundle count            | the version   | the fragment count    | the command count | the version after edit | the fragment count after edit |
+        |               | 1                        | 1.0.0         | 1                      | 1                  | 2.0.0                   | 2                              |
+        | --format json | 1                        | 1.0.0         | 1                      | 1                  | 2.0.0                   | 2                              |
+        | --format text | Installed bundles (1):  | demo (v1.0.0) | Contains: 1 fragments | 1 commands         | demo (v2.0.0)           | Contains: 2 fragments          |
 
     # The bare noun answers the question somebody typing it has, through the
     # same seam `ctxloom remote` and `ctxloom deps` use.
-    Scenario: Bare bundle lists what is installed
+    Scenario Outline: Bare bundle lists what is installed
       Given an initialized ctxloom project
       And a bundle "demo" exists
-      When I run "ctxloom bundle --no-companions"
+      When I run "ctxloom bundle --no-companions <flags>"
       Then the command succeeds
-      And the output contains "Installed bundles (1):"
-      And the output contains "demo (v1.0.0)"
+      And the output reports "$" having "<bundle count>" entries
+      And the output reports "[Name=demo].Version" as "<the version>"
       And the output does not contain "Available Commands:"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | bundle count           | the version   |
+        |               | 1                       | 1.0.0         |
+        | --format json | 1                       | 1.0.0         |
+        | --format text | Installed bundles (1): | demo (v1.0.0) |
 
   Rule: Show renders the container's structure, never an item's body
 
@@ -115,25 +131,35 @@ Feature: bundle — the container authored content lives in, and everything that
     # "the output contains demo" is satisfied by the `Bundle: demo` header
     # alone, so a render that stopped right after the header — suppressing
     # every section, which IS the bundle's structure — passed. The sections
-    # this scenario is named after are what it now reads.
-    Scenario: Showing a bundle names every section it carries
+    # this scenario is named after are what it now reads. `show`'s payload has
+    # no "count" field of its own for either section, so cardinality is read
+    # off each map directly (the structural analogue of "Fragments (N):"),
+    # and each fragment is also named individually — the map's cardinality
+    # alone would not prove WHICH two fragments are in it.
+    Scenario Outline: Showing a bundle names every section it carries
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a fragment "testing" in bundle "demo" exists
       When Alice looks at what the bundle is made of:
         """
-        ctxloom bundle show demo
+        ctxloom bundle show demo <flags>
         """
       Then the command succeeds
-      And the output contains "Bundle: demo"
-      And the output contains "Description: acceptance fixture bundle"
-      And the output contains "Fragments (2):"
-      And the output contains "- example [example] (no_distill)"
-      And the output contains "- testing"
-      And the output contains "Commands (1):"
+      And the output reports "Name" as "<names the bundle>"
+      And the output reports "Description" as "<the description>"
+      And the output reports "Fragments" having "<fragment count>" entries
+      And the output reports "Fragments.example.NoDistill" as "<the seeded fragment's distill marker>"
+      And the output reports "Fragments.testing.NoDistill" as "<the added fragment's distill marker>"
+      And the output reports "Commands" having "<command count>" entries
       # The command's own authored description, stored in the manifest and
       # printed from it — not a word the command line ever passed in.
-      And the output contains "Example prompt"
+      And the output reports "Commands.example.Description" as "<the command's description>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | names the bundle | the description                   | fragment count   | the seeded fragment's distill marker | the added fragment's distill marker | command count  | the command's description |
+        |               | demo              | acceptance fixture bundle          | 2                 | true                                  | false                                | 1               | Example prompt             |
+        | --format json | demo              | acceptance fixture bundle          | 2                 | true                                  | false                                | 1               | Example prompt             |
+        | --format text | Bundle: demo      | Description: acceptance fixture bundle | Fragments (2): | - example [example] (no_distill)      | - testing                            | Commands (1):   | Example prompt             |
 
     # THE ONE WRONG TURN THIS NOUN INVITES, pinned so it stays a documented
     # boundary rather than an accident. `show` takes a bundle NAME and nothing
@@ -144,13 +170,13 @@ Feature: bundle — the container authored content lives in, and everything that
     #
     # The positive case runs FIRST, in the same fixture, so "cannot be read
     # this way" is read off a bundle that demonstrably CAN be read.
-    Scenario: Show does not take the item selector — that grammar belongs to view
+    Scenario Outline: Show does not take the item selector — that grammar belongs to view
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a fragment "testing" in bundle "demo" exists
-      When I run "ctxloom bundle show demo"
+      When I run "ctxloom bundle show demo <flags>"
       Then the command succeeds
-      And the output contains "Fragments (2):"
+      And the output reports "Fragments" having "<fragment count>" entries
       When Alice tries to drill into an item the way view lets her:
         """
         ctxloom bundle show demo#fragments/testing
@@ -160,6 +186,12 @@ Feature: bundle — the container authored content lives in, and everything that
       When I run "ctxloom bundle view demo#fragments/testing"
       Then the command succeeds
       And the output contains "FRAGMENT-BODY-testing"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | fragment count |
+        |               | 2              |
+        | --format json | 2              |
+        | --format text | Fragments (2): |
 
   Rule: View hands back bytes, and `#path` drills from the container into one item
 
@@ -323,13 +355,19 @@ Feature: bundle — the container authored content lives in, and everything that
     # An edit with no flags is a person who does not yet know what to type, and
     # the answer is help plus a plain statement that nothing happened — not a
     # silent exit 0 that reads as a successful edit.
-    Scenario: An edit that was told to change nothing says so
+    Scenario Outline: An edit that was told to change nothing says so
       Given an initialized ctxloom project
       And a bundle "demo" exists
-      When I run "ctxloom bundle edit demo"
+      When I run "ctxloom bundle edit demo <flags>"
       Then the command succeeds
-      And the output contains "No changes made."
+      And the output reports "status" as "<no changes signal>"
       And the file ".ctxloom/content/bundles/demo.yaml" contains "acceptance fixture bundle"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | no changes signal |
+        |               | no_changes         |
+        | --format json | no_changes         |
+        | --format text | No changes made.   |
 
   Rule: A bundle travels as a file, and an import never clobbers without being told to
 
@@ -455,27 +493,32 @@ Feature: bundle — the container authored content lives in, and everything that
     # only checked exit code or the report text. The file-exists check is what
     # actually catches that, and the counts are what prove the report was built
     # from the manifest rather than from the argument.
-    Scenario: Bare bundle remove reports what would go and destroys nothing
+    Scenario Outline: Bare bundle remove reports what would go and destroys nothing
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a fragment "testing" in bundle "demo" exists
       When Alice asks what removing the bundle would cost:
         """
-        ctxloom bundle remove demo
+        ctxloom bundle remove demo <flags>
         """
       Then the command succeeds
-      And the output contains "Would remove bundle"
-      And the output contains "2 fragment(s), 1 command(s)"
-      And the output contains "Nothing was removed. Re-run with --yes to apply:"
-      And the output contains "ctxloom bundle remove demo --yes"
+      And the output reports "applied" as "<nothing was applied>"
+      And the output reports "detail.0" as "<the cost named>"
+      And the output reports "apply" as "<the invocation that would>"
       # The report side asserts the bundle still EXISTS — on disk and in the
       # listing both, because a remove that pruned the listing while leaving
       # the file (or the reverse) would satisfy exactly one of these.
       And the file ".ctxloom/content/bundles/demo.yaml" exists
-      When I run "ctxloom bundle list"
-      Then the output contains "demo"
+      When I run "ctxloom bundle list <flags>"
+      Then the output reports "[Name=demo].Name" as "<the bundle that survived>"
 
-    Scenario: Removing a bundle with --yes takes the file and the listing entry
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | nothing was applied  | the cost named               | the invocation that would          | the bundle that survived |
+        |               | false                 | 2 fragment(s), 1 command(s)  | ctxloom bundle remove demo --yes   | demo                      |
+        | --format json | false                 | 2 fragment(s), 1 command(s)  | ctxloom bundle remove demo --yes   | demo                      |
+        | --format text | Nothing was removed   | 2 fragment(s), 1 command(s)  | ctxloom bundle remove demo --yes   | demo                      |
+
+    Scenario Outline: Removing a bundle with --yes takes the file and the listing entry
       Given an initialized ctxloom project
       And a bundle "demo" exists
       When Alice applies the removal:
@@ -484,20 +527,32 @@ Feature: bundle — the container authored content lives in, and everything that
         """
       Then the command succeeds
       And the file ".ctxloom/content/bundles/demo.yaml" does not exist
-      When I run "ctxloom bundle list --no-companions"
-      Then the output contains "No bundles installed."
+      When I run "ctxloom bundle list --no-companions <flags>"
+      Then the output reports "$" as empty, saying "No bundles installed."
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         |
+        |               |
+        | --format json |
+        | --format text |
 
     # The aliases are not decoration: `rm` is what a person's fingers type, and
     # an alias that reached a different code path — a different default, a
     # missing preview — would be a destroyer with no guard on it. Both halves
     # are driven through the alias, in one fixture.
-    Scenario: The rm alias previews and destroys exactly as remove does
+    Scenario Outline: The rm alias previews and destroys exactly as remove does
       Given an initialized ctxloom project
       And a bundle "demo" exists
-      When I run "ctxloom bundle rm demo"
+      When I run "ctxloom bundle rm demo <flags>"
       Then the command succeeds
-      And the output contains "Nothing was removed"
+      And the output reports "applied" as "<nothing was applied>"
       And the file ".ctxloom/content/bundles/demo.yaml" exists
       When I run "ctxloom bundle del demo --yes"
       Then the command succeeds
       And the file ".ctxloom/content/bundles/demo.yaml" does not exist
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | nothing was applied |
+        |               | false                |
+        | --format json | false                |
+        | --format text | Nothing was removed  |

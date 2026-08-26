@@ -27,6 +27,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -100,5 +101,35 @@ func registerCLIFormatSteps(ctx *godog.ScenarioContext) {
 				}
 			}
 			return nil
+		})
+
+	// The structural analogue of a rendered "Fragments (N):" / "Installed
+	// bundles (N):" header — a map or array's cardinality at PATH — for a
+	// payload that carries the entries themselves but no separate total
+	// field of its own. Reuses the "as"/"containing" convention: the SAME
+	// per-row string is reinterpreted by branch, parsed as the expected
+	// count for the structured payload and matched as a literal substring
+	// (the rendered header itself) for prose.
+	ctx.Step(`^the output reports "([^"]*)" having "([^"]*)" entries$`,
+		func(c context.Context, path, expected string) error {
+			return assertOutputReports(worldFrom(c), path, expected, func(v any) error {
+				n, err := strconv.Atoi(expected)
+				if err != nil {
+					return fmt.Errorf("cannot be checked: %q is not an entry count: %v", expected, err)
+				}
+				switch t := v.(type) {
+				case []any:
+					if len(t) != n {
+						return fmt.Errorf("holds %d element(s), want %d", len(t), n)
+					}
+					return nil
+				case map[string]any:
+					if len(t) != n {
+						return fmt.Errorf("holds %d key(s), want %d", len(t), n)
+					}
+					return nil
+				}
+				return fmt.Errorf("is a %s, not an array or object", jsonKind(v))
+			})
 		})
 }

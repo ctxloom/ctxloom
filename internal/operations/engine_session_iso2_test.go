@@ -407,6 +407,14 @@ func initTestRepo(t *testing.T) string {
 	requireGit(t)
 	dir := t.TempDir()
 	iso2GitRun(t, dir, "init", "-b", "main")
+	// A REPO-LOCAL identity, not just iso2GitRun's env one. The env covers only
+	// the commands this helper runs; PRODUCTION code committing into this repo
+	// (git.ExecGit.CommitAll, reached via handleDirtyParentTree) shells out with
+	// a SANITIZED environment and sees none of it, falling through to global
+	// config — present on a developer box, absent in a container or on CI, where
+	// the commit dies with "Author identity unknown".
+	iso2GitRun(t, dir, "config", "user.name", "ctxloom")
+	iso2GitRun(t, dir, "config", "user.email", "ctxloom@example.com")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("seed"), 0o644))
 	iso2GitRun(t, dir, "add", "README.md")
 	iso2GitRun(t, dir, "commit", "-m", "seed")

@@ -119,6 +119,9 @@ func TestRemoveSkill_UnknownNameIsNotFound(t *testing.T) {
 // pointing at a directory that is about to vanish) rather than a
 // half-applied state where the registration survives pointing at nothing.
 func TestRemoveSkill_BundleYAMLUpdatedEvenIfDirRemovalFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only parent does not deny removal, so the failure this test needs cannot be induced")
+	}
 	appDir, cfg := setupBundleTestDir(t)
 	writeDirFormBundle(t, appDir, "b")
 

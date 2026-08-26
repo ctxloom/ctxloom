@@ -165,6 +165,7 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 // coordinator's CTXLOOM_CELL_WORKDIR injection carrying ws.Dir()). The shim
 // probes the worktree dir, exactly as it would with cwd=RunOptions.WorkDir.
 func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
+	withIsolatedContainerSocketDir(t)
 	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET/CTXLOOM_CELL_WORKDIR (t.Setenv-based, auto-restores)
 	runtimeDir := shortRuntimeDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
@@ -344,6 +345,7 @@ func TestMCPDiscovery_ForeignIdentityMarkerIsSkippedAndReaped(t *testing.T) {
 // ANY marker on identity grounds either — matching probeWellKnownRunner's
 // hedge for a harness that dropped the env, or a genuinely bare shim.
 func TestMCPDiscovery_MatchingIdentityMarkerIsNotDisturbed(t *testing.T) {
+	withIsolatedContainerSocketDir(t)
 	testsupport.Isolate(t)
 	runtimeDir := shortRuntimeDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
@@ -429,6 +431,7 @@ func TestReapStaleDiscoveryMarkers(t *testing.T) {
 // "first post-fix startup clears the backlog" requirement — through the
 // real entry point (ServeRunnerMCP), not just the leaf reaper function.
 func TestServeRunnerMCP_ReapsStaleMarkersAtStartup(t *testing.T) {
+	withUnavailableContainerSocketDir(t)
 	testsupport.Isolate(t)
 	runtimeDir := shortRuntimeDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
@@ -487,4 +490,39 @@ func TestDiscoveryMarkerName_ContainerTierIsDeliberatelyCwdIndependent(t *testin
 
 	_, ok = discoveryMarkerName(socketKindPrivateTemp, "/work/cell-a")
 	assert.False(t, ok, "the private-temp tier publishes nothing discoverable")
+}
+
+// withIsolatedContainerSocketDir points the tier-1 socket directory
+// (inContainerSocketDir, normally /run/ctxloom/local) into the test's own temp
+// tree, and restores it afterward.
+//
+// Without it these tests are only isolated when the process CANNOT write /run —
+// true for a developer's uid, false for root, which is what CI and the
+// devcontainer run as. In that case production publishes its marker to the real
+// global path, the test's carefully-isolated XDG_RUNTIME_DIR is never reached,
+// and concurrent runners collide in one directory. The tier-1 preference itself
+// is deliberate and unchanged; this only stops it escaping the sandbox.
+func withIsolatedContainerSocketDir(t *testing.T) {
+	t.Helper()
+	prev := inContainerSocketDir
+	inContainerSocketDir = filepath.Join(t.TempDir(), "run-ctxloom-local")
+	t.Cleanup(func() { inContainerSocketDir = prev })
+}
+
+// withUnavailableContainerSocketDir makes the tier-1 socket directory
+// UNCREATABLE, which is what a normal host looks like — a plain user cannot
+// mkdir under /run, so runnerSocketPath falls through to $XDG_RUNTIME_DIR.
+//
+// Isolating tier 1 into a temp dir (withIsolatedContainerSocketDir) is the wrong
+// tool for a test that needs tier 2 to be CHOSEN: a writable temp dir means
+// tier 1 still wins. This points it beneath a regular FILE, so MkdirAll fails
+// with ENOTDIR for EVERY uid including root — the one way to deny it that does
+// not depend on permission bits, which root ignores.
+func withUnavailableContainerSocketDir(t *testing.T) {
+	t.Helper()
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
+	prev := inContainerSocketDir
+	inContainerSocketDir = filepath.Join(blocker, "local")
+	t.Cleanup(func() { inContainerSocketDir = prev })
 }

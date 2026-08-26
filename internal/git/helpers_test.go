@@ -11,8 +11,18 @@ import (
 )
 
 // initRepo creates a temp git repo with one commit and returns its path. It sets
-// a local identity + a default branch so `git commit` succeeds under any global
-// config. Callers guard on git availability before calling.
+// a REPO-LOCAL identity + a default branch so `git commit` succeeds under any
+// global config — including none at all. Callers guard on git availability
+// before calling.
+//
+// The local config is what makes that promise true, and the env vars below are
+// NOT a substitute: they cover only the git commands this helper runs itself.
+// Production code under test (ExecGit.CommitAll) shells out with a SANITIZED
+// environment, so it sees neither those vars nor the caller's, and falls back to
+// global config. On a developer box ~/.gitconfig quietly supplies an identity
+// and the gap is invisible; in a container or on CI there is none and the commit
+// dies with "Author identity unknown". Measured 2026-08-26 — this helper's doc
+// claimed the promise while only the sibling initRepoUnborn kept it.
 func initRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -27,6 +37,8 @@ func initRepo(t *testing.T) string {
 		}
 	}
 	runInit("init", "-b", "main")
+	runInit("config", "user.name", "ctxloom")
+	runInit("config", "user.email", "ctxloom@example.com")
 	require.NoError(t, writeFile(filepath.Join(dir, "README.md"), "seed"))
 	runInit("add", "README.md")
 	runInit("commit", "-m", "seed")

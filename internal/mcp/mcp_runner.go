@@ -183,10 +183,22 @@ const (
 	socketKindPrivateTemp
 )
 
-// inContainerSocketDir is the agent-image convention: writable only
-// in-container, never on a bare host (a normal user can't mkdir under
-// /run), so trying it first costs nothing on a host run.
-const inContainerSocketDir = "/run/ctxloom/local"
+// inContainerSocketDir is the agent-image convention: the first tier
+// runnerSocketPath tries, and the well-known location mcp_discovery reads back.
+//
+// A VAR, not a const, and only so a test can neutralise it. The reasoning that
+// made a const look safe was "writable only in-container, never on a bare host
+// (a normal user can't mkdir under /run), so trying it first costs nothing" —
+// TRUE for a normal user and FALSE for root, which is what CI and this
+// project's own devcontainer run as. There, tier 1 SUCCEEDS, so a test that
+// carefully isolates $XDG_RUNTIME_DIR (tier 2) still has production publish its
+// marker to a global path outside the sandbox, and every concurrent runner
+// shares one directory. Measured 2026-08-26: three discovery tests passed on a
+// developer host and failed in-container for exactly this reason.
+//
+// Production never assigns this. Tests redirect it through
+// withIsolatedContainerSocketDir.
+var inContainerSocketDir = "/run/ctxloom/local"
 
 // runnerSocketPath picks the runner MCP socket location on CONTAINER-LOCAL
 // (or host user-private) filesystem — NEVER inside the host-mounted plugin

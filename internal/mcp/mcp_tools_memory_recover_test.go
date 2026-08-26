@@ -220,6 +220,9 @@ func TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp(t *testing.T) {
 // compactor's text comes back), not that was_cached went false: the bug is a
 // tool misreporting its own freshness, so its self-report cannot be the proof.
 func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only persist dir does not deny the re-read, so the failed-refresh state this test needs cannot be induced")
+	}
 	testsupport.Isolate(t)
 
 	mgr, err := sessions.Open("")

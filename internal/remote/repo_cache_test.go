@@ -454,6 +454,9 @@ exit 0
 // caller, not silently discarded — a discarded cleanup failure leaves exactly
 // the corrupt-directory state ensureCloneLocked's own doc promises to remove.
 func TestRepoCache_EnsureRepo_CloneFailure_CleanupErrorNotSwallowed(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: mode bits do not deny the cleanup, so the swallowed-error path cannot be reached")
+	}
 	binDir := failingGitBinary(t)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 

@@ -19,9 +19,13 @@ import (
 // from "I could not look".
 
 // runGit runs a git command in dir and returns its trimmed stdout, failing the
-// test on error. It supplies an identity from the environment for the same
-// reason initRepo does: these commands must not depend on the machine's global
-// git config.
+// test on error. It supplies an identity from the environment so its OWN
+// commands do not depend on the machine's global git config.
+//
+// That env identity does NOT reach production code under test: ExecGit shells
+// out with a sanitized environment. A repo whose commits are made by production
+// needs a repo-LOCAL identity as well — see the clone in
+// TestExecGit_CloneCommitPushRoundTrip.
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -62,6 +66,14 @@ func TestExecGit_CloneCommitPushRoundTrip(t *testing.T) {
 
 	work := filepath.Join(t.TempDir(), "clone")
 	require.NoError(t, g.Clone(ctx, "file://"+bare, work, "main"))
+	// A REPO-LOCAL identity on the clone, because the commit below is made by
+	// PRODUCTION code (ExecGit.CommitAll) running with a sanitized environment
+	// — it sees neither runGit's env vars nor the caller's, so without this it
+	// falls through to global config. That is present on a developer box and
+	// absent in a container or on CI, where the commit dies with "Author
+	// identity unknown".
+	runGit(t, work, "config", "user.name", "ctxloom")
+	runGit(t, work, "config", "user.email", "ctxloom@example.com")
 
 	branch, err := g.CurrentBranch(ctx, work)
 	require.NoError(t, err)

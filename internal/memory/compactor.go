@@ -705,7 +705,10 @@ func fitToBudget(text string, budgetTokens int) (string, bool) {
 
 	entries := splitEntryBlocks(text)
 	kept := make([]string, len(entries))
-	remaining := targetBytes
+	// The dropped-entries header is written after the walk but must be paid for
+	// before it: charging the budget only for entry text and then prepending a
+	// line would put the result over the bound it exists to enforce.
+	remaining := targetBytes - droppedHeaderReserveBytes
 	dropped := 0
 
 	for i := len(entries) - 1; i >= 0; i-- {
@@ -716,11 +719,12 @@ func fitToBudget(text string, budgetTokens int) (string, bool) {
 			kept[i] = entry
 			remaining -= len(entry)
 		case allowance > minEntryAllowanceBytes:
-			// Cut on a rune boundary: a mid-rune split makes the text invalid
-			// UTF-8, which fails proto3 string marshaling and silently turns
-			// the whole distillation into a failure.
-			head := textutil.TruncateBytes(entry, allowance)
-			kept[i] = head + elisionMarker(len(entry) - len(head))
+			// The marker is part of the allowance, not an addition to it, and
+			// the cut lands on a rune boundary: a mid-rune split makes the
+			// text invalid UTF-8, which fails proto3 string marshaling and
+			// silently turns the whole distillation into a failure.
+			head := textutil.TruncateBytes(entry, allowance-maxElisionMarkerBytes)
+			kept[i] = head + elisionMarker(len(entry)-len(head))
 			remaining -= allowance
 		default:
 			dropped++
@@ -745,7 +749,22 @@ func fitToBudget(text string, budgetTokens int) (string, bool) {
 // "## Tool Result: Bash" header and an elision marker saying the content is
 // gone — which costs budget to say nothing. Such entries are dropped and
 // counted in one aggregate line instead.
-const minEntryAllowanceBytes = 200
+//
+// It must stay comfortably above maxElisionMarkerBytes, or the allowance would
+// not cover the marker the truncation branch always writes.
+const minEntryAllowanceBytes = 4 * maxElisionMarkerBytes
+
+// maxElisionMarkerBytes bounds one elisionMarker. The format is fixed and its
+// only variable is a byte count, so the longest possible marker is the fixed
+// text plus the digits of a machine-word integer; this reserve covers it with
+// room to spare, which is what lets the truncation branch subtract a CONSTANT
+// and still be sure the marker fits inside the allowance.
+const maxElisionMarkerBytes = 96
+
+// droppedHeaderReserveBytes bounds the one aggregate line naming how many
+// entries were dropped, reserved up front so the total cannot exceed the
+// budget.
+const droppedHeaderReserveBytes = 128
 
 // elisionMarker names how much of an entry was cut. Stated in bytes rather
 // than elided silently: a reader (and the resuming model) must be able to tell

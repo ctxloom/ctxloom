@@ -1,0 +1,57 @@
+version: "1.0.0"
+description: >-
+  Fifteen fragment names taken from the live corpus, each carrying a
+  hand-authored premise. The bodies are deliberately stubs: this fixture exists
+  to exercise premise selection, and copying the real prose in would duplicate
+  content this repository does not own and cannot keep current.
+fragments:
+  worktree-lifecycle:
+    premise: "You are about to create, merge, remove, or prune a git worktree, or delete a branch. For anyone whose next action changes which worktrees or branches exist."
+    content: "STUB worktree-lifecycle"
+  git-submodule:
+    premise: "You are working in a repository that contains git submodules, or you are about to add, update, or remove one."
+    content: "STUB git-submodule"
+  python:
+    premise: "You are writing or modifying Python code."
+    content: "STUB python"
+  golang:
+    premise: "You are writing or modifying Go code."
+    content: "STUB golang"
+  rust:
+    premise: "You are writing or modifying Rust code."
+    content: "STUB rust"
+  typescript:
+    premise: "You are writing or modifying TypeScript or JavaScript code."
+    content: "STUB typescript"
+  just:
+    premise: "You are about to run a build, test, or lint task, or edit a justfile. For anyone choosing how to invoke this project's tooling."
+    content: "STUB just"
+  ltk:
+    premise: "A shell command you ran was blocked or redirected with a suggested replacement, and you are deciding what to do about it."
+    content: "STUB ltk"
+  reprise:
+    premise: "A duplicate-code or inconsistent-update gate has fired on your change, or you are about to edit one of several near-identical code sites."
+    content: "STUB reprise"
+  ast-grep:
+    premise: "You need to find or rewrite a code pattern structurally across many files, rather than match text."
+    content: "STUB ast-grep"
+  mutation-as-test-validator:
+    premise: "You have just written or changed a test and are deciding whether it actually proves anything. For anyone about to call a green test passing."
+    content: "STUB mutation-as-test-validator"
+  no-provenance-comments:
+    premise: "You are writing a code comment, a docstring, or documentation prose, and are tempted to record what changed or when."
+    content: "STUB no-provenance-comments"
+  prompt-authoring:
+    premise: "You are writing a brief or prompt for a sub-agent you are about to dispatch."
+    content: "STUB prompt-authoring"
+  github-release-master:
+    premise: "You are about to cut a release, tag a version, or publish release artifacts."
+    content: "STUB github-release-master"
+  banned-phrases:
+    premise: "You are writing prose a human will read — a report, a commit message, documentation, a pull request description."
+    content: "STUB banned-phrases"
+profiles:
+  spike:
+    description: "Every fragment in this bundle, all of them premised."
+    bundles:
+      - ctxloom:local@bundles/premise_spike

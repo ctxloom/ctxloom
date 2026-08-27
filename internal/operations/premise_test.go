@@ -191,3 +191,54 @@ func TestRenderPremiseIndex_CarriesNameAndPremiseOnly(t *testing.T) {
 	assert.Contains(t, out, "assemble_context",
 		"the index must tell the agent HOW to ask, or a correct selection has nowhere to go")
 }
+
+// spikeFixtureRoot installs the hand-authored premise fixture — fifteen real
+// corpus fragment names, each given a premise — into a project root.
+func spikeFixtureRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	bundleDir := filepath.Join(root, ".ctxloom", "content", "bundles")
+	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
+	// thisDir(), not a relative path: this package's tests do not all run from
+	// the package directory, which is why every other fixture here resolves
+	// the same way.
+	src, err := os.ReadFile(filepath.Join(thisDir(), "testdata", "premise_spike.yaml"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "premise_spike.yaml"), src, 0o644))
+	return root
+}
+
+// TestPremiseSpike_WholeFixtureIsWithheldAndOffered runs the mechanism against
+// the hand-authored fixture rather than a two-line toy: every fragment carries
+// a premise, so a profile selecting all of them must assemble NONE of their
+// bodies and offer all fifteen instead.
+//
+// This is the shape the mechanism is actually for — a set of conditional
+// guidance nobody pays for until they ask — and it is what the selection
+// measurement draws its index from.
+func TestPremiseSpike_WholeFixtureIsWithheldAndOffered(t *testing.T) {
+	cfg := selectionConfig(spikeFixtureRoot(t))
+
+	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile: "ctxloom:local@bundles/premise_spike#profiles/spike",
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, res.PremiseIndex, 15, "every premised fragment is offered")
+	for _, e := range res.PremiseIndex {
+		assert.NotEmpty(t, e.Premise, "an index row with no premise offers the agent nothing to decide on")
+	}
+	assert.NotContains(t, res.Context, "STUB ",
+		"no premised body may reach assembled context — the whole point is not paying for them")
+
+	// And the loop closes on a real name from that index.
+	back, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile:   "ctxloom:local@bundles/premise_spike#profiles/spike",
+		Fragments: []string{"ctxloom:local@bundles/premise_spike#fragments/worktree-lifecycle"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, back.Context, "STUB worktree-lifecycle",
+		"a name the index handed out must deliver its body when asked for")
+	assert.Empty(t, back.MissingFragments)
+	assert.Len(t, back.PremiseIndex, 14, "the selected fragment is no longer offered; the other fourteen still are")
+}

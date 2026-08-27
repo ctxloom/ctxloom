@@ -50,6 +50,14 @@
       "type": "string",
       "description": "Human-readable documentation (NOT sent to AI). Use for usage guidance, caveats, when to use/avoid."
     },
+    "premise": {
+      "type": "string",
+      "description": "When this fragment applies, and to whom, in prose addressed to the acting agent. A fragment with NO premise is ALWAYS loaded \u2014 absence asserts that it applies unconditionally. Giving a fragment a premise opts it OUT of unconditional loading: it is withheld from assembled context and offered in the premise index instead, for the agent to request by name when the premise holds.",
+      "examples": [
+        "You are about to remove, prune or force-delete a git worktree or its branch.",
+        "You are deciding whether a test that just went green actually proves anything."
+      ]
+    },
     "installation": {
       "type": "string",
       "description": "Setup/installation instructions (NOT sent to AI). Document required dependencies, configuration steps, or prerequisites."

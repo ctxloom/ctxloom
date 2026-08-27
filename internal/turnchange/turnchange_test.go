@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
 )
 
 // userEntry builds a main-thread user prompt — the marker CurrentTurn scopes
@@ -245,73 +246,73 @@ func writeTranscript(t *testing.T, lines ...string) string {
 	return p
 }
 
-// TestClassifyClaudeTranscript_CoordinatorTurn is the end-to-end coordinator
+// TestClassifyTranscript_CoordinatorTurn is the end-to-end coordinator
 // case read through the real vendor adapter: the turn's only change-making
 // act is dispatching a subagent, and the checkout it ran in is clean.
-func TestClassifyClaudeTranscript_CoordinatorTurn(t *testing.T) {
+func TestClassifyTranscript_CoordinatorTurn(t *testing.T) {
 	p := writeTranscript(t,
 		promptLine("work the release blockers", "u1"),
 		assistantToolLine("a1", "msg_1", "Read", `{"file_path":"/plan.md"}`, false),
 		assistantToolLine("a2", "msg_2", "Agent", `{"prompt":"go implement it"}`, false),
 	)
-	d, err := ClassifyClaudeTranscript(context.Background(), p)
+	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.True(t, d.Changed, "a dispatching coordinator turn must receive the close-out contract")
 }
 
-func TestClassifyClaudeTranscript_ConversationalTurn(t *testing.T) {
+func TestClassifyTranscript_ConversationalTurn(t *testing.T) {
 	p := writeTranscript(t,
 		promptLine("what is the trust model", "u1"),
 		assistantToolLine("a1", "msg_1", "Read", `{"file_path":"/docs/trust.md"}`, false),
 		assistantToolLine("a2", "msg_2", "Bash", `{"command":"git log -1"}`, false),
 	)
-	d, err := ClassifyClaudeTranscript(context.Background(), p)
+	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.False(t, d.Changed)
 }
 
-func TestClassifyClaudeTranscript_EditTurn(t *testing.T) {
+func TestClassifyTranscript_EditTurn(t *testing.T) {
 	p := writeTranscript(t,
 		promptLine("fix it", "u1"),
 		assistantToolLine("a1", "msg_1", "Edit", `{"file_path":"/x/y.go"}`, false),
 	)
-	d, err := ClassifyClaudeTranscript(context.Background(), p)
+	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.True(t, d.Changed)
 }
 
-// TestClassifyClaudeTranscript_PriorTurnEditDoesNotLeak proves the scoping is
+// TestClassifyTranscript_PriorTurnEditDoesNotLeak proves the scoping is
 // real end to end, not just in the pure classifier.
-func TestClassifyClaudeTranscript_PriorTurnEditDoesNotLeak(t *testing.T) {
+func TestClassifyTranscript_PriorTurnEditDoesNotLeak(t *testing.T) {
 	p := writeTranscript(t,
 		promptLine("fix it", "u1"),
 		assistantToolLine("a1", "msg_1", "Edit", `{"file_path":"/x/y.go"}`, false),
 		promptLine("now explain what you did", "u2"),
 		assistantToolLine("a2", "msg_2", "Read", `{"file_path":"/x/y.go"}`, false),
 	)
-	d, err := ClassifyClaudeTranscript(context.Background(), p)
+	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.False(t, d.Changed)
 }
 
-// TestClassifyClaudeTranscript_Empty: a transcript with no lines parses
+// TestClassifyTranscript_Empty: a transcript with no lines parses
 // cleanly and records nothing, so there is nothing to close out.
-func TestClassifyClaudeTranscript_Empty(t *testing.T) {
+func TestClassifyTranscript_Empty(t *testing.T) {
 	p := writeTranscript(t)
-	d, err := ClassifyClaudeTranscript(context.Background(), p)
+	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.False(t, d.Changed)
 }
 
-// TestClassifyClaudeTranscript_Missing / _Unparsable: both must surface an
+// TestClassifyTranscript_Missing / _Unparsable: both must surface an
 // error so the caller can fail SAFE IN THE SPEAKING DIRECTION.
-func TestClassifyClaudeTranscript_Missing(t *testing.T) {
-	_, err := ClassifyClaudeTranscript(context.Background(), filepath.Join(t.TempDir(), "nope.jsonl"))
+func TestClassifyTranscript_Missing(t *testing.T) {
+	_, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, filepath.Join(t.TempDir(), "nope.jsonl"))
 	assert.Error(t, err)
 }
 
-func TestClassifyClaudeTranscript_Unparsable(t *testing.T) {
+func TestClassifyTranscript_Unparsable(t *testing.T) {
 	p := writeTranscript(t, "this is not json", "neither is this")
-	_, err := ClassifyClaudeTranscript(context.Background(), p)
+	_, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
 	assert.Error(t, err, "a file this build cannot read must not be reported as an unchanged turn")
 }

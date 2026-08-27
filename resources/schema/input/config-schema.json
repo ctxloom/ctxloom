@@ -73,10 +73,6 @@
           "type": "boolean",
           "description": "Whether to prefer distilled versions of fragments/prompts (default: true)"
         },
-        "compaction_chunks": {
-          "type": "integer",
-          "description": "Target tokens per compaction chunk (default: 8000)"
-        },
         "statusline": {
           "type": "boolean",
           "description": "Whether ctxloom manages its HUD statusline (default: true); set false to keep your own"

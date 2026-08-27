@@ -5,6 +5,8 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
+	"path"
 	"strings"
 )
 
@@ -29,11 +31,30 @@ func GetPromptText(name string) (string, error) {
 	return getPromptText(resourcesFS, name)
 }
 
+// PromptTextFromDir reads <dir>/<name>.md from the real filesystem instead of
+// the embedded copy, for a prompt-evaluation harness A/B-ing variants without
+// rebuilding the binary.
+//
+// A missing or empty file is an ERROR, never a fall back to the embedded
+// prompt. Silently substituting would report a measurement attributed to the
+// variant under test while actually measuring the built-in one — a wrong
+// number that looks like a right one, which is worse than no run.
+func PromptTextFromDir(dir, name string) (string, error) {
+	return getPromptTextFrom(os.DirFS(dir), ".", name)
+}
+
 // getPromptText is GetPromptText over an injected filesystem, so the
 // present-but-empty case can be exercised: the embedded FS is fixed at build
 // time and cannot be made to hold one.
 func getPromptText(fsys fs.FS, name string) (string, error) {
-	b, err := fs.ReadFile(fsys, "prompts/"+name+".md")
+	return getPromptTextFrom(fsys, "prompts", name)
+}
+
+// getPromptTextFrom reads and validates one prompt from dir within fsys. It is
+// the single implementation the embedded and on-disk lookups share, so the
+// empty-file rejection below cannot hold for one and not the other.
+func getPromptTextFrom(fsys fs.FS, dir, name string) (string, error) {
+	b, err := fs.ReadFile(fsys, path.Join(dir, name+".md"))
 	if err != nil {
 		return "", err
 	}
@@ -44,7 +65,7 @@ func getPromptText(fsys fs.FS, name string) (string, error) {
 		// prompt into a live session with no signal anywhere, and let
 		// MustGetPromptText ship exactly the empty prompt its own doc
 		// promises to panic over.
-		return "", fmt.Errorf("resources: embedded prompt %q is empty", name)
+		return "", fmt.Errorf("resources: prompt %q is empty", name)
 	}
 	return text, nil
 }

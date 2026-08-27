@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/memory"
@@ -154,9 +153,9 @@ func EssenceCurrent(src ResolvedSource, cached []byte) (current, known bool) {
 // the long-lived MCP host relay fielding concurrent tool calls for the same
 // session, and stay there (withDistillBudget, singleflightDistill) rather
 // than becoming a concern every one-shot CLI caller has to reason about too.
-func DistillEntry(ctx context.Context, src ResolvedSource, cfg *config.Config, model string, progress io.Writer) (*memory.CompactionResult, error) {
+func DistillEntry(ctx context.Context, src ResolvedSource, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
 	if src.Entry == nil {
 		return nil, fmt.Errorf("nothing to distill: session not found in the index")
 	}
-	return CompactEntry(ctx, src.Entry, cfg, model, progress)
+	return CompactEntry(ctx, src.Entry, cfg, opts)
 }

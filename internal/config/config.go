@@ -964,15 +964,6 @@ func (c *Config) GetCompactionModel() string {
 	return model
 }
 
-// GetCompactionChunkSize returns the target chunk size for compaction.
-// Defaults to 8000 tokens.
-func (c *Config) GetCompactionChunkSize() int {
-	if c.settings.CompactionChunks > 0 {
-		return c.settings.CompactionChunks
-	}
-	return 8000
-}
-
 // GetToolReflectBytes returns the tool-result size at or above which the
 // PostToolUse reflect hook fires, and whether the hook is enabled at all.
 //

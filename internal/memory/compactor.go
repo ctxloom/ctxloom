@@ -26,47 +26,44 @@ import (
 )
 
 const (
-	// DefaultChunkTokens is the target tokens per chunk for distillation.
-	DefaultChunkTokens = 8000
-	// ChunkOverlapTokens is the overlap between chunks for context continuity.
-	ChunkOverlapTokens = 500
-	// MinOverlappingChunkTokens is derived from ChunkOverlapTokens rather than
-	// chosen, and it bounds one specific hazard: chunkText advances by
-	// (chunk - overlap) per step, so a chunk size only a little larger than the
-	// overlap advances by almost nothing and one transcript explodes into orders
-	// of magnitude more chunks — each spawning its own LLM plugin subprocess.
-	// At twice the overlap the advance is at least half a chunk, which bounds
-	// the chunk count at roughly twice the ideal.
+	// SinglePassInputTokens is the input budget for the ONE distillation call a
+	// session gets. A transcript at or under it is handed to the model whole;
+	// past it, fitToBudget reduces it deterministically (see there) — the
+	// transcript is never split across several calls whose outputs are then
+	// merged.
 	//
-	// The hazard is confined to the open band (ChunkOverlapTokens,
-	// MinOverlappingChunkTokens). At or below the overlap the advance goes
-	// non-positive and chunkText already degrades to no overlap at all, which is
-	// safe — small chunk sizes are legitimate and are left exactly as
-	// configured. Only the band is corrected.
-	MinOverlappingChunkTokens = ChunkOverlapTokens * 2
+	// The number is chosen from what real sessions actually measure. Across 67
+	// essences on disk, post-selection input was median ~46,000 tokens and p90
+	// ~242,000, with a maximum of ~565,000. A ~150,000-token budget therefore
+	// admits about 82% of sessions whole and reduces the remaining ~18%.
+	//
+	// Whole-transcript is the point, not merely the common case. A merge pass
+	// over per-chunk summaries never sees the source, so it cannot check a
+	// partial summary against what was actually said — it can only recombine,
+	// which is the documented way hierarchical summarization AMPLIFIES
+	// hallucination. Deterministic reduction of the input loses information
+	// visibly and in a known place; a reduce pass loses it invisibly.
+	SinglePassInputTokens = 150_000
 	// BytesPerToken is the bytes-per-token ratio, owned by internal/tokens so
 	// the distillation estimate and the dry-run preview agree on one
-	// heuristic. Bytes, not characters: chunkText slices by byte offset, and
+	// heuristic. Bytes, not characters: fitToBudget slices by byte offset, and
 	// the two readings diverge by 2-4x on non-ASCII text.
 	BytesPerToken = tokens.BytesPerToken
-	// distillConcurrency bounds how many chunks are distilled in parallel. Each
-	// chunk distillation spawns its own LLM plugin subprocess, so this caps
-	// concurrent subprocesses (and provider rate pressure) while still cutting
-	// wall-clock from sum-of-chunks to roughly slowest-chunk × ceil(n/limit).
+	// distillConcurrency bounds how many result repairs run in parallel. Each
+	// repair spawns its own LLM plugin subprocess, so this caps concurrent
+	// subprocesses (and provider rate pressure) while still cutting wall-clock
+	// from sum-of-repairs to roughly slowest × ceil(n/limit).
 	distillConcurrency = 4
 
 	// MaxEssenceChars is the hard ceiling, in characters, on the distilled
 	// essence body Compact will save or hand back to a caller. It is the
-	// backstop against a pipeline that "succeeds" (every LLM call exits 0)
+	// backstop against a pipeline that "succeeds" (the LLM call exits 0)
 	// but fails to actually COMPRESS: recover_session was once found
-	// returning a ~381,000-char essence — the map step produced per-chunk
-	// output that was never meaningfully smaller than its input, and the
-	// reduce pass that was supposed to unify it into one bounded summary
-	// either wasn't enough or (see finalCompressionPass) failed and fell back
-	// to the un-reduced concatenation. Either way, the caller got something
-	// indistinguishable from a raw transcript passthrough. Compact now
-	// refuses to write or return a body over this bound — see its use in
-	// Compact and finalCompressionPass. ~100,000 chars is ~25,000 tokens at
+	// returning a ~381,000-char essence, output never meaningfully smaller
+	// than its input, leaving the caller something indistinguishable from a
+	// raw transcript passthrough. A model that ignores its character budget
+	// still reaches this, so Compact refuses to write or return a body over
+	// the bound — see its use in Compact. ~100,000 chars is ~25,000 tokens at
 	// this package's BytesPerToken estimate, comfortably under the ~25k-token
 	// ceiling common MCP clients (including Claude Code's own tool-result
 	// cap) enforce on a single tool result, with headroom for the JSON
@@ -89,7 +86,6 @@ type CompactionConfig struct {
 	// silently, since an unconfigured backend does not error.
 	Env             map[string]string
 	Backend         string           // Backend name to read session from (e.g., "claude-code")
-	ChunkSize       int              // Target tokens per chunk
 	SessionID       string           // Session to compact (empty = most recent)
 	WorkDir         string           // Working directory for the session
 	OutputDir       string           // TEST SEAM ONLY: redirects per-rotation essences somewhere a test can read. No production caller sets it; empty files them under the harp's own segments dir (rotationEssencePath).
@@ -120,18 +116,32 @@ type CompactionConfig struct {
 	// essence; it is not exposed as a CLI/MCP flag yet (deliberately deferred,
 	// narrow use case — wire one if the need becomes real).
 	IncludeThinking bool
-	// EssenceMaxChars is the target size handed to the reduce pass. 0 takes
-	// agent.DefaultEssenceChars. Clamped to MaxEssenceChars, which is the hard
-	// refusal ceiling: a target above it would ask the model for output Compact
-	// must then reject.
+	// EssenceMaxChars is the character budget appended to the distillation
+	// prompt. 0 takes agent.DefaultEssenceChars. Clamped to MaxEssenceChars,
+	// which is the hard refusal ceiling: a target above it would ask the model
+	// for output Compact must then reject.
 	EssenceMaxChars int
+	// PromptDir loads the distillation prompt from a directory on disk
+	// (<dir>/session-distill.md) instead of the binary's embedded copy, so a
+	// prompt-evaluation harness can A/B variants without a rebuild. Empty uses
+	// the embedded prompt. A named prompt missing from the directory is a hard
+	// failure, never a silent fall back to the embedded text: the whole value
+	// of the flag is knowing WHICH prompt produced a result.
+	PromptDir string
 }
 
 // CompactionResult holds the result of a compaction operation.
 type CompactionResult struct {
-	SessionID      string
-	ChunksCreated  int
-	TotalTokensIn  int
+	SessionID string
+	// TotalTokensIn is what the transcript rendered to BEFORE any budget
+	// reduction, so a caller can tell a session that fit whole from one whose
+	// oldest content was compressed to fit — InputReduced says which.
+	TotalTokensIn int
+	// InputReduced reports that the rendered transcript exceeded
+	// SinglePassInputTokens and fitToBudget compressed its older content to
+	// fit. The essence is still complete in shape, but early detail was
+	// deterministically thinned before the model ever saw it.
+	InputReduced   bool
 	TotalTokensOut int
 	DistilledPath  string
 	Duration       time.Duration
@@ -191,9 +201,6 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 // are plain fallbacks — nothing here rejects or rewrites a value the caller
 // actually chose; that is clampCompactionBounds' job.
 func applyCompactionDefaults(config *CompactionConfig) {
-	if config.ChunkSize <= 0 {
-		config.ChunkSize = DefaultChunkTokens
-	}
 	if config.EssenceMaxChars <= 0 {
 		config.EssenceMaxChars = agent.DefaultEssenceChars
 	}
@@ -220,19 +227,6 @@ func clampCompactionBounds(config *CompactionConfig) {
 			"essence_max_chars %d exceeds the %d-char ceiling a distilled essence may reach; using %d",
 			config.EssenceMaxChars, MaxEssenceChars, MaxEssenceChars)
 		config.EssenceMaxChars = MaxEssenceChars
-	}
-	// config.compaction_chunks is user-settable and is the only input the fixed
-	// ChunkOverlapTokens is ever weighed against. A value inside the band is a
-	// cost bomb rather than a small chunk: see MinOverlappingChunkTokens. Raise
-	// it and say so, rather than silently spawning thousands of plugin
-	// subprocesses for one session.
-	if config.ChunkSize > ChunkOverlapTokens && config.ChunkSize < MinOverlappingChunkTokens {
-		if config.Progress != nil {
-			clidiag.Fwarn(config.Progress, "ctxloom",
-				"compaction chunk size %d sits just above the %d-token chunk overlap, which would split one session into thousands of near-duplicate chunks; using %d",
-				config.ChunkSize, ChunkOverlapTokens, MinOverlappingChunkTokens)
-		}
-		config.ChunkSize = MinOverlappingChunkTokens
 	}
 }
 
@@ -323,11 +317,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	if err != nil {
 		c.warnf("plan retrieval failed, omitting plan blocks: %v", err)
 	}
-	plans := planFilesToBlocks(planFiles)
+	app := appendices{Plans: planFilesToBlocks(planFiles)}
 
 	// Convert entries to text for chunking. Plans live in separate files now, so
 	// there are no in-transcript plan blocks to placeholder out.
 	sel := selectForDistill(session.Entries)
+	app.Artifacts, app.ArtifactsOmitted = sel.Artifacts, sel.ArtifactsOmitted
 	if n := c.repairResults(ctx, sel); n > 0 {
 		c.progressf("ctxloom: recovered %d finding(s) from uncommented results...\n", n)
 	}
@@ -337,21 +332,38 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 
 	// A session with zero main-thread entries has nothing to
 	// distill — see isEmptySession for why "zero entries" (not a byte/token
-	// floor) is the bright line. Skip the whole chunk/map/reduce pipeline
-	// (no plugin subprocess spawned at all) and persist a trivial dump
-	// instead, so the picker/resume flow still finds a valid essence.
+	// floor) is the bright line. Skip distillation entirely (no plugin
+	// subprocess spawned at all) and persist a trivial dump instead, so the
+	// resume flow still finds a valid essence.
 	if isEmptySession(session.Entries) || rendersToNothing(logText) {
-		return c.dumpEmptySession(session, harpName, sourceSize, plans, result, start)
+		return c.dumpEmptySession(session, harpName, sourceSize, app, result, start)
 	}
 
-	// Chunk the log, distill each chunk, then optionally re-compress.
-	chunks := chunkText(logText, c.config.ChunkSize)
-	result.ChunksCreated = len(chunks)
+	// ONE distillation call over the whole transcript. An oversized transcript
+	// is REDUCED to fit (deterministically, oldest content hardest — see
+	// fitToBudget), never split into chunks whose separate summaries are then
+	// merged by a pass that cannot see the source.
+	fitted, reduced := fitToBudget(logText, SinglePassInputTokens)
+	result.InputReduced = reduced
+	if reduced {
+		c.progressf("ctxloom: transcript exceeds the %d-token distillation budget; compressing older content to fit...\n", SinglePassInputTokens)
+	}
 
-	combined, err := c.mapReduceChunks(ctx, chunks, result)
+	prompt, err := c.distillPrompt()
 	if err != nil {
 		return nil, err
 	}
+
+	c.progressf("ctxloom: distilling session...\n")
+	combined, err := c.runDistill(ctx, prompt, fitted)
+	if err != nil {
+		// A failed distillation would otherwise replace a previously good
+		// essence with nothing — data loss, not graceful degradation. Refuse
+		// the save and keep whatever is already on disk.
+		c.warnf("distillation failed; keeping previous essence: %v", err)
+		return nil, fmt.Errorf("distillation failed: %w", err)
+	}
+	result.TotalTokensOut = tokens.Estimate(combined)
 
 	// Pull the LLM-emitted YAML frontmatter (Phase 3.5.2). If it's
 	// missing/malformed, fall through with empty summary: the picker
@@ -362,63 +374,16 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		cleanedBody = strings.TrimSpace(combined)
 	}
 
-	// Fail-loud backstop: even a "successful" pipeline (every
-	// LLM call exited 0, reduce ran without error) can still hand back
-	// something enormous if the model didn't actually compress — this is the
-	// general case finalCompressionPass's own check above only covers for its
-	// specific failure mode. Never save or return a body over the bound; the
-	// caller (e.g. recover_session) must see an honest failure instead of an
-	// unbounded payload.
+	// Fail-loud backstop: a "successful" distillation (the LLM call exited 0)
+	// can still hand back something enormous if the model ignored its
+	// character budget and did not actually compress. Never save or return a
+	// body over the bound; the caller (e.g. recover_session) must see an
+	// honest failure instead of an unbounded payload.
 	if len(cleanedBody) > MaxEssenceChars {
 		return nil, fmt.Errorf("distilled essence for session %s is %d chars, over the %d-char bound (MaxEssenceChars); refusing to save or return an unbounded summary", session.ID, len(cleanedBody), MaxEssenceChars)
 	}
 
-	return c.finishDistill(session, harpName, sourceSize, plans, result, summary, cleanedBody, start)
-}
-
-// mapReduceChunks runs the map pass over chunks and, for a multi-chunk session,
-// the reduce pass that unifies them — returning the combined essence text and
-// stamping result.TotalTokensOut with what it actually produced.
-//
-// An error from here is a REFUSAL to save: both cases below would otherwise
-// overwrite a previously good essence with something worse than nothing.
-func (c *Compactor) mapReduceChunks(ctx context.Context, chunks []string, result *CompactionResult) (string, error) {
-	distilled, failedChunks, chunkCause := c.distillChunks(ctx, chunks)
-	// A totally failed distillation (e.g. LLM backend down) would replace a
-	// previously good essence with nothing but failure markers — that's data
-	// loss, not graceful degradation. Abort the save and keep the old essence.
-	// Partial success still saves, per the fault-tolerance philosophy.
-	if len(chunks) > 0 && failedChunks == len(chunks) {
-		c.warnf("distillation failed for all %d chunks; keeping previous essence", len(chunks))
-		return "", fmt.Errorf("distillation failed for all %d chunks: %w", len(chunks), chunkCause)
-	}
-	if failedChunks > 0 {
-		c.warnf("distillation failed for %d of %d chunks; summary is incomplete", failedChunks, len(chunks))
-	}
-
-	combined := strings.Join(distilled, "\n\n---\n\n")
-	result.TotalTokensOut = tokens.Estimate(combined)
-
-	// Any multi-chunk session needs the reduce pass: it unifies the concatenated
-	// per-chunk summaries into one canonical essence (YAML frontmatter + the
-	// "### Open Items" section the picker derives its summary and detail lines
-	// from). Gating it on size left small multi-chunk sessions with raw map
-	// output — no frontmatter, no Open Items. Single-chunk sessions already
-	// produce one canonical map output, so they skip it.
-	if len(chunks) > 1 {
-		reduced, rerr := c.finalCompressionPass(ctx, combined)
-		if rerr != nil {
-			// finalCompressionPass only returns an error when the reduce call
-			// failed AND its un-reduced input was itself over MaxEssenceChars
-			// (see its doc comment) — a genuine "cannot bound the output"
-			// case, not a normal degrade. Fail loud rather than save/return
-			// the oversized, un-reduced combined text.
-			return "", rerr
-		}
-		combined = reduced
-		result.TotalTokensOut = tokens.Estimate(combined)
-	}
-	return combined, nil
+	return c.finishDistill(session, harpName, sourceSize, app, result, summary, cleanedBody, start)
 }
 
 // isEmptySession reports whether a session has no main-thread content at all
@@ -470,7 +435,7 @@ const emptySessionPlaceholder = "_(empty session — no conversation content to 
 // later `session list` / resume picker sees a well-formed entry rather than
 // a hole. Returns success: an empty session is not a failure, just nothing
 // to compact.
-func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, sourceSize int64, plans []PlanBlock, result *CompactionResult, start time.Time) (*CompactionResult, error) {
+func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, sourceSize int64, app appendices, result *CompactionResult, start time.Time) (*CompactionResult, error) {
 	label := harpName
 	if label == "" {
 		label = session.ID
@@ -487,7 +452,6 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 	// session is still not a failure, there is simply nothing better to write.
 	if path, ok := c.existingEssence(session.ID, harpName); ok {
 		c.warnf("session %s is empty but already has a distilled essence; keeping %s", label, path)
-		result.ChunksCreated = 0
 		result.TotalTokensOut = result.TotalTokensIn
 		result.DistilledPath = path
 		result.Duration = time.Since(start)
@@ -496,10 +460,9 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 
 	c.progressf("ctxloom: session %s empty — dumped without distillation\n", label)
 
-	result.ChunksCreated = 0
 	result.TotalTokensOut = result.TotalTokensIn // verbatim dump: no compression ran
 
-	return c.finishDistill(session, harpName, sourceSize, plans, result, "", emptySessionPlaceholder, start)
+	return c.finishDistill(session, harpName, sourceSize, app, result, "", emptySessionPlaceholder, start)
 }
 
 // rotationEssencePath returns where THIS session's per-rotation essence lives:
@@ -550,7 +513,7 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 // Shared by the normal compaction path (cleanedBody is the LLM's combined,
 // possibly-reduced output) and dumpEmptySession (cleanedBody is the trivial
 // placeholder) so both produce an identically-shaped on-disk essence.
-func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourceSize int64, plans []PlanBlock, result *CompactionResult, frontmatterSummary, cleanedBody string, start time.Time) (*CompactionResult, error) {
+func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourceSize int64, app appendices, result *CompactionResult, frontmatterSummary, cleanedBody string, start time.Time) (*CompactionResult, error) {
 	// Fall back to the first prose line when there's no frontmatter summary,
 	// so a distilled session never renders as "(no summary)" in the picker.
 	summary := deriveSummary(frontmatterSummary, cleanedBody)
@@ -560,14 +523,14 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 	// plan blocks are re-attached.
 	detail := buildPickerDetail(cleanedBody)
 
-	body := assembleBody(cleanedBody, plans)
+	body := assembleBody(cleanedBody, app)
 
 	// Save distilled output
 	distilledPath, err := c.saveDistilled(session.ID, body, distilledMeta{
 		EntryCount: len(session.Entries),
 		TokensIn:   result.TotalTokensIn,
 		TokensOut:  result.TotalTokensOut,
-		PlanBlocks: len(plans),
+		PlanBlocks: len(app.Plans),
 		Summary:    summary,
 		HarpName:   harpName,
 		SourceSize: sourceSize,
@@ -681,99 +644,141 @@ func (c *Compactor) warnf(format string, args ...any) {
 	clidiag.Fwarn(c.config.Progress, "ctxloom", format, args...)
 }
 
-// distillChunks distills the chunks concurrently (bounded by distillConcurrency)
-// and returns the outputs in chunk order, how many chunks failed, and a
-// representative cause when any did (nil otherwise). Chunks are
-// independent — the overlap between them is context padding, not a data
-// dependency — so they distill in parallel; results are written into their own
-// slice slots so order is preserved regardless of completion order. Per CLAUDE.md
-// fault tolerance, a failed chunk is warned and replaced with an HTML-comment
-// marker rather than aborting; the caller decides whether a total failure aborts
-// the save. A failing chunk does NOT cancel its siblings.
-func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]string, int, error) {
-	distilled := make([]string, len(chunks))
-	// Per-chunk causes, kept by index. The aggregate "all N chunks failed"
-	// error is the only thing most callers ever see, and a cause-free one is
-	// undiagnosable: warnf is the sole other channel and it is silently
-	// dropped whenever Progress is nil, which is exactly the MCP relay case.
-	causes := make([]error, len(chunks))
-	var failed atomic.Int64
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, distillConcurrency)
-	total := len(chunks)
-
-	for i, chunk := range chunks {
-		wg.Add(1)
-		sem <- struct{}{} // acquire a slot; blocks once distillConcurrency are in flight
-		go func(i int, chunk string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			c.progressf("ctxloom: compacting chunk %d/%d...\n", i+1, total)
-			out, err := c.distillChunk(ctx, chunk, i+1, total)
-			if err != nil {
-				c.warnf("chunk %d failed: %v", i+1, err)
-				distilled[i] = fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err)
-				causes[i] = err
-				failed.Add(1)
-				return
-			}
-			distilled[i] = out
-		}(i, chunk)
-	}
-	wg.Wait()
-	// Lowest-indexed cause, not first-to-fail: a representative error that is
-	// the same on every re-run of the same failure, so the message a user
-	// reports is the message the next reader reproduces.
-	var cause error
-	for i, e := range causes {
-		if e != nil {
-			cause = fmt.Errorf("chunk %d: %w", i+1, e)
-			break
-		}
-	}
-	return distilled, int(failed.Load()), cause
+// appendices are the sections pinned verbatim after the LLM body. They travel
+// together because they are one idea -- content the transcript already states
+// exactly, which a language model can only degrade -- and because carrying
+// them as separate parameters had finishDistill approaching ten arguments,
+// which is where call sites start transposing them.
+type appendices struct {
+	Plans     []PlanBlock
+	Artifacts []Artifact
+	// ArtifactsOmitted is what the maxArtifacts cap dropped, rendered inline so
+	// a truncated index never reads as a complete one.
+	ArtifactsOmitted int
 }
 
-// finalCompressionPass merges the per-chunk distillations into one coherent
-// essence using the dedicated reduce prompt (which knows its input is already-
-// distilled partial summaries to unify, not a raw transcript to re-summarize,
-// and re-asserts the mandatory YAML frontmatter + identifier preservation).
+// assembleBody re-attaches the deterministic appendices after the LLM summary
+// so they survive distillation unmodified, with a blank line between sections.
 //
-// On failure, the old behavior was to warn and return combined unchanged — "a
-// too-large summary beats no summary". That is exactly the fail-open
-// bug: the reduce pass is the ONE step that unifies a multi-chunk session into
-// a bounded essence, so falling back to its un-reduced input on failure means
-// falling back to something that can be arbitrarily large (roughly
-// chunk-count × per-chunk-summary-size). That reasoning still holds when
-// combined is small — a failed reduce on a short summary is still worth
-// returning unreduced — so the fallback stays, but only up to MaxEssenceChars.
-// Past that, returning combined would just be a slower-motion version of the
-// same passthrough, so this fails loud instead.
-func (c *Compactor) finalCompressionPass(ctx context.Context, combined string) (string, error) {
-	c.progressf("ctxloom: final compression pass...\n")
-	final, err := c.runDistill(ctx, c.reducePrompt(), combined)
-	if err != nil {
-		if len(combined) > MaxEssenceChars {
-			return "", fmt.Errorf("final compression pass failed (%w) and the un-reduced input is %d chars, over the %d-char bound (MaxEssenceChars) — refusing to fall back to an unbounded summary", err, len(combined), MaxEssenceChars)
-		}
-		c.warnf("final pass failed, using combined: %v", err)
-		return combined, nil
-	}
-	return final, nil
-}
-
-// assembleBody re-attaches the verbatim plan blocks after the LLM summary so
-// they survive distillation unmodified, with a blank line between when both are
-// present.
-func assembleBody(cleanedBody string, plans []PlanBlock) string {
+// Both appendices exist for the same reason: they are FACTS the transcript
+// already carries exactly, so routing them through a language model can only
+// degrade them. A plan comes back paraphrased; a file path comes back
+// plausible-but-wrong, which is worse than absent because it reads
+// authoritative and points at nothing. Pinning them here means the prompt's
+// identifier rule only has to hold for the kinds nothing pins — symbols,
+// commit SHAs, command lines.
+func assembleBody(cleanedBody string, app appendices) string {
 	body := cleanedBody
-	if section := RenderPlans(plans); section != "" {
+	for _, section := range []string{RenderArtifacts(app.Artifacts, app.ArtifactsOmitted), RenderPlans(app.Plans)} {
+		if section == "" {
+			continue
+		}
 		if body != "" {
 			body += "\n\n"
 		}
 		body += section
 	}
 	return body
+}
+
+// fitToBudget reduces text to at most budgetTokens, compressing the OLDEST
+// content hardest and leaving the most recent intact. It reports whether it
+// had to do anything.
+//
+// This replaces chunking, and the asymmetry is the whole point: a session's
+// tail is its active working memory — what is half-finished, what was just
+// decided, what the next session picks up — while its head is mostly settled
+// or abandoned. Truncating uniformly, or from the end, throws away the part
+// that is actually load-bearing for a resume.
+//
+// The walk runs newest-to-oldest, and each entry may claim at most HALF of
+// what is left. That single rule delivers both properties without tuning: the
+// budget can never be exceeded (each step spends at most half the remainder),
+// and allowances decay geometrically toward the head, so old entries are
+// compressed progressively harder and the oldest are dropped outright. An
+// entry small enough to fit inside its allowance is kept verbatim, so a long
+// tail of ordinary short entries survives whole rather than being clipped.
+func fitToBudget(text string, budgetTokens int) (string, bool) {
+	targetBytes := tokens.Budget(budgetTokens)
+	if len(text) <= targetBytes {
+		return text, false
+	}
+
+	entries := splitEntryBlocks(text)
+	kept := make([]string, len(entries))
+	remaining := targetBytes
+	dropped := 0
+
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		allowance := remaining / 2
+		switch {
+		case len(entry) <= allowance:
+			kept[i] = entry
+			remaining -= len(entry)
+		case allowance > minEntryAllowanceBytes:
+			// Cut on a rune boundary: a mid-rune split makes the text invalid
+			// UTF-8, which fails proto3 string marshaling and silently turns
+			// the whole distillation into a failure.
+			head := textutil.TruncateBytes(entry, allowance)
+			kept[i] = head + elisionMarker(len(entry) - len(head))
+			remaining -= allowance
+		default:
+			dropped++
+		}
+	}
+
+	var b strings.Builder
+	if dropped > 0 {
+		fmt.Fprintf(&b, "_[%d earlier entries omitted: the session exceeded the distillation budget]_\n\n", dropped)
+	}
+	for _, entry := range kept {
+		if entry == "" {
+			continue
+		}
+		b.WriteString(entry)
+	}
+	return b.String(), true
+}
+
+// minEntryAllowanceBytes is the floor under which a truncated entry stops
+// being worth its own bytes. Below it an entry keeps little more than its
+// "## Tool Result: Bash" header and an elision marker saying the content is
+// gone — which costs budget to say nothing. Such entries are dropped and
+// counted in one aggregate line instead.
+const minEntryAllowanceBytes = 200
+
+// elisionMarker names how much of an entry was cut. Stated in bytes rather
+// than elided silently: a reader (and the resuming model) must be able to tell
+// a short entry from a heavily-cut one, or a truncated command reads as the
+// whole command.
+func elisionMarker(cut int) string {
+	return fmt.Sprintf("\n_[… %d bytes elided from an earlier part of the session …]_\n\n", cut)
+}
+
+// splitEntryBlocks splits rendered transcript text back into the per-entry
+// blocks appendEntryText wrote, each retaining its leading "## " header and
+// trailing blank line. Text before the first header (there is none in
+// practice) rides with the first block rather than being silently dropped.
+func splitEntryBlocks(text string) []string {
+	const sep = "\n## "
+	var blocks []string
+	for {
+		i := strings.Index(text, sep)
+		if i == -1 {
+			break
+		}
+		// Keep the separator's newline with the block that ENDS at it, and the
+		// "## " with the block that starts.
+		if head := text[:i+1]; strings.TrimSpace(head) != "" {
+			blocks = append(blocks, head)
+		}
+		text = text[i+1:]
+	}
+	if strings.TrimSpace(text) != "" {
+		blocks = append(blocks, text)
+	}
+	return blocks
 }
 
 // resolveHarpName returns the harp name keying picker/index entries: the config
@@ -1117,102 +1122,11 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 	}
 }
 
-// chunkText splits text into chunks of approximately targetTokens size.
-// It tries to break at natural boundaries (## headers). Both inputs arrive as
-// parameters and no compactor state is consulted, so this is a package
-// function rather than a method: nothing about a chunking decision depends on
-// which Compactor asked for it.
-func chunkText(text string, targetTokens int) []string {
-	// Sizes come from tokens.Budget, not from multiplying the ratio here.
-	// Multiplying was a second implementation of the heuristic living outside
-	// the package that owns it, and one no real tokenizer could satisfy: a
-	// tokenizer is not invertible by multiplication, so a substitution inside
-	// internal/tokens would have left this call site computing against the old
-	// ratio while every other surface moved.
-	targetBytes := tokens.Budget(targetTokens)
-	overlapBytes := tokens.Budget(ChunkOverlapTokens)
-
-	if len(text) <= targetBytes {
-		return []string{text}
-	}
-
-	var chunks []string
-	remaining := text
-
-	for len(remaining) > 0 {
-		chunkEnd := targetBytes
-		if chunkEnd > len(remaining) {
-			chunkEnd = len(remaining)
-		}
-
-		// Try to find a good break point (## header)
-		if chunkEnd < len(remaining) {
-			// Look for ## within the last 20% of the chunk
-			searchStart := chunkEnd - (chunkEnd / 5)
-			searchText := remaining[searchStart:chunkEnd]
-
-			// Find the last ## in the search region
-			lastHeader := strings.LastIndex(searchText, "\n## ")
-			if lastHeader >= 0 {
-				chunkEnd = searchStart + lastHeader + 1 // +1 to include the newline
-			}
-		}
-
-		// Never cut mid-rune: back the boundary off to the nearest UTF-8 rune
-		// start (the textutil.TruncateBytes technique). A mid-rune split makes
-		// the chunk invalid UTF-8, which fails proto3 string marshaling and
-		// silently turns the chunk into a failure marker — content loss.
-		if end := len(textutil.TruncateBytes(remaining, chunkEnd)); end > 0 {
-			chunkEnd = end
-		}
-
-		chunk := remaining[:chunkEnd]
-		chunks = append(chunks, strings.TrimSpace(chunk))
-
-		// The final chunk reaches the end of the text: stop here. Advancing by
-		// chunkEnd-overlap would re-enter the loop with the pure-overlap tail
-		// and emit it again as a duplicate chunk.
-		if chunkEnd == len(remaining) {
-			break
-		}
-
-		// Move forward, keeping some overlap for context. The advance point
-		// must also land on a rune boundary, or the next chunk would start
-		// with the trailing bytes of a split rune.
-		advance := chunkEnd - overlapBytes
-		if advance > 0 {
-			if a := len(textutil.TruncateBytes(remaining, advance)); a > 0 {
-				advance = a
-			}
-		}
-		if advance <= 0 {
-			advance = chunkEnd
-		}
-		if advance >= len(remaining) {
-			break
-		}
-		remaining = remaining[advance:]
-	}
-
-	return chunks
-}
-
-// distillChunk distills one transcript chunk (the map step), tagging the prompt
-// with the chunk's position so the LLM knows it sees a slice of a larger log.
-func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, totalChunks int) (string, error) {
-	var promptBuilder strings.Builder
-	promptBuilder.WriteString(sessionDistillPrompt)
-	if chunkNum > 0 && totalChunks > 1 {
-		_, _ = fmt.Fprintf(&promptBuilder, "\n\nThis is chunk %d of %d from the session log.\n", chunkNum, totalChunks)
-	}
-	return c.runDistill(ctx, promptBuilder.String(), chunk)
-}
-
 // runDistill executes one LLM distillation call: a fresh plugin subprocess given
 // systemPrompt as its instruction fragment and content wrapped in <session_log>
-// as its prompt, run one-shot in minimal mode. Both the map (distillChunk) and
-// reduce (finalCompressionPass) passes go through here so the request shape stays
-// in one place.
+// as its prompt, run one-shot in minimal mode. The session distillation and the
+// per-result finding repair (recoverFinding) both go through here so the request
+// shape stays in one place.
 func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string) (string, error) {
 	// Create plugin client using the factory
 	client, err := c.clientFactory(c.config.LLM, "", 0)
@@ -1520,27 +1434,38 @@ func ListDistilledSessions(sessionsDir string) ([]string, error) {
 	return sessions, nil
 }
 
-// sessionDistillPrompt is the system prompt for session distillation.
-// Phase 3.5.2: requires a leading YAML frontmatter block carrying a
-// one-line summary so the resume picker can render row summaries without
-// a second LLM call. Body sections are ordered with Open Items first
-// to optimize the resume use case ("what do I need to pick up?").
-var sessionDistillPrompt = resources.MustGetPromptText("session-distill")
+// sessionDistillPromptName is the prompt file's stem, shared by the embedded
+// lookup and the on-disk PromptDir override so the two can never name
+// different files.
+const sessionDistillPromptName = "session-distill"
 
-// sessionDistillReducePrompt drives the final compression pass. Unlike the map
-// prompt it tells the model its input is already-distilled partial summaries to
-// merge and dedupe (not a raw transcript), re-asserts the mandatory YAML
-// frontmatter the picker needs, and forbids dropping file paths / session IDs
-// during the merge.
-var sessionDistillReducePrompt = resources.MustGetPromptText("session-distill-reduce")
+// sessionDistillPrompt is the embedded system prompt for session distillation.
+// It requires a leading YAML frontmatter block carrying a one-line summary so
+// a session's title is available without a second LLM call, and orders the body
+// sections with Open Items first to optimize the resume use case ("what do I
+// need to pick up?").
+var sessionDistillPrompt = resources.MustGetPromptText(sessionDistillPromptName)
 
-// reducePrompt is the reduce instruction with this compactor's essence budget
-// appended. The number is injected rather than written into the prompt file so
-// there is ONE source for it -- a budget stated in prose and a budget resolved
-// from config would drift, and only the prose one is visible to the model.
-func (c *Compactor) reducePrompt() string {
+// distillPrompt is the distillation instruction with this compactor's essence
+// budget appended. The number is injected rather than written into the prompt
+// file so there is ONE source for it -- a budget stated in prose and a budget
+// resolved from config would drift, and only the prose one is visible to the
+// model.
+//
+// A PromptDir read failure is returned, never swallowed: falling back to the
+// embedded prompt would report a result attributed to the variant under
+// evaluation while actually measuring the built-in one.
+func (c *Compactor) distillPrompt() (string, error) {
+	text := sessionDistillPrompt
+	if c.config.PromptDir != "" {
+		loaded, err := resources.PromptTextFromDir(c.config.PromptDir, sessionDistillPromptName)
+		if err != nil {
+			return "", fmt.Errorf("load prompt %q from %s: %w", sessionDistillPromptName, c.config.PromptDir, err)
+		}
+		text = loaded
+	}
 	return fmt.Sprintf("%s\n- The finished essence must be under %d characters.\n",
-		sessionDistillReducePrompt, c.config.EssenceMaxChars)
+		text, c.config.EssenceMaxChars), nil
 }
 
 // resultFindingPrompt recovers the finding an agent never stated for a large

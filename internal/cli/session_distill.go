@@ -74,7 +74,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 		if src.Entry == nil {
 			src.Entry = e
 		}
-		if _, dErr := operations.DistillEntry(cmd.Context(), src, cfg, "", progress); dErr != nil {
+		if _, dErr := operations.DistillEntry(cmd.Context(), src, cfg, operations.DistillOptions{Progress: progress}); dErr != nil {
 			clidiag.Warn("ctxloom", "could not distill %s: %v", e.HarpName, dErr)
 		}
 	}

@@ -96,7 +96,7 @@ func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 	var gotDeadline bool
 	var budget time.Duration
 	prev := compactEntryFn
-	compactEntryFn = func(ctx context.Context, _ *sessions.Entry, _ *config.Config, _ string, _ io.Writer) (*memory.CompactionResult, error) {
+	compactEntryFn = func(ctx context.Context, _ *sessions.Entry, _ *config.Config, _ operations.DistillOptions) (*memory.CompactionResult, error) {
 		dl, ok := ctx.Deadline()
 		gotDeadline = ok
 		if ok {
@@ -141,7 +141,7 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 	// compactor would have written, so the SECOND probe sees a distilled
 	// session where the first saw none.
 	prev := compactEntryFn
-	compactEntryFn = func(_ context.Context, entry *sessions.Entry, _ *config.Config, _ string, _ io.Writer) (*memory.CompactionResult, error) {
+	compactEntryFn = func(_ context.Context, entry *sessions.Entry, _ *config.Config, _ operations.DistillOptions) (*memory.CompactionResult, error) {
 		p, perr := paths.HarpEssencePath(entry.HarpName)
 		require.NoError(t, perr)
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
@@ -187,7 +187,7 @@ func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testi
 	require.NoError(t, err)
 
 	prev := compactEntryFn
-	compactEntryFn = func(context.Context, *sessions.Entry, *config.Config, string, io.Writer) (*memory.CompactionResult, error) {
+	compactEntryFn = func(context.Context, *sessions.Entry, *config.Config, operations.DistillOptions) (*memory.CompactionResult, error) {
 		return nil, errors.New("legacy session needs a cwd-bound reader")
 	}
 	defer func() { compactEntryFn = prev }()

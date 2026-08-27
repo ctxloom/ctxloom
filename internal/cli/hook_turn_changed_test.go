@@ -12,12 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // runTurnChangedCmd drives the hook exactly as the shell does — payload on
 // stdin, one word on stdout — and returns that word plus anything warned.
 func runTurnChangedCmd(t *testing.T, payload string) (word, warned string) {
 	t.Helper()
+	testsupport.Isolate(t)
+	seedHookSession(t, "claude-code")
 	var sink bytes.Buffer
 	restore := clidiag.SetSink(&sink)
 	t.Cleanup(restore)

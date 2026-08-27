@@ -36,6 +36,17 @@ import (
 // registerCLIFormatSteps registers the format-aware assertions steps_cli.go's
 // three (as/matching/containing) cannot express.
 func registerCLIFormatSteps(ctx *godog.ScenarioContext) {
+	// THE EMPTY CASE OF A STRUCTURED LIST, which none of steps_cli.go's three
+	// format-aware steps can state: `as` demands a scalar and a null/[] is not
+	// one, and `containing` demands a NON-empty array by design (its empty
+	// guard is what stops "contains" from passing vacuously). So "nothing is
+	// declared" — a fact the text renderer spells as a whole sentence — had no
+	// structured spelling at all, and a scenario asserting it could not be
+	// tabled by format without this.
+	//
+	// The prose argument is what the RENDERED formats say; the path is what the
+	// structured ones must show empty. Both halves state the same fact, which is
+	// what keeps the row honest either way.
 	ctx.Step(`^the output reports "([^"]*)" as empty, saying "([^"]*)"$`,
 		func(c context.Context, path, saying string) error {
 			return assertOutputReports(worldFrom(c), path, saying, func(v any) error {

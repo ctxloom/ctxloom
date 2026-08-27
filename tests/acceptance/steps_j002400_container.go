@@ -86,52 +86,6 @@ func j002400RecordPath(w *World, runtime string) string {
 }
 
 func registerJ002400Steps(ctx *godog.ScenarioContext) {
-	// THE EMPTY CASE OF A STRUCTURED LIST, which none of steps_cli.go's three
-	// format-aware steps can state: `as` demands a scalar and a null/[] is not
-	// one, and `containing` demands a NON-empty array by design (its empty
-	// guard is what stops "contains" from passing vacuously). So "nothing is
-	// declared" — a fact the text renderer spells as a whole sentence — had no
-	// structured spelling at all, and a scenario asserting it could not be
-	// tabled by format without this.
-	//
-	// The prose argument is what the RENDERED formats say; the path is what
-	// the structured ones must show empty. Both halves state the same fact,
-	// which is what keeps the row honest either way.
-	ctx.Step(`^the output reports "([^"]*)" as empty, which reads "([^"]*)"$`,
-		func(c context.Context, path, prose string) error {
-			w := worldFrom(c)
-			format := formatAskedFor(w)
-			if !format.Structured() {
-				if !strings.Contains(w.env.LastOutput(), prose) {
-					return fmt.Errorf("the %s rendering does not report %q; output:\n%s", format, prose, w.env.LastOutput())
-				}
-				return nil
-			}
-			doc, err := lastOutputStructured(w, format)
-			if err != nil {
-				return err
-			}
-			v, err := jsonAtPath(doc, path)
-			if err != nil {
-				return fmt.Errorf("%v; %s stdout:\n%s", err, format, w.env.LastStdout())
-			}
-			switch t := v.(type) {
-			case nil:
-				return nil
-			case []any:
-				if len(t) == 0 {
-					return nil
-				}
-				return fmt.Errorf("the %s payload at %q holds %d entries, want none; stdout:\n%s", format, path, len(t), w.env.LastStdout())
-			case map[string]any:
-				if len(t) == 0 {
-					return nil
-				}
-				return fmt.Errorf("the %s payload at %q holds %d keys, want none; stdout:\n%s", format, path, len(t), w.env.LastStdout())
-			}
-			return fmt.Errorf("the %s payload at %q is a %s, not a list; stdout:\n%s", format, path, jsonKind(v), w.env.LastStdout())
-		})
-
 	// Runs the mock agent once under the named runtime, leaving its record in
 	// the workspace. The container leg SKIPS (rather than fails) where no
 	// runtime is reachable: this scenario's claim is about what happens when

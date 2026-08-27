@@ -58,7 +58,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Given an initialized ctxloom project
       When I run "ctxloom <flags> session list"
       Then the command succeeds
-      And the output reports "$" as empty, which reads "no sessions"
+      And the output reports "$" as empty, saying "no sessions"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         |

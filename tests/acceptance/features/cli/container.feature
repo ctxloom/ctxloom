@@ -272,7 +272,7 @@ Feature: container — the images isolated agents run in, and the questions you 
         ctxloom container tooling list <flags>
         """
       Then the command succeeds
-      And the output reports "declarations" as empty, which reads "No trusted bundles declare container tooling"
+      And the output reports "declarations" as empty, saying "No trusted bundles declare container tooling"
       And the output does not contain "TOOLING-DECL-SHADY"
       Given a bundle "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
       When Alice collects again now that a trusted bundle declares tooling:

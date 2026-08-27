@@ -87,6 +87,14 @@ type AssembleContextResult struct {
 	// back to the configured primary role. Overridable by -l/--llm at the call
 	// site.
 	ProfileLLM string `json:"profile_llm,omitempty"`
+
+	// PremiseIndex names the fragments this assembly WITHHELD because they
+	// carry a premise, together with that premise. It is the agent's menu: it
+	// evaluates each premise against what it is about to do and asks for the
+	// ones that apply BY NAME, through Fragments on a second call. Empty when
+	// nothing was withheld, which is every assembly over a corpus that
+	// authors no premises.
+	PremiseIndex []PremiseIndexEntry `json:"premise_index,omitempty"`
 }
 
 // AssembleContext assembles context from a profile, fragments, and/or tags.
@@ -156,7 +164,12 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// contextIngest for the identity rule and the order/silence decisions).
 	ingest := newContextIngest()
 
-	loaderNames, err := ingestFragmentRefs(ingest, pipe, orderedRefs, profileVars)
+	// Fragments carrying a premise are withheld and indexed instead, EXCEPT
+	// the ones this request named: an explicit ask is the selection callback
+	// closing the loop, so it always loads.
+	filter := newPremiseFilter(requested)
+
+	loaderNames, err := ingestFragmentRefs(ingest, pipe, orderedRefs, profileVars, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +190,12 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// withheld exactly like a rejected builtin MCP server/hook.
 	loadedNames := ingestBuiltinFragments(ingest, cfg, pipe.Authorizer(), loaderNames)
 
-	// The assembled bytes, in ingest order, duplicates already collapsed.
+	// The assembled bytes, in ingest order, duplicates already collapsed. The
+	// index of what was withheld is reported as STRUCTURED data on the result
+	// (PremiseIndex), never spliced into these bytes: what a caller does with
+	// the menu — render it, ignore it, ask again — is the caller's decision,
+	// and a corpus authoring no premises withholds nothing and assembles the
+	// exact bytes it did before this mechanism existed.
 	contextContent := ingest.join()
 
 	// Surface (content-free) any items the trust gate withheld during this
@@ -195,6 +213,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 		MissingTags:      missingTags,
 		Context:          contextContent,
 		ProfileLLM:       profileLLM,
+		PremiseIndex:     filter.entries(),
 	}, nil
 }
 
@@ -409,7 +428,7 @@ func normalizeFragmentRef(ref config.FragmentRef) (config.FragmentRef, error) {
 // footgun) can no longer swallow a NEIGHBORING fragment's real variables —
 // the escape state is scoped to one substituteVariables call, hence one
 // fragment, same as hooks.go's regenerateContext already did.
-func ingestFragmentRefs(ingest *contextIngest, pipe *bundles.Pipeline, ordered []config.FragmentRef, profileVars map[string]string) ([]string, error) {
+func ingestFragmentRefs(ingest *contextIngest, pipe *bundles.Pipeline, ordered []config.FragmentRef, profileVars map[string]string, filter *premiseFilter) ([]string, error) {
 	if len(ordered) == 0 {
 		return nil, nil
 	}
@@ -418,6 +437,13 @@ func ingestFragmentRefs(ingest *contextIngest, pipe *bundles.Pipeline, ordered [
 		lc, err := loadFragmentRef(pipe, ref)
 		if err != nil {
 			warnFragmentLoadFailure(ref, err)
+			continue
+		}
+		// A withheld fragment is NOT a load failure and must not warn like
+		// one: it loaded fine and is being offered to the agent instead. It
+		// is also absent from loadedNames on purpose, so a caller reading
+		// FragmentsLoaded is never told it received content it did not.
+		if filter.withhold(ref.Name, lc.Premise) {
 			continue
 		}
 		substituted := substituteVariables(strings.TrimSpace(lc.Content), profileVars, warnSubstitutionFor(ref.Name))

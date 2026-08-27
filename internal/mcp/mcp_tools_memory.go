@@ -313,6 +313,9 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// off the caller's input. OutputDir is left unset so the essence files
 		// itself under that harp's own lineage, which is the only place
 		// anything reads one from.
+		// The TurnEnd-captured next step; absent on a harp that has not
+		// finished a turn, and absent costs nothing (see distillPrompt).
+		taskHint, _ := memory.ReadNextStep(harp)
 		compactor, cerr := memory.NewCompactor(memory.CompactionConfig{
 			LLM:             s.cfg.GetCompactionLLM(),
 			Model:           model,
@@ -321,6 +324,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			SessionID:       in.SessionID,
 			WorkDir:         workDir,
 			HarpName:        harp,
+			TaskHint:        taskHint,
 		})
 		if cerr != nil {
 			return nil, fmt.Errorf("create compactor: %w", cerr)
@@ -1109,6 +1113,9 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	if makeCompactor == nil {
 		makeCompactor = memory.NewCompactor
 	}
+	// The TurnEnd-captured next step; absent on a harp that has not finished
+	// a turn, and absent costs nothing (see distillPrompt).
+	taskHint, _ := memory.ReadNextStep(harp)
 	compactor, err := makeCompactor(memory.CompactionConfig{
 		LLM:             s.cfg.GetCompactionLLM(),
 		Model:           model,
@@ -1117,6 +1124,7 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 		SessionID:       sessionID,
 		WorkDir:         workDir,
 		HarpName:        harp,
+		TaskHint:        taskHint,
 	})
 	if err != nil {
 		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't start distillation for session %s: %v", sessionID, err)}, nil

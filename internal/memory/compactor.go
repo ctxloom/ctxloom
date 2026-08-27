@@ -121,6 +121,18 @@ type CompactionConfig struct {
 	// which is the hard refusal ceiling: a target above it would ask the model
 	// for output Compact must then reject.
 	EssenceMaxChars int
+	// TaskHint states what the RESUMING session intends to do, so distillation
+	// can be task-aware rather than task-agnostic — preferentially retaining
+	// the material that next step will need. Task-agnostic compression is the
+	// measurably weaker regime (LongBench 39.1 vs 44.0 at 5x, arXiv 2403.12968),
+	// and a transcript compressed without knowing the question discards the
+	// answer as readily as anything else.
+	//
+	// Empty is the honest default and must stay behaviourally free: with no
+	// hint, distillPrompt emits the same bytes it did before this field
+	// existed. A fresh harp has no captured next step, and a distill that
+	// invented one would steer retention by a guess.
+	TaskHint string
 	// PromptDir loads the distillation prompt from a directory on disk
 	// (<dir>/session-distill.md) instead of the binary's embedded copy, so a
 	// prompt-evaluation harness can A/B variants without a rebuild. Empty uses
@@ -1482,8 +1494,17 @@ func (c *Compactor) distillPrompt() (string, error) {
 		}
 		text = loaded
 	}
-	return fmt.Sprintf("%s\n- The finished essence must be under %d characters.\n",
-		text, c.config.EssenceMaxChars), nil
+	prompt := fmt.Sprintf("%s\n- The finished essence must be under %d characters.\n",
+		text, c.config.EssenceMaxChars)
+	// Appended ONLY when a hint exists, so a no-hint distill is byte-identical
+	// to one from before task-awareness landed. An empty hint rendered as an
+	// empty section would still change the prompt, and every essence produced
+	// without a hint would then be attributable to a prompt no evaluation had
+	// measured.
+	if hint := strings.TrimSpace(c.config.TaskHint); hint != "" {
+		prompt += fmt.Sprintf("\n## Task hint\n\nThe session resuming from this essence intends to do the following next:\n\n%s\n", hint)
+	}
+	return prompt, nil
 }
 
 // resultFindingPrompt recovers the finding an agent never stated for a large

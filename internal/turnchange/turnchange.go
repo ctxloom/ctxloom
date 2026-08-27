@@ -1,5 +1,8 @@
-// Package turnchange answers one question for the Stop-hook close-out
-// contract: did THIS TURN perform a change-making action?
+// Package turnchange answers questions about the TURN NOW ENDING, off the
+// engine's own transcript. Its original and principal question is the
+// Stop-hook close-out contract's: did this turn perform a change-making
+// action? LastAssistantText answers the other one — what did the turn
+// SAY — for the TurnEnd next-step capture.
 //
 // The question it replaces is "is the working tree dirty". That proxy is
 // wrong for the session shape that most needs a close-out checklist: a
@@ -438,16 +441,56 @@ func (c *collector) Record(ev agent.ChatEvent) error {
 
 func (c *collector) Close() error { return nil }
 
+// ReadClaudeTranscript reads the claude-code vendor transcript at path through
+// claude.Adapter — the same reader that produces ctxloom's canonical
+// transcript — and returns its events.
+//
+// Exported so a second caller cannot arrive at the same bytes by a second
+// route. A hand-rolled JSONL scan is the obvious shortcut for anyone who only
+// wants "the last assistant line", and it is how a build ends up with two
+// disagreeing notions of what a transcript entry is: the vendor format is the
+// adapter's problem, and it already solves it for three engines.
+func ReadClaudeTranscript(ctx context.Context, path string) ([]agent.ChatEvent, error) {
+	c := &collector{}
+	if err := (claude.Adapter{}).Convert(ctx, c, path); err != nil {
+		return nil, err
+	}
+	return c.events, nil
+}
+
 // ClassifyClaudeTranscript reads the claude-code vendor transcript at path
-// through claude.Adapter — the same reader that produces ctxloom's canonical
-// transcript — and classifies its current turn.
+// and classifies its current turn.
 //
 // On failure it returns BOTH a changed Decision and the error, so a caller
 // that only inspects the Decision still fails in the speaking direction.
 func ClassifyClaudeTranscript(ctx context.Context, path string) (Decision, error) {
-	c := &collector{}
-	if err := (claude.Adapter{}).Convert(ctx, c, path); err != nil {
+	evs, err := ReadClaudeTranscript(ctx, path)
+	if err != nil {
 		return Decision{Changed: true, Reason: "transcript could not be read: " + err.Error()}, err
 	}
-	return ClassifyEvents(c.events), nil
+	return ClassifyEvents(evs), nil
+}
+
+// LastAssistantText returns the text of the LAST main-thread assistant message
+// in the turn now ending, or "" when the turn produced none.
+//
+// Scoped to CurrentTurn, so a turn that says nothing yields nothing rather
+// than an answer recovered from an earlier turn — the caller overwrites
+// per-turn storage with this, and a stale message re-presented as the current
+// one is worse than no message at all.
+//
+// Sidechain entries are excluded: a subagent's closing words are its report to
+// this agent, not this agent's statement of what IT intends to do next.
+func LastAssistantText(evs []agent.ChatEvent) string {
+	turn := CurrentTurn(evs)
+	for i := len(turn) - 1; i >= 0; i-- {
+		e := turn[i].Entry
+		if e == nil || e.Type != agent.EntryTypeAssistant || e.Sidechain {
+			continue
+		}
+		if text := strings.TrimSpace(e.Content); text != "" {
+			return text
+		}
+	}
+	return ""
 }

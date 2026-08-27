@@ -92,6 +92,36 @@ func NewToolReflectHook(minBytes int) wire.Hook {
 	}
 }
 
+// NextStepTimeout is the timeout, in seconds, for the TurnEnd next-step hook.
+// Longer than ToolReflectTimeout because this hook READS THE TRANSCRIPT, which
+// grows with the session; short enough that a stalled read cannot hold a turn
+// open indefinitely.
+const NextStepTimeout = 15
+
+// NewNextStepHook creates the TurnEnd hook that captures what the agent was
+// about to do next, so a later distillation can be task-aware instead of
+// task-agnostic.
+//
+// TurnEnd is the seam and the choice is load-bearing. The capture has to
+// happen while a live agent still holds the context; by session_end there is
+// nobody left to ask, and session_end is additionally not the same event on
+// every engine (kiro maps it to its per-TURN stop). Firing every turn and
+// OVERWRITING is what makes that survivable: whatever the final turn said is
+// what remains when the session ends, without anything having to detect that
+// the session was ending.
+//
+// The hook takes no arguments. It resolves its harp from the environment at
+// FIRE time (SessionHarpEnv) rather than having one interpolated here, because
+// the installed command is written once — by apply-hooks, into settings that
+// outlive the session that wrote them — and must serve every later session.
+func NewNextStepHook() wire.Hook {
+	return wire.Hook{
+		Command: fmt.Sprintf("%s hook next-step", shellSingleQuote(CtxloomCommand())),
+		Type:    "command",
+		Timeout: NextStepTimeout,
+	}
+}
+
 // absOrSelf resolves workDir to an absolute path (Claude Code may launch the
 // hook from a different cwd), falling back to the input on error.
 func absOrSelf(workDir string) string {

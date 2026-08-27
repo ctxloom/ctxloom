@@ -201,6 +201,15 @@ const (
 	// EssenceFileName is the name of a harp's distilled session essence.
 	EssenceFileName = "essence.md"
 
+	// NextStepFileName is the name of a harp's captured next step: what the
+	// agent said it was about to do, written by the TurnEnd hook and
+	// OVERWRITTEN every turn, so the file holds the LAST turn's statement.
+	//
+	// It sits beside EssenceFileName because it is consumed with it: the
+	// essence is what the session was, this is what it intended next, and
+	// distillation reads the second to decide what to keep of the first.
+	NextStepFileName = "next-step.md"
+
 	// PlanFileExt is the suffix for a session's plan documents. Plans live
 	// in the harp's persist/ subdirectory as <descriptive-name>.plan.md files
 	// (HarpPlansDir); a session may hold several.
@@ -415,6 +424,17 @@ func HarpEssencePath(harp string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, EssenceFileName), nil
+}
+
+// HarpNextStepPath returns ~/.ctxloom/sessions/<harp>/next-step.md — the
+// harp's captured next step (see NextStepFileName). Rides HarpDir, so a
+// harp name that would escape the sessions root is refused here too.
+func HarpNextStepPath(harp string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, NextStepFileName), nil
 }
 
 // HarpEphemeralDir returns ~/.ctxloom/sessions/<harp>/ephemeral — the

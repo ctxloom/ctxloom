@@ -22,7 +22,15 @@ description: 'Situations MINED from 3,404 real tool-intent statements across 86 
 
   UNTIL LABELLING IS DONE every row has an empty `expect`, so the false-fire metric is meaningless: it
   cannot distinguish a genuine nothing-applies situation from one nobody has labelled yet. Score only
-  after labelling.'
+  after labelling.
+
+
+  C-ROWS ARE AUTHORED CANARY CANDIDATES, NOT MINED. A transcript records only moments where the agent
+  acted, so a moment where nothing applies is structurally absent from mined input and has to be written
+  by hand. They are marked CANDIDATE and left unlabelled on purpose: they were written by someone who
+  had read the authored premises, so asserting expect:[] here would be constructing rows that dodge those
+  premises. The blind labeller confirms or refutes each one. If a fragment genuinely applies to a C-row,
+  it was never a canary, and that is a finding rather than an error.'
 situations:
 - id: S01
   intent: I need to understand how an existing piece of this code works before I change anything.
@@ -190,3 +198,46 @@ situations:
   observed: 35
   example: '[Bash] Check machine load before adding agents'
   expect: []
+- id: C01
+  intent: The user asked which time zone the server stamps its logs in; I'll read one line and tell them.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  canary_candidate: true
+  why_candidate: plainly answering a question from a file already in front of me
+- id: C02
+  intent: I'm renaming a local variable inside a single function so it reads better.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  canary_candidate: true
+  why_candidate: a one-line change; the reduce-first rule explicitly exempts typos and single lines
+- id: C03
+  intent: I'm fixing a typo in a comment inside the justfile.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  canary_candidate: true
+  why_candidate: the justfile and the task runner are both PRESENT as topics, but the moment is a typo
+    fix
+- id: C04
+  intent: Someone asked what a CLI flag does and I'm reading the help output to answer.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  canary_candidate: true
+  why_candidate: reading help text to answer a question, not choosing how to invoke anything
+- id: C05
+  intent: I'm reading a design document to find out what was already decided.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  canary_candidate: true
+  why_candidate: design and planning are present as topics, but nothing is being proposed or sequenced
+- id: C06
+  intent: I'm re-reading the reply I just drafted to check it says what I meant.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  canary_candidate: true
+  why_candidate: no action on the repository at all

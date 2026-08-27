@@ -63,7 +63,6 @@ llm:
 # Behavioral settings
 config:
   use_distilled: true         # prefer distilled fragment versions (default true)
-  compaction_chunks: 8000     # target tokens per compaction chunk
   statusline: true            # let ctxloom manage the HUD statusline
   sign:                       # publisher-signing defaults for `fragment push`/`command push`
     default: false             # sign every push unless --no-sign (default false)
@@ -209,7 +208,6 @@ antigravity equivalent) are dropped.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `config.use_distilled` | `true` | Prefer distilled content |
-| `config.compaction_chunks` | `8000` | Tokens per compaction chunk |
 | `config.statusline` | `true` | Manage the ctxloom HUD statusline (set `false` to keep your own) |
 | `sync.auto_sync` | `true` | Sync remotes on startup |
 | `llm.defaults.primary` | `claude-code` | Default LLM backend |
@@ -351,8 +349,6 @@ Session memory is always enabled. The compaction/distillation model is the
 llm:
   defaults:
     fast: quick              # config label used for distillation
-config:
-  compaction_chunks: 8000    # tokens per chunk
 ```
 
 See [Session Memory Guide](/getting-started/memory) for usage details.

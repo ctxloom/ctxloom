@@ -411,7 +411,7 @@ func TestConfig_Save(t *testing.T) {
 
 // Regression: Save round-trips the labeled-config registry, the role map, the
 // config (settings) block, and the editor block. The fast role's labeled
-// config carries the compression model; compaction_chunks lives under config.
+// config carries the compression model; essence_max_chars lives under config.
 func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	// Real-OS-fs Load below (no WithFS): isolate HOME so the home-layer read
 	// (D2/D3 layering) never reaches this developer's real ~/.ctxloom.

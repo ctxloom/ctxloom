@@ -72,7 +72,6 @@ Behavioral settings
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `compaction_chunks` | integer | Target tokens per compaction chunk (default: 8000) |
 | `sign` | object | Publisher-signing defaults for `bundle push`. |
 | `statusline` | boolean | Whether ctxloom manages its HUD statusline (default: true); set false to keep your own |
 | `use_distilled` | boolean | Whether to prefer distilled versions of fragments/prompts (default: true) |

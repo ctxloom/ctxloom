@@ -231,7 +231,7 @@ func TestConfigShowGet_HonorEveryFormatWithARealPayload(t *testing.T) {
 
 			out := buf.String()
 			require.NotEmpty(t, out, "%s rendered zero bytes", format)
-			assert.Contains(t, out, "8000", "%s must carry the compaction_chunks sentinel, not an empty envelope", format)
+			assert.Contains(t, out, "8000", "%s must carry the essence_max_chars sentinel, not an empty envelope", format)
 			assert.Contains(t, out, "gemini-3-pro", "%s must carry the llm sentinel", format)
 		})
 	}

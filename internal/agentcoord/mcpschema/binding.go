@@ -237,9 +237,9 @@ func Routes() map[string]Route {
 }
 
 // DistillBudget is what a transcript distillation is actually allowed to take.
-// The work is ceil(chunks / distillConcurrency) waves of LLM subprocesses over
-// a whole transcript, so it scales with session length, not with round-trip
-// latency: a long session runs to many minutes of entirely healthy work. The
+// The work is one LLM subprocess over a whole transcript, so it scales with
+// session length, not with round-trip latency: a long session runs to many
+// minutes of entirely healthy work. The
 // generic plane-2 budget is sized for a coordination frame — a round trip —
 // and billing distillation against it failed every large recover mid-flight.
 // This is a backstop against a wedged host, not a performance target; it is

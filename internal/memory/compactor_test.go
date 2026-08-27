@@ -428,7 +428,7 @@ func TestCompact_NoSession(t *testing.T) {
 
 // TestCompact_EmptySession is the empty-session regression test: a session with
 // zero main-thread entries must short-circuit straight to a dumped, trivial
-// essence — succeeding, not erroring — and must never reach the map/reduce
+// essence — succeeding, not erroring — and must never reach the distillation
 // LLM pipeline. The ClientFactory below fails the test outright if the
 // compactor ever tries to spawn an LLM plugin, so a regression that routes an
 // empty session back through the distillation call is
@@ -1283,12 +1283,6 @@ func TestDeriveSummary(t *testing.T) {
 		})
 	}
 }
-
-// =============================================================================
-// finalCompressionPass — uses the dedicated reduce prompt, not the map prompt.
-// The reduce prompt re-asserts the mandatory frontmatter and identifier
-// preservation the picker depends on.
-// =============================================================================
 
 
 // =============================================================================

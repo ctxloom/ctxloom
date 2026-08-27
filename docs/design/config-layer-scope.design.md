@@ -179,7 +179,7 @@ reflected.)
 | `isolation_images`, `isolation_engines`, `isolation_devcontainer_base`, `isolation_devcontainer_service` | `ScopeMachine` | image tags and engines present on this machine |
 | `isolation_base_containerfile` | `ScopeShared` | its own doc: "Relative paths resolve against the project root" — a repo file |
 | `sync.auto_sync` | `ScopePreference` | – |
-| `config.use_distilled`, `config.compaction_chunks` | `ScopePreference` | – |
+| `config.use_distilled` | `ScopePreference` | – |
 | `config.statusline` | `ScopeMachine` | whether ctxloom may own THIS terminal's statusline |
 | `config.sign.key` | `ScopeMachine` | a fingerprint or path to this user's key material |
 | `config.sign.default` | `ScopePreference` | – |

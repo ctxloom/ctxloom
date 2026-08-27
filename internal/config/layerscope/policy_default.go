@@ -181,7 +181,6 @@ func DefaultPolicy() Policy {
 		{Path: "sync.auto_sync", Scope: ScopePreference},
 
 		{Path: "config.use_distilled", Scope: ScopePreference},
-		{Path: "config.compaction_chunks", Scope: ScopePreference},
 		// DIVERGES from the design doc (ScopeMachine there). MEASURED against
 		// a real acceptance scenario (features/manage.feature "Statusline
 		// can be disabled and re-enabled"): `manage statusline

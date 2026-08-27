@@ -55,6 +55,8 @@ const (
 	// internal/memory/compactor.go's distillConcurrency — each chunk spawns
 	// its own LLM plugin subprocess, so this caps concurrent subprocesses
 	// (and provider rate pressure) instead of firing every chunk at once.
+	// Task triage genuinely IS a batch of independent items; session
+	// distillation is not, and no longer chunks.
 	triageConcurrency = 4
 )
 
@@ -546,7 +548,7 @@ type chunkResult struct {
 }
 
 // runTriageChunks runs every chunk's round-1 model call with bounded
-// concurrency (mirroring internal/memory/compactor.go's distillChunks),
+// concurrency (mirroring internal/memory/compactor.go's repairResults),
 // writing each result into its own pre-sized slot by chunk index — so the
 // returned slice is in the SAME order as chunks regardless of which
 // goroutine finishes first. Chunks are independent (each is a disjoint task

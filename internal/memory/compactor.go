@@ -397,9 +397,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 // real conversations would spare essentially everything; it would not be a
 // usable "skip the pipeline" signal. "Zero entries" has no such false
 // positive: nothing was ever said, so there is nothing to condense, and
-// spawning a plugin subprocess (map) plus a reduce pass to summarize an
-// empty transcript is pure waste — one of the surfaces plausibly implicated
-// in tart-aqua's final-pass timeout.
+// spawning a plugin subprocess to summarize an empty transcript is pure
+// waste.
 func isEmptySession(entries []agent.SessionEntry) bool {
 	return len(entries) == 0
 }
@@ -414,9 +413,9 @@ func isEmptySession(entries []agent.SessionEntry) bool {
 // reasons that have nothing to do with how much was said — a session whose only
 // main-thread entries are `thinking`, which appendEntryText suppresses by
 // policy, or entries carrying a type this renderer has no case
-// for. Without this check the pipeline chunks the empty string into one chunk
-// and spawns an LLM plugin subprocess to summarize a transcript containing
-// nothing, then writes whatever the model invents over the session's essence.
+// for. Without this check the pipeline spawns an LLM plugin subprocess to
+// summarize a transcript containing nothing, then writes whatever the model
+// invents over the session's essence.
 func rendersToNothing(logText string) bool {
 	return strings.TrimSpace(logText) == ""
 }
@@ -428,8 +427,8 @@ func rendersToNothing(logText string) bool {
 const emptySessionPlaceholder = "_(empty session — no conversation content to distill)_"
 
 // dumpEmptySession is the short-circuit for isEmptySession: it skips
-// chunking, per-chunk map distillation, and the reduce pass entirely — no
-// LLM plugin subprocess is spawned — and persists a trivial but valid
+// distillation entirely — no LLM plugin subprocess is spawned — and
+// persists a trivial but valid
 // essence (any plan files still re-attached verbatim) via the same
 // saveDistilled/updateSessionIndex plumbing normal distillation uses, so a
 // later `session list` / resume picker sees a well-formed entry rather than

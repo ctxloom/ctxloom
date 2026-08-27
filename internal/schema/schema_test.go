@@ -42,7 +42,7 @@ agents:
     profiles: [proj/dev]
 config:
   use_distilled: true
-  compaction_chunks: 8000
+  essence_max_chars: 8000
 `
 		err := v.ValidateBytes([]byte(yaml))
 		assert.NoError(t, err)

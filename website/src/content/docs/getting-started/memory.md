@@ -248,8 +248,6 @@ chunk size lives under `config`:
 llm:
   defaults:
     fast: claude-fast      # config label used for compaction/distillation
-config:
-  compaction_chunks: 8000  # target tokens per compaction chunk
 ```
 
 ## CLI Commands
@@ -311,7 +309,6 @@ If recovery can't find a session to distill:
 If compaction fails:
 - Check that the LLM is configured correctly
 - Ensure you have API access for the compaction model
-- Try a smaller `config.compaction_chunks` if sessions are very large
 
 ### Distilled Session Missing
 

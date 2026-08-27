@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/turnchange"
@@ -67,10 +68,15 @@ func captureNextStep(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	if payload.TranscriptPath == "" {
-		return errors.New("hook payload carries no transcript_path")
+	// The transcript is read through the ACTIVE engine's own adapter. This
+	// hook is installed on every hooking backend, so assuming one engine's
+	// format here is how the capture fires every turn on the others and
+	// stores nothing.
+	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), harp, payload.TranscriptPath)
+	if err != nil {
+		return err
 	}
-	evs, err := turnchange.ReadClaudeTranscript(cmd.Context(), payload.TranscriptPath)
+	evs, err := turnchange.ReadTranscript(cmd.Context(), adapter, src)
 	if err != nil {
 		return err
 	}

@@ -92,25 +92,68 @@ func registerJ000500Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("`acp list` printed nothing (exit %d). Its entire job is to hand a human a block to paste; "+
 				"zero bytes is the silent no-op wearing a helpful name", w.env.LastExitCode())
 		}
-		// "Pasteable" is a payload property, not a formatting opinion: the
-		// block has to name the command an editor will execute, and it has to
-		// parse as the JSON an editor config is written in. A prose listing
-		// that describes the agent is a different artifact with the same words
-		// in it.
-		if !strings.Contains(out, "ctxloom") || !strings.Contains(out, "acp") {
-			return fmt.Errorf("the listing never names the command an editor would run (`ctxloom acp serve ...`), so there is "+
-				"nothing in it to paste. It printed:\n%s", out)
+		if !formatAskedFor(w).Structured() {
+			// "Pasteable" is a payload property, not a formatting opinion: the
+			// block has to name the command an editor will execute, and it has
+			// to parse as the JSON an editor config is written in. A prose
+			// listing that describes the agent is a different artifact with
+			// the same words in it.
+			if !strings.Contains(out, "ctxloom") || !strings.Contains(out, "acp") {
+				return fmt.Errorf("the listing never names the command an editor would run (`ctxloom acp serve ...`), so there is "+
+					"nothing in it to paste. It printed:\n%s", out)
+			}
+			start := strings.Index(out, "{")
+			end := strings.LastIndex(out, "}")
+			if start < 0 || end <= start {
+				return fmt.Errorf("the listing contains no JSON object at all, so it cannot be pasted into an editor's config "+
+					"file as-is. It printed:\n%s", out)
+			}
+			var probe map[string]any
+			if err := json.Unmarshal([]byte(out[start:end+1]), &probe); err != nil {
+				return fmt.Errorf("the listing's block does not parse as JSON (%v), so pasting it produces a broken editor "+
+					"config. It printed:\n%s", err, out)
+			}
+			return nil
 		}
-		start := strings.Index(out, "{")
-		end := strings.LastIndex(out, "}")
-		if start < 0 || end <= start {
-			return fmt.Errorf("the listing contains no JSON object at all, so it cannot be pasted into an editor's config "+
-				"file as-is. It printed:\n%s", out)
+		// The JSON row's pasteable artifact is the entries array itself — the
+		// doc's own words say other ACP clients "configure the same
+		// command/args in their own format" — so the same claim (a real
+		// command an editor could invoke, not a description of one) is
+		// checked at the first entry's own fields.
+		entries, err := lastOutputJSONArray(w, "$")
+		if err != nil {
+			return err
 		}
-		var probe map[string]any
-		if err := json.Unmarshal([]byte(out[start:end+1]), &probe); err != nil {
-			return fmt.Errorf("the listing's block does not parse as JSON (%v), so pasting it produces a broken editor "+
-				"config. It printed:\n%s", err, out)
+		if len(entries) == 0 {
+			return fmt.Errorf("the JSON listing is an empty array — nothing an editor could invoke. It printed:\n%s", out)
+		}
+		command, err := jsonAtPath(entries[0], "command")
+		if err != nil {
+			return fmt.Errorf("%v; stdout:\n%s", err, out)
+		}
+		if got, ok := jsonScalar(command); !ok || got == "" {
+			return fmt.Errorf("the JSON listing's first entry has no command an editor could invoke. It printed:\n%s", out)
+		}
+		args, err := jsonAtPath(entries[0], "args")
+		if err != nil {
+			return fmt.Errorf("%v; stdout:\n%s", err, out)
+		}
+		argList, ok := args.([]any)
+		if !ok || len(argList) == 0 {
+			return fmt.Errorf("the JSON listing's first entry names no arguments, so there is nothing to actually invoke. It printed:\n%s", out)
+		}
+		var hasACP, hasServe bool
+		for _, a := range argList {
+			s, _ := jsonScalar(a)
+			switch s {
+			case "acp":
+				hasACP = true
+			case "serve":
+				hasServe = true
+			}
+		}
+		if !hasACP || !hasServe {
+			return fmt.Errorf("the JSON listing's first entry does not invoke `acp serve`. It printed:\n%s", out)
 		}
 		return nil
 	})

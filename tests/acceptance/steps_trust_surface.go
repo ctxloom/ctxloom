@@ -667,14 +667,19 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 
 	// --- GAP F: an unparseable source ref must fail CLOSED, never "local" -----
 
-	ctx.Step(`^Alice tries to review an item whose source reference is malformed$`, func(c context.Context) error {
+	ctx.Step(`^Alice tries to review an item whose source reference is malformed, asking for "([^"]*)"$`, func(c context.Context, flags string) error {
 		w := worldFrom(c)
+		flagArgs, err := shellSplit(flags)
+		if err != nil {
+			return fmt.Errorf("parse flags %q: %w", flags, err)
+		}
 		// "https://" carries a scheme marker (so it was plainly INTENDED as a
 		// canonical ref) but does not parse as one. The mutation must refuse
 		// it outright rather than silently downgrading it to a local bundle
 		// name — a local ref is auto-ALLOWED at cascade step 3, so a downgrade
 		// here is a gate bypass, not a cosmetic mislabel.
-		_ = w.env.Run("bundle", "trust", "https://#fragments/context")
+		args := append(append([]string{}, flagArgs...), "bundle", "trust", "https://#fragments/context")
+		_ = w.env.Run(args...)
 		return nil // the refusal is asserted next
 	})
 
@@ -691,8 +696,26 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("`ctxloom bundle trust` accepted a malformed source ref; a downgrade to a local "+
 				"bundle name is a gate bypass. output:\n%s", out)
 		}
-		if !strings.Contains(out, `"https://"`) {
-			return fmt.Errorf("the refusal does not name the spelling it refused (want %q); output:\n%s", `"https://"`, out)
+		// Every command error routes through cliemit.EmitError (root.go), which
+		// is ALSO format-resolved: off a terminal (this harness, always) the
+		// no-flag row's error is the JSON {"error": "..."} envelope on stderr,
+		// not the "Error: ..." text line. The raw bytes then carry the quoted
+		// spelling backslash-escaped (`\"https://\"`), so a literal `"https://"`
+		// substring check only ever matches the text rendering — decode the
+		// envelope's error field for the structured case instead.
+		if !formatAskedFor(w).Structured() {
+			if !strings.Contains(out, `"https://"`) {
+				return fmt.Errorf("the refusal does not name the spelling it refused (want %q); output:\n%s", `"https://"`, out)
+			}
+			return nil
+		}
+		msg, err := jsonAtPathFrom(out, "error")
+		if err != nil {
+			return fmt.Errorf("%v; output:\n%s", err, out)
+		}
+		got, _ := jsonScalar(msg)
+		if !strings.Contains(got, `"https://"`) {
+			return fmt.Errorf("the JSON refusal's error field does not name the spelling it refused (want %q); error field: %q", `"https://"`, got)
 		}
 		return nil
 	})
@@ -1216,28 +1239,46 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		return tsSupersedeStore(worldFrom(c))
 	})
 
-	ctx.Step(`^review lists the fragment as an update awaiting re-review, not as a new item$`, func(c context.Context) error {
+	ctx.Step(`^review lists the fragment as an update awaiting re-review, not as a new item, asking for "([^"]*)"$`, func(c context.Context, flags string) error {
 		w := worldFrom(c)
-		if err := runOK(w, "review", "--list"); err != nil {
+		flagArgs, err := shellSplit(flags)
+		if err != nil {
+			return fmt.Errorf("parse flags %q: %w", flags, err)
+		}
+		args := append(append([]string{}, flagArgs...), "review", "--list")
+		if err := runOK(w, args...); err != nil {
 			return err
 		}
 		out := w.env.LastOutput()
 		w.docStepMaterialized = strings.TrimSpace(out)
-		if !strings.Contains(out, "update") {
-			return fmt.Errorf("`review --list` does not label the superseded item an update — a stale approval must not read as a first-time item; output:\n%s", out)
-		}
-		if !strings.Contains(out, "fragments/context") {
-			return fmt.Errorf("`review --list` does not list the superseded fragment at all; output:\n%s", out)
-		}
-		for _, line := range strings.Split(out, "\n") {
-			if !strings.Contains(line, "fragments/context") {
-				continue
+		if !formatAskedFor(w).Structured() {
+			if !strings.Contains(out, "update") {
+				return fmt.Errorf("`review --list` does not label the superseded item an update — a stale approval must not read as a first-time item; output:\n%s", out)
 			}
-			if !strings.Contains(line, "update") {
-				return fmt.Errorf("the superseded fragment is listed as %q, want it labelled an update; output:\n%s", strings.TrimSpace(line), out)
+			if !strings.Contains(out, "fragments/context") {
+				return fmt.Errorf("`review --list` does not list the superseded fragment at all; output:\n%s", out)
 			}
-			return nil
+			for _, line := range strings.Split(out, "\n") {
+				if !strings.Contains(line, "fragments/context") {
+					continue
+				}
+				if !strings.Contains(line, "update") {
+					return fmt.Errorf("the superseded fragment is listed as %q, want it labelled an update; output:\n%s", strings.TrimSpace(line), out)
+				}
+				return nil
+			}
+			return fmt.Errorf("`review --list` listed no line for fragments/context; output:\n%s", out)
 		}
-		return fmt.Errorf("`review --list` listed no line for fragments/context; output:\n%s", out)
+		// The JSON row reads the SAME fact off operations.PendingReviewResult's
+		// own shape: exactly one bundle here, and its one fragment item (named
+		// "context") must carry ReviewStatusUpdate, not ReviewStatusNew.
+		status, err := lastOutputJSONAt(w, "bundles.0.items[name=context].status")
+		if err != nil {
+			return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
+		}
+		if got, _ := jsonScalar(status); got != "update" {
+			return fmt.Errorf("the superseded fragment's JSON status = %q, want %q; stdout:\n%s", got, "update", w.env.LastStdout())
+		}
+		return nil
 	})
 }

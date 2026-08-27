@@ -33,15 +33,28 @@ Feature: Per-binding ACP entries
   # is the whole point of advertising one entry per binding rather than one
   # entry. Verified: zero matches for "acp serve --agent" or "agent_servers
   # paste block" in any other feature file.
-  Scenario: ACP agent entries advertise per-binding servers
+  # Tabled by format: `acp list` is wired to emit(), so off a terminal (which
+  # this harness always is) the no-flag row now gets the JSON payload, not the
+  # Zed-paste-block prose the old assertion assumed unconditionally. The
+  # per-binding claim — a configured agent's entry carries `--agent <name>` —
+  # is asserted at its exact array position in the JSON args (buildACPAgentEntries
+  # always emits [.., "acp", "serve", "--agent", <name>] for a bound entry),
+  # which is more precise than the substring check the text row still uses.
+  Scenario Outline: ACP agent entries advertise per-binding servers
     Given an initialized ctxloom project
     And a profile "dev" exists
     And I run "ctxloom agent create developer --profiles dev"
-    When I run "ctxloom acp list"
+    When I run "ctxloom <flags> acp list"
     Then the command succeeds
-    And the output contains "developer"
-    And the agent_servers paste block declares a server "ctxloom" running "acp serve"
-    And the agent_servers paste block declares a server "ctxloom: developer" running "acp serve --agent developer"
+    And the output reports "$.1.name" as "<names the binding>"
+    And the output reports "$.1.args.2" as "<names the flag>"
+    And the output reports "$.1.args.3" as "<names the agent>"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names the binding   | names the flag | names the agent |
+      |               | ctxloom: developer   | --agent         | developer        |
+      | --format json | ctxloom: developer   | --agent         | developer        |
+      | --format text | ctxloom: developer   | --agent         | developer        |
 
 
   # MOVED here from features/profile.feature, which was retired when

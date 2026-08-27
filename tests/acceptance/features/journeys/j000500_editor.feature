@@ -58,13 +58,27 @@ Feature: Dana in her editor
   # still contains every substring a reader would grep for, still names the
   # command, and is no longer JSON — turns this red on the Unmarshal, which is
   # exactly the artifact Dana's editor would reject.
-  Scenario: The block she is told to paste is one she can actually paste
+  # Tabled by format: `acp list` is wired to emit(), so off a terminal (which
+  # this harness always is) the no-flag row now gets the JSON entries array,
+  # not the Zed paste block the old assertion checked unconditionally. The
+  # JSON row restates the SAME claim ("real JSON naming a real binary an
+  # editor could invoke, not a prose description") at the entries array's own
+  # command/args fields, since the doc's own words say other ACP clients
+  # configure "the same command/args in their own format" — the array itself
+  # is their pasteable artifact, the Zed block is only Zed's.
+  Scenario Outline: The block she is told to paste is one she can actually paste
     When Dana asks ctxloom what she should put in her editor:
       """
-      ctxloom acp list
+      ctxloom <flags> acp list
       """
     Then the listing is something she can actually paste into her editor's config
     And the listing names the agent she would bind to
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         |
+      |               |
+      | --format json |
+      | --format text |
 
   # A FILED DEFECT (task broken-sage) at the surface where it does the most
   # damage. The bare `ctxloom acp` parent command registers --agent, --llm,
@@ -110,9 +124,19 @@ Feature: Dana in her editor
   # the fact. This scenario's own fixture (j000500Setup) never creates such a
   # binding, which is exactly why the note has to be structural rather than
   # computed per-entry.
+  # NOT TABLED, and pinned to --format text rather than left on the derived
+  # default: renderACPAgents' warning note is written straight to the text
+  # renderer's Println calls and is not a field on acpAgentEntry at all, so
+  # `acp list`'s JSON payload carries no trace of it (verified: `ctxloom
+  # --format json acp list` returns bare {name,command,args,agent,llm,profiles}
+  # entries, nothing else). That is a real product gap — a script or editor
+  # reading --format json never receives this warning at all — left FOR
+  # PRODUCTION to fix, not this suite: forcing a json row here would either
+  # fail on a defect out of scope, or pass by asserting something weaker than
+  # the text row proves, both of which the ruling on this branch forbids.
   Scenario: She is told what the editor door does not carry
     When Dana asks ctxloom what she should put in her editor:
       """
-      ctxloom acp list
+      ctxloom --format text acp list
       """
     Then ctxloom says what a bare ACP agent will not inherit

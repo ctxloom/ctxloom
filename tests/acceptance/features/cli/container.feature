@@ -89,31 +89,43 @@ Feature: container — the images isolated agents run in, and the questions you 
     # runtime name/status line) — moved down here rather than restated in two
     # places, so the noun's own spec is the one place asserting every axis the
     # report claims to answer.
-    Scenario: The capability check is diagnostic-only
+    Scenario Outline: The capability check is diagnostic-only
       Given an initialized ctxloom project
       And I record the project tree
       When Alice asks whether containerized agents could run here:
         """
-        ctxloom container check claude-code
+        ctxloom container check claude-code <flags>
         """
       Then the command succeeds
-      And the output contains "Container capability (backend: claude-code)"
-      And the output contains "in a container:"
-      And the output contains "runtime:"
-      And the output contains "shared fs:"
+      And the output reports "image" matching "<names the backend it checked>"
+      And the output reports "in_container" as "<says whether it is in a container>"
+      And the output reports "runtime" matching "<names the runtime>"
+      And the output reports "shared_fs" matching "<reports the shared fs>"
       And the project tree is unchanged
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names the backend it checked                | says whether it is in a container | names the runtime | reports the shared fs |
+      |               | claude-code                                 | false                             | \S               | ok                    |
+      | --format json | claude-code                                 | false                             | \S               | ok                    |
+      | --format text | Container capability (backend: claude-code) | in a container:                   | runtime:          | shared fs:            |
 
     # Named backend vs. resolved default are two different code paths: with no
     # argument the project's configured default is resolved, and a report that
     # named no engine at all would describe nothing while still looking like a
     # report.
-    Scenario: With no backend named, the check reports on the project's default
+    Scenario Outline: With no backend named, the check reports on the project's default
       Given an initialized ctxloom project
-      When I run "ctxloom container check"
+      When I run "ctxloom container check <flags>"
       Then the command succeeds
-      And the output contains "Container capability (backend:"
+      And the output reports "image" matching "<names the backend it resolved>"
       And the output does not contain "(unresolved)"
-      And the output contains "shared fs:"
+      And the output reports "shared_fs" matching "<reports the shared fs>"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names the backend it resolved  | reports the shared fs |
+      |               | ctxloom-agent-\S               | ok                    |
+      | --format json | ctxloom-agent-\S               | ok                    |
+      | --format text | Container capability (backend: | shared fs:            |
 
     Scenario: An unknown backend is a usage error, and the real ones are named
       Given an initialized ctxloom project
@@ -251,27 +263,31 @@ Feature: container — the images isolated agents run in, and the questions you 
     # So the "does not contain TOOLING-DECL-SHADY" assertion below becomes MORE
     # load-bearing when that lands, not less: it is what pins that adding the
     # ref section did not start leaking the body.
-    Scenario: An untrusted declaration is withheld, and a trusted one comes through
+    Scenario Outline: An untrusted declaration is withheld, and a trusted one comes through
       Given an initialized ctxloom project
       And a bundle "shady" declaring container tooling "TOOLING-DECL-SHADY"
       And I run "ctxloom bundle reject shady#commands/tooling"
       When Alice collects what her installed content needs in the image:
         """
-        ctxloom container tooling list
+        ctxloom container tooling list <flags>
         """
       Then the command succeeds
-      And the output contains "No trusted bundles declare container tooling"
-      And the output contains "Untrusted declarations are withheld"
+      And the output reports "declarations" as empty, which reads "No trusted bundles declare container tooling"
       And the output does not contain "TOOLING-DECL-SHADY"
       Given a bundle "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
       When Alice collects again now that a trusted bundle declares tooling:
         """
-        ctxloom container tooling list
+        ctxloom container tooling list <flags>
         """
       Then the command succeeds
       And the output contains "TOOLING-DECL-TOOLED"
       And the output does not contain "TOOLING-DECL-SHADY"
-      And the output does not contain "No trusted bundles declare container tooling"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         |
+      |               |
+      | --format json |
+      | --format text |
 
     # `tooling` is a sub-noun carrying the spine verb `list` rather than a bare
     # leaf, so it composes with the rest of the CLI's noun-verb shape — and its

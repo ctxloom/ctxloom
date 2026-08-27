@@ -252,13 +252,24 @@ Feature: The day the assistant goes blind
   #
   # The payload half is asserted separately, so a listing that says "held" while
   # actually delivering the new bytes could never pass.
-  Scenario: The runbook is frozen at an older version, and the listing names the hold
+  # Tabled by format: `bundle list` is wired to emit(), so off a terminal
+  # (which this harness always is) the no-flag row now gets the JSON
+  # BundleInfo array, not the "[held]" name-line suffix the old assertion
+  # checked unconditionally. The JSON row selects the runbook's own entry
+  # ([Name=<bundle>]) and reads its Held field directly.
+  Scenario Outline: The runbook is frozen at an older version, and the listing names the hold
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
     And Carol publishes a newer signed runbook while Alice's copy is held
     And Alice syncs on Monday
-    When I run "ctxloom bundle list"
+    When I run "ctxloom <flags> bundle list"
     Then the installed-bundle listing names the runbook as held
     And her assistant still receives the older deploy guidance and not the newer
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         |
+      |               |
+      | --format json |
+      | --format text |
 
   # ---- B4: distributed -> admitted --------------------------------------
   # Silent-loss mode: it arrived and is waiting on her own review. Inspector:
@@ -331,13 +342,25 @@ Feature: The day the assistant goes blind
   # this scenario says is absent — turns it red on the runbook being named.
   # Same command, two fixture states, two different answers, which is what
   # makes the negative assertion mean something.
-  Scenario: The runbook is admitted but in no profile, and profile show says so
+  # `agent show`'s Then is tabled by format (it is wired to emit(), so off a
+  # terminal — this harness, always — the no-flag row now gets agentShowJSON
+  # rather than renderAgentShow's bullet list). `profile show`'s Then stays a
+  # plain absence check on whichever format that row asked for: it is a
+  # negative claim ("the runbook is named nowhere"), which a substring check
+  # states identically for prose or JSON without needing a path.
+  Scenario Outline: The runbook is admitted but in no profile, and profile show says so
     Given the runbook is installed and admitted, but composed into no profile
-    When I run "ctxloom profile show default"
+    When I run "ctxloom <flags> profile show default"
     Then the profile listing does not name the runbook among its bundles
-    When I run "ctxloom agent show default"
+    When I run "ctxloom <flags> agent show default"
     Then the agent listing names the profile it composes
     And her assistant does not receive the deploy guidance
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         |
+      |               |
+      | --format json |
+      | --format text |
 
   # B5's THIRD nominated inspector, and a finding. The boundary table lists
   # `run --dry-run` as an inspector for "is my content actually composed?" —

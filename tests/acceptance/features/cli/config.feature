@@ -40,28 +40,40 @@ Feature: config — the project's one configuration document, read and scaffolde
     # is a vacuous assertion over precisely the surface ctxloom's
     # characteristic bug (exit 0, success message, zero real payload) hides in,
     # so it names keys the rendered document must actually carry.
-    Scenario: Show renders the whole configuration document
+    Scenario Outline: Show renders the whole configuration document
       Given an initialized ctxloom project
       When Alice reads her project's configuration:
         """
-        ctxloom config show
+        ctxloom config show <flags>
         """
       Then the command succeeds
-      And the output contains "llm:"
-      And the output contains "configs:"
       And the output contains "claude-code"
-      And the output contains "defaults:"
+      And the output reports "llm.configs.claude-code.type" as "<names the llm section>"
+      And the output reports "llm.configs.claude-fast.type" as "<names the configs block>"
+      And the output reports "llm.defaults.primary" as "<names the defaults block>"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names the llm section | names the configs block | names the defaults block |
+      |               | claude-code           | claude-code             | claude-code              |
+      | --format json | claude-code           | claude-code             | claude-code              |
+      | --format text | llm:                  | configs:                | defaults:                |
 
     # The bare noun answers rather than teaches, through the same seam
     # `ctxloom remote` uses. "Available Commands:" is cobra's help heading —
     # its absence is what says a document was rendered rather than a menu.
-    Scenario: Bare config shows the document instead of printing help
+    Scenario Outline: Bare config shows the document instead of printing help
       Given an initialized ctxloom project
-      When I run "ctxloom config"
+      When I run "ctxloom config <flags>"
       Then the command succeeds
-      And the output contains "llm:"
-      And the output contains "defaults:"
+      And the output reports "llm.configs.claude-code.type" as "<names the llm section>"
+      And the output reports "llm.defaults.primary" as "<names the defaults block>"
       And the output does not contain "Available Commands:"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names the llm section | names the defaults block |
+      |               | claude-code           | claude-code              |
+      | --format json | claude-code           | claude-code              |
+      | --format text | llm:                  | defaults:                |
 
     # THE ZERO-PAYLOAD TRAP, and the reason this scenario exists at all.
     # Config's fields are unexported and it renders through a custom
@@ -92,18 +104,24 @@ Feature: config — the project's one configuration document, read and scaffolde
     section's contents too — so each scenario names a key that IS in the whole
     document and must NOT be in the section view.
 
-    Scenario: The llm section carries the engine registry and nothing above it
+    Scenario Outline: The llm section carries the engine registry and nothing above it
       Given an initialized ctxloom project
       When Alice asks which engines this project is wired for:
         """
-        ctxloom config get llm
+        ctxloom config get llm <flags>
         """
       Then the command succeeds
       And the output contains "claude-code"
-      And the output contains "configs:"
-      And the output contains "defaults:"
+      And the output reports "configs.claude-code.type" as "<names the configs block>"
+      And the output reports "defaults.primary" as "<names the defaults block>"
       And the output does not contain "editor:"
       And the output does not contain "llm:"
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | names the configs block | names the defaults block |
+      |               | claude-code             | claude-code              |
+      | --format json | claude-code             | claude-code              |
+      | --format text | configs:                | defaults:                |
 
     # The `profiles:` block was RETIRED — a profile is a file. A config still
     # carrying one must be TOLD that, and told where profiles live now: the

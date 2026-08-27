@@ -41,7 +41,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         ctxloom <flags> deps list
         """
       Then the command succeeds
-      And the output reports "deps" as empty, which reads "No dependencies installed"
+      And the output reports "deps" as empty, saying "No dependencies installed"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         |
@@ -84,7 +84,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       When I run "ctxloom <flags> deps"
       Then the command succeeds
-      And the output reports "deps" as empty, which reads "No dependencies installed"
+      And the output reports "deps" as empty, saying "No dependencies installed"
       And the output does not contain "Available Commands:"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -156,7 +156,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
       And I run "ctxloom deps pull"
-      And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" changes fragment "demo-frag" to "MARKER-SKIPPED-PULL-never-seen"
       When Alice pulls again while upstream has moved on:
         """
@@ -214,7 +214,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
       And I run "ctxloom deps pull"
-      And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" becomes unreachable
       When Alice pulls while the remote is unreachable:
         """
@@ -329,7 +329,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
       And I run "ctxloom deps pull"
-      And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom deps hold origin/demo"
       And the remote "origin" advances its bundle
       When Alice forces a pull to re-resolve every reference:
@@ -373,7 +373,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
       And I run "ctxloom deps pull"
-      And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom profile materialize dev --target before"
       Then the file "before/CLAUDE.md" contains "Demo fragment content."
       When the remote "origin" changes fragment "demo-frag" to "MARKER-BRAVO-second-edition"
@@ -381,7 +381,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         """
         ctxloom deps upgrade
         """
-      And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom profile materialize dev --target after"
       Then the command succeeds
       And the file "after/CLAUDE.md" contains "MARKER-BRAVO-second-edition"
@@ -396,10 +396,10 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
       And I run "ctxloom deps pull"
-      And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" changes fragment "demo-frag" to "MARKER-STALE-CHECKOUT-current"
       And I run "ctxloom deps upgrade"
-      And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin"'s cached clone is forced back to its first commit
       When Alice materializes after the local checkout went stale:
         """

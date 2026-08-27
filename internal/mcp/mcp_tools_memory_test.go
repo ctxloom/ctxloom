@@ -23,6 +23,11 @@ import (
 func alwaysExists(string) bool { return true }
 func neverExists(string) bool  { return false }
 
+// noOwner is the ownerHarp fake for cases where the session index cannot
+// attribute the candidate transcript to any harp — the state every test below
+// other than the cross-harp one is written against.
+func noOwner(string) string { return "" }
+
 func TestRecoverTargetSessionID_PrefersIdentityOverMtime(t *testing.T) {
 	// The active harp is bound to "correct-session", but the mtime-based
 	// listing reports a DIFFERENT, newer-touched session first (simulating a
@@ -33,11 +38,11 @@ func TestRecoverTargetSessionID_PrefersIdentityOverMtime(t *testing.T) {
 		{ID: "correct-session"},
 	}
 
-	got := recoverTargetSessionID(activeEntry, "claude-code", nil, alwaysExists)
+	got := recoverTargetSessionID(activeEntry, "active-harp", "claude-code", nil, alwaysExists, noOwner)
 	assert.Equal(t, "correct-session", got, "identity-only probe must resolve without consulting the mtime listing")
 
 	// Even if the mtime listing were passed too, identity still wins.
-	got = recoverTargetSessionID(activeEntry, "claude-code", mtimeSessions, alwaysExists)
+	got = recoverTargetSessionID(activeEntry, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner)
 	assert.Equal(t, "correct-session", got)
 }
 
@@ -45,14 +50,42 @@ func TestRecoverTargetSessionID_FallsBackToMtimeWhenUnbound(t *testing.T) {
 	mtimeSessions := []agent.SessionMeta{{ID: "newest-by-mtime"}, {ID: "older"}}
 
 	// No entry at all (harp not in the index).
-	assert.Equal(t, "newest-by-mtime", recoverTargetSessionID(nil, "claude-code", mtimeSessions, alwaysExists))
+	assert.Equal(t, "newest-by-mtime", recoverTargetSessionID(nil, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner))
 
 	// Entry present but never bound (SessionStart hook never fired).
 	unbound := &sessions.Entry{HarpName: "active-harp", Backend: "claude-code"}
-	assert.Equal(t, "newest-by-mtime", recoverTargetSessionID(unbound, "claude-code", mtimeSessions, alwaysExists))
+	assert.Equal(t, "newest-by-mtime", recoverTargetSessionID(unbound, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner))
 
 	// Empty inputs resolve to "" (caller decides how to report "no sessions").
-	assert.Equal(t, "", recoverTargetSessionID(nil, "claude-code", nil, alwaysExists))
+	assert.Equal(t, "", recoverTargetSessionID(nil, "active-harp", "claude-code", nil, alwaysExists, noOwner))
+}
+
+// TestRecoverTargetSessionID_RejectsCrossHarpCandidate pins recover's central
+// promise: it resolves the CURRENT session, never a different one. An unbound
+// harp drops to the mtime pick, and in a working directory shared by several
+// sessions the newest-touched transcript routinely belongs to a concurrent or
+// already-ended one. Returning it is not a near miss — the caller is handed
+// another session's context as if it were their own, with nothing in the
+// result that would let them tell the difference.
+func TestRecoverTargetSessionID_RejectsCrossHarpCandidate(t *testing.T) {
+	mtimeSessions := []agent.SessionMeta{{ID: "foreign-session"}, {ID: "older"}}
+	ownedByOther := func(string) string { return "some-other-harp" }
+	ownedBySelf := func(string) string { return "active-harp" }
+
+	got := recoverTargetSessionID(nil, "active-harp", "claude-code", mtimeSessions, alwaysExists, ownedByOther)
+	assert.Equal(t, "", got, "a candidate owned by another harp must be refused, never returned")
+
+	got = recoverTargetSessionID(nil, "active-harp", "claude-code", mtimeSessions, alwaysExists, ownedBySelf)
+	assert.Equal(t, "foreign-session", got, "the active harp's own transcript must still resolve")
+
+	// Unattributable stays PERMITTED: the mtime pick is then the only signal
+	// there is, and refusing it too would strand every harp the index never bound.
+	got = recoverTargetSessionID(nil, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner)
+	assert.Equal(t, "foreign-session", got, "an unattributable candidate must not be refused")
+
+	// With no active identity there is no claim to contradict.
+	got = recoverTargetSessionID(nil, "", "claude-code", mtimeSessions, alwaysExists, ownedByOther)
+	assert.Equal(t, "foreign-session", got, "no active harp means no cross-harp claim can be made")
 }
 
 func TestRecoverTargetSessionID_BackendMismatchFallsBackToMtime(t *testing.T) {
@@ -61,7 +94,7 @@ func TestRecoverTargetSessionID_BackendMismatchFallsBackToMtime(t *testing.T) {
 	entry := &sessions.Entry{HarpName: "active-harp", SessionID: "codex-session", Backend: "codex"}
 	mtimeSessions := []agent.SessionMeta{{ID: "claude-newest"}}
 
-	got := recoverTargetSessionID(entry, "claude-code", mtimeSessions, alwaysExists)
+	got := recoverTargetSessionID(entry, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner)
 	assert.Equal(t, "claude-newest", got)
 }
 
@@ -80,12 +113,12 @@ func TestRecoverTargetSessionID_StaleBindingFallsBackToMtime(t *testing.T) {
 	}
 	mtimeSessions := []agent.SessionMeta{{ID: "newest-existing"}, {ID: "older"}}
 
-	got := recoverTargetSessionID(staleEntry, "claude-code", mtimeSessions, neverExists)
+	got := recoverTargetSessionID(staleEntry, "active-harp", "claude-code", mtimeSessions, neverExists, noOwner)
 	assert.Equal(t, "newest-existing", got, "a bound id whose transcript is gone must fall back to the newest EXISTING transcript")
 
 	// identity-only probe (no mtime listing yet): must report "" so the
 	// caller knows to go fetch one, rather than trusting the dead id.
-	got = recoverTargetSessionID(staleEntry, "claude-code", nil, neverExists)
+	got = recoverTargetSessionID(staleEntry, "active-harp", "claude-code", nil, neverExists, noOwner)
 	assert.Equal(t, "", got, "identity-only probe of a stale binding must not return the dead id")
 }
 
@@ -96,7 +129,7 @@ func TestRecoverTargetSessionID_StaleBindingFallsBackToMtime(t *testing.T) {
 // not a claim that can be falsified.
 func TestRecoverTargetSessionID_NoTranscriptPathTrustsIdentity(t *testing.T) {
 	entry := &sessions.Entry{HarpName: "active-harp", SessionID: "correct-session", Backend: "claude-code"}
-	got := recoverTargetSessionID(entry, "claude-code", nil, neverExists)
+	got := recoverTargetSessionID(entry, "active-harp", "claude-code", nil, neverExists, noOwner)
 	assert.Equal(t, "correct-session", got)
 }
 

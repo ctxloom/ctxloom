@@ -58,7 +58,7 @@ type loadSessionInput struct {
 }
 
 type recoverSessionInput struct {
-	SessionID string `json:"session_id,omitempty" jsonschema:"Session ID to recover. If not provided, uses most recent session."`
+	SessionID string `json:"session_id,omitempty" jsonschema:"Session ID to recover. If not provided, resolves this session's own transcript by harp identity."`
 	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to the configured default LLM)"`
 	Model     string `json:"model,omitempty" jsonschema:"LLM model to use for distillation if needed"`
 }
@@ -127,10 +127,16 @@ type loadSessionResult struct {
 // registers the same tools as host relays (mcp_runner.go) and must advertise
 // byte-identical text.
 const (
-	compactSessionDesc     = "Distil a session's PERSISTED transcript into a summary on disk, for a LATER session to pick up. Reads the stored log in a separate process; it does NOT touch your live conversation and frees no context in it. Do NOT call this because you are running low on context — for that, use your harness's native compaction. This exists precisely so that a context-starved agent never has to write its own summary: it runs out of band, against the full transcript, with a fresh budget. Normally you do not call it at all — it runs on shutdown, at startup for historical sessions, and on recovery after a /clear. Call it explicitly only to force an essence before ending a session."
-	listSessionsDesc       = "List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title."
-	loadSessionDesc        = "Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent."
-	recoverSessionDesc     = "Recover context from the current session after /clear. Resolves the most recent session transcript for this working directory and distills it (no session id needed; pass one to target a specific session)."
+	compactSessionDesc = "Distil a session's PERSISTED transcript into a summary on disk, for a LATER session to pick up. Reads the stored log in a separate process; it does NOT touch your live conversation and frees no context in it. Do NOT call this because you are running low on context — for that, use your harness's native compaction. This exists precisely so that a context-starved agent never has to write its own summary: it runs out of band, against the full transcript, with a fresh budget. Normally you do not call it at all — it runs on shutdown, at startup for historical sessions, and on recovery after a /clear. Call it explicitly only to force an essence before ending a session."
+	listSessionsDesc   = "List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title."
+	loadSessionDesc    = "Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent."
+	// recoverNoOwnSessionMsg is reported when the only candidate transcript in
+	// this working directory provably belongs to another harp. Recover promises
+	// the CURRENT session; handing back a foreign one silently is the failure
+	// this refusal exists to prevent, so it names the remedy that ends it.
+	recoverNoOwnSessionMsg = "No transcript for this session (%s) could be recovered: the most recent transcript in this directory belongs to a different session. Pass session_id (or harp_name to load_session) to target that one deliberately."
+
+	recoverSessionDesc     = "Recover context from the current session after /clear. Resolves this session's own transcript by harp identity, falling back to the most recent transcript in this working directory only when that transcript cannot be attributed to a different session, and distills it (no session id needed; pass one to target a specific session)."
 	getPreviousSessionDesc = "Distill and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead."
 )
 
@@ -508,7 +514,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 		// unbound (the SessionStart bind hook never fired) or its bound backend
 		// doesn't match the one being read from.
 		activeEntry, _ := operations.GetSession(s.self.Harp)
-		targetSessionID = recoverTargetSessionID(activeEntry, backendName, nil, regularFileExists)
+		targetSessionID = recoverTargetSessionID(activeEntry, s.self.Harp, backendName, nil, regularFileExists, ownerHarpOf)
 		if targetSessionID == "" {
 			source, _, serr := operations.ResolveSessionSource(s.cfg, backendName, workDir)
 			if serr != nil {
@@ -521,7 +527,10 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 			if len(sessionsList) == 0 {
 				return nil, &loadSessionResult{Loaded: false, Message: "No sessions found."}, nil
 			}
-			targetSessionID = recoverTargetSessionID(nil, backendName, sessionsList, regularFileExists)
+			targetSessionID = recoverTargetSessionID(nil, s.self.Harp, backendName, sessionsList, regularFileExists, ownerHarpOf)
+			if targetSessionID == "" {
+				return nil, &loadSessionResult{Loaded: false, Message: fmt.Sprintf(recoverNoOwnSessionMsg, s.self.Harp)}, nil
+			}
 		}
 	}
 
@@ -548,14 +557,26 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 // potentially subprocess-spawning — mtime listing is skipped whenever
 // identity resolves), then with activeEntry=nil once the listing has
 // actually been fetched.
-func recoverTargetSessionID(activeEntry *sessions.Entry, backendName string, mtimeSessions []agent.SessionMeta, transcriptExists func(string) bool) string {
+//
+// The mtime fallback never returns a candidate that demonstrably belongs to a
+// DIFFERENT harp. Recover's contract is the CURRENT session, so a foreign
+// transcript is a wrong answer rather than a near miss — and the caller cannot
+// tell one from the other, which is what makes returning it worse than
+// returning nothing. An UNATTRIBUTABLE candidate (ownerHarp reports "") is
+// still returned: the mtime pick is then the only signal there is, and
+// rejecting it too would strand every harp the session index never bound.
+func recoverTargetSessionID(activeEntry *sessions.Entry, activeHarp, backendName string, mtimeSessions []agent.SessionMeta, transcriptExists func(string) bool, ownerHarp func(string) string) string {
 	if activeEntry != nil && activeEntry.SessionID != "" &&
 		(activeEntry.Backend == "" || activeEntry.Backend == backendName) &&
 		(activeEntry.TranscriptPath == "" || transcriptExists(activeEntry.TranscriptPath)) {
 		return activeEntry.SessionID
 	}
 	if len(mtimeSessions) > 0 {
-		return mtimeSessions[0].ID
+		candidate := mtimeSessions[0].ID
+		if owner := ownerHarp(candidate); owner != "" && activeHarp != "" && owner != activeHarp {
+			return ""
+		}
+		return candidate
 	}
 	return ""
 }
@@ -570,6 +591,28 @@ func recoverTargetSessionID(activeEntry *sessions.Entry, backendName string, mti
 func regularFileExists(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && !info.IsDir()
+}
+
+// ownerHarpOf reports which harp owns sessionID, or "" when it cannot be
+// attributed — recoverTargetSessionID's production ownerHarp predicate. A
+// lookup ERROR is deliberately indistinguishable from an unknown id: both mean
+// "cannot prove this belongs to another session", and the cross-harp guard
+// rejects only on proof, never on doubt. That asymmetry is what makes the guard
+// safe on top of an attribution source that is known to be incomplete.
+//
+// This is a REVERSE lookup (session id -> owning harp), the one shape a
+// directory walk is worst at, so it is the place a scan cost would surface
+// first. Measured before choosing the walk: a full no-early-exit scan of 4,305
+// session directories costs ~24ms warm, and a real lookup exits on match. A
+// derived index MAY be reintroduced here if that ever becomes a problem — what
+// is forbidden is a cache being READ AS AUTHORITY, not a cache existing. Build
+// against the walk; add one only against a measured problem.
+func ownerHarpOf(sessionID string) string {
+	harp, err := operations.HarpForSession(sessionID)
+	if err != nil {
+		return ""
+	}
+	return harp
 }
 
 func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToolRequest, in getPreviousSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {

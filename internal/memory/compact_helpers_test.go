@@ -14,7 +14,7 @@ func TestAssembleBody(t *testing.T) {
 	plan := PlanBlock{Content: "# Plan\n- step one"}
 
 	t.Run("body and plans joined with a blank line", func(t *testing.T) {
-		got := assembleBody("summary text", []PlanBlock{plan})
+		got := assembleBody("summary text", appendices{Plans: []PlanBlock{plan}})
 		if !strings.HasPrefix(got, "summary text") {
 			t.Fatalf("body should lead:\n%s", got)
 		}
@@ -27,13 +27,13 @@ func TestAssembleBody(t *testing.T) {
 	})
 
 	t.Run("no plans returns body unchanged", func(t *testing.T) {
-		if got := assembleBody("just the body", nil); got != "just the body" {
+		if got := assembleBody("just the body", appendices{}); got != "just the body" {
 			t.Fatalf("got %q, want body unchanged", got)
 		}
 	})
 
 	t.Run("empty body with plans has no leading blank line", func(t *testing.T) {
-		got := assembleBody("", []PlanBlock{plan})
+		got := assembleBody("", appendices{Plans: []PlanBlock{plan}})
 		if strings.HasPrefix(got, "\n") {
 			t.Fatalf("should not lead with a blank line:\n%q", got)
 		}
@@ -43,7 +43,7 @@ func TestAssembleBody(t *testing.T) {
 	})
 
 	t.Run("empty body and no plans is empty", func(t *testing.T) {
-		if got := assembleBody("", nil); got != "" {
+		if got := assembleBody("", appendices{}); got != "" {
 			t.Fatalf("got %q, want empty", got)
 		}
 	})

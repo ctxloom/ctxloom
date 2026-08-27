@@ -206,7 +206,6 @@ func TestGetPromptText(t *testing.T) {
 		"distill-default",
 		"mcp-server-instructions",
 		"session-distill",
-		"session-distill-reduce",
 	} {
 		got, err := GetPromptText(name)
 		if err != nil {

@@ -147,7 +147,11 @@ func tcFragmentStates(w *World) (map[string]string, error) {
 // of the step texts below reads as an action whose result something else will
 // check, so a feature author could omit that assertion and silently accept a
 // failed decision write.
-func runDecisionPlumbing(c context.Context, verb, item, remoteName string) error {
+// The trailing flags are optional so a Scenario Outline can drive one decision
+// verb once per output format: the ref is built here — it names a temp remote
+// no feature file can spell — but WHICH encoding to render the result in is
+// the scenario's to vary.
+func runDecisionPlumbing(c context.Context, verb, flags, item, remoteName string) error {
 	w := worldFrom(c)
 	bare := w.remoteBare[remoteName]
 	if bare == "" {
@@ -157,20 +161,21 @@ func runDecisionPlumbing(c context.Context, verb, item, remoteName string) error
 	if !scoped {
 		return fmt.Errorf("pending item %q must be written as <bundle>#<kind>/<name>", item)
 	}
-	return runOK(w, "bundle", verb, canonicalItemRef("file://"+bare, bundle, selector))
+	args := append([]string{"bundle", verb}, strings.Fields(flags)...)
+	return runOK(w, append(args, canonicalItemRef("file://"+bare, bundle, selector))...)
 }
 
 func registerContentDecisionSteps(ctx *godog.ScenarioContext) {
-	ctx.Step(`^I accept the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, item, name string) error {
-		return runDecisionPlumbing(c, "trust", item, name)
+	ctx.Step(`^I run "ctxloom bundle trust\s*([^"]*)" on the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, flags, item, name string) error {
+		return runDecisionPlumbing(c, "trust", flags, item, name)
 	})
 
-	ctx.Step(`^I reject the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, item, name string) error {
-		return runDecisionPlumbing(c, "reject", item, name)
+	ctx.Step(`^I run "ctxloom bundle reject\s*([^"]*)" on the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, flags, item, name string) error {
+		return runDecisionPlumbing(c, "reject", flags, item, name)
 	})
 
-	ctx.Step(`^I clear the decision on the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, item, name string) error {
-		return runDecisionPlumbing(c, "forget", item, name)
+	ctx.Step(`^I run "ctxloom bundle forget\s*([^"]*)" on the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, flags, item, name string) error {
+		return runDecisionPlumbing(c, "forget", flags, item, name)
 	})
 
 	ctx.Step(`^the approvals store holds an acceptance of "([^"]*)" over the fragment's current bytes$`,

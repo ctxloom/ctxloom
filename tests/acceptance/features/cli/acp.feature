@@ -39,17 +39,40 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
     agent binding the project defines advertises as its OWN entry, because an
     editor picks an agent by picking an entry.
 
-    # A project with no bindings is the state every project starts in, and the
-    # listing has to be USEFUL there rather than empty — so it advertises the
-    # base entry and says how to get more. Asserting the guidance text is what
-    # stops this from being satisfied by a bare "entries (1):" header.
-    Scenario: A project with no agent bindings still advertises ctxloom itself
+    # ONE BODY, ONCE PER ENCODING. Off a terminal ctxloom derives JSON, so the
+    # no-flag row is what an editor's own tooling receives; the explicit rows
+    # prove a typed --format wins in both directions. The structured rows
+    # address the entry BY PATH, which a listing that printed a header over an
+    # empty array cannot satisfy.
+    #
+    # The count claim rides the text column: the payload is a bare array with
+    # no length field, so each row states the fact its own encoding spells —
+    # the header's "(1)" in prose, the entry's identity at $.0 in JSON.
+    Scenario Outline: A project with no agent bindings still advertises ctxloom itself
       When Alice asks which entries her editor should be given:
         """
-        ctxloom acp list
+        ctxloom acp list <flags>
         """
       Then the command succeeds
-      And the output contains "ACP agent-server entries (1):"
+      And the output reports "$.0.name" as "<the sole entry>"
+      And the output reports "$.0.args" containing "<opens the door>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the sole entry                | opens the door |
+        |               | ctxloom                       | serve          |
+        | --format json | ctxloom                       | serve          |
+        | --format text | ACP agent-server entries (1): | acp serve      |
+
+    # The guidance is a HUMAN-RENDERER concern and is pinned in the encoding
+    # that has it. `acp list`'s structured payload is a list of entries with no
+    # field for advice, so there is no path a JSON row could address — tabling
+    # this would mean asserting nothing on two rows out of three.
+    Scenario: The empty listing says how to get more entries
+      When Alice asks which entries her editor should be given:
+        """
+        ctxloom acp list --format text
+        """
+      Then the command succeeds
       And the output contains "No agent bindings defined"
       And the output contains "'agents:' in .ctxloom/config.yaml"
 
@@ -57,7 +80,7 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
     # profiles all carried through. Each is asserted separately: a listing that
     # printed the name and dropped the engine would leave a user pasting an
     # entry that binds nothing, and would still satisfy a name-only assertion.
-    Scenario: Each agent binding advertises as its own entry, carrying its engine and profiles
+    Scenario Outline: Each agent binding advertises as its own entry, carrying its engine and profiles
       Given a bundle "house" exists
       And a profile "editorial" with bundle "house"
       When Alice defines an agent bound to that profile:
@@ -66,13 +89,19 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
         """
       And Alice asks which entries her editor should be given:
         """
-        ctxloom acp list
+        ctxloom acp list <flags>
         """
       Then the command succeeds
-      And the output contains "ACP agent-server entries (2):"
-      And the output contains "scribe"
-      And the output contains "llm: claude-code"
-      And the output contains "profiles: editorial"
+      And the output reports "$.1.name" as "<a second entry appears>"
+      And the output reports "$.1.agent" as "<names the binding>"
+      And the output reports "$.1.llm" as "<carries its engine>"
+      And the output reports "$.1.profiles" containing "<carries its profiles>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | a second entry appears        | names the binding | carries its engine | carries its profiles |
+        |               | ctxloom: scribe               | scribe            | claude-code        | editorial            |
+        | --format json | ctxloom: scribe               | scribe            | claude-code        | editorial            |
+        | --format text | ACP agent-server entries (2): | scribe            | llm: claude-code   | profiles: editorial  |
 
   Rule: What gets pasted has to survive being pasted
 
@@ -90,6 +119,13 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
     # entry the count assertion below is satisfied by any block carrying one
     # object, so a renderer that pasted just the first entry would pass —
     # measured, by mutating exactly that.
+    #
+    # NOT TABLED BY FORMAT, and it is the one scenario here that cannot be:
+    # the subject is the pasteable block EMBEDDED IN THE PROSE and its
+    # agreement with the prose header's own count. `--format json` emits the
+    # entries as the whole payload with no header and no embedded block, so
+    # there is no second artifact to disagree with — the claim does not exist
+    # in that encoding rather than being spelled differently there.
     Scenario: The pasteable block is valid JSON carrying every advertised entry
       Given a bundle "house" exists
       And a profile "editorial" with bundle "house"
@@ -99,7 +135,7 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
         """
       When Alice asks which entries her editor should be given:
         """
-        ctxloom acp list
+        ctxloom acp list --format text
         """
       Then the command succeeds
       And the pasteable editor block parses as JSON and names every advertised entry
@@ -109,13 +145,18 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
     # while they are choosing, not diagnosing it afterward — so it must appear
     # even in a project that has defined no generic-acp binding at all, which
     # is exactly the fixture here.
+    #
+    # Pinned to the human rendering for the same reason as the guidance above:
+    # the entry payload carries no field for a caveat, so a JSON row would
+    # assert nothing.
     Scenario: The listing warns what a generic ACP binding will not inherit
       When Alice asks which entries her editor should be given:
         """
-        ctxloom acp list
+        ctxloom acp list --format text
         """
       Then the command succeeds
       And the output contains "no hooks fire and no session history is captured"
+
 
   # DRIVING AN ACP AGENT OUT HAS TWO FORMS, AND THEY ARE THE SAME TWO `run` HAS.
   #

@@ -443,29 +443,29 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 			}
 			// operations.ShowSigner narrows to the one listing for the
 			// requested principal, so the JSON payload is a one-element array —
-			// the same shape "0.Entry.Principals.0"/"0.Source"/"0.Suppressed"
+			// the same shape "0.entry.principals.0"/"0.source"/"0.suppressed"
 			// addresses for both the before and after snapshot.
-			principal, err := jsonAtPathFrom(raw, "0.Entry.Principals.0")
+			principal, err := jsonAtPathFrom(raw, "0.entry.principals.0")
 			if err != nil {
 				return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
 			}
 			if got, _ := jsonScalar(principal); got != j001700EmbeddedPrincipal {
 				return fmt.Errorf("'signer show' (%s) json principal = %q, want %q; output:\n%s", label, got, j001700EmbeddedPrincipal, raw)
 			}
-			source, err := jsonAtPathFrom(raw, "0.Source")
+			source, err := jsonAtPathFrom(raw, "0.source")
 			if err != nil {
 				return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
 			}
 			if got, _ := jsonScalar(source); got != "embedded" {
-				return fmt.Errorf("'signer show' (%s) json Source = %q, want %q; output:\n%s", label, got, "embedded", raw)
+				return fmt.Errorf("'signer show' (%s) json source = %q, want %q; output:\n%s", label, got, "embedded", raw)
 			}
-			suppressed, err := jsonAtPathFrom(raw, "0.Suppressed")
+			suppressed, err := jsonAtPathFrom(raw, "0.suppressed")
 			if err != nil {
 				return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
 			}
 			want := fmt.Sprintf("%v", wantSuppressed)
 			if got, _ := jsonScalar(suppressed); got != want {
-				return fmt.Errorf("'signer show' (%s) json Suppressed = %s, want %s; output:\n%s", label, got, want, raw)
+				return fmt.Errorf("'signer show' (%s) json suppressed = %s, want %s; output:\n%s", label, got, want, raw)
 			}
 			return nil
 		}

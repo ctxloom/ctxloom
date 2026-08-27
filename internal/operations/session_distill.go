@@ -107,6 +107,11 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 		}
 	}
 
+	// What this session said it was about to do next, captured by the TurnEnd
+	// hook while it was still live. The bool is discarded because there is
+	// nothing else to do with "no hint": an absent hint IS the empty string,
+	// and distillPrompt appends nothing for it.
+	taskHint, _ := memory.ReadNextStep(entry.HarpName)
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		LLM:   cfg.GetCompactionLLM(),
 		Model: model,
@@ -122,6 +127,10 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 		HarpName:         entry.HarpName,
 		Progress:         opts.Progress,
 		PromptDir:        opts.PromptDir,
+		// What this session said it was about to do next, captured by the
+		// TurnEnd hook while it was still live. Absent on a harp that has not
+		// finished a turn, and absent is free: distillPrompt appends nothing.
+		TaskHint: taskHint,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create compactor: %w", err)

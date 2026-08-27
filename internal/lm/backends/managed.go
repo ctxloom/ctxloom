@@ -285,6 +285,15 @@ func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, con
 			wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewToolReflectHook(minBytes)}},
 			fixedSource(HookSource{Origin: HookOriginContext}))
 	}
+	// The TurnEnd next-step hook rides the same managed set, for the same
+	// reason as the reflect hook above: it exists to make the distilled
+	// essence task-aware, so it belongs to ctxloom rather than to any bundle.
+	// Ungated — it takes no configuration, because the only thing there would
+	// be to configure is whether distillation is allowed to know what the
+	// session was doing.
+	m.mergeUnified(
+		wire.UnifiedHooks{TurnEnd: []wire.Hook{agent.NewNextStepHook()}},
+		fixedSource(HookSource{Origin: HookOriginContext}))
 	if contextHash != "" {
 		m.mergeUnified(
 			wire.UnifiedHooks{SessionStart: agent.NewContextInjectionHooks(contextHash, workDir)},

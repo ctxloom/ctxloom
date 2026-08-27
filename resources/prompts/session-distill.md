@@ -82,3 +82,9 @@ After the closing `---` and a blank line, emit the full structured body:
   spending its budget re-running an experiment this one already settled.
 - Skip verbose tool outputs - just note what was done
 - Skip small talk and confirmations
+- **When a task hint is present, retain for it.** A hint names what the resuming
+  session intends to do next. Where you must choose what to cut, cut what that
+  next step will not need and keep what it will — including detail you would
+  otherwise compress away. It reweights the sections; it does not replace them.
+  Produce all of them, and never drop a required section because the hint did
+  not mention it.

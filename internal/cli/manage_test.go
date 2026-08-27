@@ -104,7 +104,7 @@ func TestCallbacksConsolidatedUnderHook(t *testing.T) {
 	// All callbacks live under hook; the meta namespace is gone, and the
 	// user-facing session/tasks namespaces no longer carry callbacks.
 	assert.ElementsMatch(t,
-		[]string{"inject-context", "hud", "session-bind", "stamp-plan", "turn-changed", "tool-reflect"},
+		[]string{"inject-context", "hud", "session-bind", "stamp-plan", "turn-changed", "tool-reflect", "next-step"},
 		subNames(hook),
 		"every machine callback should be consolidated under hook")
 	assert.Nil(t, findSub(rootCmd, "meta"), "the meta namespace should be removed")
@@ -126,6 +126,7 @@ func TestCallbackCommandsAreHidden(t *testing.T) {
 		{"hook", "stamp-plan"},
 		{"hook", "turn-changed"},
 		{"hook", "tool-reflect"},
+		{"hook", "next-step"},
 	}
 	for _, path := range callbacks {
 		c, _, err := rootCmd.Find(path)

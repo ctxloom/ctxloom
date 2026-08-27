@@ -101,7 +101,7 @@ func RenderPremiseIndex(entries []PremiseIndexEntry) string {
 	b.WriteString("with those names (the `bundles` argument) and follow what it returns.\n")
 	b.WriteString("Select on the premise, not on the name.\n")
 	for _, e := range entries {
-		b.WriteString(fmt.Sprintf("\n- %s: %s", e.Name, e.Premise))
+		fmt.Fprintf(&b, "\n- %s: %s", e.Name, e.Premise)
 	}
 	return b.String()
 }

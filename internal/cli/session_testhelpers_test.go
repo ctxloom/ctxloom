@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Shared fixtures for the `session` noun's CLI tests. They live in their own
@@ -68,6 +69,31 @@ func execRootCmdBoth(t *testing.T, args ...string) (stdout, stderr string, err e
 var pinnedEngineVersion = map[string]string{
 	"claude-code": "2.1.214",
 	"codex":       "0.144.6",
+	"kiro":        "2.13.0",
+}
+
+// seedHookSession mints an indexed session for backend and puts its harp in
+// the environment, which is where a turn-boundary hook looks to learn WHICH
+// engine wrote the transcript it is about to parse
+// (operations.ResolveTurnTranscript).
+//
+// Required by every turn-boundary fixture, not decorative: with no indexed
+// session there is no engine to select a reader for, and the hook takes its
+// fail-safe exit before reaching the guard the test names — which is a
+// fixture passing, or failing, for a reason its name does not mention.
+//
+// The caller isolates HOME first; this deliberately does not, so a test that
+// forgot to fails loudly against a missing index rather than quietly writing
+// into the real one.
+func seedHookSession(t *testing.T, backend string) string {
+	t.Helper()
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp(t.TempDir(), backend)
+	require.NoError(t, err)
+	seedEngineVersion(t, mgr, entry.HarpName, backend)
+	t.Setenv(agent.SessionHarpEnv, entry.HarpName)
+	return entry.HarpName
 }
 
 // seedEngineVersion records the pinned version for harp, so a fixture exercises

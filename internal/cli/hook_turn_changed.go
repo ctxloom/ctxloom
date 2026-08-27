@@ -3,10 +3,13 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/turnchange"
 )
@@ -73,12 +76,16 @@ func turnChangedVerdict(cmd *cobra.Command) string {
 		clidiag.Warn(turnChangedProg, "parse hook payload: %v — reporting %q", err, verdictChanged)
 		return verdictChanged
 	}
-	if payload.TranscriptPath == "" {
-		clidiag.Warn(turnChangedProg, "hook payload carries no transcript_path — reporting %q", verdictChanged)
+	// Routed by the session's own engine: this guard is installed on every
+	// hooking backend, and a reader chosen by assumption rather than by
+	// engine reports "changed" forever on the ones it cannot parse.
+	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), os.Getenv(agent.SessionHarpEnv), payload.TranscriptPath)
+	if err != nil {
+		clidiag.Warn(turnChangedProg, "%v — reporting %q", err, verdictChanged)
 		return verdictChanged
 	}
 
-	decision, err := turnchange.ClassifyClaudeTranscript(cmd.Context(), payload.TranscriptPath)
+	decision, err := turnchange.ClassifyTranscript(cmd.Context(), adapter, src)
 	if err != nil {
 		clidiag.Warn(turnChangedProg, "%v — reporting %q", err, verdictChanged)
 		return verdictChanged

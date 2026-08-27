@@ -11,11 +11,14 @@
 // measurement here is therefore the TURN — read out of the engine's own
 // transcript — not the checkout the hook happens to run in.
 //
-// Nothing here parses a vendor transcript. The claude-code store is read
-// through the canonical vendor reader
-// (internal/transcript/vendorreader/claude.Adapter), which converts it to the
+// Nothing here parses a vendor transcript, and nothing here knows which
+// engine wrote one. The caller hands in an already-selected
+// vendorreader.VendorAdapter, which converts that engine's own store into the
 // same agent.ChatEvent stream the live capture tee produces; this package only
-// scopes that stream to the current turn and classifies it.
+// scopes that stream to the current turn and classifies it. Selecting the
+// adapter is the caller's job because the choice is (engine, RECORDED
+// version) -> adapter and neither key is derivable from the transcript
+// itself (operations.ResolveTurnTranscript).
 //
 // FAILURE IS SAFE IN THE SPEAKING DIRECTION. Every failure — an unreadable
 // file, a format this build cannot parse — ends as "changed". Silence is the
@@ -29,7 +32,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
+	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
 // Decision is the outcome of classifying one turn.
@@ -441,30 +444,34 @@ func (c *collector) Record(ev agent.ChatEvent) error {
 
 func (c *collector) Close() error { return nil }
 
-// ReadClaudeTranscript reads the claude-code vendor transcript at path through
-// claude.Adapter — the same reader that produces ctxloom's canonical
-// transcript — and returns its events.
+// ReadTranscript reads the vendor transcript at src through adapter — the
+// same reader that produces ctxloom's canonical transcript — and returns its
+// events.
+//
+// src is adapter's own locator, not necessarily a file path: a
+// JSONL-per-session engine takes the transcript file, kiro takes its
+// "<db-path>#<conversation-id>" composite (vendorreader.VendorAdapter).
 //
 // Exported so a second caller cannot arrive at the same bytes by a second
 // route. A hand-rolled JSONL scan is the obvious shortcut for anyone who only
 // wants "the last assistant line", and it is how a build ends up with two
 // disagreeing notions of what a transcript entry is: the vendor format is the
-// adapter's problem, and it already solves it for three engines.
-func ReadClaudeTranscript(ctx context.Context, path string) ([]agent.ChatEvent, error) {
+// adapter's problem, and it already solves it for every engine ctxloom reads.
+func ReadTranscript(ctx context.Context, adapter vendorreader.VendorAdapter, src string) ([]agent.ChatEvent, error) {
 	c := &collector{}
-	if err := (claude.Adapter{}).Convert(ctx, c, path); err != nil {
+	if err := adapter.Convert(ctx, c, src); err != nil {
 		return nil, err
 	}
 	return c.events, nil
 }
 
-// ClassifyClaudeTranscript reads the claude-code vendor transcript at path
-// and classifies its current turn.
+// ClassifyTranscript reads the vendor transcript at src through adapter and
+// classifies its current turn.
 //
 // On failure it returns BOTH a changed Decision and the error, so a caller
 // that only inspects the Decision still fails in the speaking direction.
-func ClassifyClaudeTranscript(ctx context.Context, path string) (Decision, error) {
-	evs, err := ReadClaudeTranscript(ctx, path)
+func ClassifyTranscript(ctx context.Context, adapter vendorreader.VendorAdapter, src string) (Decision, error) {
+	evs, err := ReadTranscript(ctx, adapter, src)
 	if err != nil {
 		return Decision{Changed: true, Reason: "transcript could not be read: " + err.Error()}, err
 	}

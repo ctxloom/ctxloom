@@ -22,10 +22,10 @@ import (
 // is counted nowhere — "skipped" would imply the sweep considered removing it.
 type SessionHomeReapResult struct {
 	// Reaped is the number of instances actually removed.
-	Reaped int
+	Reaped int `json:"reaped"`
 	// Skipped is the number of instances left in place: their session is
 	// LIVE, or removal was attempted and failed (warned, never fatal).
-	Skipped int
+	Skipped int `json:"skipped"`
 }
 
 // ReapOrphanedSessionHomes removes <appPath>/state/<harp> directories whose

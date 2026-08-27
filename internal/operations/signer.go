@@ -64,9 +64,9 @@ func ResolveSignerNamespaces(aliases []string) ([]string, error) {
 // render a confirmation prompt (fingerprint) and, once confirmed, write an
 // allowed_signers entry.
 type SignerKeyInfo struct {
-	PublicKey   ssh.PublicKey
-	Fingerprint string
-	Comment     string // from the key file/literal, if any — advisory only
+	PublicKey   ssh.PublicKey `json:"-"`
+	Fingerprint string        `json:"fingerprint"`
+	Comment     string        `json:"comment"` // from the key file/literal, if any — advisory only
 }
 
 // ResolveSignerKey reads and parses a public key for `signer add`. keyArg is
@@ -183,15 +183,19 @@ type AddSignerRequest struct {
 
 // AddSignerResult reports what was written and where.
 type AddSignerResult struct {
-	Path        string
-	Line        string
-	Fingerprint string
+	// Principal is the signer this call trusted. It is the SUBJECT of the
+	// operation, so a machine consumer that cannot read it cannot tell who
+	// was trusted; the text renderer used to take it from argv instead.
+	Principal   string `json:"principal"`
+	Path        string `json:"path"`
+	Line        string `json:"line"`
+	Fingerprint string `json:"fingerprint"`
 	// Fallback is true when req.Project asked for the committable project
 	// store but none was configured, so this call wrote to the user store
 	// instead of failing. The CLI must SAY SO — see FallbackReason.
-	Fallback bool
+	Fallback bool `json:"fallback"`
 	// FallbackReason explains why, for CLI output. Empty unless Fallback.
-	FallbackReason string
+	FallbackReason string `json:"fallback_reason"`
 }
 
 // AddSigner appends one allowed_signers entry, creating the file (and its
@@ -241,6 +245,7 @@ func AddSigner(cfg *config.Config, req AddSignerRequest) (*AddSignerResult, erro
 	}
 
 	return &AddSignerResult{
+		Principal:      req.Principal,
 		Path:           path,
 		Line:           line,
 		Fingerprint:    req.Key.Fingerprint,
@@ -280,10 +285,15 @@ func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
 // SignerListing is one allowed_signers entry plus the store it came from,
 // for `signer list`/`signer show` display.
 type SignerListing struct {
-	Entry allowedsigners.Entry
+	Entry allowedsigners.Entry `json:"entry"`
+	// Fingerprint is the SHA256 fingerprint of Entry.PublicKey, and the only
+	// key material that crosses the wire: PublicKey is an ssh.PublicKey
+	// INTERFACE, so serializing it structurally would make this row's JSON
+	// schema vary by concrete key type.
+	Fingerprint string `json:"fingerprint"`
 	// Source is "embedded" | "user" | "project".
-	Source string
-	Path   string
+	Source string `json:"source"`
+	Path   string `json:"path"`
 	// Suppressed marks an "embedded" entry this machine has locally
 	// DISTRUSTED (see config.SuppressedEmbeddedPrincipals /
 	// RemoveSigner's embedded-suppression path below). Always false for
@@ -294,13 +304,22 @@ type SignerListing struct {
 	// trust even though `signer list`/`show` still shows it — the exact
 	// parallel to a removed user/project entry, which also stays visible in
 	// nothing but git history, never hidden.
-	Suppressed bool
+	Suppressed bool `json:"suppressed"`
 	// Unreadable, when non-empty, means this row is NOT an entry: it is a
 	// line in Path the parser could not turn into one, carried into the
 	// listing so `signer list` cannot present a silently-shortened store as
 	// the whole truth. Entry is zero for such a row. An audit surface that
 	// omits what it could not read is worse than one that shows a gap.
-	Unreadable string
+	Unreadable string `json:"unreadable"`
+}
+
+// entryFingerprint is the SHA256 fingerprint of an entry's key. Entry.PublicKey
+// itself is json:"-" — see SignerListing.Fingerprint for why.
+func entryFingerprint(e allowedsigners.Entry) string {
+	if e.PublicKey == nil {
+		return ""
+	}
+	return ssh.FingerprintSHA256(e.PublicKey)
 }
 
 // ListSigners returns every entry across all three trust-root locations
@@ -334,10 +353,11 @@ func ListSigners(cfg *config.Config, fs afero.Fs) ([]SignerListing, error) {
 	}
 	for _, e := range config.EmbeddedSigners().Entries() {
 		out = append(out, SignerListing{
-			Entry:      e,
-			Source:     "embedded",
-			Path:       "(compiled-in)",
-			Suppressed: e.MatchesAnyPrincipal(suppressed),
+			Entry:       e,
+			Fingerprint: entryFingerprint(e),
+			Source:      "embedded",
+			Path:        "(compiled-in)",
+			Suppressed:  e.MatchesAnyPrincipal(suppressed),
 		})
 	}
 
@@ -376,7 +396,7 @@ func listFromPath(fs afero.Fs, path, source string) []SignerListing {
 	}
 	var out []SignerListing
 	for _, e := range store.Entries() {
-		out = append(out, SignerListing{Entry: e, Source: source, Path: path})
+		out = append(out, SignerListing{Entry: e, Fingerprint: entryFingerprint(e), Source: source, Path: path})
 	}
 	for _, pe := range store.ParseErrors() {
 		clidiag.Warn("ctxloom", "signer list: %s line %d is not a usable entry and grants no trust: %v", path, pe.Line, pe.Err)
@@ -414,8 +434,11 @@ type RemoveSignerRequest struct {
 
 // RemoveSignerResult reports how many entries were removed and from where.
 type RemoveSignerResult struct {
-	Path    string
-	Removed int
+	// Principal is the signer this call untrusted — the SUBJECT of the
+	// operation. See AddSignerResult.Principal.
+	Principal string `json:"principal"`
+	Path      string `json:"path"`
+	Removed   int    `json:"removed"`
 	// EmbeddedSuppressed is true when Principal ALSO matched ctxloom's
 	// EMBEDDED trust root (spec §7, location 1), in which case this call
 	// additionally persisted a local suppression record: ADDITIVE with
@@ -430,10 +453,10 @@ type RemoveSignerResult struct {
 	// trust root on every subsequent decision, so content signed only by
 	// that key is withheld from here on (this machine, or this project
 	// with --project).
-	EmbeddedSuppressed bool
+	EmbeddedSuppressed bool `json:"embedded_suppressed"`
 	// SuppressionPath is the distrusted_signers file EmbeddedSuppressed was
 	// recorded in, when applicable ("" otherwise).
-	SuppressionPath string
+	SuppressionPath string `json:"suppression_path"`
 }
 
 // RemoveSigner deletes every line in the target store (user or project)
@@ -468,7 +491,7 @@ func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerRes
 	if err != nil {
 		return nil, err
 	}
-	result := &RemoveSignerResult{Path: path, Removed: removed}
+	result := &RemoveSignerResult{Principal: req.Principal, Path: path, Removed: removed}
 
 	if entry := matchingEmbeddedEntry(req.Principal); entry != nil {
 		suppressionPath, serr := suppressEmbeddedPrincipal(fs, cfg, *entry, req.Project)

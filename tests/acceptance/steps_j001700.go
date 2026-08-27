@@ -402,14 +402,14 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		// than by sentence: EmbeddedSuppressed is operations.RemoveSignerResult's
 		// "the compiled-in key cannot be deleted, but a local suppression was
 		// recorded" flag, and SuppressionPath is where that record landed.
-		suppressed, err := jsonAtPathFrom(j001700.embeddedRemoveOutput, "EmbeddedSuppressed")
+		suppressed, err := jsonAtPathFrom(j001700.embeddedRemoveOutput, "embedded_suppressed")
 		if err != nil {
 			return fmt.Errorf("%w; output:\n%s", err, j001700.embeddedRemoveOutput)
 		}
 		if got, _ := jsonScalar(suppressed); got != "true" {
 			return fmt.Errorf("json EmbeddedSuppressed = %q, want %q (the embedded key cannot be deleted); output:\n%s", got, "true", j001700.embeddedRemoveOutput)
 		}
-		suppressionPath, err := jsonAtPathFrom(j001700.embeddedRemoveOutput, "SuppressionPath")
+		suppressionPath, err := jsonAtPathFrom(j001700.embeddedRemoveOutput, "suppression_path")
 		if err != nil {
 			return fmt.Errorf("%w; output:\n%s", err, j001700.embeddedRemoveOutput)
 		}

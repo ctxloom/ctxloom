@@ -21,15 +21,15 @@ import (
 // caller is obliged to say so — see the note on UpgradeResult.Refused.
 type RefusedAdvance struct {
 	// Identity is the canonical ref of the item whose pin was not moved.
-	Identity string
+	Identity string `json:"identity"`
 	// KeptSHA is the commit the pin stays at — the last one that verified.
-	KeptSHA string
+	KeptSHA string `json:"kept_sha"`
 	// ProposedSHA is the commit the constraint resolved to and that was
 	// refused.
-	ProposedSHA string
+	ProposedSHA string `json:"proposed_sha"`
 	// Detail is the verification failure, in the words of the verifier, so a
 	// human is told WHY rather than just that something was refused.
-	Detail string
+	Detail string `json:"detail"`
 }
 
 // verifyAdvance decides whether upgrade may move a pin onto ref at proposed.

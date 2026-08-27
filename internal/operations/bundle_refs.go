@@ -75,10 +75,10 @@ type RemoveLocalItemsRequest struct {
 
 // RemoveLocalItemsResult reports the cleanup outcome.
 type RemoveLocalItemsResult struct {
-	Removed  []string // local paths actually deleted (legacy materialized copies)
-	Pruned   []string // lockfile entries pruned (canonical refs)
-	Warnings []string
-	Saved    bool // whether the lockfile was rewritten
+	Removed  []string `json:"removed"` // local paths actually deleted (legacy materialized copies)
+	Pruned   []string `json:"pruned"`  // lockfile entries pruned (canonical refs)
+	Warnings []string `json:"warnings"`
+	Saved    bool     `json:"saved"` // whether the lockfile was rewritten
 }
 
 // RemoveLocalItems prunes the lockfile entries for items the remote dropped

@@ -59,7 +59,7 @@ Feature: signer — whose signature stands in for your review
         ctxloom signer list <flags>
         """
       Then the command succeeds
-      And the output reports "$[Source=embedded].Path" as "<names the compiled-in root>"
+      And the output reports "$[source=embedded].path" as "<names the compiled-in root>"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the compiled-in root |
@@ -74,7 +74,7 @@ Feature: signer — whose signature stands in for your review
       Given an initialized ctxloom project
       When I run "ctxloom signer <flags>"
       Then the command succeeds
-      And the output reports "$[Source=embedded].Path" as "<names the compiled-in root>"
+      And the output reports "$[source=embedded].path" as "<names the compiled-in root>"
       And the output does not contain "Available Commands:"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -100,17 +100,17 @@ Feature: signer — whose signature stands in for your review
         ctxloom signer show context@acme.example <flags>
         """
       Then the command succeeds
-      And the output reports "$[Source=project].Entry.Principals" containing "<the publisher>"
-      And the output reports "$[Source=project].Entry.Namespaces" containing "<the namespace granted>"
-      And the output reports "$[Source=project].Entry.PublicKey" as "<the key it trusts>"
+      And the output reports "$[source=project].entry.principals" containing "<the publisher>"
+      And the output reports "$[source=project].entry.namespaces" containing "<the namespace granted>"
+      And the output reports "$[source=project].fingerprint" as "<the key it trusts>"
       When I run "ctxloom signer show nobody@acme.example <flags>"
       Then the command succeeds
       And the output reports "$" as empty, saying "no trusted signers"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the publisher        | the namespace granted  | the key it trusts                            |
-        |               | context@acme.example | publish.v1.ctxloom.dev | +7eqg6twvC4cp2xzNKxVwyub5HqI8hLC4/UrX/zaQus= |
-        | --format json | context@acme.example | publish.v1.ctxloom.dev | +7eqg6twvC4cp2xzNKxVwyub5HqI8hLC4/UrX/zaQus= |
+        |               | context@acme.example | publish.v1.ctxloom.dev | SHA256:DdYSonhWegwDHm+8P6RSIab8/3GJpse+hIefopljAcY |
+        | --format json | context@acme.example | publish.v1.ctxloom.dev | SHA256:DdYSonhWegwDHm+8P6RSIab8/3GJpse+hIefopljAcY |
         | --format text | context@acme.example | publish.v1.ctxloom.dev | SHA256:                                      |
 
   Rule: Trusting writes the committable store by default
@@ -140,8 +140,8 @@ Feature: signer — whose signature stands in for your review
         ctxloom signer trust context@acme.example --key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPu3qoOrcLwuHKdsczSsVcMrm+R6iPISwuP1K1/82kLr acceptance-signer' --yes <flags>
         """
       Then the command succeeds
-      And the output reports "Fallback" as "<wrote the committable store>"
-      And the output reports "Path" matching "<names the store it wrote>"
+      And the output reports "fallback" as "<wrote the committable store>"
+      And the output reports "path" matching "<names the store it wrote>"
       And the file ".ctxloom/allowed_signers" contains "context@acme.example"
       And the file ".ctxloom/allowed_signers" contains "publish.v1.ctxloom.dev"
       # ...and it did NOT also land in the per-machine store, which exists and
@@ -151,8 +151,8 @@ Feature: signer — whose signature stands in for your review
       # which is a stronger claim than "both store names appeared somewhere".
       When I run "ctxloom signer list <flags>"
       Then the command succeeds
-      And the output reports "$[Source=project].Entry.Principals" containing "<the team's key>"
-      And the output reports "$[Source=user].Entry.Principals" containing "<her own key>"
+      And the output reports "$[source=project].entry.principals" containing "<the team's key>"
+      And the output reports "$[source=user].entry.principals" containing "<her own key>"
       And the output contains "project"
       And the output contains "user"
 
@@ -204,8 +204,8 @@ Feature: signer — whose signature stands in for your review
       Given an empty project directory
       When I run "ctxloom signer trust solo@example.com --key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPu3qoOrcLwuHKdsczSsVcMrm+R6iPISwuP1K1/82kLr acme-fallback-test' --yes <flags>"
       Then the command succeeds
-      And the output reports "Fallback" as "<fell back>"
-      And the output reports "FallbackReason" matching "<why it fell back>"
+      And the output reports "fallback" as "<fell back>"
+      And the output reports "fallback_reason" matching "<why it fell back>"
       And the home file ".ctxloom/allowed_signers" exists
       And the home file ".ctxloom/allowed_signers" contains "solo@example.com"
 
@@ -235,7 +235,7 @@ Feature: signer — whose signature stands in for your review
       And the file ".ctxloom/allowed_signers" contains "context@acme.example"
       When I run "ctxloom signer untrust context@acme.example <flags>"
       Then the command succeeds
-      And the output reports "Removed" as "<nothing removed>"
+      And the output reports "removed" as "<nothing removed>"
       # The report-side of a destroyer: the thing it did not remove still exists.
       And the file ".ctxloom/allowed_signers" contains "context@acme.example"
       When Alice withdraws trust from the store she actually wrote to:
@@ -243,7 +243,7 @@ Feature: signer — whose signature stands in for your review
         ctxloom signer untrust context@acme.example --project <flags>
         """
       Then the command succeeds
-      And the output reports "Removed" as "<one entry gone>"
+      And the output reports "removed" as "<one entry gone>"
       And the file ".ctxloom/allowed_signers" does not contain "context@acme.example"
       # Read back through the product's own lookup, not just the file: an
       # entry deleted from disk but still answered by `show` would be a trust
@@ -267,12 +267,12 @@ Feature: signer — whose signature stands in for your review
       And I run "ctxloom signer trust releases@acme.example --key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPu3qoOrcLwuHKdsczSsVcMrm+R6iPISwuP1K1/82kLr acceptance-signer' --yes"
       When I run "ctxloom signer untrust context@acme.example --project <flags>"
       Then the command succeeds
-      And the output reports "Removed" as "<one entry gone>"
+      And the output reports "removed" as "<one entry gone>"
       And the file ".ctxloom/allowed_signers" does not contain "context@acme.example"
       And the file ".ctxloom/allowed_signers" contains "releases@acme.example"
       When I run "ctxloom signer show releases@acme.example <flags>"
       Then the command succeeds
-      And the output reports "$[Source=project].Entry.Principals" containing "<the survivor>"
+      And the output reports "$[source=project].entry.principals" containing "<the survivor>"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | one entry gone  | the survivor          |
@@ -289,8 +289,8 @@ Feature: signer — whose signature stands in for your review
       Given an initialized ctxloom project
       When I run "ctxloom signer untrust nobody@acme.example --project <flags>"
       Then the command succeeds
-      And the output reports "Removed" as "<nothing removed>"
-      And the output reports "Path" matching "<names the store it looked in>"
+      And the output reports "removed" as "<nothing removed>"
+      And the output reports "path" matching "<names the store it looked in>"
       And the output does not contain "removed 1 entry"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions

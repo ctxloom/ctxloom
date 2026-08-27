@@ -16,7 +16,7 @@ type Entry struct {
 	// written (e.g. []string{"alice@example.com", "bob@example.com"} or
 	// []string{"*@example.com"}). Never empty for a successfully parsed
 	// entry.
-	Principals []string
+	Principals []string `json:"principals"`
 
 	// CertAuthority is true when the entry carries the cert-authority
 	// option. This package recognizes the option but implements no SSH
@@ -26,7 +26,7 @@ type Entry struct {
 	// grants trust through Store.TrustedForNamespace / Store.TrustedAs.
 	// This is a deliberate, tested, fail-closed decision, not an
 	// oversight — see the package doc.
-	CertAuthority bool
+	CertAuthority bool `json:"cert_authority"`
 
 	// Namespaces is the entry's namespaces pattern-list.
 	//
@@ -37,23 +37,23 @@ type Entry struct {
 	//     value (namespaces="") is syntactically legal and produces a
 	//     non-nil empty slice, which matches no namespace at all (also
 	//     verified against real ssh-keygen).
-	Namespaces []string
+	Namespaces []string `json:"namespaces"`
 
 	// ValidAfter / ValidBefore implement the valid-after= / valid-before=
 	// options. nil means the corresponding bound is absent (unbounded).
-	ValidAfter  *time.Time
-	ValidBefore *time.Time
+	ValidAfter  *time.Time `json:"valid_after"`
+	ValidBefore *time.Time `json:"valid_before"`
 
 	// KeyType is the SSH key type string as it appears in the file, e.g.
 	// "ssh-ed25519", "ssh-rsa", "sk-ssh-ed25519@openssh.com".
-	KeyType string
+	KeyType string `json:"key_type"`
 
 	// PublicKey is the parsed key blob.
-	PublicKey ssh.PublicKey
+	PublicKey ssh.PublicKey `json:"-"`
 
 	// Comment is the trailing free-text comment, if any. Never load-bearing
 	// for any trust decision.
-	Comment string
+	Comment string `json:"comment"`
 
 	// Line is the 1-based index of the line this entry was parsed from,
 	// within the exact byte stream handed to Parse.
@@ -70,7 +70,7 @@ type Entry struct {
 	// is counted — blank lines, comments, and lines that produced a ParseError
 	// included — so Line is an index into the caller's own lines, never a
 	// count of entries.
-	Line int
+	Line int `json:"line"`
 }
 
 // clone returns a copy sharing nothing writable with e.

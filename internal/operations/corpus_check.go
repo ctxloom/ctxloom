@@ -45,8 +45,8 @@ func (b CorpusBundle) String() string {
 // name: a gate that reports "3 bundles failed" without saying what is wrong
 // with them is a gate someone disables instead of fixing.
 type CorpusViolation struct {
-	Bundle CorpusBundle
-	Err    error
+	Bundle CorpusBundle `json:"bundle"`
+	Err    error        `json:"err"`
 }
 
 // CorpusGap is a piece of the corpus that could not be READ, as distinct from
@@ -58,10 +58,10 @@ type CorpusViolation struct {
 // folding it into "clean" is how a check comes to exit 0 having verified
 // nothing.
 type CorpusGap struct {
-	Remote string
-	URL    string
-	Path   string
-	Err    error
+	Remote string `json:"remote"`
+	URL    string `json:"url"`
+	Path   string `json:"path"`
+	Err    error  `json:"err"`
 }
 
 // String renders the gap's subject — the remote, or the specific bundle within
@@ -76,16 +76,16 @@ func (g CorpusGap) String() string {
 // CorpusReport is the outcome of parsing a published corpus.
 type CorpusReport struct {
 	// RemotesConfigured is how many remotes were in scope.
-	RemotesConfigured int
+	RemotesConfigured int `json:"remotes_configured"`
 	// RemotesRead is how many of them yielded a bundle listing.
-	RemotesRead int
+	RemotesRead int `json:"remotes_read"`
 	// Parsed is how many bundles were read AND parsed successfully. It is the
 	// evidence that the check did any work at all.
-	Parsed int
+	Parsed int `json:"parsed"`
 	// Violations are the bundles that read fine and would not parse.
-	Violations []CorpusViolation
+	Violations []CorpusViolation `json:"violations"`
 	// Gaps are the remotes and bundles that could not be read.
-	Gaps []CorpusGap
+	Gaps []CorpusGap `json:"gaps"`
 }
 
 // CorpusVerdict is a corpus check's three-way outcome. Its values are the

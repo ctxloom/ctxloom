@@ -126,8 +126,8 @@ type SessionCommands struct {
 
 // CommandInfo is one of ctxloom's own commands, advertised to an ACP editor.
 type CommandInfo struct {
-	Name        string
-	Description string
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // SessionLLMs advertises the ctxloom LLM configs available to a session and
@@ -141,8 +141,8 @@ type SessionLLMs struct {
 
 // LLMInfo is one advertised LLM: its ctxloom config label (ID) and display name.
 type LLMInfo struct {
-	ID   string
-	Name string
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // SessionModes describes the profile-set-backed ACP session modes of a session.

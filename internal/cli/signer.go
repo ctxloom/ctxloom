@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -232,7 +231,7 @@ func printSignerListings(w io.Writer, listings []operations.SignerListing) error
 			}
 		}
 		if _, err := fmt.Fprintf(w, "%-40s %-10s %-45s %s%s\n",
-			principal, l.Source, ns, sshFingerprintOf(l), embeddedAnnotation(l)); err != nil {
+			principal, l.Source, ns, l.Fingerprint, embeddedAnnotation(l)); err != nil {
 			return err
 		}
 	}
@@ -255,13 +254,6 @@ func embeddedAnnotation(l operations.SignerListing) string {
 		return "  (embedded, not removable — LOCALLY DISTRUSTED, no longer trusted)"
 	}
 	return "  (embedded, not removable)"
-}
-
-func sshFingerprintOf(l operations.SignerListing) string {
-	if l.Entry.PublicKey == nil {
-		return ""
-	}
-	return ssh.FingerprintSHA256(l.Entry.PublicKey)
 }
 
 func runSignerShowCmd(cmd *cobra.Command, args []string) error {
@@ -309,14 +301,14 @@ func runSignerRemoveCmd(cmd *cobra.Command, args []string) error {
 			_, err := fmt.Fprintf(cmd.OutOrStdout(),
 				"%s is ctxloom's embedded release key; it cannot be deleted (only a new binary changes it), "+
 					"but it is now DISTRUSTED on this machine — content signed only by it will be withheld until reviewed (recorded in %s)\n",
-				args[0], res.SuppressionPath)
+				res.Principal, res.SuppressionPath)
 			return err
 		case res.Removed == 0:
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "no entry for %s in %s\n", args[0], res.Path)
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "no entry for %s in %s\n", res.Principal, res.Path)
 			return err
 		default:
 			_, err := fmt.Fprintf(cmd.OutOrStdout(), "removed %d entr%s for %s from %s\n",
-				res.Removed, plural(res.Removed, "y", "ies"), args[0], res.Path)
+				res.Removed, plural(res.Removed, "y", "ies"), res.Principal, res.Path)
 			return err
 		}
 	})

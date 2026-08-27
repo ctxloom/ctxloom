@@ -272,7 +272,7 @@ Feature: A signature somebody can check
     And her assistant receives the "tdd" guidance
     When I run "ctxloom signer untrust context@acme.example --project <flags>"
     Then the command succeeds
-    And the output reports "Removed" as "<one entry gone>"
+    And the output reports "removed" as "<one entry gone>"
     And the project store ".ctxloom/allowed_signers" no longer names Trent's key
     And the project store ".ctxloom/allowed_signers" holds nothing at all
     And her assistant does not receive the "tdd" guidance
@@ -296,7 +296,7 @@ Feature: A signature somebody can check
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,context@acme.example,omega@acme.example"
     When I run "ctxloom signer untrust context@acme.example --project <flags>"
     Then the command succeeds
-    And the output reports "Removed" as "<context gone>"
+    And the output reports "removed" as "<context gone>"
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,omega@acme.example"
     # Down to a SINGLE survivor, because "join the kept lines and terminate the
     # result" behaves differently at one than at several: a rewrite that only
@@ -306,7 +306,7 @@ Feature: A signature somebody can check
     # exit code both still look right.
     When I run "ctxloom signer untrust omega@acme.example --project <flags>"
     Then the command succeeds
-    And the output reports "Removed" as "<omega gone>"
+    And the output reports "removed" as "<omega gone>"
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example"
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -324,7 +324,7 @@ Feature: A signature somebody can check
     And I note exactly what the project store ".ctxloom/allowed_signers" holds
     When I run "ctxloom signer untrust nobody@acme.example --project <flags>"
     Then the command succeeds
-    And the output reports "Removed" as "<nothing removed>"
+    And the output reports "removed" as "<nothing removed>"
     And the project store ".ctxloom/allowed_signers" is byte-for-byte what it was
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,omega@acme.example"
 
@@ -342,7 +342,7 @@ Feature: A signature somebody can check
     Given the file ".ctxloom/allowed_signers" does not exist
     When I run "ctxloom signer untrust nobody@acme.example --project <flags>"
     Then the command succeeds
-    And the output reports "Removed" as "<nothing removed>"
+    And the output reports "removed" as "<nothing removed>"
     And the file ".ctxloom/allowed_signers" does not exist
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -407,7 +407,7 @@ Feature: A signature somebody can check
     And one line in the project store ".ctxloom/allowed_signers" cannot be read
     When I run "ctxloom signer untrust context@acme.example --project <flags>"
     Then the command succeeds
-    And the output reports "Removed" as "<one entry gone>"
+    And the output reports "removed" as "<one entry gone>"
     And the project store ".ctxloom/allowed_signers" still holds the line that could not be read
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -425,19 +425,19 @@ Feature: A signature somebody can check
     Given ctxloom's own compiled-in publishing key is trusted
     When I run "ctxloom signer untrust ben+ctxloom@abbitt.me --project <flags>"
     Then the command succeeds
-    And the output reports "Removed" as "<not deleted>"
-    And the output reports "EmbeddedSuppressed" as "<distrust recorded>"
+    And the output reports "removed" as "<not deleted>"
+    And the output reports "embedded_suppressed" as "<distrust recorded>"
     # The report must NAME the file it recorded the withdrawal in. A
     # suppression an operator cannot locate is one they cannot audit or undo,
     # and "recorded in " with nothing after it reads as success either way.
-    And the output reports "SuppressionPath" matching "<names the file>"
+    And the output reports "suppression_path" matching "<names the file>"
     And the distrusted store ".ctxloom/distrusted_signers" records every principal that entry names
     # And the read side must SHOW the suppression it now honours, against the
     # embedded entry specifically — a listing that reports it against some
     # other entry would be the same defect wearing the right word.
     When I run "ctxloom signer list <flags>"
     Then the command succeeds
-    And the output reports "$[Source=embedded].Suppressed" as "<shown as distrusted>"
+    And the output reports "$[source=embedded].suppressed" as "<shown as distrusted>"
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | not deleted       | distrust recorded | names the file                 | shown as distrusted |

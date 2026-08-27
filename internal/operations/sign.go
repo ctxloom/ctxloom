@@ -148,23 +148,23 @@ type SignBundleRequest struct {
 
 // SignBundleResult reports what was signed and where the signature landed.
 type SignBundleResult struct {
-	BundleName string
-	BundlePath string
+	BundleName string `json:"bundle_name"`
+	BundlePath string `json:"bundle_path"`
 	// SigPath is where the signature landed: the detached "<path>.yaml.sig"
 	// sibling for a single-file bundle, or the bundle's .sigs/ STORE DIRECTORY
 	// for a tree (a tree's signature filename is derived from the signature's own
 	// bytes, so there is no single stable path to name).
-	SigPath string
+	SigPath string `json:"sig_path"`
 	// Tree reports that a DIRECTORY-form bundle was signed as a tree — manifest
 	// plus a signature filed against it — rather than as one file's bytes. The
 	// two attest different things, and a caller that printed "signed" without
 	// saying which would leave an author unable to tell whether their content was
 	// covered at all.
-	Tree bool
+	Tree bool `json:"tree"`
 	// ManifestPath is the SHA256SUMS the signature covers. Empty unless Tree.
-	ManifestPath string
+	ManifestPath string `json:"manifest_path"`
 	// ItemNote carries SignTarget.ItemNote through, for CLI display.
-	ItemNote string
+	ItemNote string `json:"item_note"`
 }
 
 // SignBundleFile signs the EXACT bytes of a local bundle file as they exist

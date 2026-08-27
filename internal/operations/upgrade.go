@@ -15,14 +15,14 @@ import (
 // refused advance, which is the exact silence this feature exists to prevent.
 type UpgradeResult struct {
 	// Advanced counts the entries whose SHA actually moved.
-	Advanced int
+	Advanced int `json:"advanced"`
 	// Incomplete reports that part of the dependency closure could not be
 	// reached this round, so Advanced==0 does not mean "everything checked out".
-	Incomplete bool
+	Incomplete bool `json:"incomplete"`
 	// Refused lists the pins that were NOT moved because the content at the
 	// proposed commit failed publisher verification. Non-empty means the human
 	// must be told: the lockfile deliberately did not change.
-	Refused []RefusedAdvance
+	Refused []RefusedAdvance `json:"refused"`
 }
 
 // UpgradeDependencies re-resolves the project's dependency closure to the newest

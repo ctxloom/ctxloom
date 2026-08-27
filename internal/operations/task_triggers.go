@@ -101,15 +101,15 @@ type EvaluateTriggersRequest struct {
 // human to confirm. See EvaluateTriggers — this is never used to mutate task
 // status.
 type EvaluateTriggersResult struct {
-	Verdicts  []triggers.Verdict
-	Evaluated int // number of Deferred tasks considered
+	Verdicts  []triggers.Verdict `json:"verdicts"`
+	Evaluated int                `json:"evaluated"` // number of Deferred tasks considered
 
 	// CacheHits/CacheMisses partition Evaluated: a hit reused a cached
 	// verdict (no model call for that task, see triggers.Verdict.Cached); a
 	// miss went through the model this run. CacheHits == Evaluated means this
 	// call made ZERO model calls.
-	CacheHits   int
-	CacheMisses int
+	CacheHits   int `json:"cache_hits"`
+	CacheMisses int `json:"cache_misses"`
 
 	// Degraded is true when at least one CHUNK's LLM call/parse failed even
 	// after its one retry (a cache hit can never be degraded). The batch is
@@ -121,8 +121,8 @@ type EvaluateTriggersResult struct {
 	// cannot-determine fallback verdicts are never written to the cache — a
 	// transient model failure must not freeze a task's verdict until its
 	// evidence happens to change.
-	Degraded bool
-	Warning  string
+	Degraded bool   `json:"degraded"`
+	Warning  string `json:"warning"`
 
 	// Omitted counts task-verdicts that fell back to cannot-determine
 	// because a chunk's model response was otherwise well-formed but simply
@@ -134,7 +134,7 @@ type EvaluateTriggersResult struct {
 	// means the model is still dropping tasks even at the current chunk
 	// size, and the caller should surface it rather than let it hide inside
 	// an undifferentiated pile of cannot-determine verdicts.
-	Omitted int
+	Omitted int `json:"omitted"`
 
 	// QueriesRejected counts the follow-up evidence queries a round-1
 	// needs-investigation verdict asked for and ctxloom REFUSED, because they
@@ -149,8 +149,8 @@ type EvaluateTriggersResult struct {
 	// nothing does, so without this count the two are indistinguishable and a
 	// model reliably requesting malformed queries looks like a model
 	// declining to escalate.
-	QueriesRejected        int
-	TasksRefusedEveryQuery int
+	QueriesRejected        int `json:"queries_rejected"`
+	TasksRefusedEveryQuery int `json:"tasks_refused_every_query"`
 }
 
 // EvaluateTriggers reads Deferred tasks, assembles a bounded evidence pack

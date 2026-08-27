@@ -41,8 +41,6 @@ package acceptance
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -1493,10 +1491,13 @@ func j001600RenderedListingNames(w *World, format clifmt.Format, principal, stor
 // j001600StructuredListingNames reads the same four facts off ONE ENTRY of a
 // structured listing — the payload's spelling of the one-line rule above.
 //
-// The fingerprint is not a field here: it is derived from the key, so this
-// reads the key back out and fingerprints it. That is a STRONGER claim than
-// matching rendered text, because a listing carrying the wrong key cannot
-// produce Trent's fingerprint however it chose to print itself.
+// The fingerprint IS a field here, and deliberately: the entry's PublicKey is
+// an ssh.PublicKey interface and is json:"-" precisely so the wire schema does
+// not vary by key type. This assertion therefore checks the fingerprint the
+// listing publishes rather than re-deriving one from raw key bytes. That is a
+// weaker claim than the rebuild it replaces -- it trusts the producer's own
+// computation -- and the store-file assertions in these features are what still
+// tie the listing to the key actually on disk.
 func j001600StructuredListingNames(w *World, format clifmt.Format, principal, store, fp string) error {
 	doc, err := lastOutputStructured(w, format)
 	if err != nil {
@@ -1534,13 +1535,13 @@ func j001600StructuredListingNames(w *World, format clifmt.Format, principal, st
 // principal and the publish namespace together. All three are read off the same
 // entry, never gathered across the listing.
 func j001600EntryMatches(entry any, principal, store string) bool {
-	if got, err := jsonAtPath(entry, "Source"); err != nil || !jsonScalarIs(got, store) {
+	if got, err := jsonAtPath(entry, "source"); err != nil || !jsonScalarIs(got, store) {
 		return false
 	}
-	if !jsonArrayHas(entry, "Entry.Principals", principal) {
+	if !jsonArrayHas(entry, "entry.principals", principal) {
 		return false
 	}
-	return jsonArrayHas(entry, "Entry.Namespaces", signing.NamespacePublish)
+	return jsonArrayHas(entry, "entry.namespaces", signing.NamespacePublish)
 }
 
 // j001600ListedKeyFingerprint rebuilds the SSH public key a signer listing
@@ -1552,39 +1553,15 @@ func j001600EntryMatches(entry any, principal, store string) bool {
 // The wire blob a fingerprint is taken over therefore has to be reassembled
 // from the two.
 func j001600ListedKeyFingerprint(entry any) (string, error) {
-	kt, err := jsonAtPath(entry, "Entry.KeyType")
+	fp, err := jsonAtPath(entry, "fingerprint")
 	if err != nil {
 		return "", err
 	}
-	keyType, _ := jsonScalar(kt)
-	if keyType != ssh.KeyAlgoED25519 {
-		return "", fmt.Errorf("key type %q is not one this assertion can rebuild (only %s)", keyType, ssh.KeyAlgoED25519)
+	got, ok := jsonScalar(fp)
+	if !ok || got == "" {
+		return "", fmt.Errorf("the entry carries no fingerprint")
 	}
-	pk, err := jsonAtPath(entry, "Entry.PublicKey")
-	if err != nil {
-		return "", err
-	}
-	raw, err := j001600KeyBytes(pk)
-	if err != nil {
-		return "", err
-	}
-	if len(raw) != ed25519.PublicKeySize {
-		return "", fmt.Errorf("%s key is %d bytes, want %d", keyType, len(raw), ed25519.PublicKeySize)
-	}
-	pub, err := ssh.NewPublicKey(ed25519.PublicKey(raw))
-	if err != nil {
-		return "", fmt.Errorf("rebuild %s key: %w", keyType, err)
-	}
-	return ssh.FingerprintSHA256(pub), nil
-}
-
-// j001600KeyBytes decodes the base64 blob a []byte reaches a JSON payload as.
-func j001600KeyBytes(v any) ([]byte, error) {
-	key, ok := v.(string)
-	if !ok {
-		return nil, fmt.Errorf("the key is a %s, not an encoded key blob", jsonKind(v))
-	}
-	return base64.StdEncoding.DecodeString(key)
+	return got, nil
 }
 
 // jsonScalarIs reports whether a decoded value is the scalar want.

@@ -5,213 +5,188 @@ description: 'Situations MINED from 3,404 real tool-intent statements across 86 
 
   `observed` is recomputed DETERMINISTICALLY by matching the real extracted lines; the miners'' own frequency
   figures were discarded after three of six reported cluster totals that exceeded or undershot the number
-  of lines they were given, which proves they were estimates rather than counts.
-
-
-  `expect` and `forbid` are EMPTY and must be labelled against premise_corpus_v0''s fragment BODIES while
-  every premise in that corpus is still empty. Ground truth written after the premises exist grades each
-  premise against itself.
+  of lines they were given, which proves they were estimates rather than counts.Ground truth written after
+  the premises exist grades each premise against itself.
 
 
   MINING CANNOT PRODUCE A CANARY. A transcript only records moments where the agent acted, so a moment
-  where nothing applies is structurally absent from this input and must be authored by hand.'
+  where nothing applies is structurally absent from this input and must be authored by hand.
+
+
+  NO NEGATIVE LIST, DELIBERATELY. Ground truth names only what SHOULD be selected. Anything else selected
+  is a false positive whether or not anyone anticipated it. Enumerating the tempting-but-wrong fragments
+  would close an open seam: it measures the model against the labeller''s imagination of failure, and
+  the failure worth finding is the one nobody imagined. Over-selection is caught instead by precision
+  and by NOTHING-APPLIES situations, where any selection at all counts against the run.
+
+
+  UNTIL LABELLING IS DONE every row has an empty `expect`, so the false-fire metric is meaningless: it
+  cannot distinguish a genuine nothing-applies situation from one nobody has labelled yet. Score only
+  after labelling.'
 situations:
 - id: S01
   intent: I need to understand how an existing piece of this code works before I change anything.
   observed: 632
   example: '[Bash] Inspect ctxloom dir git status and config'
   expect: []
-  forbid: []
 - id: S02
   intent: I need to find where a symbol, function, or setting is defined or referenced.
   observed: 410
   example: '[Bash] Locate remote clones and check for golang fragments'
   expect: []
-  forbid: []
 - id: S03
   intent: I have made a change and need to confirm it actually produced the effect I intended.
   observed: 378
   example: '[Bash] Check whether authored bundles are discovered'
   expect: []
-  forbid: []
 - id: S04
   intent: I need to see what branch I am on and whether my changes have landed.
   observed: 156
   example: '[Bash] Inspect ctxloom dir git status and config'
   expect: []
-  forbid: []
 - id: S05
   intent: I need to see what this tool currently offers, or read its help before invoking it.
   observed: 218
   example: '[Bash] List project root'
   expect: []
-  forbid: []
 - id: S06
   intent: I need to read the configuration or schema to see how something is declared.
   observed: 163
   example: '[Bash] Inspect ctxloom dir git status and config'
   expect: []
-  forbid: []
 - id: S07
   intent: I am about to run the full acceptance suite to decide whether this work is done.
   observed: 151
   example: '[Bash] Full gate suite on item 1''s branch'
   expect: []
-  forbid: []
 - id: S08
   intent: I want to run one package's tests to iterate quickly on the change I just made.
   observed: 88
   example: '[Bash] Verify home config and re-run key doctor checks'
   expect: []
-  forbid: []
 - id: S09
   intent: I am about to hand a substantial, context-heavy piece of work to a sub-agent.
   observed: 146
   example: '[Agent] Cover unusable-overload paths'
   expect: []
-  forbid: []
 - id: S10
   intent: I am about to stage files and commit what I have done so far.
   observed: 134
   example: '[Bash] Commit the pre-existing working-tree changes'
   expect: []
-  forbid: []
 - id: S11
   intent: Something is broken and I am about to change production code to correct it.
   observed: 107
   example: '[Bash] Fix the mode and re-list skills'
   expect: []
-  forbid: []
 - id: S12
   intent: I need to reach context or history from a session other than the one in front of me.
   observed: 68
   example: '[Bash] Read fragment distill help'
   expect: []
-  forbid: []
 - id: S13
   intent: I am about to build the binary so I can drive the code I just changed.
   observed: 110
   example: '[Bash] Diff remotes/lock and check which ctxloom binary'
   expect: []
-  forbid: []
 - id: S14
   intent: I am about to modify source to implement the behaviour we agreed on.
   observed: 85
   example: '[Bash] Read mcp server edit''s contract'
   expect: []
-  forbid: []
 - id: S15
   intent: A decision or finding just landed and I need to write it somewhere durable.
   observed: 106
   example: '[Bash] Register J15 state and steps in the world'
   expect: []
-  forbid: []
 - id: S16
   intent: I am about to push commits or publish a release to somewhere other people will see.
   observed: 90
   example: '[Bash] Find every bundle already carrying the default tag, and read the default profile'
   expect: []
-  forbid: []
 - id: S17
   intent: I am about to merge finished work into the integration branch.
   observed: 103
   example: '[Bash] Merge the retry and complete the worktree lifecycle'
   expect: []
-  forbid: []
 - id: S18
   intent: My test is green and I am about to break the code deliberately to see whether it notices.
   observed: 103
   example: '[Bash] Mutation: disable the truncation guard'
   expect: []
-  forbid: []
 - id: S19
   intent: A gate came back red and I need to work out why before I touch anything.
   observed: 96
   example: '[Bash] Identify the failing unit test'
   expect: []
-  forbid: []
 - id: S20
   intent: I am about to run the linter and the architectural gates over what I changed.
   observed: 48
   example: '[Bash] Capture real exit codes for test and lint'
   expect: []
-  forbid: []
 - id: S21
   intent: I am about to sign content, or decide whether something unsigned can be trusted.
   observed: 58
   example: '[Bash] Check trust companion command'
   expect: []
-  forbid: []
 - id: S22
   intent: I need to read the existing plan or design before proposing what happens next.
   observed: 87
   example: '[Bash] Check whether these tools are host-by-design'
   expect: []
-  forbid: []
 - id: S23
   intent: I need a real number for how long something takes or how much it costs.
   observed: 84
   example: '[Bash] List agents and profiles'
   expect: []
-  forbid: []
 - id: S24
   intent: I am about to delete code that is duplicated, stale, or no longer reachable.
   observed: 85
   example: '[Bash] Delete U1 from the plan with the measurement'
   expect: []
-  forbid: []
 - id: S25
   intent: I have something long running and I am deciding what to do while it finishes.
   observed: 33
   example: '[Bash] Check for conflicts with the in-flight resume work'
   expect: []
-  forbid: []
 - id: S26
   intent: I need to read the output of a run to find out what actually happened.
   observed: 73
   example: '[Bash] Search structured log for this harp'
   expect: []
-  forbid: []
 - id: S27
   intent: Before I write something new I want to know whether it already exists here.
   observed: 67
   example: '[Bash] Commit the pre-existing working-tree changes'
   expect: []
-  forbid: []
 - id: S28
   intent: Work has merged and I am about to remove its worktree and delete the branch.
   observed: 42
   example: '[Bash] Close final task and reap'
   expect: []
-  forbid: []
 - id: S29
   intent: There is work I cannot do now and I need it to survive this conversation.
   observed: 56
   example: '[Bash] Locate the taskloom companion fragment source'
   expect: []
-  forbid: []
 - id: S30
   intent: I need to see everything still open across branches and worktrees and decide what to do with
     it.
   observed: 42
   example: '[Bash] Survey existing canonical-URL machinery'
   expect: []
-  forbid: []
 - id: S31
   intent: I need to put something back the way it was before my change.
   observed: 41
   example: '[Bash] Restore authored bundles from HEAD'
   expect: []
-  forbid: []
 - id: S32
   intent: I am about to cut a worktree and a branch for a new piece of work.
   observed: 31
   example: '[Bash] Create worktree, move changes there, restore main'
   expect: []
-  forbid: []
 - id: S33
   intent: Measurements look wrong and I want to check whether the machine itself is the problem.
   observed: 35
   example: '[Bash] Check machine load before adding agents'
   expect: []
-  forbid: []

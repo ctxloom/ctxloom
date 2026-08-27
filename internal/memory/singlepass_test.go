@@ -15,8 +15,8 @@ import (
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // entryBlock renders one "## " block the way appendEntryText does, so these

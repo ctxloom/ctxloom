@@ -201,8 +201,8 @@ func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
 
 // SettingsConfig holds misc behavioral settings (mapstructure key "config").
 type SettingsConfig struct {
-	UseDistilled     *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"`         // Prefer .distilled.md versions (default true)
-	Statusline       *bool `mapstructure:"statusline" yaml:"statusline,omitempty"`               // Manage the ctxloom HUD statusline (default true)
+	UseDistilled *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
+	Statusline   *bool `mapstructure:"statusline" yaml:"statusline,omitempty"`       // Manage the ctxloom HUD statusline (default true)
 	// ToolReflectBytes is the tool-result size, in bytes, at or above which the
 	// PostToolUse reflect hook fires. Distillation reduces a tool result to its
 	// SHAPE, so whatever the agent does not say it learned is not recoverable

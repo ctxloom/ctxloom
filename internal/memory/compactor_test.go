@@ -124,12 +124,6 @@ func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 	assert.Contains(t, text, "[ERROR]")
 }
 
-
-
-
-
-
-
 func TestDistilledSession_RoundTrip(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
@@ -696,7 +690,6 @@ func TestCompact_WithMockClient(t *testing.T) {
 	require.NoError(t, err)
 }
 
-
 // TestCompact_EnforcesMaxEssenceChars pins the requirement: even a
 // "successful" distillation pipeline (every LLM call exits 0) must never save
 // or return an essence body over the named MaxEssenceChars ceiling. Here the
@@ -753,7 +746,6 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 		assert.NotContains(t, string(data), oversized[:1000], "refused essence must not have been written to disk")
 	}
 }
-
 
 // TestCompact_DeliversSystemPromptUnderSkipSetup pins the fragment-delivery
 // fix: distillation runs with SkipSetup, and the server only hands req.Fragments
@@ -902,7 +894,6 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, prior, string(gotLegacy), "legacy mirror must survive too")
 }
-
 
 // refusingSessionSource is a pb.SessionSource whose every method fails the
 // test if called — used to prove PreloadedSession short-circuits
@@ -1284,7 +1275,6 @@ func TestDeriveSummary(t *testing.T) {
 	}
 }
 
-
 // =============================================================================
 // buildPickerDetail — extra picker lines from the body's Open Items section.
 // =============================================================================
@@ -1333,7 +1323,6 @@ func TestBuildPickerDetail(t *testing.T) {
 		})
 	}
 }
-
 
 // TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason pins the error a
 // user actually sees when the canonical session index cannot be opened on a

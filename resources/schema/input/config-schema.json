@@ -73,6 +73,18 @@
           "type": "boolean",
           "description": "Whether to prefer distilled versions of fragments/prompts (default: true)"
         },
+        "tool_reflect_bytes": {
+          "type": "integer",
+          "description": "Tool-result size, in bytes, at or above which the PostToolUse reflect hook fires; negative disables the hook"
+        },
+        "essence_max_chars": {
+          "type": "integer",
+          "description": "Character budget for a distilled session essence (default: 12000)"
+        },
+        "silence_unsupported": {
+          "type": "boolean",
+          "description": "Suppress capability-loss lines when a backend does not support a requested feature (default: false)"
+        },
         "statusline": {
           "type": "boolean",
           "description": "Whether ctxloom manages its HUD statusline (default: true); set false to keep your own"

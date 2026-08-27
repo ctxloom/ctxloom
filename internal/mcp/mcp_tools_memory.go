@@ -76,12 +76,12 @@ type listSessionsInput struct {
 // a dedicated struct rather than sharing a generic "memory response" type.
 
 type compactSessionResult struct {
-	SessionID       string `json:"session_id"`
-	TokensIn        int    `json:"tokens_in"`
-	TokensOut       int    `json:"tokens_out"`
-	Reduction       string `json:"reduction"`
-	Duration        string `json:"duration"`
-	OutputPath      string `json:"output_path"`
+	SessionID  string `json:"session_id"`
+	TokensIn   int    `json:"tokens_in"`
+	TokensOut  int    `json:"tokens_out"`
+	Reduction  string `json:"reduction"`
+	Duration   string `json:"duration"`
+	OutputPath string `json:"output_path"`
 	// WasCached reports a cache hit: the eager-trash unification gave
 	// compact_session a cache check it never had (it used to always
 	// recompact). TokensIn/TokensOut/Duration are zero on a cache hit —
@@ -297,12 +297,12 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 				return nil, fmt.Errorf("compaction failed: %w", derr)
 			}
 			return &compactSessionResult{
-				SessionID:       result.SessionID,
-				TokensIn:        result.TotalTokensIn,
-				TokensOut:       result.TotalTokensOut,
-				Reduction:       reductionPct(result.TotalTokensIn, result.TotalTokensOut),
-				Duration:        result.Duration.String(),
-				OutputPath:      result.DistilledPath,
+				SessionID:  result.SessionID,
+				TokensIn:   result.TotalTokensIn,
+				TokensOut:  result.TotalTokensOut,
+				Reduction:  reductionPct(result.TotalTokensIn, result.TotalTokensOut),
+				Duration:   result.Duration.String(),
+				OutputPath: result.DistilledPath,
 			}, nil
 		}
 		// No index entry for this harp. A NAMED session cannot land here —
@@ -330,12 +330,12 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			return nil, fmt.Errorf("compaction failed: %w", derr)
 		}
 		return &compactSessionResult{
-			SessionID:       result.SessionID,
-			TokensIn:        result.TotalTokensIn,
-			TokensOut:       result.TotalTokensOut,
-			Reduction:       reductionPct(result.TotalTokensIn, result.TotalTokensOut),
-			Duration:        result.Duration.String(),
-			OutputPath:      result.DistilledPath,
+			SessionID:  result.SessionID,
+			TokensIn:   result.TotalTokensIn,
+			TokensOut:  result.TotalTokensOut,
+			Reduction:  reductionPct(result.TotalTokensIn, result.TotalTokensOut),
+			Duration:   result.Duration.String(),
+			OutputPath: result.DistilledPath,
 		}, nil
 	})
 	if err != nil {

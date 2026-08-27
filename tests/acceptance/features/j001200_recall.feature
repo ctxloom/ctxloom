@@ -111,9 +111,26 @@ Feature: The archaeologist — what did we decide in March?
   # cli.undistilledSessionError so it reads "(compact this session first)"
   # turns this red — the row asserts the REMEDY, not merely that an error
   # happened, which is what keeps a user from concluding the capture failed.
-  Scenario: A session nobody ever distilled says so, and says what to do about it
-    When I run "ctxloom session show brisk-copper-moth"
-    Then ctxloom says the session was never distilled and names how to distill it
+  #
+  # Tabled by format: `session show` is wired to emit(), and (internal/cli/
+  # session_cmd.go's runSessionShow / undistilledSessionError) documents the
+  # divergence outright — the structured shape reports distilled:false rather
+  # than erroring, so a caller can show a hint without branching on an exit
+  # code, while the text renderer is the only one that raises the remedy
+  # error this scenario used to assert unconditionally. So the OUTCOME itself
+  # varies by row, not just the payload: json (and the no-flag default, which
+  # is JSON off a terminal) succeeds and reports distilled:false; an explicit
+  # --format text still fails and still names the remedy.
+  Scenario Outline: A session nobody ever distilled says so, and says what to do about it
+    When I run "ctxloom session show brisk-copper-moth <flags>"
+    Then the command <outcome>
+    And the output <detail>
+
+    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+      | flags         | outcome  | detail                                            |
+      |               | succeeds | reports "distilled" as "false"                    |
+      | --format json | succeeds | reports "distilled" as "false"                    |
+      | --format text | fails    | contains "session distill brisk-copper-moth"      |
 
   # THE PAYOFF. Everything upstream — the tee, the readers, the canonical
   # schema, four vendors' conversion — exists to make this one line work.

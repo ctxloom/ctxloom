@@ -76,17 +76,16 @@ type listSessionsInput struct {
 // a dedicated struct rather than sharing a generic "memory response" type.
 
 type compactSessionResult struct {
-	SessionID       string `json:"session_id"`
-	ChunksProcessed int    `json:"chunks_processed"`
-	TokensIn        int    `json:"tokens_in"`
-	TokensOut       int    `json:"tokens_out"`
-	Reduction       string `json:"reduction"`
-	Duration        string `json:"duration"`
-	OutputPath      string `json:"output_path"`
+	SessionID  string `json:"session_id"`
+	TokensIn   int    `json:"tokens_in"`
+	TokensOut  int    `json:"tokens_out"`
+	Reduction  string `json:"reduction"`
+	Duration   string `json:"duration"`
+	OutputPath string `json:"output_path"`
 	// WasCached reports a cache hit: the eager-trash unification gave
 	// compact_session a cache check it never had (it used to always
-	// recompact). ChunksProcessed/TokensIn/TokensOut/Duration are zero on a
-	// cache hit — there was no fresh compaction run to report metrics for.
+	// recompact). TokensIn/TokensOut/Duration are zero on a cache hit —
+	// there was no fresh compaction run to report metrics for.
 	WasCached bool `json:"was_cached,omitempty"`
 }
 
@@ -293,18 +292,17 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			}
 		}
 		if src.Entry != nil {
-			result, derr := operations.DistillEntry(ctx, src, s.cfg, model, io.Discard)
+			result, derr := operations.DistillEntry(ctx, src, s.cfg, operations.DistillOptions{Model: model, Progress: io.Discard})
 			if derr != nil {
 				return nil, fmt.Errorf("compaction failed: %w", derr)
 			}
 			return &compactSessionResult{
-				SessionID:       result.SessionID,
-				ChunksProcessed: result.ChunksCreated,
-				TokensIn:        result.TotalTokensIn,
-				TokensOut:       result.TotalTokensOut,
-				Reduction:       reductionPct(result.TotalTokensIn, result.TotalTokensOut),
-				Duration:        result.Duration.String(),
-				OutputPath:      result.DistilledPath,
+				SessionID:  result.SessionID,
+				TokensIn:   result.TotalTokensIn,
+				TokensOut:  result.TotalTokensOut,
+				Reduction:  reductionPct(result.TotalTokensIn, result.TotalTokensOut),
+				Duration:   result.Duration.String(),
+				OutputPath: result.DistilledPath,
 			}, nil
 		}
 		// No index entry for this harp. A NAMED session cannot land here —
@@ -319,7 +317,6 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			LLM:             s.cfg.GetCompactionLLM(),
 			Model:           model,
 			Backend:         backend,
-			ChunkSize:       s.cfg.GetCompactionChunkSize(),
 			EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
 			SessionID:       in.SessionID,
 			WorkDir:         workDir,
@@ -333,13 +330,12 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			return nil, fmt.Errorf("compaction failed: %w", derr)
 		}
 		return &compactSessionResult{
-			SessionID:       result.SessionID,
-			ChunksProcessed: result.ChunksCreated,
-			TokensIn:        result.TotalTokensIn,
-			TokensOut:       result.TotalTokensOut,
-			Reduction:       reductionPct(result.TotalTokensIn, result.TotalTokensOut),
-			Duration:        result.Duration.String(),
-			OutputPath:      result.DistilledPath,
+			SessionID:  result.SessionID,
+			TokensIn:   result.TotalTokensIn,
+			TokensOut:  result.TotalTokensOut,
+			Reduction:  reductionPct(result.TotalTokensIn, result.TotalTokensOut),
+			Duration:   result.Duration.String(),
+			OutputPath: result.DistilledPath,
 		}, nil
 	})
 	if err != nil {
@@ -419,7 +415,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
-		if _, err := compactEntryFn(ctx, e, s.cfg, "", io.Discard); err != nil {
+		if _, err := compactEntryFn(ctx, e, s.cfg, operations.DistillOptions{Progress: io.Discard}); err != nil {
 			clidiag.Warn("ctxloom", "list_sessions: could not distill %s: %v", e.HarpName, err)
 		}
 	}
@@ -724,7 +720,7 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 			}
 		}
 
-		if _, derr := operations.DistillEntry(ctx, src, s.cfg, model, io.Discard); derr != nil {
+		if _, derr := operations.DistillEntry(ctx, src, s.cfg, operations.DistillOptions{Model: model, Progress: io.Discard}); derr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
 				Message: fmt.Sprintf("Couldn't distill previous session %s: %v", harp, derr),
@@ -1117,7 +1113,6 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 		LLM:             s.cfg.GetCompactionLLM(),
 		Model:           model,
 		Backend:         backendName,
-		ChunkSize:       s.cfg.GetCompactionChunkSize(),
 		EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
 		SessionID:       sessionID,
 		WorkDir:         workDir,

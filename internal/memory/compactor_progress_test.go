@@ -61,8 +61,8 @@ func TestCompact_ProgressGoesToTheInjectedSink(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Contains(t, sink.String(), "compacting chunk",
-		"per-chunk progress must reach the caller's sink")
+	assert.Contains(t, sink.String(), "distilling session",
+		"distillation progress must reach the caller's sink")
 }
 
 // TestCompact_WritesNoProgressToStderr is the TUI-corruption regression. The

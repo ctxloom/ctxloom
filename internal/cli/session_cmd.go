@@ -287,12 +287,19 @@ under the harp directory. Errors if the harp has no session_id bound
 	RunE: runSessionDistill,
 }
 
+// sessionDistillPromptDir backs --prompt-dir: it points distillation at prompt
+// files on disk instead of the binary's embedded copies, so a prompt-evaluation
+// harness can A/B variants against the same transcript without a rebuild.
+var sessionDistillPromptDir string
+
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
 	sessionListCmd.Flags().BoolVar(&sessionListDistill, "distill", false, "Distill sessions whose essence is missing or stale before listing, so every row shows a title")
 	sessionRemoveCmd.Flags().BoolVarP(&sessionRemoveYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
 	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
+	sessionDistillCmd.Flags().StringVar(&sessionDistillPromptDir, "prompt-dir", "",
+		"Load distillation prompts from this directory instead of the built-in ones (expects <dir>/session-distill.md; a missing prompt is an error, not a fallback)")
 	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionDistillCmd)
 	rootCmd.AddCommand(sessionCmd)
 }
@@ -378,12 +385,22 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	if src.Entry == nil {
 		src.Entry = entry
 	}
-	result, err := operations.DistillEntry(cmd.Context(), src, cfg, "", progress)
+	result, err := operations.DistillEntry(cmd.Context(), src, cfg, operations.DistillOptions{
+		Progress:  progress,
+		PromptDir: sessionDistillPromptDir,
+	})
 	if err != nil {
 		return err
 	}
 	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("distilled %s in %s (%d chunks, %d → %d tokens)\nessence: %s\n",
-		harpName, result.Duration, result.ChunksCreated, result.TotalTokensIn, result.TotalTokensOut, result.DistilledPath)
+	reduced := ""
+	if result.InputReduced {
+		// Say so rather than reporting the token counts alone: the essence is
+		// complete in shape either way, but early detail was thinned before the
+		// model saw it, and that is not visible in the numbers.
+		reduced = ", older content compressed to fit"
+	}
+	w.Printf("distilled %s in %s (%d → %d tokens%s)\nessence: %s\n",
+		harpName, result.Duration, result.TotalTokensIn, result.TotalTokensOut, reduced, result.DistilledPath)
 	return w.Err()
 }

@@ -411,7 +411,7 @@ func TestConfig_Save(t *testing.T) {
 
 // Regression: Save round-trips the labeled-config registry, the role map, the
 // config (settings) block, and the editor block. The fast role's labeled
-// config carries the compression model; compaction_chunks lives under config.
+// config carries the compression model; essence_max_chars lives under config.
 func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	// Real-OS-fs Load below (no WithFS): isolate HOME so the home-layer read
 	// (D2/D3 layering) never reaches this developer's real ~/.ctxloom.
@@ -440,7 +440,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 			},
 			Defaults: RoleDefaults{Primary: "big", Fast: "fast"},
 		},
-		settings: SettingsConfig{CompactionChunks: 4096},
+		settings: SettingsConfig{EssenceMaxChars: 4096},
 		editor:   EditorConfig{Command: "vim", Args: []string{"-p"}},
 	}
 	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
@@ -458,7 +458,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	assert.Equal(t, "fast", loaded.lm.Defaults.Fast)
 	assert.Equal(t, "antigravity", loaded.GetCompactionLLM())
 	assert.Equal(t, "haiku", loaded.GetCompactionModel())
-	assert.Equal(t, 4096, loaded.GetCompactionChunkSize())
+	assert.Equal(t, 4096, loaded.GetEssenceMaxChars())
 	assert.Equal(t, "vim", loaded.editor.Command)
 	assert.Equal(t, []string{"-p"}, loaded.editor.Args)
 }
@@ -1639,18 +1639,6 @@ func TestGetCompactionModel(t *testing.T) {
 			Defaults: RoleDefaults{Fast: "f"},
 		}}
 		assert.Equal(t, "", cfg.GetCompactionModel())
-	})
-}
-
-func TestGetCompactionChunkSize(t *testing.T) {
-	t.Run("returns configured size", func(t *testing.T) {
-		cfg := &Config{settings: SettingsConfig{CompactionChunks: 4000}}
-		assert.Equal(t, 4000, cfg.GetCompactionChunkSize())
-	})
-
-	t.Run("defaults to 8000", func(t *testing.T) {
-		cfg := &Config{}
-		assert.Equal(t, 8000, cfg.GetCompactionChunkSize())
 	})
 }
 

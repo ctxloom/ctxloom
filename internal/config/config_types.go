@@ -201,9 +201,8 @@ func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
 
 // SettingsConfig holds misc behavioral settings (mapstructure key "config").
 type SettingsConfig struct {
-	UseDistilled     *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"`         // Prefer .distilled.md versions (default true)
-	CompactionChunks int   `mapstructure:"compaction_chunks" yaml:"compaction_chunks,omitempty"` // Target tokens per compaction chunk (default 8000)
-	Statusline       *bool `mapstructure:"statusline" yaml:"statusline,omitempty"`               // Manage the ctxloom HUD statusline (default true)
+	UseDistilled *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
+	Statusline   *bool `mapstructure:"statusline" yaml:"statusline,omitempty"`       // Manage the ctxloom HUD statusline (default true)
 	// ToolReflectBytes is the tool-result size, in bytes, at or above which the
 	// PostToolUse reflect hook fires. Distillation reduces a tool result to its
 	// SHAPE, so whatever the agent does not say it learned is not recoverable
@@ -254,7 +253,7 @@ type SignConfig struct {
 // empty. It MUST cover every field, or setting only an uncovered field would
 // silently drop the whole block on the next Save.
 func (s SettingsConfig) hasAny() bool {
-	return s.UseDistilled != nil || s.CompactionChunks > 0 || s.Statusline != nil || s.Sign != nil || s.ToolReflectBytes != 0 || s.EssenceMaxChars != 0 || s.SilenceUnsupported
+	return s.UseDistilled != nil || s.Statusline != nil || s.Sign != nil || s.ToolReflectBytes != 0 || s.EssenceMaxChars != 0 || s.SilenceUnsupported
 }
 
 // ShouldSignByDefault reports whether publish commands should sign unless

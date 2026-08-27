@@ -26,7 +26,7 @@ version: 6
 # Behavioral settings.
 # config:
 #   use_distilled: true       # prefer .distilled.md versions (default true)
-#   compaction_chunks: 8000   # target tokens per compaction chunk
+#   essence_max_chars: 12000  # character budget for a distilled session essence
 
 # The default agent: a bare `ctxloom run` binds it (its profiles become the
 # context, its engine/runtime/permissions the transport). default_agent names an

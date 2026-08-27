@@ -488,20 +488,23 @@ func TestResultShape_DistinguishesEmptyFromDiscarded(t *testing.T) {
 	}
 }
 
-// TestReducePrompt_CarriesTheConfiguredBudget pins that the budget reaches the
+// TestDistillPrompt_CarriesTheConfiguredBudget pins that the budget reaches the
 // MODEL. It is injected at runtime rather than written into the prompt file,
-// so a config value that never made it into the prompt would leave the reduce
-// pass with no size instruction at all -- and nothing else would notice.
-func TestReducePrompt_CarriesTheConfiguredBudget(t *testing.T) {
+// so a config value that never made it into the prompt would leave distillation
+// with no size instruction at all -- and nothing else would notice.
+func TestDistillPrompt_CarriesTheConfiguredBudget(t *testing.T) {
 	c := &Compactor{config: CompactionConfig{EssenceMaxChars: 7331}}
 
-	got := c.reducePrompt()
+	got, err := c.distillPrompt()
+	if err != nil {
+		t.Fatalf("distillPrompt: %v", err)
+	}
 
 	if !strings.Contains(got, "7331") {
-		t.Fatalf("configured budget absent from the reduce prompt: %q", truncateForSummary(got))
+		t.Fatalf("configured budget absent from the prompt: %q", truncateForSummary(got))
 	}
 	if !strings.Contains(got, "Open Items") {
-		t.Fatal("budget injection dropped the reduce instruction itself")
+		t.Fatal("budget injection dropped the distillation instruction itself")
 	}
 }
 

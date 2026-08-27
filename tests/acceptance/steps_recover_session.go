@@ -59,9 +59,8 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 		// 300,000 chars of entry content is comfortably past both the
 		// original ~381,000-CHAR blowup's scale (once JSON/envelope overhead
 		// is stripped, this is genuinely large session TEXT, not padding) and
-		// memory.MaxEssenceChars, and — at the compactor's default 8000-token
-		// (32,000-char) chunk size — spans enough chunks to exercise the real
-		// multi-chunk map/reduce pipeline, not a single-chunk degenerate case.
+		// memory.MaxEssenceChars, so a distiller that does not compress
+		// produces an essence over the bound and must be refused.
 		content := syntheticCanonicalTranscript(harp, 300_000)
 		return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/persist/transcript.jsonl", content)
 	})

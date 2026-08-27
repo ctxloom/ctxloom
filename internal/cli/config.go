@@ -79,7 +79,7 @@ func configPayload(v any) (any, error) {
 const configGetLong = `Get a specific configuration section.
 
 Available sections:
-  config      Behavioral settings (use_distilled, compaction_chunks)
+  config      Behavioral settings (use_distilled, essence_max_chars)
   llm         Language model configuration (labeled configs + role map)
   mcp         MCP server configuration
   profiles    Profile defaults and definitions`

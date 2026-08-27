@@ -1,13 +1,17 @@
 # `internal/memory` — session compaction
 
-**What it is.** The map/reduce distillation pipeline that turns a session transcript into a
+**What it is.** The single-pass distillation pipeline that turns a session transcript into a
 persisted **essence** document (`~/.ctxloom/sessions/<harp>/essence.md`), plus verbatim
 re-attachment of the session's `.plan.md` files, plus a separate hook utility that stamps harp
 names into project plan-file frontmatter.
 
-**The contract it owns.** *Read a session through `pb.SessionSource`, chunk it, distill each chunk
-through an LLM plugin, reduce, and write one essence document plus the index projection
-(`Summary`, `Detail`, `SourceSize`) that the resume picker renders.*
+**The contract it owns.** *Read a session through `pb.SessionSource`, distill it in ONE LLM call,
+and write one essence document plus the index projection (`Summary`, `Detail`, `SourceSize`) that
+the session listing renders.*
+
+Distillation is deliberately NOT hierarchical. An oversized transcript is reduced deterministically
+by `fitToBudget` — oldest content compressed hardest, the tail left intact — rather than split into
+chunks whose separate summaries are merged by a pass that never sees the source.
 
 `internal/cli` is the only internal consumer: `cli/memory.go` (`ctxloom memory
 compact|show|list`), `cli/session_cmd.go` (`compactEntry`, the `session distill` / resume-picker
@@ -15,7 +19,7 @@ path), `mcp/mcp_tools_memory.go` (`compact_session`, `load_session`, `get_previo
 `cli/hook_stamp_plan.go` (the PostToolUse plan-stamping hook).
 
 **The package does not have one responsibility.** `compactor.go` carries five separable concerns
-(transcript rendering, chunking, LLM invocation, essence persistence, session-index mutation), and
+(transcript rendering, budget fitting, LLM invocation, essence persistence, session-index mutation), and
 `stamp.go` shares nothing with it but the word "plan".
 
 ---
@@ -41,18 +45,17 @@ flowchart TD
 
   ES -->|yes| DUMP["dumpEmptySession<br/>compactor.go:308<br/>placeholder body"]
   ES -->|no| S2T["sessionToText → appendEntryText<br/>compactor.go:667,698"]
-  S2T --> CT["chunkText<br/>compactor.go:740<br/>header-aware, rune-safe, 500-token overlap"]
-  CT --> DC["distillChunks (MAP)<br/>compactor.go:462<br/>sem=4, order-preserving"]
-  DC --> RD["runDistill<br/>compactor.go:825"]
+  S2T --> FB["fitToBudget<br/>recency-graded, rune-safe<br/>only when over SinglePassInputTokens"]
+  FB --> RD["runDistill (ONE call)"]
   RD --> LLM
   RES -.->|"session-distill.md"| RD
-  DC --> ABORT{"failedChunks == len(chunks)?"}
+  RD --> ABORT{"distillation failed?"}
   ABORT -->|yes| ERR["error — keep the previous essence"]
-  ABORT -->|no| RED["finalCompressionPass (REDUCE)<br/>compactor.go:496<br/>only when len(chunks) > 1"]
-  RED --> PFM["parseLLMFrontmatter<br/>compactor.go:896"]
+  ABORT -->|no| PFM["parseLLMFrontmatter"]
 
   PLANS["plans fn → pb.ReadPlanFiles"] --> PB["planFilesToBlocks → PlanBlock<br/>plans.go:44,23"]
-  PB --> RP["RenderPlans<br/>plans.go:59"] --> AB["assembleBody<br/>compactor.go:509"]
+  PB --> RP["RenderPlans"] --> AB["assembleBody"]
+  ART["collectArtifacts → RenderArtifacts<br/>selection.go"] --> AB
 
   PFM --> FIN["finishDistill<br/>compactor.go:326"]
   DUMP --> FIN
@@ -88,18 +91,19 @@ flowchart TD
 | Symbol | file:line | Notes |
 |---|---|---|
 | `NewCompactor` | `compactor.go:119` | Defaults the config, resolves canonical-vs-legacy `SessionSource`, wires `plans` |
-| `Compact` | `compactor.go:192` | The whole pipeline. **Order is load-bearing and unenforced**: `transcriptSize` must run *before* `distillChunks` (documented `:204-207`), `updateSessionIndex` *after* `saveDistilled` |
+| `Compact` | `compactor.go` | The whole pipeline. **Order is load-bearing and unenforced**: `transcriptSize` must run *before* the distillation call, `updateSessionIndex` *after* `saveDistilled` |
 | `loadSessionToCompact` | `compactor.go:365` | Preloaded → identity-bound id → `CurrentSession`. Explicit-id failures hard-error; index-derived failures fall through with a documented rationale |
 | `isEmptySession` | `compactor.go:290` | `len(entries) == 0` |
 | `dumpEmptySession` | `compactor.go:308` | Short-circuits to a placeholder essence |
-| `distillChunks` | `compactor.go:462` | Bounded-concurrency (4) map step, order-preserving, counting failures |
-| `finalCompressionPass` | `compactor.go:496` | Reduce step; returns its input unchanged on failure, with a warning |
+| `fitToBudget` | `compactor.go` | Deterministic recency-graded reduction to `SinglePassInputTokens`; each entry may claim at most half of what remains, so the budget is never exceeded and the head decays geometrically |
+| `splitEntryBlocks` | `compactor.go` | Splits rendered text back into the `## `-headed per-entry blocks `appendEntryText` wrote |
 | `runDistill` | `compactor.go:825` | One-shot plugin subprocess; returns trimmed stdout. **Non-zero exit → error with stderr; exit 0 with empty stdout → `("", nil)`** |
-| `chunkText` | `compactor.go:740` | Header-aware, rune-safe chunking with `ChunkOverlapTokens = 500` overlap. Declared as a method but never references the receiver |
 | `sessionToText` / `appendEntryText` | `compactor.go:667`, `:698` | Renders entries to markdown. `appendEntryText` has **no `default` case**, so a thinking-only or unrecognized-type entry contributes zero bytes |
 | `parseLLMFrontmatter` | `compactor.go:896` | Peels the LLM's leading YAML block; returns the original on any parse failure — a correct non-destructive degrade |
 | `deriveSummary` / `buildPickerDetail` | `compactor.go:921`, `:633` | Frontmatter summary else first non-heading prose line; ≤4 bullets, ≤80 bytes, from `### Open Items` |
-| `assembleBody` | `compactor.go:509` | Body + rendered plans, owning the spacing invariant |
+| `assembleBody` | `compactor.go` | Body + rendered artifacts + rendered plans, owning the spacing invariant |
+| `collectArtifacts` / `RenderArtifacts` | `selection.go` | Deterministic touched-file index, capped at `maxArtifacts` and reporting what the cap dropped |
+| `distillPrompt` | `compactor.go` | The prompt plus the injected essence budget; loads from `PromptDir` when set, failing rather than falling back |
 | `saveDistilled` / `saveEssence` | `compactor.go:960`, `:1010` | Builds the frontmatter doc, writes the harp essence + the sessionID-keyed legacy mirror. `saveEssence` warns before every degrade |
 | `resolveHarpName` / `identityBoundSessionID` / `updateSessionIndex` / `transcriptSize` | `compactor.go:523`, `:538`, `:561`, `:592` | The index-mutating group |
 | `LoadDistilledSession` / `parseDistilledMarkdown` / `ListDistilledSessions` | `compactor.go:1063`, `:1073`, `:1104` | The read side |
@@ -112,11 +116,10 @@ flowchart TD
 
 **Hold:**
 
-1. **A total map-step failure aborts and keeps the previous essence** (`compactor.go:242`:
-   `failedChunks == len(chunks)`). This is the only content floor enforced anywhere in the unit.
-2. **The reduce pass runs only when there is more than one chunk** (`compactor.go:252`), and a
-   failed reduce degrades to the concatenated map output rather than to nothing
-   (`finalCompressionPass:496`, with a warning).
+1. **A failed distillation aborts and keeps the previous essence.** Overwriting a good essence
+   with a failure marker is data loss, not graceful degradation.
+2. **The essence body is refused above `MaxEssenceChars`.** A model that ignores its character
+   budget produces a transcript passthrough, which the caller must see as an honest failure.
 3. **`parseLLMFrontmatter` never destroys content** — any parse failure returns the original body.
 4. **Plan blocks are re-attached verbatim, after the LLM pass.** `RenderPlans` emits
    `### Plan #N — <label>` headings that the model never sees, so a plan's contents cannot be
@@ -148,7 +151,7 @@ flowchart TD
   id's transcript is gone; `MainThreadEntries` filtering an all-sidechain session to zero)
   — and re-distills fire automatically off the staleness path.
 - **The `summary != ""` guard covers only `Summary`** — `buildPickerDetail` returns nil
-  whenever the body has no `### Open Items` heading, which the reduce prompt explicitly
+  whenever the body has no `### Open Items` heading, which the distill prompt explicitly
   permits, so a normal re-distill of a session that finished its open items erases the
   stored `Detail`. **Partly closed by `07abd892`**: `sessions.SetSummary` now refuses an
   *empty summary* outright, but it still assigns `Detail` and `SourceSize` from whatever
@@ -158,10 +161,10 @@ flowchart TD
   and — unlike every other degradation in this file — emits **no warning at all**, so a transient
   failure silently zeroes the staleness fingerprint and disables the "out of date" badge for that
   harp.
-- **`isEmptySession` tests the entry count, not the rendered text.** An entry set that renders to
-  nothing (thinking-only with `IncludeThinking` false, or an unrecognized `Type`) passes the
-  check, `chunkText("")` returns one empty chunk, and a plugin is spawned on an empty
-  `<session_log>`.
+- ~~**`isEmptySession` tests the entry count, not the rendered text**, so an entry set that renders
+  to nothing (thinking-only with `IncludeThinking` false, or an unrecognized `Type`) still spawned
+  a plugin on an empty `<session_log>`.~~ **RESOLVED.** `rendersToNothing` gates the same
+  short-circuit on the rendered text.
 - ~~**`saveDistilled`'s default `OutputDir` is the *relative* `".ctxloom/sessions"`**, resolved
   against the process cwd, so distilling a harp belonging to project B while the server sits in
   project A wrote into `A/.ctxloom/sessions/`.~~ **RESOLVED.** There is no cwd-derived default and
@@ -186,18 +189,10 @@ flowchart TD
   re-implementing part of `operations.BindSession`'s precondition set and omitting the
   `sessionID == ""` check. The net effect is a redundant index rewrite, not data loss; the cost is
   two places to fix a future guard.
-- **`ChunkOverlapTokens = 500` is never validated against the user-settable `ChunkSize`**
-  (`settings.compaction_chunks`, any positive int). With `ChunkSize <= 500` the computed advance
-  is non-positive and `chunkText:797-799` silently disables overlap. `NewCompactor:120-122`
-  validates only `<= 0`.
 - **`StampPlanFile` resets a plan file's mode to 0644** — `iox.WriteFileAtomic` chmods a fresh
   temp file to the requested perm and renames, so the original mode is lost and any hardlink is
   broken.
-- **The distill prompt's "## Plan Blocks" section is dead instruction.**
-  `resources/prompts/session-distill.md:46-48` tells the model about `[plan-block #N — Label,
-  preserved below]` markers that the compactor no longer emits (`compactor.go:220-221`: "Plans live
-  in separate files now"). The reduce prompt carries the same clause.
-- **`runDistill`, `distillChunks` and `parseLLMFrontmatter` have acknowledged copies elsewhere** —
-  `internal/operations/task_triggers.go:422` ("This mirrors internal/memory/compactor.go's
-  runDistill"), `:501` (the bounded fan-out), and `internal/shared/tasks/triggers/parse.go:11`
+- **`runDistill` and `parseLLMFrontmatter` have acknowledged copies elsewhere** —
+  `internal/operations/task_triggers.go` ("This mirrors internal/memory/compactor.go's
+  runDistill"), its bounded fan-out, and `internal/shared/tasks/triggers/parse.go`
   (the frontmatter peel).

@@ -34,6 +34,25 @@ func CompactionModelFor(cfg *config.Config, override string) string {
 	return cfg.GetCompactionModel()
 }
 
+// DistillOptions carries what varies per distill invocation, as a struct
+// rather than three more positional parameters: model and progress were
+// already in flight and a third string argument beside them is where call
+// sites start transposing them.
+type DistillOptions struct {
+	// Model overrides the compaction model for THIS call; "" uses
+	// cfg.GetCompactionModel(). It exists so a caller-supplied model override
+	// reaches the canonical/harp distill path too, not just the backend one.
+	Model string
+	// Progress receives human-readable distillation progress, or nil where the
+	// caller has no safe sink for it (see memory.CompactionConfig.Progress).
+	Progress io.Writer
+	// PromptDir loads the distillation prompt from disk instead of the
+	// embedded copy, for prompt evaluation. Empty uses the embedded prompt; a
+	// prompt missing from the directory fails the distill rather than silently
+	// falling back.
+	PromptDir string
+}
+
 // CompactEntry runs the compactor for a single session entry and returns the
 // result. It does NOT change the working directory and does NOT load config —
 // the caller supplies cfg and situates the process. This split lets the
@@ -54,16 +73,14 @@ func CompactionModelFor(cfg *config.Config, override string) string {
 // HarpName inside pb.NewCanonicalFallbackSource) needs no preload. Only
 // hard-error when there is neither a bound id, a transcript path, nor a
 // captured transcript — genuinely nothing to distill.
-// model overrides the compaction model for THIS call; "" uses
-// cfg.GetCompactionModel(). It exists so a caller-supplied model override
-// reaches the canonical/harp distill path too, not just the backend one —
-// the same "empty means config default" shape distillSession already uses.
+// opts carries the per-invocation knobs; its zero value is the ordinary
+// config-driven distill.
 //
-// cli's compactEntryFn is CompactEntry behind a package var so a caller's
-// wiring can be observed in a test; that test seam stays in cli and is not
+// mcp's compactEntryFn is CompactEntry behind a package var so a caller's
+// wiring can be observed in a test; that test seam stays in mcp and is not
 // duplicated here.
-func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config, model string, progress io.Writer) (*memory.CompactionResult, error) {
-	model = CompactionModelFor(cfg, model)
+func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
+	model := CompactionModelFor(cfg, opts.Model)
 	backendName := entry.Backend
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
@@ -98,13 +115,13 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 		// from, or the distiller gets a different backend's credentials.
 		Env:              LLMEnvFor(cfg, cfg.FastLabel()),
 		Backend:          backendName,
-		ChunkSize:        cfg.GetCompactionChunkSize(),
 		EssenceMaxChars:  cfg.GetEssenceMaxChars(),
 		SessionID:        sessionID,
 		PreloadedSession: preloaded,
 		WorkDir:          entry.ProjectDir,
 		HarpName:         entry.HarpName,
-		Progress:         progress,
+		Progress:         opts.Progress,
+		PromptDir:        opts.PromptDir,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create compactor: %w", err)

@@ -12,7 +12,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -126,123 +124,6 @@ func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 	assert.Contains(t, text, "[ERROR]")
 }
 
-func TestCompactor_ChunkText_SmallText(t *testing.T) {
-
-	smallText := "This is small text"
-	chunks := chunkText(smallText, DefaultChunkTokens)
-
-	assert.Len(t, chunks, 1)
-	assert.Equal(t, smallText, chunks[0])
-}
-
-func TestCompactor_ChunkText_LargeText(t *testing.T) {
-
-	// Create text larger than one chunk
-	// DefaultChunkTokens * BytesPerToken = 8000 * 4 = 32000 bytes
-	largeText := ""
-	for i := 0; i < 100; i++ {
-		largeText += "## Section\nSome content here that goes on for a while.\n\n"
-	}
-
-	chunks := chunkText(largeText, 100) // 100 tokens = 400 chars
-
-	assert.Greater(t, len(chunks), 1)
-	// Each chunk should be non-empty
-	for _, chunk := range chunks {
-		assert.NotEmpty(t, chunk)
-	}
-}
-
-func TestCompactor_ChunkText_BreaksAtHeaders(t *testing.T) {
-
-	text := "## Section 1\nContent for section 1.\n\n## Section 2\nContent for section 2.\n\n## Section 3\nContent for section 3."
-
-	// Use small chunk size to force splitting
-	chunks := chunkText(text, 20) // 20 tokens = 80 chars
-
-	// Should break at section boundaries when possible
-	assert.Greater(t, len(chunks), 1)
-}
-
-// TestCompactor_ChunkText_UTF8RuneBoundaries pins the rune-boundary backoff:
-// chunk boundaries are byte offsets, and a mid-rune cut produced invalid UTF-8
-// that fails proto3 string marshaling downstream, silently turning the chunk
-// into a failure marker (content loss).
-func TestCompactor_ChunkText_UTF8RuneBoundaries(t *testing.T) {
-
-	t.Run("no-overlap regime reconstructs exactly", func(t *testing.T) {
-		// 9-byte repeating unit (3+4+2 bytes) so the 100-byte target boundary
-		// (25 tokens * 4 chars) always lands mid-rune.
-		text := strings.Repeat("界😀é", 120) // 1080 bytes
-		chunks := chunkText(text, 25)      // 100-byte chunks; overlap (2000) > chunk → no overlap
-		require.Greater(t, len(chunks), 1)
-		for i, chunk := range chunks {
-			assert.True(t, utf8.ValidString(chunk), "chunk %d is not valid UTF-8: %q", i, chunk)
-		}
-		assert.Equal(t, text, strings.Join(chunks, ""),
-			"without overlap, chunks must reconstruct the input exactly — no content lost or duplicated")
-	})
-
-	t.Run("overlap regime stays valid and covers everything", func(t *testing.T) {
-		// Chunks larger than the 2000-byte overlap exercise the advance cut.
-		// Counter prefixes make every chunk unique so coverage is checkable.
-		var b strings.Builder
-		for i := 0; b.Len() < 12000; i++ {
-			fmt.Fprintf(&b, "%d界😀é", i)
-		}
-		text := b.String()
-		chunks := chunkText(text, 600) // 2400-byte chunks, 2000-byte overlap
-		require.Greater(t, len(chunks), 1)
-
-		covered := 0 // end of the covered prefix of text
-		for i, chunk := range chunks {
-			require.True(t, utf8.ValidString(chunk), "chunk %d is not valid UTF-8", i)
-			idx := strings.Index(text, chunk)
-			require.GreaterOrEqual(t, idx, 0, "chunk %d must be a substring of the input", i)
-			require.LessOrEqual(t, idx, covered, "chunk %d starts past the covered prefix — content lost", i)
-			if end := idx + len(chunk); end > covered {
-				covered = end
-			}
-		}
-		assert.Equal(t, len(text), covered, "chunks must cover the full input")
-	})
-}
-
-// TestCompactor_ChunkText_NoTrailingOverlapDuplicate pins the loop exit: once
-// the final chunk reaches the end of the text, the loop must stop. Advancing
-// by chunkEnd-overlap instead re-entered the loop with the pure-overlap tail
-// and emitted it again as a standalone chunk — one wasted LLM distill call of
-// duplicated content per compaction.
-func TestCompactor_ChunkText_NoTrailingOverlapDuplicate(t *testing.T) {
-
-	text := strings.TrimSpace(strings.Repeat("alpha beta gamma delta ", 60)) // ~1380 chars
-	chunks := chunkText(text, 100)                                           // 400-char chunks, 200-char overlap
-
-	require.Greater(t, len(chunks), 1)
-	for i := 1; i < len(chunks); i++ {
-		assert.False(t, strings.HasSuffix(chunks[i-1], chunks[i]),
-			"chunk %d is a pure-overlap duplicate of the tail of chunk %d", i, i-1)
-	}
-}
-
-// chunkText asks textutil.TruncateBytes for an INTEGER rune-boundary offset and
-// throws the string away. That reads as wasteful — the claim on record is that
-// it "allocates and copies up to n bytes" — and it does not: a Go string slice
-// shares the backing array with its source, so TruncateBytes re-slices and
-// never copies. This pins the property, so a future rewrite of TruncateBytes
-// that DOES copy (a []byte round trip, a strings.Builder) shows up here as the
-// per-chunk cost it would be, on text sized in hundreds of kilobytes.
-func TestCompactor_ChunkText_RuneBoundaryOffsetDoesNotCopy(t *testing.T) {
-	remaining := strings.Repeat("alpha b\u00e9ta gamma ", 20000) // ~440 KB, multibyte
-
-	allocs := testing.AllocsPerRun(100, func() {
-		// The exact idiom at both chunkText call sites.
-		_ = len(textutil.TruncateBytes(remaining, 100000))
-		_ = len(textutil.TruncateBytes(remaining, 98000))
-	})
-	assert.Zero(t, allocs, "computing a rune-boundary offset must not allocate")
-}
-
 func TestDistilledSession_RoundTrip(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
@@ -325,7 +206,7 @@ func TestListDistilledSessions_Empty(t *testing.T) {
 	assert.Empty(t, sessions)
 }
 
-func TestCompactor_DistillChunk_WithMockClient(t *testing.T) {
+func TestCompactor_RunDistill_WithMockClient(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a mock client that returns distilled content
@@ -345,14 +226,14 @@ func TestCompactor_DistillChunk_WithMockClient(t *testing.T) {
 		clientFactory: pb.MockClientFactory(mockClient),
 	}
 
-	result, err := c.distillChunk(context.Background(), "Original session content", 1, 3)
+	result, err := c.runDistill(context.Background(), sessionDistillPrompt, "Original session content")
 	require.NoError(t, err)
 
 	assert.Equal(t, "Distilled: key decisions and outcomes", result)
 	assert.Equal(t, 1, mockClient.RunCalls)
 }
 
-func TestCompactor_DistillChunk_ClientError(t *testing.T) {
+func TestCompactor_RunDistill_ClientError(t *testing.T) {
 	// Create a mock client that returns an error
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
@@ -367,12 +248,12 @@ func TestCompactor_DistillChunk_ClientError(t *testing.T) {
 		clientFactory: pb.MockClientFactory(mockClient),
 	}
 
-	_, err := c.distillChunk(context.Background(), "content", 1, 1)
+	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "content")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "connection failed")
 }
 
-func TestCompactor_DistillChunk_NonZeroExit(t *testing.T) {
+func TestCompactor_RunDistill_NonZeroExit(t *testing.T) {
 	// Create a mock client that returns non-zero exit code
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
@@ -388,7 +269,7 @@ func TestCompactor_DistillChunk_NonZeroExit(t *testing.T) {
 		clientFactory: pb.MockClientFactory(mockClient),
 	}
 
-	_, err := c.distillChunk(context.Background(), "content", 1, 1)
+	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "content")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "exited with code 1")
 }
@@ -396,7 +277,7 @@ func TestCompactor_DistillChunk_NonZeroExit(t *testing.T) {
 // An LLM that exits 0 having written nothing is a FAILURE, not an
 // empty distillation. Treated as success it produced an empty body which
 // saveDistilled then atomically wrote over a previously good essence.md.
-func TestCompactor_DistillChunk_EmptyOutputIsAFailure(t *testing.T) {
+func TestCompactor_RunDistill_EmptyOutputIsAFailure(t *testing.T) {
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
 			return 0, nil // exit 0, not one byte of output
@@ -408,7 +289,7 @@ func TestCompactor_DistillChunk_EmptyOutputIsAFailure(t *testing.T) {
 		clientFactory: pb.MockClientFactory(mockClient),
 	}
 
-	_, err := c.distillChunk(context.Background(), "content", 1, 1)
+	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "content")
 	require.Error(t, err, "exit 0 with empty stdout must not read as a successful distillation")
 	assert.Contains(t, err.Error(), "no output")
 }
@@ -506,7 +387,6 @@ func TestNewCompactor_SetsDefaults(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, DefaultChunkTokens, compactor.config.ChunkSize)
 	assert.Equal(t, "claude-code", compactor.config.Backend)
 	assert.Equal(t, "claude-code", compactor.config.LLM)
 	assert.NotNil(t, compactor.clientFactory)
@@ -542,10 +422,10 @@ func TestCompact_NoSession(t *testing.T) {
 
 // TestCompact_EmptySession is the empty-session regression test: a session with
 // zero main-thread entries must short-circuit straight to a dumped, trivial
-// essence — succeeding, not erroring — and must never reach the map/reduce
+// essence — succeeding, not erroring — and must never reach the distillation
 // LLM pipeline. The ClientFactory below fails the test outright if the
 // compactor ever tries to spawn an LLM plugin, so a regression that routes an
-// empty session back through chunking/distillChunks/finalCompressionPass is
+// empty session back through the distillation call is
 // caught even if the result's shape still happens to look plausible.
 func TestCompact_EmptySession(t *testing.T) {
 	testsupport.Isolate(t) // isolates CTXLOOM_SESSION_HARP too — this test's mock
@@ -577,7 +457,6 @@ func TestCompact_EmptySession(t *testing.T) {
 
 	result, err := compactor.Compact(context.Background())
 	require.NoError(t, err, "an empty session must dump successfully, not error")
-	assert.Equal(t, 0, result.ChunksCreated, "no chunking/compaction pass should run for an empty session")
 	assert.NotEmpty(t, result.DistilledPath)
 
 	data, err := os.ReadFile(result.DistilledPath)
@@ -722,9 +601,8 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	result, err := compactor.Compact(context.Background())
+	_, err = compactor.Compact(context.Background())
 	require.NoError(t, err, "an all-sidechain session must dump successfully, not error")
-	assert.Equal(t, 0, result.ChunksCreated)
 }
 
 // An empty session must NOT replace an already-distilled essence
@@ -803,7 +681,6 @@ func TestCompact_WithMockClient(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "test-compact-session", result.SessionID)
-	assert.Equal(t, 1, result.ChunksCreated)
 	assert.NotEmpty(t, result.DistilledPath)
 	assert.Greater(t, result.TotalTokensIn, 0)
 	assert.Greater(t, result.TotalTokensOut, 0)
@@ -811,62 +688,6 @@ func TestCompact_WithMockClient(t *testing.T) {
 	// Verify file was created
 	_, err = os.Stat(result.DistilledPath)
 	require.NoError(t, err)
-}
-
-// TestCompact_MultiChunk_RunsReducePassUnderThreshold pins that the reduce
-// (unify) pass runs for any multi-chunk session, even when the combined map
-// output is well under ChunkSize. The reduce pass is the only stage that
-// normalizes the concatenated per-chunk summaries into the canonical essence
-// (YAML frontmatter + "### Open Items"); skipping it leaves raw map output the
-// picker can't derive a clean summary or detail lines from.
-func TestCompact_MultiChunk_RunsReducePassUnderThreshold(t *testing.T) {
-	testsupport.Isolate(t)
-	tmpDir := t.TempDir()
-
-	// Two large entries split into several chunks at a small ChunkSize, but each
-	// chunk distills to a tiny string so the combined output stays under
-	// ChunkSize — the exact case the old size gate skipped.
-	big := strings.Repeat("the session worked through many decisions and edits. ", 40)
-	mockBe := &mockBackend{history: &mockSessionHistory{
-		currentSession: &agent.Session{
-			ID: "multi-chunk-session",
-			Entries: []agent.SessionEntry{
-				{Type: agent.EntryTypeUser, Content: big},
-				{Type: agent.EntryTypeAssistant, Content: big},
-			},
-		},
-	}}
-
-	var mu sync.Mutex
-	var sawReduce bool
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			mu.Lock()
-			if strings.Contains(req.Prompt.Content, sessionDistillReducePrompt) {
-				sawReduce = true
-			}
-			mu.Unlock()
-			_, _ = stdout.Write([]byte("x")) // tiny output keeps combined under ChunkSize
-			return 0, nil
-		},
-	}
-
-	compactor, err := NewCompactor(CompactionConfig{
-		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
-		OutputDir:       tmpDir,
-		HarpName:        "compactor-under-test",
-		ChunkSize:       50, // 200 chars/chunk → the big entries split into many chunks
-	})
-	require.NoError(t, err)
-
-	result, err := compactor.Compact(context.Background())
-	require.NoError(t, err)
-	require.Greater(t, result.ChunksCreated, 1, "test needs multiple chunks to exercise the reduce pass")
-
-	mu.Lock()
-	defer mu.Unlock()
-	assert.True(t, sawReduce, "reduce pass must run for multi-chunk sessions even when combined output is under ChunkSize")
 }
 
 // TestCompact_EnforcesMaxEssenceChars pins the requirement: even a
@@ -894,12 +715,9 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 	oversized := strings.Repeat("z", MaxEssenceChars+1)
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			if strings.Contains(req.Prompt.Content, sessionDistillReducePrompt) {
-				// Reduce "succeeds" (exit 0) but its own output is over the bound.
-				_, _ = stdout.Write([]byte(oversized))
-				return 0, nil
-			}
-			_, _ = stdout.Write([]byte("small chunk summary"))
+			// The distillation "succeeds" (exit 0) but its output is over the
+			// bound -- a model that ignored its character budget.
+			_, _ = stdout.Write([]byte(oversized))
 			return 0, nil
 		},
 	}
@@ -909,7 +727,6 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 		ClientFactory:   pb.MockClientFactory(mockClient),
 		OutputDir:       tmpDir,
 		HarpName:        "compactor-under-test",
-		ChunkSize:       50, // 200 chars/chunk → many chunks, so reduce runs
 	})
 	require.NoError(t, err)
 
@@ -927,68 +744,6 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 		data, rerr := os.ReadFile(filepath.Join(tmpDir, e.Name()))
 		require.NoError(t, rerr)
 		assert.NotContains(t, string(data), oversized[:1000], "refused essence must not have been written to disk")
-	}
-}
-
-// TestCompact_ReduceFailure_NeverFallsBackToUnboundedRawCombined is the
-// fail-open REGRESSION test: recover_session once returned a
-// ~381,000-char essence because the reduce
-// pass failed and the OLD code unconditionally fell back to combined (the
-// concatenated, un-reduced per-chunk map output) — "a too-large summary beats
-// no summary". When that un-reduced combined text is itself over
-// MaxEssenceChars, returning it is indistinguishable from a raw-transcript
-// passthrough. Pin: on this failure, Compact must return an error, and the
-// raw combined text must never be saved or otherwise reach a caller.
-func TestCompact_ReduceFailure_NeverFallsBackToUnboundedRawCombined(t *testing.T) {
-	testsupport.Isolate(t)
-	tmpDir := t.TempDir()
-
-	// A marker unique to this test's map output, so a later "did the raw
-	// combined leak anywhere on disk" scan is unambiguous.
-	const chunkMarker = "QUIT-EAGLE-CHUNK-MARKER"
-	chunkOutput := chunkMarker + strings.Repeat("y", 5000)
-
-	big := strings.Repeat("the session worked through many decisions and edits. ", 400)
-	mockBe := &mockBackend{history: &mockSessionHistory{
-		currentSession: &agent.Session{
-			ID: "reduce-fails-session",
-			Entries: []agent.SessionEntry{
-				{Type: agent.EntryTypeUser, Content: big},
-				{Type: agent.EntryTypeAssistant, Content: big},
-			},
-		},
-	}}
-
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			if strings.Contains(req.Prompt.Content, sessionDistillReducePrompt) {
-				// The reduce call itself fails outright.
-				return 1, nil
-			}
-			_, _ = stdout.Write([]byte(chunkOutput))
-			return 0, nil
-		},
-	}
-
-	compactor, err := NewCompactor(CompactionConfig{
-		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
-		OutputDir:       tmpDir,
-		HarpName:        "compactor-under-test",
-		ChunkSize:       50, // 200 chars/chunk → many chunks; combined » MaxEssenceChars
-	})
-	require.NoError(t, err)
-
-	result, err := compactor.Compact(context.Background())
-	require.Error(t, err, "a failed reduce pass over an oversized combined must fail loud, never fall back to raw combined")
-	assert.Nil(t, result)
-
-	entries, rerr := os.ReadDir(tmpDir)
-	require.NoError(t, rerr)
-	for _, e := range entries {
-		data, rerr := os.ReadFile(filepath.Join(tmpDir, e.Name()))
-		require.NoError(t, rerr)
-		assert.NotContains(t, string(data), chunkMarker, "the raw, un-reduced combined text must never be saved or returned")
 	}
 }
 
@@ -1086,11 +841,11 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 	assert.Contains(t, loaded.Body, "schema", "the plan file's name labels its block")
 }
 
-// TestCompact_AllChunksFailed_KeepsPreviousEssence pins the data-loss guard: a
+// TestCompact_DistillationFailed_KeepsPreviousEssence pins the data-loss guard: a
 // totally failed distillation (LLM backend down → every chunk a failure
 // marker) must abort the save and leave a previously good essence.md and its
 // legacy mirror untouched, instead of overwriting them with failure markers.
-func TestCompact_AllChunksFailed_KeepsPreviousEssence(t *testing.T) {
+func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 	home := testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
@@ -1126,14 +881,11 @@ func TestCompact_AllChunksFailed_KeepsPreviousEssence(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = compactor.Compact(context.Background())
-	require.Error(t, err, "an all-chunks-failed distillation must not report success")
-	assert.Contains(t, err.Error(), "all 1 chunks")
-	// The aggregate is the ONLY diagnosis most callers ever get: warnf is
-	// dropped whenever Progress is nil, which is every MCP relay call. A
-	// cause-free "all N chunks failed" sent a real investigation to the
-	// wrong subsystem entirely.
-	assert.Contains(t, err.Error(), "chunk 1", "the aggregate must name which chunk it sampled")
-	assert.Contains(t, err.Error(), "backend down", "the aggregate must carry the underlying cause")
+	require.Error(t, err, "a failed distillation must not report success")
+	// The error is the ONLY diagnosis most callers ever get: warnf is dropped
+	// whenever Progress is nil, which is every MCP relay call. A cause-free
+	// failure sent a real investigation to the wrong subsystem entirely.
+	assert.Contains(t, err.Error(), "backend down", "the failure must carry the underlying cause")
 
 	got, err := os.ReadFile(essencePath)
 	require.NoError(t, err)
@@ -1141,63 +893,6 @@ func TestCompact_AllChunksFailed_KeepsPreviousEssence(t *testing.T) {
 	gotLegacy, err := os.ReadFile(legacyPath)
 	require.NoError(t, err)
 	assert.Equal(t, prior, string(gotLegacy), "legacy mirror must survive too")
-}
-
-// TestCompact_PartialChunkFailure_StillSaves pins the other half of the
-// philosophy: partial success is success. One failed chunk among several still
-// saves, with the failure marker inline.
-func TestCompact_PartialChunkFailure_StillSaves(t *testing.T) {
-	testsupport.Isolate(t)
-	tmpDir := t.TempDir()
-
-	// ~720 chars of transcript so a 100-token (400-char) chunk size yields
-	// multiple chunks. The multi-chunk reduce pass is mocked as a pass-through
-	// (below) so the failure marker and successful chunks survive into the body
-	// unchanged, isolating the partial-failure guarantee.
-	content := strings.Repeat("## Section\nalpha beta gamma delta epsilon\n\n", 17)
-	mockBe := &mockBackend{history: &mockSessionHistory{
-		currentSession: &agent.Session{
-			ID:      "partial-session",
-			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: content}},
-		},
-	}}
-	// Fail chunk 1 deterministically by its position note, not call order:
-	// chunks distill concurrently, so a shared call counter would both race and
-	// fail an unpredictable chunk. The reduce (unify) pass runs for any
-	// multi-chunk session; mock it as a pass-through so the assertions see the
-	// combined map output verbatim.
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			prompt := req.Prompt.Content
-			switch {
-			case strings.Contains(prompt, sessionDistillReducePrompt):
-				_, _ = io.WriteString(stdout, prompt)
-			case strings.Contains(prompt, "This is chunk 1 of"):
-				return 0, errors.New("flaky")
-			default:
-				_, _ = stdout.Write([]byte("distilled ok"))
-			}
-			return 0, nil
-		},
-	}
-
-	compactor, err := NewCompactor(CompactionConfig{
-		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
-		OutputDir:       tmpDir,
-		HarpName:        "compactor-under-test",
-		ChunkSize:       100,
-	})
-	require.NoError(t, err)
-
-	result, err := compactor.Compact(context.Background())
-	require.NoError(t, err, "a partially failed distillation must still save")
-	require.Greater(t, result.ChunksCreated, 1, "fixture sanity: needs multiple chunks")
-
-	loaded, err := LoadDistilledSession(tmpDir, "partial-session")
-	require.NoError(t, err)
-	assert.Contains(t, loaded.Body, "Chunk 1 failed", "failed chunk keeps its marker")
-	assert.Contains(t, loaded.Body, "distilled ok", "successful chunks are saved")
 }
 
 // refusingSessionSource is a pb.SessionSource whose every method fails the
@@ -1581,67 +1276,6 @@ func TestDeriveSummary(t *testing.T) {
 }
 
 // =============================================================================
-// distillChunks — concurrency: results land in chunk order regardless of which
-// goroutine finishes first. Run with -race to also pin the shared-mock safety.
-// =============================================================================
-
-func TestCompactor_DistillChunks_PreservesOrderConcurrently(t *testing.T) {
-	mock := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			// Echo the chunk body so we can assert each output landed in the slot
-			// matching its input, even though chunks distill concurrently. The
-			// instructions precede the transcript in the prompt, so cut to the
-			// <session_log> body.
-			_, after, _ := strings.Cut(req.Prompt.Content, "<session_log>\n")
-			body := strings.TrimSuffix(after, "\n</session_log>")
-			_, _ = stdout.Write([]byte("D:" + body))
-			return 0, nil
-		},
-	}
-	c := &Compactor{
-		config:        CompactionConfig{LLM: "test-plugin"},
-		clientFactory: pb.MockClientFactory(mock),
-	}
-
-	chunks := []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf"}
-	out, failed, cause := c.distillChunks(context.Background(), chunks)
-	require.NoError(t, cause, "no chunk failed, so distillChunks must report no cause")
-
-	require.Equal(t, 0, failed)
-	require.Len(t, out, len(chunks))
-	for i, ch := range chunks {
-		assert.Equal(t, "D:"+ch, out[i], "chunk %d output landed in the wrong slot", i)
-	}
-}
-
-// =============================================================================
-// finalCompressionPass — uses the dedicated reduce prompt, not the map prompt.
-// The reduce prompt re-asserts the mandatory frontmatter and identifier
-// preservation the picker depends on.
-// =============================================================================
-
-func TestCompactor_FinalCompressionPass_UsesReducePrompt(t *testing.T) {
-	var gotPrompt string
-	mock := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			gotPrompt = req.Prompt.Content
-			_, _ = stdout.Write([]byte("merged essence"))
-			return 0, nil
-		},
-	}
-	c := &Compactor{
-		config:        CompactionConfig{LLM: "test-plugin"},
-		clientFactory: pb.MockClientFactory(mock),
-	}
-
-	out, err := c.finalCompressionPass(context.Background(), "partial one\n---\npartial two")
-	require.NoError(t, err)
-	assert.Equal(t, "merged essence", out)
-	assert.Contains(t, gotPrompt, sessionDistillReducePrompt, "final pass must use the reduce prompt")
-	assert.NotContains(t, gotPrompt, sessionDistillPrompt, "final pass must not reuse the map prompt")
-}
-
-// =============================================================================
 // buildPickerDetail — extra picker lines from the body's Open Items section.
 // =============================================================================
 
@@ -1688,71 +1322,6 @@ func TestBuildPickerDetail(t *testing.T) {
 			assert.Equal(t, tt.expected, buildPickerDetail(tt.body))
 		})
 	}
-}
-
-// TestNewCompactor_ChunkSizeBand pins the one relationship between the
-// configured chunk size and the fixed ChunkOverlapTokens that matters.
-// chunkText advances by (chunk - overlap) per step, so a configured size just
-// above the overlap advances by almost nothing: `config.compaction_chunks:
-// 501` turns a 32,000 character transcript into ~8,000 chunks, each spawning
-// its own LLM plugin subprocess. At or below the overlap the advance goes
-// non-positive and chunkText degrades to no overlap, which is safe — so only
-// the open band is corrected, and small chunk sizes stay exactly as set.
-func TestNewCompactor_ChunkSizeBand(t *testing.T) {
-	testsupport.Isolate(t)
-
-	t.Run("a size inside the band is raised and reported", func(t *testing.T) {
-		var progress bytes.Buffer
-		c, err := NewCompactor(CompactionConfig{
-			ChunkSize:       ChunkOverlapTokens + 1,
-			BackendOverride: &mockBackend{},
-			Progress:        &progress,
-		})
-		require.NoError(t, err)
-		assert.Equal(t, MinOverlappingChunkTokens, c.config.ChunkSize,
-			"a chunk size barely above the overlap advances by almost nothing per step")
-		assert.Contains(t, progress.String(), "chunk overlap",
-			"raising a user-configured value silently is the other half of this defect")
-	})
-
-	t.Run("the corrected size bounds the chunk count", func(t *testing.T) {
-		// The property the correction buys, stated against chunkText directly.
-		// Measured without it, at ChunkOverlapTokens+1, for contrast.
-		text := strings.Repeat("alpha beta gamma delta epsilon ", 2000)
-		ideal := len(text) / (MinOverlappingChunkTokens * BytesPerToken)
-
-		corrected := chunkText(text, MinOverlappingChunkTokens)
-		require.Greater(t, len(corrected), 1)
-		assert.LessOrEqual(t, len(corrected), 2*ideal+2,
-			"at twice the overlap the chunk count stays near the ideal")
-
-		inBand := chunkText(text, ChunkOverlapTokens+1)
-		assert.Greater(t, len(inBand), 20*len(corrected),
-			"fixture sanity: the uncorrected in-band size must actually explode, "+
-				"or this test proves nothing about the correction")
-	})
-
-	t.Run("a size at or below the overlap is left alone", func(t *testing.T) {
-		// chunkText already degrades these to the no-overlap regime, and small
-		// sizes are a legitimate configuration.
-		for _, size := range []int{100, ChunkOverlapTokens} {
-			c, err := NewCompactor(CompactionConfig{
-				ChunkSize:       size,
-				BackendOverride: &mockBackend{},
-			})
-			require.NoError(t, err)
-			assert.Equal(t, size, c.config.ChunkSize)
-		}
-	})
-
-	t.Run("an explicit large size is left alone", func(t *testing.T) {
-		c, err := NewCompactor(CompactionConfig{
-			ChunkSize:       4000,
-			BackendOverride: &mockBackend{},
-		})
-		require.NoError(t, err)
-		assert.Equal(t, 4000, c.config.ChunkSize)
-	})
 }
 
 // TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason pins the error a
@@ -1844,7 +1413,6 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 
 	result, err := compactor.Compact(context.Background())
 	require.NoError(t, err, "nothing to distil is not a failure")
-	assert.Equal(t, 0, result.ChunksCreated)
 	require.NotEmpty(t, result.DistilledPath)
 	data, err := os.ReadFile(result.DistilledPath)
 	require.NoError(t, err)
@@ -2016,7 +1584,7 @@ func TestRunDistill_ForwardsConfiguredEnvOntoTheRequest(t *testing.T) {
 		clientFactory: pb.MockClientFactory(mockClient),
 	}
 
-	_, err := c.distillChunk(context.Background(), "session content", 1, 1)
+	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "session content")
 	require.NoError(t, err)
 
 	require.True(t, sawRequest, "the distiller was never invoked, so this proves nothing about what it received")

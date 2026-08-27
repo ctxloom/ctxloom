@@ -26,7 +26,7 @@ import (
 // be distinguished in the marshaled YAML.
 func fixtureConfig() *config.Config {
 	return config.NewFixture(config.Fixture{
-		Settings: config.SettingsConfig{CompactionChunks: 8000},
+		Settings: config.SettingsConfig{EssenceMaxChars: 8000},
 		LM: config.LMConfig{
 			Defaults: config.RoleDefaults{Primary: "big"},
 			Configs: map[string]config.LLMConfig{
@@ -44,7 +44,7 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 		section  string
 		contains string // substring expected in the marshaled YAML
 	}{
-		{"config", "config", "compaction_chunks"},
+		{"config", "config", "essence_max_chars"},
 		{"llm", "llm", "gemini-3-pro"},
 	}
 
@@ -231,7 +231,7 @@ func TestConfigShowGet_HonorEveryFormatWithARealPayload(t *testing.T) {
 
 			out := buf.String()
 			require.NotEmpty(t, out, "%s rendered zero bytes", format)
-			assert.Contains(t, out, "8000", "%s must carry the compaction_chunks sentinel, not an empty envelope", format)
+			assert.Contains(t, out, "8000", "%s must carry the essence_max_chars sentinel, not an empty envelope", format)
 			assert.Contains(t, out, "gemini-3-pro", "%s must carry the llm sentinel", format)
 		})
 	}
@@ -249,8 +249,8 @@ func TestConfigPayload_SectionKeysStaySnakeCase(t *testing.T) {
 
 	m, ok := payload.(map[string]any)
 	require.True(t, ok, "a section payload must be a plain map, got %T", payload)
-	assert.Contains(t, m, "compaction_chunks")
-	assert.NotContains(t, m, "CompactionChunks")
+	assert.Contains(t, m, "essence_max_chars")
+	assert.NotContains(t, m, "EssenceMaxChars")
 }
 
 // TestConfigCreateWritesItsSuccessLineToTheCommandWriter pins that

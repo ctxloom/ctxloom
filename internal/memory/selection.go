@@ -32,7 +32,8 @@ type ResultRepair struct {
 }
 
 // Selection is the outcome of deterministic entry selection: what survives,
-// what it cost, and which results still need a finding recovered.
+// what it cost, which results still need a finding recovered, and which files
+// the session touched.
 //
 // A struct rather than a widening tuple -- three of these were already in
 // flight and a fourth return value is where call sites start transposing them.
@@ -40,6 +41,150 @@ type Selection struct {
 	Entries []agent.SessionEntry
 	Stats   SelectionStats
 	Repairs []ResultRepair
+	// Artifacts are the files named by tool calls, re-attached verbatim by
+	// assembleBody rather than left to the model to reproduce.
+	Artifacts []Artifact
+	// ArtifactsOmitted is how many distinct paths the maxArtifacts cap dropped.
+	ArtifactsOmitted int
+}
+
+// Artifact is a file the session touched, named by a tool call's arguments.
+//
+// It is collected deterministically and pinned into the essence after the LLM
+// body for the reason the identifier rule exists at all: a path the model
+// reproduces from memory can come back plausible and wrong, which sends the
+// next session to a file that does not exist. A path read out of the
+// transcript's own JSON cannot.
+type Artifact struct {
+	// Path is the file path exactly as the tool call gave it.
+	Path string
+	// Tools names the distinct tools that touched it, in first-seen order --
+	// "Read" and "Edit" against one path are different facts about it.
+	Tools []string
+}
+
+// pathArgs name tool-call arguments whose value is a file path. Kept to the
+// arguments that genuinely address ONE file: a glob pattern or a search root
+// names a place to look, not a file that was touched, and pinning those would
+// fill the index with directories nobody opened.
+var pathArgs = map[string]bool{
+	"file_path":     true,
+	"notebook_path": true,
+}
+
+// maxArtifacts bounds the pinned index. It is a COUNT, not a byte cap, because
+// the section is appended after the essence body and therefore lands OUTSIDE
+// the MaxEssenceChars check that bounds the LLM's own output -- an unbounded
+// appendix would silently reintroduce the unbounded-payload failure that check
+// exists to prevent. A session touching hundreds of files is real; an essence
+// listing hundreds of them is not useful enough to be worth the bytes, so the
+// list keeps the FIRST maxArtifacts distinct paths and says how many it
+// dropped rather than pretending it was complete.
+const maxArtifacts = 100
+
+// maxArtifactPathBytes bounds one path. Paths this long are pathological
+// rather than typical, and the bound is what makes the section's worst case
+// arithmetic instead of a hope: maxArtifacts x (maxArtifactPathBytes + the
+// rendered tool list).
+const maxArtifactPathBytes = 200
+
+// collectArtifacts walks entries in order and returns the distinct file paths
+// their tool calls named -- first-seen order preserved, capped at maxArtifacts
+// -- and how many distinct paths the cap dropped.
+//
+// The dropped count is a RETURN VALUE rather than a field on Artifact because
+// it describes the LIST, not any file in it. Returning it at all is the point:
+// a truncated index that renders as though it were complete is the same silent
+// half-answer this package refuses everywhere else.
+//
+// Order is first-seen rather than sorted so the index reads as a record of the
+// work rather than a directory listing: the file opened first is usually the
+// one the session was about.
+func collectArtifacts(entries []agent.SessionEntry) ([]Artifact, int) {
+	var order []string
+	byPath := map[string]*Artifact{}
+	truncated := 0
+
+	for _, e := range entries {
+		if e.Type != agent.EntryTypeToolUse || len(e.ToolInput) == 0 {
+			continue
+		}
+		var args map[string]json.RawMessage
+		if err := json.Unmarshal(e.ToolInput, &args); err != nil {
+			continue
+		}
+		for key, raw := range args {
+			if !pathArgs[key] {
+				continue
+			}
+			var path string
+			if err := json.Unmarshal(raw, &path); err != nil {
+				continue
+			}
+			path = strings.TrimSpace(path)
+			if path == "" {
+				continue
+			}
+			if len(path) > maxArtifactPathBytes {
+				path = textutil.TruncateBytes(path, maxArtifactPathBytes)
+			}
+			existing, seen := byPath[path]
+			if !seen {
+				if len(order) >= maxArtifacts {
+					truncated++
+					continue
+				}
+				order = append(order, path)
+				byPath[path] = &Artifact{Path: path}
+				existing = byPath[path]
+			}
+			existing.addTool(e.ToolName)
+		}
+	}
+
+	artifacts := make([]Artifact, 0, len(order))
+	for _, p := range order {
+		artifacts = append(artifacts, *byPath[p])
+	}
+	return artifacts, truncated
+}
+
+// addTool records a tool against this artifact, keeping first-seen order and
+// ignoring repeats.
+func (a *Artifact) addTool(name string) {
+	if name == "" {
+		return
+	}
+	for _, t := range a.Tools {
+		if t == name {
+			return
+		}
+	}
+	a.Tools = append(a.Tools, name)
+}
+
+// RenderArtifacts formats the touched-file index as a trailing section of the
+// distilled output, mirroring RenderPlans. omitted is the count collectArtifacts
+// dropped at the cap, reported inline so the list never reads as complete when
+// it is not. Returns the empty string when there is nothing to pin.
+func RenderArtifacts(artifacts []Artifact, omitted int) string {
+	if len(artifacts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Files touched\n\n")
+	for i := range artifacts {
+		a := &artifacts[i]
+		if len(a.Tools) == 0 {
+			fmt.Fprintf(&b, "- `%s`\n", a.Path)
+			continue
+		}
+		fmt.Fprintf(&b, "- `%s` (%s)\n", a.Path, strings.Join(a.Tools, ", "))
+	}
+	if omitted > 0 {
+		fmt.Fprintf(&b, "- _[%d further path(s) omitted at the %d-file cap]_\n", omitted, maxArtifacts)
+	}
+	return b.String()
 }
 
 // selectForDistill drops transcript entries whose content is synthetic or
@@ -107,7 +252,14 @@ func selectForDistill(entries []agent.SessionEntry) Selection {
 		stats.BytesKept += entryBytes(e)
 	}
 
-	return Selection{Entries: kept, Stats: stats, Repairs: repairs}
+	artifacts, omitted := collectArtifacts(entries)
+	return Selection{
+		Entries:          kept,
+		Stats:            stats,
+		Repairs:          repairs,
+		Artifacts:        artifacts,
+		ArtifactsOmitted: omitted,
+	}
 }
 
 // entryBytes approximates one entry's contribution, for the before/after

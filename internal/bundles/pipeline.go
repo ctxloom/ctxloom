@@ -174,6 +174,7 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 		Form:        form,
 		TrustRef:    r.TrustRef,
 		Signer:      r.Signer,
+		Premise:     r.Premise,
 	}
 }
 

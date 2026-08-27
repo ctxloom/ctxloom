@@ -465,14 +465,32 @@ type BundleMCP struct {
 
 // BundleFragment defines a fragment within a bundle.
 type BundleFragment struct {
-	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags)
-	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
-	Content      string   `yaml:"content"`
-	ContentHash  string   `yaml:"content_hash,omitempty"`
-	Distilled    string   `yaml:"distilled,omitempty"`
-	DistilledBy  string   `yaml:"distilled_by,omitempty"`
-	NoDistill    bool     `yaml:"no_distill,omitempty"`
+	Tags  []string `yaml:"tags,omitempty"`  // Additional tags (merged with bundle tags)
+	Notes string   `yaml:"notes,omitempty"` // Human-readable notes, not sent to AI
+	// Premise states, in prose, WHEN this fragment applies and who it is for.
+	// It is the fragment's own applicability condition, addressed to the acting
+	// agent, because the great majority of guidance conditions ("you are about
+	// to remove a worktree") are knowable only at the moment of action and not
+	// by the host assembling the context.
+	//
+	// EMPTY MEANS ALWAYS LOADED. Absence is not "no opinion", it is the
+	// assertion that the fragment applies unconditionally, and that is the
+	// safety property the whole mechanism rests on: a corpus with no premise
+	// anywhere assembles exactly as it did before. A fragment is opted OUT of
+	// unconditional loading only by being given a premise, never by omission.
+	//
+	// Deliberately NOT part of any content preimage: ContentPayload is the
+	// single definition of "the bytes of this fragment" and a premise is
+	// metadata about when to serve them, not part of them. Adding a premise
+	// therefore leaves an item's content hash, its distillation staleness and
+	// its trust grants untouched.
+	Premise      string `yaml:"premise,omitempty"`
+	Installation string `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
+	Content      string `yaml:"content"`
+	ContentHash  string `yaml:"content_hash,omitempty"`
+	Distilled    string `yaml:"distilled,omitempty"`
+	DistilledBy  string `yaml:"distilled_by,omitempty"`
+	NoDistill    bool   `yaml:"no_distill,omitempty"`
 }
 
 // BundleCommand defines a slash command within a bundle.

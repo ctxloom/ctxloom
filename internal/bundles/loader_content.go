@@ -39,6 +39,11 @@ type LoadedContent struct {
 	Signer   string
 	Exports  map[string]string // Exported variables (from generators)
 	LLM      LLMExports        // Per-LLM export settings (slash-command config)
+	// Premise is the fragment's authored applicability condition, carried
+	// through delivery so the assembler can tell an unconditional fragment
+	// from one the acting agent must select. "" means unconditional — see
+	// BundleFragment.Premise.
+	Premise string
 }
 
 // ItemRead is what a READ reports for one fragment or command: every form the
@@ -60,6 +65,10 @@ type ItemRead struct {
 	Installation string     // Setup/installation instructions for tooling
 	DistilledBy  string     // Model that created the distillation, if any
 	LLM          LLMExports // Per-LLM export settings (slash-command config)
+	// Premise is the read fact behind conditional delivery: the fragment's
+	// authored applicability condition, "" for an unconditional fragment.
+	// Commands never carry one. See BundleFragment.Premise.
+	Premise string
 
 	// Forms is every form of this item the store holds — the read's answer to
 	// "what have you got", with nothing picked.
@@ -201,6 +210,10 @@ type ContentInfo struct {
 	// role's available_commands_update, B4) can advertise a real
 	// human-readable description instead of fabricating one.
 	Description string
+	// Premise is the fragment's authored applicability condition, "" for an
+	// unconditional fragment. Populated by ListAllFragments; it is what a
+	// premise index is built from. See BundleFragment.Premise.
+	Premise string
 }
 
 // ListAllFragments returns info about all fragments across all bundles.
@@ -226,6 +239,7 @@ func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
 				Tags:     slices.Concat(bundle.Tags, frag.Tags),
 				Bundle:   bundleInfo.DisplayName(),
 				ItemType: "fragment",
+				Premise:  frag.Premise,
 			})
 		}
 	}
@@ -368,6 +382,7 @@ func fragmentRead(read BundleRead, fragName string, frag BundleFragment) (*ItemR
 		Tags:         slices.Concat(bundle.Tags, frag.Tags),
 		Installation: frag.Installation,
 		DistilledBy:  frag.DistilledBy,
+		Premise:      frag.Premise,
 		Forms:        frag.Forms(),
 		TrustRef:     trustRef,
 		Signer:       bundle.Signer(),

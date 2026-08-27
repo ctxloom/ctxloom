@@ -696,14 +696,18 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("`ctxloom bundle trust` accepted a malformed source ref; a downgrade to a local "+
 				"bundle name is a gate bypass. output:\n%s", out)
 		}
-		// Every command error routes through cliemit.EmitError (root.go), which
-		// is ALSO format-resolved: off a terminal (this harness, always) the
-		// no-flag row's error is the JSON {"error": "..."} envelope on stderr,
-		// not the "Error: ..." text line. The raw bytes then carry the quoted
-		// spelling backslash-escaped (`\"https://\"`), so a literal `"https://"`
+		// The error stream turns structured only when a format was EXPLICITLY
+		// asked for: cliemit.EmitError gates on cliemit.Explicit, because a
+		// derived format is not a request and stdout's consumer says nothing
+		// about who reads stderr. So the no-flag row gets the "Error: ..."
+		// text line even though its STDOUT would have been JSON — branching on
+		// formatAskedFor alone would try to decode that prose as an envelope.
+		//
+		// In the structured case the raw bytes carry the quoted spelling
+		// backslash-escaped (`\"https://\"`), so a literal `"https://"`
 		// substring check only ever matches the text rendering — decode the
-		// envelope's error field for the structured case instead.
-		if !formatAskedFor(w).Structured() {
+		// envelope's error field instead.
+		if !formatExplicit(w) || !formatAskedFor(w).Structured() {
 			if !strings.Contains(out, `"https://"`) {
 				return fmt.Errorf("the refusal does not name the spelling it refused (want %q); output:\n%s", `"https://"`, out)
 			}

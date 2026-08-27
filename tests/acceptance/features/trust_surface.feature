@@ -249,11 +249,13 @@ Feature: The trust surface — what "review" actually controls
   # the cascade, ahead of any review, so treating an unparseable remote ref as
   # local is a gate bypass, not a cosmetic mislabel. Nothing on this page
   # exercised that guard.
-  # Tabled by format: every command error routes through cliemit.EmitError,
-  # which is itself format-resolved, so off a terminal (which this harness
-  # always is) the no-flag row's refusal is the JSON {"error": "..."} envelope
-  # on stderr, not the "Error: ..." text line the old assertion checked
-  # unconditionally.
+  # Tabled by format, and the rows deliberately DISAGREE about the refusal's
+  # shape. Errors route through cliemit.EmitError, which renders structured
+  # only when a format was EXPLICITLY asked for: a derived format is not a
+  # request, and stdout's consumer says nothing about who reads stderr. So the
+  # --format json row gets the {"error": "..."} envelope while the no-flag row
+  # keeps the human "Error: ..." line even though its stdout would have been
+  # JSON. That asymmetry is the rule under test, not an inconsistency.
   Scenario Outline: A source reference that cannot be parsed is refused, never treated as local
     Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice tries to review an item whose source reference is malformed, asking for "<flags>"

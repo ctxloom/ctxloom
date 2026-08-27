@@ -317,25 +317,53 @@ func assertOutputReports(w *World, path, expected string, check func(any) error)
 // no --format at all is exercising the derived default; resolving it to the
 // structured payload here is what makes such a row a test of that rule instead
 // of a test of whatever the command happened to emit.
+//
+// STDOUT ONLY. An assertion about the ERROR stream must ask formatExplicit
+// instead — see its doc for why the two streams diverge.
 func formatAskedFor(w *World) clifmt.Format {
+	if f, ok := formatOnCommandLine(w); ok {
+		return f
+	}
+	return derivedNonTerminalFormat
+}
+
+// formatExplicit reports whether the last command's own command line SET a
+// format, as opposed to having one derived for it.
+//
+// The distinction governs the ERROR stream: cliemit.EmitError renders a
+// structured error only when the format was EXPLICITLY asked for, because a
+// derived format is not a request, and stdout's consumer says nothing about
+// who reads stderr — a different fd with a different reader. So a no-flag row
+// gets the human "Error: ..." line even though its STDOUT would have been
+// JSON, and an error assertion that branches on formatAskedFor alone tries to
+// decode prose as an envelope.
+func formatExplicit(w *World) bool {
+	_, ok := formatOnCommandLine(w)
+	return ok
+}
+
+// formatOnCommandLine scans the last command's own argv for a format request.
+// Both callers above read the same flags, so they read them in one place: two
+// copies of this scan would drift the moment a spelling is added.
+func formatOnCommandLine(w *World) (clifmt.Format, bool) {
 	fields := w.env.LastArgs()
 	for i, f := range fields {
 		switch {
 		case f == "--json":
-			return clifmt.FormatJSON
+			return clifmt.FormatJSON, true
 		case f == "--format" || f == "-o":
 			if i+1 < len(fields) {
 				if parsed, err := clifmt.ParseFormat(fields[i+1]); err == nil {
-					return parsed
+					return parsed, true
 				}
 			}
 		case strings.HasPrefix(f, "--format="):
 			if parsed, err := clifmt.ParseFormat(strings.TrimPrefix(f, "--format=")); err == nil {
-				return parsed
+				return parsed, true
 			}
 		}
 	}
-	return derivedNonTerminalFormat
+	return clifmt.Format(""), false
 }
 
 // derivedNonTerminalFormat is what cliemit.Resolve settles on when stdout is

@@ -234,15 +234,22 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # "claude-code: hooks=true ...", so matching it says nothing about whether
     # anything was wired. The per-surface flags are what "wired" means, so the
     # assertion is a regex over them.
-    Scenario: Check reports which surfaces are actually wired
+    Scenario Outline: Check reports which surfaces are actually wired
       Given an initialized ctxloom project
       When Alice wires the hooks in and asks what is configured:
         """
         ctxloom manage hooks install
-        ctxloom manage check
+        ctxloom manage check <flags>
         """
       Then the command succeeds
-      And the output matches "claude-code: hooks=true[^\n]*mcp=true"
+      And the output reports "backends[backend=claude-code].hooks_present" as "<hooks are wired>"
+      And the output reports "backends[backend=claude-code].mcp_present" as "<mcp is wired>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | hooks are wired | mcp is wired |
+        |               | true              | true          |
+        | --format json | true              | true          |
+        | --format text | hooks=true        | mcp=true      |
 
   Rule: A materialized hook reaches every engine in its own native shape
 
@@ -272,7 +279,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       When Alice materializes the team profile for codex
       Then no codex surface anywhere in the materialized tree carries the shared hook's command
-      And the materialize report says codex delivers those surfaces per-session at launch
+      # The claim below is prose READABILITY — that the loss is stated in
+      # words a human reads, not silently dropped — which only means
+      # something against the text renderer. Off a terminal ctxloom now
+      # derives JSON, so this re-runs the same materialize under an explicit
+      # --format text before reading the report.
+      When I run "ctxloom profile materialize team --target out-codex --backend codex --format text"
+      Then the materialize report says codex delivers those surfaces per-session at launch
 
   Rule: Hooks install, list, and genuinely uninstall
 
@@ -312,7 +325,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # DECLARATION ORDER DISAGREE with `order:` on purpose — "second" is written
     # first in the YAML and ordered last — so a build that ignored the field
     # prints them the other way round and the regex catches it.
-    Scenario: Listing hooks shows the resolved order and where each came from
+    Scenario Outline: Listing hooks shows the resolved order and where each came from
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/content/bundles/hooked.yaml":
         """
@@ -330,13 +343,27 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And a profile "hooky" with bundle "hooked"
       When Alice asks which hooks run on a tool call:
         """
-        ctxloom manage hooks list --event pre_tool --profile hooky
+        ctxloom manage hooks list --event pre_tool --profile hooky <flags>
         """
       Then the command succeeds
+      # The order claim stays a plain ordering check: this dev machine's real
+      # companions (ltk, taskloom, reprise) also declare pre_tool hooks and
+      # are merged in ahead of these two, so a POSITION selector is not safe
+      # here — position 1 may be a companion's hook, not either of this
+      # fixture's. Selecting by each hook's own unique command text is.
       And the output contains "HOOKLIST-FIRST"
       And the output contains "HOOKLIST-SECOND"
       And the output matches "HOOKLIST-FIRST[\s\S]*HOOKLIST-SECOND"
-      And the output contains "bundle ctxloom+local:hooked"
+      # The origin claim, addressed as the two fields a substring of a
+      # rendered "bundle X" marker would conflate.
+      And the output reports "events[event=pre_tool].hooks[command=echo HOOKLIST-FIRST].source_kind" as "<names the origin kind>"
+      And the output reports "events[event=pre_tool].hooks[command=echo HOOKLIST-FIRST].source" as "<names the origin>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | names the origin kind        | names the origin              |
+        |               | bundle                         | ctxloom+local:hooked            |
+        | --format json | bundle                         | ctxloom+local:hooked            |
+        | --format text | bundle ctxloom+local:hooked    | bundle ctxloom+local:hooked     |
 
     # Each hook must name ONE place to go. A coarse "local" label covering every
     # declaration site at once leaves a user searching all of them, so the
@@ -345,7 +372,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # binary found on PATH. Naming the profile is not enough on its own — the
     # label has to carry the KIND, since "which file do I open" and "which
     # profile is it" are different questions.
-    Scenario: The hook list names the specific place each hook was declared
+    Scenario Outline: The hook list names the specific place each hook was declared
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/profiles/dir-prov.yaml":
         """
@@ -357,11 +384,19 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         """
       When Alice asks where each hook came from:
         """
-        ctxloom manage hooks list --event pre_tool --profile dir-prov
+        ctxloom manage hooks list --event pre_tool --profile dir-prov <flags>
         """
       Then the command succeeds
-      And the output matches "PROV-FROM-DIRECTORY-PROFILE\s+\[profile-directory dir-prov\]"
-      And the output matches "\[companion "
+      # Selected by source_kind: this fixture declares exactly one
+      # profile-directory hook, so the selection cannot be ambiguous. A
+      # companion-sourced hook is NOT addressed by path here — this machine
+      # ships multiple first-party companions (ltk, taskloom, reprise), any
+      # number of which may resolve exempt, so a [source_kind=companion]
+      # selector would be genuinely ambiguous rather than a safe pick; its
+      # presence is proven as a plain substring instead.
+      And the output reports "events[event=pre_tool].hooks[source_kind=profile-directory].command" as "<names the hook>"
+      And the output reports "events[event=pre_tool].hooks[source_kind=profile-directory].source" as "<names the profile>"
+      And the output contains "<a companion-sourced hook is present too>"
       And the output does not contain "[local]"
       # The machine form carries the same specific kind, plus the position the
       # MERGE gave each hook — so a later reordering is visible as a move
@@ -373,6 +408,12 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the output contains "profile-directory"
       And the output contains "declared"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | names the hook                    | names the profile | a companion-sourced hook is present too |
+        |               | echo PROV-FROM-DIRECTORY-PROFILE  | dir-prov            | companion                                 |
+        | --format json | echo PROV-FROM-DIRECTORY-PROFILE  | dir-prov            | companion                                 |
+        | --format text | PROV-FROM-DIRECTORY-PROFILE       | dir-prov            | companion                                 |
 
     # Parsing is the claim. Event names alone appear in the human listing too,
     # so matching them would pass against a command that ignored --format json

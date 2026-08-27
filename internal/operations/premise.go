@@ -43,6 +43,27 @@ type premiseFilter struct {
 // newPremiseFilter builds the filter for one assembly. explicit is the
 // already-resolved list of by-name fragment asks (AssembleContextRequest
 // .Fragments after ResolveFragmentAsk), which bypass the filter entirely.
+//
+// THIS PARAMETER IS THE STOCHASTIC BOUNDARY, and that is why it is a bare list
+// of names rather than a richer type. In production the selection is made by a
+// model; in a test it is a literal slice. Everything on both sides of this call
+// is deterministic, so no test needs a model to exercise assembly, withholding
+// or the index.
+//
+// Two properties hold only while the parameter stays exactly this shape:
+//
+//   - A NAME IS CHECKABLE. The values are drawn from a closed vocabulary — the
+//     catalog — so a name a model invents does not resolve and is reported
+//     (MissingFragments) rather than silently absorbed. Free text could carry
+//     anything; a name can only ever be right or absent.
+//   - SUBSTITUTABILITY. A []string can be written by hand, so the deterministic
+//     tests are not approximating the production path, they ARE it.
+//
+// So do not widen this to carry ordering, confidence, a rationale, or content
+// from the model. Anything the assembly needs beyond the set of names must be
+// DERIVED from those names here, where it can be tested — the moment a model's
+// judgment reaches past this parameter, nondeterminism is behind the seam and
+// every test downstream of it becomes a sampling exercise.
 func newPremiseFilter(explicit []string) *premiseFilter {
 	set := make(map[string]bool, len(explicit))
 	for _, name := range explicit {

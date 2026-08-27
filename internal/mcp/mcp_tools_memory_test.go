@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -18,119 +18,92 @@ import (
 // ended" — the identity binding, set once at session-start and never touched
 // again, is exact.
 
-// alwaysExists and neverExists are transcriptExists fakes for
-// recoverTargetSessionID tests below.
-func alwaysExists(string) bool { return true }
-func neverExists(string) bool  { return false }
-
-// noOwner is the ownerHarp fake for cases where the session index cannot
-// attribute the candidate transcript to any harp — the state every test below
-// other than the cross-harp one is written against.
+// noOwner is the OwnerHarp fake for a candidate the attribution source cannot
+// place. ownedBy builds one that claims a specific harp.
 func noOwner(string) string { return "" }
 
-func TestRecoverTargetSessionID_PrefersIdentityOverMtime(t *testing.T) {
-	// The active harp is bound to "correct-session", but the mtime-based
-	// listing reports a DIFFERENT, newer-touched session first (simulating a
-	// resumed/stale transcript out-ranking the real current session by mtime).
-	activeEntry := &sessions.Entry{HarpName: "active-harp", SessionID: "correct-session", Backend: "claude-code"}
-	mtimeSessions := []agent.SessionMeta{
-		{ID: "stale-resumed-session"}, // newest by mtime, but NOT the active session
-		{ID: "correct-session"},
+func ownedBy(harp string) func(string) string { return func(string) string { return harp } }
+
+func lineage(ids ...string) []operations.HarpTranscript {
+	out := make([]operations.HarpTranscript, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, operations.HarpTranscript{SessionID: id})
 	}
-
-	got := recoverTargetSessionID(activeEntry, "active-harp", "claude-code", nil, alwaysExists, noOwner)
-	assert.Equal(t, "correct-session", got, "identity-only probe must resolve without consulting the mtime listing")
-
-	// Even if the mtime listing were passed too, identity still wins.
-	got = recoverTargetSessionID(activeEntry, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner)
-	assert.Equal(t, "correct-session", got)
+	return out
 }
 
-func TestRecoverTargetSessionID_FallsBackToMtimeWhenUnbound(t *testing.T) {
-	mtimeSessions := []agent.SessionMeta{{ID: "newest-by-mtime"}, {ID: "older"}}
-
-	// No entry at all (harp not in the index).
-	assert.Equal(t, "newest-by-mtime", recoverTargetSessionID(nil, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner))
-
-	// Entry present but never bound (SessionStart hook never fired).
-	unbound := &sessions.Entry{HarpName: "active-harp", Backend: "claude-code"}
-	assert.Equal(t, "newest-by-mtime", recoverTargetSessionID(unbound, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner))
-
-	// Empty inputs resolve to "" (caller decides how to report "no sessions").
-	assert.Equal(t, "", recoverTargetSessionID(nil, "active-harp", "claude-code", nil, alwaysExists, noOwner))
-}
-
-// TestRecoverTargetSessionID_RejectsCrossHarpCandidate pins recover's central
-// promise: it resolves the CURRENT session, never a different one. An unbound
-// harp drops to the mtime pick, and in a working directory shared by several
-// sessions the newest-touched transcript routinely belongs to a concurrent or
-// already-ended one. Returning it is not a near miss — the caller is handed
-// another session's context as if it were their own, with nothing in the
-// result that would let them tell the difference.
-func TestRecoverTargetSessionID_RejectsCrossHarpCandidate(t *testing.T) {
-	mtimeSessions := []agent.SessionMeta{{ID: "foreign-session"}, {ID: "older"}}
-	ownedByOther := func(string) string { return "some-other-harp" }
-	ownedBySelf := func(string) string { return "active-harp" }
-
-	got := recoverTargetSessionID(nil, "active-harp", "claude-code", mtimeSessions, alwaysExists, ownedByOther)
-	assert.Equal(t, "", got, "a candidate owned by another harp must be refused, never returned")
-
-	got = recoverTargetSessionID(nil, "active-harp", "claude-code", mtimeSessions, alwaysExists, ownedBySelf)
-	assert.Equal(t, "foreign-session", got, "the active harp's own transcript must still resolve")
-
-	// Unattributable stays PERMITTED: the mtime pick is then the only signal
-	// there is, and refusing it too would strand every harp the index never bound.
-	got = recoverTargetSessionID(nil, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner)
-	assert.Equal(t, "foreign-session", got, "an unattributable candidate must not be refused")
-
-	// With no active identity there is no claim to contradict.
-	got = recoverTargetSessionID(nil, "", "claude-code", mtimeSessions, alwaysExists, ownedByOther)
-	assert.Equal(t, "foreign-session", got, "no active harp means no cross-harp claim can be made")
-}
-
-func TestRecoverTargetSessionID_BackendMismatchFallsBackToMtime(t *testing.T) {
-	// The bound entry belongs to a DIFFERENT backend than the one being read
-	// from — using its session id would look up the wrong backend's store.
-	entry := &sessions.Entry{HarpName: "active-harp", SessionID: "codex-session", Backend: "codex"}
-	mtimeSessions := []agent.SessionMeta{{ID: "claude-newest"}}
-
-	got := recoverTargetSessionID(entry, "active-harp", "claude-code", mtimeSessions, alwaysExists, noOwner)
-	assert.Equal(t, "claude-newest", got)
-}
-
-// TestRecoverTargetSessionID_StaleBindingFallsBackToMtime is a
-// regression test: the harp is bound to a session id, but its recorded
-// transcript file no longer exists (rotated/deleted — a stale index entry).
-// Trusting the dead id would skip the mtime listing entirely and hand the
-// caller an id that can't be loaded; identity must instead degrade to the
-// mtime-based pick, same as an unbound harp.
-func TestRecoverTargetSessionID_StaleBindingFallsBackToMtime(t *testing.T) {
-	staleEntry := &sessions.Entry{
-		HarpName:       "active-harp",
-		SessionID:      "dead-session",
-		Backend:        "claude-code",
-		TranscriptPath: "/gone/dead-session.jsonl",
+// The harp is the only identity a /clear does not rotate, so the harp's own
+// lineage is what recover resolves against. The current session is skipped
+// because its content is already in the context window — "recovering" it
+// restores nothing, which is the failure this ordering exists to prevent.
+func TestRecoverResolution_PrefersLineagePredecessorOverCurrent(t *testing.T) {
+	r := recoverResolution{
+		Lineage:    lineage("post-clear-current", "pre-clear-work", "older-still"),
+		CurrentID:  "post-clear-current",
+		ActiveHarp: "active-harp",
+		OwnerHarp:  noOwner,
 	}
-	mtimeSessions := []agent.SessionMeta{{ID: "newest-existing"}, {ID: "older"}}
-
-	got := recoverTargetSessionID(staleEntry, "active-harp", "claude-code", mtimeSessions, neverExists, noOwner)
-	assert.Equal(t, "newest-existing", got, "a bound id whose transcript is gone must fall back to the newest EXISTING transcript")
-
-	// identity-only probe (no mtime listing yet): must report "" so the
-	// caller knows to go fetch one, rather than trusting the dead id.
-	got = recoverTargetSessionID(staleEntry, "active-harp", "claude-code", nil, neverExists, noOwner)
-	assert.Equal(t, "", got, "identity-only probe of a stale binding must not return the dead id")
+	assert.Equal(t, "pre-clear-work", r.target(),
+		"the newest lineage entry that is NOT the current session must win")
 }
 
-// TestRecoverTargetSessionID_NoTranscriptPathTrustsIdentity covers an entry
-// that was bound but never had its TranscriptPath recorded (older index
-// entries, or a backend that doesn't report one): identity is trusted as
-// before rather than being forced through the existence check, since "" is
-// not a claim that can be falsified.
-func TestRecoverTargetSessionID_NoTranscriptPathTrustsIdentity(t *testing.T) {
-	entry := &sessions.Entry{HarpName: "active-harp", SessionID: "correct-session", Backend: "claude-code"}
-	got := recoverTargetSessionID(entry, "active-harp", "claude-code", nil, neverExists, noOwner)
-	assert.Equal(t, "correct-session", got)
+// No predecessor means there is genuinely nothing to recover. It must REFUSE
+// rather than fall through to the current session.
+func TestRecoverResolution_RefusesWhenLineageHoldsOnlyCurrent(t *testing.T) {
+	r := recoverResolution{
+		Lineage:    lineage("only-current"),
+		CurrentID:  "only-current",
+		ActiveHarp: "active-harp",
+		OwnerHarp:  noOwner,
+	}
+	assert.Equal(t, "", r.target(),
+		"a lineage holding only the current session must refuse, never return it")
+}
+
+// The positional listing is a last resort for a harp with NO lineage; it must
+// never outrank the harp's own history.
+func TestRecoverResolution_LineageOutranksPositionalListing(t *testing.T) {
+	r := recoverResolution{
+		Lineage:       lineage("harps-own-predecessor"),
+		MtimeSessions: []agent.SessionMeta{{ID: "newest-touched-elsewhere"}},
+		ActiveHarp:    "active-harp",
+		OwnerHarp:     noOwner,
+	}
+	assert.Equal(t, "harps-own-predecessor", r.target())
+}
+
+// Recover promises the CURRENT session's history. A candidate provably owned by
+// another harp is a wrong answer the caller cannot distinguish from a right one.
+func TestRecoverResolution_RejectsCrossHarpCandidate(t *testing.T) {
+	r := recoverResolution{
+		MtimeSessions: []agent.SessionMeta{{ID: "foreign-session"}},
+		ActiveHarp:    "active-harp",
+		OwnerHarp:     ownedBy("some-other-harp"),
+	}
+	assert.Equal(t, "", r.target(), "a candidate owned by another harp must be refused")
+
+	r.OwnerHarp = ownedBy("active-harp")
+	assert.Equal(t, "foreign-session", r.target(), "the active harp's own transcript still resolves")
+}
+
+// Rejecting on DOUBT would strand every harp the attribution source never
+// recorded, so an unattributable candidate is permitted.
+func TestRecoverResolution_UnattributableCandidateStillResolves(t *testing.T) {
+	r := recoverResolution{
+		MtimeSessions: []agent.SessionMeta{{ID: "unknown-owner"}},
+		ActiveHarp:    "active-harp",
+		OwnerHarp:     noOwner,
+	}
+	assert.Equal(t, "unknown-owner", r.target())
+
+	r.ActiveHarp = ""
+	r.OwnerHarp = ownedBy("some-other-harp")
+	assert.Equal(t, "unknown-owner", r.target(), "no active harp means no cross-harp claim can be made")
+}
+
+func TestRecoverResolution_RefusesWhenNothingAtAll(t *testing.T) {
+	r := recoverResolution{ActiveHarp: "active-harp", OwnerHarp: noOwner}
+	assert.Equal(t, "", r.target())
 }
 
 func TestPreviousSessionFromMtime_ExcludesActiveSessionRegardlessOfPosition(t *testing.T) {

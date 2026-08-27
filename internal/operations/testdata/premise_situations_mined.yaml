@@ -44,7 +44,19 @@ description: 'Situations MINED from 3,404 real tool-intent statements across 86 
   a badly wrong premise for any of them would go unnoticed here. The cause is structural: these situations
   were mined from TOOL-CALL descriptions, which record actions taken on the repository and not deliberative
   moments (weighing two designs, deciding whether to object, choosing where new code belongs). Covering
-  them needs a second mining pass over a different signal, not more rows from this one.'
+  them needs a second mining pass over a different signal, not more rows from this one.
+
+
+  D-ROWS: a SECOND mining pass, over a different signal. The S-rows came from tool-call descriptions,
+  which record actions on the repository; that signal structurally cannot contain a deliberative moment,
+  which is why ten premised fragments had no coverage. The D-rows were mined from 1,558 unique passages
+  of assistant reasoning and human direction across the same 86 transcripts, clustered by four independent
+  agents and merged, with `observed` recomputed deterministically. The miners were NOT told which fragments
+  lacked coverage: situations reverse-engineered to hit a named target would grade those premises against
+  themselves.
+
+
+  D-rows are UNLABELLED and need their own blind pass.'
 situations:
 - id: S01
   intent: I need to understand how an existing piece of this code works before I change anything.
@@ -357,3 +369,127 @@ situations:
   expect: []
   label_note: "communication governs the drafting itself, ambiently \u2014 not this checking moment."
   canary: true
+- id: D01
+  intent: I'm about to act on a claim I have not checked, and deciding whether to verify it first.
+  observed: 283
+  example: '[assistant] The `_ = put` mutation didn''t compile, so it proved nothing. Running a valid
+    one: store the original instead'
+  expect: []
+- id: D02
+  intent: I'm about to build something, and deciding whether to read the existing code first or work from
+    my idea of it.
+  observed: 56
+  example: '[assistant] Specific and important: four tests **read their own source off disk**, and under
+    `-trimpath` the derived pat'
+  expect: []
+- id: D03
+  intent: I need a real number to settle this, and I'm deciding what to measure.
+  observed: 83
+  example: '[assistant] Decided. I said I''d verify the debuggability cost on a real failure rather than
+    assume it, so I''ll do that a'
+  expect: []
+- id: D04
+  intent: Something failed and I'm deciding whether to chase the root cause or patch the symptom.
+  observed: 29
+  example: '[assistant] Noted, and I''ll surface the accounting rather than just add to the pile. Integrating
+    the **sequencing** into'
+  expect: []
+- id: D05
+  intent: A decision just got made and I'm deciding whether to write it down or let it live in this conversation.
+  observed: 189
+  example: '[assistant] Writing the three session-tool scenarios, reusing the existing captured-session
+    fixture rather than a parall'
+  expect: []
+- id: D06
+  intent: I found something wrong that is not what I was working on, and I'm deciding whether to fix it
+    now or file it.
+  observed: 31
+  example: '[assistant] Four of five queue items are done. `evaluate_triggers` needs a fixture I''ve now
+    scoped precisely but that is'
+  expect: []
+- id: D07
+  intent: I have several pieces of work and I'm deciding what order to do them in and what can overlap.
+  observed: 153
+  example: '[assistant] Item 0 closed (unfixable in-repo; filed with the decision). Item 1: the four MCP
+    tools. Cutting its worktree'
+  expect: []
+- id: D08
+  intent: I hit a constraint that changes the design, and I'm deciding whether to present it before building.
+  observed: 30
+  example: "[assistant] Understood \u2014 and that framing is the right one: the table isn't our design,\
+    \ it's a scar from someone else's "
+  expect: []
+- id: D09
+  intent: I have more than one workable approach and I'm choosing between them.
+  observed: 191
+  example: "[assistant] The handler explicitly keys the essence by `s.self.Harp` \u2014 the *caller's*\
+    \ harp, not the harp of the session "
+  expect: []
+- id: D10
+  intent: I'm deciding which package, layer, or component this responsibility belongs to.
+  observed: 39
+  example: "[assistant] Ruling recorded and dispatched \u2014 last-wins plus a stderr warning, with mutations\
+    \ required on the warning its"
+  expect: []
+- id: D11
+  intent: Before writing something new I'm checking whether a standard, helper, or seam already covers
+    it.
+  observed: 117
+  example: '[user] ok, we need to delete default/default, put it wherever its fragments make sense. we
+    do need tdd as a standard, bu'
+  expect: []
+- id: D12
+  intent: A sub-agent or tool reported success and I'm deciding whether to take its word or check underneath.
+  observed: 7
+  example: '[assistant] Group A reported back: all four features green, 3 mutations killed. But the new
+    diagnostics name exactly the'
+  expect: []
+- id: D13
+  intent: A test is green and I'm deciding whether it actually proves anything.
+  observed: 104
+  example: '[assistant] The `_ = put` mutation didn''t compile, so it proved nothing. Running a valid
+    one: store the original instead'
+  expect: []
+- id: D14
+  intent: I have realised something I said earlier was wrong, and I'm deciding how to correct it.
+  observed: 20
+  example: '[assistant] Decided. I said I''d verify the debuggability cost on a real failure rather than
+    assume it, so I''ll do that a'
+  expect: []
+- id: D15
+  intent: I have been asked to do something I think is a bad idea, and I'm deciding whether to say so.
+  observed: 20
+  example: '[assistant] Tagged (`triage:blocks-release=0.7.0-pre001` plus defect/exposure/effort facets
+    so the priority function sco'
+  expect: []
+- id: D16
+  intent: Someone else has uncommitted work in the way, and I'm deciding how to proceed without destroying
+    it.
+  observed: 33
+  example: "[assistant] Understood \u2014 your bundle, and the uncommitted edits are yours, so I'll split\
+    \ the **working-tree** version ra"
+  expect: []
+- id: D17
+  intent: A gate finished and I'm working out what its result actually tells me.
+  observed: 267
+  example: '[assistant] Writing the three session-tool scenarios, reusing the existing captured-session
+    fixture rather than a parall'
+  expect: []
+- id: D18
+  intent: Two sources disagree and I have to work out which is true before continuing.
+  observed: 36
+  example: "[assistant] Remote gained a merge of PR #2 (skill\u2192command rename). We're 5 ahead / 1\
+    \ behind \u2014 and one of our commits was"
+  expect: []
+- id: D19
+  intent: I'm deciding whether this code is still reachable or can be deleted.
+  observed: 42
+  example: '[user] ok, we need to delete default/default, put it wherever its fragments make sense. we
+    do need tdd as a standard, bu'
+  expect: []
+- id: D20
+  intent: I'm deciding whether a change is safe to merge or needs more thought.
+  observed: 90
+  example: "[assistant] \xA70 of that plan is already the Catalog prefix my session added. Reading it\
+    \ so I integrate rather than duplic"
+  expect: []

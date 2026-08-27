@@ -38,16 +38,26 @@ Feature: llm — the named engine configurations, and the credentials they hold
     --engine` and `llm default` accept, so a name offered here is never
     rejected there.
 
-    Scenario: The listing names the built-in backends and marks the default
+    # ONE BODY, ONCE PER ENCODING. Off a terminal ctxloom derives JSON, so the
+    # no-flag row exercises the DEFAULT every script receives; the explicit
+    # rows prove a typed --format wins in both directions. The structured
+    # rows address each backend BY PATH rather than by a substring that would
+    # also match across field boundaries.
+    Scenario Outline: The listing names the built-in backends and marks the default
       Given an initialized ctxloom project
       When Alice asks which engines she can bind:
         """
-        ctxloom llm list
+        ctxloom llm list <flags>
         """
       Then the command succeeds
-      And the output contains "claude-code"
-      And the output contains "codex"
-      And the output contains "(default)"
+      And the output reports "[label=claude-code].default" as "<claude-code is the default>"
+      And the output reports "[label=codex].label" as "<names codex too>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | claude-code is the default | names codex too |
+        |               | true                        | codex            |
+        | --format json | true                        | codex            |
+        | --format text | (default)                   | codex            |
 
     # The bare noun answers the question somebody typing it has, rather than
     # teaching them what they could have typed instead.
@@ -69,29 +79,36 @@ Feature: llm — the named engine configurations, and the credentials they hold
     listing marks BOTH kinds — not one, leaving the other bare, which a reader
     would take for missing information rather than an answer.
 
-    Scenario: A label the team wrote is told apart from an engine ctxloom supplied
+    Scenario Outline: A label the team wrote is told apart from an engine ctxloom supplied
       Given an initialized ctxloom project
       And I run "ctxloom llm create big --type codex --model o1"
       And I run "ctxloom llm default codex"
       When Alice asks which of these engines her team actually configured:
         """
-        ctxloom llm list
+        ctxloom llm list <flags>
         """
       Then the command succeeds
       # One listing, both kinds. Asserting either marker alone would pass just
       # as happily against a render that stamped every row the same way.
-      And the output contains "big [configured]"
-      And the output contains "claude-code [built-in]"
+      And the output reports "[label=big].authored" as "<big is configured>"
+      And the output reports "[label=claude-code].authored" as "<claude-code is built-in>"
       # The origin marker does not displace the default marker: a row can be
       # the fallback engine everything resolves to and still be one nobody
       # configured.
-      And the output contains "codex (default) [built-in]"
+      And the output reports "[label=codex].default" as "<codex is the default>"
+      And the output reports "[label=codex].authored" as "<and still built-in>"
       # The marker is not decoration — it predicts what the label can DO. A
       # name ctxloom supplied has no entry to take away, and remove says so
       # rather than reporting a deletion that never happened.
       When I run "ctxloom llm remove claude-code"
       Then the command fails
       And the output contains "not defined in config.yaml"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | big is configured | claude-code is built-in | codex is the default | and still built-in |
+        |               | true               | false                    | true                  | false                |
+        | --format json | true               | false                    | true                  | false                |
+        | --format text | [configured]       | [built-in]               | (default)             | [built-in]           |
 
   Rule: The default is a label, and only a label the project knows
 
@@ -109,18 +126,24 @@ Feature: llm — the named engine configurations, and the credentials they hold
     # what `llm default` just set proves the two calls agree with each other,
     # not that anything was written. The listing's default marker is derived
     # from stored config, so it can only move if the write landed.
-    Scenario: Setting the default moves the marker in the listing
+    Scenario Outline: Setting the default moves the marker in the listing
       Given an initialized ctxloom project
       When Alice makes codex the engine everything falls back to:
         """
-        ctxloom llm default codex
+        ctxloom llm default codex <flags>
         """
       Then the command succeeds
-      And the output contains "Default LLM set to: codex"
-      When I run "ctxloom llm default"
-      Then the output contains "codex"
-      When I run "ctxloom llm list"
-      Then the output contains "codex (default)"
+      And the output reports "status" as "<confirms the change>"
+      When I run "ctxloom llm default <flags>"
+      Then the output reports "default" as "<reads back codex>"
+      When I run "ctxloom llm list <flags>"
+      Then the output reports "[label=codex].default" as "<codex is now marked default>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | confirms the change       | reads back codex | codex is now marked default |
+        |               | set                        | codex             | true                          |
+        | --format json | set                        | codex             | true                          |
+        | --format text | Default LLM set to: codex | codex             | codex (default)               |
 
     # A default nobody can resolve is a project that fails at run time with no
     # clue why. The refusal names the set it would have accepted, which is the
@@ -144,22 +167,27 @@ Feature: llm — the named engine configurations, and the credentials they hold
     shadow the built-in) while `llm edit claude-code` is accepted (that is how
     a built-in becomes an explicit entry).
 
-    Scenario: A labeled engine config is created and read back out of the project file
+    Scenario Outline: A labeled engine config is created and read back out of the project file
       Given an initialized ctxloom project
       When Alice names an engine configuration her team can bind by label:
         """
-        ctxloom llm create big --type codex --model o1
+        ctxloom llm create big --type codex --model o1 <flags>
         """
       Then the command succeeds
-      And the output contains "Created llm"
-      And the output contains "codex"
-      And the output contains "o1"
+      And the output reports "type" as "<names the backend>"
+      And the output reports "model" as "<names the model>"
       # The EFFECT: the confirmation is rendered from the request and would
       # print identically over a save that never happened.
       And the file ".ctxloom/config.yaml" contains "big"
       And the file ".ctxloom/config.yaml" contains "o1"
-      When I run "ctxloom llm list"
-      Then the output contains "big"
+      When I run "ctxloom llm list <flags>"
+      Then the output reports "[label=big].label" as "<the label round-trips>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | names the backend | names the model | the label round-trips |
+        |               | codex              | o1               | big                    |
+        | --format json | codex              | o1               | big                    |
+        | --format text | codex              | o1               | big                    |
 
     Scenario: Create refuses a label that already resolves, including a built-in backend
       Given an initialized ctxloom project
@@ -192,33 +220,44 @@ Feature: llm — the named engine configurations, and the credentials they hold
     # Every field the invocation did not name survives. A merge that applied
     # the model and reset the type would leave a config pointing the new model
     # at the wrong backend — and would satisfy a model-only assertion.
-    Scenario: An edit naming only --model leaves the backend type intact
+    Scenario Outline: An edit naming only --model leaves the backend type intact
       Given an initialized ctxloom project
       And I run "ctxloom llm create big --type codex --model o1"
       When Alice moves one label onto a newer model:
         """
-        ctxloom llm edit big --model o1-pro
+        ctxloom llm edit big --model o1-pro <flags>
         """
       Then the command succeeds
-      And the output contains "Updated llm"
-      And the output contains "o1-pro"
-      And the output contains "codex"
+      And the output reports "model" as "<the new model>"
+      And the output reports "type" as "<the backend survives unmerged>"
       And the file ".ctxloom/config.yaml" contains "o1-pro"
       And the file ".ctxloom/config.yaml" contains "codex"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the new model | the backend survives unmerged |
+        |               | o1-pro         | codex                          |
+        | --format json | o1-pro         | codex                          |
+        | --format text | o1-pro         | codex                          |
 
     # --permissions is the launch-time posture, a project-file field distinct
     # from the credential rule below (which is about the machine-scoped env
     # block). Read back out of the project config, not the echo.
-    Scenario: Setting the permission posture records it in the project config
+    Scenario Outline: Setting the permission posture records it in the project config
       Given an initialized ctxloom project
       And I run "ctxloom llm create big --type codex --model o1"
       When Alice sets the posture this label launches with:
         """
-        ctxloom llm edit big --permissions bypass
+        ctxloom llm edit big --permissions bypass <flags>
         """
       Then the command succeeds
-      And the output contains "Updated llm"
+      And the output reports "permissions" as "<the posture>"
       And the file ".ctxloom/config.yaml" contains "permissions: bypass"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the posture |
+        |               | bypass       |
+        | --format json | bypass       |
+        | --format text | bypass       |
 
   Rule: Removing reports before it destroys, and never reaches the credential
 
@@ -229,30 +268,42 @@ Feature: llm — the named engine configurations, and the credentials they hold
     use by another project binding the same label, and is not this command's
     to delete.
 
-    Scenario: Bare remove reports and destroys nothing
+    Scenario Outline: Bare remove reports and destroys nothing
       Given an initialized ctxloom project
       And I run "ctxloom llm create big --type codex --model o1"
-      When I run "ctxloom llm remove big"
+      When I run "ctxloom llm remove big <flags>"
       Then the command succeeds
-      And the output contains "Nothing was removed"
-      And the output contains "ctxloom llm remove big --yes"
-      When I run "ctxloom llm list"
-      Then the output contains "big"
+      And the output reports "applied" as "<nothing was applied>"
+      And the output reports "apply" as "<the command to actually do it>"
+      When I run "ctxloom llm list <flags>"
+      Then the output reports "[label=big].label" as "<the entry survives>"
       And the file ".ctxloom/config.yaml" contains "big"
 
-    Scenario: --yes takes the entry out of the project file
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | nothing was applied  | the command to actually do it | the entry survives |
+        |               | false                 | ctxloom llm remove big --yes  | big                  |
+        | --format json | false                 | ctxloom llm remove big --yes  | big                  |
+        | --format text | Nothing was removed   | ctxloom llm remove big --yes  | big                  |
+
+    Scenario Outline: --yes takes the entry out of the project file
       Given an initialized ctxloom project
       And I run "ctxloom llm create big --type codex --model o1"
       And the file ".ctxloom/config.yaml" contains "big"
       When Alice retires a label her team no longer binds:
         """
-        ctxloom llm remove big --yes
+        ctxloom llm remove big --yes <flags>
         """
       Then the command succeeds
-      And the output contains "Removed llm"
+      And the output reports "status" as "<confirms the removal>"
       And the file ".ctxloom/config.yaml" does not contain "big"
-      When I run "ctxloom llm list"
+      When I run "ctxloom llm list <flags>"
       Then the output does not contain "big"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | confirms the removal |
+        |               | removed                |
+        | --format json | removed                |
+        | --format text | Removed llm            |
 
     # A built-in backend is not an entry in config.yaml, so there is nothing
     # here to remove — and saying "removed" would be the silent no-op this

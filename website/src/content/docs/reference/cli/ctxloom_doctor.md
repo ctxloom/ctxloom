@@ -27,6 +27,10 @@ MCP registration per configured backend; where codex's home-keyed surfaces
 actually live, since it is the one engine with no durable project copy of
 them (your real ~/.codex, plus the most recent per-session instance if one is
 on disk, labelled with its harp and age); the trust store's signers;
+which version-scoped transcript reader each configured engine's INSTALLED
+version selects, and the version ranges ctxloom carries readers for — what
+you need when a transcript refuses to convert, since reading a vendor's own
+transcript store refuses rather than guessing at an unvalidated format;
 companion detection + loadout probing (taskloom/ltk/...); every
 paths.TierLocal path (internal/paths.Layout) this checkout is missing — the
 local-only state (the dirty-tree-commit acknowledgement, the task-log

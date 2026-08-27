@@ -56,7 +56,7 @@ Feature: companion — which binaries on your machine ctxloom may execute
     every exit-code assertion while quietly doing nothing — or quietly doing
     everything.
 
-    Scenario: An unconfirmed companion is skipped, said so, and only runs once trusted
+    Scenario Outline: An unconfirmed companion is skipped, said so, and only runs once trusted
       Given an initialized ctxloom project
       And a discovered companion "ctxloom-companion-acme" is on PATH, never confirmed
       When I run "ctxloom doctor"
@@ -64,12 +64,18 @@ Feature: companion — which binaries on your machine ctxloom may execute
       And the companion "ctxloom-companion-acme" was never executed
       When Alice decides this binary may run:
         """
-        ctxloom companion trust ctxloom-companion-acme
+        ctxloom companion trust ctxloom-companion-acme <flags>
         """
       Then the command succeeds
-      And the output contains "ctxloom will run it"
+      And the output reports "allowed" as "<ctxloom will run it>"
       When I run "ctxloom doctor"
       Then the companion "ctxloom-companion-acme" was executed
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | ctxloom will run it |
+        |               | true                  |
+        | --format json | true                  |
+        | --format text | ctxloom will run it   |
 
   Rule: The decision is inspectable one binary at a time, and revocable
 
@@ -84,30 +90,35 @@ Feature: companion — which binaries on your machine ctxloom may execute
     # recorded for whatever real companions this machine has installed, and an
     # "is it empty" assertion would be an assertion about the developer's
     # laptop.
-    Scenario: Execution decisions are listable and revocable
+    Scenario Outline: Execution decisions are listable and revocable
       Given an initialized ctxloom project
       And a discovered companion "ctxloom-companion-acme" is on PATH, never confirmed
-      When I run "ctxloom companion list"
+      When I run "ctxloom companion list <flags>"
       Then the command succeeds
       And the output does not contain "ctxloom-companion-acme"
       When I run "ctxloom companion trust ctxloom-companion-acme"
       Then the command succeeds
       When Alice reviews what she has allowed to run:
         """
-        ctxloom companion list
+        ctxloom companion list <flags>
         """
       Then the command succeeds
-      And the output contains "allowed"
-      And the output contains "ctxloom-companion-acme"
+      And the output reports "[bin=ctxloom-companion-acme].allowed" as "<the decision is allowed>"
       When Alice takes the decision back:
         """
-        ctxloom companion untrust ctxloom-companion-acme
+        ctxloom companion untrust ctxloom-companion-acme <flags>
         """
       Then the command succeeds
-      And the output contains "forgot 1 decision(s)"
-      When I run "ctxloom companion list"
+      And the output reports "forgot" as "<confirms one decision forgotten>"
+      When I run "ctxloom companion list <flags>"
       Then the command succeeds
       And the output does not contain "ctxloom-companion-acme"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | the decision is allowed | confirms one decision forgotten |
+        |               | true                     | 1                                 |
+        | --format json | true                     | 1                                 |
+        | --format text | allowed                  | forgot 1 decision(s)              |
 
     # The bare noun answers the question somebody typing it has, rather than
     # teaching them what they could have typed instead — and reading the
@@ -122,33 +133,44 @@ Feature: companion — which binaries on your machine ctxloom may execute
       And the output contains "ctxloom-companion-acme"
       And the output does not contain "Available Commands:"
 
-    Scenario: Show answers whether ctxloom would execute one binary, and why
+    Scenario Outline: Show answers whether ctxloom would execute one binary, and why
       Given an initialized ctxloom project
       And a discovered companion "ctxloom-companion-acme" is on PATH, never confirmed
       When Alice asks whether one binary would run:
         """
-        ctxloom companion show ctxloom-companion-acme
+        ctxloom companion show ctxloom-companion-acme <flags>
         """
       Then the command succeeds
-      And the output contains "DENIED"
-      And the output contains "unconfirmed"
+      And the output reports "allowed" as "<not allowed yet>"
+      And the output reports "reason" as "<because unconfirmed>"
       When I run "ctxloom companion trust ctxloom-companion-acme"
       Then the command succeeds
-      When I run "ctxloom companion show ctxloom-companion-acme"
+      When I run "ctxloom companion show ctxloom-companion-acme <flags>"
       Then the command succeeds
-      And the output contains "allowed"
-      And the output contains "consented"
+      And the output reports "allowed" as "<now allowed>"
+      And the output reports "reason" as "<because consented>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | not allowed yet | because unconfirmed | now allowed | because consented |
+        |               | false             | unconfirmed           | true          | consented            |
+        | --format json | false             | unconfirmed           | true          | consented            |
+        | --format text | DENIED            | unconfirmed           | allowed       | consented            |
 
     # "not installed" and "found but refused" are different facts about the
     # machine, and collapsing them into one silence is the shape this whole
     # noun exists to avoid. The positive case above ran first in this same
     # file; here the name simply resolves to nothing.
-    Scenario: A name that resolves to nothing says so, rather than reporting a refusal
+    Scenario Outline: A name that resolves to nothing says so, rather than reporting a refusal
       Given an initialized ctxloom project
-      When I run "ctxloom companion show ctxloom-companion-nowhere"
+      When I run "ctxloom companion show ctxloom-companion-nowhere <flags>"
       Then the command succeeds
-      And the output contains "not found"
-      And the output contains "not-installed"
+      And the output reports "reason" as "<not installed, not refused>"
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | not installed, not refused |
+        |               | not-installed                 |
+        | --format json | not-installed                 |
+        | --format text | not found                     |
 
   Rule: First-party binaries are exempt by PROVENANCE, never by name
 
@@ -172,27 +194,33 @@ Feature: companion — which binaries on your machine ctxloom may execute
     # cascade, and once from the witness file after a real probe, which is the
     # only assertion that can tell an exemption that ADMITS from one that
     # merely says it would.
-    Scenario: The same binary is exempt beside ctxloom and refused anywhere else
+    Scenario Outline: The same binary is exempt beside ctxloom and refused anywhere else
       Given an initialized ctxloom project
       And ctxloom is installed beside a first-party companion "ltk"
       And a discovered companion "taskloom" is on PATH, never confirmed
       When Alice asks about the one that ships beside ctxloom:
         """
-        ctxloom companion show ltk
+        ctxloom companion show ltk <flags>
         """
       Then the command succeeds
-      And the output contains "allowed"
-      And the output contains "first-party"
+      And the output reports "allowed" as "<beside ctxloom, exempt>"
+      And the output reports "reason" as "<because first-party>"
       When Alice asks about the same binary under a first-party name elsewhere:
         """
-        ctxloom companion show taskloom
+        ctxloom companion show taskloom <flags>
         """
       Then the command succeeds
-      And the output contains "DENIED"
-      And the output contains "unconfirmed"
+      And the output reports "allowed" as "<elsewhere, refused>"
+      And the output reports "reason" as "<because unconfirmed>"
       When I run "ctxloom doctor"
       Then the companion "ltk" was executed
       And the companion "taskloom" was never executed
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | beside ctxloom, exempt | because first-party | elsewhere, refused | because unconfirmed |
+        |               | true                     | first-party            | false                 | unconfirmed            |
+        | --format json | true                     | first-party            | false                 | unconfirmed            |
+        | --format text | allowed                  | first-party            | DENIED                | unconfirmed            |
 
     # THE EXEMPTION IS NOT A RECORD, so there is nothing for `untrust` to
     # take away — and the command says exactly that instead of reporting a
@@ -206,21 +234,26 @@ Feature: companion — which binaries on your machine ctxloom may execute
     # records a refusal at all — the only door to one is answering "no" at the
     # interactive prompt. That gap is a finding about the surface, not
     # something to paper over with a scenario that asserts the wrong verb.
-    Scenario: Untrusting an exempt companion revokes nothing, and says so
+    Scenario Outline: Untrusting an exempt companion revokes nothing, and says so
       Given an initialized ctxloom project
       And ctxloom is installed beside a first-party companion "ltk"
       And I run "ctxloom companion show ltk"
       And the output contains "first-party"
       When Alice tries to take back a decision she never made:
         """
-        ctxloom companion untrust ltk
+        ctxloom companion untrust ltk <flags>
         """
       Then the command succeeds
-      And the output contains "forgot 0 decisions"
-      And the output contains "nothing recorded for"
-      When I run "ctxloom companion show ltk"
+      And the output reports "forgot" as "<nothing was forgotten>"
+      When I run "ctxloom companion show ltk <flags>"
       Then the command succeeds
-      And the output contains "allowed"
-      And the output contains "first-party"
+      And the output reports "allowed" as "<still exempt>"
+      And the output reports "reason" as "<still first-party>"
       When I run "ctxloom doctor"
       Then the companion "ltk" was executed
+
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         | nothing was forgotten | still exempt | still first-party |
+        |               | 0                       | true          | first-party          |
+        | --format json | 0                       | true          | first-party          |
+        | --format text | forgot 0 decisions      | allowed       | first-party          |

@@ -195,8 +195,11 @@ func (c MCPFileConfig) dropManaged(mf *mcpFile, ledgerNames []string) {
 //   - a ledger name config/bundles/plugins no longer derive this round:
 //     dropManaged still drops it, and nothing re-adds it, so it is released
 //     for good — the existing drop-then-recreate cycle already does this,
-//     silently, because "no longer wanted" is the expected case, not a
-//     surprise.
+//     and needs no new code HERE. It is no longer SILENT, though: ledger.Write
+//     reports the net retraction, because a user who stops declaring something
+//     should still learn that ctxloom took it off their disk (ruled
+//     2026-08-28, superseding this package's earlier "no longer wanted is the
+//     expected case" position, which held that such a release was unremarkable).
 //   - a ledger name still present but hand-edited to a different
 //     definition: dropManaged deletes it by NAME regardless of content, and
 //     the re-add below rewrites it to ctxloom's canonical value. This is the
@@ -208,8 +211,9 @@ func (c MCPFileConfig) dropManaged(mf *mcpFile, ledgerNames []string) {
 // The case this DOES catch — a name the ledger claims that the registry no
 // longer contains at all — means a human deleted that entry by hand since
 // the last write. If this round still derives that name, WriteServers is
-// about to silently resurrect a server the user deliberately removed; unlike
-// the two cases above, that is worth a warning rather than staying silent.
+// about to silently resurrect a server the user deliberately removed. That is
+// warned about HERE, and separately from the retraction warning ledger.Write
+// emits: this one is about a name coming BACK, not one going away.
 func (c MCPFileConfig) reconcileLedger(mf *mcpFile, ledgerNames []string) (handDeleted map[string]bool) {
 	handDeleted = make(map[string]bool, len(ledgerNames))
 	for _, name := range ledgerNames {

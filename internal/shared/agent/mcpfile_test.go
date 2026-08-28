@@ -272,12 +272,18 @@ func TestMCPFileConfig_WriteServers_ManagedNameRoundTripsWriteThenRemove(t *test
 	assert.True(t, os.IsNotExist(err), "an empty ledger must be removed, not left as an empty file")
 }
 
-// TestMCPFileConfig_WriteServers_StaleLedgerNameIsReleasedSilently pins the
-// "config no longer declares this name" drift case from reconcileLedger's
-// doc: dropManaged always removes every ledger name, and since nothing
-// re-derives it this round, it simply stays gone — no warning, because "no
-// longer wanted" is the expected case, not a surprise.
-func TestMCPFileConfig_WriteServers_StaleLedgerNameIsReleasedSilently(t *testing.T) {
+// TestMCPFileConfig_WriteServers_StaleLedgerNameIsReleasedWithAWarning pins the
+// "config no longer declares this name" drift case from reconcileLedger's doc:
+// dropManaged always removes every ledger name, and since nothing re-derives it
+// this round, it stays gone.
+//
+// It is REPORTED. This test asserted silence until 2026-08-28, on the reasoning
+// that "no longer wanted" is expected rather than surprising; the ruling that
+// an empty managed set retracts reversed it, because the user whose entry was
+// removed is exactly the person who needs to hear about it. The warning comes
+// from ledger.Write, so every surface and every engine reports it identically
+// rather than each writer deciding.
+func TestMCPFileConfig_WriteServers_StaleLedgerNameIsReleasedWithAWarning(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, afero.WriteFile(fs, "/proj/mcp.json", []byte(`{"mcpServers":{"gone":{"command":"/opt/ctxloom-gone"}}}`), 0644))
 	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom-managed", []byte("gone\tmcp\n"), 0644))
@@ -290,7 +296,9 @@ func TestMCPFileConfig_WriteServers_StaleLedgerNameIsReleasedSilently(t *testing
 	data, err := afero.ReadFile(fs, "/proj/mcp.json")
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "ctxloom-gone", "a name no longer derived must be released, not recreated")
-	assert.Empty(t, lines(), "releasing a no-longer-declared managed name must not warn")
+	require.Len(t, lines(), 1, "releasing a no-longer-declared managed name must be reported")
+	assert.Contains(t, lines()[0], "gone", "the warning must name the entry that was retracted")
+	assert.Contains(t, lines()[0], "retracted")
 }
 
 // TestMCPFileConfig_WriteServers_RecreatesHandDeletedManagedServerWithWarning

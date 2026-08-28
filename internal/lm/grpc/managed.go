@@ -24,7 +24,12 @@ import (
 // reader downstream has to decide which of two spellings of "none" it got.
 
 // ManagedConfigToProto converts a host-assembled agent.ManagedConfig to its
-// proto form. Returns nil for nil input so skip_setup/distill paths send none.
+// proto form, preserving the nil-vs-empty distinction agent.SetupRequest's
+// Managed field defines: nil (config failed, degraded through) sends no
+// message, an empty payload sends a PRESENT but empty one. Proto3 message
+// presence carries that across the wire — the "an empty collection and a
+// missing one are the same fact" note at the head of this file governs
+// repeated fields and maps, NOT this message field.
 func ManagedConfigToProto(m *agent.ManagedConfig) *ManagedConfig {
 	if m == nil {
 		return nil
@@ -41,7 +46,8 @@ func ManagedConfigToProto(m *agent.ManagedConfig) *ManagedConfig {
 }
 
 // managedConfigFromProto rebuilds an agent.ManagedConfig from its proto form on
-// the plugin side. Returns nil for nil input.
+// the plugin side. Nil in, nil out — which is what keeps the retract-nothing
+// arm of agent.SetupRequest's Managed contract intact inside a container.
 func managedConfigFromProto(m *ManagedConfig) *agent.ManagedConfig {
 	if m == nil {
 		return nil

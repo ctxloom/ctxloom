@@ -249,9 +249,14 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		}
 	}
 
-	// Nothing managed → no surfaces to deliver: with no hooks/MCP/commands to write,
-	// there are no settings/config surfaces. The RawContext cache file, when written
-	// above, stands alone.
+	// A NIL payload means the config failed to load and the run degraded
+	// through, so this returns without touching any surface — deliver nothing,
+	// retract nothing. An EMPTY payload is a different fact and deliberately
+	// does NOT stop here: it flows on to the writers, which reconcile to it and
+	// retract what ctxloom installed last round. SetupRequest.Managed defines
+	// both, and the difference is the whole reason this is not a len() check.
+	//
+	// The RawContext cache file, when written above, stands alone either way.
 	if req.Managed == nil {
 		return nil
 	}
@@ -267,7 +272,8 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	// the surface set with nil hooks/nil MCP as if that were the correctly-merged
 	// state, silently writing a settings file containing none of the configured
 	// hooks or servers. Fail loudly instead: this is a misconfigured backend, not a
-	// legitimate "nothing configured" case (that's req.Managed == nil, above).
+	// legitimate "nothing configured" case (that is an EMPTY payload, which flows
+	// straight past here and reconciles; see SetupRequest.Managed).
 	hooks, bundleMCP, ok := b.mergedState()
 	if !ok {
 		return fmt.Errorf("backend lifecycle does not expose the merged hooks/MCP state (GetHooks/GetBundleMCP) needed to deliver surfaces")

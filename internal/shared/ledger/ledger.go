@@ -107,9 +107,11 @@ type Ledger struct {
 	// Dir is the location whose contents this ledger describes. The marker is
 	// written inside it.
 	Dir string
-	// Warn reports a malformed entry. Never fails a read: a corrupt line is a
-	// reason to skip that line loudly, not to refuse the whole ledger and
-	// strand every entry it correctly records. Optional.
+	// Warn reports two things, neither of which fails the operation: a
+	// malformed entry on read (a corrupt line is a reason to skip that line
+	// loudly, not to refuse the whole ledger and strand every entry it
+	// correctly records), and a net RETRACTION on write (see Write). Optional
+	// — a nil Warn silences both.
 	Warn func(format string, args ...any)
 }
 
@@ -179,6 +181,17 @@ func (l Ledger) Write(s Surface, names []string) error {
 	all, err := l.readAll()
 	if err != nil {
 		return err
+	}
+	// Losing entries without regaining them is a RETRACTION: what ctxloom
+	// wrote to this surface last round is gone from the user's disk now. It is
+	// legitimate — reconciling to the declared state is what this ledger is
+	// for — but it is destructive and would otherwise be silent, so it says so.
+	//
+	// Only the NET loss warns. The writers remove-then-readd on every run, so
+	// warning on any removal would fire on every launch and carry no signal.
+	if dropped := retracted(all[s], names); len(dropped) > 0 {
+		l.warn("ctxloom retracted %d %s entr%s no longer configured: %s",
+			len(dropped), s, plural(len(dropped)), strings.Join(dropped, ", "))
 	}
 	if len(names) == 0 {
 		delete(all, s)
@@ -254,6 +267,36 @@ func render(all map[Surface][]string) []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+// retracted returns the entries prev holds that next does not, in stable
+// order. It is the ledger's whole notion of "ctxloom stopped managing this":
+// a set difference over the two sets Write already has in hand, so detecting a
+// retraction costs no extra read.
+func retracted(prev, next []string) []string {
+	if len(prev) == 0 {
+		return nil
+	}
+	keep := make(map[string]bool, len(next))
+	for _, n := range next {
+		keep[n] = true
+	}
+	var out []string
+	for _, p := range prev {
+		if !keep[p] {
+			out = append(out, p)
+		}
+	}
+	return dedupeSorted(out)
+}
+
+// plural is the suffix that makes the retraction warning read correctly for a
+// count of one, which is the common case.
+func plural(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 func dedupeSorted(names []string) []string {

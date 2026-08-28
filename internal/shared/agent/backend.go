@@ -389,8 +389,28 @@ type SetupRequest struct {
 	Verbosity uint32
 	// Managed is the host-assembled config/bundle setup payload. The host
 	// resolves ctxloom config, profiles, and bundles and hands the result here
-	// so the backend plugin never imports ctxloom config/bundles. Nil for
-	// skip_setup/distill paths.
+	// so the backend plugin never imports ctxloom config/bundles.
+	//
+	// THIS FIELD'S NIL-VS-EMPTY DISTINCTION IS LOAD-BEARING, and this is where
+	// it is defined; the converters either side of the wire point here.
+	//
+	//	nil            config FAILED to load and the run degraded through.
+	//	               Deliver nothing and RETRACT NOTHING — leave every
+	//	               previously-installed surface exactly as it was.
+	//	empty non-nil  config loaded and configures nothing. Reconcile to the
+	//	               declared state: the writers retract what ctxloom
+	//	               installed last round, and ledger.Write warns.
+	//	populated      deliver.
+	//
+	// Why nil does not simply mean empty: --degraded promises a working LLM
+	// with less, not a cleanup pass. Treating it as empty would wipe a user's
+	// installed hooks BECAUSE their config was unreadable — destroying state
+	// on the strength of config we just admitted we could not read.
+	//
+	// It is NOT the skip_setup channel, though it used to be documented as
+	// one. skip_setup has its own wire field and RunOptions.GetSkipSetup is
+	// answered in runTurnSetup before a SetupRequest is built, so a distill
+	// run never reaches here at all.
 	Managed *ManagedConfig
 	// CellKind is the resolved isolation cell this run executes in, decided
 	// host-side (isolation.Prepare) and carried over the wire. Setup does not

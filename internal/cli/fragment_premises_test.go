@@ -1,17 +1,18 @@
 package cli
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
-	"testing"
+	"io"
+	"os"
 
 	"github.com/spf13/cobra"
+	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // renderFor is the exact rendering the command performs, exercised directly.
@@ -64,11 +65,10 @@ func TestFragmentPremises_RendersQualifiedRefsAndTheInstruction(t *testing.T) {
 // "no premises" from "the field was absent", which is a distinction the corpus
 // does not have.
 func TestFragmentPremises_EmptyIndexIsAnEmptyListNotNull(t *testing.T) {
-	var entries []operations.PremiseIndexEntry
-	if entries == nil {
-		entries = []operations.PremiseIndexEntry{}
-	}
-	b, err := json.Marshal(entries)
+	// buildPremiseListing, not a nil slice converted here: the earlier version of
+	// this test performed the conversion itself and then asserted on its own
+	// work, which tested encoding/json rather than the command.
+	b, err := json.Marshal(buildPremiseListing(nil).Fragments)
 	require.NoError(t, err)
 	assert.Equal(t, "[]", string(b),
 		"an empty premise index serialises as an empty array; null would force every caller to special-case it")
@@ -79,28 +79,54 @@ func TestFragmentPremises_EmptyIndexIsAnEmptyListNotNull(t *testing.T) {
 // result on the error stream: `ctxloom fragment premises > file` captures
 // nothing, and the defect is invisible to any test that calls the render
 // function directly instead of going through cobra.
+// cobra's Print family writes to OutOrSTDERR, so the obvious cmd.Println put
+// this command's OUTPUT on the error stream and `ctxloom fragment premises >
+// file` captured nothing.
+//
+// THIS MUST CAPTURE THE PROCESS STREAMS, not cmd.SetOut/SetErr buffers. cobra's
+// OutOrStderr returns the OUT writer whenever SetOut has been called, so in a
+// test that sets both, OutOrStdout and OutOrStderr are THE SAME BUFFER and the
+// defect is structurally invisible — a mutation swapping one for the other
+// passes. Two earlier versions of this test did exactly that and stayed green
+// against the real bug.
 func TestFragmentPremises_ListingGoesToStdoutNotStderr(t *testing.T) {
-	var out, errOut bytes.Buffer
-	cmd := &cobra.Command{RunE: func(c *cobra.Command, _ []string) error {
-		_, err := fmt.Fprintln(c.OutOrStdout(), renderPremiseListing(nil))
-		return err
-	}}
-	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
-	require.NoError(t, cmd.Execute())
+	testsupport.ProjectDir(t)
 
-	assert.Contains(t, out.String(), "No fragments carry a premise",
-		"the listing is the command's output and must reach stdout")
-	assert.NotContains(t, errOut.String(), "No fragments carry a premise",
-		"it must not go to the error stream, where a redirect would miss it")
+	oldOut, oldErr := os.Stdout, os.Stderr
+	rOut, wOut, err := os.Pipe()
+	require.NoError(t, err)
+	rErr, wErr, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout, os.Stderr = wOut, wErr
+	t.Cleanup(func() { os.Stdout, os.Stderr = oldOut, oldErr })
+
+	// A FRESH command, never a copy of fragmentPremisesCmd: struct copying is
+	// shallow, so the copy shares the package-level command's flagset and
+	// registering --format on it panics the next test that touches the real one
+	// ("premises flag redefined: format").
+	cmd := &cobra.Command{RunE: runFragmentPremises}
+	cmd.Flags().String("format", "text", "")
+	require.NoError(t, cmd.Flags().Set("format", "text"))
+	runErr := runFragmentPremises(cmd, nil)
+
+	require.NoError(t, wOut.Close())
+	require.NoError(t, wErr.Close())
+	outBytes, _ := io.ReadAll(rOut)
+	errBytes, _ := io.ReadAll(rErr)
+	os.Stdout, os.Stderr = oldOut, oldErr
+	require.NoError(t, runErr)
+
+	assert.Contains(t, string(outBytes), "No fragments carry a premise",
+		"the listing is this command's OUTPUT and must reach the process stdout")
+	assert.NotContains(t, string(errBytes), "No fragments carry a premise",
+		"it must not reach stderr, where a redirect would miss it")
 }
 
 // The structured payload must carry the SELECTION INSTRUCTION, not just the
 // rows. Piped output resolves to JSON, so an agent running this command
-// programmatically is the common case rather than the exception — and the
-// instruction is what carries selection from ~0.49 recall to ~0.93. Shipping
-// the entries alone would leave that consumer choosing blind, which is exactly
-// what happened before this test existed.
+// programmatically is the common case — and the instruction is what carries
+// selection from ~0.49 recall to ~0.93. Shipping the entries alone would leave
+// that consumer choosing blind, which is what happened before this test existed.
 func TestFragmentPremises_StructuredPayloadCarriesTheInstruction(t *testing.T) {
 	payload := buildPremiseListing([]operations.PremiseIndexEntry{
 		{Name: "b#fragments/a", Premise: "You are about to do a thing."},

@@ -544,3 +544,346 @@ func TestHookProbeRegistryRow_IsWiredToThisFeature(t *testing.T) {
 		t.Error("opencode must stay gated-out (noHooksReason) — a runnable row for an engine with no hook mechanism would skip forever and read as coverage")
 	}
 }
+
+// --- RootGlobs: reaching the container overlay ------------------------------
+
+// TestHookProbeCarriage_RootGlobsReachARootCreatedAfterTheQueryWasBuilt is the
+// claim RootGlobs exists to make. A container cell's managed-config overlay
+// does not exist when the watcher starts, so a scan that resolved its roots
+// once would never walk it — and would still print a confident NOT SEEN.
+func TestHookProbeCarriage_RootGlobsReachARootCreatedAfterTheQueryWasBuilt(t *testing.T) {
+	base := t.TempDir()
+	q := hookProbeCarriage{
+		Needle:    carriageNeedle,
+		RootGlobs: []string{filepath.Join(base, "iso-*")},
+	}
+
+	// Built BEFORE the root exists: the pattern matches nothing yet.
+	if got := hookProbeCarriageScan(q); got != "" {
+		t.Fatalf("scan found something before the root existed: %q", got)
+	}
+	if roots := q.resolveRoots(); len(roots) != 0 {
+		t.Fatalf("expected no roots before creation, got %v", roots)
+	}
+
+	// The overlay appears mid-run, exactly as containerConfigOverlay's cfg0 does.
+	overlay := filepath.Join(base, "iso-4093164660", "cfg0")
+	if err := os.MkdirAll(overlay, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCarriageFile(t, filepath.Join(overlay, "settings.json"), carriageNeedle)
+
+	got := hookProbeCarriageScan(q)
+	if got == "" {
+		t.Fatal("RootGlobs did not reach a root created after the query was built — a container cell's carriage is unobservable and every such cell reports NOT SEEN regardless of what ctxloom delivered")
+	}
+	if !strings.Contains(got, "settings.json") {
+		t.Fatalf("hit does not name the delivered file: %q", got)
+	}
+}
+
+// TestHookProbeCarriage_ResolveRootsPutsFixedRootsFirstAndDedupes pins the
+// report order and the dedup. A glob that re-matches a fixed root would
+// otherwise walk it twice and report the same hit twice.
+func TestHookProbeCarriage_ResolveRootsPutsFixedRootsFirstAndDedupes(t *testing.T) {
+	base := t.TempDir()
+	fixed := filepath.Join(base, "aaa")
+	if err := os.MkdirAll(fixed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(base, "zzz")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	q := hookProbeCarriage{
+		Roots:     []string{fixed},
+		RootGlobs: []string{filepath.Join(base, "*")}, // matches BOTH, including fixed
+	}
+	roots := q.resolveRoots()
+	if len(roots) != 2 {
+		t.Fatalf("expected the fixed root and one new match, got %v", roots)
+	}
+	if roots[0] != fixed {
+		t.Fatalf("fixed roots must come first (report order), got %v", roots)
+	}
+	if roots[1] != other {
+		t.Fatalf("expected the globbed root second, got %v", roots)
+	}
+}
+
+// TestHookProbeCarriage_ResolveRootsSurvivesAMalformedPattern: a bad glob is a
+// harness bug and must never redden a cell, because this scan is evidence and
+// not a gate. The fixed roots still resolve.
+func TestHookProbeCarriage_ResolveRootsSurvivesAMalformedPattern(t *testing.T) {
+	q := hookProbeCarriage{
+		Roots:     []string{"/fixed"},
+		RootGlobs: []string{"[malformed"},
+	}
+	roots := q.resolveRoots()
+	if len(roots) != 1 || roots[0] != "/fixed" {
+		t.Fatalf("a malformed pattern must drop out and leave the fixed roots, got %v", roots)
+	}
+}
+
+// TestHookProbeContainerOverlayGlobs_TargetTheScratchIsolationCreates checks the
+// glob is aimed where isolation actually puts the overlay.
+//
+// THE ONE BINDING THIS CANNOT CHECK HERMETICALLY is the prefix itself:
+// isolation.prepareContainerScratch calls os.MkdirTemp with it and the constant
+// is unexported, so if it is renamed this test still passes and the live
+// container cell is what catches it. That is stated rather than papered over —
+// the value here is proving the glob matches a scratch-SHAPED directory in the
+// base the scratch really lands in, which is the half that broke by hand.
+func TestHookProbeContainerOverlayGlobs_TargetTheScratchIsolationCreates(t *testing.T) {
+	globs := hookProbeContainerOverlayGlobs()
+	if len(globs) == 0 {
+		t.Fatal("no overlay globs at all — every container cell is blind")
+	}
+
+	// A real scratch root, named the way isolation names one.
+	scratch, err := os.MkdirTemp("", hookProbeContainerOverlayScratchPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(scratch)
+
+	var matched bool
+	for _, g := range globs {
+		hits, err := filepath.Glob(g)
+		if err != nil {
+			t.Fatalf("glob %q is malformed: %v", g, err)
+		}
+		for _, h := range hits {
+			if h == scratch {
+				matched = true
+			}
+		}
+	}
+	if !matched {
+		t.Fatalf("globs %v did not match a scratch root at %s — the container overlay would never be walked", globs, scratch)
+	}
+}
+
+// TestHookProbeCarriageWatcher_SearchedIsTheUnionAcrossPasses: a globbed root
+// exists only while the run does, so asking after teardown must not understate
+// where the watcher looked.
+func TestHookProbeCarriageWatcher_SearchedIsTheUnionAcrossPasses(t *testing.T) {
+	base := t.TempDir()
+	fixed := filepath.Join(base, "fixed")
+	if err := os.MkdirAll(fixed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	w := hookProbeWatchCarriage(hookProbeCarriage{
+		Needle:    carriageNeedle,
+		Roots:     []string{fixed},
+		RootGlobs: []string{filepath.Join(base, "ephemeral-*")},
+	})
+
+	ephemeral := filepath.Join(base, "ephemeral-1")
+	if err := os.MkdirAll(ephemeral, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Let at least one pass observe it, then take it away as teardown does.
+	deadline := time.Now().Add(5 * time.Second)
+	var walked bool
+	for time.Now().Before(deadline) && !walked {
+		for _, r := range w.Searched() {
+			if r == ephemeral {
+				walked = true
+			}
+		}
+		if !walked {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if !walked {
+		t.Fatal("the watcher never walked the ephemeral root")
+	}
+	if err := os.RemoveAll(ephemeral); err != nil {
+		t.Fatal(err)
+	}
+	w.Stop()
+
+	var sawEphemeral, sawFixed bool
+	for _, r := range w.Searched() {
+		switch r {
+		case ephemeral:
+			sawEphemeral = true
+		case fixed:
+			sawFixed = true
+		}
+	}
+	if !sawFixed {
+		t.Fatal("the fixed root is missing from Searched")
+	}
+	if !sawEphemeral {
+		t.Fatal("a root that existed only mid-run dropped out of Searched — a NOT SEEN would understate where the scan looked")
+	}
+}
+
+// TestHookProbeCarriageOrUnknown_NamesTheRootsItSearched: the NOT SEEN line has
+// to derive its "where" from the roots actually walked. Asserting it in prose
+// goes false the moment a root is added, which is exactly what happened when
+// container cells arrived.
+func TestHookProbeCarriageOrUnknown_NamesTheRootsItSearched(t *testing.T) {
+	h := &hookProbeState{carriageRoots: []string{"/proj", "/tmp/ctxloom-iso-7/cfg0"}}
+	got := hookProbeCarriageOrUnknown(h)
+	if !strings.Contains(got, "/proj") || !strings.Contains(got, "/tmp/ctxloom-iso-7/cfg0") {
+		t.Fatalf("the NOT SEEN line must name every root it searched, got: %q", got)
+	}
+}
+
+// TestHookProbeCarriageOrUnknown_SaysSoWhenNothingWasSearched: "we looked and
+// found nothing" and "we looked nowhere" are different claims, and only one of
+// them is evidence.
+func TestHookProbeCarriageOrUnknown_SaysSoWhenNothingWasSearched(t *testing.T) {
+	got := hookProbeCarriageOrUnknown(&hookProbeState{})
+	if !strings.Contains(got, "NO ROOT AT ALL") {
+		t.Fatalf("an empty root set must be reported as such rather than reading as a searched absence, got: %q", got)
+	}
+}
+
+// --- the in-container carriage scan ----------------------------------------
+
+// TestHookProbeIsContainerAxis_CoversBothOwnerships: matching one ownership
+// exactly would leave the other silently on the host-only path, still printing
+// a confident NOT SEEN while never looking where the bytes are.
+func TestHookProbeIsContainerAxis_CoversBothOwnerships(t *testing.T) {
+	for _, axis := range []string{"container-rootless", "container-rootful"} {
+		if !hookProbeIsContainerAxis(axis) {
+			t.Errorf("%q must take the in-container vantage point", axis)
+		}
+	}
+	if hookProbeIsContainerAxis("host") {
+		t.Error("a host cell must not try to exec into a container")
+	}
+}
+
+// TestHookProbeContainerScan_ReportsTheFilesTheContainerActuallyHolds is the
+// positive claim: a hit inside the container is carriage evidence the host can
+// never produce on this axis.
+func TestHookProbeContainerScan_ReportsTheFilesTheContainerActuallyHolds(t *testing.T) {
+	var gotContainer, gotNeedle, gotDirs string
+	run := func(container string, env map[string]string, argv ...string) ([]byte, error) {
+		gotContainer = container
+		gotNeedle = env["CTXLOOM_PROBE_NEEDLE"]
+		gotDirs = env["CTXLOOM_PROBE_DIRS"]
+		return []byte("/home/agent/.ctxloom/sessions/h/ephemeral/.claude/settings.json\n"), nil
+	}
+
+	got := hookProbeContainerScan(run, "ctxloom-iso-abc", "p3/stamp.sh", []string{"/proj"}, nil)
+	if got == "" {
+		t.Fatal("a file carrying the needle inside the container must be reported as carriage")
+	}
+	if !strings.Contains(got, "ephemeral/.claude/settings.json") {
+		t.Fatalf("the hit must name the file: %q", got)
+	}
+	if !strings.Contains(got, "ctxloom-iso-abc") {
+		t.Fatalf("the hit must name the container it came from: %q", got)
+	}
+	if gotContainer != "ctxloom-iso-abc" {
+		t.Errorf("scanned the wrong container: %q", gotContainer)
+	}
+	// The needle must travel as an ENV VAR, never spliced into the script: it
+	// is a filesystem path, and a quote in it would otherwise become shell.
+	if gotNeedle != "p3/stamp.sh" {
+		t.Errorf("needle must ride the environment, got %q", gotNeedle)
+	}
+	if !strings.Contains(gotDirs, "/proj") {
+		t.Errorf("the caller's dirs must reach the script, got %q", gotDirs)
+	}
+}
+
+// TestHookProbeContainerScan_EmptyOutputIsNotAHit: grep printing nothing is the
+// ordinary "not delivered" answer and must not be dressed up as evidence.
+func TestHookProbeContainerScan_EmptyOutputIsNotAHit(t *testing.T) {
+	run := func(string, map[string]string, ...string) ([]byte, error) { return []byte("\n  \n"), nil }
+	if got := hookProbeContainerScan(run, "c", "needle", nil, nil); got != "" {
+		t.Fatalf("whitespace-only grep output must not read as a hit: %q", got)
+	}
+}
+
+// TestHookProbeContainerScan_ErrorsAreSilent: this scan is EVIDENCE, never a
+// gate. A container that has gone away, or an image with no shell, must not
+// turn a firing failure into a harness failure.
+func TestHookProbeContainerScan_ErrorsAreSilent(t *testing.T) {
+	run := func(string, map[string]string, ...string) ([]byte, error) {
+		return []byte("something"), errors.New("no such container")
+	}
+	if got := hookProbeContainerScan(run, "c", "needle", nil, nil); got != "" {
+		t.Fatalf("an exec error must yield no evidence rather than a false hit: %q", got)
+	}
+}
+
+// TestHookProbeContainerScan_RefusesToScanWithoutItsInputs: an empty needle
+// would make grep match every line and report the whole tree as carriage.
+func TestHookProbeContainerScan_RefusesToScanWithoutItsInputs(t *testing.T) {
+	run := func(string, map[string]string, ...string) ([]byte, error) {
+		t.Fatal("must not exec without a container and a needle")
+		return nil, nil
+	}
+	if got := hookProbeContainerScan(run, "", "needle", nil, nil); got != "" {
+		t.Fatalf("no container: %q", got)
+	}
+	if got := hookProbeContainerScan(run, "c", "", nil, nil); got != "" {
+		t.Fatalf("no needle: %q", got)
+	}
+	if got := hookProbeContainerScan(nil, "c", "needle", nil, nil); got != "" {
+		t.Fatalf("no exec seam: %q", got)
+	}
+}
+
+// TestHookProbeContainerCarriageScript_MatchesLiterallyAndExpandsHomeInside:
+// the two properties that make this script correct rather than merely working.
+func TestHookProbeContainerCarriageScript_MatchesLiterallyAndExpandsHomeInside(t *testing.T) {
+	if !strings.Contains(hookProbeContainerCarriageScript, "grep -rlF") {
+		t.Error("the needle is a PATH: a regex match would hit things it should not")
+	}
+	if !strings.Contains(hookProbeContainerCarriageScript, `"$HOME/.ctxloom"`) {
+		t.Error("HOME must expand INSIDE the container — the container's home is not the host's, which is the entire reason this scan exists")
+	}
+	if strings.Contains(hookProbeContainerCarriageScript, "$CTXLOOM_PROBE_NEEDLE\"") &&
+		!strings.Contains(hookProbeContainerCarriageScript, `"$CTXLOOM_PROBE_NEEDLE"`) {
+		t.Error("the needle must be quoted where it is expanded")
+	}
+}
+
+// TestHookProbeContainerScan_ExcludesTheFixturesOwnDeclarationAndGit is the
+// regression this scan earned the hard way. Its FIRST live run reported
+//
+//	.ctxloom/content/bundles/bundle-hookprobe.yaml, .git/index
+//
+// as carriage — the bundle YAML the fixture itself writes to DECLARE the hook,
+// and git's index carrying the same path because the fixture is committed.
+// Both are present whether or not any settings writer ever ran, so reporting
+// them says "ctxloom delivered the hook" while meaning nothing of the sort.
+// The host scan already had Authored for exactly this; the container scan
+// reintroduced the bug by not having it.
+func TestHookProbeContainerScan_ExcludesTheFixturesOwnDeclarationAndGit(t *testing.T) {
+	authored := "/proj/.ctxloom/content/bundles/bundle-hookprobe.yaml"
+	run := func(string, map[string]string, ...string) ([]byte, error) {
+		return []byte(authored + "\n"), nil
+	}
+	if got := hookProbeContainerScan(run, "c", "needle", []string{"/proj"}, []string{authored}); got != "" {
+		t.Fatalf("the fixture's own declaration must never read as delivery evidence, got: %q", got)
+	}
+
+	// A real delivery alongside it still counts.
+	run2 := func(string, map[string]string, ...string) ([]byte, error) {
+		return []byte(authored + "\n/home/agent/.ctxloom/sessions/h/ephemeral/.claude/settings.json\n"), nil
+	}
+	got := hookProbeContainerScan(run2, "c", "needle", []string{"/proj"}, []string{authored})
+	if !strings.Contains(got, "settings.json") {
+		t.Fatalf("a genuine delivery must survive the exclusion: %q", got)
+	}
+	if strings.Contains(got, "bundle-hookprobe.yaml") {
+		t.Fatalf("the authored file leaked into the evidence: %q", got)
+	}
+
+	// And git is excluded at the grep, so the index never reaches us.
+	if !strings.Contains(hookProbeContainerCarriageScript, "--exclude-dir=.git") {
+		t.Error("git's index carries the needle because the fixture is committed; it must be excluded at the source")
+	}
+}

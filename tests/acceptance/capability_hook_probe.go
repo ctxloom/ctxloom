@@ -55,7 +55,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -252,6 +254,12 @@ type hookProbeState struct {
 	// delivery route rather than a capability.
 	carriage string
 
+	// carriageRoots is every tree the carriage scan actually walked. It is
+	// reported alongside a NOT SEEN so the reader can tell "we looked there and
+	// it was absent" from "that path was never searched" — the distinction a
+	// container cell turned on before RootGlobs existed.
+	carriageRoots []string
+
 	stdout   string
 	stderr   string
 	exitCode int
@@ -383,10 +391,45 @@ func hookProbeCarriageOrUnknown(h *hookProbeState) string {
 	if h.carriage != "" {
 		return h.carriage
 	}
-	return "NOT SEEN at any point during the run, in the project tree or under the session root. The scan watches DURING the run precisely because ctxloom scrubs delivered settings at teardown (measured 2026-08-13: claude's delivered settings.json is `{}` immediately after a run whose hook demonstrably fired), so this is meaningful — but it is still not proof of absence: an engine handed its settings through a path neither root covers would look the same"
+	where := "NO ROOT AT ALL — the scan searched nothing, so this says nothing"
+	if len(h.carriageRoots) > 0 {
+		where = "under " + strings.Join(h.carriageRoots, ", ")
+	}
+	return "NOT SEEN at any point during the run, " + where + ". The scan watches DURING the run precisely because ctxloom scrubs delivered settings at teardown (measured 2026-08-13: claude's delivered settings.json is `{}` immediately after a run whose hook demonstrably fired), so this is meaningful — but it is still not proof of absence: an engine handed its settings through a path none of those roots covers would look the same"
 }
 
 // --- the carriage evidence scan --------------------------------------------------
+
+// hookProbeContainerOverlayScratchPrefix is the name isolation gives every
+// per-run container scratch root: isolation.prepareContainerScratch calls
+// os.MkdirTemp with this prefix, and isolation.containerConfigOverlay puts the
+// engine's managed-config overlay inside it as cfg0, cfg1, …
+//
+// Cited by PREFIX rather than restated as a rule, and the test below is what
+// keeps the citation honest: if isolation renames it, the glob quietly matches
+// nothing and a container cell's carriage goes back to being unobservable
+// while still reporting a confident NOT SEEN. That is the failure this whole
+// field exists to end, so it gets an assertion rather than a comment.
+const hookProbeContainerOverlayScratchPrefix = "ctxloom-iso-"
+
+// hookProbeContainerOverlayGlobs returns the patterns that reach a container
+// cell's managed-config overlay — where a containerized engine's settings are
+// actually delivered, as opposed to the project tree the host cells watch.
+//
+// WHY BOTH BASES. isolation.containerScratchBase returns "" on linux, so
+// os.MkdirTemp falls back to os.TempDir(); on darwin it returns "/tmp"
+// explicitly, because there os.TempDir() is a per-user /var/folders path the
+// scratch never lands in. Emitting both costs one glob that matches nothing on
+// the platform it does not apply to; guessing wrong costs a silently blind
+// cell, which is strictly worse.
+func hookProbeContainerOverlayGlobs() []string {
+	pattern := hookProbeContainerOverlayScratchPrefix + "*"
+	globs := []string{filepath.Join(os.TempDir(), pattern)}
+	if os.TempDir() != "/tmp" {
+		globs = append(globs, filepath.Join("/tmp", pattern))
+	}
+	return globs
+}
 
 // hookProbeCarriage describes one carriage scan: what to look for, where to
 // look, what to ignore, and how recent a file has to be to count.
@@ -419,12 +462,67 @@ type hookProbeCarriage struct {
 	Needle string
 	// Roots are the trees to walk, in report order.
 	Roots []string
+	// RootGlobs are filepath.Glob patterns re-expanded on EVERY scan, for a
+	// root that DOES NOT EXIST when the watch starts.
+	//
+	// MEASURED 2026-08-27, and this is why the field is a pattern rather than
+	// another entry in Roots. A container cell delivers claude's settings into
+	// the per-run scratch OVERLAY that isolation.containerConfigOverlay mounts
+	// over the project's .claude — a directory created after the run begins,
+	// under a randomised name. A fixed Roots entry cannot name it, so a
+	// container cell's carriage was structurally unobservable and every such
+	// cell reported NOT SEEN whether ctxloom delivered the hook or not.
+	//
+	// TWO TRAPS THIS FIELD IS SHAPED AROUND, both hit while measuring by hand:
+	//   - one run creates MORE THAN ONE scratch root (the shared-FS probe's and
+	//     the run's), so anything that resolves a single directory picks the
+	//     wrong one. A glob walks every match and lets Needle decide.
+	//   - stale scratch roots persist for DAYS when teardown is skipped
+	//     (taskloom sultry-harmonica), so "the newest match" is not the run's.
+	//     NotBefore is what excludes them, which is why a glob is safe here and
+	//     a bare "newest directory wins" would not be.
+	RootGlobs []string
 	// Authored are ABSOLUTE paths the fixture itself wrote. Their contents are
 	// the probe's own declaration, never evidence of delivery.
 	Authored []string
 	// NotBefore bounds the walk to this run: files and directories untouched
 	// since then belong to somebody else's session.
 	NotBefore time.Time
+}
+
+// resolveRoots returns every tree this scan walks: the fixed Roots first, then
+// RootGlobs expanded FRESH on this call, deduplicated and in a stable order.
+//
+// Expanding per call is the whole point — the watcher polls, and the container
+// overlay appears mid-run. A glob resolved once at construction would match
+// nothing and the scan would silently walk only the fixed roots, which is the
+// blind spot RootGlobs exists to close.
+func (q hookProbeCarriage) resolveRoots() []string {
+	out := make([]string, 0, len(q.Roots)+len(q.RootGlobs))
+	seen := make(map[string]bool, len(q.Roots)+len(q.RootGlobs))
+	add := func(p string) {
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	for _, r := range q.Roots {
+		add(r)
+	}
+	for _, pattern := range q.RootGlobs {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			// A malformed pattern is a harness bug, never a cell failure: this
+			// scan is evidence and must not redden a cell it cannot inform.
+			continue
+		}
+		sort.Strings(matches)
+		for _, m := range matches {
+			add(m)
+		}
+	}
+	return out
 }
 
 // hookProbeCarriageScan runs the scan and returns a one-line summary, or "" when
@@ -445,7 +543,7 @@ func hookProbeCarriageScan(q hookProbeCarriage) string {
 	}
 
 	var hits []string
-	for _, root := range q.Roots {
+	for _, root := range q.resolveRoots() {
 		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return nil // unreadable subtree: note nothing, fail nothing
@@ -522,6 +620,42 @@ type hookProbeCarriageWatcher struct {
 	query hookProbeCarriage
 	done  chan struct{}
 	found chan string
+
+	// mu guards searched, which the polling goroutine writes and Searched
+	// reads from the test's own goroutine after the run.
+	mu sync.Mutex
+	// searched is the UNION of every root walked across all passes — not the
+	// roots at any single instant. A RootGlobs match exists only while the run
+	// does, so asking "what did you search?" after teardown would answer with
+	// the fixed roots alone and quietly understate the coverage. A NOT SEEN
+	// that names the wrong search is worse than one that names none.
+	searched map[string]bool
+}
+
+// Searched returns every root the watcher walked, sorted. It is what makes a
+// NOT SEEN interpretable: without it the report has to assert where it looked
+// in prose, and that sentence goes false the moment a root is added.
+func (w *hookProbeCarriageWatcher) Searched() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := make([]string, 0, len(w.searched))
+	for r := range w.searched {
+		out = append(out, r)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// record notes the roots one pass walked.
+func (w *hookProbeCarriageWatcher) record(roots []string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.searched == nil {
+		w.searched = map[string]bool{}
+	}
+	for _, r := range roots {
+		w.searched[r] = true
+	}
 }
 
 // hookProbeWatchCarriage starts a watcher and returns it. Call Stop exactly
@@ -536,6 +670,7 @@ func hookProbeWatchCarriage(q hookProbeCarriage) *hookProbeCarriageWatcher {
 		ticker := time.NewTicker(hookProbeCarriagePollInterval)
 		defer ticker.Stop()
 		for {
+			w.record(w.query.resolveRoots())
 			if hit := hookProbeCarriageScan(w.query); hit != "" {
 				// FIRST hit wins and the watcher stops looking. The question
 				// is binary — was the hook ever delivered — so continuing to
@@ -564,5 +699,93 @@ func (w *hookProbeCarriageWatcher) Stop() string {
 		return hit
 	default:
 	}
+	w.record(w.query.resolveRoots())
 	return hookProbeCarriageScan(w.query)
+}
+
+// --- the IN-CONTAINER carriage scan ----------------------------------------
+
+// WHY A SECOND SCAN EXISTS AT ALL, measured 2026-08-27. A host-side walk can
+// never answer carriage for a container cell, and RootGlobs reaching the
+// managed-config overlay did not change that — it only proved the overlay is
+// the wrong place to look. claude is handed its settings on claude.flagSettings
+// ("--settings") naming a file in the session's EPHEMERAL directory. On a host
+// cell that path is under the real home, which the session root already covers.
+// On a container cell the engine gets a FRESH HOME and
+// isolation.Container.sessionStateMounts binds only the PERSIST directory back
+// to the host — there is no ephemeral bind — so the file claude actually reads
+// exists ONLY inside the container. The bytes are not on the host, so no
+// host-side root list, however long, can reach them.
+
+// hookProbeContainerExec runs one command inside a named container and returns
+// its combined stdout.
+//
+// A SEAM, so the scan's logic is exercised hermetically. The real
+// implementation shells out to `docker exec`; the tests substitute a function
+// and never need a container, which is the only way any of this is testable in
+// the untagged file that `just test` runs.
+type hookProbeContainerExec func(container string, env map[string]string, argv ...string) ([]byte, error)
+
+// hookProbeContainerCarriageScript greps the container's OWN filesystem for the
+// hook command.
+//
+// The needle rides an ENVIRONMENT VARIABLE rather than the argv this script is
+// built from: the needle is a filesystem path chosen by the harness, and
+// interpolating it into a shell string is how a path containing a quote turns a
+// diagnostic into arbitrary shell. $HOME is expanded INSIDE the container
+// because that is the whole point — the container's home is not the host's, and
+// hardcoding isolation's defaultContainerHome here would be a second copy of a
+// value that package already owns.
+//
+// -F is literal matching: the needle is a path, and an unanchored regex over
+// paths matches things it should not. Errors are swallowed because an
+// unreadable subtree must not redden a cell over EVIDENCE.
+const hookProbeContainerCarriageScript = `grep -rlF --exclude-dir=.git --exclude-dir=node_modules -- "$CTXLOOM_PROBE_NEEDLE" "$HOME/.ctxloom" $CTXLOOM_PROBE_DIRS 2>/dev/null | head -40`
+
+// hookProbeContainerScan looks for the hook command inside a running container
+// and returns a one-line summary, or "" when nothing was found.
+//
+// Like the host scan this is EVIDENCE, never a gate: every error folds into the
+// empty string, because a cell's verdict is the stamp file and a scan that
+// could not run must not turn a firing failure into a harness failure.
+func hookProbeContainerScan(run hookProbeContainerExec, container, needle string, dirs, authored []string) string {
+	if run == nil || container == "" || needle == "" {
+		return ""
+	}
+	env := map[string]string{
+		"CTXLOOM_PROBE_NEEDLE": needle,
+		"CTXLOOM_PROBE_DIRS":   strings.Join(dirs, " "),
+	}
+	out, err := run(container, env, "sh", "-c", hookProbeContainerCarriageScript)
+	if err != nil {
+		return ""
+	}
+	excluded := make(map[string]bool, len(authored))
+	for _, p := range authored {
+		excluded[p] = true
+	}
+	var hits []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || excluded[line] {
+			continue
+		}
+		hits = append(hits, line)
+	}
+	if len(hits) == 0 {
+		return ""
+	}
+	return "hook command found INSIDE the container " + container + " at: " + strings.Join(hits, ", ")
+}
+
+// hookProbeIsContainerAxis reports whether a cell's runtime axis names a
+// container runtime.
+//
+// PREFIX, not equality: the axis carries the OWNERSHIP too
+// ("container-rootless", "container-rootful"), and both need the in-container
+// vantage point for the same reason. Matching either value exactly would leave
+// the other silently on the host-only path — a cell that still reports a
+// confident NOT SEEN while never looking where the bytes are.
+func hookProbeIsContainerAxis(runtime string) bool {
+	return strings.HasPrefix(runtime, "container")
 }

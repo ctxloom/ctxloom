@@ -187,3 +187,34 @@ THE CONTROL THAT WOULD SETTLE WHAT THE PREMISES CONTRIBUTE has not been run:
 replace every premise with its fragment NAME alone and re-run. If recall holds,
 body knowledge is doing the work and the premises are decoration. If it falls,
 the premises are load-bearing. That is the one experiment that separates them.
+
+## Tags AS SIGNAL — the earlier null was a strawman
+
+The first tag experiment instructed the model that "the tags are there to help
+you recognise the subject matter; the PREMISE decides applicability." That
+explicitly excluded tags from the decision, so it tested tags-as-decoration, not
+tags-as-signal. The null result was about the instruction, not the tags.
+
+Re-run with tags as a legitimate independent basis for inclusion, and with a
+borderline call resolving toward INCLUDING (per the over-select ruling), same
+corpus and same protocol:
+
+                        recall  prec    F2   drop  msel  ffire
+  per-premise, plain    0.762  0.658  0.738  0.238  1.24  0.286
+  tags subordinate      0.762  0.667  0.741  0.238  1.22  0.214
+  tags as signal        0.825  0.584  0.762  0.175  1.51  0.357
+
+Best F2 of eleven runs. Silent drop falls 26% (15 dropped fragments to 11) and
+unchecked-bindings fires for the first time in any configuration. Mean selected
+1.51 against 27 premised fragments is 5.6% of the corpus, so the context
+reduction the mechanism exists for is untouched.
+
+ATTRIBUTION IS NOT CLEAN, and must not be reported as though it were: TWO things
+changed together -- tags elevated to a valid basis, and a permissive tie-break.
+The separating arm (permissive instruction, NO tags) has not been run.
+
+One observation argues the effect is not merely permissiveness: delegation
+SHRANK from 11 selections to 7 while nearly everything else grew. It was the
+worst over-firer in the plain run (9-11 selections against 4 expected), matching
+on loose premise reading; with tags present as a competing signal it contracted.
+Uniform permissiveness would have grown it too.

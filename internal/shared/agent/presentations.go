@@ -28,57 +28,34 @@ import (
 // allowed to proceed once the user has said they accept less. A boundary
 // breach would use FailAlways; this is deliberately not one.
 
-// PresentInputs is the resolved environment a Presenter composes against —
-// every root an engine might build from, all settled before any Presenter
-// runs.
+// PresentInputs is the resolved environment a Presenter composes against: the
+// roots it may build from, settled before any Presenter runs.
 //
 // It is a struct rather than a parameter list so that a further root can be
 // added later without changing the Presenter signature, and with it every
 // engine's declaration. Only roots something actually builds from belong here.
 //
-// HOST versus ENGINE NAMESPACE is the distinction to keep straight, and the
-// field names carry it: a Host value is a path on the machine ctxloom runs on,
-// a Target value is that same location as the ENGINE sees it. The present
-// package draws the same line twice — Presentation as HostPath vs EnginePath,
-// Mount as HostDir vs TargetDir — and these names are meant to be read
-// alongside those.
+// There is deliberately NO "where the engine sees its home" root. Host-versus-
+// engine-namespace is not an input: it is produced by the containerization
+// LAYER of the chain, present.Rooted.WithContainerMount, which appends the
+// mount and rewrites EnginePath while leaving HostPath alone. A composition
+// that is never containerized simply never calls it. Carrying a mounted root
+// here as well would state that fact twice, and the two statements could
+// disagree — whoever performs the remapping is the only one who knows the
+// target. Keeping it in the layer is also what makes the model recursive: a
+// nested container remaps by composing another layer, not by someone passing a
+// different input.
 type PresentInputs struct {
-	// ProjectRoot is the resolved project root, on the host.
+	// ProjectRoot is the resolved project root.
 	ProjectRoot string
 
-	// EngineHomeHost is where the engine's home is MATERIALIZED on the host:
-	// the directory the engine's own home variable is pointed at.
-	EngineHomeHost string
-
-	// EngineHomeTarget is where that same home is MOUNTED in the engine's
-	// namespace.
+	// EngineHome is where the engine's home is MATERIALIZED: the directory the
+	// engine's own home variable is pointed at. Engines that root on a
+	// relocated home rather than on the project build from this.
 	//
-	// When nothing remaps it — a host run, no container — it EQUALS
-	// EngineHomeHost rather than being empty, so a Presenter may always compose
-	// from it without first asking whether a mapping happened. Resolve applies
-	// that rule, so a caller that remaps nothing may leave this unset; a caller
-	// that DOES containerize must set it, because nothing downstream can know
-	// the mount point it chose.
-	//
-	// The rule is enforced rather than merely documented because the failure it
-	// prevents is silent. An empty root does not produce an obviously broken
-	// path — it leaves the result RELATIVE, since filepath.Join("", "context.md")
-	// is "context.md". That reaches argv as a well-formed string, which the
-	// engine then resolves against whatever working directory it happens to
-	// have, and so names the wrong file rather than failing.
-	EngineHomeTarget string
-}
-
-// mapped applies the unmapped-home rule described on EngineHomeTarget.
-//
-// It runs once, in Resolve, so that every Presenter may treat EngineHomeTarget
-// as populated. Left to each engine to remember, the omission would not fail
-// here — it would surface as a wrong path on argv, far from its cause.
-func (in PresentInputs) mapped() PresentInputs {
-	if in.EngineHomeTarget == "" {
-		in.EngineHomeTarget = in.EngineHomeHost
-	}
-	return in
+	// It is one home, named once. Where a containerized engine SEES that home
+	// is the chain's business, not this struct's.
+	EngineHome string
 }
 
 // Presenter builds ONE presentation of one surface.
@@ -190,7 +167,6 @@ func (d Presentations) Default() string { return d.def }
 // whether the launch proceeds. A check that decided its own fatality would be
 // a second policy, free to disagree with the first.
 func (d Presentations) Resolve(requested string, in PresentInputs) present.Presentation {
-	in = in.mapped()
 	if p, ok := d.byName[requested]; ok {
 		return p(in)
 	}

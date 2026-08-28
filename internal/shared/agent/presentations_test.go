@@ -23,9 +23,8 @@ const (
 	fakeSystemPromptName = "system-prompt"
 	fakeHookName         = "hook"
 
-	fakeProjectRoot      = "/proj"
-	fakeEngineHomeHost   = "/elsewhere/home"
-	fakeEngineHomeTarget = "/in-container/home"
+	fakeProjectRoot = "/proj"
+	fakeEngineHome  = "/elsewhere/home"
 
 	fakeSystemPromptRel  = "context.md"
 	fakeSystemPromptFlag = "--append-system-prompt-file"
@@ -46,17 +45,18 @@ func fakeUnsafeFilePresenter(in PresentInputs) present.Presentation {
 }
 
 // fakeSystemPromptPresenter is the RELOCATED-HOME case, and the reason the
-// seam takes more than a project root. It roots on the engine home the host
-// materialized, remaps it to where the engine actually sees it, and names the
-// remapped path on argv — so it consumes both home roots and would be
-// unwritable against a start pre-rooted at the project root.
+// seam takes more than a project root: it roots on the engine home rather than
+// on the project, which a start pre-rooted at the project root cannot express.
+//
+// It does NOT mount. Where a containerized engine sees this file is the
+// chain's business (present.Rooted.WithContainerMount), not the presenter's and
+// not an input's.
 func fakeSystemPromptPresenter(in PresentInputs) present.Presentation {
 	return present.New(in.ProjectRoot).
 		WithEnvDirFile(
 			present.EnvDirFile{EnvVar: "FAKE_HOME", HomeDefault: ".fake", Rel: fakeSystemPromptRel},
-			in.EngineHomeHost,
+			in.EngineHome,
 		).
-		WithContainerMount(in.EngineHomeTarget).
 		WithFlag(present.FlagValue{Flag: fakeSystemPromptFlag}).
 		Build()
 }
@@ -79,14 +79,12 @@ func fakeContextPresentations() Presentations {
 		Or(fakeHookName, fakeHookPresenter)
 }
 
-// fakeInputs is a fully-remapped environment: the engine home is materialized
-// at one path and seen by the engine at a DIFFERENT one. They differ on
-// purpose — equal values would let a presenter that read the wrong field pass.
+// fakeInputs is a resolved environment. The two roots are DIFFERENT values on
+// purpose — equal ones would let a presenter that read the wrong field pass.
 func fakeInputs() PresentInputs {
 	return PresentInputs{
-		ProjectRoot:      fakeProjectRoot,
-		EngineHomeHost:   fakeEngineHomeHost,
-		EngineHomeTarget: fakeEngineHomeTarget,
+		ProjectRoot: fakeProjectRoot,
+		EngineHome:  fakeEngineHome,
 	}
 }
 
@@ -141,7 +139,10 @@ func TestPresentations_DeclaredName_BuildsThatPresentationWithoutFinding(t *test
 }
 
 // Every declared root must reach the presenter that builds from it, and reach
-// it UNSWAPPED.
+// it UNSWAPPED. Two roots in one struct is exactly what makes handing over the
+// wrong one possible, and the mistake is silent: both are plausible absolute
+// paths, so the wrong one produces a well-formed argv naming a file that is not
+// there.
 //
 // Asserted against LITERAL paths rather than against a second call to the same
 // presenter: deriving the expectation from the presenter would agree with
@@ -151,78 +152,39 @@ func TestPresentations_Resolve_DeliversEachRootToThePresenterThatBuildsFromIt(t 
 	arm(t, false)
 	d := fakeContextPresentations()
 
-	// The project root reaches a presenter that roots on it.
+	// The PROJECT ROOT reaches the presenter that roots on the project.
 	if got, want := d.Resolve(fakeUnsafeFileName, fakeInputs()).HostPath,
 		filepath.Join(fakeProjectRoot, "FAKE.md"); got != want {
 		t.Errorf("project-rooted host path = %q, want %q", got, want)
 	}
 
+	// The ENGINE HOME reaches the presenter that roots on the relocated home —
+	// NOT the project root, which is the confusion two roots make possible.
 	got := d.Resolve(fakeSystemPromptName, fakeInputs())
-
-	// The bytes are written where the HOST materialized the engine home.
-	if want := filepath.Join(fakeEngineHomeHost, fakeSystemPromptRel); got.HostPath != want {
-		t.Errorf("relocated-home host path = %q, want %q (EngineHomeHost)", got.HostPath, want)
-	}
-
-	// The engine sees them at the MOUNTED home — never at the host location.
-	wantEngine := filepath.Join(fakeEngineHomeTarget, fakeSystemPromptRel)
-	if got.EnginePath != wantEngine {
-		t.Errorf("relocated-home engine path = %q, want %q (EngineHomeTarget)", got.EnginePath, wantEngine)
-	}
-
-	// argv must quote the ENGINE path. This is the assertion that goes red if
-	// the target root is dropped and the host value is handed over in its
-	// place: the launch would otherwise name a path that does not exist inside
-	// the engine's namespace.
-	if want := fakeSystemPromptFlag + " " + wantEngine; strings.Join(got.Args, " ") != want {
-		t.Errorf("argv = %q, want %q", strings.Join(got.Args, " "), want)
-	}
-
-	// The mount carries BOTH sides, so neither root may stand in for the other.
-	if len(got.Mounts) != 1 {
-		t.Fatalf("mounts = %+v, want exactly 1", got.Mounts)
-	}
-	if m := got.Mounts[0]; m.HostDir != fakeEngineHomeHost || m.TargetDir != fakeEngineHomeTarget {
-		t.Errorf("mount = %+v, want {HostDir:%q TargetDir:%q}",
-			m, fakeEngineHomeHost, fakeEngineHomeTarget)
-	}
-}
-
-// The unmapped-home rule: with nothing remapping the home, the engine sees it
-// where the host put it. Resolve must supply that, so an empty target never
-// reaches a presenter.
-//
-// Left unhandled this fails SILENTLY rather than loudly: an empty root leaves
-// the joined path RELATIVE ("context.md"), not obviously broken, so it reaches
-// argv looking well-formed and the engine resolves it against whatever working
-// directory it has. Removing the rule is what this test's expectations are
-// written against — the mutation that deletes it reports exactly that bare
-// relative path.
-func TestPresentations_Resolve_UnmappedEngineHome_TargetFallsBackToHost(t *testing.T) {
-	arm(t, false)
-	d := fakeContextPresentations()
-
-	in := fakeInputs()
-	in.EngineHomeTarget = "" // a host run: nothing remaps the home
-
-	got := d.Resolve(fakeSystemPromptName, in)
-
-	want := filepath.Join(fakeEngineHomeHost, fakeSystemPromptRel)
+	want := filepath.Join(fakeEngineHome, fakeSystemPromptRel)
 	if got.HostPath != want {
-		t.Errorf("host path = %q, want %q", got.HostPath, want)
+		t.Errorf("relocated-home host path = %q, want %q (EngineHome)", got.HostPath, want)
 	}
-	if got.EnginePath != want {
-		t.Errorf("unmapped engine path = %q, want the host location %q", got.EnginePath, want)
+	if strings.HasPrefix(got.HostPath, fakeProjectRoot) {
+		t.Errorf("relocated-home surface was rooted at the PROJECT root: %q", got.HostPath)
 	}
+
+	// The engine home is also what the engine is TOLD, via its own variable.
+	if got.Env["FAKE_HOME"] != fakeEngineHome {
+		t.Errorf("engine home variable = %q, want %q", got.Env["FAKE_HOME"], fakeEngineHome)
+	}
+
+	// Nothing here mounts, so the engine sees the file where it was written and
+	// argv says so. Remapping is the chain's job and no input asks for it.
 	if got.EnginePath != got.HostPath {
-		t.Errorf("unmapped run: engine path %q and host path %q must agree",
+		t.Errorf("unmapped composition: engine path %q must equal host path %q",
 			got.EnginePath, got.HostPath)
 	}
 	if wantArgs := fakeSystemPromptFlag + " " + want; strings.Join(got.Args, " ") != wantArgs {
 		t.Errorf("argv = %q, want %q", strings.Join(got.Args, " "), wantArgs)
 	}
-	if len(got.Mounts) != 1 || got.Mounts[0].TargetDir != fakeEngineHomeHost {
-		t.Errorf("mounts = %+v, want the target to be the host home %q", got.Mounts, fakeEngineHomeHost)
+	if len(got.Mounts) != 0 {
+		t.Errorf("presenter contributed mounts %+v; containerization is not its business", got.Mounts)
 	}
 }
 

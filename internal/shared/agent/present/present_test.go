@@ -83,6 +83,15 @@ func TestConventionalComposition_NeedsNoFlag(t *testing.T) {
 // TestRelocatedHome_ContributesTheEnvVar: the relocated-home mechanism carries
 // its env var into the presentation — how a host run points an engine at a
 // per-run scratch.
+//
+// It also pins the unmapped case for THIS rooting variant: with nothing
+// remapping the composition, the engine sees the file exactly where the host
+// wrote it. That is what lets a caller hand over ONE home and let the chain
+// decide where the engine sees it — a caller that had to supply a second,
+// already-mapped home could contradict the layer that does the mapping.
+// TestHostComposition_ArgvNamesTheHostPath pins the same claim for
+// WithProjectRootFile; deleting the assignment in EITHER rooting layer must go
+// red, so neither may rely on the other's coverage.
 func TestRelocatedHome_ContributesTheEnvVar(t *testing.T) {
 	got := New("/host/project").
 		WithEnvDirFile(EnvDirFile{EnvVar: "CLAUDE_CONFIG_DIR", HomeDefault: ".claude", Rel: "settings.json"}, "/scratch/cfg0").
@@ -93,6 +102,13 @@ func TestRelocatedHome_ContributesTheEnvVar(t *testing.T) {
 	}
 	if got.HostPath != filepath.FromSlash("/scratch/cfg0/settings.json") {
 		t.Fatalf("host path: %q", got.HostPath)
+	}
+	if got.EnginePath != filepath.FromSlash("/scratch/cfg0/settings.json") {
+		t.Fatalf("unmapped relocated home must let the engine see the host path, got %q want %q",
+			got.EnginePath, got.HostPath)
+	}
+	if len(got.Mounts) != 0 {
+		t.Fatalf("nothing remapped this composition, so it must carry no mounts: %v", got.Mounts)
 	}
 }
 

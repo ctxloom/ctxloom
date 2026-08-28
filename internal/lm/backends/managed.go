@@ -104,10 +104,18 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 func AssembleManagedConfig(backendName, workDir string, gate bundles.Authorizer, profileNames []string) *agent.ManagedConfig {
 	cfg, err := config.Load()
 	if err != nil {
-		// The agent's Setup writes an EMPTY managed set from a nil payload —
-		// the reconciling writers then remove every previously-installed
-		// ctxloom hook/command for this run. Degrading is right (never block
-		// launch), but it must not be silent.
+		// A nil return means this run proceeds with NO managed surfaces — no
+		// hooks, no MCP, no commands — while looking entirely healthy: exit 0,
+		// the turn answers, nothing delivered.
+		//
+		// It does NOT remove anything. A previous version of this comment said
+		// Setup "writes an EMPTY managed set from a nil payload" and that "the
+		// reconciling writers then remove every previously-installed ctxloom
+		// hook/command". Both halves are false: agent.LaunchBackend's Setup
+		// early-returns on a nil payload and writes nothing at all, so
+		// previously-installed entries are left exactly as they were. The
+		// claim cost a multi-hour investigation before it was checked against
+		// the code, which is why it is corrected here rather than deleted.
 		clidiag.Warn("ctxloom", "config load failed; launching without managed hooks/commands: %v", err)
 		return nil
 	}

@@ -1,0 +1,12 @@
+S07: turn-gates, green-is-not-passing, worktree-lifecycle
+S10: worktree-lifecycle
+S14: NONE
+S16: delegation
+S19: green-is-not-passing, preexisting-ownership, turn-gates, problem-solving
+S22: general, isolation-axes, design-review-checkpoints, reductive
+S24: documentation, prototype, unchecked-bindings, planning-and-brainstorming, fail-loud-launch, green-is-not-passing
+S25: worktree-lifecycle
+S27: worktree-lifecycle
+S28: close-the-turn, worktree-lifecycle, green-is-not-passing, turn-gates
+S29: delegation, unchecked-bindings
+S30: delegation, design-review-checkpoints, general, planning-and-brainstorming, reductive, sequential-thinking-usage

@@ -127,3 +127,34 @@ nothing. The headroom is currently enormous: 27 premised fragments, mean
 selected 1.24, which is 4.6% of the corpus. Selection could rise five-fold and
 still deliver better than a 4x reduction. Precision is a FLOOR to watch, not a
 target to maximise.
+
+## Noun tags: no measurable effect (negative result)
+
+v3 is v2 plus noun tags on every premised fragment, presented in the index as
+TAGS above PREMISE. Same per-premise protocol, same ground truth, so tags are
+the only variable.
+
+                untagged (v2)   tagged (v3)
+  recall            0.762          0.762
+  precision         0.658          0.667
+  F2                0.738          0.741
+  silent drop       0.238          0.238
+  false fire        0.286          0.214
+  mean selected     1.24           1.22
+
+Recall identical to three decimals. An F2 move of +0.003, against a protocol
+whose sibling runs spanned 0.492-0.571, is noise. Nine premises shifted and they
+cancelled: delegation gained three situations, turn-gates lost three.
+fail-loud-launch went from one situation to NONE -- tags made it worse.
+
+TAGS RESCUED NONE OF THE UNFINDABLE FRAGMENTS. prototype sat beside the tags
+"shim, fallback, compatibility, migration, deprecation, legacy" and still
+returned NONE; string-flow-control beside "error, message, conditional, branch,
+comparison, substring", also NONE. Same for unchecked-bindings,
+coordination-tools and error-constants.
+
+WHAT THIS SETTLES: the word-overlap correlation measured earlier (0.243 for hits
+against 0.107 for misses) is REAL BUT NOT CAUSAL. Fragments that match happen to
+share vocabulary with their situations; supplying vocabulary does not cause
+matches. The barrier is that the premise's CONDITION is absent from the moment,
+and no amount of tagging reaches "the author is tempted to add a shim".

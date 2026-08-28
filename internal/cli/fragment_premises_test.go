@@ -94,3 +94,29 @@ func TestFragmentPremises_ListingGoesToStdoutNotStderr(t *testing.T) {
 	assert.NotContains(t, errOut.String(), "No fragments carry a premise",
 		"it must not go to the error stream, where a redirect would miss it")
 }
+
+// The structured payload must carry the SELECTION INSTRUCTION, not just the
+// rows. Piped output resolves to JSON, so an agent running this command
+// programmatically is the common case rather than the exception — and the
+// instruction is what carries selection from ~0.49 recall to ~0.93. Shipping
+// the entries alone would leave that consumer choosing blind, which is exactly
+// what happened before this test existed.
+func TestFragmentPremises_StructuredPayloadCarriesTheInstruction(t *testing.T) {
+	payload := buildPremiseListing([]operations.PremiseIndexEntry{
+		{Name: "b#fragments/a", Premise: "You are about to do a thing."},
+	})
+	b, err := json.Marshal(payload)
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(b, &got))
+
+	require.Contains(t, got, "instruction", "a structured caller must receive the guidance, not only the rows")
+	require.Contains(t, got, "fragments")
+
+	ins, _ := got["instruction"].(string)
+	for _, phrase := range []string{"ON ITS OWN", "BORDERLINE", "ABOUT TO DO"} {
+		assert.Contains(t, ins, phrase,
+			"the structured instruction must carry the same measured properties as the text listing; "+
+				"%q is one of the three that move recall", phrase)
+	}
+}

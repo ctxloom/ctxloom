@@ -211,10 +211,12 @@ func runFragmentPremises(cmd *cobra.Command, _ []string) error {
 	if entries == nil {
 		entries = []operations.PremiseIndexEntry{}
 	}
-	// Structured callers get the ENTRIES; a human (or an agent reading the
-	// terminal) gets the rendered listing with its selection instruction. Both
-	// go through emit() so --format is honored at the one chokepoint.
-	return emit(cmd, entries, func() error {
+	// The INSTRUCTION travels with the entries, in every format. Piped output
+	// resolves to JSON, so the programmatic caller -- an agent running this
+	// command -- is the common case, and handing it the index without the
+	// guidance would drop the three properties that carry selection from ~0.49
+	// recall to ~0.93. The text listing embeds the same wording.
+	return emit(cmd, buildPremiseListing(entries), func() error {
 		// OutOrStdout(), never cmd.Println: cobra's Print family writes to
 		// OutOrSTDERR, so the listing -- this command's actual output -- would
 		// land on the error stream and `ctxloom fragment premises > file` would
@@ -234,7 +236,29 @@ func runFragmentPremises(cmd *cobra.Command, _ []string) error {
 // empty set.
 func renderPremiseListing(entries []operations.PremiseIndexEntry) string {
 	if len(entries) == 0 {
-		return "No fragments carry a premise: every fragment in this project's corpus is loaded unconditionally."
+		return emptyPremiseCorpusMessage
 	}
 	return operations.RenderPremiseIndex(entries)
 }
+
+// premiseListing is what a structured caller receives. It is an OBJECT rather
+// than a bare array so the selection instruction can travel with the entries:
+// the guidance is what makes the index usable, and a JSON consumer that got
+// only the rows would be choosing blind.
+// buildPremiseListing constructs what a structured caller receives. It exists
+// as a function so a test can exercise THIS construction rather than assemble an
+// equivalent value of its own — a test that builds the payload it is checking
+// passes no matter what the command later does.
+func buildPremiseListing(entries []operations.PremiseIndexEntry) premiseListing {
+	if len(entries) == 0 {
+		return premiseListing{Instruction: emptyPremiseCorpusMessage, Fragments: []operations.PremiseIndexEntry{}}
+	}
+	return premiseListing{Instruction: operations.PremiseSelectionInstruction(), Fragments: entries}
+}
+
+type premiseListing struct {
+	Instruction string                         `json:"instruction"`
+	Fragments   []operations.PremiseIndexEntry `json:"fragments"`
+}
+
+const emptyPremiseCorpusMessage = "No fragments carry a premise: every fragment in this project's corpus is loaded unconditionally."

@@ -112,6 +112,30 @@ func (f *premiseFilter) entries() []PremiseIndexEntry {
 // does not know.
 const premiseIndexHeading = "# Conditional guidance (not loaded)"
 
+// PremiseSelectionInstruction is the guidance an agent selects by, exposed on
+// its own so every surface serves the SAME wording. The text listing embeds it;
+// a structured caller receives it as a field. A programmatic consumer that got
+// the entries without it would be choosing with none of the three properties
+// measurement showed to matter -- and piped output resolves to JSON, so that
+// consumer is the common case rather than the exception.
+func PremiseSelectionInstruction() string {
+	var b strings.Builder
+	b.WriteString(premiseIndexHeading)
+	b.WriteString("\n\nThe guidance below is NOT in your context. Each line gives a fragment's\n")
+	b.WriteString("NAME and the PREMISE under which it applies.\n\n")
+	b.WriteString("Match against WHAT YOU ARE ABOUT TO DO -- the next action, not the whole\n")
+	b.WriteString("conversation behind you. Take each premise ON ITS OWN and ask whether it\n")
+	b.WriteString("describes that action; you are not picking the single best match, and\n")
+	b.WriteString("several premises often apply at once.\n\n")
+	b.WriteString("When it is a BORDERLINE call, include it. An unnecessary fragment costs a\n")
+	b.WriteString("little context; one you withhold is never learned to exist and cannot be\n")
+	b.WriteString("asked for.\n\n")
+	b.WriteString("Select on the premise, not on the name. Then call the ctxloom\n")
+	b.WriteString("`assemble_context` tool with the names you chose (the `bundles` argument)\n")
+	b.WriteString("and follow what it returns.\n")
+	return b.String()
+}
+
 // The index's wording is LOAD-BEARING and was chosen by measurement, not taste.
 // Against a fixture of 59 situations mined from real transcripts and labelled
 // blind, three properties moved the result and the rest did not:
@@ -145,19 +169,7 @@ func RenderPremiseIndex(entries []PremiseIndexEntry) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(premiseIndexHeading)
-	b.WriteString("\n\nThe guidance below is NOT in your context. Each line gives a fragment's\n")
-	b.WriteString("NAME and the PREMISE under which it applies.\n\n")
-	b.WriteString("Match against WHAT YOU ARE ABOUT TO DO -- the next action, not the whole\n")
-	b.WriteString("conversation behind you. Take each premise ON ITS OWN and ask whether it\n")
-	b.WriteString("describes that action; you are not picking the single best match, and\n")
-	b.WriteString("several premises often apply at once.\n\n")
-	b.WriteString("When it is a BORDERLINE call, include it. An unnecessary fragment costs a\n")
-	b.WriteString("little context; one you withhold is never learned to exist and cannot be\n")
-	b.WriteString("asked for.\n\n")
-	b.WriteString("Select on the premise, not on the name. Then call the ctxloom\n")
-	b.WriteString("`assemble_context` tool with the names you chose (the `bundles` argument)\n")
-	b.WriteString("and follow what it returns.\n")
+	b.WriteString(PremiseSelectionInstruction())
 	for _, e := range entries {
 		fmt.Fprintf(&b, "\n- %s: %s", e.Name, e.Premise)
 	}

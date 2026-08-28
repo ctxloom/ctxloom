@@ -37,8 +37,8 @@ import (
 //
 // There is deliberately NO "where the engine sees its home" root. Host-versus-
 // engine-namespace is not an input: it is produced by the containerization
-// LAYER of the chain, present.Rooted.WithContainerMount, which appends the
-// mount and rewrites EnginePath while leaving HostPath alone. A composition
+// LAYER of the chain, present.Rooted.WithContainerMount, which transforms
+// every channel the engine reads and leaves HostPath naming the host. A composition
 // that is never containerized simply never calls it. Carrying a mounted root
 // here as well would state that fact twice, and the two statements could
 // disagree — whoever performs the remapping is the only one who knows the

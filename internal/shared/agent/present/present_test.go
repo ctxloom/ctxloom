@@ -4,44 +4,70 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// TestContainerComposition_ArgvNamesTheENGINEPath is the whole point of the
-// composition, as an assertion. Handing an engine a HOST path that nothing
-// mounted makes it read nothing while the run reports success.
-//
-// Here the container layer is what PRODUCES the engine path, so argv cannot
-// name anything the mount did not cover.
-func TestContainerComposition_ArgvNamesTheENGINEPath(t *testing.T) {
+// TestLever_ContainerPICKSTheTargetAndTellsTheEngine: a composition whose
+// location is named through the environment HAS a lever, so the container may
+// put the root wherever it likes and say so.
+func TestLever_ContainerPICKSTheTargetAndTellsTheEngine(t *testing.T) {
+	const home, target = "/scratch/cfg0", "/container/home"
+	got := New("/host/project").
+		WithEnvDirFile(EnvDirFile{EnvVar: "CODEX_HOME", HomeDefault: ".codex", Rel: "config.toml"}, home).
+		WithContainerMount(ContainerMount{TargetDir: target}).
+		WithFlag(FlagValue{Flag: "--config"}).
+		Build()
+
+	if want := filepath.FromSlash(target + "/config.toml"); got.EnginePath != want {
+		t.Fatalf("engine path: got %q want %q", got.EnginePath, want)
+	}
+	if got.Env["CODEX_HOME"] != target {
+		t.Fatalf("the engine must be TOLD the new home, got %v", got.Env)
+	}
+	if len(got.Mounts) != 1 || got.Mounts[0].HostDir != filepath.FromSlash(home) {
+		t.Fatalf("the HOME is what must be mounted: %v", got.Mounts)
+	}
+	if got.Mounts[0].TargetDir != target {
+		t.Fatalf("a lever means the requested target is honoured: %v", got.Mounts)
+	}
+	if got.Args[1] != got.EnginePath {
+		t.Fatalf("argv must name the ENGINE path: %v", got.Args)
+	}
+	if got.HostPath != filepath.FromSlash(home+"/config.toml") {
+		t.Fatalf("host path records where the bytes were written: %q", got.HostPath)
+	}
+}
+
+// TestNoLever_ContainerMustMountAtTheEnginesOwnPath: with no environment
+// variable and no flag, the engine will look exactly where it always looks.
+// The requested target is therefore not merely ignored — honouring it would
+// mount the bytes somewhere the engine never examines, and the run would report
+// success having read nothing.
+func TestNoLever_ContainerMustMountAtTheEnginesOwnPath(t *testing.T) {
+	const fixed = "/host/project/.claude"
 	got := New("/host/project").
 		WithProjectRootFile(ProjectRootFile{Rel: ".claude/settings.json"}).
-		WithContainerMount("/workspace/.claude").
+		WithContainerMount(ContainerMount{TargetDir: "/workspace/.claude"}).
 		WithFlag(FlagValue{Flag: "--settings"}).
 		Build()
 
-	if got.HostPath != filepath.FromSlash("/host/project/.claude/settings.json") {
-		t.Fatalf("host path: %q", got.HostPath)
-	}
-	want := filepath.FromSlash("/workspace/.claude/settings.json")
-	if got.EnginePath != want {
-		t.Fatalf("engine path: got %q want %q", got.EnginePath, want)
-	}
-	if len(got.Args) != 2 || got.Args[0] != "--settings" {
-		t.Fatalf("args: %v", got.Args)
-	}
-	if got.Args[1] != want {
-		t.Fatalf("argv must name the ENGINE path, not the host path: got %q", got.Args[1])
-	}
-	if got.Args[1] == got.HostPath {
-		t.Fatalf("argv named the HOST path, which nothing mounted: %q", got.Args[1])
-	}
-	if len(got.Mounts) != 1 || got.Mounts[0].TargetDir != "/workspace/.claude" {
+	if len(got.Mounts) != 1 {
 		t.Fatalf("mounts: %v", got.Mounts)
 	}
-	if got.Mounts[0].HostDir != filepath.FromSlash("/host/project/.claude") {
+	if got.Mounts[0].HostDir != filepath.FromSlash(fixed) {
 		t.Fatalf("mount must cover the directory the bytes were written to: %q", got.Mounts[0].HostDir)
+	}
+	if got.Mounts[0].TargetDir != filepath.FromSlash(fixed) {
+		t.Fatalf("no lever, so the root must be mounted AT itself, got %q", got.Mounts[0].TargetDir)
+	}
+	if got.EnginePath != got.HostPath {
+		t.Fatalf("nothing can tell this engine a new path, so it must be unchanged: %q vs %q",
+			got.EnginePath, got.HostPath)
+	}
+	if got.Args[1] != got.EnginePath {
+		t.Fatalf("argv must name the engine path: %v", got.Args)
 	}
 }
 
@@ -123,9 +149,9 @@ func TestIllegalOrdersDoNotCOMPILE(t *testing.T) {
 	cases := map[string]string{
 		"flag_before_any_root": `_ = New("/p").WithFlag(FlagValue{Flag: "--settings"})`,
 		"mount_after_flag": `_ = New("/p").WithProjectRootFile(ProjectRootFile{Rel: "a"}).` +
-			`WithFlag(FlagValue{Flag: "--settings"}).WithContainerMount("/w")`,
+			`WithFlag(FlagValue{Flag: "--settings"}).WithContainerMount(ContainerMount{TargetDir: "/w"})`,
 		"double_mount": `_ = New("/p").WithProjectRootFile(ProjectRootFile{Rel: "a"}).` +
-			`WithContainerMount("/w").WithContainerMount("/w2")`,
+			`WithContainerMount(ContainerMount{TargetDir: "/w"}).WithContainerMount(ContainerMount{TargetDir: "/w2"})`,
 		"re_root_an_already_rooted_composition": `_ = New("/p").WithProjectRootFile(ProjectRootFile{Rel: "a"}).` +
 			`WithProjectRootFile(ProjectRootFile{Rel: "b"})`,
 		"build_before_a_root_exists": `_ = New("/p").Build()`,
@@ -141,7 +167,7 @@ func TestIllegalOrdersDoNotCOMPILE(t *testing.T) {
 	t.Run("control_a_legal_composition_COMPILES", func(t *testing.T) {
 		out, cerr := compileInPackageCopy(t, sources,
 			`_ = New("/p").WithProjectRootFile(ProjectRootFile{Rel: "a"}).`+
-				`WithContainerMount("/w").WithFlag(FlagValue{Flag: "--settings"}).Build()`)
+				`WithContainerMount(ContainerMount{TargetDir: "/w"}).WithFlag(FlagValue{Flag: "--settings"}).Build()`)
 		if cerr != nil {
 			t.Fatalf("harness rejects a LEGAL composition, so every rejection below proves nothing: %v\n%s", cerr, out)
 		}
@@ -187,4 +213,126 @@ func compileInPackageCopy(t *testing.T, sources []string, body string) (string, 
 	cmd.Dir = dir
 	out, berr := cmd.CombinedOutput()
 	return string(out), berr
+}
+
+// TestNestedRel_TheHOMEIsMountedNotTheFilesDirectory: the root a container must
+// mount is the one the previous advice CONTRIBUTED, not one re-derived from the
+// file's own path. With a nested Rel the two differ, and mounting the file's
+// directory would leave the engine's home pointing at a directory that was
+// never mounted.
+func TestNestedRel_TheHOMEIsMountedNotTheFilesDirectory(t *testing.T) {
+	const home, target = "/scratch/cfg0", "/container/home"
+	got := New("/host/project").
+		WithEnvDirFile(EnvDirFile{EnvVar: "CODEX_HOME", HomeDefault: ".codex", Rel: "sub/config.toml"}, home).
+		WithContainerMount(ContainerMount{TargetDir: target}).
+		Build()
+
+	if got.Mounts[0].HostDir != filepath.FromSlash(home) {
+		t.Fatalf("the contributed HOME is the mount root, not the file's directory: %q", got.Mounts[0].HostDir)
+	}
+	if want := filepath.FromSlash(target + "/sub/config.toml"); got.EnginePath != want {
+		t.Fatalf("engine path must keep its position beneath the home: got %q want %q", got.EnginePath, want)
+	}
+	if got.Env["CODEX_HOME"] != target {
+		t.Fatalf("the home the engine is told must be the mount target: %v", got.Env)
+	}
+}
+
+// TestContainerized_NothingTheEngineReadsNamesAHostPath is the invariant. The
+// engine cannot see the host filesystem, so any host path surviving into what it
+// reads is a path it will fail to open — or, worse, one it opens to find
+// nothing. HostPath and Mounts[].HostDir are deliberately exempt: they exist to
+// name the host, and the runtime reads them, not the engine.
+func TestContainerized_NothingTheEngineReadsNamesAHostPath(t *testing.T) {
+	const home, target = "/scratch/cfg0", "/container/home"
+	got := New("/host/project").
+		WithEnvDirFile(EnvDirFile{EnvVar: "CODEX_HOME", HomeDefault: ".codex", Rel: "sub/config.toml"}, home).
+		WithContainerMount(ContainerMount{TargetDir: target}).
+		WithFlag(FlagValue{Flag: "--config"}).
+		Build()
+
+	read := map[string]string{"EnginePath": got.EnginePath}
+	for i, a := range got.Args {
+		read["Args["+strconv.Itoa(i)+"]"] = a
+	}
+	for k, v := range got.Env {
+		read["Env["+k+"]"] = v
+	}
+	if len(read) < 4 {
+		t.Fatalf("nothing was swept, so this proves nothing: %v", read)
+	}
+	for where, v := range read {
+		if strings.Contains(v, filepath.FromSlash(home)) {
+			t.Errorf("%s still names a host path: %q", where, v)
+		}
+	}
+}
+
+// TestHostRoot_PrefersTheOUTERMOSTContributedHome: where several contributed
+// values contain the file, the mount must cover them all, so the widest one wins.
+func TestHostRoot_PrefersTheOUTERMOSTContributedHome(t *testing.T) {
+	p := Presentation{
+		HostPath: filepath.FromSlash("/scratch/cfg0/sub/config.toml"),
+		Env: map[string]string{
+			"INNER": filepath.FromSlash("/scratch/cfg0/sub"),
+			"OUTER": filepath.FromSlash("/scratch/cfg0"),
+		},
+	}
+	if got := hostRoot(p); got != filepath.FromSlash("/scratch/cfg0") {
+		t.Fatalf("outermost containing home must win, got %q", got)
+	}
+}
+
+// TestApplyEnv_RemapsEVERYValueBeneathTheRoot: the transform is defined over the
+// environment it receives, not over the one variable this advice happens to know
+// about. An advice added later contributes into the same map and must be carried
+// across the boundary too.
+func TestApplyEnv_RemapsEVERYValueBeneathTheRoot(t *testing.T) {
+	in := Presentation{Env: map[string]string{
+		"CODEX_HOME": filepath.FromSlash("/scratch/cfg0"),
+		"OTHER":      filepath.FromSlash("/scratch/cfg0/tools/bin"),
+		"UNRELATED":  filepath.FromSlash("/usr/bin"),
+	}}
+	got := ContainerMount{TargetDir: "/container/home", root: filepath.FromSlash("/scratch/cfg0")}.ApplyEnv(in)
+
+	if got.Env["CODEX_HOME"] != "/container/home" {
+		t.Errorf("CODEX_HOME: %q", got.Env["CODEX_HOME"])
+	}
+	if want := filepath.FromSlash("/container/home/tools/bin"); got.Env["OTHER"] != want {
+		t.Errorf("a second value beneath the root must travel too: got %q want %q", got.Env["OTHER"], want)
+	}
+	if got.Env["UNRELATED"] != filepath.FromSlash("/usr/bin") {
+		t.Errorf("a value outside the root must be left alone: %q", got.Env["UNRELATED"])
+	}
+}
+
+// TestMappingDoesNotWriteBackIntoTheCompositionItRead: a Presentation is copied
+// by value but its Env map is not, so a transform that assigned into the
+// received map would reach backwards and rewrite the composition its own caller
+// still holds.
+func TestMappingDoesNotWriteBackIntoTheCompositionItRead(t *testing.T) {
+	const home = "/scratch/cfg0"
+	rooted := New("/host/project").
+		WithEnvDirFile(EnvDirFile{EnvVar: "CODEX_HOME", HomeDefault: ".codex", Rel: "config.toml"}, home)
+
+	_ = rooted.WithContainerMount(ContainerMount{TargetDir: "/container/home"}).Build()
+
+	if got := rooted.Build().Env["CODEX_HOME"]; got != filepath.FromSlash(home) {
+		t.Fatalf("the unmapped composition was rewritten behind its own back: %q", got)
+	}
+}
+
+// TestTheLeverIsDECLAREDByTheInterface: containerization decides where to mount
+// by asking whether the rooting advice implements EnvChannel. Both halves of
+// that question are load-bearing, and only the positive half can be stated as a
+// compile-time conformance assertion — Go cannot assert that a type does NOT
+// implement an interface, so the negative half is checked here or nowhere.
+func TestTheLeverIsDECLAREDByTheInterface(t *testing.T) {
+	if _, ok := any(EnvDirFile{}).(EnvChannel); !ok {
+		t.Error("EnvDirFile must implement EnvChannel: naming the location through a variable IS the lever")
+	}
+	if _, ok := any(ProjectRootFile{}).(EnvChannel); ok {
+		t.Error("ProjectRootFile must NOT implement EnvChannel: the engine fixed this path, " +
+			"and declaring a lever it does not have would relocate bytes to a directory it never reads")
+	}
 }

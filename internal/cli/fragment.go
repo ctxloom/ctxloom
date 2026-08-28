@@ -215,8 +215,12 @@ func runFragmentPremises(cmd *cobra.Command, _ []string) error {
 	// terminal) gets the rendered listing with its selection instruction. Both
 	// go through emit() so --format is honored at the one chokepoint.
 	return emit(cmd, entries, func() error {
-		cmd.Println(renderPremiseListing(entries))
-		return nil
+		// OutOrStdout(), never cmd.Println: cobra's Print family writes to
+		// OutOrSTDERR, so the listing -- this command's actual output -- would
+		// land on the error stream and `ctxloom fragment premises > file` would
+		// capture nothing.
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), renderPremiseListing(entries))
+		return err
 	})
 }
 

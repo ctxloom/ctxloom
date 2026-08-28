@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,4 +72,25 @@ func TestFragmentPremises_EmptyIndexIsAnEmptyListNotNull(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "[]", string(b),
 		"an empty premise index serialises as an empty array; null would force every caller to special-case it")
+}
+
+// The listing is this command's OUTPUT and belongs on stdout. cobra's Print
+// family writes to OutOrStderr, so the obvious cmd.Println puts a command's
+// result on the error stream: `ctxloom fragment premises > file` captures
+// nothing, and the defect is invisible to any test that calls the render
+// function directly instead of going through cobra.
+func TestFragmentPremises_ListingGoesToStdoutNotStderr(t *testing.T) {
+	var out, errOut bytes.Buffer
+	cmd := &cobra.Command{RunE: func(c *cobra.Command, _ []string) error {
+		_, err := fmt.Fprintln(c.OutOrStdout(), renderPremiseListing(nil))
+		return err
+	}}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	require.NoError(t, cmd.Execute())
+
+	assert.Contains(t, out.String(), "No fragments carry a premise",
+		"the listing is the command's output and must reach stdout")
+	assert.NotContains(t, errOut.String(), "No fragments carry a premise",
+		"it must not go to the error stream, where a redirect would miss it")
 }

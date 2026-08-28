@@ -28,17 +28,78 @@ import (
 // allowed to proceed once the user has said they accept less. A boundary
 // breach would use FailAlways; this is deliberately not one.
 
-// Presenter builds ONE presentation of one surface. It takes a rooted start
-// rather than a bare path because rooting is the shared caller's business and
-// presentation is the engine's: shared resolves the project root and hands
-// over a start, the engine says only how its bytes are presented from there.
+// PresentInputs is the resolved environment a Presenter composes against —
+// every root an engine might build from, all settled before any Presenter
+// runs.
+//
+// It is a struct rather than a parameter list so that a further root can be
+// added later without changing the Presenter signature, and with it every
+// engine's declaration. Only roots something actually builds from belong here.
+//
+// HOST versus ENGINE NAMESPACE is the distinction to keep straight, and the
+// field names carry it: a Host value is a path on the machine ctxloom runs on,
+// a Target value is that same location as the ENGINE sees it. The present
+// package draws the same line twice — Presentation as HostPath vs EnginePath,
+// Mount as HostDir vs TargetDir — and these names are meant to be read
+// alongside those.
+type PresentInputs struct {
+	// ProjectRoot is the resolved project root, on the host.
+	ProjectRoot string
+
+	// EngineHomeHost is where the engine's home is MATERIALIZED on the host:
+	// the directory the engine's own home variable is pointed at.
+	EngineHomeHost string
+
+	// EngineHomeTarget is where that same home is MOUNTED in the engine's
+	// namespace.
+	//
+	// When nothing remaps it — a host run, no container — it EQUALS
+	// EngineHomeHost rather than being empty, so a Presenter may always compose
+	// from it without first asking whether a mapping happened. Resolve applies
+	// that rule, so a caller that remaps nothing may leave this unset; a caller
+	// that DOES containerize must set it, because nothing downstream can know
+	// the mount point it chose.
+	//
+	// The rule is enforced rather than merely documented because the failure it
+	// prevents is silent. An empty root does not produce an obviously broken
+	// path — it leaves the result RELATIVE, since filepath.Join("", "context.md")
+	// is "context.md". That reaches argv as a well-formed string, which the
+	// engine then resolves against whatever working directory it happens to
+	// have, and so names the wrong file rather than failing.
+	EngineHomeTarget string
+}
+
+// mapped applies the unmapped-home rule described on EngineHomeTarget.
+//
+// It runs once, in Resolve, so that every Presenter may treat EngineHomeTarget
+// as populated. Left to each engine to remember, the omission would not fail
+// here — it would surface as a wrong path on argv, far from its cause.
+func (in PresentInputs) mapped() PresentInputs {
+	if in.EngineHomeTarget == "" {
+		in.EngineHomeTarget = in.EngineHomeHost
+	}
+	return in
+}
+
+// Presenter builds ONE presentation of one surface.
+//
+// It receives the resolved ENVIRONMENT and begins the composition itself,
+// rather than being handed a start already rooted somewhere. That inversion is
+// the point of the type: engines do not agree on what they root on. One
+// materializes under the project root; another under a relocated home it names
+// with its own environment variable. A pre-rooted start can express only the
+// first, so the second would have to close over a runtime value where it is
+// DECLARED — which would stop an engine's supported deliveries from being a
+// static package-level literal, and stop Names and Default from being
+// answerable without constructing something out of placeholder values. Help
+// text and shell completion need exactly that answer, and need it without an
+// environment.
 //
 // It returns a Presentation and no error. That is inherited, not overlooked —
 // present.Build is total, so an engine that reached a buildable state has
-// nothing left to fail at. Anything an engine could fail at (resolving its own
-// home variable, say) happens where the Presenter is DECLARED, not when it is
-// called.
-type Presenter func(present.Start) present.Presentation
+// nothing left to fail at. Resolving the environment is the caller's business
+// and has already succeeded by the time a Presenter runs.
+type Presenter func(PresentInputs) present.Presentation
 
 // Presentations is one engine's declared presentations of ONE surface: every
 // delivery that engine can construct for that surface, and which of them it
@@ -100,6 +161,9 @@ func (d Presentations) Or(name string, p Presenter) Presentations {
 // sorted. It is derived from the registered Presenters, so it cannot claim
 // support the engine does not have.
 //
+// It is a PURE function of the declaration: no environment, no roots, nothing
+// constructed. Help text and completion call it before anything is resolved.
+//
 // Sorted, and not in declaration order, on purpose: order carries NO meaning
 // here. The default is a named field, so leaving declaration order visible
 // would invite a reader to infer a ranking from it that nothing honours.
@@ -112,10 +176,12 @@ func (d Presentations) Names() []string {
 	return names
 }
 
-// Default reports the delivery name resolution falls back to.
+// Default reports the delivery name resolution falls back to. Pure, for the
+// same reason Names is.
 func (d Presentations) Default() string { return d.def }
 
-// Resolve constructs the presentation config asked for by name.
+// Resolve constructs the presentation config asked for by name, against the
+// resolved environment.
 //
 // An unrecognised name raises a ClassConfig finding and falls back to the
 // engine's default. There is deliberately NO branch on degraded state here and
@@ -123,13 +189,14 @@ func (d Presentations) Default() string { return d.def }
 // returns the same presentation either way and the startup gate decides
 // whether the launch proceeds. A check that decided its own fatality would be
 // a second policy, free to disagree with the first.
-func (d Presentations) Resolve(requested string, start present.Start) present.Presentation {
+func (d Presentations) Resolve(requested string, in PresentInputs) present.Presentation {
+	in = in.mapped()
 	if p, ok := d.byName[requested]; ok {
-		return p(start)
+		return p(in)
 	}
 	strictness.FailOnce(strictness.ClassConfig,
 		fmt.Sprintf("set the %s surface to one of %s, or remove it to take %s's default (%s)",
 			d.kind, strings.Join(d.Names(), ", "), d.engine, d.def),
 		"%s: unknown %s delivery %q", d.engine, d.kind, requested)
-	return d.byName[d.def](start)
+	return d.byName[d.def](in)
 }

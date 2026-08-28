@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,41 +18,77 @@ import (
 // agent-binding files on disk hold them, so they are spelled here exactly as
 // they are spelled on disk.
 const (
-	fakeEngine            = "fakeengine"
-	fakeUnsafeFileName    = "unsafe-file"
-	fakeSystemPromptName  = "system-prompt"
-	fakeHookName          = "hook"
-	fakeProjectRoot       = "/proj"
-	fakeRelocatedHomeRoot = "/elsewhere/home"
+	fakeEngine           = "fakeengine"
+	fakeUnsafeFileName   = "unsafe-file"
+	fakeSystemPromptName = "system-prompt"
+	fakeHookName         = "hook"
+
+	fakeProjectRoot      = "/proj"
+	fakeEngineHomeHost   = "/elsewhere/home"
+	fakeEngineHomeTarget = "/in-container/home"
+
+	fakeSystemPromptRel  = "context.md"
+	fakeSystemPromptFlag = "--append-system-prompt-file"
 )
 
 // Each presenter builds a DISTINGUISHABLE presentation, which is what lets a
 // test say which one resolution actually chose rather than merely that it
 // returned something.
-func fakeUnsafeFilePresenter(s present.Start) present.Presentation {
-	return s.WithProjectRootFile(present.ProjectRootFile{Rel: "FAKE.md"}).Build()
+//
+// Each also takes its root FROM THE INPUTS rather than closing over one. That
+// is the behaviour under test as much as it is a convenience: a presenter that
+// captured a root at declaration time is exactly what PresentInputs exists to
+// make unnecessary.
+func fakeUnsafeFilePresenter(in PresentInputs) present.Presentation {
+	return present.New(in.ProjectRoot).
+		WithProjectRootFile(present.ProjectRootFile{Rel: "FAKE.md"}).
+		Build()
 }
 
-func fakeSystemPromptPresenter(s present.Start) present.Presentation {
-	return s.WithEnvDirFile(
-		present.EnvDirFile{EnvVar: "FAKE_HOME", HomeDefault: ".fake", Rel: "context.md"},
-		fakeRelocatedHomeRoot,
-	).WithFlag(present.FlagValue{Flag: "--append-system-prompt-file"}).Build()
+// fakeSystemPromptPresenter is the RELOCATED-HOME case, and the reason the
+// seam takes more than a project root. It roots on the engine home the host
+// materialized, remaps it to where the engine actually sees it, and names the
+// remapped path on argv — so it consumes both home roots and would be
+// unwritable against a start pre-rooted at the project root.
+func fakeSystemPromptPresenter(in PresentInputs) present.Presentation {
+	return present.New(in.ProjectRoot).
+		WithEnvDirFile(
+			present.EnvDirFile{EnvVar: "FAKE_HOME", HomeDefault: ".fake", Rel: fakeSystemPromptRel},
+			in.EngineHomeHost,
+		).
+		WithContainerMount(in.EngineHomeTarget).
+		WithFlag(present.FlagValue{Flag: fakeSystemPromptFlag}).
+		Build()
 }
 
-func fakeHookPresenter(s present.Start) present.Presentation {
-	return s.WithProjectRootFile(present.ProjectRootFile{Rel: ".fake/hook.json"}).Build()
+func fakeHookPresenter(in PresentInputs) present.Presentation {
+	return present.New(in.ProjectRoot).
+		WithProjectRootFile(present.ProjectRootFile{Rel: ".fake/hook.json"}).
+		Build()
 }
 
 // fakeContextPresentations is the declaration under test: a default plus two
 // alternatives, exactly the shape a real engine will write in S4-S7.
+//
+// It is a package-level literal in all but syntax — it closes over NOTHING and
+// takes no environment, which is what keeps Names and Default answerable
+// before anything is resolved.
 func fakeContextPresentations() Presentations {
 	return Presents(fakeEngine, SurfaceContext, fakeUnsafeFileName, fakeUnsafeFilePresenter).
 		Or(fakeSystemPromptName, fakeSystemPromptPresenter).
 		Or(fakeHookName, fakeHookPresenter)
 }
 
-func fakeStart() present.Start { return present.New(fakeProjectRoot) }
+// fakeInputs is a fully-remapped environment: the engine home is materialized
+// at one path and seen by the engine at a DIFFERENT one. They differ on
+// purpose — equal values would let a presenter that read the wrong field pass.
+func fakeInputs() PresentInputs {
+	return PresentInputs{
+		ProjectRoot:      fakeProjectRoot,
+		EngineHomeHost:   fakeEngineHomeHost,
+		EngineHomeTarget: fakeEngineHomeTarget,
+	}
+}
 
 // arm installs a strictness mode for one test and guarantees the process-wide
 // state is restored. Findings, the FailOnce dedup set and the checkpoint
@@ -77,11 +114,11 @@ func TestPresentations_DeclaredName_BuildsThatPresentationWithoutFinding(t *test
 		name string
 		want present.Presentation
 	}{
-		{fakeUnsafeFileName, fakeUnsafeFilePresenter(fakeStart())},
-		{fakeSystemPromptName, fakeSystemPromptPresenter(fakeStart())},
-		{fakeHookName, fakeHookPresenter(fakeStart())},
+		{fakeUnsafeFileName, fakeUnsafeFilePresenter(fakeInputs())},
+		{fakeSystemPromptName, fakeSystemPromptPresenter(fakeInputs())},
+		{fakeHookName, fakeHookPresenter(fakeInputs())},
 	} {
-		got := d.Resolve(tc.name, fakeStart())
+		got := d.Resolve(tc.name, fakeInputs())
 		if got.HostPath != tc.want.HostPath {
 			t.Errorf("Resolve(%q) host path = %q, want %q", tc.name, got.HostPath, tc.want.HostPath)
 		}
@@ -103,13 +140,99 @@ func TestPresentations_DeclaredName_BuildsThatPresentationWithoutFinding(t *test
 	}
 }
 
+// Every declared root must reach the presenter that builds from it, and reach
+// it UNSWAPPED.
+//
+// Asserted against LITERAL paths rather than against a second call to the same
+// presenter: deriving the expectation from the presenter would agree with
+// itself no matter which field the presenter read, which is the shape that
+// passes while proving nothing.
+func TestPresentations_Resolve_DeliversEachRootToThePresenterThatBuildsFromIt(t *testing.T) {
+	arm(t, false)
+	d := fakeContextPresentations()
+
+	// The project root reaches a presenter that roots on it.
+	if got, want := d.Resolve(fakeUnsafeFileName, fakeInputs()).HostPath,
+		filepath.Join(fakeProjectRoot, "FAKE.md"); got != want {
+		t.Errorf("project-rooted host path = %q, want %q", got, want)
+	}
+
+	got := d.Resolve(fakeSystemPromptName, fakeInputs())
+
+	// The bytes are written where the HOST materialized the engine home.
+	if want := filepath.Join(fakeEngineHomeHost, fakeSystemPromptRel); got.HostPath != want {
+		t.Errorf("relocated-home host path = %q, want %q (EngineHomeHost)", got.HostPath, want)
+	}
+
+	// The engine sees them at the MOUNTED home — never at the host location.
+	wantEngine := filepath.Join(fakeEngineHomeTarget, fakeSystemPromptRel)
+	if got.EnginePath != wantEngine {
+		t.Errorf("relocated-home engine path = %q, want %q (EngineHomeTarget)", got.EnginePath, wantEngine)
+	}
+
+	// argv must quote the ENGINE path. This is the assertion that goes red if
+	// the target root is dropped and the host value is handed over in its
+	// place: the launch would otherwise name a path that does not exist inside
+	// the engine's namespace.
+	if want := fakeSystemPromptFlag + " " + wantEngine; strings.Join(got.Args, " ") != want {
+		t.Errorf("argv = %q, want %q", strings.Join(got.Args, " "), want)
+	}
+
+	// The mount carries BOTH sides, so neither root may stand in for the other.
+	if len(got.Mounts) != 1 {
+		t.Fatalf("mounts = %+v, want exactly 1", got.Mounts)
+	}
+	if m := got.Mounts[0]; m.HostDir != fakeEngineHomeHost || m.TargetDir != fakeEngineHomeTarget {
+		t.Errorf("mount = %+v, want {HostDir:%q TargetDir:%q}",
+			m, fakeEngineHomeHost, fakeEngineHomeTarget)
+	}
+}
+
+// The unmapped-home rule: with nothing remapping the home, the engine sees it
+// where the host put it. Resolve must supply that, so an empty target never
+// reaches a presenter.
+//
+// Left unhandled this fails SILENTLY rather than loudly: an empty root leaves
+// the joined path RELATIVE ("context.md"), not obviously broken, so it reaches
+// argv looking well-formed and the engine resolves it against whatever working
+// directory it has. Removing the rule is what this test's expectations are
+// written against — the mutation that deletes it reports exactly that bare
+// relative path.
+func TestPresentations_Resolve_UnmappedEngineHome_TargetFallsBackToHost(t *testing.T) {
+	arm(t, false)
+	d := fakeContextPresentations()
+
+	in := fakeInputs()
+	in.EngineHomeTarget = "" // a host run: nothing remaps the home
+
+	got := d.Resolve(fakeSystemPromptName, in)
+
+	want := filepath.Join(fakeEngineHomeHost, fakeSystemPromptRel)
+	if got.HostPath != want {
+		t.Errorf("host path = %q, want %q", got.HostPath, want)
+	}
+	if got.EnginePath != want {
+		t.Errorf("unmapped engine path = %q, want the host location %q", got.EnginePath, want)
+	}
+	if got.EnginePath != got.HostPath {
+		t.Errorf("unmapped run: engine path %q and host path %q must agree",
+			got.EnginePath, got.HostPath)
+	}
+	if wantArgs := fakeSystemPromptFlag + " " + want; strings.Join(got.Args, " ") != wantArgs {
+		t.Errorf("argv = %q, want %q", strings.Join(got.Args, " "), wantArgs)
+	}
+	if len(got.Mounts) != 1 || got.Mounts[0].TargetDir != fakeEngineHomeHost {
+		t.Errorf("mounts = %+v, want the target to be the host home %q", got.Mounts, fakeEngineHomeHost)
+	}
+}
+
 // The STRICT arm: an unknown name must REFUSE. Asserted on the gate's own
 // verdict, not on message text.
 func TestPresentations_UnknownName_Strict_RefusesAndFallsBackToDefault(t *testing.T) {
 	mark := arm(t, false)
 	d := fakeContextPresentations()
 
-	got := d.Resolve("no-such-delivery", fakeStart())
+	got := d.Resolve("no-such-delivery", fakeInputs())
 
 	if err := strictness.FindingsError(mark); err == nil {
 		t.Fatal("unknown delivery did not refuse the launch in strict mode; want a fatal finding")
@@ -153,7 +276,7 @@ func TestPresentations_UnknownName_Degraded_ContinuesOnEngineDefault(t *testing.
 	mark := arm(t, true)
 	d := fakeContextPresentations()
 
-	got := d.Resolve("no-such-delivery", fakeStart())
+	got := d.Resolve("no-such-delivery", fakeInputs())
 
 	// The promise: degraded mode always reaches a working LLM. A refusal here
 	// would break it for every existing user.
@@ -174,7 +297,7 @@ func TestPresentations_UnknownName_Degraded_ContinuesOnEngineDefault(t *testing.
 // default, so it follows the declaration rather than a literal.
 func assertIsDefault(t *testing.T, d Presentations, got present.Presentation) {
 	t.Helper()
-	want := d.Resolve(d.Default(), fakeStart())
+	want := d.Resolve(d.Default(), fakeInputs())
 	if got.HostPath != want.HostPath {
 		t.Errorf("fallback host path = %q, want the engine default %q (%q)",
 			got.HostPath, want.HostPath, d.Default())
@@ -203,7 +326,7 @@ func TestPresentations_Names_AreDerivedFromDeclaredPresenters(t *testing.T) {
 	// Names() a promise rather than an advertisement.
 	mark := arm(t, false)
 	for _, name := range got {
-		if p := d.Resolve(name, fakeStart()); p.HostPath == "" {
+		if p := d.Resolve(name, fakeInputs()); p.HostPath == "" {
 			t.Errorf("Names() lists %q but resolving it built nothing", name)
 		}
 	}
@@ -213,6 +336,28 @@ func TestPresentations_Names_AreDerivedFromDeclaredPresenters(t *testing.T) {
 
 	if d.Default() != fakeUnsafeFileName {
 		t.Errorf("Default() = %q, want %q", d.Default(), fakeUnsafeFileName)
+	}
+}
+
+// Names and Default must be answerable with NO environment at all — no roots,
+// nothing constructed. Help text and shell completion call them before
+// anything is resolved, and a declaration that needed placeholder values to
+// enumerate itself would have to be built per-invocation instead of once.
+func TestPresentations_NamesAndDefault_AreAnswerableWithoutAnyEnvironment(t *testing.T) {
+	mark := arm(t, false)
+	d := fakeContextPresentations()
+
+	if got := len(d.Names()); got != 3 {
+		t.Errorf("Names() returned %d entries without an environment, want 3", got)
+	}
+	if d.Default() != fakeUnsafeFileName {
+		t.Errorf("Default() = %q, want %q", d.Default(), fakeUnsafeFileName)
+	}
+
+	// Enumerating is not resolving: it must not construct anything, and so must
+	// not be able to record a fault.
+	if found := strictness.Since(mark); len(found) != 0 {
+		t.Errorf("enumerating recorded %d finding(s), want 0: %+v", len(found), found)
 	}
 }
 

@@ -33,8 +33,14 @@ func resetStrictness(t *testing.T) {
 type failingPolicy struct{ name string }
 
 func (f failingPolicy) Name() string { return f.name }
-func (failingPolicy) PrepareWorkspace(context.Context, string, string) (Workspace, error) {
+func (failingPolicy) ResolveWorkspace(context.Context, string, string) (Workspace, error) {
 	return nil, errors.New("agent image absent")
+}
+func (failingPolicy) Mount(context.Context, Workspace) (MountPlan, error) {
+	return MountPlan{}, errors.New("unused: resolution fails first, so the chain never maps")
+}
+func (f failingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
+	return prepareWorkspace(ctx, f, projectDir, agentID)
 }
 func (failingPolicy) SpawnClient(string, string, int, Workspace, map[string]string) (pb.Client, error) {
 	return nil, errors.New("unused: the chain degrades before spawn")
@@ -52,8 +58,14 @@ func (failingPolicy) StartRunner(context.Context, string, string, int, Workspace
 type passingPolicy struct{ name string }
 
 func (p passingPolicy) Name() string { return p.name }
-func (passingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
-	return None{}.PrepareWorkspace(ctx, projectDir, agentID)
+func (passingPolicy) ResolveWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
+	return None{}.ResolveWorkspace(ctx, projectDir, agentID)
+}
+func (passingPolicy) Mount(context.Context, Workspace) (MountPlan, error) {
+	return MountPlan{}, nil
+}
+func (p passingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
+	return prepareWorkspace(ctx, p, projectDir, agentID)
 }
 func (passingPolicy) SpawnClient(string, string, int, Workspace, map[string]string) (pb.Client, error) {
 	return nil, errors.New("unused: prepareChain stops at the first success")

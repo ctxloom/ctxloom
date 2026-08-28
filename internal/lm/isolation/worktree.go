@@ -106,7 +106,7 @@ func NewWorktree(g git.Git, backend string) Worktree {
 // Name identifies the policy.
 func (Worktree) Name() string { return "worktree" }
 
-// PrepareWorkspace creates a fresh detached worktree for the member. It errors
+// ResolveWorkspace creates a fresh detached worktree for the member. It errors
 // (→ caller degrades to None) when projectDir is not a git repo or the worktree
 // add fails. On success it also, best-effort, provisions the member's HOST
 // isolation lever and writes the broadened ctxloom-config excludes to the
@@ -131,7 +131,7 @@ func (Worktree) Name() string { return "worktree" }
 // what THIS call created, and re-panicking preserves the original failure (a
 // real bug still crashes / a mutant still gets killed) while guaranteeing no
 // resource outlives the call that made it.
-func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
+func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	if !w.git.IsRepo(projectDir) {
 		// The caller degrades to None (shared cwd). NOTE the user edge: concurrent
 		// members in a NON-git repo share the one cwd and lose config isolation —
@@ -150,7 +150,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 	// on a graceful Cleanup), so a later startup sweep needs a way to prove
 	// THIS worktree's owner is gone before it dares remove it. Best-effort: a
 	// failed write only means a future sweep must conservatively skip this one
-	// (never force), not that PrepareWorkspace itself fails.
+	// (never force), not that ResolveWorkspace itself fails.
 	recordWorktreeOwner(wtPath)
 
 	ws := &worktreeWorkspace{
@@ -201,6 +201,18 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 	w.excludeConfigFromMerge(ctx, projectDir)
 	w.skipTrackedConfig(ctx, wtPath)
 	return ws, nil
+}
+
+// Mount maps nothing. Like None, the worktree policy runs the engine on the
+// HOST, directly inside the checkout ResolveWorkspace created — there is no
+// second environment to map the tree into. The per-agent config-home and
+// toolchain-scratch env the worktree does provide rides worktreeWorkspace.Env
+// (the EnvWorkspace seam the spawn already consults), not a mount plan.
+func (Worktree) Mount(context.Context, Workspace) (MountPlan, error) { return MountPlan{}, nil }
+
+// PrepareWorkspace resolves and maps in one step (see prepareWorkspace).
+func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
+	return prepareWorkspace(ctx, w, projectDir, agentID)
 }
 
 // provisionScratchDir creates the per-agent TOOLCHAIN scratch root

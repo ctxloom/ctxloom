@@ -1651,3 +1651,32 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 	require.NoError(t, err, "LoadDistilledSession(outputDir, result.SessionID) must find what Compact just wrote")
 	assert.Contains(t, loaded.Body, body, "the essence read back must carry the distilled content, not be empty")
 }
+
+// runDistill's contract with Distill: the transcript travels enveloped as a
+// <session_log>, after the system prompt. The envelope is what tells the model
+// which part of the prompt is material rather than instruction; losing it
+// leaves the transcript indistinguishable from the instructions above it.
+func TestCompactor_RunDistill_EnvelopesContentAsSessionLog(t *testing.T) {
+	var captured *pb.RunStart
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			captured = req
+			_, _ = stdout.Write([]byte("distilled"))
+			return 0, nil
+		},
+	}
+	c := &Compactor{
+		config:        CompactionConfig{LLM: "test-plugin"},
+		clientFactory: pb.MockClientFactory(mockClient),
+	}
+
+	_, err := c.runDistill(context.Background(), "SYSTEM PROMPT", "the transcript")
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.NotNil(t, captured.Prompt)
+	assert.Contains(t, captured.Prompt.Content, "<session_log>\nthe transcript\n</session_log>")
+	assert.Less(t,
+		strings.Index(captured.Prompt.Content, "SYSTEM PROMPT"),
+		strings.Index(captured.Prompt.Content, "<session_log>"),
+		"the instruction must precede the material")
+}

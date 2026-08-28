@@ -102,17 +102,21 @@ func TestDraftPremise_ToleratesACodeFence(t *testing.T) {
 }
 
 func TestDraftPremise_RejectsOutputWithoutAPremise(t *testing.T) {
-	for name, out := range map[string]string{
-		"prose":          "I think this fragment is about error handling.",
-		"missing key":    "moments:\n  - \"something\"\n",
-		"empty premise":  `premise: ""`,
-		"empty document": "{}",
+	// wantErr pins WHICH refusal fires: a missing premise field and an
+	// explicitly empty one carry different remedies, and a mutation collapsing
+	// one guard into the other survives a bare assert.Error.
+	for name, tc := range map[string]struct{ out, wantErr string }{
+		"prose":          {"I think this fragment is about error handling.", "not the instructed YAML shape"},
+		"missing key":    {"moments:\n  - \"something\"\n", "no premise field"},
+		"empty premise":  {`premise: ""`, "premise is empty"},
+		"empty document": {"{}", "no premise field"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			factory, _ := draftClient(out)
+			factory, _ := draftClient(tc.out)
 			_, err := DraftPremise(context.Background(),
 				PremiseAuthorConfig{ClientFactory: factory}, "frag", "body")
-			assert.Error(t, err, "malformed model output must refuse, never yield a guessed draft")
+			require.Error(t, err, "malformed model output must refuse, never yield a guessed draft")
+			assert.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
 }

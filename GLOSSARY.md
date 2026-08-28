@@ -81,24 +81,6 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   Qualify every use; bare "coordinator" is ambiguous and reserved for
   headings where the qualifier is established.
 
-## Invariants that ride on this vocabulary
-
-- **The wire is network-agnostic.** The control-plane transmits everything the
-  runner needs over the wire (data, not file handles); nothing reaches across it
-  to touch the other side's filesystem. Delivery never bind-mounts a
-  control-plane file into a (possibly remote) runner.
-- **Delivery (materialization) is runner-side.** Each surface of the loadout is
-  materialized by the runner into its own local, isolation-private location via a
-  per-surface mechanism strategy (file template / append-flag / inject-hook /
-  in-band) — fed by the wire.
-- **Isolation (worktree / container / bind matrix) is runner-side.** The runner
-  composes its own isolation/containerization objects and injects the surfaces into
-  them — this is what makes the wire network-agnostic (a remote runner composes its
-  own isolation; the control-plane cannot reach across the wire to mount anything).
-  NOTE: today's code arranges isolation *control-plane-side*
-  (`PrepareWorkspace`/`Spawn` in `internal/cli/run.go`, before the runner exists);
-  relocating it runner-side is planned, not yet done.
-
 ## Implied code renames (consequences; schedule separately, not blockers)
 
 - package `internal/shared/agent` → `runner` (biggest bare-"agent" offender).

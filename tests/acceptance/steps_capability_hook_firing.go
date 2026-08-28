@@ -52,6 +52,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 // hookProbeRunTimeout bounds one cell's live run.
@@ -233,9 +235,33 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		watcher := hookProbeWatchCarriage(hookProbeCarriage{
 			Needle:    h.scriptPath,
 			Roots:     []string{w.env.ProjectDir, filepath.Join(realHomeDir, ".ctxloom", "sessions")},
+			RootGlobs: hookProbeContainerOverlayGlobs(),
 			Authored:  h.authored,
 			NotBefore: runStart,
 		})
+
+		// The IN-CONTAINER half. A container cell's settings file lives on the
+		// container's own filesystem and is never bound back to the host (only
+		// the persist dir is), so the host watcher above is structurally blind
+		// to it and reports NOT SEEN whatever ctxloom did. This is the only
+		// vantage point that can tell a missing WRITE from a missing RUN on
+		// this axis — which is the entire question P3's container cells exist
+		// to answer.
+		var containerCarriage <-chan string
+		containerScanCancel := func() {}
+		if hookProbeIsContainerAxis(h.runtime) {
+			rt, decision, _ := probeContainerRuntimeForAxis(c, h.runtime, hookProbeFamily)
+			if decision == dockergate.Proceed && rt.Command != "" {
+				scanCtx, cancel := context.WithCancel(c)
+				defer cancel()
+				containerScanCancel = cancel
+				containerCarriage = hookProbeWatchContainerCarriage(
+					scanCtx, rt.Command, h.scriptPath,
+					[]string{w.env.ProjectDir}, h.authored,
+				)
+			}
+		}
+
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
@@ -293,6 +319,19 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// that the scan reports the bundle YAML the probe wrote itself and
 		// calls it delivery evidence — measured, and the reason Authored exists.
 		h.carriage = watcher.Stop()
+		h.carriageRoots = watcher.Searched()
+
+		// The in-container scan is collected AFTER the run and takes precedence
+		// over the host's silence: a hit there is a positive observation of the
+		// bytes claude was actually handed, where the host's "" on this axis is
+		// only ever the absence of a place to look.
+		containerScanCancel()
+		if containerCarriage != nil {
+			if hit := <-containerCarriage; hit != "" {
+				h.carriage = hit
+			}
+			h.carriageRoots = append(h.carriageRoots, "(in-container) $HOME/.ctxloom, "+w.env.ProjectDir)
+		}
 
 		w.docStepMaterialized = fmt.Sprintf(
 			"hook-probe %s exit=%d\nargv harp=%s\nstdout harp=%s\nstamp path=%s\nstamp read err=%v\nstamp contents:\n%s\ncarriage: %s\nstdout:\n%s\nstderr:\n%s",
@@ -377,4 +416,61 @@ func hookProbeConfigYAML(a liveAgent, llmKey, engine, runtime string) string {
 // claude's cell is green on exactly that path.
 func hookProbeNeedsProjectConfigHome(engine string) bool {
 	return engine == "codex"
+}
+
+// --- driving the in-container carriage scan ---------------------------------
+
+// hookProbeDockerExec is the real hookProbeContainerExec: `<runtime> exec`.
+//
+// The needle travels as an ENV VAR, never spliced into the script, so a
+// filesystem path carrying a quote cannot become shell. See
+// hookProbeContainerCarriageScript.
+func hookProbeDockerExec(runtimeBin string) hookProbeContainerExec {
+	return func(container string, env map[string]string, argv ...string) ([]byte, error) {
+		args := []string{"exec"}
+		for k, v := range env {
+			args = append(args, "-e", k+"="+v)
+		}
+		args = append(args, container)
+		args = append(args, argv...)
+		return exec.Command(runtimeBin, args...).Output()
+	}
+}
+
+// hookProbeWatchContainerCarriage waits for the cell's container and then polls
+// the in-container scan until ctx ends, returning the FIRST hit (or "").
+//
+// It polls for the same reason the host watcher does: ctxloom scrubs delivered
+// settings at teardown, and the container is removed by `--rm` moments later,
+// so a single look after the run reliably sees nothing whether or not the hook
+// was ever delivered.
+//
+// CONCURRENCY: this inherits waitForContainerName's documented caveat — every
+// cell's container is named ctxloom-iso-<random>, so two container cells racing
+// on one host can attribute the wrong container. `just capability-probe` runs
+// one cell at a time; do not fan these out.
+func hookProbeWatchContainerCarriage(ctx context.Context, runtimeBin, needle string, dirs, authored []string) <-chan string {
+	out := make(chan string, 1)
+	go func() {
+		defer close(out)
+		name := waitForContainerName(ctx, runtimeBin)
+		if name == "" {
+			return
+		}
+		run := hookProbeDockerExec(runtimeBin)
+		ticker := time.NewTicker(hookProbeCarriagePollInterval)
+		defer ticker.Stop()
+		for {
+			if hit := hookProbeContainerScan(run, name, needle, dirs, authored); hit != "" {
+				out <- hit
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return out
 }

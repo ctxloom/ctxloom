@@ -166,7 +166,14 @@ func TestPremiseIndex_ListsOnlyPremisedFragments(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, entries, 1, "only the premised fragment is indexed; unconditional ones are not decisions")
-	assert.Equal(t, "gamma", entries[0].Name)
+	assert.Equal(t, "sel#fragments/gamma", entries[0].Name,
+		"the index must hand out a QUALIFIED ref, because that is what a selection quotes back. "+
+			"A bare ask resolves through Catalog.ResolveFragmentAsk, which on several matches takes "+
+			"the first in List order and only warns -- and `general` is defined in seventeen "+
+			"code-review bundles in the default corpus, so a bare ask for one lens silently "+
+			"delivers another")
+	assert.Contains(t, entries[0].Name, "#fragments/",
+		"an unqualified row is the defect this pins; the separator is what makes the ask exact")
 	assert.Equal(t, "You are about to remove a worktree.", entries[0].Premise)
 }
 

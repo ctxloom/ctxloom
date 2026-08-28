@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // Bare `ctxloom fragment` lists the fragments: the collection is the one
@@ -158,6 +162,7 @@ func init() {
 	fragmentCmd.AddCommand(fragmentRemoveCmd)
 	fragmentCmd.AddCommand(fragmentEditCmd)
 	fragmentCmd.AddCommand(fragmentDistillCmd)
+	fragmentCmd.AddCommand(fragmentPremisesCmd)
 
 	fragmentListCmd.Flags().StringVarP(&fragmentListBundle, "bundle", "b", "", "Filter by bundle name")
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowDistilled, "distilled", "d", false, "Show distilled version")
@@ -165,4 +170,57 @@ func init() {
 	fragmentEditCmd.Flags().BoolVar(&fragmentEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	fragmentDistillCmd.Flags().BoolVarP(&fragmentDistillForce, "force", "f", false, "Re-distill even if unchanged")
 	fragmentRemoveCmd.Flags().BoolVarP(&fragmentRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
+}
+
+// The premise index is PULLED by the agent, not pushed into its context, and
+// that is the point rather than a limitation. Assembled context is delivered
+// once at launch into the session's system prompt, and in-process subagents
+// inherit it wholesale -- there is no per-agent scoping, so a pushed index
+// cannot be tailored and cannot reach a child that ctxloom never mediated. A
+// command any agent can run needs none of that: it asks when it has a moment to
+// match, which is also the only time the answer means anything.
+var fragmentPremisesCmd = &cobra.Command{
+	Use:   "premises",
+	Short: "List conditionally-loaded fragments and the premise each applies under",
+	Long: `List every fragment that carries a premise, with the condition under which it applies.
+
+A premised fragment is NOT loaded unconditionally. This command is how an agent
+asks what is available: it prints each fragment's qualified reference and its
+premise, plus the instruction for deciding between them. Fragments carrying no
+premise are absent -- they are always loaded, so there is nothing to decide.
+
+Having chosen, load one with its reference:
+
+  ctxloom fragment premises                       # what is on offer, and when it applies
+  ctxloom fragment show core#fragments/tdd        # load one you selected`,
+	Args: cobra.NoArgs,
+	RunE: runFragmentPremises,
+}
+
+func runFragmentPremises(cmd *cobra.Command, _ []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	entries, err := operations.PremiseIndex(cfg.BundleLoader().Catalog())
+	if err != nil {
+		return fmt.Errorf("failed to list premised fragments: %w", err)
+	}
+	cmd.Println(renderPremiseListing(entries))
+	return nil
+}
+
+// renderPremiseListing is the command's whole decision, extracted so a test can
+// exercise THIS function rather than a copy of it. A test that reimplements the
+// branch it is checking passes whatever the command later does.
+//
+// An empty index is REPORTED, never rendered as an empty instruction: a corpus
+// where nothing is conditional is a valid state, and an agent told to "select
+// from the following" with nothing following is being asked to choose from an
+// empty set.
+func renderPremiseListing(entries []operations.PremiseIndexEntry) string {
+	if len(entries) == 0 {
+		return "No fragments carry a premise: every fragment in this project's corpus is loaded unconditionally."
+	}
+	return operations.RenderPremiseIndex(entries)
 }

@@ -18,6 +18,16 @@ import (
 // through the existing surface without minting a parallel identity for the
 // same fragment.
 type PremiseIndexEntry struct {
+	// Name is what a selection quotes back, and it must be the QUALIFIED
+	// reference (bundle#fragments/name), never a bare name.
+	//
+	// A bare ask is resolved by Catalog.ResolveFragmentAsk, which on several
+	// matches picks the first in List order -- sorted by bundle name -- and
+	// only warns. That is a live hazard, not a hypothetical: `general` is
+	// defined in SEVENTEEN code-review bundles in the default corpus, so a bare
+	// ask for the structural design lens silently resolves to the
+	// accessibility-i18n one. The agent gets a fragment it did not choose and
+	// nothing downstream can tell.
 	Name    string `json:"name"`
 	Premise string `json:"premise"`
 }
@@ -176,7 +186,14 @@ func PremiseIndex(cat bundles.Catalog) ([]PremiseIndexEntry, error) {
 		if info.Premise == "" {
 			continue
 		}
-		entries = append(entries, PremiseIndexEntry{Name: info.Name, Premise: info.Premise})
+		// Qualify against the owning bundle. The assembly-scoped producer
+		// already carries qualified refs (its rows come from the pipeline's
+		// canonical ref); this one built bare names from ContentInfo, so the
+		// two disagreed on the one thing a selection quotes back.
+		entries = append(entries, PremiseIndexEntry{
+			Name:    info.Bundle + "#fragments/" + info.Name,
+			Premise: info.Premise,
+		})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	return entries, nil

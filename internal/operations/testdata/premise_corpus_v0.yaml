@@ -8,7 +8,14 @@ description: 'Premise test corpus: the fragments this coordinator profile actual
   plus isolation-axes which reaches context through a COMPANION loadout rather than the profile tree.
   The sequential-thinking and unattended bundles contribute no fragments (MCP/server only). The wider
   code-review surface is EXCLUDED (it is being retired), but code-review-structural''s lens is KEPT: it
-  is judged still useful independently of that retirement.'
+  is judged still useful independently of that retirement.
+
+
+  REMOVED 2026-08-27: context-engineering. Its body is specifically about writing a CLAUDE.md, and its
+  own closing line names its moment -- an agent got something wrong, so write a rule to stop it recurring.
+  Two mining passes over 86 transcripts found no such moment, because editing project instructions is
+  a separate deliberate act rather than something that happens mid-task. It was expected by no situation
+  and selected by no run. Dropped rather than given an invented situation to justify it.'
 fragments:
   strings:
     ref: https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/strings
@@ -950,54 +957,6 @@ fragments:
 
       These comments live next to the call that triggers the temptation to reinvent. They do not depend
       on the AI consulting an external document.'
-    premise: ''
-  context-engineering:
-    ref: https://github.com/ctxloom/ctxloom-default@bundles/ai-coding-general#fragments/context-engineering
-    content: '# CLAUDE.md Rules
-
-
-      **Size: 100-200 lines max.** Move overflow to per-folder CLAUDE.md files.
-
-
-      ## Must Include
-
-      ```markdown
-
-      # Tech Stack
-
-      Language, framework, database, testing tools with versions
-
-
-      # Architecture
-
-      Directory structure with purpose of each folder
-
-
-      # Commands
-
-      Build, test, lint, deploy commands
-
-
-      # Coding Rules
-
-      Project-specific conventions AI would violate otherwise
-
-      ```
-
-
-      ## Do NOT Include
-
-      - General language syntax
-
-      - Patterns already enforced by linters
-
-      - Things Claude does correctly without instruction
-
-
-      **Test:** Would Claude make a mistake without this line? If no, delete it.
-
-
-      **Maintenance:** When Claude makes a mistake, add the correction to CLAUDE.md immediately.'
     premise: ''
   ltk:
     ref: https://github.com/ctxloom/ctxloom-default@bundles/ltk#fragments/ltk

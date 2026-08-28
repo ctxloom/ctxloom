@@ -9,7 +9,12 @@ description: "Premise corpus v2: v1 broadened where measurement showed it too na
   \ versus whether the evidence is real.\n  - coordination-tools fired where nothing expected it and was\
   \ never chosen by the blind labeller in 59 situations. It now claims only the mechanics of the coordination\
   \ tools, and says explicitly to skip it when the question is whether to delegate at all.\n\nv0 (no premises)\
-  \ and v1 (first authored set) are both preserved; this is only meaningful measured against them."
+  \ and v1 (first authored set) are both preserved; this is only meaningful measured against them.\n\n\
+  REMOVED 2026-08-27: context-engineering. Its body is specifically about writing a CLAUDE.md, and its\
+  \ own closing line names its moment -- an agent got something wrong, so write a rule to stop it recurring.\
+  \ Two mining passes over 86 transcripts found no such moment, because editing project instructions is\
+  \ a separate deliberate act rather than something that happens mid-task. It was expected by no situation\
+  \ and selected by no run. Dropped rather than given an invented situation to justify it."
 fragments:
   strings:
     ref: https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/strings
@@ -997,55 +1002,6 @@ fragments:
     premise: You are about to build infrastructure -- a protocol, a validator, a health check, an auth
       flow, a parser, a retry policy. For anyone about to write something a well-known standard, or a
       library this project already wires in, may already cover.
-  context-engineering:
-    ref: https://github.com/ctxloom/ctxloom-default@bundles/ai-coding-general#fragments/context-engineering
-    content: '# CLAUDE.md Rules
-
-
-      **Size: 100-200 lines max.** Move overflow to per-folder CLAUDE.md files.
-
-
-      ## Must Include
-
-      ```markdown
-
-      # Tech Stack
-
-      Language, framework, database, testing tools with versions
-
-
-      # Architecture
-
-      Directory structure with purpose of each folder
-
-
-      # Commands
-
-      Build, test, lint, deploy commands
-
-
-      # Coding Rules
-
-      Project-specific conventions AI would violate otherwise
-
-      ```
-
-
-      ## Do NOT Include
-
-      - General language syntax
-
-      - Patterns already enforced by linters
-
-      - Things Claude does correctly without instruction
-
-
-      **Test:** Would Claude make a mistake without this line? If no, delete it.
-
-
-      **Maintenance:** When Claude makes a mistake, add the correction to CLAUDE.md immediately.'
-    premise: You are about to write or edit a CLAUDE.md, or decide what belongs in the instructions an
-      agent reads every session. For anyone adding a rule to the file that is loaded unconditionally.
   ltk:
     ref: https://github.com/ctxloom/ctxloom-default@bundles/ltk#fragments/ltk
     content: "# llm-tool-killer (ltk)\n\nThis project may run **ltk**, a pre-tool hook that inspects each\

@@ -158,3 +158,32 @@ against 0.107 for misses) is REAL BUT NOT CAUSAL. Fragments that match happen to
 share vocabulary with their situations; supplying vocabulary does not cause
 matches. The barrier is that the premise's CONDITION is absent from the moment,
 and no amount of tagging reaches "the author is tempted to add a shim".
+
+## Two biases, opposite directions — read the numbers accordingly
+
+MEASURED, not assumed: every selection agent had the full fragment BODIES in its
+context. ctxloom delivers assembled context once, at launch, via
+--append-system-prompt-file into the session's SYSTEM PROMPT; in-process
+subagents inherit it, and ctxloom does not mediate them. A probe agent, asked to
+answer from context alone with no tool calls, quoted "# Worktree Lifecycle",
+"# A test does not pass until a mutation dies" and "# String Handling" verbatim
+in 2.4 seconds. So "the selector sees the index only" was false.
+
+That inflates the absolute numbers: a model that already knows what a fragment
+SAYS can match its moments without the premise doing any work.
+
+It is offset by a bias in the other direction. Each situation is ONE LINE, while
+a real moment carries a whole turn of context. The selector is matching against
+far less than production would give it. unchecked-bindings fires on "writing
+prose that names something specific", which a one-line intent cannot express at
+all -- so some of what looks like a premise defect is the fixture's resolution,
+not the premise.
+
+Neither bias touches the COMPARISONS, because both arms of every experiment
+carried both. Protocol (list 0.49 -> per-premise 0.76), prompt wording (null),
+premise breadth (null) and noun tags (null) all hold.
+
+THE CONTROL THAT WOULD SETTLE WHAT THE PREMISES CONTRIBUTE has not been run:
+replace every premise with its fragment NAME alone and re-run. If recall holds,
+body knowledge is doing the work and the premises are decoration. If it falls,
+the premises are load-bearing. That is the one experiment that separates them.

@@ -102,6 +102,26 @@ func (f *premiseFilter) entries() []PremiseIndexEntry {
 // does not know.
 const premiseIndexHeading = "# Conditional guidance (not loaded)"
 
+// The index's wording is LOAD-BEARING and was chosen by measurement, not taste.
+// Against a fixture of 59 situations mined from real transcripts and labelled
+// blind, three properties moved the result and the rest did not:
+//
+//   - PER-PREMISE judgement. Presenting the index as a menu to pick from makes
+//     premises compete for one slot: recall ~0.49, with a single fragment
+//     returned for ~93% of moments. Judging each premise on its own lifts recall
+//     to ~0.76. This is the largest effect anyone measured, by a wide margin.
+//   - BORDERLINE RESOLVES TOWARD INCLUDING. Recall ~0.83, because the two errors
+//     are not equal: an over-offered fragment costs context, a withheld one is
+//     never learned to exist.
+//   - MATCH THE IMMINENT ACTION, not the surrounding context. Given a 25k-token
+//     window of real history instead of a one-line intent, recall FELL from 0.93
+//     to 0.57 while selections doubled -- the moment gets diluted by the span
+//     around it.
+//
+// Wording that made no measurable difference: telling the model that context is
+// costly, telling it that selecting nothing is often right, and broadening the
+// premises themselves. Do not trade the three properties above for brevity.
+//
 // RenderPremiseIndex renders the index the agent selects from. It returns ""
 // for an empty index, and every caller relies on that: an empty render is what
 // keeps a premise-free corpus byte-identical to what it assembled before.
@@ -117,10 +137,17 @@ func RenderPremiseIndex(entries []PremiseIndexEntry) string {
 	var b strings.Builder
 	b.WriteString(premiseIndexHeading)
 	b.WriteString("\n\nThe guidance below is NOT in your context. Each line gives a fragment's\n")
-	b.WriteString("NAME and the premise under which it applies. When you are about to do\n")
-	b.WriteString("something a premise describes, call the ctxloom `assemble_context` tool\n")
-	b.WriteString("with those names (the `bundles` argument) and follow what it returns.\n")
-	b.WriteString("Select on the premise, not on the name.\n")
+	b.WriteString("NAME and the PREMISE under which it applies.\n\n")
+	b.WriteString("Match against WHAT YOU ARE ABOUT TO DO -- the next action, not the whole\n")
+	b.WriteString("conversation behind you. Take each premise ON ITS OWN and ask whether it\n")
+	b.WriteString("describes that action; you are not picking the single best match, and\n")
+	b.WriteString("several premises often apply at once.\n\n")
+	b.WriteString("When it is a BORDERLINE call, include it. An unnecessary fragment costs a\n")
+	b.WriteString("little context; one you withhold is never learned to exist and cannot be\n")
+	b.WriteString("asked for.\n\n")
+	b.WriteString("Select on the premise, not on the name. Then call the ctxloom\n")
+	b.WriteString("`assemble_context` tool with the names you chose (the `bundles` argument)\n")
+	b.WriteString("and follow what it returns.\n")
 	for _, e := range entries {
 		fmt.Fprintf(&b, "\n- %s: %s", e.Name, e.Premise)
 	}

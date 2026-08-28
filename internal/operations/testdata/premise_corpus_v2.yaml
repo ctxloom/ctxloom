@@ -14,21 +14,14 @@ description: "Premise corpus v2: v1 broadened where measurement showed it too na
   \ own closing line names its moment -- an agent got something wrong, so write a rule to stop it recurring.\
   \ Two mining passes over 86 transcripts found no such moment, because editing project instructions is\
   \ a separate deliberate act rather than something that happens mid-task. It was expected by no situation\
-  \ and selected by no run. Dropped rather than given an invented situation to justify it."
+  \ and selected by no run. Dropped rather than given an invented situation to justify it.\n\nSPLIT 2026-08-27:\
+  \ `strings` became `string-flow-control` and `error-constants`. Its two sections fire at different moments\
+  \ -- one when writing a CONDITIONAL whose test is a string, the other when DECLARING an error or asserting\
+  \ on one -- so a single premise could only cover them as an unrelated disjunction. That is the tell\
+  \ for a fragment doing two jobs, and it is worth noting the section COUNT did not reveal it: this fragment\
+  \ had two headings while others with six are a single coherent idea. The signal is whether sections\
+  \ fire at different moments, not how many there are."
 fragments:
-  strings:
-    ref: https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/strings
-    content: "# String Handling\n\n## No String-Based Flow Control\n\nNever use string approximations\
-      \ (`startswith`, `endswith`, `contains`, substring matching) for program flow control unless explicitly\
-      \ instructed. Use typed errors or error codes instead.\n\n```go\n// Wrong\nif strings.Contains(err.Error(),\
-      \ \"connection refused\") {\n    retry()\n}\n\n// Right\nif errors.Is(err, ErrConnectionRefused)\
-      \ {\n    retry()\n}\n```\n\n## Error Messages as Constants\n\nAll error messages must be defined\
-      \ as constants and reused in test assertions. No magic strings.\n\n```go\n// errors.go\nvar ErrUserNotFound\
-      \ = errors.New(\"user not found\")\n\n// service.go\nreturn ErrUserNotFound\n\n// service_test.go\n\
-      assert.ErrorIs(t, err, ErrUserNotFound)\n```"
-    premise: You are about to compare, match, or branch on an error message or other string, or you are
-      writing an error that code elsewhere will need to recognise. For anyone reaching for Contains, HasPrefix,
-      or a literal message inside a conditional or a test assertion.
   unchecked-bindings:
     ref: https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/unchecked-bindings
     content: "# Do not build bindings you cannot check\n\nNaming one thing from another creates a BINDING:\
@@ -1062,3 +1055,41 @@ fragments:
       \ structural\nfootguns."
     premise: You are placing new code, changing a module boundary, or judging whether a change fits the
       system. For anyone deciding where something belongs, or what is now allowed to depend on what.
+  string-flow-control:
+    ref: 'https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/strings
+      (split: string-flow-control)'
+    content: "# No String-Based Flow Control\n\nNever use string approximations (`startswith`, `endswith`,\
+      \ `contains`, substring matching) for program flow control unless explicitly instructed. Use typed\
+      \ errors or error codes instead.\n\n```go\n// Wrong\nif strings.Contains(err.Error(), \"connection\
+      \ refused\") {\n    retry()\n}\n\n// Right\nif errors.Is(err, ErrConnectionRefused) {\n    retry()\n\
+      }\n```"
+    premise: You are about to write a conditional, a switch, or a retry whose test is a string comparison
+      -- Contains, HasPrefix, a substring, a matched message. For anyone about to make program flow depend
+      on the TEXT of an error or a message.
+  error-constants:
+    ref: 'https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/strings
+      (split: error-constants)'
+    content: '# Error Messages as Constants
+
+      All error messages must be defined as constants and reused in test assertions. No magic strings.
+
+
+      ```go
+
+      // errors.go
+
+      var ErrUserNotFound = errors.New("user not found")
+
+
+      // service.go
+
+      return ErrUserNotFound
+
+
+      // service_test.go
+
+      assert.ErrorIs(t, err, ErrUserNotFound)
+
+      ```'
+    premise: You are declaring an error value, or writing a test assertion against one. For anyone about
+      to type the same message literal in more than one place.

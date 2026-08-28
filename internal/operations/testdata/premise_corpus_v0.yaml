@@ -15,19 +15,16 @@ description: 'Premise test corpus: the fragments this coordinator profile actual
   own closing line names its moment -- an agent got something wrong, so write a rule to stop it recurring.
   Two mining passes over 86 transcripts found no such moment, because editing project instructions is
   a separate deliberate act rather than something that happens mid-task. It was expected by no situation
-  and selected by no run. Dropped rather than given an invented situation to justify it.'
+  and selected by no run. Dropped rather than given an invented situation to justify it.
+
+
+  SPLIT 2026-08-27: `strings` became `string-flow-control` and `error-constants`. Its two sections fire
+  at different moments -- one when writing a CONDITIONAL whose test is a string, the other when DECLARING
+  an error or asserting on one -- so a single premise could only cover them as an unrelated disjunction.
+  That is the tell for a fragment doing two jobs, and it is worth noting the section COUNT did not reveal
+  it: this fragment had two headings while others with six are a single coherent idea. The signal is whether
+  sections fire at different moments, not how many there are.'
 fragments:
-  strings:
-    ref: https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/strings
-    content: "# String Handling\n\n## No String-Based Flow Control\n\nNever use string approximations\
-      \ (`startswith`, `endswith`, `contains`, substring matching) for program flow control unless explicitly\
-      \ instructed. Use typed errors or error codes instead.\n\n```go\n// Wrong\nif strings.Contains(err.Error(),\
-      \ \"connection refused\") {\n    retry()\n}\n\n// Right\nif errors.Is(err, ErrConnectionRefused)\
-      \ {\n    retry()\n}\n```\n\n## Error Messages as Constants\n\nAll error messages must be defined\
-      \ as constants and reused in test assertions. No magic strings.\n\n```go\n// errors.go\nvar ErrUserNotFound\
-      \ = errors.New(\"user not found\")\n\n// service.go\nreturn ErrUserNotFound\n\n// service_test.go\n\
-      assert.ErrorIs(t, err, ErrUserNotFound)\n```"
-    premise: ''
   unchecked-bindings:
     ref: https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/unchecked-bindings
     content: "# Do not build bindings you cannot check\n\nNaming one thing from another creates a BINDING:\
@@ -1012,4 +1009,39 @@ fragments:
       \ get the most\n  scrutiny; speculative generality (YAGNI) and SOLID weaponized into interface\n\
       \  proliferation both get pushed back.\n\nPair this with the project's language fragment for idiom-specific\
       \ structural\nfootguns."
+    premise: ''
+  string-flow-control:
+    ref: 'https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/strings
+      (split: string-flow-control)'
+    content: "# No String-Based Flow Control\n\nNever use string approximations (`startswith`, `endswith`,\
+      \ `contains`, substring matching) for program flow control unless explicitly instructed. Use typed\
+      \ errors or error codes instead.\n\n```go\n// Wrong\nif strings.Contains(err.Error(), \"connection\
+      \ refused\") {\n    retry()\n}\n\n// Right\nif errors.Is(err, ErrConnectionRefused) {\n    retry()\n\
+      }\n```"
+    premise: ''
+  error-constants:
+    ref: 'https://github.com/benjaminabbitt/ctxloom-personal@bundles/core-practices#fragments/strings
+      (split: error-constants)'
+    content: '# Error Messages as Constants
+
+      All error messages must be defined as constants and reused in test assertions. No magic strings.
+
+
+      ```go
+
+      // errors.go
+
+      var ErrUserNotFound = errors.New("user not found")
+
+
+      // service.go
+
+      return ErrUserNotFound
+
+
+      // service_test.go
+
+      assert.ErrorIs(t, err, ErrUserNotFound)
+
+      ```'
     premise: ''

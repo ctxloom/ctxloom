@@ -144,6 +144,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"llm edit":    {skip: "wired to emit(), but mutating and needs an existing llm fixture; not exercised here"},
 	"llm remove":  {skip: "destructive; not exercised here (needs an llm fixture)"},
 
+	// Read-only, no args: the premise index an agent asks for before selecting.
+	"fragment premises": {extraArgs: noExtraArgs},
+
 	"bundle list": {extraArgs: noExtraArgs},
 	"bundle create": {extraArgs: func(f string) []string {
 		return []string{"coverage-create-" + f}

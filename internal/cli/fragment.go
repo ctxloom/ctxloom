@@ -206,8 +206,18 @@ func runFragmentPremises(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list premised fragments: %w", err)
 	}
-	cmd.Println(renderPremiseListing(entries))
-	return nil
+	// A nil slice marshals to `null`, which a caller parsing a LIST has to
+	// special-case; an empty corpus is an empty list, not the absence of one.
+	if entries == nil {
+		entries = []operations.PremiseIndexEntry{}
+	}
+	// Structured callers get the ENTRIES; a human (or an agent reading the
+	// terminal) gets the rendered listing with its selection instruction. Both
+	// go through emit() so --format is honored at the one chokepoint.
+	return emit(cmd, entries, func() error {
+		cmd.Println(renderPremiseListing(entries))
+		return nil
+	})
 }
 
 // renderPremiseListing is the command's whole decision, extracted so a test can

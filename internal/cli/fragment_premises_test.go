@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,4 +53,19 @@ func TestFragmentPremises_RendersQualifiedRefsAndTheInstruction(t *testing.T) {
 		"per-premise judgement is the largest measured effect on selection quality")
 	assert.NotContains(t, got, "No fragments carry a premise",
 		"a populated index must not also claim emptiness")
+}
+
+// A nil index must reach a structured caller as an empty LIST, not as null. The
+// command asks for a list of what is on offer; "null" makes a parser distinguish
+// "no premises" from "the field was absent", which is a distinction the corpus
+// does not have.
+func TestFragmentPremises_EmptyIndexIsAnEmptyListNotNull(t *testing.T) {
+	var entries []operations.PremiseIndexEntry
+	if entries == nil {
+		entries = []operations.PremiseIndexEntry{}
+	}
+	b, err := json.Marshal(entries)
+	require.NoError(t, err)
+	assert.Equal(t, "[]", string(b),
+		"an empty premise index serialises as an empty array; null would force every caller to special-case it")
 }

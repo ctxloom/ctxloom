@@ -153,9 +153,10 @@ func parsePremiseDraft(name, out string) (*PremiseDraft, error) {
 		return nil, fmt.Errorf("output has no premise field")
 	}
 	premise := strings.TrimSpace(*parsed.Premise)
-	if premise == premiseNone {
+	switch premise {
+	case premiseNone:
 		premise = ""
-	} else if premise == "" {
+	case "":
 		// An explicitly empty premise is neither a draft nor the NONE verdict
 		// the prompt defines; treat it as the malformed output it is.
 		return nil, fmt.Errorf("output premise is empty (an always-load verdict must say %s)", premiseNone)

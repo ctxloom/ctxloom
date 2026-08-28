@@ -1052,9 +1052,9 @@ func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 // via the client BEFORE Cleanup. extraEnv/extraMounts carry the resolved auth env
 // + credential/overlay/gitdir mounts threaded into the run spec at SpawnClient.
 type containerWorkspace struct {
-	dir         string            // identical-path cwd (project dir or worktree checkout)
-	scratchRoot string            // host scratch tree removed by Cleanup
-	socketDir   string            // scratchRoot/sock — go-plugin's unix-socket temp dir
+	dir         string // identical-path cwd (project dir or worktree checkout)
+	scratchRoot string // host scratch tree removed by Cleanup
+	socketDir   string // scratchRoot/sock — go-plugin's unix-socket temp dir
 	// authMounts/stateMounts/scratchEnv are the scratch's contributions to the
 	// mapping, resolved when the workspace was resolved and consumed by Mount.
 	// They are held apart from extraEnv/extraMounts because those two are the

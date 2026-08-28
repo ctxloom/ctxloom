@@ -3,6 +3,9 @@ package isolation
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -91,4 +94,52 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 		assert.Equal(t, dir, f.Removed[0], "the removed path is the checkout, not some other tree")
 		assert.Empty(t, f.Worktrees, "the checkout must not survive the failed prepare")
 	})
+}
+
+// TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout closes the half of
+// the unwind contract that moved when resolution and containerization were
+// split. TestWorktreeBase_UnwindsWhatItCreated proves the workspace's Cleanup
+// removes the checkout; it says nothing about whether the composed prepare
+// actually CALLS that Cleanup when the mapping fails. Deleting that call leaks a
+// checkout permanently and leaves the caller a nil workspace with no handle to
+// remove it — the precise failure the old prepareBase teardown existed to
+// prevent — so it is pinned here, through the real Container.PrepareWorkspace.
+func TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout(t *testing.T) {
+	ctx := context.Background()
+
+	fake := t.TempDir()
+	script := filepath.Join(fake, "fake-docker")
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
+	writeFakeRuntimeScript(t, script, filepath.Join(fake, "builds.log"), fake, labels)
+	require.NoError(t, os.WriteFile(filepath.Join(fake, "ctxloom-agent-unwind-test_latest"), nil, 0o644))
+
+	// The mapping fails: the checkout's git common dir cannot be resolved, so no
+	// gitdir mirror mount can be built. Resolution has already created the
+	// checkout by then, which is what makes this the leak-prone path.
+	boom := errors.New("common dir unreadable")
+	f := &git.Fake{CommonDirErr: boom}
+
+	c := Container{
+		runtime: fakeRuntime{name: "docker", binary: script, available: true},
+		image:   "ctxloom-agent-unwind-test:latest",
+		engineSpec: engineContainerSpec{
+			engineInstall: []byte("RUN echo fake-install\n"),
+			resolveAuth: func(string, string) (containerAuth, bool) {
+				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
+			},
+		},
+		binaryPath: defaultContainerBinary,
+		home:       defaultContainerHome,
+		socketDir:  defaultContainerSocketDir,
+		base:       worktreeBase{wt: NewWorktree(f, "mock")},
+	}
+
+	ws, err := c.PrepareWorkspace(ctx, t.TempDir(), "member-unwind")
+	require.Error(t, err, "a mapping that cannot be built must fail the prepare, never launch a broken container")
+	assert.ErrorIs(t, err, boom, "the mapping failure must reach the caller intact")
+	assert.Nil(t, ws, "a failed prepare hands back no workspace")
+
+	require.Len(t, f.Removed, 1,
+		"THE ASSERTION: the checkout resolution created must be torn down by the failed prepare — nothing else holds a handle to it")
+	assert.Empty(t, f.Worktrees, "the checkout must not survive the failed prepare")
 }

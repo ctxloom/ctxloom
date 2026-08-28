@@ -100,3 +100,30 @@ STATE IT, not on a property that becomes visible only once the work is underway.
 Word overlap with the situations supports it -- 0.243 for hits against 0.107 for
 misses -- but is not the mechanism: design-review-checkpoints and close-the-turn
 hit at ZERO lexical overlap. Observability, not vocabulary.
+
+## RULING: over-select rather than under-select
+
+Decided by the human 2026-08-27. The two errors are not equal and must not be
+scored as if they were.
+
+An over-offered fragment costs CONTEXT. A dropped one is never learned to exist:
+the agent does not know it was withheld, cannot ask for it, and proceeds without
+guidance it was supposed to have. That asymmetry is the whole reason silent drop
+is tracked separately.
+
+CONSEQUENCE FOR SCORING: F2 is the headline, not F1. F1 weights precision and
+recall equally, which contradicts the ruling and ranks a run that offered less
+above one that found more. F1 is kept only as a neutral reference.
+
+Re-ranked by F2, the order changes materially. The per-premise run leads at
+0.738 against 0.608 for the best list-selection run, where under F1 it led only
+0.706 to 0.673. The highest-PRECISION run (E, 0.838) falls to third, correctly:
+it earned that precision by offering less than anything else.
+
+THERE IS STILL A CEILING, and it is worth stating so "over-select" is not read as
+"select everything". The mechanism exists to reduce context; when mean selected
+approaches the corpus size the reduction is gone and the index has bought
+nothing. The headroom is currently enormous: 27 premised fragments, mean
+selected 1.24, which is 4.6% of the corpus. Selection could rise five-fold and
+still deliver better than a 4x reduction. Precision is a FLOOR to watch, not a
+target to maximise.

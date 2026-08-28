@@ -65,6 +65,11 @@ for sid in sorted(got):
 def r(n, d): return n / d if d else 0.0
 prec, rec = r(tp, tp + fp), r(tp, tp + fn)
 f1 = r(2 * prec * rec, prec + rec)
+# F2 weights RECALL twice precision. It is the headline here because the project
+# has ruled it would rather over-select than under-select: an over-offered
+# fragment costs context, a dropped one is never learned to exist. F1 is kept
+# only as the neutral reference; ranking on it contradicts the ruling.
+f2 = r(5 * prec * rec, 4 * prec + rec)
 
 print(f"{'id':6} {'n':>2}  {'selected':44} notes")
 for sid, n, sel, note in rows:
@@ -73,7 +78,7 @@ for sid, n, sel, note in rows:
 print(f"""
 precision        {prec:.3f}   of what it selected, how much belonged
 recall           {rec:.3f}   of what belonged, how much it found
-F1               {f1:.3f}
+F1               {f1:.3f}   (neutral reference)\nF2               {f2:.3f}   HEADLINE — recall weighted 2x, per the\n                         over-select-rather-than-under ruling
 silent drop      {r(fn, tp+fn):.3f}   ({fn} expected fragments never offered — the
                          expensive error: the agent never learns they existed)
 mean selected    {r(sum(sel_counts), len(sel_counts)):.2f}""" +

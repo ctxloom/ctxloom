@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -102,13 +103,28 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 // rather than always the configured defaults. An empty set falls back to the
 // defaults inside each resolver (scopedProfiles / resolveProfileScope).
 func AssembleManagedConfig(backendName, workDir string, gate bundles.Authorizer, profileNames []string) *agent.ManagedConfig {
-	cfg, err := config.Load()
+	cfg, err := loadConfigFn()
 	if err != nil {
-		// The agent's Setup writes an EMPTY managed set from a nil payload —
-		// the reconciling writers then remove every previously-installed
-		// ctxloom hook/command for this run. Degrading is right (never block
-		// launch), but it must not be silent.
-		clidiag.Warn("ctxloom", "config load failed; launching without managed hooks/commands: %v", err)
+		// A nil return means this run proceeds with NO managed surfaces — no
+		// hooks, no MCP, no commands — while looking entirely healthy: exit 0,
+		// the turn answers, nothing delivered. That is this project's
+		// characteristic failure shape, so it is a FINDING rather than a
+		// warning nobody reads: refused by default, and degradable because a
+		// user who would rather have a working LLM with no managed surfaces
+		// than no LLM is making a legitimate choice. strictness owns the
+		// fatal-vs-warn decision; this site deliberately does not branch on it.
+		//
+		// It does NOT remove anything. A previous version of this comment said
+		// Setup "writes an EMPTY managed set from a nil payload" and that "the
+		// reconciling writers then remove every previously-installed ctxloom
+		// hook/command". Both halves are false: agent.LaunchBackend's Setup
+		// early-returns on a nil payload and writes nothing at all, so
+		// previously-installed entries are left exactly as they were. The
+		// claim cost a multi-hour investigation before it was checked against
+		// the code, which is why it is corrected here rather than deleted.
+		strictness.FailOnce(strictness.ClassConfig,
+			"fix the config this run could not load, or pass --degraded to launch without managed hooks, MCP and commands",
+			"config load failed, so this run would deliver no managed surfaces at all: %v", err)
 		return nil
 	}
 	cfg.SetExecutableTrustGate(gate)

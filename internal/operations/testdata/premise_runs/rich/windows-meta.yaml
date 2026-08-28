@@ -1,0 +1,53 @@
+S16:
+  expect:
+  - ltk
+  chars: 107615
+S30:
+  expect:
+  - worktree-lifecycle
+  - source-organization
+  chars: 105094
+S24:
+  expect:
+  - reductive
+  chars: 103832
+S29:
+  expect:
+  - coordinator-conduct
+  - close-the-turn
+  chars: 103188
+S28:
+  expect:
+  - worktree-lifecycle
+  chars: 96051
+S22:
+  expect:
+  - coordinator-conduct
+  chars: 88857
+S10:
+  expect:
+  - worktree-lifecycle
+  chars: 76947
+S27:
+  expect:
+  - is-this-a-standard
+  - delegation
+  chars: 76947
+S19:
+  expect:
+  - preexisting-ownership
+  - problem-solving
+  chars: 54261
+S14:
+  expect:
+  - coordinator-conduct
+  - reductive
+  chars: 49304
+S07:
+  expect:
+  - turn-gates
+  - green-is-not-passing
+  chars: 46093
+S25:
+  expect: []
+  chars: 42213

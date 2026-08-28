@@ -37,10 +37,20 @@ var _ Policy = None{}
 // Name returns the policy identifier.
 func (None) Name() string { return "none" }
 
-// PrepareWorkspace returns the live project directory as the workspace with a
-// noop cleanup — there is nothing to provision or tear down.
-func (None) PrepareWorkspace(_ context.Context, projectDir, _ string) (Workspace, error) {
+// ResolveWorkspace returns the live project directory as the workspace with a
+// noop cleanup — there is nothing to materialize or tear down.
+func (None) ResolveWorkspace(_ context.Context, projectDir, _ string) (Workspace, error) {
 	return hostWorkspace{dir: projectDir}, nil
+}
+
+// Mount maps nothing. A host run's engine executes IN the workspace directory,
+// so there is no second environment to map it into and no plan to render — the
+// empty plan is the complete answer for this policy, not an unimplemented stub.
+func (None) Mount(context.Context, Workspace) (MountPlan, error) { return MountPlan{}, nil }
+
+// PrepareWorkspace resolves and maps in one step (see prepareWorkspace).
+func (n None) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
+	return prepareWorkspace(ctx, n, projectDir, agentID)
 }
 
 // SpawnClient launches the bare self-invoked plugin subprocess via the Host

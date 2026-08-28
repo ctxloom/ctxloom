@@ -437,7 +437,7 @@ func TestHostBase_PrunesOverlayTargetsItCreated(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(preexisting, "user.json"), []byte("{}"), 0o644))
 
 	spec := engineContainerSpec{overlayDirs: []string{".kept", ".claude", filepath.FromSlash(".ctxloom/cache")}}
-	_, _, cleanup, err := hostBase{}.prepareBase(ctx, rt, proj, "m", scratch, spec, &git.Fake{})
+	_, cleanup, err := hostBase{}.mountBase(ctx, rt, proj, scratch, spec, &git.Fake{})
 	require.NoError(t, err)
 
 	for _, rel := range []string{".claude", filepath.FromSlash(".ctxloom/cache")} {
@@ -462,8 +462,8 @@ func TestHostBase_KeepsOverlayTargetsThatGainedContent(t *testing.T) {
 	proj := t.TempDir()
 
 	spec := engineContainerSpec{overlayDirs: []string{filepath.FromSlash(".ctxloom/cache")}}
-	_, _, cleanup, err := hostBase{}.prepareBase(ctx, fakeRuntime{name: "docker", available: true},
-		proj, "m", t.TempDir(), spec, &git.Fake{})
+	_, cleanup, err := hostBase{}.mountBase(ctx, fakeRuntime{name: "docker", available: true},
+		proj, t.TempDir(), spec, &git.Fake{})
 	require.NoError(t, err)
 
 	require.NoError(t, os.WriteFile(filepath.Join(proj, ".ctxloom", "cache", "landed"), []byte("x"), 0o644))

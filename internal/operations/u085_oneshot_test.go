@@ -27,8 +27,21 @@ import (
 type isolatedStubPolicy struct{ mk func() pb.Client }
 
 func (isolatedStubPolicy) Name() string { return "worktree" }
-func (p isolatedStubPolicy) PrepareWorkspace(_ context.Context, projectDir, _ string) (isolation.Workspace, error) {
+func (p isolatedStubPolicy) ResolveWorkspace(_ context.Context, projectDir, _ string) (isolation.Workspace, error) {
 	return stubWorkspace{dir: projectDir}, nil
+}
+func (isolatedStubPolicy) Mount(context.Context, isolation.Workspace) (isolation.MountPlan, error) {
+	return isolation.MountPlan{}, nil
+}
+func (p isolatedStubPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (isolation.Workspace, error) {
+	ws, err := p.ResolveWorkspace(ctx, projectDir, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.Mount(ctx, ws); err != nil {
+		return nil, err
+	}
+	return ws, nil
 }
 func (p isolatedStubPolicy) SpawnClient(string, string, int, isolation.Workspace, map[string]string) (pb.Client, error) {
 	return p.mk(), nil

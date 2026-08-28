@@ -51,6 +51,22 @@ type Workspace interface {
 	Cleanup() error
 }
 
+// MountPlan is how a policy maps an already-materialized workspace into the
+// execution environment: the bind mounts the run is launched with, and the
+// per-run env that accompanies them. It is a DESCRIPTION, not a resource —
+// building one creates no container and starts nothing; the spawn renders it.
+// Empty for the host policies (none/worktree), which execute in the workspace
+// directly and so map nothing.
+type MountPlan struct {
+	// Mounts are the bind mounts layered on top of the workspace's own cwd
+	// mount (credential mounts, scoped session state, config overlays, the
+	// git common-dir mirror).
+	Mounts []Mount
+	// Env is the per-run env the mapping carries (scoped auth passthrough,
+	// terminal description, scoped git identity).
+	Env []string
+}
+
 // Policy is the isolation seam: it prepares a per-agent Workspace and spawns
 // the plugin client for that workspace. All strategies (none | worktree |
 // container) satisfy this one interface, so the fan-out picks a strategy per
@@ -62,14 +78,38 @@ type Policy interface {
 	// Name identifies the policy ("none" | "worktree" | "container"), for
 	// diagnostics and config round-tripping.
 	Name() string
-	// PrepareWorkspace provisions the workspace the run executes in. projectDir
-	// is the host's live project root; agentID scopes/names a per-agent
-	// workspace (a member label). A policy that cannot prepare its workspace
+	// ResolveWorkspace materializes the on-disk tree the run executes in: the
+	// live project dir, or a per-agent checkout. projectDir is the host's live
+	// project root; agentID scopes/names a per-agent workspace (a member
+	// label). FILESYSTEM ONLY — it knows nothing about how the workspace will
+	// later be mapped into an execution environment and builds no mounts, so a
+	// caller may WRITE INTO the returned tree before Mount runs and the mapping
+	// will see what it wrote. A policy that cannot materialize its workspace
 	// warns and returns an error so the caller degrades down the chain; the run
 	// always gets a workspace (None never fails). Dropping a requested CONTAINER
 	// boundary is additionally a fatal finding (ClassIsolation) the choke owner
 	// aborts on unless --degraded; a workspace-axis degrade (worktree→None)
 	// stays a silent fallback.
+	//
+	// The container gate (runtime reachable / image present / engine auth
+	// resolvable) runs HERE rather than in Mount, so a degrade is decided before
+	// any base resource is created — the same order the single-call form had.
+	ResolveWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error)
+	// Mount maps an ALREADY-MATERIALIZED workspace into the execution
+	// environment and returns the plan that mapping renders as. It must not
+	// create, seed, or otherwise modify workspace CONTENT — whatever the tree
+	// held when Mount was called is what the run sees. (The container policy
+	// does pre-create the managed-config overlay MOUNTPOINTS inside the tree;
+	// they are empty directories a bind mount needs to exist, never content.)
+	// none/worktree run in the workspace directly and map nothing, so their
+	// plan is empty — that is the whole answer, not a stub.
+	Mount(ctx context.Context, ws Workspace) (MountPlan, error)
+	// PrepareWorkspace is ResolveWorkspace followed immediately by Mount, with
+	// no gap between them: the composed step for every caller that writes
+	// nothing into the tree in between. A caller that DOES need to write there
+	// calls the two halves itself — that gap is the reason they are separate.
+	// A Mount failure tears the resolved workspace down before returning, so a
+	// failed prepare never leaks a checkout or a scratch tree.
 	PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error)
 	// SpawnClient launches the plugin process for a prepared workspace and
 	// returns its client. none/worktree → a bare self-invoked `ctxloom llm serve`
@@ -627,6 +667,28 @@ func withSessionState(chain []Policy, state SessionState) []Policy {
 		}
 	}
 	return chain
+}
+
+// prepareWorkspace is the one implementation of the composed resolve-then-mount
+// step every Policy.PrepareWorkspace delegates to. It lives here, over the
+// interface, rather than being written out on each policy: a composition of two
+// interface methods is not per-implementation behaviour, and three copies of it
+// would be three places for the unwind below to drift.
+//
+// The unwind is the part worth stating: once ResolveWorkspace returns, the
+// workspace OWNS whatever was created for it (the container scratch tree, a
+// freshly added checkout), so a Mount failure must Cleanup() rather than leave
+// the caller a nil workspace and an orphaned resource.
+func prepareWorkspace(ctx context.Context, p Policy, projectDir, agentID string) (Workspace, error) {
+	ws, err := p.ResolveWorkspace(ctx, projectDir, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.Mount(ctx, ws); err != nil {
+		_ = ws.Cleanup()
+		return nil, err
+	}
+	return ws, nil
 }
 
 // prepareChain tries each policy's PrepareWorkspace in order and returns the first

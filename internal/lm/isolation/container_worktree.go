@@ -62,38 +62,40 @@ func (b worktreeBase) withState(state SessionState) containerBase {
 // leaks a checkout or a temp dir. This is the ONE place a botched collapse could
 // leak a checkout, so the unwind order is exact: worktree teardown first (here),
 // scratch removal after (the caller).
-func (b worktreeBase) prepareBase(ctx context.Context, rt Runtime, projectDir, agentID, _ string, _ engineContainerSpec, _ git.Git) (string, []Mount, func() error, error) {
-	raw, err := b.wt.PrepareWorkspace(ctx, projectDir, agentID)
+func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID string) (string, func() error, error) {
+	raw, err := b.wt.ResolveWorkspace(ctx, projectDir, agentID)
 	if err != nil {
 		// The worktree never came up (non-git repo / add failed) — nothing created
 		// to unwind; the caller removes the shared scratch and the chain degrades.
-		return "", nil, nil, err
+		return "", nil, err
 	}
 	wt, ok := raw.(*worktreeWorkspace)
 	if !ok {
 		// Defensive: an unexpected workspace type. Tear the worktree down
 		// (WIP-safe) before failing so nothing leaks.
 		_ = raw.Cleanup()
-		return "", nil, nil, fmt.Errorf("container-worktree: unexpected worktree workspace %T", raw)
+		return "", nil, fmt.Errorf("container-worktree: unexpected worktree workspace %T", raw)
 	}
-
-	// The worktree's .git is ALWAYS a pointer file, so its common dir is mirrored
-	// identical-path unconditionally (unlike the host base's pointer-only mirror).
-	gitMount, err := gitCommonDirMount(ctx, rt, b.wt.git, wt.dir)
-	if err != nil {
-		// The worktree just failed to yield a usable gitdir mount; tearing it down
-		// (WIP-safe — freshly created, so clean) lets the chain retry as a bare host
-		// worktree, where git resolves natively (a Tier-0 non-issue).
-		_ = wt.Cleanup()
-		return "", nil, nil, err
-	}
-
 	// cleanup is the worktree's WIP-safe, nested-aware teardown; the container mounts
 	// wt.dir as cwd. It deliberately exposes NO per-agent config-home env: the engine
 	// runs inside the container with a fresh HOME, so the worktree's host config-home
 	// envs (CLAUDE_CONFIG_DIR/…) would point at unmounted host paths and mean nothing
 	// there — the unified containerWorkspace never implements EnvWorkspace.
-	return wt.dir, []Mount{gitMount}, wt.Cleanup, nil
+	return wt.dir, wt.Cleanup, nil
+}
+
+// mountBase mirrors the checkout's git common dir identical-path. The worktree's
+// .git is ALWAYS a pointer file, so the mirror is unconditional (unlike the host
+// base's pointer-only mirror). The mapping creates nothing host-side, hence the
+// nil cleanup; a failure here leaves the checkout for the workspace to tear down,
+// which lets the chain retry as a bare host worktree where git resolves natively
+// (a Tier-0 non-issue).
+func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, dir, _ string, _ engineContainerSpec, _ git.Git) ([]Mount, func() error, error) {
+	gitMount, err := gitCommonDirMount(ctx, rt, b.wt.git, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []Mount{gitMount}, nil, nil
 }
 
 // NewContainerWorktreeFor builds the worktree-in-container policy for a REGISTERED

@@ -39,8 +39,21 @@ func (w stubWorkspace) Cleanup() error { return nil }
 type stubPolicy struct{ mk func() pb.Client }
 
 func (stubPolicy) Name() string { return isolation.None{}.Name() }
-func (p stubPolicy) PrepareWorkspace(_ context.Context, projectDir, _ string) (isolation.Workspace, error) {
+func (p stubPolicy) ResolveWorkspace(_ context.Context, projectDir, _ string) (isolation.Workspace, error) {
 	return stubWorkspace{dir: projectDir}, nil
+}
+func (stubPolicy) Mount(context.Context, isolation.Workspace) (isolation.MountPlan, error) {
+	return isolation.MountPlan{}, nil
+}
+func (p stubPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (isolation.Workspace, error) {
+	ws, err := p.ResolveWorkspace(ctx, projectDir, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.Mount(ctx, ws); err != nil {
+		return nil, err
+	}
+	return ws, nil
 }
 func (p stubPolicy) SpawnClient(string, string, int, isolation.Workspace, map[string]string) (pb.Client, error) {
 	return p.mk(), nil

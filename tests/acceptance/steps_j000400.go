@@ -21,7 +21,6 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -38,6 +37,13 @@ const (
 	j000400LiveSentinel       = "J000400-LIVE-SENTINEL-PHRASE-2b9dfa"
 	j000400HandAuthoredMarker = "J000400-HAND-AUTHORED-MARKER-6d2e73: always use tabs, never spaces"
 )
+
+// codexLaunchOnlySettingsReason is codex.LaunchOnlySettingsReason
+// (internal/codex/declared_absence.go), restated as a literal because
+// internal/codex is out of the default build (parked_engines) — this file's
+// codex-scenario error messages still need the string, even though @codex
+// scenarios that would trigger them are @wip.
+const codexLaunchOnlySettingsReason = "codex settings/prompts/skills are delivered per-session at launch; no durable project home exists — see config_home"
 
 // j000400State is J000400's fixture state: which engine row (Outline A) is currently
 // materialized, and into which target dir.
@@ -574,7 +580,7 @@ func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 	case "kiro":
 		return filepath.Join(dir, ".kiro", "settings", "mcp.json"), "mcpServers", nil
 	case "codex":
-		return "", "", fmt.Errorf("j000400: codex has no materialized MCP registry to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
+		return "", "", fmt.Errorf("j000400: codex has no materialized MCP registry to read — %s; assert its absence over the whole tree instead", codexLaunchOnlySettingsReason)
 	case "opencode":
 		return filepath.Join(dir, "opencode.json"), "mcp", nil
 	default:
@@ -679,7 +685,7 @@ func j000400AssertHook(w *World, engine string) error {
 		// No row, for the same reason j000400MCPRegistryFor has none: codex's
 		// hooks live in $CODEX_HOME/config.toml, which a harpless materialize
 		// cannot name at all.
-		return fmt.Errorf("j000400: codex has no materialized hook configuration to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
+		return fmt.Errorf("j000400: codex has no materialized hook configuration to read — %s; assert its absence over the whole tree instead", codexLaunchOnlySettingsReason)
 	default:
 		return fmt.Errorf("j000400: unknown engine %q", engine)
 	}
@@ -796,7 +802,7 @@ func j000400AssertCommand(w *World, engine string) error {
 	case "codex":
 		// No row: codex's prompts are $CODEX_HOME-global, so a harpless
 		// materialize writes none (internal/codex/declared_absence.go).
-		return fmt.Errorf("j000400: codex has no materialized command file to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
+		return fmt.Errorf("j000400: codex has no materialized command file to read — %s; assert its absence over the whole tree instead", codexLaunchOnlySettingsReason)
 	case "kiro":
 		rel = filepath.Join(dir, ".kiro", "skills", "team", "onboarding", "SKILL.md")
 	case "opencode":

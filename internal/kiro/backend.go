@@ -1,3 +1,14 @@
+//go:build parked_engines
+
+// PARKED: this package builds only with -tags parked_engines, which nothing in
+// this tree passes, so it is out of the default build. ctxloom supports one
+// engine (claude) while a shared delivery-interface refactor (SurfaceSet,
+// Deliver, SurfaceKind, Approach) proceeds — parking removes the mechanical
+// tax of updating every engine's SurfaceSet implementation for an interface
+// change that has not migrated it yet. See internal/lm/backends/registry.go
+// for the (commented) registration this package returns to. Find every
+// parked site with: grep -rn parked_engines.
+//
 // Package kiro implements the ctxloom Backend for Kiro CLI (`kiro-cli`), the
 // direct-CLI driving path: interactive TUI passthrough and headless one-shot via
 // `kiro-cli chat`. The structured (ACP) path lives in internal/acp; this package

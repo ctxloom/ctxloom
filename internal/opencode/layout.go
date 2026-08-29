@@ -1,3 +1,5 @@
+//go:build parked_engines
+
 package opencode
 
 // This file is opencode's LAYOUT vocabulary: the project-relative directory

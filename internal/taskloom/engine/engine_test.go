@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/kiro"
+	// parked_engines: kiro is out of the default build; TestKiro_* and the
+	// kiro/codex rows below are commented out with it.
+	// "github.com/ctxloom/ctxloom/internal/kiro"
 )
 
 // Fixtures modeled on real backend configs: each holds a foreign server and
@@ -24,23 +26,25 @@ const claudeFixture = `{
   }
 }`
 
-const codexFixture = `[hooks]
-[[hooks.SessionStart]]
-[[hooks.SessionStart.hooks]]
-command = 'ctxloom hook session-bind'
-type = 'command'
-
-[mcp_servers]
-[mcp_servers.ctxloom]
-args = ['mcp']
-command = 'ctxloom'
-`
-
-const kiroFixture = `{
-  "mcpServers": {
-    "ctxloom": {"args": ["mcp"], "command": "ctxloom"}
-  }
-}`
+// parked_engines: codexFixture/kiroFixture served the codex/kiro rows in the
+// fixtures maps below, all commented out with the packages that own them.
+// const codexFixture = `[hooks]
+// [[hooks.SessionStart]]
+// [[hooks.SessionStart.hooks]]
+// command = 'ctxloom hook session-bind'
+// type = 'command'
+//
+// [mcp_servers]
+// [mcp_servers.ctxloom]
+// args = ['mcp']
+// command = 'ctxloom'
+// `
+//
+// const kiroFixture = `{
+//   "mcpServers": {
+//     "ctxloom": {"args": ["mcp"], "command": "ctxloom"}
+//   }
+// }`
 
 func jsonServers(t *testing.T, config []byte) map[string]any {
 	t.Helper()
@@ -63,10 +67,10 @@ func TestEngines_InstallIntoEmpty_CreatesEntry(t *testing.T) {
 }
 
 func TestEngines_Install_PreservesForeignContent(t *testing.T) {
+	// parked_engines: "codex": codexFixture, "kiro": kiroFixture dropped with
+	// All() narrowing to claude-only.
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
-		"codex":       codexFixture,
-		"kiro":        kiroFixture,
 	}
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
@@ -106,10 +110,10 @@ func TestEngines_Install_Idempotent(t *testing.T) {
 }
 
 func TestEngines_Uninstall_RemovesOnlyOurs(t *testing.T) {
+	// parked_engines: "codex": codexFixture, "kiro": kiroFixture dropped with
+	// All() narrowing to claude-only.
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
-		"codex":       codexFixture,
-		"kiro":        kiroFixture,
 	}
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
@@ -156,37 +160,42 @@ func TestGet_AliasesAndUnknown(t *testing.T) {
 // .kiro/settings/mcp.json — no error, no mention, just an absent entry.
 // This pins kiro into the registry going forward (both by direct lookup and
 // by appearing in the enumerated set the auto-register path iterates).
-func TestKiro_RegisteredInEngineRegistry(t *testing.T) {
-	e, err := Get("kiro")
-	require.NoError(t, err)
-	assert.Equal(t, "kiro", e.Name())
-
-	var found bool
-	for _, e := range All() {
-		if e.Name() == "kiro" {
-			found = true
-		}
-	}
-	assert.True(t, found, "kiro must appear in All() for the auto-register (no --engine) path")
-}
-
-// TestKiro_GlobalScopeSupported pins kiro's global MCP config path: kiro-cli
-// DOES read a home-rooted config
-// ($KIRO_HOME/settings/mcp.json, default ~/.kiro/settings/mcp.json — the
-// same home that holds agents/settings/skills/steering, per
-// internal/kiro/session.go's storeDir), so global scope must succeed rather
-// than error.
-func TestKiro_GlobalScopeSupported(t *testing.T) {
-	t.Setenv("KIRO_HOME", "/custom/kiro-home")
-	p, err := (kiro.MCPRegistrar{}).ConfigPath("/proj", true)
-	require.NoError(t, err)
-	assert.Equal(t, "/custom/kiro-home/settings/mcp.json", p)
-}
+// parked_engines: kiro is out of the default build, so Get("kiro") now
+// errors and kiro.MCPRegistrar{} is unavailable. Both tests come back with
+// the package.
+//
+// func TestKiro_RegisteredInEngineRegistry(t *testing.T) {
+// 	e, err := Get("kiro")
+// 	require.NoError(t, err)
+// 	assert.Equal(t, "kiro", e.Name())
+//
+// 	var found bool
+// 	for _, e := range All() {
+// 		if e.Name() == "kiro" {
+// 			found = true
+// 		}
+// 	}
+// 	assert.True(t, found, "kiro must appear in All() for the auto-register (no --engine) path")
+// }
+//
+// // TestKiro_GlobalScopeSupported pins kiro's global MCP config path: kiro-cli
+// // DOES read a home-rooted config
+// // ($KIRO_HOME/settings/mcp.json, default ~/.kiro/settings/mcp.json — the
+// // same home that holds agents/settings/skills/steering, per
+// // internal/kiro/session.go's storeDir), so global scope must succeed rather
+// // than error.
+// func TestKiro_GlobalScopeSupported(t *testing.T) {
+// 	t.Setenv("KIRO_HOME", "/custom/kiro-home")
+// 	p, err := (kiro.MCPRegistrar{}).ConfigPath("/proj", true)
+// 	require.NoError(t, err)
+// 	assert.Equal(t, "/custom/kiro-home/settings/mcp.json", p)
+// }
 
 func TestConfigPath_Scopes(t *testing.T) {
-	// The codex/kiro rows assert the DEFAULT (~/.codex / ~/.kiro) path; pin
-	// CODEX_HOME/KIRO_HOME empty so an inherited value (the hostile-env suite
-	// poisons it) can't redirect the home resolution.
+	// parked_engines: the codex/kiro rows, and the trailing codex
+	// declared-absence assertion, are commented out below with those
+	// packages — Get("codex")/Get("kiro") now error, All() returns only
+	// claude-code.
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("KIRO_HOME", "")
 	tests := []struct {
@@ -196,11 +205,9 @@ func TestConfigPath_Scopes(t *testing.T) {
 	}{
 		{"claude-code", false, ".mcp.json"},
 		{"claude-code", true, ".claude.json"},
-		// codex's project scope is a DECLARED ABSENCE (launch-only settings;
-		// no durable project home) — asserted separately below, not a row here.
-		{"codex", true, ".codex/config.toml"},
-		{"kiro", false, ".kiro/settings/mcp.json"},
-		{"kiro", true, "settings/mcp.json"},
+		// {"codex", true, ".codex/config.toml"},
+		// {"kiro", false, ".kiro/settings/mcp.json"},
+		// {"kiro", true, "settings/mcp.json"},
 	}
 	for _, tt := range tests {
 		e, err := Get(tt.engine)
@@ -218,9 +225,9 @@ func TestConfigPath_Scopes(t *testing.T) {
 	// codex project scope: the declared absence, not a path. The error names
 	// the launch-only reason so a caller can tell "no file by design" from a
 	// resolution bug; taskloom's engine adapter degrades Present to false on it.
-	codexEng, err := Get("codex")
-	require.NoError(t, err)
-	_, err = codexEng.ConfigPath("/proj", false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "delivered per-session at launch")
+	// codexEng, err := Get("codex")
+	// require.NoError(t, err)
+	// _, err = codexEng.ConfigPath("/proj", false)
+	// require.Error(t, err)
+	// assert.Contains(t, err.Error(), "delivered per-session at launch")
 }

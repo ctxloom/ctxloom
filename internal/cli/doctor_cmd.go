@@ -215,7 +215,9 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckTranscriptReaders(ctx, cfg, backends.ProbeEngineVersion),
 			doctorCheckHooksTrust(ctx, cfg, cfgErr),
 			doctorCheckMCPInvocation(doctorProjectDir(cfg)),
-			doctorCheckCodexHome(doctorProjectDir(cfg)),
+			// parked_engines: doctorCheckCodexHome lives in
+			// doctor_codex_home.go, out of the default build with internal/codex.
+			// doctorCheckCodexHome(doctorProjectDir(cfg)),
 			doctorCheckContentTrust(cfg, cfgErr),
 			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),

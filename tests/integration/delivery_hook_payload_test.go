@@ -16,7 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/codex"
+	// parked_engines: internal/codex is out of the default build; "Link 2 for
+	// codex" below is commented out with it — ApplyHooks(Backend: "all")
+	// no longer reaches codex (unregistered), so it writes no AGENTS.md to
+	// check.
+	// "github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
@@ -123,16 +127,17 @@ func TestHookApproach_PayloadReachesTheInjectedContext(t *testing.T) {
 		})
 	}
 
-	// Link 2 for codex, stated as the absence it is: a static apply registers
-	// its SessionStart hook nowhere under the project, and — the half that
-	// matters — codex's own cwd-keyed AGENTS.md still carries the payload, so
-	// this is a narrowing rather than a codex run that learns nothing.
-	assert.Empty(t, (&codex.CodexHookWriter{}).SettingsPath(projectDir),
-		"codex declares that it has no project-keyed settings file to register a hook in")
-	agentsMD, err := os.ReadFile(filepath.Join(projectDir, codex.AgentsMDFile))
-	require.NoError(t, err, "codex's cwd-keyed context surface is unaffected by that declaration")
-	assert.Contains(t, string(agentsMD), hookSentinel,
-		"an empty AGENTS.md would mean codex genuinely lost this context, not merely its hook")
+	// parked_engines: "Link 2 for codex" is commented out — internal/codex is
+	// out of the default build and ApplyHooks(Backend: "all") no longer
+	// reaches it (registry.go), so it writes no AGENTS.md to assert against.
+	// Comes back with the package.
+	//
+	// assert.Empty(t, (&codex.CodexHookWriter{}).SettingsPath(projectDir),
+	// 	"codex declares that it has no project-keyed settings file to register a hook in")
+	// agentsMD, err := os.ReadFile(filepath.Join(projectDir, codex.AgentsMDFile))
+	// require.NoError(t, err, "codex's cwd-keyed context surface is unaffected by that declaration")
+	// assert.Contains(t, string(agentsMD), hookSentinel,
+	// 	"an empty AGENTS.md would mean codex genuinely lost this context, not merely its hook")
 
 	// Link 2b — claude's hook approach must NOT also write a native CLAUDE.md.
 	// A static file alongside the hook would DOUBLE the context, which is the

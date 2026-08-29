@@ -624,6 +624,13 @@ type seedFile struct {
 //     seedCredentials short-circuited at `if !ok { return nil }` with no
 //     ClassIsolation finding, a SILENT no-op strictly worse than kiro's loud
 //     "nothing seedable" handling.
+// parked_engines: the codex/kiro/opencode entries are commented out — those
+// backends are unregistered in internal/lm/backends/registry.go for the
+// duration of the delivery-interface refactor, so nothing calls this
+// registry with those names today. tests/arch's
+// testMockConfigHomeEnvKeysRoster compares this registry's HomeVars against
+// backends.ConfigHomeEnvKeys(), which narrows the same way (mock.go) — both
+// sides must move together. grep -rn parked_engines finds every parked site.
 var credentialSeedSpecs = map[string]credentialSeedSpec{
 	"claude-code": {
 		engine:     "claude",
@@ -656,118 +663,118 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 		HomeVars:           []homeVar{{EnvVar: "CLAUDE_CONFIG_DIR", Subdir: "claude"}},
 		HonoursVarForCreds: true,
 	},
-	"codex": {
-		engine:     "codex",
-		destSubdir: ".codex",
-		envTrigger: "OPENAI_API_KEY", // live-verified: `codex doctor` reports "auth is provided by environment" with a fresh CODEX_HOME + OPENAI_API_KEY set, no `codex login` needed.
-		loginHint:  "codex login",
-		sourceFiles: func(hostHome string) []seedFile {
-			return []seedFile{
-				{
-					// "auth.json" duplicates internal/codex/backend.go's
-					// codexAuthFile literal — not imported to avoid a
-					// cross-package dependency from this generic seed
-					// registry onto one specific engine package.
-					host:     filepath.Join(hostHome, ".codex", "auth.json"),
-					destName: "auth.json",
-					required: true,
-				},
-			}
-		},
-		HomeVars:           []homeVar{{EnvVar: "CODEX_HOME", Subdir: ".codex"}},
-		HonoursVarForCreds: true,
-	},
-	"kiro": {
-		engine:     "kiro",
-		envTrigger: "KIRO_API_KEY",
-		HomeVars: []homeVar{
-			{EnvVar: "KIRO_HOME", Subdir: "kiro"},
-			{EnvVar: "XDG_DATA_HOME", Subdir: "xdg-data", GatedOnCreds: true},
-		},
-		HonoursVarForCreds: false,
-	},
-	// opencode: HonoursVarForCreds TRUE — UNLIKE kiro. This is the opposite
-	// shape from kiro's entry immediately above: opencode's XDG_DATA_HOME
-	// genuinely relocates its credential file, not a global unrelocatable
-	// store, so it seeds via sourceFiles/destSubdir exactly like claude/codex
-	// rather than gating via GatedOnCreds (see
-	// resolveOpencodeContainerAuth's doc for the container-axis half of this
-	// same engine's auth story).
-	//
-	// MEASURED against opencode 1.18.1, not vendor-documented: opencode's
-	// docs cover only OPENCODE_CONFIG/OPENCODE_CONFIG_DIR — XDG_DATA_HOME,
-	// the resulting auth.json location, and OPENCODE_DB appear NOWHERE in its
-	// docs. Confirmed by direct interrogation of the compiled binary
-	// (`process.env.XDG_DATA_HOME`, read directly with a `~/.local/share`
-	// fallback, then joined with "opencode" then "auth.json") and,
-	// decisively, live: `opencode auth list` under `env -i` with a fresh
-	// scratch HOME and all four XDG_* vars pointed at a seeded auth.json
-	// printed the RELOCATED path and "1 credentials" (the OpenRouter entry
-	// copied in) — the same command against an EMPTY scratch XDG_DATA_HOME
-	// printed "0 credentials", never silently falling back to the real host
-	// key. This is an implementation detail that can drift silently on
-	// upgrade (this project has been burned by that exact failure mode
-	// before — see kiro's entry above) — RE-VERIFY against any opencode
-	// version bump past 1.18.1 before trusting this comment.
-	//
-	// destSubdir is NESTED ("xdg-data/opencode"), unlike claude/codex's flat
-	// destSubdir that equals their one HomeVar's Subdir directly: opencode
-	// itself appends "/opencode" onto whatever XDG_DATA_HOME resolves to (it
-	// is a shared per-app-name XDG root, not a ctxloom-owned directory the
-	// way CLAUDE_CONFIG_DIR/CODEX_HOME are), so the seeded file must land one
-	// level deeper than the HomeVar's own Subdir ("xdg-data") for opencode's
-	// OWN join to land on it. XDG_CONFIG_HOME rides along as a second
-	// HomeVar for config-only isolation (opencode.json/opencode.jsonc read
-	// from Path.config, same OPENCODE_CONFIG_DIR-or-XDG_CONFIG_HOME
-	// precedence) — it never carries credentials, but leaving it unisolated
-	// while XDG_DATA_HOME isolates would be a needless half-measure now that
-	// the mechanism is known to work.
-	//
-	// mcp-auth.json (per-MCP-server OAuth tokens) rides along as an OPTIONAL
-	// sourceFiles entry: confirmed present in the 1.18.1 binary at the exact
-	// same Path.data-joined location as auth.json, but not every user has
-	// configured an OAuth-authenticated MCP server, so its absence must never
-	// block seeding the credential that actually matters.
-	//
-	// NOT used here: OPENCODE_TEST_HOME, also present in the binary — it is
-	// explicitly a TEST-only hook (its own name says so), not a production
-	// isolation lever; using it here would be relying on unstable internal
-	// test scaffolding rather than the real, user-facing XDG contract this
-	// entry is built on. Also unresolved and NOT claimed either way: whether
-	// a non-interactive opencode run refreshes auth.json in place
-	// (opencodeCredentialMounts above already flags this as unverified for
-	// the container mount path); this worktree seed COPIES into a writable
-	// per-agent directory, so a refresh there would land in the copy rather
-	// than colliding with a read-only mount the way claude's container path
-	// had to guard against — but whether opencode ever performs such a
-	// refresh at all remains unmeasured, and this entry does not resolve
-	// that question.
-	"opencode": {
-		engine:     "opencode",
-		destSubdir: filepath.Join("xdg-data", "opencode"),
-		envTrigger: "OPENROUTER_API_KEY", // mirrors resolveOpencodeContainerAuth's container-axis trigger
-		loginHint:  "opencode auth login",
-		sourceFiles: func(hostHome string) []seedFile {
-			dir := filepath.Join(hostHome, ".local", "share", "opencode")
-			return []seedFile{
-				{
-					host:     filepath.Join(dir, "auth.json"),
-					destName: "auth.json",
-					required: true,
-				},
-				{
-					host:     filepath.Join(dir, "mcp-auth.json"),
-					destName: "mcp-auth.json",
-					required: false,
-				},
-			}
-		},
-		HomeVars: []homeVar{
-			{EnvVar: "XDG_CONFIG_HOME", Subdir: "xdg-config"},
-			{EnvVar: "XDG_DATA_HOME", Subdir: "xdg-data"},
-		},
-		HonoursVarForCreds: true,
-	},
+// 	"codex": {
+// 		engine:     "codex",
+// 		destSubdir: ".codex",
+// 		envTrigger: "OPENAI_API_KEY", // live-verified: `codex doctor` reports "auth is provided by environment" with a fresh CODEX_HOME + OPENAI_API_KEY set, no `codex login` needed.
+// 		loginHint:  "codex login",
+// 		sourceFiles: func(hostHome string) []seedFile {
+// 			return []seedFile{
+// 				{
+// 					// "auth.json" duplicates internal/codex/backend.go's
+// 					// codexAuthFile literal — not imported to avoid a
+// 					// cross-package dependency from this generic seed
+// 					// registry onto one specific engine package.
+// 					host:     filepath.Join(hostHome, ".codex", "auth.json"),
+// 					destName: "auth.json",
+// 					required: true,
+// 				},
+// 			}
+// 		},
+// 		HomeVars:           []homeVar{{EnvVar: "CODEX_HOME", Subdir: ".codex"}},
+// 		HonoursVarForCreds: true,
+// 	},
+// 	"kiro": {
+// 		engine:     "kiro",
+// 		envTrigger: "KIRO_API_KEY",
+// 		HomeVars: []homeVar{
+// 			{EnvVar: "KIRO_HOME", Subdir: "kiro"},
+// 			{EnvVar: "XDG_DATA_HOME", Subdir: "xdg-data", GatedOnCreds: true},
+// 		},
+// 		HonoursVarForCreds: false,
+// 	},
+// 	// opencode: HonoursVarForCreds TRUE — UNLIKE kiro. This is the opposite
+// 	// shape from kiro's entry immediately above: opencode's XDG_DATA_HOME
+// 	// genuinely relocates its credential file, not a global unrelocatable
+// 	// store, so it seeds via sourceFiles/destSubdir exactly like claude/codex
+// 	// rather than gating via GatedOnCreds (see
+// 	// resolveOpencodeContainerAuth's doc for the container-axis half of this
+// 	// same engine's auth story).
+// 	//
+// 	// MEASURED against opencode 1.18.1, not vendor-documented: opencode's
+// 	// docs cover only OPENCODE_CONFIG/OPENCODE_CONFIG_DIR — XDG_DATA_HOME,
+// 	// the resulting auth.json location, and OPENCODE_DB appear NOWHERE in its
+// 	// docs. Confirmed by direct interrogation of the compiled binary
+// 	// (`process.env.XDG_DATA_HOME`, read directly with a `~/.local/share`
+// 	// fallback, then joined with "opencode" then "auth.json") and,
+// 	// decisively, live: `opencode auth list` under `env -i` with a fresh
+// 	// scratch HOME and all four XDG_* vars pointed at a seeded auth.json
+// 	// printed the RELOCATED path and "1 credentials" (the OpenRouter entry
+// 	// copied in) — the same command against an EMPTY scratch XDG_DATA_HOME
+// 	// printed "0 credentials", never silently falling back to the real host
+// 	// key. This is an implementation detail that can drift silently on
+// 	// upgrade (this project has been burned by that exact failure mode
+// 	// before — see kiro's entry above) — RE-VERIFY against any opencode
+// 	// version bump past 1.18.1 before trusting this comment.
+// 	//
+// 	// destSubdir is NESTED ("xdg-data/opencode"), unlike claude/codex's flat
+// 	// destSubdir that equals their one HomeVar's Subdir directly: opencode
+// 	// itself appends "/opencode" onto whatever XDG_DATA_HOME resolves to (it
+// 	// is a shared per-app-name XDG root, not a ctxloom-owned directory the
+// 	// way CLAUDE_CONFIG_DIR/CODEX_HOME are), so the seeded file must land one
+// 	// level deeper than the HomeVar's own Subdir ("xdg-data") for opencode's
+// 	// OWN join to land on it. XDG_CONFIG_HOME rides along as a second
+// 	// HomeVar for config-only isolation (opencode.json/opencode.jsonc read
+// 	// from Path.config, same OPENCODE_CONFIG_DIR-or-XDG_CONFIG_HOME
+// 	// precedence) — it never carries credentials, but leaving it unisolated
+// 	// while XDG_DATA_HOME isolates would be a needless half-measure now that
+// 	// the mechanism is known to work.
+// 	//
+// 	// mcp-auth.json (per-MCP-server OAuth tokens) rides along as an OPTIONAL
+// 	// sourceFiles entry: confirmed present in the 1.18.1 binary at the exact
+// 	// same Path.data-joined location as auth.json, but not every user has
+// 	// configured an OAuth-authenticated MCP server, so its absence must never
+// 	// block seeding the credential that actually matters.
+// 	//
+// 	// NOT used here: OPENCODE_TEST_HOME, also present in the binary — it is
+// 	// explicitly a TEST-only hook (its own name says so), not a production
+// 	// isolation lever; using it here would be relying on unstable internal
+// 	// test scaffolding rather than the real, user-facing XDG contract this
+// 	// entry is built on. Also unresolved and NOT claimed either way: whether
+// 	// a non-interactive opencode run refreshes auth.json in place
+// 	// (opencodeCredentialMounts above already flags this as unverified for
+// 	// the container mount path); this worktree seed COPIES into a writable
+// 	// per-agent directory, so a refresh there would land in the copy rather
+// 	// than colliding with a read-only mount the way claude's container path
+// 	// had to guard against — but whether opencode ever performs such a
+// 	// refresh at all remains unmeasured, and this entry does not resolve
+// 	// that question.
+// 	"opencode": {
+// 		engine:     "opencode",
+// 		destSubdir: filepath.Join("xdg-data", "opencode"),
+// 		envTrigger: "OPENROUTER_API_KEY", // mirrors resolveOpencodeContainerAuth's container-axis trigger
+// 		loginHint:  "opencode auth login",
+// 		sourceFiles: func(hostHome string) []seedFile {
+// 			dir := filepath.Join(hostHome, ".local", "share", "opencode")
+// 			return []seedFile{
+// 				{
+// 					host:     filepath.Join(dir, "auth.json"),
+// 					destName: "auth.json",
+// 					required: true,
+// 				},
+// 				{
+// 					host:     filepath.Join(dir, "mcp-auth.json"),
+// 					destName: "mcp-auth.json",
+// 					required: false,
+// 				},
+// 			}
+// 		},
+// 		HomeVars: []homeVar{
+// 			{EnvVar: "XDG_CONFIG_HOME", Subdir: "xdg-config"},
+// 			{EnvVar: "XDG_DATA_HOME", Subdir: "xdg-data"},
+// 		},
+// 		HonoursVarForCreds: true,
+// 	},
 }
 
 // CredentialSeedEngineNames returns the backend names credentialSeedSpecs

@@ -19,7 +19,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
+	// parked_engines: internal/codex is out of the default build;
+	// TestConformance_CodexIsAbsentByDECLARATION is commented out with it.
+	// "github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -98,13 +100,17 @@ func agentCases() []agentCase {
 // assertion that the row's PREMISE is still false is a statement that gets
 // re-checked on every run — and goes red the day codex gains a project-keyed
 // settings path, which is the day it belongs back in this table.
-func TestConformance_CodexIsAbsentByDECLARATION(t *testing.T) {
-	assert.Empty(t, (&codex.CodexHookWriter{}).SettingsPath("/project"),
-		"codex is absent from agentCases because it has NO project-keyed settings path; if it has one again, add the row back")
-
-	err := (&codex.CodexHookWriter{}).WriteSettings(standardHooks(), nil, "/project")
-	assert.Error(t, err, "and because its harpless writer declares the absence rather than writing")
-}
+// parked_engines: internal/codex is out of the default build, so there is no
+// codex.CodexHookWriter left to prove this against; comes back with the
+// package.
+//
+// func TestConformance_CodexIsAbsentByDECLARATION(t *testing.T) {
+// 	assert.Empty(t, (&codex.CodexHookWriter{}).SettingsPath("/project"),
+// 		"codex is absent from agentCases because it has NO project-keyed settings path; if it has one again, add the row back")
+//
+// 	err := (&codex.CodexHookWriter{}).WriteSettings(standardHooks(), nil, "/project")
+// 	assert.Error(t, err, "and because its harpless writer declares the absence rather than writing")
+// }
 
 // concrete widens a constructor's agent.SettingsWriter result to this suite's
 // richer settingsWriter view, naming the CONCRETE type it is expected to

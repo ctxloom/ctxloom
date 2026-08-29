@@ -42,7 +42,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
+	// parked_engines: internal/codex is out of the default build; the tests
+	// that imported it are commented out with it.
+	// "github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -350,11 +352,15 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	assert.Len(t, result.Backends, 4)
+	// parked_engines: codex/kiro/opencode are out of the default build and
+	// BackendsWithSettings() no longer names them, so "all" now applies to
+	// claude-code alone; the three commented-out checks below come back with
+	// those packages.
+	assert.Len(t, result.Backends, 1)
 	assert.Contains(t, result.Backends, "claude-code")
-	assert.Contains(t, result.Backends, "codex")
-	assert.Contains(t, result.Backends, "kiro")
-	assert.Contains(t, result.Backends, "opencode")
+	// assert.Contains(t, result.Backends, "codex")
+	// assert.Contains(t, result.Backends, "kiro")
+	// assert.Contains(t, result.Backends, "opencode")
 
 	// Verify each backend's settings file was created
 	exists, err := afero.Exists(fs, "/project/.claude/settings.json")
@@ -364,19 +370,19 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 	// codex's config home is the one ctxloom RELOCATES, so its path comes from
 	// codex's own writer (the engine-home policy's single owner) rather than
 	// from a literal this test would then have to keep in step by hand.
-	exists, err = afero.Exists(fs, (&codex.CodexHookWriter{}).SettingsPath(tmpDir))
-	require.NoError(t, err)
-	assert.True(t, exists)
+	// exists, err = afero.Exists(fs, (&codex.CodexHookWriter{}).SettingsPath(tmpDir))
+	// require.NoError(t, err)
+	// assert.True(t, exists)
 
-	exists, err = afero.Exists(fs, "/project/.kiro/agents/ctxloom.json")
-	require.NoError(t, err)
-	assert.True(t, exists)
+	// exists, err = afero.Exists(fs, "/project/.kiro/agents/ctxloom.json")
+	// require.NoError(t, err)
+	// assert.True(t, exists)
 
 	// opencode has no ctxloom hook mechanism, but its MCP (the auto-registered
 	// ctxloom server) is written into opencode.json.
-	exists, err = afero.Exists(fs, "/project/opencode.json")
-	require.NoError(t, err)
-	assert.True(t, exists)
+	// exists, err = afero.Exists(fs, "/project/opencode.json")
+	// require.NoError(t, err)
+	// assert.True(t, exists)
 }
 
 // TestApplyHooks_DefaultBackend tests that empty backend defaults to "all".
@@ -535,29 +541,34 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 // not a failure — and the user's own ~/.codex/config.toml is still not there
 // afterwards. A regression that regrows any project-root fallback writes that
 // file and fails here, exactly as the old refusal would have.
-func TestApplyHooks_CodexHomeCollisionIsUnreachable(t *testing.T) {
-	home := testsupport.Isolate(t)
-	fs := afero.NewMemMapFs()
-	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
-
-	globalHome, err := codex.GlobalHome()
-	require.NoError(t, err)
-	require.Equal(t, filepath.Join(home, ".codex"), globalHome,
-		"precondition: WorkDir IS $HOME, which is what used to make the two collapse")
-
-	res, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "codex",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      home,
-	})
-	require.NoError(t, err, "there is no longer a collision to refuse")
-	require.NotNil(t, res)
-
-	leaked, err := afero.Exists(fs, filepath.Join(globalHome, "config.toml"))
-	require.NoError(t, err)
-	assert.False(t, leaked, "ctxloom never writes the user's own codex home — least of all by accident, from $HOME")
-}
+// parked_engines: internal/codex is out of the default build, so
+// ApplyHooks(Backend: "codex") no longer reaches the declared-absence path
+// this test proves — it now hits "unknown backend" instead. Comes back with
+// the package.
+//
+// func TestApplyHooks_CodexHomeCollisionIsUnreachable(t *testing.T) {
+// 	home := testsupport.Isolate(t)
+// 	fs := afero.NewMemMapFs()
+// 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+//
+// 	globalHome, err := codex.GlobalHome()
+// 	require.NoError(t, err)
+// 	require.Equal(t, filepath.Join(home, ".codex"), globalHome,
+// 		"precondition: WorkDir IS $HOME, which is what used to make the two collapse")
+//
+// 	res, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+// 		Backend:      "codex",
+// 		FS:           fs,
+// 		ConfigLoader: mockConfigLoader,
+// 		WorkDir:      home,
+// 	})
+// 	require.NoError(t, err, "there is no longer a collision to refuse")
+// 	require.NotNil(t, res)
+//
+// 	leaked, err := afero.Exists(fs, filepath.Join(globalHome, "config.toml"))
+// 	require.NoError(t, err)
+// 	assert.False(t, leaked, "ctxloom never writes the user's own codex home — least of all by accident, from $HOME")
+// }
 
 // TestApplyHooks_RefusesKiroHomeCollision is the kiro hook-scope guard's
 // canonical red case, the kiro sibling of
@@ -571,7 +582,12 @@ func TestApplyHooks_CodexHomeCollisionIsUnreachable(t *testing.T) {
 // the materialized WORKSPACE .kiro/agents/<name>.json over any global
 // ~/.kiro/agents copy" — that precedence is moot when workDir==HOME, because
 // there IS no separate workspace copy at that point, only the global one).
+// parked_engines: kiro is out of the default build, so its
+// hookGlobalScopePaths/hookGlobalScopeLabel descriptor fields (registry.go)
+// are commented out with it — there is no longer a "kiro's global home"
+// guard registered to refuse against. Comes back with the package.
 func TestApplyHooks_RefusesKiroHomeCollision(t *testing.T) {
+	t.Skip("parked_engines: kiro is out of the default build; see this test's doc comment")
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
@@ -828,31 +844,31 @@ func TestApplyHooks_ClaudeCode_NoNativeContextFile(t *testing.T) {
 	assert.True(t, exists, "the settings.json carrying the inject hook must still be written")
 }
 
-// TestApplyHooks_Codex_NoNativeContextFile pins the same guardrail for codex:
-// its context surface is Hook-only (no CLAUDE.md-style native file exists for
-// codex at all), so apply must write only config.toml — never a stray native
-// context file.
-func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	tmpDir := "/project"
-
-	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{}, nil
-	}
-
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "codex",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      tmpDir,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "applied", result.Status)
-
-	exists, err := afero.Exists(fs, (&codex.CodexHookWriter{}).SettingsPath(tmpDir))
-	require.NoError(t, err)
-	assert.True(t, exists, "codex's config.toml must be written")
-}
+// parked_engines: internal/codex is out of the default build; ApplyHooks
+// with Backend "codex" no longer resolves a codex descriptor. Comes back
+// with the package.
+//
+// func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
+// 	fs := afero.NewMemMapFs()
+// 	tmpDir := "/project"
+//
+// 	mockConfigLoader := func() (*config.Config, error) {
+// 		return &config.Config{}, nil
+// 	}
+//
+// 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+// 		Backend:      "codex",
+// 		FS:           fs,
+// 		ConfigLoader: mockConfigLoader,
+// 		WorkDir:      tmpDir,
+// 	})
+// 	require.NoError(t, err)
+// 	assert.Equal(t, "applied", result.Status)
+//
+// 	exists, err := afero.Exists(fs, (&codex.CodexHookWriter{}).SettingsPath(tmpDir))
+// 	require.NoError(t, err)
+// 	assert.True(t, exists, "codex's config.toml must be written")
+// }
 
 // TestApplyHooks_RegenerateContextSubstitutesVariables pins parity with
 // AssembleContext: profile-declared variables must be substituted into the

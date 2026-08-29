@@ -14,7 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
+	// parked_engines: internal/codex is out of the default build;
+	// codexLaunchOnly below restates codex.LaunchOnlySettingsReason as a
+	// literal. matrixSpecs' codex/kiro/opencode rows are untouched — they
+	// are simply unreachable now that backends.List() (this file's own
+	// exhaustiveness source) no longer names those backends, not a
+	// compile-time dependency on their packages.
+	// "github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -210,8 +216,13 @@ type deliverySpec struct {
 // this loop's harpless BuildSurfaces + Deliver(root) can name. Quoted from
 // codex's own declaration so this file cannot paraphrase it into something
 // subtly different.
+// codexLaunchOnlySettingsReason mirrors codex.LaunchOnlySettingsReason
+// (internal/codex/declared_absence.go), restated as a literal because
+// internal/codex is out of the default build (parked_engines).
+const codexLaunchOnlySettingsReason = "codex settings/prompts/skills are delivered per-session at launch; no durable project home exists — see config_home"
+
 var codexLaunchOnly = "codex's home-keyed surfaces are a DECLARED ABSENCE on any harpless path: " +
-	codex.LaunchOnlySettingsReason + ". The real delivery — into a resolved CODEX_HOME — is covered by " +
+	codexLaunchOnlySettingsReason + ". The real delivery — into a resolved CODEX_HOME — is covered by " +
 	"internal/codex's TestConfigSurface_DeliverWritesConfigTOML and its commands/skills siblings, and the " +
 	"absence itself by TestCodexHome_StaticSurfaceDeliveryWritesNothingHomeKeyed."
 

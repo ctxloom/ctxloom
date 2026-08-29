@@ -82,15 +82,6 @@ type Home struct {
 	turnQ       chan *agentcoordpb.PeerMessage
 	turnPending map[string]bool
 
-	// terminalNudge is the SESSION-OWNER's delivery-by-state seam, the
-	// counterpart to turnQ for a Home no engine ever registered a turn sink
-	// on: deliverNotice's third case (neither a parked recv nor a turn sink)
-	// buffers mail for a Recv that a terminal-driven engine never makes on
-	// its own. Nil everywhere except the one wiring that owns a live PTY for
-	// this run (llm_serve.go's interactive Execute decorator); deliverNotice
-	// fires it, unlocked, whenever it buffers with nothing else to tell.
-	terminalNudge func()
-
 	// ctrlHandler executes coordinator-initiated plane-2 control requests
 	// (SetRequestHandler; EngineHost.BindHome registers itself). Nil means this
 	// runner hosts no engine, and the Request arm answers UNIMPLEMENTED —
@@ -529,9 +520,7 @@ func (h *Home) advanceAck(seq uint64) {
 //  2. no park but a hosted ENGINE registered a turn sink → queue for
 //     delivery as a NEW TURN (arrival order; the pump below);
 //  3. neither → buffer for a future recv (pre-engine window, or a
-//     shim-only child without a hosted engine) AND fire terminalNudge, if
-//     one is registered — the session owner's only way to learn mail
-//     arrived, since nothing here will ever call Recv on its own.
+//     shim-only child without a hosted engine).
 func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 	h.mu.Lock()
 	if h.consumed[pm.GetMessageId()] || h.turnPending[pm.GetMessageId()] {
@@ -563,51 +552,10 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 		msgs = h.buffer
 		h.buffer = nil
 	}
-	nudge := h.terminalNudge
 	h.mu.Unlock()
 	if msgs != nil {
 		p.ch <- msgs
-		return
 	}
-	// Nothing claimed it: no parked recv (checked above) and no turn sink
-	// (the branch above this block already ruled that out). A terminal-driven
-	// engine has no structural way to be handed a new turn, so this is its
-	// only notification.
-	if nudge != nil {
-		nudge()
-	}
-}
-
-// SetTerminalNudge registers the session-owner's terminal-injection hook: it
-// fires, unlocked and asynchronously with respect to the caller, every time
-// deliverNotice's third case buffers a message with no parked recv and no
-// turn sink to hand it to. fn must not block — it runs on the same goroutine
-// that just received the coordinator's push, so a blocking fn stalls every
-// later notice on this Home.
-//
-// One per Home, mirroring SetTurnSink: a run drives at most one terminal, and
-// a second registration almost certainly means two engines think they own
-// it, so it is refused rather than silently replacing the first.
-func (h *Home) SetTerminalNudge(fn func()) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.terminalNudge != nil {
-		clidiag.Warn("ctxloom", "runner: a terminal nudge is already registered for this run; the second registration is refused")
-		return
-	}
-	h.terminalNudge = fn
-}
-
-// BufferedMailCount reports how many messages are sitting in the recv buffer
-// with no route to their recipient (deliverNotice's third case). The
-// terminal injector reads this AT INJECTION TIME rather than at arrival
-// time, so a burst that coalesces into one nudge reports the count as it
-// stands when the frame is actually written, not the count when the first
-// message of the burst arrived.
-func (h *Home) BufferedMailCount() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return len(h.buffer)
 }
 
 // turnQueueCap bounds the engine turn-delivery queue. Far above any realistic

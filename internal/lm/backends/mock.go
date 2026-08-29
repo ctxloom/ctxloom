@@ -243,9 +243,13 @@ func writeMockRecord(recordFile string, in mockRecordFields, managed *agent.Mana
 	// both sides when the test harness itself runs inside a devcontainer — a
 	// scenario trusting it alone would then pass without any container being
 	// launched. hostname is what breaks that tie: a container gets its own UTS
-	// namespace, so it never matches the launching process's hostname, nested
-	// or not. cwd and workdir cannot serve here at all: the container mounts
-	// the project at the SAME absolute path by design.
+	// namespace regardless of how paths are mapped, so it never matches the
+	// launching process's hostname, nested or not. cwd and workdir cannot
+	// serve here: whether they agree between host and container is a
+	// property of the runtime's pathMapper seam (internal/lm/isolation/
+	// runtime.go) — identical-path is only that seam's default
+	// configuration, not a guaranteed contract — so a signal built on their
+	// equality would break under a non-identity mapper.
 	if host, err := os.Hostname(); err == nil {
 		_, _ = fmt.Fprintf(&input, "hostname=%s\n", host)
 	} else {

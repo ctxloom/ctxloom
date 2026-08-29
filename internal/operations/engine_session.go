@@ -1088,14 +1088,19 @@ func sessionIsolationLine(in sessionInitSummaryInputs) string {
 //
 // The container posture's workspace line renders the host→container mount
 // as an explicit MAPPING (both sides shown, not asserted equal in prose):
-// ISO1's Invariant 1 (see internal/lm/isolation/runtime.go's identityMapper,
-// unconditionally in force — no construction path in this codebase installs
-// a non-identity pathMapper today) guarantees isolation.Container's
-// containerWorkspace.dir feeds BOTH RunSpec.WorkDir (via toContainer, the
-// identity function) and the host-side mount source (ExposeIdentical) from
-// that same string — showing "path -> path" lets the reader SEE the
-// identity instead of taking prose's word for it, and can never legitimately
-// show two different strings while this invariant holds.
+// isolation.Container's containerWorkspace.dir feeds BOTH RunSpec.WorkDir
+// (via the runtime's pathMapper.toContainer) and the host-side mount's
+// container-side path (Runtime.ExposeMapped) through that SAME mapper call
+// (internal/lm/isolation/runtime.go's mapper()) — buildRunSpec's whole reason
+// for reading mapper() once and reusing it is so the two can never disagree
+// about where a host path lands in-container. Under identityMapper — the
+// only pathMapper any construction path in this codebase installs today —
+// that shared call happens to return its input unchanged, so "path -> path"
+// renders as a literal identity; that is this seam's default configuration,
+// not a guarantee the render depends on. A non-identity mapper would render
+// two different strings without breaking anything here, because what this
+// line proves is WorkDir and the mount agreeing with EACH OTHER, not host
+// and container paths being equal.
 //
 // The agent-not-found case returns EARLY with its own dedicated message and
 // never falls through to the summary below: a failed agent resolution never

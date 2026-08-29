@@ -41,9 +41,13 @@ import (
 // together, and compared against a host leg run on this same machine, they say
 // what the journey claims.
 //
-// cwd and workdir deliberately play no part: the container mounts the project
-// at the SAME absolute path by design, so both are byte-identical across the
-// two legs (measured) and would make a vacuous assertion.
+// cwd and workdir deliberately play no part: whether they agree between the
+// two legs depends on the runtime's pathMapper (internal/lm/isolation/
+// runtime.go) — identical-path is only that seam's default configuration,
+// not a guaranteed contract — and under today's only implemented mapper
+// (identityMapper) they ARE byte-identical (measured), which would make a
+// vacuous assertion. hostname does not share that dependency: a container
+// gets its own UTS namespace regardless of how paths are mapped.
 type j002400Record struct {
 	Hostname string
 	Markers  string

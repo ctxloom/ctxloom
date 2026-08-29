@@ -104,11 +104,15 @@ func TestMockChat_RecordFileWriteFailurePropagates(t *testing.T) {
 // container_markers is a heuristic that reads true on both sides when the test
 // harness itself runs inside a devcontainer — trusting it alone would let a
 // scenario pass with no container ever launched. hostname breaks that tie: a
-// container gets its own UTS namespace, so it never matches the launching
-// process's hostname. cwd and workdir cannot serve at all, because the
-// container mounts the project at the SAME absolute path by design (measured:
-// a containerized run's record showed cwd and workdir byte-identical to the
-// host run's, while hostname and container_markers both differed).
+// container gets its own UTS namespace regardless of how paths are mapped, so
+// it never matches the launching process's hostname. cwd and workdir cannot
+// serve at all: whether they agree between host and container is a property
+// of the runtime's pathMapper seam (internal/lm/isolation/runtime.go), not a
+// guaranteed contract — under today's only implemented mapper (identityMapper)
+// they ARE byte-identical (measured: a containerized run's record showed cwd
+// and workdir byte-identical to the host run's, while hostname and
+// container_markers both differed), which is exactly why they cannot break
+// the container_markers tie.
 func TestWriteMockRecord_RecordsWhereTheEngineRan(t *testing.T) {
 	recordFile := filepath.Join(t.TempDir(), "record.txt")
 

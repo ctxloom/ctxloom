@@ -44,9 +44,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	// parked_engines: shared/agent and shared/wire were used only by
+	// launchManaged and the codex Setup() exercises, all commented out with
+	// internal/codex above.
+	// "github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	// "github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // realHomeFixture writes a believable ~/.claude, ~/.codex and ~/.kiro into a
@@ -169,22 +172,28 @@ func resetArchStrictness(t *testing.T) {
 	})
 }
 
-// launchManaged is a realistic managed payload: hooks, an MCP server, a
-// command and a skill. Everything an engine's home-keyed surfaces would write.
-func launchManaged() *agent.ManagedConfig {
-	return &agent.ManagedConfig{
-		Commands: []agent.CommandExport{{Name: "review", Content: "review it", Enabled: true}},
-		Skills: []agent.SkillExport{{
-			Name:    "humanize",
-			Enabled: true,
-			Files:   []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\n---\nBody.\n"), Mode: 0o644}},
-		}},
-		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
-			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
-		}},
-		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
-	}
-}
+// parked_engines: launchManaged fed the codex Setup() exercise in
+// TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch and the
+// whole of TestArch_RealHostHomesAreByteIdenticalWithNoControlledHome, both
+// commented out — internal/codex is out of the default build and it was
+// the only engine those exercises drove. Comes back with the package.
+//
+// // launchManaged is a realistic managed payload: hooks, an MCP server, a
+// // command and a skill. Everything an engine's home-keyed surfaces would write.
+// func launchManaged() *agent.ManagedConfig {
+// 	return &agent.ManagedConfig{
+// 		Commands: []agent.CommandExport{{Name: "review", Content: "review it", Enabled: true}},
+// 		Skills: []agent.SkillExport{{
+// 			Name:    "humanize",
+// 			Enabled: true,
+// 			Files:   []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\n---\nBody.\n"), Mode: 0o644}},
+// 		}},
+// 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
+// 			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
+// 		}},
+// 		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
+// 	}
+// }
 
 // TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch is the gate.
 // A `config_home: project` run of every home-controlled engine resolves its

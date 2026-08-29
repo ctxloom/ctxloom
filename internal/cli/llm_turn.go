@@ -96,7 +96,10 @@ func runLLMTurn(cmd *cobra.Command, args []string) error {
 	// frontend uses, adapted to RunTurn's agent.WindowSize channel.
 	resize := turnResize(cmd.Context(), os.Stdin)
 
-	result, err := pb.RunTurn(cmd.Context(), backend, req, os.Stdin, os.Stdout, os.Stderr, resize)
+	// nil: the docker-exec transport has no session-owner terminal wake to
+	// inject into (llm_serve.go wires WrapStreams only for the go-plugin
+	// transport's session-owner case).
+	result, err := pb.RunTurn(cmd.Context(), backend, req, os.Stdin, os.Stdout, os.Stderr, resize, nil)
 	if err != nil {
 		return fmt.Errorf("interactive turn failed: %w", err)
 	}

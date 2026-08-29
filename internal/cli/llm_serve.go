@@ -2,11 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -54,20 +56,27 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 		return ferr
 	}
 
-	// servedBackend is backend itself, except for the one case that needs a
-	// terminal to inject into: a Home with no EngineHost (this run hosts no
+	// wrapStreams is set only for the one case that needs a terminal to
+	// inject into: a Home with no EngineHost (this run hosts no
 	// StructuredChat turn sink — see standUpRunner) means deliverNotice's
 	// third case can only buffer an arrival, never hand it to an engine.
-	// terminalNudgeBackend gives that Home's nudge a live stdin to write into
-	// whenever this process actually drives one interactively.
-	servedBackend := backend
+	// coord.NewTerminalInjector gives that Home's nudge a live stdin to write
+	// into whenever this process actually drives one interactively. This is a
+	// func value threaded through the plugin/server, not a Backend decorator,
+	// so it cannot erase an optional capability interface (agent.StructuredChat,
+	// agent.StateReader, agent.EngineCLIProvider) the backend implements — see
+	// grpc.LLMGRPCPlugin.WrapStreams.
+	var wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)
 	if standup.home != nil && standup.engineHost == nil {
-		servedBackend = withTerminalNudge(backend, standup.home)
+		home := standup.home
+		wrapStreams = func(stdin io.Reader, stdout io.Writer) (io.Reader, io.Writer) {
+			return coord.NewTerminalInjector(home).Wrap(stdin, stdout)
+		}
 	}
 
 	// Create the plugin map with our backend
 	pluginMap := map[string]plugin.Plugin{
-		pb.LLMPluginKey: &pb.LLMGRPCPlugin{Impl: servedBackend},
+		pb.LLMPluginKey: &pb.LLMGRPCPlugin{Impl: backend, WrapStreams: wrapStreams},
 	}
 
 	// plugin.Serve below blocks with no signal handling of its own (it

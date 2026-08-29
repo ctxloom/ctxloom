@@ -26,11 +26,20 @@ type LLMGRPCPlugin struct {
 	// Impl is the concrete backend implementation.
 	// This is only set on the server (plugin) side.
 	Impl agent.Backend
+	// WrapStreams, when set, replaces an interactive turn's stdin/stdout with
+	// the pair it returns before Execute sees them — a hook for injecting
+	// into the engine's own terminal, not a decorator on Impl. A decorator
+	// that embeds agent.Backend only promotes Backend's own methods, so it
+	// silently erases whichever optional capability interfaces (
+	// agent.StructuredChat, agent.StateReader, agent.EngineCLIProvider) the
+	// wrapped value implements — this is the deliberate alternative to that.
+	// Unset means identity: this plugin injects nothing.
+	WrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)
 }
 
 // GRPCServer returns the gRPC server for the plugin.
 func (p *LLMGRPCPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
-	RegisterLLMServer(s, &GRPCServer{Impl: p.Impl})
+	RegisterLLMServer(s, &GRPCServer{Impl: p.Impl, wrapStreams: p.WrapStreams})
 	return nil
 }
 
@@ -46,6 +55,10 @@ type GRPCServer struct {
 	// watchPoll overrides the WatchSession poll cadence; zero means the default.
 	// Tests set a small value to drive the loop quickly.
 	watchPoll time.Duration
+	// wrapStreams is LLMGRPCPlugin.WrapStreams, threaded through GRPCServer so
+	// Run can hand it to RunTurn. See LLMGRPCPlugin.WrapStreams for why this is
+	// a func value and not a Backend decorator.
+	wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)
 }
 
 // Info returns metadata about the plugin.
@@ -141,7 +154,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		}
 	}()
 
-	result, err := RunTurn(stream.Context(), s.Impl, req, stdinR, stdoutWriter, stderrWriter, resizeCh)
+	result, err := RunTurn(stream.Context(), s.Impl, req, stdinR, stdoutWriter, stderrWriter, resizeCh, s.wrapStreams)
 	if err != nil {
 		return err
 	}
@@ -162,7 +175,19 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 // delivery, or cleanup semantics. ctx bounds Setup/Execute/Cleanup; stdin may
 // be nil for a non-interactive turn; resize may be nil when no SIGWINCH source
 // exists.
-func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (*agent.ExecuteResult, error) {
+//
+// wrapStreams, when non-nil, replaces an interactive turn's stdin/stdout with
+// the pair it returns immediately before Execute — the seam a session-owner's
+// terminal wake injects into (coord.NewTerminalInjector, wired in by
+// llm_serve.go). It is a plain func value rather than a Backend decorator
+// specifically so it cannot erase an optional capability interface
+// (agent.StructuredChat, agent.StateReader, agent.EngineCLIProvider) that impl
+// implements: a decorator embedding agent.Backend only promotes Backend's own
+// methods, so wrapping impl itself would make every caller downstream of
+// RunTurn lose those assertions on the wrapped value. A oneshot turn's Stdin
+// is nil by contract (agent.LaunchBackend.ExecuteCLI's doc comment) and is
+// never wrapped.
+func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize, wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)) (*agent.ExecuteResult, error) {
 	// Treat nil Options as fully-default so callers using proto-zero-values
 	// don't crash — the generated Get* accessors are nil-safe throughout.
 	env := req.GetOptions().GetEnv()
@@ -173,6 +198,11 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 	promptContent := turnPromptContent(req)
 	runTurnSetup(ctx, impl, req, env)
 	execReq := turnExecuteRequest(req, promptContent, env, stdin, resize)
+	if wrapStreams != nil && execReq.Mode == agent.ModeInteractive && execReq.Stdin != nil {
+		wrappedStdin, wrappedStdout := wrapStreams(execReq.Stdin, stdout)
+		execReq.Stdin = wrappedStdin
+		stdout = wrappedStdout
+	}
 
 	// Make cwd reach the child on EVERY path. Setup calls SetWorkDir, but the
 	// SkipSetup oneshot path (run --print, delegated agent_run's oneshot

@@ -456,11 +456,58 @@ func (c *Coordinator) resolvePollWake(role string, r pollResult) ([]Message, err
 	if len(r.msgs) > 0 {
 		return r.msgs, nil // deliverTerminalFallback's non-durable direct payload
 	}
-	if msgs, ok := c.tryClaimDeliverable(role); ok {
-		return msgs, nil
+	msgs, ok := c.tryClaimDeliverable(role)
+	if !ok {
+		// Woken, but something else (another claim) already took the mail.
+		return nil, ErrRecvTimeout
 	}
-	// Woken, but something else (another claim) already took the mail.
-	return nil, ErrRecvTimeout
+	return append(msgs, c.settleBurst(role)...), nil
+}
+
+// A spoolReactor pass routes EVERY swept child's report serially, so N children
+// finishing inside one sweep window arrive as N queue operations microseconds
+// apart. A wake redeemed the instant the first lands claims exactly that one,
+// and entries 2..N are then queued with no poll parked — deliverToPoll returns
+// false, and for a session owner's own harp pushMail has no channel to fall
+// back to. They wait for the caller's NEXT receive, with nothing in the
+// response able to say they exist.
+//
+// So a redeemed wake keeps claiming until the arrivals stop, and only the
+// caller that is already returning pays for it.
+const (
+	// mailSettleQuiet is how long the burst must be silent before the batch is
+	// considered whole.
+	mailSettleQuiet = 40 * time.Millisecond
+	// mailSettleTick is how often the window is re-checked.
+	mailSettleTick = 5 * time.Millisecond
+	// mailSettleCap bounds the total wait, so a role receiving continuously
+	// cannot hold its own caller open indefinitely. Reaching it is not an
+	// error: whatever was claimed is returned, and the remainder is still
+	// deliverable to the next receive.
+	mailSettleCap = 400 * time.Millisecond
+)
+
+// settleBurst collects the rest of an in-flight arrival burst for role, having
+// already claimed its first message. It returns only what it additionally
+// claimed, and never an error: a settle that finds nothing simply means the
+// burst was one message, which is the common case.
+func (c *Coordinator) settleBurst(role string) []Message {
+	var extra []Message
+	hardStop := time.Now().Add(mailSettleCap)
+	quietUntil := time.Now().Add(mailSettleQuiet)
+
+	for time.Now().Before(quietUntil) && time.Now().Before(hardStop) {
+		time.Sleep(mailSettleTick)
+		more, ok := c.tryClaimDeliverable(role)
+		if !ok {
+			continue
+		}
+		extra = append(extra, more...)
+		// Progress restarts the quiet period: a burst is only whole once
+		// nothing new has arrived for a full window.
+		quietUntil = time.Now().Add(mailSettleQuiet)
+	}
+	return extra
 }
 
 // abandonPoll resolves the timeout/cancel race against a concurrent delivery:

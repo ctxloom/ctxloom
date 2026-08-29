@@ -346,6 +346,29 @@ func TestContainer_ExecSpecRefusesEmptyCommand(t *testing.T) {
 	assert.Equal(t, []string{"claude-code-acp"}, spec.Command)
 }
 
+// TestContainer_ExecSpec_RoutesProjectMountAndWorkDirThroughMapper is the
+// CONTROL nothing else in this package provided: ExecSpec builds its project
+// mount via ExposeMapped and its WorkDir via mapper().toContainer directly
+// (container.go), and neither was ever asserted against a MAPPED value — only
+// TestContainer_ExecSpecRefusesEmptyCommand touches ExecSpec, and it checks
+// spec.Command only. Under identityMapper this gap is invisible (Host ==
+// Container either way); under fakeRuntime's non-identity prefixMapper it is
+// not — a call site that quietly reverted to the raw host path (skipping
+// ExposeMapped/mapper() entirely) would leave spec.WorkDir == cw.dir and the
+// project mount's Container == cw.dir, which this test would catch.
+func TestContainer_ExecSpec_RoutesProjectMountAndWorkDirThroughMapper(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
+	ws := &containerWorkspace{dir: "/proj/live", agentID: "m"}
+
+	spec, err := c.ExecSpec(ws, []string{"true"}, nil, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/ctr/proj/live", spec.WorkDir,
+		"WorkDir must be the MAPPED container path, not the raw host dir")
+	assert.Contains(t, spec.Mounts, Mount{Host: "/proj/live", Container: "/ctr/proj/live"},
+		"the project mount's Container side must be the MAPPED path, not the raw host dir")
+}
+
 // TestContainer_WithImageRunsAsIs pins a regression. A caller-supplied
 // image is USER-OWNED: nothing ctxloom authored — the identity-remap entrypoint
 // included — is guaranteed to be in it, so it must be run AS-IS (never locally

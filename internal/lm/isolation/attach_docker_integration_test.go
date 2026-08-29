@@ -60,7 +60,7 @@ func TestRunAttached_SamePathMountAndTeardown(t *testing.T) {
 		Name:    containerName("attach-itest"),
 		WorkDir: projectDir,
 		Command: []string{"cat", marker},
-		Mounts:  []Mount{rt.ExposeIdentical(projectDir, false)},
+		Mounts:  []Mount{rt.ExposeMapped(projectDir, false)},
 	}
 
 	ac, err := RunAttached(ctx, rt, spec, nil)

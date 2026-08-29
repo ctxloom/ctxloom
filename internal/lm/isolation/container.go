@@ -424,10 +424,10 @@ func (c Container) WithImage(image string) Container {
 // It assembles the SAME three ingredients buildRunSpec (runner.go) computes
 // for the go-plugin path, minus the plugin-handshake-specific pieces (the
 // socket-dir mount, the curated handshake env, the loopback-port publish):
-// the identical-path project mount (ExposeIdentical — the SAME primitive
-// buildRunSpec's project mount and gitCommonDirMount use, so a non-identity
-// path mapper, when one exists, applies here too without another call site
-// to update), the workspace's own auth/overlay/gitdir/state mounts
+// the project mount (ExposeMapped — the SAME primitive buildRunSpec's
+// project mount and gitCommonDirMount use, so a non-identity path mapper,
+// when one exists, applies here too without another call site to update),
+// the workspace's own auth/overlay/gitdir/state mounts
 // (cw.extraMounts) plus any caller-supplied extraMounts (e.g. ISO1's
 // reach-back socket-dir mount), and the fixed container base env
 // (containerBaseEnv) + the workspace's scoped auth env passthrough
@@ -445,7 +445,7 @@ func (c Container) ExecSpec(ws Workspace, command []string, extraEnv []string, e
 		return RunSpec{}, fmt.Errorf("container exec: empty command (the container would run the image's default entrypoint instead)")
 	}
 	mounts := make([]Mount, 0, 1+len(cw.extraMounts)+len(extraMounts))
-	mounts = append(mounts, c.runtime.ExposeIdentical(cw.dir, false))
+	mounts = append(mounts, c.runtime.ExposeMapped(cw.dir, false))
 	mounts = append(mounts, cw.extraMounts...)
 	mounts = append(mounts, extraMounts...)
 
@@ -924,11 +924,11 @@ func gitCommonDirMount(ctx context.Context, rt Runtime, g git.Git, dir string) (
 	if err != nil {
 		return Mount{}, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
 	}
-	// ExposeIdentical (not Expose(common, common, ...)) routes through the
-	// runtime's pathMapper (lanky-pod's seam) — identity today, so this is
-	// unchanged; a non-identity mapper would need the SAME translation the
-	// project mount gets, which is exactly ExposeIdentical's contract.
-	return rt.ExposeIdentical(common, false), nil
+	// ExposeMapped (not Expose(common, common, ...)) routes through the
+	// runtime's pathMapper (lanky-pod's seam) — identity by default, so this
+	// is unchanged there; a non-identity mapper applies the SAME translation
+	// the project mount gets, which is exactly ExposeMapped's contract.
+	return rt.ExposeMapped(common, false), nil
 }
 
 // seedOverlay copies the project's managed-config directory into its fresh

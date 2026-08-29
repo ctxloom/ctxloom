@@ -91,7 +91,11 @@ func (r reapRuntime) Binary() string             { return r.bin }
 func (r reapRuntime) Available() bool            { return true }
 func (r reapRuntime) RunArgs(s RunSpec) []string { return r.run(s) }
 func (r reapRuntime) RemoveArgs(string) []string { return r.rm }
-func (r reapRuntime) mapper() pathMapper         { return identityMapper{} }
+
+// mapper is inherited from the embedded fakeRuntime (a non-identity
+// prefixMapper, container_test.go) — this type used to shadow it with its
+// own hardcoded identityMapper{}, but these tests never assert on a mapped
+// path, so the override was pure duplication (Reductive Development).
 
 // newReapRuntime builds a shell-backed runtime whose `run` sleeps (a
 // long-lived "container" that must be killed) and whose `rm` exits at once.

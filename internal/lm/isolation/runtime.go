@@ -60,19 +60,21 @@ type Runtime interface {
 	// (Chroot) can map an exposure differently (e.g. a path under its root) at
 	// the one delivery-layer primitive instead of at every Mount literal.
 	Expose(host, target string, readOnly bool) Mount
-	// ExposeIdentical renders the IDENTICAL-PATH bind Mount for hostPath —
-	// project dir, gitdir mirror — through this runtime's pathMapper (§ lanky-
-	// pod). identityMapper (the default; every Docker/Podman/Host construction
-	// path today) makes this byte-for-byte Expose(hostPath, hostPath,
-	// readOnly), so introducing this seam changes NOTHING on Linux/host-
-	// native/true-DinD. A future non-identity mapper (Windows drive-letter→
-	// POSIX; DooD mountinfo-derived) plugs in at ONE place — mapper() below —
-	// rather than at every identical-path call site.
-	ExposeIdentical(hostPath string, readOnly bool) Mount
+	// ExposeMapped renders the bind Mount for hostPath — project dir, gitdir
+	// mirror — with its Container side passed through this runtime's
+	// pathMapper (§ lanky-pod): Mount{Host: hostPath, Container:
+	// mapper().toContainer(hostPath)}. Under identityMapper (the default;
+	// every Docker/Podman/Host construction path today) that is byte-for-byte
+	// Expose(hostPath, hostPath, readOnly), so introducing this seam changes
+	// NOTHING on Linux/host-native/true-DinD. It is NOT guaranteed identical
+	// in general — a non-identity mapper (Windows drive-letter→POSIX; DooD
+	// mountinfo-derived) plugs in at ONE place — mapper() below — rather than
+	// at every call site that needs the SAME translation.
+	ExposeMapped(hostPath string, readOnly bool) Mount
 	// mapper returns this runtime's host↔container path translation
 	// (unexported: an internal wiring seam, not part of the public contract
 	// external packages implement). buildRunSpec reads it to translate the
-	// project mount + WorkDir the SAME way ExposeIdentical does, so the two
+	// project mount + WorkDir the SAME way ExposeMapped does, so the two
 	// never disagree about where a host path lands in-container.
 	mapper() pathMapper
 }
@@ -131,6 +133,25 @@ func runtimeMapper(m pathMapper) pathMapper {
 		return identityMapper{}
 	}
 	return m
+}
+
+// funcMapper adapts a plain function to pathMapper — the backing type for
+// NewDockerWithMapperForTest.
+type funcMapper func(hostPath string) string
+
+func (f funcMapper) toContainer(hostPath string) string { return f(hostPath) }
+
+// NewDockerWithMapperForTest builds a Docker runtime carrying a custom
+// host→container path-mapping function. mapper() is deliberately UNEXPORTED
+// (this interface's own doc: "not part of the public contract external
+// packages implement"), so a package outside internal/lm/isolation — notably
+// internal/acp's container reach-back test — has no other way to construct a
+// NON-IDENTITY Runtime and prove its call site actually routes a mount
+// through the mapper seam rather than hardcoding Host==Container. No
+// production caller uses this; every real construction path still passes a
+// nil pathMap (identity).
+func NewDockerWithMapperForTest(toContainer func(hostPath string) string) Docker {
+	return Docker{ociRuntime: ociRuntime{pathMap: funcMapper(toContainer)}}
 }
 
 // LaunchSpec carries the launch conventions Spawn needs to start one plugin run,
@@ -250,10 +271,11 @@ func (ociRuntime) Expose(host, target string, readOnly bool) Mount {
 	return Mount{Host: host, Container: target, ReadOnly: readOnly}
 }
 
-// ExposeIdentical renders the identical-path Mount for hostPath through this
-// runtime's pathMapper — identityMapper by default, so this is byte-for-byte
-// Expose(hostPath, hostPath, readOnly) until a non-identity mapper is wired.
-func (rt ociRuntime) ExposeIdentical(hostPath string, readOnly bool) Mount {
+// ExposeMapped renders the Mount for hostPath with its Container side routed
+// through this runtime's pathMapper — identityMapper by default, so this is
+// byte-for-byte Expose(hostPath, hostPath, readOnly) until a non-identity
+// mapper is wired; a non-identity mapper changes ONLY the Container side.
+func (rt ociRuntime) ExposeMapped(hostPath string, readOnly bool) Mount {
 	return Mount{Host: hostPath, Container: rt.mapper().toContainer(hostPath), ReadOnly: readOnly}
 }
 
@@ -489,9 +511,11 @@ func (Host) Expose(host, target string, readOnly bool) Mount {
 	return Mount{Host: host, Container: target, ReadOnly: readOnly}
 }
 
-// ExposeIdentical is the identity mount — Host has no container namespace to
-// remap into, so this is unconditionally Expose(hostPath, hostPath, readOnly).
-func (Host) ExposeIdentical(hostPath string, readOnly bool) Mount {
+// ExposeMapped is the identity mount for Host specifically — Host has no
+// container namespace to remap into, so this is unconditionally
+// Expose(hostPath, hostPath, readOnly) (matching Host.mapper() below, always
+// identityMapper).
+func (Host) ExposeMapped(hostPath string, readOnly bool) Mount {
 	return Mount{Host: hostPath, Container: hostPath, ReadOnly: readOnly}
 }
 

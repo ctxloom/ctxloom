@@ -85,7 +85,7 @@ func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 
 	// PRESERVED: the project mount, the scoped auth env, IS_SANDBOX, the config
 	// overlay, and — the §6.4 guard — the session-state mount.
-	assert.Contains(t, spec.Mounts, Mount{Host: "/proj", Container: "/proj"}, "identical-path project mount")
+	assert.Contains(t, spec.Mounts, Mount{Host: "/proj", Container: "/ctr/proj"}, "project mount mapped through the runtime's pathMapper")
 	assert.Contains(t, spec.Mounts, stateMount, "the session-state mount is preserved (transcript survival, §6.4)")
 	assert.Contains(t, spec.Mounts, Mount{Host: "/scratch/cfg0", Container: "/proj/.claude"}, "config overlay preserved")
 	assert.Contains(t, spec.Env, "ANTHROPIC_API_KEY=scoped", "scoped auth env preserved")

@@ -13,13 +13,27 @@ import (
 // ("choose a canonical in-container mount root … and translate C:\Users\foo\
 // proj → e.g. /workspace"). It is deliberately simplistic (no drive-letter
 // parsing, no Docker-Desktop /host_mnt SOURCE translation) — exercising it
-// here proves the SEAM (buildRunSpec/ExposeIdentical route every identical-
+// here proves the SEAM (buildRunSpec/ExposeMapped route every identical-
 // path Mount + WorkDir through whatever mapper the runtime carries), not a
 // production-ready Windows implementation, which the plan explicitly scopes
 // out of this task (untested-without-hardware).
 type windowsStyleMapper struct{ root string }
 
 func (m windowsStyleMapper) toContainer(string) string { return m.root }
+
+// prefixMapper is a TEST-ONLY non-identity pathMapper that maps hostPath to
+// prefix+hostPath. Unlike windowsStyleMapper (which collapses EVERY host path
+// to one canonical root, and so cannot tell two different remapped paths
+// apart), prefixMapper stays INJECTIVE: distinct host paths still map to
+// distinct container paths. That is what makes it useful as the default
+// mapper for the package's fakeRuntime/reapRuntime test doubles — a call
+// site that skips the mapper and hands back the raw host path produces
+// output a prefixMapper-backed assertion can tell apart from the real
+// (mapped) contract, closing the gap identityMapper's Host==Container leaves
+// (a skipped mapper call is byte-identical to a used one under identity).
+type prefixMapper struct{ prefix string }
+
+func (m prefixMapper) toContainer(hostPath string) string { return m.prefix + hostPath }
 
 // TestIdentityMapper_NoOp pins the seam's zero-behavior-change contract: the
 // default mapper is a pure passthrough.
@@ -92,14 +106,14 @@ func TestBuildRunSpec_WindowsStyleMapper_TranslatesWorkDirAndProjectMount(t *tes
 	assert.NotContains(t, argv, `target=C:\`, "the CONTAINER (target) side must never carry a Windows-style path")
 }
 
-// TestOciRuntime_ExposeIdentical_RoutesThroughMapper pins the OTHER lanky-pod
-// call site (gitCommonDirMount's mirror mount): ExposeIdentical must apply
+// TestOciRuntime_ExposeMapped_RoutesThroughMapper pins the OTHER lanky-pod
+// call site (gitCommonDirMount's mirror mount): ExposeMapped must apply
 // the SAME mapper buildRunSpec uses, so a linked-worktree's common-dir mirror
 // and the project mount never disagree about the in-container root.
-func TestOciRuntime_ExposeIdentical_RoutesThroughMapper(t *testing.T) {
+func TestOciRuntime_ExposeMapped_RoutesThroughMapper(t *testing.T) {
 	// Identity (default): unchanged behavior.
 	plain := Docker{}
-	assert.Equal(t, Mount{Host: "/repo/.git", Container: "/repo/.git"}, plain.ExposeIdentical("/repo/.git", false),
+	assert.Equal(t, Mount{Host: "/repo/.git", Container: "/repo/.git"}, plain.ExposeMapped("/repo/.git", false),
 		"a Docker runtime constructed without a mapper (every call site today) is identity")
 
 	// Non-identity: injected via the unexported ociRuntime.pathMap field
@@ -107,6 +121,6 @@ func TestOciRuntime_ExposeIdentical_RoutesThroughMapper(t *testing.T) {
 	// Windows/DooD mapper at runtime construction).
 	mapped := Docker{ociRuntime: ociRuntime{pathMap: windowsStyleMapper{root: "/workspace"}}}
 	assert.Equal(t, Mount{Host: `C:\Users\foo\proj\.git`, Container: "/workspace", ReadOnly: true},
-		mapped.ExposeIdentical(`C:\Users\foo\proj\.git`, true),
-		"ExposeIdentical must route the container target through the SAME mapper buildRunSpec uses")
+		mapped.ExposeMapped(`C:\Users\foo\proj\.git`, true),
+		"ExposeMapped must route the container target through the SAME mapper buildRunSpec uses")
 }

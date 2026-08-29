@@ -75,10 +75,21 @@ func TestTerminalInject_SinkPresentNeverNudges(t *testing.T) {
 // engine whose output never goes quiet must still be nudged, bounded, rather
 // than wait forever.
 func TestTerminalInject_NeverQuietStillInjectsWithinBound(t *testing.T) {
-	ti := &TerminalInjector{quiet: 50 * time.Millisecond, tick: 5 * time.Millisecond, maxWait: 100 * time.Millisecond, count: func() int { return 3 }}
+	// quiet is deliberately an order of magnitude above the writer's own
+	// cadence below: an occasional scheduler hiccup in the writer goroutine
+	// must not accidentally look "quiet" and pass this test for the wrong
+	// reason. maxWait is deliberately far BELOW quiet, so the only way an
+	// injection can land inside this test's window is the bound firing.
+	ti := &TerminalInjector{quiet: 300 * time.Millisecond, tick: time.Millisecond, maxWait: 40 * time.Millisecond, count: func() int { return 3 }}
 	var mu sync.Mutex
 	var got string
 	ti.inject = func(s string) { mu.Lock(); got = s; mu.Unlock() }
+
+	// Seed lastWrite BEFORE arming the writer/nudge: the zero value would
+	// otherwise read as "56 years idle" on run's very first check, satisfying
+	// "quiet" by accident and proving nothing about the bound this test
+	// exists to pin.
+	ti.lastWrite.Store(time.Now().UnixNano())
 
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
@@ -89,7 +100,7 @@ func TestTerminalInject_NeverQuietStillInjectsWithinBound(t *testing.T) {
 				return
 			default:
 				ti.lastWrite.Store(time.Now().UnixNano())
-				time.Sleep(2 * time.Millisecond)
+				time.Sleep(time.Millisecond)
 			}
 		}
 	}()
@@ -100,8 +111,8 @@ func TestTerminalInject_NeverQuietStillInjectsWithinBound(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		return got != ""
-	}, time.Second, 5*time.Millisecond, "the bound must force an injection even when the terminal never looks quiet")
-	assert.Less(t, time.Since(start), 500*time.Millisecond, "the wait must not run past its own bound")
+	}, time.Second, 2*time.Millisecond, "the bound must force an injection even when the terminal never looks quiet")
+	assert.Less(t, time.Since(start), 200*time.Millisecond, "the wait must not run past its own bound")
 }
 
 // TestTerminalInject_BurstOfMailCoalescesToOneInjection pins decision #4:

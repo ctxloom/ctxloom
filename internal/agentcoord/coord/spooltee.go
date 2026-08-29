@@ -196,24 +196,13 @@ func (c *Coordinator) teeMailToRun(to string, msg Message) {
 		c.noteSpoolTeeFailure(to, msg.ID, err)
 		return
 	}
-	w, err := c.spoolIn.writerFor(to)
-	if err != nil {
-		c.noteSpoolTeeFailure(to, msg.ID, err)
-		return
-	}
-	ref, err := w.Write(sm)
-	if err != nil {
+	// Write-and-ring is ONE operation (spoolcourier.go), so the tee cannot
+	// write a file it forgets to announce.
+	if _, err := c.mailCourier().SendProjected(to, sm); err != nil {
 		c.noteSpoolTeeFailure(to, msg.ID, err)
 		return
 	}
 	c.spoolTeeCount.written.Add(1)
-	// Fire-and-forget by contract (RingSpool): a doorbell that cannot go out
-	// costs latency, never a message, because the file is already on disk. The
-	// only error it can return is an unusable ref, which means the writer just
-	// produced one — worth the same loud failure as a failed write.
-	if err := c.RingSpool(to, ref); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: spool tee wrote %s but could not ring it: %v", ref, err)
-	}
 }
 
 // noteSpoolTeeFailure reports and then counts, in that order — the same
@@ -311,20 +300,11 @@ func (h *Home) teeMailFromAgent(msgID, to, kind, body, inReplyTo string, structu
 		h.noteSpoolTeeFailure(msgID, err)
 		return
 	}
-	w, err := h.spoolOut.writerFor(h.cfg.Harp)
-	if err != nil {
-		h.noteSpoolTeeFailure(msgID, err)
-		return
-	}
-	ref, err := w.Write(sm)
-	if err != nil {
+	if _, err := h.outboundCourier().SendProjected(to, sm); err != nil {
 		h.noteSpoolTeeFailure(msgID, err)
 		return
 	}
 	h.spoolTeeCount.written.Add(1)
-	if err := h.RingSpool(ref); err != nil {
-		clidiag.Warn("ctxloom", "runner: spool tee wrote %s but could not ring it: %v", ref, err)
-	}
 }
 
 // noteSpoolTeeFailure reports and then counts — see the coordinator's twin.

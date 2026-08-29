@@ -401,7 +401,7 @@ func (c *Coordinator) mailCourier() *spoolCourier {
 	return &spoolCourier{
 		writers: c.spoolIn,
 		keyFor:  func(to string) string { return to },
-		ring:    c.RingSpool,
+		ring:    c.ringSpool,
 		onSent: func(to string, msg Message, ref spool.Ref) {
 			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "kind": msg.Kind, "ref": ref.String()})
 		},
@@ -922,9 +922,7 @@ func (h *Home) ackMailConsumed(ids []string) {
 		h.spoolDeliveryCount.consumed.Add(1)
 		// The consume-rename IS the delivery ack, and this ring is how the
 		// coordinator learns of it without polling.
-		if err := h.RingSpool(done); err != nil {
-			clidiag.Warn("ctxloom", "runner: consumed %s but could not announce it: %v", done, err)
-		}
+		h.outboundCourier().Announce("", done, "consumed")
 	}
 	h.emitMailConsumed(viaMailbox)
 }

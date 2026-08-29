@@ -8,7 +8,6 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // THE INTERACTION-PLANE CUTOVER (config delegation.spool_delivery, same flag
@@ -171,9 +170,7 @@ func (c *Coordinator) WithdrawSteer(by ControlInitiator, harp, messageID string)
 	// out of the directory it sweeps — but the doorbell is what makes the
 	// state change observable on the wire rather than only on disk, and it
 	// costs nothing to be dropped.
-	if err := c.RingSpool(harp, withdrawn); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: withdrew %s but could not announce it: %v", withdrawn, err)
-	}
+	c.mailCourier().Announce(harp, withdrawn, "withdrew")
 	return nil
 }
 

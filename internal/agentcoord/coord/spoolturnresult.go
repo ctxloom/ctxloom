@@ -185,7 +185,7 @@ func (h *Home) outboundCourier() *spoolCourier {
 	return &spoolCourier{
 		writers: h.spoolOut,
 		keyFor:  func(string) string { return h.cfg.Harp },
-		ring:    func(_ string, ref spool.Ref) error { return h.RingSpool(ref) },
+		ring:    func(_ string, ref spool.Ref) error { return h.ringSpool(ref) },
 		side:    "runner",
 	}
 }

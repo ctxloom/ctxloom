@@ -55,7 +55,7 @@ func TestSpoolDoorbell_RunnerToCoordinatorRoundTrip(t *testing.T) {
 			})
 
 			want := spool.Ref{Harp: doorbellHarp, Dir: dir, Name: doorbellName}
-			require.NoError(t, h.RingSpool(want))
+			require.NoError(t, h.ringSpool(want))
 
 			assert.Equal(t, want, waitRef(t, got),
 				"the doorbell must arrive as the IDENTICAL ref: every field is a coordinate the receiver joins into a path, so a lost or altered one resolves somewhere else")
@@ -77,7 +77,7 @@ func TestSpoolDoorbell_CoordinatorToRunnerRoundTrip(t *testing.T) {
 			h.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { got <- ref })
 
 			want := spool.Ref{Harp: doorbellHarp, Dir: dir, Name: doorbellName}
-			require.NoError(t, c.RingSpool(doorbellHarp, want))
+			require.NoError(t, c.ringSpool(doorbellHarp, want))
 
 			assert.Equal(t, want, waitRef(t, got),
 				"the doorbell must arrive as the IDENTICAL ref in this direction too")
@@ -296,7 +296,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 	t.Run("coordinator: no live run channel", func(t *testing.T) {
 		c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
 
-		require.NoError(t, c.RingSpool(doorbellHarp, ref),
+		require.NoError(t, c.ringSpool(doorbellHarp, ref),
 			"a runner that is not attached is an ordinary state, not a caller error")
 		assert.Equal(t, uint64(1), c.SpoolDoorbellStats().Dropped)
 	})
@@ -321,7 +321,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 		c.mu.Unlock()
 
 		done := make(chan error, 1)
-		go func() { done <- c.RingSpool(doorbellHarp, ref) }()
+		go func() { done <- c.ringSpool(doorbellHarp, ref) }()
 		select {
 		case err := <-done:
 			assert.NoError(t, err, "a dropped doorbell is not an error: the file is the truth and the sweep redelivers")
@@ -338,7 +338,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 		h.Close(0, "")
 
 		done := make(chan error, 1)
-		go func() { done <- h.RingSpool(ref) }()
+		go func() { done <- h.ringSpool(ref) }()
 		select {
 		case err := <-done:
 			assert.NoError(t, err)
@@ -357,7 +357,7 @@ func TestSpoolDoorbell_NoConsumerIsTheDefault(t *testing.T) {
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
 	h := dialHome(t, c, doorbellHarp, CapPeerMessaging)
 
-	require.NoError(t, h.RingSpool(spool.Ref{Harp: doorbellHarp, Dir: spool.DirOut, Name: doorbellName}))
+	require.NoError(t, h.ringSpool(spool.Ref{Harp: doorbellHarp, Dir: spool.DirOut, Name: doorbellName}))
 
 	require.Eventually(t, func() bool {
 		return c.SpoolDoorbellStats().Dropped == 1
@@ -381,8 +381,8 @@ func TestSpoolDoorbell_InvalidRefNeverReachesTheWire(t *testing.T) {
 		{Harp: doorbellHarp, Dir: "", Name: doorbellName},
 	}
 	for _, ref := range bad {
-		assert.Error(t, c.RingSpool(doorbellHarp, ref), "coordinator must refuse to ring about %s", ref)
-		assert.Error(t, h.RingSpool(ref), "runner must refuse to ring about %s", ref)
+		assert.Error(t, c.ringSpool(doorbellHarp, ref), "coordinator must refuse to ring about %s", ref)
+		assert.Error(t, h.ringSpool(ref), "runner must refuse to ring about %s", ref)
 	}
 	assert.Zero(t, c.SpoolDoorbellStats().Dropped,
 		"a refused ref was never a doorbell, so it is not a DROP — conflating the two would hide real drops in the count")

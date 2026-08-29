@@ -169,7 +169,7 @@ type SpoolDoorbellHandler func(role string, ref spool.Ref)
 
 // ---- coordinator side --------------------------------------------------
 
-// RingSpool sends role's runner a doorbell for ref. FIRE-AND-FORGET: it
+// ringSpool sends role's runner a doorbell for ref. FIRE-AND-FORGET: it
 // returns nil when the doorbell went out AND when it was dropped for want of a
 // live, unsaturated channel. The only error is an unusable ref, which never
 // reaches the wire.
@@ -179,7 +179,7 @@ type SpoolDoorbellHandler func(role string, ref spool.Ref)
 // every compensation mechanism (retry queues, reservations, reissue buffers) is
 // exactly the machinery the file-is-the-truth design exists to delete. The
 // receiver's sweep already covers it.
-func (c *Coordinator) RingSpool(role string, ref spool.Ref) error {
+func (c *Coordinator) ringSpool(role string, ref spool.Ref) error {
 	msg, err := SpoolChangedProto(ref)
 	if err != nil {
 		return err
@@ -271,10 +271,10 @@ func (c *Coordinator) SpoolDoorbellStats() SpoolDoorbellStats { return c.spoolDo
 
 // ---- runner side -------------------------------------------------------
 
-// RingSpool sends the coordinator a doorbell for ref. FIRE-AND-FORGET on the
+// ringSpool sends the coordinator a doorbell for ref. FIRE-AND-FORGET on the
 // same terms as the coordinator's: a down or absent stream drops it and
 // returns nil; only an unusable ref is an error.
-func (h *Home) RingSpool(ref spool.Ref) error {
+func (h *Home) ringSpool(ref spool.Ref) error {
 	msg, err := SpoolChangedProto(ref)
 	if err != nil {
 		return err

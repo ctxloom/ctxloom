@@ -60,21 +60,53 @@ func (x *spoolCourier) Send(msg Message) (spool.Ref, error) {
 	if err != nil {
 		return spool.Ref{}, fmt.Errorf("%s: cannot project message %s for %s onto the spool: %w", x.side, msg.ID, msg.To, err)
 	}
-	w, err := x.writers.writerFor(x.keyFor(msg.To))
+	ref, err := x.SendProjected(msg.To, sm)
 	if err != nil {
-		return spool.Ref{}, fmt.Errorf("%s: cannot open the spool for message %s to %s: %w", x.side, msg.ID, msg.To, err)
-	}
-	ref, err := w.Write(sm)
-	if err != nil {
-		return spool.Ref{}, fmt.Errorf("%s: writing message %s into %s's spool: %w", x.side, msg.ID, msg.To, err)
+		return spool.Ref{}, err
 	}
 	if x.onSent != nil {
 		x.onSent(msg.To, msg, ref)
 	}
+	return ref, nil
+}
+
+// SendProjected writes an ALREADY-PROJECTED spool message and rings it.
+//
+// It exists for callers that build their own spool.Message and own their own
+// failure reporting — the shadow tee does both, with its own counters. They
+// still must not be able to write without ringing, so the pairing lives here
+// and they compose on top rather than reaching past it.
+func (x *spoolCourier) SendProjected(to string, sm *spool.Message) (spool.Ref, error) {
+	w, err := x.writers.writerFor(x.keyFor(to))
+	if err != nil {
+		return spool.Ref{}, fmt.Errorf("%s: cannot open the spool for %s: %w", x.side, to, err)
+	}
+	ref, err := w.Write(sm)
+	if err != nil {
+		return spool.Ref{}, fmt.Errorf("%s: writing into %s's spool: %w", x.side, to, err)
+	}
 	// Unconditional, and unreachable from outside: a caller holding a courier
 	// cannot obtain the ref without this having run.
-	if rerr := x.ring(msg.To, ref); rerr != nil {
-		clidiag.Warn("ctxloom", "%s: wrote %s for %s but could not ring it: %v (it will be swept)", x.side, ref, msg.To, rerr)
+	if rerr := x.ring(to, ref); rerr != nil {
+		clidiag.Warn("ctxloom", "%s: wrote %s for %s but could not ring it: %v (it will be swept)", x.side, ref, to, rerr)
 	}
 	return ref, nil
+}
+
+// Announce rings for a spool mutation this end has ALREADY performed — a
+// rename rather than a write.
+//
+// The consume-rename IS the delivery acknowledgement, and a withdrawal moves a
+// file out of the directory the runner sweeps; in both cases the bytes have
+// already moved and the doorbell is how the other end learns of it without
+// polling. So the invariant the courier owns is not "a write is rung" but the
+// general one: A SPOOL MUTATION IS ANNOUNCED, whether it wrote a file or moved
+// one.
+//
+// what names the transition for the diagnostic, so a dropped announcement says
+// which one was lost rather than only that something was.
+func (x *spoolCourier) Announce(to string, ref spool.Ref, what string) {
+	if rerr := x.ring(to, ref); rerr != nil {
+		clidiag.Warn("ctxloom", "%s: %s %s but could not announce it: %v", x.side, what, ref, rerr)
+	}
 }

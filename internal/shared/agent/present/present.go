@@ -89,9 +89,6 @@ func (Host) ApplyPaths(p Paths) (Paths, []Mount) {
 }
 
 func identity(r Root) Root {
-	if r.Host == "" {
-		return r
-	}
 	return Root{Host: r.Host, Engine: r.Host}
 }
 

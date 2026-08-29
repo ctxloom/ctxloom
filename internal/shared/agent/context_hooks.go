@@ -122,43 +122,6 @@ func NewNextStepHook() wire.Hook {
 	}
 }
 
-// CloseOutTimeout is the timeout, in seconds, for the TurnEnd close-out hook.
-// It reads the transcript through `hook turn-changed`, so it gets the same
-// budget as the next-step capture for the same reason.
-const CloseOutTimeout = 15
-
-// NewCloseOutHook creates the TurnEnd hook that asks for a close-out on a turn
-// that CHANGED something, and stays silent on one that only read.
-//
-// wire.UnifiedHooks.TurnEnd's own doc already names this as its purpose —
-// "the event a close-out contract needs: the point at which 'did you update
-// the docs / the task log' can still be acted on" — and `ctxloom hook
-// turn-changed` was built to answer it, describing itself as "used by the Stop
-// hook". Nothing installed it, so the contract existed as prose in two places
-// and as behaviour in none. This is the wiring.
-//
-// THE GUARD IS INVERTED ON PURPOSE. It silences the contract on the single
-// word "unchanged" and on nothing else, so a crash, a missing binary, an
-// unreadable transcript or any future verdict all leave the checklist FIRING.
-// turn-changed already takes that side of the trade — it prints "changed" for
-// anything it cannot measure — because a spurious checklist costs a paragraph
-// and a missed one costs a stale task log nobody knows is stale.
-//
-// It points AT the skill rather than restating the checklist: a rule
-// hand-copied into two places is the expensive kind of drift, since one copy
-// gets retired and the other keeps asserting it with nothing to say which is
-// current.
-func NewCloseOutHook() wire.Hook {
-	cmd := shellSingleQuote(CtxloomCommand())
-	return wire.Hook{
-		Command: fmt.Sprintf(
-			`[ "$(%s hook turn-changed)" = "unchanged" ] || echo 'This turn changed something. Invoke the closeout skill and follow it before you finish.'`,
-			cmd),
-		Type:    "command",
-		Timeout: CloseOutTimeout,
-	}
-}
-
 // absOrSelf resolves workDir to an absolute path (Claude Code may launch the
 // hook from a different cwd), falling back to the input on error.
 func absOrSelf(workDir string) string {

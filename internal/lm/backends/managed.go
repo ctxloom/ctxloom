@@ -308,7 +308,7 @@ func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, con
 	// be to configure is whether distillation is allowed to know what the
 	// session was doing.
 	m.mergeUnified(
-		wire.UnifiedHooks{TurnEnd: []wire.Hook{agent.NewNextStepHook(), agent.NewCloseOutHook()}},
+		wire.UnifiedHooks{TurnEnd: []wire.Hook{agent.NewNextStepHook()}},
 		fixedSource(HookSource{Origin: HookOriginContext}))
 	if contextHash != "" {
 		m.mergeUnified(

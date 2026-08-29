@@ -107,6 +107,16 @@ F1 ranks a run that offered less above one that found more.
   expecting them, so "this premise never fires" is often n=1.
 - **The tags result moved two variables together** — tags elevated to valid grounds, and
   the tie-break made permissive. The separating arm has not been run.
-- The fixture, the runs and the scorer live in `internal/operations/testdata/premise_runs`
-  and `scripts/score_premises.py`. The measurement is reproducible; the numbers above are
-  not re-derived on read.
+- **The measurement apparatus has been REMOVED, deliberately.** The fixture, the runs and
+  the scorer are gone; the numbers above are the record of a decision that was made, not a
+  claim you can re-derive from this tree. They are not re-derived on read, and they can no
+  longer be re-derived at all.
+
+  The decision they informed — premise-based context delivery becomes the default — was
+  taken on them and is not being revisited by re-running the scorer. The apparatus was
+  kept only long enough to answer that question, and a large unused measurement corpus is
+  weight without a reader. Recovering it means recovering the deleted files from history
+  and re-running, which is the accepted cost.
+
+  Read the caveats above as permanent, then: they bound what these numbers ever supported,
+  and nothing will sharpen them.

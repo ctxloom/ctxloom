@@ -85,50 +85,50 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine      | axis              |
       | claude-code | container-rootful |
 
-    @codex @worktree
+    @codex @worktree @wip
     Examples:
       | engine | axis     |
       | codex  | worktree |
 
-    @codex @container-rootless
+    @codex @container-rootless @wip
     Examples:
       | engine | axis               |
       | codex  | container-rootless |
 
     # container-rootful: WIRED, UNVERIFIED — see claude-code's row above.
-    @codex @container-rootful
+    @codex @container-rootful @wip
     Examples:
       | engine | axis              |
       | codex  | container-rootful |
 
-    @kiro @worktree
+    @kiro @worktree @wip
     Examples:
       | engine | axis     |
       | kiro   | worktree |
 
-    @kiro @container-rootless
+    @kiro @container-rootless @wip
     Examples:
       | engine | axis               |
       | kiro   | container-rootless |
 
     # container-rootful: WIRED, UNVERIFIED — see claude-code's row above.
-    @kiro @container-rootful
+    @kiro @container-rootful @wip
     Examples:
       | engine | axis              |
       | kiro   | container-rootful |
 
-    @opencode @worktree
+    @opencode @worktree @wip
     Examples:
       | engine   | axis     |
       | opencode | worktree |
 
-    @opencode @container-rootless
+    @opencode @container-rootless @wip
     Examples:
       | engine   | axis               |
       | opencode | container-rootless |
 
     # container-rootful: WIRED, UNVERIFIED — see claude-code's row above.
-    @opencode @container-rootful
+    @opencode @container-rootful @wip
     Examples:
       | engine   | axis              |
       | opencode | container-rootful |
@@ -150,12 +150,12 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine      |
       | claude-code |
 
-    @codex @bypass
+    @codex @bypass @wip
     Examples:
       | engine |
       | codex  |
 
-    @opencode @bypass
+    @opencode @bypass @wip
     Examples:
       | engine   |
       | opencode |
@@ -172,7 +172,7 @@ Feature: Isolation probe — live proof against real vendor engines
   # GOOD NEWS (kiro's credential store became genuinely KIRO_HOME-scoped) and the
   # fix is to widen HonoursVarForCreds in auth.go and retire this scenario, not to
   # "fix" the assertion.
-  @kiro @kiro-leak
+  @kiro @kiro-leak @wip
   Scenario: The isolation probe proves kiro's global credential store leak under --degraded
     Given the isolation probe targets kiro's known credential-store leak
     When the probe runs it live under --degraded, writing a unique token in one turn

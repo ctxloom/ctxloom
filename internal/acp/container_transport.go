@@ -188,10 +188,10 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 // spawns. That is directly reachable when the engine also runs on the host
 // (the common case today), but the engine now runs in a DIFFERENT mount
 // namespace, so the socket's directory is bind-mounted in at the SAME path —
-// identical-path, exactly like the workspace mount (invariant 1) — through
-// the runtime's own path mapper (ExposeIdentical), and the env var is
-// forwarded UNCHANGED: the value is still a valid path once the directory it
-// names is mounted at that same path inside the container.
+// mapped the SAME way the workspace mount is (invariant 1) — through the
+// runtime's own path mapper (ExposeMapped), and the env var is forwarded
+// UNCHANGED: the value is still a valid path once the directory it names is
+// mounted at whatever path the mapper gives it inside the container.
 //
 // No socket → no mount/env: nothing to share, and an in-container engine
 // simply cannot reach the runner's MCP surface — no worse than a bare host
@@ -239,7 +239,7 @@ func containerReachBackEnv(rt isolation.Runtime, goos string) ([]string, []isola
 	}
 	if goos == "linux" {
 		dir := filepath.Dir(sock)
-		return []string{mcpSocketEnvVar + "=" + sock}, []isolation.Mount{rt.ExposeIdentical(dir, false)}, nil, nil
+		return []string{mcpSocketEnvVar + "=" + sock}, []isolation.Mount{rt.ExposeMapped(dir, false)}, nil, nil
 	}
 	bridge, err := startReachBackBridge(sock)
 	if err != nil {

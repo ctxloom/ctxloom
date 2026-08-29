@@ -21,19 +21,20 @@ func TestContainerWorktree_Axes(t *testing.T) {
 	assert.True(t, Isolated(c), "container-worktree is an isolated policy (writes per-member config into its worktree)")
 }
 
-// TestContainerWorktree_GitdirMountIsIdentityPath is the gitdir-when-mounted (§4a
-// T1.1) unit: the .git mirror mount resolves the worktree's git common-dir and maps
-// it at its IDENTICAL host path, so the worktree's `gitdir:` pointer resolves
-// inside the container.
-func TestContainerWorktree_GitdirMountIsIdentityPath(t *testing.T) {
-	// The worktree base mirrors the worktree's .git common-dir identical-path
-	// (gitCommonDirMount) — the collapse of the former ContainerWorktree.gitdirMount.
+// TestContainerWorktree_GitdirMountRoutesThroughMapper is the gitdir-when-mounted
+// (§4a T1.1) unit: the .git mirror mount resolves the worktree's git common-dir
+// and maps it through the runtime's pathMapper (identity by default), so the
+// worktree's `gitdir:` pointer resolves inside the container.
+func TestContainerWorktree_GitdirMountRoutesThroughMapper(t *testing.T) {
+	// The worktree base mirrors the worktree's .git common-dir through the
+	// runtime's mapper (gitCommonDirMount) — the collapse of the former
+	// ContainerWorktree.gitdirMount.
 	m, err := gitCommonDirMount(context.Background(),
 		fakeRuntime{name: "docker", available: true},
 		&git.Fake{CommonDirValue: "/repo/.git"}, "/tmp/ctxloom-wt-m-abc")
 	require.NoError(t, err)
-	assert.Equal(t, Mount{Host: "/repo/.git", Container: "/repo/.git"}, m,
-		"the .git common-dir is mirrored identical-path so gitdir resolves in-container")
+	assert.Equal(t, Mount{Host: "/repo/.git", Container: "/ctr/repo/.git"}, m,
+		"the .git common-dir is mirrored through the SAME mapper the project mount uses so gitdir resolves in-container")
 }
 
 // TestContainerWorktree_RunSpecMountsWorktreeAndGitdir proves the run spec the

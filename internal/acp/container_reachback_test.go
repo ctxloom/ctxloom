@@ -46,9 +46,13 @@ func TestContainerReachBackEnv_NoSocket_ReturnsNothing(t *testing.T) {
 }
 
 // TestContainerReachBackEnv_Linux_UsesUnixBindMount pins the PROVEN, UNCHANGED
-// Linux path: the env var passes through byte-for-byte and the socket's
-// directory is bind-mounted identical-path — no TCP bridge is started (nil
-// close func), matching the pre-fallback behavior exactly.
+// Linux path under the DEFAULT (identity) runtime: the env var passes through
+// byte-for-byte and the socket's directory is bind-mounted at its identical
+// path — no TCP bridge is started (nil close func), matching the pre-fallback
+// behavior exactly. This alone cannot prove the mount routes through the
+// mapper seam at all (an identity mapper makes a skipped mapper() call
+// byte-identical to a used one) — see
+// TestContainerReachBackEnv_Linux_RoutesMountThroughMapper for that control.
 func TestContainerReachBackEnv_Linux_UsesUnixBindMount(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "mcp.sock")
 	t.Setenv(mcpSocketEnvVar, sock)
@@ -59,8 +63,35 @@ func TestContainerReachBackEnv_Linux_UsesUnixBindMount(t *testing.T) {
 	require.Len(t, env, 1)
 	assert.Equal(t, mcpSocketEnvVar+"="+sock, env[0], "the unix path crosses unchanged")
 	require.Len(t, mounts, 1)
-	assert.Equal(t, isolation.Docker{}.ExposeIdentical(filepath.Dir(sock), false), mounts[0],
-		"the socket's directory is bind-mounted identical-path, exactly as before this fallback")
+	assert.Equal(t, isolation.Docker{}.ExposeMapped(filepath.Dir(sock), false), mounts[0],
+		"the socket's directory is bind-mounted identical-path under the default runtime, exactly as before this fallback")
+}
+
+// TestContainerReachBackEnv_Linux_RoutesMountThroughMapper is the CONTROL
+// TestContainerReachBackEnv_Linux_UsesUnixBindMount cannot be: it injects a
+// NON-IDENTITY runtime (via isolation.NewDockerWithMapperForTest — mapper()
+// is unexported so this package cannot build its own fake Runtime) and
+// proves the socket-dir mount's Container side actually carries the MAPPED
+// value, not the raw host directory. If containerReachBackEnv ever skipped
+// rt.ExposeMapped and hand-built Mount{Host: dir, Container: dir} instead,
+// this is the test that would catch it — the sibling test above could not,
+// because identity makes a skipped mapper call byte-identical to a used one.
+func TestContainerReachBackEnv_Linux_RoutesMountThroughMapper(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "mcp.sock")
+	t.Setenv(mcpSocketEnvVar, sock)
+	dir := filepath.Dir(sock)
+
+	rt := isolation.NewDockerWithMapperForTest(func(hostPath string) string { return "/ctr" + hostPath })
+
+	env, mounts, closeFn, err := containerReachBackEnv(rt, "linux")
+	require.NoError(t, err)
+	require.Nil(t, closeFn, "linux path starts no TCP bridge")
+	require.Len(t, env, 1)
+	assert.Equal(t, mcpSocketEnvVar+"="+sock, env[0],
+		"the env var still carries the HOST-side socket path unchanged — only the mount's Container side is mapped")
+	require.Len(t, mounts, 1)
+	assert.Equal(t, isolation.Mount{Host: dir, Container: "/ctr" + dir}, mounts[0],
+		"the socket-dir mount's Container side must be the MAPPED path, not the raw host directory")
 }
 
 // TestContainerReachBackEnv_NonLinux_BridgesToTCP is the fallback itself: off

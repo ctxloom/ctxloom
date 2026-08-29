@@ -44,16 +44,23 @@ func (fakeRuntime) Expose(host, target string, readOnly bool) Mount {
 	return Mount{Host: host, Container: target, ReadOnly: readOnly}
 }
 
-// ExposeIdentical mirrors ociRuntime's default (identityMapper): fakeRuntime
-// carries no pathMapper, so this is Expose(hostPath, hostPath, readOnly).
-func (fakeRuntime) ExposeIdentical(hostPath string, readOnly bool) Mount {
-	return Mount{Host: hostPath, Container: hostPath, ReadOnly: readOnly}
+// ExposeMapped mirrors ociRuntime's real behavior: it routes hostPath through
+// f.mapper() rather than hardcoding Host==Container, so a call site that
+// skips ExposeMapped/mapper() entirely produces output distinguishable from
+// one that used it (see prefixMapper's doc, pathmapper_test.go).
+func (f fakeRuntime) ExposeMapped(hostPath string, readOnly bool) Mount {
+	return Mount{Host: hostPath, Container: f.mapper().toContainer(hostPath), ReadOnly: readOnly}
 }
 
-// mapper is always identity — fakeRuntime never carries a non-identity mapper;
-// tests that need to exercise a non-identity mapper inject one directly at
-// buildRunSpec (see runner_test.go), not through this fake.
-func (fakeRuntime) mapper() pathMapper { return identityMapper{} }
+// mapper is a non-identity prefixMapper — deliberately NOT identityMapper.
+// Under identity, ExposeMapped(p) == Mount{p, p} whether or not a call site
+// actually threads its path through the mapper, so a deleted mapper() call
+// is byte-identical to a correct one and every container test that exercises
+// this fake was structurally unable to prove the mapper seam is reachable.
+// prefixMapper breaks that: it is injective (distinct host paths stay
+// distinct after mapping), so a test comparing against the ACTUAL mapped
+// value catches a call site that silently reverts to the raw host path.
+func (fakeRuntime) mapper() pathMapper { return prefixMapper{prefix: "/ctr"} }
 
 // TestContainer_MCPCommandOverride pins a fix at its source: a
 // container policy (either base tier — hostBase and worktreeBase share the
@@ -186,8 +193,8 @@ func TestContainer_GitdirMirrorMount(t *testing.T) {
 	m, ok, err := gitdirMirrorMount(ctx, rt, g, fileProj)
 	require.NoError(t, err)
 	require.True(t, ok, "a .git POINTER FILE (linked worktree/submodule) needs the common-dir mirror")
-	assert.Equal(t, Mount{Host: common, Container: common}, m,
-		"the common dir is mirrored identical-path so gitdir resolves in-container")
+	assert.Equal(t, Mount{Host: common, Container: "/ctr" + common}, m,
+		"the common dir is mirrored through the runtime's mapper so gitdir resolves in-container")
 
 	// .git is a DIRECTORY → already inside the identical-path project mount.
 	dirProj := t.TempDir()
@@ -339,6 +346,29 @@ func TestContainer_ExecSpecRefusesEmptyCommand(t *testing.T) {
 	assert.Equal(t, []string{"claude-code-acp"}, spec.Command)
 }
 
+// TestContainer_ExecSpec_RoutesProjectMountAndWorkDirThroughMapper is the
+// CONTROL nothing else in this package provided: ExecSpec builds its project
+// mount via ExposeMapped and its WorkDir via mapper().toContainer directly
+// (container.go), and neither was ever asserted against a MAPPED value — only
+// TestContainer_ExecSpecRefusesEmptyCommand touches ExecSpec, and it checks
+// spec.Command only. Under identityMapper this gap is invisible (Host ==
+// Container either way); under fakeRuntime's non-identity prefixMapper it is
+// not — a call site that quietly reverted to the raw host path (skipping
+// ExposeMapped/mapper() entirely) would leave spec.WorkDir == cw.dir and the
+// project mount's Container == cw.dir, which this test would catch.
+func TestContainer_ExecSpec_RoutesProjectMountAndWorkDirThroughMapper(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
+	ws := &containerWorkspace{dir: "/proj/live", agentID: "m"}
+
+	spec, err := c.ExecSpec(ws, []string{"true"}, nil, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/ctr/proj/live", spec.WorkDir,
+		"WorkDir must be the MAPPED container path, not the raw host dir")
+	assert.Contains(t, spec.Mounts, Mount{Host: "/proj/live", Container: "/ctr/proj/live"},
+		"the project mount's Container side must be the MAPPED path, not the raw host dir")
+}
+
 // TestContainer_WithImageRunsAsIs pins a regression. A caller-supplied
 // image is USER-OWNED: nothing ctxloom authored — the identity-remap entrypoint
 // included — is guaranteed to be in it, so it must be run AS-IS (never locally
@@ -475,20 +505,23 @@ func TestHostBase_KeepsOverlayTargetsThatGainedContent(t *testing.T) {
 
 // TestGitCommonDirMount_WholeCommonDirReadWrite pins the ACCEPTED posture a
 // review row re-opened. The row's facts are correct: the entire git common dir is
-// bind-mounted READ-WRITE at its identical path, so a low-trust
-// container-worktree member can reach the main checkout's refs/objects/index and
-// every other worktree's admin dir. That exposure is real and was adjudicated in
-// the tree before this wave (see gitCommonDirMount's own DECISION block): the
-// per-worktree admin dir a linked checkout needs is a SUBDIRECTORY of the common
-// dir, git needs write access to refs/logs and the packed-refs/objects layout,
-// and a surgical partial mount is fragile in ways that are easy to get subtly
-// wrong. Narrowing it is a per-agent-git-isolation design decision, not a sweep's
+// bind-mounted READ-WRITE, mapped through the runtime's pathMapper, so a
+// low-trust container-worktree member can reach the main checkout's
+// refs/objects/index and every other worktree's admin dir. That exposure is
+// real and was adjudicated in the tree before this wave (see
+// gitCommonDirMount's own DECISION block): the per-worktree admin dir a
+// linked checkout needs is a SUBDIRECTORY of the common dir, git needs write
+// access to refs/logs and the packed-refs/objects layout, and a surgical
+// partial mount is fragile in ways that are easy to get subtly wrong.
+// Narrowing it is a per-agent-git-isolation design decision, not a sweep's
 // call — escalated, not changed here.
 //
 // What this pins is the posture itself, in both directions: read-only would
-// break every linked-worktree container run, and a non-identical path would
-// break the `gitdir:` pointer that made the mount necessary. A change to either
-// must be deliberate.
+// break every linked-worktree container run, and an UNMAPPED path (skipping
+// the runtime's pathMapper rather than routing through it) would break the
+// `gitdir:` pointer that made the mount necessary — the mount and the
+// project's own WorkDir must always agree on the SAME translation, identity
+// or not. A change to either must be deliberate.
 func TestGitCommonDirMount_WholeCommonDirReadWrite(t *testing.T) {
 	const common = "/repo/.git"
 	m, err := gitCommonDirMount(context.Background(),
@@ -497,7 +530,7 @@ func TestGitCommonDirMount_WholeCommonDirReadWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, common, m.Host, "the WHOLE common dir is the mount source (accepted blast radius)")
-	assert.Equal(t, common, m.Container, "identical-path, so a `gitdir:` pointer file resolves in-container")
+	assert.Equal(t, "/ctr"+common, m.Container, "mapped through the runtime's pathMapper, so a `gitdir:` pointer file resolves in-container")
 	assert.False(t, m.ReadOnly,
 		"read-write by design: a linked checkout writes its own admin files under <common>/worktrees/<name>")
 }

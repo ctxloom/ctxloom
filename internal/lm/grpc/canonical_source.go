@@ -56,9 +56,15 @@ import (
 // writable by every importer. Reach it through IsRetiredScraperBackend or
 // RetiredScraperBackendNames — the same shape the sibling engine rosters use
 // (operations.VendorReaderEngineNames, isolation.ComposableEngines).
+// parked_engines: codex/kiro are commented out, not deleted — the S5
+// retirement fact they name is still true, but they are unregistered
+// internal/lm/backends names for the duration of the delivery-interface
+// refactor, and tests/arch's TestArch_EngineIdentityRosters_
+// MembersAreRegisteredBackends fails loud on any roster naming a backend
+// that is not currently registered. They come back with their packages.
 var retiredScraperBackends = map[string]bool{
-	"codex":       true,
-	"kiro":        true,
+	// "codex": true,
+	// "kiro":  true,
 	"claude-code": true,
 }
 

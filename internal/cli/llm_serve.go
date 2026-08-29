@@ -54,9 +54,20 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 		return ferr
 	}
 
+	// servedBackend is backend itself, except for the one case that needs a
+	// terminal to inject into: a Home with no EngineHost (this run hosts no
+	// StructuredChat turn sink — see standUpRunner) means deliverNotice's
+	// third case can only buffer an arrival, never hand it to an engine.
+	// terminalNudgeBackend gives that Home's nudge a live stdin to write into
+	// whenever this process actually drives one interactively.
+	servedBackend := backend
+	if standup.home != nil && standup.engineHost == nil {
+		servedBackend = withTerminalNudge(backend, standup.home)
+	}
+
 	// Create the plugin map with our backend
 	pluginMap := map[string]plugin.Plugin{
-		pb.LLMPluginKey: &pb.LLMGRPCPlugin{Impl: backend},
+		pb.LLMPluginKey: &pb.LLMGRPCPlugin{Impl: servedBackend},
 	}
 
 	// plugin.Serve below blocks with no signal handling of its own (it

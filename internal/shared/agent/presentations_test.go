@@ -34,37 +34,31 @@ const (
 // test say which one resolution actually chose rather than merely that it
 // returned something.
 //
-// Each also takes its root FROM THE INPUTS rather than closing over one. That
-// is the behaviour under test as much as it is a convenience: a presenter that
-// captured a root at declaration time is exactly what PresentInputs exists to
-// make unnecessary.
-func fakeUnsafeFilePresenter(in PresentInputs) present.Presentation {
-	return present.New(in.ProjectRoot).
-		WithProjectRootFile(present.ProjectRootFile{Rel: "FAKE.md"}).
-		Build()
+// Each also takes its root FROM THE ADVISED START rather than closing over
+// one. That is the behaviour under test as much as it is a convenience: a
+// presenter that captured a root at declaration time is exactly what handing
+// over a present.Start exists to make unnecessary.
+func fakeUnsafeFilePresenter(s present.Start) present.Presentation {
+	return s.UnderProjectRoot("FAKE.md").Build()
 }
 
 // fakeSystemPromptPresenter is the RELOCATED-HOME case, and the reason the
 // seam takes more than a project root: it roots on the engine home rather than
 // on the project, which a start pre-rooted at the project root cannot express.
 //
-// It does NOT mount. Where a containerized engine sees this file is the
-// chain's business (present.Rooted.WithContainerMount), not the presenter's and
-// not an input's.
-func fakeSystemPromptPresenter(in PresentInputs) present.Presentation {
-	return present.New(in.ProjectRoot).
-		WithEnvDirFile(
-			present.EnvDirFile{EnvVar: "FAKE_HOME", HomeDefault: ".fake", Rel: fakeSystemPromptRel},
-			in.EngineHome,
-		).
-		WithFlag(present.FlagValue{Flag: fakeSystemPromptFlag}).
+// It does NOT containerize. Where a containerized engine sees this file was
+// already decided before this presenter ran — present.Start already carries
+// the advised roots — so this presenter neither knows nor asks whether it
+// did.
+func fakeSystemPromptPresenter(s present.Start) present.Presentation {
+	return s.UnderEngineHome(fakeSystemPromptRel).
+		AnnounceEnv("FAKE_HOME").
+		AnnounceFlag(fakeSystemPromptFlag).
 		Build()
 }
 
-func fakeHookPresenter(in PresentInputs) present.Presentation {
-	return present.New(in.ProjectRoot).
-		WithProjectRootFile(present.ProjectRootFile{Rel: ".fake/hook.json"}).
-		Build()
+func fakeHookPresenter(s present.Start) present.Presentation {
+	return s.UnderProjectRoot(".fake/hook.json").Build()
 }
 
 // fakeContextPresentations is the declaration under test: a default plus two
@@ -79,13 +73,14 @@ func fakeContextPresentations() Presentations {
 		Or(fakeHookName, fakeHookPresenter)
 }
 
-// fakeInputs is a resolved environment. The two roots are DIFFERENT values on
-// purpose — equal ones would let a presenter that read the wrong field pass.
-func fakeInputs() PresentInputs {
-	return PresentInputs{
-		ProjectRoot: fakeProjectRoot,
-		EngineHome:  fakeEngineHome,
-	}
+// fakeStart is an advised composition, host-transported (uncontainerized).
+// The two roots are DIFFERENT values on purpose — equal ones would let a
+// presenter that read the wrong field pass.
+func fakeStart() present.Start {
+	return present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: fakeProjectRoot},
+		EngineHome:  present.Root{Host: fakeEngineHome},
+	}))
 }
 
 // arm installs a strictness mode for one test and guarantees the process-wide
@@ -112,11 +107,11 @@ func TestPresentations_DeclaredName_BuildsThatPresentationWithoutFinding(t *test
 		name string
 		want present.Presentation
 	}{
-		{fakeUnsafeFileName, fakeUnsafeFilePresenter(fakeInputs())},
-		{fakeSystemPromptName, fakeSystemPromptPresenter(fakeInputs())},
-		{fakeHookName, fakeHookPresenter(fakeInputs())},
+		{fakeUnsafeFileName, fakeUnsafeFilePresenter(fakeStart())},
+		{fakeSystemPromptName, fakeSystemPromptPresenter(fakeStart())},
+		{fakeHookName, fakeHookPresenter(fakeStart())},
 	} {
-		got := d.Resolve(tc.name, fakeInputs())
+		got := d.Resolve(tc.name, fakeStart())
 		if got.HostPath != tc.want.HostPath {
 			t.Errorf("Resolve(%q) host path = %q, want %q", tc.name, got.HostPath, tc.want.HostPath)
 		}
@@ -153,14 +148,14 @@ func TestPresentations_Resolve_DeliversEachRootToThePresenterThatBuildsFromIt(t 
 	d := fakeContextPresentations()
 
 	// The PROJECT ROOT reaches the presenter that roots on the project.
-	if got, want := d.Resolve(fakeUnsafeFileName, fakeInputs()).HostPath,
+	if got, want := d.Resolve(fakeUnsafeFileName, fakeStart()).HostPath,
 		filepath.Join(fakeProjectRoot, "FAKE.md"); got != want {
 		t.Errorf("project-rooted host path = %q, want %q", got, want)
 	}
 
 	// The ENGINE HOME reaches the presenter that roots on the relocated home —
 	// NOT the project root, which is the confusion two roots make possible.
-	got := d.Resolve(fakeSystemPromptName, fakeInputs())
+	got := d.Resolve(fakeSystemPromptName, fakeStart())
 	want := filepath.Join(fakeEngineHome, fakeSystemPromptRel)
 	if got.HostPath != want {
 		t.Errorf("relocated-home host path = %q, want %q (EngineHome)", got.HostPath, want)
@@ -183,9 +178,6 @@ func TestPresentations_Resolve_DeliversEachRootToThePresenterThatBuildsFromIt(t 
 	if wantArgs := fakeSystemPromptFlag + " " + want; strings.Join(got.Args, " ") != wantArgs {
 		t.Errorf("argv = %q, want %q", strings.Join(got.Args, " "), wantArgs)
 	}
-	if len(got.Mounts) != 0 {
-		t.Errorf("presenter contributed mounts %+v; containerization is not its business", got.Mounts)
-	}
 }
 
 // The STRICT arm: an unknown name must REFUSE. Asserted on the gate's own
@@ -194,7 +186,7 @@ func TestPresentations_UnknownName_Strict_RefusesAndFallsBackToDefault(t *testin
 	mark := arm(t, false)
 	d := fakeContextPresentations()
 
-	got := d.Resolve("no-such-delivery", fakeInputs())
+	got := d.Resolve("no-such-delivery", fakeStart())
 
 	if err := strictness.FindingsError(mark); err == nil {
 		t.Fatal("unknown delivery did not refuse the launch in strict mode; want a fatal finding")
@@ -238,7 +230,7 @@ func TestPresentations_UnknownName_Degraded_ContinuesOnEngineDefault(t *testing.
 	mark := arm(t, true)
 	d := fakeContextPresentations()
 
-	got := d.Resolve("no-such-delivery", fakeInputs())
+	got := d.Resolve("no-such-delivery", fakeStart())
 
 	// The promise: degraded mode always reaches a working LLM. A refusal here
 	// would break it for every existing user.
@@ -259,7 +251,7 @@ func TestPresentations_UnknownName_Degraded_ContinuesOnEngineDefault(t *testing.
 // default, so it follows the declaration rather than a literal.
 func assertIsDefault(t *testing.T, d Presentations, got present.Presentation) {
 	t.Helper()
-	want := d.Resolve(d.Default(), fakeInputs())
+	want := d.Resolve(d.Default(), fakeStart())
 	if got.HostPath != want.HostPath {
 		t.Errorf("fallback host path = %q, want the engine default %q (%q)",
 			got.HostPath, want.HostPath, d.Default())
@@ -288,7 +280,7 @@ func TestPresentations_Names_AreDerivedFromDeclaredPresenters(t *testing.T) {
 	// Names() a promise rather than an advertisement.
 	mark := arm(t, false)
 	for _, name := range got {
-		if p := d.Resolve(name, fakeInputs()); p.HostPath == "" {
+		if p := d.Resolve(name, fakeStart()); p.HostPath == "" {
 			t.Errorf("Names() lists %q but resolving it built nothing", name)
 		}
 	}

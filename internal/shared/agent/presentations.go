@@ -28,55 +28,24 @@ import (
 // allowed to proceed once the user has said they accept less. A boundary
 // breach would use FailAlways; this is deliberately not one.
 
-// PresentInputs is the resolved environment a Presenter composes against: the
-// roots it may build from, settled before any Presenter runs.
-//
-// It is a struct rather than a parameter list so that a further root can be
-// added later without changing the Presenter signature, and with it every
-// engine's declaration. Only roots something actually builds from belong here.
-//
-// There is deliberately NO "where the engine sees its home" root. Host-versus-
-// engine-namespace is not an input: it is produced by the containerization
-// LAYER of the chain, present.Rooted.WithContainerMount, which transforms
-// every channel the engine reads and leaves HostPath naming the host. A composition
-// that is never containerized simply never calls it. Carrying a mounted root
-// here as well would state that fact twice, and the two statements could
-// disagree — whoever performs the remapping is the only one who knows the
-// target. Keeping it in the layer is also what makes the model recursive: a
-// nested container remaps by composing another layer, not by someone passing a
-// different input.
-type PresentInputs struct {
-	// ProjectRoot is the resolved project root.
-	ProjectRoot string
-
-	// EngineHome is where the engine's home is MATERIALIZED: the directory the
-	// engine's own home variable is pointed at. Engines that root on a
-	// relocated home rather than on the project build from this.
-	//
-	// It is one home, named once. Where a containerized engine SEES that home
-	// is the chain's business, not this struct's.
-	EngineHome string
-}
-
 // Presenter builds ONE presentation of one surface.
 //
-// It receives the resolved ENVIRONMENT and begins the composition itself,
-// rather than being handed a start already rooted somewhere. That inversion is
-// the point of the type: engines do not agree on what they root on. One
-// materializes under the project root; another under a relocated home it names
-// with its own environment variable. A pre-rooted start can express only the
-// first, so the second would have to close over a runtime value where it is
-// DECLARED — which would stop an engine's supported deliveries from being a
-// static package-level literal, and stop Names and Default from being
-// answerable without constructing something out of placeholder values. Help
-// text and shell completion need exactly that answer, and need it without an
-// environment.
+// It receives an already-ADVISED Start — present.Paths resolved AND, where
+// this run is containerized, remapped — and begins composing from it. That
+// inversion is the point of the type: engines do not agree on what they root
+// on. One materializes under the project root; another under a relocated
+// home it names with its own environment variable. Handing over a Start
+// rather than a single pre-rooted path is what lets either kind of engine
+// build from the SAME value, choosing UnderProjectRoot or UnderEngineHome
+// for itself — and it is also what makes a Presenter provably unable to
+// branch on containerization: the rewrite already happened before this
+// function was ever called, so there is nothing left for it to ask.
 //
 // It returns a Presentation and no error. That is inherited, not overlooked —
-// present.Build is total, so an engine that reached a buildable state has
-// nothing left to fail at. Resolving the environment is the caller's business
-// and has already succeeded by the time a Presenter runs.
-type Presenter func(PresentInputs) present.Presentation
+// present.Rooted.Build is total, so an engine that reached a buildable state
+// has nothing left to fail at. Resolving and advising Paths is the caller's
+// business and has already succeeded by the time a Presenter runs.
+type Presenter func(present.Start) present.Presentation
 
 // Presentations is one engine's declared presentations of ONE surface: every
 // delivery that engine can construct for that surface, and which of them it
@@ -157,8 +126,8 @@ func (d Presentations) Names() []string {
 // same reason Names is.
 func (d Presentations) Default() string { return d.def }
 
-// Resolve constructs the presentation config asked for by name, against the
-// resolved environment.
+// Resolve constructs the presentation config asked for by name, against an
+// already-advised Start.
 //
 // An unrecognised name raises a ClassConfig finding and falls back to the
 // engine's default. There is deliberately NO branch on degraded state here and
@@ -166,13 +135,13 @@ func (d Presentations) Default() string { return d.def }
 // returns the same presentation either way and the startup gate decides
 // whether the launch proceeds. A check that decided its own fatality would be
 // a second policy, free to disagree with the first.
-func (d Presentations) Resolve(requested string, in PresentInputs) present.Presentation {
+func (d Presentations) Resolve(requested string, start present.Start) present.Presentation {
 	if p, ok := d.byName[requested]; ok {
-		return p(in)
+		return p(start)
 	}
 	strictness.FailOnce(strictness.ClassConfig,
 		fmt.Sprintf("set the %s surface to one of %s, or remove it to take %s's default (%s)",
 			d.kind, strings.Join(d.Names(), ", "), d.engine, d.def),
 		"%s: unknown %s delivery %q", d.engine, d.kind, requested)
-	return d.byName[d.def](in)
+	return d.byName[d.def](start)
 }

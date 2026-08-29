@@ -8,17 +8,19 @@
 //	CHANNEL   HOW the engine reaches it — the path, argv, the environment,
 //	          container mounts.
 //
-// One surface travels several channels at once: bytes at a path, that path
-// named on argv, a home named in the environment. An ADVICE is one link that
-// contributes to or transforms a channel, and THE IMPLEMENTING TYPE IS THE
-// DECLARATION: an advice touches exactly the channels whose interfaces it
-// implements, so there is no table pairing an advice with its channels and
-// therefore nothing for such a table to drift from.
+// The path rewrite happens BEFORE any presenter runs, as PRE-ADVICE over a
+// Paths object: two independent axes (workspace, runtime) each rewrite one
+// half of every root — Host or Engine — and the runtime axis alone emits
+// Mounts. A presenter then composes against the ALREADY-rewritten roots and
+// never touches containerization at all, so a presenter that only names a
+// flag on argv is exactly as containerizable as one that also names an
+// environment variable: neither one performs the rewrite, so neither one
+// needs a lever to do it with.
 //
 // A presentation is COMPOSED, never selected from a set, and the type a layer
 // returns offers only the layers that may legally follow it. An illegal ORDER
-// is therefore not writable at all, rather than accepted here and failed at run
-// time.
+// is therefore not writable at all, rather than accepted here and failed at
+// run time.
 //
 // Build is TOTAL wherever it is offered: reaching a state that has Build is
 // itself the proof that the composition is complete, so there is no error to
@@ -26,318 +28,258 @@
 package present
 
 import (
+	"path"
 	"path/filepath"
-	"strings"
 )
 
-// Presentation is the RESULT, built up by the chain. Never selected from a set.
-type Presentation struct {
-	// HostPath is where the fs layer wrote the bytes.
-	HostPath string
-	// EnginePath is where the ENGINE sees them. Equal to HostPath until a
-	// remapping layer changes it.
-	EnginePath string
-	// Args are the argv channel.
-	Args []string
-	// Env is the environment channel.
-	Env map[string]string
-	// Mounts are the mount channel.
-	Mounts []Mount
+// Root is one directory named on two sides: Host is where its bytes live —
+// what a writer opens and what the runtime bind-mounts FROM. Engine is what
+// the engine is told — the path it opens, or a variable's value, or a mount
+// target. The two axes that rewrite a Root are independent and touch
+// different halves: a workspace advice (worktree materialization) rewrites
+// Host, and a runtime advice (containerization) rewrites Engine and records a
+// Mount. Uncontainerized, Engine equals Host.
+type Root struct{ Host, Engine string }
+
+// Paths is every root a presentation may build from, resolved once per run,
+// before any presenter composes anything.
+//
+// Only roots something actually builds from belong here — a further root can
+// be added later without changing Presenter's signature, or any engine's
+// declaration, because a presenter reads a Paths field by name rather than
+// receiving a positional argument.
+type Paths struct {
+	// ProjectRoot is the user's code.
+	ProjectRoot Root
+	// EngineHome is the engine's own home (CODEX_HOME and the like).
+	EngineHome Root
+	// CtxloomHome is ctxloom's own: spool, sessions, task log.
+	CtxloomHome Root
+	// Scratch is this run's per-run materialization target.
+	Scratch Root
 }
 
 // Mount makes HostDir visible to the engine at TargetDir.
 type Mount struct{ HostDir, TargetDir string }
 
-// --- channels ---------------------------------------------------------------
-//
-// Every write to a Presentation goes through one of these, so a channel an
-// advice touches without declaring is not something to remember: it does not
-// compile.
-
-// PathChannel is the channel of WHERE THE BYTES ARE — the host path and the
-// path the engine reads.
-type PathChannel interface {
-	ApplyPath(Presentation) Presentation
+// PathsAdvice rewrites every root in a Paths and reports what a container
+// runtime must mount to make the rewrite true. It is applied EXACTLY ONCE,
+// to the whole Paths, before any presenter runs — never per-surface, and
+// never asked of a presenter or an engine.
+type PathsAdvice interface {
+	ApplyPaths(Paths) (Paths, []Mount)
 }
 
-// EnvChannel is the channel of WHAT THE ENGINE IS TOLD IN ITS ENVIRONMENT.
-//
-// Implementing it is also what makes a composition's location a LEVER: an
-// advice that names the location through a variable can be told a different
-// one. Containerization asks nothing of the engine and consults no table — it
-// type-asserts this interface over the advice that rooted the composition, and
-// the answer is the declaration itself.
-type EnvChannel interface {
-	ApplyEnv(Presentation) Presentation
+// Host is the identity advice: Engine equals Host on every root, and nothing
+// is mounted. It is the host transport — not a special case a call site
+// branches to, but the same PathsAdvice vocabulary as Containerize, so a run
+// that never containerizes still composes through the identical pipeline.
+type Host struct{}
+
+var _ PathsAdvice = Host{}
+
+// ApplyPaths implements PathsAdvice with the identity rewrite.
+func (Host) ApplyPaths(p Paths) (Paths, []Mount) {
+	return Paths{
+		ProjectRoot: identity(p.ProjectRoot),
+		EngineHome:  identity(p.EngineHome),
+		CtxloomHome: identity(p.CtxloomHome),
+		Scratch:     identity(p.Scratch),
+	}, nil
 }
 
-// ArgvChannel is the channel of WHAT THE ENGINE IS TOLD ON ARGV.
-type ArgvChannel interface {
-	ApplyArgv(Presentation) Presentation
-}
-
-// MountChannel is the channel of WHAT A CONTAINER MAKES VISIBLE.
-type MountChannel interface {
-	ApplyMounts(Presentation) Presentation
-}
-
-// The declarations: each variant states, in the type system, which channels it
-// contributes to.
-//
-// These record the model; they do not defend it. Every method named here also
-// has a direct call site, so a variant that dropped one would fail to build
-// there first and these lines would never be reached. What genuinely needs
-// defending is the LEVER — that EnvDirFile satisfies EnvChannel and
-// ProjectRootFile does not — because containerization discovers it by type
-// assertion, where a missing method is a silent false, not a compile error.
-// Go cannot assert a negative conformance, so that pair is pinned by
-// TestTheLeverIsDECLAREDByTheInterface instead.
-var (
-	_ PathChannel = ProjectRootFile{}
-	_ PathChannel = EnvDirFile{}
-	_ EnvChannel  = EnvDirFile{}
-	_ ArgvChannel = FlagValue{}
-
-	_ PathChannel  = ContainerMount{}
-	_ EnvChannel   = ContainerMount{}
-	_ MountChannel = ContainerMount{}
-)
-
-// --- variants: data that CARRIES its behaviour -----------------------------
-
-// ProjectRootFile writes at Rel under the resolved project root.
-//
-// It touches the path channel and nothing else, and that absence is the whole
-// statement: the engine finds this file by its own fixed rule, so there is no
-// variable and no flag through which it could be told a different location.
-type ProjectRootFile struct {
-	Rel string
-
-	// root is filled in by the layer that resolves it.
-	root string
-}
-
-// ApplyPath puts the bytes at Rel under the resolved project root.
-func (v ProjectRootFile) ApplyPath(p Presentation) Presentation {
-	p.HostPath = filepath.Join(v.root, v.Rel)
-	p.EnginePath = p.HostPath
-	return p
-}
-
-// EnvDirFile resolves EnvVar (or HomeDefault under $HOME) to a root and writes
-// at Rel beneath it — the relocated-home mechanism.
-//
-// It touches the path AND environment channels: the bytes sit beneath a home,
-// and the home is named to the engine through a variable. Naming it is what
-// makes it movable.
-type EnvDirFile struct {
-	EnvVar, HomeDefault, Rel string
-
-	// root is filled in by the layer that resolves it.
-	root string
-}
-
-// ApplyPath puts the bytes at Rel beneath the resolved home.
-func (v EnvDirFile) ApplyPath(p Presentation) Presentation {
-	p.HostPath = filepath.Join(v.root, v.Rel)
-	p.EnginePath = p.HostPath
-	return p
-}
-
-// ApplyEnv names the home to the engine.
-func (v EnvDirFile) ApplyEnv(p Presentation) Presentation {
-	env := copyEnv(p.Env)
-	env[v.EnvVar] = v.root
-	p.Env = env
-	return p
-}
-
-// FlagValue names the resolved path on argv.
-type FlagValue struct{ Flag string }
-
-// ApplyArgv names the ENGINE path, never the host one.
-func (v FlagValue) ApplyArgv(p Presentation) Presentation {
-	p.Args = append(p.Args, v.Flag, p.EnginePath)
-	return p
-}
-
-// ContainerMount maps a composition's root into the engine's namespace.
-//
-// It touches the path, environment and mount channels: the engine path moves,
-// every environment value naming the root moves with it, and the root is made
-// visible inside the container. The invariant across all three is that AFTER
-// THIS ADVICE, NOTHING THE ENGINE READS STILL NAMES A HOST PATH.
-//
-// Leaving the environment behind is the worse half to get wrong. Argv naming an
-// unmounted path fails visibly; a home variable naming a host path absent from
-// the container makes the engine look somewhere empty and behave as though it
-// was never configured — a success with nothing in it.
-type ContainerMount struct {
-	// TargetDir is where the root becomes visible to the engine. It is
-	// honoured only where the composition HAS a lever; where the engine fixed
-	// the location, the root is mounted at itself and this is ignored.
-	TargetDir string
-
-	// root is filled in from the composition being mapped.
-	root string
-}
-
-// ApplyPath moves the engine path under the target.
-func (v ContainerMount) ApplyPath(p Presentation) Presentation {
-	p.EnginePath = remapUnder(p.HostPath, v.root, v.TargetDir)
-	return p
-}
-
-// ApplyEnv moves EVERY value naming the root, not merely the one an advice
-// happens to have written. The invariant is a statement about everything the
-// engine reads, so a second entry beneath the home is covered by the same rule
-// as the home itself.
-func (v ContainerMount) ApplyEnv(p Presentation) Presentation {
-	if len(p.Env) == 0 {
-		return p
+func identity(r Root) Root {
+	if r.Host == "" {
+		return r
 	}
-	env := make(map[string]string, len(p.Env))
-	for k, val := range p.Env {
-		env[k] = remapUnder(val, v.root, v.TargetDir)
-	}
-	p.Env = env
-	return p
+	return Root{Host: r.Host, Engine: r.Host}
 }
 
-// ApplyMounts makes the root visible at the target.
-func (v ContainerMount) ApplyMounts(p Presentation) Presentation {
-	p.Mounts = append(p.Mounts, Mount{HostDir: v.root, TargetDir: v.TargetDir})
-	return p
+// OnHost applies the identity advice directly — for a call site that already
+// knows it is uncontainerized and has no PathsAdvice value of its own to
+// hold. It exists so that call site never has to special-case "not
+// containerized": it calls OnHost exactly where a containerized run would
+// call Containerize{...}.Apply, and gets the same Mapped shape back.
+func OnHost(p Paths) Mapped {
+	paths, mounts := Host{}.ApplyPaths(p)
+	return Mapped{paths: paths, mounts: mounts}
 }
 
-// --- the typestate chain ---------------------------------------------------
-
-// Start accepts a root-producing variant and nothing else: no layer may name a
-// path before one exists.
-type Start struct{ projectRoot string }
-
-// New begins a composition against a resolved project root.
-func New(projectRoot string) Start { return Start{projectRoot: projectRoot} }
-
-// WithProjectRootFile materializes under the project root.
-func (s Start) WithProjectRootFile(v ProjectRootFile) Rooted {
-	v.root = s.projectRoot
-	return Rooted{p: v.ApplyPath(Presentation{}), by: v}
-}
-
-// WithEnvDirFile materializes under a relocated home.
-func (s Start) WithEnvDirFile(v EnvDirFile, resolvedRoot string) Rooted {
-	v.root = resolvedRoot
-	return Rooted{p: v.ApplyEnv(v.ApplyPath(Presentation{})), by: v}
-}
-
-// Rooted has bytes at a host path. Containerization may remap it, an engine may
-// name it, or it may stand alone at a conventional path.
+// Containerize is the runtime advice: it rewrites Engine on every root that
+// has a target and mounts the root to make that true.
 //
-// WithProjectRootFile is ABSENT here: re-rooting a composition that already has
-// a root is not a thing, so it cannot be written.
+// A root with no configured target is mounted AT ITS OWN HOST PATH — the
+// engine fixed that location and has no variable through which it could be
+// told a different one, so the only mount that leaves it reachable is one at
+// the same path it always looks at. This was previously discovered per
+// composition by asking whether the rooting advice implemented a channel
+// interface; here it is a static decision made once, for the whole run,
+// by whoever configures Containerize — containerization never interrogates
+// a presenter or an engine to make it.
+//
+// A zero-value root (Host == "") is left alone and contributes no mount: it
+// names a root this run never resolved, so there is nothing to mount.
+type Containerize struct {
+	// ProjectRoot, EngineHome, CtxloomHome and Scratch are the directories
+	// each root becomes visible at inside the container. Empty means "mount
+	// at the same path the host used."
+	ProjectRoot, EngineHome, CtxloomHome, Scratch string
+}
+
+var _ PathsAdvice = Containerize{}
+
+// ApplyPaths implements PathsAdvice.
+func (c Containerize) ApplyPaths(p Paths) (Paths, []Mount) {
+	var mounts []Mount
+	remap := func(r Root, target string) Root {
+		if r.Host == "" {
+			return r
+		}
+		if target == "" {
+			target = r.Host
+		}
+		mounts = append(mounts, Mount{HostDir: r.Host, TargetDir: target})
+		return Root{Host: r.Host, Engine: target}
+	}
+	return Paths{
+		ProjectRoot: remap(p.ProjectRoot, c.ProjectRoot),
+		EngineHome:  remap(p.EngineHome, c.EngineHome),
+		CtxloomHome: remap(p.CtxloomHome, c.CtxloomHome),
+		Scratch:     remap(p.Scratch, c.Scratch),
+	}, mounts
+}
+
+// Apply runs the advice and bundles the result with the mounts it recorded.
+func (c Containerize) Apply(p Paths) Mapped {
+	paths, mounts := c.ApplyPaths(p)
+	return Mapped{paths: paths, mounts: mounts}
+}
+
+// Mapped is a Paths that has been advised: every root's Engine side is
+// settled, and every mount a container runtime must honour to make that true
+// has been recorded. It is the ONLY thing New accepts, so a raw Paths cannot
+// reach a presenter — the rewrite is not optional and not repeatable per
+// surface.
+type Mapped struct {
+	paths  Paths
+	mounts []Mount
+}
+
+// Paths returns the advised roots.
+func (m Mapped) Paths() Paths { return m.paths }
+
+// Mounts returns every mount the advice that produced this Mapped recorded.
+// It is a property of the WHOLE RUN, not of any one presentation: a runtime
+// reads it once, when it launches, rather than once per surface.
+func (m Mapped) Mounts() []Mount { return m.mounts }
+
+// Presentation is the RESULT, built up by the chain. Never selected from a
+// set.
+type Presentation struct {
+	// HostPath is where the fs layer wrote the bytes.
+	HostPath string
+	// EnginePath is where the ENGINE sees them. Equal to HostPath wherever
+	// Engine equals Host on the root this composition is rooted under.
+	EnginePath string
+	// Args are the argv channel.
+	Args []string
+	// Env is the environment channel.
+	Env map[string]string
+}
+
+// --- the typestate chain -----------------------------------------------
+
+// Start holds an already-advised Paths. No layer before it may name a path,
+// because Start is the earliest state there is: New's parameter type is
+// Mapped, not Paths, so a composition against un-rewritten roots does not
+// compile — there is no method that would accept one.
+type Start struct{ mapped Mapped }
+
+// New begins a composition against an advised Paths.
+func New(m Mapped) Start { return Start{mapped: m} }
+
+// Paths returns the advised roots this composition builds from.
+func (s Start) Paths() Paths { return s.mapped.Paths() }
+
+// UnderProjectRoot roots the composition at Rel beneath the project root.
+func (s Start) UnderProjectRoot(rel string) Rooted { return under(s.mapped.paths.ProjectRoot, rel) }
+
+// UnderEngineHome roots the composition at Rel beneath the engine's home.
+func (s Start) UnderEngineHome(rel string) Rooted { return under(s.mapped.paths.EngineHome, rel) }
+
+// UnderCtxloomHome roots the composition at Rel beneath ctxloom's own home.
+func (s Start) UnderCtxloomHome(rel string) Rooted { return under(s.mapped.paths.CtxloomHome, rel) }
+
+// UnderScratch roots the composition at Rel beneath this run's scratch
+// target.
+func (s Start) UnderScratch(rel string) Rooted { return under(s.mapped.paths.Scratch, rel) }
+
+// Served is terminal: an endpoint the engine connects to, not a file it
+// reads. There is no root and no HostPath, because nothing here was
+// materialized to disk — a served surface's bytes, if any, are owned by
+// whatever is listening at the endpoint, not by this composition.
+//
+// endpoint is a Root like any other, which is what lets a served surface
+// travel through the SAME advice as a file-backed one: Containerize rewrites
+// endpoint.Engine (a container-reachable address, e.g. a mapped port or
+// host.docker.internal) exactly as it rewrites a mounted directory's Engine
+// side, with no served-specific case anywhere in the advice. envVar names it
+// to the engine, the same way AnnounceEnv does for a rooted composition.
+func (s Start) Served(endpoint Root, envVar string) Presentation {
+	return Presentation{Env: map[string]string{envVar: endpoint.Engine}}
+}
+
+// under materializes a Rooted from a Root and a relative path. HostPath is
+// OS-native, because a writer opens it on THIS host. EnginePath is always
+// joined with forward slashes: once Engine genuinely differs from Host it
+// names a container path, and a container is Linux regardless of the host
+// this process runs on — filepath.Join would carry the host's separator
+// into a path the engine can never open. Where Engine equals Host (the
+// uncontainerized case) this produces the identical string on every
+// platform this project supports, since Host itself already uses '/'.
+func under(root Root, rel string) Rooted {
+	return Rooted{
+		p: Presentation{
+			HostPath:   filepath.Join(root.Host, rel),
+			EnginePath: path.Join(root.Engine, rel),
+		},
+		root: root,
+	}
+}
+
+// Rooted has bytes at a host path and knows the root they sit beneath.
+// AnnounceEnv and AnnounceFlag return Rooted so they compose in any order
+// and repeat — there is no mount left for them to invalidate, because
+// mounting already happened before this composition began.
 type Rooted struct {
 	p Presentation
-	// by is the advice that rooted this composition, kept so a later advice can
-	// read the channels it DECLARES. It is the declaration, not a second copy
-	// of the values: everything it wrote is already in p, and p is what a later
-	// advice transforms.
-	by PathChannel
+	// root is the directory this composition is rooted under — what
+	// AnnounceEnv names, as opposed to p.EnginePath, the one file within it
+	// that AnnounceFlag names.
+	root Root
 }
 
-// WithContainerMount maps the composition's root into the engine's namespace.
-//
-// The target is a REQUEST, and whether it is honoured is discovered from the
-// rooting advice rather than asked of the engine: an advice on the environment
-// channel names its location through a variable, so the container may put the
-// root anywhere and tell it. An advice with no such channel has no lever, the
-// engine will look at the path it always looks at, and the only mount that
-// leaves it reachable is one AT that same path.
-//
-// It transforms what it RECEIVES. It does not recompute from whatever the
-// composition was first built from, so an advice that already moved the root is
-// carried through rather than discarded.
-func (r Rooted) WithContainerMount(v ContainerMount) Mapped {
-	v.root = hostRoot(r.p)
-	if _, lever := r.by.(EnvChannel); !lever {
-		v.TargetDir = v.root
+// AnnounceEnv names the ROOT — the directory, not the file — to the engine
+// through an environment variable.
+func (r Rooted) AnnounceEnv(v string) Rooted {
+	env := make(map[string]string, len(r.p.Env)+1)
+	for k, val := range r.p.Env {
+		env[k] = val
 	}
-	p := v.ApplyPath(r.p)
-	p = v.ApplyEnv(p)
-	p = v.ApplyMounts(p)
-	return Mapped{p: p}
+	env[v] = r.root.Engine
+	r.p.Env = env
+	return r
 }
 
-// WithFlag names the ENGINE path on argv.
-func (r Rooted) WithFlag(v FlagValue) Flagged { return Flagged{p: v.ApplyArgv(r.p)} }
+// AnnounceFlag names the FILE — the ENGINE path, never the host one — on
+// argv.
+func (r Rooted) AnnounceFlag(flag string) Rooted {
+	args := make([]string, len(r.p.Args), len(r.p.Args)+2)
+	copy(args, r.p.Args)
+	r.p.Args = append(args, flag, r.p.EnginePath)
+	return r
+}
 
-// Build completes a conventional-path composition — the engine finds the file
-// by its own rule, so nothing needs to name it.
+// Build completes the composition. TOTAL — reaching Rooted is itself the
+// proof that a root exists; nothing further is required.
 func (r Rooted) Build() Presentation { return r.p }
-
-// Mapped has been remapped into the engine's namespace. WithContainerMount is
-// ABSENT: a composition is mapped once.
-type Mapped struct{ p Presentation }
-
-// WithFlag names the remapped ENGINE path, never the host one.
-func (m Mapped) WithFlag(v FlagValue) Flagged { return Flagged{p: v.ApplyArgv(m.p)} }
-
-// Build completes a mapped composition with no flag.
-func (m Mapped) Build() Presentation { return m.p }
-
-// Flagged is terminal: the path has been named. Neither rooting nor mapping can
-// follow, because argv already quotes the path they would change.
-type Flagged struct{ p Presentation }
-
-// Build returns the composition. TOTAL — reaching this state is the proof.
-func (f Flagged) Build() Presentation { return f.p }
-
-// hostRoot is the host directory a composition is rooted at, derived FROM THE
-// COMPOSITION: the home an environment value names, when the bytes sit beneath
-// one, and otherwise the file's own directory.
-//
-// Reading the home out of the environment channel is what keeps a later advice
-// a link in a chain rather than a second beginning. That value is the live
-// authority on where the home is, so whatever set it last is what gets mapped;
-// deriving the root from anything recorded earlier would discard the advice
-// that set it and map a directory nothing points at.
-//
-// The OUTERMOST match wins. A nearer ancestor is a subdirectory of the home,
-// and mounting that would leave the home the engine is pointed at absent from
-// the container.
-func hostRoot(p Presentation) string {
-	root := filepath.Dir(p.HostPath)
-	for _, v := range p.Env {
-		if isUnder(p.HostPath, v) && len(v) < len(root) {
-			root = v
-		}
-	}
-	return root
-}
-
-// isUnder reports whether path is AT or BENEATH root.
-func isUnder(path, root string) bool {
-	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
-}
-
-// remapUnder rewrites a host path at or beneath root to sit under target, and
-// leaves anything else alone.
-func remapUnder(path, root, target string) string {
-	if !isUnder(path, root) {
-		return path
-	}
-	if path == root {
-		return target
-	}
-	return filepath.Join(target, strings.TrimPrefix(path, root+string(filepath.Separator)))
-}
-
-// copyEnv returns a map safe to write: the caller still holds the composition
-// this was built from, and composing must not reach back and alter it.
-func copyEnv(env map[string]string) map[string]string {
-	out := make(map[string]string, len(env)+1)
-	for k, v := range env {
-		out[k] = v
-	}
-	return out
-}

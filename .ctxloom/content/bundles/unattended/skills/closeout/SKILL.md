@@ -1,18 +1,26 @@
 ---
 name: closeout
-description: Close out a turn that changed something — verify against the real gate, kill a mutation for every test written or changed, fix falsified comments, leave the task log true, and fix or file what was found. Use when finishing a turn that touched code, tests, docs or the task log; when asked to "close out", "wrap up", "finish this properly"; and whenever the Stop hook asks for it. Reports honestly, including "not done" where that is the truth.
+description: Close out a turn that changed something — verify against the real gate, kill a mutation for every test written or changed, fix falsified comments, leave the task log true, and fix or file what was found. Use when finishing a turn that touched code, tests, docs or the task log; when asked to "close out", "wrap up", "finish this properly"; and at the end of a unit of work. Reports honestly, including "not done" where that is the truth.
 ---
 
 # closeout
 
-The close-out contract for a turn that CHANGED something. The Stop hook fires
-this skill; a human can fire it directly; and during an unattended run — where
-the hook is deliberately silent — you fire it yourself.
+The close-out contract for a turn that CHANGED something.
 
-**This file is the single source of the checklist.** The hook points here rather
-than restating it, because a rule hand-copied into two places is the expensive
-kind of drift: one copy gets retired and the other keeps asserting it, with
-nothing to say which is current.
+**INVOKED DELIBERATELY — by a human, or by you when a unit of work ends. NOTHING
+FIRES IT AUTOMATICALLY, and that is a decision rather than an omission:** it was
+once wired to a per-turn hook and the checklist MASSIVELY POLLUTED CONTEXT,
+arriving on every turn whether or not it was wanted. Firing it costs a chunk of
+the window, so it is spent when the work is done, not on a timer.
+
+Do not re-wire it to a hook. A later reader finding `ctxloom hook turn-changed`
+and concluding the automation is "missing" is re-deriving exactly the thing that
+was removed on purpose — that has already happened once.
+
+**This file is the single source of the checklist.** Anything that points at
+close-out points HERE rather than restating it, because a rule hand-copied into
+two places is the expensive kind of drift: one copy gets retired and the other
+keeps asserting it, with nothing to say which is current.
 
 ## The checklist
 

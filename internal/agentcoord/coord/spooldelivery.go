@@ -48,10 +48,22 @@ import (
 //
 // SCOPE (S5a): ordinary mail only, in both directions. Steer, question,
 // summarize, pause/resume, approvals and the up-asks still ride the mailbox
-// and the request plane; agent_report stays on the events plane. Mail to the
-// session owner's own in-process mailbox, and to a FROZEN legacy go-plugin
-// child, also stays on the mailbox — neither has a runner sweeping a spool, so
-// a file written for them would sit in a directory nothing ever reads.
+// and the request plane.
+//
+// agent_report's REPORT still rides the events plane and is journaled into the
+// reports fold, which remains its store of record — but a FINAL report now also
+// queues a KindReport NOTICE to the child's parent (reports.go's
+// notifyParentOfFinalReport), and that notice is ordinary mail, so it takes
+// whichever route this file chooses for the recipient like any other. The
+// report and the notice are two different things: one is the content, the other
+// is the wake. They were previously the same thing only in the sense that
+// neither reached a waiting parent.
+//
+// Mail to the session owner's own in-process mailbox, and to a FROZEN legacy
+// go-plugin child, still stays on the mailbox — neither has a runner sweeping a
+// spool, so a file written for them would sit in a directory nothing ever
+// reads. That applies to the report notice too: a FINAL report from a top-level
+// child reaches the session owner by mailbox, never by file.
 //
 // FLAG OFF means byte-identical pre-spool behaviour: no branch below is
 // entered, no reactor runs, and no directory is created.
@@ -375,26 +387,26 @@ func (c *Coordinator) spoolDeliverTo(role string) bool {
 // synchronously. The recipient's runner delivers it on the doorbell or its
 // next sweep, and its consume-rename is what reports back that it landed.
 func (c *Coordinator) deliverMailViaSpool(msg Message) (string, bool, error) {
-	sm, err := spoolMessageForMail(msg, msg.To)
-	if err != nil {
-		return "", false, fmt.Errorf("coordinator mail: cannot project message %s for %s onto the spool: %w", msg.ID, msg.To, err)
-	}
-	w, err := c.spoolIn.writerFor(msg.To)
-	if err != nil {
-		return "", false, fmt.Errorf("coordinator mail: cannot open %s's spool to deliver message %s: %w", msg.To, msg.ID, err)
-	}
-	ref, err := w.Write(sm)
-	if err != nil {
-		return "", false, fmt.Errorf("coordinator mail: writing message %s into %s's spool: %w", msg.ID, msg.To, err)
-	}
-	c.audit("spool_mail_out", msg.To, map[string]string{"message_id": msg.ID, "kind": msg.Kind, "ref": ref.String()})
-	// Fire-and-forget by contract: the file is already durable, so a doorbell
-	// that cannot go out costs the recipient one sweep interval and never the
-	// message.
-	if err := c.RingSpool(msg.To, ref); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: delivered %s into %s's spool but could not ring it: %v (it will be swept)", ref, msg.To, err)
+	// Write-and-ring is ONE operation (spoolcourier.go): the pairing used to be
+	// a convention repeated at each site, which is what made "made durable and
+	// handed to nobody" expressible here at all.
+	if _, err := c.mailCourier().Send(msg); err != nil {
+		return "", false, err
 	}
 	return msg.ID, false, nil
+}
+
+// mailCourier delivers coordinator mail into the RECIPIENT's inbound spool.
+func (c *Coordinator) mailCourier() *spoolCourier {
+	return &spoolCourier{
+		writers: c.spoolIn,
+		keyFor:  func(to string) string { return to },
+		ring:    c.RingSpool,
+		onSent: func(to string, msg Message, ref spool.Ref) {
+			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "kind": msg.Kind, "ref": ref.String()})
+		},
+		side: "coordinator",
+	}
 }
 
 // spoolPendingCount counts role's UNDELIVERED spool mail — the file-backed

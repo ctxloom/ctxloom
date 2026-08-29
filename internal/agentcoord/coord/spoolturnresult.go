@@ -172,20 +172,20 @@ func (h *Home) takeSelfReported() bool {
 // the same fire-and-forget doorbell, whose failure costs a sweep interval and
 // never a message.
 func (h *Home) writeOutbound(msg Message) (spool.Ref, error) {
-	sm, err := spoolMessageForMail(msg, msg.To)
-	if err != nil {
-		return spool.Ref{}, err
+	// Write-and-ring is ONE operation (spoolcourier.go). This end and the
+	// coordinator's differ only in which writer set they own, which harp keys
+	// it, how they ring, and whether the send is audited — everything else was
+	// the same prose in two files.
+	return h.outboundCourier().Send(msg)
+}
+
+// outboundCourier writes into THIS RUN's outbound spool, whoever the message is
+// addressed to — the runner owns one spool, not one per recipient.
+func (h *Home) outboundCourier() *spoolCourier {
+	return &spoolCourier{
+		writers: h.spoolOut,
+		keyFor:  func(string) string { return h.cfg.Harp },
+		ring:    func(_ string, ref spool.Ref) error { return h.RingSpool(ref) },
+		side:    "runner",
 	}
-	w, err := h.spoolOut.writerFor(h.cfg.Harp)
-	if err != nil {
-		return spool.Ref{}, fmt.Errorf("opening this run's outbound spool: %w", err)
-	}
-	ref, err := w.Write(sm)
-	if err != nil {
-		return spool.Ref{}, fmt.Errorf("writing the message: %w", err)
-	}
-	if rerr := h.RingSpool(ref); rerr != nil {
-		clidiag.Warn("ctxloom", "runner: wrote %s but could not ring the coordinator: %v (it will be swept)", ref, rerr)
-	}
-	return ref, nil
 }

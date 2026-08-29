@@ -255,9 +255,52 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoor
 		return
 	}
 	c.audit("agent_report", harp, map[string]string{"scope": s.GetScope().String()})
+	c.notifyParentOfFinalReport(harp, s)
 	// D4: a SCOPE_CHECKPOINT report is the natural compaction point — see
 	// checkpoint.go.
 	c.maybeCheckpointOnSummary(s)
+}
+
+// notifyParentOfFinalReport queues a child's FINAL report to its parent as
+// mail, so a parent waiting in agent_recv learns of it.
+//
+// WHY THIS IS NEEDED AT ALL: a report and a message live in different stores.
+// recordSummary journals a factSummary into the REPORTS fold, which is what
+// roster reads — so a parent could see "FINAL: ..." in roster for a report
+// agent_recv had nothing to return. A child filing the report its own
+// instructions call "the deliverable" was, from a waiting parent's view,
+// silent. That divergence made a reporting-vocabulary gap read as lost
+// delivery.
+//
+// FINAL ONLY. Queueing on PROGRESS or STEP would wake a parent on every
+// heartbeat, which is a flood rather than a doorbell; FINAL is the completion
+// contract. Widening later is one line, and should be argued for rather than
+// assumed.
+//
+// FULL TEXT, NOT A DIGEST, and the routing is not this function's business:
+// queueMail's chokepoint decides whether the message rides the spool (file is
+// truth, wire is doorbell — the standard for anything potentially large) or the
+// mailbox. Truncating here would discard the bulk the file exists to carry.
+//
+// CALLED AFTER THE JOURNAL SUCCEEDS, deliberately: the report is durable before
+// any notification is attempted, so a failed queue costs a WAKE and never a
+// REPORT. A failure warns rather than propagating, for the same reason — the
+// report already exists and nothing downstream should be skipped because the
+// doorbell did not go out.
+func (c *Coordinator) notifyParentOfFinalReport(harp string, s *agentcoordpb.Summary) {
+	if s.GetScope() != agentcoordpb.Summary_SCOPE_FINAL {
+		return
+	}
+	rec := c.runsF.currentRun(harp)
+	// A top-level run has no parent to notify. Same guard launchgate.go uses
+	// for the identical queueMail(rec.Harp, rec.ParentHarp, ...) call.
+	if rec == nil || rec.ParentHarp == "" {
+		return
+	}
+	if _, _, err := c.queueMail(harp, rec.ParentHarp, KindReport, s.GetText()); err != nil {
+		clidiag.Warn("ctxloom", "coordinator: %s's FINAL report is journaled but could not be queued to %s: %v "+
+			"(the report is intact in the reports fold; its parent will not be woken by it)", harp, rec.ParentHarp, err)
+	}
 }
 
 // recordArtifact journals one artifact manifest, assigning the monotonic

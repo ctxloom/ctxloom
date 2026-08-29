@@ -27,6 +27,21 @@ const (
 	// KindQuestion asks the recipient something and expects an answer back.
 	KindQuestion = "question"
 
+	// KindReport is COORDINATOR-RESERVED: the notice a child's FINAL
+	// agent_report queues to its parent.
+	//
+	// It exists because a report and a message are stored in different places.
+	// recordSummary journals a factSummary into the REPORTS fold, which is what
+	// roster reads — so a parent could see "FINAL: ..." in roster for a report
+	// agent_recv had nothing to return, because the fold and the mailbox are
+	// different stores. A child filing the report its instructions call "the
+	// deliverable" was, from a parent's waiting receive, silent.
+	//
+	// Distinct from KindResult, which is a sender's own findings and the
+	// turn-boundary bridge's kind: this one is specifically a report's arrival,
+	// and the reports fold remains the store of record for its content.
+	KindReport = "report"
+
 	// KindApprovalRequest is COORDINATOR-RESERVED: the escalation ladder's
 	// relayed ApprovalRequest projection (approval.go), which the recipient
 	// answers as a trust decision on a child's behalf.
@@ -55,7 +70,7 @@ var senderMailKinds = []string{KindMessage, KindResult, KindError, KindQuestion}
 // reservedMailKinds are constructed by the coordinator only. Every one of them
 // asks the recipient to trust its provenance, so accepting one from a sender
 // would let the sender borrow the coordinator's authority.
-var reservedMailKinds = []string{KindApprovalRequest, KindUserInjected, KindExited, KindSteer, KindSummarize}
+var reservedMailKinds = []string{KindApprovalRequest, KindUserInjected, KindExited, KindSteer, KindSummarize, KindReport}
 
 // ErrSenderMailKind rejects a sender-supplied mail kind outside the
 // sender-allowed vocabulary — including an absent one. Typed so the plane-2
@@ -158,6 +173,7 @@ var mailKindToSpool = map[string]string{
 	KindExited:          KindExited,
 	KindSteer:           KindSteer,
 	KindSummarize:       KindSummarize,
+	KindReport:          KindReport,
 }
 
 // spoolKindToMail inverts mailKindToSpool, built once at init. A collision is

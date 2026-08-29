@@ -774,7 +774,7 @@ func init() {
 		// reports success and writes zero bytes, which is precisely the
 		// silent no-op the mock engine exists to catch in others.
 		skillExports: mockSkillExports,
-		// mock is the SAME structural shape as opencode here: mockApproaches
+		// mock is the SAME structural shape as opencode here: mockPresentations
 		// (mock_surfaces.go) declares context and skills, so a configured
 		// session_start hook has no settings surface to land on and reaches no
 		// file. Declared for the same reason opencode's noHooksReason is —

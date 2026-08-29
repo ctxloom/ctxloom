@@ -282,7 +282,7 @@ var matrixSpecs = map[string]deliverySpec{
 	"opencode/skills/unsafe-file":   {wantFile: ".opencode/skill/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 
 	// ---- mock ----------------------------------------------------------
-	// mock declares context and skills (mock_surfaces.go's mockApproaches):
+	// mock declares context and skills (mock_surfaces.go's mockPresentations):
 	// a hermetic, managed-marker MOCK_CONTEXT.md at the target dir root — the
 	// same DeliverManagedContext shape claude's CLAUDE.md and codex's
 	// AGENTS.md use — and a hermetic .mock/skills/ package tree through the

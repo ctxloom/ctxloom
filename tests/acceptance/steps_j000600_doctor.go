@@ -25,6 +25,8 @@ import (
 	"path/filepath"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/codex"
 )
 
 // doctorSkillMD is the "ctxloom-doctor" skill's authored SKILL.md: frontmatter
@@ -149,7 +151,7 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 		case "opencode":
 			return filepath.Join(j000600.target, ".opencode", "skill", "ctxloom-doctor", "SKILL.md"), nil
 		case "codex":
-			return "", fmt.Errorf("j000600: codex materializes no skill package on this path — %s", codexLaunchOnlySettingsReason)
+			return "", fmt.Errorf("j000600: codex materializes no skill package on this path — %s", codex.LaunchOnlySettingsReason)
 		default:
 			return "", fmt.Errorf("j000600: unknown engine %q for the skill surface", j000600.engine)
 		}

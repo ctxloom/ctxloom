@@ -118,7 +118,7 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | worktree  |
 
-    @probe-p2-mcp-round-trip @codex @host @ws-none @wip
+    @probe-p2-mcp-round-trip @codex @host @ws-none
     Examples:
       | engine | runtime | workspace |
       | codex  | host    | none      |
@@ -155,7 +155,7 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
       | engine | runtime | workspace |
       | kiro   | host    | none      |
 
-    @probe-p2-mcp-round-trip @opencode @host @ws-none @wip
+    @probe-p2-mcp-round-trip @opencode @host @ws-none
     Examples:
       | engine   | runtime | workspace |
       | opencode | host    | none      |

@@ -25,10 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	// parked_engines: internal/codex is out of the default build; the two
-	// tests that imported it for codex.CodexACPAdapter are commented out
-	// above.
-	// "github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -369,35 +366,30 @@ func TestDoctorCheckACPAdapter_WrongState_AdapterMissingForConfiguredEngine(t *t
 	assert.Contains(t, check.Detail, "containerized agents", "must acknowledge container-runtime agents get the adapter from their image, not a false universal block")
 }
 
-// parked_engines: both tests below configure a project against an engine
-// backend ("codex", "kiro") that registry.go no longer registers, so
-// setupProject can no longer stand either one up. Come back with those
-// packages.
-//
-// func TestDoctorCheckACPAdapter_WrongState_CodexAdapterMissing(t *testing.T) {
-// 	dir := t.TempDir()
-// 	t.Setenv("PATH", dir)
-// 	_, cfg := setupProject(t, "codex")
-//
-// 	check := doctorCheckACPAdapter(cfg)
-// 	assert.Equal(t, doctorWarn, check.Status)
-// 	assert.Contains(t, check.Detail, codex.CodexACPAdapter)
-// 	assert.Contains(t, check.Detail, "codex")
-// 	assert.Contains(t, check.Detail, "npm install -g @zed-industries/"+codex.CodexACPAdapter)
-// }
-//
-// // TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone proves kiro
-// // (which declares agent.ACPNative — no separate adapter subprocess, see
-// // backends.ACPTransportFor("kiro")) never warns here regardless of PATH.
-// func TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone(t *testing.T) {
-// 	dir := t.TempDir() // empty PATH is irrelevant: kiro has no adapter to look up
-// 	t.Setenv("PATH", dir)
-// 	_, cfg := setupProject(t, "kiro")
-//
-// 	check := doctorCheckACPAdapter(cfg)
-// 	assert.Equal(t, doctorOK, check.Status)
-// 	assert.Contains(t, check.Detail, "natively")
-// }
+func TestDoctorCheckACPAdapter_WrongState_CodexAdapterMissing(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	_, cfg := setupProject(t, "codex")
+
+	check := doctorCheckACPAdapter(cfg)
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, codex.CodexACPAdapter)
+	assert.Contains(t, check.Detail, "codex")
+	assert.Contains(t, check.Detail, "npm install -g @zed-industries/"+codex.CodexACPAdapter)
+}
+
+// TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone proves kiro
+// (which declares agent.ACPNative — no separate adapter subprocess, see
+// backends.ACPTransportFor("kiro")) never warns here regardless of PATH.
+func TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone(t *testing.T) {
+	dir := t.TempDir() // empty PATH is irrelevant: kiro has no adapter to look up
+	t.Setenv("PATH", dir)
+	_, cfg := setupProject(t, "kiro")
+
+	check := doctorCheckACPAdapter(cfg)
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "natively")
+}
 
 // --- DOCTOR-CHECK-AGENTS-b2: promoted to WARN on an empty roster ---
 

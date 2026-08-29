@@ -369,15 +369,8 @@ var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (a
 // image bakes when isolation_engines is unconfigured — every backend with a
 // known OFFICIAL-installer fragment (locked decision 3: "all engines CAN be
 // present" by default; isolation_engines trims it down), alphabetical order.
-//
-// parked_engines: codex/kiro/opencode are commented out — they are
-// unregistered internal/lm/backends names for the duration of the
-// delivery-interface refactor, and tests/arch's
-// TestArch_EngineIdentityRosters_MembersAreRegisteredBackends fails loud on
-// a roster naming a backend that is not currently registered. They come
-// back with their packages.
 func composableEngines() []string {
-	return []string{"claude-code" /* , "codex", "kiro", "opencode" */}
+	return []string{"claude-code", "codex", "kiro", "opencode"}
 }
 
 // ComposableEngines exports composableEngines() (one of the four

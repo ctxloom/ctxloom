@@ -1,8 +1,3 @@
-//go:build parked_engines
-
-// PARKED (parked_engines): this whole file pins codex's ACP-adapter literal
-// against internal/codex's own descriptor, and internal/codex is out of the
-// default build. grep -rn parked_engines finds every parked site.
 package isolation_test
 
 import (

@@ -1,8 +1,3 @@
-//go:build parked_engines
-
-// PARKED (parked_engines): every test in this file exercises "codex"'s
-// launch-only declaration specifically, and internal/codex is out of the
-// default build. grep -rn parked_engines finds every parked site.
 package backends
 
 import (

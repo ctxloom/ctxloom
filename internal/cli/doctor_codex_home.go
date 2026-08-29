@@ -1,9 +1,3 @@
-//go:build parked_engines
-
-// PARKED (parked_engines): this file's whole doctor check is codex-specific,
-// and internal/codex is out of the default build for the duration of the
-// delivery-interface refactor. Its call site in doctor_cmd.go is commented
-// out alongside it. grep -rn parked_engines finds every parked site.
 package cli
 
 import (

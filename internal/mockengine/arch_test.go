@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -158,7 +159,7 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 		{
 			name: "cwd context surface",
 			no:   limbRun{},
-			yes:  limbRun{files: map[string]string{"AGENTS.md": "# AGENTS.md\n"}},
+			yes:  limbRun{files: map[string]string{codex.AgentsMDFile: "# AGENTS.md\n"}},
 			check: func(t *testing.T, no mockengine.Report) {
 				rec, ok := recordByKind(no, string(agent.ProbeKindContext))
 				if !ok || rec.Present {
@@ -172,7 +173,7 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 			// developer's machine is a REAL config directory. The two runs must
 			// not be able to render alike.
 			no:  limbRun{},
-			yes: limbRun{env: map[string]string{"CODEX_HOME": codexHome}},
+			yes: limbRun{env: map[string]string{codex.CodexHomeEnv: codexHome}},
 			check: func(t *testing.T, no mockengine.Report) {
 				var fell bool
 				for _, rec := range no.Records {
@@ -234,7 +235,7 @@ func TestArch_EvidenceReport_EnvViolationsNameEveryBreach(t *testing.T) {
 	rep := runLimb(t, limbRun{
 		cli: &cli,
 		env: map[string]string{
-			"CODEX_HOME":            "/nonexistent-codex-home",
+			codex.CodexHomeEnv:      "/nonexistent-codex-home",
 			agent.SessionHarpEnv:    "witty-tag",
 			"ANTHROPIC_API_KEY":     "sk-leaked",
 			agent.SCMContextFileEnv: "", // set, but EMPTY: ctxloom's own silent no-op shape

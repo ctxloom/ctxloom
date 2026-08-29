@@ -94,32 +94,32 @@ Feature: P4 — the plan sentinel: does permissions=plan actually stop a write
       | engine      | runtime | workspace | posture |
       | claude-code | host    | none      | plan    |
 
-    @codex @host @ws-none @var-control @wip
+    @codex @host @ws-none @var-control
     Examples:
       | engine | runtime | workspace | posture |
       | codex  | host    | none      | control |
 
-    @codex @host @ws-none @var-plan @wip
+    @codex @host @ws-none @var-plan
     Examples:
       | engine | runtime | workspace | posture |
       | codex  | host    | none      | plan    |
 
-    @kiro @host @ws-none @var-control @wip
+    @kiro @host @ws-none @var-control
     Examples:
       | engine | runtime | workspace | posture |
       | kiro   | host    | none      | control |
 
-    @kiro @host @ws-none @var-plan @wip
+    @kiro @host @ws-none @var-plan
     Examples:
       | engine | runtime | workspace | posture |
       | kiro   | host    | none      | plan    |
 
-    @opencode @host @ws-none @var-control @wip
+    @opencode @host @ws-none @var-control
     Examples:
       | engine   | runtime | workspace | posture |
       | opencode | host    | none      | control |
 
-    @opencode @host @ws-none @var-plan @wip
+    @opencode @host @ws-none @var-plan
     Examples:
       | engine   | runtime | workspace | posture |
       | opencode | host    | none      | plan    |

@@ -21,6 +21,7 @@
 package arch
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -33,23 +34,14 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	// parked_engines: codex/kiro are out of the default build. codex was the
-	// engine with home-keyed surfaces (the fullest home-writing path there
-	// is) so TestArch_RealHostHomesAreByteIdenticalWithNoControlledHome,
-	// codex-only, is commented out with it; the other two tests below are
-	// trimmed to claude-code. grep -rn parked_engines finds every parked
-	// site.
-	// "github.com/ctxloom/ctxloom/internal/codex"
-	// "github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	// parked_engines: shared/agent and shared/wire were used only by
-	// launchManaged and the codex Setup() exercises, all commented out with
-	// internal/codex above.
-	// "github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	// "github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // realHomeFixture writes a believable ~/.claude, ~/.codex and ~/.kiro into a
@@ -172,28 +164,22 @@ func resetArchStrictness(t *testing.T) {
 	})
 }
 
-// parked_engines: launchManaged fed the codex Setup() exercise in
-// TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch and the
-// whole of TestArch_RealHostHomesAreByteIdenticalWithNoControlledHome, both
-// commented out — internal/codex is out of the default build and it was
-// the only engine those exercises drove. Comes back with the package.
-//
-// // launchManaged is a realistic managed payload: hooks, an MCP server, a
-// // command and a skill. Everything an engine's home-keyed surfaces would write.
-// func launchManaged() *agent.ManagedConfig {
-// 	return &agent.ManagedConfig{
-// 		Commands: []agent.CommandExport{{Name: "review", Content: "review it", Enabled: true}},
-// 		Skills: []agent.SkillExport{{
-// 			Name:    "humanize",
-// 			Enabled: true,
-// 			Files:   []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\n---\nBody.\n"), Mode: 0o644}},
-// 		}},
-// 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
-// 			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
-// 		}},
-// 		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
-// 	}
-// }
+// launchManaged is a realistic managed payload: hooks, an MCP server, a
+// command and a skill. Everything an engine's home-keyed surfaces would write.
+func launchManaged() *agent.ManagedConfig {
+	return &agent.ManagedConfig{
+		Commands: []agent.CommandExport{{Name: "review", Content: "review it", Enabled: true}},
+		Skills: []agent.SkillExport{{
+			Name:    "humanize",
+			Enabled: true,
+			Files:   []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\n---\nBody.\n"), Mode: 0o644}},
+		}},
+		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
+		}},
+		BundleMCP: map[string]wire.MCPServer{"srv": {Command: "run-srv"}},
+	}
+}
 
 // TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch is the gate.
 // A `config_home: project` run of every home-controlled engine resolves its
@@ -216,11 +202,7 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	before := realHomeSnapshot(t, home)
 
 	instances := map[string]string{}
-	// parked_engines: kiro/codex dropped — they are unregistered backends
-	// now, so InTreeAgentHomeEnv would hand back nil for them and fail the
-	// "exactly one config-home var" precondition below for the wrong
-	// reason (unregistered, not "instance resolved").
-	for _, backend := range []string{"claude-code"} {
+	for _, backend := range []string{"claude-code", "kiro", "codex"} {
 		env := operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
 			Backend:    backend,
 			WorkDir:    workDir,
@@ -259,26 +241,22 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 		t.Errorf("claude's instance credential lost its access token; the copy must still authenticate.\ncopy: %s", string(credential))
 	}
 
-	// parked_engines: codex was the engine whose hooks, MCP servers, prompts
-	// and skills are all home-keyed — its Setup was the fullest
-	// home-writing path there is, driven here against the instance the
-	// contribution above named. internal/codex is out of the default build;
-	// this exercise (and TestArch_RealHostHomesAreByteIdenticalWithNoControlledHome,
-	// codex's D2 refusal half) comes back with the package.
-	//
-	// b := codex.NewCodex()
-	// if err := b.Setup(context.Background(), &agent.SetupRequest{
-	// 	WorkDir:   workDir,
-	// 	Env:       map[string]string{codex.CodexHomeEnv: instances["codex"]},
-	// 	Fragments: []*agent.Fragment{{Content: "project rules"}},
-	// 	CellKind:  agent.CellKindShared,
-	// 	Managed:   launchManaged(),
-	// }); err != nil {
-	// 	t.Fatalf("codex Setup: %v", err)
-	// }
-	// if _, err := os.Stat(filepath.Join(instances["codex"], codex.ConfigFileName)); err != nil {
-	// 	t.Fatalf("codex delivered no config.toml into its instance (%v); the invariant below would be vacuous", err)
-	// }
+	// codex is the engine whose hooks, MCP servers, prompts and skills are all
+	// home-keyed, so its Setup is the fullest home-writing path there is. Drive
+	// it against the instance the contribution just named.
+	b := codex.NewCodex()
+	if err := b.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:   workDir,
+		Env:       map[string]string{codex.CodexHomeEnv: instances["codex"]},
+		Fragments: []*agent.Fragment{{Content: "project rules"}},
+		CellKind:  agent.CellKindShared,
+		Managed:   launchManaged(),
+	}); err != nil {
+		t.Fatalf("codex Setup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(instances["codex"], codex.ConfigFileName)); err != nil {
+		t.Fatalf("codex delivered no config.toml into its instance (%v); the invariant below would be vacuous", err)
+	}
 
 	after := realHomeSnapshot(t, home)
 	for leaf, want := range before {
@@ -291,56 +269,58 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	}
 }
 
-// parked_engines: this whole test is codex's D2 "no controlled home"
-// refusal half — internal/codex is out of the default build, so there is
-// no codex.NewCodex() left to drive. Comes back with the package.
-//
-// func TestArch_RealHostHomesAreByteIdenticalWithNoControlledHome(t *testing.T) {
-// 	resetArchStrictness(t)
-// 	home := realHomeFixture(t)
-// 	t.Setenv("OPENAI_API_KEY", "")
-// 	workDir := t.TempDir()
-//
-// 	before := realHomeSnapshot(t, home)
-//
-// 	for _, configHome := range []string{"", agents.ConfigHomeHost} {
-// 		env := operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
-// 			Backend:    "codex",
-// 			WorkDir:    workDir,
-// 			Harp:       "ugly-icy-squid",
-// 			ConfigHome: configHome,
-// 			Policy:     isolation.None{},
-// 		})
-// 		if env != nil {
-// 			t.Fatalf("config_home=%q: a run without an opt-in must be handed no config home, got %v", configHome, env)
-// 		}
-// 	}
-//
-// 	b := codex.NewCodex()
-// 	// Setup's own error is not the assertion here (an unauthenticated run fails
-// 	// loud from Execute); what matters is what it wrote.
-// 	_ = b.Setup(context.Background(), &agent.SetupRequest{
-// 		WorkDir:   workDir,
-// 		Fragments: []*agent.Fragment{{Content: "project rules"}},
-// 		CellKind:  agent.CellKindShared,
-// 		Managed:   launchManaged(),
-// 	})
-//
-// 	after := realHomeSnapshot(t, home)
-// 	for leaf, want := range before {
-// 		if after[leaf] != want {
-// 			t.Errorf("a run with NO controlled home modified the user's real %s. "+
-// 				"Keeping the real home means READING it, never writing it — codex's home-keyed surfaces must refuse "+
-// 				"(loudly) rather than deliver there.", leaf)
-// 		}
-// 	}
-//
-// 	// Degraded, not silent: the cwd-keyed context surface still landed, which
-// 	// is what distinguishes "refused with a warning" from "did nothing at all".
-// 	if _, err := os.Stat(filepath.Join(workDir, codex.AgentsMDFile)); err != nil {
-// 		t.Errorf("the cwd-keyed AGENTS.md surface must still deliver when the home-keyed ones refuse: %v", err)
-// 	}
-// }
+// TestArch_RealHostHomesAreByteIdenticalWithNoControlledHome is D2's half of
+// the same invariant. A run with NO controlled home — no binding, an undeclared
+// one, or `config_home: host` — points the engine at its real home, and that is
+// exactly the case where a delivery would land there. It must not: codex's
+// home-keyed surfaces refuse and say so (surfaces.go's deliveryHome), and the
+// cwd-keyed ones are unaffected.
+func TestArch_RealHostHomesAreByteIdenticalWithNoControlledHome(t *testing.T) {
+	resetArchStrictness(t)
+	home := realHomeFixture(t)
+	t.Setenv("OPENAI_API_KEY", "")
+	workDir := t.TempDir()
+
+	before := realHomeSnapshot(t, home)
+
+	for _, configHome := range []string{"", agents.ConfigHomeHost} {
+		env := operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
+			Backend:    "codex",
+			WorkDir:    workDir,
+			Harp:       "ugly-icy-squid",
+			ConfigHome: configHome,
+			Policy:     isolation.None{},
+		})
+		if env != nil {
+			t.Fatalf("config_home=%q: a run without an opt-in must be handed no config home, got %v", configHome, env)
+		}
+	}
+
+	b := codex.NewCodex()
+	// Setup's own error is not the assertion here (an unauthenticated run fails
+	// loud from Execute); what matters is what it wrote.
+	_ = b.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:   workDir,
+		Fragments: []*agent.Fragment{{Content: "project rules"}},
+		CellKind:  agent.CellKindShared,
+		Managed:   launchManaged(),
+	})
+
+	after := realHomeSnapshot(t, home)
+	for leaf, want := range before {
+		if after[leaf] != want {
+			t.Errorf("a run with NO controlled home modified the user's real %s. "+
+				"Keeping the real home means READING it, never writing it — codex's home-keyed surfaces must refuse "+
+				"(loudly) rather than deliver there.", leaf)
+		}
+	}
+
+	// Degraded, not silent: the cwd-keyed context surface still landed, which
+	// is what distinguishes "refused with a warning" from "did nothing at all".
+	if _, err := os.Stat(filepath.Join(workDir, codex.AgentsMDFile)); err != nil {
+		t.Errorf("the cwd-keyed AGENTS.md surface must still deliver when the home-keyed ones refuse: %v", err)
+	}
+}
 
 // TestArch_InstanceHomesLiveInsideTheProjectStateTier is the other side of the
 // same coin: wherever ctxloom DOES write an engine home, it is inside the
@@ -355,21 +335,19 @@ func TestArch_InstanceHomesLiveInsideTheProjectStateTier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claude.SessionConfigDir: %v", err)
 	}
-	// parked_engines: kiro/codex rows are commented out with those
-	// packages.
-	// kiroDir, err := kiro.SessionHome(workDir, harp)
-	// if err != nil {
-	// 	t.Fatalf("kiro.SessionHome: %v", err)
-	// }
-	// codexRoot, err := codex.SessionHome(workDir, harp)
-	// if err != nil {
-	// 	t.Fatalf("codex.SessionHome: %v", err)
-	// }
+	kiroDir, err := kiro.SessionHome(workDir, harp)
+	if err != nil {
+		t.Fatalf("kiro.SessionHome: %v", err)
+	}
+	codexRoot, err := codex.SessionHome(workDir, harp)
+	if err != nil {
+		t.Fatalf("codex.SessionHome: %v", err)
+	}
 
 	for name, dir := range map[string]string{
 		"claude-code": claudeDir,
-		// "kiro":        kiroDir,
-		// "codex":       filepath.Join(codexRoot, codex.ConfigDirName),
+		"kiro":        kiroDir,
+		"codex":       filepath.Join(codexRoot, codex.ConfigDirName),
 	} {
 		if !strings.HasPrefix(dir, stateTier) {
 			t.Errorf("%s's instance %q is not inside the project state tier %q", name, dir, stateTier)

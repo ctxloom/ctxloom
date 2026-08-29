@@ -9,10 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	// parked_engines: internal/codex is out of the default build;
-	// TestManageInstall_EngineScopesWrites, the one test that needed its
-	// AGENTS.md/declared-absence shape, is commented out with it.
-	// "github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -52,14 +49,9 @@ func TestManageInstall_EngineOnExistingDirIsNotSilentlyDropped(t *testing.T) {
 	before, rerr := os.ReadFile(cfgPath)
 	require.NoError(t, rerr)
 
-	// "mock" stands in for "a second registered engine distinct from
-	// claude-code" — codex would have too, but it is parked (parked_engines)
-	// and checkEngineKnown now refuses it before this test's target check
-	// (checkInstallEngineApplies) is ever reached, which would pass this
-	// test for the wrong reason.
-	_, err = runCLIErr(t, "manage", "install", "--print=false", "--engine", "mock")
+	_, err = runCLIErr(t, "manage", "install", "--print=false", "--engine", "codex")
 	require.Error(t, err, "a --engine that cannot be applied must not report success")
-	assert.Contains(t, err.Error(), "mock", "the refusal must name the engine that was asked for")
+	assert.Contains(t, err.Error(), "codex", "the refusal must name the engine that was asked for")
 
 	after, rerr := os.ReadFile(cfgPath)
 	require.NoError(t, rerr)
@@ -113,33 +105,28 @@ func TestManageInstall_UnknownEngineRefusesLoud(t *testing.T) {
 // Backend: "all", ignoring the flag entirely except for the config's
 // recorded default. An explicit --engine must scope the hook apply to that
 // one backend.
-// parked_engines: this test's whole point is codex's declared-absence
-// scoping shape (AGENTS.md written, no .codex dir) — internal/codex is out
-// of the default build, so there is nothing left for it to prove until it
-// returns.
-//
-// func TestManageInstall_EngineScopesWrites(t *testing.T) {
-// 	dir := testsupport.ProjectDir(t)
-//
-// 	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "codex")
-// 	require.NoError(t, err)
-//
-// 	// codex's ONE static surface is its cwd-keyed AGENTS.md: since S7 its
-// 	// home-keyed surfaces are a declared absence, delivered per-session at
-// 	// launch and written nowhere by a static install
-// 	// (internal/codex/declared_absence.go). Asserting AGENTS.md is what keeps
-// 	// this scoping test honest — with no positive assertion at all, an install
-// 	// that wrote nothing anywhere would pass the four negatives below.
-// 	assert.FileExists(t, filepath.Join(dir, codex.AgentsMDFile), "the named engine's cwd-keyed surface must be written")
-// 	assert.NoDirExists(t, filepath.Join(dir, codex.ConfigDirName),
-// 		"and no project-root .codex: codex has no durable project home to write one into")
-// 	assert.NoDirExists(t, filepath.Join(dir, ".ctxloom", "state", "engines"),
-// 		"nor the retired durable per-project engine home")
-// 	for _, other := range []string{".claude", ".kiro", ".opencode", ".agents"} {
-// 		_, statErr := os.Stat(filepath.Join(dir, other))
-// 		assert.True(t, os.IsNotExist(statErr), "%s must NOT be written when --engine codex was asked for", other)
-// 	}
-// }
+func TestManageInstall_EngineScopesWrites(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+
+	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "codex")
+	require.NoError(t, err)
+
+	// codex's ONE static surface is its cwd-keyed AGENTS.md: since S7 its
+	// home-keyed surfaces are a declared absence, delivered per-session at
+	// launch and written nowhere by a static install
+	// (internal/codex/declared_absence.go). Asserting AGENTS.md is what keeps
+	// this scoping test honest — with no positive assertion at all, an install
+	// that wrote nothing anywhere would pass the four negatives below.
+	assert.FileExists(t, filepath.Join(dir, codex.AgentsMDFile), "the named engine's cwd-keyed surface must be written")
+	assert.NoDirExists(t, filepath.Join(dir, codex.ConfigDirName),
+		"and no project-root .codex: codex has no durable project home to write one into")
+	assert.NoDirExists(t, filepath.Join(dir, ".ctxloom", "state", "engines"),
+		"nor the retired durable per-project engine home")
+	for _, other := range []string{".claude", ".kiro", ".opencode", ".agents"} {
+		_, statErr := os.Stat(filepath.Join(dir, other))
+		assert.True(t, os.IsNotExist(statErr), "%s must NOT be written when --engine codex was asked for", other)
+	}
+}
 
 // TestManageInstall_NoEngineFlagAppliesAllBackends is the guard on the
 // scoping fix: omitting --engine is the documented "wire everything" install
@@ -159,12 +146,13 @@ func TestManageInstall_NoEngineFlagAppliesAllBackends(t *testing.T) {
 	_, err := runCLIErr(t, "manage", "install", "--print=false")
 	require.NoError(t, err)
 
-	// parked_engines: kiro/opencode/codex are out of the default build and
-	// BackendsWithSettings() no longer names them, so "wire everything" only
-	// writes claude's surface until they return.
-	for _, backend := range []string{".claude"} {
+	for _, backend := range []string{".claude", ".kiro", ".opencode"} {
 		assert.DirExists(t, filepath.Join(dir, backend), "omitting --engine must still wire %s", backend)
 	}
+	// codex has no sibling dot-dir to check: its home-keyed surfaces are a
+	// declared absence on this path. Its cwd-keyed AGENTS.md is what "wired
+	// codex" means for a static install.
+	assert.FileExists(t, filepath.Join(dir, codex.AgentsMDFile), "omitting --engine must still wire codex")
 }
 
 // TestCheckInstallEngineApplies covers the decision itself, free of the cobra

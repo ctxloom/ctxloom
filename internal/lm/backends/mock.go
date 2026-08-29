@@ -10,12 +10,9 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	// parked_engines: codex/kiro/opencode are out of the default build; their
-	// env-var constants below are commented out with them. grep -rn
-	// parked_engines finds every site.
-	// "github.com/ctxloom/ctxloom/internal/codex"
-	// "github.com/ctxloom/ctxloom/internal/kiro"
-	// "github.com/ctxloom/ctxloom/internal/opencode"
+	"github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 )
@@ -162,15 +159,12 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 // tests/arch's engine-layout gate pins this roster equal to the full set of
 // env vars internal/lm/isolation's credentialSeedSpecs HomeVars name across
 // every engine.
-// parked_engines: the codex/kiro/opencode rows are commented out with the
-// packages that own their constants; tests/arch's engine-layout gate
-// (testMockConfigHomeEnvKeysRoster) is narrowed to match — see that file.
 var configHomeEnvKeys = []string{
 	claude.ConfigDirEnv,
-	// codex.CodexHomeEnv,
-	// kiro.HomeEnv,
-	// kiro.XDGDataHomeEnv,
-	// opencode.XDGConfigHomeEnv,
+	codex.CodexHomeEnv,
+	kiro.HomeEnv,
+	kiro.XDGDataHomeEnv,
+	opencode.XDGConfigHomeEnv,
 }
 
 // ConfigHomeEnvKeys returns a copy of configHomeEnvKeys, exported read-only

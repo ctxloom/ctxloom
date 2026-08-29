@@ -72,23 +72,18 @@
 //     required to still exclude.
 package arch
 
-// parked_engines: codex/kiro/opencode are out of the default build. Every
-// row and subtest below that named one is commented out with the package
-// whose constant it cited — claude alone still proves each table's checked
-// shape. grep -rn parked_engines finds every parked site.
-
 import (
 	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	// "github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
-	// "github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	// "github.com/ctxloom/ctxloom/internal/opencode"
+	"github.com/ctxloom/ctxloom/internal/opencode"
 )
 
 // legacyCodexConfigFileName and legacyCodexAuthFileName are gitignore.go's
@@ -106,9 +101,7 @@ const (
 // a failure names the drifted row, the table it came from, and both values.
 func TestArch_EngineLayoutAgreement(t *testing.T) {
 	t.Run("credentialSeedSpecs_HomeVarEnvNames", testCredentialSeedHomeVarEnvNames)
-	// parked_engines: testCredentialSeedCodexDestSubdir is entirely about
-	// codex's destSubdir/ConfigDirName agreement.
-	// t.Run("credentialSeedSpecs_CodexDestSubdir", testCredentialSeedCodexDestSubdir)
+	t.Run("credentialSeedSpecs_CodexDestSubdir", testCredentialSeedCodexDestSubdir)
 	t.Run("credentialSeedSpecs_SourceFiles", testCredentialSeedSourceFiles)
 	t.Run("spec_OverlayDirs", testSpecOverlayDirs)
 	t.Run("spec_TranscriptStoreRel", testSpecTranscriptStoreRel)
@@ -128,9 +121,9 @@ type homeVarEnvCheck struct {
 func testCredentialSeedHomeVarEnvNames(t *testing.T) {
 	checks := []homeVarEnvCheck{
 		{seedKey: "claude-code", want: []string{claude.ConfigDirEnv}},
-		// {seedKey: "codex", want: []string{codex.CodexHomeEnv}},
-		// {seedKey: "kiro", want: []string{kiro.HomeEnv, kiro.XDGDataHomeEnv}},
-		// {seedKey: "opencode", want: []string{opencode.XDGConfigHomeEnv, opencode.XDGDataHomeEnv}},
+		{seedKey: "codex", want: []string{codex.CodexHomeEnv}},
+		{seedKey: "kiro", want: []string{kiro.HomeEnv, kiro.XDGDataHomeEnv}},
+		{seedKey: "opencode", want: []string{opencode.XDGConfigHomeEnv, opencode.XDGDataHomeEnv}},
 	}
 	for _, c := range checks {
 		t.Run(c.seedKey, func(t *testing.T) {
@@ -154,29 +147,25 @@ func testCredentialSeedHomeVarEnvNames(t *testing.T) {
 // homeVar's own doc documents as required to agree with the engine's
 // ConfigDirName — see this file's package doc for why the other three
 // engines' destSubdir is NOT gated the same way.
-// parked_engines: codex is out of the default build and its
-// credentialSeedSpecs row is commented out with it (isolation/auth.go).
-// Comes back with the package.
-//
-// func testCredentialSeedCodexDestSubdir(t *testing.T) {
-// 	destSubdir, ok := isolation.CredentialSeedDestSubdir("codex")
-// 	if !ok {
-// 		t.Fatal(`isolation.CredentialSeedDestSubdir("codex") reports no such row`)
-// 	}
-// 	if destSubdir != codex.ConfigDirName {
-// 		t.Errorf("isolation.credentialSeedSpecs[\"codex\"].destSubdir = %q, want codex.ConfigDirName %q (codex's own cellScopedCodexHome join depends on this leaf name matching)",
-// 			destSubdir, codex.ConfigDirName)
-// 	}
-//
-// 	hv := isolation.CredentialSeedHomeVars("codex")
-// 	if len(hv) != 1 {
-// 		t.Fatalf(`isolation.CredentialSeedHomeVars("codex") = %v, want exactly one entry`, hv)
-// 	}
-// 	if hv[0].Subdir != codex.ConfigDirName {
-// 		t.Errorf("isolation.credentialSeedSpecs[\"codex\"].HomeVars[0].Subdir = %q, want codex.ConfigDirName %q",
-// 			hv[0].Subdir, codex.ConfigDirName)
-// 	}
-// }
+func testCredentialSeedCodexDestSubdir(t *testing.T) {
+	destSubdir, ok := isolation.CredentialSeedDestSubdir("codex")
+	if !ok {
+		t.Fatal(`isolation.CredentialSeedDestSubdir("codex") reports no such row`)
+	}
+	if destSubdir != codex.ConfigDirName {
+		t.Errorf("isolation.credentialSeedSpecs[\"codex\"].destSubdir = %q, want codex.ConfigDirName %q (codex's own cellScopedCodexHome join depends on this leaf name matching)",
+			destSubdir, codex.ConfigDirName)
+	}
+
+	hv := isolation.CredentialSeedHomeVars("codex")
+	if len(hv) != 1 {
+		t.Fatalf(`isolation.CredentialSeedHomeVars("codex") = %v, want exactly one entry`, hv)
+	}
+	if hv[0].Subdir != codex.ConfigDirName {
+		t.Errorf("isolation.credentialSeedSpecs[\"codex\"].HomeVars[0].Subdir = %q, want codex.ConfigDirName %q",
+			hv[0].Subdir, codex.ConfigDirName)
+	}
+}
 
 // sourceFileCheck names one credentialSeedSpecs row's expected seed-file
 // facts: the directory component every listed file must live under (an
@@ -195,21 +184,19 @@ func testCredentialSeedSourceFiles(t *testing.T) {
 			wantDir:  claude.ConfigDirName,
 			wantDest: map[string]bool{claude.CredentialsFileName: true},
 		},
-		// parked_engines: codex/opencode rows are commented out with their
-		// credentialSeedSpecs entries (isolation/auth.go).
-		// {
-		// 	seedKey:  "codex",
-		// 	wantDir:  codex.ConfigDirName,
-		// 	wantDest: map[string]bool{codex.AuthFileName: true},
-		// },
-		// {
-		// 	seedKey: "opencode",
-		// 	// opencode's sourceFiles land under $HOME/.local/share/opencode —
-		// 	// ".local/share" is the generic XDG_DATA_HOME default (not
-		// 	// opencode-owned), "opencode" is opencode.DataDirName.
-		// 	wantDir:  filepath.ToSlash(filepath.Join(".local", "share", opencode.DataDirName)),
-		// 	wantDest: map[string]bool{opencode.AuthFileName: true, opencode.MCPAuthFileName: false},
-		// },
+		{
+			seedKey:  "codex",
+			wantDir:  codex.ConfigDirName,
+			wantDest: map[string]bool{codex.AuthFileName: true},
+		},
+		{
+			seedKey: "opencode",
+			// opencode's sourceFiles land under $HOME/.local/share/opencode —
+			// ".local/share" is the generic XDG_DATA_HOME default (not
+			// opencode-owned), "opencode" is opencode.DataDirName.
+			wantDir:  filepath.ToSlash(filepath.Join(".local", "share", opencode.DataDirName)),
+			wantDest: map[string]bool{opencode.AuthFileName: true, opencode.MCPAuthFileName: false},
+		},
 	}
 
 	for _, c := range checks {
@@ -258,9 +245,9 @@ type overlayCheck struct {
 func testSpecOverlayDirs(t *testing.T) {
 	checks := []overlayCheck{
 		{backend: "claude-code", want: claude.ConfigDirName},
-		// {backend: "kiro", want: kiro.ConfigDirName},
-		// {backend: "codex", want: codex.ConfigDirName},
-		// {backend: "opencode", want: opencode.ConfigDirName},
+		{backend: "kiro", want: kiro.ConfigDirName},
+		{backend: "codex", want: codex.ConfigDirName},
+		{backend: "opencode", want: opencode.ConfigDirName},
 		{backend: "mock", want: backends.MockConfigDirName},
 	}
 	for _, c := range checks {
@@ -282,9 +269,9 @@ type transcriptCheck struct {
 func testSpecTranscriptStoreRel(t *testing.T) {
 	checks := []transcriptCheck{
 		{backend: "claude-code", want: filepath.ToSlash(filepath.Join(claude.ConfigDirName, claude.TranscriptsDirName))},
-		// {backend: "kiro", want: kiro.ConfigDirName},
-		// {backend: "codex", want: filepath.ToSlash(filepath.Join(codex.ConfigDirName, codex.SessionsDirName))},
-		// {backend: "opencode", want: filepath.ToSlash(filepath.Join(".local", "share", opencode.DataDirName))},
+		{backend: "kiro", want: kiro.ConfigDirName},
+		{backend: "codex", want: filepath.ToSlash(filepath.Join(codex.ConfigDirName, codex.SessionsDirName))},
+		{backend: "opencode", want: filepath.ToSlash(filepath.Join(".local", "share", opencode.DataDirName))},
 	}
 	for _, c := range checks {
 		t.Run(c.backend, func(t *testing.T) {
@@ -347,12 +334,10 @@ func testGitignoreLivePatterns(t *testing.T) {
 		{claude.ConfigDirName + "/", "claude.ConfigDirName"},
 		{claude.MCPFileName, "claude.MCPFileName"},
 		{claude.ContextFileName, "claude.ContextFileName"},
-		// parked_engines: kiro/opencode/codex rows are commented out with
-		// those packages.
-		// {kiro.ConfigDirName + "/", "kiro.ConfigDirName"},
-		// {opencode.ConfigDirName + "/", "opencode.ConfigDirName"},
-		// {opencode.ConfigFileName, "opencode.ConfigFileName"},
-		// {codex.AgentsMDFile, "codex.AgentsMDFile"},
+		{kiro.ConfigDirName + "/", "kiro.ConfigDirName"},
+		{opencode.ConfigDirName + "/", "opencode.ConfigDirName"},
+		{opencode.ConfigFileName, "opencode.ConfigFileName"},
+		{codex.AgentsMDFile, "codex.AgentsMDFile"},
 	}
 	for _, w := range want {
 		if !slices.Contains(patterns, w.pattern) {

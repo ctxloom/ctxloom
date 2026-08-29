@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -102,38 +103,16 @@ func TestRuntime_OneshotPlainWithoutJSONFlag(t *testing.T) {
 	}
 }
 
-// codexOneshot is a HAND-BUILT replica of codex's real oneshot declaration
-// (internal/codex/enginecli.go's CodexEngineCLIs: the "exec" subcommand, the
-// POSITIONAL prompt, --model/--sandbox/--dangerously-bypass-approvals-and-
-// sandbox, no --output-format flag).
-//
-// parked_engines: internal/codex is out of the default build, so this can no
-// longer be fetched live the way the file's own precedent for an
-// unavailable declaration (stripCLI, arch_test.go) already established for
-// StripEnv. It goes stale the moment codex's real declaration diverges from
-// it — re-derive it live once codex returns rather than trusting this copy.
+// codexOneshot resolves codex's oneshot EngineCLI from the REAL declaration, so
+// these tests exercise codex's actual grammar (the `exec` subcommand, the
+// POSITIONAL prompt, no --output-format flag) rather than a restated one.
 func codexOneshot(t *testing.T) agent.EngineCLI {
 	t.Helper()
-	return agent.EngineCLI{
-		Engine:     "codex",
-		Surface:    agent.CLISurfaceOneshot,
-		Binary:     "codex",
-		Subcommand: "exec",
-		Prompt:     agent.PromptPositional,
-		Flags: []agent.CLIFlag{
-			{Name: "--model", Value: agent.ValueString},
-			{Name: "--sandbox", Value: agent.ValueString, Enum: []string{"read-only", "workspace-write", "danger-full-access"}},
-			{Name: "--dangerously-bypass-approvals-and-sandbox", Value: agent.ValueNone, ConflictsWith: []string{"--sandbox"}},
-		},
-		SetEnv: []string{"CODEX_HOME", agent.SCMContextFileEnv, agent.SessionHarpEnv},
-		Probes: []agent.CLIProbe{
-			{Kind: agent.ProbeKindContext, Scope: agent.ScopeCwd, Rel: "AGENTS.md"},
-			{Kind: agent.ProbeKindContext, Scope: agent.ScopeCwd, Rel: agent.SCMContextSubdir, Dir: true},
-			{Kind: agent.ProbeKindSettings, Scope: agent.ScopeEnvDir, EnvVar: "CODEX_HOME", EnvHomeDefault: ".codex", Rel: "config.toml"},
-			{Kind: agent.ProbeKindCommands, Scope: agent.ScopeEnvDir, EnvVar: "CODEX_HOME", EnvHomeDefault: ".codex", Rel: "prompts", Dir: true},
-			{Kind: agent.ProbeKindSkills, Scope: agent.ScopeEnvDir, EnvVar: "CODEX_HOME", EnvHomeDefault: ".codex", Rel: "skills", Dir: true},
-		},
+	cli, ok := agent.EngineCLIFor(codex.CodexEngineCLIs(), agent.CLISurfaceOneshot)
+	if !ok {
+		t.Fatal("codex declares no oneshot surface")
 	}
+	return cli
 }
 
 // runCodexOneshot drives a Runtime over codex's oneshot surface. The prompt is

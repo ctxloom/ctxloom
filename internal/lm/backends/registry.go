@@ -10,14 +10,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	// parked_engines: codex/kiro/opencode are out of the default build (see
-	// internal/codex's package doc) so their imports and registrations below
-	// are commented out, not deleted. grep -rn parked_engines finds every site.
-	// "github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/engineversion"
-	// "github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	// "github.com/ctxloom/ctxloom/internal/opencode"
+	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
@@ -439,14 +436,12 @@ var (
 	// zero-ish values are correct by construction and whose Chat() either has
 	// no adapter gate (native) or bypasses the acp package entirely (bespoke).
 	//
-	// parked_engines: kiroACPTransport/opencodeACPTransport served only the
-	// kiro/opencode registerDescriptor blocks below, both commented out.
 	// kiroACPTransport: kiro-cli speaks ACP natively (`kiro-cli acp` —
 	// internal/kiro/chat.go) — no separate adapter binary.
-	// kiroACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
+	kiroACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
 	// opencodeACPTransport: opencode speaks ACP natively (`opencode acp` —
 	// internal/opencode/chat.go) — no separate adapter binary.
-	// opencodeACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
+	opencodeACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
 	// acpGenericACPTransport: the generic "acp" backend drives WHATEVER
 	// ACP-speaking command config supplies (`command: "kiro-cli acp"`,
 	// `claude-code-acp`, ...) — from this backend's own point of view that
@@ -546,153 +541,153 @@ func init() {
 		},
 	})
 
-	// 	// LIVE-UNTESTED: codex has never been run against a real account on any
-	// 	// dev host (see the package doc in internal/codex for what's proven vs
-	// 	// unverified; taskloom bold-smirk tracks the revive).
-	// 	registerDescriptor(agentDescriptor{
-	// 		name: "codex",
-	// 		newBackend: func() agent.Backend {
-	// 			b := codex.NewCodex() // sets its own ACPTransport intrinsically
-	// 			b.SetLauncher(RunLaunchSpec)
-	// 			return b
-	// 		},
-	// 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
-	// 			return decodeBody(body, &codex.CodexConfig{})
-	// 		},
-	// 		newWriter:         codex.NewWriter,
-	// 		newInstanceConfig: codex.NewInstanceConfigWriter,
-	// 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
-	// 			// The static apply/materialize path has no isolation context — no
-	// 			// homeOverride/trustAbsPath, exactly as before those params existed
-	// 			// (the live run/launch path wires them via Codex.buildSurfaces
-	// 			// instead, which does not go through this registry closure).
-	// 			return codex.NewSurfaces(in, "", "", fs)
-	// 		},
-	// 		exports:              codexExports,
-	// 		skillExports:         codexSkillExports,
-	// 		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
-	// 		acpTransport:         codex.CodexACPTransport,
-	// 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseCodexVersion},
-	// 		// codex has hooks generally (unlike opencode, so noHooksReason stays
-	// 		// empty) but no native session_end event — see codex.NoSessionEndReason
-	// 		// and addUnifiedHooks' route for the write-time half of this same fact.
-	// 		unsupportedHookKinds: map[string]string{
-	// 			bundles.HookEventSessionEnd: codex.NoSessionEndReason,
-	// 		},
-	// 		// S7's DECLARED ABSENCE. codex reads hooks, MCP servers, prompts and
-	// 		// skills only from $CODEX_HOME, which since S5 is either a per-session
-	// 		// instance ctxloom creates at launch or the user's own ~/.codex, which
-	// 		// ctxloom never writes — so a harpless materialize/install has no
-	// 		// target at all. Stated once, in internal/codex, and read here so a
-	// 		// caller that never imports that package reports the identical
-	// 		// sentence.
-	// 		launchOnlySettingsReason: codex.LaunchOnlySettingsReason,
-	// 		// hookGlobalScopePaths is deliberately ABSENT (audited, not
-	// 		// overlooked). Its purpose is the workDir == $HOME collision, where a
-	// 		// backend's PROJECT config path collapses onto its user-global one —
-	// 		// claude's and kiro's still do. codex no longer HAS a project config
-	// 		// path (the declared absence above), so the static path writes nothing
-	// 		// that could land in the user's global home; and the run path has its
-	// 		// own, stronger guard — codex.IsHostCodexHome refuses the real home
-	// 		// outright, whatever the workDir.
-	// 		// D2 (RULED): codex reads config_home like claude and kiro,
-	// 		// through THIS seam and no other. An in-tree run whose binding declares
-	// 		// `config_home: project` gets this session's own CODEX_HOME,
-	// 		// copy-seeded with the host's auth.json; every other in-tree run keeps
-	// 		// the real ~/.codex (internal/codex's resolveCodexProjectDir,
-	// 		// codexHomeRealHost). codex used to relocate CODEX_HOME here
-	// 		// unconditionally, which stopped being defensible the moment the
-	// 		// relocation target became a DISPOSABLE per-session instance: an
-	// 		// unbound interactive run would have lost its token refreshes and its
-	// 		// codex state every session.
-	// 		//
-	// 		// The env value is the session instance root plus codex's own
-	// 		// ConfigDirName, because CODEX_HOME IS the .codex directory rather
-	// 		// than its parent — the same composition
-	// 		// isolation's credentialSeedSpecs["codex"] HomeVar Subdir performs for
-	// 		// the worktree axis, and the suffix resolveCodexProjectDir strips back
-	// 		// off to recover the virtual project dir. Prepare is handed the ROOT,
-	// 		// which is what PrepareCodexHome joins ".codex" under.
-	// 		inTreeAgentHome: func(workDir, harp string) (InTreeAgentHomeSpec, error) {
-	// 			root, err := codex.SessionHome(workDir, harp)
-	// 			if err != nil {
-	// 				return InTreeAgentHomeSpec{}, err
-	// 			}
-	// 			return InTreeAgentHomeSpec{
-	// 				EnvVar: codex.CodexHomeEnv,
-	// 				Dir:    filepath.Join(root, codex.ConfigDirName),
-	// 				Prepare: func() error {
-	// 					return prepareInTreeAmbient("codex", root, workDir)
-	// 				},
-	// 			}, nil
-	// 		},
-	// 	})
+	// LIVE-UNTESTED: codex has never been run against a real account on any
+	// dev host (see the package doc in internal/codex for what's proven vs
+	// unverified; taskloom bold-smirk tracks the revive).
+	registerDescriptor(agentDescriptor{
+		name: "codex",
+		newBackend: func() agent.Backend {
+			b := codex.NewCodex() // sets its own ACPTransport intrinsically
+			b.SetLauncher(RunLaunchSpec)
+			return b
+		},
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &codex.CodexConfig{})
+		},
+		newWriter:         codex.NewWriter,
+		newInstanceConfig: codex.NewInstanceConfigWriter,
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
+			// The static apply/materialize path has no isolation context — no
+			// homeOverride/trustAbsPath, exactly as before those params existed
+			// (the live run/launch path wires them via Codex.buildSurfaces
+			// instead, which does not go through this registry closure).
+			return codex.NewSurfaces(in, "", "", fs)
+		},
+		exports:              codexExports,
+		skillExports:         codexSkillExports,
+		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
+		acpTransport:         codex.CodexACPTransport,
+		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseCodexVersion},
+		// codex has hooks generally (unlike opencode, so noHooksReason stays
+		// empty) but no native session_end event — see codex.NoSessionEndReason
+		// and addUnifiedHooks' route for the write-time half of this same fact.
+		unsupportedHookKinds: map[string]string{
+			bundles.HookEventSessionEnd: codex.NoSessionEndReason,
+		},
+		// S7's DECLARED ABSENCE. codex reads hooks, MCP servers, prompts and
+		// skills only from $CODEX_HOME, which since S5 is either a per-session
+		// instance ctxloom creates at launch or the user's own ~/.codex, which
+		// ctxloom never writes — so a harpless materialize/install has no
+		// target at all. Stated once, in internal/codex, and read here so a
+		// caller that never imports that package reports the identical
+		// sentence.
+		launchOnlySettingsReason: codex.LaunchOnlySettingsReason,
+		// hookGlobalScopePaths is deliberately ABSENT (audited, not
+		// overlooked). Its purpose is the workDir == $HOME collision, where a
+		// backend's PROJECT config path collapses onto its user-global one —
+		// claude's and kiro's still do. codex no longer HAS a project config
+		// path (the declared absence above), so the static path writes nothing
+		// that could land in the user's global home; and the run path has its
+		// own, stronger guard — codex.IsHostCodexHome refuses the real home
+		// outright, whatever the workDir.
+		// D2 (RULED): codex reads config_home like claude and kiro,
+		// through THIS seam and no other. An in-tree run whose binding declares
+		// `config_home: project` gets this session's own CODEX_HOME,
+		// copy-seeded with the host's auth.json; every other in-tree run keeps
+		// the real ~/.codex (internal/codex's resolveCodexProjectDir,
+		// codexHomeRealHost). codex used to relocate CODEX_HOME here
+		// unconditionally, which stopped being defensible the moment the
+		// relocation target became a DISPOSABLE per-session instance: an
+		// unbound interactive run would have lost its token refreshes and its
+		// codex state every session.
+		//
+		// The env value is the session instance root plus codex's own
+		// ConfigDirName, because CODEX_HOME IS the .codex directory rather
+		// than its parent — the same composition
+		// isolation's credentialSeedSpecs["codex"] HomeVar Subdir performs for
+		// the worktree axis, and the suffix resolveCodexProjectDir strips back
+		// off to recover the virtual project dir. Prepare is handed the ROOT,
+		// which is what PrepareCodexHome joins ".codex" under.
+		inTreeAgentHome: func(workDir, harp string) (InTreeAgentHomeSpec, error) {
+			root, err := codex.SessionHome(workDir, harp)
+			if err != nil {
+				return InTreeAgentHomeSpec{}, err
+			}
+			return InTreeAgentHomeSpec{
+				EnvVar: codex.CodexHomeEnv,
+				Dir:    filepath.Join(root, codex.ConfigDirName),
+				Prepare: func() error {
+					return prepareInTreeAmbient("codex", root, workDir)
+				},
+			}, nil
+		},
+	})
 
-	// 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
-	// 	// agent reads from cwd: the ctxloom agent (.kiro/agents/ctxloom.json — hooks +
-	// 	// skill resources), MCP (.kiro/settings/mcp.json), context (.kiro/steering/),
-	// 	// commands AND Agent Skills, both under .kiro/skills/<n>/SKILL.md — the one
-	// 	// engine where those two surfaces collide (D6 skill-wins, see
-	// 	// kiro.filterClaimedCommands in kiro/surfaces.go).
-	// 	// LIVE-VERIFIED against an authenticated kiro-cli — see the package doc in
-	// 	// internal/kiro for exactly what was proven (backend parity, a real oneshot
-	// 	// chat, and --model honor confirmed two independent ways).
-	// 	registerDescriptor(agentDescriptor{
-	// 		name: "kiro",
-	// 		newBackend: func() agent.Backend {
-	// 			b := kiro.NewKiro()
-	// 			b.SetLauncher(RunLaunchSpec)
-	// 			b.SetACPTransport(kiroACPTransport)
-	// 			return b
-	// 		},
-	// 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
-	// 			return decodeBody(body, &kiro.KiroConfig{})
-	// 		},
-	// 		newWriter:         kiro.NewWriter,
-	// 		newInstanceConfig: kiro.NewInstanceConfigWriter,
-	// 		newSurfaces:       func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
-	// 		exports:           kiroExports,
-	// 		skillExports:      kiroSkillExports,
-	// 		// LIVE VERIFIED (authenticated kiro-cli 2.12.1):
-	// 		// `--trust-tools=fs_read` genuinely denies a headless fs_write — a
-	// 		// sentinel-file overwrite left the file byte-unchanged and kiro-cli
-	// 		// printed "Command fs_write is rejected because it matches one or
-	// 		// more rules on the denied list". `--trust-tools=fs_read,fs_write`
-	// 		// and `--trust-all-tools` (positive controls) both let the same write
-	// 		// land. See kiro.buildArgs (backend.go) for the mapping.
-	// 		enforcesReadOnlyPlan: true,
-	// 		acpTransport:         kiroACPTransport,
-	// 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseKiroVersion},
-	// 		// kiro has hooks generally but no native session_end event — its only
-	// 		// turn-boundary event is `stop`, which fires once per TURN. See
-	// 		// kiro.NoSessionEndReason and mapHooks' route for the write-time half.
-	// 		unsupportedHookKinds: map[string]string{
-	// 			bundles.HookEventSessionEnd: kiro.NoSessionEndReason,
-	// 		},
-	// 		// kiro's project .kiro dir (kiro.ProjectHome) collapses onto its bare
-	// 		// GLOBAL home (kiro.GlobalHome) exactly when workDir == $HOME --
-	// 		// the same collision class found for claude.
-	// 		hookGlobalScopePaths: func(workDir string) (string, string, error) {
-	// 			global, err := kiro.GlobalHome()
-	// 			return kiro.ProjectHome(workDir), global, err
-	// 		},
-	// 		hookGlobalScopeLabel: "kiro's global home",
-	// 		// An in-tree AGENT run gets a project-scoped KIRO_HOME instead of the
-	// 		// human's own ~/.kiro (which since kiro-cli 2.3.0 carries their global
-	// 		// agents, prompts, skills, steering and settings, not just sessions).
-	// 		// No Seed, and none possible: kiro's subscription auth lives in a global
-	// 		// sqlite under XDG_DATA_HOME that KIRO_HOME does not relocate, so a
-	// 		// FRESH home stays authenticated — and XDG_DATA_HOME is deliberately
-	// 		// NOT relocated alongside it, since relocating a credential store with
-	// 		// nothing to seed into it is what strands an agent logged out.
-	// 		inTreeAgentHome: func(workDir, harp string) (InTreeAgentHomeSpec, error) {
-	// 			dir, err := kiro.SessionHome(workDir, harp)
-	// 			if err != nil {
-	// 				return InTreeAgentHomeSpec{}, err
-	// 			}
-	// 			return InTreeAgentHomeSpec{EnvVar: kiro.HomeEnv, Dir: dir}, nil
-	// 		},
-	// 	})
+	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
+	// agent reads from cwd: the ctxloom agent (.kiro/agents/ctxloom.json — hooks +
+	// skill resources), MCP (.kiro/settings/mcp.json), context (.kiro/steering/),
+	// commands AND Agent Skills, both under .kiro/skills/<n>/SKILL.md — the one
+	// engine where those two surfaces collide (D6 skill-wins, see
+	// kiro.filterClaimedCommands in kiro/surfaces.go).
+	// LIVE-VERIFIED against an authenticated kiro-cli — see the package doc in
+	// internal/kiro for exactly what was proven (backend parity, a real oneshot
+	// chat, and --model honor confirmed two independent ways).
+	registerDescriptor(agentDescriptor{
+		name: "kiro",
+		newBackend: func() agent.Backend {
+			b := kiro.NewKiro()
+			b.SetLauncher(RunLaunchSpec)
+			b.SetACPTransport(kiroACPTransport)
+			return b
+		},
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &kiro.KiroConfig{})
+		},
+		newWriter:         kiro.NewWriter,
+		newInstanceConfig: kiro.NewInstanceConfigWriter,
+		newSurfaces:       func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
+		exports:           kiroExports,
+		skillExports:      kiroSkillExports,
+		// LIVE VERIFIED (authenticated kiro-cli 2.12.1):
+		// `--trust-tools=fs_read` genuinely denies a headless fs_write — a
+		// sentinel-file overwrite left the file byte-unchanged and kiro-cli
+		// printed "Command fs_write is rejected because it matches one or
+		// more rules on the denied list". `--trust-tools=fs_read,fs_write`
+		// and `--trust-all-tools` (positive controls) both let the same write
+		// land. See kiro.buildArgs (backend.go) for the mapping.
+		enforcesReadOnlyPlan: true,
+		acpTransport:         kiroACPTransport,
+		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseKiroVersion},
+		// kiro has hooks generally but no native session_end event — its only
+		// turn-boundary event is `stop`, which fires once per TURN. See
+		// kiro.NoSessionEndReason and mapHooks' route for the write-time half.
+		unsupportedHookKinds: map[string]string{
+			bundles.HookEventSessionEnd: kiro.NoSessionEndReason,
+		},
+		// kiro's project .kiro dir (kiro.ProjectHome) collapses onto its bare
+		// GLOBAL home (kiro.GlobalHome) exactly when workDir == $HOME --
+		// the same collision class found for claude.
+		hookGlobalScopePaths: func(workDir string) (string, string, error) {
+			global, err := kiro.GlobalHome()
+			return kiro.ProjectHome(workDir), global, err
+		},
+		hookGlobalScopeLabel: "kiro's global home",
+		// An in-tree AGENT run gets a project-scoped KIRO_HOME instead of the
+		// human's own ~/.kiro (which since kiro-cli 2.3.0 carries their global
+		// agents, prompts, skills, steering and settings, not just sessions).
+		// No Seed, and none possible: kiro's subscription auth lives in a global
+		// sqlite under XDG_DATA_HOME that KIRO_HOME does not relocate, so a
+		// FRESH home stays authenticated — and XDG_DATA_HOME is deliberately
+		// NOT relocated alongside it, since relocating a credential store with
+		// nothing to seed into it is what strands an agent logged out.
+		inTreeAgentHome: func(workDir, harp string) (InTreeAgentHomeSpec, error) {
+			dir, err := kiro.SessionHome(workDir, harp)
+			if err != nil {
+				return InTreeAgentHomeSpec{}, err
+			}
+			return InTreeAgentHomeSpec{EnvVar: kiro.HomeEnv, Dir: dir}, nil
+		},
+	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent
 	// chosen by config (`command: "kiro-cli acp"`, `claude-code-acp`) — new ACP
@@ -720,47 +715,47 @@ func init() {
 		acpTransport: acpGenericACPTransport,
 	})
 
-	// 	// opencode (first-party `opencode acp`, HOST-only chat spine). Slice 2 adds the
-	// 	// settings/materialization seam: ctxloom's managed keys are merged into a
-	// 	// project-local, strictly-validated opencode.json — MCP servers (`mcp`),
-	// 	// assembled context (`instructions` -> .opencode/ctxloom-context.md), and, on the
-	// 	// live chat path only, a GENUINE read-only `permission` for plan mode. Slice 3
-	// 	// adds command (commands) materialization: enabled bundle prompts become
-	// 	// opencode custom commands (.opencode/command/<name>.md), delivered by the
-	// 	// commands surface on the static `profile materialize` path and transiently
-	// 	// in Chat on the LIVE path (written before the run, reverted after — same
-	// 	// no-debris shape as the opencode.json overlay). The newSurfaces builder
-	// 	// serves materialize (mcp + context + commands).
-	// 	// enforcesReadOnlyPlan is TRUE: the written permission denies edit (which gates
-	// 	// opencode's write tool too) AND bash, so a plan run genuinely cannot mutate —
-	// 	// stricter than opencode's built-in `plan` agent, which leaves bash allowed.
-	// 	// Session-history and interactive PTY launch are later slices.
-	// 	registerDescriptor(agentDescriptor{
-	// 		name: "opencode",
-	// 		newBackend: func() agent.Backend {
-	// 			b := opencode.NewOpencode()
-	// 			b.SetLauncher(RunLaunchSpec)
-	// 			b.SetACPTransport(opencodeACPTransport)
-	// 			return b
-	// 		},
-	// 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
-	// 			return decodeBody(body, &opencode.OpencodeConfig{})
-	// 		},
-	// 		newWriter:            opencode.NewWriter,
-	// 		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return opencode.NewSurfaces(in, fs) },
-	// 		exports:              opencodeExports,
-	// 		skillExports:         opencodeSkillExports,
-	// 		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
-	// 		acpTransport:         opencodeACPTransport,
-	// 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseOpencodeVersion},
-	// 		// opencode is the one backend with no hooks surface of any shape:
-	// 		// opencode.json has no hook key, there is no settings event vocabulary
-	// 		// to route the seven unified events onto, and OpencodeWriter.WriteSettings
-	// 		// accepts a *wire.HooksConfig it cannot do anything with. Declared here
-	// 		// so `profile materialize` can SAY so instead of writing four true
-	// 		// "wrote" lines over a silently dropped guardrail.
-	// 		noHooksReason: "opencode has no hook mechanism",
-	// 	})
+	// opencode (first-party `opencode acp`, HOST-only chat spine). Slice 2 adds the
+	// settings/materialization seam: ctxloom's managed keys are merged into a
+	// project-local, strictly-validated opencode.json — MCP servers (`mcp`),
+	// assembled context (`instructions` -> .opencode/ctxloom-context.md), and, on the
+	// live chat path only, a GENUINE read-only `permission` for plan mode. Slice 3
+	// adds command (commands) materialization: enabled bundle prompts become
+	// opencode custom commands (.opencode/command/<name>.md), delivered by the
+	// commands surface on the static `profile materialize` path and transiently
+	// in Chat on the LIVE path (written before the run, reverted after — same
+	// no-debris shape as the opencode.json overlay). The newSurfaces builder
+	// serves materialize (mcp + context + commands).
+	// enforcesReadOnlyPlan is TRUE: the written permission denies edit (which gates
+	// opencode's write tool too) AND bash, so a plan run genuinely cannot mutate —
+	// stricter than opencode's built-in `plan` agent, which leaves bash allowed.
+	// Session-history and interactive PTY launch are later slices.
+	registerDescriptor(agentDescriptor{
+		name: "opencode",
+		newBackend: func() agent.Backend {
+			b := opencode.NewOpencode()
+			b.SetLauncher(RunLaunchSpec)
+			b.SetACPTransport(opencodeACPTransport)
+			return b
+		},
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &opencode.OpencodeConfig{})
+		},
+		newWriter:            opencode.NewWriter,
+		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return opencode.NewSurfaces(in, fs) },
+		exports:              opencodeExports,
+		skillExports:         opencodeSkillExports,
+		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
+		acpTransport:         opencodeACPTransport,
+		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseOpencodeVersion},
+		// opencode is the one backend with no hooks surface of any shape:
+		// opencode.json has no hook key, there is no settings event vocabulary
+		// to route the seven unified events onto, and OpencodeWriter.WriteSettings
+		// accepts a *wire.HooksConfig it cannot do anything with. Declared here
+		// so `profile materialize` can SAY so instead of writing four true
+		// "wrote" lines over a silently dropped guardrail.
+		noHooksReason: "opencode has no hook mechanism",
+	})
 
 	// Mock registers backend+config+surfaces+skillExports: still no settings
 	// writer and no command export (descriptor fields are optional) — but it

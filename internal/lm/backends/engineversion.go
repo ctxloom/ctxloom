@@ -75,30 +75,25 @@ func parseClaudeCodeVersion(output string) (string, error) {
 	return engineversion.TokenAt(output, 0)
 }
 
-// parked_engines: codex/opencode/kiro's version parsers had no test coverage
-// of their own and were reachable only through their registerDescriptor
-// blocks in registry.go, all commented out — golangci-lint's unused check
-// flags them once nothing calls them. Come back with their packages.
-//
-// // parseCodexVersion reads codex's `--version` output.
-// // MEASURED: "codex-cli 0.144.4" — the binary name leads, so the
-// // version is the SECOND token. A parser that took the first token here would
-// // refuse every working codex install.
-// func parseCodexVersion(output string) (string, error) {
-// 	return engineversion.TokenAt(output, 1)
-// }
-//
-// // parseOpencodeVersion reads opencode's `--version` output.
-// // MEASURED: a bare "1.18.4" — no name, no decoration.
-// func parseOpencodeVersion(output string) (string, error) {
-// 	return engineversion.TokenAt(output, 0)
-// }
-//
-// // parseKiroVersion reads kiro-cli's `--version` output.
-// // UNMEASURED: kiro-cli is not installed on any host this project can reach, so
-// // the tolerant scanner is used rather than a guessed token position — see
-// // engineversion.FirstSemverToken. Replace with a positional TokenAt once the
-// // real output is seen.
-// func parseKiroVersion(output string) (string, error) {
-// 	return engineversion.FirstSemverToken(output)
-// }
+// parseCodexVersion reads codex's `--version` output.
+// MEASURED: "codex-cli 0.144.4" — the binary name leads, so the
+// version is the SECOND token. A parser that took the first token here would
+// refuse every working codex install.
+func parseCodexVersion(output string) (string, error) {
+	return engineversion.TokenAt(output, 1)
+}
+
+// parseOpencodeVersion reads opencode's `--version` output.
+// MEASURED: a bare "1.18.4" — no name, no decoration.
+func parseOpencodeVersion(output string) (string, error) {
+	return engineversion.TokenAt(output, 0)
+}
+
+// parseKiroVersion reads kiro-cli's `--version` output.
+// UNMEASURED: kiro-cli is not installed on any host this project can reach, so
+// the tolerant scanner is used rather than a guessed token position — see
+// engineversion.FirstSemverToken. Replace with a positional TokenAt once the
+// real output is seen.
+func parseKiroVersion(output string) (string, error) {
+	return engineversion.FirstSemverToken(output)
+}

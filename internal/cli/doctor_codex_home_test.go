@@ -1,8 +1,3 @@
-//go:build parked_engines
-
-// PARKED (parked_engines): tests the codex-only doctor_codex_home.go, out of
-// the default build with internal/codex. grep -rn parked_engines finds every
-// parked site.
 package cli
 
 import (

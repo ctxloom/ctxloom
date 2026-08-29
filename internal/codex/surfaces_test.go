@@ -1,5 +1,3 @@
-//go:build parked_engines
-
 package codex
 
 import (

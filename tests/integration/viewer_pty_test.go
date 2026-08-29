@@ -65,6 +65,30 @@ const ptyRows, ptyCols = 24, 80
 // ptyRunTimeout is generous for CI: the plugin subprocess spawn (a real
 // `ctxloom serve` re-exec + go-plugin handshake) alone has been observed to
 // take over a second under load.
+//
+// KNOWN FLAKY UNDER HEAVY CONCURRENT LOAD, recorded rather than smoothed.
+// TestRunPTY_CtrlBracketEngagesOverlay's engage poll has been observed to
+// exhaust this budget and fail on `require.True(t, engaged, ...)` while the
+// same commit passed the same gate twice with the box otherwise idle. The
+// load that produced it was heavier than the 8-way parallel `go test` the
+// timing note above was validated against: a full acceptance suite (itself
+// spawning binaries per scenario) running concurrently with a separate agent
+// build. The note's load claim is therefore accurate for the case it names
+// and does NOT extend to this one.
+//
+// The mechanism is BUDGET EXHAUSTION, not a lost race, and it is measured
+// rather than inferred: the failing run burned exactly 20.05s — the whole
+// deadline — without reaching the engage signature, while three isolated
+// runs of the same commit on an idle box finished the ENTIRE package in
+// 22.0s, 20.1s and 19.8s. So on a saturated machine this one test alone can
+// consume the budget that normally covers every test here.
+//
+// DO NOT RAISE THIS TIMEOUT TO SILENCE IT. A threshold tuned until a gate
+// stops complaining measures nothing afterwards, and this one is load-bearing:
+// it is the only binary-level proof that the viewer engages through real CLI
+// dispatch. The correct fix is to stop running saturating work concurrently
+// with this suite, or to make the engage signal observable without a wall
+// clock. Serialize the gate before believing a red here.
 const ptyRunTimeout = 20 * time.Second
 
 // setupPTYTestEnv builds an env wired for a MockLM-backed `ctxloom run` over

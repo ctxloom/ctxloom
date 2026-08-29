@@ -193,19 +193,30 @@ func TestEnginePath_UsesForwardSlashesRegardlessOfHostSeparator(t *testing.T) {
 // TestMappingDoesNotWriteBackIntoTheCompositionItRead: a Rooted is copied by
 // value but its Env and Args are not automatically, so a transform that
 // assigned into the received map or appended in place could reach backwards
-// and rewrite a branch its own caller still holds.
+// and rewrite a BRANCH its own caller still holds. base already carries a
+// non-nil Env and Args before branching — starting from nil would let a
+// missing defensive copy hide, since writing into a freshly-allocated map or
+// a nil-backed append can never alias anything.
 func TestMappingDoesNotWriteBackIntoTheCompositionItRead(t *testing.T) {
-	rooted := New(OnHost(Paths{EngineHome: Root{Host: "/scratch/cfg0"}})).
-		UnderEngineHome("config.toml")
+	base := New(OnHost(Paths{EngineHome: Root{Host: "/scratch/cfg0"}})).
+		UnderEngineHome("config.toml").
+		AnnounceEnv("CODEX_HOME").
+		AnnounceFlag("--config")
 
-	_ = rooted.AnnounceEnv("CODEX_HOME").AnnounceFlag("--config").Build()
+	branchA := base.AnnounceEnv("A").AnnounceFlag("--a").Build()
+	branchB := base.AnnounceEnv("B").AnnounceFlag("--b").Build()
 
-	still := rooted.Build()
-	if len(still.Env) != 0 {
-		t.Fatalf("the original composition was rewritten behind its own back: %v", still.Env)
+	if _, ok := branchA.Env["B"]; ok {
+		t.Fatalf("branchA's env was rewritten by branchB's announcement: %v", branchA.Env)
 	}
-	if len(still.Args) != 0 {
-		t.Fatalf("the original composition's args were rewritten behind its own back: %v", still.Args)
+	if _, ok := branchB.Env["A"]; ok {
+		t.Fatalf("branchB's env was rewritten by branchA's announcement: %v", branchB.Env)
+	}
+	if strings.Contains(strings.Join(branchA.Args, " "), "--b") {
+		t.Fatalf("branchA's args were rewritten by branchB's announcement: %v", branchA.Args)
+	}
+	if strings.Contains(strings.Join(branchB.Args, " "), "--a") {
+		t.Fatalf("branchB's args were rewritten by branchA's announcement: %v", branchB.Args)
 	}
 }
 

@@ -33,7 +33,7 @@ func TestRunTurn_DegradesInsteadOfAborting(t *testing.T) {
 		result, err := RunTurn(context.Background(), fb, &RunStart{
 			Prompt:  &Fragment{Content: "go"},
 			Options: &RunOptions{WorkDir: "/work"},
-		}, nil, &out, &out, nil)
+		}, nil, &out, &out, nil, nil)
 
 		require.NoError(t, err, "a Setup failure must not abort the turn")
 		require.NotNil(t, result)
@@ -49,7 +49,7 @@ func TestRunTurn_DegradesInsteadOfAborting(t *testing.T) {
 		}
 
 		result, err := RunTurn(context.Background(), fb, &RunStart{Options: &RunOptions{}},
-			nil, &strings.Builder{}, &strings.Builder{}, nil)
+			nil, &strings.Builder{}, &strings.Builder{}, nil, nil)
 
 		require.NoError(t, err, "partial success is success: teardown must not become the verdict")
 		require.NotNil(t, result)
@@ -61,7 +61,7 @@ func TestRunTurn_DegradesInsteadOfAborting(t *testing.T) {
 		b := &nilResultBackend{fakeBackend: fakeBackend{name: "mock"}}
 
 		result, err := RunTurn(context.Background(), b, &RunStart{Options: &RunOptions{}},
-			nil, &strings.Builder{}, &strings.Builder{}, nil)
+			nil, &strings.Builder{}, &strings.Builder{}, nil, nil)
 
 		require.NoError(t, err)
 		require.NotNil(t, result, "a nil result must not reach the caller")

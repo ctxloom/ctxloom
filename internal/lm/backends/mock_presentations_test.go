@@ -144,7 +144,10 @@ func TestMockSurfaces_SurfaceFor_UnsupportedApproach_Errors(t *testing.T) {
 
 	_, err := set.SurfaceFor(agent.SurfaceContext, agent.ApproachHook)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "context")
+	// Exact text, not merely non-nil: a kind-absent refusal ("no context
+	// surface") would also satisfy an error-is-not-nil check, so the message
+	// must distinguish "the kind is unsupported" from "the approach is".
+	assert.Equal(t, "mock: no context surface via hook", err.Error())
 }
 
 // TestMockSurfaces_SurfaceFor_UnsupportedKind_Errors pins the branch
@@ -156,5 +159,9 @@ func TestMockSurfaces_SurfaceFor_UnsupportedKind_Errors(t *testing.T) {
 
 	_, err := set.SurfaceFor(agent.SurfaceMCP, agent.ApproachUnsafeFile)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "mcp")
+	// Exact text: "no mcp surface" (kind absent) must not read as "no mcp
+	// surface via unsafe-file" (kind present, approach unsupported) — a
+	// SurfaceFor that fell through the kind-absent check into the approach
+	// loop would still refuse, but for the wrong stated reason.
+	assert.Equal(t, "mock: no mcp surface", err.Error())
 }

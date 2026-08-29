@@ -174,3 +174,59 @@ func TestRecvMail_ASingleArrivalStillReturnsPromptly(t *testing.T) {
 		t.Error("recvMail never returned")
 	}
 }
+
+// THE SILENCE, COUNTED. pushMail returns without pushing when the recipient has
+// no pushable run channel — and a SESSION OWNER never has one, so a
+// coordinator's own mail is never pushed and waits for it to call agent_recv
+// itself. That return used to be entirely silent: no warn, no counter, nothing.
+// A coordinator had no way to learn the wake it was waiting for does not exist
+// for it, which is how a missing doorbell reads as "the system is just a bit
+// slow" forever.
+//
+// Asserts the COUNT MOVED, not the log text: the counter is the part an
+// observer can poll, and asserting a message would pass on a warn that said
+// anything at all.
+func TestPushMail_UnpushableRecipientIsCounted(t *testing.T) {
+	sp := newFakeSpawner(nil, nil)
+	c := newTestCoordinator(t, sp, nil)
+
+	const role = "owner-with-no-channel"
+	before := c.PushUnavailableCount()
+
+	// No run channel was ever registered for this role — the session-owner
+	// shape. queueMailPayloadID reaches pushMail once deliverToPoll finds no
+	// parked poll.
+	if _, _, err := c.queueMailPayloadID("m1", "child-1", role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
+		return
+	}
+
+	assert.Greater(t, c.PushUnavailableCount(), before,
+		"mail that could not be pushed must be COUNTED; a silent return is how a missing wake stays invisible")
+}
+
+// The control: a push that CAN happen must not inflate the counter, or the
+// count above would be satisfiable by counting every message and would say
+// nothing about pushability.
+func TestPushMail_DeliveredToAParkedPollIsNotCounted(t *testing.T) {
+	sp := newFakeSpawner(nil, nil)
+	c := newTestCoordinator(t, sp, nil)
+
+	const role = "parked-recipient"
+	done := make(chan struct{})
+	go func() {
+		_, _ = c.recvMail(context.Background(), role, 5*time.Second)
+		close(done)
+	}()
+	if !waitParked(t, c, role) {
+		return
+	}
+	before := c.PushUnavailableCount()
+
+	if _, _, err := c.queueMailPayloadID("m1", "child-1", role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
+		return
+	}
+	<-done
+
+	assert.Equal(t, before, c.PushUnavailableCount(),
+		"a parked poll took the message, so nothing was unpushable")
+}

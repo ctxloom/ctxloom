@@ -224,6 +224,18 @@ type Coordinator struct {
 	// needed the coordinator lock would put contention on the exact path
 	// whose whole point is to cost nothing when it fails.
 	spoolDoorbell spoolDoorbellCounters
+	// pushUnavailable counts mail that could not be PUSHED to its recipient
+	// because that recipient has no pushable run channel (runchannel.go's
+	// pushMail guard). Same atomics-not-mu reasoning as spoolDoorbell above.
+	//
+	// It is not an error count. Some of it is by design — a legacy child's
+	// unparked channel is drained by its own turn boundary, not by a push. But
+	// one case is architectural and was invisible: THE SESSION OWNER'S OWN
+	// HARP NEVER HAS A RUN CHANNEL, so mail queued for a coordinator is never
+	// pushed and waits for that coordinator to call agent_recv itself. That
+	// silence is what made a missing wake read as "the system is just a bit
+	// slow" — the same failure the spool doorbell counts its drops to avoid.
+	pushUnavailable atomic.Uint64
 	// spoolTee is the SHADOW-TEE switch (Options.SpoolTee, config
 	// delegation.spool_tee). Read-only after New, so no lock: it is a
 	// process-lifetime posture, not runtime state, and making it mutable would

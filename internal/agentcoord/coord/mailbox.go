@@ -159,6 +159,11 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 		c.pushMail(to)
 		return msg.ID, parked, nil
 	}
+	// THE DECISION IS HERE, not in pushMail's own guard — that one is
+	// defence-in-depth and is never even reached from this path. This is the
+	// point at which mail is durably queued and then NOT handed to anybody, and
+	// it used to say nothing at all.
+	c.notePushUnavailable(to, ch == nil)
 	return msg.ID, false, nil
 }
 

@@ -474,6 +474,31 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 // push) for as long as the channel lived. releaseRunChan's unconditional
 // un-reserve only covers the channel's DEATH; a live, busy child stranded the
 // message permanently, having already told the sender it was delivered.
+// notePushUnavailable reports and then counts a push that could not happen,
+// in that order and for the same reason noteSpoolDrop does it that way: the
+// counter is what an observer polls, so incrementing it LAST makes "the count
+// moved" imply "the report is already written".
+//
+// The message deliberately does not call this an error, because most of it is
+// not one. What it must never be is SILENT: a coordinator whose own mail is
+// never pushed has no way to learn that the wake it is waiting for does not
+// exist for it, and reads the resulting quiet as the system being slow.
+// WarnOnce, so a busy legacy child cannot turn this into a log flood.
+func (c *Coordinator) notePushUnavailable(role string, noChannel bool) {
+	why := "its run channel is attached but unparked, so its own turn boundary owns the delivery"
+	if noChannel {
+		why = "it has no run channel — a runner that has not attached, or a session owner, which never has one"
+	}
+	clidiag.WarnOnce("ctxloom", "coordinator: mail for %s could not be pushed (%s); it stays queued until that recipient calls agent_recv", role, why)
+	c.pushUnavailable.Add(1)
+}
+
+// PushUnavailableCount reports how much mail could not be pushed to its
+// recipient. Exposed so a diagnostic can SEE the silence described on the
+// field: a count that climbs while a coordinator believes it is current is the
+// signal that its mail is waiting on a poll it is not making.
+func (c *Coordinator) PushUnavailableCount() uint64 { return c.pushUnavailable.Load() }
+
 func (c *Coordinator) pushMail(role string) {
 	c.mu.Lock()
 	ch := c.chans[role]
@@ -487,6 +512,7 @@ func (c *Coordinator) pushMail(role string) {
 	// message in the runner's recv buffer.
 	if ch == nil || (!ch.parked && !migrated) {
 		c.mu.Unlock()
+		c.notePushUnavailable(role, ch == nil)
 		return
 	}
 	// Project BEFORE reserving: a message whose wire shape cannot be built was

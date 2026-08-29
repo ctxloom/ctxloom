@@ -1,0 +1,553 @@
+version: 1.0.0
+description: 'Situations MINED from 3,404 real tool-intent statements across 86 session transcripts of
+  this repository, then clustered by six independent agents and merged.
+
+
+  `observed` is recomputed DETERMINISTICALLY by matching the real extracted lines; the miners'' own frequency
+  figures were discarded after three of six reported cluster totals that exceeded or undershot the number
+  of lines they were given, which proves they were estimates rather than counts.Ground truth written after
+  the premises exist grades each premise against itself.
+
+
+  MINING CANNOT PRODUCE A CANARY. A transcript only records moments where the agent acted, so a moment
+  where nothing applies is structurally absent from this input and must be authored by hand.
+
+
+  NO NEGATIVE LIST, DELIBERATELY. Ground truth names only what SHOULD be selected. Anything else selected
+  is a false positive whether or not anyone anticipated it. Enumerating the tempting-but-wrong fragments
+  would close an open seam: it measures the model against the labeller''s imagination of failure, and
+  the failure worth finding is the one nobody imagined. Over-selection is caught instead by precision
+  and by NOTHING-APPLIES situations, where any selection at all counts against the run.
+
+
+  UNTIL LABELLING IS DONE every row has an empty `expect`, so the false-fire metric is meaningless: it
+  cannot distinguish a genuine nothing-applies situation from one nobody has labelled yet. Score only
+  after labelling.
+
+
+  C-ROWS ARE AUTHORED CANARY CANDIDATES, NOT MINED. A transcript records only moments where the agent
+  acted, so a moment where nothing applies is structurally absent from mined input and has to be written
+  by hand. They are marked CANDIDATE and left unlabelled on purpose: they were written by someone who
+  had read the authored premises, so asserting expect:[] here would be constructing rows that dodge those
+  premises. The blind labeller confirms or refutes each one. If a fragment genuinely applies to a C-row,
+  it was never a canary, and that is a finding rather than an error.
+
+
+  LABELLED BLIND 2026-08-27: expect lists were written against the fragment BODIES by a pass that had
+  not read the authored premises. All six authored canary candidates were CONFIRMED (nothing applies),
+  and 10 rows in total carry an empty expect, which is what gives the false-fire metric something to measure.
+
+
+  KNOWN BLIND SPOT: 10 premised fragments are expected by NO situation -- context-engineering, coordination-tools,
+  design-review-checkpoints, general, planning-and-brainstorming, prototype, pushback, sequential-thinking-usage,
+  strings, worktree-isolation. Their premises can therefore only ever be scored as false positives, and
+  a badly wrong premise for any of them would go unnoticed here. The cause is structural: these situations
+  were mined from TOOL-CALL descriptions, which record actions taken on the repository and not deliberative
+  moments (weighing two designs, deciding whether to object, choosing where new code belongs). Covering
+  them needs a second mining pass over a different signal, not more rows from this one.
+
+
+  D-ROWS: a SECOND mining pass, over a different signal. The S-rows came from tool-call descriptions,
+  which record actions on the repository; that signal structurally cannot contain a deliberative moment,
+  which is why ten premised fragments had no coverage. The D-rows were mined from 1,558 unique passages
+  of assistant reasoning and human direction across the same 86 transcripts, clustered by four independent
+  agents and merged, with `observed` recomputed deterministically. The miners were NOT told which fragments
+  lacked coverage: situations reverse-engineered to hit a named target would grade those premises against
+  themselves.
+
+
+  D-rows are UNLABELLED and need their own blind pass.
+
+
+  ROUND 2 LABELLED BLIND: the deliberative pass closed 7 of the 10 coverage gaps (design-review-checkpoints,
+  general, planning-and-brainstorming, prototype, pushback, sequential-thinking-usage, worktree-isolation).
+  Still uncovered after BOTH signals: context-engineering, coordination-tools, strings. Two passes over
+  86 transcripts found no moment expecting them, which is evidence about the fragments rather than about
+  the fixture: either the moment does not arise in this repository''s work, or the guidance is aimed at
+  something that does not happen here. Neither was manufactured a row to hide it.'
+situations:
+- id: S01
+  intent: I need to understand how an existing piece of this code works before I change anything.
+  observed: 632
+  example: '[Bash] Inspect ctxloom dir git status and config'
+  expect:
+  - delegation
+  - tool-intent-and-finding
+  label_note: coordinator-conduct's "read before you write" overlaps but the finder-dispatch rule is what
+    this moment needs.
+- id: S02
+  intent: I need to find where a symbol, function, or setting is defined or referenced.
+  observed: 410
+  example: '[Bash] Locate remote clones and check for golang fragments'
+  expect:
+  - delegation
+  - tool-intent-and-finding
+  label_note: the purest finder-shaped lookup in the set.
+- id: S03
+  intent: I have made a change and need to confirm it actually produced the effect I intended.
+  observed: 378
+  example: '[Bash] Check whether authored bundles are discovered'
+  expect:
+  - green-is-not-passing
+  - turn-gates
+  label_note: fresh-build + assert-the-EFFECT both bite; turn-gates is ctxloom-only (this repo's just
+    gates).
+- id: S04
+  intent: I need to see what branch I am on and whether my changes have landed.
+  observed: 156
+  example: '[Bash] Inspect ctxloom dir git status and config'
+  expect:
+  - worktree-lifecycle
+  label_note: '"measure merged against the branch actually integrating" + git cherry is precisely the
+    question asked.'
+- id: S05
+  intent: I need to see what this tool currently offers, or read its help before invoking it.
+  observed: 218
+  example: '[Bash] List project root'
+  expect: []
+  label_note: "tool-intent-and-finding considered and rejected with C04 \u2014 here it is ambient discipline\
+    \ for every call, not specific to this moment; it stays only where the read's finding is the deliverable\
+    \ (S01, S02, S26)."
+- id: S06
+  intent: I need to read the configuration or schema to see how something is declared.
+  observed: 163
+  example: '[Bash] Inspect ctxloom dir git status and config'
+  expect:
+  - config-hierarchy
+  label_note: "only when it is ctxloom-family config (the confload chain); any other config/schema is\
+    \ NONE \u2014 the situation underspecifies which."
+- id: S07
+  intent: I am about to run the full acceptance suite to decide whether this work is done.
+  observed: 151
+  example: '[Bash] Full gate suite on item 1''s branch'
+  expect:
+  - turn-gates
+  - green-is-not-passing
+  label_note: "turn-gates is ctxloom-only \u2014 the \"real gate\" table exists only there; green-alone-isn't-proof\
+    \ carries everywhere."
+- id: S08
+  intent: I want to run one package's tests to iterate quickly on the change I just made.
+  observed: 88
+  example: '[Bash] Verify home config and re-run key doctor checks'
+  expect:
+  - turn-gates
+  label_note: "ctxloom-only \u2014 test-pkg's ./ pattern, \"just test only compiles\", narrow-gate iteration;\
+    \ elsewhere NONE."
+- id: S09
+  intent: I am about to hand a substantial, context-heavy piece of work to a sub-agent.
+  observed: 146
+  example: '[Agent] Cover unusable-overload paths'
+  expect:
+  - prompt-authoring
+  - isolation-axes
+  label_note: delegation and coordination-tools hover too, but the act is authoring the brief and choosing
+    isolation; isolation-axes only when the child is a ctxloom agent.
+- id: S10
+  intent: I am about to stage files and commit what I have done so far.
+  observed: 134
+  example: '[Bash] Commit the pre-existing working-tree changes'
+  expect:
+  - worktree-lifecycle
+  label_note: commit-at-every-checkpoint; turn-gates' fresh-worktree-cannot-commit also bites, but only
+    in a fresh ctxloom worktree.
+- id: S11
+  intent: Something is broken and I am about to change production code to correct it.
+  observed: 107
+  example: '[Bash] Fix the mode and re-list skills'
+  expect:
+  - problem-solving
+  label_note: root-cause-before-fix; reductive joins if the fix is more than a few lines.
+- id: S12
+  intent: I need to reach context or history from a session other than the one in front of me.
+  observed: 68
+  example: '[Bash] Read fragment distill help'
+  expect: []
+  label_note: coordination-tools covers messaging live/ended children, not reading another session's history;
+    nothing in the vocabulary covers session recall.
+- id: S13
+  intent: I am about to build the binary so I can drive the code I just changed.
+  observed: 110
+  example: '[Bash] Diff remotes/lock and check which ctxloom binary'
+  expect:
+  - green-is-not-passing
+  label_note: "fresh-build-not-$PATH is written in ctxloom terms but the principle \u2014 drive the binary\
+    \ you just built \u2014 is general."
+- id: S14
+  intent: I am about to modify source to implement the behaviour we agreed on.
+  observed: 85
+  example: '[Bash] Read mcp server edit''s contract'
+  expect:
+  - coordinator-conduct
+  - reductive
+  label_note: "\"you rarely touch code\" is the first check \u2014 non-trivial edits get delegated; reductive\
+    \ applies if the coordinator does edit and the change is significant."
+- id: S15
+  intent: A decision or finding just landed and I need to write it somewhere durable.
+  observed: 106
+  example: '[Bash] Register J15 state and steps in the world'
+  expect:
+  - documentation
+  - unchecked-bindings
+  label_note: "close call \u2014 documentation gates creating a file at all, unchecked-bindings governs\
+    \ how it is written; if the finding is deferred WORK, coordinator-conduct's capture section (taskloom,\
+    \ not a file) governs instead."
+- id: S16
+  intent: I am about to push commits or publish a release to somewhere other people will see.
+  observed: 90
+  example: '[Bash] Find every bundle already carrying the default tag, and read the default profile'
+  expect:
+  - ltk
+  label_note: "only where the repo runs ltk (.ltk/config.yaml); \"agents do not cut releases\" is the\
+    \ live rule \u2014 a plain push elsewhere is NONE."
+- id: S17
+  intent: I am about to merge finished work into the integration branch.
+  observed: 103
+  example: '[Bash] Merge the retry and complete the worktree lifecycle'
+  expect:
+  - worktree-lifecycle
+  - turn-gates
+  label_note: merge-is-the-quality-gate + done=merged+removed+deleted; turn-gates ctxloom-only.
+- id: S18
+  intent: My test is green and I am about to break the code deliberately to see whether it notices.
+  observed: 103
+  example: '[Bash] Mutation: disable the truncation guard'
+  expect:
+  - green-is-not-passing
+  - turn-gates
+  label_note: this IS the mutation rule; turn-gates adds hand-mutation-must-rebuild and wrong-layer, ctxloom-only.
+- id: S19
+  intent: A gate came back red and I need to work out why before I touch anything.
+  observed: 96
+  example: '[Bash] Identify the failing unit test'
+  expect:
+  - preexisting-ownership
+  - problem-solving
+  label_note: unexplained red is yours until proven otherwise + root cause before any fix.
+- id: S20
+  intent: I am about to run the linter and the architectural gates over what I changed.
+  observed: 48
+  example: '[Bash] Capture real exit codes for test and lint'
+  expect:
+  - turn-gates
+  label_note: "ctxloom-only \u2014 just lint / test-arch and the gofmt -l exit-0 inversion; elsewhere\
+    \ NONE."
+- id: S21
+  intent: I am about to sign content, or decide whether something unsigned can be trusted.
+  observed: 58
+  example: '[Bash] Check trust companion command'
+  expect:
+  - fail-loud-launch
+  label_note: "close vs NONE \u2014 only the security exception (unverifiable content on an execution\
+    \ surface is never degradable) speaks to the trust half; the signing act itself has no fragment. ctxloom-only."
+- id: S22
+  intent: I need to read the existing plan or design before proposing what happens next.
+  observed: 87
+  example: '[Bash] Check whether these tools are host-by-design'
+  expect:
+  - coordinator-conduct
+  label_note: its read-the-task-log-before-you-plan section; planning-and-brainstorming governs the proposing
+    that follows, not the reading.
+- id: S23
+  intent: I need a real number for how long something takes or how much it costs.
+  observed: 84
+  example: '[Bash] List agents and profiles'
+  expect:
+  - prompt-authoring
+  label_note: "close call \u2014 measure-the-gates-before-writing-a-brief is the only fragment demanding\
+    \ real numbers; if the number is not feeding a brief, NONE."
+- id: S24
+  intent: I am about to delete code that is duplicated, stale, or no longer reachable.
+  observed: 85
+  example: '[Bash] Delete U1 from the plan with the measurement'
+  expect:
+  - reductive
+  label_note: prototype also endorses deletion, but reductive carries the operative rules (preserve coverage,
+    keep green, delete over deprecate).
+- id: S25
+  intent: I have something long running and I am deciding what to do while it finishes.
+  observed: 33
+  example: '[Bash] Check for conflicts with the in-flight resume work'
+  expect: []
+  label_note: prompt-authoring's slow-command hazard governs briefs written for sub-agents, not the coordinator's
+    own wait.
+- id: S26
+  intent: I need to read the output of a run to find out what actually happened.
+  observed: 73
+  example: '[Bash] Search structured log for this harp'
+  expect:
+  - turn-gates
+  - tool-intent-and-finding
+  label_note: the exit-code inversions are general shell facts even though the fragment is ctxloom-framed.
+- id: S27
+  intent: Before I write something new I want to know whether it already exists here.
+  observed: 67
+  example: '[Bash] Commit the pre-existing working-tree changes'
+  expect:
+  - is-this-a-standard
+  - delegation
+  label_note: coordinator-conduct's read-before-you-write is the same instinct; the search itself is finder-shaped.
+- id: S28
+  intent: Work has merged and I am about to remove its worktree and delete the branch.
+  observed: 42
+  example: '[Bash] Close final task and reap'
+  expect:
+  - worktree-lifecycle
+  label_note: done-means-gone, never-force, git cherry verification.
+- id: S29
+  intent: There is work I cannot do now and I need it to survive this conversation.
+  observed: 56
+  example: '[Bash] Locate the taskloom companion fragment source'
+  expect:
+  - coordinator-conduct
+  - close-the-turn
+  label_note: capture-deferred-work (taskloom, cold-actionable) + file-the-hard-ones-with-tags.
+- id: S30
+  intent: I need to see everything still open across branches and worktrees and decide what to do with
+    it.
+  observed: 42
+  example: '[Bash] Survey existing canonical-URL machinery'
+  expect:
+  - worktree-lifecycle
+  - source-organization
+  label_note: worktree-set-as-ledger + reaping-is-triage; the flat worktree root is what makes the ledger
+    enumerable.
+- id: S31
+  intent: I need to put something back the way it was before my change.
+  observed: 41
+  example: '[Bash] Restore authored bundles from HEAD'
+  expect: []
+  label_note: reverting a deliberate mutation lives inside green-is-not-passing's loop; as a standalone
+    moment nothing applies.
+- id: S32
+  intent: I am about to cut a worktree and a branch for a new piece of work.
+  observed: 31
+  example: '[Bash] Create worktree, move changes there, restore main'
+  expect:
+  - worktree-lifecycle
+  - source-organization
+  label_note: pin-the-base-SHA / one-worktree-one-branch + where the directory goes.
+- id: S33
+  intent: Measurements look wrong and I want to check whether the machine itself is the problem.
+  observed: 35
+  example: '[Bash] Check machine load before adding agents'
+  expect:
+  - problem-solving
+  - green-is-not-passing
+  label_note: "environment-asymmetry (\"the difference IS the finding\") + the stale-binary story (\"\
+    the measurement was wrong, not the code\") \u2014 both say suspect the instrument."
+- id: C01
+  intent: The user asked which time zone the server stamps its logs in; I'll read one line and tell them.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  canary: true
+- id: C02
+  intent: I'm renaming a local variable inside a single function so it reads better.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  label_note: reductive explicitly exempts single-line/trivial changes.
+  canary: true
+- id: C03
+  intent: I'm fixing a typo in a comment inside the justfile.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  canary: true
+- id: C04
+  intent: Someone asked what a CLI flag does and I'm reading the help output to answer.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  label_note: "canary holds \u2014 moved with S05: same act, and the finding lands directly in the reply,\
+    \ so tool-intent-and-finding has nothing to preserve here."
+  canary: true
+- id: C05
+  intent: I'm reading a design document to find out what was already decided.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  label_note: becomes coordinator-conduct (as in S22) the moment the reading feeds a plan; as pure recall,
+    nothing applies.
+  canary: true
+- id: C06
+  intent: I'm re-reading the reply I just drafted to check it says what I meant.
+  observed: 0
+  example: (authored, not mined)
+  expect: []
+  label_note: "communication governs the drafting itself, ambiently \u2014 not this checking moment."
+  canary: true
+- id: D01
+  intent: I'm about to act on a claim I have not checked, and deciding whether to verify it first.
+  observed: 283
+  example: '[assistant] The `_ = put` mutation didn''t compile, so it proved nothing. Running a valid
+    one: store the original instead'
+  expect:
+  - communication
+  label_note: '"read/look up before asserting" is the direct hit; preexisting-ownership''s verify rule
+    is the same instinct but scoped to shipped failures.'
+- id: D02
+  intent: I'm about to build something, and deciding whether to read the existing code first or work from
+    my idea of it.
+  observed: 56
+  example: '[assistant] Specific and important: four tests **read their own source off disk**, and under
+    `-trimpath` the derived pat'
+  expect:
+  - coordinator-conduct
+  - delegation
+  label_note: '"read before you write" is the rule; delegation says who does the reading.'
+- id: D03
+  intent: I need a real number to settle this, and I'm deciding what to measure.
+  observed: 83
+  example: '[assistant] Decided. I said I''d verify the debuggability cost on a real failure rather than
+    assume it, so I''ll do that a'
+  expect: []
+  label_note: no fragment teaches choosing a measurement; prompt-authoring's "measure the gates" applies
+    only when the number feeds a sub-agent brief. 83 observations with no covering fragment is a corpus
+    gap, not a labelling stretch.
+- id: D04
+  intent: Something failed and I'm deciding whether to chase the root cause or patch the symptom.
+  observed: 29
+  example: '[assistant] Noted, and I''ll surface the accounting rather than just add to the pile. Integrating
+    the **sequencing** into'
+  expect:
+  - problem-solving
+- id: D05
+  intent: A decision just got made and I'm deciding whether to write it down or let it live in this conversation.
+  observed: 189
+  example: '[assistant] Writing the three session-tool scenarios, reusing the existing captured-session
+    fixture rather than a parall'
+  expect:
+  - coordinator-conduct
+  - close-the-turn
+  label_note: '"live only in the conversation" is coordinator-conduct''s capture rule verbatim; documentation
+    applies only if the write-down would be a new doc file.'
+- id: D06
+  intent: I found something wrong that is not what I was working on, and I'm deciding whether to fix it
+    now or file it.
+  observed: 31
+  example: '[assistant] Four of five queue items are done. `evaluate_triggers` needs a fixture I''ve now
+    scoped precisely but that is'
+  expect:
+  - close-the-turn
+  - preexisting-ownership
+- id: D07
+  intent: I have several pieces of work and I'm deciding what order to do them in and what can overlap.
+  observed: 153
+  example: '[assistant] Item 0 closed (unfixable in-repo; filed with the decision). Item 1: the four MCP
+    tools. Cutting its worktree'
+  expect:
+  - planning-and-brainstorming
+  label_note: "sequential-thinking-usage is the aid for doing it, not the rule about it \u2014 close call."
+- id: D08
+  intent: I hit a constraint that changes the design, and I'm deciding whether to present it before building.
+  observed: 30
+  example: "[assistant] Understood \u2014 and that framing is the right one: the table isn't our design,\
+    \ it's a scar from someone else's "
+  expect:
+  - design-review-checkpoints
+  - coordinator-conduct
+- id: D09
+  intent: I have more than one workable approach and I'm choosing between them.
+  observed: 191
+  example: "[assistant] The handler explicitly keys the essence by `s.self.Harp` \u2014 the *caller's*\
+    \ harp, not the harp of the session "
+  expect:
+  - planning-and-brainstorming
+  - sequential-thinking-usage
+- id: D10
+  intent: I'm deciding which package, layer, or component this responsibility belongs to.
+  observed: 39
+  example: "[assistant] Ruling recorded and dispatched \u2014 last-wins plus a stderr warning, with mutations\
+    \ required on the warning its"
+  expect:
+  - general
+- id: D11
+  intent: Before writing something new I'm checking whether a standard, helper, or seam already covers
+    it.
+  observed: 117
+  example: '[user] ok, we need to delete default/default, put it wherever its fragments make sense. we
+    do need tdd as a standard, bu'
+  expect:
+  - is-this-a-standard
+  label_note: coordinator-conduct's "read before you write" and reductive's duplication scan are adjacent,
+    but the named moment is the standard/helper check.
+- id: D12
+  intent: A sub-agent or tool reported success and I'm deciding whether to take its word or check underneath.
+  observed: 7
+  example: '[assistant] Group A reported back: all four features green, 3 mutations killed. But the new
+    diagnostics name exactly the'
+  expect:
+  - worktree-isolation
+  - green-is-not-passing
+  label_note: "\"never trust 'report written to X' \u2014 ls it\" plus asserting-the-report-not-the-state;\
+    \ prompt-authoring's ban on closing on a child's exit code is the same rule from the coordinator side."
+- id: D13
+  intent: A test is green and I'm deciding whether it actually proves anything.
+  observed: 104
+  example: '[assistant] The `_ = put` mutation didn''t compile, so it proved nothing. Running a valid
+    one: store the original instead'
+  expect:
+  - green-is-not-passing
+  - turn-gates
+- id: D14
+  intent: I have realised something I said earlier was wrong, and I'm deciding how to correct it.
+  observed: 20
+  example: '[assistant] Decided. I said I''d verify the debuggability cost on a real failure rather than
+    assume it, so I''ll do that a'
+  expect:
+  - communication
+  label_note: "closest body (\"state limitations immediately, admit uncertainty\"), but nothing squarely\
+    \ covers issuing a correction \u2014 marginal pass of the test."
+- id: D15
+  intent: I have been asked to do something I think is a bad idea, and I'm deciding whether to say so.
+  observed: 20
+  example: '[assistant] Tagged (`triage:blocks-release=0.7.0-pre001` plus defect/exposure/effort facets
+    so the priority function sco'
+  expect:
+  - pushback
+  label_note: coordinator-conduct's "say what you actually think" reinforces but adds nothing pushback
+    doesn't.
+- id: D16
+  intent: Someone else has uncommitted work in the way, and I'm deciding how to proceed without destroying
+    it.
+  observed: 33
+  example: "[assistant] Understood \u2014 your bundle, and the uncommitted edits are yours, so I'll split\
+    \ the **working-tree** version ra"
+  expect:
+  - worktree-lifecycle
+- id: D17
+  intent: A gate finished and I'm working out what its result actually tells me.
+  observed: 267
+  example: '[assistant] Writing the three session-tool scenarios, reusing the existing captured-session
+    fixture rather than a parall'
+  expect:
+  - turn-gates
+  - green-is-not-passing
+- id: D18
+  intent: Two sources disagree and I have to work out which is true before continuing.
+  observed: 36
+  example: "[assistant] Remote gained a merge of PR #2 (skill\u2192command rename). We're 5 ahead / 1\
+    \ behind \u2014 and one of our commits was"
+  expect:
+  - unchecked-bindings
+  label_note: when a checked source and an unchecked one disagree, the fragment says which lies; green-is-not-passing
+    covers the stale-binary instance specifically.
+- id: D19
+  intent: I'm deciding whether this code is still reachable or can be deleted.
+  observed: 42
+  example: '[user] ok, we need to delete default/default, put it wherever its fragments make sense. we
+    do need tdd as a standard, bu'
+  expect:
+  - reductive
+  - prototype
+- id: D20
+  intent: I'm deciding whether a change is safe to merge or needs more thought.
+  observed: 90
+  example: "[assistant] \xA70 of that plan is already the Catalog prefix my session added. Reading it\
+    \ so I integrate rather than duplic"
+  expect:
+  - turn-gates
+  - worktree-lifecycle
+  label_note: turn-gates for which command proves it; worktree-lifecycle for merge-as-quality-gate and
+    verifying against the actual integration branch.

@@ -166,7 +166,14 @@ func TestPremiseIndex_ListsOnlyPremisedFragments(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, entries, 1, "only the premised fragment is indexed; unconditional ones are not decisions")
-	assert.Equal(t, "gamma", entries[0].Name)
+	assert.Equal(t, "sel#fragments/gamma", entries[0].Name,
+		"the index must hand out a QUALIFIED ref, because that is what a selection quotes back. "+
+			"A bare ask resolves through Catalog.ResolveFragmentAsk, which on several matches takes "+
+			"the first in List order and only warns -- and `general` is defined in seventeen "+
+			"code-review bundles in the default corpus, so a bare ask for one lens silently "+
+			"delivers another")
+	assert.Contains(t, entries[0].Name, "#fragments/",
+		"an unqualified row is the defect this pins; the separator is what makes the ask exact")
 	assert.Equal(t, "You are about to remove a worktree.", entries[0].Premise)
 }
 
@@ -241,4 +248,50 @@ func TestPremiseSpike_WholeFixtureIsWithheldAndOffered(t *testing.T) {
 		"a name the index handed out must deliver its body when asked for")
 	assert.Empty(t, back.MissingFragments)
 	assert.Len(t, back.PremiseIndex, 14, "the selected fragment is no longer offered; the other fourteen still are")
+}
+
+// TestRenderPremiseIndex_KeepsTheThreeMeasuredProperties pins the wording that
+// measurement showed changes the outcome. The index instruction is the entire
+// production prompt for selection, and its three load-bearing properties are
+// otherwise defended only by a comment -- prose that nothing compiles.
+//
+// Each assertion names what it protects and what breaks without it:
+//
+//   - PER-PREMISE judgement: presenting the index as a menu makes premises
+//     compete for one slot, and recall falls from ~0.76 to ~0.49.
+//   - BORDERLINE RESOLVES TOWARD INCLUDING: recall ~0.83 rather than ~0.76,
+//     because a withheld fragment is never learned to exist.
+//   - MATCH THE IMMINENT ACTION: given a wide context window instead of the next
+//     action, recall fell from 0.93 to 0.57 as the moment was diluted.
+func TestRenderPremiseIndex_KeepsTheThreeMeasuredProperties(t *testing.T) {
+	got := RenderPremiseIndex([]PremiseIndexEntry{{Name: "alpha", Premise: "You are about to do a thing."}})
+	require.NotEmpty(t, got, "a non-empty index must render an instruction")
+
+	for _, tc := range []struct {
+		property string
+		phrase   string
+		breaks   string
+	}{
+		{"per-premise judgement", "ON ITS OWN",
+			"without it the index reads as a menu and premises compete for one slot"},
+		{"per-premise judgement", "not picking the single best match",
+			"the model returns one fragment per moment when it believes it must choose"},
+		{"borderline resolves toward including", "BORDERLINE",
+			"without a stated tie-break the model resolves toward withholding"},
+		{"the asymmetry that justifies the tie-break", "never learned to exist",
+			"the reason must travel with the rule or it reads as arbitrary permissiveness"},
+		{"match the imminent action", "ABOUT TO DO",
+			"matching the surrounding context instead of the next action dilutes the moment"},
+		{"match the imminent action", "not the whole", "same"},
+	} {
+		assert.Contains(t, got, tc.phrase,
+			"%s: %s", tc.property, tc.breaks)
+	}
+
+	assert.Contains(t, got, "assemble_context", "the index must name the tool that loads what was chosen")
+	assert.Contains(t, got, "`bundles`",
+		"the wire argument is named bundles even though it carries FRAGMENT names "+
+			"(assembleContextInput.Fragments is tagged json:\"bundles\"); naming it "+
+			"'fragments' here would read correctly and silently break the loop")
+	assert.Contains(t, got, "alpha: You are about to do a thing.", "entries still render")
 }

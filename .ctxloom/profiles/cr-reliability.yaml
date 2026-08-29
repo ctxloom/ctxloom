@@ -1,7 +1,0 @@
-parents:
-    - project-base
-description: 'Code-review lens: reliability.'
-bundles:
-    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-base#fragments/conduct
-    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-base#fragments/thorough
-    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-reliability#fragments/general

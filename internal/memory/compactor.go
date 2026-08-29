@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -220,7 +219,7 @@ func applyCompactionDefaults(config *CompactionConfig) {
 		config.Backend = "claude-code"
 	}
 	if config.LLM == "" {
-		config.LLM = "claude-code"
+		config.LLM = defaultLLMPlugin
 	}
 	if config.ClientFactory == nil {
 		config.ClientFactory = pb.DefaultClientFactory()
@@ -1152,64 +1151,18 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 	}
 }
 
-// runDistill executes one LLM distillation call: a fresh plugin subprocess given
-// systemPrompt as its instruction fragment and content wrapped in <session_log>
-// as its prompt, run one-shot in minimal mode. The session distillation and the
-// per-result finding repair (recoverFinding) both go through here so the request
-// shape stays in one place.
+// runDistill executes one LLM distillation call over transcript-shaped
+// content: Distill with this compactor's configured plugin, model and env, the
+// content enveloped as a <session_log>. The session distillation and the
+// per-result finding repair (recoverFinding) both go through here; the request
+// itself is built by Distill so the shape stays in one place.
 func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string) (string, error) {
-	// Create plugin client using the factory
-	client, err := c.clientFactory(c.config.LLM, "", 0)
-	if err != nil {
-		return "", fmt.Errorf("start plugin: %w", err)
-	}
-	defer client.Kill()
-
-	// SkipSetup=true keeps distillation minimal (no hooks/commands/context), but
-	// the server delivers req.Fragments to the backend only via Setup — which
-	// SkipSetup bypasses. So the instructions must travel in the prompt itself,
-	// ahead of the transcript; sent as a Fragment they'd be silently dropped and
-	// the model would just answer the <session_log> conversationally.
-	req := &pb.RunStart{
-		Prompt: &pb.Fragment{
-			Content: fmt.Sprintf("%s\n\n<session_log>\n%s\n</session_log>", systemPrompt, content),
-		},
-		Options: &pb.RunOptions{
-			PermissionMode: agent.PermissionBypass.String(),
-			Mode:           pb.ExecutionMode_ONESHOT,
-			Model:          c.config.Model, // e.g., "haiku", "sonnet"
-			// The resolved label's configured env. This was MISSING entirely
-			// while every other RunStart caller forwarded it, so a distiller
-			// whose credentials live in llm.configs.<label>.env ran
-			// unconfigured — silently, because an unconfigured backend does not
-			// error. SkipSetup below makes this the only channel that can carry
-			// it: Setup, which would otherwise deliver configuration, is
-			// bypassed.
-			Env:       c.config.Env,
-			SkipSetup: true, // Minimal mode for distillation
-		},
-	}
-
-	// Execute
-	var stdout, stderr bytes.Buffer
-	exitCode, err := client.Run(ctx, req, nil, &stdout, &stderr, nil)
-	if err != nil {
-		return "", err
-	}
-
-	if exitCode != 0 {
-		return "", fmt.Errorf("LLM exited with code %d: %s", exitCode, stderr.String())
-	}
-
-	// Exit 0 with nothing on stdout is a FAILED distillation, not an empty one.
-	// Counted as success it lands in the chunk slice as "", the all-chunks-failed
-	// abort never fires because nothing was marked failed, and the empty result
-	// is written straight over a previously good essence.md.
-	out := strings.TrimSpace(stdout.String())
-	if out == "" {
-		return "", fmt.Errorf("LLM exited 0 but produced no output: %s", strings.TrimSpace(stderr.String()))
-	}
-	return out, nil
+	return Distill(ctx, DistillConfig{
+		LLM:           c.config.LLM,
+		Model:         c.config.Model,
+		Env:           c.config.Env,
+		ClientFactory: c.clientFactory,
+	}, systemPrompt, fmt.Sprintf("<session_log>\n%s\n</session_log>", content))
 }
 
 // distilledMeta is the YAML front-matter stored at the top of every

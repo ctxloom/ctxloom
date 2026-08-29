@@ -1,0 +1,12 @@
+S07: green-is-not-passing, ltk, turn-gates
+S10: worktree-lifecycle
+S14: design-review-checkpoints, reductive
+S16: ltk
+S19: green-is-not-passing, preexisting-ownership, problem-solving, turn-gates
+S22: design-review-checkpoints, documentation, planning-and-brainstorming, sequential-thinking-usage
+S24: reductive
+S25: NONE
+S27: delegation, is-this-a-standard, reductive
+S28: worktree-lifecycle
+S29: close-the-turn
+S30: close-the-turn, planning-and-brainstorming, worktree-lifecycle

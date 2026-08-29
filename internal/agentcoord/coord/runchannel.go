@@ -456,24 +456,6 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 	}
 }
 
-// pushMail pushes the role's undelivered mail to its parked runner channel
-// as CoordinatorNotice frames. Delivery is TENTATIVE: each pushed id is
-// reserved in the runtime delivery ledger (excluded from turn-boundary
-// drains) but stays pending in the fold until the runner's explicit
-// mail_consumed fact — a crash between notice and consume re-delivers
-// (at-least-once, deduped on message_id at both ends). Push happens ONLY
-// while the runner-side recv is parked: an unparked child's mail is the
-// turn machinery's to deliver (delivery-by-state, §6a), and pushing then
-// would hand the harness the same message twice.
-//
-// A saturated send pump ROLLS THE RESERVATION BACK. The reservation
-// is taken under c.mu before the send so a concurrent push or turn-boundary
-// drain cannot select the same message twice, and released again for exactly
-// the ids the pump refused — which were never delivered, so leaving them
-// reserved would hide them from undeliveredLocked (and so from every later
-// push) for as long as the channel lived. releaseRunChan's unconditional
-// un-reserve only covers the channel's DEATH; a live, busy child stranded the
-// message permanently, having already told the sender it was delivered.
 // notePushUnavailable reports and then counts a push that could not happen,
 // in that order and for the same reason noteSpoolDrop does it that way: the
 // counter is what an observer polls, so incrementing it LAST makes "the count
@@ -499,6 +481,24 @@ func (c *Coordinator) notePushUnavailable(role string, noChannel bool) {
 // signal that its mail is waiting on a poll it is not making.
 func (c *Coordinator) PushUnavailableCount() uint64 { return c.pushUnavailable.Load() }
 
+// pushMail pushes the role's undelivered mail to its parked runner channel
+// as CoordinatorNotice frames. Delivery is TENTATIVE: each pushed id is
+// reserved in the runtime delivery ledger (excluded from turn-boundary
+// drains) but stays pending in the fold until the runner's explicit
+// mail_consumed fact — a crash between notice and consume re-delivers
+// (at-least-once, deduped on message_id at both ends). Push happens ONLY
+// while the runner-side recv is parked: an unparked child's mail is the
+// turn machinery's to deliver (delivery-by-state, §6a), and pushing then
+// would hand the harness the same message twice.
+//
+// A saturated send pump ROLLS THE RESERVATION BACK. The reservation
+// is taken under c.mu before the send so a concurrent push or turn-boundary
+// drain cannot select the same message twice, and released again for exactly
+// the ids the pump refused — which were never delivered, so leaving them
+// reserved would hide them from undeliveredLocked (and so from every later
+// push) for as long as the channel lived. releaseRunChan's unconditional
+// un-reserve only covers the channel's DEATH; a live, busy child stranded the
+// message permanently, having already told the sender it was delivered.
 func (c *Coordinator) pushMail(role string) {
 	c.mu.Lock()
 	ch := c.chans[role]

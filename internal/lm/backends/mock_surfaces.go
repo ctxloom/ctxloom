@@ -1,11 +1,12 @@
 package backends
 
 import (
-	"path/filepath"
+	"fmt"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 )
 
 // This file lands the mock backend on the unified surface-delivery seam
@@ -47,9 +48,21 @@ import (
 // nested) so Route() names it as a human would look for it.
 const mockContextFilename = "MOCK_CONTEXT.md"
 
-// mockContextPath returns the mock context file's path under dir.
+// hostStart advises Paths for a bare delivery dir, uncontainerized: Deliver's
+// only input is a directory string, with no root advice of its own to hand
+// over, so this is the host transport applied directly (present.OnHost) —
+// exactly where a containerized caller would apply Containerize instead. It
+// exists so mock's own path composition runs through the SAME present chain
+// every future presenter will, rather than a second ad hoc join.
+func hostStart(dir string) present.Start {
+	return present.New(present.OnHost(present.Paths{ProjectRoot: present.Root{Host: dir}}))
+}
+
+// mockContextPath returns the mock context file's path under dir, via the
+// declared context presenter.
 func mockContextPath(dir string) string {
-	return filepath.Join(dir, mockContextFilename)
+	d := mockPresentations[agent.SurfaceContext]
+	return d.Resolve(d.Default(), hostStart(dir)).HostPath
 }
 
 // mockContextWriter implements agent.ContextWriter for the mock engine: it
@@ -124,9 +137,11 @@ const MockConfigDirName = ".mock"
 // bundle content tree materialized into the same project.
 const mockSkillsDirName = MockConfigDirName + "/skills"
 
-// mockSkillsPath returns the mock skills directory's path under dir.
+// mockSkillsPath returns the mock skills directory's path under dir, via the
+// declared skills presenter.
 func mockSkillsPath(dir string) string {
-	return filepath.Join(dir, filepath.FromSlash(mockSkillsDirName))
+	d := mockPresentations[agent.SurfaceSkills]
+	return d.Resolve(d.Default(), hostStart(dir)).HostPath
 }
 
 // newMockSkillsSurface builds mock's skills surface: the SHARED
@@ -142,22 +157,57 @@ func newMockSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.Manage
 	})
 }
 
-// mockApproaches is mock's declared per-surface approach table: context and
-// skills, each at its native well-known path — mock has no out-of-cwd redirect
-// and no SharedRealization, matching kiro/codex/opencode (claude
-// is the one backend with an out-of-cwd scratch conversion).
-var mockApproaches = agent.ApproachTable{
-	agent.SurfaceContext: {agent.ApproachUnsafeFile},
-	agent.SurfaceSkills:  {agent.ApproachUnsafeFile},
+// mockContextPresenter composes mock's context surface: the well-known
+// MOCK_CONTEXT.md at the target dir's root. It roots UnderProjectRoot, never
+// UnderEngineHome — mock has no out-of-cwd redirect, matching kiro/codex/
+// opencode (claude is the one backend with an out-of-cwd scratch conversion).
+func mockContextPresenter(s present.Start) present.Presentation {
+	return s.UnderProjectRoot(mockContextFilename).Build()
+}
+
+// mockSkillsPresenter composes mock's skills surface: the well-known
+// .mock/skills/ tree, also UnderProjectRoot.
+func mockSkillsPresenter(s present.Start) present.Presentation {
+	return s.UnderProjectRoot(mockSkillsDirName).Build()
+}
+
+// mockPresentations is mock's declared per-surface presentation table: context
+// and skills, each with exactly one delivery (unsafe-file) built by the
+// presenter above — the present-package counterpart of the per-backend
+// ApproachTable literal every other backend still declares. mock has no
+// out-of-cwd redirect and no SharedRealization (see SharedRealization below),
+// so neither declaration ever calls .Or to add an alternative.
+//
+// A SurfaceKind absent here (MCP, settings, commands) is folded/absent for
+// mock, exactly as an absent entry in an ApproachTable was — SupportedApproaches/
+// DefaultApproach/SurfaceFor below report that via the map's ok-check, never an
+// error.
+var mockPresentations = map[agent.SurfaceKind]agent.Presentations{
+	agent.SurfaceContext: agent.Presents("mock", agent.SurfaceContext, agent.ApproachUnsafeFile.String(), mockContextPresenter),
+	agent.SurfaceSkills:  agent.Presents("mock", agent.SurfaceSkills, agent.ApproachUnsafeFile.String(), mockSkillsPresenter),
+}
+
+// approachesFor renders a Presentations' declared names back into the shared
+// Approach vocabulary SurfaceSet's cross-backend interface still keys on —
+// every name a Presentations declares is one of Approach's own String() labels
+// (Presents/Or are never handed anything else here), so the reverse parse
+// cannot fail for a name mockPresentations actually produced.
+func approachesFor(d agent.Presentations) []agent.Approach {
+	names := d.Names()
+	out := make([]agent.Approach, 0, len(names))
+	for _, n := range names {
+		if a, err := agent.ParseApproach(n); err == nil {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // MockSurfaces is mock's SurfaceSet: context and skills. Every other
-// SurfaceKind is absent from mockApproaches, so SupportedApproaches/
+// SurfaceKind is absent from mockPresentations, so SupportedApproaches/
 // DefaultApproach report it as folded/absent (a permitted no-op for
 // WithEverything) exactly as codex's MCP kind does — never an error.
 type MockSurfaces struct {
-	agent.TableDispatch
-
 	Context *mockContextSurface
 	Skills  *agent.ManagedSkillPackagesDelivery
 
@@ -174,9 +224,8 @@ func NewMockSurfaces(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
 	context := &mockContextSurface{context: in.Context, fs: fs}
 	skills := newMockSkillsSurface(in.Skills, fs)
 	return MockSurfaces{
-		TableDispatch: agent.TableDispatch{Table: mockApproaches},
-		Context:       context,
-		Skills:        skills,
+		Context: context,
+		Skills:  skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext: context,
 			agent.SurfaceSkills:  skills,
@@ -184,11 +233,54 @@ func NewMockSurfaces(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
 	}
 }
 
+// SupportedApproaches implements SurfaceSet.SupportedApproaches, derived from
+// mockPresentations rather than a second declared list — a kind absent from
+// the map reports nil (folded/absent), never an error.
+func (s MockSurfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
+	d, ok := mockPresentations[kind]
+	if !ok {
+		return nil
+	}
+	return approachesFor(d)
+}
+
+// DefaultApproach implements SurfaceSet.DefaultApproach: the Presentations'
+// own declared default, translated back to the shared Approach vocabulary.
+func (s MockSurfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
+	d, ok := mockPresentations[kind]
+	if !ok {
+		return 0, false
+	}
+	a, err := agent.ParseApproach(d.Default())
+	if err != nil {
+		return 0, false
+	}
+	return a, true
+}
+
 // SurfaceFor resolves one (kind, approach) to mock's concrete surface — a
 // plain table lookup, since mock's surfaces (unlike claude's context) each
 // have only the one approach and no Hook/SystemPrompt arm to special-case.
 func (s MockSurfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
-	return mockApproaches.SurfaceFor("mock", s.dispatch, kind, a)
+	d, ok := mockPresentations[kind]
+	if !ok {
+		return nil, fmt.Errorf("mock: no %s surface", kind)
+	}
+	found := false
+	for _, name := range d.Names() {
+		if name == a.String() {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("mock: no %s surface via %s", kind, a)
+	}
+	del, ok := s.dispatch[kind]
+	if !ok {
+		return nil, fmt.Errorf("mock: no %s surface", kind)
+	}
+	return del, nil
 }
 
 // SharedRealization reports no out-of-cwd conversion for any (kind, approach)

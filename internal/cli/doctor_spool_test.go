@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -37,7 +38,7 @@ func writeRawSpoolMessage(t *testing.T, mapper spool.PathMapper, harp string, di
 
 func TestDoctorCheckSpoolBacklog_RightState_NoSessionsDirYet(t *testing.T) {
 	testsupport.Isolate(t)
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "no session directories yet")
 }
@@ -52,7 +53,7 @@ func TestDoctorCheckSpoolBacklog_RightState_SessionsExistButNoSpool(t *testing.T
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(harpDir, 0o755))
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "no session has a spool directory")
 }
@@ -74,7 +75,7 @@ func TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck(t *testing.
 	_, err = w.Write(&spool.Message{Kind: "message", Body: "hello"})
 	require.NoError(t, err)
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "1 session spool(s) checked")
 	assert.Contains(t, check.Detail, "0 entries stuck")
@@ -98,7 +99,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry(t *testing.T) {
 	fresh := time.Now()
 	_ = writeRawSpoolMessage(t, mapper, harp, spool.DirIn, fresh.UnixNano(), 1, "coord", fresh)
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, stuckRef.String(), "the stuck entry must be named by its ref")
 	assert.Contains(t, check.Detail, "1 spool entr(ies)")
@@ -118,7 +119,7 @@ func TestDoctorCheckSpoolBacklog_CapsNamedListWithCount(t *testing.T) {
 		writeRawSpoolMessage(t, mapper, harp, spool.DirOut, old.UnixNano()+int64(i), uint64(i+1), "amber-quiet-heron", old)
 	}
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "8 spool entr(ies)")
 	assert.Contains(t, check.Detail, "more")
@@ -156,7 +157,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedFilename(t *testing
 	fresh := time.Now()
 	_ = writeRawSpoolMessage(t, mapper, harp, spool.DirIn, fresh.UnixNano(), 1, "coord", fresh)
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
 	assert.Contains(t, check.Detail, "not-a-spool-message.txt", "the malformed entry must be named")
@@ -177,7 +178,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedContent(t *testing.
 	name := spool.Name{Nanos: time.Now().UnixNano(), Seq: 1, Writer: "coord"}
 	writeRawSpoolFile(t, mapper, harp, spool.DirIn, name.String(), "no frontmatter here, just a body\n")
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
 	assert.Contains(t, check.Detail, name.String(), "the malformed entry must be named")
@@ -196,7 +197,7 @@ func TestDoctorCheckSpoolBacklog_RightState_MalformedFileDoesNotCountAsStuck(t *
 	harp := "amber-quiet-heron"
 	writeRawSpoolFile(t, mapper, harp, spool.DirOut, "garbage.md.bak", "irrelevant")
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.NotContains(t, check.Detail, "0 spool entr(ies) sat unconsumed")
 	assert.NotContains(t, check.Detail, "sat unconsumed")
@@ -216,7 +217,7 @@ func TestDoctorCheckSpoolBacklog_RightState_NoFailedDirIsNormal(t *testing.T) {
 	harp := "amber-quiet-heron"
 	require.NoError(t, spool.EnsureDirs(mapper, harp))
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "no session has a failed/ directory")
 	assert.NotContains(t, check.Detail, "checked, all empty",
@@ -238,7 +239,7 @@ func TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent(t *
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "in", "failed"), 0o755))
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "1 failed/ director(ies) checked, all empty")
 	assert.NotContains(t, check.Detail, "no session has a failed/ directory")
@@ -263,7 +264,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry(t *testing.T) {
 
 	live := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 2, "coord", time.Now())
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) were REFUSED into in/failed/")
 	assert.Contains(t, check.Detail, harp+":in/failed/"+failedRef.Name, "the refused entry must be named by harp and filename")
@@ -291,7 +292,7 @@ func TestDoctorCheckSpoolBacklog_CapsFailedListWithCount(t *testing.T) {
 		require.NoError(t, spool.Fail(mapper, ref))
 	}
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "8 spool entr(ies) were REFUSED")
 	assert.Contains(t, check.Detail, "more")
@@ -318,9 +319,71 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testi
 	require.NoError(t, err)
 	require.NoError(t, spool.Fail(mapper, ref))
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(nil)
 	assert.Equal(t, doctorWarn, check.Status,
 		"a report ctxloom was given and refused to route must not read as a healthy spool")
 	assert.Contains(t, check.Detail, ref.Name, "the doctor must name the file an operator has to go and read")
 	assert.Contains(t, check.Detail, string(spool.FailedOutDirName))
+}
+
+// spoolDeliveryConfig loads a real *config.Config with delegation.spool_delivery
+// set, so a test can exercise the branch that depends on it. Loaded rather than
+// hand-built: SpoolDelivery is unexported, and config.Load is the only honest
+// way in.
+func spoolDeliveryConfig(t *testing.T, on bool) *config.Config {
+	t.Helper()
+	// delegation.spool_delivery is MACHINE-SCOPED (layerscope/policy_default.go:
+	// "a team cannot decide it once for every clone"), so it is only honoured
+	// from the HOME layer. Writing it into a project appDir loads a config that
+	// silently does not carry it — which is what the guard below caught.
+	sessions, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	appDir := filepath.Dir(sessions)
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	body := fmt.Sprintf("version: %d\ndelegation:\n  spool_delivery: %t\n", config.CurrentConfigVersion, on)
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o600))
+	cfg, lerr := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, lerr)
+	// GUARD: a helper that silently returned a config WITHOUT the setting would
+	// make every test using it vacuous — the check would take the same branch
+	// either way and still look green.
+	require.Equal(t, on, cfg.GetDelegationSpoolDelivery(),
+		"the loaded config must actually carry delegation.spool_delivery=%t", on)
+	return cfg
+}
+
+// ZERO BYTES EXAMINED IS NOT A PASS. With spool delivery ON, finding no spool
+// directory at all means nothing was checked — either no delegated run has
+// happened, or this process resolves a different home than the coordinator
+// does. Reporting doctorOK there is a success message over nothing looked at,
+// which is the exact defect this check's own doc says it exists in order not
+// to be.
+//
+// Asserts the STATUS, not the wording: a check that merely reworded its way out
+// of this would still be reporting green over an unexamined spool.
+func TestDoctorCheckSpoolBacklog_DeliveryOnButNoSpool_IsNotAPass(t *testing.T) {
+	testsupport.Isolate(t)
+	harpDir, err := paths.HarpDir("amber-quiet-heron")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(harpDir, 0o755))
+
+	check := doctorCheckSpoolBacklog(spoolDeliveryConfig(t, true))
+	assert.Equal(t, doctorWarn, check.Status,
+		"spool delivery is ON and nothing was examined; that is not a healthy state")
+	assert.Contains(t, check.Detail, "nothing was examined")
+}
+
+// The control: with delivery OFF, no spool directory is the EXPECTED state and
+// must stay a pass — otherwise the check above would be satisfiable by simply
+// warning always, and every user with delegation disabled would see a warning
+// for a system behaving correctly.
+func TestDoctorCheckSpoolBacklog_DeliveryOffAndNoSpool_StaysAPass(t *testing.T) {
+	testsupport.Isolate(t)
+	harpDir, err := paths.HarpDir("amber-quiet-heron")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(harpDir, 0o755))
+
+	check := doctorCheckSpoolBacklog(spoolDeliveryConfig(t, false))
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "spool_delivery is off")
 }

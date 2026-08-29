@@ -146,15 +146,22 @@ func claudeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.ClaudeCode.IsEnabled() })
 }
 
-// codexSkillExports resolves codex's per-skill enablement (Part B4).
-func codexSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Codex.IsEnabled() })
-}
-
-// opencodeSkillExports resolves opencode's per-skill enablement (Part B4).
-func opencodeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Opencode.IsEnabled() })
-}
+// parked_engines: codexSkillExports/opencodeSkillExports had no test
+// coverage of their own (unlike kiroSkillExports, still exercised by
+// skillfiles_test.go) and were reachable only through the codex/opencode
+// registerDescriptor blocks in registry.go, both commented out —
+// golangci-lint's unused check flags them once nothing calls them. Come
+// back with their packages.
+//
+// // codexSkillExports resolves codex's per-skill enablement (Part B4).
+// func codexSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
+// 	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Codex.IsEnabled() })
+// }
+//
+// // opencodeSkillExports resolves opencode's per-skill enablement (Part B4).
+// func opencodeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
+// 	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Opencode.IsEnabled() })
+// }
 
 // mockSkillExports resolves the mock engine's per-skill enablement: every
 // resolved skill is exported.

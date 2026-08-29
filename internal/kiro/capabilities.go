@@ -1,3 +1,5 @@
+//go:build parked_engines
+
 package kiro
 
 import (

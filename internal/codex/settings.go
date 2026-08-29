@@ -1,3 +1,14 @@
+//go:build parked_engines
+
+// PARKED: this package builds only with -tags parked_engines, which nothing in
+// this tree passes, so it is out of the default build. ctxloom supports one
+// engine (claude) while a shared delivery-interface refactor (SurfaceSet,
+// Deliver, SurfaceKind, Approach) proceeds — parking removes the mechanical
+// tax of updating every engine's SurfaceSet implementation for an interface
+// change that has not migrated it yet. See internal/lm/backends/registry.go
+// for the (commented) registration this package returns to. Find every
+// parked site with: grep -rn parked_engines.
+//
 // Package codex is ctxloom's OpenAI Codex CLI agent: the settings/hooks writer
 // (agent.SettingsWriter) and the launch backend (agent.Backend), mirroring the
 // claude and gemini agent modules. Codex reads project-scoped config from

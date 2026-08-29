@@ -14,14 +14,21 @@
 // shared directory and call it "the project's engine home" again.
 package arch
 
+// parked_engines: codex/kiro are out of the default build. Every resolver
+// roster below drops their row; claude alone still proves each structural
+// property, though TestArch_EngineInstanceLeavesArePairwiseDistinct's
+// pairwise half needs at least two engines to mean anything and is
+// currently vacuous — see that test's own note. grep -rn parked_engines
+// finds every parked site.
+
 import (
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
-	"github.com/ctxloom/ctxloom/internal/kiro"
+	// "github.com/ctxloom/ctxloom/internal/codex"
+	// "github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -91,8 +98,8 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 		{"paths.SessionStatePath", func(h string) (string, error) { return paths.SessionStatePath(app, h) }},
 		{"paths.SessionHomePath", func(h string) (string, error) { return paths.SessionHomePath(app, h) }},
 		{"claude.SessionConfigDir", func(h string) (string, error) { return claude.SessionConfigDir(workDir, h) }},
-		{"kiro.SessionHome", func(h string) (string, error) { return kiro.SessionHome(workDir, h) }},
-		{"codex.SessionHome", func(h string) (string, error) { return codex.SessionHome(workDir, h) }},
+		// {"kiro.SessionHome", func(h string) (string, error) { return kiro.SessionHome(workDir, h) }},
+		// {"codex.SessionHome", func(h string) (string, error) { return codex.SessionHome(workDir, h) }},
 	}
 
 	for _, r := range resolvers {
@@ -122,6 +129,11 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 // root host every engine: claude's "claude", kiro's "kiro" and codex's ".codex"
 // hang off the same <harp>/home directory, so two engines in one session can
 // never read each other's config or credentials.
+// parked_engines: kiro/codex are out of the default build, leaving only
+// claude-code's leaf to check — the PAIRWISE half of this test's claim is
+// vacuous until a second engine returns (nothing to be pairwise distinct
+// FROM); the "hangs directly off the session home root" half still holds
+// real content.
 func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 	const workDir = "/proj"
 	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), archHarpA)
@@ -133,19 +145,19 @@ func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claude.SessionConfigDir() error = %v", err)
 	}
-	kiroDir, err := kiro.SessionHome(workDir, archHarpA)
-	if err != nil {
-		t.Fatalf("kiro.SessionHome() error = %v", err)
-	}
-	codexRoot, err := codex.SessionHome(workDir, archHarpA)
-	if err != nil {
-		t.Fatalf("codex.SessionHome() error = %v", err)
-	}
+	// kiroDir, err := kiro.SessionHome(workDir, archHarpA)
+	// if err != nil {
+	// 	t.Fatalf("kiro.SessionHome() error = %v", err)
+	// }
+	// codexRoot, err := codex.SessionHome(workDir, archHarpA)
+	// if err != nil {
+	// 	t.Fatalf("codex.SessionHome() error = %v", err)
+	// }
 	// codex's own leaf is appended by cellScopedCodexHome; ConfigDirName is the
 	// package's exported statement of what that leaf is.
-	codexDir := filepath.Join(codexRoot, codex.ConfigDirName)
+	// codexDir := filepath.Join(codexRoot, codex.ConfigDirName)
 
-	dirs := map[string]string{"claude-code": claudeDir, "kiro": kiroDir, "codex": codexDir}
+	dirs := map[string]string{"claude-code": claudeDir}
 	for engine, dir := range dirs {
 		if filepath.Dir(dir) != root {
 			t.Errorf("%s's instance %q does not hang directly off the session home root %q", engine, dir, root)
@@ -172,8 +184,8 @@ func TestArch_SessionInstancesDoNotShareAcrossSessions(t *testing.T) {
 		fn   func(harp string) (string, error)
 	}{
 		{"claude.SessionConfigDir", func(h string) (string, error) { return claude.SessionConfigDir(workDir, h) }},
-		{"kiro.SessionHome", func(h string) (string, error) { return kiro.SessionHome(workDir, h) }},
-		{"codex.SessionHome", func(h string) (string, error) { return codex.SessionHome(workDir, h) }},
+		// {"kiro.SessionHome", func(h string) (string, error) { return kiro.SessionHome(workDir, h) }},
+		// {"codex.SessionHome", func(h string) (string, error) { return codex.SessionHome(workDir, h) }},
 	} {
 		a, err := r.fn(archHarpA)
 		if err != nil {

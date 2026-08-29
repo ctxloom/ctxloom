@@ -25,6 +25,10 @@ func buildExports(prompts []*bundles.LoadedContent, pick func(*bundles.LoadedCon
 }
 
 // claudeExports resolves the claude-code per-prompt LLM export config.
+// Not parked (parked_engines) — claude-code is the one engine still
+// registered in registry.go, so this member of the export-family group
+// stays live and unchanged while its kiro/opencode siblings below are
+// commented out.
 func claudeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
 		cc := p.LLM.ClaudeCode
@@ -38,7 +42,12 @@ func claudeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	})
 }
 
-// codexExports resolves the codex per-prompt LLM export config.
+// codexExports resolves the codex per-prompt LLM export config. Not parked
+// (parked_engines) despite internal/codex being out of the default build:
+// this function is engine-agnostic plumbing with no codex import, and
+// commandfiles_test.go still exercises it directly, so golangci-lint's
+// unused check does not flag it the way it flags kiroExports/
+// opencodeExports below.
 func codexExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
 		cx := p.LLM.Codex
@@ -50,23 +59,29 @@ func codexExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	})
 }
 
-// kiroExports resolves the kiro per-prompt LLM export config.
-func kiroExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
-		k := p.LLM.Kiro
-		return agent.CommandExport{Enabled: k.IsEnabled(), Description: k.Description}
-	})
-}
-
-// opencodeExports resolves the opencode per-prompt LLM export config. opencode
-// commands carry only a description in their frontmatter (the body is the
-// template), so — like kiro — only enablement + description are mapped.
-func opencodeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
-		o := p.LLM.Opencode
-		return agent.CommandExport{Enabled: o.IsEnabled(), Description: o.Description}
-	})
-}
+// parked_engines: kiroExports/opencodeExports had no test coverage of their
+// own (unlike codexExports, still exercised by commandfiles_test.go) and
+// were reachable only through the kiro/opencode registerDescriptor blocks
+// in registry.go, both commented out — golangci-lint's unused check flags
+// them once nothing calls them. Come back with their packages.
+//
+// // kiroExports resolves the kiro per-prompt LLM export config.
+// func kiroExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
+// 	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
+// 		k := p.LLM.Kiro
+// 		return agent.CommandExport{Enabled: k.IsEnabled(), Description: k.Description}
+// 	})
+// }
+//
+// // opencodeExports resolves the opencode per-prompt LLM export config. opencode
+// // commands carry only a description in their frontmatter (the body is the
+// // template), so — like kiro — only enablement + description are mapped.
+// func opencodeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
+// 	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
+// 		o := p.LLM.Opencode
+// 		return agent.CommandExport{Enabled: o.IsEnabled(), Description: o.Description}
+// 	})
+// }
 
 // exportNames maps each prompt's full identity (LoadedContent.Name) to its
 // export-facing command name. The short form (bundle's last path segment +

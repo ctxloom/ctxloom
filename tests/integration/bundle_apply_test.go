@@ -34,9 +34,13 @@ hooks:
 // applyHooksForProfile lays out an .ctxloom app dir with the demo bundle and the
 // given profiles, makes defaultProfile the active default, runs operations.ApplyHooks
 // against a fresh project dir, and returns the written settings files
-// (Claude's .mcp.json, Kiro's .kiro/settings/mcp.json, and Claude's
-// settings.json).
-func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, kiroMCPJSON, claudeJSON string) {
+// (Claude's .mcp.json and Claude's settings.json).
+//
+// parked_engines: kiro is out of the default build; Backend "all" no
+// longer writes .kiro/settings/mcp.json (BackendsWithSettings() narrows to
+// claude-code), so the kiro half of this helper and its callers' assertion
+// is commented out below, not returned.
+func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, claudeJSON string) {
 	t.Helper()
 
 	// The trust gate is consulted for every bundle item this apply resolves,
@@ -79,7 +83,6 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	require.NoError(t, err)
 
 	return readOrEmpty(t, filepath.Join(projectDir, ".mcp.json")),
-		readOrEmpty(t, filepath.Join(projectDir, ".kiro", "settings", "mcp.json")),
 		readOrEmpty(t, filepath.Join(projectDir, ".claude", "settings.json"))
 }
 
@@ -93,24 +96,22 @@ func readOrEmpty(t *testing.T, path string) string {
 	return string(data)
 }
 
-// assertBundleApplied checks the demo bundle's MCP server reached the Claude
-// (.mcp.json) and Kiro (.kiro/settings/mcp.json) stores, and its hook
-// reached the Claude settings.
-func assertBundleApplied(t *testing.T, mcpJSON, kiroMCPJSON, claudeJSON string) {
+// assertBundleApplied checks the demo bundle's MCP server reached the
+// Claude (.mcp.json) store and its hook reached the Claude settings.
+func assertBundleApplied(t *testing.T, mcpJSON, claudeJSON string) {
 	t.Helper()
 	assert.Contains(t, mcpJSON, "demo-server", "MCP server must land in .mcp.json")
 	assert.Contains(t, mcpJSON, "demo-mcp", "MCP server command must land in .mcp.json")
-	assert.Contains(t, kiroMCPJSON, "demo-server", "MCP server must land in .kiro/settings/mcp.json")
 	assert.Contains(t, claudeJSON, "demo-hook", "bundle hook must land in .claude/settings.json")
 }
 
 // TestBundleApply_DirectProfile: the demo bundle is referenced directly by the
 // default profile. Baseline that MCP + hooks flow through apply.
 func TestBundleApply_DirectProfile(t *testing.T) {
-	mcpJSON, kiroMCPJSON, claudeJSON := applyHooksForProfile(t, "base", map[string]string{
+	mcpJSON, claudeJSON := applyHooksForProfile(t, "base", map[string]string{
 		"base": "name: base\nbundles:\n  - demo\n",
 	})
-	assertBundleApplied(t, mcpJSON, kiroMCPJSON, claudeJSON)
+	assertBundleApplied(t, mcpJSON, claudeJSON)
 }
 
 // TestBundleApply_InheritedProfile: the demo bundle is referenced only by a
@@ -118,9 +119,9 @@ func TestBundleApply_DirectProfile(t *testing.T) {
 // inherited-bundle-drop regression driven end-to-end through ApplyHooks:
 // before the fix, inherited bundles' MCP servers and hooks were silently dropped.
 func TestBundleApply_InheritedProfile(t *testing.T) {
-	mcpJSON, kiroMCPJSON, claudeJSON := applyHooksForProfile(t, "child", map[string]string{
+	mcpJSON, claudeJSON := applyHooksForProfile(t, "child", map[string]string{
 		"parent": "name: parent\nbundles:\n  - demo\n",
 		"child":  "name: child\nparents:\n  - parent\n",
 	})
-	assertBundleApplied(t, mcpJSON, kiroMCPJSON, claudeJSON)
+	assertBundleApplied(t, mcpJSON, claudeJSON)
 }

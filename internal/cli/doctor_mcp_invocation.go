@@ -11,7 +11,9 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
+	// parked_engines: codex is out of the default build; doctorCodexMCPSurfaces
+	// (below) and its call site are commented out with it.
+	// "github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -27,10 +29,9 @@ import (
 // CODEX IS ABSENT FROM THIS LIST, and that absence is the declared one, not an
 // oversight: codex has no project-relative MCP registry at all — its servers
 // fold into $CODEX_HOME/config.toml, and CodexHookWriter.SettingsPath returns
-// "" to say so (internal/codex/declared_absence.go). It is still CHECKED, by
-// absolute path, through doctorCodexMCPSurfaces below; dropping it from the
-// list without putting it back somewhere would have quietly ended stale-entry
-// coverage for the one engine whose entry lives outside the project.
+// "" to say so (internal/codex/declared_absence.go). Its absolute-path check
+// (doctorCodexMCPSurfaces) is parked with internal/codex — see parked_engines
+// — so codex's stale-entry coverage returns alongside it, not before.
 //
 // A user-global surface (~/.claude.json) is deliberately absent for claude:
 // this check reports what THIS project materialized, and a fix it names
@@ -51,16 +52,20 @@ var doctorMCPInvocationSurfaces = []string{
 // Both are OUTSIDE the project tree (or, for the instance, inside it but under
 // a harp nobody can spell in a static list), which is exactly why they need
 // their own resolver. Neither is created; an absent one is simply not returned.
-func doctorCodexMCPSurfaces(projectDir string) []string {
-	var out []string
-	if home, err := codex.GlobalHome(); err == nil && home != "" {
-		out = append(out, filepath.Join(home, codex.ConfigFileName))
-	}
-	if instance, err := doctorMostRecentCodexInstance(projectDir); err == nil && instance.path != "" {
-		out = append(out, filepath.Join(instance.path, codex.ConfigFileName))
-	}
-	return out
-}
+// parked_engines: internal/codex is out of the default build, so this
+// resolver has nothing to read from — codex's MCP entries are unreachable by
+// name until it returns. doctorCheckMCPInvocation's call site is commented
+// out below alongside it.
+// func doctorCodexMCPSurfaces(projectDir string) []string {
+// 	var out []string
+// 	if home, err := codex.GlobalHome(); err == nil && home != "" {
+// 		out = append(out, filepath.Join(home, codex.ConfigFileName))
+// 	}
+// 	if instance, err := doctorMostRecentCodexInstance(projectDir); err == nil && instance.path != "" {
+// 		out = append(out, filepath.Join(instance.path, codex.ConfigFileName))
+// 	}
+// 	return out
+// }
 
 // doctorCheckMCPInvocation reports any materialized ctxloom MCP entry whose
 // invocation is the bare `mcp` noun rather than the `mcp serve` leaf.
@@ -84,17 +89,13 @@ func doctorCheckMCPInvocation(projectDir string) doctorCheck {
 	}
 
 	// One list of (what to report it as, where to read it): the project-relative
-	// surfaces resolved against this project root, plus codex's home-keyed ones,
-	// which are already absolute. Reporting the ABSOLUTE path for codex is
-	// deliberate — a bare "config.toml" would leave the reader unable to tell
-	// which of the two homes carries the stale entry.
+	// surfaces resolved against this project root. codex's home-keyed absolute
+	// surfaces (doctorCodexMCPSurfaces) are parked with internal/codex — see
+	// parked_engines.
 	type mcpSurface struct{ label, path string }
-	surfaces := make([]mcpSurface, 0, len(doctorMCPInvocationSurfaces)+2)
+	surfaces := make([]mcpSurface, 0, len(doctorMCPInvocationSurfaces))
 	for _, rel := range doctorMCPInvocationSurfaces {
 		surfaces = append(surfaces, mcpSurface{label: rel, path: filepath.Join(projectDir, rel)})
-	}
-	for _, abs := range doctorCodexMCPSurfaces(projectDir) {
-		surfaces = append(surfaces, mcpSurface{label: abs, path: abs})
 	}
 
 	var stale, unreadable []string

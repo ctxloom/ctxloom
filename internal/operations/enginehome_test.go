@@ -10,9 +10,16 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
+	// parked_engines: codex/kiro are out of the default build. Their positive
+	// (a real controlled home IS produced) test cases below are commented out
+	// with them; the negative (backend contributes nothing) cases that used
+	// their names as examples still pass — now because the backend is
+	// unregistered rather than for the reason they were written to prove, a
+	// narrowing worth knowing about but not worth a rewrite for a parked
+	// engine.
+	// "github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/git"
-	"github.com/ctxloom/ctxloom/internal/kiro"
+	// "github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -76,19 +83,22 @@ func mustClaudeInstance(t *testing.T, workDir, harp string) string {
 	return dir
 }
 
-func mustKiroInstance(t *testing.T, workDir, harp string) string {
-	t.Helper()
-	dir, err := kiro.SessionHome(workDir, harp)
-	require.NoError(t, err)
-	return dir
-}
-
-func mustCodexInstance(t *testing.T, workDir, harp string) string {
-	t.Helper()
-	root, err := codex.SessionHome(workDir, harp)
-	require.NoError(t, err)
-	return filepath.Join(root, codex.ConfigDirName)
-}
+// parked_engines: mustKiroInstance/mustCodexInstance served the kiro/codex
+// positive-path cases below, all commented out with those packages.
+//
+// func mustKiroInstance(t *testing.T, workDir, harp string) string {
+// 	t.Helper()
+// 	dir, err := kiro.SessionHome(workDir, harp)
+// 	require.NoError(t, err)
+// 	return dir
+// }
+//
+// func mustCodexInstance(t *testing.T, workDir, harp string) string {
+// 	t.Helper()
+// 	root, err := codex.SessionHome(workDir, harp)
+// 	require.NoError(t, err)
+// 	return filepath.Join(root, codex.ConfigDirName)
+// }
 
 // The two session names every case here keys its instances by.
 const (
@@ -166,28 +176,32 @@ func TestInTreeAgentHomeEnv_NeverWritesTheRealHostHome(t *testing.T) {
 // XDG_DATA_HOME is deliberately NOT contributed: kiro's credentials live in a
 // global sqlite there, and relocating it with nothing to seed would strand the
 // agent logged out.
-func TestInTreeAgentHomeEnv_KiroGetsAFreshControlledHomeAndNoCredentialRelocation(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, "")
-	workDir := t.TempDir()
-
-	got := InTreeAgentHomeEnv(InTreeAgentHome{
-		Backend:    "kiro",
-		WorkDir:    workDir,
-		Harp:       harpA,
-		ConfigHome: agents.ConfigHomeProject,
-		Policy:     isolation.None{},
-	})
-
-	want := mustKiroInstance(t, workDir, harpA)
-	assert.Equal(t, map[string]string{kiro.HomeEnv: want}, got)
-	assert.NotContains(t, got, kiro.XDGDataHomeEnv, "relocating kiro's credential store in-tree would log the agent out")
-
-	info, err := os.Stat(want)
-	require.NoError(t, err, "the controlled home directory must exist before kiro is launched at it")
-	assert.True(t, info.IsDir())
-	assert.Empty(t, strictness.All(), "kiro needs no credential seed, so nothing fails loud")
-}
+// parked_engines: kiro is out of the default build; InTreeAgentHomeFor("kiro")
+// now finds no descriptor and this positive assertion would fail. Comes back
+// with the package.
+//
+// func TestInTreeAgentHomeEnv_KiroGetsAFreshControlledHomeAndNoCredentialRelocation(t *testing.T) {
+// 	resetEngineHomeStrictness(t)
+// 	fakeHostHome(t, "")
+// 	workDir := t.TempDir()
+//
+// 	got := InTreeAgentHomeEnv(InTreeAgentHome{
+// 		Backend:    "kiro",
+// 		WorkDir:    workDir,
+// 		Harp:       harpA,
+// 		ConfigHome: agents.ConfigHomeProject,
+// 		Policy:     isolation.None{},
+// 	})
+//
+// 	want := mustKiroInstance(t, workDir, harpA)
+// 	assert.Equal(t, map[string]string{kiro.HomeEnv: want}, got)
+// 	assert.NotContains(t, got, kiro.XDGDataHomeEnv, "relocating kiro's credential store in-tree would log the agent out")
+//
+// 	info, err := os.Stat(want)
+// 	require.NoError(t, err, "the controlled home directory must exist before kiro is launched at it")
+// 	assert.True(t, info.IsDir())
+// 	assert.Empty(t, strictness.All(), "kiro needs no credential seed, so nothing fails loud")
+// }
 
 // t3 — THE SCOPING RULE, no-binding half. A run with no agent binding at all
 // (InTreeAgentHome.ConfigHome == "", the human's own session) keeps the REAL
@@ -280,15 +294,19 @@ func TestInTreeAgentHomeEnv_AlreadySetVarWins(t *testing.T) {
 	assert.Nil(t, got, "an isolation- or user-provided config home must not be overridden")
 	assert.NoDirExists(t, mustClaudeInstance(t, workDir, harpA), "the losing arm must not create its home either")
 
-	gotKiro := InTreeAgentHomeEnv(InTreeAgentHome{
-		Backend:    "kiro",
-		WorkDir:    workDir,
-		Harp:       harpA,
-		ConfigHome: agents.ConfigHomeProject,
-		Policy:     isolation.None{},
-		Env:        map[string]string{kiro.HomeEnv: "/somewhere/isolation/put/it"},
-	})
-	assert.Nil(t, gotKiro)
+	// parked_engines: kiro's already-set-var-wins half is commented out, not
+	// merely narrowed — kiro is unregistered now, so InTreeAgentHomeFor
+	// returns !ok before the already-set-var check this half exists to
+	// prove is ever reached; keeping it would pass for the wrong reason.
+	// gotKiro := InTreeAgentHomeEnv(InTreeAgentHome{
+	// 	Backend:    "kiro",
+	// 	WorkDir:    workDir,
+	// 	Harp:       harpA,
+	// 	ConfigHome: agents.ConfigHomeProject,
+	// 	Policy:     isolation.None{},
+	// 	Env:        map[string]string{kiro.HomeEnv: "/somewhere/isolation/put/it"},
+	// })
+	// assert.Nil(t, gotKiro)
 }
 
 // t5 — an ISOLATED policy contributes nothing on either axis. A container run's
@@ -342,22 +360,26 @@ func TestInTreeAgentHomeEnv_NilPolicyContributesNothing(t *testing.T) {
 // MUTATION TARGET m3: revert codex to unconditional relocation (drop this
 // descriptor entry) and this goes red — the instance would never be contributed
 // and codex would relocate itself instead.
-func TestInTreeAgentHomeEnv_CodexReadsConfigHomeLikeTheOthers(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeCodexHostHome(t)
-	workDir := t.TempDir()
-
-	got := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "codex", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
-	want := mustCodexInstance(t, workDir, harpA)
-	assert.Equal(t, map[string]string{codex.CodexHomeEnv: want}, got,
-		"a `config_home: project` binding gets this session's own CODEX_HOME")
-	assert.DirExists(t, want)
-
-	seeded, err := os.ReadFile(filepath.Join(want, codex.AuthFileName))
-	require.NoError(t, err, "the instance must carry the copied credential")
-	assert.Equal(t, codexCredentialFixture, string(seeded), "copied bytes must match the host source exactly")
-	require.NotEmpty(t, seeded, "empty-source guard: the fixture must carry bytes")
-}
+// parked_engines: codex is out of the default build; InTreeAgentHomeFor("codex")
+// now finds no descriptor and this positive assertion would fail. Comes back
+// with the package.
+//
+// func TestInTreeAgentHomeEnv_CodexReadsConfigHomeLikeTheOthers(t *testing.T) {
+// 	resetEngineHomeStrictness(t)
+// 	fakeCodexHostHome(t)
+// 	workDir := t.TempDir()
+//
+// 	got := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "codex", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
+// 	want := mustCodexInstance(t, workDir, harpA)
+// 	assert.Equal(t, map[string]string{codex.CodexHomeEnv: want}, got,
+// 		"a `config_home: project` binding gets this session's own CODEX_HOME")
+// 	assert.DirExists(t, want)
+//
+// 	seeded, err := os.ReadFile(filepath.Join(want, codex.AuthFileName))
+// 	require.NoError(t, err, "the instance must carry the copied credential")
+// 	assert.Equal(t, codexCredentialFixture, string(seeded), "copied bytes must match the host source exactly")
+// 	require.NotEmpty(t, seeded, "empty-source guard: the fixture must carry bytes")
+// }
 
 // The other half of D2: no binding, an undeclared binding, or an explicit
 // `host` all keep the user's REAL ~/.codex — nothing is contributed and nothing
@@ -430,22 +452,24 @@ func TestInTreeAgentHomeEnv_ApiKeyAuthenticatesAFreshControlledHome(t *testing.T
 //
 // MUTATION TARGET m2: drop the harp from the env contribution (key the instance
 // by project again) and this goes red on the missing harp component.
+// parked_engines: the kiro/codex rows are commented out with those
+// packages — claude alone still proves the shape (state tier, keyed by
+// harp, one leaf per engine) until they return.
 func TestInTreeAgentHomeEnv_ContributesTheSessionInstanceShape(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
-	fakeCodexHostHome(t)
 	workDir := t.TempDir()
 
 	claudeEnv := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "claude-code", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
-	kiroEnv := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "kiro", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
-	codexEnv := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "codex", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
+	// kiroEnv := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "kiro", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
+	// codexEnv := InTreeAgentHomeEnv(InTreeAgentHome{Backend: "codex", WorkDir: workDir, Harp: harpA, ConfigHome: agents.ConfigHomeProject, Policy: isolation.None{}})
 
 	instance := filepath.Join(workDir, ".ctxloom", "state", harpA, "home")
 	assert.Equal(t, filepath.Join(instance, "claude"), claudeEnv[claude.ConfigDirEnv])
-	assert.Equal(t, filepath.Join(instance, "kiro"), kiroEnv[kiro.HomeEnv])
-	assert.Equal(t, filepath.Join(instance, ".codex"), codexEnv[codex.CodexHomeEnv])
+	// assert.Equal(t, filepath.Join(instance, "kiro"), kiroEnv[kiro.HomeEnv])
+	// assert.Equal(t, filepath.Join(instance, ".codex"), codexEnv[codex.CodexHomeEnv])
 
-	for _, home := range []string{claudeEnv[claude.ConfigDirEnv], kiroEnv[kiro.HomeEnv], codexEnv[codex.CodexHomeEnv]} {
+	for _, home := range []string{claudeEnv[claude.ConfigDirEnv]} {
 		assert.Contains(t, home, string(filepath.Separator)+harpA+string(filepath.Separator),
 			"the instance is keyed by SESSION, not by project")
 		assert.NotContains(t, home, filepath.Join(".ctxloom", "cache"))

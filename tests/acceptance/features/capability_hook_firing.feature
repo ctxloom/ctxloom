@@ -186,7 +186,7 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
     # unified session_start onto kiro's own agentSpawn hook. Stage (a) only —
     # kiro takes context from steering files, so hook-output ingestion is not a
     # claim it makes.
-    @kiro @host @ws-none @probe-p3-hook-firing
+    @kiro @host @ws-none @probe-p3-hook-firing @wip
     Examples:
       | engine | runtime | workspace |
       | kiro   | host    | none      |

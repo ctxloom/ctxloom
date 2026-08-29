@@ -62,11 +62,16 @@ func setupLossFixture(t *testing.T) *testenv.TestEnvironment {
 	return e
 }
 
-// TestMaterializeReport_NamesTheHooksOpencodeCannotCarry is the terminal-facing
+// TestMaterializeReport_NamesTheHooksMockCannotCarry is the terminal-facing
 // proof. Pre-fix the report was four true "wrote" lines with the dropped
 // guardrail nowhere in them; a reader could not tell an engine with no hooks
 // from a profile with no hooks.
-func TestMaterializeReport_NamesTheHooksOpencodeCannotCarry(t *testing.T) {
+//
+// parked_engines: opencode is out of the default build; mock is the
+// substitute — it declares the SAME shape (noHooksReason set, registry.go)
+// so this is still real coverage of the mechanism, not a downgrade to a
+// weaker check.
+func TestMaterializeReport_NamesTheHooksMockCannotCarry(t *testing.T) {
 	env := setupLossFixture(t)
 
 	// `--format text` is asked for outright. Off a terminal the default is now
@@ -75,7 +80,7 @@ func TestMaterializeReport_NamesTheHooksOpencodeCannotCarry(t *testing.T) {
 	// JSON would delete the prose half rather than move it. The prose half is
 	// this file's whole subject: a structured field no CLI prints is the same
 	// silence with extra steps.
-	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-opencode", "--backend", "opencode", "--format", "text"),
+	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-mock", "--backend", "mock", "--format", "text"),
 		"a structural capability gap is reported, not fatal — the rest of the tree is still worth having")
 
 	out := env.LastOutput()
@@ -84,17 +89,19 @@ func TestMaterializeReport_NamesTheHooksOpencodeCannotCarry(t *testing.T) {
 		"the report must mention the hook it could not deliver; without this a team ships a guardrail that silently never runs:\n"+out)
 	assert.Contains(t, out, "session_start",
 		"naming WHICH hook is what makes the line actionable rather than ominous:\n"+out)
-	assert.Contains(t, out, "opencode has no hook mechanism",
+	assert.Contains(t, out, "mock has no settings/hook surface",
 		"the line must say WHY, so a reader can tell a capability gap from a ctxloom bug:\n"+out)
 }
 
 // TestMaterializeReport_JSONCarriesTheLoss pins the machine-readable half: a
 // frontend or CI consumer reading --format json must see the loss as DATA, not
 // only as prose it would have to scrape.
+// parked_engines: opencode is out of the default build; mock substitutes
+// (see TestMaterializeReport_NamesTheHooksMockCannotCarry's doc).
 func TestMaterializeReport_JSONCarriesTheLoss(t *testing.T) {
 	env := setupLossFixture(t)
 
-	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-json", "--backend", "opencode", "--format", "json"))
+	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-json", "--backend", "mock", "--format", "json"))
 
 	var res struct {
 		Backend    string   `json:"backend"`
@@ -112,13 +119,13 @@ func TestMaterializeReport_JSONCarriesTheLoss(t *testing.T) {
 	require.NoError(t, json.NewDecoder(strings.NewReader(out)).Decode(&res),
 		"materialize --format json must emit the result as a JSON document:\n"+out)
 
-	assert.Equal(t, "opencode", res.Backend)
+	assert.Equal(t, "mock", res.Backend)
 	assert.NotEmpty(t, res.Wrote, "precondition: something was written")
 	require.Len(t, res.NotCarried, 1, "the loss must be a structured field, not prose:\n"+out)
 	assert.Equal(t, "hooks", res.NotCarried[0].Surface)
 	assert.Contains(t, res.NotCarried[0].Detail, "session_start",
 		"the detail must name the hook kinds by the config key the user wrote")
-	assert.Equal(t, "opencode has no hook mechanism", res.NotCarried[0].Reason)
+	assert.Equal(t, "mock has no settings/hook surface", res.NotCarried[0].Reason)
 }
 
 // TestMaterializeReport_SaysNothingWhenNothingIsLost is the false-alarm guard:

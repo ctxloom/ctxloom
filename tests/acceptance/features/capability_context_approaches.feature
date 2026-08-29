@@ -247,7 +247,7 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
     # from codex reading the same bytes with a file-search tool, because codex
     # has no out-of-cwd delivery and no negative control exists for it. The
     # registry row states the claim at that strength.
-    @codex @host @ws-none @var-unsafe-file
+    @codex @host @ws-none @var-unsafe-file @wip
     Examples:
       | engine | runtime | workspace | approach    | variant     |
       | codex  | host    | none      | unsafe-file | unsafe-file |

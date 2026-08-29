@@ -314,12 +314,12 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     # the only probe that would know is one that performs a refresh, which is
     # what consumes the token. If this row ever goes red again with a 401 in the
     # body, read it as "re-run `codex login`", not as a delegation regression.
-    @codex
+    @codex @wip
     Examples:
       | engine | marker                                 |
       | codex  | J002300-DELEGATE-MARKER-CODEX-8b3f52cd |
 
-    @kiro
+    @kiro @wip
     Examples:
       | engine | marker                                |
       | kiro   | J002300-DELEGATE-MARKER-KIRO-2e9a16ef |
@@ -354,7 +354,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     # message means something else entirely.
     # Live-verified green here on the merged base (2725325e), with its own
     # assertion-side mutation proof.
-    @opencode
+    @opencode @wip
     Examples:
       | engine   | marker                                    |
       | opencode | J002300-DELEGATE-MARKER-OPENCODE-7f05b391 |
@@ -468,17 +468,17 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     # skip — the honest failure shape, and the reason p6AssertEcho classifies a
     # credential-shaped body as a RUN failure carrying the re-login precedent
     # instead of blaming the bus.
-    @codex @host @ws-none
+    @codex @host @ws-none @wip
     Examples:
       | engine | runtime | workspace | marker                          |
       | codex  | host    | none      | P6-WAKE-MARKER-CODEX-2f9d61a8   |
 
-    @kiro @host @ws-none
+    @kiro @host @ws-none @wip
     Examples:
       | engine | runtime | workspace | marker                         |
       | kiro   | host    | none      | P6-WAKE-MARKER-KIRO-8c34e7f2   |
 
-    @opencode @host @ws-none
+    @opencode @host @ws-none @wip
     Examples:
       | engine   | runtime | workspace | marker                            |
       | opencode | host    | none      | P6-WAKE-MARKER-OPENCODE-71a0d9be  |

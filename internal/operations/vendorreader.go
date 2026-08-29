@@ -33,8 +33,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
-	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
-	kiroreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/kiro"
+	// parked_engines: unused while vendorReaderRegistry's codex/kiro rows are
+	// commented out below.
+	// codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
+	// kiroreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/kiro"
 )
 
 // lockFileMode and lockDirMode are the modes the canonical-transcript
@@ -93,10 +95,18 @@ type vendorReaderEntry struct {
 // wired separately in vendorreader_kiro.go: its bind (on the rare path where
 // one lands at all) is a session_id, not a file path, because a single
 // sqlite db holds every conversation.
+// parked_engines: the "codex"/"kiro" rows are commented out, not deleted —
+// internal/codex and internal/kiro (the ENGINE backends, distinct from the
+// internal/transcript/vendorreader/{codex,kiro} readers these rows still
+// import below) are unregistered internal/lm/backends names for the
+// duration of the delivery-interface refactor, and tests/arch's
+// TestArch_EngineIdentityRosters_MembersAreRegisteredBackends fails loud on
+// a roster naming a backend that is not currently registered. They come
+// back with the engine backends.
 var vendorReaderRegistry = map[string]vendorReaderEntry{
 	config.BackendClaudeCode: {adapters: claudereader.VersionedAdapters, locate: locateBoundTranscript},
-	"codex":                  {adapters: codexreader.VersionedAdapters, locate: locateBoundTranscript},
-	"kiro":                   {adapters: kiroreader.VersionedAdapters, locate: locateKiroConversation},
+	// "codex": {adapters: codexreader.VersionedAdapters, locate: locateBoundTranscript},
+	// "kiro":  {adapters: kiroreader.VersionedAdapters, locate: locateKiroConversation},
 }
 
 // VendorReaderEngineNames returns the backend names vendorReaderRegistry

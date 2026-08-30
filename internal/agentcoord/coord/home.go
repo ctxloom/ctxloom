@@ -88,8 +88,9 @@ type Home struct {
 	// on: deliverNotice's third case (neither a parked recv nor a turn sink)
 	// buffers mail for a Recv that a terminal-driven engine never makes on
 	// its own. Nil everywhere except the one wiring that owns a live PTY for
-	// this run (llm_serve.go's interactive Execute decorator); deliverNotice
-	// fires it, unlocked, whenever it buffers with nothing else to tell.
+	// this run — the interactive path that builds a NewTerminalInjector and
+	// threads its Wrap through as a func; deliverNotice fires it, unlocked,
+	// whenever it buffers with nothing else to tell.
 	terminalNudge func()
 
 	// ctrlHandler executes coordinator-initiated plane-2 control requests

@@ -199,18 +199,43 @@ config homes".
 
 ## The gitignore contract
 
-These are the only patterns ctxloom writes for the `.ctxloom` tree
-(`gitignore.PrivateStatePatterns`; `gitignore.Ensure` appends them once and
-never removes a user's own lines):
+ctxloom does **not** append these rules to your project's root `.gitignore`. It
+owns a nested one instead, and that file is meant to be **committed**:
 
 ```gitignore
-# ctxloom private working state (rebuildable/local — cache, sessions, project id, local state)
-.ctxloom/cache/
-.ctxloom/sessions/
-.ctxloom/project-id
-.ctxloom/state/
-.ctxloom/*.lock
+# .ctxloom/.gitignore — generated; ctxloom rewrites it wholesale
+/cache
+/sessions
+/project-id
+/state
+*.lock
 ```
+
+The rules are `gitignore.PrivateStatePatterns` relativized to the directory they
+sit in (`gitignore.NestedPatterns`), re-anchored with a leading `/` so stripping
+the prefix cannot widen a rule — a pattern with no slash matches at *any* depth.
+
+Two properties follow from where the file lives, and both are the point:
+
+- **Tracking it is what makes it work.** The rules travel with the directory into
+  every clone and, crucially, into every linked worktree — where a rule living
+  only in the superproject's root `.gitignore` would not reach.
+- **It is rewritten wholesale, never appended to.** The old root-append path
+  emitted a fresh comment header above only the patterns still *missing*, so each
+  time the list grew another header landed above the new entries. In ctxloom's own
+  repo that header accumulated five times and ended up captioning
+  `.codex/auth.json` — a real credential — as "ctxloom private working state".
+  A generated file with no user-authored lines cannot drift that way.
+
+ctxloom still writes to your root `.gitignore` for two narrow reasons: engine
+surfaces it generates *outside* `.ctxloom/` (under their own honest header,
+`gitignore.TransientArtifactComment`), and retiring a blanket `.ctxloom/` rule —
+git does not descend into an ignored directory, so a blanket rule would make the
+nested file unreadable and every rule in it silently dead.
+
+If an older ctxloom already appended these rules to your root file, they are now
+redundant but harmless. `ctxloom manage gitignore install` **names** them so you
+can delete them deliberately; it will not edit a file it does not own.
 
 **Everything else under `.ctxloom/` is committed by omission** — `config.yaml`,
 `remotes.yaml`, `lock.yaml`, `content/`, `profiles/`,

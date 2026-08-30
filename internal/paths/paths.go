@@ -49,6 +49,14 @@ const (
 	// that format (signature-envelope spec §7).
 	AllowedSignersFileName = "allowed_signers"
 
+	// GitignoreFileName is the name of the ignore file ctxloom owns INSIDE the
+	// .ctxloom directory (internal/gitignore's EnsureNested writes it). Unlike
+	// every other generated path here it is TierCommitted on purpose: tracking
+	// it is what carries the private-state rules into clones and into linked
+	// worktrees, which a rule living only in the superproject's root .gitignore
+	// would never reach.
+	GitignoreFileName = ".gitignore"
+
 	// DistrustedSignersFileName is the name of the LOCAL embedded-key
 	// suppression record (without extension) — see DistrustedSignersPath. A
 	// plain one-principal-per-line list, deliberately NOT the OpenSSH
@@ -1120,6 +1128,7 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, ConfigFileName+".yaml"), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, RemotesFileName+".yaml"), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, LockFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom remote lock"},
+		{Rel: filepath.Join(AppDirName, GitignoreFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, ContentDir), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, ProfilesDir), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, AllowedSignersFileName), Tier: TierCommitted},

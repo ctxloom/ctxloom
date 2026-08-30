@@ -2,9 +2,13 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // worktreeBase is the worktree-in-container base: the {Workspace: worktree} ×
@@ -84,18 +88,95 @@ func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID strin
 	return wt.dir, wt.Cleanup, nil
 }
 
-// mountBase mirrors the checkout's git common dir identical-path. The worktree's
-// .git is ALWAYS a pointer file, so the mirror is unconditional (unlike the host
-// base's pointer-only mirror). The mapping creates nothing host-side, hence the
-// nil cleanup; a failure here leaves the checkout for the workspace to tear down,
+// mountBase mirrors the checkout's git common dir identical-path, and delivers
+// the project's config tree into the checkout. The worktree's .git is ALWAYS a
+// pointer file, so the git mirror is unconditional (unlike the host base's
+// pointer-only mirror). The mapping creates nothing host-side but the config
+// mountpoint INSIDE the ephemeral checkout, which dies with it, hence the nil
+// cleanup; a failure here leaves the checkout for the workspace to tear down,
 // which lets the chain retry as a bare host worktree where git resolves natively
 // (a Tier-0 non-issue).
-func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, dir, _ string, _ engineContainerSpec, _ git.Git) ([]Mount, func() error, error) {
+func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir, _ string, _ engineContainerSpec, _ git.Git) ([]Mount, func() error, error) {
 	gitMount, err := gitCommonDirMount(ctx, rt, b.wt.git, dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	return []Mount{gitMount}, nil, nil
+	cfgMount, ok, err := projectConfigMount(rt, projectDir, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return []Mount{gitMount}, nil, nil
+	}
+	return []Mount{gitMount, cfgMount}, nil, nil
+}
+
+// projectConfigMount delivers the LIVE project's .ctxloom tree into a worktree
+// cell, read-only, at the cell's own identical relative path.
+//
+// WHY THIS EXISTS. A cell's cwd is a fresh `git worktree` checkout, so it holds
+// only COMMITTED files. A project whose .ctxloom is gitignored — which is
+// ordinary; it holds local state — therefore produces a checkout with no config
+// at all, and the ctxloom running INSIDE the container walks up from its cwd,
+// finds none, and refuses to launch (config.worktreeSignpost's fatal finding,
+// exit 3). The plain container base never hits this because its cwd IS the live
+// project, gitignored files included; only the worktree base crosses a boundary
+// that drops them. Delivering the tree is what makes the two bases agree.
+//
+// It also puts worktreeSignpost back inside its own design premise. That check
+// speaks to a HUMAN who walked into a linked worktree by hand, and both remedies
+// it offers say so ("run ctxloom from the main worktree", "`ctxloom init` here").
+// Neither is followable by a cell: the caller ASKED for the worktree, and "here"
+// is an ephemeral checkout about to be torn down. A refusal whose remedy the
+// reader cannot take is a dead end, so the fix is to stop the premise being
+// violated rather than to reword the refusal.
+//
+// READ-ONLY, deliberately. The worktree axis promises the live project's files
+// are not the cell's to change, and a read-write delivery would quietly punch a
+// hole straight through that promise into the one tree the user actually keeps.
+// Nothing legitimate writes there from a cell: the worktree axis homes its
+// instance state under ~/.ctxloom/sessions/<harp>/ephemeral (CopyAmbient's D8
+// ruling), not in the project, so a write here would be the bug, not the need.
+//
+// A checkout carrying its OWN committed .ctxloom is left alone — no mount, no
+// shadowing. That is not politeness, it is the same precedence worktreeSignpost
+// already implements (its doc: own .ctxloom always wins, no further worktree
+// inspection); overriding it would make a deliberately separate project silently
+// adopt its parent's config.
+func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (Mount, bool, error) {
+	target := filepath.Join(worktreeDir, paths.AppDirName)
+	switch _, err := os.Stat(target); {
+	case err == nil:
+		return Mount{}, false, nil // the checkout's own config wins
+	case !errors.Is(err, os.ErrNotExist):
+		// Unreadable is NOT absent: answering "deliver it" would shadow a config
+		// that may be there, and answering "skip" would strand the cell without
+		// one. Fail so the chain degrades loudly instead of guessing.
+		return Mount{}, false, fmt.Errorf("container-worktree: reading %s in the worktree: %w", paths.AppDirName, err)
+	}
+	source := filepath.Join(projectDir, paths.AppDirName)
+	info, err := os.Stat(source)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// The project genuinely has no config. Nothing to deliver, and the
+		// in-container refusal that follows is then CORRECT and about the
+		// project itself, not an artefact of the worktree boundary.
+		return Mount{}, false, nil
+	case err != nil:
+		return Mount{}, false, fmt.Errorf("container-worktree: reading the project %s: %w", paths.AppDirName, err)
+	case !info.IsDir():
+		return Mount{}, false, nil
+	}
+	// Pre-create the mountpoint as the invoking user, for the reason
+	// containerConfigOverlay spells out: a target the daemon has to create is
+	// created as ROOT under a rootful daemon. Harmless in the checkout itself
+	// (it is torn down), but it would be a root-owned directory the host-side
+	// WIP-safe teardown then cannot remove. Empty and untracked, so git never
+	// reports it and the teardown stays WIP-safe.
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return Mount{}, false, fmt.Errorf("container-worktree: creating the %s mountpoint: %w", paths.AppDirName, err)
+	}
+	return rt.Expose(source, target, true), true, nil
 }
 
 // NewContainerWorktreeFor builds the worktree-in-container policy for a REGISTERED

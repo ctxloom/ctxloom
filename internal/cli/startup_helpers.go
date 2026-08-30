@@ -58,7 +58,13 @@ const exitCodeRefused = 2
 // distinct from 1 (ordinary command errors) and from the wrapped LLM's own
 // exit codes on the happy path, so callers/scripts can tell "ctxloom refused
 // to launch over collected findings" apart from everything else.
-const exitCodeFatalFindings = 3
+//
+// Defined by strictness, which owns the fatal-vs-warn decision this status
+// reports. It is not only written here: an in-container ctxloom's refusal
+// reaches the host process as this status and nothing else, so the isolation
+// layer READS the same constant to tell a config refusal apart from a
+// transport fault. Two literals would let those two sides drift silently.
+const exitCodeFatalFindings = strictness.ExitCodeFatalFindings
 
 // loadConfigOrFallback loads ctxloom config via loader, falling back to a
 // minimal config rooted at .ctxloom when loading fails. The fallback path

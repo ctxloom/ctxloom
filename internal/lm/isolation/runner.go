@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/go-plugin/runner"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // containerRemoveTimeout bounds our OWN teardown: the go-plugin fork calls Kill
@@ -154,13 +155,50 @@ func (r *containerRunner) Name() string { return r.name }
 // it via --name).
 func (r *containerRunner) ID() string { return r.name }
 
-// Diagnose returns best-effort help when the plugin failed to negotiate — almost
-// always a missing image, an unrunnable in-container binary, or a socket-mount
-// permission problem.
+// Diagnose returns best-effort help when the plugin failed to negotiate.
+//
+// The container's EXIT STATUS is consulted first, because the most misleading
+// failure this type can report is one that is not a transport fault at all: the
+// ctxloom INSIDE the container reaching its own startup gate and refusing over a
+// fatal config finding. That refusal crosses the boundary as nothing but a
+// process status (its rendered finding goes to the container's stderr, which
+// go-plugin forwards to the logger, not to the caller's error), so a fixed
+// "check the image exists / the socket dir is bind-mounted" string sent every
+// reader hunting a transport bug for a configuration problem. Naming the
+// refusal — and the flag that overrides it — is the whole point.
+//
+// Only the go-plugin-handshake wording is kept for the case that genuinely is
+// one: no status available, or an exit that carries no meaning of ours.
 func (r *containerRunner) Diagnose(_ context.Context) string {
-	return fmt.Sprintf("plugin container %q (%s) did not negotiate the go-plugin handshake: "+
-		"check the image exists, its ctxloom is executable, and the socket dir is bind-mounted",
-		r.name, r.runtime.Name())
+	lead := fmt.Sprintf("plugin container %q (%s)", r.name, r.runtime.Name())
+	code, ok := r.exitStatus()
+	switch {
+	case ok && code == strictness.ExitCodeFatalFindings:
+		return lead + fmt.Sprintf(" exited %d before the handshake: the ctxloom INSIDE the container"+
+			" REFUSED TO START over a fatal startup finding (broken config, an unresolvable profile"+
+			" or bundle) — a configuration refusal, not a transport fault."+
+			" The finding is on the container's stderr above and names its own remedy;"+
+			" re-run with --degraded to downgrade ordinary config findings to warnings and launch anyway.", code)
+	case ok && code != 0:
+		return lead + fmt.Sprintf(" exited %d before the handshake: the in-container ctxloom died"+
+			" rather than serving the plugin. Check the container's stderr above, then that the image"+
+			" exists and its ctxloom is executable.", code)
+	}
+	return lead + " did not negotiate the go-plugin handshake: " +
+		"check the image exists, its ctxloom is executable, and the socket dir is bind-mounted"
+}
+
+// exitStatus reports the container process's exit code, and whether one is
+// available yet. Absent until the process is reaped: go-plugin calls Diagnose on
+// a handshake failure, which USUALLY means the process already died, but a
+// handshake that failed while the container is still running (a hang, a
+// truncated line) reaps nothing — hence the ok, never a bare -1 that would read
+// as a real status and get reported as one.
+func (r *containerRunner) exitStatus() (int, bool) {
+	if r.cmd == nil || r.cmd.ProcessState == nil {
+		return 0, false
+	}
+	return r.cmd.ProcessState.ExitCode(), true
 }
 
 // containerAddrTranslator maps unix-socket paths between the container namespace

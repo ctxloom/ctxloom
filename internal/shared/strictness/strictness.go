@@ -33,6 +33,18 @@ import (
 // binary name is fixed (clidiag stays parameterized for the companion binaries).
 const prog = "ctxloom"
 
+// ExitCodeFatalFindings is the process exit status of a strict-mode startup
+// abort — the run refused to launch over the findings collected here. It lives
+// in this package because this package owns the fatal-vs-warn decision; the CLI
+// binds its exit-code table to it, and a READER of that status binds to it too.
+//
+// The reader is what makes it exported rather than a CLI-local literal: when
+// ctxloom runs as a plugin INSIDE a container, its refusal reaches the host only
+// as a process status, and the host must be able to tell "the inner ctxloom
+// refused over config" from a genuine transport fault. See
+// isolation.containerRunner.Diagnose, which reads it to say so.
+const ExitCodeFatalFindings = 3
+
 // Class buckets a fatal finding by the per-class strictness table, so the
 // abort listing reads as a diagnosis ("[config] ...", "[sync] ...") rather
 // than an undifferentiated wall of text.

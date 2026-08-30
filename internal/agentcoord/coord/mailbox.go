@@ -153,7 +153,14 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	ch := c.chans[to]
 	rt := c.byHarp[to]
 	parked := ch != nil && ch.parked
-	pushable := parked || (ch != nil && rt != nil && rt.viaStartRun)
+	// The session owner is the third push target, and it is not an exception
+	// to the parked/migrated rule so much as the case that rule does not
+	// cover: that runner hosts no engine, so there is NO turn boundary behind
+	// which this delivery could otherwise happen. Withholding the push here
+	// does not defer the delivery, it cancels it — the push is what fires the
+	// terminal nudge, so mail never pushed is a wake that never happens.
+	termDeliver := ch != nil && ch.caps[CapTerminalDelivery]
+	pushable := parked || (ch != nil && rt != nil && rt.viaStartRun) || termDeliver
 	c.mu.Unlock()
 	if pushable {
 		c.pushMail(to)

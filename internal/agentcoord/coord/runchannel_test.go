@@ -809,3 +809,70 @@ func TestPushMail_TerminalDeliveryIsAPushTargetWhileUnparked(t *testing.T) {
 			"an unparked child's turn-boundary drain owns the delivery; pushing would strand it in the recv buffer")
 	})
 }
+
+// TestQueueMail_TerminalDeliveryOwnerIsPushedFromTheMailPath pins the SAME
+// owner-push rule as its pushMail sibling above, but through the path
+// production actually takes.
+//
+// The distinction is the whole point. queueMail decides pushability itself and
+// only calls pushMail once it has already said yes, so pushMail's own guard is
+// never reached from here — a terminal-delivery target present only there is
+// dark in production while its direct-call test stays green. That is not
+// hypothetical: it shipped, and a session owner's mail sat queued until the
+// human happened to type something, because the wake that was supposed to
+// prompt them only fired once they already had.
+//
+// So this test registers the channel BEFORE queueing and never calls pushMail:
+// the frame has to arrive because the mail path chose to push it.
+func TestQueueMail_TerminalDeliveryOwnerIsPushedFromTheMailPath(t *testing.T) {
+	queue := func(t *testing.T, harp string, caps map[string]bool) *agentcoordpb.CoordinatorFrame {
+		t.Helper()
+		c := newTestCoordinator(t, researcherSpawner(), nil)
+
+		_, cancel := context.WithCancel(context.Background())
+		ch := &runChan{
+			role:   harp,
+			parked: false, // never parked: nothing on this runner ever polls on its own
+			send:   make(chan *agentcoordpb.CoordinatorFrame, 1),
+			cancel: cancel,
+			caps:   caps,
+		}
+		c.mu.Lock()
+		c.chans[harp] = ch
+		c.mu.Unlock()
+		t.Cleanup(func() {
+			c.mu.Lock()
+			delete(c.chans, harp)
+			c.mu.Unlock()
+		})
+
+		// The registration above is the only setup; no pushMail call follows.
+		msgID, _, err := c.queueMail(ownerIdentity().Harp, harp, "report", "FINAL: the child finished")
+		require.NoError(t, err)
+
+		select {
+		case frame := <-ch.send:
+			require.Equal(t, msgID, frame.GetNotice().GetPeerMessage().GetMessageId(),
+				"the pushed notice must carry the queued message")
+			return frame
+		default:
+			return nil
+		}
+	}
+
+	t.Run("advertised: the mail path itself pushes the unparked owner", func(t *testing.T) {
+		resetStrictness(t)
+		frame := queue(t, "session-owner-driving-a-terminal",
+			map[string]bool{CapPeerMessaging: true, CapTerminalDelivery: true})
+		assert.NotNil(t, frame,
+			"queueMail must push a terminal-delivery runner while unparked: it has no turn boundary, so the push IS the wake")
+	})
+
+	t.Run("not advertised: the unparked child is still left to its turn boundary", func(t *testing.T) {
+		resetStrictness(t)
+		frame := queue(t, "ordinary-unparked-child",
+			map[string]bool{CapPeerMessaging: true})
+		assert.Nil(t, frame,
+			"an unparked child's turn-boundary drain still owns the delivery; the new target must not widen to every child")
+	})
+}

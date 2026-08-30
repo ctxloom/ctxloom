@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -40,8 +41,37 @@ type containerRunner struct {
 	stdout io.ReadCloser
 	stderr io.ReadCloser
 
+	// waited is CLOSED by Wait once the container process has been reaped, and
+	// closing it is what publishes exitCode to any other goroutine. The
+	// synchronisation is not defensive: go-plugin calls Wait on a goroutine of
+	// its own and Diagnose on the caller's, so cmd.ProcessState is written by
+	// one and would be read by the other. Reading it directly is a DATA RACE
+	// (confirmed by the race detector, not reasoned about) — exec.Cmd populates
+	// ProcessState inside Wait with no synchronisation of its own.
+	waited   chan struct{}
+	waitOnce sync.Once
+	exitCode int
+
+	// exitWait bounds how long Diagnose will wait for that reap. It has to wait
+	// at all because of go-plugin's ORDERING: the stdout scanner closes its line
+	// channel BEFORE releasing the wait-group that gates the Wait goroutine, and
+	// Diagnose is called from the receive on that closed channel. So Diagnose
+	// reliably runs BEFORE the process is reaped, and an opportunistic read
+	// would report "no status" precisely when a status exists. The bound is what
+	// keeps that from becoming a hang when the handshake failed with the
+	// container still ALIVE (a garbage line, a truncated one), where nothing
+	// will ever reap it. Zero in a bare literal, so a test that never starts a
+	// process does not pay it.
+	exitWait time.Duration
+
 	containerAddrTranslator
 }
+
+// diagnoseExitWait bounds Diagnose's wait for the container's exit status.
+// Generous relative to what it measures — the process has already written EOF
+// to stdout, so its reap is imminent, not slow — and paid only on a path that
+// has already failed to start a plugin.
+const diagnoseExitWait = 3 * time.Second
 
 // Ensure containerRunner satisfies the go-plugin runner interface.
 var _ runner.Runner = (*containerRunner)(nil)
@@ -75,11 +105,13 @@ func newContainerRunner(rt Runtime, spec RunSpec, hostSocketDir, containerSocket
 		return nil, fmt.Errorf("container stderr pipe: %w", err)
 	}
 	return &containerRunner{
-		runtime: rt,
-		name:    spec.Name,
-		cmd:     cmd,
-		stdout:  stdout,
-		stderr:  stderr,
+		runtime:  rt,
+		name:     spec.Name,
+		cmd:      cmd,
+		stdout:   stdout,
+		stderr:   stderr,
+		waited:   make(chan struct{}),
+		exitWait: diagnoseExitWait,
 		containerAddrTranslator: containerAddrTranslator{
 			hostSocketDir:      hostSocketDir,
 			containerSocketDir: containerSocketDir,
@@ -95,8 +127,20 @@ func (r *containerRunner) Start(_ context.Context) error {
 	return nil
 }
 
-// Wait blocks until the container process exits.
-func (r *containerRunner) Wait(_ context.Context) error { return r.cmd.Wait() }
+// Wait blocks until the container process exits, then publishes its exit status
+// for Diagnose. This is the ONLY place the status is read: cmd.Wait() is what
+// writes ProcessState, so reading it here — before the close that hands it to
+// other goroutines — is the one ordering in which that read is not a race.
+func (r *containerRunner) Wait(_ context.Context) error {
+	err := r.cmd.Wait()
+	r.waitOnce.Do(func() {
+		if r.cmd.ProcessState != nil {
+			r.exitCode = r.cmd.ProcessState.ExitCode()
+		}
+		close(r.waited)
+	})
+	return err
+}
 
 // Kill tears the container down: a name-targeted force-remove (stops + removes the
 // container, which also ends the --rm `run` process), under OUR own timeout so a
@@ -188,17 +232,29 @@ func (r *containerRunner) Diagnose(_ context.Context) string {
 		"check the image exists, its ctxloom is executable, and the socket dir is bind-mounted"
 }
 
-// exitStatus reports the container process's exit code, and whether one is
-// available yet. Absent until the process is reaped: go-plugin calls Diagnose on
-// a handshake failure, which USUALLY means the process already died, but a
-// handshake that failed while the container is still running (a hang, a
-// truncated line) reaps nothing — hence the ok, never a bare -1 that would read
-// as a real status and get reported as one.
+// exitStatus reports the container process's exit code, waiting up to r.exitWait
+// for the reap, and whether one became available. The ok is never collapsed into
+// a bare -1: that reads as a real status and would be reported as one.
+//
+// A container still RUNNING is the case the bound exists for — nothing will
+// reap it, so the wait must expire rather than block go-plugin's startup.
 func (r *containerRunner) exitStatus() (int, bool) {
-	if r.cmd == nil || r.cmd.ProcessState == nil {
+	if r.waited == nil {
 		return 0, false
 	}
-	return r.cmd.ProcessState.ExitCode(), true
+	select {
+	case <-r.waited:
+		return r.exitCode, true
+	default:
+	}
+	timer := time.NewTimer(r.exitWait)
+	defer timer.Stop()
+	select {
+	case <-r.waited:
+		return r.exitCode, true
+	case <-timer.C:
+		return 0, false
+	}
 }
 
 // containerAddrTranslator maps unix-socket paths between the container namespace

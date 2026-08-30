@@ -27,6 +27,11 @@ const (
 	// factRunHarness binds the run to its harness-native session id (the
 	// resume handle RunExited may carry).
 	factRunHarness = "run.harness"
+	// factRunContainer binds a container-runtime run to its resolved
+	// container name (RunnerHandle.Name) once StartRunner returns — the
+	// name cannot be known at enqueue, only after spawn. Never posted for a
+	// host-runtime run.
+	factRunContainer = "run.container"
 	// factRunResumable records the run engine's LIVE resume capability (ACP's
 	// initialize-time loadSession bit, surfaced via ChatSessionInfo.Resumable)
 	// — the one-shot resume gate's live half (one-shot-resume plan, Slice 4 /
@@ -162,6 +167,12 @@ type runEnded struct {
 type runHarness struct {
 	RunID            string `json:"run_id"`
 	HarnessSessionID string `json:"harness_session_id"`
+}
+
+// runContainer is factRunContainer's payload.
+type runContainer struct {
+	RunID         string `json:"run_id"`
+	ContainerName string `json:"container_name"`
 }
 
 // runResumable is factRunResumable's payload.

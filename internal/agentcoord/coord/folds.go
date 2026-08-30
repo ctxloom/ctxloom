@@ -66,6 +66,12 @@ type RunRecord struct {
 	// fixed at enqueue — mirrors Ladder; see runEnqueued.MCPServers. Never
 	// command/args/env.
 	MCPServers []string
+	// ContainerName is the resolved container name (factRunContainer) for a
+	// container-runtime run; empty for host runtime. Learned only after
+	// spawn, so — unlike Permission/MCPServers — it is never set at
+	// enqueue. Only meaningful while the run is live: the container is
+	// force-removed on teardown (isolation.AttachedContainer.Close).
+	ContainerName string
 }
 
 // runsFold is the RUN REGISTRY fold: every run attempt by run_id, the
@@ -104,6 +110,8 @@ func (f *runsFold) apply(fact Fact) {
 		applyDecoded(fact, f.applyEnded)
 	case factRunHarness:
 		applyDecoded(fact, f.applyHarness)
+	case factRunContainer:
+		applyDecoded(fact, f.applyContainer)
 	case factRunResumable:
 		applyDecoded(fact, f.applyResumable)
 	case factRunReaped:
@@ -176,6 +184,12 @@ func (f *runsFold) applyEnded(p runEnded, at time.Time) {
 func (f *runsFold) applyHarness(p runHarness, _ time.Time) {
 	if r := f.runs[p.RunID]; r != nil {
 		r.HarnessSessionID = p.HarnessSessionID
+	}
+}
+
+func (f *runsFold) applyContainer(p runContainer, _ time.Time) {
+	if r := f.runs[p.RunID]; r != nil {
+		r.ContainerName = p.ContainerName
 	}
 }
 

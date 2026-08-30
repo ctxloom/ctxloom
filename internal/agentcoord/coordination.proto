@@ -561,6 +561,13 @@ message AgentIdentity {
   string model = 5;
   string role = 6;           // coordinator-assigned role, e.g. "reviewer"
   string runner_id = 7;      // which runner hosts this agent's process
+  // Resolved container name when this agent's engine runs under container
+  // isolation; empty for host runtime. Randomly suffixed at spawn and
+  // force-removed on teardown, so it cannot be derived from agent_id and is
+  // only meaningful while the run is live -- it is the handle for
+  // `docker logs -f` / `docker attach` when no terminal multiplexer is
+  // available.
+  string container_name = 8;
 }
 
 message HelloAck {

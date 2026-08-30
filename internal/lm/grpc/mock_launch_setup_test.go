@@ -94,7 +94,7 @@ func TestRunTurn_MockDeliversContextSurfaceDuringTheTurn(t *testing.T) {
 		// (backends.AssembleManagedConfig, via cli/run.go's buildRunRequest);
 		// the cells seam short-circuits on a nil one.
 		ManagedConfig: pb.ManagedConfigToProto(&agent.ManagedConfig{Hooks: &wire.HooksConfig{}}),
-	}, stdin, &out, &out, nil, nil)
+	}, stdin, nil, &out, &out, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -136,7 +136,7 @@ func TestRunTurn_MockSkipSetup_DeliversNothing(t *testing.T) {
 			Env:       map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
 		},
 		ManagedConfig: pb.ManagedConfigToProto(&agent.ManagedConfig{Hooks: &wire.HooksConfig{}}),
-	}, stdin, &out, &out, nil, nil)
+	}, stdin, nil, &out, &out, nil, nil)
 	require.NoError(t, err)
 
 	require.True(t, stdin.ran, "the observation never ran; the assertion below would be vacuous")

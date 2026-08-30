@@ -59,7 +59,7 @@ func TestRunInteractive_SimpleCommand(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, &stdout, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -100,7 +100,7 @@ func TestRunInteractive_ExitCode(t *testing.T) {
 			ctx := context.Background()
 			cmd := exec.Command(tt.command, tt.args...)
 
-			exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
+			exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedCode, exitCode)
@@ -128,7 +128,7 @@ func TestRunInteractive_ContextCancellation(t *testing.T) {
 		err      error
 	})
 	go func() {
-		exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 		resultCh <- struct {
 			exitCode int
 			err      error
@@ -165,7 +165,7 @@ func TestRunInteractive_ContextTimeout(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 30")
 
 	start := time.Now()
-	exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 	elapsed := time.Since(start)
 
 	// Should complete quickly (within ~500ms, not 30 seconds)
@@ -208,7 +208,7 @@ func TestRunInteractive_SizesPTYBeforeChildStarts(t *testing.T) {
 	}()
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, resize)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, &stdout, resize)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, strings.TrimSpace(stdout.String()), "55 111",
@@ -243,7 +243,7 @@ func TestRunInteractive_SignalThroughPTY(t *testing.T) {
 		err      error
 	})
 	go func() {
-		exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, nil, &stdout, nil)
 		resultCh <- struct {
 			exitCode int
 			err      error
@@ -282,7 +282,7 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "echo line1; echo line2; echo line3")
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, &stdout, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -329,7 +329,7 @@ func TestRunInteractive_StdoutWriteFailureReportsError(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	dst := &failingWriter{n: 0, err: errors.New("simulated broken pipe")}
-	exitCode, err := RunInteractive(ctx, cmd, nil, dst, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, dst, nil)
 
 	require.Error(t, err, "a stdout delivery failure must not be reported as success")
 	assert.Contains(t, err.Error(), "output delivery failed")
@@ -348,7 +348,7 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 0.1")
 
 	stdinR, stdinW := io.Pipe()
-	exitCode, err := RunInteractive(ctx, cmd, stdinR, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, stdinR, func() { _ = stdinR.Close() }, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 
@@ -373,6 +373,93 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 	}
 }
 
+// wrappedStdin hides a reader's concrete type behind a plain io.Reader, the
+// way coord's terminal-wake nudgeReader does in production once llm_serve.go
+// arms wrapStreams. It exists to deny RunInteractive the one thing the old
+// cleanup depended on — that stdin IS an *io.PipeReader — without dragging a
+// dependency on internal/agentcoord into the substrate.
+type wrappedStdin struct{ r io.Reader }
+
+func (w wrappedStdin) Read(p []byte) (int, error) { return w.r.Read(p) }
+
+// TestRunInteractive_ClosesWrappedStdinWhenCopierExits is the sibling of
+// TestRunInteractive_ClosesPipeReaderWhenCopierExits for the case that
+// actually ships. The wedge it guards is identical — a Write into a pipe
+// nobody reads parks forever, and context cancellation does not unblock it —
+// but the reader handed to RunInteractive is WRAPPED, so the type assertion
+// the cleanup used to be gated on cannot hold and the close silently never
+// ran. The caller that created the pipe supplies the cleanup explicitly, so
+// there is no longer any reader identity for RunInteractive to guess at.
+func TestRunInteractive_ClosesWrappedStdinWhenCopierExits(t *testing.T) {
+	ctx := context.Background()
+	cmd := exec.Command("sh", "-c", "sleep 0.1")
+
+	stdinR, stdinW := io.Pipe()
+	exitCode, err := RunInteractive(ctx, cmd, wrappedStdin{stdinR}, func() { _ = stdinR.Close() }, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+
+	// Same probe as the *io.PipeReader case: the first write is consumed by
+	// the copier's final parked Read, and every later write must fail fast
+	// with ErrClosedPipe rather than parking the server's stream pump forever.
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			if _, werr := stdinW.Write([]byte("x")); werr != nil {
+				errCh <- werr
+				return
+			}
+		}
+	}()
+	select {
+	case werr := <-errCh:
+		assert.ErrorIs(t, werr, io.ErrClosedPipe)
+	case <-time.After(5 * time.Second):
+		t.Fatal("stdinW.Write still blocked after the run ended: the cleanup for a wrapped stdin never ran, " +
+			"so the server's stream pump wedges and drops every later resize")
+	}
+}
+
+// TestRunInteractive_ReleasesStdinWhenCopierStopsNotWhenRunEnds pins the
+// reason the stdin copier carries its OWN release in addition to
+// RunInteractive's deferred one. The two are not redundant: RunInteractive's
+// defer cannot fire until the child exits, so for a session whose stdin ends
+// early — the wire half-closing while a long interactive turn keeps running —
+// only the copier's release lets the writer side learn that nobody is reading
+// anymore. Without it the wire writer stays parked for the rest of the run.
+//
+// The child deliberately outlives stdin by a wide margin, so "released when
+// the copier stopped" and "released when the run ended" are far enough apart
+// that the assertion cannot pass by coincidence.
+func TestRunInteractive_ReleasesStdinWhenCopierStopsNotWhenRunEnds(t *testing.T) {
+	released := make(chan struct{})
+	// Ends at once (EOF on first Read), wrapped so no type assertion can see it.
+	stdin := wrappedStdin{strings.NewReader("")}
+	cmd := exec.Command("sh", "-c", "sleep 3")
+
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		_, _ = RunInteractive(context.Background(), cmd, stdin, func() { close(released) }, nil, nil)
+	}()
+
+	select {
+	case <-released:
+		// Fixture guard: the run must still be going, or this proves nothing
+		// about WHEN the release happened.
+		select {
+		case <-runDone:
+			t.Fatal("the run finished before the release was observed; this test can no longer tell " +
+				"the copier's release apart from RunInteractive's deferred one")
+		default:
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stdin was not released when the copier stopped reading: a wire writer would stay " +
+			"parked for the rest of the run")
+	}
+	<-runDone
+}
+
 // TestRunInteractive_ChildStderrArrivesOnStdoutWriter pins the invariant that
 // makes a separate stderr writer meaningless here: a pty gives the child ONE
 // stream. The child's fd 1 and fd 2 are both the pty slave, so the master
@@ -388,7 +475,7 @@ func TestRunInteractive_ChildStderrArrivesOnStdoutWriter(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'to-stdout\\n'; printf 'to-stderr\\n' 1>&2; sleep 0.1")
 
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &out, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, &out, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -416,7 +503,7 @@ func TestRunInteractive_HandBuiltCmdWithoutArgsRuns(t *testing.T) {
 	var exitCode int
 	var runErr error
 	require.NotPanics(t, func() {
-		exitCode, runErr = RunInteractive(context.Background(), cmd, nil, nil, nil)
+		exitCode, runErr = RunInteractive(context.Background(), cmd, nil, nil, nil, nil)
 	}, "a *exec.Cmd with no Args must not panic the runner")
 	require.NoError(t, runErr)
 	assert.Equal(t, 0, exitCode)
@@ -436,7 +523,7 @@ func TestRunInteractive_Argv0ComesFromPath(t *testing.T) {
 	require.NotEqual(t, cmd.Args[0], cmd.Path, "the fixture needs Path and Args[0] to differ")
 
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, &out, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, out.String(), "argv0="+cmd.Path,
@@ -468,7 +555,7 @@ func TestRunInteractive_InitialResizeFailureIsReported(t *testing.T) {
 
 	cmd := exec.Command("sh", "-c", "printf 'child ran\\n'; sleep 0.1")
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, resize)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, &out, resize)
 
 	require.Error(t, err, "a failed pre-start resize must not be reported as a successful run")
 	assert.Contains(t, err.Error(), "failed to size pty before starting the child")
@@ -498,7 +585,7 @@ func TestRunInteractive_LaterResizeFailureIsReported(t *testing.T) {
 	resize <- agent.WindowSize{Rows: 24, Cols: 80}
 
 	cmd := exec.Command("sh", "-c", "sleep 0.3")
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, resize)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, resize)
 
 	require.Error(t, err, "a resize that stopped reaching the pty must not be reported as success")
 	assert.Contains(t, err.Error(), "terminal resize failed")
@@ -527,7 +614,7 @@ func TestRunInteractive_LateResizeOnClosedPTYIsNotAnError(t *testing.T) {
 	resize <- agent.WindowSize{Rows: 24, Cols: 80}
 
 	cmd := exec.Command("sh", "-c", "sleep 0.3")
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, resize)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, resize)
 
 	require.NoError(t, err, "our own close racing a queued resize is expected fallout, not a defect")
 	assert.Equal(t, 0, exitCode)
@@ -559,7 +646,7 @@ func TestRunInteractive_ClosesPTYExactlyOnce(t *testing.T) {
 
 	cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, &out, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Equal(t, int32(1), closes.Load(), "the pty master must be closed exactly once per run")
@@ -576,7 +663,7 @@ func TestRunInteractive_NonBenignCloseFailureIsReported(t *testing.T) {
 			return fs.ErrClosed
 		})
 		cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
-		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Equal(t, 0, exitCode)
 	})
@@ -587,7 +674,7 @@ func TestRunInteractive_NonBenignCloseFailureIsReported(t *testing.T) {
 			return errors.New("simulated close failure")
 		})
 		cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
-		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pty close failed")
 		assert.Contains(t, err.Error(), "simulated close failure")
@@ -618,10 +705,90 @@ func TestRunInteractive_SignalKilledChildYields128PlusSignum(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := exec.Command("sh", "-c", "kill -"+tt.signal+" $$; sleep 5")
-			exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+			exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedCode, exitCode,
 				"a child killed by SIG%s must report 128+signum, not the raw -1 os/exec hands back", tt.signal)
 		})
 	}
+}
+
+// closeRecorder is a reader that COUNTS Close calls without acting on them, so
+// a test can assert that nobody downstream closed it.
+type closeRecorder struct {
+	r      io.Reader
+	closes atomic.Int32
+}
+
+func (c *closeRecorder) Read(p []byte) (int, error) { return c.r.Read(p) }
+
+func (c *closeRecorder) Close() error {
+	c.closes.Add(1)
+	return nil
+}
+
+// TestRunInteractive_NilCleanupLeavesStdinAlone pins the NEGATIVE half of the
+// cleanup contract: a nil stdinCleanup means the caller still owns the reader,
+// and RunInteractive must leave it open.
+//
+// This is not a defensive nil check. It is the contract `ctxloom llm turn`
+// runs on: that caller hands over the process's real os.Stdin — the terminal,
+// shared with everything else in the process and alive for as long as the
+// process is. Closing it from down here would take the terminal away from the
+// rest of the command. nil is how a caller says "I only lent you this."
+//
+// The protection used to be accidental. The old code closed stdin only when it
+// type-asserted to *io.PipeReader, and os.Stdin simply is not one — so a real
+// terminal was spared by a coincidence of dynamic types, not by anyone
+// deciding it should be. Making the decision explicit is the entire point of
+// the parameter, and this test is what stops the accident from being restored
+// as if it were a fix.
+//
+// Both subtests describe a reader some plausible "improvement" would close:
+// the first restores the old *io.PipeReader assertion, the second widens the
+// guard to io.Closer. Either one turns this red.
+func TestRunInteractive_NilCleanupLeavesStdinAlone(t *testing.T) {
+	t.Run("a *io.PipeReader is left open", func(t *testing.T) {
+		stdinR, stdinW := io.Pipe()
+		t.Cleanup(func() { _ = stdinW.Close() })
+
+		cmd := exec.Command("sh", "-c", "sleep 0.1")
+		exitCode, err := RunInteractive(context.Background(), cmd, stdinR, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, 0, exitCode)
+
+		// Probe from the WRITE end, never the read end. The run's stdin copier
+		// is still parked in stdinR.Read — nothing released it, which is
+		// exactly what a nil cleanup asks for — so a read here would race that
+		// goroutine for the bytes and hang when it wins. A write cannot race
+		// it: a CLOSED read end fails the write instantly with ErrClosedPipe,
+		// and an open one has that parked copier there to drain it. Either way
+		// the answer arrives immediately, and it is positive evidence rather
+		// than a wait.
+		werr := make(chan error, 1)
+		go func() {
+			_, e := stdinW.Write([]byte("still open"))
+			werr <- e
+		}()
+		select {
+		case e := <-werr:
+			require.NotErrorIs(t, e, io.ErrClosedPipe,
+				"stdin was closed despite a nil cleanup; on the `ctxloom llm turn` path this same reader is the process's real terminal")
+			require.NoError(t, e)
+		case <-time.After(5 * time.Second):
+			t.Fatal("the write was neither refused nor consumed, so the state of the read end is unknown and this test proves nothing")
+		}
+	})
+
+	t.Run("an io.Closer is left open", func(t *testing.T) {
+		stdin := &closeRecorder{r: strings.NewReader("")}
+
+		cmd := exec.Command("sh", "-c", "sleep 0.1")
+		exitCode, err := RunInteractive(context.Background(), cmd, stdin, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, 0, exitCode)
+
+		assert.Equal(t, int32(0), stdin.closes.Load(),
+			"stdin was Closed despite a nil cleanup: whether a reader may be closed is the CALLER's to state, never inferred from the fact that it happens to implement io.Closer")
+	})
 }

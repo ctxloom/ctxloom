@@ -23,8 +23,8 @@ import (
 // to mean anything — that is the whole content of this pin:
 //
 //   - the stdin copier, started only when stdin != nil. It parks in
-//     stdin.Read, which cannot observe close(done); RunInteractive's deferred
-//     Close of the *io.PipeReader is the only thing that unparks it.
+//     stdin.Read, which cannot observe close(done); running the caller's
+//     stdinCleanup is the only thing that unparks it.
 //   - the resize applier, started only when resize != nil. It selects on done.
 //
 // Passing nil for either argument means the corresponding goroutine is never
@@ -57,7 +57,7 @@ func TestRunInteractive_StdinGoroutineDoesNotLeak(t *testing.T) {
 	// idiom in TestRunInteractive_SimpleCommand).
 	cmd := exec.Command("sh", "-c", "stty size; read line; printf 'got %s\\n' \"$line\"; sleep 0.1")
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, stdinR, &out, resize)
+	exitCode, err := RunInteractive(context.Background(), cmd, stdinR, func() { _ = stdinR.Close() }, &out, resize)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 
@@ -69,13 +69,48 @@ func TestRunInteractive_StdinGoroutineDoesNotLeak(t *testing.T) {
 	require.Contains(t, out.String(), "got ping",
 		"the stdin copier must have started and delivered stdin into the pty")
 
-	// The copier may still be parked in stdinR.Read. RunInteractive's deferred
-	// Close of the *io.PipeReader is what must unpark it; the test deliberately
-	// does nothing to help, which is precisely the property being pinned.
+	// The copier may still be parked in stdinR.Read. Running the cleanup this
+	// caller supplied is what must unpark it; the test deliberately does
+	// nothing to help, which is precisely the property being pinned.
 	goleak.VerifyNone(t, ignore)
 
 	// Only now tidy the pipe's write end, so it can never have been the thing
 	// that unparked the copier.
+	_ = stdinW.Close()
+}
+
+// TestRunInteractive_WrappedStdinGoroutineDoesNotLeak is the leak half of the
+// same defect TestRunInteractive_ClosesWrappedStdinWhenCopierExits pins on the
+// wedge side. The sibling test above supplies a bare *io.PipeReader, which is
+// the one shape the old type-asserted cleanup could still see; production has
+// not looked like that since llm_serve.go began arming wrapStreams, and the
+// copier parked in Read then outlived RunInteractive forever.
+//
+// The same fixture guard applies: stdin must be non-nil and the child must be
+// shown to have RECEIVED a byte through it, or the copier goroutine was never
+// started and VerifyNone would be green over nothing.
+func TestRunInteractive_WrappedStdinGoroutineDoesNotLeak(t *testing.T) {
+	stdinR, stdinW := io.Pipe()
+	go func() { _, _ = stdinW.Write([]byte("ping\n")) }()
+
+	ignore := goleak.IgnoreCurrent()
+
+	cmd := exec.Command("sh", "-c", "read line; printf 'got %s\\n' \"$line\"; sleep 0.1")
+	var out bytes.Buffer
+	exitCode, err := RunInteractive(context.Background(), cmd, wrappedStdin{stdinR}, func() { _ = stdinR.Close() }, &out, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+
+	// Fixture guard: the copier demonstrably ran and delivered a byte. Without
+	// this the leak check below could pass because nothing was ever started.
+	require.Contains(t, out.String(), "got ping",
+		"the stdin copier must have started and delivered stdin into the pty")
+
+	// The copier is parked in a Read on the WRAPPED reader. Only the caller's
+	// explicit cleanup can unpark it — the test deliberately does nothing to
+	// help, which is the property being pinned.
+	goleak.VerifyNone(t, ignore)
+
 	_ = stdinW.Close()
 }
 
@@ -87,7 +122,7 @@ func TestRunInteractive_StdinGoroutineDoesNotLeak(t *testing.T) {
 func TestRunInteractive_BenignPTYCloseSwallowed(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'line one\\nline two\\n'; sleep 0.1")
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, &out, nil)
 	require.NoError(t, err, "benign PTY-close fallout must be swallowed via errors.Is")
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, out.String(), "line one")

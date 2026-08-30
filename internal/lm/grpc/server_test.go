@@ -330,9 +330,17 @@ func TestGRPCServer_Run_ExecuteErrorPropagates(t *testing.T) {
 }
 
 // stdinClosingBackend simulates the pty stdin copier exiting mid-run: Execute
-// consumes one stdin byte, closes the wire stdin (the io.PipeReader the
+// consumes one stdin byte, releases the wire stdin (the io.PipeReader the
 // server's stream pump writes into), then waits for a resize to prove the pump
 // kept draining Recv after the stdin write started failing.
+//
+// It releases by calling req.StdinCleanup, which is exactly what ptyrunner
+// does, and deliberately NOT by type-asserting req.Stdin to an io.Closer. That
+// distinction is the point: a backend that closed the reader itself would keep
+// this test green even if GRPCServer.Run stopped supplying a cleanup entirely,
+// so the assertion would cover the pump alone and never the wiring that feeds
+// it. Reaching through the real field is what makes a broken thread visible
+// here.
 type stdinClosingBackend struct {
 	fakeBackend
 	resize   agent.WindowSize
@@ -344,9 +352,10 @@ func (f *stdinClosingBackend) Execute(ctx context.Context, req *agent.ExecuteReq
 	if _, err := req.Stdin.Read(buf); err != nil {
 		return nil, fmt.Errorf("read stdin: %w", err)
 	}
-	if c, ok := req.Stdin.(io.Closer); ok {
-		_ = c.Close()
+	if req.StdinCleanup == nil {
+		return nil, errors.New("no StdinCleanup reached the backend: GRPCServer.Run owns the stdin pipe and must supply its release, or nothing can retire the wire stdin and the stream pump parks forever on the next write")
 	}
+	req.StdinCleanup()
 	select {
 	case ws, ok := <-req.Resize:
 		f.resize, f.resizeOK = ws, ok
@@ -357,9 +366,13 @@ func (f *stdinClosingBackend) Execute(ctx context.Context, req *agent.ExecuteReq
 }
 
 // TestGRPCServer_Run_ResizeStillFlowsAfterStdinPipeCloses is the regression
-// for the wedged-pump bug: once the pty's stdin copier closed the pipe reader,
-// the pump's next stdinW.Write must fail fast (not park forever) and the pump
-// must keep consuming Recv so resize messages still reach the pty.
+// for the wedged-pump bug: once the pty's stdin copier released the pipe
+// reader, the pump's next stdinW.Write must fail fast (not park forever) and
+// the pump must keep consuming Recv so resize messages still reach the pty.
+//
+// Because the backend releases through req.StdinCleanup, this also pins the
+// wiring: GRPCServer.Run must hand its own pipe's closer down the turn. Pass
+// nil there and this goes red rather than silently reverting to the wedge.
 func TestGRPCServer_Run_ResizeStillFlowsAfterStdinPipeCloses(t *testing.T) {
 	backend := &stdinClosingBackend{}
 	srv := &GRPCServer{Impl: backend}

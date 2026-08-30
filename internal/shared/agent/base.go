@@ -19,6 +19,14 @@ type LaunchSpec struct {
 	Env         []string // full environment (already merged via BuildEnv)
 	WorkDir     string
 	Interactive bool // true → allocate a pty so the child sees a terminal
+
+	// StdinCleanup releases whatever backs the stdin reader passed alongside
+	// this spec; see ExecuteRequest.StdinCleanup for the contract, and nil for
+	// a reader the caller still owns. It rides on the spec rather than on
+	// Launcher's parameter list so that adding it did not change the exported
+	// Launcher func type, which every launcher implementation would have had
+	// to adopt for a value only the interactive path uses.
+	StdinCleanup func()
 }
 
 // WindowSize is a terminal size for pty resize, carried from the frontend (which
@@ -139,29 +147,36 @@ func (b *BaseBackend) BuildEnv(reqEnv map[string]string) []string {
 // RunInteractive runs the backend's command in interactive mode: the injected
 // launcher allocates a pty and wires the frontend's stdin/resize (from the bidi
 // Run stream) into it. stdin/resize may be nil (e.g. a non-tty caller).
-func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdin io.Reader, stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
-	return b.run(ctx, args, env, true, stdin, stdout, stderr, resize)
+// stdinCleanup releases stdin once the pty's copier stops reading it; see
+// ExecuteRequest.StdinCleanup, and nil for a reader the caller still owns.
+func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
+	return b.run(ctx, args, env, true, stdin, stdinCleanup, stdout, stderr, resize)
 }
 
 // RunNonInteractive runs the backend's command without a pty (no resize). stdin
 // is the child's standard input — nil for a run that takes no input, or a finite
 // reader to deliver a oneshot prompt off the argv (which the OS length-limits).
+//
+// It carries no stdin cleanup because there is nothing to release: without a pty
+// the reader is handed straight to the child process and drained to EOF, so no
+// copier goroutine ever parks on it and no writer waits on a reader that left.
 func (b *BaseBackend) RunNonInteractive(ctx context.Context, args []string, env map[string]string, stdin io.Reader, stdout, stderr io.Writer) (int32, error) {
-	return b.run(ctx, args, env, false, stdin, stdout, stderr, nil)
+	return b.run(ctx, args, env, false, stdin, nil, stdout, stderr, nil)
 }
 
 // run builds the LaunchSpec from the backend's state and hands it to the injected
 // launcher. The substrate never execs a process itself.
-func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]string, interactive bool, stdin io.Reader, stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
+func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]string, interactive bool, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
 	if b.launcher == nil {
 		return 1, fmt.Errorf("no launcher configured for %s", b.name)
 	}
 	return b.launcher(ctx, LaunchSpec{
-		BinaryPath:  b.BinaryPath,
-		Args:        args,
-		Env:         b.BuildEnv(env),
-		WorkDir:     b.WorkDir(),
-		Interactive: interactive,
+		BinaryPath:   b.BinaryPath,
+		Args:         args,
+		Env:          b.BuildEnv(env),
+		WorkDir:      b.WorkDir(),
+		Interactive:  interactive,
+		StdinCleanup: stdinCleanup,
 	}, stdin, stdout, stderr, resize)
 }
 

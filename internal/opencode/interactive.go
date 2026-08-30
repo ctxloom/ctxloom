@@ -109,7 +109,7 @@ func (b *Opencode) launchInteractive(ctx context.Context, req *agent.ExecuteRequ
 	// it, but pin it to the resolved dir so a direct Execute (test/agent) launches in
 	// the right cwd.
 	b.SetWorkDir(workDir)
-	exit, runErr := b.RunInteractive(ctx, b.buildInteractiveArgs(req), req.Env, req.Stdin, stdout, stderr, req.Resize)
+	exit, runErr := b.RunInteractive(ctx, b.buildInteractiveArgs(req), req.Env, req.Stdin, req.StdinCleanup, stdout, stderr, req.Resize)
 
 	// LIFO teardown: skills, then commands, then context, then the opencode.json
 	// snapshot — the user's project is left exactly as it was.

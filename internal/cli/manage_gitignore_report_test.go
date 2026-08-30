@@ -32,9 +32,13 @@ func runGitignoreInstall(t *testing.T, args ...string) string {
 }
 
 // harnessPatternCount is how many pattern lines ensureHarnessGitignore writes
-// into a .gitignore that has none of them.
+// into a ROOT .gitignore that has none of them.
+//
+// It counts the transient artifacts ONLY. The private-state tier is no longer
+// appended here — it is written wholesale to .ctxloom/.gitignore — so summing
+// both lists would assert a root file the product never produces.
 func harnessPatternCount() int {
-	return len(gitignore.PrivateStatePatterns) + len(gitignore.TransientArtifactPatterns)
+	return len(gitignore.TransientArtifactPatterns)
 }
 
 // TestManageGitignoreInstall_NoChangeDoesNotClaimUpdate is the reporting
@@ -100,6 +104,60 @@ func TestManageGitignoreInstall_ReportsAddedPatterns(t *testing.T) {
 	require.Len(t, payload["added"], harnessPatternCount(),
 		"every harness pattern was missing, so every one of them is reported added")
 	require.Empty(t, payload["retired"], "there was no blanket rule to retire")
+	require.Equal(t, true, payload["nested_written"],
+		"the private-state tier has to go somewhere, and the nested file is now that somewhere")
+
+	// The root file must carry the transient artifacts and NOTHING under
+	// .ctxloom/. Asserting the absence is the load-bearing half: the count above
+	// would still pass if private-state rules were appended here as well.
+	root, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	require.NoError(t, err)
+	for _, p := range gitignore.PrivateStatePatterns {
+		require.NotContains(t, ignoreRules(string(root)), p,
+			"private state belongs in .ctxloom/.gitignore, never appended to the project's root file")
+	}
+
+	nested, err := os.ReadFile(gitignore.NestedGitignorePath(dir))
+	require.NoError(t, err, "the nested file the command reported writing must exist on disk")
+	for _, p := range gitignore.NestedPatterns() {
+		require.Contains(t, ignoreRules(string(nested)), p,
+			"every private-state rule must survive the move: %s", p)
+	}
+}
+
+// TestManageGitignoreInstall_ReportsPreExistingRootRulesAsRedundant pins the
+// migration decision for a project an OLDER ctxloom already wrote to. Those
+// root rules are now duplicated by .ctxloom/.gitignore, and the choice made
+// here is to NAME them and leave them: deleting lines from a file ctxloom does
+// not own is not a write it gets to make unasked. Reporting is what lets the
+// user delete them deliberately.
+//
+// The rules must be NAMED rather than counted — a user cannot act on a number.
+func TestManageGitignoreInstall_ReportsPreExistingRootRulesAsRedundant(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	path := filepath.Join(dir, ".gitignore")
+	stale := "# ctxloom private working state\n" +
+		strings.Join(gitignore.PrivateStatePatterns, "\n") + "\nnode_modules/\n"
+	require.NoError(t, os.WriteFile(path, []byte(stale), 0o644))
+
+	payload := runGitignoreInstallJSON(t)
+
+	redundant := payload["redundant"]
+	require.Len(t, redundant, len(gitignore.PrivateStatePatterns),
+		"every stale root rule must be reported, not just detected")
+	for _, p := range gitignore.PrivateStatePatterns {
+		require.Contains(t, redundant, p, "the redundant rule %s must be named", p)
+	}
+
+	// Reported, NOT removed. This is the half that pins the decision rather
+	// than the detection.
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, p := range gitignore.PrivateStatePatterns {
+		require.Contains(t, ignoreRules(string(after)), p,
+			"ctxloom must not delete %s from a file it does not own", p)
+	}
+	require.Contains(t, ignoreRules(string(after)), "node_modules/", "and an unrelated rule is untouched")
 }
 
 // TestManageGitignoreInstall_ReportsRetiredBlanket pins the migration case in

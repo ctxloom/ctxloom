@@ -279,9 +279,12 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	pullSeededDependencies(cmd, appDir)
 	applyInitHooks(cmd, appDir)
 
-	// Exclude ctxloom's private working state from version control.
-	if err := gitignore.Ensure(filepath.Dir(appDir), gitignore.Comment, gitignore.PrivateStatePatterns...); err != nil {
-		clidiag.Warn("ctxloom", "failed to update .gitignore: %v", err)
+	// Exclude ctxloom's private working state from version control, in the
+	// nested .ctxloom/.gitignore ctxloom owns rather than by appending to the
+	// project's own root file. The nested file is meant to be COMMITTED: that
+	// is what carries the rules into clones and linked worktrees.
+	if _, err := gitignore.EnsureNested(filepath.Dir(appDir)); err != nil {
+		clidiag.Warn("ctxloom", "failed to write %s: %v", gitignore.NestedGitignorePath(filepath.Dir(appDir)), err)
 	}
 
 	return engine, nil

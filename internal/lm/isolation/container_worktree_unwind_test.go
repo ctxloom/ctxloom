@@ -78,7 +78,7 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 		// down itself.
 		ws := &containerWorkspace{dir: dir, scratchRoot: scratch, agentID: "m", baseCleanup: cleanup}
 
-		mounts, mountCleanup, err := base.mountBase(ctx, rt, dir, scratch, engineContainerSpec{}, f)
+		mounts, mountCleanup, err := base.mountBase(ctx, rt, proj, dir, scratch, engineContainerSpec{}, f)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, boom, "the mapping failure must reach the caller intact")
 		assert.Nil(t, mounts)

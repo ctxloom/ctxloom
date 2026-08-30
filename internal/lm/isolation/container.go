@@ -266,6 +266,7 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 	}
 	return &containerWorkspace{
 		dir:         dir,
+		projectDir:  projectDir,
 		scratchRoot: sc.root,
 		socketDir:   sc.socketDir,
 		authMounts:  sc.auth.mounts,
@@ -295,7 +296,7 @@ func (c Container) Mount(ctx context.Context, ws Workspace) (MountPlan, error) {
 	// The base's own mounts: the host base shadows the LIVE project's
 	// managed-config dirs (overlays) and mirrors a pointer-file .git; the
 	// worktree base mirrors its checkout's .git common-dir.
-	baseMounts, mountCleanup, err := c.base.mountBase(ctx, c.runtime, cw.dir, cw.scratchRoot, c.engineSpec, c.gitSeam())
+	baseMounts, mountCleanup, err := c.base.mountBase(ctx, c.runtime, cw.projectDir, cw.dir, cw.scratchRoot, c.engineSpec, c.gitSeam())
 	if err != nil {
 		return MountPlan{}, err
 	}
@@ -535,7 +536,12 @@ type containerBase interface {
 	// scratch is removed. rt/g are the runtime + git seams, scratchRoot the
 	// already-created host scratch (the caller removes it), spec the
 	// managed-config overlay set. It must not change the dir's CONTENT.
-	mountBase(ctx context.Context, rt Runtime, dir, scratchRoot string, spec engineContainerSpec, g git.Git) (mounts []Mount, cleanup func() error, err error)
+	// projectDir is the user's LIVE project; dir is the already-materialized
+	// cwd. They are the SAME path for the host base and DIFFERENT for the
+	// worktree base, whose cwd is an ephemeral checkout — a base that must
+	// reach project-level state (the .ctxloom config tree) has to read the
+	// former and mount into the latter.
+	mountBase(ctx context.Context, rt Runtime, projectDir, dir, scratchRoot string, spec engineContainerSpec, g git.Git) (mounts []Mount, cleanup func() error, err error)
 	// withState stamps the run's session identity onto the base — worktreeBase
 	// stamps its Worktree's ephemeral-scratch home; hostBase is a no-op. Returns
 	// the stamped base (bases are value types).
@@ -571,7 +577,10 @@ func (hostBase) resolveBase(_ context.Context, projectDir, _ string) (string, fu
 // common dir mirrored so in-container git resolves. dir is the already-resolved
 // cwd (== the project dir for this base). Failure returns the error (the caller
 // tears the workspace down); nothing but overlay mountpoints is created here.
-func (hostBase) mountBase(ctx context.Context, rt Runtime, projectDir, scratchRoot string, spec engineContainerSpec, g git.Git) ([]Mount, func() error, error) {
+// The live project and the resolved cwd are the SAME dir for this base (its
+// resolveBase hands the project dir straight back), so it works from the
+// resolved one and ignores the duplicate.
+func (hostBase) mountBase(ctx context.Context, rt Runtime, _, projectDir, scratchRoot string, spec engineContainerSpec, g git.Git) ([]Mount, func() error, error) {
 	overlays, created, err := containerConfigOverlay(rt, projectDir, scratchRoot, spec.overlayDirs)
 	if err != nil {
 		return nil, nil, err
@@ -1052,7 +1061,14 @@ func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 // via the client BEFORE Cleanup. extraEnv/extraMounts carry the resolved auth env
 // + credential/overlay/gitdir mounts threaded into the run spec at SpawnClient.
 type containerWorkspace struct {
-	dir         string // identical-path cwd (project dir or worktree checkout)
+	dir string // identical-path cwd (project dir or worktree checkout)
+	// projectDir is the user's LIVE project — the dir PrepareWorkspace was
+	// called with, retained because dir is NOT it for every base: the worktree
+	// base's cwd is an ephemeral checkout elsewhere. Mount needs the live
+	// project to deliver project-level state (the .ctxloom config tree) that
+	// exists only there, so it cannot be recovered from dir afterwards.
+	// Identical to dir for the host base.
+	projectDir  string
 	scratchRoot string // host scratch tree removed by Cleanup
 	socketDir   string // scratchRoot/sock — go-plugin's unix-socket temp dir
 	// authMounts/stateMounts/scratchEnv are the scratch's contributions to the

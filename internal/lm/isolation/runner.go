@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin/runner"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // containerRemoveTimeout bounds our OWN teardown: the go-plugin fork calls Kill
@@ -39,8 +41,37 @@ type containerRunner struct {
 	stdout io.ReadCloser
 	stderr io.ReadCloser
 
+	// waited is CLOSED by Wait once the container process has been reaped, and
+	// closing it is what publishes exitCode to any other goroutine. The
+	// synchronisation is not defensive: go-plugin calls Wait on a goroutine of
+	// its own and Diagnose on the caller's, so cmd.ProcessState is written by
+	// one and would be read by the other. Reading it directly is a DATA RACE
+	// (confirmed by the race detector, not reasoned about) — exec.Cmd populates
+	// ProcessState inside Wait with no synchronisation of its own.
+	waited   chan struct{}
+	waitOnce sync.Once
+	exitCode int
+
+	// exitWait bounds how long Diagnose will wait for that reap. It has to wait
+	// at all because of go-plugin's ORDERING: the stdout scanner closes its line
+	// channel BEFORE releasing the wait-group that gates the Wait goroutine, and
+	// Diagnose is called from the receive on that closed channel. So Diagnose
+	// reliably runs BEFORE the process is reaped, and an opportunistic read
+	// would report "no status" precisely when a status exists. The bound is what
+	// keeps that from becoming a hang when the handshake failed with the
+	// container still ALIVE (a garbage line, a truncated one), where nothing
+	// will ever reap it. Zero in a bare literal, so a test that never starts a
+	// process does not pay it.
+	exitWait time.Duration
+
 	containerAddrTranslator
 }
+
+// diagnoseExitWait bounds Diagnose's wait for the container's exit status.
+// Generous relative to what it measures — the process has already written EOF
+// to stdout, so its reap is imminent, not slow — and paid only on a path that
+// has already failed to start a plugin.
+const diagnoseExitWait = 3 * time.Second
 
 // Ensure containerRunner satisfies the go-plugin runner interface.
 var _ runner.Runner = (*containerRunner)(nil)
@@ -74,11 +105,13 @@ func newContainerRunner(rt Runtime, spec RunSpec, hostSocketDir, containerSocket
 		return nil, fmt.Errorf("container stderr pipe: %w", err)
 	}
 	return &containerRunner{
-		runtime: rt,
-		name:    spec.Name,
-		cmd:     cmd,
-		stdout:  stdout,
-		stderr:  stderr,
+		runtime:  rt,
+		name:     spec.Name,
+		cmd:      cmd,
+		stdout:   stdout,
+		stderr:   stderr,
+		waited:   make(chan struct{}),
+		exitWait: diagnoseExitWait,
 		containerAddrTranslator: containerAddrTranslator{
 			hostSocketDir:      hostSocketDir,
 			containerSocketDir: containerSocketDir,
@@ -94,8 +127,20 @@ func (r *containerRunner) Start(_ context.Context) error {
 	return nil
 }
 
-// Wait blocks until the container process exits.
-func (r *containerRunner) Wait(_ context.Context) error { return r.cmd.Wait() }
+// Wait blocks until the container process exits, then publishes its exit status
+// for Diagnose. This is the ONLY place the status is read: cmd.Wait() is what
+// writes ProcessState, so reading it here — before the close that hands it to
+// other goroutines — is the one ordering in which that read is not a race.
+func (r *containerRunner) Wait(_ context.Context) error {
+	err := r.cmd.Wait()
+	r.waitOnce.Do(func() {
+		if r.cmd.ProcessState != nil {
+			r.exitCode = r.cmd.ProcessState.ExitCode()
+		}
+		close(r.waited)
+	})
+	return err
+}
 
 // Kill tears the container down: a name-targeted force-remove (stops + removes the
 // container, which also ends the --rm `run` process), under OUR own timeout so a
@@ -154,13 +199,83 @@ func (r *containerRunner) Name() string { return r.name }
 // it via --name).
 func (r *containerRunner) ID() string { return r.name }
 
-// Diagnose returns best-effort help when the plugin failed to negotiate — almost
-// always a missing image, an unrunnable in-container binary, or a socket-mount
-// permission problem.
+// Diagnose returns best-effort help when the plugin failed to negotiate.
+//
+// The container's EXIT STATUS is consulted first, because the most misleading
+// failure this type can report is one that is not a transport fault at all: the
+// ctxloom INSIDE the container reaching its own startup gate and refusing over a
+// fatal config finding. That refusal crosses the boundary as nothing but a
+// process status (its rendered finding goes to the container's stderr, which
+// go-plugin forwards to the logger, not to the caller's error), so a fixed
+// "check the image exists / the socket dir is bind-mounted" string sent every
+// reader hunting a transport bug for a configuration problem. Naming the
+// refusal — and the flag that overrides it — is the whole point.
+//
+// Only the go-plugin-handshake wording is kept for the case that genuinely is
+// one: no status available, or an exit that carries no meaning of ours.
 func (r *containerRunner) Diagnose(_ context.Context) string {
-	return fmt.Sprintf("plugin container %q (%s) did not negotiate the go-plugin handshake: "+
-		"check the image exists, its ctxloom is executable, and the socket dir is bind-mounted",
-		r.name, r.runtime.Name())
+	lead := fmt.Sprintf("plugin container %q (%s)", r.name, r.runtime.Name())
+	code, ok := r.exitStatus()
+	switch {
+	case ok && code == strictness.ExitCodeFatalFindings:
+		return lead + fmt.Sprintf(diagnoseConfigRefusal, code)
+	case ok && code != 0:
+		return lead + fmt.Sprintf(diagnoseDiedBeforeHandshake, code)
+	}
+	return lead + diagnoseNoHandshake
+}
+
+// The three answers Diagnose chooses between. Named so a test can pin WHICH
+// answer a given exit status selects without restating the wording — the
+// selection is the behaviour, the prose is not.
+const (
+	// diagnoseConfigRefusal is the one that fixes the reported defect: the
+	// in-container ctxloom hit its own startup gate. It names the flag that
+	// overrides it, because the finding itself (on the container's stderr) is
+	// the only thing that can state the specific remedy.
+	diagnoseConfigRefusal = " exited %d before the handshake: the ctxloom INSIDE the container" +
+		" REFUSED TO START over a fatal startup finding (broken config, an unresolvable profile" +
+		" or bundle) — a configuration refusal, not a transport fault." +
+		" The finding is on the container's stderr above and names its own remedy;" +
+		" re-run with --degraded to downgrade ordinary config findings to warnings and launch anyway."
+
+	// diagnoseDiedBeforeHandshake covers a non-zero exit that carries no
+	// meaning of ours: still not a transport fault, so it points at the
+	// container's stderr FIRST rather than at the socket mount.
+	diagnoseDiedBeforeHandshake = " exited %d before the handshake: the in-container ctxloom died" +
+		" rather than serving the plugin. Check the container's stderr above, then that the image" +
+		" exists and its ctxloom is executable."
+
+	// diagnoseNoHandshake is the original wording, now reached ONLY when no
+	// exit status arrives within the bound — which means the container is
+	// still running, and a genuine transport fault is the live hypothesis.
+	diagnoseNoHandshake = " did not negotiate the go-plugin handshake: " +
+		"check the image exists, its ctxloom is executable, and the socket dir is bind-mounted"
+)
+
+// exitStatus reports the container process's exit code, waiting up to r.exitWait
+// for the reap, and whether one became available. The ok is never collapsed into
+// a bare -1: that reads as a real status and would be reported as one.
+//
+// A container still RUNNING is the case the bound exists for — nothing will
+// reap it, so the wait must expire rather than block go-plugin's startup.
+func (r *containerRunner) exitStatus() (int, bool) {
+	if r.waited == nil {
+		return 0, false
+	}
+	select {
+	case <-r.waited:
+		return r.exitCode, true
+	default:
+	}
+	timer := time.NewTimer(r.exitWait)
+	defer timer.Stop()
+	select {
+	case <-r.waited:
+		return r.exitCode, true
+	case <-timer.C:
+		return 0, false
+	}
 }
 
 // containerAddrTranslator maps unix-socket paths between the container namespace

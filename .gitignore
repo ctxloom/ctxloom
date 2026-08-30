@@ -25,12 +25,6 @@ go.work.sum
 # Generated protobuf (source .proto files are kept)
 *.pb.go
 
-# ctxloom private state — the granular rules that REPLACE the old blanket
-# `.ctxloom/*`. The blanket predates version-controlled content living under
-# .ctxloom/content/, and left in place it silently un-tracks the project's own
-# authored bundles: `git add` reports nothing and a content repo publishes an
-# empty tree. These patterns are gitignore.PrivateStatePatterns; keep them in
-# sync with that list rather than re-broadening to a blanket.
 # The private-state rules now live in .ctxloom/.gitignore, which ctxloom owns
 # and rewrites wholesale. Nothing about .ctxloom belongs here any more — an
 # appended rule in this file is what accumulated five stale headers and
@@ -161,10 +155,3 @@ DECISIONS.md
 # Coverage-instrumented ctxloom (just build-cover). Same name as the shipped
 # binary on purpose — see cmd/ctxloom/justfile — so it needs its own directory.
 .coverbin/
-
-# ctxloom private working state (rebuildable/local — cache, sessions, project id, local state)
-.ctxloom/cache/
-.ctxloom/sessions/
-.ctxloom/project-id
-.ctxloom/state/
-.ctxloom/*.lock

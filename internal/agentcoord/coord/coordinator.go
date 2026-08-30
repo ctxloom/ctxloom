@@ -325,10 +325,10 @@ type Coordinator struct {
 	// correct implementation from one that registers between the write and the
 	// hook, since both have registered by then. Nil in production.
 	onAskPublished func(askID string)
-	// spoolHandler is the registered consumer for validated inbound spool
-	// doorbells (SetSpoolDoorbellHandler). NIL BY DEFAULT and nil in every
-	// build until delivery is wired: an arriving doorbell is validated,
-	// counted and dropped, so the wire is capable and inert.
+	// spoolHandler is THE consumer for validated inbound spool doorbells
+	// (SetSpoolDoorbellHandler), registered by startSpoolReactor whenever
+	// delivery is on. Nil only when delivery is off, and then an arriving
+	// doorbell is validated, counted and dropped.
 	spoolHandler SpoolDoorbellHandler
 	// launchArmed pre-registers the "attached" signal for a harp's NEXT
 	// (re)launch attempt(s), synchronously, before the caller dispatches the

@@ -106,10 +106,10 @@ type Home struct {
 	// human never asked for.
 	inflightCtrl map[string]*inflightCtrl
 
-	// spoolHandler is the registered consumer for validated inbound spool
-	// doorbells (SetSpoolDoorbellHandler), nil by default and nil until
-	// delivery is wired. spoolDoorbell counts what the doorbell deliberately
-	// does not retry — see spooldoorbell.go.
+	// spoolHandler is THE consumer for validated inbound spool doorbells
+	// (SetSpoolDoorbellHandler), registered by startSpoolReactor when delivery
+	// is on. spoolDoorbell counts what the doorbell deliberately does not
+	// retry — see spooldoorbell.go.
 	spoolHandler  SpoolDoorbellHandler
 	spoolDoorbell spoolDoorbellCounters
 	// spoolOut lends this harp's out/ writer for the shadow tee. Non-nil ONLY

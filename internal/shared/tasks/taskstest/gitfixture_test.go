@@ -86,7 +86,7 @@ func worktreeFixtureBodiesUnder(root string) ([]string, error) {
 			// Never skip root: root itself is routinely a linked worktree
 			// (every agent worktree is), and skipping it would scan nothing
 			// and report a vacuous PASS.
-			if path != root && isLinkedWorktreeRoot(path) {
+			if path != root && IsLinkedWorktreeRoot(path) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -109,17 +109,6 @@ func worktreeFixtureBodiesUnder(root string) ([]string, error) {
 		return nil
 	})
 	return found, err
-}
-
-// isLinkedWorktreeRoot reports whether dir is the root of a git linked
-// worktree. git marks those with a .git FILE holding a gitdir pointer, where a
-// primary checkout gets a .git DIRECTORY — the same discriminator
-// TestRealGitWorktreeFixture_BuildsARealLinkedWorktree pins. It beats matching
-// on a path convention like .claude/worktrees/, which only covers the
-// worktrees this tool happens to create today.
-func isLinkedWorktreeRoot(dir string) bool {
-	info, err := os.Lstat(filepath.Join(dir, ".git"))
-	return err == nil && info.Mode().IsRegular()
 }
 
 // TestWorktreeFixtureBodiesUnder_SkipsNestedLinkedWorktrees is the regression:

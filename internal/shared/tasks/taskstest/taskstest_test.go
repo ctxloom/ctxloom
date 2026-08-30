@@ -184,8 +184,28 @@ func TestPackageDoc_GeneralPurposeClaimHolds(t *testing.T) {
 	// relied on, not how it is distributed across files.
 	sites, files := 0, 0
 	err := filepath.WalkDir(repo, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			if name := d.Name(); name == ".git" || name == "node_modules" {
+				return filepath.SkipDir
+			}
+			// A checkout hosting agent worktrees (.claude/worktrees/agent-*)
+			// carries a full second copy of the tree at a stale commit. Those
+			// copies are machine debris, and counting them INFLATES the floor
+			// asserted below — so the claim would keep passing on a duplicate
+			// long after the package itself had narrowed. Never skip repo
+			// itself: an agent worktree IS a linked worktree and the suite
+			// routinely runs from one, so skipping the root would count
+			// nothing and pass vacuously.
+			if path != repo && IsLinkedWorktreeRoot(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
 		}
 		if strings.HasPrefix(path, filepath.Join(repo, "internal", "shared", "tasks", "taskstest")) {
 			return nil // the package itself is not a caller

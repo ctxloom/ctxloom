@@ -22,11 +22,16 @@ func TestTaskStoreWorkDir_RedirectsLinkedWorktree(t *testing.T) {
 	assert.Equal(t, main, got)
 }
 
-// TestTaskStoreWorkDir_OwnCtxloomStaysSeparate covers the opt-out: a
-// worktree carrying its own .ctxloom is a deliberately separate project.
-func TestTaskStoreWorkDir_OwnCtxloomStaysSeparate(t *testing.T) {
+// TestTaskStoreWorkDir_OwnProjectIDStaysSeparate covers the opt-out: a
+// worktree carrying its own project-id MARKER is a deliberately separate
+// project. The marker is the opt-out and a checked-out .ctxloom is not,
+// because .ctxloom rides the checkout into every worktree while project-id
+// is gitignored (gitignore.PrivateStatePatterns) and can only get there by
+// someone running `ctxloom init` in the worktree.
+func TestTaskStoreWorkDir_OwnProjectIDStaysSeparate(t *testing.T) {
 	_, linked := taskstest.RealGitWorktreeFixture(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(linked, ".ctxloom"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(linked, ".ctxloom", "project-id"), []byte("some-other-proj\n"), 0o644))
 
 	got := taskStoreWorkDir(linked)
 	assert.Equal(t, linked, got)

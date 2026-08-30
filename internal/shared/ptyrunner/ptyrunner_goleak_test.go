@@ -79,6 +79,41 @@ func TestRunInteractive_StdinGoroutineDoesNotLeak(t *testing.T) {
 	_ = stdinW.Close()
 }
 
+// TestRunInteractive_WrappedStdinGoroutineDoesNotLeak is the leak half of the
+// same defect TestRunInteractive_ClosesWrappedStdinWhenCopierExits pins on the
+// wedge side. The sibling test above supplies a bare *io.PipeReader, which is
+// the one shape the old type-asserted cleanup could still see; production has
+// not looked like that since llm_serve.go began arming wrapStreams, and the
+// copier parked in Read then outlived RunInteractive forever.
+//
+// The same fixture guard applies: stdin must be non-nil and the child must be
+// shown to have RECEIVED a byte through it, or the copier goroutine was never
+// started and VerifyNone would be green over nothing.
+func TestRunInteractive_WrappedStdinGoroutineDoesNotLeak(t *testing.T) {
+	stdinR, stdinW := io.Pipe()
+	go func() { _, _ = stdinW.Write([]byte("ping\n")) }()
+
+	ignore := goleak.IgnoreCurrent()
+
+	cmd := exec.Command("sh", "-c", "read line; printf 'got %s\\n' \"$line\"; sleep 0.1")
+	var out bytes.Buffer
+	exitCode, err := RunInteractive(context.Background(), cmd, wrappedStdin{stdinR}, &out, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+
+	// Fixture guard: the copier demonstrably ran and delivered a byte. Without
+	// this the leak check below could pass because nothing was ever started.
+	require.Contains(t, out.String(), "got ping",
+		"the stdin copier must have started and delivered stdin into the pty")
+
+	// The copier is parked in a Read on the WRAPPED reader. Only the caller's
+	// explicit cleanup can unpark it — the test deliberately does nothing to
+	// help, which is the property being pinned.
+	goleak.VerifyNone(t, ignore)
+
+	_ = stdinW.Close()
+}
+
 // TestRunInteractive_BenignPTYCloseSwallowed confirms the errors.Is-based
 // benign-error handling (also subarctic-backed-garnet): closing the PTY after
 // the command exits produces fs.ErrClosed / syscall.EIO fallout that must be

@@ -373,6 +373,53 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 	}
 }
 
+// wrappedStdin hides a reader's concrete type behind a plain io.Reader, the
+// way coord's terminal-wake nudgeReader does in production once llm_serve.go
+// arms wrapStreams. It exists to deny RunInteractive the one thing the old
+// cleanup depended on — that stdin IS an *io.PipeReader — without dragging a
+// dependency on internal/agentcoord into the substrate.
+type wrappedStdin struct{ r io.Reader }
+
+func (w wrappedStdin) Read(p []byte) (int, error) { return w.r.Read(p) }
+
+// TestRunInteractive_ClosesWrappedStdinWhenCopierExits is the sibling of
+// TestRunInteractive_ClosesPipeReaderWhenCopierExits for the case that
+// actually ships. The wedge it guards is identical — a Write into a pipe
+// nobody reads parks forever, and context cancellation does not unblock it —
+// but the reader handed to RunInteractive is WRAPPED, so the type assertion
+// the cleanup used to be gated on cannot hold and the close silently never
+// ran. The caller that created the pipe supplies the cleanup explicitly, so
+// there is no longer any reader identity for RunInteractive to guess at.
+func TestRunInteractive_ClosesWrappedStdinWhenCopierExits(t *testing.T) {
+	ctx := context.Background()
+	cmd := exec.Command("sh", "-c", "sleep 0.1")
+
+	stdinR, stdinW := io.Pipe()
+	exitCode, err := RunInteractive(ctx, cmd, wrappedStdin{stdinR}, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+
+	// Same probe as the *io.PipeReader case: the first write is consumed by
+	// the copier's final parked Read, and every later write must fail fast
+	// with ErrClosedPipe rather than parking the server's stream pump forever.
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			if _, werr := stdinW.Write([]byte("x")); werr != nil {
+				errCh <- werr
+				return
+			}
+		}
+	}()
+	select {
+	case werr := <-errCh:
+		assert.ErrorIs(t, werr, io.ErrClosedPipe)
+	case <-time.After(5 * time.Second):
+		t.Fatal("stdinW.Write still blocked after the run ended: the cleanup for a wrapped stdin never ran, " +
+			"so the server's stream pump wedges and drops every later resize")
+	}
+}
+
 // TestRunInteractive_ChildStderrArrivesOnStdoutWriter pins the invariant that
 // makes a separate stderr writer meaningless here: a pty gives the child ONE
 // stream. The child's fd 1 and fd 2 are both the pty slave, so the master

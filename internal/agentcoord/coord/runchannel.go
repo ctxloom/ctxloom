@@ -456,6 +456,77 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 	}
 }
 
+// pushTarget names why a recipient's mail can be pushed, or why it cannot.
+//
+// It exists because the answer used to be computed TWICE, as two hand-written
+// inverses of each other in two files: queueMail assembled a positive
+// `parked || migrated || termDeliver` and pushMail independently assembled
+// the negative `ch == nil || (!ch.parked && !migrated && !termDeliver)`.
+// Nothing checked that the two agreed, and the cost of them disagreeing is
+// not a visible error — it is mail durably queued with its push withheld, so
+// the wake never fires and the coordinator waits forever for something that
+// cannot arrive. That is exactly the defect shape this package has already
+// shipped once. One gate, read by both paths, makes adding a fourth target a
+// single edit rather than a pair of edits nothing enforces.
+type pushTarget uint8
+
+const (
+	pushNone     pushTarget = iota // no run channel at all
+	pushParked                     // a parked runner-side recv
+	pushMigrated                   // a StartRun runner delivering by state
+	pushTerminal                   // a session owner: the push IS the wake
+	pushWithheld                   // attached, unparked: its turn boundary owns it
+)
+
+// pushable reports whether mail for this target may be pushed now.
+func (t pushTarget) pushable() bool {
+	return t == pushParked || t == pushMigrated || t == pushTerminal
+}
+
+// why is the reason notePushUnavailable reports. Empty when pushable, since
+// there is then nothing to explain.
+func (t pushTarget) why() string {
+	switch t {
+	case pushNone:
+		return "it has no run channel — a runner that has not attached yet, or one that has already detached"
+	case pushWithheld:
+		return "its run channel is attached but unparked, so its own turn boundary owns the delivery"
+	default:
+		return ""
+	}
+}
+
+// pushTargetForLocked is THE gate: the single place that decides whether a
+// role's mail is pushable, and the only place CapTerminalDelivery is read.
+// Caller must hold c.mu.
+func (c *Coordinator) pushTargetForLocked(role string) pushTarget {
+	ch := c.chans[role]
+	if ch == nil {
+		return pushNone
+	}
+	if ch.parked {
+		return pushParked
+	}
+	// A MIGRATED child's live channel is always pushable: its runner delivers
+	// by state (§6a — parked recv, new turn, or queue to the boundary). A
+	// LEGACY child's unparked channel is never pushed: its turn-boundary
+	// drain (takeNextMail) owns that delivery, and a push would strand the
+	// message in the runner's recv buffer.
+	if rt := c.byHarp[role]; rt != nil && rt.viaStartRun {
+		return pushMigrated
+	}
+	// The session owner is not an exception to §6a so much as the case §6a
+	// does not cover: that runner hosts no engine, so it has NO turn boundary
+	// to own the delivery. Withholding the push here does not defer the
+	// delivery, it CANCELS it — deliverNotice is what fires terminalNudge, so
+	// a message never pushed is a wake that never happens, and the owner sits
+	// quiet until it happens to poll.
+	if ch.caps[CapTerminalDelivery] {
+		return pushTerminal
+	}
+	return pushWithheld
+}
+
 // notePushUnavailable reports and then counts a push that could not happen,
 // in that order and for the same reason noteSpoolDrop does it that way: the
 // counter is what an observer polls, so incrementing it LAST makes "the count
@@ -466,12 +537,8 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 // never pushed has no way to learn that the wake it is waiting for does not
 // exist for it, and reads the resulting quiet as the system being slow.
 // WarnOnce, so a busy legacy child cannot turn this into a log flood.
-func (c *Coordinator) notePushUnavailable(role string, noChannel bool) {
-	why := "its run channel is attached but unparked, so its own turn boundary owns the delivery"
-	if noChannel {
-		why = "it has no run channel — a runner that has not attached, or a session owner, which never has one"
-	}
-	clidiag.WarnOnce("ctxloom", "coordinator: mail for %s could not be pushed (%s); it stays queued until that recipient calls agent_recv", role, why)
+func (c *Coordinator) notePushUnavailable(role string, t pushTarget) {
+	clidiag.WarnOnce("ctxloom", "coordinator: mail for %s could not be pushed (%s); it stays queued until that recipient calls agent_recv", role, t.why())
 	c.pushUnavailable.Add(1)
 }
 
@@ -501,29 +568,12 @@ func (c *Coordinator) PushUnavailableCount() uint64 { return c.pushUnavailable.L
 // message permanently, having already told the sender it was delivered.
 func (c *Coordinator) pushMail(role string) {
 	c.mu.Lock()
-	ch := c.chans[role]
-	rt := c.byHarp[role]
-	migrated := rt != nil && rt.viaStartRun
-	// Push targets: a parked runner-side recv (any child), or — MIGRATED
-	// children only — a live channel whose runner delivers by state (§6a:
-	// the engine host queues to the turn boundary or starts a new turn), or
-	// a runner that advertised CapTerminalDelivery.
-	// A LEGACY child's unparked channel is never pushed: its turn-boundary
-	// drain (takeNextMail) owns that delivery, and a push would strand the
-	// message in the runner's recv buffer.
-	//
-	// The third target is the session owner, and it is not an exception to
-	// §6a so much as the case §6a does not cover: that runner hosts no engine,
-	// so it has NO turn boundary to own the delivery. Withholding the push
-	// there does not defer the delivery, it cancels it — deliverNotice is
-	// what fires terminalNudge, so a message never pushed is a wake that
-	// never happens, and the owner sits quiet until it happens to poll.
-	termDeliver := ch != nil && ch.caps[CapTerminalDelivery]
-	if ch == nil || (!ch.parked && !migrated && !termDeliver) {
+	if t := c.pushTargetForLocked(role); !t.pushable() {
 		c.mu.Unlock()
-		c.notePushUnavailable(role, ch == nil)
+		c.notePushUnavailable(role, t)
 		return
 	}
+	ch := c.chans[role]
 	// Project BEFORE reserving: a message whose wire shape cannot be built was
 	// never handed to anyone, so it must not be marked delivered.
 	type outbound struct {

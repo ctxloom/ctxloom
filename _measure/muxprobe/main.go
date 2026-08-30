@@ -18,6 +18,25 @@
 // Throwaway measurement harness. The multiplexer owns the pty, so unlike
 // ptyprobe this program needs none of its own.
 //
+// KNOWN LIMITS OF THIS INSTRUMENT — read before believing a number it prints:
+//
+//  1. IT CANNOT SEE A TURN BOUNDARY. awaitToken only asks whether the nonce
+//     EVENTUALLY appeared, so a turn that was QUEUED behind an in-flight turn
+//     is indistinguishable from one accepted mid-render. It was read the wrong
+//     way once: the burst arm was reported as "submits mid-render" when
+//     instrumented re-runs showed the prime turn completing FIRST. If you need
+//     that distinction, track the prime's own completion marker and compare.
+//  2. IT DROPPED TWO GUARDS ptyprobe HAS, and both produce false data rather
+//     than errors. ptyprobe REFUSES when the engine never enabled bracketed
+//     paste (i.e. it is not at an interactive prompt — `claude
+//     --dangerously-skip-permissions` stops at a "Bypass Permissions mode"
+//     modal, and waitQuiet here is purely size-based so it calls that modal
+//     "settled" and runs the whole trial against a dialog). ptyprobe also
+//     marks a log offset and matches only AFTER it; this file matches against
+//     the whole accumulated log.
+//  3. n=3 IS UNDERPOWERED for retiring a defence: 3/3 leaves the 95% lower
+//     bound on the success rate at ~0.37.
+//
 // Run: go run ./_measure/muxprobe -mux tmux -dir /path/to/repo
 package main
 
@@ -146,8 +165,22 @@ func (screenMux) send(sess, text string, gap time.Duration) error {
 	if gap > 0 {
 		time.Sleep(gap)
 	}
-	if out, err := sh("screen", "-S", sess, "-X", "stuff", "\n"); err != nil {
-		return fmt.Errorf("stuff newline: %v: %s", err, out)
+	// CR (0x0d), NOT LF. An interactive TUI holds the terminal in RAW mode, so
+	// the kernel's ICRNL translation is off and the Enter KEY is carriage
+	// return; LF lands as literal text that is never submitted.
+	//
+	// THIS WAS MEASURED WRONG ONCE AND THE NUMBER WAS BELIEVED. The first
+	// version sent "\n" here while the tmux arm sent Enter (which tmux
+	// delivers as 0x0d), so the two arms differed on the SUBMIT BYTE and
+	// screen scored 0/6. That was read as evidence about screen; it was an
+	// artifact of this line. Verified at byte level: `stuff $'\r'` emits
+	// 41 42 0d, identical to what tmux send-keys Enter produces.
+	//
+	// The sibling ptyprobe already treats the submit byte as an explicit
+	// matrix axis ("\r" | "\n" | "\r\n" | ""), so the project had ALREADY
+	// established that this byte is decisive before this file was written.
+	if out, err := sh("screen", "-S", sess, "-X", "stuff", "\r"); err != nil {
+		return fmt.Errorf("stuff CR: %v: %s", err, out)
 	}
 	return nil
 }

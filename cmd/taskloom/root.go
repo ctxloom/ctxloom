@@ -93,14 +93,22 @@ func init() {
 // so operations resolves it live), and the active session harp stamped as
 // task provenance.
 //
-// A stale linked-worktree pointer (the primary checkout is gone) fails the
-// whole call UNLESS a project-id is already pinned (--project or
-// CTXLOOM_PROJECT_ID): a pin doesn't need WorkDir for identity at all, and
-// blocking an otherwise well-identified operation on an unrelated stale
-// worktree pointer would be its own silent-trust regression in the other
-// direction. The pinned-vs-cwd mismatch note resolveTaskStore would
-// otherwise compute is simply skipped in that case (WorkDir comes back
-// empty).
+// A failure to resolve the work root — notably a stale linked-worktree
+// pointer, where the primary checkout is gone — fails the whole call, whether
+// or not a project-id is pinned. A pin identifies WHICH project, but WorkDir
+// is not only an identity input: it is the sole anchor for the project config
+// layer (taskloomconfig.Load reads <WorkDir>/.taskloom/config.yaml, and
+// projectConfigPath drops that layer entirely for an empty dir). Proceeding
+// with an empty WorkDir therefore silently discards whatever that layer
+// declared — a `homing: repo` project resolves to ModeHome and writes to
+// ~/.ctxloom/tasks/<pinned-id>.jsonl instead of its checked-in log, and a
+// project-declared tag_schema degrades to the default, so tag values it would
+// have rejected are accepted. Both succeed, report success, and leave the
+// bytes somewhere the project never reads.
+//
+// Refusing is also what workdir.ResolveBoundary's own contract already
+// promises ("never falls back to minting a task store nobody will find
+// again"); the remedy is in the error it returns.
 func taskContext() (operations.TaskContext, error) {
 	projectID := tasksProject
 	if projectID == "" {
@@ -108,11 +116,7 @@ func taskContext() (operations.TaskContext, error) {
 	}
 	workDir, boundary, err := workdir.ResolveBoundary()
 	if err != nil {
-		if projectID == "" {
-			return operations.TaskContext{}, err
-		}
-		clidiag.Warn(progName, "working directory resolution failed: %v", err)
-		workDir, boundary = "", false
+		return operations.TaskContext{}, err
 	}
 	return operations.TaskContext{
 		WorkDir:           workDir,

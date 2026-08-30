@@ -224,9 +224,10 @@ func TestGlobalScopeLimitationNote_GeneralWhenWorkDirNotRepoHomed(t *testing.T) 
 }
 
 // TestGlobalScopeLimitationNote_EmptyWorkDirFallsBackToGeneral covers the
-// no-WorkDir case (e.g. a stale worktree pointer with a pin, see
-// cmd/taskloom's taskContext doc): there's nothing to resolve a homing mode
-// against, so the general caveat is the only honest answer.
+// no-WorkDir case: there's nothing to resolve a homing mode against, so the
+// general caveat is the only honest answer. taskContext no longer produces an
+// empty WorkDir — a work root that will not resolve is fatal there now — so
+// this guards the pure function's own contract for any future caller.
 func TestGlobalScopeLimitationNote_EmptyWorkDirFallsBackToGeneral(t *testing.T) {
 	got := globalScopeLimitationNote("", nil, "")
 	assert.Equal(t, globalScopeGeneralLimitation, got)

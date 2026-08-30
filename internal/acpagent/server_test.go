@@ -15,6 +15,9 @@ import (
 	api "github.com/coder/acp-go-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -530,6 +533,14 @@ func TestServe_PermissionForwarding(t *testing.T) {
 // option) — refusing the action rather than hanging the turn waiting on an
 // answer that will never come; see recordUnansweredPermission's doc.
 func TestServe_PermissionForwarding_ClientError(t *testing.T) {
+	// The DURABLE half of the record goes to the process-wide zap sink
+	// (~/.ctxloom/logs/ctxloom.log in production). Observe it here: the
+	// client-visible notice below rides the connection, so it is exactly the
+	// half that is missing when the connection is the thing that failed.
+	core, logs := observer.New(zapcore.ErrorLevel)
+	restore := zap.ReplaceGlobals(zap.New(core))
+	t.Cleanup(restore)
+
 	eng := newFakeEngine()
 	go eng.pump()
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
@@ -550,6 +561,16 @@ func TestServe_PermissionForwarding_ClientError(t *testing.T) {
 	assert.Contains(t, string(notice.Params), `"agent_message_chunk"`)
 	assert.Contains(t, string(notice.Params), "shell", "the notice names the tool the unanswered request was for")
 	assert.Contains(t, string(notice.Params), "could not be delivered", "the notice says a decision was needed and never made, not just that the turn continued")
+
+	// The durable record must survive independently of the connection: a
+	// notice delivered over the same connection that just failed is not a
+	// record, and grepping a log file is what a human actually has afterwards.
+	entries := logs.FilterMessage("acp agent: permission request unanswerable, refusing").All()
+	require.Len(t, entries, 1, "exactly one durable record for one unanswerable request")
+	fields := entries[0].ContextMap()
+	assert.Equal(t, "perm-1", fields["request_id"], "the record identifies WHICH request went unanswered")
+	assert.Equal(t, "shell", fields["tool"], "the record names the tool, so a human knows what was refused")
+	assert.NotEmpty(t, fields["session"], "the record names the session")
 
 	msg := eng.receiveMsg(t)
 	require.NotNil(t, msg.Permission)

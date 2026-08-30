@@ -70,16 +70,16 @@ skills:
     closeout:
         files:
             SKILL.md:
-                sha256: sha256:a47b51c49acdf291c32570d5f3ffbdc85d68b5b48e1518b4ec0e00f9c4a67dc0
+                sha256: sha256:5209cad14462af12b84c5152191c0c2fa0844616e6a02bd2ebd4a49c43531f50
+                mode: "0664"
+    prompt-human:
+        files:
+            SKILL.md:
+                sha256: sha256:d85e1b903d8d89c21d6382350a8108f183b0d1ad5477af855f2ef5d7d9abfc5a
                 mode: "0644"
     unattended:
         files:
             SKILL.md:
                 sha256: sha256:1f05b790a9af175ea3a5658383ea59af71b9a036ede7172ac14d4ff1437eb9f4
-                mode: "0644"
-    prompt-human:
-        files:
-            SKILL.md:
-                sha256: sha256:d85e1b903d8d89c21d6382350a8108f183b0d1ad5477af855f2ef5d7d9abfc5a
                 mode: "0644"
 name: unattended

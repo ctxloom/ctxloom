@@ -23,8 +23,8 @@ import (
 // to mean anything — that is the whole content of this pin:
 //
 //   - the stdin copier, started only when stdin != nil. It parks in
-//     stdin.Read, which cannot observe close(done); RunInteractive's deferred
-//     Close of the *io.PipeReader is the only thing that unparks it.
+//     stdin.Read, which cannot observe close(done); running the caller's
+//     stdinCleanup is the only thing that unparks it.
 //   - the resize applier, started only when resize != nil. It selects on done.
 //
 // Passing nil for either argument means the corresponding goroutine is never
@@ -69,9 +69,9 @@ func TestRunInteractive_StdinGoroutineDoesNotLeak(t *testing.T) {
 	require.Contains(t, out.String(), "got ping",
 		"the stdin copier must have started and delivered stdin into the pty")
 
-	// The copier may still be parked in stdinR.Read. RunInteractive's deferred
-	// Close of the *io.PipeReader is what must unpark it; the test deliberately
-	// does nothing to help, which is precisely the property being pinned.
+	// The copier may still be parked in stdinR.Read. Running the cleanup this
+	// caller supplied is what must unpark it; the test deliberately does
+	// nothing to help, which is precisely the property being pinned.
 	goleak.VerifyNone(t, ignore)
 
 	// Only now tidy the pipe's write end, so it can never have been the thing

@@ -712,3 +712,83 @@ func TestRunInteractive_SignalKilledChildYields128PlusSignum(t *testing.T) {
 		})
 	}
 }
+
+// closeRecorder is a reader that COUNTS Close calls without acting on them, so
+// a test can assert that nobody downstream closed it.
+type closeRecorder struct {
+	r      io.Reader
+	closes atomic.Int32
+}
+
+func (c *closeRecorder) Read(p []byte) (int, error) { return c.r.Read(p) }
+
+func (c *closeRecorder) Close() error {
+	c.closes.Add(1)
+	return nil
+}
+
+// TestRunInteractive_NilCleanupLeavesStdinAlone pins the NEGATIVE half of the
+// cleanup contract: a nil stdinCleanup means the caller still owns the reader,
+// and RunInteractive must leave it open.
+//
+// This is not a defensive nil check. It is the contract `ctxloom llm turn`
+// runs on: that caller hands over the process's real os.Stdin — the terminal,
+// shared with everything else in the process and alive for as long as the
+// process is. Closing it from down here would take the terminal away from the
+// rest of the command. nil is how a caller says "I only lent you this."
+//
+// The protection used to be accidental. The old code closed stdin only when it
+// type-asserted to *io.PipeReader, and os.Stdin simply is not one — so a real
+// terminal was spared by a coincidence of dynamic types, not by anyone
+// deciding it should be. Making the decision explicit is the entire point of
+// the parameter, and this test is what stops the accident from being restored
+// as if it were a fix.
+//
+// Both subtests describe a reader some plausible "improvement" would close:
+// the first restores the old *io.PipeReader assertion, the second widens the
+// guard to io.Closer. Either one turns this red.
+func TestRunInteractive_NilCleanupLeavesStdinAlone(t *testing.T) {
+	t.Run("a *io.PipeReader is left open", func(t *testing.T) {
+		stdinR, stdinW := io.Pipe()
+		t.Cleanup(func() { _ = stdinW.Close() })
+
+		cmd := exec.Command("sh", "-c", "sleep 0.1")
+		exitCode, err := RunInteractive(context.Background(), cmd, stdinR, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, 0, exitCode)
+
+		// Probe from the WRITE end, never the read end. The run's stdin copier
+		// is still parked in stdinR.Read — nothing released it, which is
+		// exactly what a nil cleanup asks for — so a read here would race that
+		// goroutine for the bytes and hang when it wins. A write cannot race
+		// it: a CLOSED read end fails the write instantly with ErrClosedPipe,
+		// and an open one has that parked copier there to drain it. Either way
+		// the answer arrives immediately, and it is positive evidence rather
+		// than a wait.
+		werr := make(chan error, 1)
+		go func() {
+			_, e := stdinW.Write([]byte("still open"))
+			werr <- e
+		}()
+		select {
+		case e := <-werr:
+			require.NotErrorIs(t, e, io.ErrClosedPipe,
+				"stdin was closed despite a nil cleanup; on the `ctxloom llm turn` path this same reader is the process's real terminal")
+			require.NoError(t, e)
+		case <-time.After(5 * time.Second):
+			t.Fatal("the write was neither refused nor consumed, so the state of the read end is unknown and this test proves nothing")
+		}
+	})
+
+	t.Run("an io.Closer is left open", func(t *testing.T) {
+		stdin := &closeRecorder{r: strings.NewReader("")}
+
+		cmd := exec.Command("sh", "-c", "sleep 0.1")
+		exitCode, err := RunInteractive(context.Background(), cmd, stdin, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, 0, exitCode)
+
+		assert.Equal(t, int32(0), stdin.closes.Load(),
+			"stdin was Closed despite a nil cleanup: whether a reader may be closed is the CALLER's to state, never inferred from the fact that it happens to implement io.Closer")
+	})
+}

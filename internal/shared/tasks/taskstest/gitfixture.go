@@ -58,6 +58,28 @@ func RealGitWorktreeFixture(t *testing.T) (main, linked string) {
 	return main, linked
 }
 
+// IsLinkedWorktreeRoot reports whether dir is the root of a git LINKED
+// worktree. git marks those with a .git FILE holding a gitdir pointer, where a
+// primary checkout gets a .git DIRECTORY — the same discriminator
+// TestRealGitWorktreeFixture_BuildsARealLinkedWorktree pins. It beats matching
+// on a path convention like .claude/worktrees/, which only covers the
+// worktrees whichever tool is in fashion today happens to create.
+//
+// It is exported for the source-scanning gates that walk a CHECKOUT ROOT. A
+// checkout that hosts agent worktrees carries a full second copy of the tree
+// under .claude/worktrees/agent-*, at a stale commit; a walk that ingests
+// those copies is reading code that is not the code under test, so it can
+// false-fail on someone else's debris or — where the assertion is a floor or a
+// count — false-PASS by inflating it.
+//
+// Such a walk must NEVER skip its own root. An agent worktree IS a linked
+// worktree, and the suite routinely runs from one, so skipping the root would
+// scan nothing and report a vacuous pass. Guard the call with `path != root`.
+func IsLinkedWorktreeRoot(dir string) bool {
+	info, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil && info.Mode().IsRegular()
+}
+
 // EnvAllowMissingGit, set to "1", downgrades "git is not on PATH" from a
 // failure to a skip. It is an escape hatch, not the default: see
 // requireGit.

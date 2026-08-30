@@ -31,7 +31,7 @@ func TestStartOwnedRun_LaunchFailureReturnsTheWrappedError(t *testing.T) {
 	require.True(t, ok)
 
 	boom := errors.New("no such image: ctxloom-agent-claude")
-	starter := func(context.Context, map[string]string) (func(), error) { return nil, boom }
+	starter := func(context.Context, map[string]string) (func(), string, error) { return nil, "", boom }
 
 	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{
 		Harp: ownerHarp, Backend: "claude-code", Label: "fast",
@@ -83,7 +83,7 @@ func TestStartOwnedRun_IssueStartRunFailureCountsOneLaunchFailure(t *testing.T) 
 
 	// Launches "successfully" but never dials home: issueStartRun's awaitRunner
 	// times out and it fails the child itself.
-	starter := func(context.Context, map[string]string) (func(), error) { return func() {}, nil }
+	starter := func(context.Context, map[string]string) (func(), string, error) { return func() {}, "", nil }
 
 	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{
 		Harp: ownerHarp, Backend: "claude-code", Label: "fast",
@@ -149,13 +149,13 @@ func TestStartOwnedRun_FlagsAreSetBeforeTheRunnerCanExist(t *testing.T) {
 
 	type snapshot struct{ viaStartRun, ownerRun, oneshot, seen bool }
 	var got snapshot
-	starter := func(context.Context, map[string]string) (func(), error) {
+	starter := func(context.Context, map[string]string) (func(), string, error) {
 		c.mu.Lock()
 		if rt := c.byHarp[ownerHarp]; rt != nil {
 			got = snapshot{viaStartRun: rt.viaStartRun, ownerRun: rt.ownerRun, oneshot: rt.oneshot, seen: true}
 		}
 		c.mu.Unlock()
-		return nil, errors.New("stop here: the flags have already been observed")
+		return nil, "", errors.New("stop here: the flags have already been observed")
 	}
 
 	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{

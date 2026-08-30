@@ -281,6 +281,12 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agent
 				Agent: &agentcoordpb.AgentIdentity{
 					AgentId: e.Harp,
 					Role:    rec.Agent,
+					// rec.ContainerName is set only once a container-runtime
+					// run's StartRunner returns (factRunContainer) — empty
+					// for host runtime, and the roster's only handle for
+					// `docker logs -f`/`docker attach` when no multiplexer
+					// is available.
+					ContainerName: rec.ContainerName,
 				},
 				Phase:         e.State,
 				LatestSummary: c.reportsF.latestSummary(e.Harp),

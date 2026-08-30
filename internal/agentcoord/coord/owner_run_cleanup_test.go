@@ -50,8 +50,8 @@ func TestStartOwnedRun_CleansUpOnIssueStartRunFailure(t *testing.T) {
 	// issueStartRun is guaranteed to time out and issueStartRun returns a
 	// non-nil error to StartOwnedRun.
 	var killCalled atomic.Bool
-	starter := func(_ context.Context, _ map[string]string) (func(), error) {
-		return func() { killCalled.Store(true) }, nil
+	starter := func(_ context.Context, _ map[string]string) (func(), string, error) {
+		return func() { killCalled.Store(true) }, "", nil
 	}
 
 	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{

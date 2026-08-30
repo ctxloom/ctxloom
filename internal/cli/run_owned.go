@@ -74,10 +74,10 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 	stampHostTerminalEnv(spec.Req)
 
 	var handle *isolation.RunnerHandle
-	starter := func(sctx context.Context, spawnEnv map[string]string) (func(), error) {
+	starter := func(sctx context.Context, spawnEnv map[string]string) (func(), string, error) {
 		h, err := spec.Policy.StartRunner(sctx, spec.BackendName, spec.Label, spec.Verbosity, spec.Workspace, spawnEnv)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		handle = h
 		// Await the container HERE, inside the starter, not after
@@ -94,9 +94,9 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 			strictness.FailAlways(strictness.ClassIsolation,
 				"check the container runtime and the agent image can start (`docker logs `/`podman logs ` the named container); this run cannot fall back to the host without silently dropping the boundary it was given",
 				"container %q was started but never reached running state, so the isolation it promised does not exist: %v", h.Name, rerr)
-			return h.Kill, rerr
+			return h.Kill, h.Name, rerr
 		}
-		return h.Kill, nil
+		return h.Kill, h.Name, nil
 	}
 
 	owner, ok := c.Identify(spec.RunnerEnv[coord.EnvCoordCred])

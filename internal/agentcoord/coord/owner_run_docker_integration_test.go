@@ -54,7 +54,7 @@ type dockerOwnerRunStarter struct {
 	cleanups   []func()
 }
 
-func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]string) (func(), error) {
+func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
 	rt := isolation.ProbeRuntime("docker")
 	// The session harp drives the session-state mounts (transcript survival),
 	// exactly as the host resolves it into the runner spawn env.
@@ -67,12 +67,12 @@ func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]s
 	pol := isolation.NewContainerFor(rt, backend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, s.harp)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	handle, err := pol.StartRunner(ctx, backend, "fast", 0, ws, spawnEnv)
 	if err != nil {
 		_ = ws.Cleanup()
-		return nil, err
+		return nil, "", err
 	}
 	kill := sync.OnceFunc(func() {
 		handle.Kill()
@@ -82,7 +82,7 @@ func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]s
 	s.containers = append(s.containers, handle.Name)
 	s.cleanups = append(s.cleanups, kill)
 	s.mu.Unlock()
-	return kill, nil
+	return kill, handle.Name, nil
 }
 
 func (s *dockerOwnerRunStarter) containerNames() []string {

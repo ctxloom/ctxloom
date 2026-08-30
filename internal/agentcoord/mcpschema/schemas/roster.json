@@ -26,6 +26,10 @@
                   "description": "stable identity across runs",
                   "type": "string"
                 },
+                "container_name": {
+                  "description": "Resolved container name when this agent's engine runs under container isolation; empty for host runtime. Randomly suffixed at spawn and force-removed on teardown, so it cannot be derived from agent_id and is only meaningful while the run is live -- it is the handle for `docker logs -f` / `docker attach` when no terminal multiplexer is available.",
+                  "type": "string"
+                },
                 "display_name": {
                   "type": "string"
                 },

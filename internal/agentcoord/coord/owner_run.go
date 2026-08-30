@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Phase 2a-B: top-level STRUCTURED and ONESHOT container runs onto Transport 2
@@ -63,9 +64,12 @@ type OwnerRunSpec struct {
 // minted INSIDE StartOwnedRun (a pre-bound isolation.EngineStarter cannot know
 // them yet). The returned kill tears the runner down; StartOwnedRun invokes it
 // if the post-launch handshake fails, and the caller owns it for normal
-// teardown (the host `ctxloom run` defers isolation.RunnerHandle.Kill). Defined
-// here so coord need not import lm/isolation for the seam.
-type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (kill func(), err error)
+// teardown (the host `ctxloom run` defers isolation.RunnerHandle.Kill).
+// containerName is isolation.RunnerHandle.Name (fragile-volatile) — "" for a
+// host-runtime starter — and StartOwnedRun journals it onto the run record so
+// it reaches the roster; coord cannot read it off isolation.RunnerHandle
+// directly without importing lm/isolation, which this seam exists to avoid.
+type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (kill func(), containerName string, err error)
 
 // StartOwnedRun mints a PARENT-LESS, owner-owned run and drives it onto
 // Transport 2: journal a runEnqueued with ParentHarp = owner.Harp,
@@ -166,7 +170,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// hardcoded false, so it stays correct if that ever changes. This is
 	// UNRELATED to rt.oneshot/spec.Oneshot above (the --print single-turn
 	// CLI axis) — see Identity.OneShot's doc for the distinction.
-	kill, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
+	kill, containerName, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot, c.spoolPosture()))
 	if err != nil {
 		// ONE error, both destinations: the run's terminal record and the
 		// caller get the same text. Returning the bare cause here left the
@@ -179,6 +183,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	c.mu.Lock()
 	rt.close = kill
 	c.mu.Unlock()
+	c.recordContainerName(rt.runID, containerName)
 
 	hs, err := buildHarnessSpec(HarnessSpecInput{
 		Harness:     spec.Backend,
@@ -216,6 +221,26 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		Engine:  spec.Label,
 		Runtime: ownerRunRuntime,
 	}, nil
+}
+
+// recordContainerName journals a container-runtime run's resolved container
+// name (fragile-volatile: the roster's only handle on a live agent when tmux
+// is unavailable — `docker logs -f`/`docker attach`). No-op for "" (a
+// host-runtime starter's OwnedRunStarter return), mirroring
+// recordHarnessSession's idempotent-on-same-value shape.
+func (c *Coordinator) recordContainerName(runID, name string) {
+	if name == "" {
+		return
+	}
+	if err := c.runs.Exec(func() ([]Fact, error) {
+		r := c.runsF.run(runID)
+		if r == nil || r.ContainerName == name {
+			return nil, nil
+		}
+		return []Fact{factAt(factRunContainer, c.now(), runContainer{RunID: runID, ContainerName: name})}, nil
+	}); err != nil {
+		clidiag.Warn("ctxloom", "coordinator: record container name: %v", err)
+	}
 }
 
 // SendOwnedRunTurn enqueues a follow-up user turn for an owner-owned run: the

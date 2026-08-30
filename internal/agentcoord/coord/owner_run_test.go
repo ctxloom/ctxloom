@@ -23,9 +23,19 @@ var errStopBeforeDial = errors.New("test: stop before dial")
 // listeners with the per-run trio StartOwnedRun mints — the same in-process
 // runner fakeSpawner.StartEngine uses, minus a real container. started flips
 // true once the starter is invoked (proving StartOwnedRun launches the runner).
+// The returned OwnedRunStarter reports containerName "" — the correct,
+// host-shaped value: this in-process fake never launches a real container.
 func ownerRunStarter(ctx context.Context, sc *scriptedChat, backend string) (OwnedRunStarter, *bool) {
+	return ownerRunStarterNamed(ctx, sc, backend, "")
+}
+
+// ownerRunStarterNamed is ownerRunStarter with an explicit containerName
+// return, standing in for isolation.RunnerHandle.Name — used by
+// TestStartOwnedRun_SurfacesContainerNameOnRoster to prove a non-empty name
+// the starter reports reaches the roster projection unchanged.
+func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, containerName string) (OwnedRunStarter, *bool) {
 	started := new(bool)
-	starter := func(_ context.Context, spawnEnv map[string]string) (func(), error) {
+	starter := func(_ context.Context, spawnEnv map[string]string) (func(), string, error) {
 		*started = true
 		sctx, cancel := context.WithCancel(ctx)
 		host := NewEngineHost(sctx, sc, backend, spawnEnv[EnvRunID])
@@ -39,10 +49,10 @@ func ownerRunStarter(ctx context.Context, sc *scriptedChat, backend string) (Own
 		})
 		if err != nil {
 			cancel()
-			return nil, err
+			return nil, "", err
 		}
 		host.BindHome(home)
-		return func() { cancel(); home.crash() }, nil
+		return func() { cancel(); home.crash() }, containerName, nil
 	}
 	return starter, started
 }
@@ -148,13 +158,13 @@ func TestStartOwnedRun_StampsOwnerAtDepthZero(t *testing.T) {
 	require.True(t, ok)
 
 	var gotEnv map[string]string
-	starter := func(_ context.Context, spawnEnv map[string]string) (func(), error) {
+	starter := func(_ context.Context, spawnEnv map[string]string) (func(), string, error) {
 		gotEnv = spawnEnv
 		// No real runner needed for this test — it inspects the stamped
 		// env, not the run's live behavior. Fail loud rather than hanging
 		// the coordinator's await-runner budget on a Home that never dials
 		// home.
-		return func() {}, errStopBeforeDial
+		return func() {}, "", errStopBeforeDial
 	}
 
 	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{

@@ -30,7 +30,7 @@ func TestRunOptions_EmptyFrameCharacterization(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, wire, "an all-zero RunOptions marshals to zero bytes")
 
-	exec := turnExecuteRequest(&RunStart{Options: &RunOptions{}}, "", nil, nil, nil)
+	exec := turnExecuteRequest(&RunStart{Options: &RunOptions{}}, "", nil, nil, nil, nil)
 
 	// The safety-relevant fields decode to the CONSERVATIVE value, not the
 	// permissive one.
@@ -52,7 +52,7 @@ func TestRunOptions_EmptyFrameCharacterization(t *testing.T) {
 	// field, so a truncated frame cannot reach it: the headless floor upgrades a
 	// prompting posture to bypass only once mode is explicitly ONESHOT, because
 	// a oneshot has no human to answer the engine and would otherwise hang.
-	oneshot := turnExecuteRequest(&RunStart{Options: &RunOptions{Mode: ExecutionMode_ONESHOT}}, "", nil, nil, nil)
+	oneshot := turnExecuteRequest(&RunStart{Options: &RunOptions{Mode: ExecutionMode_ONESHOT}}, "", nil, nil, nil, nil)
 	assert.Equal(t, agent.PermissionBypass, oneshot.Permissions,
 		"the headless floor is reached only via an explicitly-set mode, never by truncation")
 }

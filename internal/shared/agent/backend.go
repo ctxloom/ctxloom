@@ -487,6 +487,20 @@ type ExecuteRequest struct {
 	// the terminal-size changes. Both nil for non-interactive/oneshot runs.
 	Stdin  io.Reader
 	Resize <-chan WindowSize
+
+	// StdinCleanup releases whatever backs Stdin, supplied by the layer that
+	// CREATED that reader — only that layer knows whether closing it is even
+	// legal. The pty runner invokes it once the stdin copier stops reading,
+	// which is what lets a blocked writer on the other end of an io.Pipe learn
+	// that nobody is reading anymore; such a write is not unblocked by context
+	// or stream cancellation, so without it the server's stream pump wedges.
+	//
+	// nil is a valid and meaningful value: it says this reader must NOT be
+	// released here because the caller still owns it (`ctxloom llm turn`
+	// passes the process's real os.Stdin). Carrying the decision explicitly is
+	// the point — it was previously inferred from Stdin's dynamic type, which
+	// silently stopped being true the moment the reader was wrapped.
+	StdinCleanup func()
 }
 
 // ExecuteResult contains the outcome of execution.

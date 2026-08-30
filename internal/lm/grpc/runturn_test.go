@@ -28,7 +28,7 @@ func TestRunTurn_DrivesSetupExecuteCleanup(t *testing.T) {
 		Options: &RunOptions{WorkDir: "/work"},
 	}
 
-	result, err := RunTurn(context.Background(), fb, req, nil, &out, &out, nil, nil)
+	result, err := RunTurn(context.Background(), fb, req, nil, nil, &out, &out, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -43,7 +43,7 @@ func TestRunTurn_DrivesSetupExecuteCleanup(t *testing.T) {
 // (still after Cleanup), matching the go-plugin path's semantics.
 func TestRunTurn_ExecuteErrorPropagates(t *testing.T) {
 	fb := &fakeBackend{name: "mock", executeErr: assert.AnError}
-	_, err := RunTurn(context.Background(), fb, &RunStart{Options: &RunOptions{}}, nil, &strings.Builder{}, &strings.Builder{}, nil, nil)
+	_, err := RunTurn(context.Background(), fb, &RunStart{Options: &RunOptions{}}, nil, nil, &strings.Builder{}, &strings.Builder{}, nil, nil)
 	require.Error(t, err)
 	assert.True(t, fb.cleanupCalled, "Cleanup still runs on an Execute failure")
 }

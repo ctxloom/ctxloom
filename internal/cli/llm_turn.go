@@ -96,10 +96,23 @@ func runLLMTurn(cmd *cobra.Command, args []string) error {
 	// frontend uses, adapted to RunTurn's agent.WindowSize channel.
 	resize := turnResize(cmd.Context(), os.Stdin)
 
-	// nil: the docker-exec transport has no session-owner terminal wake to
-	// inject into (llm_serve.go wires WrapStreams only for the go-plugin
-	// transport's session-owner case).
-	result, err := pb.RunTurn(cmd.Context(), backend, req, os.Stdin, os.Stdout, os.Stderr, resize, nil)
+	// nil stdinCleanup: os.Stdin is the PROCESS's terminal, owned by this
+	// process for its whole life and shared with everything else that reads or
+	// writes it. Nothing downstream may close it — a close here would take the
+	// terminal out from under the rest of the command, and it is not ours to
+	// take. A cleanup func is only ever supplied by the layer that CREATED the
+	// reader (the go-plugin transport, which makes an io.Pipe and must close
+	// its read end); a caller that merely borrows a reader passes nil.
+	//
+	// This is a decision, not an omission. It used to hold by accident: the
+	// layer below type-asserted stdin to *io.PipeReader and so happened to skip
+	// a real terminal. That accident is gone, and the same protection is now
+	// stated here on purpose.
+	//
+	// nil wrapStreams: the docker-exec transport has no session-owner terminal
+	// wake to inject into (llm_serve.go wires WrapStreams only for the
+	// go-plugin transport's session-owner case).
+	result, err := pb.RunTurn(cmd.Context(), backend, req, os.Stdin, nil, os.Stdout, os.Stderr, resize, nil)
 	if err != nil {
 		return fmt.Errorf("interactive turn failed: %w", err)
 	}

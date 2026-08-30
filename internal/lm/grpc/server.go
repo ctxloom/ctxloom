@@ -154,7 +154,12 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		}
 	}()
 
-	result, err := RunTurn(stream.Context(), s.Impl, req, stdinR, stdoutWriter, stderrWriter, resizeCh, s.wrapStreams)
+	// This goroutine owns stdinR, so it supplies the release: closing the read
+	// end is what makes the pump's stdinW.Write above fail with ErrClosedPipe
+	// instead of parking forever, and it is also what unblocks any reader the
+	// wake has wrapped around it. Nothing downstream can infer this — passing
+	// nil here silently restores the wedge.
+	result, err := RunTurn(stream.Context(), s.Impl, req, stdinR, func() { _ = stdinR.Close() }, stdoutWriter, stderrWriter, resizeCh, s.wrapStreams)
 	if err != nil {
 		return err
 	}
@@ -176,6 +181,16 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 // be nil for a non-interactive turn; resize may be nil when no SIGWINCH source
 // exists.
 //
+// stdinCleanup releases stdin once the engine's pty stops reading it, and only
+// the caller that CREATED stdin may supply one. The two transports differ here,
+// and the difference is the whole reason this is a parameter: GRPCServer.Run
+// owns an io.Pipe and must close its read end (a stream write into a pipe with
+// no reader parks forever and no cancellation reaches it), while `ctxloom llm
+// turn` passes the process's real os.Stdin, which it does not own and must
+// never close. RunTurn cannot tell those apart by looking at the reader — and
+// the layer below once tried to, by type assertion, which stopped being true
+// the moment the terminal wake began wrapping stdin.
+//
 // wrapStreams, when non-nil, replaces an interactive turn's stdin/stdout with
 // the pair it returns immediately before Execute — the seam a session-owner's
 // terminal wake injects into (coord.NewTerminalInjector, wired in by
@@ -187,7 +202,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 // RunTurn lose those assertions on the wrapped value. A oneshot turn's Stdin
 // is nil by contract (agent.LaunchBackend.ExecuteCLI's doc comment) and is
 // never wrapped.
-func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize, wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)) (*agent.ExecuteResult, error) {
+func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan agent.WindowSize, wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)) (*agent.ExecuteResult, error) {
 	// Treat nil Options as fully-default so callers using proto-zero-values
 	// don't crash — the generated Get* accessors are nil-safe throughout.
 	env := req.GetOptions().GetEnv()
@@ -197,7 +212,7 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 
 	promptContent := turnPromptContent(req)
 	runTurnSetup(ctx, impl, req, env)
-	execReq := turnExecuteRequest(req, promptContent, env, stdin, resize)
+	execReq := turnExecuteRequest(req, promptContent, env, stdin, stdinCleanup, resize)
 	if wrapStreams != nil && execReq.Mode == agent.ModeInteractive && execReq.Stdin != nil {
 		wrappedStdin, wrappedStdout := wrapStreams(execReq.Stdin, stdout)
 		execReq.Stdin = wrappedStdin
@@ -313,7 +328,7 @@ func runTurnSetup(ctx context.Context, impl agent.Backend, req *RunStart, env ma
 // req.Prompt's other fields (Name, Tags, ...) intact when a prompt was actually
 // sent; a nil req.Prompt with smuggled content still needs a Fragment to carry
 // it.
-func turnExecuteRequest(req *RunStart, promptContent string, env map[string]string, stdin io.Reader, resize <-chan agent.WindowSize) *agent.ExecuteRequest {
+func turnExecuteRequest(req *RunStart, promptContent string, env map[string]string, stdin io.Reader, stdinCleanup func(), resize <-chan agent.WindowSize) *agent.ExecuteRequest {
 	opts := req.GetOptions()
 	execPrompt := convertFragment(req.Prompt)
 	if promptContent != req.GetPrompt().GetContent() {
@@ -336,6 +351,10 @@ func turnExecuteRequest(req *RunStart, promptContent string, env map[string]stri
 		CellKind:    cellKindFromProto(opts.GetCellKind()),
 		Stdin:       stdin,
 		Resize:      resize,
+
+		// Travels with Stdin, never derived from it: only the caller that made
+		// the reader knows whether releasing it is legal.
+		StdinCleanup: stdinCleanup,
 	}
 
 	// Defense in depth: a ONESHOT has no human to answer the engine, so a

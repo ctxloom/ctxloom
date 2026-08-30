@@ -142,7 +142,7 @@ func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, arg
 	b.TraceArgs(req.Verbosity, args, stderr)
 	env := b.ExecuteEnv(req)
 	if req.Mode == ModeInteractive {
-		exitCode, err := b.RunInteractive(ctx, args, env, req.Stdin, stdout, stderr, req.Resize)
+		exitCode, err := b.RunInteractive(ctx, args, env, req.Stdin, req.StdinCleanup, stdout, stderr, req.Resize)
 		return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 	}
 	exitCode, err := b.RunNonInteractive(ctx, args, env, oneshotStdin, stdout, stderr)

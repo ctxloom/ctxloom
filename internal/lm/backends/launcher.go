@@ -38,7 +38,11 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 		// here by construction and is not passed on (ptyrunner.RunInteractive
 		// takes one writer). Only the non-interactive branch below can keep
 		// the two apart.
-		exitCode, err := ptyrunner.RunInteractive(ctx, cmd, stdin, stdout, resize)
+		//
+		// spec.StdinCleanup travels with the reader from whoever created it;
+		// this layer relays it and never substitutes one, because it cannot
+		// tell whether stdin is a pipe it may close or a terminal it may not.
+		exitCode, err := ptyrunner.RunInteractive(ctx, cmd, stdin, spec.StdinCleanup, stdout, resize)
 		if err != nil {
 			return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
 		}

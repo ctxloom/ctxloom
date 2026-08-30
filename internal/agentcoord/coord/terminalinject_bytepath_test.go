@@ -120,7 +120,11 @@ func TestTerminalInject_SubmitReachesEngineStdinAsItsOwnRead(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = ptyrunner.RunInteractive(ctx, cmd, wrappedStdin, wrappedStdout, nil)
+		// realStdin's owner supplies its release, exactly as GRPCServer.Run
+		// does for the pipe it makes: the wrapped reader parks a pump
+		// goroutine in realStdin.Read, and closing the underlying pipe is the
+		// only thing that retires it.
+		_, _ = ptyrunner.RunInteractive(ctx, cmd, wrappedStdin, func() { _ = realStdin.Close() }, wrappedStdout, nil)
 	}()
 
 	// Do not inject until the child holds the terminal in raw mode, or the

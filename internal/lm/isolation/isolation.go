@@ -518,12 +518,9 @@ type ImageConfig struct {
 	// when the detected devcontainer.json declares dockerComposeFile (config
 	// isolation_devcontainer_service).
 	DevcontainerService string
-	// Engines names WHICH per-engine images to build (one image per engine);
-	// it is NOT a composition set — an agent image carries exactly one engine.
-	// Legacy doc below retained until the field is renamed.
-	// Engines selects which engine fragments compose into a COMPOSABLE
-	// backend's shared agent image (config isolation_engines); empty = every
-	// engine with a known official-installer fragment (composableEngines()).
+	// Engines names WHICH per-engine images to build (config
+	// isolation_engines); empty = just this invocation's backend. It is NOT a
+	// composition set — an agent image carries exactly ONE engine.
 	Engines []string
 }
 

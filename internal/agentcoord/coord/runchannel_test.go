@@ -743,3 +743,69 @@ func TestServeStopRun_CancelsLaunch_EvenWhenAlreadyEnded(t *testing.T) {
 		"the already-ended branch must still cancel the launch — the exact 2026-07-24 incident shape: a stop "+
 			"landing on an already-ended run with a relaunch armed behind it must not let that relaunch carry on")
 }
+
+// TestPushMail_TerminalDeliveryIsAPushTargetWhileUnparked pins the session
+// owner's push target, which the ordinary unparked rule gets backwards.
+//
+// An unparked child is deliberately not pushed: its turn boundary owns that
+// delivery, and pushing would strand the message in the runner's recv buffer.
+// A runner advertising CapTerminalDelivery hosts no engine, so it has no turn
+// boundary to own anything — and deliverNotice is what fires its terminal
+// nudge. Withholding the push there does not defer the wake, it cancels it:
+// the owner sits quiet until it happens to poll, which is the whole failure
+// the terminal injector exists to end.
+//
+// Both arms are asserted because the gate has to keep telling them apart: an
+// advertisement that stops being read, and one that starts applying to every
+// unparked child, are different bugs with the same green.
+func TestPushMail_TerminalDeliveryIsAPushTargetWhileUnparked(t *testing.T) {
+	push := func(t *testing.T, harp string, caps map[string]bool) *agentcoordpb.CoordinatorFrame {
+		t.Helper()
+		c := newTestCoordinator(t, researcherSpawner(), nil)
+		msgID, _, err := c.queueMail(ownerIdentity().Harp, harp, "report", "FINAL: the child finished")
+		require.NoError(t, err)
+
+		_, cancel := context.WithCancel(context.Background())
+		ch := &runChan{
+			role:   harp,
+			parked: false, // never parked: nothing on this runner ever polls on its own
+			send:   make(chan *agentcoordpb.CoordinatorFrame, 1),
+			cancel: cancel,
+			caps:   caps,
+		}
+		c.mu.Lock()
+		c.chans[harp] = ch
+		c.mu.Unlock()
+		t.Cleanup(func() {
+			c.mu.Lock()
+			delete(c.chans, harp)
+			c.mu.Unlock()
+		})
+
+		c.pushMail(harp)
+		select {
+		case frame := <-ch.send:
+			require.Equal(t, msgID, frame.GetNotice().GetPeerMessage().GetMessageId(),
+				"the pushed notice must carry the queued message")
+			return frame
+		default:
+			return nil
+		}
+	}
+
+	t.Run("advertised: the unparked owner is pushed", func(t *testing.T) {
+		resetStrictness(t)
+		frame := push(t, "session-owner-driving-a-terminal",
+			map[string]bool{CapPeerMessaging: true, CapTerminalDelivery: true})
+		assert.NotNil(t, frame,
+			"a runner with no turn machinery must be pushed while unparked: the push IS the wake")
+	})
+
+	t.Run("not advertised: the unparked child is left to its turn boundary", func(t *testing.T) {
+		resetStrictness(t)
+		frame := push(t, "ordinary-unparked-child",
+			map[string]bool{CapPeerMessaging: true})
+		assert.Nil(t, frame,
+			"an unparked child's turn-boundary drain owns the delivery; pushing would strand it in the recv buffer")
+	})
+}

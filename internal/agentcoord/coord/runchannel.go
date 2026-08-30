@@ -506,11 +506,20 @@ func (c *Coordinator) pushMail(role string) {
 	migrated := rt != nil && rt.viaStartRun
 	// Push targets: a parked runner-side recv (any child), or — MIGRATED
 	// children only — a live channel whose runner delivers by state (§6a:
-	// the engine host queues to the turn boundary or starts a new turn).
+	// the engine host queues to the turn boundary or starts a new turn), or
+	// a runner that advertised CapTerminalDelivery.
 	// A LEGACY child's unparked channel is never pushed: its turn-boundary
 	// drain (takeNextMail) owns that delivery, and a push would strand the
 	// message in the runner's recv buffer.
-	if ch == nil || (!ch.parked && !migrated) {
+	//
+	// The third target is the session owner, and it is not an exception to
+	// §6a so much as the case §6a does not cover: that runner hosts no engine,
+	// so it has NO turn boundary to own the delivery. Withholding the push
+	// there does not defer the delivery, it cancels it — deliverNotice is
+	// what fires terminalNudge, so a message never pushed is a wake that
+	// never happens, and the owner sits quiet until it happens to poll.
+	termDeliver := ch != nil && ch.caps[CapTerminalDelivery]
+	if ch == nil || (!ch.parked && !migrated && !termDeliver) {
 		c.mu.Unlock()
 		c.notePushUnavailable(role, ch == nil)
 		return

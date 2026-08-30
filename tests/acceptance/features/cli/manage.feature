@@ -510,6 +510,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
   Rule: ctxloom's private state stays out of source control
 
+    # The private-state rules live in a NESTED, tracked .ctxloom/.gitignore, so
+    # they travel with the directory and across worktrees. Root must NOT carry a
+    # blanket .ctxloom rule: git does not descend into an ignored directory, so a
+    # blanket there would make the nested file unreadable and every rule in it
+    # silently dead. Root keeps only the patterns naming paths OUTSIDE .ctxloom,
+    # which no nested file can express -- and one of them is a credential, so
+    # asserting it stays is not decoration.
     Scenario: Gitignore install excludes ctxloom's private state
       Given an initialized ctxloom project
       When Alice adds ctxloom's gitignore entries:
@@ -517,8 +524,29 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage gitignore install
         """
       Then the command succeeds
-      And the file ".gitignore" contains ".ctxloom/cache/"
-      And the file ".gitignore" contains ".ctxloom/state/"
+      And the file ".ctxloom/.gitignore" contains "/cache"
+      And the file ".ctxloom/.gitignore" contains "/state"
+      And the file ".gitignore" does not contain ".ctxloom/"
+      And the file ".gitignore" contains ".codex/auth.json"
+
+    # The shipped defect this replaced: the writer emitted a fresh comment header
+    # above only the MISSING patterns, so every run added another header, and one
+    # of the five accumulated copies ended up captioning .codex/auth.json as
+    # "ctxloom private working state". Installing twice is what makes the header
+    # count meaningful -- a single install would read 1 either way.
+    Scenario: Repeated gitignore installs do not stack comment headers
+      Given an initialized ctxloom project
+      When Alice adds ctxloom's gitignore entries:
+        """
+        ctxloom manage gitignore install
+        """
+      And Alice adds ctxloom's gitignore entries:
+        """
+        ctxloom manage gitignore install
+        """
+      Then the command succeeds
+      And the file ".gitignore" contains "# ctxloom-generated engine surfaces" exactly 1 times
+      And the file ".gitignore" does not contain "ctxloom private working state"
 
     # The dirty-tree-commit acknowledgement moved out of config.yaml into its
     # own gitignored state-store record: the value records a prior HUMAN

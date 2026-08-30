@@ -86,10 +86,25 @@ func TestIsSupersededBlanket_RejectsNonBlanketLines(t *testing.T) {
 	}
 }
 
-// harnessPatterns is the pattern list `manage gitignore install` passes, via
-// cli.ensureHarnessGitignore: private state plus transient artifacts.
+// harnessPatterns is what `manage gitignore install` still appends to the ROOT
+// .gitignore, via cli.ensureHarnessGitignore: the transient artifacts alone.
+// The private-state tier no longer appears here — it is written to the nested
+// .ctxloom/.gitignore instead — and that is the whole point of the split: these
+// patterns name paths OUTSIDE .ctxloom/ (.agents/, .codex/auth.json), so no
+// nested file could express them, while every private-state pattern is under
+// .ctxloom/ and so must not be here.
 func harnessPatterns() []string {
-	return append(append([]string{}, PrivateStatePatterns...), TransientArtifactPatterns...)
+	return append([]string{}, TransientArtifactPatterns...)
+}
+
+// ensureHarness replays cli.ensureHarnessGitignore's two writes in its order.
+// Keeping the sequence in one helper is what stops these tests from drifting
+// into asserting a combination the product never actually performs.
+func ensureHarness(t *testing.T, dir string) {
+	t.Helper()
+	_, err := EnsureNested(dir)
+	require.NoError(t, err)
+	require.NoError(t, Ensure(dir, TransientArtifactComment, harnessPatterns()...))
 }
 
 // TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing is the end-to-end
@@ -113,7 +128,7 @@ func TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing(t *testing.T) {
 				strings.Join(harnessPatterns(), "\n") + "\n"
 			require.NoError(t, os.WriteFile(path, []byte(original), 0644))
 
-			require.NoError(t, Ensure(dir, Comment, harnessPatterns()...))
+			ensureHarness(t, dir)
 
 			got := readGitignore(t, dir)
 			assert.NotEqual(t, original, got,
@@ -122,12 +137,18 @@ func TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing(t *testing.T) {
 				"the blanket rule %q must be gone", blanket)
 			assert.Contains(t, got, ".DS_Store", "unrelated user entries survive")
 			assert.Contains(t, got, "# OS files", "unrelated user comments survive")
-			for _, p := range PrivateStatePatterns {
-				assert.Contains(t, ignoreRules(got), p,
+			// Retirement removed the rule that was keeping private state out of
+			// git, so the replacement must land in the same migration — but in
+			// the NESTED file now, never back into the root one.
+			nested := ignoreRules(readNested(t, dir))
+			for _, p := range NestedPatterns() {
+				assert.Contains(t, nested, p,
 					"retirement must leave private state ignored: %s", p)
 			}
 			assert.NotContains(t, ignoreRules(got), ".ctxloom/content/",
 				"authored content is committed by omission, never re-ignored")
+			assert.NotContains(t, nested, "/content",
+				"authored content is committed by omission in the nested file too")
 		})
 	}
 }
@@ -166,7 +187,7 @@ func TestEnsure_MigratesRealWorldBlanketFile(t *testing.T) {
 	}, "\n")
 	require.NoError(t, os.WriteFile(path, []byte(original), 0644))
 
-	require.NoError(t, Ensure(dir, Comment, harnessPatterns()...))
+	ensureHarness(t, dir)
 
 	got := readGitignore(t, dir)
 	rules := ignoreRules(got)
@@ -190,12 +211,15 @@ func TestEnsure_SecondRunAfterMigrationIsAByteNoOp(t *testing.T) {
 	path := filepath.Join(dir, ".gitignore")
 	require.NoError(t, os.WriteFile(path, []byte("# Local config\n.ctxloom/*\n"), 0644))
 
-	require.NoError(t, Ensure(dir, Comment, harnessPatterns()...))
+	ensureHarness(t, dir)
 	first := readGitignore(t, dir)
-	require.NoError(t, Ensure(dir, Comment, harnessPatterns()...))
+	firstNested := readNested(t, dir)
+	ensureHarness(t, dir)
 
 	assert.Equal(t, first, readGitignore(t, dir),
 		"a migrated .gitignore must come back byte-identical on the next run")
+	assert.Equal(t, firstNested, readNested(t, dir),
+		"and so must the nested file — it is rewritten wholesale, so a second run cannot accumulate")
 }
 
 // TestSupersededBlanketLines_ReadOnly is doctor's gitignore-posture check's

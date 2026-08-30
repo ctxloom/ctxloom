@@ -1,8 +1,12 @@
-// Package gitignore provides idempotent maintenance of a project's .gitignore,
-// appending ctxloom-managed ignore patterns without disturbing user entries.
+// Package gitignore provides idempotent maintenance of a project's ignore
+// rules across the two surfaces ctxloom writes: the NESTED .ctxloom/.gitignore
+// it owns outright and rewrites wholesale, and — for artifacts that land
+// outside .ctxloom/ and so have nowhere nested to live — an appended block in
+// the project's own root .gitignore.
 package gitignore
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -16,8 +20,21 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
-// Comment is the header under which ctxloom's ignore patterns are grouped.
-const Comment = "# ctxloom private working state (rebuildable/local — cache, sessions, project id, local state)"
+// TransientArtifactComment is the header under which TransientArtifactPatterns
+// are grouped in a project's ROOT .gitignore.
+//
+// It exists because these patterns used to be written under the PRIVATE-STATE
+// header, which is a different claim about a different tier, and the mislabel
+// was not cosmetic: appendBlock emits a fresh header above only the patterns
+// still MISSING, so every time this list grew, another copy of that header
+// landed above the new entries. In ctxloom's own repo the header accumulated
+// five times and ended up captioning .codex/auth.json — a real credential —
+// plus three engine surfaces as "ctxloom private working state". Anyone
+// auditing what ctxloom keeps out of git was misled at each of those lines.
+// Two headers that say what they actually head is the fix; the accumulation
+// itself is now bounded because the private-state tier no longer appends here
+// at all (see EnsureNested).
+const TransientArtifactComment = "# ctxloom-generated engine surfaces (regenerated from config; never authored here)"
 
 // PrivateStatePatterns are the .ctxloom paths that are rebuildable or purely
 // local and so must never ride a distributable tree: the resolved-artifact
@@ -47,12 +64,196 @@ const Comment = "# ctxloom private working state (rebuildable/local — cache, s
 // version has a `.ctxloom/config.yaml.lock` sitting at its root — the bug that
 // prompted the move. That file is not going anywhere on its own, and leaving it
 // visible in `git status` invites exactly one mistake.
+//
+// EVERY ENTRY MUST BE UNDER appDirPrefix. That is not a stylistic constraint:
+// these patterns are written to .ctxloom/.gitignore by relativizing them
+// against that prefix (see nestedPattern), and an entry naming a path outside
+// .ctxloom/ has no nested file it could be expressed in. Pinned by
+// TestPrivateStatePatterns_AreAllUnderTheCtxloomDir.
 var PrivateStatePatterns = []string{
 	".ctxloom/cache/",
 	".ctxloom/sessions/",
 	".ctxloom/project-id",
 	".ctxloom/state/",
 	".ctxloom/*.lock",
+}
+
+// appDirPrefix is the directory every PrivateStatePatterns entry names, and
+// the prefix nestedPattern strips to relativize one. It is spelled literally
+// rather than taken from config.AppDirName because the patterns beside it are
+// literals too — and because importing config here would invert the dependency
+// direction for a five-character string.
+const appDirPrefix = ".ctxloom/"
+
+// NestedComment heads the file ctxloom owns, and says so.
+//
+// The "rewritten wholesale" sentence is the load-bearing one. This file has no
+// user-authored lines to preserve, which is precisely what makes the drift
+// class that motivated it impossible: there is nothing to interleave with, no
+// append that can strand a stale header, and the whole file is re-derived from
+// PrivateStatePatterns on every write. A reader who edits it by hand needs to
+// know that before they lose the edit, not after.
+const NestedComment = `# ctxloom's private working state: rebuildable or purely local, and so must
+# never ride a distributable tree. Everything else under .ctxloom/ — config.yaml,
+# remotes.yaml, lock.yaml, allowed_signers, approvals/, content/ — is committed
+# by omission, because it is content, config, or trust state the project
+# depends on.
+#
+# GENERATED from gitignore.PrivateStatePatterns, relativized to this directory.
+# ctxloom REWRITES THIS FILE WHOLESALE; hand edits are lost. Change that list.
+#
+# COMMIT THIS FILE. Tracking it is what carries the rules with the directory —
+# into every clone and, crucially, into every linked worktree, which is where a
+# rule living only in the superproject's root .gitignore would not reach.`
+
+// NestedGitignorePath returns the ignore file ctxloom owns outright for
+// projectDir: <projectDir>/.ctxloom/.gitignore.
+func NestedGitignorePath(projectDir string) string {
+	return filepath.Join(projectDir, filepath.FromSlash(strings.TrimSuffix(appDirPrefix, "/")), ".gitignore")
+}
+
+// NestedPatterns returns PrivateStatePatterns relativized to the .ctxloom
+// directory, in the same order. PrivateStatePatterns REMAINS the single
+// authority for what is private; this only changes the frame of reference.
+func NestedPatterns() []string {
+	out := make([]string, 0, len(PrivateStatePatterns))
+	for _, p := range PrivateStatePatterns {
+		out = append(out, nestedPattern(p))
+	}
+	return out
+}
+
+// nestedPattern rewrites one root-relative pattern to be relative to the
+// .ctxloom directory: ".ctxloom/cache/" becomes "/cache".
+//
+// The leading slash is what preserves the original meaning. In the root file
+// ".ctxloom/cache/" is ANCHORED — git anchors any pattern containing a slash —
+// so it matches that one directory and not a "cache" nested somewhere deeper.
+// Stripping the prefix removes the only slash and would silently widen the
+// rule to match at any depth; re-anchoring with "/" keeps it naming exactly
+// what it named before.
+//
+// A pattern that STARTS with a wildcard is left unanchored, because anchoring
+// it would narrow rather than preserve: ".ctxloom/*.lock" exists to keep stray
+// advisory lock sidecars out of `git status`, and one appearing a level down
+// is the same mistake as one at the top.
+func nestedPattern(p string) string {
+	rel := strings.TrimSuffix(strings.TrimPrefix(p, appDirPrefix), "/")
+	if strings.HasPrefix(rel, "*") {
+		return rel
+	}
+	return "/" + rel
+}
+
+// nestedContent is the exact bytes of the nested ignore file: the header, then
+// one relativized pattern per line. Deterministic, so a rewrite that changes
+// nothing is detectable as a byte comparison rather than a parse.
+func nestedContent() []byte {
+	var b bytes.Buffer
+	b.WriteString(NestedComment)
+	b.WriteString("\n")
+	for _, p := range NestedPatterns() {
+		b.WriteString(p)
+		b.WriteString("\n")
+	}
+	return b.Bytes()
+}
+
+// NestedOutcome is what EnsureNested did, measured from the files' BYTES rather
+// than from what the write path intended to do — the same discipline
+// internal/cli's gitignoreOutcome applies, and for the same reason: a report
+// derived from an intention has already been wrong here.
+type NestedOutcome struct {
+	// Retired lists blanket .ctxloom rules removed from the ROOT .gitignore.
+	Retired []string
+	// Changed reports whether the nested file's bytes differ from before.
+	Changed bool
+}
+
+// EnsureNested writes <projectDir>/.ctxloom/.gitignore wholesale from
+// NestedPatterns, creating the directory if needed, and first retires any
+// blanket .ctxloom rule from the project's ROOT .gitignore.
+//
+// THE RETIREMENT IS NOT OPTIONAL AND IS NOT A SEPARATE CONCERN. Git does not
+// descend into an ignored directory, so a project whose root file blanket-
+// ignores .ctxloom/ can never READ the nested file — every rule in it is dead,
+// silently, and the private state it names would be committed. Retiring lives
+// inside this call for the same reason it lives inside Ensure: every writer of
+// these rules must repair that, so no caller is given the chance to forget.
+//
+// The write is wholesale rather than an append. That is the entire point: the
+// file has no user content to preserve, so it cannot accumulate stale headers
+// or drift from PrivateStatePatterns the way an appended block did.
+func EnsureNested(projectDir string) (NestedOutcome, error) {
+	rootPath := filepath.Join(projectDir, ".gitignore")
+	retired, err := SupersededBlanketLines(rootPath)
+	if err != nil {
+		return NestedOutcome{}, err
+	}
+	if len(retired) > 0 {
+		if _, err := RetireSupersededFile(rootPath); err != nil {
+			return NestedOutcome{}, err
+		}
+		clidiag.WarnOnce("ctxloom",
+			"removed a blanket .ctxloom/ rule from .gitignore: it predates version-controlled content living under .ctxloom/content/, and it also stops git descending into .ctxloom/ at all, which would have made the nested .ctxloom/.gitignore unreadable — review and commit the .gitignore change")
+	}
+
+	changed, err := writeNested(projectDir)
+	if err != nil {
+		return NestedOutcome{}, err
+	}
+	return NestedOutcome{Retired: retired, Changed: changed}, nil
+}
+
+// writeNested is EnsureNested's write half, without the root retirement, so
+// Ensure can install the replacement rules during its own migration without
+// retiring twice.
+func writeNested(projectDir string) (bool, error) {
+	path := NestedGitignorePath(projectDir)
+	want := nestedContent()
+
+	if got, err := os.ReadFile(path); err == nil && bytes.Equal(got, want) {
+		return false, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return false, err
+	}
+	if err := iox.WriteFileAtomicFs(afero.NewOsFs(), path, want, 0644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// RedundantRootPatterns returns the PrivateStatePatterns still present as rule
+// lines in projectDir's root .gitignore — rules an older ctxloom appended
+// there, now superseded by the nested file.
+//
+// It only READS. Removing them is a write to a file the project owns, for no
+// functional gain (the duplicate rules are inert, not harmful), so ctxloom
+// reports them and lets the user delete them deliberately. A missing root file
+// yields nothing, not an error.
+func RedundantRootPatterns(projectDir string) ([]string, error) {
+	content, err := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	present := make(map[string]bool)
+	for line := range strings.SplitSeq(string(content), "\n") {
+		present[strings.TrimSpace(line)] = true
+	}
+	var found []string
+	for _, p := range PrivateStatePatterns {
+		if present[p] {
+			found = append(found, p)
+		}
+	}
+	return found, nil
 }
 
 // TransientArtifactPatterns are unambiguous generated artifacts that accumulate
@@ -348,17 +549,21 @@ func Ensure(projectDir, comment string, patterns ...string) error {
 		return err
 	}
 	if retired {
-		// The blanket rule just removed WAS what kept private state out of git.
-		// Install its replacement in the SAME block as the caller's patterns —
-		// not every caller passes PrivateStatePatterns (the hook path passes only
-		// transient artifacts), and retiring without replacing would leak cache/
-		// and sessions/ into the repo. Retirement and its replacement are one
-		// migration.
-		// A caller list that already carries one of the private-state patterns
-		// is fine: missingPatterns emits each pattern at most once.
-		patterns = append(append([]string{}, PrivateStatePatterns...), patterns...)
+		// The blanket rule just removed WAS what kept private state out of git,
+		// so retiring without replacing would leak cache/ and sessions/ into the
+		// repo. Retirement and its replacement are one migration, and no caller
+		// gets the chance to do only half of it — not every caller passes the
+		// private-state tier (the hook path passes only transient artifacts).
+		//
+		// The replacement now goes in the NESTED file rather than back into this
+		// one. Writing it here is what the whole change is undoing, and it is
+		// specifically wrong on this path: appending granular .ctxloom/* rules
+		// to the root file is how the stale-header accumulation started.
+		if _, err := writeNested(projectDir); err != nil {
+			return err
+		}
 		clidiag.WarnOnce("ctxloom",
-			"removed a blanket .ctxloom/ rule from .gitignore: it predates version-controlled content living under .ctxloom/content/ and was hiding that content from git — replaced it with the granular private-state rules; review and commit the .gitignore change")
+			"removed a blanket .ctxloom/ rule from .gitignore: it predates version-controlled content living under .ctxloom/content/ and was hiding that content from git — the private-state rules now live in .ctxloom/.gitignore, which was just written; review and commit both changes")
 	}
 
 	return EnsureFile(path, comment, patterns...)

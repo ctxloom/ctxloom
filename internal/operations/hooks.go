@@ -209,7 +209,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// .agents/) so they stay covered after any hook apply, not just at init.
 	// Skipped when a test FS is injected — the os-based writer would miss it.
 	if req.FS == nil {
-		if gitErr := gitignore.Ensure(workDir, gitignore.Comment, gitignore.TransientArtifactPatterns...); gitErr != nil {
+		if gitErr := gitignore.Ensure(workDir, gitignore.TransientArtifactComment, gitignore.TransientArtifactPatterns...); gitErr != nil {
 			clidiag.Warn("ctxloom", "failed to update .gitignore: %v", gitErr)
 		}
 	}

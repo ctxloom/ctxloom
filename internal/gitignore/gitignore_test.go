@@ -25,6 +25,18 @@ func readGitignore(t *testing.T, dir string) string {
 	return string(data)
 }
 
+// readNested returns the nested .ctxloom/.gitignore's contents, or "" when it
+// does not exist — the counterpart to readGitignore for the file ctxloom owns.
+func readNested(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(NestedGitignorePath(dir))
+	if os.IsNotExist(err) {
+		return ""
+	}
+	require.NoError(t, err)
+	return string(data)
+}
+
 // readPlainFile reads an arbitrary file's contents as a string, failing the
 // test on error (unlike readGitignore, which treats absence as "").
 func readPlainFile(t *testing.T, path string) string {
@@ -225,37 +237,78 @@ func TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts(t *testing.T) {
 		"the shared managed-content marker must be kept out of merge-back")
 }
 
-// TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState mirrors the call
-// init.go makes (gitignore.Ensure(projectDir, gitignore.Comment,
-// gitignore.PrivateStatePatterns...)) and asserts the resulting .gitignore
-// ignores the rebuildable/local-state paths while leaving the
-// content/config/trust paths committed-by-omission (never mentioned, so git
-// tracks them by default).
-func TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState(t *testing.T) {
+// TestEnsureNested_InitBehavior_CommitsContentIgnoresPrivateState mirrors the
+// call init.go makes (gitignore.EnsureNested(projectDir)) and asserts the
+// resulting .ctxloom/.gitignore ignores the rebuildable/local-state paths while
+// leaving the content/config/trust paths committed-by-omission (never
+// mentioned, so git tracks them by default).
+//
+// The paths are asserted in their NESTED, directory-relative spelling: this
+// file sits inside .ctxloom, so a rule naming ".ctxloom/cache/" from in there
+// would mean .ctxloom/.ctxloom/cache and match nothing at all.
+func TestEnsureNested_InitBehavior_CommitsContentIgnoresPrivateState(t *testing.T) {
 	dir := t.TempDir()
 
-	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
+	_, err := EnsureNested(dir)
+	require.NoError(t, err)
 
-	got := readGitignore(t, dir)
+	got := readNested(t, dir)
 
-	for _, ignored := range []string{
-		".ctxloom/cache/",
-		".ctxloom/sessions/",
-		".ctxloom/project-id",
-		".ctxloom/state/",
-	} {
-		assert.Contains(t, got, ignored, "expected %q to be ignored", ignored)
+	for _, ignored := range []string{"/cache", "/sessions", "/project-id", "/state"} {
+		assert.Contains(t, ignoreRules(got), ignored, "expected %q to be ignored", ignored)
 	}
 
 	for _, committed := range []string{
-		".ctxloom/content/",
-		".ctxloom/config.yaml",
-		".ctxloom/remotes.yaml",
-		".ctxloom/lock.yaml",
-		".ctxloom/allowed_signers",
-		".ctxloom/approvals/",
+		"/content", "/config.yaml", "/remotes.yaml",
+		"/lock.yaml", "/allowed_signers", "/approvals",
 	} {
-		assert.NotContains(t, got, committed, "expected %q to stay committed (not ignored)", committed)
+		assert.NotContains(t, ignoreRules(got), committed,
+			"expected %q to stay committed (not ignored)", committed)
+	}
+}
+
+// TestEnsureNested_DoesNotWriteTheProjectsRootGitignore is the whole point of
+// the nested file stated as an assertion: ctxloom maintains its private-state
+// rules inside its OWN directory and does not touch a file the project owns.
+//
+// Byte equality, not "does not contain .ctxloom/cache/". Appending anything at
+// all — a header, a blank line — to a user's artifact is the behaviour being
+// removed, and a contains-check would pass while it happened.
+func TestEnsureNested_DoesNotWriteTheProjectsRootGitignore(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, ".gitignore")
+	original := "# OS files\n.DS_Store\n"
+	require.NoError(t, os.WriteFile(root, []byte(original), 0644))
+
+	_, err := EnsureNested(dir)
+	require.NoError(t, err)
+
+	assert.Equal(t, original, readGitignore(t, dir),
+		"the project's own .gitignore must come back byte-identical")
+	assert.NotEmpty(t, readNested(t, dir), "and the nested file must actually have been written")
+}
+
+// TestNestedPatterns_RelativizeAndStayAnchored pins the transform itself,
+// because it is the one place PrivateStatePatterns' meaning could silently
+// widen. Dropping the ".ctxloom/" prefix removes the only slash in most of
+// these patterns, and an unanchored git pattern matches at ANY depth — so
+// "/cache" and "cache" are different rules, and only the first one means what
+// the root-file rule meant.
+func TestNestedPatterns_RelativizeAndStayAnchored(t *testing.T) {
+	assert.Equal(t,
+		[]string{"/cache", "/sessions", "/project-id", "/state", "*.lock"},
+		NestedPatterns())
+}
+
+// TestPrivateStatePatterns_AreAllUnderTheCtxloomDir turns the prose invariant
+// on PrivateStatePatterns into a checked one. An entry naming a path outside
+// .ctxloom/ cannot be expressed in the nested file at all: nestedPattern would
+// leave it untouched and then anchor it, quietly writing a rule for the wrong
+// path into the wrong file.
+func TestPrivateStatePatterns_AreAllUnderTheCtxloomDir(t *testing.T) {
+	for _, p := range PrivateStatePatterns {
+		assert.True(t, strings.HasPrefix(p, appDirPrefix),
+			"%q is not under %s, so it has no nested file it could live in — either move it to TransientArtifactPatterns or teach nestedPattern about it", p, appDirPrefix)
 	}
 }
 
@@ -266,32 +319,90 @@ func TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState(t *testing.T) {
 // retires only the superseded blanket rule, so ceasing to write a pattern must
 // leave existing ones exactly where they are — untouched, inert, and nobody's
 // merge conflict.
-func TestEnsure_LeavesRetiredPhantomPatternsAlone(t *testing.T) {
+func TestEnsureNested_LeavesRetiredPhantomPatternsAlone(t *testing.T) {
 	dir := t.TempDir()
 	pre := ".ctxloom/cache/\n.ctxloom/pieces/\n.ctxloom/sessions/\n.ctxloom/ephemeral/\n.ctxloom/project-id\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(pre), 0644))
 
-	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
+	_, err := EnsureNested(dir)
+	require.NoError(t, err)
 
-	got := readGitignore(t, dir)
-	for _, retired := range []string{".ctxloom/pieces/", ".ctxloom/ephemeral/"} {
-		assert.Equal(t, 1, countOccurrences(got, "\n"+retired+"\n"),
-			"a pattern ctxloom no longer writes must be neither removed nor duplicated: %s", retired)
-	}
-	for _, p := range PrivateStatePatterns {
-		assert.Contains(t, got, p, "the current patterns must still be ensured: %s", p)
+	assert.Equal(t, pre, readGitignore(t, dir),
+		"every root rule an older ctxloom wrote — live or phantom — is the user's file now and must be left exactly as found")
+	for _, p := range NestedPatterns() {
+		assert.Contains(t, ignoreRules(readNested(t, dir)), p,
+			"the current patterns must still be ensured, in the nested file: %s", p)
 	}
 }
 
-func TestEnsure_InitBehavior_IsIdempotent(t *testing.T) {
+// TestEnsureNested_ReportsPreExistingRootRulesAsRedundant pins the migration
+// posture chosen for projects an older ctxloom already wrote to: the duplicate
+// root rules are REPORTED, never removed. They are inert (the nested file
+// covers the same paths), and deleting them would be a write to a file the
+// project owns — so the user is told, and decides.
+func TestEnsureNested_ReportsPreExistingRootRulesAsRedundant(t *testing.T) {
+	dir := t.TempDir()
+	pre := "# ctxloom private working state\n" + strings.Join(PrivateStatePatterns, "\n") + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(pre), 0644))
+
+	found, err := RedundantRootPatterns(dir)
+	require.NoError(t, err)
+	assert.Equal(t, PrivateStatePatterns, found,
+		"every private-state rule still sitting in the root file must be reported")
+}
+
+// TestRedundantRootPatterns_SilentOnACleanProject is the over-reporting guard:
+// a project that never carried the root rules must produce nothing to nag
+// about, or the advisory becomes noise every user learns to ignore.
+func TestRedundantRootPatterns_SilentOnACleanProject(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("# OS files\n.DS_Store\n"), 0644))
+
+	found, err := RedundantRootPatterns(dir)
+	require.NoError(t, err)
+	assert.Empty(t, found)
+
+	missing, err := RedundantRootPatterns(t.TempDir())
+	require.NoError(t, err, "an absent root .gitignore is nothing to report, not an error")
+	assert.Empty(t, missing)
+}
+
+func TestEnsureNested_IsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 
-	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
-	first := readGitignore(t, dir)
-	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
-	second := readGitignore(t, dir)
+	first, err := EnsureNested(dir)
+	require.NoError(t, err)
+	assert.True(t, first.Changed, "the first run writes the file")
+	firstBytes := readNested(t, dir)
 
-	assert.Equal(t, first, second)
+	second, err := EnsureNested(dir)
+	require.NoError(t, err)
+	assert.False(t, second.Changed,
+		"a second run must report no change rather than claiming a write it did not make")
+	assert.Equal(t, firstBytes, readNested(t, dir))
+}
+
+// TestEnsureNested_RewritesAHandEditedFileWholesale is the drift-proofing
+// claim, tested rather than asserted in prose: the file is ctxloom's, so
+// whatever state it is found in — stale patterns from an older list, a
+// duplicated header, a hand edit — it is restored to exactly the current
+// PrivateStatePatterns. That is what makes the five-header accumulation
+// impossible here rather than merely fixed once.
+func TestEnsureNested_RewritesAHandEditedFileWholesale(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Dir(NestedGitignorePath(dir)), 0755))
+	drifted := "# ctxloom private working state\n# ctxloom private working state\n/cache\n/pieces\n/ephemeral\n"
+	require.NoError(t, os.WriteFile(NestedGitignorePath(dir), []byte(drifted), 0644))
+
+	outcome, err := EnsureNested(dir)
+	require.NoError(t, err)
+	assert.True(t, outcome.Changed)
+
+	got := readNested(t, dir)
+	assert.Equal(t, NestedPatterns(), ignoreRules(got),
+		"the file must be restored to exactly the current pattern list, with the drifted entries gone")
+	assert.Equal(t, 1, strings.Count(got, "# ctxloom's private working state"),
+		"a wholesale rewrite cannot accumulate headers")
 }
 
 // countOccurrences counts non-overlapping occurrences of sub in s.
@@ -514,12 +625,37 @@ func TestRetireSuperseded_ThenEnsure_UnignoresContent(t *testing.T) {
 
 	_, err := RetireSupersededFile(filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
-	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
+	_, err = EnsureNested(dir)
+	require.NoError(t, err)
 
-	got := readGitignore(t, dir)
-	assert.NotContains(t, got, "\n.ctxloom/\n", "content must no longer be blanket-ignored")
-	for _, p := range PrivateStatePatterns {
-		assert.Contains(t, got, p, "private state must still be ignored: %s", p)
+	assert.NotContains(t, readGitignore(t, dir), "\n.ctxloom/\n", "content must no longer be blanket-ignored")
+	for _, p := range NestedPatterns() {
+		assert.Contains(t, ignoreRules(readNested(t, dir)), p, "private state must still be ignored: %s", p)
+	}
+}
+
+// TestEnsureNested_RetiresTheBlanketThatWouldMakeItUnreadable is the ordering
+// trap the nested design introduces, pinned. Git does not descend into an
+// ignored directory, so a root `.ctxloom/` blanket makes every rule in the
+// nested file dead — it is never even read — and the private state it names
+// would be committed. Writing the nested file without retiring first therefore
+// LOOKS like success and protects nothing.
+func TestEnsureNested_RetiresTheBlanketThatWouldMakeItUnreadable(t *testing.T) {
+	for _, blanket := range blanketSpellings {
+		t.Run(blanket, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
+				[]byte("# Local config\n"+blanket+"\n"), 0644))
+
+			outcome, err := EnsureNested(dir)
+			require.NoError(t, err)
+
+			assert.Equal(t, []string{strings.TrimSpace(blanket)}, outcome.Retired,
+				"the blanket must be reported as retired")
+			assert.NotContains(t, ignoreRules(readGitignore(t, dir)), strings.TrimSpace(blanket),
+				"and actually removed, or the nested file it just wrote can never be read")
+			assert.NotEmpty(t, readNested(t, dir))
+		})
 	}
 }
 
@@ -535,17 +671,19 @@ func TestEnsure_RetiringBlanketRuleReplacesPrivateStateRules(t *testing.T) {
 		[]byte("# ctxloom local files\n.ctxloom/\n"), 0644))
 
 	// Exactly what internal/operations/hooks.go passes.
-	require.NoError(t, Ensure(dir, Comment, TransientArtifactPatterns...))
+	require.NoError(t, Ensure(dir, TransientArtifactComment, TransientArtifactPatterns...))
 
 	got := readGitignore(t, dir)
 	assert.NotContains(t, got, "\n.ctxloom/\n", "the blanket rule must be retired")
-	for _, p := range PrivateStatePatterns {
-		assert.Contains(t, got, p,
+	for _, p := range NestedPatterns() {
+		assert.Contains(t, ignoreRules(readNested(t, dir)), p,
 			"retiring the blanket rule must not leak private state: %s should still be ignored", p)
 	}
 	for _, p := range TransientArtifactPatterns {
 		assert.Contains(t, got, p, "the caller's own patterns must still be written: %s", p)
 	}
+	assert.NotContains(t, ignoreRules(got), ".ctxloom/cache/",
+		"the replacement belongs in the nested file; writing it back into the root file is the behaviour being removed")
 }
 
 // TestEnsureFile_WarnsWhenAppendingOverAUserNegation pins that .gitignore
@@ -603,11 +741,29 @@ func TestEnsure_NoBlanketRule_DoesNotInjectPrivateState(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("# OS files\n.DS_Store\n"), 0644))
 
-	require.NoError(t, Ensure(dir, Comment, TransientArtifactPatterns...))
+	require.NoError(t, Ensure(dir, TransientArtifactComment, TransientArtifactPatterns...))
 
 	got := readGitignore(t, dir)
 	assert.NotContains(t, got, ".ctxloom/cache/",
 		"a project with no superseded rule must not have private-state patterns injected by a transient-only Ensure")
+	assert.Empty(t, readNested(t, dir),
+		"and no nested file either: only a retirement triggers the replacement write")
+}
+
+// TestEnsure_LabelsTransientArtifactsAsSuchNotAsPrivateState pins the mislabel
+// directly. hooks.go passes TransientArtifactPatterns on every apply; under
+// the private-state header, appendBlock's fresh-header-per-append behaviour
+// captioned .codex/auth.json — a real credential — and three engine surfaces
+// as "ctxloom private working state", five times over in this repo alone.
+func TestEnsure_LabelsTransientArtifactsAsSuchNotAsPrivateState(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, Ensure(dir, TransientArtifactComment, TransientArtifactPatterns...))
+
+	got := readGitignore(t, dir)
+	assert.Contains(t, got, TransientArtifactComment)
+	assert.NotContains(t, got, "private working state",
+		"generated engine surfaces and a copied credential must never be captioned as ctxloom's private state")
 }
 
 // TestCloseChecked_PropagatesCloseError pins that appendBlock's old

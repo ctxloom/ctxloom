@@ -263,10 +263,18 @@ func printInstallPlan(appDir, projectDir string) {
 type gitignoreOutcome struct {
 	Retired []string
 	Added   []string
+	// NestedWritten reports whether .ctxloom/.gitignore's bytes changed.
+	NestedWritten bool
+	// Redundant lists private-state patterns an OLDER ctxloom appended to the
+	// root file, now superseded by the nested one. Reported, never removed —
+	// see ensureHarnessGitignore.
+	Redundant []string
 }
 
-// changed reports whether the file's rule lines differ from what they were.
-func (o gitignoreOutcome) changed() bool { return len(o.Retired) > 0 || len(o.Added) > 0 }
+// changed reports whether either file's rule lines differ from what they were.
+func (o gitignoreOutcome) changed() bool {
+	return len(o.Retired) > 0 || len(o.Added) > 0 || o.NestedWritten
+}
 
 // status is the machine-readable verdict: a caller parsing --format json must be
 // able to tell a no-op from a write without diffing the file itself.
@@ -280,20 +288,37 @@ func (o gitignoreOutcome) status() string {
 // summary is the human line. It leads with the verb for what happened rather
 // than a fixed "Updated", and names the retired rules — a retirement is a
 // removal from a user-authored file, so the user is owed the list.
-func (o gitignoreOutcome) summary(path string) string {
+func (o gitignoreOutcome) summary(path, nestedPath string) string {
+	var lines []string
+	if o.NestedWritten {
+		lines = append(lines, fmt.Sprintf("Wrote %s (ctxloom's private-state rules; commit it)", nestedPath))
+	} else {
+		lines = append(lines, fmt.Sprintf("No change: %s already matches ctxloom's private-state rules", nestedPath))
+	}
+
 	retired := fmt.Sprintf("Retired %d superseded %s (%s)",
 		len(o.Retired), plural(len(o.Retired), "rule", "rules"), strings.Join(o.Retired, ", "))
 	added := fmt.Sprintf("%d %s", len(o.Added), plural(len(o.Added), "pattern", "patterns"))
 	switch {
 	case len(o.Retired) > 0 && len(o.Added) > 0:
-		return fmt.Sprintf("%s and added %s in %s", retired, added, path)
+		lines = append(lines, fmt.Sprintf("%s and added %s in %s", retired, added, path))
 	case len(o.Retired) > 0:
-		return fmt.Sprintf("%s in %s", retired, path)
+		lines = append(lines, fmt.Sprintf("%s in %s", retired, path))
 	case len(o.Added) > 0:
-		return fmt.Sprintf("Added %s to %s", added, path)
+		lines = append(lines, fmt.Sprintf("Added %s to %s", added, path))
 	default:
-		return fmt.Sprintf("No change: %s already carries ctxloom's ignore rules", path)
+		lines = append(lines, fmt.Sprintf("No change: %s already carries ctxloom's ignore rules", path))
 	}
+
+	// The redundant rules are named, not counted. Deleting them is the user's
+	// call to make and they cannot make it from a number.
+	if len(o.Redundant) > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"%s still carries %d ctxloom private-state %s an older version appended (%s). They are now redundant — %s covers them — but harmless; ctxloom does not edit them out of a file you own. Delete them when convenient.",
+			path, len(o.Redundant), plural(len(o.Redundant), "rule", "rules"),
+			strings.Join(o.Redundant, ", "), nestedPath))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ensureHarnessGitignore excludes ctxloom's private state and transient
@@ -308,9 +333,25 @@ func ensureHarnessGitignore(projectDir string) (gitignoreOutcome, error) {
 	// gitignore.Ensure is about to hit and report with its own context.
 	before, _ := os.ReadFile(path)
 
-	patterns := append(append([]string{}, gitignore.PrivateStatePatterns...), gitignore.TransientArtifactPatterns...)
-	if err := gitignore.Ensure(projectDir, gitignore.Comment, patterns...); err != nil {
+	// The private-state tier goes to the nested .ctxloom/.gitignore ctxloom
+	// owns; only the transient artifacts, which name paths OUTSIDE .ctxloom/
+	// and so have no nested file to live in, are appended to the project's own
+	// root file. Splitting them is what stops a private-state header from ever
+	// again being written above an engine surface or a credential.
+	nested, err := gitignore.EnsureNested(projectDir)
+	if err != nil {
+		return gitignoreOutcome{}, fmt.Errorf("failed to write %s: %w", gitignore.NestedGitignorePath(projectDir), err)
+	}
+
+	if err := gitignore.Ensure(projectDir, gitignore.TransientArtifactComment, gitignore.TransientArtifactPatterns...); err != nil {
 		return gitignoreOutcome{}, fmt.Errorf("failed to update .gitignore: %w", err)
+	}
+
+	// Read from the file rather than from `before`: Ensure may have retired a
+	// blanket rule since, and the question is what the root file carries NOW.
+	redundant, err := gitignore.RedundantRootPatterns(projectDir)
+	if err != nil {
+		return gitignoreOutcome{}, fmt.Errorf("failed to inspect %s: %w", path, err)
 	}
 
 	// Ensure returned nil, so the file it was asked to maintain must be
@@ -323,7 +364,12 @@ func ensureHarnessGitignore(projectDir string) (gitignoreOutcome, error) {
 	}
 
 	retired, added := ignoreLineDiff(before, after)
-	return gitignoreOutcome{Retired: retired, Added: added}, nil
+	return gitignoreOutcome{
+		Retired:       retired,
+		Added:         added,
+		NestedWritten: nested.Changed,
+		Redundant:     redundant,
+	}, nil
 }
 
 // ignoreLineDiff reports the rule lines dropped from before and the ones added
@@ -750,21 +796,35 @@ func runManageGitignoreInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	path := filepath.Join(projectDir, ".gitignore")
+	nestedPath := gitignore.NestedGitignorePath(projectDir)
 
 	type manageGitignoreInstallResult struct {
 		Status  string   `json:"status"`
 		Path    string   `json:"path"`
 		Retired []string `json:"retired,omitempty"`
 		Added   []string `json:"added,omitempty"`
+		// NestedPath is where the private-state rules actually live, and
+		// NestedWritten whether this run changed them. Reported separately from
+		// Path because they are two different files with two different owners:
+		// one is the project's, one is ctxloom's.
+		NestedPath    string `json:"nested_path"`
+		NestedWritten bool   `json:"nested_written"`
+		// Redundant names private-state rules an older ctxloom left in the
+		// project's root file. Machine-readable so a cleanup can be scripted —
+		// ctxloom deliberately does not remove them itself.
+		Redundant []string `json:"redundant,omitempty"`
 	}
 	out := manageGitignoreInstallResult{
-		Status:  outcome.status(),
-		Path:    path,
-		Retired: outcome.Retired,
-		Added:   outcome.Added,
+		Status:        outcome.status(),
+		Path:          path,
+		Retired:       outcome.Retired,
+		Added:         outcome.Added,
+		NestedPath:    nestedPath,
+		NestedWritten: outcome.NestedWritten,
+		Redundant:     outcome.Redundant,
 	}
 	return emit(cmd, out, func() error {
-		fmt.Fprintln(cmd.OutOrStdout(), outcome.summary(path))
+		fmt.Fprintln(cmd.OutOrStdout(), outcome.summary(path, nestedPath))
 		return nil
 	})
 }

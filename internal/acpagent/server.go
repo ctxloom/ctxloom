@@ -31,6 +31,7 @@ import (
 	"time"
 
 	api "github.com/coder/acp-go-sdk"
+	"go.uber.org/zap"
 
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -884,10 +885,19 @@ func (s *Server) handleTurnEvent(sess *session, ev agent.ChatEvent) *turnOutcome
 }
 
 // forwardPermission relays one engine permission request to the editor as
-// session/request_permission and feeds the decision back into the engine. Any
-// failure (client error, session teardown) resolves as a dismissed answer —
-// the engine then reports a cancelled outcome, neither approving nor
-// committing a remembered rejection.
+// session/request_permission and feeds the decision back into the engine. A
+// request the connected client actually answers (selected or explicitly
+// cancelled) resolves exactly as that answer says.
+//
+// A request the client could NOT answer (a transport failure, the client
+// replying with a protocol error instead of an outcome, or session/server
+// teardown racing the call) still resolves as dismissed (empty OptionID) —
+// see recordUnansweredPermission's doc for why this does not hang the turn —
+// but it is never silently dropped first: RULED 2026-08-30, "queue and
+// record; fail loud if unanswerable" — a decision nobody could make must
+// leave a durable trace, not just an ephemeral clidiag.Warn line nobody was
+// watching (this package's characteristic failure: the agent proceeding
+// past a decision nobody made).
 func (s *Server) forwardPermission(sess *session, p *agent.PermissionRequest) {
 	answer := agent.PermissionAnswer{ID: p.ID}
 
@@ -898,7 +908,7 @@ func (s *Server) forwardPermission(sess *session, p *agent.PermissionRequest) {
 		} `json:"outcome"`
 	}
 	if err := s.conn.Call(sess.ctx, api.ClientMethodSessionRequestPermission, sess.permissionRequestWire(p), &resp); err != nil {
-		clidiag.Warn("ctxloom", "acp agent: permission request failed, dismissing: %v", err)
+		s.recordUnansweredPermission(sess, p, err)
 	} else if resp.Outcome.Outcome == "selected" {
 		answer.OptionID = resp.Outcome.OptionId
 	}
@@ -908,6 +918,40 @@ func (s *Server) forwardPermission(sess *session, p *agent.PermissionRequest) {
 	case <-sess.ctx.Done():
 	case <-s.ctx.Done():
 	}
+}
+
+// recordUnansweredPermission durably records a permission request the
+// connected client failed to answer, and surfaces it in the session
+// transcript when the connection can still carry a notification — the SAME
+// clidiag.Warn + emitUpdate(AgentMessageChunk) pairing handleSessionLoad
+// already uses for its own "could not faithfully deliver this to the
+// client" gap (see its replay-gap notice above), reused here rather than
+// inventing a new channel. zap.L() is the process-wide structured sink
+// (internal/shared/logsink) every ctxloom process already writes to
+// ~/.ctxloom/logs/ctxloom.log — the durable half of the record, readable
+// after the fact by someone who was not watching stderr, which an
+// unattended run has nobody doing.
+//
+// forwardPermission still resolves the request as dismissed (empty
+// OptionID) immediately after this call, refusing the requested action
+// rather than approving it — and rather than hanging the turn waiting on an
+// answer that may never come: see TestServe_PermissionForwarding_ClientError,
+// which pins "unparks with a cancelled outcome rather than hanging" as
+// existing, load-bearing behavior this fix does not change. A genuine retry-
+// until-a-client-reattaches queue would need acpagent.Serve to outlive one
+// connection, which is a separate, not-yet-ruled decision — see this
+// package's own doc comment and Serve's.
+func (s *Server) recordUnansweredPermission(sess *session, p *agent.PermissionRequest, cause error) {
+	clidiag.Warn("ctxloom", "acp agent: permission request %s for tool %q could not be answered (session %s): %v — refusing", p.ID, p.ToolName, sess.id, cause)
+	zap.L().Error("acp agent: permission request unanswerable, refusing",
+		zap.String("session", string(sess.id)),
+		zap.String("request_id", p.ID),
+		zap.String("tool", p.ToolName),
+		zap.Error(cause),
+	)
+	_ = s.emitUpdate(sess, api.SessionUpdate{AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{
+		Content: textBlock(fmt.Sprintf("ctxloom: a permission request for %q could not be delivered to this client (%v) — refusing the action rather than proceeding on a decision nobody made.", p.ToolName, cause)),
+	}})
 }
 
 // editorAdvertisedTerminal reports whether the connected editor advertised

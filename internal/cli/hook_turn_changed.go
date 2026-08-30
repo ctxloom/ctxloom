@@ -14,9 +14,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/turnchange"
 )
 
-// The two words this command puts on stdout. The shell guard silences the
-// close-out contract on VerdictUnchanged and on nothing else, so a crash, a
-// missing binary or any future word all leave the contract firing.
+// The two words this command puts on stdout. Nothing consumes them
+// automatically: no hook configuration invokes this command, so the verdict is
+// read only by whoever runs it directly. The fail-safe direction is therefore
+// a property of this command itself rather than a guarantee some caller
+// provides.
 const (
 	verdictChanged   = "changed"
 	verdictUnchanged = "unchanged"
@@ -31,6 +33,12 @@ const turnChangedProg = "ctxloom hook turn-changed"
 // that most need a close-out checklist: a coordinator dispatches every edit
 // into a separate worktree and leaves its own tree clean. The turn is the
 // unit, so the answer comes from the session transcript instead.
+//
+// WHY IT IS KEPT, given nothing calls it: this command is a member of the hook
+// vocabulary and is kept for that vocabulary's COMPLETENESS. It does NOT serve
+// the close-out contract and must not be wired to one to satisfy a claim found
+// in prose. This file is the home of that ruling; do not re-derive it
+// elsewhere.
 var hookTurnChangedCmd = &cobra.Command{
 	Use:    "turn-changed",
 	Short:  "Report whether the ending turn changed anything (internal — used by the Stop hook)",

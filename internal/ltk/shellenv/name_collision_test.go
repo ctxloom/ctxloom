@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 const (
@@ -43,6 +45,16 @@ func TestNoFileImportsBothShellenvPackages(t *testing.T) {
 		if d.IsDir() {
 			switch d.Name() {
 			case ".git", "node_modules", "vendor", "website":
+				return filepath.SkipDir
+			}
+			// A checkout hosting agent worktrees (.claude/worktrees/agent-*)
+			// carries a full second copy of the module at a stale commit. Its
+			// files are not this module's source, so a collision there would
+			// fail this gate for whoever's checkout happened to be the busy
+			// one. Never skip root: an agent worktree IS a linked worktree and
+			// the suite routinely runs from one, so skipping the root would
+			// scan nothing — the `checked` floor below is what catches that.
+			if path != root && taskstest.IsLinkedWorktreeRoot(path) {
 				return filepath.SkipDir
 			}
 			return nil

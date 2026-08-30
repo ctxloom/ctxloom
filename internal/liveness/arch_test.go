@@ -15,6 +15,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // ---------------------------------------------------------------------------
@@ -162,6 +164,15 @@ func moduleGoFiles(t *testing.T, root string) []string {
 			case ".git", "vendor", "testdata", "node_modules":
 				return filepath.SkipDir
 			}
+			// A checkout hosting agent worktrees (.claude/worktrees/agent-*)
+			// carries a full second copy of the module at a stale commit;
+			// scanning it means asserting against code that is not the code
+			// under test. Never skip root: an agent worktree IS a linked
+			// worktree and the suite routinely runs from one, so skipping the
+			// root would gather nothing and pass vacuously.
+			if path != root && taskstest.IsLinkedWorktreeRoot(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
@@ -169,9 +180,21 @@ func moduleGoFiles(t *testing.T, root string) []string {
 		}
 		return nil
 	}))
-	require.NotEmpty(t, out)
+	// A FLOOR, not NotEmpty: the nested-worktree skip above is one bad
+	// predicate away from pruning the whole walk, and "at least one file"
+	// cannot tell a full module from the handful left after a collapse.
+	require.GreaterOrEqual(t, len(out), moduleGoFileFloor,
+		"only %d non-test .go files under %s — the walk collapsed (a bad skip, or a wrong root), "+
+			"and every assertion built on it would be vacuous", len(out), root)
 	return out
 }
+
+// moduleGoFileFloor sits far below the module's actual non-test .go file
+// count, so ordinary churn — even deleting a whole package — cannot trip it,
+// while a walk that pruned itself down to a handful still does. It is a
+// collapse detector, not a size measurement; raising it to track the real
+// count would only buy false failures.
+const moduleGoFileFloor = 500
 
 // recordFields lists the exported field names of the registered struct.
 func recordFields(t *testing.T, root string, rec inputRecord) []string {

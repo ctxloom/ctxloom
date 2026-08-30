@@ -420,6 +420,46 @@ func TestRunInteractive_ClosesWrappedStdinWhenCopierExits(t *testing.T) {
 	}
 }
 
+// TestRunInteractive_ReleasesStdinWhenCopierStopsNotWhenRunEnds pins the
+// reason the stdin copier carries its OWN release in addition to
+// RunInteractive's deferred one. The two are not redundant: RunInteractive's
+// defer cannot fire until the child exits, so for a session whose stdin ends
+// early — the wire half-closing while a long interactive turn keeps running —
+// only the copier's release lets the writer side learn that nobody is reading
+// anymore. Without it the wire writer stays parked for the rest of the run.
+//
+// The child deliberately outlives stdin by a wide margin, so "released when
+// the copier stopped" and "released when the run ended" are far enough apart
+// that the assertion cannot pass by coincidence.
+func TestRunInteractive_ReleasesStdinWhenCopierStopsNotWhenRunEnds(t *testing.T) {
+	released := make(chan struct{})
+	// Ends at once (EOF on first Read), wrapped so no type assertion can see it.
+	stdin := wrappedStdin{strings.NewReader("")}
+	cmd := exec.Command("sh", "-c", "sleep 3")
+
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		_, _ = RunInteractive(context.Background(), cmd, stdin, func() { close(released) }, nil, nil)
+	}()
+
+	select {
+	case <-released:
+		// Fixture guard: the run must still be going, or this proves nothing
+		// about WHEN the release happened.
+		select {
+		case <-runDone:
+			t.Fatal("the run finished before the release was observed; this test can no longer tell " +
+				"the copier's release apart from RunInteractive's deferred one")
+		default:
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stdin was not released when the copier stopped reading: a wire writer would stay " +
+			"parked for the rest of the run")
+	}
+	<-runDone
+}
+
 // TestRunInteractive_ChildStderrArrivesOnStdoutWriter pins the invariant that
 // makes a separate stderr writer meaningless here: a pty gives the child ONE
 // stream. The child's fd 1 and fd 2 are both the pty slave, so the master

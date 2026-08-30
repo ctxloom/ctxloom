@@ -35,6 +35,10 @@ func (c Container) StartRunner(_ context.Context, backendName, label string, ver
 		fmt.Fprintf(os.Stderr, "ctxloom: container runner (docker-direct, no plugin transport) auth via %s\n", cw.authMode)
 	}
 	name := containerName(cw.agentID)
+	// Same reason as the plugin-transport spawn in runtime.go: this name is
+	// the no-tmux fallback's only handle, is randomly suffixed, and dies with
+	// the container. Unconditional on purpose.
+	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: docker logs -f %s)\n", name, name)
 	spec := c.buildRunnerSpec(backendName, label, name, cw, spawnEnv)
 	return startDirectRunner(c.runtime, spec, spawnEnv)
 }

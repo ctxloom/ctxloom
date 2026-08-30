@@ -330,6 +330,14 @@ func (ociRuntime) spawn(rt Runtime, launch LaunchSpec) (pb.Client, error) {
 	}
 
 	name := containerName(launch.AgentID)
+	// The container name is the ONLY handle on a running agent when tmux is
+	// unavailable — `docker logs -f <name>` / `docker attach <name>` are the
+	// documented fallback. It carries a random suffix so no human can derive
+	// it from the agent id, and the container is force-removed on teardown
+	// (AttachedContainer.Close), so its logs are LIVE-ONLY. Spawn is therefore
+	// the one moment this name is both knowable and useful: print it
+	// unconditionally rather than behind -v.
+	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: docker logs -f %s)\n", name, name)
 	runnerFunc := containerRunnerFunc(rt, launch.Image, name, launch.WorkDir, launch.Home, command, launch.ContainerSocketDir, launch.ExtraEnv, launch.ExtraMounts, launch.SpawnEnv)
 	// Assigned to the concrete *pb.LLMRunner, not returned directly: a bare
 	// `return pb.NewContainerClient(...)` would let Go auto-convert a failed

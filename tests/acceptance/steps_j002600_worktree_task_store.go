@@ -11,8 +11,10 @@
 // worktree (a genuine `git worktree add`, not a fixture the resolver merely
 // classifies), actually WRITES a filed task into the PRIMARY checkout's
 // on-disk store, that the primary checkout can READ it back, that the
-// redirect mints no SECOND store alongside the first, and that a worktree
-// carrying its own .ctxloom is honored as a deliberately separate project.
+// redirect mints no SECOND store alongside the first, that a worktree
+// carrying its own project-id marker is honored as a deliberately separate
+// project, and that a worktree whose .ctxloom merely arrived with the
+// checkout is NOT.
 package acceptance
 
 import (
@@ -74,23 +76,53 @@ func registerJ002600Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^(?:Bob|Carol)'s worktree "([^"]*)" has its own \.ctxloom$`, func(c context.Context, name string) error {
+	ctx.Step(`^(?:Bob|Carol)'s worktree "([^"]*)" has its own project identity$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		j002600 := j002600Of(w)
 		dir, ok := j002600.worktrees[name]
 		if !ok {
 			return fmt.Errorf("no linked worktree named %q registered", name)
 		}
-		// TaskStoreRoot's opt-out check (internal/projectroot/taskstore.go)
-		// only cares whether <dir>/.ctxloom exists as a directory — this is
-		// the same shape an explicit `ctxloom init` there would leave.
+		// TaskStoreRoot's opt-out (internal/projectroot/taskstore.go) keys on
+		// the project-id MARKER, which is what an explicit `ctxloom init`
+		// here leaves behind and what a checkout can never supply.
 		if err := os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0755); err != nil {
 			return fmt.Errorf("create %s/.ctxloom: %w", dir, err)
+		}
+		marker := filepath.Join(dir, ".ctxloom", "project-id")
+		if err := os.WriteFile(marker, []byte("carol-own-store\n"), 0644); err != nil {
+			return fmt.Errorf("write %s: %w", marker, err)
 		}
 		return nil
 	})
 
-	ctx.Step(`^(?:Bob|Carol) files a task "([^"]*)" from worktree "([^"]*)"$`, func(c context.Context, text, name string) error {
+	ctx.Step(`^Dave's worktree "([^"]*)" has a checked-out \.ctxloom with no project identity$`, func(c context.Context, name string) error {
+		w := worldFrom(c)
+		j002600 := j002600Of(w)
+		dir, ok := j002600.worktrees[name]
+		if !ok {
+			return fmt.Errorf("no linked worktree named %q registered", name)
+		}
+		// Exactly what `git worktree add` produces for a project that commits
+		// its .ctxloom: the directory and its tracked contents, and no
+		// project-id, because that one file is gitignored.
+		if err := os.MkdirAll(filepath.Join(dir, ".ctxloom", "profiles"), 0755); err != nil {
+			return fmt.Errorf("create %s/.ctxloom: %w", dir, err)
+		}
+		cfg := filepath.Join(dir, ".ctxloom", "config.yaml")
+		if err := os.WriteFile(cfg, []byte("version: 6\n"), 0644); err != nil {
+			return fmt.Errorf("write %s: %w", cfg, err)
+		}
+		// The premise of the scenario, asserted rather than assumed: a marker
+		// left behind here would make this an opt-out and the scenario would
+		// pass for a reason unrelated to the defect.
+		if _, err := os.Stat(filepath.Join(dir, ".ctxloom", "project-id")); !os.IsNotExist(err) {
+			return fmt.Errorf("fixture leaked a project-id marker into %s (stat err: %v)", dir, err)
+		}
+		return nil
+	})
+
+	ctx.Step(`^(?:Bob|Carol|Dave) files a task "([^"]*)" from worktree "([^"]*)"$`, func(c context.Context, text, name string) error {
 		w := worldFrom(c)
 		j002600 := j002600Of(w)
 		dir, ok := j002600.worktrees[name]

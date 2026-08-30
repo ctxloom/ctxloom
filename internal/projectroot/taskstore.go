@@ -24,13 +24,17 @@ import (
 //
 // dir is returned UNCHANGED in the common cases: dir is not a linked
 // worktree at all (the main worktree, a plain repo, or no repo); or dir
-// carries its own project-id MARKER, which is the opt-out worktreeSignpost
-// documents — an explicit `ctxloom init` there makes the worktree a
-// deliberately separate project, and that choice must be respected here too
-// rather than silently overridden.
+// carries its own project-id MARKER — an explicit `ctxloom init` there makes
+// the worktree a deliberately separate project, and that choice must be
+// respected here rather than silently overridden.
 //
-// The opt-out keys on the MARKER, not on the mere presence of a .ctxloom
-// directory, and the difference is load-bearing rather than stylistic. A
+// This opt-out keys on the marker while findAppDir/worktreeSignpost (in
+// internal/config/config.go) key on the .ctxloom DIRECTORY, and the two are
+// meant to differ: config resolution is asking "which config governs here",
+// which a checked-out .ctxloom genuinely answers, whereas this function is
+// asking "whose identity is this", which only the marker answers.
+//
+// The difference is load-bearing rather than stylistic. A
 // project's .ctxloom is COMMITTED — config.yaml, lock.yaml, profiles/ and
 // content/ are tracked "by omission" (see the generated .ctxloom/.gitignore,
 // gitignore.PrivateStatePatterns), because they are the content and config the

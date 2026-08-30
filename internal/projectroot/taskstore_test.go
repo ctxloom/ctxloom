@@ -30,17 +30,57 @@ func TestTaskStoreRoot_LinkedWorktreeUsesPrimaryStore(t *testing.T) {
 	assert.Equal(t, main, gotMain)
 }
 
-// TestTaskStoreRoot_WorktreeWithOwnCtxloomStaysSeparate is the opt-out: a
-// worktree that carries its own .ctxloom (an explicit `ctxloom init` there)
-// is a deliberately separate project and must NOT be redirected — mirroring
-// worktreeSignpost's own precedence rule in internal/config/config.go.
-func TestTaskStoreRoot_WorktreeWithOwnCtxloomStaysSeparate(t *testing.T) {
+// TestTaskStoreRoot_WorktreeWithOwnProjectIDStaysSeparate is the opt-out: a
+// worktree carrying its own project-id MARKER has had an explicit `ctxloom
+// init` run in it, is a deliberately separate project, and must NOT be
+// redirected.
+func TestTaskStoreRoot_WorktreeWithOwnProjectIDStaysSeparate(t *testing.T) {
 	_, linked := taskstest.RealGitWorktreeFixture(t)
-	require.NoError(t, os.MkdirAll(filepath.Join(linked, ".ctxloom"), 0o755))
+	writeMarker(t, linked, "some-other-proj")
 
 	got, err := TaskStoreRoot(afero.NewOsFs(), linked)
 	require.NoError(t, err)
-	assert.Equal(t, linked, got, "an opted-out worktree (own .ctxloom) must never redirect")
+	assert.Equal(t, linked, got, "a worktree with its own project identity must never redirect")
+}
+
+// TestTaskStoreRoot_CommittedCtxloomIsNotAnOptOut is the defect this seam was
+// getting wrong. A project's .ctxloom is COMMITTED — config.yaml, lock.yaml,
+// profiles/ and content/ are tracked — so `git worktree add` alone
+// materializes a complete .ctxloom in every linked worktree. Its presence
+// there is a checkout artifact and says nothing about intent, so it must not
+// be read as an opt-out: keying on it made every worktree of every
+// config-committing project mint a brand-new, empty project in silence.
+func TestTaskStoreRoot_CommittedCtxloomIsNotAnOptOut(t *testing.T) {
+	main, linked := taskstest.RealGitWorktreeFixture(t)
+	// Exactly what a checkout produces: the directory and its tracked
+	// contents, but no project-id (that one file is gitignored).
+	require.NoError(t, os.MkdirAll(filepath.Join(linked, ".ctxloom", "profiles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(linked, ".ctxloom", "config.yaml"), []byte("version: 6\n"), 0o644))
+
+	got, err := TaskStoreRoot(afero.NewOsFs(), linked)
+	require.NoError(t, err)
+	assert.Equal(t, main, got, "a checked-out .ctxloom without a project-id must still redirect to the primary checkout")
+}
+
+// TestTaskStoreRoot_BlankProjectIDIsNotAnOptOut keeps this predicate in step
+// with projectid.ReadMarker, which reports an all-whitespace marker as no
+// marker at all. Diverging would keep the worktree's own task store on the
+// strength of a marker resolution then ignores, minting a fresh project
+// anyway — the exact silent fork the opt-out exists to prevent.
+func TestTaskStoreRoot_BlankProjectIDIsNotAnOptOut(t *testing.T) {
+	main, linked := taskstest.RealGitWorktreeFixture(t)
+	writeMarker(t, linked, "  \n\t ")
+
+	got, err := TaskStoreRoot(afero.NewOsFs(), linked)
+	require.NoError(t, err)
+	assert.Equal(t, main, got, "a blank marker is no marker, so the worktree still redirects")
+}
+
+// writeMarker plants a project-id marker in dir.
+func writeMarker(t *testing.T, dir, id string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "project-id"), []byte(id+"\n"), 0o644))
 }
 
 // TestDetectWorktree_StaleMainRootFailsLoud pins the fail-loud requirement: a

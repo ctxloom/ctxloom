@@ -31,18 +31,33 @@ Feature: A linked worktree's tasks land in the primary checkout's store
     Then the primary checkout's taskloom lists a task "Investigate the flaky retry"
     And exactly 1 home file matches ".ctxloom/tasks/*.jsonl"
 
-  # The explicit opt-out: a worktree that carries its own .ctxloom is a
-  # deliberately separate project (the same choice worktreeSignpost honors
-  # elsewhere), and the task-store redirect must respect it rather than
-  # silently overriding it — a task filed there stays invisible from the
-  # primary checkout, lands in a genuinely SECOND store file alongside the
-  # primary's own, and the primary's own task stays exactly where it was
-  # filed.
-  Scenario: A worktree with its own .ctxloom keeps a separate task store
+  # The explicit opt-out: a worktree that carries its own project IDENTITY —
+  # a project-id marker, which only an explicit `ctxloom init` there leaves
+  # behind — is a deliberately separate project, and the task-store redirect
+  # must respect it rather than silently overriding it. A task filed there
+  # stays invisible from the primary checkout, lands in a genuinely SECOND
+  # store file alongside the primary's own, and the primary's own task stays
+  # exactly where it was filed.
+  Scenario: A worktree with its own project identity keeps a separate task store
     Given Alice files a task "Wire up the release checklist" from the primary checkout
     And Alice adds a linked git worktree named "carol-wt"
-    And Carol's worktree "carol-wt" has its own .ctxloom
+    And Carol's worktree "carol-wt" has its own project identity
     When Carol files a task "Refactor the widget cache" from worktree "carol-wt"
     Then the primary checkout's taskloom lists a task "Wire up the release checklist"
     And the primary checkout's taskloom does not list a task "Refactor the widget cache"
     And exactly 2 home files match ".ctxloom/tasks/*.jsonl"
+
+  # The inverse, and the regression this journey exists to catch. A project's
+  # .ctxloom is COMMITTED, so `git worktree add` alone materializes a full one
+  # in every linked worktree — config and all, but never a project-id, which is
+  # gitignored. Reading that checked-out directory as an opt-out made every
+  # worktree of every config-committing project mint a brand-new empty project
+  # in silence, and every task the primary checkout held simply vanished.
+  Scenario: A worktree whose .ctxloom merely came from the checkout still shares the store
+    Given Alice files a task "Wire up the release checklist" from the primary checkout
+    And Alice adds a linked git worktree named "dave-wt"
+    And Dave's worktree "dave-wt" has a checked-out .ctxloom with no project identity
+    When Dave files a task "Refactor the widget cache" from worktree "dave-wt"
+    Then the primary checkout's taskloom lists a task "Wire up the release checklist"
+    And the primary checkout's taskloom lists a task "Refactor the widget cache"
+    And exactly 1 home file matches ".ctxloom/tasks/*.jsonl"

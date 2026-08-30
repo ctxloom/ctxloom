@@ -208,18 +208,19 @@ func TestDetectWorktree_UnstattableGitSurfacesAsError(t *testing.T) {
 	assert.Error(t, err, "a .git that cannot be stat'd must surface, not silently resolve as 'not a worktree'")
 }
 
-// TestTaskStoreRoot_UnstattableAppDirSurfacesAsError pins the same asymmetry at
-// taskstore.go's opt-out probe: `err == nil && info.IsDir()` reads a permission
-// fault on dir/.ctxloom as "this directory has no .ctxloom of its own", which
-// is the branch that then redirects the task store somewhere else entirely.
-func TestTaskStoreRoot_UnstattableAppDirSurfacesAsError(t *testing.T) {
+// TestTaskStoreRoot_UnreadableMarkerSurfacesAsError pins the same asymmetry at
+// taskstore.go's opt-out probe, which reads dir's project-id marker: only plain
+// ABSENCE may mean "no opt-out here". A permission fault treated as absence
+// falls into the branch that redirects the task store somewhere else entirely,
+// discarding an opt-out that may well exist.
+func TestTaskStoreRoot_UnreadableMarkerSurfacesAsError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root ignores file permissions")
 	}
 	dir := unstattableWorktreeDir(t)
 
 	got, err := TaskStoreRoot(afero.NewOsFs(), dir)
-	assert.Error(t, err, "an unstattable .ctxloom must surface, not be read as 'no .ctxloom here'")
+	assert.Error(t, err, "an unreadable project-id marker must surface, not be read as 'no marker here'")
 	assert.Empty(t, got)
 }
 

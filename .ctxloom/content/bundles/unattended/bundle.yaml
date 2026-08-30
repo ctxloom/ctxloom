@@ -80,6 +80,6 @@ skills:
     unattended:
         files:
             SKILL.md:
-                sha256: sha256:1f05b790a9af175ea3a5658383ea59af71b9a036ede7172ac14d4ff1437eb9f4
+                sha256: sha256:2567a5825403b10c49a5b0c71a45c96ed49d8d7620bce5f6f11ed8466ced3383
                 mode: "0644"
 name: unattended

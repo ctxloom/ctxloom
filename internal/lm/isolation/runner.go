@@ -218,19 +218,40 @@ func (r *containerRunner) Diagnose(_ context.Context) string {
 	code, ok := r.exitStatus()
 	switch {
 	case ok && code == strictness.ExitCodeFatalFindings:
-		return lead + fmt.Sprintf(" exited %d before the handshake: the ctxloom INSIDE the container"+
-			" REFUSED TO START over a fatal startup finding (broken config, an unresolvable profile"+
-			" or bundle) — a configuration refusal, not a transport fault."+
-			" The finding is on the container's stderr above and names its own remedy;"+
-			" re-run with --degraded to downgrade ordinary config findings to warnings and launch anyway.", code)
+		return lead + fmt.Sprintf(diagnoseConfigRefusal, code)
 	case ok && code != 0:
-		return lead + fmt.Sprintf(" exited %d before the handshake: the in-container ctxloom died"+
-			" rather than serving the plugin. Check the container's stderr above, then that the image"+
-			" exists and its ctxloom is executable.", code)
+		return lead + fmt.Sprintf(diagnoseDiedBeforeHandshake, code)
 	}
-	return lead + " did not negotiate the go-plugin handshake: " +
-		"check the image exists, its ctxloom is executable, and the socket dir is bind-mounted"
+	return lead + diagnoseNoHandshake
 }
+
+// The three answers Diagnose chooses between. Named so a test can pin WHICH
+// answer a given exit status selects without restating the wording — the
+// selection is the behaviour, the prose is not.
+const (
+	// diagnoseConfigRefusal is the one that fixes the reported defect: the
+	// in-container ctxloom hit its own startup gate. It names the flag that
+	// overrides it, because the finding itself (on the container's stderr) is
+	// the only thing that can state the specific remedy.
+	diagnoseConfigRefusal = " exited %d before the handshake: the ctxloom INSIDE the container" +
+		" REFUSED TO START over a fatal startup finding (broken config, an unresolvable profile" +
+		" or bundle) — a configuration refusal, not a transport fault." +
+		" The finding is on the container's stderr above and names its own remedy;" +
+		" re-run with --degraded to downgrade ordinary config findings to warnings and launch anyway."
+
+	// diagnoseDiedBeforeHandshake covers a non-zero exit that carries no
+	// meaning of ours: still not a transport fault, so it points at the
+	// container's stderr FIRST rather than at the socket mount.
+	diagnoseDiedBeforeHandshake = " exited %d before the handshake: the in-container ctxloom died" +
+		" rather than serving the plugin. Check the container's stderr above, then that the image" +
+		" exists and its ctxloom is executable."
+
+	// diagnoseNoHandshake is the original wording, now reached ONLY when no
+	// exit status arrives within the bound — which means the container is
+	// still running, and a genuine transport fault is the live hypothesis.
+	diagnoseNoHandshake = " did not negotiate the go-plugin handshake: " +
+		"check the image exists, its ctxloom is executable, and the socket dir is bind-mounted"
+)
 
 // exitStatus reports the container process's exit code, waiting up to r.exitWait
 // for the reap, and whether one became available. The ok is never collapsed into

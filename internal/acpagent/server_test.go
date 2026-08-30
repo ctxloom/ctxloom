@@ -520,9 +520,15 @@ func TestServe_PermissionForwarding(t *testing.T) {
 	require.Nil(t, resp.Error)
 }
 
-// TestServe_PermissionForwarding_ClientError: a failed client call resolves as
-// a dismissed answer (empty option) so the engine unparks with a cancelled
-// outcome rather than hanging.
+// TestServe_PermissionForwarding_ClientError: when the connected client
+// answers session/request_permission with a protocol error instead of an
+// outcome — a client that is reachable but could not (or would not) actually
+// decide — the request is never silently dropped (RULED 2026-08-30, "queue
+// and record; fail loud if unanswerable"): the still-connected client is
+// told, via a session/update, that a decision was needed and could not be
+// made. The engine still unparks promptly with a dismissed answer (empty
+// option) — refusing the action rather than hanging the turn waiting on an
+// answer that will never come; see recordUnansweredPermission's doc.
 func TestServe_PermissionForwarding_ClientError(t *testing.T) {
 	eng := newFakeEngine()
 	go eng.pump()
@@ -538,10 +544,17 @@ func TestServe_PermissionForwarding_ClientError(t *testing.T) {
 	_, err := c.w.Write([]byte(line))
 	require.NoError(t, err)
 
+	// The unanswerable request must be RECORDED and SURFACED to the
+	// still-connected client — not just a dismissed answer with no trace.
+	notice := c.waitUpdate()
+	assert.Contains(t, string(notice.Params), `"agent_message_chunk"`)
+	assert.Contains(t, string(notice.Params), "shell", "the notice names the tool the unanswered request was for")
+	assert.Contains(t, string(notice.Params), "could not be delivered", "the notice says a decision was needed and never made, not just that the turn continued")
+
 	msg := eng.receiveMsg(t)
 	require.NotNil(t, msg.Permission)
 	assert.Equal(t, "perm-1", msg.Permission.ID)
-	assert.Empty(t, msg.Permission.OptionID, "a failed forward dismisses, never approves")
+	assert.Empty(t, msg.Permission.OptionID, "a failed forward still refuses the action, never approves")
 
 	eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
 	resp, _ := c.waitResponse(id)

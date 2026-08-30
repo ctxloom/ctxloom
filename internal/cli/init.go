@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
 var initCmd = &cobra.Command{
@@ -150,12 +151,56 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// --home initializes the fallback ~/.ctxloom, which is not a project and
+	// has no identity to mint.
+	if !initHome {
+		if err := establishProjectIdentity(filepath.Dir(appDir)); err != nil {
+			return err
+		}
+	}
+
 	// Ensure a concrete engine for the launch step (covers existing dirs whose
 	// config did not name one).
 	primary, _ := getAvailableEngines()
 	selectedEngine = pickDefaultEngine(selectedEngine, primary)
 
 	return launchDiscovery(cmd, selectedEngine, appDir, interactive)
+}
+
+// establishProjectIdentity mints or adopts projectDir's project identity,
+// writing the <projectDir>/.ctxloom/project-id marker and registering the
+// project. It is idempotent: a project that already has an identity resolves
+// to the same id and nothing changes.
+//
+// This is what makes `ctxloom init` the FOLLOWABLE remedy the rest of the
+// codebase advertises. Both projectroot.TaskStoreRoot and worktreeSignpost
+// (internal/config) tell a user to run init in a linked worktree to make it a
+// deliberately separate project, and TaskStoreRoot's opt-out reads the
+// project-id marker — the one piece of .ctxloom that is gitignored
+// (gitignore.PrivateStatePatterns) and so cannot arrive with a checkout.
+// Init left no marker at all, so following that advice changed nothing.
+//
+// It deliberately runs on a PRE-EXISTING .ctxloom as well as a fresh one,
+// because the remedy's own case is the "already exists" one: .ctxloom is
+// committed, so a linked worktree always arrives already carrying a complete
+// one, and an init there would otherwise take the early branch and mint
+// nothing.
+//
+// A failure here is fatal rather than a warning, against this file's usual
+// warn-and-continue convention for post-scaffold steps. Identity is not a
+// post-scaffold nicety: an init that reports success while leaving the
+// project unidentified is the silent no-op that sends the user back to the
+// same advice that just failed them.
+func establishProjectIdentity(projectDir string) error {
+	id, warning, err := taskops.ResolveProjectIdentity(projectDir)
+	if err != nil {
+		return fmt.Errorf("establish project identity for %s: %w", projectDir, err)
+	}
+	if warning != "" {
+		clidiag.Warn("ctxloom", "%s", warning)
+	}
+	fmt.Printf("Project identity: %s\n", id)
+	return nil
 }
 
 // resolveAppDir returns the .ctxloom directory to operate on: under the user's

@@ -85,7 +85,7 @@ func readWithin(t *testing.T, r io.Reader, d time.Duration) string {
 func TestNudgeReader_SubmitIsADistinctLaterReadEvent(t *testing.T) {
 	realStdin, realStdinW := io.Pipe()
 	t.Cleanup(func() { _ = realStdinW.Close() })
-	r := newNudgeReader(realStdin)
+	r := newNudgeReader(realStdin, new(atomic.Int64))
 	r.submitGap = 60 * time.Millisecond
 
 	r.Inject("<frame/>", "\r")
@@ -107,7 +107,7 @@ func TestNudgeReader_SubmitIsADistinctLaterReadEvent(t *testing.T) {
 func TestNudgeReader_EvictionNeverStrandsABareSubmit(t *testing.T) {
 	realStdin, realStdinW := io.Pipe()
 	t.Cleanup(func() { _ = realStdinW.Close() })
-	r := newNudgeReader(realStdin)
+	r := newNudgeReader(realStdin, new(atomic.Int64))
 	r.submitGap = 10 * time.Millisecond
 
 	// Two cycles land before either is read: the second must replace the
@@ -362,4 +362,74 @@ func TestSetTerminalNudge_SecondRegistrationIsAFinding(t *testing.T) {
 		h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: "m-degraded", Text: "x"})
 		assert.True(t, firstFired.Load(), "the FIRST registration keeps the terminal in both modes")
 	})
+}
+
+// TestTerminalInject_WithheldWhileTheHumanIsTyping pins the suppression that
+// output-quiet alone cannot provide. A terminal is ALSO quiet while somebody is
+// composing a line, so an injector watching only stdout cannot tell "nothing is
+// happening" from "a human is mid-sentence" — and a frame delivered then lands
+// inside their input and splits it.
+//
+// The deadline is deliberately set BELOW inputQuiet here, because that is the
+// arm that regressed in the field: maxWait waives output-quiet by design, and
+// waiving input-quiet along with it is what corrupts the line.
+func TestTerminalInject_WithheldWhileTheHumanIsTyping(t *testing.T) {
+	var injected atomic.Int64
+	ti := &TerminalInjector{
+		quiet:      5 * time.Millisecond,
+		tick:       time.Millisecond,
+		maxWait:    30 * time.Millisecond,
+		inputQuiet: time.Hour,
+		ackWait:    time.Millisecond,
+		ackTick:    time.Millisecond,
+		count:      func() int { return 1 },
+	}
+	ti.inject = func(string, string) { injected.Add(1) }
+	ti.lastWrite.Store(time.Now().Add(-time.Hour).UnixNano()) // engine long silent
+	ti.lastInput.Store(time.Now().UnixNano())                 // human typing NOW
+
+	ti.run()
+
+	assert.Zero(t, injected.Load(),
+		"a frame must NOT be delivered while the human is typing, even once maxWait has expired: the mail stays buffered for the next Recv, but a split input line is unrecoverable")
+}
+
+// TestTerminalInject_DeliveredOnceTypingHasStopped is the other half. Without
+// it the suppression above could be satisfied by an injector that never
+// delivers at all — which is this project's characteristic silent no-op.
+func TestTerminalInject_DeliveredOnceTypingHasStopped(t *testing.T) {
+	var injected atomic.Int64
+	// consumed models the wake LANDING: the mail is collected, so the count
+	// falls and awaitAck returns immediately instead of waiting out ackWait
+	// and emitting a clidiag warning. That matters beyond realism — the
+	// warning is a write to a PROCESS-GLOBAL diagnostic sink, and a sibling
+	// test swaps that sink with clidiag.SetSink, so an awaitAck goroutine
+	// outliving this test races it. A leaked goroutine that logs is not a
+	// flake; it fails deterministically under -race.
+	var consumed atomic.Bool
+	ti := &TerminalInjector{
+		quiet:      5 * time.Millisecond,
+		tick:       time.Millisecond,
+		maxWait:    500 * time.Millisecond,
+		inputQuiet: 10 * time.Millisecond,
+		ackWait:    time.Millisecond,
+		ackTick:    time.Millisecond,
+		count: func() int {
+			if consumed.Load() {
+				return 0
+			}
+			return 1
+		},
+	}
+	ti.inject = func(string, string) {
+		injected.Add(1)
+		consumed.Store(true)
+	}
+	ti.lastWrite.Store(time.Now().Add(-time.Hour).UnixNano())
+	ti.lastInput.Store(time.Now().Add(-time.Hour).UnixNano()) // stopped long ago
+
+	ti.run()
+
+	assert.Equal(t, int64(1), injected.Load(),
+		"once the human has been quiet for inputQuiet the wake must still land; suppression that never lifts is just a broken wake")
 }

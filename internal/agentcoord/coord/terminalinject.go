@@ -67,7 +67,19 @@ const (
 	// explicitly delimited paste followed by CR submits 5/5 in a SINGLE write
 	// with no gap and no reader-owned split at all. Told where the paste
 	// ends, the TUI stops guessing and treats the CR as a keypress.
-	terminalInjectSubmitGap = 150 * time.Millisecond
+	// terminalInjectInputQuiet is how long after the HUMAN's last keystroke an
+	// injection is withheld. Output-quiet is not enough on its own: a terminal
+	// is also quiet while someone is composing a line, and a frame delivered
+	// then lands INSIDE their half-typed input and splits it. That is strictly
+	// worse than a late wake, because the mail is still buffered for the next
+	// Recv while the typed line is simply gone.
+	//
+	// JUDGEMENT, NOT A MEASUREMENT: 3s is chosen to clear an ordinary
+	// mid-sentence pause. Refining it means measuring real inter-keystroke gaps
+	// during composition, which nobody has done; do not treat this number as
+	// carrying evidence the way terminalInjectSubmitGap does.
+	terminalInjectInputQuiet = 3 * time.Second
+	terminalInjectSubmitGap  = 150 * time.Millisecond
 	// terminalInjectAckWait bounds how long an injection cycle watches for
 	// proof that the wake LANDED: the engine taking a turn and calling
 	// agent_recv is what drains the buffer, so a falling mail count is the
@@ -89,9 +101,11 @@ const (
 // the mail is injected into a stream no one is listening to.
 type TerminalInjector struct {
 	quiet, tick, maxWait time.Duration
+	inputQuiet           time.Duration
 	ackWait, ackTick     time.Duration
 
 	lastWrite atomic.Int64 // unix nanos of the last stdout passthrough write
+	lastInput atomic.Int64 // unix nanos of the last REAL keystroke read from stdin
 
 	mu      sync.Mutex
 	waiting bool // an injection cycle is already scheduled/running
@@ -119,12 +133,13 @@ type TerminalInjector struct {
 // or a real Recv), rather than lost.
 func NewTerminalInjector(home *Home) *TerminalInjector {
 	ti := &TerminalInjector{
-		quiet:   terminalInjectQuiet,
-		tick:    terminalInjectTick,
-		maxWait: terminalInjectMaxWait,
-		ackWait: terminalInjectAckWait,
-		ackTick: terminalInjectAckTick,
-		count:   home.BufferedMailCount,
+		quiet:      terminalInjectQuiet,
+		inputQuiet: terminalInjectInputQuiet,
+		tick:       terminalInjectTick,
+		maxWait:    terminalInjectMaxWait,
+		ackWait:    terminalInjectAckWait,
+		ackTick:    terminalInjectAckTick,
+		count:      home.BufferedMailCount,
 	}
 	home.SetTerminalNudge(ti.nudge)
 	return ti
@@ -147,7 +162,7 @@ func NewTerminalInjector(home *Home) *TerminalInjector {
 // there is no live turn at all. Releasing puts the injector back in its
 // pre-Wrap state, where run() leaves the mail buffered for a real Recv.
 func (ti *TerminalInjector) Wrap(stdin io.Reader, stdout io.Writer) (io.Reader, io.Writer, func()) {
-	r := newNudgeReader(stdin)
+	r := newNudgeReader(stdin, &ti.lastInput)
 	ti.mu.Lock()
 	ti.injectGen++
 	gen := ti.injectGen
@@ -191,8 +206,25 @@ func (ti *TerminalInjector) run() {
 	}()
 	deadline := time.Now().Add(ti.maxWait)
 	for {
-		idle := time.Duration(time.Now().UnixNano() - ti.lastWrite.Load())
-		if idle >= ti.quiet || !time.Now().Before(deadline) {
+		now := time.Now().UnixNano()
+		outIdle := time.Duration(now - ti.lastWrite.Load())
+		inIdle := time.Duration(now - ti.lastInput.Load())
+		if outIdle >= ti.quiet && inIdle >= ti.inputQuiet {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			// THE DEADLINE WAIVES OUTPUT-QUIET, NEVER INPUT-QUIET. Waiving
+			// output-quiet is what the maxWait comment describes: an engine
+			// idling noisily must not block the wake forever. Waiving
+			// input-quiet would deliver a frame into a half-typed line and
+			// split it, and the two failures are not comparable — a withheld
+			// wake leaves the mail buffered for the next Recv, while the
+			// human's typed line is unrecoverable. So give up this cycle
+			// instead; nudge re-arms when the next mail arrives, and Recv
+			// collects it regardless.
+			if inIdle < ti.inputQuiet {
+				return
+			}
 			break
 		}
 		time.Sleep(ti.tick)
@@ -277,6 +309,11 @@ type nudgeReader struct {
 	submitGap time.Duration
 
 	// All three are touched by Read's single caller only; no lock needed.
+	// lastInput is stamped on every REAL read and never on an injected one:
+	// the point is to know when the HUMAN last typed, and an injected frame is
+	// not the human.
+	lastInput *atomic.Int64
+
 	leftover      []byte
 	pendingSubmit []byte    // the submit owed to an already-delivered frame
 	submitAt      time.Time // when that submit becomes deliverable
@@ -290,8 +327,9 @@ type pendingInject struct {
 	submit []byte
 }
 
-func newNudgeReader(real io.Reader) *nudgeReader {
+func newNudgeReader(real io.Reader, lastInput *atomic.Int64) *nudgeReader {
 	r := &nudgeReader{
+		lastInput: lastInput,
 		inject:    make(chan pendingInject, 1), // coalesced: one pending frame is all there ever is
 		real:      make(chan []byte),
 		errCh:     make(chan error, 1),
@@ -354,6 +392,7 @@ func (r *nudgeReader) Read(p []byte) (int, error) {
 	case item := <-r.inject:
 		return r.deliverInject(p, item)
 	case chunk := <-r.real:
+		r.lastInput.Store(time.Now().UnixNano())
 		return r.deliver(p, chunk)
 	case err := <-r.errCh:
 		return 0, err

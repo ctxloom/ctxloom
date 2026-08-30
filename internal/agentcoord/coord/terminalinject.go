@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TERMINAL INJECTION — the delivery half of the session-owner's wake.
@@ -44,21 +45,63 @@ const (
 	// noisily (a spinner, a heartbeat) and never looks quiet by the strict
 	// definition above.
 	terminalInjectMaxWait = 4 * time.Second
+	// terminalInjectSubmitGap separates the frame from the Enter that submits
+	// it. What the split defeats is real: measured against claude 2.1.251, a
+	// frame and CR arriving in ONE read submit 0/5, because a TUI guessing at
+	// a paste boundary swallows the CR as literal text. Split across two
+	// reads it submits at every gap tried.
+	//
+	// The operative variable is READ SEPARATION, not elapsed time. The
+	// threshold lies between 0ms and 5ms: >=5ms submits 3/3 and 2000ms is no
+	// better than 5ms, because any scheduling delay at all is enough to put
+	// the CR in its own read. This value therefore carries ~30x margin over
+	// its own requirement. RAISING IT BUYS NOTHING MEASURABLE — if a wake is
+	// not landing, the cause is elsewhere; do not reach for this constant.
+	//
+	// The gap alone is not the mechanism; the READER owns the split (see
+	// nudgeReader.Read), because two chunks spaced only in the producer still
+	// land in a single Read.
+	//
+	// A strictly better mechanism exists and is NOT yet adopted: claude
+	// advertises bracketed paste (ESC[?2004h) and never disables it, and an
+	// explicitly delimited paste followed by CR submits 5/5 in a SINGLE write
+	// with no gap and no reader-owned split at all. Told where the paste
+	// ends, the TUI stops guessing and treats the CR as a keypress.
+	terminalInjectSubmitGap = 150 * time.Millisecond
+	// terminalInjectAckWait bounds how long an injection cycle watches for
+	// proof that the wake LANDED: the engine taking a turn and calling
+	// agent_recv is what drains the buffer, so a falling mail count is the
+	// only observable the terminal path has. It is generous because it spans
+	// a model's wake, read and tool call, not just I/O.
+	terminalInjectAckWait = 45 * time.Second
+	// terminalInjectAckTick is how often that proof is re-checked.
+	terminalInjectAckTick = 250 * time.Millisecond
 )
 
-// TerminalInjector is a Home's registered terminalNudge target. Construct one
-// with NewTerminalInjector and call Wrap once, at the moment the interactive
-// engine's own stdin/stdout become available, to obtain the seams Execute
-// should actually hand the engine.
+// TerminalInjector is a Home's registered terminalNudge target. Construct ONE
+// per Home and call Wrap at the start of each interactive turn, as that turn's
+// stdin/stdout become available, to obtain the seams Execute should hand the
+// engine. Wrap re-points the injection target, so the latest turn owns it.
+//
+// Do NOT construct one per turn: SetTerminalNudge refuses a second
+// registration, so a per-turn injector leaves the registered nudge bound to
+// the first turn's reader — which nothing drains once that turn is over, and
+// the mail is injected into a stream no one is listening to.
 type TerminalInjector struct {
 	quiet, tick, maxWait time.Duration
+	ackWait, ackTick     time.Duration
 
 	lastWrite atomic.Int64 // unix nanos of the last stdout passthrough write
 
 	mu      sync.Mutex
 	waiting bool // an injection cycle is already scheduled/running
-	inject  func(string)
-	count   func() int
+	// inject takes the frame and its submit as ONE unit. Two separate calls
+	// would be silent corruption, not a split: the reader's queue holds a
+	// single pending item and EVICTS to make room, so a bare "\r" arriving
+	// before the frame was consumed would REPLACE the notice and submit an
+	// empty line instead.
+	inject func(frame, submit string)
+	count  func() int
 }
 
 // NewTerminalInjector builds an injector for home and registers it as home's
@@ -70,6 +113,8 @@ func NewTerminalInjector(home *Home) *TerminalInjector {
 		quiet:   terminalInjectQuiet,
 		tick:    terminalInjectTick,
 		maxWait: terminalInjectMaxWait,
+		ackWait: terminalInjectAckWait,
+		ackTick: terminalInjectAckTick,
 		count:   home.BufferedMailCount,
 	}
 	home.SetTerminalNudge(ti.nudge)
@@ -79,7 +124,9 @@ func NewTerminalInjector(home *Home) *TerminalInjector {
 // Wrap returns the stdin/stdout an interactive Execute should use in place of
 // the real terminal seams: stdout is tapped for the quiet signal (every
 // passthrough write resets the idle clock), and stdin gains the injection
-// channel a nudge cycle writes into.
+// channel a nudge cycle writes into. Calling it again retargets injection at
+// the new turn's stdin; that is how successive turns take ownership of the one
+// registered nudge.
 func (ti *TerminalInjector) Wrap(stdin io.Reader, stdout io.Writer) (io.Reader, io.Writer) {
 	r := newNudgeReader(stdin)
 	ti.mu.Lock()
@@ -128,8 +175,49 @@ func (ti *TerminalInjector) run() {
 		return // Wrap was never called: no interactive stdin exists to inject into
 	}
 	if n := ti.count(); n > 0 {
-		inject((&agentcoordpb.MailPendingReminder{Count: uint32(n)}).XmlLike() + "\n")
+		// "\r", not "\n": an interactive engine holds the terminal in RAW
+		// mode, so the kernel's ICRNL input translation is off and the Enter
+		// KEY is carriage return (0x0D). A line feed lands in the engine's
+		// input buffer as literal text that is never submitted — the frame is
+		// visible, the model never acts on it, and the mail sits unread until
+		// the session takes a turn for some unrelated reason.
+		//
+		// The CR is handed over as the frame's SUBMIT, not concatenated onto
+		// it: the reader spaces the two so the TUI sees a keypress rather
+		// than pasted text (see terminalInjectSubmitGap).
+		inject((&agentcoordpb.MailPendingReminder{Count: uint32(n)}).XmlLike(), "\r")
+		// Watch for the wake landing on its own goroutine, so the coalescing
+		// latch (ti.waiting, cleared by the defer above) is not held for the
+		// whole acknowledgement window — mail arriving meanwhile must still
+		// be able to arm a fresh cycle.
+		go ti.awaitAck(n)
 	}
+}
+
+// awaitAck watches for evidence that the injected wake actually produced a
+// turn: the engine acting on the frame calls agent_recv, which drains the
+// buffer, so a mail count that falls below what was reported is the landing
+// signal. If it never falls, the injection was typed and not submitted (or
+// not read at all) and that is reported.
+//
+// This exists because the terminal path had NO feedback channel of any kind,
+// which is precisely why a wake that staged the frame and never submitted it
+// shipped green: every gate passed while the feature was dark. A warning here
+// makes the next regression loud instead of silent.
+func (ti *TerminalInjector) awaitAck(before int) {
+	deadline := time.Now().Add(ti.ackWait)
+	for {
+		if ti.count() < before {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(ti.ackTick)
+	}
+	clidiag.Warn("ctxloom", "coordinator: injected a mail-pending reminder into this session's terminal but %d message(s) are still unread %s later — "+
+		"the frame may be staged in the input box unsubmitted; call agent_recv to collect it",
+		before, ti.ackWait)
 }
 
 // quietTap wraps an engine's stdout, recording when the last byte actually
@@ -153,18 +241,32 @@ func (t *quietTap) Write(p []byte) (int, error) {
 // is the only way to do that, since the real reader's Read blocks on a live
 // terminal with no other way to interrupt it.
 type nudgeReader struct {
-	inject chan []byte
+	inject chan pendingInject
 	real   chan []byte
 	errCh  chan error
 
-	leftover []byte // read by Read's single caller only; no lock needed
+	submitGap time.Duration
+
+	// All three are touched by Read's single caller only; no lock needed.
+	leftover      []byte
+	pendingSubmit []byte    // the submit owed to an already-delivered frame
+	submitAt      time.Time // when that submit becomes deliverable
+}
+
+// pendingInject is a frame and its submit held as ONE queue item. They travel
+// together because the queue evicts to stay at depth one: as two items, a
+// submit could outlive the frame it belongs to and be delivered alone.
+type pendingInject struct {
+	frame  []byte
+	submit []byte
 }
 
 func newNudgeReader(real io.Reader) *nudgeReader {
 	r := &nudgeReader{
-		inject: make(chan []byte, 1), // coalesced: one pending frame is all there ever is
-		real:   make(chan []byte),
-		errCh:  make(chan error, 1),
+		inject:    make(chan pendingInject, 1), // coalesced: one pending frame is all there ever is
+		real:      make(chan []byte),
+		errCh:     make(chan error, 1),
+		submitGap: terminalInjectSubmitGap,
 	}
 	go r.pump(real)
 	return r
@@ -189,24 +291,64 @@ func (r *nudgeReader) pump(real io.Reader) {
 // Read favors already-injected bytes over the real stream (an injected frame
 // should not be stuck behind a keystroke that has not arrived yet), then
 // blocks on whichever of the two produces first.
+//
+// A frame's submit is deliberately NOT returned with the frame. It is held
+// back and returned by a LATER Read, once submitGap has elapsed, because a
+// TUI treats everything it receives in one read as a paste and renders the
+// carriage return as literal text instead of acting on it. Delivering the two
+// as separate, time-separated Read returns is what makes the second one read
+// as a keypress — spacing them in the producer cannot achieve this, since
+// both would still be drained into a single Read.
 func (r *nudgeReader) Read(p []byte) (int, error) {
 	if len(r.leftover) > 0 {
 		n := copy(p, r.leftover)
 		r.leftover = r.leftover[n:]
+		r.armSubmit()
 		return n, nil
 	}
-	select {
-	case chunk := <-r.inject:
+	if r.pendingSubmit != nil {
+		// Block out the remainder of the gap. Read blocks by nature, so
+		// waiting here costs nothing the caller was not already prepared for.
+		if d := time.Until(r.submitAt); d > 0 {
+			time.Sleep(d)
+		}
+		chunk := r.pendingSubmit
+		r.pendingSubmit, r.submitAt = nil, time.Time{}
 		return r.deliver(p, chunk)
+	}
+	select {
+	case item := <-r.inject:
+		return r.deliverInject(p, item)
 	default:
 	}
 	select {
-	case chunk := <-r.inject:
-		return r.deliver(p, chunk)
+	case item := <-r.inject:
+		return r.deliverInject(p, item)
 	case chunk := <-r.real:
 		return r.deliver(p, chunk)
 	case err := <-r.errCh:
 		return 0, err
+	}
+}
+
+// deliverInject hands back the frame and takes custody of its submit.
+func (r *nudgeReader) deliverInject(p []byte, item pendingInject) (int, error) {
+	if len(item.submit) > 0 {
+		r.pendingSubmit = item.submit
+		r.submitAt = time.Time{}
+	}
+	n, err := r.deliver(p, item.frame)
+	r.armSubmit()
+	return n, err
+}
+
+// armSubmit starts the gap clock once the frame's LAST byte has been handed
+// over. A frame too large for one buffer spans several Reads; timing the gap
+// from the first would let the submit follow the frame's tail immediately and
+// land in the same read, which is the coalescing this exists to defeat.
+func (r *nudgeReader) armSubmit() {
+	if r.pendingSubmit != nil && len(r.leftover) == 0 && r.submitAt.IsZero() {
+		r.submitAt = time.Now().Add(r.submitGap)
 	}
 }
 
@@ -218,22 +360,31 @@ func (r *nudgeReader) deliver(p, chunk []byte) (int, error) {
 	return n, nil
 }
 
-// Inject queues text for the next Read, as if it had been typed. It never
-// blocks: the channel holds exactly one pending frame, which is the
-// coalescing contract (TerminalInjector.run only ever has one cycle in
-// flight) — a full channel means a frame is already queued and unread, so a
-// second Inject before the first is consumed replaces it rather than piling
-// up (the replacement's count is the more current one anyway).
-func (r *nudgeReader) Inject(text string) {
+// Inject queues a frame and the submit that actuates it for the next Reads,
+// as if they had been typed. It never blocks: the channel holds exactly one
+// pending item, which is the coalescing contract (TerminalInjector.run only
+// ever has one cycle in flight) — a full channel means a frame is already
+// queued and unread, so a second Inject before the first is consumed replaces
+// it rather than piling up (the replacement's count is the more current one
+// anyway).
+//
+// frame and submit arrive as one item precisely BECAUSE the queue evicts.
+// Were the submit injected by a second call, an undrained frame would be
+// evicted by its own carriage return: the notice would vanish and a blank
+// line would be submitted in its place — silent corruption, and worse than
+// the unsubmitted frame this split exists to fix. The pairing makes that
+// unrepresentable rather than merely discouraged.
+func (r *nudgeReader) Inject(frame, submit string) {
+	item := pendingInject{frame: []byte(frame), submit: []byte(submit)}
 	select {
-	case r.inject <- []byte(text):
+	case r.inject <- item:
 	default:
 		select {
 		case <-r.inject:
 		default:
 		}
 		select {
-		case r.inject <- []byte(text):
+		case r.inject <- item:
 		default:
 		}
 	}

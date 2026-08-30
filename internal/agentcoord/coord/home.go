@@ -16,6 +16,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Home is the RUNNER's connection home: it owns the coordinator dial (one
@@ -592,7 +593,14 @@ func (h *Home) SetTerminalNudge(fn func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.terminalNudge != nil {
-		clidiag.Warn("ctxloom", "runner: a terminal nudge is already registered for this run; the second registration is refused")
+		// A warning here is not enough: the refusal leaves the FIRST
+		// registration bound to a stdin that turn has since abandoned, so the
+		// session owner is never told mail arrived and every gate stays green
+		// — the "succeeds without doing the thing" shape. Report it and let
+		// strictness decide fatality.
+		strictness.FailOnce(strictness.ClassConfig,
+			"construct ONE TerminalInjector per Home and call Wrap on it once per turn (see llm_serve.go) instead of building a new injector for each turn",
+			"runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake")
 		return
 	}
 	h.terminalNudge = fn

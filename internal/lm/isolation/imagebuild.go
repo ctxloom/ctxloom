@@ -1022,10 +1022,10 @@ type ImageBuildOptions struct {
 	// when the detected devcontainer.json declares dockerComposeFile
 	// (config isolation_devcontainer_service).
 	DevcontainerService string
-	// Engines selects which engine fragments compose into a COMPOSABLE
-	// WHICH per-engine images to build (config isolation_engines / --engines);
-	// empty = just this invocation's backend. NOT a composition set: an agent
-	// image carries exactly ONE engine. Ignored for a non-composable backend.
+	// Engines names WHICH per-engine images to build (config
+	// isolation_engines / --engines); empty = just this invocation's backend.
+	// NOT a composition set: an agent image carries exactly ONE engine.
+	// Ignored for a non-composable backend.
 	Engines []string
 	// Runtime prefers a container runtime by name ("docker" | "podman");
 	// empty auto-detects.

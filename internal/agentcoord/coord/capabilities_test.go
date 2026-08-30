@@ -20,14 +20,21 @@ func TestControlCapabilities_IsTheFiveVerbs(t *testing.T) {
 		"peer_messaging is not a control capability — every runner has it, engine or not")
 }
 
-// TestRunnerCapabilities_EnginelessAdvertisesPeerMessagingOnly: the control caps
+// TestRunnerCapabilities_EnginePresenceDecidesTheAdvertisement: the control caps
 // appear only when the runner actually hosts an engine that could execute them.
 // An engineless runner advertising them would make the send-side guard pass and
 // the request die at the far end instead — the exact experience the guard exists
 // to replace.
-func TestRunnerCapabilities_EnginelessAdvertisesPeerMessagingOnly(t *testing.T) {
-	assert.Equal(t, []string{CapPeerMessaging}, RunnerCapabilities(false))
+//
+// The engineless arm carries CapTerminalDelivery for the mirrored reason: having
+// no engine is exactly what leaves it with no turn boundary to receive mail
+// behind, so it must say so or its mail is never pushed at all. The two arms are
+// complements, not a list — every runner advertises how it can be reached.
+func TestRunnerCapabilities_EnginePresenceDecidesTheAdvertisement(t *testing.T) {
+	assert.Equal(t, []string{CapPeerMessaging, CapTerminalDelivery}, RunnerCapabilities(false))
 	assert.Equal(t, append([]string{CapPeerMessaging}, ControlCapabilities()...), RunnerCapabilities(true))
+	assert.NotContains(t, RunnerCapabilities(true), CapTerminalDelivery,
+		"a runner that hosts an engine is driven structurally; its turn boundary owns delivery")
 }
 
 // TestHomeHelloCapabilities_DefaultsToPeerMessagingOnly: HomeConfig.Capabilities

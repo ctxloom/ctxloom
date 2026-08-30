@@ -2010,13 +2010,13 @@ _container-build-via-cli backend *engines:
     if [ -n "{{engines}}" ]; then args+=(--engines "{{engines}}"); fi
     "$bin" "${args[@]}"
 
-# Build the claude-code agent image (the composed multi-engine image, tagged
-# by its resolved content — see `ctxloom container check claude-code` for the
-# resolved tag).
+# The image carries exactly ONE engine, so a vendor outage in an engine it does
+# not ship cannot break it. `ctxloom container check claude-code` prints the
+# resolved content-addressed tag.
+# Build the claude-code agent image (one engine, tagged by resolved content).
 container-build-claude: (_container-build-via-cli "claude-code")
 
-# Build the kiro agent image (the composed multi-engine image; see
-# container-build-claude).
+# Build the kiro agent image (see container-build-claude).
 container-build-kiro: (_container-build-via-cli "kiro")
 
 # List all ctxloom container images

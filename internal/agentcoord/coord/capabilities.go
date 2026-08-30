@@ -23,6 +23,13 @@ const (
 	CapSummarize = "on_demand_summary"
 	CapPause     = "pause"
 	CapResume    = "resume"
+	// CapTerminalDelivery says this runner has NO turn machinery: no engine
+	// host, no turn sink, so nothing on its side will ever pull mail on its
+	// own. It is the session owner's advertisement, and it is what tells
+	// pushMail that the ordinary "unparked, so its own turn boundary owns the
+	// delivery" assumption does not hold here — for this runner the push IS
+	// the delivery, because the push is what fires the terminal nudge.
+	CapTerminalDelivery = "terminal_delivery"
 )
 
 // ControlCapabilities are the five plane-2 control kinds, in the order the
@@ -40,6 +47,12 @@ func RunnerCapabilities(hostsEngine bool) []string {
 	caps := []string{CapPeerMessaging}
 	if hostsEngine {
 		caps = append(caps, ControlCapabilities()...)
+	} else {
+		// No engine host is precisely the session owner: the run that drives a
+		// terminal rather than being driven structurally. It advertises that
+		// its mail must be pushed even while unparked, because there is no
+		// turn boundary behind which the delivery could otherwise happen.
+		caps = append(caps, CapTerminalDelivery)
 	}
 	return caps
 }

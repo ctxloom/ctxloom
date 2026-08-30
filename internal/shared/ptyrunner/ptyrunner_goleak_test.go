@@ -57,7 +57,7 @@ func TestRunInteractive_StdinGoroutineDoesNotLeak(t *testing.T) {
 	// idiom in TestRunInteractive_SimpleCommand).
 	cmd := exec.Command("sh", "-c", "stty size; read line; printf 'got %s\\n' \"$line\"; sleep 0.1")
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, stdinR, &out, resize)
+	exitCode, err := RunInteractive(context.Background(), cmd, stdinR, func() { _ = stdinR.Close() }, &out, resize)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 
@@ -97,7 +97,7 @@ func TestRunInteractive_WrappedStdinGoroutineDoesNotLeak(t *testing.T) {
 
 	cmd := exec.Command("sh", "-c", "read line; printf 'got %s\\n' \"$line\"; sleep 0.1")
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, wrappedStdin{stdinR}, &out, nil)
+	exitCode, err := RunInteractive(context.Background(), cmd, wrappedStdin{stdinR}, func() { _ = stdinR.Close() }, &out, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 
@@ -122,7 +122,7 @@ func TestRunInteractive_WrappedStdinGoroutineDoesNotLeak(t *testing.T) {
 func TestRunInteractive_BenignPTYCloseSwallowed(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'line one\\nline two\\n'; sleep 0.1")
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, &out, nil)
 	require.NoError(t, err, "benign PTY-close fallout must be swallowed via errors.Is")
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, out.String(), "line one")

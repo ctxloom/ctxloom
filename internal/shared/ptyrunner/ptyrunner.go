@@ -186,7 +186,24 @@ func drainPTY(ptty pty.Pty, copyDone <-chan struct{}) {
 // A caller that needs the two streams apart must not use a pty — see
 // internal/lm/backends' non-interactive branch, which wires cmd.Stdout and
 // cmd.Stderr directly.
-func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.Writer, resize <-chan agent.WindowSize) (int, error) {
+//
+// stdinCleanup releases whatever backs stdin, and is supplied by the layer
+// that CREATED that reader, because only that layer knows what closing it
+// means. It runs exactly once, when the stdin copier stops reading — which is
+// the event the wire side is waiting on: a write into an io.Pipe with no
+// reader parks forever and is NOT unblocked by context or stream
+// cancellation, so without this the server's stream pump wedges and the
+// copier's own goroutine never unparks. It may be nil for a caller whose
+// stdin needs no release (a real os.Stdin the caller still owns).
+//
+// It is an explicit func rather than something inferred from stdin's dynamic
+// type on purpose. This cleanup was once gated on `stdin.(*io.PipeReader)`,
+// which held right up until the terminal wake began handing the engine a
+// WRAPPED reader; the assertion then failed on every run, both closes became
+// silent no-ops, and nothing went red because a skipped cleanup looks exactly
+// like a clean one. Taking the func from the owner makes that failure
+// unrepresentable: this package no longer has an opinion about what stdin is.
+func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdinCleanup func(), out io.Writer, resize <-chan agent.WindowSize) (int, error) {
 	// Create PTY (cross-platform: Unix PTY or Windows ConPTY)
 	ptty, err := pty.New()
 	if err != nil {
@@ -225,17 +242,19 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.
 	// Deterministically unblock the stdin copier's parked Read when this
 	// function returns: a goroutine parked inside Read cannot observe
 	// close(done), and neither ptty.Close (which unblocks ptty.Write) nor the
-	// goroutine's own deferred Close (which only fires after it returns) can
+	// copier's own deferred cleanup (which only fires after it returns) can
 	// wake it, so absent this the copier outlives RunInteractive until the
-	// caller happens to close the pipe's write end. Gated to *io.PipeReader so
-	// a caller-owned reader (e.g. a real os.Stdin) is never closed from here;
-	// Close is idempotent with the goroutine's own. This defer must live in
-	// RunInteractive rather than the helper: it is RunInteractive's return
-	// that has to trigger it.
-	if pr, ok := stdin.(*io.PipeReader); ok {
-		defer func() { _ = pr.Close() }()
+	// caller happens to release the reader itself. sync.OnceFunc makes this
+	// safe to race with the copier's identical call — whichever arrives first
+	// wins and the other is a no-op — so the owner's func need not be
+	// idempotent on its own. This defer must live in RunInteractive rather
+	// than the helper: it is RunInteractive's return that has to trigger it.
+	releaseStdin := func() {}
+	if stdinCleanup != nil {
+		releaseStdin = sync.OnceFunc(stdinCleanup)
 	}
-	startStdinCopier(ptty, stdin, done)
+	defer releaseStdin()
+	startStdinCopier(ptty, stdin, releaseStdin, done)
 
 	tw, copyDone := startOutputCopier(ptty, out)
 
@@ -348,25 +367,20 @@ func startResizeApplier(ptty pty.Pty, resize <-chan agent.WindowSize, done <-cha
 }
 
 // startStdinCopier copies frontend stdin into the PTY. The reader is the wire
-// stdin (an io.Pipe fed by the server's stream pump), so unlike a real
-// os.Stdin it unblocks when the pipe is closed at end of run — no
-// parked-goroutine concern.
-func startStdinCopier(ptty pty.Pty, stdin io.Reader, done <-chan struct{}) {
+// stdin — an io.Pipe fed by the server's stream pump, possibly behind a
+// wrapper — and releaseStdin is the owner's cleanup for it (see
+// RunInteractive), already reduced to run exactly once.
+func startStdinCopier(ptty pty.Pty, stdin io.Reader, releaseStdin func(), done <-chan struct{}) {
 	if stdin == nil {
 		return
 	}
 	go func() {
-		// When this copier stops reading, unblock the wire's writer: a write
-		// into an io.Pipe with no reader parks forever (it is not unblocked by
-		// stream/context cancellation), which would wedge the server's stream
-		// pump and drop resize messages. Closing the read end makes pending and
-		// future writes fail with ErrClosedPipe. Gated to *io.PipeReader so a
-		// caller-owned reader (e.g. a real os.Stdin) is never closed from here.
-		defer func() {
-			if pr, ok := stdin.(*io.PipeReader); ok {
-				_ = pr.Close()
-			}
-		}()
+		// When this copier stops reading, release the reader so the wire's
+		// writer unblocks: a write into an io.Pipe with no reader parks
+		// forever (it is not unblocked by stream/context cancellation), which
+		// would wedge the server's stream pump and drop resize messages.
+		// Releasing makes pending and future writes fail with ErrClosedPipe.
+		defer releaseStdin()
 		buf := make([]byte, 1024)
 		for {
 			n, rerr := stdin.Read(buf)

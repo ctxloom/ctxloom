@@ -59,7 +59,7 @@ func TestRunInteractive_SimpleCommand(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, &stdout, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -100,7 +100,7 @@ func TestRunInteractive_ExitCode(t *testing.T) {
 			ctx := context.Background()
 			cmd := exec.Command(tt.command, tt.args...)
 
-			exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
+			exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedCode, exitCode)
@@ -128,7 +128,7 @@ func TestRunInteractive_ContextCancellation(t *testing.T) {
 		err      error
 	})
 	go func() {
-		exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 		resultCh <- struct {
 			exitCode int
 			err      error
@@ -165,7 +165,7 @@ func TestRunInteractive_ContextTimeout(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 30")
 
 	start := time.Now()
-	exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 	elapsed := time.Since(start)
 
 	// Should complete quickly (within ~500ms, not 30 seconds)
@@ -208,7 +208,7 @@ func TestRunInteractive_SizesPTYBeforeChildStarts(t *testing.T) {
 	}()
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, resize)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, &stdout, resize)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, strings.TrimSpace(stdout.String()), "55 111",
@@ -243,7 +243,7 @@ func TestRunInteractive_SignalThroughPTY(t *testing.T) {
 		err      error
 	})
 	go func() {
-		exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, nil, &stdout, nil)
 		resultCh <- struct {
 			exitCode int
 			err      error
@@ -282,7 +282,7 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "echo line1; echo line2; echo line3")
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, &stdout, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -329,7 +329,7 @@ func TestRunInteractive_StdoutWriteFailureReportsError(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	dst := &failingWriter{n: 0, err: errors.New("simulated broken pipe")}
-	exitCode, err := RunInteractive(ctx, cmd, nil, dst, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, dst, nil)
 
 	require.Error(t, err, "a stdout delivery failure must not be reported as success")
 	assert.Contains(t, err.Error(), "output delivery failed")
@@ -348,7 +348,7 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 0.1")
 
 	stdinR, stdinW := io.Pipe()
-	exitCode, err := RunInteractive(ctx, cmd, stdinR, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, stdinR, func() { _ = stdinR.Close() }, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 
@@ -395,7 +395,7 @@ func TestRunInteractive_ClosesWrappedStdinWhenCopierExits(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 0.1")
 
 	stdinR, stdinW := io.Pipe()
-	exitCode, err := RunInteractive(ctx, cmd, wrappedStdin{stdinR}, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, wrappedStdin{stdinR}, func() { _ = stdinR.Close() }, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 
@@ -435,7 +435,7 @@ func TestRunInteractive_ChildStderrArrivesOnStdoutWriter(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'to-stdout\\n'; printf 'to-stderr\\n' 1>&2; sleep 0.1")
 
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &out, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, &out, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -463,7 +463,7 @@ func TestRunInteractive_HandBuiltCmdWithoutArgsRuns(t *testing.T) {
 	var exitCode int
 	var runErr error
 	require.NotPanics(t, func() {
-		exitCode, runErr = RunInteractive(context.Background(), cmd, nil, nil, nil)
+		exitCode, runErr = RunInteractive(context.Background(), cmd, nil, nil, nil, nil)
 	}, "a *exec.Cmd with no Args must not panic the runner")
 	require.NoError(t, runErr)
 	assert.Equal(t, 0, exitCode)
@@ -483,7 +483,7 @@ func TestRunInteractive_Argv0ComesFromPath(t *testing.T) {
 	require.NotEqual(t, cmd.Args[0], cmd.Path, "the fixture needs Path and Args[0] to differ")
 
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, &out, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, out.String(), "argv0="+cmd.Path,
@@ -515,7 +515,7 @@ func TestRunInteractive_InitialResizeFailureIsReported(t *testing.T) {
 
 	cmd := exec.Command("sh", "-c", "printf 'child ran\\n'; sleep 0.1")
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, resize)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, &out, resize)
 
 	require.Error(t, err, "a failed pre-start resize must not be reported as a successful run")
 	assert.Contains(t, err.Error(), "failed to size pty before starting the child")
@@ -545,7 +545,7 @@ func TestRunInteractive_LaterResizeFailureIsReported(t *testing.T) {
 	resize <- agent.WindowSize{Rows: 24, Cols: 80}
 
 	cmd := exec.Command("sh", "-c", "sleep 0.3")
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, resize)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, resize)
 
 	require.Error(t, err, "a resize that stopped reaching the pty must not be reported as success")
 	assert.Contains(t, err.Error(), "terminal resize failed")
@@ -574,7 +574,7 @@ func TestRunInteractive_LateResizeOnClosedPTYIsNotAnError(t *testing.T) {
 	resize <- agent.WindowSize{Rows: 24, Cols: 80}
 
 	cmd := exec.Command("sh", "-c", "sleep 0.3")
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, resize)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, resize)
 
 	require.NoError(t, err, "our own close racing a queued resize is expected fallout, not a defect")
 	assert.Equal(t, 0, exitCode)
@@ -606,7 +606,7 @@ func TestRunInteractive_ClosesPTYExactlyOnce(t *testing.T) {
 
 	cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
 	var out bytes.Buffer
-	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, &out, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Equal(t, int32(1), closes.Load(), "the pty master must be closed exactly once per run")
@@ -623,7 +623,7 @@ func TestRunInteractive_NonBenignCloseFailureIsReported(t *testing.T) {
 			return fs.ErrClosed
 		})
 		cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
-		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Equal(t, 0, exitCode)
 	})
@@ -634,7 +634,7 @@ func TestRunInteractive_NonBenignCloseFailureIsReported(t *testing.T) {
 			return errors.New("simulated close failure")
 		})
 		cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
-		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pty close failed")
 		assert.Contains(t, err.Error(), "simulated close failure")
@@ -665,7 +665,7 @@ func TestRunInteractive_SignalKilledChildYields128PlusSignum(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := exec.Command("sh", "-c", "kill -"+tt.signal+" $$; sleep 5")
-			exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+			exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedCode, exitCode,
 				"a child killed by SIG%s must report 128+signum, not the raw -1 os/exec hands back", tt.signal)

@@ -143,34 +143,28 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	if c.deliverToPoll(to) {
 		return msg.ID, true, nil
 	}
-	// Push-down: a recipient whose runner-side recv is parked gets the mail
-	// pushed as a notice (tentative delivery; at-least-once) — and a
-	// MIGRATED child's live channel is always pushable: its runner
-	// delivers by state (§6a — parked recv, new turn, or queue to the
-	// boundary). Only a completed recv reports completed=true; a turn
-	// delivery's disposition is the caller's (driveQueued by state).
+	// Push-down: the mail goes out as a notice (tentative delivery;
+	// at-least-once) to whichever push targets pushTargetForLocked admits.
+	// That gate is the one authority on the question — pushMail consults the
+	// SAME one rather than an inverse of its own, which is what stops the two
+	// from silently disagreeing. Only a completed recv reports
+	// completed=true; a turn delivery's disposition is the caller's
+	// (driveQueued by state).
 	c.mu.Lock()
-	ch := c.chans[to]
-	rt := c.byHarp[to]
-	parked := ch != nil && ch.parked
-	// The session owner is the third push target, and it is not an exception
-	// to the parked/migrated rule so much as the case that rule does not
-	// cover: that runner hosts no engine, so there is NO turn boundary behind
-	// which this delivery could otherwise happen. Withholding the push here
-	// does not defer the delivery, it cancels it — the push is what fires the
-	// terminal nudge, so mail never pushed is a wake that never happens.
-	termDeliver := ch != nil && ch.caps[CapTerminalDelivery]
-	pushable := parked || (ch != nil && rt != nil && rt.viaStartRun) || termDeliver
+	target := c.pushTargetForLocked(to)
 	c.mu.Unlock()
-	if pushable {
+	if target.pushable() {
 		c.pushMail(to)
-		return msg.ID, parked, nil
+		// Only a parked recv was COMPLETED by this push. The other pushable
+		// targets deliver by state or by terminal wake, and their disposition
+		// is not this call's to report.
+		return msg.ID, target == pushParked, nil
 	}
 	// THE DECISION IS HERE, not in pushMail's own guard — that one is
 	// defence-in-depth and is never even reached from this path. This is the
 	// point at which mail is durably queued and then NOT handed to anybody, and
 	// it used to say nothing at all.
-	c.notePushUnavailable(to, ch == nil)
+	c.notePushUnavailable(to, target)
 	return msg.ID, false, nil
 }
 

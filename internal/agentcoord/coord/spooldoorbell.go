@@ -216,9 +216,11 @@ func (c *Coordinator) noteSpoolDrop(role string, ref spool.Ref, why string) {
 	c.spoolDoorbell.dropped.Add(1)
 }
 
-// SetSpoolDoorbellHandler registers the consumer for validated inbound
-// doorbells. Passing nil deregisters — and nil is the DEFAULT: until something
-// wires delivery, an arriving doorbell is validated, counted and dropped.
+// SetSpoolDoorbellHandler registers THE consumer for validated inbound
+// doorbells; passing nil deregisters. startSpoolReactor registers the reactor
+// here, so this is the single seam every doorbell is consumed through rather
+// than a hook beside a hard-wired path — which is also what lets a test
+// observe the ref the wire actually delivered, field for field.
 func (c *Coordinator) SetSpoolDoorbellHandler(fn SpoolDoorbellHandler) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -251,15 +253,14 @@ func (c *Coordinator) handleSpoolChanged(ch *runChan, msg *agentcoordpb.SpoolCha
 	// THE CUTOVER's wake. A doorbell means "look at that spool", never
 	// "process exactly that file": the reactor re-derives the whole picture by
 	// sweeping, which is what makes a lost or duplicated ring harmless.
-	c.spoolReactor.mark(ch.role)
 	c.mu.Lock()
 	fn := c.spoolHandler
 	c.mu.Unlock()
 	if fn == nil {
-		// Not a drop under the cutover — the reactor above IS the consumer.
-		if !c.spoolDelivery {
-			c.spoolDoorbell.dropped.Add(1)
-		}
+		// A doorbell with no consumer IS a drop, and this counter now means
+		// only that. Production registers the reactor in startSpoolReactor, so
+		// reaching here means delivery is off or registration was missed.
+		c.spoolDoorbell.dropped.Add(1)
 		return
 	}
 	fn(ch.role, ref)
@@ -288,8 +289,9 @@ func (h *Home) ringSpool(ref spool.Ref) error {
 	return nil
 }
 
-// SetSpoolDoorbellHandler registers the runner-side consumer for validated
-// inbound doorbells. Nil deregisters, and nil is the default.
+// SetSpoolDoorbellHandler registers THE runner-side consumer for validated
+// inbound doorbells; nil deregisters. startSpoolReactor registers SweepSpoolIn
+// here, so the doorbell reaches the same single funnel as every other trigger.
 //
 // The handler takes the coordinator's role name (always the empty string
 // today: the coordinator is the only peer on this channel) so that both sides
@@ -323,6 +325,7 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 			h.spoolDoorbell.rejected.Add(1)
 			return
 		case ref.Dir == spool.DirInWithdrawn:
+			// ACCEPTED, and consumed below by the one seam.
 			// A RETRACTION (spoolcontrol.go's WithdrawSteer): the coordinator
 			// renamed an unread instruction out of in/ and is announcing the
 			// transition. There is nothing to deliver — the file has already
@@ -330,24 +333,19 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 			// either: a sweep re-derives the picture and finds it gone, which
 			// is exactly the outcome. Counting it as a rejection would make
 			// every successful withdrawal read as a doorbell fault.
-			h.SweepSpoolIn()
 		case ref.Dir != spool.DirIn:
 			// out/ and the remaining terminal directories are this runner's
 			// own writes coming back at it; nothing to read there.
 			clidiag.Warn("ctxloom", "runner: ignoring a spool doorbell for %s: only inbound mail is delivered to this run", ref.Dir)
 			h.spoolDoorbell.rejected.Add(1)
 			return
-		default:
-			h.SweepSpoolIn()
 		}
 	}
 	h.mu.Lock()
 	fn := h.spoolHandler
 	h.mu.Unlock()
 	if fn == nil {
-		if !h.spoolDelivery {
-			h.spoolDoorbell.dropped.Add(1)
-		}
+		h.spoolDoorbell.dropped.Add(1)
 		return
 	}
 	fn("", ref)

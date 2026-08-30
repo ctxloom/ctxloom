@@ -227,8 +227,8 @@ type SurfaceInputs struct {
 
 // CellDelivery configures a launch backend's cell-based surface delivery. A
 // backend that routes launch-time delivery through the typed-cell seam supplies
-// one at InitLaunch; a backend that keeps the legacy lifecycle path (acp) passes
-// nil, and Setup takes setupViaLifecycle instead.
+// one at InitLaunch; a backend that does not route launch-time delivery through
+// the typed-cell seam (acp) passes nil.
 type CellDelivery struct {
 	// Build maps the shared per-run inputs to the backend's SurfaceSet, targeting
 	// isolatedDir for any out-of-cwd (race-safe) surface — claude's append-flag /

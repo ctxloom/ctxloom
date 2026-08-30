@@ -108,8 +108,10 @@ func TestTerminalInject_SubmitReachesEngineStdinAsItsOwnRead(t *testing.T) {
 	t.Cleanup(func() { _ = realStdinW.Close() })
 
 	out := &probeSink{}
-	// Exactly what llm_serve.go's wrapStreams closure does per turn.
-	wrappedStdin, wrappedStdout := ti.Wrap(realStdin, out)
+	// Exactly what RunTurn does per turn with llm_serve.go's wrapStreams:
+	// wrap, and defer the release so the target dies with the turn.
+	wrappedStdin, wrappedStdout, release := ti.Wrap(realStdin, out)
+	t.Cleanup(release)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

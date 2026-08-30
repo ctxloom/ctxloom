@@ -88,8 +88,9 @@ type Home struct {
 	// on: deliverNotice's third case (neither a parked recv nor a turn sink)
 	// buffers mail for a Recv that a terminal-driven engine never makes on
 	// its own. Nil everywhere except the one wiring that owns a live PTY for
-	// this run (llm_serve.go's interactive Execute decorator); deliverNotice
-	// fires it, unlocked, whenever it buffers with nothing else to tell.
+	// this run — the interactive path that builds a NewTerminalInjector and
+	// threads its Wrap through as a func; deliverNotice fires it, unlocked,
+	// whenever it buffers with nothing else to tell.
 	terminalNudge func()
 
 	// ctrlHandler executes coordinator-initiated plane-2 control requests
@@ -106,10 +107,10 @@ type Home struct {
 	// human never asked for.
 	inflightCtrl map[string]*inflightCtrl
 
-	// spoolHandler is the registered consumer for validated inbound spool
-	// doorbells (SetSpoolDoorbellHandler), nil by default and nil until
-	// delivery is wired. spoolDoorbell counts what the doorbell deliberately
-	// does not retry — see spooldoorbell.go.
+	// spoolHandler is THE consumer for validated inbound spool doorbells
+	// (SetSpoolDoorbellHandler), registered by startSpoolReactor when delivery
+	// is on. spoolDoorbell counts what the doorbell deliberately does not
+	// retry — see spooldoorbell.go.
 	spoolHandler  SpoolDoorbellHandler
 	spoolDoorbell spoolDoorbellCounters
 	// spoolOut lends this harp's out/ writer for the shadow tee. Non-nil ONLY

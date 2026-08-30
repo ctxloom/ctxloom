@@ -34,7 +34,11 @@ type LLMGRPCPlugin struct {
 	// agent.StructuredChat, agent.StateReader, agent.EngineCLIProvider) the
 	// wrapped value implements — this is the deliberate alternative to that.
 	// Unset means identity: this plugin injects nothing.
-	WrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)
+	//
+	// The third return is the wrap's release, scoped to the one turn it was
+	// taken for; RunTurn defers it. Returning it is what makes the injector's
+	// home-lifetime target releasable at all.
+	WrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer, func())
 }
 
 // GRPCServer returns the gRPC server for the plugin.
@@ -58,7 +62,7 @@ type GRPCServer struct {
 	// wrapStreams is LLMGRPCPlugin.WrapStreams, threaded through GRPCServer so
 	// Run can hand it to RunTurn. See LLMGRPCPlugin.WrapStreams for why this is
 	// a func value and not a Backend decorator.
-	wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)
+	wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer, func())
 }
 
 // Info returns metadata about the plugin.
@@ -202,7 +206,12 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 // RunTurn lose those assertions on the wrapped value. A oneshot turn's Stdin
 // is nil by contract (agent.LaunchBackend.ExecuteCLI's doc comment) and is
 // never wrapped.
-func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan agent.WindowSize, wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)) (*agent.ExecuteResult, error) {
+//
+// The wrap's third return is its release, and RunTurn defers it the moment
+// the wrap is applied: the wrapper's owner outlives this turn, so without
+// that the turn's dead stdin stays the injection target after Execute
+// returns.
+func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan agent.WindowSize, wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer, func())) (*agent.ExecuteResult, error) {
 	// Treat nil Options as fully-default so callers using proto-zero-values
 	// don't crash — the generated Get* accessors are nil-safe throughout.
 	env := req.GetOptions().GetEnv()
@@ -214,9 +223,10 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 	runTurnSetup(ctx, impl, req, env)
 	execReq := turnExecuteRequest(req, promptContent, env, stdin, stdinCleanup, resize)
 	if wrapStreams != nil && execReq.Mode == agent.ModeInteractive && execReq.Stdin != nil {
-		wrappedStdin, wrappedStdout := wrapStreams(execReq.Stdin, stdout)
+		wrappedStdin, wrappedStdout, release := wrapStreams(execReq.Stdin, stdout)
 		execReq.Stdin = wrappedStdin
 		stdout = wrappedStdout
+		defer release()
 	}
 
 	// Make cwd reach the child on EVERY path. Setup calls SetWorkDir, but the

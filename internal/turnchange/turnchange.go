@@ -1,7 +1,7 @@
 // Package turnchange answers questions about the TURN NOW ENDING, off the
-// engine's own transcript. Its original and principal question is the
-// Stop-hook close-out contract's: did this turn perform a change-making
-// action? LastAssistantText answers the other one — what did the turn
+// engine's own transcript. Its principal question is the close-out one: did
+// this turn perform a change-making action? Nothing fires that check
+// automatically today. LastAssistantText answers the other one — what did the turn
 // SAY — for the TurnEnd next-step capture.
 //
 // The question it replaces is "is the working tree dirty". That proxy is

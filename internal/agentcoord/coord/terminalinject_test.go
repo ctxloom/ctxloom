@@ -28,7 +28,8 @@ func TestTerminalInject_NoSinkInjectsMailPendingFrame(t *testing.T) {
 	// a terminal the human is not typing into.
 	realStdin, realStdinW := io.Pipe()
 	t.Cleanup(func() { _ = realStdinW.Close() })
-	wrappedStdin, _ := ti.Wrap(realStdin, io.Discard)
+	wrappedStdin, _, release := ti.Wrap(realStdin, io.Discard)
+	t.Cleanup(release)
 
 	h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: "m-1", Text: "for the terminal"})
 
@@ -239,6 +240,50 @@ func TestTerminalInject_BurstOfMailCoalescesToOneInjection(t *testing.T) {
 	assert.Equal(t, 5, h.BufferedMailCount(), "coalescing the WAKE must not drop any of the buffered messages")
 }
 
+// TestTerminalInject_ReleaseStopsInjectingIntoTheEndedTurn pins the release
+// half of Wrap's contract. The injector has HOME lifetime and the stream it
+// writes into has TURN lifetime; with no release the two never reconcile.
+//
+// The failure is silent by construction and that is why it needs a test:
+// nudgeReader.Inject never blocks, so injecting into an abandoned reader
+// SUCCEEDS. The buffered count never falls, and 45s later awaitAck warns that
+// the frame "may be staged in the input box unsubmitted" — naming a cause
+// that is not the real one, because there is no live turn at all. After the
+// release, run() must take its inject == nil branch and leave the mail
+// buffered for a real Recv instead.
+func TestTerminalInject_ReleaseStopsInjectingIntoTheEndedTurn(t *testing.T) {
+	h := newNoticeHome(t)
+	ti := &TerminalInjector{quiet: 5 * time.Millisecond, tick: time.Millisecond, maxWait: 200 * time.Millisecond, count: h.BufferedMailCount}
+	h.SetTerminalNudge(ti.nudge)
+
+	turn, turnW := io.Pipe()
+	t.Cleanup(func() { _ = turnW.Close() })
+	wrapped, _, release := ti.Wrap(turn, io.Discard)
+
+	// The turn ends.
+	release()
+
+	h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: "m-after-release", Text: "arrives with no live turn"})
+
+	// Read past the injector's whole wait bound. Nothing may appear on the
+	// dead turn's stdin.
+	got := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 256)
+		n, err := wrapped.Read(buf)
+		if err == nil {
+			got <- string(buf[:n])
+		}
+	}()
+	select {
+	case frame := <-got:
+		t.Fatalf("a released turn's stdin must receive nothing, got %q", frame)
+	case <-time.After(500 * time.Millisecond):
+	}
+	assert.Equal(t, 1, h.BufferedMailCount(),
+		"the message must stay buffered for a real Recv rather than being spent on a stream nobody reads")
+}
+
 // TestTerminalInject_RewrapRetargetsInjectionToTheCurrentTurn pins the
 // one-injector-per-Home contract that llm_serve.go depends on. A SECOND
 // interactive turn must be the one that receives the nudge.
@@ -256,12 +301,19 @@ func TestTerminalInject_RewrapRetargetsInjectionToTheCurrentTurn(t *testing.T) {
 	// Turn 1 wraps and then ends; nothing reads its stdin afterwards.
 	turn1, turn1W := io.Pipe()
 	t.Cleanup(func() { _ = turn1W.Close() })
-	_, _ = ti.Wrap(turn1, io.Discard)
+	_, _, release1 := ti.Wrap(turn1, io.Discard)
 
 	// Turn 2 wraps the same injector: it now owns the injection target.
 	turn2, turn2W := io.Pipe()
 	t.Cleanup(func() { _ = turn2W.Close() })
-	wrapped2, _ := ti.Wrap(turn2, io.Discard)
+	wrapped2, _, _ := ti.Wrap(turn2, io.Discard)
+
+	// Turn 1's release lands LATE — after turn 2 already took the target.
+	// This ordering is reachable in production (RunTurn defers the release,
+	// and nothing sequences one turn's teardown before the next turn's wrap),
+	// so the release must be compare-and-clear: an unconditional nil here
+	// disarms the LIVE turn and the assertions below go dark.
+	release1()
 
 	h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: "m-rewrap", Text: "for the current turn"})
 

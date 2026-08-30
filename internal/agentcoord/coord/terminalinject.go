@@ -101,7 +101,16 @@ type TerminalInjector struct {
 	// before the frame was consumed would REPLACE the notice and submit an
 	// empty line instead.
 	inject func(frame, submit string)
-	count  func() int
+	// injectGen identifies WHICH turn owns inject. Wrap stamps a fresh value
+	// and its release clears inject only if the stamp still matches, because
+	// the injector outlives any one turn: turn N+1 can Wrap before turn N's
+	// deferred release runs, and an unconditional nil there would disarm the
+	// LIVE turn's wake — silently, since injection into a nil target is a
+	// no-op that reports nothing. A generation counter and not the func value
+	// itself: func values are not comparable in Go, so identity has to be
+	// carried explicitly.
+	injectGen uint64
+	count     func() int
 }
 
 // NewTerminalInjector builds an injector for home and registers it as home's
@@ -127,12 +136,32 @@ func NewTerminalInjector(home *Home) *TerminalInjector {
 // channel a nudge cycle writes into. Calling it again retargets injection at
 // the new turn's stdin; that is how successive turns take ownership of the one
 // registered nudge.
-func (ti *TerminalInjector) Wrap(stdin io.Reader, stdout io.Writer) (io.Reader, io.Writer) {
+//
+// The third return is that turn's RELEASE, and the caller must defer it as
+// soon as the wrap is applied. The injector has HOME lifetime; the stream it
+// writes into has TURN lifetime, and without a release the two never
+// reconcile: mail arriving after the turn ends is injected into a reader
+// nobody will ever Read. Inject is deliberately non-blocking, so that
+// succeeds, the buffered count never falls, and awaitAck 45s later reports a
+// frame "staged in the input box unsubmitted" — naming the wrong cause, since
+// there is no live turn at all. Releasing puts the injector back in its
+// pre-Wrap state, where run() leaves the mail buffered for a real Recv.
+func (ti *TerminalInjector) Wrap(stdin io.Reader, stdout io.Writer) (io.Reader, io.Writer, func()) {
 	r := newNudgeReader(stdin)
 	ti.mu.Lock()
+	ti.injectGen++
+	gen := ti.injectGen
 	ti.inject = r.Inject
 	ti.mu.Unlock()
-	return r, &quietTap{dst: stdout, lastWrite: &ti.lastWrite}
+	release := func() {
+		ti.mu.Lock()
+		defer ti.mu.Unlock()
+		if ti.injectGen != gen {
+			return // a later turn already took the target; it is not ours to clear
+		}
+		ti.inject = nil
+	}
+	return r, &quietTap{dst: stdout, lastWrite: &ti.lastWrite}, release
 }
 
 // nudge is home's terminalNudge callback: it must not block (deliverNotice

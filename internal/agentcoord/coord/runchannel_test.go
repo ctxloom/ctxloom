@@ -876,3 +876,65 @@ func TestQueueMail_TerminalDeliveryOwnerIsPushedFromTheMailPath(t *testing.T) {
 			"an unparked child's turn-boundary drain still owns the delivery; the new target must not widen to every child")
 	})
 }
+
+// TestPushTargetForLocked_ClassifiesEveryChannelShape pins the ONE gate both
+// mail paths now read. It exists because that answer used to be computed
+// twice — queueMail built a positive `parked || migrated || termDeliver` and
+// pushMail built the negative `ch == nil || (!ch.parked && !migrated &&
+// !termDeliver)` — with nothing checking that the two agreed.
+//
+// Disagreement does not fail loudly. It fails as mail durably queued with its
+// push withheld: the wake never fires and the sender waits forever on
+// something that cannot arrive, which is the exact defect this package has
+// already shipped once. With the classification pinned here, adding a target
+// to the gate is a single edit, and forgetting to teach one of the two paths
+// about it is no longer representable.
+func TestPushTargetForLocked_ClassifiesEveryChannelShape(t *testing.T) {
+	const harp = "classified-child"
+	shape := func(t *testing.T, ch *runChan, rt *childRt) pushTarget {
+		t.Helper()
+		c := newTestCoordinator(t, researcherSpawner(), nil)
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if ch != nil {
+			c.chans[harp] = ch
+		}
+		if rt != nil {
+			c.byHarp[harp] = rt
+		}
+		return c.pushTargetForLocked(harp)
+	}
+	chanWith := func(parked bool, caps map[string]bool) *runChan {
+		return &runChan{role: harp, parked: parked, caps: caps, send: make(chan *agentcoordpb.CoordinatorFrame, 1)}
+	}
+	plain := map[string]bool{CapPeerMessaging: true}
+	terminal := map[string]bool{CapPeerMessaging: true, CapTerminalDelivery: true}
+
+	for _, tc := range []struct {
+		name string
+		ch   *runChan
+		rt   *childRt
+		want pushTarget
+	}{
+		{"no channel at all", nil, nil, pushNone},
+		{"no channel, migrated runtime", nil, &childRt{viaStartRun: true}, pushNone},
+		{"parked recv", chanWith(true, plain), nil, pushParked},
+		{"migrated, unparked", chanWith(false, plain), &childRt{viaStartRun: true}, pushMigrated},
+		{"session owner, unparked", chanWith(false, terminal), nil, pushTerminal},
+		{"legacy child, unparked", chanWith(false, plain), &childRt{}, pushWithheld},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shape(t, tc.ch, tc.rt)
+			assert.Equal(t, tc.want, got)
+			// pushable() and why() are the two faces the callers use, and
+			// they must never both be silent: a withheld push that reports no
+			// reason is the silence this whole gate exists to end.
+			assert.Equal(t, tc.want.pushable(), got.pushable())
+			if got.pushable() {
+				assert.Empty(t, got.why(), "a pushable target has nothing to explain")
+			} else {
+				assert.NotEmpty(t, got.why(), "a withheld push must always say why")
+			}
+		})
+	}
+}

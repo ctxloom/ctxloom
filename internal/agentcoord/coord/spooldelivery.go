@@ -461,6 +461,11 @@ func (c *Coordinator) startSpoolReactor() {
 	}
 	c.spoolSeen = map[string]map[string]bool{}
 	c.spoolReactor = newSpoolReactor(c.sweepChildSpool, c.spoolRoles, c.spoolSweepInterval)
+	// The reactor is registered AS the doorbell's consumer rather than being
+	// called beside it. One seam: a second consumer cannot be added without
+	// visibly replacing this one, and a nil handler stays a real fault rather
+	// than becoming a second, silent delivery path.
+	c.SetSpoolDoorbellHandler(func(role string, _ spool.Ref) { c.spoolReactor.mark(role) })
 	c.goTracked(func() { c.spoolReactor.run(c.baseCtx) })
 }
 
@@ -766,6 +771,10 @@ func (h *Home) startSpoolReactor() {
 		func() []string { return []string{h.cfg.Harp} },
 		h.cfg.SpoolSweepInterval,
 	)
+	// Same one-seam rule as the coordinator's, and it lands on SweepSpoolIn so
+	// the doorbell joins the other triggers at the single funnel that call
+	// already documents.
+	h.SetSpoolDoorbellHandler(func(string, spool.Ref) { h.SweepSpoolIn() })
 	h.goTracked(func() { h.spoolIn.run(h.ctx) })
 }
 

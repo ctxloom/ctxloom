@@ -76,7 +76,7 @@ func TestLLMGRPCPlugin_WakeWiring_PreservesOptionalCapabilities(t *testing.T) {
 		// here. The identity wrap is enough to prove the point — the bug was
 		// never about WHAT the wrap does, only about Impl no longer being the
 		// concrete backend.
-		WrapStreams: func(r io.Reader, w io.Writer) (io.Reader, io.Writer) { return r, w },
+		WrapStreams: func(r io.Reader, w io.Writer) (io.Reader, io.Writer, func()) { return r, w, func() {} },
 	}
 	require.NoError(t, plug.GRPCServer(nil, grpcServer))
 

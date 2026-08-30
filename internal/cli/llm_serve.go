@@ -66,19 +66,18 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 	// so it cannot erase an optional capability interface (agent.StructuredChat,
 	// agent.StateReader, agent.EngineCLIProvider) the backend implements — see
 	// grpc.LLMGRPCPlugin.WrapStreams.
-	var wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer)
+	var wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer, func())
 	if standup.home != nil && standup.engineHost == nil {
 		// ONE injector per Home, constructed OUT here and re-Wrapped per turn.
-		// Constructing it inside the closure instead builds a new injector on
-		// every turn, and Home.SetTerminalNudge refuses a second registration
-		// by design — so the registered nudge stays bound to the FIRST turn's
-		// stdin, which nothing reads once that turn ends, and later mail is
-		// injected into a dead reader. Wrap re-points the injection target
-		// under the mutex, so re-Wrapping is how a turn takes ownership.
+		// Constructing it per turn instead builds a new injector every time,
+		// and Home.SetTerminalNudge refuses a second registration by design —
+		// so the registered nudge stays bound to the FIRST turn's stdin,
+		// which nothing reads once that turn ends, and later mail is injected
+		// into a dead reader. Wrap re-points the injection target under the
+		// mutex, so re-Wrapping is how a turn takes ownership; the release it
+		// returns is how a turn gives that ownership back.
 		ti := coord.NewTerminalInjector(standup.home)
-		wrapStreams = func(stdin io.Reader, stdout io.Writer) (io.Reader, io.Writer) {
-			return ti.Wrap(stdin, stdout)
-		}
+		wrapStreams = ti.Wrap
 	}
 
 	// Create the plugin map with our backend

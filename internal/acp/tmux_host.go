@@ -75,33 +75,8 @@ type hostedStatus struct {
 	ExitCode int
 }
 
-// tmuxHostWrapper runs the command as a CHILD rather than exec'ing it, which
-// is what makes both halves of the contract possible at once:
-//
-//   - no redirection, so the child inherits the window's pty and an
-//     interactive program behaves as it would in any terminal;
-//   - the shell survives the child, so it can record the true exit code and
-//     signal the wait channel afterwards. `exec "$@"` would replace the shell
-//     and leave nothing to do either.
-//
-// The leading `wait-for` is a STARTING GATE, not a delay: it blocks until
-// host() has armed pipe-pane, so no output can be produced before capture is
-// attached. tmux's wait-for is a counting channel, so a signal that arrives
-// first is remembered rather than lost — the gate is therefore race-free in
-// both directions, and needs no sleep or poll.
-//
-// Invoked as: sh -c <wrapper> _ <gate> <statusPath> <channel> <command> [args...]
-const tmuxHostWrapper = `tmux -L "$0" wait-for "$1"
-shift
-statusfile="$1"
-shift
-ch="$1"
-shift
-"$@"
-ec=$?
-echo "$ec" > "$statusfile"
-tmux -L "$0" wait-for -S "$ch"
-exit $ec`
+// The wrapper both surfaces share lives in tmux_terminal.go
+// (tmuxWindowWrapper); hosting selects it with writerPipePane.
 
 // socketName reports the tmux server this registry's runner talks to. The
 // wrapper script above has to name the socket INSIDE a command string, so it
@@ -146,8 +121,11 @@ func (l *localTerminals) host(ctx context.Context, spec hostSpec) (hostedTermina
 	for _, k := range sortedKeys(spec.Env) {
 		args = append(args, "-e", k+"="+spec.Env[k])
 	}
-	args = append(args, "sh", "-c", tmuxHostWrapper,
-		l.socketName(), gate, h.statusPath, h.channel, spec.Command)
+	// writerPipePane: the command's stdout is the window's real PTY, so an
+	// interactive program behaves as it would in any terminal, and pipe-pane
+	// (armed below, before the gate is released) copies the bytes out.
+	args = append(args, "sh", "-c", tmuxWindowWrapper,
+		l.socketName(), string(writerPipePane), h.outputPath, gate, h.statusPath, h.channel, spec.Command)
 	args = append(args, spec.Args...)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {

@@ -229,25 +229,68 @@ func (l *localTerminals) ensureSession(ctx context.Context) error {
 	return nil
 }
 
-// tmuxOutputWrapper is the shell script every local terminal's window runs
-// instead of the caller's command directly. Invoked as
-// `sh -c tmuxOutputWrapper _ <outputPath> <statusPath> <channel> <command> [args...]`,
-// so inside the script $1=outputPath, $2=statusPath, $3=channel, and "$@"
-// (after the two shifts) is the command and its arguments — run via `exec
-// "$@"`, never through a nested shell, so an argument containing shell
-// metacharacters is passed through literally rather than re-interpreted.
+// tmuxWriter selects WHO fills the capture file, which is the single axis on
+// which the two surfaces this package serves differ.
 //
-// It redirects the command's own stdout/stderr straight to outputPath (this
-// file, not tmux's pane scrollback, is what TerminalOutput reads — see the
-// top-of-file doc), writes the exit code to statusPath, and signals channel
-// last so a blocked `tmux wait-for` is guaranteed to see the status file
-// already written.
-const tmuxOutputWrapper = `exec > "$1" 2>&1
+//	writerRedirect  the command's stdout IS the file. Bytes are clean, and the
+//	                pane renders NOTHING -- redirecting stdout to a file is
+//	                exactly what empties it. Right for terminal/*, whose
+//	                consumers asked for a command's output, not a terminal.
+//	writerPipePane  the command's stdout is the window's real PTY, and tmux
+//	                pipe-pane copies it to the file. The pane is live and a
+//	                human can attach; the captured bytes are the pane's
+//	                RENDERED stream, escapes included. Right for hosting a UI.
+//
+// Clean-vs-rendered and blank-vs-live are not two properties. They are this one
+// choice, which is why one parameter covers both surfaces and no ANSI stripping
+// is needed anywhere: terminal/* keeps the redirect writer and its bytes stay
+// clean by construction.
+type tmuxWriter string
+
+const (
+	writerRedirect tmuxWriter = "redirect"
+	writerPipePane tmuxWriter = "pane"
+)
+
+// tmuxWindowWrapper is the ONE shell script both surfaces run. It previously
+// existed twice, differing only in its first line, and that duplication was not
+// harmless: os.TempDir() and a missing cleanup path were both copied from one
+// copy into the other precisely because they were separate files.
+//
+// Invoked as:
+//
+//	sh -c tmuxWindowWrapper <socket> <mode> <outfile> <gate> <statusfile> <channel> <command> [args...]
+//
+// so inside the script $0=socket and the five fixed arguments are shifted off
+// before "$@" is the command and its arguments -- run WITHOUT a nested shell,
+// so an argument containing shell metacharacters is passed through literally
+// rather than re-interpreted.
+//
+// The command runs as a CHILD rather than via exec. It inherits the pty either
+// way, but a surviving shell can record the true exit code and signal the wait
+// channel; exec would replace the shell and leave nothing to do either.
+//
+// In pane mode the leading wait-for is a STARTING GATE, not a delay: it blocks
+// until the caller has armed pipe-pane, because pipe-pane attaches to a LIVE
+// pane and arming it late makes tmux answer "target pane has exited" and
+// capture nothing. tmux's wait-for is a counting channel, so a signal that
+// arrives first is remembered -- race-free in both directions, with no sleep
+// and no poll.
+const tmuxWindowWrapper = `mode="$1"
+shift
+outfile="$1"
+shift
+gate="$1"
 shift
 statusfile="$1"
 shift
 ch="$1"
 shift
+if [ "$mode" = redirect ]; then
+exec > "$outfile" 2>&1
+else
+tmux -L "$0" wait-for "$gate"
+fi
 "$@"
 ec=$?
 echo "$ec" > "$statusfile"
@@ -279,7 +322,11 @@ func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalReque
 	// path could not be driven against a private test server at all — the only
 	// alternative being to race every other run on the machine, which is the
 	// documented 30-minute-hang failure. host() already passes it this way.
-	args = append(args, "sh", "-c", tmuxOutputWrapper, l.socketName(), outputPath, statusPath, channel, req.Command)
+	// writerRedirect: terminal/* consumers expect a command's clean output, so
+	// stdout goes straight to the file and the pane stays blank. That is this
+	// surface's contract, not a limitation to work around.
+	args = append(args, "sh", "-c", tmuxWindowWrapper,
+		l.socketName(), string(writerRedirect), outputPath, channel+"-gate", statusPath, channel, req.Command)
 	args = append(args, req.Args...)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {

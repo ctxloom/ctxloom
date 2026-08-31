@@ -233,3 +233,55 @@ func tmuxSocketDir() string {
 	}
 	return filepath.Join("/tmp", fmt.Sprintf("tmux-%d", os.Getuid()))
 }
+
+// TestHost_ReleaseRemovesTheCaptureFiles pins the half that host() shipped
+// without: hosted terminals had a kill path but no release path, so every
+// hosted terminal left its output and status files behind permanently. The
+// terminal/* path has always removed both in release(); hosting simply did
+// not have the equivalent.
+//
+// The files are a transient MAILBOX, not a log -- they exist because ctxloom
+// is not the parent of the process tmux spawns and so has no fd to inherit,
+// and they must outlive the pane (a dead pane's scrollback is replaced by
+// tmux's "Pane is dead (status N, ...)" placeholder). Nothing reads them
+// after release, so anything still on disk then is a leak.
+//
+// THE PRE-ASSERTIONS ARE LOAD-BEARING. "The files are gone" is trivially
+// satisfied by files that were never created -- absence satisfying absence,
+// which is this project's catalogued tautology. Asserting they EXIST first is
+// what makes the post-condition mean something.
+func TestHost_ReleaseRemovesTheCaptureFiles(t *testing.T) {
+	runner, _ := realTmux(t)
+	l := newLocalTerminals(runner, t.TempDir())
+
+	h, err := l.host(context.Background(), hostSpec{
+		Command: "sh",
+		Args:    []string{"-c", "echo release-probe-8d1a"},
+	})
+	require.NoError(t, err)
+	waitHosted(t, l, h)
+
+	require.FileExists(t, h.outputPath, "precondition: capture file must exist before release")
+	require.FileExists(t, h.statusPath, "precondition: status file must exist before release")
+
+	require.NoError(t, l.releaseHosted(context.Background(), h))
+
+	assert.NoFileExists(t, h.outputPath, "release must remove the capture file, as terminal/*'s release() does")
+	assert.NoFileExists(t, h.statusPath, "release must remove the status file")
+}
+
+// TestHost_ReleaseIsSafeOnAnAlreadyKilledTerminal: release runs after kill in
+// the ordinary teardown order, and must not report failure for work already
+// done. The terminal/* path tolerates exactly this.
+func TestHost_ReleaseIsSafeOnAnAlreadyKilledTerminal(t *testing.T) {
+	runner, _ := realTmux(t)
+	l := newLocalTerminals(runner, t.TempDir())
+
+	h, err := l.host(context.Background(), hostSpec{Command: "sh", Args: []string{"-c", "sleep 30"}})
+	require.NoError(t, err)
+	require.NoError(t, l.killHosted(context.Background(), h))
+
+	assert.NoError(t, l.releaseHosted(context.Background(), h),
+		"releasing an already-killed terminal is the normal teardown order, not an error")
+	assert.NoFileExists(t, h.outputPath, "release still cleans up after a kill")
+}

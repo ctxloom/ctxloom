@@ -204,6 +204,30 @@ func (l *localTerminals) killHosted(ctx context.Context, h hostedTerminal) error
 	return nil
 }
 
+// releaseHosted frees everything a hosted terminal owns: the tmux window and
+// the two files behind it. This is the counterpart to terminal/*'s release()
+// and exists for the same reason — the capture and status files are a
+// transient MAILBOX, not a log. They exist because ctxloom is not the parent
+// of the process tmux spawns and so has no fd to inherit, and they must
+// outlive the pane because a dead pane's scrollback is replaced by tmux's own
+// "Pane is dead (status N, ...)" placeholder. Once the handle is released
+// nothing reads them again, so anything left on disk is a leak.
+//
+// kill-window runs UNCONDITIONALLY, matching release(): under remain-on-exit a
+// naturally-exited command leaves its dead pane and window in the session
+// forever otherwise.
+//
+// Kill and release stay SEPARATE, also matching the terminal/* path: after a
+// kill the exit status is still readable, and collapsing the two would destroy
+// it before a caller could ask.
+func (l *localTerminals) releaseHosted(ctx context.Context, h hostedTerminal) error {
+	_, _ = l.runner.Run(ctx, "kill-window", "-t", h.AttachTarget)
+	_, _ = l.runner.Run(ctx, "wait-for", "-S", h.channel)
+	_ = os.Remove(h.outputPath)
+	_ = os.Remove(h.statusPath)
+	return nil
+}
+
 func sortedKeys(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	api "github.com/coder/acp-go-sdk"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,4 +75,37 @@ func TestLocalTerminals_SessionEndReclaimsAnUnreleasedTerminal(t *testing.T) {
 		return os.IsNotExist(oerr) && os.IsNotExist(serr)
 	}, 15*time.Second, 50*time.Millisecond,
 		"ending the session must also reclaim the terminal's files")
+}
+
+// TestEnsureSession_DisablesClipboardEscape pins a boundary, not a preference.
+//
+// tmux's set-clipboard defaults to "external", which forwards an application's
+// OSC 52 clipboard-write escape OUTWARD to the parent terminal. Everything
+// rendered in one of these windows is agent output — tool results, file
+// contents, fetched pages — so leaving the default would let a run set the
+// operator's clipboard. That is not code execution, but a poisoned clipboard is
+// a real phishing primitive: you paste what you believe you copied. It matters
+// most for a CONTAINERIZED agent, where the whole point of the container is
+// that its output does not reach host state.
+//
+// ctxloom's server is the right layer to stop it: this is a throwaway server
+// ctxloom creates and owns (tmuxSocketName), so setting it here blocks the
+// escape at ctxloom's own boundary rather than depending on how the operator
+// happens to have configured their personal tmux — which ctxloom does not
+// control and must not assume.
+//
+// The assertion reads the SERVER'S OWN VALUE back through tmux rather than
+// checking that an argv was built, because the argv proves only that we asked.
+func TestEnsureSession_DisablesClipboardEscape(t *testing.T) {
+	runner, _ := realTmux(t)
+	l := newLocalTerminals(runner, t.TempDir())
+
+	require.NoError(t, l.ensureSession(context.Background()))
+
+	got, err := runner.Run(context.Background(), "show-options", "-g", "set-clipboard")
+	require.NoError(t, err)
+	assert.Contains(t, got, "off",
+		"an agent's OSC 52 must not reach the operator's clipboard; tmux defaults this to \"external\", which forwards it outward")
+	assert.NotContains(t, got, "external",
+		"external is the forwarding default this exists to override")
 }

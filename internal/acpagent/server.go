@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -129,6 +130,16 @@ type session struct {
 	ctx    context.Context    // the session's engine ctx (guards engine.In sends)
 	cancel context.CancelFunc // cancels the session's engine ctx
 
+	// cwd is the working directory this session opened with (OpenRequest.Cwd,
+	// itself session/new|load's required, absolute `cwd` param). Set once at
+	// openSession and never mutated afterward (nothing in this package
+	// changes a live session's cwd), so reads need no lock — same convention
+	// as commands/fsUpstream below. Session/list's SessionInfo.Cwd is a
+	// REQUIRED field on the wire (see handleSessionList); this is the only
+	// place that value is retained, since operations.EngineChat carries no
+	// Cwd of its own.
+	cwd string
+
 	// cancelTurnCh signals the in-flight turn's runner that session/cancel
 	// arrived; the RUNNER forwards the CancelTurn to the engine so it is
 	// guaranteed to follow the turn's own message.
@@ -211,6 +222,8 @@ func (s *Server) HandleRequest(ctx context.Context, method string, params json.R
 		go s.handleSetConfigOption(params, reply)
 	case api.AgentMethodSessionDelete:
 		s.handleSessionDelete(params, reply)
+	case api.AgentMethodSessionList:
+		s.handleSessionList(params, reply)
 	default:
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "ctxloom acp: method not supported: " + method})
 	}
@@ -255,10 +268,19 @@ func (s *Server) HandleRequest(ctx context.Context, method string, params json.R
 //     rejected (loudly — see mcpServersFromACP) rather than forwarded blind.
 //     McpCapabilities has no "stdio" flag because stdio is the protocol's
 //     unconditional baseline.
-//   - sessionCapabilities: left at its zero value — no session/close,
-//     /delete, /fork, /list, /resume, or /additionalDirectories exist yet
-//     (handleSessionDelete already answers a probe of the one of these a
-//     client might try honestly).
+//   - sessionCapabilities.list: true — session/list is implemented
+//     (handleSessionList), backed by the live s.sessions registry every
+//     other handler already maintains; SessionInfo.cwd is populated from the
+//     session struct's own cwd field (set once at openSession from
+//     OpenRequest.Cwd), never left empty to satisfy the wire type. No
+//     cursor-based pagination: handleSessionList always answers in one page
+//     and never emits nextCursor, which is schema-valid ("If absent, there
+//     are no more results") rather than a fabricated cursor over a registry
+//     that is never large enough to need one.
+//   - sessionCapabilities: close, /delete, /fork, /resume, and
+//     /additionalDirectories otherwise stay at their zero value — not
+//     implemented yet (handleSessionDelete already answers a probe of
+//     /delete honestly).
 //   - authMethods: [] — ctxloom needs no authentication today. authenticate
 //     and logout still EXIST as recognized methods and answer per spec (see
 //     handleAuthenticate/handleLogout) rather than falling through to the
@@ -324,6 +346,9 @@ func (s *Server) handleInitialize(params json.RawMessage, reply func(any, *jsonr
 				Http: true,
 				Sse:  true,
 			},
+			SessionCapabilities: api.SessionCapabilities{
+				List: &api.SessionListCapabilities{},
+			},
 		},
 		AuthMethods: []api.AuthMethod{},
 		AgentInfo:   &api.Implementation{Name: agentName, Version: agentVersion},
@@ -382,6 +407,52 @@ func (s *Server) handleSessionDelete(params json.RawMessage, reply func(any, *js
 		Code:    jsonrpc.CodeMethodNotFound,
 		Message: "ctxloom acp: session/delete not supported: ctxloom does not support deleting recorded sessions (session " + string(req.SessionId) + ")",
 	})
+}
+
+// handleSessionList answers session/list: every currently open (live engine
+// conversation) session, honestly. Unlike session/delete, ctxloom's agent
+// role DOES have a natural backing store for this one — s.sessions, the same
+// registry lookup/closeAllSessions/discardSession already read — so this
+// method is implemented rather than refused, and is advertised at initialize
+// (sessionCapabilities.list; see handleInitialize's doc comment).
+//
+// SessionInfo.Cwd is a REQUIRED wire field. Emitting it empty to satisfy the
+// type would be exactly this project's silent-no-op failure shape — schema-
+// valid, and wrong — so this handler depends on session.cwd having been
+// captured at openSession (see that struct field's doc comment) rather than
+// improvising a value here.
+//
+// Only "open right now" sessions are listed: ctxloom's agent role tracks no
+// separate at-rest session store this side beyond the live registry (a
+// RECORDED harp on disk, reachable via session/load, is a different thing —
+// see handleSessionDelete's doc comment on that same distinction), so
+// nothing else exists to enumerate.
+//
+// No pagination: every result rides back in one page and nextCursor is left
+// unset, which the spec treats as "no more results" — correct here since
+// there never is a second page. An incoming cursor is ignored rather than
+// rejected: this agent never emits one, so a well-behaved client's own
+// cursor value is always the zero value anyway; a Cwd filter, when supplied,
+// IS honored (Filter sessions by working directory), since ignoring a filter
+// a client explicitly asked for would itself be the silent-wrong-answer
+// shape this handler exists to avoid.
+func (s *Server) handleSessionList(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	var req api.ListSessionsRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
+		return
+	}
+	s.mu.Lock()
+	infos := make([]api.SessionInfo, 0, len(s.sessions))
+	for id, sess := range s.sessions {
+		if req.Cwd != nil && sess.cwd != *req.Cwd {
+			continue
+		}
+		infos = append(infos, api.SessionInfo{SessionId: id, Cwd: sess.cwd})
+	}
+	s.mu.Unlock()
+	sort.Slice(infos, func(i, j int) bool { return infos[i].SessionId < infos[j].SessionId })
+	reply(api.ListSessionsResponse{Sessions: infos}, nil)
 }
 
 // HandleNotification handles session/cancel; anything else is dropped with a
@@ -571,6 +642,7 @@ func (s *Server) openSession(req OpenRequest, fixedID api.SessionId, fsUp *fsUps
 		openCall:     make(map[string][]api.ToolCallId),
 		commands:     engine.Commands,
 		fsUpstream:   fsUp,
+		cwd:          req.Cwd,
 	}
 	s.sessions[sess.id] = sess
 	s.mu.Unlock()

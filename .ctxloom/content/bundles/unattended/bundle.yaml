@@ -70,7 +70,7 @@ skills:
     closeout:
         files:
             SKILL.md:
-                sha256: sha256:5209cad14462af12b84c5152191c0c2fa0844616e6a02bd2ebd4a49c43531f50
+                sha256: sha256:5f097b7cfc8877ea5cd756465fe9012873c0fdbac4427458968c966845257ace
                 mode: "0664"
     prompt-human:
         files:

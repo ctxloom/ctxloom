@@ -42,6 +42,16 @@ keeps asserting it, with nothing to say which is current.
    down to what REMAINS. Re-tag what you moved. BEFORE CLOSING, re-read it for
    anything still open — closing is destructive to queryability, so a live
    decision or deferral inside it must exist as its OWN row first.
+   **UPDATE THE PLAN REFERENCES**: if you wrote, moved, superseded or corrected
+   a plan, fix the `ctxloom:plan="<path>"` tag on every task it governs — and
+   add it where the association exists only in prose. The tag is repeatable
+   BECAUSE a task is often governed by a deep design AND a later document that
+   corrects it; carrying only the newer loses the reasoning, only the older
+   sends the next reader to build something that already exists. Nothing else
+   will do this: a tag has no compiler and no gate, and a path written in a body
+   is found only by regexing prose — which fails SILENTLY on a path wrapped
+   across a line break, reporting "none cited" for a reference that is intact
+   AND for one that is broken.
 5. **FIX WHAT YOU FOUND.** → `close-the-turn`
    Filing is the exception. Defer only for a human decision (tag it `human`,
    state the question) or a genuinely large load — and say which.

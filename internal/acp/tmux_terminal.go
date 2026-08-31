@@ -47,6 +47,13 @@ import (
 // the isolation boundary that makes that safe.
 const tmuxSocketName = "ctxloom-acp-terminal"
 
+// TmuxSocketName is tmuxSocketName for callers outside this package, which in
+// practice means whoever builds a `tmux -L <socket> attach` argv to reach a
+// pane this package created. It is a function rather than an exported const so
+// the name stays a single unexported definition here: nothing outside may
+// declare where these panes live, only ask.
+func TmuxSocketName() string { return tmuxSocketName }
+
 // tmuxSessionName is the one fixed session every local terminal's window
 // lives in, created if missing on first use.
 //

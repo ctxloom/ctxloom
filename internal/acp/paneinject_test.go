@@ -4,10 +4,86 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestPaneInjector_UnmeasuredEngineIsRefusedWithNothingWritten pins the engine
+// allowlist, and it asserts the EFFECT rather than the error.
+//
+// The hazard this gate exists for is silent: `paste-buffer -p` brackets only
+// for an application that enabled bracketed-paste mode, and for one that did
+// not, tmux emits the text RAW instead of failing. So a regression here does
+// not surface as an error anywhere — it surfaces as literal escape garbage in
+// some engine's prompt, days later. Asserting only that Inject returned an
+// error would keep passing if the refusal came AFTER the paste had already
+// been sent, which is the one ordering that matters.
+//
+// The pane therefore runs a real `cat` and the test reads what it received:
+// the bytes must never have left.
+//
+// The EMPTY engine is covered alongside the named one on purpose, and is the
+// likelier regression of the two. A named unmeasured engine only appears when
+// someone deliberately runs one; an empty Engine appears whenever a caller
+// forgets to set the field, which for a struct literal is the DEFAULT state.
+// Treating "" as "no restriction" would therefore turn every forgetful caller
+// into a blind paste, so the zero value must refuse like any other unmeasured
+// engine.
+func TestPaneInjector_UnmeasuredEngineIsRefusedWithNothingWritten(t *testing.T) {
+	for _, tc := range []struct {
+		name, harp, engine, wantIn string
+	}{
+		{"a named engine nobody measured", "mu", "some-other-engine", "some-other-engine"},
+		{"the zero value, i.e. a caller that forgot", "nu", "", "engine"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newPaneHostForTest(t)
+			ctx := context.Background()
+
+			require.NoError(t, h.Start(ctx, tc.harp, PaneSpec{
+				Command: "sh",
+				Args: []string{"-c",
+					`printf '\033[?2004h'; stty raw -echo; printf READY-8b04; exec cat -v`},
+				Engine: tc.engine,
+			}))
+			t.Cleanup(func() { _ = h.Stop(context.Background(), tc.harp) })
+
+			var rec recorder
+			detach, err := h.Attach(tc.harp, &rec)
+			require.NoError(t, err)
+			defer detach()
+			require.Eventually(t, func() bool { return strings.Contains(rec.text(), "READY-8b04") },
+				5*time.Second, 25*time.Millisecond, "pane never came up")
+
+			err = h.Injector().Inject(ctx, tc.harp, "MUST-NOT-ARRIVE-2d71", true)
+
+			require.Error(t, err, "an unmeasured engine must be refused, not pasted into blind")
+			assert.ErrorIs(t, err, ErrEngineUnmeasured,
+				"the refusal must be typed so a caller can tell it from a tmux failure")
+			assert.Contains(t, err.Error(), tc.wantIn,
+				"the refusal must say what it refused")
+
+			// The effect. Give the paste every chance to show up before
+			// concluding it did not: a refusal that merely returned late
+			// would otherwise pass here.
+			time.Sleep(250 * time.Millisecond)
+			got := rec.text()
+			assert.NotContains(t, got, "MUST-NOT-ARRIVE-2d71",
+				"refused text reached the pane anyway: %q", got)
+			assert.NotContains(t, got, "^[[200~",
+				"a paste was sent despite the refusal: %q", got)
+
+			// And no server-wide buffer may be left staged for something
+			// else to read.
+			out, err := h.terms.runner.Run(ctx, "list-buffers")
+			require.NoError(t, err)
+			assert.NotContains(t, out, "ctxloom-",
+				"refusal staged a paste buffer it never used: %q", out)
+		})
+	}
+}
 
 // TestPaneInjector_PasteArrivesBracketed is the assertion CONSTRAINT 1 rests
 // on.
@@ -45,6 +121,9 @@ func TestPaneInjector_PasteArrivesBracketed(t *testing.T) {
 		Command: "sh",
 		Args: []string{"-c",
 			`printf '\033[?2004h'; stty raw -echo; printf READY-3f8a; exec cat -v`},
+		// The stand-in enables bracketed paste for real (the printf above),
+		// which is the property that puts claude on the allowlist.
+		Engine: "claude",
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "kappa") })
 
@@ -88,7 +167,7 @@ func TestPaneInjector_PasteLeavesNoBufferBehind(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, h.Start(ctx, "lambda", PaneSpec{
-		Command: "sh", Args: []string{"-c", "exec cat"},
+		Command: "sh", Args: []string{"-c", "exec cat"}, Engine: "claude",
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "lambda") })
 

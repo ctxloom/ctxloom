@@ -221,7 +221,7 @@ func TestPaneHost_InjectPastesAndSubmits(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, h.Start(ctx, "delta", PaneSpec{
-		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"},
+		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"}, Engine: "claude",
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "delta") })
 
@@ -249,7 +249,7 @@ func TestPaneHost_InjectWithoutSubmitDoesNotActuate(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, h.Start(ctx, "epsilon", PaneSpec{
-		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"},
+		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"}, Engine: "claude",
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "epsilon") })
 

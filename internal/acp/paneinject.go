@@ -2,21 +2,56 @@ package acp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 )
 
+// ErrEngineUnmeasured refuses injection into an engine whose paste behaviour
+// nobody has measured. It is typed so a caller can tell "this engine is out of
+// scope" from a tmux failure: the first is answered by measuring the engine
+// and widening pasteMeasuredEngines, the second by looking at the server.
+var ErrEngineUnmeasured = errors.New("pane injection is not measured for this engine")
+
+// pasteMeasuredEngines lists the engines whose response to `paste-buffer -p`
+// has actually been OBSERVED, and is the whole allowlist.
+//
+// Membership is an empirical claim, not a guess from a name or a version: an
+// engine belongs here once someone has watched a bracketed paste land in it
+// correctly. claude qualifies because it advertises bracketed-paste mode
+// (ESC[?2004h), never disables it, and was measured submitting 5/5 on an
+// explicitly delimited paste followed by a carriage return.
+//
+// Do NOT add an engine here to make a test or a demo pass. The failure this
+// list prevents is silent — an unbracketed paste is not rejected by the
+// receiving TUI, it is accepted as literal text — so a wrong entry corrupts
+// input rather than erroring, and nothing downstream will report it.
+var pasteMeasuredEngines = map[string]bool{
+	"claude": true,
+}
+
 // PaneInjector writes text into a run's live pane.
 //
-// TIMING. It writes IMMEDIATELY. There is no quiet window, no output clock,
-// and no wait-for-idle: bracketed paste (tmux's `paste-buffer -p`) delivers a
-// paste EVENT with explicit begin/end markers, so the program in the pane
-// knows the bytes are pasted content and not typing. That is what makes a
-// mid-turn write safe, and it is why the heuristic that used to guard this —
-// waiting for the terminal to fall quiet, then hoping — is gone rather than
-// ported. Any timing knob added here would be re-introducing the guess that
-// the mechanism removed.
+// ENGINE SCOPE, which is the rule most easily lost by generalizing this type:
+// injection is refused for every engine except the ones it has been MEASURED
+// against. `paste-buffer -p` brackets a paste ONLY IF the application in the
+// pane has enabled bracketed-paste mode (DECSET 2004). Against an engine that
+// has not, tmux does not error and does not fall back — it emits the raw text
+// unbracketed, which lands in that engine's input as literal garbage, silently.
+// The brackets are therefore a property of the APPLICATION, not of tmux, and
+// cannot be assumed from this side. An unmeasured engine gets a loud refusal
+// naming its remedy; it does not get a blind paste.
+//
+// TIMING. For a measured engine it writes IMMEDIATELY. There is no quiet
+// window, no output clock, and no wait-for-idle: the paste arrives as an EVENT
+// with explicit begin/end markers, so the program knows the bytes are pasted
+// content and not typing. That is what makes a mid-turn write safe, and it is
+// why the heuristic that used to guard this — waiting for the terminal to fall
+// quiet, then hoping — is gone rather than ported. Any timing knob added here
+// would be re-introducing the guess that the mechanism removed. Note that the
+// guess is removed by MEASUREMENT plus refusal, not by the escape sequence:
+// that is precisely why the unmeasured case must refuse rather than degrade.
 //
 // AUTHORIZATION. None is performed here, deliberately. Who may write into
 // whose pane is settled UPSTREAM by Coordinator.controlTarget, on the
@@ -47,6 +82,15 @@ func (p *PaneInjector) Inject(ctx context.Context, harp, text string, submit boo
 	pn, err := h.pane(harp)
 	if err != nil {
 		return err
+	}
+
+	// Refuse BEFORE staging anything. An unmeasured engine must leave no
+	// buffer, no file and no partial paste behind — a refusal that had
+	// already written half of itself into the pane would be the silent
+	// corruption this gate exists to prevent.
+	if !pasteMeasuredEngines[pn.engine] {
+		return fmt.Errorf("pane inject: %q runs engine %q: %w; measure that engine's response to a bracketed paste and add it to pasteMeasuredEngines, or deliver this text by a route that does not paste",
+			harp, pn.engine, ErrEngineUnmeasured)
 	}
 
 	// load-buffer takes a FILE, not stdin, because tmuxRunner deliberately

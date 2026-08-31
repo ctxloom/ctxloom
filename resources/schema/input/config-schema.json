@@ -343,6 +343,10 @@
         }
       },
       "additionalProperties": false
+    },
+    "acp_local_terminal": {
+      "type": "boolean",
+      "description": "Turns on ctxloom's own tmux-backed implementation of ACP's terminal/* client methods (create/output/wait_for_exit/kill/release), for a session where no upstream editor advertised the terminal capability to forward to. Default false, and off means literally the pre-existing behaviour: ctxloom's client role declines terminal/* with a specific error and has no dependency on tmux at all. On, a missing tmux binary is a fail-loud finding the first time a terminal/* request arrives, never a silent fall-back to declining or to a no-op terminal."
     }
   },
   "$defs": {

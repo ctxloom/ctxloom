@@ -67,6 +67,36 @@ func (f *fakeTmuxRunner) argsFor(sub string) []string {
 	return nil
 }
 
+// TestEnsureSession_ConfiguresAnADOPTEDServerToo: the remain-on-exit default
+// must be applied whenever this process ensures the session — NOT only when it
+// happens to be the process that CREATED it.
+//
+// The dedicated server is documented as throwaway but nothing tears it down, so
+// a session routinely OUTLIVES the run that made it and the next run adopts it.
+// If configuration only happens on the create path, an adopted server is left
+// unconfigured and the second run behaves differently from the first — a
+// difference that presents as a product defect while being purely environmental.
+// Measured 2026-08-30: three leaked servers accumulated in one evening, and one
+// of them turned a passing suite red.
+func TestEnsureSession_ConfiguresAnAdoptedServerToo(t *testing.T) {
+	f := newFakeTmuxRunner()
+	// has-session SUCCEEDS: the session already exists, i.e. this process is
+	// adopting a server some earlier run left behind.
+	l := newLocalTerminals(f, t.TempDir())
+
+	_, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "true"})
+	require.NoError(t, err)
+
+	require.True(t, f.calledWith("has-session"), "ensureSession still probes first")
+	assert.Empty(t, f.argsFor("new-session"),
+		"an existing session must not be re-created")
+	opt := f.argsFor("set-option")
+	require.NotEmpty(t, opt,
+		"an ADOPTED server must still be configured — otherwise run N+1 inherits an unconfigured server")
+	assert.Contains(t, opt, "remain-on-exit")
+	assert.Contains(t, opt, "on")
+}
+
 // TestLocalTerminals_Create_MapsToNewWindow: CreateTerminal maps onto tmux
 // new-window, carrying cwd/env/command/args through, and mints a distinct
 // TerminalId per call.

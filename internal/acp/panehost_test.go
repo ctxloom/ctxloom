@@ -171,6 +171,43 @@ func TestPaneHost_InputReachesTheHostedProcess(t *testing.T) {
 		func() bool { return strings.Contains(r.text(), "GOT-[typed-9f3a]") })
 }
 
+// TestPaneHost_InputSendsLiteralBytesNotKeyNames pins the `-H` in send-keys,
+// which the test above does NOT: dropping -H there still passes, because tmux
+// happens to send an unrecognised string literally.
+//
+// The distinction is only visible on input that COLLIDES with a tmux key name.
+// Without -H, `send-keys Enter` sends the Enter KEY, so a human typing the
+// five characters "Enter" submits an empty line instead — their text silently
+// becomes a keypress. With -H every byte is a hex literal and no such
+// vocabulary exists.
+func TestPaneHost_InputSendsLiteralBytesNotKeyNames(t *testing.T) {
+	h := newPaneHostForTest(t)
+	ctx := context.Background()
+
+	require.NoError(t, h.Start(ctx, "eta", PaneSpec{
+		Command: "sh", Args: []string{"-c", "read x; echo GOT-[$x]; sleep 30"},
+	}))
+	t.Cleanup(func() { _ = h.Stop(context.Background(), "eta") })
+
+	var r recorder
+	detach, err := h.Attach("eta", &r)
+	require.NoError(t, err)
+	defer detach()
+
+	waitFor(t, "the pane must exist before input can reach it", func() bool {
+		_, perr := h.pane("eta")
+		return perr == nil
+	})
+	// "Enter" is a tmux KEY NAME. As text it must stay five characters.
+	require.NoError(t, h.Input(ctx, "eta", []byte("Enter")))
+	require.NoError(t, h.Input(ctx, "eta", []byte("\r")))
+
+	waitFor(t, "text colliding with a tmux key name must arrive as literal bytes",
+		func() bool { return strings.Contains(r.text(), "GOT-[Enter]") })
+	assert.NotContains(t, r.text(), "GOT-[]",
+		"the literal text \"Enter\" was interpreted as the Enter key — send-keys lost -H")
+}
+
 // TestPaneHost_InjectPastesAndSubmits is the whole of Inject's contract in
 // one effect: the text must land in the program AND the submit must actuate
 // it. The program only echoes once `read` returns, which requires a newline

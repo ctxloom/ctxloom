@@ -79,6 +79,23 @@ type execTmuxRunner struct {
 	// bin overrides the tmux binary path; empty means "tmux" (resolved via
 	// PATH). Test-only seam.
 	bin string
+	// socket overrides the server socket name; empty means tmuxSocketName.
+	// Test-only seam, and load-bearing for the real-tmux tests in
+	// tmux_host_test.go: the shared server outlives the process that made it
+	// and is adopted by later runs, so a test that bound to it would race
+	// every other run on the machine.
+	socket string
+}
+
+// socketName is the server this runner talks to. Read it rather than
+// tmuxSocketName wherever the name has to appear INSIDE a command string (a
+// wrapper script's own `tmux` call), or a test's private server will signal
+// the shared one.
+func (r execTmuxRunner) socketName() string {
+	if r.socket != "" {
+		return r.socket
+	}
+	return tmuxSocketName
 }
 
 func (r execTmuxRunner) Run(ctx context.Context, args ...string) (string, error) {
@@ -86,7 +103,7 @@ func (r execTmuxRunner) Run(ctx context.Context, args ...string) (string, error)
 	if bin == "" {
 		bin = "tmux"
 	}
-	full := append([]string{"-L", tmuxSocketName}, args...)
+	full := append([]string{"-L", r.socketName()}, args...)
 	cmd := exec.CommandContext(ctx, bin, full...)
 	var out, stderr strings.Builder
 	cmd.Stdout = &out

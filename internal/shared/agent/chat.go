@@ -41,9 +41,14 @@ type ChatRequest struct {
 	Permissions PermissionMode
 	// ForwardPermissions asks the backend to surface each engine permission
 	// request as a ChatEvent.Permission and park the engine until the matching
-	// ChatMessage.Permission answer arrives, instead of auto-deciding
-	// (Permissions bypass → allow, otherwise reject). Only meaningful to a caller
-	// that can actually answer — an interactive host with a human behind it.
+	// ChatMessage.Permission answer arrives.
+	//
+	// The ACP driver IGNORES this and forwards unconditionally: ctxloom is a
+	// pass-through proxy for session/request_permission and keeps no local
+	// decider to fall back to (see internal/acp's chatSession.handlePermission).
+	// A request nobody answers parks the engine — the protocol's own semantics,
+	// and preferable to ctxloom filing an approval or a refusal under the
+	// operator's name. The field remains for backends that do consult it.
 	ForwardPermissions bool
 	// ForwardTerminal asks the backend to surface each engine terminal/*
 	// request (terminal/create, terminal/output, terminal/wait_for_exit,

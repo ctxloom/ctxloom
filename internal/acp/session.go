@@ -68,10 +68,9 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	defer func() { rerr = withEngineStderr(rerr, tr) }()
 
 	sess := &chatSession{
-		ctx:         ctx,
-		out:         out,
-		autoApprove: req.Permissions.AllowsWithoutPrompt(),
-		clock:       b.clock(),
+		ctx:   ctx,
+		out:   out,
+		clock: b.clock(),
 		// The fs/* boundary is the same WorkDir handed to
 		// the transport two statements above, so it can never name a
 		// different directory than the engine actually runs in.
@@ -80,7 +79,13 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	// Both brokers count their forwarders on the SAME WaitGroup, since teardown
 	// has to wait for every in-flight forwarder regardless of kind; everything
 	// else about them stays per-kind.
-	sess.perm = newPendingBroker[agent.PermissionAnswer](req.ForwardPermissions, "perm-", "permission", &sess.forwardGoroutines)
+	// Permissions forward UNCONDITIONALLY: ctxloom is a pass-through proxy for
+	// session/request_permission and never answers one itself, so there is no
+	// posture in which this is off. That is safe for any caller because
+	// session/request_permission is a CORE, ungated ACP method — unlike
+	// terminal/*, whose forwarding stays gated on the upstream editor having
+	// advertised the capability at its own initialize.
+	sess.perm = newPendingBroker[agent.PermissionAnswer](true, "perm-", "permission", &sess.forwardGoroutines)
 	sess.term = newPendingBroker[agent.TerminalResponse](req.ForwardTerminal, "term-", "terminal", &sess.forwardGoroutines)
 	if b.localTerminal {
 		if b.newLocalTerminals != nil {
@@ -824,8 +829,10 @@ func base64DecodedLen(data string) int {
 // and belong to the forwarder, not here (a permission resolves as a cancelled
 // outcome, a terminal as a JSON-RPC error).
 type pendingBroker[T any] struct {
-	// enabled is whether this kind is forwarded at all for this conversation;
-	// false makes register a no-op so the caller decides locally instead.
+	// enabled is whether this kind is forwarded at all for this conversation.
+	// The permission broker passes true unconditionally (ctxloom never answers
+	// a permission itself); this exists for terminal/*, whose forwarding is
+	// gated on the upstream editor having advertised the capability.
 	enabled bool
 	prefix  string // id prefix — what keeps the two kinds' id spaces disjoint
 	kind    string // names this kind in a diagnostic
@@ -922,10 +929,9 @@ func (b *pendingBroker[T]) closeInput() {
 // call: it forwards the agent's session/update stream to `out` and answers the
 // agent's request callbacks. One per Chat, so `out`/ctx can be captured directly.
 type chatSession struct {
-	ctx         context.Context
-	out         chan<- agent.ChatEvent
-	autoApprove bool
-	clock       func() time.Time
+	ctx   context.Context
+	out   chan<- agent.ChatEvent
+	clock func() time.Time
 
 	// caps is the engine's advertised initialize-time capabilities, assigned in
 	// Chat right after setup() returns.
@@ -1118,10 +1124,10 @@ func (s *chatSession) completeMeta(stop string, started time.Time, requestedMode
 	return m
 }
 
-// HandleRequest answers an agent→client request. fs I/O and auto-decided
-// permissions reply inline (quick, local); a FORWARDED permission replies
-// asynchronously — it parks on the caller's answer, and the read loop must stay
-// free to keep streaming session/updates while the human decides. Unknown
+// HandleRequest answers an agent→client request. fs I/O replies inline (quick,
+// local); a permission replies asynchronously — it parks on the caller's
+// answer, and the read loop must stay free to keep streaming session/updates
+// while the human decides. Unknown
 // methods (e.g. the declined terminal/*) get a JSON-RPC method-not-found error
 // rather than crashing.
 func (s *chatSession) HandleRequest(ctx context.Context, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
@@ -1140,22 +1146,38 @@ func (s *chatSession) HandleRequest(ctx context.Context, method string, params j
 	}
 }
 
-// handlePermission answers a permission request. Under ForwardPermissions it
-// surfaces the request upstream as a ChatEvent and parks (off the read loop)
-// until the caller's PermissionAnswer resolves it. Otherwise it auto-decides —
-// allow under a bypass posture, else reject — mirroring the claude driver, since
-// a non-interactive chat has no human to prompt.
+// handlePermission surfaces a permission request upstream as a ChatEvent and
+// parks (off the read loop) until the caller's PermissionAnswer resolves it.
+// ctxloom is a PASS-THROUGH PROXY here and NEVER answers one itself.
+//
+// Answering locally meant filing a decision under the operator's name in a
+// record the operator could not correct: under any non-bypass posture the local
+// decider selected a reject_* option, which claude-code-acp renders to the model
+// as "User refused permission to run tool" — a refusal nobody made.
+//
+// When nobody upstream answers, the engine parks. That is this method's correct
+// outcome, not a failure to handle: a request nobody answered is not a request
+// that was denied, and inventing an answer to avoid the wait is the defect
+// above. Forwarding is always legitimate because session/request_permission is
+// a core, ungated ACP method.
+//
+// The single reply made without an upstream answer is "cancelled", and only
+// when no answer can ever arrive (register returns nil once input has closed).
+// That reports the upstream being GONE — the same resolution forwardPermission
+// reaches on a closed channel — and neither approves nor commits a remembered
+// rejection.
 func (s *chatSession) handlePermission(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	var req api.RequestPermissionRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
 		return
 	}
-	if ch, id := s.perm.register(); ch != nil {
-		go s.forwardPermission(id, ch, &req, reply)
+	ch, id := s.perm.register()
+	if ch == nil {
+		reply(permissionResult{Outcome: permissionOutcome{Outcome: outcomeCancelled}}, nil)
 		return
 	}
-	reply(decidePermission(req.Options, s.autoApprove), nil)
+	go s.forwardPermission(id, ch, &req, reply)
 }
 
 // forwardPermission emits the request upstream and replies with the caller's

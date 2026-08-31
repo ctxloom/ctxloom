@@ -364,56 +364,6 @@ func TestChat_InitializeHandshake(t *testing.T) {
 	assert.Equal(t, "/work", newReq.Cwd)
 }
 
-// TestChat_Permission pins the agent→client permission callback: a bypass
-// posture selects an allow option; every non-bypass posture rejects. The ACP
-// driver distinguishes only bypass (allow-without-prompt) — plan and acceptEdits
-// have no read-only/edit-scoped ACP mapping here, so they collapse to the same
-// reject as default. This test pins that collapse so it stays intentional.
-func TestChat_Permission(t *testing.T) {
-	options := []map[string]any{
-		{"kind": "allow_once", "name": "Allow once", "optionId": "ao"},
-		{"kind": "reject_once", "name": "Reject once", "optionId": "ro"},
-	}
-
-	cases := []struct {
-		name       string
-		perm       agent.PermissionMode
-		wantOption string
-	}{
-		{"bypass selects allow", agent.PermissionBypass, "ao"},
-		{"default selects reject", agent.PermissionDefault, "ro"},
-		{"acceptEdits collapses to reject", agent.PermissionAcceptEdits, "ro"},
-		{"plan collapses to reject", agent.PermissionPlan, "ro"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			h := startChat(t, agent.ChatRequest{Permissions: tc.perm})
-			events := collect(h.out)
-
-			gotResp := make(chan rpcMessage, 1)
-			go func() {
-				sid := h.fa.serveHandshake(t)
-				promptReq := <-h.fa.requests
-				gotResp <- h.fa.requestPermission(sid, options)
-				_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
-			}()
-
-			h.in <- agent.ChatMessage{Text: "do it"}
-			close(h.in)
-			require.NoError(t, <-h.chatErr)
-			events()
-
-			resp := <-gotResp
-			require.Nil(t, resp.Error)
-			var body permissionResult
-			require.NoError(t, json.Unmarshal(resp.Result, &body))
-			assert.Equal(t, outcomeSelected, body.Outcome.Outcome)
-			assert.Equal(t, tc.wantOption, body.Outcome.OptionId)
-		})
-	}
-}
-
 // TestChat_CancelDuringTurn asserts that cancelling ctx mid-turn returns
 // context.Canceled and sends the agent a session/cancel notification.
 func TestChat_CancelDuringTurn(t *testing.T) {

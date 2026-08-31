@@ -145,8 +145,11 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 	chatDone := make(chan error, 1)
 	go func() {
 		chatDone <- b.Chat(context.Background(), agent.ChatRequest{
-			WorkDir:     workspace,
-			Permissions: agent.PermissionBypass, // auto-decide (not forwarded) so the permission capture below doesn't need a live upstream consumer
+			WorkDir: workspace,
+			// ForwardPermissions is deliberately UNSET: the driver forwards
+			// session/request_permission unconditionally, so the permission
+			// capture below needs a live upstream consumer either way — the
+			// out-drain goroutine below plays it.
 			MCPServers: []agent.ChatMCPServer{
 				{Name: "tools", Command: "/bin/tools"},
 				// An http entry, accepted because the fake
@@ -159,7 +162,15 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 		}, in, out)
 	}()
 	go func() {
-		for range out { // drain — this test measures EMISSION, not the client's own decoding of inbound updates
+		for ev := range out { // drain — this test measures EMISSION, not the client's own decoding of inbound updates
+			// ...except a permission, which this stand-in upstream must
+			// ANSWER: ctxloom never decides one itself, so an unanswered
+			// request parks the fake agent forever and the capture below never
+			// happens. The send is ordered strictly before close(in) because
+			// fa.requestPermission does not return until this answer lands.
+			if ev.Permission != nil {
+				in <- agent.ChatMessage{Permission: &agent.PermissionAnswer{ID: ev.Permission.ID, OptionID: "ok"}}
+			}
 		}
 	}()
 
@@ -206,8 +217,9 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 	require.Nil(t, writeResp.Error)
 	capture("fs/write_text_file response", "WriteTextFileResponse", writeResp.Result)
 
-	// session/request_permission -> RequestPermissionResponse (auto-decided:
-	// PermissionBypass picks the allow_once option).
+	// session/request_permission -> RequestPermissionResponse (forwarded
+	// upstream and answered by the out-drain goroutine above, which selects
+	// "ok").
 	permResp := fa.requestPermission(sid, []map[string]any{
 		{"optionId": "ok", "kind": "allow_once", "name": "Allow"},
 		{"optionId": "no", "kind": "reject_once", "name": "Reject"},

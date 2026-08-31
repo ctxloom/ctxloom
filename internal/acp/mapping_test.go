@@ -240,40 +240,6 @@ func TestMapSessionUpdate_Dropped(t *testing.T) {
 	})
 }
 
-// TestDecidePermission pins the allow/deny decision (mirrors the claude driver:
-// allow only under a bypass posture) and the option-kind preference.
-func TestDecidePermission(t *testing.T) {
-	full := []api.PermissionOption{
-		{Kind: api.PermissionOptionKindAllowAlways, Name: "Always allow", OptionId: "aa"},
-		{Kind: api.PermissionOptionKindAllowOnce, Name: "Allow once", OptionId: "ao"},
-		{Kind: api.PermissionOptionKindRejectOnce, Name: "Reject once", OptionId: "ro"},
-		{Kind: api.PermissionOptionKindRejectAlways, Name: "Reject always", OptionId: "ra"},
-	}
-
-	t.Run("allow selects allow_once (preferred over allow_always)", func(t *testing.T) {
-		got := decidePermission(full, true)
-		assert.Equal(t, outcomeSelected, got.Outcome.Outcome)
-		assert.Equal(t, "ao", got.Outcome.OptionId)
-	})
-
-	t.Run("deny selects reject_once", func(t *testing.T) {
-		got := decidePermission(full, false)
-		assert.Equal(t, outcomeSelected, got.Outcome.Outcome)
-		assert.Equal(t, "ro", got.Outcome.OptionId)
-	})
-
-	t.Run("deny with no reject option falls back to cancelled", func(t *testing.T) {
-		got := decidePermission([]api.PermissionOption{{Kind: api.PermissionOptionKindAllowOnce, OptionId: "ao"}}, false)
-		assert.Equal(t, outcomeCancelled, got.Outcome.Outcome)
-		assert.Empty(t, got.Outcome.OptionId)
-	})
-
-	t.Run("allow with no options falls back to cancelled", func(t *testing.T) {
-		got := decidePermission(nil, true)
-		assert.Equal(t, outcomeCancelled, got.Outcome.Outcome)
-	})
-}
-
 // TestMapToolCallUpdate_TerminalOnlyContentIsReported pins a tool_call_update
 // whose content is a TERMINAL reference and nothing else. Terminal content
 // carries no text of its own (its output is fetched over terminal/output, see

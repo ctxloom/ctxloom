@@ -301,7 +301,7 @@ func updateDiscriminator(raw json.RawMessage) string {
 	return d.SessionUpdate
 }
 
-// --- permission decisioning ---
+// --- permission relay ---
 
 // ACP RequestPermissionResponse.outcome discriminator values.
 const (
@@ -343,38 +343,6 @@ func permissionRequestEvent(id string, req *api.RequestPermissionRequest) *agent
 		p.Options = append(p.Options, agent.PermissionOption{ID: string(o.OptionId), Kind: string(o.Kind), Name: o.Name})
 	}
 	return p
-}
-
-// decidePermission answers a tool-call permission request. It mirrors how the
-// claude driver handles permissions: allow only under a bypass posture, otherwise
-// reject. When allowing it selects an allow_* option; when rejecting it selects a
-// reject_* option; if the agent offered no option of the needed kind it falls
-// back to a "cancelled" outcome (a safe no-op that neither approves nor commits a
-// remembered rejection).
-func decidePermission(options []api.PermissionOption, allow bool) permissionResult {
-	if id := pickOption(options, allow); id != "" {
-		return permissionResult{Outcome: permissionOutcome{Outcome: outcomeSelected, OptionId: id}}
-	}
-	return permissionResult{Outcome: permissionOutcome{Outcome: outcomeCancelled}}
-}
-
-// pickOption returns the id of the first option matching the desired direction,
-// preferring the one-shot kind over the remembered ("always") kind.
-func pickOption(options []api.PermissionOption, allow bool) string {
-	var want []api.PermissionOptionKind
-	if allow {
-		want = []api.PermissionOptionKind{api.PermissionOptionKindAllowOnce, api.PermissionOptionKindAllowAlways}
-	} else {
-		want = []api.PermissionOptionKind{api.PermissionOptionKindRejectOnce, api.PermissionOptionKindRejectAlways}
-	}
-	for _, k := range want {
-		for _, o := range options {
-			if o.Kind == k {
-				return string(o.OptionId)
-			}
-		}
-	}
-	return ""
 }
 
 // --- content-block flattening ---

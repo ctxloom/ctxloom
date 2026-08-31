@@ -98,11 +98,11 @@ func TestLivenessSnapshot_FiresOnStuckChildAndNotOnHealthyOne(t *testing.T) {
 	assert.False(t, healthy.Firing(), "a working child must never be reported as stalled: %s", healthy.Reason)
 }
 
-// An outstanding approval must suppress the verdict even when the transcript
-// looks exactly like the stuck one — an approval rung can hold a child for
-// minutes, and reaping one turns a working system into one that kills its own
-// children.
-func TestLivenessSnapshot_ApprovalParkSuppressesTheVerdict(t *testing.T) {
+// A PARKED child must suppress the verdict even when the transcript looks
+// exactly like the stuck one — a park can hold a child for minutes (waiting
+// in agent_recv, or waiting on a permission decision at its engine), and
+// reaping one turns a working system into one that kills its own children.
+func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 	livenessTestHome(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
@@ -110,24 +110,22 @@ func TestLivenessSnapshot_ApprovalParkSuppressesTheVerdict(t *testing.T) {
 	harp := spawnOneChild(t, c)
 	stuckChildTranscript(t, harp, 6)
 
-	// Without the approval, this child fires.
+	// Unparked, this child fires.
 	before := reportFor(c.livenessSnapshot(context.Background()), harp)
 	require.NotNil(t, before)
 	require.Equal(t, liveness.StateStalled, before.State, "precondition: %s", before.Reason)
 
-	// Register an outstanding approval addressed to it, exactly as
-	// relayApproval does (including its lazy map init).
+	// Park it, exactly as onRolePark does when a child yields its slot.
 	c.mu.Lock()
-	if c.approvals == nil {
-		c.approvals = make(map[string]*pendingApproval)
-	}
-	c.approvals["msg-1"] = &pendingApproval{targetHarp: harp}
+	rt := c.byHarp[harp]
 	c.mu.Unlock()
+	require.NotNil(t, rt, "precondition: the spawned child must have a runtime attachment")
+	c.setState(rt, StateParked)
 
 	after := reportFor(c.livenessSnapshot(context.Background()), harp)
 	require.NotNil(t, after)
 	assert.Equal(t, liveness.StateAwaitingApproval, after.State,
-		"a child parked on an approval must NEVER be reported stalled: %s", after.Reason)
+		"a PARKED child must NEVER be reported stalled: %s", after.Reason)
 	assert.False(t, after.Firing())
 }
 

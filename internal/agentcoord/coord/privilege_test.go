@@ -153,7 +153,31 @@ func TestRunsFold_OldEntryMissingPrivilegeFields_LoadsWithoutError(t *testing.T)
 	require.NotNil(t, rec)
 	assert.Empty(t, rec.Permission, "an old entry has no permission — must stay empty, never fabricated")
 	assert.Empty(t, rec.MCPServers, "an old entry has no mcp_servers — must stay empty, never fabricated")
-	assert.Empty(t, rec.Ladder, "sanity: the pre-existing Ladder field is equally absent on this old entry")
+}
+
+// TestRunsFold_EntryCarryingARetiredLadderKey_LoadsWithoutError is the
+// forward half of the same leniency, and it is the one the ladder's removal
+// rests on: journals written before the escalation ladder was retired still
+// carry a "ladder" key that NOTHING decodes any more. Fact.decode is a plain
+// json.Unmarshal and DisallowUnknownFields appears nowhere in this package,
+// so the unknown key is ignored and the record still loads. If anyone makes
+// the decoder strict, this goes red instead of every existing project
+// failing to start.
+func TestRunsFold_EntryCarryingARetiredLadderKey_LoadsWithoutError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "runs.jsonl")
+	line := `{"kind":"run.enqueued","at":"2026-01-01T00:00:00Z","data":{"run_id":"run-lad","harp":"harp-lad","agent":"worker","cred_hash":"h2","depth":1,"permission":"bypass","ladder":[{"kinds":["COMMAND_EXECUTION"],"action":"relay_to_role","role":"parent","timeout":"10s"}]}}` + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(line), 0o600))
+
+	runsF, queueF, rosterF := newRunsFold(), newQueueFold(), newRosterFold()
+	store, err := openStore(path, runsF, queueF, rosterF)
+	require.NoError(t, err, "a journal entry carrying the retired ladder key must still load")
+	t.Cleanup(func() { _ = store.Close() })
+
+	rec := runsF.run("run-lad")
+	require.NotNil(t, rec, "the record must replay despite the unknown ladder key")
+	assert.Equal(t, "harp-lad", rec.Harp)
+	assert.Equal(t, "bypass", rec.Permission, "the fields that DO still exist must decode normally alongside it")
 }
 
 // TestEnqueueRun_JournalCarriesNamesOnly_NeverCommandOrArgs is the explicit

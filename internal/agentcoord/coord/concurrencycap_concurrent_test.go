@@ -2,7 +2,6 @@ package coord
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -30,8 +30,8 @@ import (
 // Shape: N children spawn via Options.ConcurrencyCap = N (so nothing serializes
 // them), all block on a shared barrier mid-turn — genuine overlap, not
 // scheduler luck: no child's turn can complete until every sibling's has
-// also started — then, still mid-turn (StateExecuting), all N relay an
-// approval to the shared parent concurrently, one child additionally floods
+// also started — then, still mid-turn (StateExecuting), all N send a
+// message to the shared parent concurrently, one child additionally floods
 // a single request_id across a forced reconnect, every child bridges a
 // distinct result to the parent's mailbox, and every child's run is
 // terminated by two RACING agent_stop calls (exactly-once terminal). A
@@ -43,19 +43,12 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 	resetStrictness(t)
 
 	const n = 3
-	decisionNames := [n]string{"DECISION_ACCEPT", "DECISION_DECLINE", "DECISION_ACCEPT_FOR_SESSION"}
-	decisionEnum := map[string]agentcoordpb.ApprovalDecision_Decision{
-		"DECISION_ACCEPT":             agentcoordpb.ApprovalDecision_DECISION_ACCEPT,
-		"DECISION_DECLINE":            agentcoordpb.ApprovalDecision_DECISION_DECLINE,
-		"DECISION_ACCEPT_FOR_SESSION": agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION,
-	}
 
 	agents := make(map[string]fakeAgent, n)
-	ladder := Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: 10 * time.Second}}
 	for i := 0; i < n; i++ {
 		agents[fmt.Sprintf("worker-%d", i)] = fakeAgent{
 			perm: "plan", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
-			viaStartRun: true, ladder: ladder,
+			viaStartRun: true,
 		}
 	}
 	sp := newConcurrencySpawner(agents)
@@ -105,10 +98,10 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 	// child 0 additionally floods a single request_id across a forced
 	// reconnect (reqTrack dedupe, assertion (d)) BEFORE the shared barrier —
 	// the barrier + proceed gate below guarantees this fully resolves before
-	// any child's ordinary approval relay begins, so the two scenarios never
+	// any child's ordinary send begins, so the two scenarios never
 	// interleave in the parent's mailbox.
 	const floodReqID = "flood-req"
-	floodItemID := harps[0] + "-flood-item"
+	floodBody := harps[0] + "-flood-body"
 
 	for i := 0; i < n; i++ {
 		i := i
@@ -124,27 +117,26 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 				var wg sync.WaitGroup
 				for k := 0; k < 5; k++ {
 					wg.Add(1)
-					go func() { defer wg.Done(); ch.sendApproval(t, floodReqID, floodItemID) }()
+					go func() { defer wg.Done(); ch.sendPeerSend(t, floodReqID, floodBody) }()
 				}
 				wg.Wait()
 
-				// The human hasn't answered yet: force a reconnect (kill +
-				// redial), then reissue the SAME request_id 5 MORE times
-				// concurrently on the fresh channel — exactly the shape
-				// approval_reconnect_test.go proves serially, here fired
-				// concurrently and doubled across the reconnect boundary.
+				// Force a reconnect (kill + redial), then reissue the SAME
+				// request_id 5 MORE times concurrently on the fresh channel:
+				// reqTrack is the idempotency that SURVIVES a RunChannel
+				// reconnect, so all ten frames must collapse to one dispatch.
 				ch.close()
 				ch = dialRawRunChannel(t, env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID])
 				var wg2 sync.WaitGroup
 				for k := 0; k < 5; k++ {
 					wg2.Add(1)
-					go func() { defer wg2.Done(); ch.sendApproval(t, floodReqID, floodItemID) }()
+					go func() { defer wg2.Done(); ch.sendPeerSend(t, floodReqID, floodBody) }()
 				}
 				wg2.Wait()
 
-				got := ch.awaitApprovalDecision(t, floodReqID, conformanceWait)
-				assert.Equal(t, agentcoordpb.ApprovalDecision_DECISION_ACCEPT, got.GetDecision(),
-					"the flood's single human answer must resolve on the live post-reconnect channel")
+				got := ch.awaitResponse(t, floodReqID, conformanceWait)
+				assert.EqualValues(t, codes.OK, got.GetStatus().GetCode(),
+					"the flood's single dispatch must resolve OK on the live post-reconnect channel")
 			}
 
 			// Genuine overlap: this child's turn cannot proceed past this
@@ -154,15 +146,20 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 			atBarrier.Done()
 			<-proceed
 
-			// Still mid-turn (StateExecuting): relay one approval,
-			// concurrently with every sibling.
-			apprReqID := harps[i] + "-appr"
-			ch.sendApproval(t, apprReqID, harps[i]+"-item")
-			decision := ch.awaitApprovalDecision(t, apprReqID, conformanceWait)
-			assert.Equal(t, decisionEnum[decisionNames[i]], decision.GetDecision(),
-				"child %s must receive exactly its OWN parent decision, never a sibling's", harps[i])
+			// Still mid-turn (StateExecuting): send one message to the
+			// parent, concurrently with every sibling.
+			sendReqID := harps[i] + "-send"
+			ch.sendPeerSend(t, sendReqID, harps[i]+"-note")
+			resp := ch.awaitResponse(t, sendReqID, conformanceWait)
+			assert.EqualValues(t, codes.OK, resp.GetStatus().GetCode(),
+				"child %s's own send must resolve OK on its own channel", harps[i])
 
-			// Bridge a distinct result to the parent, then end the turn.
+			// Bridge a distinct result to the parent, then end the turn. The
+			// engine host brackets a turn with turn_started/turn_idle
+			// (enginehost.go), and this test speaks the wire in its place, so
+			// it must open the turn the same way for the boundary to have
+			// something to bridge.
+			sendCustomEvent(t, ch, CustomTurnStarted)
 			sendMessageEvent(t, ch, fmt.Sprintf("m-%d", i), fmt.Sprintf("child %d says hi", i))
 			sendCustomEvent(t, ch, CustomTurnIdle)
 			require.Eventually(t, func() bool { return c.runState(runIDs[i]) == StateIdle }, conformanceWait, 5*time.Millisecond,
@@ -177,15 +174,13 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 		}()
 	}
 
-	// The flood-item relay must resolve BEFORE the shared barrier is even
-	// approached seriously (child 0 blocks on it before calling
-	// barrier.arrive) — answer it now.
+	// The flood resolves BEFORE the shared barrier is approached (child 0
+	// completes it before calling barrier.arrive): its ten duplicate frames
+	// must have queued exactly one mail.
 	floodMsgs := recvWhere(t, c, func(m Message) bool {
-		return m.Kind == "approval_request" && strings.Contains(string(m.Structured), floodItemID)
+		return strings.Contains(m.Body, floodBody)
 	}, conformanceWait)
-	require.Len(t, floodMsgs, 1, "the flood's 10 concurrent duplicate frames (across a forced reconnect) must relay as EXACTLY ONE mail")
-	_, err = c.AgentSend(ownerIdentity(), harps[0], "", "flood reviewed", decisionJSON(t, "DECISION_ACCEPT"), floodMsgs[0].ID)
-	require.NoError(t, err)
+	require.Len(t, floodMsgs, 1, "the flood's 10 concurrent duplicate frames (across a forced reconnect) must queue EXACTLY ONE mail")
 
 	// Wait for all N children to have reached the barrier — the instant this
 	// returns, all N runs are DEFINITELY live/executing simultaneously: the
@@ -220,21 +215,24 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 
 	close(proceed)
 
-	// Drain exactly N approval_request messages (one per child) and answer
-	// each with a DISTINCT decision, addressed by the harp the mail actually
-	// came FROM — the non-cross-attribution proof (assertion (e)) is in
-	// each child goroutine's own assert above; this is the other half.
-	apprMsgs := recvNKind(t, c, "approval_request", n, conformanceWait)
-	require.Len(t, apprMsgs, n, "exactly one approval_request per child must relay")
+	// Drain the N concurrent per-child sends and check ATTRIBUTION: each
+	// arrives exactly once, carrying its OWN sender's harp and its own body
+	// — the non-cross-attribution proof (assertion (e)) on the parent side.
+	noteMsgs := recvNKind(t, c, KindMessage, n, conformanceWait)
 	byHarp := map[string]int{}
 	for i, h := range harps {
 		byHarp[h] = i
 	}
-	for _, m := range apprMsgs {
+	seenFrom := map[string]int{}
+	for _, m := range noteMsgs {
 		idx, ok := byHarp[m.From]
-		require.True(t, ok, "approval_request mail %q from unexpected sender %q", m.ID, m.From)
-		_, err := c.AgentSend(ownerIdentity(), m.From, "", "reviewed", decisionJSON(t, decisionNames[idx]), m.ID)
-		require.NoError(t, err)
+		require.True(t, ok, "mail %q from unexpected sender %q", m.ID, m.From)
+		assert.Contains(t, m.Body, harps[idx]+"-note",
+			"child %s's mail must carry its OWN body, never a sibling's", m.From)
+		seenFrom[m.From]++
+	}
+	for _, h := range harps {
+		assert.Equal(t, 1, seenFrom[h], "exactly one note per child must reach the parent (child %s)", h)
 	}
 
 	wgChildren.Wait()
@@ -305,14 +303,15 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 		assert.Equal(t, ownerIdentity().Harp, role, "every message in this scenario is addressed to the parent role")
 	}
 
-	floodCount := ma.itemIDCounts[floodItemID]
-	assert.Equal(t, 1, floodCount, "the flood's 10 concurrent duplicate request_id frames (across a forced reconnect) must have queued EXACTLY ONE approval_request mail — the reqTrack dedupe's durable trace")
+	floodCount := ma.bodyCounts[floodBody]
+	assert.Equal(t, 1, floodCount, "the flood's 10 concurrent duplicate request_id frames (across a forced reconnect) must have queued EXACTLY ONE mail — the reqTrack dedupe's durable trace")
 
+	t.Logf("DEBUG kindCounts=%v bodyCounts=%v queuedByRole=%v", ma.kindCounts, ma.bodyCounts, ma.queuedByRole)
 	resultCount := ma.kindCounts["result"]
 	assert.Equal(t, n, resultCount, "the parent must hold exactly one bridged result per child turn")
 
-	apprCount := ma.kindCounts["approval_request"]
-	assert.Equal(t, n+1, apprCount, "N ordinary approval relays plus the one flood relay")
+	noteCount := ma.kindCounts[KindMessage]
+	assert.Equal(t, n+1, noteCount, "N ordinary per-child sends plus the one flood send")
 
 	exitedCount := ma.kindCounts[KindExited]
 	assert.Equal(t, n, exitedCount, "one terminal notice per child")
@@ -485,15 +484,6 @@ func recvNKind(t *testing.T, c *Coordinator, kind string, n int, wait time.Durat
 	}
 }
 
-// decisionJSON builds an agent_send structured payload carrying one
-// ApprovalDecision (decisionFromStructured's expected shape).
-func decisionJSON(t *testing.T, decision string) json.RawMessage {
-	t.Helper()
-	b, err := json.Marshal(map[string]any{"decision": decision, "note": "test"})
-	require.NoError(t, err)
-	return b
-}
-
 // runFactCounts is a test-only fold layered on the SAME runs.jsonl replay
 // (openStore accepts multiple folds over one journal) counting
 // factRunEnqueued/factRunEnded occurrences PER run_id — the raw material for
@@ -523,15 +513,15 @@ func (r *runFactCounts) apply(fact Fact) {
 // (alongside a fresh mailFold) reconstructing PER-ROLE queued/consumed
 // counts — mailFold itself tracks a global seen/consumed dedupe set, not
 // per-role queued totals, so this is the reconciliation invariant's own
-// independent accounting. itemIDCounts/kindCounts key off the message
-// body/structured payload — the durable trace assertion (d) (reqTrack
+// independent accounting. bodyCounts/kindCounts key off the message
+// body — the durable trace assertion (d) (reqTrack
 // dedupe) and (b) (one result per turn) read from disk, not from live
 // runtime bookkeeping.
 type mailAudit struct {
 	queuedByRole      map[string]int
 	queuedIDsByRole   map[string]map[string]bool
 	consumedIDsByRole map[string]map[string]bool
-	itemIDCounts      map[string]int // structured payload's item_id -> queued count
+	bodyCounts        map[string]int // message body -> queued count
 	kindCounts        map[string]int // Message.Kind -> queued count
 }
 
@@ -540,7 +530,7 @@ func newMailAudit() *mailAudit {
 		queuedByRole:      map[string]int{},
 		queuedIDsByRole:   map[string]map[string]bool{},
 		consumedIDsByRole: map[string]map[string]bool{},
-		itemIDCounts:      map[string]int{},
+		bodyCounts:        map[string]int{},
 		kindCounts:        map[string]int{},
 	}
 }
@@ -561,8 +551,8 @@ func (a *mailAudit) apply(fact Fact) {
 		a.queuedIDsByRole[p.To][p.MessageID] = true
 		a.queuedByRole[p.To]++
 		a.kindCounts[p.Kind]++
-		if id := extractItemID(p.Structured); id != "" {
-			a.itemIDCounts[id]++
+		if p.Body != "" {
+			a.bodyCounts[p.Body]++
 		}
 	case factMailConsumed:
 		var p mailConsumed
@@ -576,24 +566,4 @@ func (a *mailAudit) apply(fact Fact) {
 			a.consumedIDsByRole[p.Role][id] = true
 		}
 	}
-}
-
-// extractItemID pulls "item_id" out of a queued mail's structured payload
-// (the approval_request proto projection, approval.go's
-// approvalRequestStructured) without a full protojson decode — the raw JSON
-// substring is enough to identify which relay a queued mail belongs to for
-// this test's dedupe count.
-func extractItemID(structured json.RawMessage) string {
-	if len(structured) == 0 {
-		return ""
-	}
-	var wrapper struct {
-		ApprovalRequest struct {
-			ItemID string `json:"item_id"`
-		} `json:"approval_request"`
-	}
-	if json.Unmarshal(structured, &wrapper) != nil {
-		return ""
-	}
-	return wrapper.ApprovalRequest.ItemID
 }

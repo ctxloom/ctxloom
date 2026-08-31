@@ -49,7 +49,7 @@ type SpawnPlan struct {
 	// therefore only carry a handler the vocabulary admits; there is no
 	// spelling on it for a later frame to re-interpret.
 	DirtyTreeHandler operations.DirtyTreeHandler
-	Degraded []string
+	Degraded         []string
 	// MCPServers is the child's fully composed MCP server set (Wave F1),
 	// resolved once at Resolve time so a later config edit cannot
 	// retroactively change a live run's privileges, and so that

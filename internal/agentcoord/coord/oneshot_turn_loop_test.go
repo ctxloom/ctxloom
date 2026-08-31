@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -43,9 +42,9 @@ func runCause(c *Coordinator, runID string) string {
 // process is torn down AT THE TURN BOUNDARY (a resumable terminal, NOT an
 // agent_stop) with no external kill; a later agent_send RESUMES it by the
 // captured native session id (session/load — not a cold start, not a lossy
-// transcript replay); and the second turn's result is delivered. The
-// ACCEPT_FOR_SESSION grant and the harp survive the boundary; the parent is
-// NEVER spammed with a per-turn "exited" notice.
+// transcript replay); and the second turn's result is delivered. The harp
+// survives the boundary; the parent is NEVER spammed with a per-turn
+// "exited" notice.
 func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 	resetStrictness(t)
 	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{resumable: true} })
@@ -53,11 +52,6 @@ func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
-
-	// A "don't ask again this session" grant, seeded on the harp: it must
-	// outlive the one-shot boundary's terminal (only CauseStopped clears it).
-	const kind = agentcoordpb.ApprovalRequest_APPROVAL_KIND_COMMAND_EXECUTION
-	c.cacheSessionAccept(out.Harp, kind)
 
 	// Turn 1 runs, and the ENGINE ENDS ITSELF at the clean boundary — no
 	// killEngine here, unlike the runner-loss resume test. The proof it was a
@@ -104,11 +98,6 @@ func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 	res2 := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "carry on") }, conformanceWait)
 	require.NotEmpty(t, res2, "the resumed turn's result must be delivered")
 
-	// The grant survived the whole turn boundary + resume (a new run_id) — the
-	// harp-scoped ACCEPT_FOR_SESSION contract holds under one-shot.
-	_, ok := c.sessionAccepted(out.Harp, kind)
-	assert.True(t, ok, "the ACCEPT_FOR_SESSION grant must survive the one-shot boundary")
-
 	// The resumed turn reaches a clean boundary (ended when its live confirm
 	// landed in time — the common case — or idle if it raced and safely parked
 	// warm), and either way the parent is NEVER spammed with a per-turn
@@ -120,72 +109,60 @@ func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 	assertNoMailKind(t, c, KindExited, 200*time.Millisecond)
 }
 
-// TestApproval_MidTurnWaitYieldsSlotToPeer proves the mid-turn approval
-// slot-yield (Slice 4 / Fork 1's companion): a child blocked on a human
-// approval releases its ceiling slot so a queued peer can execute, instead of
-// starving it up to the (now finite) cap. Cap 1: child A parks on an approval
-// mid-turn; child B, queued behind the cap, must EXECUTE (acquire the freed
-// slot) WHILE A is still blocked — only possible if A yielded its slot.
+// TestSlotYield_MidTurnParkYieldsSlotToPeer is the §6a SLOT-YIELD gate: a
+// child parked mid-turn consumes no compute, so its execution slot goes back
+// to the pool and a peer queued behind the concurrency cap runs on it.
 //
-// The slot-yield invariant is proven by B reaching StateExecuting (which
-// happens in runChild the instant slots.Acquire returns, BEFORE the engine
-// turn) while A holds the only cap-1 slot parked — not by racing B's full
-// engine-turn completion latency against a wall-clock deadline. That earlier
-// shape flaked under full-suite load: B's *result* rides a whole
-// in-process gRPC turn (Home dial + Chat + bridge) whose tail latency spikes
-// under scheduler contention, so a 5s budget on the result occasionally timed
-// out even though the slot had been yielded in microseconds. The mechanism
-// itself is NOT load-sensitive: if the slot were not yielded (cap 1, A parked
-// and only answered AFTER this assertion) B could never leave StateQueued at
-// any budget — a hard deadlock, not a slow arrival — so this proof cannot be
-// masked by load. B is held mid-turn by a turnGate so "B executing while A
-// parked" is a stable, observable instant rather than a state B might race
-// through before a poll sees it.
-func TestApproval_MidTurnWaitYieldsSlotToPeer(t *testing.T) {
+// The mechanism is NOT load-sensitive, which is why this proof cannot be
+// masked by a slow machine: if the slot were not yielded (cap 1, A parked and
+// only unparked AFTER the assertion) B could never leave StateQueued at any
+// budget — a hard deadlock, not a slow arrival. B is held mid-turn by a
+// turnGate so "B executing while A parked" is a stable, observable instant
+// rather than a state B might race through before a poll sees it.
+func TestSlotYield_MidTurnParkYieldsSlotToPeer(t *testing.T) {
 	resetStrictness(t)
+	aGate := make(chan struct{})
 	bGate := make(chan struct{})
 	var spawns int
-	// Explicit relay_to_role ladder, not the plan preset (relayLadderSpawner):
-	// this test's subject is the SLOT-YIELD mechanism while ANY approval is
-	// parked, not which preset selects relay_to_role — the plan preset no
-	// longer relays a COMMAND_EXECUTION directly since marauding-hacksaw
-	// (TestApproval_MidTurnWaitYieldsSlotToPeer's own park/yield assertions
-	// hold identically for a surface_to_human park — see
-	// TestApproval_SurfaceToHumanRoundTrip / surfaceApprovalToHuman's doc,
-	// which documents the SAME onRolePark/onRoleUnpark discipline).
-	sp := relayLadderSpawner(func() *scriptedChat {
+	sp := startRunSpawner(func() *scriptedChat {
 		spawns++
 		if spawns == 1 {
-			return &scriptedChat{permission: commandExecRequest("perm-A")} // A parks on approval
+			return &scriptedChat{turnGate: aGate} // A: held mid-turn, then parks
 		}
 		return &scriptedChat{turnGate: bGate} // B: held mid-turn until released
-	}, conformanceWait)
+	})
 	c := newTestCoordinatorCap(t, sp, nil, 1) // cap 1: B can only run if A yields its slot
 
 	a, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task A", "", "")
 	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond,
+		"precondition: A holds the only slot")
 
-	// A relays its approval to the parent and — crucially — yields its slot
-	// while parked.
-	appr := recvKind(t, c, "approval_request", conformanceWait)
-	require.Len(t, appr, 1, "A must relay its approval to the parent")
+	// A parks MID-TURN in agent_recv and — crucially — yields its slot while
+	// it waits.
+	aRecv := make(chan []Message, 1)
+	go func() {
+		msgs, _ := c.AgentRecv(context.Background(), Identity{Harp: a.Harp, RunID: a.RunID, Depth: 1}, conformanceWait)
+		aRecv <- msgs
+	}()
 	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateParked }, conformanceWait, 10*time.Millisecond,
-		"A must be parked (slot yielded) while it waits on the approval")
+		"A must be parked (slot yielded) while it waits in agent_recv")
 
 	// B, queued behind the cap-1 ceiling, acquires the FREED slot and reaches
 	// StateExecuting — the direct proof A yielded. B is gated mid-turn, so it
 	// holds this state for a stable observation. If the slot were NOT yielded
-	// B would sit in StateQueued forever (A holds the only slot and is answered
-	// below, AFTER this), so no wall-clock budget can mask a real starvation.
+	// B would sit in StateQueued forever (A holds the only slot and is
+	// unparked below, AFTER this), so no wall-clock budget can mask a real
+	// starvation.
 	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task B", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, b.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond,
-		"B must reach StateExecuting (acquire the slot A yielded) while A is approval-blocked")
+		"B must reach StateExecuting (acquire the slot A yielded) while A is parked")
 
-	// Both invariants hold at the same instant: B executing, A still parked on
-	// its unanswered approval — B did not have to wait for A.
+	// Both invariants hold at the same instant: B executing, A still parked —
+	// B did not have to wait for A.
 	assert.Equal(t, StateExecuting, rosterState(c, b.Harp), "B must be executing on the yielded slot")
-	assert.Equal(t, StateParked, rosterState(c, a.Harp), "A must still be parked on its approval")
+	assert.Equal(t, StateParked, rosterState(c, a.Harp), "A must still be parked")
 
 	// Release B: it runs its turn to completion (secondary confirmation; the
 	// slot-yield claim is already proven above and does not hinge on this
@@ -194,14 +171,21 @@ func TestApproval_MidTurnWaitYieldsSlotToPeer(t *testing.T) {
 	bRes := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task B") }, conformanceWait)
 	require.NotEmpty(t, bRes, "B completes its turn once released")
 
-	// A is still parked on its unanswered approval after B has come and gone.
-	assert.Equal(t, StateParked, rosterState(c, a.Harp), "A must still be parked on its approval")
+	// A is still parked after B has come and gone.
+	assert.Equal(t, StateParked, rosterState(c, a.Harp), "A must still be parked")
 
-	// Answer A: it reclaims a slot and finishes its turn.
-	_, err = c.AgentSend(ownerIdentity(), a.Harp, "", "ok", decisionJSON(t, "DECISION_ACCEPT"), appr[0].ID)
+	// Unpark A: its recv completes, it reclaims a slot and finishes its turn.
+	_, err = c.AgentSend(ownerIdentity(), a.Harp, KindMessage, "carry on", nil, "")
 	require.NoError(t, err)
+	select {
+	case msgs := <-aRecv:
+		require.Len(t, msgs, 1, "A's parked recv must complete with the send that unparked it")
+	case <-time.After(conformanceWait):
+		t.Fatal("A's parked agent_recv never completed after the send")
+	}
+	close(aGate)
 	aRes := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task A") }, conformanceWait)
-	require.NotEmpty(t, aRes, "A resumes and completes its turn once the approval is answered")
+	require.NotEmpty(t, aRes, "A resumes and completes its turn once unparked")
 }
 
 // countRuns returns how many run records the live fold currently holds.

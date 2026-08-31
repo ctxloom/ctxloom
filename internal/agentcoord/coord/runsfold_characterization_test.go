@@ -34,7 +34,6 @@ func TestRunsFold_Apply_EveryArm(t *testing.T) {
 		RunID: "r1", Harp: "kid", Agent: "worker", ParentHarp: "owner", ParentRunID: "r0",
 		Runtime: agent.RuntimeContainerRootless, CredHash: "c1", Depth: 1, Prompt: "brief",
 		Permission: "bypass", MCPServers: []string{"ctxloom"},
-		Ladder: []ladderRungFact{{Action: "decline"}},
 	}))
 	r := f.run("r1")
 	require.NotNil(t, r)
@@ -48,7 +47,6 @@ func TestRunsFold_Apply_EveryArm(t *testing.T) {
 	assert.Equal(t, "brief", r.Prompt)
 	assert.Equal(t, "bypass", r.Permission)
 	assert.Equal(t, []string{"ctxloom"}, r.MCPServers)
-	assert.Len(t, r.Ladder, 1)
 	assert.Equal(t, at(1), r.EnqueuedAt)
 	assert.Equal(t, at(1), r.LastActivity)
 	assert.Equal(t, r, f.currentRun("kid"))

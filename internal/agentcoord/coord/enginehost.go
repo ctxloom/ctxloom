@@ -860,4 +860,3 @@ func injectMCPSocketEnv(servers []agent.ChatMCPServer, socket string) {
 		}
 	}
 }
-

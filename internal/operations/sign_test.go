@@ -501,3 +501,105 @@ func TestSignBundleFile_DirectoryFormAttestationCoversContentNotJustTheManifest(
 	assert.False(t, verdict.OK(),
 		"editing a fragment after signing must break the bundle's attestation")
 }
+
+// --- directory-form bundles: refusing to sign over a stale skill manifest ---
+
+// signSkillBundle stages a directory-form bundle carrying one or more skills
+// whose bundle.yaml `files:` manifest is freshly SYNCED with the on-disk
+// tree — the baseline every staleness test below edits away from. Built via
+// CreateSkill + SyncSkill (the real `ctxloom skill create`/`ctxloom skill
+// sync` operations), not a hand-assembled bundle.yaml, so the fixture is
+// exactly what those commands actually produce. Returns the bundle's root
+// directory, for checking that no signature artifact lands anywhere under it
+// when signing is refused.
+func signSkillBundle(t *testing.T, bundleName string, skillNames ...string) (cfg *config.Config, bundleDir string) {
+	t.Helper()
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, bundleName)
+	for _, name := range skillNames {
+		_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{
+			Bundle: bundleName, Name: name, Description: "d",
+		})
+		require.NoError(t, err)
+	}
+	_, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: bundleName})
+	require.NoError(t, err)
+	return cfg, filepath.Join(paths.LocalBundlesPath(appDir), bundleName)
+}
+
+// editSkillWithoutSyncing edits a skill's SKILL.md on disk WITHOUT re-running
+// `ctxloom skill sync` — the exact drift `bundle sign` must catch: bundle.yaml
+// still records the pre-edit manifest, the tree no longer matches it.
+func editSkillWithoutSyncing(t *testing.T, bundleDir, skillName string) {
+	t.Helper()
+	skillMD := filepath.Join(bundleDir, "skills", skillName, "SKILL.md")
+	data, err := os.ReadFile(skillMD)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(skillMD, append(data, []byte("\nEdited without syncing.\n")...), 0o644))
+}
+
+// A skill manifest that MATCHES the tree must still sign — the staleness
+// check must not become a blanket refusal for every bundle carrying a skill.
+func TestSignBundleFile_MatchingSkillManifestStillSigns(t *testing.T) {
+	cfg, _ := signSkillBundle(t, "atelier-skills", "reviewer")
+	signer := testSigner(t)
+
+	res, err := SignBundleFile(cfg, SignBundleRequest{
+		Target: SignTarget{BundleName: "atelier-skills"},
+		Signer: signer,
+	})
+	require.NoError(t, err, "a bundle whose skill manifest matches the tree must still sign")
+
+	ok, existsErr := afero.Exists(afero.NewOsFs(), res.SigPath)
+	require.NoError(t, existsErr)
+	assert.True(t, ok, "signing a matching manifest must write the sibling signature at %s", res.SigPath)
+}
+
+// THE RULING. A stale skill manifest (bundle.yaml's skills.<name>.files no
+// longer matching the source tree) must refuse to sign — nonzero error,
+// nothing written — naming the skill and the remedy (`ctxloom skill sync`).
+// `--degraded` is deliberately not exercised here: this refusal has no
+// degraded arm (see StaleSkillManifests/errStaleSkillManifests) because
+// signing itself is the harm.
+func TestSignBundleFile_StaleSkillManifestRefusesToSign(t *testing.T) {
+	cfg, bundleDir := signSkillBundle(t, "atelier-skills", "reviewer")
+	editSkillWithoutSyncing(t, bundleDir, "reviewer")
+	signer := testSigner(t)
+
+	_, err := SignBundleFile(cfg, SignBundleRequest{
+		Target: SignTarget{BundleName: "atelier-skills"},
+		Signer: signer,
+	})
+	require.Error(t, err, "signing over a stale skill manifest must be refused")
+	assert.Contains(t, err.Error(), "reviewer", "the refusal must name the stale skill")
+	assert.Contains(t, err.Error(), "ctxloom skill sync", "the refusal must name the remedy")
+
+	sibling := filepath.Join(bundleDir, "bundle.yaml.sig")
+	ok, existsErr := afero.Exists(afero.NewOsFs(), sibling)
+	require.NoError(t, existsErr)
+	assert.False(t, ok, "a refused sign must not write the detached bundle.yaml.sig sibling")
+
+	sigsDir := filepath.Join(bundleDir, content.SigDirName)
+	dirOK, dirErr := afero.DirExists(afero.NewOsFs(), sigsDir)
+	require.NoError(t, dirErr)
+	assert.False(t, dirOK, "a refused sign must not create the tree's .sigs/ store")
+}
+
+// SEVERAL stale skills must all be named in one refusal, not just the first —
+// a bundle carrying multiple skills should not need one sign attempt per
+// skill to discover the whole stale set.
+func TestSignBundleFile_ReportsEveryStaleSkillNotJustTheFirst(t *testing.T) {
+	cfg, bundleDir := signSkillBundle(t, "atelier-skills", "reviewer", "editor", "curator")
+	editSkillWithoutSyncing(t, bundleDir, "reviewer")
+	editSkillWithoutSyncing(t, bundleDir, "curator")
+	signer := testSigner(t)
+
+	_, err := SignBundleFile(cfg, SignBundleRequest{
+		Target: SignTarget{BundleName: "atelier-skills"},
+		Signer: signer,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reviewer", "the untouched-then-edited skill must be named")
+	assert.Contains(t, err.Error(), "curator", "the second edited skill must be named too")
+	assert.NotContains(t, err.Error(), "editor", "the skill that stayed in sync must not be named as stale")
+}

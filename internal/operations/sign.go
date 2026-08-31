@@ -123,6 +123,21 @@ func errSignRemote(ref string) error {
 		"ctxloom cannot sign a remote bundle's tree from here; only that remote's own publisher can", ref)
 }
 
+// errStaleSkillManifests refuses to sign bundleName because one or more of
+// its skills' recorded manifests (bundle.yaml's skills.<name>.files) no
+// longer match their on-disk source trees. Unconditional: there is no
+// --degraded arm here, because signing IS the harm — proceeding would
+// produce a signature that validly attests to a manifest already known to be
+// false, and every consumer verifying it would trust that false attestation.
+// Names every stale skill, not just the first, so one refusal is enough to
+// fix all of them.
+func errStaleSkillManifests(bundleName string, stale []string) error {
+	return fmt.Errorf("ctxloom bundle sign: %s: skill manifest does not match the source tree for %s — "+
+		"run `ctxloom skill sync %s` to refresh it before signing "+
+		"(signing now would attest to a sha256 the tree does not have, and the bundle would be withheld at materialize)",
+		bundleName, strings.Join(stale, ", "), bundleName)
+}
+
 // SignBundleRequest is the input to SignBundleFile.
 type SignBundleRequest struct {
 	Target SignTarget
@@ -256,6 +271,19 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 // `guard.yml` by path and produce a perfectly signed bundle in which the
 // guardrail does not exist.
 func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) (*SignBundleResult, error) {
+	// Checked BEFORE anything is written, sibling included: a stale skill
+	// manifest means bundle.yaml's skills.<name>.files no longer matches the
+	// source tree, so any signature produced from here on attests to a false
+	// content hash. `ctxloom skill sync` is the verb that recomputes it — see
+	// StaleSkillManifests.
+	stale, err := StaleSkillManifests(fs, bundle)
+	if err != nil {
+		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
+	}
+	if len(stale) > 0 {
+		return nil, errStaleSkillManifests(req.Target.BundleName, stale)
+	}
+
 	manifestPath := bundle.Path
 	sibling := &bundleSignable{bundle: bundle, fs: fs}
 	if err := SignItem(fs, sibling, req.Signer); err != nil {

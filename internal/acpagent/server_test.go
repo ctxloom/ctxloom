@@ -984,7 +984,7 @@ func TestServe_Initialize_AdvertisesCapabilitiesTruthfully(t *testing.T) {
 	assert.True(t, got.AgentCapabilities.McpCapabilities.Sse, "B3 (gap G11): mcpServersFromACP now accepts an editor-supplied SSE MCP server")
 	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.Close)
 	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.Delete)
-	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.List)
+	assert.NotNil(t, got.AgentCapabilities.SessionCapabilities.List, "session/list is implemented (handleSessionList) and must be advertised")
 	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.Resume)
 	assert.Nil(t, got.AgentCapabilities.Auth.Logout, "ctxloom needs no authentication today")
 	assert.NotNil(t, got.AuthMethods, "authMethods must be a wire-present [] , never a bare omitted/null field")
@@ -1000,6 +1000,7 @@ func TestServe_Initialize_AdvertisesCapabilitiesTruthfully(t *testing.T) {
 	assert.Contains(t, raw, `"authMethods":[]`)
 	assert.Contains(t, raw, `"http":true`)
 	assert.Contains(t, raw, `"sse":true`)
+	assert.Contains(t, raw, `"list":{}`, "sessionCapabilities.list must be wire-present, not merely decodable")
 }
 
 // TestServe_Initialize_VersionNegotiation: a client offering a NEWER protocol
@@ -1418,4 +1419,70 @@ func TestServe_SessionLoad_ResponseBodyCarriesTheSessionState(t *testing.T) {
 		categories = append(categories, o.Category)
 	}
 	assert.Contains(t, categories, "model", "CO1's spec-general model selector must ride the load response too")
+}
+
+// TestServe_SessionList_ReportsOpenSessionsWithCwd opens two sessions with
+// DIFFERENT cwds and asserts session/list reports each one back under its own
+// sessionId with the cwd it was actually opened with — not a default, not the
+// process cwd, and not the other session's value. cwd is a REQUIRED field on
+// SessionInfo; this is the test that would catch a handler that satisfies the
+// wire type with an empty or wrong string.
+func TestServe_SessionList_ReportsOpenSessionsWithCwd(t *testing.T) {
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) {
+		return newFakeEngine().chat(""), nil
+	})
+	c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+
+	resp, _ := c.waitResponse(c.send("session/new", `{"cwd":"/proj/a","mcpServers":[]}`))
+	require.Nil(t, resp.Error)
+	var newA struct {
+		SessionId string `json:"sessionId"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Result, &newA))
+	require.NotEmpty(t, newA.SessionId)
+
+	resp, _ = c.waitResponse(c.send("session/new", `{"cwd":"/proj/b","mcpServers":[]}`))
+	require.Nil(t, resp.Error)
+	var newB struct {
+		SessionId string `json:"sessionId"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Result, &newB))
+	require.NotEmpty(t, newB.SessionId)
+	require.NotEqual(t, newA.SessionId, newB.SessionId)
+
+	resp, _ = c.waitResponse(c.send("session/list", `{}`))
+	require.Nil(t, resp.Error)
+	var got api.ListSessionsResponse
+	require.NoError(t, json.Unmarshal(resp.Result, &got))
+	require.Len(t, got.Sessions, 2, "both open sessions must be listed")
+
+	cwdByID := map[string]string{}
+	for _, si := range got.Sessions {
+		cwdByID[string(si.SessionId)] = si.Cwd
+	}
+	assert.Equal(t, "/proj/a", cwdByID[newA.SessionId], "the session opened with /proj/a must report THAT cwd")
+	assert.Equal(t, "/proj/b", cwdByID[newB.SessionId], "the session opened with /proj/b must report THAT cwd, not session A's")
+}
+
+// TestServe_SessionList_EmptyWhenNoSessions: listing with no open sessions
+// returns a wire-present empty array, not an error and not a bare null (the
+// SDK's ListSessionsResponse.Validate rejects a nil Sessions slice as
+// invalid, so this also guards against the zero-value-slice mistake).
+func TestServe_SessionList_EmptyWhenNoSessions(t *testing.T) {
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) {
+		return nil, assert.AnError
+	})
+	c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+
+	resp, _ := c.waitResponse(c.send("session/list", `{}`))
+	require.Nil(t, resp.Error, "listing with zero open sessions must succeed, not error")
+
+	var got api.ListSessionsResponse
+	require.NoError(t, json.Unmarshal(resp.Result, &got))
+	assert.NotNil(t, got.Sessions, "must be an empty array, never a bare omitted/null field")
+	assert.Empty(t, got.Sessions)
+
+	// Payload assertion: the raw wire bytes actually carry an empty array,
+	// not an omitted field a decoder default could paper over.
+	assert.Contains(t, string(resp.Result), `"sessions":[]`)
 }

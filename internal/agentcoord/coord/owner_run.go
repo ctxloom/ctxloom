@@ -82,6 +82,9 @@ type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (kill
 // (terminateRun, exactly-once) and the error returned; the caller's deferred
 // runner teardown still runs.
 func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec OwnerRunSpec, start OwnedRunStarter, prompt string) (*RunOutcome, error) {
+	if c.Draining() {
+		return nil, fmt.Errorf("owner run: %w", ErrDraining)
+	}
 	if spec.Harp == "" {
 		return nil, errors.New("owner run: harp is required (the run reuses the owning session's harp as its role)")
 	}

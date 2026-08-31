@@ -181,6 +181,21 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 	if hello == nil {
 		return status.Error(codes.InvalidArgument, "first RunnerFrame must be RunnerHello")
 	}
+	// Admission refusal (BeginDrain, coordinator.go): a runner dialing in
+	// with NO active runs is establishing capacity for work this
+	// coordinator will never assign it — AgentRun/StartOwnedRun already
+	// refuse every new run once draining, so no StartRun would ever reach
+	// it. A runner reconnecting to finish runs it already holds is exempt:
+	// active_run_ids is exactly "let in-flight turns finish" and must be
+	// admitted so that work is not orphaned mid-turn by a network blip
+	// during drain.
+	if c.Draining() && len(hello.GetActiveRunIds()) == 0 {
+		reason := ErrDraining.Error()
+		_ = stream.Send(&agentcoordpb.RuntimeFrame{Kind: &agentcoordpb.RuntimeFrame_HelloAck{
+			HelloAck: &agentcoordpb.RunnerHelloAck{Accepted: false, RejectReason: statusErr(codes.Unavailable, reason)},
+		}})
+		return status.Error(codes.Unavailable, reason)
+	}
 	// Ownership: every claimed active run must have been issued to THIS
 	// credential (run_id ownership is validated against the issuing
 	// credential; presenting someone else's run_id is a rejected Hello).

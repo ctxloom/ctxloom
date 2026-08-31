@@ -355,9 +355,14 @@ func TestRun_PaneClosedCarriesTheExitCode(t *testing.T) {
 func TestRun_MakeRawFailureAbortsBeforeOpening(t *testing.T) {
 	tty, stream := newFakeTty(), newFakeStream()
 	tty.makeRawErr = errors.New("no tty")
+	// Closed so that a relay which wrongly carried on still TERMINATES and
+	// gets judged on what it sent, rather than hanging and being "killed" by
+	// a test timeout — a timeout would pass this test for the wrong reason.
+	close(tty.in)
 
 	err := Run(context.Background(), fakeConn{stream}, "iota", tty, Options{})
 	require.Error(t, err)
+	assert.ErrorContains(t, err, "raw mode", "the failure must name what could not be done")
 	assert.Empty(t, stream.frames(), "nothing may be sent when the terminal could not be prepared")
 }
 

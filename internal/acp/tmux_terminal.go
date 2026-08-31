@@ -2,6 +2,8 @@ package acp
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	api "github.com/coder/acp-go-sdk"
@@ -123,11 +126,36 @@ type localTerminals struct {
 	mu      sync.Mutex
 	ensured bool
 	seq     atomic.Uint64
-	terms   map[api.TerminalId]*tmuxTerminal
+	// run distinguishes this process's terminals from those of any other run
+	// sharing the fixed tmux server — see newLocalTerminals.
+	run   string
+	terms map[api.TerminalId]*tmuxTerminal
 }
 
 func newLocalTerminals(runner tmuxRunner, tmpDir string) *localTerminals {
-	return &localTerminals{runner: runner, tmpDir: tmpDir, terms: map[api.TerminalId]*tmuxTerminal{}}
+	return &localTerminals{
+		runner: runner, tmpDir: tmpDir,
+		terms: map[api.TerminalId]*tmuxTerminal{},
+		// run is what keeps two ctxloom processes sharing this server from
+		// minting the same window name. seq alone cannot: it is per-process
+		// and restarts at zero, so every run's first terminal would be "t1".
+		// tmux ALLOWS duplicate window names, so a collision does not error —
+		// it SHADOWS the older window, leaving kill-window and the wait target
+		// ambiguous and blocking the newer run forever on a channel its own
+		// window never signals. Measured as a 30-minute hang before this.
+		run: runToken(),
+	}
+}
+
+// runToken mints a short token unique to this localTerminals. Uniqueness is
+// all that is required — not unpredictability — so a rand failure falls back
+// to the clock rather than failing terminal creation.
+func runToken() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // ensureSession makes sure tmuxSessionName exists on the dedicated socket,
@@ -212,7 +240,7 @@ func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalReque
 		return api.CreateTerminalResponse{}, err
 	}
 	n := l.seq.Add(1)
-	name := fmt.Sprintf("t%d", n)
+	name := fmt.Sprintf("%s-t%d", l.run, n)
 	id := api.TerminalId(name)
 	outputPath := filepath.Join(l.tmpDir, "ctxloom-acp-term-"+name+".out")
 	statusPath := filepath.Join(l.tmpDir, "ctxloom-acp-term-"+name+".status")

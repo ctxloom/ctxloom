@@ -59,7 +59,7 @@ func TestReportExecuteError_JSON_EmitsStructuredEnvelope(t *testing.T) {
 	assert.JSONEq(t, `{"error":"boom"}`, buf.String())
 }
 
-// PersistentPreRun is where the CLI's resolved --format flows into
+// PersistentPreRunE is where the CLI's resolved --format flows into
 // clidiag's process-wide structured-diagnostics switch (the warnings side
 // channel): json/yaml/toml turn it on, text/markdown (and an
 // unresolvable value, left for the command's own emit() to report) leave it
@@ -85,7 +85,13 @@ func TestPersistentPreRun_SetsClidiagStructuredFromFormat(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.format, func(t *testing.T) {
 			cmd, _ := formatCmd(c.format)
-			rootCmd.PersistentPreRun(cmd, nil)
+			// PersistentPreRunE, not PersistentPreRun: the root's pre-run
+			// hook is the E variant so it can REFUSE an unsupported
+			// --format before RunE runs. The error is irrelevant here —
+			// this test is about the clidiag side effect — and cmd is a
+			// stand-in whose path carries no format debt, so the refusal
+			// never fires for it.
+			_ = rootCmd.PersistentPreRunE(cmd, nil)
 
 			var buf bytes.Buffer
 			clidiag.Fwarn(&buf, "ctxloom", "probe")

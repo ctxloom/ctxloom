@@ -90,12 +90,12 @@ var rootCmd = &cobra.Command{
 	// does, and TestNoSubcommandDefinesPersistentHooks (root_test.go) fails if
 	// one ever starts to — per-command setup belongs in PreRun(E), which cobra
 	// runs IN ADDITION to this.
-	PersistentPreRun: rootPersistentPreRun,
+	PersistentPreRunE: rootPersistentPreRunE,
 	// The runtime guard (format.go): fires only after a successful
 	// RunE (cobra skips it on error, and skips it entirely for
 	// --help/--version/completion), turning a non-text --format that no
 	// command ever honored into a loud error instead of a silent exit 0.
-	// Symmetrically with PersistentPreRun above, and enforced by the same test:
+	// Symmetrically with PersistentPreRunE above, and enforced by the same test:
 	// no subcommand defines its own PersistentPostRun(E), so this runs for all.
 	PersistentPostRunE: rootPersistentPostRunE,
 	Long: `ctxloom manages context for AI coding assistants.
@@ -134,6 +134,15 @@ Run 'ctxloom <command> --help' for details on any command.`,
 
 func rootPersistentPostRunE(cmd *cobra.Command, args []string) error {
 	return checkFormatWasHonored(cmd)
+}
+
+func rootPersistentPreRunE(cmd *cobra.Command, args []string) error {
+	rootPersistentPreRun(cmd, args)
+	// Refuse an unsupported machine format HERE, before RunE runs. Returning
+	// an error from PersistentPreRunE stops cobra before dispatch, which is
+	// the whole point: the post-run guard could only report the failure after
+	// the command had already done its work.
+	return refuseUnsupportedFormat(cmd)
 }
 
 func rootPersistentPreRun(cmd *cobra.Command, args []string) {

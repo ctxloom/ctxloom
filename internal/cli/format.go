@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -141,7 +142,51 @@ func checkFormatWasHonored(cmd *cobra.Command) error {
 	if !cliemit.Explicit(cmd) {
 		return nil
 	}
-	return fmt.Errorf("%s: --format %s was accepted but this command does not support it yet (nothing was rendered through it) — rerun without --format, or see format_coverage_test.go's formatDebtAllowlist for the tracked fix", cmd.CommandPath(), format)
+	return unsupportedFormatError(cmd, string(format))
+}
+
+// errFormatUnsupportedFragment is the stable part of both refusals' text. Both
+// the early refusal and the post-run backstop report the same condition, so
+// they share one message rather than drifting into two descriptions of one
+// thing — and tests assert this constant instead of a copied string literal.
+const errFormatUnsupportedFragment = "does not support it yet"
+
+// unsupportedFormatError is the single message for "you asked for a machine
+// format this command cannot produce". It names the remedy, because the
+// refusal is the entire user interface for this failure.
+func unsupportedFormatError(cmd *cobra.Command, format string) error {
+	return fmt.Errorf("%s: --format %s was accepted but this command %s (nothing was rendered through it) — rerun without --format, or see formatDebtAllowlist in internal/cli/format_debt.go for the tracked fix",
+		cmd.CommandPath(), format, errFormatUnsupportedFragment)
+}
+
+// refuseUnsupportedFormat is the PRE-run half of the guard, and the one that
+// makes the failure safe: it refuses before RunE can do any work.
+//
+// checkFormatWasHonored (post-run) cannot do this. It keys off a flag emit()
+// sets, which is only knowable once RunE has already run — so by the time it
+// can tell, a mutating command has already mutated. This half consults the
+// static ledger instead, which knows in advance.
+//
+// Both halves stay. The ledger covers KNOWN debt; the post-run check still
+// catches a command that carries new, untracked debt, so newly-broken commands
+// keep failing loudly instead of silently discarding --format.
+func refuseUnsupportedFormat(cmd *cobra.Command) error {
+	format, err := cliemit.Resolve(cmd)
+	if err != nil || format == clifmt.FormatText {
+		return nil
+	}
+	// Only a format the caller ASKED for can be refused. Off a terminal
+	// Resolve defaults to JSON, so refusing on a derived format would break
+	// every piped and scripted invocation of every debt-carrying command.
+	if !cliemit.Explicit(cmd) {
+		return nil
+	}
+	// CommandPath() is "ctxloom foo bar"; the ledger is keyed "foo bar".
+	path := strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()+" ")
+	if _, tracked := formatDebtAllowlist[path]; !tracked {
+		return nil
+	}
+	return unsupportedFormatError(cmd, string(format))
 }
 
 func init() {

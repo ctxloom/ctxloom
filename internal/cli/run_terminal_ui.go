@@ -116,13 +116,6 @@ func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string
 			}
 			return &tui.Feed{Source: feed.Source, Events: feed.Events, Errs: feed.Errs, Cancel: cancel}, nil
 		},
-		ExportDir: func(harp string) (string, error) {
-			dir, err := paths.HarpDir(harp)
-			if err != nil {
-				return "", err
-			}
-			return dir, os.MkdirAll(dir, 0o755)
-		},
 		Inject: func(harp, text string) (string, error) {
 			if sessionCoord == nil {
 				return "", coord.ErrNotInjectable

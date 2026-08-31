@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -39,8 +38,7 @@ type Model struct {
 	src       Sources
 	ctx       context.Context // parent for watches; overlay-scoped
 	geo       termui.OverlayGeometry
-	prefixKey string    // tea key name of the prefix (e.g. "ctrl+]")
-	copyTo    io.Writer // OSC 52 sink (the tty)
+	prefixKey string // tea key name of the prefix (e.g. "ctrl+]")
 
 	full     bool // full-screen (alt) vs quick panel
 	firstKey bool // next key may be the presentation chord (f = full screen)
@@ -141,14 +139,12 @@ type approvalResultMsg struct {
 }
 
 // NewModel builds the overlay model. prefixByte is the interceptor's key;
-// copyTo receives OSC 52 sequences (the tty in production).
-func NewModel(ctx context.Context, src Sources, geo termui.OverlayGeometry, prefixByte byte, copyTo io.Writer) Model {
+func NewModel(ctx context.Context, src Sources, geo termui.OverlayGeometry, prefixByte byte) Model {
 	m := Model{
 		src:       src,
 		ctx:       ctx,
 		geo:       geo,
 		prefixKey: teaKeyName(prefixByte),
-		copyTo:    copyTo,
 		firstKey:  true,
 		follow:    true,
 		expanded:  map[int]bool{},
@@ -487,12 +483,6 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshFeed()
 		return m, nil
-	case "s":
-		return m.export("txt")
-	case "S":
-		return m.export("ndjson")
-	case "y":
-		return m.copySelection()
 	case "i":
 		return m.openInject()
 	case "a":
@@ -740,92 +730,6 @@ func (m Model) moveUp() (tea.Model, tea.Cmd) {
 		m.refreshFeed()
 	}
 	return m, nil
-}
-
-func (m Model) export(kind string) (tea.Model, tea.Cmd) {
-	if m.feedHarp == "" || len(m.items) == 0 {
-		m.reportOK("nothing to export yet")
-		return m, nil
-	}
-	if m.src.ExportDir == nil {
-		m.reportErr("export unavailable (no session dir)")
-		return m, nil
-	}
-	dir, err := m.src.ExportDir(m.feedHarp)
-	if err != nil {
-		m.reportErr(fmt.Sprintf("export: %v", err))
-		return m, nil
-	}
-	path, err := exportTranscript(dir, m.feedHarp, kind, m.items, m.src.now())
-	if err != nil {
-		m.reportErr(fmt.Sprintf("export: %v", err))
-		return m, nil
-	}
-	m.reportOK("saved " + path)
-	return m, nil
-}
-
-func (m Model) copySelection() (tea.Model, tea.Cmd) {
-	if len(m.items) == 0 {
-		m.reportOK("nothing to copy yet")
-		return m, nil
-	}
-	text := copyText(m.items, m.cursor, m.focus == focusFeed)
-	// osc52Copy("") is the OSC 52 CLEAR-selection form: emitting it would
-	// wipe whatever the user already had on the clipboard and then report
-	// success. The feed has items, but they rendered to nothing (a feed of
-	// pure viewer chrome), so there is nothing to copy — say so.
-	if text == "" {
-		m.reportOK("nothing to copy: the selection holds no transcript content")
-		return m, nil
-	}
-
-	var problems []string
-	copied := false
-	if m.copyTo != nil {
-		if _, err := m.copyTo.Write(osc52Copy(text)); err != nil {
-			problems = append(problems, fmt.Sprintf("clipboard write: %v", err))
-		} else {
-			copied = true
-		}
-	}
-	// OSC 52 is fire-and-forget — a refusing terminal ignores it silently —
-	// so always pair it with a file fallback and say so. That makes the
-	// fallback the only observable delivery: when IT fails the user has no
-	// signal at all, so its failure is reported rather than dropped.
-	fallback := ""
-	if m.src.ExportDir != nil {
-		dir, err := m.src.ExportDir(m.feedHarp)
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("fallback file: %v", err))
-		} else if path, err := exportTranscript(dir, m.feedHarp, "txt", m.selectedItems(), m.src.now()); err != nil {
-			problems = append(problems, fmt.Sprintf("fallback file: %v", err))
-		} else {
-			fallback = "; saved " + path + " in case the terminal ignored it"
-		}
-	}
-
-	switch {
-	case copied:
-		m.status = "copied (OSC 52)" + fallback
-	case fallback != "":
-		m.status = "clipboard unavailable" + fallback
-	default:
-		m.status = ""
-	}
-	if len(problems) > 0 {
-		m.errMsg = "copy: " + strings.Join(problems, "; ")
-	} else {
-		m.errMsg = ""
-	}
-	return m, nil
-}
-
-func (m Model) selectedItems() []feedItem {
-	if m.focus == focusFeed && m.cursor >= 0 && m.cursor < len(m.items) {
-		return m.items[m.cursor : m.cursor+1]
-	}
-	return m.items
 }
 
 // refreshFeed re-renders the feed viewport and keeps the cursor visible

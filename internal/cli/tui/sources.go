@@ -19,9 +19,6 @@ type Sources struct {
 	// Watch opens a harp's observation feed (operations.WatchSessionFeed
 	// behind a cancel).
 	Watch func(ctx context.Context, harp string) (*Feed, error)
-	// ExportDir returns (creating if needed) the directory transcript
-	// exports land in for harp — the harp's ctxloom session dir.
-	ExportDir func(harp string) (string, error)
 	// Inject delivers user-typed text into harp through the serving
 	// coordinator, returning the delivery mode it reports (coord.Delivery*,
 	// internal/agentcoord/coord). Nil when no coordinator is hosted.

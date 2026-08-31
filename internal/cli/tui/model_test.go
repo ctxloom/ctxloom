@@ -1,12 +1,8 @@
 package tui
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -44,9 +40,6 @@ type fakeSources struct {
 	events    map[string]chan operations.SessionFeedEvent
 	cancelled map[string]int
 	exportDir string
-	// exportDirErr, when set, makes ExportDir fail — the fallback-write
-	// failure path for the copy sink.
-	exportDirErr error
 
 	injected   [][2]string // {harp, text} per inject call
 	injectMode string      // "" defaults to DeliveryQueued
@@ -82,14 +75,6 @@ func (f *fakeSources) sources() Sources {
 				Errs:   errs,
 				Cancel: func() { f.cancelled[harp]++ },
 			}, nil
-		},
-		ExportDir: func(string) (string, error) {
-			// Faithful to the production wiring (cli.terminalUISources), whose
-			// ExportDir is `return dir, os.MkdirAll(dir, 0o755)` — a NON-EMPTY
-			// path alongside a non-nil error. The fake must hand back the same
-			// shape, or it silently exempts every consumer from checking the
-			// error before the path.
-			return f.exportDir, f.exportDirErr
 		},
 		Now: func() time.Time { return time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC) },
 		Inject: func(harp, text string) (string, error) {
@@ -184,11 +169,8 @@ func testGeo() termui.OverlayGeometry {
 	return termui.OverlayGeometry{Cols: 100, Rows: 30, PanelRows: 10}
 }
 
-// copyTo is an io.Writer (not *bytes.Buffer) so that passing nil yields a
-// genuinely nil interface — a typed-nil *bytes.Buffer passes the model's
-// `m.copyTo != nil` guard and panics on Write.
-func newTestModel(f *fakeSources, copyTo io.Writer) Model {
-	return NewModel(context.Background(), f.sources(), testGeo(), 0x1d, copyTo)
+func newTestModel(f *fakeSources) Model {
+	return NewModel(context.Background(), f.sources(), testGeo(), 0x1d)
 }
 
 func TestModel_RosterAutoSelectsAndWatches(t *testing.T) {
@@ -196,7 +178,7 @@ func TestModel_RosterAutoSelectsAndWatches(t *testing.T) {
 		RosterRow{Harp: "perky-same-chevy", Engine: "claude-code", State: "live"},
 		RosterRow{Harp: "swift-elm-fox", Agent: "dev", State: "executing", Depth: 1},
 	)
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	assert.Equal(t, []string{"perky-same-chevy"}, f.watched)
 	assert.Equal(t, "live", m.feedSource)
@@ -208,7 +190,7 @@ func TestModel_RosterAutoSelectsAndWatches(t *testing.T) {
 
 func TestModel_FeedEventsAppendAndFollowTail(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	m = pushEntry(t, m, f, entryEv("user", "refactor the parser"))
 	m = pushEntry(t, m, f, entryEv("assistant", "done; deferred: lexer tests"))
@@ -225,7 +207,7 @@ func TestModel_RosterNavigationSwitchesFeed(t *testing.T) {
 		RosterRow{Harp: "h1", State: "live"},
 		RosterRow{Harp: "h2", State: "executing"},
 	)
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	m, cmd := step(t, m, keyMsg("j"))
 	require.NotNil(t, cmd, "selecting another harp opens its feed")
@@ -245,7 +227,7 @@ func TestModel_SelectionMoveReturnsTheModelOpenFeedReset(t *testing.T) {
 		RosterRow{Harp: "h1", State: "live"},
 		RosterRow{Harp: "h2", State: "live"},
 	)
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m = pushEntry(t, m, f, entryEv("user", "old feed content"))
 	m.expanded[0] = true
 	m.follow = false
@@ -270,7 +252,7 @@ func TestModel_StaleFeedOpenIsReleased(t *testing.T) {
 		RosterRow{Harp: "h1", State: "live"},
 		RosterRow{Harp: "h2", State: "live"},
 	)
-	m, cmd := step(t, newTestModel(f, nil), rosterMsg{rows: f.rows})
+	m, cmd := step(t, newTestModel(f), rosterMsg{rows: f.rows})
 	openH1 := cmd() // h1's feedOpenedMsg, not yet applied
 
 	m, cmd = step(t, m, keyMsg("j")) // selection moves to h2 first
@@ -282,7 +264,7 @@ func TestModel_StaleFeedOpenIsReleased(t *testing.T) {
 
 func TestModel_FirstKeyFEntersFullScreen(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	m, cmd := step(t, m, keyMsg("f"))
 	assert.True(t, m.full, "prefix-then-f = full screen")
@@ -301,7 +283,7 @@ func TestModel_FirstKeyFEntersFullScreen(t *testing.T) {
 
 func TestModel_LaterFTogglesFollow(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m, _ = step(t, m, keyMsg("j")) // consume the first-key chord window
 
 	require.True(t, m.follow)
@@ -314,7 +296,7 @@ func TestModel_LaterFTogglesFollow(t *testing.T) {
 
 func TestModel_ExpandCollapse(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m = pushEntry(t, m, f, operations.SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{
 		Type: "tool_result", ToolName: "Bash", ToolOutput: "line1\nline2\nline3",
 	}}}})
@@ -340,7 +322,7 @@ func TestModel_PaneStateIsCoupledNotThreeIndependentSubModels(t *testing.T) {
 		RosterRow{Harp: "h1", Agent: "developer", Engine: "claude-code", State: "live"},
 		RosterRow{Harp: "h2", Agent: "finder", State: "executing"},
 	)
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m = pushEntry(t, m, f, entryEv("user", "one"))
 	m = pushEntry(t, m, f, entryEv("assistant", "two"))
 
@@ -375,7 +357,7 @@ func TestModel_PaneStateIsCoupledNotThreeIndependentSubModels(t *testing.T) {
 
 func TestModel_ScrollbackEnds(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	for i := 0; i < 30; i++ {
 		m = pushEntry(t, m, f, entryEv("assistant", "entry"))
 	}
@@ -393,7 +375,7 @@ func TestModel_ScrollbackEnds(t *testing.T) {
 func TestModel_QuitKeysCancelFeed(t *testing.T) {
 	for _, key := range []string{"q", "ctrl+]"} {
 		f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-		m := openSelected(t, newTestModel(f, nil), f)
+		m := openSelected(t, newTestModel(f), f)
 		m, _ = step(t, m, keyMsg("j")) // past the chord window
 
 		_, cmd := step(t, m, keyMsg(key))
@@ -403,105 +385,9 @@ func TestModel_QuitKeysCancelFeed(t *testing.T) {
 	}
 }
 
-func TestModel_ExportWritesTranscriptFile(t *testing.T) {
-	dir := t.TempDir()
-	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
-	m = pushEntry(t, m, f, entryEv("user", "hello"))
-	m = pushEntry(t, m, f, entryEv("assistant", "world"))
-
-	m, _ = step(t, m, keyMsg("s"))
-	require.Contains(t, m.status, "saved ")
-	path := strings.TrimPrefix(m.status, "saved ")
-	assert.Equal(t, filepath.Join(dir, "transcript-h1-20260707T101500.txt"), path)
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, string(transcriptText(m.items, 100)), string(data))
-
-	m, _ = step(t, m, keyMsg("S"))
-	require.Contains(t, m.status, ".ndjson")
-	ndPath := strings.TrimPrefix(m.status, "saved ")
-	nd, err := os.ReadFile(ndPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(nd), `"type":"user"`)
-	assert.Contains(t, string(nd), `"content":"hello"`)
-}
-
-func TestModel_CopyEmitsOSC52WithFileFallback(t *testing.T) {
-	var copyBuf bytes.Buffer
-	dir := t.TempDir()
-	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, &copyBuf), f)
-	m = pushEntry(t, m, f, entryEv("user", "copy me"))
-
-	m, _ = step(t, m, keyMsg("y"))
-	assert.True(t, strings.HasPrefix(copyBuf.String(), "\x1b]52;c;"),
-		"y emits an OSC 52 clipboard write")
-	assert.Contains(t, m.status, "copied (OSC 52)")
-	assert.Contains(t, m.status, "in case the terminal ignored it",
-		"the fallback file is named for terminals that ignore OSC 52")
-}
-
-// A feed carrying only viewer chrome (gap notices) renders to zero bytes.
-// Exporting it must fail loudly rather than report "saved <path>" for an
-// empty file.
-func TestModel_ExportAllNoticeFeedFailsLoudly(t *testing.T) {
-	dir := t.TempDir()
-	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
-	m = pushEntry(t, m, f, operations.SessionFeedEvent{Gap: 7})
-	require.NotEmpty(t, m.items, "the notice is a real feed item, so the len==0 guard does not fire")
-
-	for _, key := range []string{"s", "S"} {
-		m, _ = step(t, m, keyMsg(key))
-		assert.NotContains(t, m.status, "saved ", "key=%s: nothing was saved", key)
-		assert.Contains(t, m.errMsg, "nothing to export", "key=%s", key)
-	}
-
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	assert.Empty(t, entries, "no 0-byte transcript may be written")
-}
-
-// y on an all-notice feed used to emit OSC 52 with an empty payload — the
-// clear-selection form — wiping the user's clipboard and reporting success.
-func TestModel_CopyAllNoticeFeedRefusesInsteadOfClearingClipboard(t *testing.T) {
-	var copyBuf bytes.Buffer
-	dir := t.TempDir()
-	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, &copyBuf), f)
-	m = pushEntry(t, m, f, operations.SessionFeedEvent{Gap: 7})
-	require.NotEmpty(t, m.items)
-
-	m, _ = step(t, m, keyMsg("y"))
-	assert.Empty(t, copyBuf.String(),
-		"an empty OSC 52 payload is the CLEAR-clipboard sequence; it must never be emitted")
-	assert.NotContains(t, m.status, "copied", "nothing was copied")
-	assert.Contains(t, m.status, "nothing to copy")
-}
-
-// The fallback file exists precisely because OSC 52 is unobservable. When it
-// fails the user has no signal at all, so the failure must be reported.
-func TestModel_CopyReportsFallbackAndSinkFailures(t *testing.T) {
-	dir := t.TempDir()
-	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
-	f.exportDirErr = fmt.Errorf("session dir unavailable")
-	m := openSelected(t, newTestModel(f, failingWriter{}), f)
-	m = pushEntry(t, m, f, entryEv("user", "copy me"))
-
-	m, _ = step(t, m, keyMsg("y"))
-	assert.Contains(t, m.errMsg, "session dir unavailable",
-		"a failed fallback write must reach the user")
-	assert.Contains(t, m.errMsg, "tty gone", "a failed OSC 52 write must reach the user")
-}
-
-type failingWriter struct{}
-
-func (failingWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("tty gone") }
-
 func TestModel_GapRendersNotice(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m = pushEntry(t, m, f, operations.SessionFeedEvent{Gap: 7})
 	assert.Contains(t, m.render(), "7 live events dropped")
 }
@@ -512,14 +398,17 @@ func TestModel_GapRendersNotice(t *testing.T) {
 // must not own that line.
 func TestModel_RosterRefreshDoesNotWipeAnActionOutcome(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m = pushEntry(t, m, f, entryEv("user", "hello"))
 
-	m, _ = step(t, m, keyMsg("s"))
-	require.Contains(t, m.status, "saved ")
+	// Any action that reports an outcome will do; inject is the one the
+	// overlay still has. What is under test is that a BACKGROUND refresh does
+	// not clear it, not the action itself.
+	m, _ = step(t, m, injectResultMsg{harp: "h1", mode: "queued"})
+	require.Contains(t, m.status, "injected into h1")
 
 	m, _ = step(t, m, rosterMsg{rows: f.rows})
-	assert.Contains(t, m.status, "saved ", "a background roster refresh must not eat the export path")
+	assert.Contains(t, m.status, "injected into h1", "a background roster refresh must not eat an action outcome")
 }
 
 // A roster fetch that fails and then succeeds has recovered; the error line
@@ -527,7 +416,7 @@ func TestModel_RosterRefreshDoesNotWipeAnActionOutcome(t *testing.T) {
 // every later refresh for the life of the overlay.
 func TestModel_SuccessfulRosterRefreshClearsTheEarlierRosterError(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	m, _ = step(t, m, rosterErrMsg{err: fmt.Errorf("dial coordinator: refused")})
 	require.Contains(t, m.rosterErr, "dial coordinator: refused")
@@ -558,18 +447,16 @@ func TestModel_HintNotePrecedence(t *testing.T) {
 func TestModel_ASucceedingActionRetiresTheEarlierFailure(t *testing.T) {
 	dir := t.TempDir()
 	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
-	f.exportDirErr = fmt.Errorf("session dir unavailable")
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m = pushEntry(t, m, f, entryEv("user", "hello"))
 
-	m, _ = step(t, m, keyMsg("s"))
-	require.Contains(t, m.errMsg, "session dir unavailable")
+	m, _ = step(t, m, injectResultMsg{harp: "h1", err: fmt.Errorf("no agent bus")})
+	require.Contains(t, m.errMsg, "no agent bus")
 
-	f.exportDirErr = nil
-	m, _ = step(t, m, keyMsg("s"))
-	assert.Contains(t, m.status, "saved ")
+	m, _ = step(t, m, injectResultMsg{harp: "h1", mode: "queued"})
+	assert.Contains(t, m.status, "injected into h1")
 	assert.Empty(t, m.errMsg, "the superseded failure must not outlive the success")
-	assert.Contains(t, m.hintNote(), "saved ", "and the success is what the user actually sees")
+	assert.Contains(t, m.hintNote(), "injected into h1", "and the success is what the user actually sees")
 }
 
 func TestModel_RosterRefreshKeepsSelection(t *testing.T) {
@@ -577,7 +464,7 @@ func TestModel_RosterRefreshKeepsSelection(t *testing.T) {
 		RosterRow{Harp: "h1", State: "live"},
 		RosterRow{Harp: "h2", State: "live"},
 	)
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m, cmd := step(t, m, keyMsg("j"))
 	m, _ = step(t, m, cmd())
 	require.Equal(t, "h2", m.feedHarp)
@@ -591,7 +478,7 @@ func TestModel_RosterRefreshKeepsSelection(t *testing.T) {
 
 func TestModel_FeedClosedReportsEnd(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	close(f.events["h1"])
 	msg := waitEventCmd("h1", m.feed)()
 	m, _ = step(t, m, msg)
@@ -603,7 +490,7 @@ func TestModel_InjectLineOpensTypesAndCancels(t *testing.T) {
 		RosterRow{Harp: "h1", State: "executing"},
 		RosterRow{Harp: "h2", State: "idle"},
 	)
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	m, _ = step(t, m, keyMsg("i"))
 	require.True(t, m.injecting)
@@ -638,7 +525,7 @@ func TestModel_InjectLineOpensTypesAndCancels(t *testing.T) {
 func TestModel_InjectSendRendersDeliveryMode(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "idle"})
 	f.injectMode = coord.DeliveryNewTurn
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	m, _ = step(t, m, keyMsg("i"))
 	m, _ = step(t, m, keyMsg("go left"))
@@ -655,7 +542,7 @@ func TestModel_InjectSendRendersDeliveryMode(t *testing.T) {
 func TestModel_InjectTypedErrorRendersInline(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "ended"})
 	f.injectErr = coord.ErrNotInjectable
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	m, _ = step(t, m, keyMsg("i"))
 	m, _ = step(t, m, keyMsg("hello"))
@@ -670,7 +557,7 @@ func TestModel_InjectTypedErrorRendersInline(t *testing.T) {
 func TestModel_InjectRequiresTargetAndSeam(t *testing.T) {
 	// No observable sessions: i explains instead of opening.
 	f := newFakeSources(t.TempDir())
-	m, _ := step(t, newTestModel(f, nil), rosterMsg{rows: nil})
+	m, _ := step(t, newTestModel(f), rosterMsg{rows: nil})
 	m, _ = step(t, m, keyMsg("i"))
 	assert.False(t, m.injecting)
 	assert.Contains(t, m.status, "no agent selected")
@@ -679,7 +566,7 @@ func TestModel_InjectRequiresTargetAndSeam(t *testing.T) {
 	f2 := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	src := f2.sources()
 	src.Inject = nil
-	m2 := NewModel(context.Background(), src, testGeo(), 0x1d, nil)
+	m2 := NewModel(context.Background(), src, testGeo(), 0x1d)
 	m2, cmd := step(t, m2, rosterMsg{rows: f2.rows})
 	require.NotNil(t, cmd)
 	m2, _ = step(t, m2, cmd())
@@ -713,7 +600,7 @@ func TestModel_ViewFitsItsGeometryExactly(t *testing.T) {
 		{Cols: 10, Rows: 6, PanelRows: 3},
 	} {
 		name := fmt.Sprintf("%dx%d", geo.Cols, geo.PanelRows)
-		m := NewModel(context.Background(), f.sources(), geo, 0x1d, nil)
+		m := NewModel(context.Background(), f.sources(), geo, 0x1d)
 		m, cmd := step(t, m, rosterMsg{rows: f.rows})
 		require.NotNil(t, cmd, name)
 		m, _ = step(t, m, cmd())
@@ -867,7 +754,7 @@ func TestModel_RosterLinesWindowAroundSelection(t *testing.T) {
 		rows[i] = RosterRow{Harp: fmt.Sprintf("h%d", i), State: "live"}
 	}
 	f := newFakeSources(t.TempDir(), rows...)
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	// contentHeight() for the quick panel is testGeo().PanelRows-2 = 8, so
 	// with 20 rows the pane can't show them all — select the LAST row and
@@ -905,7 +792,7 @@ func TestModel_RosterLinesShowAgentNameAtRealisticDepth(t *testing.T) {
 		RosterRow{Harp: "aloof-mean-stove", Agent: "dev", State: "executing", Depth: 0},
 		RosterRow{Harp: "sixth-royal-kelp", Agent: "finder", State: "executing", Depth: 1},
 	)
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	lines := m.rosterLines(m.contentHeight())
 	joined := strings.Join(lines, "\n")
@@ -932,7 +819,7 @@ func TestModel_RosterLinesTruncateNeverBlank(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "aloof-mean-stove", Agent: "coordinator", State: "executing", Depth: 0},
 	)
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	lines := m.rosterLines(m.contentHeight())
 	require.NotEmpty(t, lines)
@@ -942,7 +829,7 @@ func TestModel_RosterLinesTruncateNeverBlank(t *testing.T) {
 
 func TestModel_HeaderShowsAgentEngineMetaSourceAndFollowMarker(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", Agent: "dev", Engine: "claude-code", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	view := m.render()
 	assert.Contains(t, view, "feed: h1 (dev·claude-code) · live · ▼ follow")
@@ -950,7 +837,7 @@ func TestModel_HeaderShowsAgentEngineMetaSourceAndFollowMarker(t *testing.T) {
 
 func TestModel_HeaderOmitsFollowMarkerWhenNotFollowing(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m, _ = step(t, m, keyMsg("j")) // consume the first-key chord window
 	m, _ = step(t, m, keyMsg("f")) // after the first key, f toggles follow off
 
@@ -961,37 +848,8 @@ func TestModel_HeaderOmitsFollowMarkerWhenNotFollowing(t *testing.T) {
 
 func TestModel_HeaderPlaceholderWithNoFeedSelected(t *testing.T) {
 	f := newFakeSources(t.TempDir())
-	m, _ := step(t, newTestModel(f, nil), rosterMsg{rows: nil})
+	m, _ := step(t, newTestModel(f), rosterMsg{rows: nil})
 	assert.Contains(t, m.render(), "feed: —")
-}
-
-// TestModel_ExportDirErrorWinsOverTheReturnedPath pins this. The
-// production ExportDir (cli.terminalUISources) is
-// `return dir, os.MkdirAll(dir, 0o755)`, so on failure it hands back a
-// non-empty path for a directory that does not exist. Every consumer here must
-// treat the error as decisive and never touch that path — otherwise export and
-// the copy fallback would write into an unusable location, or report "saved
-// <path>" for a file nobody can read. Red if any consumer is ever reordered to
-// use the path first.
-func TestModel_ExportDirErrorWinsOverTheReturnedPath(t *testing.T) {
-	dir := t.TempDir()
-	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
-	f.exportDirErr = fmt.Errorf("session dir unavailable")
-
-	var copyBuf bytes.Buffer
-	m := openSelected(t, newTestModel(f, &copyBuf), f)
-	m = pushEntry(t, m, f, entryEv("user", "hello"))
-
-	for _, key := range []string{"s", "S", "y"} {
-		m, _ = step(t, m, keyMsg(key))
-		assert.Contains(t, m.errMsg, "session dir unavailable", "key=%s: the error must reach the user", key)
-		assert.NotContains(t, m.status, "saved ", "key=%s: nothing may be reported as saved", key)
-	}
-
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	assert.Empty(t, entries,
-		"no consumer may write to the path an errored ExportDir returned alongside its error")
 }
 
 // keyForControlByte returns the bubbletea v2 Key that the raw control byte b

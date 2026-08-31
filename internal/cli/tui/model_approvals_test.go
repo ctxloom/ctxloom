@@ -16,7 +16,7 @@ import (
 // selected" hint uses, not a blank panel.
 func TestModel_ApprovalsKeyOnEmptyListHintsWithoutOpening(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	m, cmd := step(t, m, keyMsg("a"))
 	assert.Nil(t, cmd, "an empty list needs no round trip")
@@ -32,7 +32,7 @@ func TestModel_ApprovalsKeyWithNoSeamHintsUnavailable(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	src := f.sources()
 	src.PendingApprovals = nil
-	m := NewModel(context.Background(), src, testGeo(), 0x1d, nil)
+	m := NewModel(context.Background(), src, testGeo(), 0x1d)
 	m, cmd := step(t, m, rosterMsg{rows: f.rows})
 	require.NotNil(t, cmd)
 	m, _ = step(t, m, cmd())
@@ -62,7 +62,7 @@ func TestModel_ApprovalsOpenSelectAndAnswer(t *testing.T) {
 				{MessageID: "m-1", Harp: "child-1", Title: "bash"},
 				{MessageID: "m-2", Harp: "child-2", Title: "write"},
 			}
-			m := openSelected(t, newTestModel(f, nil), f)
+			m := openSelected(t, newTestModel(f), f)
 
 			m, cmd := step(t, m, keyMsg("a"))
 			require.True(t, m.approving)
@@ -95,7 +95,7 @@ func TestModel_ApprovalsOpenSelectAndAnswer(t *testing.T) {
 func TestModel_ApprovalsDeclineNoteAccumulatesSendsAndEscCancelsWithoutAnswering(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	f.approvals = []coord.PendingApproval{{MessageID: "m-1", Harp: "child-1", Title: "bash"}}
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 
 	m, _ = step(t, m, keyMsg("a"))
 	require.True(t, m.approving)
@@ -145,7 +145,7 @@ func TestModel_ApprovalsRefreshOnTickClampsSelectionAndDropsResolved(t *testing.
 		{MessageID: "m-2", Harp: "child-2", Title: "write"},
 		{MessageID: "m-3", Harp: "child-3", Title: "read"},
 	}
-	m := openSelected(t, newTestModel(f, nil), f)
+	m := openSelected(t, newTestModel(f), f)
 	m, _ = step(t, m, keyMsg("a"))
 	m, _ = step(t, m, keyMsg("j"))
 	m, _ = step(t, m, keyMsg("j"))
@@ -174,7 +174,7 @@ func TestModel_ApprovalAnswerWithNoAnswerSeamReportsUnavailable(t *testing.T) {
 	f.approvals = []coord.PendingApproval{{MessageID: "m-1", Harp: "child-1", Title: "bash"}}
 	src := f.sources()
 	src.AnswerApproval = nil
-	m := NewModel(context.Background(), src, testGeo(), 0x1d, nil)
+	m := NewModel(context.Background(), src, testGeo(), 0x1d)
 	m, cmd := step(t, m, rosterMsg{rows: f.rows})
 	require.NotNil(t, cmd)
 	m, _ = step(t, m, cmd())

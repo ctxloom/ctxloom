@@ -234,7 +234,6 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/cli/bundle_items.go#editInEditor":                               "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/cli/llm_turn.go#writeRunStartHandoff":                           "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/cli/run_terminal_ui.go#redirectDiagnosticsForTUI":               "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/cli/tui/export.go#exportTranscript":                             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/contextmetrics/contextmetrics.go#Append":                        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/docsgen/config.go#GenConfig":                                    "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/docsgen/mcp.go#GenMCPTools":                                     "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",

@@ -45,7 +45,7 @@ func NewOverlay(ctx context.Context, src Sources, prefix byte) *Overlay {
 func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry) error {
 	watchCtx, cancel := context.WithCancel(o.ctx)
 	defer cancel()
-	m := NewModel(watchCtx, o.src, geo, o.prefix, tty)
+	m := NewModel(watchCtx, o.src, geo, o.prefix)
 	// Park the cursor at the panel's top-left: the standard renderer paints
 	// downward from where it starts, and the controller cleared/held
 	// everything beneath.

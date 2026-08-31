@@ -244,6 +244,82 @@ service CoordinatorService {
   // deferred with the artifact family: it will land on a dedicated
   // ArtifactTransfer service in artifacts.proto when a consumer exists.
   // The design file is the source of record for those shapes.
+
+  // Attach a human's terminal to a run's live pane, or inject into it.
+  //
+  // WHY A RELAY AND NOT `exec tmux attach`: agents run containerized and
+  // tmux lives INSIDE the container, so a host-side `tmux attach` has no
+  // socket to reach. Relaying the pane's bytes over the coordinator is
+  // the only route that works for a containerized child, and it is
+  // therefore the ONLY route — a host fast-path would be a second
+  // implementation of one concept.
+  //
+  // Concurrent attaches SHARE one pane: output fans out to every client,
+  // input is serialized into the one pty. Detaching NEVER kills the pane;
+  // the pane's lifetime belongs to the run, not to any viewer of it.
+  rpc AttachPane(stream AttachClientFrame) returns (stream AttachPaneFrame);
+}
+
+// AttachClientFrame is the operator->coordinator direction of AttachPane.
+// The FIRST frame MUST be `open`; anything else is refused.
+//
+// PROTOTYPE WIRE, explicitly cheap to change. It carries what a relay
+// needs and nothing speculative: no session ids, no capability
+// negotiation, no scrollback replay.
+message AttachClientFrame {
+  oneof kind {
+    AttachOpen open = 1;
+    // Raw keystrokes, exactly as read from the operator's tty.
+    bytes input = 2;
+    AttachResize resize = 3;
+    AttachInject inject = 4;
+  }
+}
+
+message AttachOpen {
+  // The run whose pane to attach to. Authorization is the SAME ownership
+  // rule every control verb uses (coord.controlTarget): whatever spawned
+  // the run may attach to it.
+  string harp = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+  // read_only attaches for observation: `input` and `inject` frames are
+  // refused rather than ignored, so a viewer cannot silently type into a
+  // run it only meant to watch.
+  bool read_only = 4;
+}
+
+message AttachResize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+// AttachInject delivers text into the pane as a bracketed PASTE (tmux
+// load-buffer + paste-buffer -p), not as synthesized keystrokes. The
+// terminal receives a paste EVENT, which is what makes writing
+// immediately — with no wait for output to fall quiet — safe: a TUI told
+// where a paste begins and ends does not have to guess at its boundary.
+message AttachInject {
+  string text = 1;
+  // submit sends the Enter that actuates the pasted text, as a keypress
+  // separate from the paste itself.
+  bool submit = 2;
+}
+
+// AttachPaneFrame is the coordinator->operator direction.
+message AttachPaneFrame {
+  oneof kind {
+    // Pane bytes as rendered, escape sequences included — this is a UI's
+    // output, so its escapes ARE the content.
+    bytes output = 1;
+    AttachClosed closed = 2;
+  }
+}
+
+message AttachClosed {
+  // exit_code is the pane command's true status.
+  int32 exit_code = 1;
+  string message = 2;
 }
 
 // =============================================================================

@@ -173,38 +173,22 @@ Feature: Coordinator delegates isolated work
     When the agent sends "fixer"'s remembered session a message of kind "result"
     Then the tool call succeeds
 
-  # FAILURE PATH — "nobody decided" is not "the user said no", and the
-  # difference is written into the engine's own durable transcript. When a
-  # child's permission request reaches the bottom of its escalation ladder
-  # with no rung and no human having resolved it (every relay expired), the
-  # engine used to be handed a reject_once option — which claude-code-acp
-  # reports to the model as {behavior:"deny", message:"User refused permission
-  # to run tool"}. ctxloom's own refusal, filed under the operator's name, in
-  # a record the operator cannot correct. The engine is now told the request
-  # was CANCELLED, which is what actually happened.
+  # REMOVED with the orchestrator-routed escalation ladder (2026-08-31). The
+  # scenario's own Given configured a ladder ("whose escalation ladder relays to
+  # a parent that never answers"), so its subject no longer exists.
   #
-  # The observable is the ENGINE's account, not ctxloom's: the mock reports
-  # "granted" for an allow option, "denied" for a reject option and
-  # "dismissed" for the empty option id that is the ACP cancelled reply. So
-  # the scenario reads the verdict the engine itself recorded. BREAK-POINT:
-  # revert resolveApproval's decision==nil arm (or the ladder bottom's
-  # DECISION_CANCEL) and this reads "denied" — the defect, in the engine's own
-  # words.
+  # WHAT IT PROTECTED, recorded because the property outlived the mechanism:
+  # ctxloom must never file a refusal under the OPERATOR'S name. The engine used
+  # to be handed a reject_once option, which claude-code-acp reports to the model
+  # as {behavior:"deny", message:"User refused permission to run tool"} -- a
+  # refusal the operator never made and cannot correct.
   #
-  # A GENUINE decline is deliberately NOT touched by this: an auto_decline
-  # rung, or a parent answering DECISION_DECLINE, still says "refused",
-  # because then someone really did refuse. That boundary is pinned in the
-  # unit suite (TestEngineHost_ApprovalDeclineCancels,
-  # TestApproval_PlanPresetAutoDeclinesFileChange).
-  Scenario: An approval nobody answers is reported to the engine as cancelled, never as the user's refusal
-    Given Alice's coordinator can also delegate to "auditor", whose escalation ladder relays to a parent that never answers
-    When the agent calls tool "agent_run" with:
-      | agent     | auditor          |
-      | prompt    | PERMISSION check |
-      | workspace | none             |
-    Then the tool call succeeds
-    And "auditor"'s spawned session is remembered
-    And "auditor"'s reported turn records the permission verdict "dismissed"
+  # The ruling that replaced the ladder goes FURTHER than this scenario did:
+  # ctxloom answers permission requests at all. The first-party LLM client
+  # handles them natively, and a human reaches that client's own prompt through
+  # the agent's tmux window. Nothing here should be reintroduced to re-assert a
+  # verdict on the operator's behalf.
+
 
   # LOCKED — capability negotiation, from a standing start of NOTHING. The
   # handshake has carried Hello.capabilities since the contract was written and

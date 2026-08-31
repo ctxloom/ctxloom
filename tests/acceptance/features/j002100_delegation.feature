@@ -75,7 +75,7 @@ Feature: Coordinator delegates isolated work
 
   # LOCKED — DURABILITY. Verified: runEnqueued.Permission/MCPServers are
   # written once, at enqueue (children.go's enqueueRun), the same journaling
-  # discipline already applied to the escalation Ladder and for the identical
+  # discipline applied wherever a grant is journaled, for the identical
   # reason: a later config edit must not retroactively rewrite what a LIVE
   # run was actually granted. This is not a tautology about append-only
   # files — the second spawn below proves the edit genuinely took effect
@@ -141,9 +141,9 @@ Feature: Coordinator delegates isolated work
     Then the tool call fails
 
   # FAILURE PATH — a message's `kind` is a security boundary, not a label.
-  # approval_request is the kind the escalation ladder uses when it relays a
-  # child's permission request UP for a decision a human is expected to make;
-  # user_injected and exited are the coordinator's own notices. Until this
+  # approval_request is COORDINATOR-RESERVED and reads to a recipient as a
+  # trust decision made on a child's behalf; user_injected and exited are the
+  # coordinator's own notices. Until this
   # scenario existed, `kind` was whatever the sender said it was: a delegated
   # child could queue an "approval_request" into its coordinator's mailbox and
   # phish a trust decision out of it, complete with a plausible body.
@@ -184,7 +184,7 @@ Feature: Coordinator delegates isolated work
   # refusal the operator never made and cannot correct.
   #
   # The ruling that replaced the ladder goes FURTHER than this scenario did:
-  # ctxloom answers permission requests at all. The first-party LLM client
+  # ctxloom must NEVER answer a permission request at all. The first-party LLM client
   # handles them natively, and a human reaches that client's own prompt through
   # the agent's tmux window. Nothing here should be reintroduced to re-assert a
   # verdict on the operator's behalf.

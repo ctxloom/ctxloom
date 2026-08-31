@@ -54,24 +54,6 @@ type j002100AgentSpec struct {
 	Command    string
 	SecretArg  string
 	Permission string
-	// Escalation is the agent's raw `escalation:` YAML block, already
-	// indented for the agent binding, or "" for none (the overwhelmingly
-	// common case — an agent with no block gets the preset its permissions:
-	// mode implies). Only the "nobody ever answers" scenario declares one,
-	// because only there does the LADDER ITSELF have to be part of the
-	// fixture: it needs a rung that parks and expires inside a test's
-	// patience, which no preset provides (the presets' relay rungs wait 24h
-	// by design — coord.defaultRelayTimeout).
-	Escalation string
-	// LLM is the config.yaml llm label this agent binds to, "" meaning the
-	// shared "fast" mock. Only the "nobody ever answers" scenario names
-	// another, and it has to: the mock backend is deliberately NOT in
-	// coord.viaStartRunBackends, so a mock child rides the legacy go-plugin
-	// Chat dial (operations.PreparedAgentChat.Start) whose ChatRequest never
-	// sets ForwardPermissions — its engine's permission requests are decided
-	// by the driver and never become plane-2 ApprovalRequests. The escalation
-	// ladder is structurally unreachable behind a bare mock child.
-	LLM string
 }
 
 // j002100State is J002100's fixture state: the two configured agents (mutable — the
@@ -84,11 +66,6 @@ type j002100State struct {
 	beforeEdit map[string]*j002100AgentSpec // agent name -> its spec as captured just before an edit
 	snapshots  map[string]j002100RunFact    // "remembered as" label -> captured journal fact
 	harps      map[string]string            // agent name -> its most recently spawned session harp
-	// extraLLMConfigs is any additional `llm.configs:` YAML (already
-	// indented) a scenario needed beyond the shared "fast" mock. Held on the
-	// state, not passed per call, so every LATER re-render — the durability
-	// scenario rewrites config.yaml mid-scenario — keeps it.
-	extraLLMConfigs string
 }
 
 // j002100RunFact is runEnqueued's (coord/facts.go) payload, decoded straight off
@@ -142,16 +119,11 @@ func j002100JoinEntries(entries []j002300TranscriptEntry) string {
 func j002100RenderConfig(j002100 *j002100State) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "version: %d\nllm:\n  configs:\n    fast:\n      type: mock\n", config.CurrentConfigVersion)
-	b.WriteString(j002100.extraLLMConfigs)
+
 	b.WriteString("  defaults:\n    primary: fast\n    fast: fast\nagents:\n")
 	for _, name := range j002100.order {
 		s := j002100.specs[name]
-		label := s.LLM
-		if label == "" {
-			label = "fast"
-		}
-		fmt.Fprintf(&b, "  %s:\n    llm: %s\n    profiles:\n      - %s\n    permissions: %s\n", name, label, s.Profile, s.Permission)
-		b.WriteString(s.Escalation)
+		fmt.Fprintf(&b, "  %s:\n    llm: fast\n    profiles:\n      - %s\n    permissions: %s\n", name, s.Profile, s.Permission)
 	}
 	return b.String()
 }
@@ -290,55 +262,6 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			}
 			if err := w.env.WriteFile(".ctxloom/profiles/fix-profile.yaml", j002100ProfileYAML(j002100.specs[nameB])); err != nil {
 				return err
-			}
-			return w.env.WriteFile(".ctxloom/config.yaml", j002100RenderConfig(j002100))
-		})
-
-	// --- The "nobody ever decided" fixture ---------------------
-	//
-	// A THIRD agent, added on top of the Background's two, whose escalation
-	// ladder is ONE relay_to_role rung with a short timeout and nothing
-	// beneath it. The coordinator in this harness never answers the relayed
-	// approval_request (no step drains it), so the rung expires, the ladder
-	// runs out, and the request reaches the bottom with NO rung and no human
-	// having resolved it — the exact "ctxloom refused, not the operator"
-	// shape. It reuses the Background's review-profile rather than minting
-	// another bundle: this scenario asserts the APPROVAL ANSWER, and the
-	// child's composed context is irrelevant to it.
-	//
-	// WHY THE ENGINE IS `type: acp` DRIVING CTXLOOM'S OWN `acp serve`, and
-	// not the plain mock every other scenario here uses. Only a backend in
-	// coord.viaStartRunBackends rides the StartRun path, and only that path
-	// builds its ChatRequest from coord.harnessSpec — the one place
-	// ForwardPermissions is set. `mock` is deliberately excluded from that
-	// allowlist, so a bare mock child's permission requests never become
-	// plane-2 ApprovalRequests and the escalation ladder is structurally
-	// unreachable behind one. `acp` IS in the allowlist, and ctxloom's own
-	// `acp serve` speaks ACP over stdio with the project's configured engine
-	// — the mock — behind it (tests/integration/acp_agent_test.go drives the
-	// same pair). So the full production chain runs here: mock raises a
-	// permission -> `acp serve` forwards it as session/request_permission ->
-	// the child runner's ACP driver forwards it to the coordinator -> the
-	// ladder decides -> the answer travels all the way back and the mock
-	// reports the verdict it received. Real subprocesses, real wire, no
-	// test-only backend anywhere in it.
-	ctx.Step(`^Alice's coordinator can also delegate to "([^"]*)", whose escalation ladder relays to a parent that never answers$`,
-		func(c context.Context, name string) error {
-			w := worldFrom(c)
-			j002100 := j002100Of(w)
-			j002100.order = append(j002100.order, name)
-			j002100.extraLLMConfigs = fmt.Sprintf("    forwarding:\n      type: acp\n      command: %q\n", w.env.AppBinary+" acp serve")
-			j002100.specs[name] = &j002100AgentSpec{
-				Name: name, Profile: "review-profile", Bundle: "bundle-review",
-				Server: "docs-lookup", Command: "docs-server", SecretArg: "DOCS-SECRET-7e1d44",
-				LLM: "forwarding",
-				// plan, not bypass: bypass auto-accepts every kind at the
-				// first rung and no ladder is ever walked. The explicit
-				// escalation block REPLACES the plan preset entirely
-				// (coord.buildLadder), so this agent's whole ladder is the
-				// one rung below.
-				Permission: "plan",
-				Escalation: "    escalation:\n      - action: relay_to_role\n        role: parent\n        timeout: 2s\n",
 			}
 			return w.env.WriteFile(".ctxloom/config.yaml", j002100RenderConfig(j002100))
 		})
@@ -639,8 +562,8 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 	})
 
 	// --- FAILURE PATH: the mail `kind` vocabulary as a security boundary.
-	// `kind` is not a label — approval_request is the kind the escalation
-	// ladder relays to a HUMAN as a trust decision, so a sender able to set
+	// `kind` is not a label — approval_request reads to a recipient as a
+	// trust decision on a child's behalf, so a sender able to set
 	// it phishes that decision. The vocabulary is closed at the one ingress
 	// every sender funnels through, which is why the refusal below is the
 	// same refusal a delegated child gets.

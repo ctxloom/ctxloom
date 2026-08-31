@@ -38,6 +38,34 @@ func SweepOrphanedWorktrees(ctx context.Context, w io.Writer) {
 	}
 }
 
+// SweepOrphanedContainers runs the startup orphaned-runner-container reaper:
+// container teardown is `defer isolation.RunnerHandle.Kill` inside
+// cli.runState.teardownAll, and a defer never survives SIGKILL, an OOM kill,
+// or a closed terminal — so a killed ctxloom leaves its still-RUNNING
+// container behind with nothing else ever sweeping it (an EXITED container
+// already self-removed via --rm; see isolation.ReapOrphanedContainers's doc).
+//
+// Every OCI runtime available on THIS host is checked, not just whichever one
+// the current launch happens to select: a prior crashed run could have used
+// either docker or podman, and an orphan it left survives until both are
+// swept, not only the one this run picks. Best-effort and silent on the
+// all-clear path; only reports when it actually removed something.
+//
+// Both `ctxloom run` and `ctxloom mcp` call this at startup, mirroring
+// SweepOrphanedWorktrees' symmetry between the two entry points.
+func SweepOrphanedContainers(ctx context.Context, w io.Writer) {
+	ew := iox.NewErrWriter(w)
+	for _, rt := range []isolation.Runtime{isolation.Docker{}, isolation.Podman{}} {
+		if !rt.Available() {
+			continue
+		}
+		result := isolation.ReapOrphanedContainers(ctx, rt)
+		if result.Reaped > 0 {
+			ew.Printf("ctxloom: reaped %d orphaned %s container(s) left by crashed run(s)\n", result.Reaped, rt.Name())
+		}
+	}
+}
+
 // ReportCompanions probes the built-in companion binaries (taskloom, ltk) on
 // PATH and logs each one found with its self-reported version, so a boot
 // transcript shows exactly which companion versions the session was wired

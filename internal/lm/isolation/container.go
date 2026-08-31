@@ -1157,10 +1157,17 @@ func runtimeName(rt Runtime) string {
 // podman require [a-zA-Z0-9][a-zA-Z0-9_.-]*.
 var containerNameSafe = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
 
+// containerNamePrefix is the fixed prefix containerName stamps every ctxloom
+// container name with. ReapOrphanedContainers (container_reap.go) reads this
+// same symbol to scope its Enumerate query and, defense-in-depth, to re-check
+// every candidate it gets back — so a runtime that ever returned something
+// unprefixed (a fake in a test, a future Enumerate bug) can never be reaped.
+const containerNamePrefix = "ctxloom-iso-"
+
 // containerName builds a unique, teardown-targetable container name from the
 // agent id plus a random suffix (concurrent members must not collide).
 func containerName(agentID string) string {
-	return fmt.Sprintf("ctxloom-iso-%s-%s", sanitizeAgentID(agentID), randToken())
+	return fmt.Sprintf("%s%s-%s", containerNamePrefix, sanitizeAgentID(agentID), randToken())
 }
 
 // randToken returns a short random hex token for uniqueness. On the (astronomically

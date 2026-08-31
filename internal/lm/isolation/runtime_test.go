@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -208,6 +209,71 @@ func TestHost_IsNonContainer(t *testing.T) {
 	assert.True(t, h.Available(), "the host can always run a subprocess")
 	assert.Nil(t, h.RunArgs(sampleSpec()))
 	assert.Nil(t, h.RemoveArgs("c1"))
+	infos, err := h.Enumerate(context.Background(), containerNamePrefix)
+	assert.NoError(t, err)
+	assert.Nil(t, infos, "Host launches no containers, so there is never anything to list")
+}
+
+// TestDockerAndPodmanRunArgs_StampOwnerLabels pins the orphan-reap fix at its
+// source: EVERY container this process starts — docker or podman, rootless or
+// not — carries both labels ReapOrphanedContainers reads (labelOwnerPID,
+// labelCreatedAt), stamped with THIS process's own pid. Without this,
+// ReapOrphanedContainers has no signal to work from at all.
+func TestDockerAndPodmanRunArgs_StampOwnerLabels(t *testing.T) {
+	pidLabel := fmt.Sprintf("--label %s=%d", labelOwnerPID, os.Getpid())
+	for _, rt := range []Runtime{Docker{rootless: true}, Docker{rootless: false}, Podman{rootless: true}, Podman{rootless: false}} {
+		joined := strings.Join(rt.RunArgs(sampleSpec()), " ")
+		assert.Contains(t, joined, pidLabel, "%s: owner-pid label", rt.Name())
+		assert.Contains(t, joined, "--label "+labelCreatedAt+"=", "%s: created-at label", rt.Name())
+	}
+}
+
+// TestOciRuntimeEnumerate_ParsesPsOutput pins ociRuntime.enumerate's parsing
+// of `docker/podman ps --format {{.Names}}\t{{json .Labels}}` output: one
+// ContainerInfo per non-blank line, labels decoded from the JSON tail, and a
+// container with no labels at all (docker renders that as the literal `null`)
+// coming back with a nil/empty map rather than an error — exactly the shape
+// classifyContainer's map lookups already treat as "label absent".
+func TestOciRuntimeEnumerate_ParsesPsOutput(t *testing.T) {
+	orig := probeExec
+	t.Cleanup(func() { probeExec = orig })
+
+	var gotBin string
+	var gotArgs []string
+	probeExec = func(_ context.Context, bin string, args []string) (string, error) {
+		gotBin = bin
+		gotArgs = args
+		return "ctxloom-iso-a-1\t{\"ctxloom.owner-pid\":\"123\",\"ctxloom.created-at\":\"2026-01-01T00:00:00Z\"}\n" +
+			"ctxloom-iso-a-2\tnull\n", nil
+	}
+
+	infos, err := (ociRuntime{}).enumerate(context.Background(), "docker", containerNamePrefix)
+	require.NoError(t, err)
+	assert.Equal(t, "docker", gotBin)
+	assert.Contains(t, gotArgs, "name="+containerNamePrefix)
+
+	require.Len(t, infos, 2)
+	assert.Equal(t, "ctxloom-iso-a-1", infos[0].Name)
+	assert.Equal(t, "123", infos[0].Labels[labelOwnerPID])
+	assert.Equal(t, "2026-01-01T00:00:00Z", infos[0].Labels[labelCreatedAt])
+	assert.Equal(t, "ctxloom-iso-a-2", infos[1].Name)
+	assert.Empty(t, infos[1].Labels, "a labelless container's `null` JSON must decode to an empty map, not error")
+}
+
+// TestOciRuntimeEnumerate_PropagatesRunFailure: a probeExec failure (daemon
+// down, timeout) must surface as an error, not as an empty/successful list —
+// ReapOrphanedContainers' caller (SweepOrphanedContainers) treats a nil
+// result identically to "nothing to reap", so silently swallowing a real
+// failure here would look exactly like an all-clear sweep.
+func TestOciRuntimeEnumerate_PropagatesRunFailure(t *testing.T) {
+	orig := probeExec
+	t.Cleanup(func() { probeExec = orig })
+	probeExec = func(context.Context, string, []string) (string, error) {
+		return "", errors.New("daemon unreachable")
+	}
+
+	_, err := (ociRuntime{}).enumerate(context.Background(), "docker", containerNamePrefix)
+	assert.Error(t, err)
 }
 
 // TestContainerHandshakeEnv_Curates keeps ONLY the go-plugin handshake vars

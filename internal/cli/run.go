@@ -655,6 +655,15 @@ func (st *runState) runStartupTasks() {
 		operations.SweepOrphanedWorktrees(st.ctx, os.Stderr)
 	}
 
+	// Startup reaper, container half: sweep any still-RUNNING per-agent
+	// runner container left behind by a crashed/killed prior run — teardown
+	// is a deferred isolation.RunnerHandle.Kill inside teardownAll, and a
+	// defer does not survive SIGKILL/OOM/a closed terminal, so nothing else
+	// ever reaps these. Best-effort, silent unless it found something.
+	if !runDryRun {
+		operations.SweepOrphanedContainers(st.ctx, os.Stderr)
+	}
+
 	// Startup reaper, second half: sweep any per-session ENGINE-HOME instance
 	// left behind by a crashed/killed prior run in this project. Each one holds
 	// a credential copied out of the user's real host home, so this is a

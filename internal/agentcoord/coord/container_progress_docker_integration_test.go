@@ -126,7 +126,6 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*SpawnPl
 		Label:     "fast",
 		Runtime:   "container",
 		Perm:      perm,
-		Ladder:    presetLadder(perm),
 		// The production resolver reads viaStartRunBackends, which does NOT
 		// list "mock" (it is an allowlist of VERIFIED ACP-driven backends). A
 		// mock agent therefore cannot take the StartRun path by configuration

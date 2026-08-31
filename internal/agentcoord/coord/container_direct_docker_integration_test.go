@@ -64,7 +64,6 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*SpawnP
 		Label:       "fast",
 		Runtime:     "container",
 		Perm:        perm,
-		Ladder:      presetLadder(perm),
 		ViaStartRun: true,
 	}, nil
 }

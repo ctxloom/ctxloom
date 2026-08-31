@@ -75,34 +75,6 @@ func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentReque
 	}, nil
 }
 
-func (f *fakeEngineHome) requestedApprovals() []*agentcoordpb.ApprovalRequest {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var out []*agentcoordpb.ApprovalRequest
-	for _, r := range f.requests {
-		if a := r.GetApproval(); a != nil {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
-// interactions returns every InteractionRecorded the host journaled, in emit
-// order — the same accessor shape as requestedApprovals, so a test can assert
-// what the RESOLUTION journal says without hand-rolling the lock + type switch
-// at each call site.
-func (f *fakeEngineHome) interactions() []*agentcoordpb.InteractionRecorded {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var out []*agentcoordpb.InteractionRecorded
-	for _, ev := range f.events {
-		if ir := ev.GetInteraction(); ir != nil {
-			out = append(out, ir)
-		}
-	}
-	return out
-}
-
 func (f *fakeEngineHome) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -298,21 +270,6 @@ type scriptedChat struct {
 	// 1). A one-shot child tears down at the turn boundary only when this is
 	// true (live-confirmed), so a one-shot test must set it.
 	resumable bool
-}
-
-func (s *scriptedChat) recordedAnswers() []agent.PermissionAnswer {
-	s.answersMu.Lock()
-	defer s.answersMu.Unlock()
-	return append([]agent.PermissionAnswer(nil), s.answers...)
-}
-
-// arm (re-)schedules a permission request to forward on the NEXT turn this
-// scripted chat receives (C2 tests: scripting a second approval ask after
-// the first one resolved).
-func (s *scriptedChat) arm(pr *agent.PermissionRequest) {
-	s.mu.Lock()
-	s.permission = pr
-	s.mu.Unlock()
 }
 
 func (s *scriptedChat) recordedTexts() []string {

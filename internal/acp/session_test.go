@@ -450,6 +450,57 @@ func TestChat_ForwardedPermission(t *testing.T) {
 	} // drain to close
 }
 
+// TestChat_PermissionForwardsEvenWithoutTheFlag pins the pass-through ruling:
+// ctxloom NEVER answers an engine permission itself, so the request is surfaced
+// upstream even when the caller did not ask for forwarding and is running a
+// non-bypass posture. That combination is exactly what the deleted local decider
+// turned into a reject_once — which claude-code-acp renders to the model as
+// "User refused permission to run tool", a refusal filed under the operator's
+// name in a record the operator cannot correct. Nothing local may answer again.
+func TestChat_PermissionForwardsEvenWithoutTheFlag(t *testing.T) {
+	// ForwardPermissions deliberately UNSET, with the posture that used to
+	// select the reject option.
+	h := startChat(t, agent.ChatRequest{Permissions: agent.PermissionDefault})
+
+	gotResp := make(chan rpcMessage, 1)
+	go func() {
+		sid := h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		gotResp <- h.fa.requestPermission(sid, permTestOptions)
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+	}()
+
+	h.in <- agent.ChatMessage{Text: "do it"}
+
+	// The engine must still be PARKED: any local decision would already have
+	// resolved its request. Asserted before the event read so a regression dies
+	// here in milliseconds instead of hanging on an event that never comes.
+	select {
+	case resp := <-gotResp:
+		t.Fatalf("ctxloom answered the permission itself instead of forwarding it: %s", resp.Result)
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	// ...and the request must have reached the CALLER, options verbatim.
+	perm := readUntilPermission(t, h.out)
+	require.Len(t, perm.Options, 2)
+	assert.Equal(t, "ao", perm.Options[0].ID)
+
+	h.in <- agent.ChatMessage{Permission: &agent.PermissionAnswer{ID: perm.ID, OptionID: "ao"}}
+
+	resp := <-gotResp
+	require.Nil(t, resp.Error)
+	var body permissionResult
+	require.NoError(t, json.Unmarshal(resp.Result, &body))
+	assert.Equal(t, outcomeSelected, body.Outcome.Outcome)
+	assert.Equal(t, "ao", body.Outcome.OptionId, "the engine must receive the CALLER's option, never a locally chosen one")
+
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range h.out {
+	} // drain to close
+}
+
 // TestChat_ForwardedPermission_Dismissed: an empty-option answer resolves as a
 // cancelled outcome (neither an approval nor a remembered rejection).
 func TestChat_ForwardedPermission_Dismissed(t *testing.T) {

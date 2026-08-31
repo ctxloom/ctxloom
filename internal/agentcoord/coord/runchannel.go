@@ -1312,6 +1312,8 @@ func statusFromErr(err error) *rpcstatus.Status {
 		code = codes.DeadlineExceeded
 	case errors.Is(err, ErrSenderMailKind):
 		code = codes.InvalidArgument
+	case errors.Is(err, ErrDraining):
+		code = codes.Unavailable
 	}
 	return statusErr(code, err.Error())
 }

@@ -68,7 +68,10 @@ type endpointState = discover.State
 // demand when a container child spawns.
 func (c *Coordinator) Serve() error {
 	if c.srv.Load() != nil {
-		return nil
+		return nil // already serving: idempotent no-op, not a new admission
+	}
+	if c.Draining() {
+		return fmt.Errorf("coord: %w", ErrDraining)
 	}
 	s := &coordServing{c: c}
 

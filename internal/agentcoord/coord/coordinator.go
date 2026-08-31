@@ -30,6 +30,15 @@ import (
 // bus socket was just one of two transports wrapping it.
 var ErrNotInjectable = errors.New("inject: target is not a child this coordinator holds or can resume")
 
+// ErrDraining is returned by every admission site (AgentRun, StartOwnedRun,
+// coordService.RunnerChannel's Hello for a runner with nothing already in
+// flight, Serve) once BeginDrain has been called: the coordinator refuses
+// new work, though already-admitted runs continue to completion. Mapped to
+// codes.Unavailable wherever a site answers over gRPC (statusFromErr,
+// runchannel.go) — the refusal is recoverable (retry against a coordinator
+// that isn't draining), never a permanent failure.
+var ErrDraining = errors.New("coordinator is draining: refusing new work (already-admitted runs continue to completion)")
+
 // Delivery modes Inject reports back: which §6a delivery-by-state rule the
 // coordinator applied to the user's text. Relocated from internal/agentbus
 // (D2) — same vocabulary, now native rather than borrowed from the retired
@@ -366,6 +375,21 @@ type Coordinator struct {
 	// readers must not have to take the coordinator's big lock — nor can they
 	// be allowed to observe a half-published coordServing.
 	srv atomic.Pointer[coordServing]
+
+	// admissionClosed is the application-layer DRAIN flag (task
+	// definite-phoniness): BeginDrain sets it once, and every admission
+	// site (AgentRun, StartOwnedRun, RunnerChannel's Hello for a runner
+	// with nothing already in flight, Serve) checks it and returns
+	// ErrDraining instead of admitting new work. It does NOT touch
+	// c.baseCtx, c.srv, or any live attachment — an already-admitted run
+	// keeps running exactly as it would without a drain in progress — and
+	// it is deliberately not consulted by Close(), which is the hard,
+	// immediate teardown (see its own doc): the caller flips this first,
+	// waits for nothing to be left in flight (Roster/WatchRuns), and only
+	// then calls Close(). ATOMIC, not mu-guarded, for the same reason srv
+	// is: every admission site must be able to check it without taking
+	// c.mu.
+	admissionClosed atomic.Bool
 
 	// execGaugeHook, if set (tests only), is sampled synchronously every time
 	// a run's §6a state durably transitions (setState, terminateRun): it
@@ -710,6 +734,33 @@ func (c *Coordinator) adopt() {
 // wg.Wait (bounded escape) → close journals → remove an ephemeral state
 // dir. This guarantees no tracked goroutine touches the state dir after
 // Close() returns (barring the logged bounded-escape case).
+// BeginDrain flips the coordinator into the application-layer DRAINING
+// state: every admission site (AgentRun, StartOwnedRun, RunnerChannel's
+// Hello for a runner with nothing already in flight, Serve) starts
+// returning ErrDraining instead of admitting new work. Already-admitted
+// runs are untouched — this is a one-way, idempotent flip (no
+// corresponding "undrain": nothing in this codebase resumes accepting work
+// after announcing it will not).
+//
+// This is deliberately an APPLICATION-layer drain, not a transport-level
+// one: coordServing.close's doc explains why grpc-go's GracefulStop cannot
+// be used on this server — its only transport (h2c via ServeHTTP) wraps
+// every connection in a serverHandlerTransport whose Drain() is an
+// unconditional panic, and RunChannel/RunnerChannel are perpetual streams
+// a transport-level drain would never resolve against even without that
+// panic. BeginDrain instead closes admission here, at the verbs that mint
+// new work, and leaves the transport alone; the caller is responsible for
+// waiting until nothing is left in flight (Roster/WatchRuns) before
+// calling Close().
+func (c *Coordinator) BeginDrain() {
+	c.admissionClosed.Store(true)
+}
+
+// Draining reports whether BeginDrain has been called.
+func (c *Coordinator) Draining() bool {
+	return c.admissionClosed.Load()
+}
+
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
 		c.tracked.seal()

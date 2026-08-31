@@ -272,6 +272,9 @@ type RunOutcome struct {
 // set: it is not even a config key any longer, precisely so no channel an
 // agent can reach (config, env, argv) can grant it.
 func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt, workspace string, dirtyTreeHandler operations.DirtyTreeHandler) (*RunOutcome, error) {
+	if c.Draining() {
+		return nil, fmt.Errorf("agent_run: %w", ErrDraining)
+	}
 	if agentName == "" {
 		return nil, errors.New("agent_run: agent is required (a configured agent name; see `ctxloom agent list`)")
 	}

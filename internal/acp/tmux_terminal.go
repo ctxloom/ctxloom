@@ -165,9 +165,14 @@ func (l *localTerminals) ensureSession(ctx context.Context) error {
 				return fmt.Errorf("create tmux session %q: %w", tmuxSessionName, err)
 			}
 		}
-		if _, err := l.runner.Run(ctx, "set-option", "-g", "remain-on-exit", "on"); err != nil {
-			return fmt.Errorf("configure tmux session %q: %w", tmuxSessionName, err)
-		}
+	}
+	// Configure UNCONDITIONALLY, not only on the create path. The session
+	// routinely outlives the process that made it (nothing tears this server
+	// down), so adopting an existing one is the normal case, not the exotic
+	// one — and an adopted server that skipped this would behave differently
+	// from a freshly created one for the rest of its life.
+	if _, err := l.runner.Run(ctx, "set-option", "-g", "remain-on-exit", "on"); err != nil {
+		return fmt.Errorf("configure tmux session %q: %w", tmuxSessionName, err)
 	}
 	l.mu.Lock()
 	l.ensured = true

@@ -17,7 +17,30 @@
 # the CLI no longer vendors its own), curl + ca-certificates (fetches, the kiro
 # installer), unzip (installer archives), jq (ubiquitous in hook scripts),
 # strace (the read-observation isolation probe wraps the engine exec in it —
-# harmless without CAP_SYS_PTRACE, which only the probe run grants).
+# harmless without CAP_SYS_PTRACE, which only the probe run grants), tmux (see
+# below).
+#
+# WHY tmux IS HERE, and what it is NOT for. It serves ACP terminal/*: when
+# acp_local_terminal is on and an engine asks ctxloom to run a command, ctxloom
+# runs it in a tmux window (internal/acp). For a CONTAINERIZED engine that
+# command runs in the container, so tmux has to be here or the feature simply
+# cannot work there.
+#
+# It is NOT the path by which a human watches a containerized agent. That was
+# considered and rejected: tmux is client/server and the server lives where its
+# socket is, so a host `tmux attach` cannot see a socket inside the container.
+# Reaching it would mean `<runtime> exec -it <container> tmux attach`, which
+# nests a container tmux client inside the operator's own host tmux — two
+# servers, colliding prefix keys, and a container name to look up. The display
+# path instead relays the engine's pty to a client the operator runs in their
+# OWN tmux, which works identically for host and container runtimes and needs
+# nothing in this image.
+#
+# Bind-mounting the socket directory was also rejected: the tmux client/server
+# protocol is version-coupled, so a host tmux built against a different version
+# than this image's fails at the handshake, and the socket carries the
+# container's uid mapping besides. Running the server on the host is not
+# possible at all -- tmux cannot spawn a process into another namespace.
 FROM node:22-slim
 
 # Default TERM so interactive agent runs get color/ANSI. The runtime starts
@@ -30,5 +53,5 @@ ENV TERM=xterm-256color \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        git ripgrep curl ca-certificates unzip jq strace \
+        git ripgrep curl ca-certificates unzip jq strace tmux \
     && rm -rf /var/lib/apt/lists/*

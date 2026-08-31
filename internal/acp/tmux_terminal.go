@@ -223,6 +223,23 @@ func (l *localTerminals) ensureSession(ctx context.Context) error {
 	if _, err := l.runner.Run(ctx, "set-option", "-g", "remain-on-exit", "on"); err != nil {
 		return fmt.Errorf("configure tmux session %q: %w", tmuxSessionName, err)
 	}
+	// Block the clipboard escape. tmux defaults set-clipboard to "external",
+	// which forwards an application's OSC 52 clipboard-write OUTWARD to the
+	// parent terminal — and everything rendered in these windows is agent
+	// output (tool results, file contents, fetched pages), so the default lets
+	// a run set the OPERATOR'S clipboard. Not code execution, but a poisoned
+	// clipboard is a real phishing primitive: you paste what you believe you
+	// copied. It matters most for a CONTAINERIZED agent, where the container
+	// exists precisely so its output does not reach host state.
+	//
+	// Set HERE, on ctxloom's own throwaway server, because that is the layer
+	// ctxloom controls: the operator's personal tmux is theirs to configure and
+	// must not be assumed. Server-wide -g like remain-on-exit above, and for
+	// the same reason (see that doc): an adopted server must end up configured
+	// identically to a freshly created one.
+	if _, err := l.runner.Run(ctx, "set-option", "-g", "set-clipboard", "off"); err != nil {
+		return fmt.Errorf("configure tmux session %q: %w", tmuxSessionName, err)
+	}
 	l.mu.Lock()
 	l.ensured = true
 	l.mu.Unlock()

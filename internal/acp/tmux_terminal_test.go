@@ -245,9 +245,9 @@ func TestLocalTerminals_Create_TmuxMissing_FailsLoud(t *testing.T) {
 // failure.
 func TestLocalTerminals_EnsureSession_ToleratesConcurrentCreateRace(t *testing.T) {
 	r := &sequencedRunner{steps: []stepResult{
-		{args0: "has-session", err: errors.New("no such session")},       // first probe: missing
-		{args0: "new-session", err: errors.New("duplicate session")},     // lost the race to create it
-		{args0: "has-session", err: nil},                                 // re-check: it exists now
+		{args0: "has-session", err: errors.New("no such session")},   // first probe: missing
+		{args0: "new-session", err: errors.New("duplicate session")}, // lost the race to create it
+		{args0: "has-session", err: nil},                             // re-check: it exists now
 	}}
 	l := newLocalTerminals(r, t.TempDir())
 	assert.NoError(t, l.ensureSession(context.Background()))

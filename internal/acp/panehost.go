@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 )
@@ -63,11 +62,6 @@ type PaneClient interface {
 // the two want different remedies, and prose is not a contract.
 var ErrNoPane = errors.New("no live pane for this run")
 
-// ErrReadOnly refuses a write from a viewer that attached to observe. It is a
-// REFUSAL rather than a silent drop: a caller that believes it typed into a
-// run and did not is exactly this project's characteristic bug.
-var ErrReadOnly = errors.New("this attachment is read-only")
-
 // NewPaneHost builds a pane host over a tmux runner. tmpDir holds the capture
 // and paste-buffer files.
 func NewPaneHost(runner tmuxRunner, tmpDir string) *PaneHost {
@@ -115,9 +109,7 @@ func (h *PaneHost) Start(ctx context.Context, harp string, spec PaneSpec) error 
 	}
 	h.mu.Unlock()
 
-	term, err := h.terms.host(ctx, hostSpec{
-		Command: spec.Command, Args: spec.Args, Cwd: spec.Cwd, Env: spec.Env,
-	})
+	term, err := h.terms.host(ctx, hostSpec(spec))
 	if err != nil {
 		return err
 	}
@@ -211,55 +203,6 @@ func (h *PaneHost) Resize(ctx context.Context, harp string, cols, rows int) erro
 	_, err = h.terms.runner.Run(ctx, "resize-window", "-t", p.term.window,
 		"-x", fmt.Sprint(cols), "-y", fmt.Sprint(rows))
 	return err
-}
-
-// Inject writes text into harp's pane as a BRACKETED PASTE, and optionally
-// sends the Enter that actuates it.
-//
-// It writes IMMEDIATELY. There is no wait for the pane to fall quiet, because
-// bracketed paste is what makes waiting unnecessary: paste-buffer -p wraps the
-// text in the paste-start/paste-end sequences, so the program in the pane
-// receives a paste EVENT with explicit boundaries instead of a run of
-// synthesized keystrokes it has to guess the extent of. A TUI told where a
-// paste ends does not swallow the following carriage return as literal text,
-// which is the failure the old quiet-then-type path existed to dodge.
-//
-// The submit is a SEPARATE tmux command, so it reaches the program as a
-// keypress in its own read rather than as the paste's last byte.
-func (h *PaneHost) Inject(ctx context.Context, harp, text string, submit bool) error {
-	p, err := h.pane(harp)
-	if err != nil {
-		return err
-	}
-
-	// load-buffer takes a FILE, not stdin, because tmuxRunner deliberately
-	// exposes only argv — a stdin seam would exist solely for this one call
-	// and would have to be threaded through every fake.
-	buf := filepath.Join(h.terms.tmpDir, "ctxloom-paste-"+p.term.channel)
-	if werr := os.WriteFile(buf, []byte(text), 0o600); werr != nil {
-		return fmt.Errorf("pane host: stage paste for %q: %w", harp, werr)
-	}
-	defer func() { _ = os.Remove(buf) }()
-
-	name := "ctxloom-" + p.term.channel
-
-	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
-	if _, err := h.terms.runner.Run(ctx, "load-buffer", "-b", name, buf); err != nil {
-		return fmt.Errorf("pane host: load paste buffer for %q: %w", harp, err)
-	}
-	// -d deletes the buffer after pasting, so a paste cannot be replayed by
-	// whatever else reads tmux buffers; -p is the bracketing itself.
-	if _, err := h.terms.runner.Run(ctx, "paste-buffer", "-d", "-p", "-b", name, "-t", p.term.window); err != nil {
-		return fmt.Errorf("pane host: paste into %q: %w", harp, err)
-	}
-	if !submit {
-		return nil
-	}
-	if _, err := h.terms.runner.Run(ctx, "send-keys", "-t", p.term.window, "Enter"); err != nil {
-		return fmt.Errorf("pane host: submit paste in %q: %w", harp, err)
-	}
-	return nil
 }
 
 // Stop destroys harp's pane and tells every attached viewer it closed. This

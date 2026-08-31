@@ -119,7 +119,9 @@ func TestPaneHost_DetachDoesNotKillThePane(t *testing.T) {
 	defer stay()
 
 	waitFor(t, "precondition: both viewers must be receiving before one leaves",
-		func() bool { return strings.Contains(leaving.text(), "TICK-") && strings.Contains(staying.text(), "TICK-") })
+		func() bool {
+			return strings.Contains(leaving.text(), "TICK-") && strings.Contains(staying.text(), "TICK-")
+		})
 
 	detach()
 
@@ -232,7 +234,7 @@ func TestPaneHost_InjectPastesAndSubmits(t *testing.T) {
 		_, perr := h.pane("delta")
 		return perr == nil
 	})
-	require.NoError(t, h.Inject(ctx, "delta", "injected-5b2c", true))
+	require.NoError(t, h.Injector().Inject(ctx, "delta", "injected-5b2c", true))
 
 	waitFor(t, "an injected paste must reach the program AND be submitted",
 		func() bool { return strings.Contains(r.text(), "PASTED-[injected-5b2c]") })
@@ -260,7 +262,7 @@ func TestPaneHost_InjectWithoutSubmitDoesNotActuate(t *testing.T) {
 		_, perr := h.pane("epsilon")
 		return perr == nil
 	})
-	require.NoError(t, h.Inject(ctx, "epsilon", "staged-1a7e", false))
+	require.NoError(t, h.Injector().Inject(ctx, "epsilon", "staged-1a7e", false))
 
 	// Give the paste time to land and the shell time to have reacted if it
 	// were going to. The absence being asserted is only meaningful after the

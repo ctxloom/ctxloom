@@ -218,6 +218,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"acp run":   {skip: "requires a configured ACP-type llm label (--llm) and spawns a real third-party ACP-speaking subprocess via the plugin door; covered directly by acp_run_cmd_test.go's stub-Factory tests instead"},
 	"mcp":       {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
 	"mcp serve": {skip: "serve: runs the stdio MCP server"},
+	"attach":    {skip: "long-running + needs a real tty: relays a run's pane in raw mode until detach, so it renders no result at all; its two decidable pieces (endpoint resolution and exit-code mapping) are tested directly in attach_cmd_test.go"},
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
 	"session transcript watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},

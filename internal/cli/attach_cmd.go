@@ -127,7 +127,9 @@ func (coordBearer) RequireTransportSecurity() bool { return false }
 
 // paneConn adapts the generated client to attach.Conn, which exists so the
 // relay can be driven without a server.
-type paneConn struct{ client agentcoordpb.CoordinatorServiceClient }
+type paneConn struct {
+	client agentcoordpb.CoordinatorServiceClient
+}
 
 func (p paneConn) AttachPane(ctx context.Context) (attach.Stream, error) {
 	return p.client.AttachPane(ctx)

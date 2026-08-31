@@ -902,7 +902,7 @@ message PeerSendRequest {
   // `text` or `structured` to point a peer at one.
   reserved 5;
   string in_reply_to = 6 [(field_schema) = {
-    doc: "Correlates this reply to an earlier inbound PeerMessage.message_id. It is the ONLY correlation key. Set it to a relayed approval_request's message_id to answer that approval, and put the ApprovalDecision in `structured`; a resolved approval reports delivery: DELIVERY_DELIVERED, so DELIVERY_QUEUED on an approval reply means it was NOT honoured.",
+    doc: "Correlates this reply to an earlier inbound PeerMessage.message_id. It is the ONLY correlation key — set it to a coordinator question's message_id to answer that question.",
     example: "\"m-7f856e302456956b4f91ee01\""
   }];
 }
@@ -1350,7 +1350,7 @@ message PeerMessage {
   string from_run_id = 3;
   string text = 4;
   google.protobuf.Struct structured = 5 [(field_schema) = {
-    doc: "Structured companion the sender attached, when there is one. A message whose `kind` is MESSAGE_KIND_APPROVAL_REQUEST carries the escalation ladder's ApprovalRequest projection here and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first. This object no longer carries the message kind — read the `kind` field."
+    doc: "Structured companion the sender attached, when there is one. This object no longer carries the message kind — read the `kind` field."
   }];
   // 6 was artifacts (repeated ArtifactRef), REMOVED:
   // no producer ever set it, so agent_recv advertised an artifacts array

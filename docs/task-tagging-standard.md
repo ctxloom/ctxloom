@@ -214,6 +214,37 @@ A SPLIT task — part here, part elsewhere — carries both `repo:` and the loca
 
 ---
 
+## Admitted to a dated work queue — `queue:`
+
+    queue:20260830
+
+`queue:<YYYYMMDD>` marks a row as ADMITTED to the work queue for that date —
+typically an overnight or unattended run. It is a statement of FACT about what
+was taken on, not an aspiration about what might get done, which is why the
+value is the date the queue ran rather than a target or a due date.
+
+It exists to make one question answerable in a single query, after the fact and
+by someone who was not there:
+
+```
+taskloom list --tag-query 'queue:20260830'
+```
+
+Deliberately NOT the things it resembles:
+
+- not `landed:` — `landed:` says work is finished and waiting on a merge.
+  `queue:` says only that it was ADMITTED. A queued row may end the night done,
+  partly done, or untouched because something earlier ate the time.
+- not `triage:blocks-release=` — that is a milestone the work is aimed at, and
+  it survives being missed. A `queue:` date is history and never moves; if work
+  slips to another night it gains a SECOND `queue:` tag rather than editing the
+  first.
+
+It is therefore REPEATABLE, and a row carrying several `queue:` dates is the
+useful signal that something keeps being admitted and keeps not landing.
+
+---
+
 ## Work that has LANDED but is not merged — `landed:`
 
 There is a state between "still to do" and "done", and it is where most work

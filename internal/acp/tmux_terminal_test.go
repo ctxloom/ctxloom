@@ -209,6 +209,31 @@ func TestLocalTerminals_Release_KillsIfStillRunningThenForgetsHandle(t *testing.
 	assert.NoError(t, err)
 }
 
+// TestLocalTerminals_Release_AlsoKillsAnAlreadyFinishedTerminal: a terminal
+// that already exited on its own still has a live tmux window behind it
+// (remain-on-exit keeps the dead pane around) — release must kill it too,
+// not only a still-running one, or the window leaks in the tmux session for
+// the life of the server. Measured driving this end to end against real
+// tmux: a released-but-never-killed window survived in `tmux ... list-windows`
+// after the whole chat had ended.
+func TestLocalTerminals_Release_AlsoKillsAnAlreadyFinishedTerminal(t *testing.T) {
+	f := newFakeTmuxRunner()
+	l := newLocalTerminals(f, t.TempDir())
+	resp, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "echo", Args: []string{"hi"}})
+	require.NoError(t, err)
+
+	term, ok := l.lookup(resp.TerminalId)
+	require.True(t, ok)
+	require.NoError(t, os.WriteFile(term.statusPath, []byte("0\n"), 0o600))
+	// Establish that the terminal is known to be FINISHED before releasing.
+	_, err = l.wait(context.Background(), api.WaitForTerminalExitRequest{TerminalId: resp.TerminalId})
+	require.NoError(t, err)
+
+	_, err = l.release(context.Background(), api.ReleaseTerminalRequest{TerminalId: resp.TerminalId})
+	require.NoError(t, err)
+	assert.True(t, f.calledWith("kill-window"), "release of an already-finished terminal must still kill its window")
+}
+
 // TestLocalTerminals_UnknownId_Errors covers output/wait/kill against an id
 // that was never created.
 func TestLocalTerminals_UnknownId_Errors(t *testing.T) {

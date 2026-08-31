@@ -368,9 +368,15 @@ func (l *localTerminals) kill(ctx context.Context, req api.KillTerminalRequest) 
 	return api.KillTerminalResponse{}, nil
 }
 
-// release answers terminal/release: forgets the handle, killing the
-// terminal first (best-effort) if nothing has marked it finished yet —
-// ReleaseTerminalRequest's own doc: "free its resources". Releasing an
+// release answers terminal/release: forgets the handle and frees its
+// resources — ReleaseTerminalRequest's own doc: "free its resources".
+// kill-window runs UNCONDITIONALLY, not only for a still-running terminal: a
+// naturally-exited command leaves remain-on-exit's dead pane (and its
+// window) sitting in the tmux session forever otherwise — measured, driving
+// this end to end, a released-but-never-killed window survived in
+// `tmux -L ctxloom-acp-terminal list-windows` after the whole chat ended.
+// kill-window on an already-dead or already-gone window is harmless (an
+// ignored error), so there is no cost to always trying. Releasing an
 // already-released or unknown id is a benign no-op, matching
 // ReleaseTerminalResponse's empty, error-free shape.
 func (l *localTerminals) release(ctx context.Context, req api.ReleaseTerminalRequest) (api.ReleaseTerminalResponse, error) {
@@ -384,13 +390,8 @@ func (l *localTerminals) release(ctx context.Context, req api.ReleaseTerminalReq
 		return api.ReleaseTerminalResponse{}, nil
 	}
 
-	t.mu.Lock()
-	running := t.exitStatus == nil
-	t.mu.Unlock()
-	if running {
-		_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
-		_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
-	}
+	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
+	_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
 	_ = os.Remove(t.outputPath)
 	_ = os.Remove(t.statusPath)
 	return api.ReleaseTerminalResponse{}, nil

@@ -11,12 +11,12 @@ parents:
 # so it pulls agents toward itself against project guidance. Re-link only once
 # an agent gets its own serena rooted at its own working directory.
 bundles:
-    # unattended carries two coordinator-only skills. good-night works an
-    # admitted queue while the human is asleep, stopping at anything hard to
-    # reverse or environment-endangering. prompt-human finds what is blocked on
-    # a human decision and puts each one as a question that loads their
-    # situational context, since they know the project but are running several
-    # threads and cannot tell which one a question belongs to.
+    # unattended carries the coordinator-only skills: working an admitted queue
+    # unattended, closing out a turn, deciding a design in a test, and putting
+    # blocked decisions to a human. Deliberately NOT enumerated by name or
+    # count — this comment previously said "two skills" and named one that had
+    # since been renamed, which is the unchecked binding this project's own
+    # rules forbid. `ctxloom skill list` answers it in seconds and cannot rot.
     #
     # Coordinator-only by design — merging, reaping worktrees, owning the
     # morning report and holding the decision queue are this role's job, not a
@@ -25,10 +25,14 @@ bundles:
     # LOCAL COPY, not the remote ref, and that is NOT a preference: the remote
     # fetcher resolves a bundle ref to `<name>.yaml`, a single file, so
     # directory-form bundles cannot be fetched — and a bundle carrying a skill
-    # MUST be directory-form. Source of truth remains ctxloom-personal
-    # @bundles/unattended (pushed, signed by ben@abbitt.me); this is a copy that
-    # will drift. Swap this back to the remote URL once the fetcher supports
-    # directory bundles. See taskloom.
+    # MUST be directory-form.
+    #
+    # THIS COPY IS NOW THE SOURCE OF TRUTH (ruled 2026-08-30). It previously
+    # deferred to ctxloom-personal@bundles/unattended, but the two diverged —
+    # the personal copy still carried a skill under its pre-rename name and
+    # lacked closeout entirely — so the personal copy was DELETED rather than
+    # resynced. Two copies with no mechanism keeping them equal is exactly the
+    # drift that produced the divergence; keeping one is the fix.
     - unattended
 # NOTE (2026-07-22): deny_tools deliberately does NOT list Task. Task is
 # claude-code's internal coordination mechanism and stays available. The

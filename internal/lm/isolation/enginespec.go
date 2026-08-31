@@ -2,11 +2,8 @@ package isolation
 
 import (
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // engineContainerSpec describes how ONE engine's containerized run is provisioned —
@@ -383,43 +380,6 @@ func composableEngines() []string {
 // (which would cycle: backends already imports isolation).
 func ComposableEngines() []string {
 	return composableEngines()
-}
-
-// resolveEngines normalizes a configured isolation_engines set (config /
-// --engines) against composableEngines(): empty/nil means "every known
-// fragment" (the default, biggest-image, "one instance runs any engine"
-// posture); a configured set is filtered to known engines in
-// composableEngines() ORDER (never widened) — an unknown or non-composable
-// name is DROPPED with a warning rather than silently ignored or promoted to
-// "use everything".
-func resolveEngines(configured []string) []string {
-	if len(configured) == 0 {
-		return composableEngines()
-	}
-	// Canonicalized on the way in: composableEngines() is canonical, so a
-	// configured alias matched raw would be dropped as "unknown" and quietly
-	// trim a real engine out of the composed image.
-	want := map[string]bool{}
-	for _, c := range configured {
-		want[agent.CanonicalEngineName(c)] = true
-	}
-	var out []string
-	for _, e := range composableEngines() {
-		if want[e] {
-			out = append(out, e)
-			delete(want, e)
-		}
-	}
-	if len(want) > 0 {
-		unknown := make([]string, 0, len(want))
-		for name := range want {
-			unknown = append(unknown, name)
-		}
-		sort.Strings(unknown)
-		clidiag.Warn("ctxloom", "isolation_engines: unknown or non-composable engine(s) %s (known: %s); dropping them from the composed agent image",
-			strings.Join(unknown, ", "), strings.Join(composableEngines(), ", "))
-	}
-	return out
 }
 
 // engineContainerSpecFor maps a registered backend name to its container spec.

@@ -288,19 +288,6 @@ func TestComposeAgentContainerfile_CodexIncludesACPAdapter(t *testing.T) {
 	assert.Contains(t, cf, "command -v codex-acp", "a hard validate gate must prove the adapter actually landed, not just be requested")
 }
 
-// TestResolveEngines pins the default/override/unknown-filtering behaviour:
-// empty config = every known fragment; a configured subset is reordered to
-// composableEngines()'s DETERMINISTIC order (never the caller's order); an
-// unknown/non-composable name is dropped, never silently promoted to "use
-// everything".
-func TestResolveEngines(t *testing.T) {
-	assert.Equal(t, composableEngines(), resolveEngines(nil), "empty config = every known fragment")
-	assert.Equal(t, []string{"claude-code", "kiro"}, resolveEngines([]string{"kiro", "claude-code"}),
-		"reordered to composableEngines() order regardless of input order")
-	assert.Equal(t, []string{"claude-code"}, resolveEngines([]string{"claude-code", "not-a-real-engine"}),
-		"an unknown engine is dropped, not promoted to \"use everything\"")
-}
-
 // TestOverlayContainerfile pins the generated overlay: the base FROM, the
 // client validate gate, the ctxloom + companions + entrypoint layers, the
 // ctxloom entrypoint replacing the base's (identity remap; the runtime

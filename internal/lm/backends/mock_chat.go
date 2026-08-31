@@ -3,6 +3,7 @@ package backends
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -17,7 +18,7 @@ var _ agent.StructuredChat = (*Mock)(nil)
 // can be conformance-tested hermetically. The default turn is an ECHO: one
 // assistant entry ("mock chat: <text>") plus a completion, with the echoed text
 // proving exactly what was delivered to the engine (context lead blocks
-// included). Two message markers script the control paths:
+// included). Message markers script the control paths:
 //
 //   - "PERMISSION" (with ForwardPermissions): the turn emits a permission
 //     request (options allow/reject) and parks until the answer arrives, then
@@ -25,6 +26,15 @@ var _ agent.StructuredChat = (*Mock)(nil)
 //   - "HANG": the turn parks without completing until a CancelTurn message
 //     arrives, then completes with StopReason "cancelled" — the per-turn cancel
 //     seam, exercised without a real engine.
+//   - "TERMINAL": the turn raises a sequence of ChatEvent.Terminal requests
+//     (create, wait_for_exit, output, a second create + kill, both released),
+//     parking on each TerminalResponse in turn, then echoes what it observed
+//     ("mock chat: terminal output=... killed=..."). Exercises the SAME
+//     forwarding carrier a real engine's terminal/* call rides
+//     (internal/shared/agent.TerminalRequest/TerminalResponse) — this file
+//     never talks to tmux or ACP directly, only to whatever answers on the
+//     other end (acpagent.forwardTerminal, then either an upstream editor or
+//     internal/acp's own tmux-backed local path).
 //   - "TOOLS": the turn emits the FULL entry vocabulary a real engine produces
 //     — thinking, tool_use, tool_result, assistant — before completing. A
 //     container-progress liveness check asserts entry-type VARIETY, which is
@@ -67,6 +77,17 @@ func (b *Mock) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.
 					return nil // input closed mid-park
 				}
 				if !send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "mock chat: permission " + verdict}}) || !complete("end_turn") {
+					return ctx.Err()
+				}
+			case strings.Contains(msg.Text, "TERMINAL"):
+				verdict, ok := b.chatTerminalTurn(ctx, in, send)
+				if !ok {
+					return ctx.Err()
+				}
+				if verdict == "" {
+					return nil // input closed mid-park
+				}
+				if !send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "mock chat: terminal " + verdict}}) || !complete("end_turn") {
 					return ctx.Err()
 				}
 			case strings.Contains(msg.Text, "TOOLS"):
@@ -206,4 +227,103 @@ func (b *Mock) chatHangTurn(ctx context.Context, in <-chan agent.ChatMessage) (s
 			}
 		}
 	}
+}
+
+// mockTerminalCall issues one ChatEvent.Terminal request (op, params) and
+// parks until the matching TerminalResponse arrives, returning its Result
+// (or an error string on failure/close/ctx death — never both empty, the
+// same discipline TerminalResponse's own doc names).
+func (b *Mock) mockTerminalCall(ctx context.Context, in <-chan agent.ChatMessage, send func(agent.ChatEvent) bool, id, op string, params map[string]any) (json.RawMessage, string) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err.Error()
+	}
+	if !send(agent.ChatEvent{Terminal: &agent.TerminalRequest{ID: id, Op: op, Params: raw}}) {
+		return nil, "chat ended before the terminal request could be sent"
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, "context cancelled while waiting for terminal/" + op
+		case msg, ok := <-in:
+			if !ok {
+				return nil, "input closed while waiting for terminal/" + op
+			}
+			if msg.Terminal == nil || msg.Terminal.ID != id {
+				continue // stray message between this call and its answer
+			}
+			if msg.Terminal.Error != "" {
+				return nil, msg.Terminal.Error
+			}
+			return msg.Terminal.Result, ""
+		}
+	}
+}
+
+// chatTerminalTurn scripts one end-to-end exercise of the terminal/*
+// forwarding carrier: create a terminal that prints a known marker and exits
+// on its own, wait for it, read its output; create a second, long-running
+// terminal and kill it. Reports what it actually observed, so the acceptance
+// scenario driving this can assert on the OBSERVED bytes and kill outcome,
+// not on this function having run without erroring. Returns the verdict
+// string ("" = input closed mid-park) and whether ctx survived.
+func (b *Mock) chatTerminalTurn(ctx context.Context, in <-chan agent.ChatMessage, send func(agent.ChatEvent) bool) (string, bool) {
+	createResult, errStr := b.mockTerminalCall(ctx, in, send, "mock-term-create-1", agent.TerminalOpCreate, map[string]any{
+		"command": "sh", "args": []string{"-c", "printf mock-tmux-marker-7f3a"},
+	})
+	if errStr != "" {
+		return "create1 failed: " + errStr, true
+	}
+	var created1 struct {
+		TerminalId string `json:"terminalId"`
+	}
+	if err := json.Unmarshal(createResult, &created1); err != nil {
+		return "create1 result unparseable: " + err.Error(), true
+	}
+
+	if _, errStr := b.mockTerminalCall(ctx, in, send, "mock-term-wait-1", agent.TerminalOpWaitForExit, map[string]any{
+		"terminalId": created1.TerminalId,
+	}); errStr != "" {
+		return "wait1 failed: " + errStr, true
+	}
+
+	outputResult, errStr := b.mockTerminalCall(ctx, in, send, "mock-term-output-1", agent.TerminalOpOutput, map[string]any{
+		"terminalId": created1.TerminalId,
+	})
+	if errStr != "" {
+		return "output1 failed: " + errStr, true
+	}
+	var output1 struct {
+		Output string `json:"output"`
+	}
+	_ = json.Unmarshal(outputResult, &output1)
+
+	createResult2, errStr := b.mockTerminalCall(ctx, in, send, "mock-term-create-2", agent.TerminalOpCreate, map[string]any{
+		"command": "sleep", "args": []string{"30"},
+	})
+	killed := "false"
+	if errStr != "" {
+		killed = "create2 failed: " + errStr
+	} else {
+		var created2 struct {
+			TerminalId string `json:"terminalId"`
+		}
+		if err := json.Unmarshal(createResult2, &created2); err != nil {
+			killed = "create2 result unparseable: " + err.Error()
+		} else if _, errStr := b.mockTerminalCall(ctx, in, send, "mock-term-kill-2", agent.TerminalOpKill, map[string]any{
+			"terminalId": created2.TerminalId,
+		}); errStr != "" {
+			killed = "kill2 failed: " + errStr
+		} else {
+			killed = "true"
+			_, _ = b.mockTerminalCall(ctx, in, send, "mock-term-release-2", agent.TerminalOpRelease, map[string]any{
+				"terminalId": created2.TerminalId,
+			})
+		}
+	}
+	_, _ = b.mockTerminalCall(ctx, in, send, "mock-term-release-1", agent.TerminalOpRelease, map[string]any{
+		"terminalId": created1.TerminalId,
+	})
+
+	return fmt.Sprintf("output=%q killed=%s", output1.Output, killed), true
 }

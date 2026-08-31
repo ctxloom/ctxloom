@@ -184,14 +184,59 @@ fragments:
       the task to record what is now done and what remains, instead of
       leaving it whole and letting the next person redo the finished half.
 
-      ## Filing a task
+      ## Do NOT create a task on your own initiative
+
+      A task is created with the user's agreement, never as a side effect of
+      you noticing something. PROPOSE it — say what you found and what you
+      think should happen — and create the row once they accept. Work is
+      meant to be planned and accepted, then pulled in later, fleshed out,
+      and acted on.
+
+      This reverses the older instinct to capture everything. That instinct
+      produced 163-309 new tasks a week for eight weeks, and the open pile is
+      now as large as everything ever completed. A backlog that size is not a
+      record of intent; it is a search cost paid by everyone who opens it.
+      Note also what the log cannot tell you: a task record carries only
+      `created_at` and no completion timestamp, so whether the queue is
+      keeping up is not a computable question. The size of the pile is the
+      only signal there is, and it says stop.
+
+      Surfacing is NOT filing. Deferred work must still never vanish silently
+      at the end of a session — but the way it survives is that you TELL THE
+      USER, in your reply, plainly enough for them to act on. They decide
+      what becomes a row.
+
+      ## Do it, do not file it
+
+      Before proposing anything, apply this test. It is a test rather than an
+      effort estimate because nobody can calibrate an estimate:
+
+        - you have ALREADY root-caused it, AND
+        - the fix touches code you have ALREADY read, AND
+        - the fast gates settle it — `just build && just lint &&
+          just test-pkg <pkg>`, roughly 35 seconds
+
+      All three true? DO IT NOW. Filing instead converts a solved problem
+      into work someone pays to rediscover: they must re-read the code,
+      rebuild the reproduction, and re-derive the cause you already had in
+      hand. A filed task looks like progress. It is a promise.
+
+      ## Propose one only when the work genuinely cannot happen now
+
+      Exactly three reasons qualify:
+
+        - it needs a HUMAN DECISION — then name the fork and the options
+        - it lives in ANOTHER REPO or another RELEASE
+        - it is MATERIALLY LARGER than the current turn
+
+      "I noticed several things" is not one of them.
 
       ONE issue per task. A row carrying two questions gets one of them
       answered and the other silently dropped; a row carrying a question AND
       the work it gates cannot be closed without lying about one half. If you
-      are about to write "and also", stop and file two, each naming the other.
+      are about to write "and also", propose two, each naming the other.
 
-      LOOK BEFORE YOU FILE. Search by AREA and by SYMPTOM, not just by the
+      LOOK BEFORE YOU PROPOSE. Search by AREA and by SYMPTOM, not just by the
       title you have in mind — a task about your code is often named for the
       thing it broke:
 
@@ -202,17 +247,22 @@ fragments:
       A duplicate is worse than a missing task: two rows describing one
       problem drift apart, and whichever is read first looks complete.
 
-      WRITE IT ACTIONABLE COLD. The reader has no memory of the session that
-      filed it and cannot ask you. State what is wrong or wanted, HOW IT WAS
-      FOUND so they can reproduce it, and what would settle it. For a decision,
-      state the QUESTION and the options — not just the problem — and tag it
-      `human` so it is findable as one queue.
+      ## Carry REASONING, not detail that rots
 
-      RECORD THE LOCATION WHILE YOU HAVE IT. Scouting and verifying is the only
-      moment `touches:` and `sig:` are free: the path and the symbol are already
-      in front of you. Filled in then, they cost nothing; recovered later, they
-      cost the same search twice. A task without them cannot tell a dispatcher
-      whether it collides with anything.
+      A task earns its length with judgment a later reader cannot recompute.
+      Write three things: WHY IT MATTERS, WHAT NEEDS TO HAPPEN, and WHAT
+      WOULD SETTLE IT.
+
+      Leave out line counts, commit SHAs, exhaustive file inventories, census
+      numbers and measured sizes. Nothing recomputes them, so they go stale
+      and then keep their authority while lying. Cite by SYMBOL — a function,
+      a type, an exact string to grep — which fails loudly the moment someone
+      looks for it; a stale line number silently points at unrelated code and
+      gets believed.
+
+      The reader has no memory of the session that proposed it and cannot ask
+      you. That argues for the reasoning being stated once and clearly, not
+      for an exhaustive body.
 
       LINK RELATED WORK with `relates:<harp>`, on both rows. Prose that says
       "see <harp>" is invisible to a query, so the connection exists only for
@@ -242,13 +292,19 @@ fragments:
         agents editing one file collide whatever symbols each touched.
       - `sig:` — `package.Symbol` whose contract changes. Repeatable.
 
+      `touches:` and `sig:` are the two pieces of location that SURVIVE the
+      rule against rotting detail, and they survive for different reasons.
+      `sig:` is a symbol: when it goes stale a grep returns nothing and the
+      reader finds out immediately. `touches:` is the only thing that answers
+      whether two tasks can be dispatched at once — drop it and a scheduler
+      has to open every row to find out. Neither is an inventory of the
+      change: record what is already in front of you and stop. Do not
+      "simplify" them away as detail; they are the deliberate exception, and
+      this paragraph is the reason.
+
       Rate the level FROM THE CODE, never from the task's own prose: a task
       description outlives the code it describes, and tasks here have named
       functions deleted commits earlier.
-
-      Locate work by NAME — a file path or a symbol — never by line number.
-      A stale symbol fails loudly the moment someone greps for it; a stale
-      line number silently points at unrelated code and is believed.
 
       When you rename a file or change a symbol's contract, fix the
       `touches:`/`sig:` tags that name it. Nothing else will: a tag has no

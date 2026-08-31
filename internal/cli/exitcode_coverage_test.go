@@ -158,10 +158,6 @@ func enclosingFunc(src []byte, off int) string {
 // underlying anti-pattern (per-backend errors warned, then `return nil`) was
 // unchanged through every one of those churns.
 var silentFailureAllowlist = map[string]string{
-	"manage.go:runManageInstall":        "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:runManageUninstall":      "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as runManageInstall",
-	"manage.go:runManageHooksInstall":   "`manage hooks install` RunE (runManageHooksInstall): ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:runManageHooksUninstall": "`manage hooks uninstall` RunE (runManageHooksUninstall): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as runManageHooksInstall",
 
 	"bundle_distill.go:runBundleDistill": "the print-only `for _, e := range result.Errors` loop inside emit()'s text closure stays (it must — this same result.Errors also rides the --format json payload, so deleting it would drop the JSON error detail); the actual T9/R1 bug (U034-F02) is FIXED by a check placed AFTER emit() returns, `if len(result.Errors) > 0 { return ... }`, in runBundleDistill itself — that path covers text AND structured formats alike, which folding the fix into this closure's return value could not (Emit only calls the closure for --format text; a json/yaml/toml run never executes it, so an error returned from inside it would still be silently lost for every non-text format). Kept allowlisted because the regex keys on this loop's SHAPE, not on whether the surrounding function still swallows it.",
 

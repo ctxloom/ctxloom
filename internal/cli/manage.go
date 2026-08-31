@@ -160,9 +160,11 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	for _, e := range result.Errors {
-		clidiag.Warn("ctxloom", "%s", e)
-	}
+	// WarnErrors prints the same per-item warnings this used to print, but
+	// ALSO returns non-nil so the run actually fails. The old shape warned and
+	// returned nil: a refused engine apply exited 0, and any script or CI step
+	// gating on the exit code believed the hooks were installed.
+	warnErr := clidiag.WarnErrors("ctxloom", result.Errors)
 
 	type manageInstallResult struct {
 		AppDir      string   `json:"app_dir"`
@@ -180,13 +182,16 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		Backends:    result.Backends,
 		Errors:      result.Errors,
 	}
-	return emit(cmd, out, func() error {
+	if err := emit(cmd, out, func() error {
 		if initialized {
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized ctxloom directory: %s\n", appDir)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v\n", result.Status, result.Backends)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	return warnErr
 }
 
 // checkEngineKnown rejects an explicitly-passed `--engine` that names no
@@ -423,9 +428,11 @@ func runManageUninstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	for _, e := range result.Errors {
-		clidiag.Warn("ctxloom", "%s", e)
-	}
+	// WarnErrors prints the same per-item warnings this used to print, but
+	// ALSO returns non-nil so the run actually fails. The old shape warned and
+	// returned nil: a refused engine apply exited 0, and any script or CI step
+	// gating on the exit code believed the hooks were installed.
+	warnErr := clidiag.WarnErrors("ctxloom", result.Errors)
 
 	type manageUninstallResult struct {
 		Status   string   `json:"status"`
@@ -439,11 +446,14 @@ func runManageUninstall(cmd *cobra.Command, _ []string) error {
 		Errors:   result.Errors,
 		Note:     "The .ctxloom directory and its contents were left in place.",
 	}
-	return emit(cmd, out, func() error {
+	if err := emit(cmd, out, func() error {
 		fmt.Fprintf(cmd.OutOrStdout(), "Removed ctxloom harness from: %v\n", result.Backends)
 		fmt.Fprintln(cmd.OutOrStdout(), out.Note)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	return warnErr
 }
 
 func runManageCheck(cmd *cobra.Command, _ []string) error {
@@ -543,9 +553,11 @@ func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	for _, e := range result.Errors {
-		clidiag.Warn("ctxloom", "%s", e)
-	}
+	// WarnErrors prints the same per-item warnings this used to print, but
+	// ALSO returns non-nil so the run actually fails. The old shape warned and
+	// returned nil: a refused engine apply exited 0, and any script or CI step
+	// gating on the exit code believed the hooks were installed.
+	warnErr := clidiag.WarnErrors("ctxloom", result.Errors)
 
 	type manageHooksInstallResult struct {
 		Status      string   `json:"status"`
@@ -559,10 +571,13 @@ func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
 		ProjectRoot: workDir,
 		Errors:      result.Errors,
 	}
-	return emit(cmd, out, func() error {
+	if err := emit(cmd, out, func() error {
 		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v (project root: %s)\n", result.Status, result.Backends, workDir)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	return warnErr
 }
 
 var manageHooksUninstallCmd = &cobra.Command{
@@ -581,9 +596,11 @@ func runManageHooksUninstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	for _, e := range result.Errors {
-		clidiag.Warn("ctxloom", "%s", e)
-	}
+	// WarnErrors prints the same per-item warnings this used to print, but
+	// ALSO returns non-nil so the run actually fails. The old shape warned and
+	// returned nil: a refused engine apply exited 0, and any script or CI step
+	// gating on the exit code believed the hooks were installed.
+	warnErr := clidiag.WarnErrors("ctxloom", result.Errors)
 
 	type manageHooksUninstallResult struct {
 		Status   string   `json:"status"`
@@ -591,10 +608,13 @@ func runManageHooksUninstall(cmd *cobra.Command, _ []string) error {
 		Errors   []string `json:"errors,omitempty"`
 	}
 	out := manageHooksUninstallResult{Status: result.Status, Backends: result.Backends, Errors: result.Errors}
-	return emit(cmd, out, func() error {
+	if err := emit(cmd, out, func() error {
 		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v\n", result.Status, result.Backends)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	return warnErr
 }
 
 var manageHooksCheckCmd = &cobra.Command{

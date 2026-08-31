@@ -491,6 +491,12 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # ctxloom is the wrong party to decide the fate of a setting it just failed
     # to read: the write is refused and the user's file is left exactly as it
     # was.
+    #
+    # "the command fails" is the load-bearing line here, not the message. This
+    # scenario once asserted only the diagnostic and the untouched file --
+    # because the exit code could NOT be relied on: a refused engine apply
+    # warned and then exited 0, so a script or CI step gating on the exit code
+    # believed the hooks were installed. The test was shaped around the bug.
     Scenario: A statusline ctxloom cannot read refuses the write instead of replacing it
       Given an initialized ctxloom project
       And the project already has the file ".claude/settings.json":
@@ -504,7 +510,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         """
         ctxloom manage hooks install
         """
-      Then the output contains "refusing to write settings.json"
+      Then the command fails
+      And the output contains "refusing to write settings.json"
       And the file ".claude/settings.json" contains "ccusage"
       And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook inject-context"
 

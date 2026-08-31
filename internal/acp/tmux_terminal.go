@@ -131,6 +131,10 @@ type tmuxTerminal struct {
 	mu         sync.Mutex
 	exitStatus *api.TerminalExitStatus // set once known: from the status file, or synthesized by kill
 	killed     bool
+
+	// stop disarms the session-end trigger registered in create. An explicit
+	// terminal/release should not leave a hook armed to redo the work later.
+	stop func() bool
 }
 
 // localTerminals is the per-chatSession registry of open local terminals.
@@ -247,7 +251,7 @@ shift
 "$@"
 ec=$?
 echo "$ec" > "$statusfile"
-tmux -L ` + tmuxSocketName + ` wait-for -S "$ch"
+tmux -L "$0" wait-for -S "$ch"
 exit $ec`
 
 // create opens a new local terminal for req, returning the id every later
@@ -270,7 +274,12 @@ func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalReque
 	for _, e := range req.Env {
 		args = append(args, "-e", e.Name+"="+e.Value)
 	}
-	args = append(args, "sh", "-c", tmuxOutputWrapper, "_", outputPath, statusPath, channel, req.Command)
+	// The socket is passed as $0 rather than baked into the script. Baking it
+	// in meant the spawned command always signalled the SHARED server, so this
+	// path could not be driven against a private test server at all — the only
+	// alternative being to race every other run on the machine, which is the
+	// documented 30-minute-hang failure. host() already passes it this way.
+	args = append(args, "sh", "-c", tmuxOutputWrapper, l.socketName(), outputPath, statusPath, channel, req.Command)
 	args = append(args, req.Args...)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {
@@ -287,6 +296,27 @@ func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalReque
 	l.mu.Lock()
 	l.terms[id] = term
 	l.mu.Unlock()
+
+	// Reclaim the terminal when the SESSION ends, not only when a client
+	// remembers to call terminal/release. release is driven entirely by the
+	// client, and nothing here iterates l.terms, so an editor that creates a
+	// terminal and then disconnects would otherwise leave its window and both
+	// files behind permanently — in a tmux server that is shared and adopted
+	// by later runs, where a dead pane is indistinguishable from a live one.
+	//
+	// An explicit registration against session lifetime, not a defer: a defer
+	// fires when its own frame returns, which for a backgrounded terminal is
+	// far too early. Same mechanism as host()'s.
+	//
+	// WithoutCancel is REQUIRED, not stylistic: this hook runs with ctx
+	// already cancelled, and execTmuxRunner builds an exec.CommandContext, so
+	// reusing ctx would kill kill-window before it ran. Its error is
+	// swallowed, so the window would leak SILENTLY while every file-based
+	// assertion stayed green — measured on the hosting path, where exactly
+	// that mutation survived a files-only test.
+	term.stop = context.AfterFunc(ctx, func() {
+		_, _ = l.release(context.WithoutCancel(ctx), api.ReleaseTerminalRequest{TerminalId: id})
+	})
 	return api.CreateTerminalResponse{TerminalId: id}, nil
 }
 
@@ -440,6 +470,9 @@ func (l *localTerminals) release(ctx context.Context, req api.ReleaseTerminalReq
 		return api.ReleaseTerminalResponse{}, nil
 	}
 
+	if t.stop != nil {
+		t.stop()
+	}
 	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
 	_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
 	_ = os.Remove(t.outputPath)

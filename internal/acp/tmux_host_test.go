@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	api "github.com/coder/acp-go-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,7 +82,8 @@ func TestHost_RunsOnARealTTY(t *testing.T) {
 	assert.NotContains(t, out, "not a tty",
 		"stdout was redirected away from the terminal, so this is the capture path, not hosting")
 	require.NotNil(t, status)
-	assert.Equal(t, 0, status.ExitCode, "`tty` exits 0 when it has a terminal")
+	require.NotNil(t, status.ExitCode)
+	assert.Equal(t, 0, *status.ExitCode, "`tty` exits 0 when it has a terminal")
 }
 
 // TestHost_CapturesOutputAndTrueExitCode pins the other half of the contract:
@@ -107,7 +109,8 @@ func TestHost_CapturesOutputAndTrueExitCode(t *testing.T) {
 
 	assert.Contains(t, out, "HOSTED-MARKER-4b2e", "the pane's output must reach the capture file")
 	require.NotNil(t, status)
-	assert.Equal(t, 7, status.ExitCode, "the COMMAND's exit code, not the wrapper's or tmux's")
+	require.NotNil(t, status.ExitCode)
+	assert.Equal(t, 7, *status.ExitCode, "the COMMAND's exit code, not the wrapper's or tmux's")
 }
 
 // TestHost_AttachTargetNamesALiveWindow: hosting exists so a human can attach
@@ -122,14 +125,14 @@ func TestHost_AttachTargetNamesALiveWindow(t *testing.T) {
 	// A command that stays alive, so the window is still there to be found.
 	h, err := l.host(context.Background(), hostSpec{Command: "sh", Args: []string{"-c", "sleep 30"}})
 	require.NoError(t, err)
-	require.NotEmpty(t, h.AttachTarget)
+	require.NotEmpty(t, h.window)
 
 	listed, err := runner.Run(context.Background(), "list-windows", "-a", "-F", "#{session_name}:#{window_name}")
 	require.NoError(t, err)
-	assert.Contains(t, listed, h.AttachTarget,
+	assert.Contains(t, listed, h.window,
 		"AttachTarget must name a window tmux actually has")
 
-	require.NoError(t, l.killHosted(context.Background(), h))
+	l.killWindow(context.Background(), h)
 }
 
 // TestHost_EnvAndCwdReachTheProcess: hosting the LLM UI means handing it a
@@ -166,18 +169,17 @@ func TestHost_EnvAndCwdReachTheProcess(t *testing.T) {
 
 // waitHosted blocks until the hosted command exits, failing the test rather
 // than hanging the suite if it never does.
-func waitHosted(t *testing.T, l *localTerminals, h hostedTerminal) *hostedStatus {
+func waitHosted(t *testing.T, l *localTerminals, h *tmuxTerminal) *api.TerminalExitStatus {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	status, err := l.waitHosted(ctx, h)
-	require.NoError(t, err)
-	return status
+	require.NoError(t, l.waitWindow(ctx, h))
+	return readStatus(h)
 }
 
-func readHosted(t *testing.T, l *localTerminals, h hostedTerminal) string {
+func readHosted(t *testing.T, l *localTerminals, h *tmuxTerminal) string {
 	t.Helper()
-	out, err := l.hostedOutput(h)
+	out, err := windowOutput(h)
 	require.NoError(t, err)
 	return out
 }
@@ -204,12 +206,12 @@ func TestHost_LaunchesARealFullScreenTUI(t *testing.T) {
 
 	h, err := l.host(context.Background(), hostSpec{Command: "top", Args: []string{"-d", "1"}})
 	require.NoError(t, err)
-	t.Logf("hosted; a human would attach with: tmux -L %s attach -t %s", socket, h.AttachTarget)
+	t.Logf("hosted; a human would attach with: tmux -L %s attach -t %s", socket, h.window)
 
 	var pane string
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		pane, err = runner.Run(context.Background(), "capture-pane", "-p", "-t", h.AttachTarget)
+		pane, err = runner.Run(context.Background(), "capture-pane", "-p", "-t", h.window)
 		require.NoError(t, err)
 		if strings.Contains(pane, "load average") {
 			break
@@ -222,7 +224,7 @@ func TestHost_LaunchesARealFullScreenTUI(t *testing.T) {
 	assert.NotContains(t, pane, "Pane is dead",
 		"top exited instead of running — it was not given a usable terminal")
 
-	require.NoError(t, l.killHosted(context.Background(), h))
+	l.killWindow(context.Background(), h)
 }
 
 // tmuxSocketDir is where tmux keeps its per-user server sockets, mirroring
@@ -264,7 +266,7 @@ func TestHost_ReleaseRemovesTheCaptureFiles(t *testing.T) {
 	require.FileExists(t, h.outputPath, "precondition: capture file must exist before release")
 	require.FileExists(t, h.statusPath, "precondition: status file must exist before release")
 
-	require.NoError(t, l.releaseHosted(context.Background(), h))
+	l.releaseWindow(context.Background(), h)
 
 	assert.NoFileExists(t, h.outputPath, "release must remove the capture file, as terminal/*'s release() does")
 	assert.NoFileExists(t, h.statusPath, "release must remove the status file")
@@ -279,10 +281,9 @@ func TestHost_ReleaseIsSafeOnAnAlreadyKilledTerminal(t *testing.T) {
 
 	h, err := l.host(context.Background(), hostSpec{Command: "sh", Args: []string{"-c", "sleep 30"}})
 	require.NoError(t, err)
-	require.NoError(t, l.killHosted(context.Background(), h))
+	l.killWindow(context.Background(), h)
 
-	assert.NoError(t, l.releaseHosted(context.Background(), h),
-		"releasing an already-killed terminal is the normal teardown order, not an error")
+	l.releaseWindow(context.Background(), h) // must not panic or block after a kill
 	assert.NoFileExists(t, h.outputPath, "release still cleans up after a kill")
 }
 
@@ -334,7 +335,7 @@ func TestHost_ContextCancellationReleasesTheTerminal(t *testing.T) {
 	// let that mutation survive — measured, not hypothesised.
 	require.Eventually(t, func() bool {
 		listed, lerr := runner.Run(context.Background(), "list-windows", "-a", "-F", "#{session_name}:#{window_name}")
-		return lerr != nil || !strings.Contains(listed, h.AttachTarget)
+		return lerr != nil || !strings.Contains(listed, h.window)
 	}, 15*time.Second, 50*time.Millisecond,
 		"ending the session must also destroy the tmux window, not only delete its files")
 }

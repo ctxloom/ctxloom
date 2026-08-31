@@ -3,10 +3,8 @@ package acp
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -51,30 +49,6 @@ type hostSpec struct {
 	Env     map[string]string // passed via `new-window -e`
 }
 
-// hostedTerminal is a handle to a hosted command.
-type hostedTerminal struct {
-	// AttachTarget is "<session>:<window>", the target a human passes to
-	// `tmux -L <socket> attach -t ...` (or select-window) to watch this run.
-	// It is the whole point of hosting, so it is exported on the handle
-	// rather than reconstructed by callers.
-	AttachTarget string
-
-	channel    string
-	outputPath string
-	statusPath string
-
-	// stop disarms the context trigger registered in host(). Calling it is
-	// not required for correctness — releaseHosted is idempotent — but an
-	// explicit release should not leave a hook armed to redo the work when
-	// the session later ends.
-	stop func() bool
-}
-
-// hostedStatus is a finished hosted command's outcome.
-type hostedStatus struct {
-	ExitCode int
-}
-
 // The wrapper both surfaces share lives in tmux_terminal.go
 // (tmuxWindowWrapper); hosting selects it with writerPipePane.
 
@@ -93,21 +67,24 @@ func (l *localTerminals) socketName() string {
 
 // host starts spec's command in a tmux window on a real pty and begins
 // capturing the pane. The command does not run until capture is armed.
-func (l *localTerminals) host(ctx context.Context, spec hostSpec) (hostedTerminal, error) {
+func (l *localTerminals) host(ctx context.Context, spec hostSpec) (*tmuxTerminal, error) {
 	if spec.Command == "" {
-		return hostedTerminal{}, fmt.Errorf("host: no command given")
+		return nil, fmt.Errorf("host: no command given")
 	}
 	if err := l.ensureSession(ctx); err != nil {
-		return hostedTerminal{}, err
+		return nil, err
 	}
 
 	n := l.seq.Add(1)
 	name := fmt.Sprintf("%s-h%d", l.run, n)
-	h := hostedTerminal{
-		AttachTarget: tmuxSessionName + ":" + name,
-		channel:      "ctxloom-acp-host-" + name,
-		outputPath:   filepath.Join(l.tmpDir, "ctxloom-acp-host-"+name+".out"),
-		statusPath:   filepath.Join(l.tmpDir, "ctxloom-acp-host-"+name+".status"),
+	// The SAME handle type terminal/* uses. tmuxTerminal.window is
+	// "<session>:<window>", which is exactly the target a human passes to
+	// `tmux -L <socket> attach -t ...` -- so hosting needs no handle of its own,
+	// and the four lifecycle operations below are the shared ones.
+	h := &tmuxTerminal{
+		window: tmuxSessionName + ":" + name, channel: "ctxloom-acp-host-" + name,
+		outputPath: filepath.Join(l.tmpDir, "ctxloom-acp-host-"+name+".out"),
+		statusPath: filepath.Join(l.tmpDir, "ctxloom-acp-host-"+name+".status"),
 	}
 	gate := h.channel + "-gate"
 
@@ -129,18 +106,18 @@ func (l *localTerminals) host(ctx context.Context, spec hostSpec) (hostedTermina
 	args = append(args, spec.Args...)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {
-		return hostedTerminal{}, fmt.Errorf("host %q: %w", spec.Command, err)
+		return nil, fmt.Errorf("host %q: %w", spec.Command, err)
 	}
 
 	// Arm capture BEFORE releasing the gate. pipe-pane attaches to a live
 	// pane; if the command had already run and exited, tmux answers "target
 	// pane has exited" and nothing is ever captured.
-	if _, err := l.runner.Run(ctx, "pipe-pane", "-o", "-t", h.AttachTarget,
+	if _, err := l.runner.Run(ctx, "pipe-pane", "-o", "-t", h.window,
 		"cat >> "+shellQuote(h.outputPath)); err != nil {
-		return hostedTerminal{}, fmt.Errorf("host %q: arm capture: %w", spec.Command, err)
+		return nil, fmt.Errorf("host %q: arm capture: %w", spec.Command, err)
 	}
 	if _, err := l.runner.Run(ctx, "wait-for", "-S", gate); err != nil {
-		return hostedTerminal{}, fmt.Errorf("host %q: release gate: %w", spec.Command, err)
+		return nil, fmt.Errorf("host %q: release gate: %w", spec.Command, err)
 	}
 
 	// Reclaim the terminal when it stops being needed, which is when the
@@ -155,79 +132,9 @@ func (l *localTerminals) host(ctx context.Context, spec hostSpec) (hostedTermina
 	// exec.CommandContext, and a cancelled context kills the command before
 	// it can run. WithoutCancel keeps the values and drops the cancellation.
 	h.stop = context.AfterFunc(ctx, func() {
-		_ = l.releaseHosted(context.WithoutCancel(ctx), h)
+		l.releaseWindow(context.WithoutCancel(ctx), h)
 	})
 	return h, nil
-}
-
-// waitHosted blocks until the hosted command exits and reports its status.
-func (l *localTerminals) waitHosted(ctx context.Context, h hostedTerminal) (*hostedStatus, error) {
-	if _, err := l.runner.Run(ctx, "wait-for", h.channel); err != nil {
-		return nil, fmt.Errorf("wait for hosted terminal: %w", err)
-	}
-	raw, err := os.ReadFile(h.statusPath)
-	if err != nil {
-		return nil, fmt.Errorf("read hosted exit status: %w", err)
-	}
-	code, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil {
-		return nil, fmt.Errorf("parse hosted exit status %q: %w", strings.TrimSpace(string(raw)), err)
-	}
-	return &hostedStatus{ExitCode: code}, nil
-}
-
-// hostedOutput returns what the pane has produced so far. Readable while the
-// command is still running — pipe-pane streams rather than writing at exit.
-func (l *localTerminals) hostedOutput(h hostedTerminal) (string, error) {
-	b, err := os.ReadFile(h.outputPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Nothing captured yet is not an error: a hosted UI may not have
-			// drawn anything at the moment a caller looks.
-			return "", nil
-		}
-		return "", fmt.Errorf("read hosted output: %w", err)
-	}
-	return string(b), nil
-}
-
-// killHosted destroys the window and unblocks anyone in waitHosted. The
-// wrapper never reaches its own signal line when the window is killed out from
-// under it, so the signal is sent here unconditionally.
-func (l *localTerminals) killHosted(ctx context.Context, h hostedTerminal) error {
-	_, err := l.runner.Run(ctx, "kill-window", "-t", h.AttachTarget)
-	_, _ = l.runner.Run(ctx, "wait-for", "-S", h.channel)
-	if err != nil {
-		return fmt.Errorf("kill hosted terminal: %w", err)
-	}
-	return nil
-}
-
-// releaseHosted frees everything a hosted terminal owns: the tmux window and
-// the two files behind it. This is the counterpart to terminal/*'s release()
-// and exists for the same reason — the capture and status files are a
-// transient MAILBOX, not a log. They exist because ctxloom is not the parent
-// of the process tmux spawns and so has no fd to inherit, and they must
-// outlive the pane because a dead pane's scrollback is replaced by tmux's own
-// "Pane is dead (status N, ...)" placeholder. Once the handle is released
-// nothing reads them again, so anything left on disk is a leak.
-//
-// kill-window runs UNCONDITIONALLY, matching release(): under remain-on-exit a
-// naturally-exited command leaves its dead pane and window in the session
-// forever otherwise.
-//
-// Kill and release stay SEPARATE, also matching the terminal/* path: after a
-// kill the exit status is still readable, and collapsing the two would destroy
-// it before a caller could ask.
-func (l *localTerminals) releaseHosted(ctx context.Context, h hostedTerminal) error {
-	if h.stop != nil {
-		h.stop()
-	}
-	_, _ = l.runner.Run(ctx, "kill-window", "-t", h.AttachTarget)
-	_, _ = l.runner.Run(ctx, "wait-for", "-S", h.channel)
-	_ = os.Remove(h.outputPath)
-	_ = os.Remove(h.statusPath)
-	return nil
 }
 
 func sortedKeys(m map[string]string) []string {

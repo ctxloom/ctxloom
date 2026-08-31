@@ -410,6 +410,88 @@ func truncateFromStart(s string, limit int) (string, bool) {
 	return s[cut:], true
 }
 
+// --- the shared window core -------------------------------------------------
+//
+// One command in one tmux window, and the four things anyone can do to it.
+// BOTH surfaces call these: terminal/* wraps them in ACP request/response
+// types, hosting uses them directly. They existed twice before, and that
+// duplication was not academic -- os.TempDir() and a missing cleanup path were
+// each copied from one implementation into the other because they were
+// separate files.
+
+// waitWindow blocks (bounded by ctx) until the window's command exits.
+// Safe after the command has already finished: tmux's wait-for is a counting
+// channel, so an already-signalled channel returns immediately.
+func (l *localTerminals) waitWindow(ctx context.Context, t *tmuxTerminal) error {
+	_, err := l.runner.Run(ctx, "wait-for", t.channel)
+	return err
+}
+
+// windowOutput reads what the window has produced so far. A missing file is
+// not an error: nothing has been captured yet.
+func windowOutput(t *tmuxTerminal) (string, error) {
+	b, err := os.ReadFile(t.outputPath)
+	if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("read terminal output: %w", err)
+	}
+	return string(b), nil
+}
+
+// killWindow destroys the window and resolves a status for it, then
+// unconditionally releases the wait channel.
+//
+// The release matters even for an already-finished command: kill-window
+// destroys the window OUTRIGHT (unlike a natural exit, which leaves a dead pane
+// -- remain-on-exit's whole point), so a wrapper still running never reaches
+// its own `wait-for -S` line. Without this, anyone parked on the channel blocks
+// forever.
+//
+// A narrow, accepted race: a command finishing naturally between kill-window's
+// own check and the status read is reported as killed (Signal SIGHUP -- what
+// kill-window actually delivers, by closing the pane's pty) even though it had
+// just exited with a real code. Every terminal-owning editor accepts this.
+func (l *localTerminals) killWindow(ctx context.Context, t *tmuxTerminal) {
+	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
+
+	t.mu.Lock()
+	t.killed = true
+	if t.exitStatus == nil {
+		if b, err := os.ReadFile(t.statusPath); err == nil {
+			if code, perr := strconv.Atoi(strings.TrimSpace(string(b))); perr == nil {
+				t.exitStatus = &api.TerminalExitStatus{ExitCode: &code}
+			}
+		}
+		if t.exitStatus == nil {
+			sig := "SIGHUP"
+			t.exitStatus = &api.TerminalExitStatus{Signal: &sig}
+		}
+	}
+	t.mu.Unlock()
+
+	_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
+}
+
+// releaseWindow frees everything the window owns: the session-end trigger, the
+// tmux window itself, anyone waiting on it, and both files.
+//
+// kill-window runs UNCONDITIONALLY, not only for a still-running command: a
+// naturally-exited one leaves remain-on-exit's dead pane and its window in the
+// session forever otherwise -- measured, a released-but-never-killed window
+// survived in `list-windows` after the whole chat ended. kill-window on an
+// already-gone window is a harmless ignored error.
+//
+// The files are a transient MAILBOX, not a log: nothing reads them after
+// release, so anything left on disk then is a leak.
+func (l *localTerminals) releaseWindow(ctx context.Context, t *tmuxTerminal) {
+	if t.stop != nil {
+		t.stop()
+	}
+	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
+	_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
+	_ = os.Remove(t.outputPath)
+	_ = os.Remove(t.statusPath)
+}
+
 // output answers terminal/output: the captured file content (see
 // tmuxOutputWrapper's doc), trimmed to the terminal's OutputByteLimit if one
 // was given at create time, plus the exit status if the command has
@@ -419,11 +501,10 @@ func (l *localTerminals) output(_ context.Context, req api.TerminalOutputRequest
 	if !ok {
 		return api.TerminalOutputResponse{}, fmt.Errorf("unknown terminal %q", req.TerminalId)
 	}
-	content, err := os.ReadFile(t.outputPath)
-	if err != nil && !os.IsNotExist(err) {
-		return api.TerminalOutputResponse{}, fmt.Errorf("read terminal output: %w", err)
+	out, err := windowOutput(t)
+	if err != nil {
+		return api.TerminalOutputResponse{}, err
 	}
-	out := string(content)
 	truncated := false
 	if t.limit != nil {
 		out, truncated = truncateFromStart(out, *t.limit)
@@ -441,7 +522,7 @@ func (l *localTerminals) wait(ctx context.Context, req api.WaitForTerminalExitRe
 	if !ok {
 		return api.WaitForTerminalExitResponse{}, fmt.Errorf("unknown terminal %q", req.TerminalId)
 	}
-	if _, err := l.runner.Run(ctx, "wait-for", t.channel); err != nil {
+	if err := l.waitWindow(ctx, t); err != nil {
 		return api.WaitForTerminalExitResponse{}, err
 	}
 	st := readStatus(t)
@@ -474,24 +555,7 @@ func (l *localTerminals) kill(ctx context.Context, req api.KillTerminalRequest) 
 	if !ok {
 		return api.KillTerminalResponse{}, fmt.Errorf("unknown terminal %q", req.TerminalId)
 	}
-	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
-
-	t.mu.Lock()
-	t.killed = true
-	if t.exitStatus == nil {
-		if b, err := os.ReadFile(t.statusPath); err == nil {
-			if code, perr := strconv.Atoi(strings.TrimSpace(string(b))); perr == nil {
-				t.exitStatus = &api.TerminalExitStatus{ExitCode: &code}
-			}
-		}
-		if t.exitStatus == nil {
-			sig := "SIGHUP"
-			t.exitStatus = &api.TerminalExitStatus{Signal: &sig}
-		}
-	}
-	t.mu.Unlock()
-
-	_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
+	l.killWindow(ctx, t)
 	return api.KillTerminalResponse{}, nil
 }
 
@@ -517,12 +581,6 @@ func (l *localTerminals) release(ctx context.Context, req api.ReleaseTerminalReq
 		return api.ReleaseTerminalResponse{}, nil
 	}
 
-	if t.stop != nil {
-		t.stop()
-	}
-	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
-	_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
-	_ = os.Remove(t.outputPath)
-	_ = os.Remove(t.statusPath)
+	l.releaseWindow(ctx, t)
 	return api.ReleaseTerminalResponse{}, nil
 }

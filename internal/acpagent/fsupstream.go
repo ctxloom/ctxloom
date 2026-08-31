@@ -100,12 +100,12 @@ func (s *Server) startFsUpstream() *fsUpstreamListener {
 	if !fs.ReadTextFile && !fs.WriteTextFile {
 		return nil
 	}
-	dir, err := os.MkdirTemp("", "ctxloom-acp-fs-")
+	dir, err := os.MkdirTemp("", fsUpstreamDirPrefix)
 	if err != nil {
 		clidiag.Warn("ctxloom", "acp agent: fs-upstream listener: %v (falling back to local disk fs for this session)", err)
 		return nil
 	}
-	sockPath := filepath.Join(dir, "fs.sock")
+	sockPath := filepath.Join(dir, fsUpstreamSockName)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		_ = os.RemoveAll(dir)

@@ -179,6 +179,19 @@ type session struct {
 // client disconnects or ctx is cancelled. Every session's engine conversation
 // is torn down on exit.
 func Serve(ctx context.Context, r io.Reader, w io.Writer, open ChatOpener) error {
+	// Sweep fs-upstream directories abandoned by earlier agents BEFORE serving.
+	// `defer s.closeAllSessions()` below is the only thing that removes them,
+	// and a defer does not run when the process is killed -- which is the
+	// normal end for an agent an editor spawned as its own child. Nothing else
+	// would ever reclaim them; measured at 2,571 orphans before this existed.
+	//
+	// At startup rather than on a timer, and fault-tolerant by contract: it
+	// spares anything with a live listener, skips anything ambiguous, and can
+	// never stop the agent starting.
+	if res := ReapStaleFsUpstreams("", time.Now()); res.Reaped > 0 {
+		clidiag.Warn("ctxloom", "acp agent: reclaimed %d abandoned fs-upstream director%s from a previous run",
+			res.Reaped, map[bool]string{true: "y", false: "ies"}[res.Reaped == 1])
+	}
 	s := &Server{open: open, ctx: ctx, sessions: make(map[api.SessionId]*session)}
 	s.conn = jsonrpc.NewConn(r, w, nil, s)
 	// s.conn must be FULLY assigned before the read loop can start — Server

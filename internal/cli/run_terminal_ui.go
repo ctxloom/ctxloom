@@ -2,13 +2,11 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -77,10 +75,9 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 			Model:      id.Model,
 			PrefixHint: termui.CaretHint(prefix),
 		},
-		FetchRoster:    func() ([]termui.RosterEntry, error) { return surroundRoster(sessionCoord) },
-		FetchApprovals: surroundFetchApprovals(sessionCoord),
-		NewOverlay:     func() termui.Overlay { return tui.NewOverlay(ctx, src, prefix) },
-		Warn:           func(format string, args ...any) { clidiag.Warn("ctxloom", format, args...) },
+		FetchRoster: func() ([]termui.RosterEntry, error) { return surroundRoster(sessionCoord) },
+		NewOverlay:  func() termui.Overlay { return tui.NewOverlay(ctx, src, prefix) },
+		Warn:        func(format string, args ...any) { clidiag.Warn("ctxloom", format, args...) },
 	})
 }
 
@@ -122,46 +119,6 @@ func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string
 			}
 			return sessionCoord.Inject(harp, text)
 		},
-		PendingApprovals: func() []coord.PendingApproval {
-			if sessionCoord == nil {
-				return nil
-			}
-			return sessionCoord.PendingApprovals()
-		},
-		// AnswerApproval resolves one parked approval over the SAME
-		// AgentSend(in_reply_to) path a relayed approval's parent answers
-		// over (surfaceApprovalToHuman's doc comment): structured carries the
-		// ApprovalDecision projection decisionFromStructured decodes — the
-		// exact shape TestApproval_SurfaceToHumanRoundTrip and
-		// TestApproval_SurfaceToHumanClosureShapeMirrorsCLIWiring pin
-		// (internal/agentcoord/coord/surface_to_human_test.go). The park's
-		// own targetHarp check (pa.targetHarp == caller.Harp) is what
-		// authorizes the answer, and it targets the ROOT SESSION of the
-		// delegation tree (coord.Coordinator.rootSessionHarp) — selfHarp, at
-		// every depth. It used to target the asking run's immediate parent,
-		// which made a grandchild's approval unanswerable from here; this
-		// wiring did not change when that was fixed, because selfHarp was
-		// always the identity a human answers as.
-		AnswerApproval: func(messageID, childHarp string, d agentcoordpb.ApprovalDecision_Decision, note string) error {
-			if sessionCoord == nil {
-				// Unreachable via the TUI in practice — PendingApprovals above
-				// already returns empty for a nil coordinator, and the model
-				// refuses to open the approvals view on an empty list — but
-				// guarded directly rather than trusting that path, exactly like
-				// Inject's own nil-coordinator guard above.
-				return fmt.Errorf("approvals: no coordinator hosted for this session")
-			}
-			structured, err := json.Marshal(map[string]any{
-				"decision": d.String(), "note": note,
-			})
-			if err != nil {
-				return err
-			}
-			_, err = sessionCoord.AgentSend(
-				coord.Identity{Harp: selfHarp, Depth: 0, Project: workDir},
-				childHarp, "", "approval decision", structured, messageID)
-			return err
-		},
 	}
 }
 
@@ -181,20 +138,6 @@ func surroundRoster(sessionCoord *coord.Coordinator) ([]termui.RosterEntry, erro
 		rows[i] = termui.RosterEntry{Harp: b.Harp, State: b.State, LastActivityUnix: b.LastActivityUnix}
 	}
 	return rows, nil
-}
-
-// surroundFetchApprovals adapts the coordinator's PendingApprovals onto the
-// surround bar's count-only seam (termui.Options.FetchApprovals stays
-// coord-free per termui's own dependency-lightness rule — only the int
-// crosses the boundary). Unlike surroundRoster (which always returns a
-// closure so the bar can show an empty roster), a nil sessionCoord here
-// returns a nil func: FetchApprovals documents nil as "no indicator", and
-// there is no coordinator to ever have anything parked.
-func surroundFetchApprovals(sessionCoord *coord.Coordinator) func() int {
-	if sessionCoord == nil {
-		return nil
-	}
-	return func() int { return len(sessionCoord.PendingApprovals()) }
 }
 
 // diagnosticsLogPath is where a TUI-owning session parks its clidiag warnings.

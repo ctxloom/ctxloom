@@ -191,14 +191,13 @@ func decodeHarnessSpec(spec *agentcoordpb.HarnessSpec) (DecodedHarnessSpec, erro
 		Model:       spec.GetModel(),
 		Env:         env,
 		Permissions: perm,
-		// ForwardPermissions is always true on the migrated StartRun path
-		// (Wave C2): the engine's permission requests surface as plane-2
-		// ApprovalRequests instead of the driver auto-deciding — the
-		// coordinator's escalation ladder (approval.go) is the decider now.
-		// permission_mode above is unchanged and still gates what may even
-		// run headless (D3's structural floor: bypass|plan only); the
-		// ladder is the policy layer riding ON TOP of that floor.
-		ForwardPermissions: true,
+		// ForwardPermissions is false: ctxloom does not broker a second
+		// approval UI. The engine's permission requests are decided by the
+		// driver against this run's resolved permission_mode, which is the
+		// structural floor that gates what may run headless at all
+		// (bypass|plan). A human who wants to intervene attaches to the
+		// agent's own tmux window and answers the engine's NATIVE prompt.
+		ForwardPermissions: false,
 		MCPServers:         servers,
 		ResumeSessionID:    spec.GetResumeSessionId(),
 	}

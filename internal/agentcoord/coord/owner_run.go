@@ -125,7 +125,6 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		Label:       spec.Label,
 		Runtime:     ownerRunRuntime,
 		Perm:        spec.Permission,
-		Ladder:      presetLadder(spec.Permission),
 		MCPServers:  spec.MCPServers,
 		ViaStartRun: true,
 	}
@@ -148,13 +147,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// and serveListRuns (roster) — each of which was refusing or
 	// misrouting a call the owned run's OWN engine made about ITSELF
 	// (childSend's ParentHarp resolution hit the self-loop below; AgentStop
-	// and roster both explicitly refuse an IsChild() caller). It also flips
-	// serveApproval's guard (approval.go — the OPPOSITE sense: only a
-	// caller WHERE IsChild() is true may raise one), which an owned run's
-	// EngineHost.resolveApproval reaches whenever its escalation ladder has
-	// a relay_to_role/surface_to_human rung — whether that path still
-	// resolves correctly for an owned run is UNVERIFIED as of this change;
-	// no existing test exercises an owned run's approval flow.
+	// and roster both explicitly refuse an IsChild() caller).
 	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth)
 	if err != nil {
 		return nil, err

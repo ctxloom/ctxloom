@@ -1,7 +1,6 @@
 package coord
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -12,8 +11,6 @@ import (
 	"context"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
@@ -48,8 +45,8 @@ type engineHome interface {
 	// whether an announced instruction is still sitting unread.
 	PendingControlPayloads() []PendingControlPayload
 	// Request runs one plane-2 request to completion (Home.Request) — the
-	// engine host's seam for forwarding a permission request as an
-	// ApprovalRequest (Wave C2, resolveApproval below).
+	// engine host's seam for issuing an agent-initiated request to the
+	// coordinator and awaiting its answer.
 	Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error)
 }
 
@@ -134,13 +131,12 @@ type EngineHost struct {
 
 	// tracked owns every goroutine startRun/adapt dispatches beyond its
 	// spawning call's own return (the in-process backend.Chat call, the adapt
-	// loop, the briefing's first-turn send, and one resolveApproval per
-	// forwarded engine permission request). Close joins it before returning, so
-	// a runner-side teardown leaves no goroutine still touching eh/home state —
-	// the same discipline as Coordinator's and Home's groups, mirrored here
-	// for the runner-hosted engine half. A still-in-flight resolveApproval, or
-	// a startRun reissue landing exactly as Close begins, is what the seal in
-	// trackedGroup is for.
+	// loop, and the briefing's first-turn send). Close joins it before
+	// returning, so a runner-side teardown leaves no goroutine still touching
+	// eh/home state — the same discipline as Coordinator's and Home's groups,
+	// mirrored here for the runner-hosted engine half. A still-in-flight
+	// tracked goroutine, or a startRun reissue landing exactly as Close
+	// begins, is what the seal in trackedGroup is for.
 	tracked   trackedGroup
 	closeOnce sync.Once
 }
@@ -467,14 +463,6 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			// unless this run is cut over, and it dispatches rather than
 			// blocks — this loop must keep draining.
 			home.SweepSpoolIn()
-		case ev.Permission != nil:
-			// C2: HarnessSpec sets ForwardPermissions unconditionally on this
-			// path now, so every engine permission request round-trips
-			// through the coordinator's escalation ladder (approval.go)
-			// instead of being auto-decided here. Its own goroutine — the
-			// adapt loop must keep draining `out` while a relay rung parks
-			// on a human, possibly for minutes.
-			eh.goTracked(func() { eh.resolveApproval(ctx, home, ev.Permission) })
 		}
 	}
 	items.closeOpen()
@@ -834,87 +822,6 @@ func asciiLower(s string) string {
 	return string(out)
 }
 
-// approvalRequestBudget bounds the runner's OWN wait for the coordinator's
-// answer to a forwarded ApprovalRequest — generous headroom above any
-// plausible ladder configuration (a relay rung's own timeout is what
-// actually paces escalation, typically minutes; this is a defensive
-// ceiling against a wedged coordinator, never the pacing mechanism).
-const approvalRequestBudget = 24 * time.Hour
-
-// resolveApproval is the C2 runner-side half of the escalation ladder:
-// forward one engine permission request as a plane-2 ApprovalRequest,
-// translate the coordinator's ApprovalDecision back into the engine's
-// PermissionAnswer, and journal the resolution as an InteractionRecorded
-// AgentEvent — "the agent emits one per resolved request it initiated" per
-// the contract's own doc comment. Runs on its own goroutine (see adapt).
-func (eh *EngineHost) resolveApproval(ctx context.Context, home engineHome, pr *agent.PermissionRequest) {
-	reqCtx, cancel := context.WithTimeout(ctx, approvalRequestBudget)
-	defer cancel()
-	agentReq := &agentcoordpb.AgentRequest{
-		Timeout: durationpb.New(approvalRequestBudget),
-		Kind: &agentcoordpb.AgentRequest_Approval{Approval: &agentcoordpb.ApprovalRequest{
-			Kind:    classifyApprovalKind(pr.Kind),
-			Title:   pr.ToolName,
-			Payload: structFromJSON(pr.ToolInput),
-			ItemId:  pr.ID,
-		}},
-	}
-	resp, err := home.Request(reqCtx, agentReq)
-
-	var (
-		decision   *agentcoordpb.ApprovalDecision
-		resolution agentcoordpb.InteractionRecorded_Resolution
-		note       string
-	)
-	switch {
-	case err != nil:
-		clidiag.Warn("ctxloom", "engine host: approval request %q: %v (cancelling)", pr.ID, err)
-		note = err.Error()
-		resolution = agentcoordpb.InteractionRecorded_RESOLUTION_TIMED_OUT
-	case resp.GetStatus().GetCode() != int32(codes.OK):
-		note = resp.GetStatus().GetMessage()
-		// CANCELLED, not DENIED: a non-OK status means the coordinator
-		// REFUSED to decide (the !caller.IsChild() guard, an unknown run),
-		// not that anyone decided against the request. The journal must
-		// record the same thing the engine is told below.
-		resolution = agentcoordpb.InteractionRecorded_RESOLUTION_CANCELLED
-	default:
-		decision = resp.GetApproval()
-		note = decision.GetNote()
-		resolution = interactionResolution(decision.GetDecision())
-	}
-
-	allow := decision != nil &&
-		interactionResolution(decision.GetDecision()) == agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED
-	// NO DECISION -> NO OPTION. An empty OptionID is the ACP
-	// {outcome:"cancelled"} reply (internal/acp/session.go's forwardPermission,
-	// internal/acpagent/server.go), which says exactly what happened: nothing
-	// answered. Running pickPermissionOption here instead would hand the engine
-	// a reject_once option, and claude-code-acp renders that to the model — and
-	// into the durable transcript — as {behavior:"deny", message:"User refused
-	// permission to run tool"}: ctxloom's own refusal, attributed to an operator
-	// who was never asked. A REAL DECISION_DECLINE (decision != nil) still picks
-	// reject_once, because then someone genuinely did refuse.
-	optionID := ""
-	if decision != nil && decision.GetDecision() != agentcoordpb.ApprovalDecision_DECISION_CANCEL {
-		optionID = pickPermissionOption(pr.Options, allow)
-	}
-	select {
-	case eh.in <- agent.ChatMessage{Permission: &agent.PermissionAnswer{ID: pr.ID, OptionID: optionID}}:
-	case <-ctx.Done():
-	}
-
-	detail, _ := structpb.NewStruct(map[string]any{
-		"decision": decision.GetDecision().String(), "note": note, "option_id": optionID,
-	})
-	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Interaction{Interaction: &agentcoordpb.InteractionRecorded{
-		RequestId:  agentReq.GetRequestId(),
-		Kind:       "approval",
-		Resolution: resolution,
-		Detail:     detail,
-	}}})
-}
-
 // injectMCPSocketEnv stamps the runner's own CTXLOOM_MCP_SOCKET onto the
 // ctxloom forwarder MCP server entry's OWN env, so the reach-back socket is
 // delivered EXPLICITLY over the ACP session/new mcpServers env (mapping.go's
@@ -954,98 +861,3 @@ func injectMCPSocketEnv(servers []agent.ChatMCPServer, socket string) {
 	}
 }
 
-// classifyApprovalKind buckets a backend-classified permission request's
-// Kind (ACP's ToolCallKind vocabulary today: execute/edit/delete/move/read/
-// search/fetch/think/other) onto the contract's ApprovalKind. Unclassified
-// or unrecognized values fall back to TOOL_USE — the generic bucket, never
-// silently dropped.
-//
-// Backend-parity recon: this mapping needs NO per-backend cases.
-// claude/codex/kiro/generic-acp all reach here through the SAME code path —
-// internal/acp/mapping.go's permissionRequestEvent decodes every adapter's
-// session/request_permission via the one pinned ACP SDK's api.ToolCallKind,
-// so "kind" is already protocol-normalized before it gets here regardless of
-// which real adapter binary (claude-code-acp/codex-acp/kiro-cli) produced
-// it — there is no adapter-specific vocabulary to extend against. A future
-// backend that classifies permissions OUTSIDE the ACP driver (a non-ACP
-// StructuredChat implementation) is the only case that would need a new
-// case here.
-func classifyApprovalKind(kind string) agentcoordpb.ApprovalRequest_ApprovalKind {
-	switch kind {
-	case "execute":
-		return agentcoordpb.ApprovalRequest_APPROVAL_KIND_COMMAND_EXECUTION
-	case "edit", "delete", "move":
-		return agentcoordpb.ApprovalRequest_APPROVAL_KIND_FILE_CHANGE
-	default:
-		return agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL_USE
-	}
-}
-
-// structFromJSON best-effort projects a permission request's raw tool input
-// onto a Struct payload: a JSON object marshals directly; any other JSON
-// shape (array, scalar) wraps as {"value": ...} so a non-object input never
-// fails the whole approval. Input that is not valid JSON at all wraps as its
-// own RAW TEXT under the same key rather than vanishing — this payload is
-// what a human on the escalation ladder reads to decide, and a nil payload
-// left them the tool name and nothing about what it was asked to do. Only
-// genuinely empty input yields no payload.
-func structFromJSON(raw json.RawMessage) *structpb.Struct {
-	if len(raw) == 0 {
-		return nil
-	}
-	s := &structpb.Struct{}
-	if err := protojson.Unmarshal(raw, s); err == nil {
-		return s
-	}
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		// Not JSON. Carry the bytes as text, UTF-8-repaired: a Struct holding
-		// invalid UTF-8 marshals nowhere, so an unrepaired string would drop
-		// the payload again one layer further out.
-		v = strings.ToValidUTF8(string(raw), "�")
-	}
-	wrapped, err := structpb.NewStruct(map[string]any{"value": v})
-	if err != nil {
-		clidiag.Warn("ctxloom", "engine host: approval payload could not be projected onto a Struct (%d bytes dropped): %v", len(raw), err)
-		return nil
-	}
-	return wrapped
-}
-
-// interactionResolution is the ENFORCEMENT allow-list: only an explicit
-// ACCEPT/ACCEPT_FOR_SESSION grants, everything else — including
-// DECISION_UNSPECIFIED and any value proto3's open enums let through the
-// wire — denies. Fail-CLOSED by construction, and the single definition
-// approvalResolution (approval.go) mirrors so the child's
-// InteractionRecorded and the coordinator's audit journal can never
-// disagree about the same event.
-func interactionResolution(d agentcoordpb.ApprovalDecision_Decision) agentcoordpb.InteractionRecorded_Resolution {
-	switch d {
-	case agentcoordpb.ApprovalDecision_DECISION_ACCEPT, agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION:
-		return agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED
-	case agentcoordpb.ApprovalDecision_DECISION_CANCEL:
-		return agentcoordpb.InteractionRecorded_RESOLUTION_CANCELLED
-	default:
-		return agentcoordpb.InteractionRecorded_RESOLUTION_DENIED
-	}
-}
-
-// pickPermissionOption mirrors the acp driver's own pickOption (mapping.go)
-// for the ladder's resolved decision: an ACCEPT[/_FOR_SESSION] selects an
-// allow_* option, everything else a reject_* option (one-shot preferred
-// over "always"). No matching option answers "" — the engine's safe
-// cancelled no-op (neither approves nor commits a remembered rejection).
-func pickPermissionOption(options []agent.PermissionOption, allow bool) string {
-	want := []string{"reject_once", "reject_always"}
-	if allow {
-		want = []string{"allow_once", "allow_always"}
-	}
-	for _, k := range want {
-		for _, o := range options {
-			if o.Kind == k {
-				return o.ID
-			}
-		}
-	}
-	return ""
-}

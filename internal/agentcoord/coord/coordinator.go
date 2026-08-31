@@ -284,19 +284,14 @@ type Coordinator struct {
 	runners     map[string]*runnerSession // credHash → connected runner
 	runnerReady map[string]chan struct{}  // credHash → closed on Hello registration (awaitRunner)
 	chans       map[string]*runChan       // role harp → live RunChannel
-	// approvals (C2) parks one outstanding relay-to-role/surface-to-human
-	// approval per mailbox message id — the correlation a parent's
-	// agent_send in_reply_to resolves (approval.go).
-	approvals map[string]*pendingApproval
 	// reqTrack is plane-2 request idempotency that SURVIVES a RunChannel
 	// reconnect, keyed by (role, request_id). It replaces the per-connection
 	// runChan.reqCache/inflight (reset to empty on every dial): a request the
 	// runner reissues with the same request_id on a fresh channel (home.go)
-	// must reuse the in-flight dispatch, never start a second one. Load-bearing
-	// for approvals — a duplicate dispatch mints a second relay/ladder walk and
-	// a human ACCEPT answered on the dead channel while the live channel bottoms
-	// out at DECLINE. Cleaned per-role at terminal
-	// (clearReqTrack); lazily initialized.
+	// must reuse the in-flight dispatch, never start a second one — a
+	// duplicate dispatch would run the request's effect twice, and the
+	// answer to one copy would be lost with the channel it arrived on.
+	// Cleaned per-role at terminal (clearReqTrack); lazily initialized.
 	reqTrack map[reqKey]*inflightReq
 	// downTrack is reqTrack's mirror in the DOWN direction: outstanding
 	// coordinator→agent control requests, keyed by the same (role, request_id).
@@ -306,25 +301,11 @@ type Coordinator struct {
 	// from (control.go's redrainDownRequests). Cleaned per-role at terminal
 	// (clearDownTrack); lazily initialized.
 	downTrack map[reqKey]*downReq
-	// onApprovalMailQueued, when set, is called by relayApproval immediately
-	// after the relay mail becomes OBSERVABLE to the parent. It is the test
-	// seam for the register-before-publish ordering: the whole
-	// correctness argument is that a reply arriving at this exact instant
-	// still resolves, and only a hook at this instant can assert it
-	// deterministically rather than by racing an Eventually. Nil in
-	// production.
-	onApprovalMailQueued func(msgID string)
-	// onPendingApproval is the human-surface OnPendingApproval callback,
-	// nil until a caller registers one. Read/written under c.mu; ALWAYS
-	// invoked outside it (notifyPendingApproval captures, unlocks, calls) —
-	// see OnPendingApproval's doc comment for why.
-	onPendingApproval func(PendingApproval, bool)
-	// sessionAccepts is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
-	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
 	// asks holds the outstanding correlated asks (spoolcontrol.go) — question
 	// and summarize — keyed by the id their request file carries as origin_id,
 	// which is what a reply quotes in in_reply_to. Registered BEFORE the file
-	// is published, for the reason relayApproval's own comment gives.
+	// is published, so that an answer arriving the instant the file becomes
+	// observable still resolves instead of racing its own registration.
 	// Lazily initialized.
 	asks map[string]*pendingAsk
 	// onAskPublished, when set, is called by controlAsk between REGISTERING the
@@ -934,16 +915,12 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 	// installed. Only the writer knows whether the agent chose to send, so the
 	// writer marks it and this chokepoint reads the mark.
 	if inReplyTo != "" && !isAutoReport(structured) {
-		if disposition, rerr, matched := c.resolveApprovalReply(caller, inReplyTo, structured); matched {
-			return inReplyTo, true, disposition, rerr
-		}
-		// The CORRELATED ASK's answer (spoolcontrol.go), on the same terms and
-		// in the same place: a reply to a coordinator question/summarize
-		// resolves the parked ask and does NOT also become mail — the asker is
-		// this coordinator, not a mailbox, and delivering the answer onward
-		// would give the target's parent a message it never asked for. A miss
-		// falls through, so a stale correlation degrades to ordinary mail
-		// rather than failing the send.
+		// The CORRELATED ASK's answer (spoolcontrol.go): a reply to a
+		// coordinator question/summarize resolves the parked ask and does NOT
+		// also become mail — the asker is this coordinator, not a mailbox, and
+		// delivering the answer onward would give the target's parent a message
+		// it never asked for. A miss falls through, so a stale correlation
+		// degrades to ordinary mail rather than failing the send.
 		if disposition, matched := c.resolveAskReply(caller, inReplyTo, body, structured); matched {
 			return inReplyTo, true, disposition, nil
 		}

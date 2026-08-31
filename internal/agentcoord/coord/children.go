@@ -516,7 +516,6 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			OneShot:    plan.ResumeMode == ResumeModeOneShot,
 			Prompt:     prompt,
 			Resume:     resume,
-			Ladder:     ladderToFact(plan.Ladder),
 			Permission: plan.Perm.String(),
 			// Names only: an operator auditing a live delegation sees WHAT a
 			// child can reach, and command/args/env never enter the journal.
@@ -1914,18 +1913,6 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	}
 	c.sampleExecGauge() // the terminal is also a (possible) StateExecuting exit — see setState's sibling call
 	c.audit("run_terminal", rec.Harp, map[string]string{"run_id": runID, "cause": cause})
-	// The ACCEPT_FOR_SESSION cache (C2) is HARP-scoped (fix/accept-session-
-	// scope, one-shot-resume plan Slice 1): it must outlive an ordinary run
-	// terminal — a resumed harp keeps its grants, because "for-session"
-	// means the harp's whole delegated session, not the turn that happened
-	// to be live when it was granted. Only an explicit, deliberate
-	// agent_stop (CauseStopped) clears it here; every other cause leaves the
-	// harp resumable (factRunEnded's own doc) and must not wipe grants —
-	// see clearSessionAccepts's doc for why this distinction matters under
-	// one-shot.
-	if cause == CauseStopped {
-		c.clearSessionAccepts(rec.Harp)
-	}
 	// Plane-2 request idempotency records are role-scoped and reconnect-
 	// surviving (runchannel.go); drop this harp's at terminal so they don't
 	// accumulate across the process's lifetime.

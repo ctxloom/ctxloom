@@ -253,11 +253,6 @@ type fakeAgent struct {
 	// backend-agnostic (C3 recon); tests pinning per-backend parity (e.g.
 	// TestStartRun_BackendParity) set it explicitly.
 	backend string
-	// ladder (C2) is an explicit test escalation ladder; nil derives the
-	// perm preset (mirrors prodSpawner.Resolve's buildLadder-or-preset
-	// call), so tests that don't care about approvals see prod-shaped
-	// defaults.
-	ladder Ladder
 	// mcpServers is the child's resolved MCP server set (mirrors
 	// prodSpawner.Resolve composing plan.MCPServers via childMCPServers) —
 	// nil for tests that don't care what a child's privilege journal shows.
@@ -299,10 +294,6 @@ func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		return nil, gerr
 	}
 	s.resolved = append(s.resolved, agentName)
-	ladder := a.ladder
-	if ladder == nil {
-		ladder = presetLadder(perm)
-	}
 	backend := a.backend
 	if backend == "" {
 		backend = "mock"
@@ -319,7 +310,6 @@ func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		Runtime:     a.runtime,
 		Context:     "FRAG-ONE",
 		Perm:        perm,
-		Ladder:      ladder,
 		Degraded:    degraded,
 		ViaStartRun: a.viaStartRun,
 		MCPServers:  a.mcpServers,

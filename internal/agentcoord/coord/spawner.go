@@ -49,16 +49,10 @@ type SpawnPlan struct {
 	// therefore only carry a handler the vocabulary admits; there is no
 	// spelling on it for a later frame to re-interpret.
 	DirtyTreeHandler operations.DirtyTreeHandler
-	// Ladder is the resolved (preset-or-declared, validated) escalation
-	// ladder (Wave C2) this child's ApprovalRequests walk. Resolved once at
-	// spawn time from the agent's declared escalation: (or the Perm preset)
-	// so a later config edit cannot retroactively change a live run's
-	// policy — enqueueRun journals it onto the run record.
-	Ladder   Ladder
 	Degraded []string
 	// MCPServers is the child's fully composed MCP server set (Wave F1),
-	// resolved once at Resolve time — the SAME rationale as Ladder: a later
-	// config edit must not retroactively change a live run's privileges, and
+	// resolved once at Resolve time so a later config edit cannot
+	// retroactively change a live run's privileges, and so that
 	// resolving it exactly once means Launch/StartEngine and the enqueue
 	// journal (children.go's enqueueRun) all read the identical set instead
 	// of each recomposing it (which would also re-fire the executable trust
@@ -428,11 +422,6 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 	}(); gerr != nil {
 		return nil, gerr
 	}
-	ladder, err := buildLadder(agentName, rs.Escalation, perm)
-	if err != nil {
-		return nil, fmt.Errorf("agent_run: %w", err)
-	}
-
 	// Slice 2 — per-engine resume-capability gate (static half). FAILS LOUD
 	// (never silently downgrades to persistent) when `driving: oneshot` names
 	// a backend with no resume-by-key primitive.
@@ -476,7 +465,6 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		Runtime:   rs.Runtime,
 		Context:   rs.Context,
 		Perm:      perm,
-		Ladder:    ladder,
 		Degraded:  degraded,
 		// C3: every backend whose delegated Chat rides the shared ACP
 		// driver moves onto StartRun (see viaStartRunBackends).

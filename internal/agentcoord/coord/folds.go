@@ -56,14 +56,11 @@ type RunRecord struct {
 	Resumable    bool
 	EnqueuedAt   time.Time
 	LastActivity time.Time
-	// Ladder is the run's resolved escalation ladder (Wave C2), fixed at
-	// enqueue.
-	Ladder Ladder
 	// Permission is the run's resolved permission mode's kind name (Wave
-	// F1), fixed at enqueue — mirrors Ladder; see runEnqueued.Permission.
+	// F1), fixed at enqueue — see runEnqueued.Permission.
 	Permission string
 	// MCPServers is the run's resolved MCP server NAMES ONLY (Wave F1),
-	// fixed at enqueue — mirrors Ladder; see runEnqueued.MCPServers. Never
+	// fixed at enqueue — see runEnqueued.MCPServers. Never
 	// command/args/env.
 	MCPServers []string
 	// ContainerName is the resolved container name (factRunContainer) for a
@@ -149,7 +146,6 @@ func (f *runsFold) applyEnqueued(p runEnqueued, at time.Time) {
 		State:        StateQueued,
 		EnqueuedAt:   at,
 		LastActivity: at,
-		Ladder:       ladderFromFact(p.Ladder),
 		Permission:   p.Permission,
 		MCPServers:   p.MCPServers,
 	}

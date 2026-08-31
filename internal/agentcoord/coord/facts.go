@@ -117,19 +117,12 @@ type runEnqueued struct {
 	OneShot bool   `json:"one_shot,omitempty"`
 	Prompt  string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
 	Resume  bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
-	// Ladder is the run's resolved escalation ladder (Wave C2), journaled at
-	// enqueue so a later config edit cannot retroactively change a live
-	// run's policy and restart adoption recovers it without re-resolving
-	// config. Kind names, not wire numbers, so runs.jsonl stays
-	// jq-legible; ladder.go owns the (Ladder <-> []ladderRungFact)
-	// conversion.
-	Ladder []ladderRungFact `json:"ladder,omitempty"`
 	// Permission is the child's resolved permission mode's kind name
 	// (agent.PermissionMode.String(): "bypass"|"plan"|"default"|
-	// "acceptEdits") — Wave F1, journaled at enqueue
-	// for the SAME reason as Ladder: a later config edit must not
-	// retroactively change what a live run's privileges were. Kind name, not
-	// a wire number, so runs.jsonl stays jq-legible.
+	// "acceptEdits") — Wave F1, journaled at enqueue so a later config edit
+	// cannot retroactively change what a live run's privileges were, and so
+	// restart adoption recovers them without re-resolving config. Kind name,
+	// not a wire number, so runs.jsonl stays jq-legible.
 	Permission string `json:"permission,omitempty"`
 	// MCPServers is the child's resolved MCP server NAMES ONLY (Wave F1) —
 	// never command, args, or env, which can carry a secret (the SAME
@@ -140,14 +133,6 @@ type runEnqueued struct {
 	// audit trail — a later reader can confirm this run received exactly
 	// these servers, never a sibling's or the parent's.
 	MCPServers []string `json:"mcp_servers,omitempty"`
-}
-
-// ladderRungFact is LadderRung's durable JSON projection.
-type ladderRungFact struct {
-	Kinds   []string `json:"kinds,omitempty"`
-	Action  string   `json:"action"`
-	Role    string   `json:"role,omitempty"`
-	Timeout string   `json:"timeout,omitempty"`
 }
 
 // runState is factRunState's payload.

@@ -940,8 +940,6 @@ func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.Agent
 		return c.serveListRuns(caller, kind.ListRuns)
 	case *agentcoordpb.AgentRequest_StopRun:
 		return c.serveStopRun(caller, kind.StopRun)
-	case *agentcoordpb.AgentRequest_Approval:
-		return c.serveApproval(caller, kind.Approval)
 	case *agentcoordpb.AgentRequest_Custom:
 		return c.serveCustom(caller, kind.Custom)
 	default:

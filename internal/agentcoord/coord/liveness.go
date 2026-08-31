@@ -134,22 +134,15 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 		}
 	})
 
-	// A child parked on an approval rung must NEVER be reported as stalled.
-	// Two independent sources feed that, and either is sufficient:
-	// the §6a roster state, and this coordinator's own outstanding-approval
-	// registry. (The transcript's trailing permission record is a third,
-	// checked inside the monitor.)
-	parked := make(map[string]bool)
+	// A child waiting on a permission decision must NEVER be reported as
+	// stalled. The §6a roster state carries that here; the transcript's
+	// trailing permission record is a second, independent source, checked
+	// inside the monitor.
 	workDirs := make(map[string]string)
 	c.mu.Lock()
 	for harp, rt := range c.byHarp {
 		if rt != nil {
 			workDirs[harp] = rt.workDir
-		}
-	}
-	for _, ap := range c.approvals {
-		if ap != nil && ap.targetHarp != "" {
-			parked[ap.targetHarp] = true
 		}
 	}
 	c.mu.Unlock()
@@ -176,7 +169,7 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 			StartedAt:        r.enqueued,
 			LastActivity:     r.lastActivity,
 			RosterState:      r.state,
-			AwaitingApproval: parked[r.harp] || r.state == StateParked,
+			AwaitingApproval: r.state == StateParked,
 			Ended:            r.ended,
 			TranscriptPath:   txPath,
 			WorkDir:          workDirs[r.harp],

@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -181,57 +180,5 @@ func TestStdioServer_EveryToolClassified(t *testing.T) {
 	for name := range tools {
 		_, ok := routes[name]
 		assert.True(t, ok, "stdio tool %q is unclassified — add it to mcpschema.Routes", name)
-	}
-}
-
-// approvalDecisionVocabulary is ApprovalDecision.Decision's declared,
-// non-zero vocabulary (coordination.proto) — the exact set a coordinator
-// answering a relayed approval_request may send, and the set the reply
-// decoder (coord.decisionFromStructured) enforces.
-var approvalDecisionVocabulary = []string{
-	"DECISION_ACCEPT",
-	"DECISION_ACCEPT_FOR_SESSION",
-	"DECISION_DECLINE",
-	"DECISION_CANCEL",
-}
-
-// TestAgentSend_DocumentsApprovalDecisionVocabularyOnBothSurfaces closes
-// modal-chess. agent_send is the ONLY way to answer a relayed approval, and
-// its `structured` argument carries the ApprovalDecision — but the vocabulary
-// was documented on the stdio surface alone. The generated (proto-canonical)
-// schema, which is what a real runner-hosted engine actually reads, named no
-// DECISION_ value at all, so the enum was discoverable only by trial and
-// error and a plausible-but-wrong guess failed silently at the far end.
-//
-// The two surfaces are generated independently (RouteCoordination →
-// generated JSON; stdio → the typed agentSendInput struct tags), so nothing
-// else makes them agree. This is that guard.
-func TestAgentSend_DocumentsApprovalDecisionVocabularyOnBothSurfaces(t *testing.T) {
-	generated, ok := mcpschema.ToolByName(mcpschema.ToolAgentSend)
-	require.True(t, ok, "agent_send must have a generated schema")
-	genJSON, err := json.Marshal(generated.InputSchema)
-	require.NoError(t, err)
-
-	s := &ctxServer{cfg: testConfig()}
-	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
-	s.registerTools(server)
-	stdioTool, ok := listServerTools(t, server)[mcpschema.ToolAgentSend]
-	require.True(t, ok, "the stdio server must advertise agent_send")
-	stdioJSON, err := json.Marshal(stdioTool.InputSchema)
-	require.NoError(t, err)
-
-	for _, surface := range []struct {
-		name string
-		raw  string
-	}{
-		{"generated (proto-canonical, runner surface)", string(genJSON)},
-		{"stdio (typed struct tags)", string(stdioJSON)},
-	} {
-		for _, decision := range approvalDecisionVocabulary {
-			assert.Contains(t, surface.raw, decision,
-				"the %s agent_send schema must name %s — a coordinator cannot guess the approval vocabulary", surface.name, decision)
-		}
-		assert.Contains(t, surface.raw, "in_reply_to",
-			"the %s agent_send schema must tie the ApprovalDecision to in_reply_to", surface.name)
 	}
 }

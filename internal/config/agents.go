@@ -24,9 +24,8 @@ import (
 //
 // Every returned Agent is cloned, so it obeys accessors.go's copy-on-read
 // policy like every other value handed out of a Config: Agent.Profiles decides
-// which context a delegated child is given and Agent.Escalation is the
-// permission ladder it runs under, so a caller filtering either in place must
-// not be rewriting it for every other holder of the shared instance.
+// which context a delegated child is given, so a caller filtering it in place
+// must not be rewriting it for every other holder of the shared instance.
 func (c *Config) LoadAgents() []agents.Agent {
 	c.retiredAgentsDirSignpost()
 

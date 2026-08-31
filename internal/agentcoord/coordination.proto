@@ -880,7 +880,7 @@ message PeerSendRequest {
     doc: "Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"
   }];
   google.protobuf.Struct structured = 4 [(field_schema) = {
-    doc: "Optional structured companion. ANSWERING A RELAYED MESSAGE_KIND_APPROVAL_REQUEST is its main use — set in_reply_to to that message's message_id and this field IS the ApprovalDecision itself: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}. Any OTHER key on an approval reply is rejected, and the send fails naming the accepted shape; answering with anything else — including a bare courtesy ack — is refused without consuming the approval, so the decision can simply be re-sent. A `kind` key here is NO LONGER the message kind: name the kind in the `kind` field.",
+    doc: "Optional structured companion, carried opaque alongside the body. A `kind` key here is NOT the message kind: name the kind in the `kind` field.",
     example: "{\"decision\": \"DECISION_ACCEPT\"}"
   }];
   // The message's kind, from the closed MessageKind vocabulary. Only the
@@ -890,7 +890,7 @@ message PeerSendRequest {
   // This REPLACES the retired `structured["kind"]` convention. `kind` in
   // `structured` is now just an ordinary payload key with no special meaning.
   MessageKind kind = 7 [(field_schema) = {
-    doc: "REQUIRED. The message's kind, from a CLOSED vocabulary of exactly four values you may send: MESSAGE_KIND_MESSAGE (plain prose, claiming no special authority), MESSAGE_KIND_RESULT (your findings/verdict/deliverable), MESSAGE_KIND_ERROR (a failure the recipient must act on), MESSAGE_KIND_QUESTION (you expect an answer back). Every OTHER value is the coordinator's own and is REJECTED from a sender, not quietly downgraded — a reserved kind asks the recipient to trust the coordinator's authorship (MESSAGE_KIND_APPROVAL_REQUEST is relayed to a human as a trust decision), so a sender able to set one could borrow that authority. An unrecognised value is likewise REJECTED rather than passed through, and so is leaving this unset: the send fails, naming the four legal values. Nothing you write here is ever interpolated into text the recipient reads — the kind renders only as a name from this closed set.",
+    doc: "REQUIRED. The message's kind, from a CLOSED vocabulary of exactly four values you may send: MESSAGE_KIND_MESSAGE (plain prose, claiming no special authority), MESSAGE_KIND_RESULT (your findings/verdict/deliverable), MESSAGE_KIND_ERROR (a failure the recipient must act on), MESSAGE_KIND_QUESTION (you expect an answer back). Every OTHER value is the coordinator's own and is REJECTED from a sender, not quietly downgraded — a reserved kind asks the recipient to trust the coordinator's authorship, so a sender able to set one could borrow that authority. An unrecognised value is likewise REJECTED rather than passed through, and so is leaving this unset: the send fails, naming the four legal values. Nothing you write here is ever interpolated into text the recipient reads — the kind renders only as a name from this closed set.",
     example: "\"MESSAGE_KIND_RESULT\""
   }];
   // 5 was artifact_ids (repeated string), REMOVED:
@@ -1365,7 +1365,7 @@ message PeerMessage {
   // the message. A recognised value here is guaranteed by decode; an
   // unrecognised one is refused rather than delivered unclassified.
   MessageKind kind = 8 [(field_schema) = {
-    doc: "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_APPROVAL_REQUEST is an escalation WAITING on your decision (see `structured`); MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices."
+    doc: "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices."
   }];
 }
 

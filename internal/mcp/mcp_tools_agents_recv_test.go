@@ -22,11 +22,10 @@ import (
 // consume-then-decode shape: Coordinator.recvMail marks the batch DELIVERED
 // before returning, so the discarded field is gone for good, not redelivered.
 //
-// It matters most exactly where it is least visible: an approval_request is
-// answered by echoing its message_id with an ApprovalDecision, and everything
-// the answerer needs rides in `structured`. Stripped of it, the coordinator
-// sees a message that looks like a courtesy note and the requesting child
-// blocks until its rung times out and auto-declines.
+// It matters most exactly where it is least visible: when the companion is
+// the part that carries the meaning, a recipient stripped of it sees what
+// looks like a courtesy note and acts on the wrong thing — so the fault has
+// to be NAMED rather than presented as an absent field.
 func TestHandleAgentRecv_NamesAnUndecodableStructuredCompanion(t *testing.T) {
 	cfg, c, _ := buildHostCoordinator(t, map[string]agents.Agent{
 		"worker": headlessAgent("p1"),

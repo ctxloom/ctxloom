@@ -163,9 +163,9 @@ type agentRunResult struct {
 type agentSendInput struct {
 	To         string         `json:"to" jsonschema:"Recipient: a child session harp, or \"parent\" (delegated children may ONLY address their parent)"`
 	Body       string         `json:"body" jsonschema:"Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"`
-	Kind       string         `json:"kind,omitempty" jsonschema:"The message's kind, from a CLOSED vocabulary of exactly four values you may send: message (plain prose, claiming no special authority), result (your findings/verdict/deliverable), error (a failure the recipient must act on), question (you expect an answer back). REQUIRED for an ordinary send — an absent or unrecognised value is refused, naming these four — except when in_reply_to correlates to a relayed approval_request or a coordinator-asked question: that reply's kind is not read at all (the decision/answer in structured or body is what resolves it), so it may be left unset. Every other value (approval_request and the rest of the coordinator's own vocabulary) is rejected from a sender, not quietly downgraded."`
-	Structured map[string]any `json:"structured,omitempty" jsonschema:"Optional structured companion, carried opaque — it is no longer read for a \"kind\" key; name the kind in the kind field above. ANSWERING A RELAYED approval_request is its main use: set in_reply_to to that message's message_id and this field IS the ApprovalDecision itself: {\"decision\": \"DECISION_ACCEPT\"|\"DECISION_ACCEPT_FOR_SESSION\"|\"DECISION_DECLINE\"|\"DECISION_CANCEL\", \"note\": \"...\"}. Any OTHER key on an approval reply is rejected, and the send fails naming the accepted shape. Answering with anything else — including a bare courtesy ack — is refused without consuming the approval, so the decision can simply be re-sent."`
-	InReplyTo  string         `json:"in_reply_to,omitempty" jsonschema:"Correlates this reply to an earlier inbound message's message_id. It is the ONLY correlation key. Set it to a relayed approval_request's message_id to answer that approval, and put the ApprovalDecision in structured."`
+	Kind       string         `json:"kind,omitempty" jsonschema:"The message's kind, from a CLOSED vocabulary of exactly four values you may send: message (plain prose, claiming no special authority), result (your findings/verdict/deliverable), error (a failure the recipient must act on), question (you expect an answer back). REQUIRED for an ordinary send — an absent or unrecognised value is refused, naming these four — except when in_reply_to correlates to a coordinator-asked question: that reply's kind is not read at all (the answer in body is what resolves it), so it may be left unset. Every value outside these four (the coordinator's own reserved vocabulary) is rejected from a sender, not quietly downgraded."`
+	Structured map[string]any `json:"structured,omitempty" jsonschema:"Optional structured companion, carried opaque — it is not read for a \"kind\" key; name the kind in the kind field above."`
+	InReplyTo  string         `json:"in_reply_to,omitempty" jsonschema:"Correlates this reply to an earlier inbound message's message_id. It is the ONLY correlation key — set it to a coordinator question's message_id to answer that question."`
 }
 
 type agentSendResult struct {
@@ -185,13 +185,13 @@ type agentBusMessage struct {
 	From       string         `json:"from"`
 	Kind       string         `json:"kind,omitempty"`
 	Body       string         `json:"body"`
-	Structured map[string]any `json:"structured,omitempty" jsonschema:"Structured companion the sender attached, when there is one. A message whose kind is approval_request carries the escalation ladder's ApprovalRequest projection and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\"|\"DECISION_ACCEPT_FOR_SESSION\"|\"DECISION_DECLINE\"|\"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first."`
+	Structured map[string]any `json:"structured,omitempty" jsonschema:"Structured companion the sender attached, when there is one."`
 	// StructuredError reports a companion that arrived but could not be
 	// decoded. The mailbox commits a batch as delivered BEFORE this projection
 	// runs, so such a payload is lost rather than redelivered — the caller has
 	// to be able to tell "the sender attached nothing" from "the sender
 	// attached something and it did not survive the trip".
-	StructuredError string `json:"structured_error,omitempty" jsonschema:"Set when the sender attached a structured companion that could not be decoded; the body was still delivered but the structured field is absent and will NOT be redelivered. A message whose kind needs a structured answer (approval_request) cannot be answered from the body alone — treat this as a delivery fault, not an empty field."`
+	StructuredError string `json:"structured_error,omitempty" jsonschema:"Set when the sender attached a structured companion that could not be decoded; the body was still delivered but the structured field is absent and will NOT be redelivered. Treat this as a delivery fault, not an empty field."`
 }
 
 type agentRecvResult struct {

@@ -218,6 +218,13 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// found something.
 	operations.SweepOrphanedWorktrees(ctx, os.Stderr)
 
+	// Startup reaper, container half: sweep any still-RUNNING per-agent
+	// runner container left behind by a crashed/killed prior run — teardown
+	// is a deferred isolation.RunnerHandle.Kill, which does not survive
+	// SIGKILL/OOM/a closed terminal — see operations.SweepOrphanedContainers's
+	// doc.
+	operations.SweepOrphanedContainers(ctx, os.Stderr)
+
 	// Startup reaper, second half: the per-session engine-home instances a
 	// crashed run leaves in THIS project's tree, each holding a copied
 	// credential — see operations.SweepOrphanedSessionHomes. Same fault-tolerance, same

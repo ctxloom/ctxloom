@@ -62,6 +62,11 @@ func (f fakeRuntime) ExposeMapped(hostPath string, readOnly bool) Mount {
 // value catches a call site that silently reverts to the raw host path.
 func (fakeRuntime) mapper() pathMapper { return prefixMapper{prefix: "/ctr"} }
 
+// Enumerate is a no-op default for the many tests that never exercise the
+// container-reap sweep; container_reap_test.go defines its own fake that
+// embeds fakeRuntime and overrides this.
+func (fakeRuntime) Enumerate(context.Context, string) ([]ContainerInfo, error) { return nil, nil }
+
 // TestContainer_MCPCommandOverride pins a fix at its source: a
 // container policy (either base tier — hostBase and worktreeBase share the
 // same binaryPath field) reports the in-container ctxloom binary

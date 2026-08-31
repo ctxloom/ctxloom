@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -77,6 +78,22 @@ type Runtime interface {
 	// project mount + WorkDir the SAME way ExposeMapped does, so the two
 	// never disagree about where a host path lands in-container.
 	mapper() pathMapper
+	// Enumerate lists containers whose name starts with namePrefix that are
+	// RUNNING right now (no -a: --rm already means an EXITED container is
+	// already gone by itself, so there is nothing among exited containers for
+	// a caller to find — see container_reap.go's doc). Each result's Labels
+	// carries exactly what ownerLabelArgs stamped at `run` time, verbatim; a
+	// caller decides what an absent or malformed one means. This is what
+	// ReapOrphanedContainers uses instead of composing `ps` argv itself: Host
+	// launches no containers and always returns nil, nil.
+	Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error)
+}
+
+// ContainerInfo is one running container as Enumerate reports it: enough for
+// a caller deciding whether to reap it, never more.
+type ContainerInfo struct {
+	Name   string
+	Labels map[string]string
 }
 
 // pathMapper translates a host filesystem path to the path the SAME resource
@@ -282,6 +299,43 @@ func (rt ociRuntime) ExposeMapped(hostPath string, readOnly bool) Mount {
 // mapper returns this runtime's pathMapper (identity when unset).
 func (rt ociRuntime) mapper() pathMapper { return runtimeMapper(rt.pathMap) }
 
+// enumerate is the shared Docker/Podman Enumerate body: `<binary> ps --filter
+// name=<namePrefix> --format {{.Names}}\t{{json .Labels}}`, one line per
+// RUNNING container whose name contains namePrefix (docker/podman's `name`
+// filter is substring, not anchored — ReapOrphanedContainers re-checks the
+// prefix itself rather than trusting this as an exact filter). Routed through
+// probeExec (package var) so it is testable without a runtime present, same
+// seam sharedFSProbe and diagnoseAdvisory already use.
+func (ociRuntime) enumerate(ctx context.Context, binary, namePrefix string) ([]ContainerInfo, error) {
+	out, err := probeExec(ctx, binary, []string{
+		"ps",
+		"--filter", "name=" + namePrefix,
+		"--format", "{{.Names}}\t{{json .Labels}}",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s ps: %w", binary, err)
+	}
+	var infos []ContainerInfo
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		name, labelsJSON, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		var labels map[string]string
+		// A container with no labels renders `{{json .Labels}}` as "null" or
+		// "{}" depending on engine/version; either unmarshals cleanly into a
+		// nil/empty map, which is exactly the "no label" state a caller
+		// checking Labels[key] already handles correctly.
+		_ = json.Unmarshal([]byte(labelsJSON), &labels)
+		infos = append(infos, ContainerInfo{Name: name, Labels: labels})
+	}
+	return infos, nil
+}
+
 // containerSpawnUnsupportedErr is the platform gate for the go-plugin container
 // SpawnClient path: it returns a fail-loud error on any non-Linux host and nil on
 // Linux. The transport is unix-socket-over-bind-mount — the plugin creates its
@@ -381,6 +435,7 @@ func (Docker) Available() bool { return runtimeReachable("docker") }
 // identity HEAD plus the shared renderRunSpec tail (via ociRuntime.runArgs).
 func (d Docker) RunArgs(spec RunSpec) []string {
 	args := []string{"run", "--rm", "--name", spec.Name}
+	args = append(args, ownerLabelArgs()...)
 	if !d.rootless {
 		// Rootful daemon: the entrypoint remaps ctxloom to the launching
 		// uid/gid and drops privileges. Rootless already maps root→host user.
@@ -393,6 +448,12 @@ func (d Docker) RunArgs(spec RunSpec) []string {
 // ociRuntime.spawn, passing d so the run argv is built by Docker.RunArgs (the
 // rootless-aware head) — embedding alone could not recover the concrete type.
 func (d Docker) Spawn(launch LaunchSpec) (pb.Client, error) { return d.spawn(d, launch) }
+
+// Enumerate lists RUNNING docker containers by name prefix, via the shared
+// ociRuntime.enumerate.
+func (d Docker) Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error) {
+	return d.enumerate(ctx, d.Binary(), namePrefix)
+}
 
 // identityEnvArgs renders the PUID/PGID env that tells the agent image's
 // entrypoint to remap its generic ctxloom user to the launching uid/gid and
@@ -443,6 +504,7 @@ func (Podman) Available() bool { return runtimeReachable("podman") }
 // host instead of a subuid.
 func (p Podman) RunArgs(spec RunSpec) []string {
 	args := []string{"run", "--rm", "--name", spec.Name}
+	args = append(args, ownerLabelArgs()...)
 	if p.rootless {
 		// keep-id's DEFAULT user is the host uid (not root), which couldn't
 		// remap; enter as namespaced root so the entrypoint can usermod+drop.
@@ -456,6 +518,12 @@ func (p Podman) RunArgs(spec RunSpec) []string {
 // ociRuntime.spawn with p as rt so the run argv is built by Podman.RunArgs (the
 // keep-id/identity head).
 func (p Podman) Spawn(launch LaunchSpec) (pb.Client, error) { return p.spawn(p, launch) }
+
+// Enumerate lists RUNNING podman containers by name prefix, via the shared
+// ociRuntime.enumerate.
+func (p Podman) Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error) {
+	return p.enumerate(ctx, p.Binary(), namePrefix)
+}
 
 // podmanIsRootless reports whether the podman engine is rootless (`podman info`
 // security flag). Best-effort: on any error it returns true — podman is
@@ -530,6 +598,10 @@ func (Host) ExposeMapped(hostPath string, readOnly bool) Mount {
 // mapper is always identity — Host launches no container, so there is no
 // host↔container path translation to perform.
 func (Host) mapper() pathMapper { return identityMapper{} }
+
+// Enumerate is a noop — Host launches no containers, so there is never
+// anything to list.
+func (Host) Enumerate(context.Context, string) ([]ContainerInfo, error) { return nil, nil }
 
 // renderRunSpec renders the runtime-agnostic tail of a run argv (env, mounts,
 // workdir, image, in-container command) shared by Docker and Podman. The

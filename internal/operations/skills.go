@@ -430,17 +430,10 @@ func SyncSkill(_ context.Context, cfg *config.Config, req SyncSkillRequest) (*Sy
 	synced := make([]SyncedSkill, 0, len(targets))
 	for _, name := range targets {
 		entry := bundle.Skills[name]
-		dir, err := bundles.ResolveSkillDir(bundleDir, name, entry)
+		pkg, changed, err := skillManifestDrift(fs, bundleDir, name, entry)
 		if err != nil {
-			return nil, fmt.Errorf("skill %q: %w", name, err)
+			return nil, err
 		}
-		pkg, err := bundles.ParseSkillPackage(fs, dir, 0)
-		if err != nil {
-			return nil, fmt.Errorf("skill %q: %w", name, err)
-		}
-
-		oldHash := entry.ToManifest().Hash()
-		newHash := pkg.Manifest.Hash()
 
 		files := make(map[string]bundles.SkillFileMeta, len(pkg.Manifest))
 		for _, m := range pkg.Manifest {
@@ -449,13 +442,64 @@ func SyncSkill(_ context.Context, cfg *config.Config, req SyncSkillRequest) (*Sy
 		entry.Files = files
 		bundle.Skills[name] = entry
 
-		synced = append(synced, SyncedSkill{Name: name, FileCount: len(files), Changed: oldHash != newHash})
+		synced = append(synced, SyncedSkill{Name: name, FileCount: len(files), Changed: changed})
 	}
 
 	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 	return &SyncSkillResult{Status: "synced", Bundle: req.Bundle, Synced: synced}, nil
+}
+
+// skillManifestDrift resolves a skill's on-disk source tree and reports
+// whether its freshly parsed manifest differs from what bundle.yaml has
+// recorded for it (entry.Files) — the single comparison both SyncSkill
+// (deciding SyncedSkill.Changed) and StaleSkillManifests (deciding whether
+// `bundle sign` may proceed) rely on, so the two can never disagree about
+// what counts as stale.
+func skillManifestDrift(fs afero.Fs, bundleDir, name string, entry bundles.BundleSkill) (*bundles.SkillPackage, bool, error) {
+	dir, err := bundles.ResolveSkillDir(bundleDir, name, entry)
+	if err != nil {
+		return nil, false, fmt.Errorf("skill %q: %w", name, err)
+	}
+	pkg, err := bundles.ParseSkillPackage(fs, dir, 0)
+	if err != nil {
+		return nil, false, fmt.Errorf("skill %q: %w", name, err)
+	}
+	return pkg, entry.ToManifest().Hash() != pkg.Manifest.Hash(), nil
+}
+
+// StaleSkillManifests reports every skill in bundle whose on-disk source
+// tree no longer matches the per-file manifest bundle.yaml has recorded for
+// it (skills.<name>.files) — the drift `ctxloom skill sync <bundle>` exists
+// to close. `ctxloom bundle sign` calls this before writing anything: signing
+// over a stale manifest would produce a valid signature attesting to a
+// content hash the tree does not have, and a bundle materialized from that
+// signed state is withheld as "sha256 mismatch" even though signing itself
+// reported success. Returns every stale skill name (sorted via
+// bundle.SkillNames()), not just the first, so a caller can name the fix for
+// all of them in one refusal.
+func StaleSkillManifests(fs afero.Fs, bundle *bundles.Bundle) ([]string, error) {
+	names := bundle.SkillNames()
+	if len(names) == 0 {
+		return nil, nil
+	}
+	bundleDir, err := bundle.FSDir()
+	if err != nil {
+		return nil, err
+	}
+	var stale []string
+	for _, name := range names {
+		entry := bundle.Skills[name]
+		_, drifted, err := skillManifestDrift(fs, bundleDir, name, entry)
+		if err != nil {
+			return nil, err
+		}
+		if drifted {
+			stale = append(stale, name)
+		}
+	}
+	return stale, nil
 }
 
 // skillSyncTargets resolves which skill names SyncSkill should recompute:

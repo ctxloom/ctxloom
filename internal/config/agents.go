@@ -28,6 +28,7 @@ import (
 // must not be rewriting it for every other holder of the shared instance.
 func (c *Config) LoadAgents() []agents.Agent {
 	c.retiredAgentsDirSignpost()
+	c.retiredEscalationSignpost()
 
 	out := make([]agents.Agent, 0, len(c.agents))
 	for name, sub := range c.agents {
@@ -75,6 +76,40 @@ func (c *Config) retiredAgentsDirSignpost() {
 				paths.ConfigPath(appPath), dir),
 			"%s holds %d agent definition(s) (%s) but agents now live only under the `agents:` key of config.yaml — that directory is no longer read, so these bindings are invisible to `agent list`, `run --agent` and `default_agent`",
 			dir, len(stranded), strings.Join(stranded, ", "))
+	}
+}
+
+// retiredEscalationSignpost records a finding for every agent binding that
+// still declares an `escalation:` ladder.
+//
+// The orchestrator-routed approval ladder was removed: a human answers the
+// ENGINE'S OWN permission prompt in its tmux window instead of ctxloom
+// brokering a second approval UI. The key survives on agents.Agent — it still
+// parses, still normalises, and `agent show` still prints "escalation: N
+// rung(s)" — but NOTHING consumes it any more.
+//
+// Left unsaid that is worse than a silent no-op: the CLI actively CONFIRMS a
+// setting that has no effect, which is this project's characteristic defect
+// wearing a success message. Same shape and same reason as
+// retiredAgentsDirSignpost above, FailOnce included: Agent(name) re-runs
+// LoadAgents on every lookup, so one command reaches this several times and the
+// finding must not stack up inside a single startup window.
+func (c *Config) retiredEscalationSignpost() {
+	// Sorted so a config with several offenders reports them in a stable
+	// order, matching LoadAgents' own name ordering.
+	names := make([]string, 0, len(c.agents))
+	for name := range c.agents {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if len(c.agents[name].Escalation) == 0 {
+			continue
+		}
+		strictness.FailOnce(strictness.ClassMigration,
+			fmt.Sprintf("delete the `escalation:` key from agent %q", name),
+			"agent %q declares an `escalation:` ladder (%d rung(s)), but the orchestrator-routed approval ladder was removed — the key is still parsed and still shown by `agent show`, yet nothing reads it, so the rungs have no effect on what that agent may do",
+			name, len(c.agents[name].Escalation))
 	}
 }
 

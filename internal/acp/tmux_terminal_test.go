@@ -97,6 +97,47 @@ func TestEnsureSession_ConfiguresAnAdoptedServerToo(t *testing.T) {
 	assert.Contains(t, opt, "on")
 }
 
+// TestLocalTerminals_NamesDoNotCollideAcrossProcesses: two localTerminals —
+// standing in for two ctxloom RUNS sharing the fixed tmux server — must not
+// mint the same window name or terminal id.
+//
+// PROVEN CAUSE of the 30-minute hang (exposable-overturn): the name comes from
+// localTerminals.seq, a per-PROCESS counter that restarts at zero, so every
+// run's first terminal is window "t1" on channel "ctxloom-acp-term-t1". tmux
+// ALLOWS duplicate window names, so run 2's window is shadowed by run 1's
+// leftover: kill-window and the wait target both become ambiguous, and run 2
+// blocks forever on a channel its own window never signals. Measured: run 1
+// green 3/3, run 2 panicked with "test timed out after 30m0s".
+func TestLocalTerminals_NamesDoNotCollideAcrossProcesses(t *testing.T) {
+	f1, f2 := newFakeTmuxRunner(), newFakeTmuxRunner()
+	l1 := newLocalTerminals(f1, t.TempDir())
+	l2 := newLocalTerminals(f2, t.TempDir())
+
+	r1, err := l1.create(context.Background(), api.CreateTerminalRequest{Command: "true"})
+	require.NoError(t, err)
+	r2, err := l2.create(context.Background(), api.CreateTerminalRequest{Command: "true"})
+	require.NoError(t, err)
+
+	assert.NotEqual(t, r1.TerminalId, r2.TerminalId,
+		"two runs sharing one tmux server must not mint the same terminal id")
+
+	win1, win2 := f1.argsFor("new-window"), f2.argsFor("new-window")
+	require.NotEmpty(t, win1)
+	require.NotEmpty(t, win2)
+	assert.NotEqual(t, nameAfterFlag(win1, "-n"), nameAfterFlag(win2, "-n"),
+		"tmux permits duplicate window names, so a collision shadows the older window and makes kill/wait targets ambiguous")
+}
+
+// nameAfterFlag returns the argument following flag, or "" if absent.
+func nameAfterFlag(args []string, flag string) string {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 // TestLocalTerminals_Create_MapsToNewWindow: CreateTerminal maps onto tmux
 // new-window, carrying cwd/env/command/args through, and mints a distinct
 // TerminalId per call.

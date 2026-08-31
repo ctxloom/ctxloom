@@ -172,3 +172,46 @@ func readHosted(t *testing.T, l *localTerminals, h hostedTerminal) string {
 	require.NoError(t, err)
 	return out
 }
+
+// TestHost_LaunchesARealFullScreenTUI is the end-to-end launch proof, and the
+// closest thing here to the actual goal: hosting the LLM UI.
+//
+// top is the witness because it is not merely interactive but FULL-SCREEN — it
+// refuses to start without a terminal, sizes itself to the window, and repaints
+// in place. Its rendered header is therefore something the capture path could
+// not produce by any accident: with stdout on a file top either dies or writes
+// nothing to a pane that does not exist.
+//
+// The wait is a POLL rather than a sleep, and deliberately so: "has it painted
+// yet" is a genuine synchronization on another process's first frame, and a
+// fixed sleep would be both slower and load-sensitive. This box has run at load
+// average 6 while this test passed.
+func TestHost_LaunchesARealFullScreenTUI(t *testing.T) {
+	if _, err := exec.LookPath("top"); err != nil {
+		t.Skip("top not present; it is the full-screen witness this test needs")
+	}
+	runner, socket := realTmux(t)
+	l := newLocalTerminals(runner, t.TempDir())
+
+	h, err := l.host(context.Background(), hostSpec{Command: "top", Args: []string{"-d", "1"}})
+	require.NoError(t, err)
+	t.Logf("hosted; a human would attach with: tmux -L %s attach -t %s", socket, h.AttachTarget)
+
+	var pane string
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		pane, err = runner.Run(context.Background(), "capture-pane", "-p", "-t", h.AttachTarget)
+		require.NoError(t, err)
+		if strings.Contains(pane, "load average") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	assert.Contains(t, pane, "load average",
+		"a full-screen TUI must actually paint into the hosted pane; got:\n%s", pane)
+	assert.NotContains(t, pane, "Pane is dead",
+		"top exited instead of running — it was not given a usable terminal")
+
+	require.NoError(t, l.killHosted(context.Background(), h))
+}

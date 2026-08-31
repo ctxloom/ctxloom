@@ -224,8 +224,8 @@ type AskAnswer struct {
 // file carries as its origin_id.
 type pendingAsk struct {
 	// targetHarp is the ONLY identity allowed to answer — defense in depth
-	// beyond "the id exists", exactly as pendingApproval's is: a sibling that
-	// guessed an in_reply_to must not be able to answer someone else's ask.
+	// beyond "the id exists": a sibling that guessed an in_reply_to must not
+	// be able to answer someone else's ask.
 	targetHarp string
 	kind       string
 	ch         chan AskAnswer // buffered(1)
@@ -332,9 +332,8 @@ func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp,
 //
 // matched=false falls through to ordinary mail delivery, which is what makes a
 // stale, duplicate or foreign in_reply_to degrade gracefully instead of
-// failing the send — the same discipline resolveApprovalReply follows, for the
-// same reason: the correlation is a courtesy the sender extends, not a claim
-// the coordinator has to honour.
+// failing the send: the correlation is a courtesy the sender extends, not a
+// claim the coordinator has to honour.
 //
 // A reply arriving after its waiter is gone (the budget elapsed) is consumed
 // and dropped rather than mailed onward: the asker asked, the asker left, and

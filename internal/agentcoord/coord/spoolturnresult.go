@@ -52,9 +52,8 @@ import (
 // carried and what every parent already reads.
 //
 // It exists because the report now carries a CORRELATION, and correlation is
-// authority: a message quoting an outstanding ask's id resolves that ask, and a
-// message quoting an approval's id is decoded as a decision. An automatic
-// report must do NEITHER. The cooperative-reply ruling is that an ask is
+// authority: a message quoting an outstanding ask's id resolves that ask. An
+// automatic report must not. The cooperative-reply ruling is that an ask is
 // answered by what the child CHOSE to send; a report the runner composed from
 // whatever the model happened to say is the involuntary capture that ruling
 // excludes, and without this marker it would arrive through the back door
@@ -62,7 +61,7 @@ import (
 //
 // The marker only ever REMOVES authority from the message carrying it, never
 // grants any, so a sender setting it on its own send can only decline to
-// answer its own approval — which is not an attack, just a wasted send.
+// answer its own ask — which is not an attack, just a wasted send.
 const autoReportKey = "auto_report"
 
 // autoReportStructured is the marker payload, written as literal JSON rather

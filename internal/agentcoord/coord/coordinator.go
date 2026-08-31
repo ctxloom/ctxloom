@@ -310,7 +310,7 @@ type Coordinator struct {
 	asks map[string]*pendingAsk
 	// onAskPublished, when set, is called by controlAsk between REGISTERING the
 	// waiter and PUBLISHING the ask — the register-before-publish test seam,
-	// and the ask plane's twin of onApprovalMailQueued. It fires on that side
+	// It fires on that side
 	// of the publish deliberately: a hook fired after it cannot distinguish a
 	// correct implementation from one that registers between the write and the
 	// hook, since both have registered by then. Nil in production.
@@ -873,9 +873,8 @@ func (c *Coordinator) Roster() []RosterEntry {
 
 // AgentSend delivers a message per §6a delivery-by-state. Children address
 // only their parent (hub-and-spoke); the session owner addresses its
-// children by harp. structured/inReplyTo are the escalation-ladder
-// vocabulary — see peerSend for the in_reply_to interception this enables
-// (a parent answering a relayed approval_request).
+// children by harp. inReplyTo carries a correlation — see peerSend for the
+// ask-reply interception it enables.
 func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
 	_, _, disposition, err := c.peerSend(caller, to, kind, body, structured, inReplyTo)
 	return disposition, err
@@ -886,23 +885,18 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 // delivery-by-state. delivered reports a completed waiting receive (a local
 // parked poll, or a tentative push into the recipient runner's parked recv).
 //
-// inReplyTo is checked FIRST against outstanding relayed approvals
-// (resolveApprovalReply, approval.go): a match resolves the parked ladder
-// rung and returns immediately WITHOUT queuing ordinary mail — the reply's
-// job is to unblock the coordinator's own serveApproval wait on the CHILD's
-// RunChannel, not to start a new mailbox conversation. An UNKNOWN id falls
-// through to ordinary delivery, so a stale/duplicate in_reply_to degrades
-// gracefully rather than erroring the send; naming a LIVE approval the caller
-// is not the authorized answerer of does NOT — that is an authorization
-// failure and errors the send rather than being quietly delivered as mail.
+// inReplyTo is checked FIRST against outstanding asks (resolveAskReply): a
+// match resolves the parked ask and returns immediately WITHOUT queuing
+// ordinary mail. An UNKNOWN id falls through to ordinary delivery, so a
+// stale/duplicate in_reply_to degrades gracefully rather than erroring the
+// send.
 func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, delivered bool, disposition string, err error) {
 	// THE COLLISION, and where it is resolved (spoolturnresult.go).
 	//
 	// A cut-over child's AUTOMATIC turn report quotes the id of the message
 	// that started the turn — the correlation a parent wants, and a ruling.
 	// But correlation is AUTHORITY here: an in_reply_to that names an
-	// outstanding ask answers it, and one that names a relayed approval is
-	// decoded as a decision. An automatic report must do neither, or the
+	// outstanding ask answers it. An automatic report must not, or the
 	// cooperative-reply ruling ("the answer is what the child CHOSE to send")
 	// is defeated by whatever the model happened to say that turn, arriving
 	// with exactly the right correlation.
@@ -929,8 +923,8 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 	// funnel through (agent_send's bare-MCP handler and the plane-2
 	// PeerSendRequest). It runs before any routing so a sender learns the
 	// vocabulary is wrong even when the recipient is also wrong, and AFTER the
-	// approval-reply interception, which documents that a reply's `kind` rides
-	// alongside the decision and is ignored.
+	// ask-reply interception, whose reply carries its answer in the body rather
+	// than the kind.
 	if err := SenderMailKind(kind); err != nil {
 		return "", false, "", err
 	}

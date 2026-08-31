@@ -191,12 +191,17 @@ func decodeHarnessSpec(spec *agentcoordpb.HarnessSpec) (DecodedHarnessSpec, erro
 		Model:       spec.GetModel(),
 		Env:         env,
 		Permissions: perm,
-		// ForwardPermissions is false: ctxloom does not broker a second
-		// approval UI. The engine's permission requests are decided by the
-		// driver against this run's resolved permission_mode, which is the
-		// structural floor that gates what may run headless at all
-		// (bypass|plan). A human who wants to intervene attaches to the
-		// agent's own tmux window and answers the engine's NATIVE prompt.
+		// ForwardPermissions is false: the child's engine permission
+		// requests are NOT surfaced upstream, because ctxloom does not
+		// broker a second approval UI on top of the engine's own.
+		//
+		// What a human attaches to therefore depends on the backend. An
+		// engine that owns its terminal (a CLI in the agent's tmux window)
+		// prompts natively and a human answers it there. An engine driven
+		// over ACP has no such surface: ctxloom's own driver is its only
+		// client, so with no forwarding the driver itself answers from this
+		// run's resolved permission_mode — allow under bypass, reject
+		// otherwise (acp.handlePermission).
 		ForwardPermissions: false,
 		MCPServers:         servers,
 		ResumeSessionID:    spec.GetResumeSessionId(),

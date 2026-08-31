@@ -76,7 +76,7 @@ type SpawnPlan struct {
 	// backend has a cheap resume-by-key primitive (resumeCapableBackends);
 	// ResumeModePersistent (the zero value) otherwise — including every
 	// conversational agent. Resolved once in
-	// Resolve() via resolveResumeMode, mirroring Ladder/MCPServers above: a
+	// Resolve() via resolveResumeMode, mirroring MCPServers above: a
 	// later config edit must not retroactively change a
 	// live run. Since Slice 4, Resolve() returns ResumeModeOneShot for the
 	// WIRED backends (oneShotSupportedBackends: claude-code, codex) and the
@@ -697,10 +697,9 @@ func childVerbosity() int {
 // non-headless-safe one, loudly. Under degraded mode the refusal becomes a
 // warning and the child launches at the MOST RESTRICTIVE headless-safe
 // posture: degraded never widens a child's permissions, it narrows them.
-// This is a SEPARATE axis from the escalation ladder (ladder.go): the floor
-// says whether the child may run headless AT ALL; the ladder — resolved
-// from the SAME perm right below — says what happens to the approval
-// requests it makes while doing so (see doc.go's "D3 EVOLUTION").
+// The floor says whether the child may run headless AT ALL. Nothing above it
+// answers the engine permission requests the child makes while doing so — the
+// coordinator does not broker approvals (see doc.go's D3).
 func headlessSafePermission(name, declared string) (agent.PermissionMode, []string) {
 	if declared != "" {
 		if mode, ok := agent.ParsePermissionMode(declared); ok && mode.SafeHeadless() {

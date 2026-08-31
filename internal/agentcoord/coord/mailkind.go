@@ -42,9 +42,8 @@ const (
 	// and the reports fold remains the store of record for its content.
 	KindReport = "report"
 
-	// KindApprovalRequest is COORDINATOR-RESERVED: the escalation ladder's
-	// relayed ApprovalRequest projection (approval.go), which the recipient
-	// answers as a trust decision on a child's behalf.
+	// KindApprovalRequest is COORDINATOR-RESERVED so a sender cannot mint one.
+	// Nothing produces it: the coordinator does not relay approvals.
 	KindApprovalRequest = "approval_request"
 
 	// KindSteer is COORDINATOR-RESERVED: an instruction injected into a

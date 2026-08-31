@@ -2,8 +2,10 @@ package acp
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +40,13 @@ func realTmux(t *testing.T) (*execTmuxRunner, string) {
 		// kill-server on an already-dead server is not an error worth failing a
 		// passing test over, so the result is deliberately dropped.
 		_, _ = r.Run(context.Background(), "kill-server")
+		// tmux does NOT unlink the socket when the server exits, so killing it
+		// is only half of cleaning up. One evening of running this file left 33
+		// dead socket files in the shared per-user socket directory, where they
+		// are indistinguishable from live servers when triaging -- and leftover
+		// tmux state has already turned a passing suite red on this project
+		// once. Measured: without this line, five tests leave five sockets.
+		_ = os.Remove(filepath.Join(tmuxSocketDir(), socket))
 	})
 	return r, socket
 }
@@ -214,4 +223,13 @@ func TestHost_LaunchesARealFullScreenTUI(t *testing.T) {
 		"top exited instead of running — it was not given a usable terminal")
 
 	require.NoError(t, l.killHosted(context.Background(), h))
+}
+
+// tmuxSocketDir is where tmux keeps its per-user server sockets, mirroring
+// tmux's own rule: $TMUX_TMPDIR when set, else /tmp/tmux-<uid>.
+func tmuxSocketDir() string {
+	if dir := os.Getenv("TMUX_TMPDIR"); dir != "" {
+		return dir
+	}
+	return filepath.Join("/tmp", fmt.Sprintf("tmux-%d", os.Getuid()))
 }

@@ -214,6 +214,43 @@ A SPLIT task — part here, part elsewhere — carries both `repo:` and the loca
 
 ---
 
+## The design document a task is governed by — `ctxloom:plan=`
+
+    ctxloom:plan="/home/babbitt/.ctxloom/sessions/<harp>/persist/<name>.plan.md"
+
+Associates a task with the plan or spec that governs it, as a STRUCTURED FIELD
+rather than a sentence in the body. Quote the value: paths contain `/` and `.`,
+which are not bare-value characters.
+
+It is REPEATABLE, and that is load-bearing rather than incidental. A task is
+often governed by a deep design plus a later document that CORRECTS it, and both
+must be reachable — `tubby-grit` carries the ~970-line mux-terminal design and
+the preflight that refutes one of its central claims. Carrying only the newer
+one loses the reasoning; carrying only the older one sends a reader to build
+something that already exists.
+
+WHY A TAG AND NOT PROSE, which is the whole point: a path written in a body is
+found only by regexing task text, and that scan is unreliable in a way that
+fails SILENTLY. A path wrapped across a line break matches no single-line
+pattern, so a citation audit reports "no plan referenced" for a task whose
+reference is perfectly intact — and, worse, reports the same for one whose
+reference is BROKEN. Measured on `tubby-grit` 2026-08-30: reference intact, file
+present, scan said nothing was cited.
+
+A tag has no line breaks and no surrounding prose, so:
+
+```
+taskloom list --tag-query 'ctxloom:plan="<path>"'   # what does this plan govern
+```
+
+is exact, and checking that every cited plan still exists becomes a loop over a
+field instead of a regex over prose.
+
+When a plan MOVES or is superseded, fix the tag. Nothing else will — a tag has
+no compiler and no gate.
+
+---
+
 ## Admitted to a dated work queue — `queue:`
 
     queue:20260830

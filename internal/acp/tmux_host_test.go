@@ -285,3 +285,56 @@ func TestHost_ReleaseIsSafeOnAnAlreadyKilledTerminal(t *testing.T) {
 		"releasing an already-killed terminal is the normal teardown order, not an error")
 	assert.NoFileExists(t, h.outputPath, "release still cleans up after a kill")
 }
+
+// TestHost_ContextCancellationReleasesTheTerminal pins the TRIGGER, not a
+// caller's discipline. releaseHosted alone only fixes the leak for a caller
+// that remembers to call it; the files must be reclaimed when the terminal
+// stops being needed, which is when the session context ends.
+//
+// The trigger is context.AfterFunc, registered at host() time — an explicit
+// registration against session lifetime, not a defer in whatever call frame
+// happened to create the terminal. A defer would fire when THAT function
+// returns, which for a backgrounded terminal is far too early, and would not
+// fire at all if the session died some other way.
+//
+// The cleanup necessarily runs with the context ALREADY cancelled, so it must
+// not use that context for its own tmux calls: execTmuxRunner builds
+// exec.CommandContext, and a cancelled context kills the command before it
+// runs. Mutating the WithoutCancel away makes this test fail, which is the
+// point of asserting the files are gone rather than that the hook ran.
+func TestHost_ContextCancellationReleasesTheTerminal(t *testing.T) {
+	runner, _ := realTmux(t)
+	l := newLocalTerminals(runner, t.TempDir())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	h, err := l.host(ctx, hostSpec{Command: "sh", Args: []string{"-c", "echo trigger-probe-2e7b"}})
+	require.NoError(t, err)
+	waitHosted(t, l, h)
+
+	require.FileExists(t, h.outputPath, "precondition: the file must exist before cancellation")
+	require.FileExists(t, h.statusPath, "precondition: the status file must exist before cancellation")
+
+	cancel()
+
+	// AfterFunc runs on its own goroutine, so the EFFECT is what to wait on.
+	require.Eventually(t, func() bool {
+		_, oerr := os.Stat(h.outputPath)
+		_, serr := os.Stat(h.statusPath)
+		return os.IsNotExist(oerr) && os.IsNotExist(serr)
+	}, 15*time.Second, 50*time.Millisecond,
+		"ending the session must reclaim the terminal's files without anyone calling release")
+
+	// THE WINDOW, not just the files — and this assertion is the one that
+	// pins context.WithoutCancel. os.Remove ignores contexts, so the files
+	// are reclaimed even by a hook that reuses the cancelled context; the
+	// tmux calls are not. Reusing the cancelled context makes kill-window die
+	// before it runs (execTmuxRunner builds an exec.CommandContext) and its
+	// error is deliberately swallowed, so the window would leak SILENTLY with
+	// every file-based assertion still green. Asserting on the files alone
+	// let that mutation survive — measured, not hypothesised.
+	require.Eventually(t, func() bool {
+		listed, lerr := runner.Run(context.Background(), "list-windows", "-a", "-F", "#{session_name}:#{window_name}")
+		return lerr != nil || !strings.Contains(listed, h.AttachTarget)
+	}, 15*time.Second, 50*time.Millisecond,
+		"ending the session must also destroy the tmux window, not only delete its files")
+}

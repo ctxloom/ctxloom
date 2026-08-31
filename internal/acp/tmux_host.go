@@ -62,6 +62,12 @@ type hostedTerminal struct {
 	channel    string
 	outputPath string
 	statusPath string
+
+	// stop disarms the context trigger registered in host(). Calling it is
+	// not required for correctness — releaseHosted is idempotent — but an
+	// explicit release should not leave a hook armed to redo the work when
+	// the session later ends.
+	stop func() bool
 }
 
 // hostedStatus is a finished hosted command's outcome.
@@ -158,6 +164,21 @@ func (l *localTerminals) host(ctx context.Context, spec hostSpec) (hostedTermina
 	if _, err := l.runner.Run(ctx, "wait-for", "-S", gate); err != nil {
 		return hostedTerminal{}, fmt.Errorf("host %q: release gate: %w", spec.Command, err)
 	}
+
+	// Reclaim the terminal when it stops being needed, which is when the
+	// session context ends. This is an explicit REGISTRATION against session
+	// lifetime, deliberately not a defer: a defer fires when its own call
+	// frame returns, which for a backgrounded terminal is far too early, and
+	// it would not fire at all if the session ended by some path that does
+	// not run through this frame.
+	//
+	// The hook necessarily runs with ctx ALREADY cancelled, so it must not
+	// reuse ctx for its own tmux calls — execTmuxRunner builds an
+	// exec.CommandContext, and a cancelled context kills the command before
+	// it can run. WithoutCancel keeps the values and drops the cancellation.
+	h.stop = context.AfterFunc(ctx, func() {
+		_ = l.releaseHosted(context.WithoutCancel(ctx), h)
+	})
 	return h, nil
 }
 
@@ -221,6 +242,9 @@ func (l *localTerminals) killHosted(ctx context.Context, h hostedTerminal) error
 // kill the exit status is still readable, and collapsing the two would destroy
 // it before a caller could ask.
 func (l *localTerminals) releaseHosted(ctx context.Context, h hostedTerminal) error {
+	if h.stop != nil {
+		h.stop()
+	}
 	_, _ = l.runner.Run(ctx, "kill-window", "-t", h.AttachTarget)
 	_, _ = l.runner.Run(ctx, "wait-for", "-S", h.channel)
 	_ = os.Remove(h.outputPath)

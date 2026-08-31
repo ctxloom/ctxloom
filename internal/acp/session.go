@@ -82,6 +82,13 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	// else about them stays per-kind.
 	sess.perm = newPendingBroker[agent.PermissionAnswer](req.ForwardPermissions, "perm-", "permission", &sess.forwardGoroutines)
 	sess.term = newPendingBroker[agent.TerminalResponse](req.ForwardTerminal, "term-", "terminal", &sess.forwardGoroutines)
+	if b.localTerminal {
+		if b.newLocalTerminals != nil {
+			sess.localTerminals = b.newLocalTerminals()
+		} else {
+			sess.localTerminals = newLocalTerminals(execTmuxRunner{}, os.TempDir())
+		}
+	}
 	// req.Env[fsUpstreamEnvVar] is set ONLY on the fully
 	// unisolated HOST axis (see operations.OpenEngineSession's gate, and
 	// operations.OpenRequest.FsUpstreamAddr's doc for the full rule) — when
@@ -945,6 +952,13 @@ type chatSession struct {
 	perm *pendingBroker[agent.PermissionAnswer]
 	term *pendingBroker[agent.TerminalResponse]
 
+	// localTerminals serves terminal/* itself via tmux when no upstream
+	// editor advertised the capability to forward to instead — nil unless
+	// acp_local_terminal is on for this backend (ACP.localTerminal), in
+	// which case handleTerminal falls through to it rather than declining.
+	// See tmux_terminal.go.
+	localTerminals *localTerminals
+
 	// workspaceRoot is this session's authoritative filesystem boundary: the
 	// SAME agent.ChatRequest.WorkDir the engine subprocess is spawned with
 	// as its cmd.Dir (Chat's `open(ctx, argv, env, req.WorkDir)`), so the
@@ -1172,17 +1186,101 @@ func (s *chatSession) inputClosed() {
 // ForwardTerminal (the upstream editor advertised the capability) it
 // surfaces the request as a ChatEvent.Terminal and parks (off the read loop)
 // until the caller's TerminalResponse resolves it — exactly handlePermission's
-// shape, applied to a different upstream callback. Otherwise it declines with
-// a SPECIFIC, actionable error naming the real reason — never the generic
-// method-not-found a truly-unrecognized method gets, and never a
-// locally-implemented fake terminal: ctxloom must broker, never implement one
-// of its own.
+// shape, applied to a different upstream callback. Otherwise, if
+// acp_local_terminal is on for this backend (sess.localTerminals != nil), it
+// serves the request itself via tmux (tmux_terminal.go) instead of
+// forwarding it anywhere. Only with BOTH unavailable does it decline, with a
+// SPECIFIC, actionable error naming the real reason — never the generic
+// method-not-found a truly-unrecognized method gets.
 func (s *chatSession) handleTerminal(method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	if ch, id := s.term.register(); ch != nil {
 		go s.forwardTerminal(id, ch, method, params, reply)
 		return
 	}
-	reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: " + method + " not supported: ctxloom's client role does not advertise the terminal capability for this session (no upstream editor advertised clientCapabilities.terminal, or input has already closed) — ctxloom brokers terminal/* to editors, it never implements one itself"})
+	if s.localTerminals != nil {
+		go s.serveLocalTerminal(method, params, reply)
+		return
+	}
+	reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: " + method + " not supported: ctxloom's client role does not advertise the terminal capability for this session (no upstream editor advertised clientCapabilities.terminal, or input has already closed), and acp_local_terminal is off — ctxloom brokers terminal/* to editors or (with acp_local_terminal: true) serves it locally via tmux; by default it does neither"})
+}
+
+// serveLocalTerminal answers one terminal/* request from s.localTerminals
+// (tmux-backed), off the read loop for the same reason forwardTerminal is:
+// WaitForTerminalExit can block for as long as the spawned command runs, and
+// the read loop must stay free to keep streaming session/updates meanwhile.
+func (s *chatSession) serveLocalTerminal(method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	switch method {
+	case api.ClientMethodTerminalCreate:
+		var req api.CreateTerminalRequest
+		if err := json.Unmarshal(params, &req); err != nil {
+			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
+			return
+		}
+		resp, err := s.localTerminals.create(s.ctx, req)
+		if err != nil {
+			reply(nil, localTerminalError(method, err))
+			return
+		}
+		reply(resp, nil)
+	case api.ClientMethodTerminalOutput:
+		var req api.TerminalOutputRequest
+		if err := json.Unmarshal(params, &req); err != nil {
+			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
+			return
+		}
+		resp, err := s.localTerminals.output(s.ctx, req)
+		if err != nil {
+			reply(nil, localTerminalError(method, err))
+			return
+		}
+		reply(resp, nil)
+	case api.ClientMethodTerminalWaitForExit:
+		var req api.WaitForTerminalExitRequest
+		if err := json.Unmarshal(params, &req); err != nil {
+			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
+			return
+		}
+		resp, err := s.localTerminals.wait(s.ctx, req)
+		if err != nil {
+			reply(nil, localTerminalError(method, err))
+			return
+		}
+		reply(resp, nil)
+	case api.ClientMethodTerminalKill:
+		var req api.KillTerminalRequest
+		if err := json.Unmarshal(params, &req); err != nil {
+			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
+			return
+		}
+		resp, err := s.localTerminals.kill(s.ctx, req)
+		if err != nil {
+			reply(nil, localTerminalError(method, err))
+			return
+		}
+		reply(resp, nil)
+	case api.ClientMethodTerminalRelease:
+		var req api.ReleaseTerminalRequest
+		if err := json.Unmarshal(params, &req); err != nil {
+			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
+			return
+		}
+		resp, err := s.localTerminals.release(s.ctx, req)
+		if err != nil {
+			reply(nil, localTerminalError(method, err))
+			return
+		}
+		reply(resp, nil)
+	default:
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: " + method + " not supported"})
+	}
+}
+
+// localTerminalError turns a local-tmux failure (most commonly: tmux is not
+// installed) into a fail-loud, remedy-carrying error — never a silent
+// fall-back to declining or to a no-op terminal, per acp_local_terminal's
+// own contract (config.Config's acpLocalTerminal field doc).
+func localTerminalError(method string, err error) *jsonrpc.Error {
+	return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "acp: " + method + ": ctxloom's local tmux-backed terminal (acp_local_terminal) failed: " + err.Error() + " — install tmux, or set acp_local_terminal: false to go back to declining terminal/* instead"}
 }
 
 // forwardTerminal emits one terminal/* request upstream (stripped of this

@@ -1405,19 +1405,15 @@ func TestChat_MultimodalDelivery_NoContentBlocks_Unchanged(t *testing.T) {
 	assert.Equal(t, "hello", got.Prompt[0].Text.Text)
 }
 
-// TestChat_TerminalDeclined_Honestly: ctxloom's client role
-// never advertises the terminal capability (no cross-process broker channel
-// to the real editor exists yet — see setup's doc comment), and an engine
-// that calls terminal/create anyway (ignoring the advertised false, or
-// probing) gets a SPECIFIC, actionable decline naming exactly why — never a
-// locally-implemented fake terminal (ctxloom brokers, it never implements
-// one of its own), and never the generic method-not-found a truly
-// unrecognized method gets.
 // TestChat_TerminalDeclined_Honestly: without ForwardTerminal (no upstream
 // editor advertised the capability — the ordinary case for e.g. a delegated
-// child agent with no ACP editor at all), ctxloom's client role advertises
-// Terminal: false and declines a probing engine's terminal/* call with a
-// specific, actionable reason — never a locally-implemented fake terminal.
+// child agent with no ACP editor at all) AND with acp_local_terminal off
+// (chatSession.localTerminals nil — see startChat's default ChatRequest,
+// which sets neither), ctxloom's client role advertises Terminal: false and
+// declines a probing engine's terminal/* call with a specific, actionable
+// reason — never a locally-implemented fake terminal. (With
+// acp_local_terminal on it is no longer fake — see tmux_terminal_test.go
+// and TestChat_LocalTerminal_TmuxMissing_FailsLoud below for that path.)
 func TestChat_TerminalDeclined_Honestly(t *testing.T) {
 	h := startChat(t, agent.ChatRequest{})
 
@@ -1435,7 +1431,7 @@ func TestChat_TerminalDeclined_Honestly(t *testing.T) {
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, jsonrpc.CodeMethodNotFound, resp.Error.Code)
 	assert.Contains(t, resp.Error.Message, "does not advertise the terminal capability")
-	assert.Contains(t, resp.Error.Message, "brokers terminal/* to editors, it never implements one itself")
+	assert.Contains(t, resp.Error.Message, "acp_local_terminal is off")
 
 	close(h.in)
 	err := <-h.chatErr

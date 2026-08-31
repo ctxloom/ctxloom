@@ -112,6 +112,15 @@ func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (
 			c.Configure(bc)
 		}
 	}
+	// acp_local_terminal is project/machine config, not part of a labeled
+	// LLM entry's own body (serveBackendConfig/backends.Configurable just
+	// above), so it is applied separately here — the one place this
+	// process's config and the backend it is about to serve are both in
+	// scope. See config.Config's acpLocalTerminal field and
+	// internal/acp.ACP.SetLocalTerminal.
+	if c, ok := backend.(interface{ SetLocalTerminal(bool) }); ok {
+		c.SetLocalTerminal(cfg.GetAcpLocalTerminal())
+	}
 	return cfg, cfgErr
 }
 

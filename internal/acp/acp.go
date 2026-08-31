@@ -171,7 +171,29 @@ type ACP struct {
 	// ctxloom capture bug. Zero (every production construction path) means
 	// DefaultShutdownGrace; test-only seam to keep tests fast.
 	shutdownGrace time.Duration
+
+	// localTerminal turns on this backend's own tmux-backed implementation
+	// of ACP's terminal/* client methods, for a session where no upstream
+	// editor advertised the terminal capability to forward to instead (see
+	// handleTerminal's doc). Set once, at process standup, from
+	// config.Config.GetAcpLocalTerminal() — internal/cli's
+	// loadAndConfigureBackend calls SetLocalTerminal after loading this
+	// process's config, the same runner process this backend's Chat later
+	// runs in. Default false: ctxloom's client role keeps declining
+	// terminal/* exactly as before, with no tmux dependency whatsoever.
+	localTerminal bool
+	// newLocalTerminals constructs this Chat call's local-terminal registry
+	// when localTerminal is on. nil (every production path) means the real
+	// default: newLocalTerminals(execTmuxRunner{}, os.TempDir()). Test-only
+	// seam, mirroring openTransport above, so a test can drive
+	// handleTerminal's local-tmux path against a fake tmuxRunner instead of
+	// a real tmux binary.
+	newLocalTerminals func() *localTerminals
 }
+
+// SetLocalTerminal turns this backend's own tmux-backed terminal/* on (or
+// off). See the localTerminal field's doc for who calls this and why.
+func (b *ACP) SetLocalTerminal(enabled bool) { b.localTerminal = enabled }
 
 // DefaultShutdownGrace is how long a spawned ACP agent gets to exit on its
 // own after stdin closes before teardown force-kills its process group. The

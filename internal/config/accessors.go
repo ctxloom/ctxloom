@@ -216,6 +216,14 @@ func (c *Config) GetDelegationSpoolTee() bool { return c.delegation.SpoolTee }
 // DelegationConfig.SpoolDelivery.
 func (c *Config) GetDelegationSpoolDelivery() bool { return c.delegation.SpoolDelivery }
 
+// GetAcpLocalTerminal returns acp_local_terminal: whether ctxloom's ACP
+// client role serves terminal/* itself via tmux for a session with no
+// upstream editor to forward to, instead of declining. Unset reads as false
+// (off), the posture in which ctxloom's client role behaves exactly as it
+// did before this setting existed — no tmux dependency at all. See Config's
+// acpLocalTerminal field doc and internal/acp's handleTerminal.
+func (c *Config) GetAcpLocalTerminal() bool { return c.acpLocalTerminal }
+
 // GetDefaultAgent returns the name of the always-bound default agent (may be
 // empty or reference an undefined agent).
 func (c *Config) GetDefaultAgent() string { return c.defaultAgent }

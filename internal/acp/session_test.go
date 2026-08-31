@@ -1405,19 +1405,15 @@ func TestChat_MultimodalDelivery_NoContentBlocks_Unchanged(t *testing.T) {
 	assert.Equal(t, "hello", got.Prompt[0].Text.Text)
 }
 
-// TestChat_TerminalDeclined_Honestly: ctxloom's client role
-// never advertises the terminal capability (no cross-process broker channel
-// to the real editor exists yet — see setup's doc comment), and an engine
-// that calls terminal/create anyway (ignoring the advertised false, or
-// probing) gets a SPECIFIC, actionable decline naming exactly why — never a
-// locally-implemented fake terminal (ctxloom brokers, it never implements
-// one of its own), and never the generic method-not-found a truly
-// unrecognized method gets.
 // TestChat_TerminalDeclined_Honestly: without ForwardTerminal (no upstream
 // editor advertised the capability — the ordinary case for e.g. a delegated
-// child agent with no ACP editor at all), ctxloom's client role advertises
-// Terminal: false and declines a probing engine's terminal/* call with a
-// specific, actionable reason — never a locally-implemented fake terminal.
+// child agent with no ACP editor at all) AND with acp_local_terminal off
+// (chatSession.localTerminals nil — see startChat's default ChatRequest,
+// which sets neither), ctxloom's client role advertises Terminal: false and
+// declines a probing engine's terminal/* call with a specific, actionable
+// reason — never a locally-implemented fake terminal. (With
+// acp_local_terminal on it is no longer fake — see tmux_terminal_test.go
+// and TestChat_LocalTerminal_TmuxMissing_FailsLoud below for that path.)
 func TestChat_TerminalDeclined_Honestly(t *testing.T) {
 	h := startChat(t, agent.ChatRequest{})
 
@@ -1435,7 +1431,7 @@ func TestChat_TerminalDeclined_Honestly(t *testing.T) {
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, jsonrpc.CodeMethodNotFound, resp.Error.Code)
 	assert.Contains(t, resp.Error.Message, "does not advertise the terminal capability")
-	assert.Contains(t, resp.Error.Message, "brokers terminal/* to editors, it never implements one itself")
+	assert.Contains(t, resp.Error.Message, "acp_local_terminal is off")
 
 	close(h.in)
 	err := <-h.chatErr
@@ -1864,4 +1860,152 @@ func TestChat_ModelQuirk_NameMismatch_SilentNoOp(t *testing.T) {
 	}
 
 	assert.Empty(t, warnings.String(), "a name mismatch means a different agent — must stay silent")
+}
+
+// startChatWithLocalTerminal is startChat with acp_local_terminal on and its
+// tmux runner swapped for a fake (via ACP.newLocalTerminals, tmux_terminal.go's
+// test seam) — no real tmux binary required.
+func startChatWithLocalTerminal(t *testing.T, runner tmuxRunner) *chatHarness {
+	t.Helper()
+	c2aR, c2aW := io.Pipe()
+	a2cR, a2cW := io.Pipe()
+
+	b := NewACP()
+	b.localTerminal = true
+	b.newLocalTerminals = func() *localTerminals { return newLocalTerminals(runner, t.TempDir()) }
+	b.openTransport = func(context.Context, transportRequest) (*transport, error) {
+		return &transport{
+			stdin:  c2aW,
+			stdout: a2cR,
+			close: func() error {
+				_ = c2aW.Close()
+				_ = a2cR.Close()
+				return nil
+			},
+		}, nil
+	}
+
+	h := &chatHarness{
+		in:      make(chan agent.ChatMessage),
+		out:     make(chan agent.ChatEvent, 64),
+		chatErr: make(chan error, 1),
+		fa:      newFakeAgent(c2aR, a2cW),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	h.cancel = cancel
+	go func() { h.chatErr <- b.Chat(ctx, agent.ChatRequest{}, h.in, h.out) }()
+	t.Cleanup(cancel)
+	return h
+}
+
+// TestChat_LocalTerminal_AdvertisesCapability: with acp_local_terminal on and
+// no upstream editor to forward to (ForwardTerminal false), initialize must
+// still advertise Terminal: true — otherwise a well-behaved engine believes
+// terminal/* is declined and never tries it, even though the local tmux path
+// would have answered. This is the gap fixed alongside handleTerminal's own
+// branch: advertising stayed keyed to ForwardTerminal alone at first.
+func TestChat_LocalTerminal_AdvertisesCapability(t *testing.T) {
+	h := startChatWithLocalTerminal(t, newFakeTmuxRunner())
+
+	initReq := <-h.fa.requests
+	var init api.InitializeRequest
+	require.NoError(t, json.Unmarshal(initReq.Params, &init))
+	assert.True(t, init.ClientCapabilities.Terminal, "acp_local_terminal alone must advertise Terminal: true")
+	require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+
+	newReq := <-h.fa.requests
+	require.NoError(t, h.fa.respond(newReq.ID, map[string]any{"sessionId": "sess-local-term"}))
+
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range h.out {
+	}
+}
+
+// TestChat_LocalTerminal_FullRoundTrip drives create -> output -> wait_for_exit
+// -> kill -> release over the real JSON-RPC wire (l0CallClient), through
+// HandleRequest -> handleTerminal -> serveLocalTerminal -> localTerminals,
+// against a fake tmuxRunner — proving the wiring this package owns end to
+// end without needing a real tmux binary (tmux_terminal_test.go covers the
+// tmux mapping itself; the acceptance suite covers a REAL tmux).
+func TestChat_LocalTerminal_FullRoundTrip(t *testing.T) {
+	f := newFakeTmuxRunner()
+	h := startChatWithLocalTerminal(t, f)
+
+	initReq := <-h.fa.requests
+	require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+	newReq := <-h.fa.requests
+	require.NoError(t, h.fa.respond(newReq.ID, map[string]any{"sessionId": "sess-local-term"}))
+
+	createResp := l0CallClient(h.fa, "terminal/create", map[string]any{
+		"sessionId": "sess-local-term", "command": "echo", "args": []string{"hi"},
+	})
+	require.Nil(t, createResp.Error)
+	var created struct {
+		TerminalId string `json:"terminalId"`
+	}
+	require.NoError(t, json.Unmarshal(createResp.Result, &created))
+	require.NotEmpty(t, created.TerminalId)
+	assert.True(t, f.calledWith("new-window"), "terminal/create must reach tmux new-window")
+
+	waitResp := l0CallClient(h.fa, "terminal/wait_for_exit", map[string]any{
+		"sessionId": "sess-local-term", "terminalId": created.TerminalId,
+	})
+	require.Nil(t, waitResp.Error)
+	assert.True(t, f.calledWith("wait-for"), "terminal/wait_for_exit must reach tmux wait-for")
+
+	outResp := l0CallClient(h.fa, "terminal/output", map[string]any{
+		"sessionId": "sess-local-term", "terminalId": created.TerminalId,
+	})
+	require.Nil(t, outResp.Error)
+
+	killResp := l0CallClient(h.fa, "terminal/kill", map[string]any{
+		"sessionId": "sess-local-term", "terminalId": created.TerminalId,
+	})
+	require.Nil(t, killResp.Error)
+	assert.True(t, f.calledWith("kill-window"), "terminal/kill must reach tmux kill-window")
+
+	releaseResp := l0CallClient(h.fa, "terminal/release", map[string]any{
+		"sessionId": "sess-local-term", "terminalId": created.TerminalId,
+	})
+	require.Nil(t, releaseResp.Error)
+
+	// The released id must be genuinely gone: a second output call against it fails.
+	afterRelease := l0CallClient(h.fa, "terminal/output", map[string]any{
+		"sessionId": "sess-local-term", "terminalId": created.TerminalId,
+	})
+	require.NotNil(t, afterRelease.Error)
+
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range h.out {
+	}
+}
+
+// TestChat_LocalTerminal_TmuxMissing_FailsLoud: with acp_local_terminal on
+// and tmux unreachable, terminal/create must fail with a SPECIFIC,
+// remedy-carrying error — never a silent decline (the pre-flag behaviour)
+// and never a fabricated success. See config.Config's acpLocalTerminal field
+// doc: this is the required behaviour, not a preference.
+func TestChat_LocalTerminal_TmuxMissing_FailsLoud(t *testing.T) {
+	f := newFakeTmuxRunner()
+	f.failAll = errors.New(`exec: "tmux": executable file not found in $PATH`)
+	h := startChatWithLocalTerminal(t, f)
+
+	initReq := <-h.fa.requests
+	require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+	newReq := <-h.fa.requests
+	require.NoError(t, h.fa.respond(newReq.ID, map[string]any{"sessionId": "sess-local-term"}))
+
+	resp := l0CallClient(h.fa, "terminal/create", map[string]any{
+		"sessionId": "sess-local-term", "command": "echo",
+	})
+	require.NotNil(t, resp.Error)
+	assert.Contains(t, resp.Error.Message, "executable file not found")
+	assert.Contains(t, resp.Error.Message, "install tmux")
+
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range h.out {
+	}
 }

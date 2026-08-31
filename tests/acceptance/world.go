@@ -203,6 +203,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ000500Steps(ctx)
 	registerJ000900RecoverSteps(ctx)
 	registerCLIACPSteps(ctx)
+	registerCLIACPLocalTerminalSteps(ctx)
 	registerCompanionConsentSteps(ctx)
 	registerContentDecisionSteps(ctx)
 	registerTrustSurfaceSteps(ctx)

@@ -422,4 +422,11 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	setOrDelete(existing, "isolation_devcontainer_service", c.isolationDevcontainerService != "", c.isolationDevcontainerService)
 	setOrDelete(existing, "isolation_engines", len(c.isolationEngines) > 0, c.isolationEngines)
 	setOrDelete(existing, "sync", c.sync.AutoSync != nil, c.sync)
+	// Whether ctxloom's ACP client role serves terminal/* itself via tmux;
+	// pruned when off (the pre-existing decline-only behaviour) so an
+	// undeclared project depends on no tmux at all. Wired here for the same
+	// reason every section above is: a field declared on configDoc/Fixture
+	// but missing from this section-by-section persist path is silently
+	// discarded on every Save()/Marshal().
+	setOrDelete(existing, "acp_local_terminal", c.acpLocalTerminal, c.acpLocalTerminal)
 }

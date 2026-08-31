@@ -402,7 +402,11 @@ const (
 
 // TerminalRequest is a forwarded engine terminal/* request (B1, gap G6): the
 // engine wants ctxloom to broker ONE terminal operation to the connected
-// upstream editor — ctxloom implements no terminal of its own, ever. ID
+// upstream editor. This carrier never implements a terminal itself — when
+// internal/acp's own client role does (acp_local_terminal on, no upstream
+// editor to forward to), that path answers terminal/* directly and never
+// touches ChatEvent.Terminal/this struct at all; see
+// internal/acp.handleTerminal. ID
 // correlates the eventual TerminalResponse (unique within one chat, same
 // discipline as PermissionRequest.ID). Op names which ACP terminal/* method
 // this is (the TerminalOp* constants above). Params carries that method's

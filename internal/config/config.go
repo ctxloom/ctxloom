@@ -212,6 +212,22 @@ type Config struct {
 	// presentation preferences; `run --plain-terminal` disables the layer
 	// entirely regardless of this section.
 	ui UIConfig
+	// acpLocalTerminal turns on ctxloom's own tmux-backed implementation of
+	// ACP's terminal/* client methods (create/output/wait_for_exit/kill/
+	// release) for a session where no upstream editor advertised the
+	// terminal capability to forward to instead (internal/acp's
+	// handleTerminal). DEFAULT FALSE, and false must mean literally what it
+	// did before this setting existed: ctxloom's client role declines
+	// terminal/* with a specific error, and there is no dependency on tmux
+	// whatsoever — ctxloom must keep working with no tmux installed. On, a
+	// missing tmux binary is a fail-loud finding the first time a
+	// terminal/* request actually arrives, never a silent fall-back to
+	// declining or to a no-op terminal.
+	//
+	// Plain bool, not *bool, for the same reason as DelegationConfig.SpoolTee:
+	// unset and false both mean "off", so there is no third state to
+	// distinguish.
+	acpLocalTerminal bool
 
 	// Runtime-only fields: populated during Load, never part of the persisted
 	// config — configDoc (their yaml counterpart) simply omits them, which
@@ -361,6 +377,7 @@ type configDoc struct {
 	IsolationDevcontainerService string                  `yaml:"isolation_devcontainer_service,omitempty"`
 	IsolationEngines             []string                `yaml:"isolation_engines,omitempty"`
 	UI                           UIConfig                `yaml:"ui,omitempty"`
+	AcpLocalTerminal             bool                    `yaml:"acp_local_terminal,omitempty"`
 }
 
 // toDoc copies c's persisted fields into a configDoc for marshaling.
@@ -393,6 +410,7 @@ func (c *Config) toDoc() configDoc {
 		IsolationDevcontainerService: c.isolationDevcontainerService,
 		IsolationEngines:             cloneStrings(c.isolationEngines),
 		UI:                           cloneUIConfig(c.ui),
+		AcpLocalTerminal:             c.acpLocalTerminal,
 	}
 }
 
@@ -420,6 +438,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.isolationDevcontainerService = doc.IsolationDevcontainerService
 	c.isolationEngines = doc.IsolationEngines
 	c.ui = doc.UI
+	c.acpLocalTerminal = doc.AcpLocalTerminal
 
 	// lm.Configs is pre-populated before every decode precisely so downstream
 	// code may write into it, and a document is free to null it back out.

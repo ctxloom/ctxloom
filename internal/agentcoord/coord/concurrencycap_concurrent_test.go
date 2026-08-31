@@ -306,9 +306,16 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 	floodCount := ma.bodyCounts[floodBody]
 	assert.Equal(t, 1, floodCount, "the flood's 10 concurrent duplicate request_id frames (across a forced reconnect) must have queued EXACTLY ONE mail — the reqTrack dedupe's durable trace")
 
-	t.Logf("DEBUG kindCounts=%v bodyCounts=%v queuedByRole=%v", ma.kindCounts, ma.bodyCounts, ma.queuedByRole)
-	resultCount := ma.kindCounts["result"]
-	assert.Equal(t, n, resultCount, "the parent must hold exactly one bridged result per child turn")
+	// SELF-REPORT XOR BRIDGE, under concurrency. Every child sent its parent
+	// a message DURING its turn, which sets childRt.selfReported, and
+	// bridgeTurnResult refuses to deliver the same turn twice. So the
+	// coordinator must bridge NOTHING here: the parent's copy of each turn is
+	// the child's own words, counted above. A bridged result appearing
+	// alongside them would be the duplicate this rule exists to prevent — and
+	// N children self-reporting at once is exactly where a shared-state bug
+	// would let one child's report clear a sibling's flag.
+	assert.Zero(t, ma.kindCounts["result"],
+		"every child self-reported this turn, so the coordinator must bridge no duplicate result")
 
 	noteCount := ma.kindCounts[KindMessage]
 	assert.Equal(t, n+1, noteCount, "N ordinary per-child sends plus the one flood send")

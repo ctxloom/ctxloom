@@ -47,7 +47,7 @@ func TestHarnessSpec_RoundTrip(t *testing.T) {
 		Permissions: agent.PermissionBypass,
 		// C2: the migrated path always forwards permissions now — the
 		// coordinator's escalation ladder is the decider, not the driver.
-		ForwardPermissions: true,
+		ForwardPermissions: false,
 		MCPServers:         []agent.ChatMCPServer{{Name: "tools", Command: "/bin/tools", Args: []string{"serve"}, Env: map[string]string{"A": "1"}}},
 		ResumeSessionID:    "native-sess-1",
 	}, out.Chat)

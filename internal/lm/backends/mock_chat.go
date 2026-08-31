@@ -301,7 +301,9 @@ func (b *Mock) chatTerminalTurn(ctx context.Context, in <-chan agent.ChatMessage
 	createResult2, errStr := b.mockTerminalCall(ctx, in, send, "mock-term-create-2", agent.TerminalOpCreate, map[string]any{
 		"command": "sleep", "args": []string{"30"},
 	})
-	killed := "false"
+	// Declared without an initialiser: every branch below assigns it, so a
+	// starting value would be dead (ineffassign).
+	var killed string
 	if errStr != "" {
 		killed = "create2 failed: " + errStr
 	} else {

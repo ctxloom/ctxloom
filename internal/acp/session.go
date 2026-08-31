@@ -395,7 +395,16 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 			// caller with no upstream editor (e.g. a delegated child agent,
 			// agentcoord's HarnessSpec) leaves ForwardTerminal false, so this
 			// stays false there too — honest, not a regression.
-			Terminal: req.ForwardTerminal,
+			//
+			// b.localTerminal (acp_local_terminal) is the SECOND way a
+			// terminal/* call can actually be answered — handleTerminal
+			// tries forwarding first, then this backend's own tmux-backed
+			// implementation, so the advertisement must be true whenever
+			// EITHER can honor it. Advertising only on ForwardTerminal would
+			// leave a well-behaved engine believing terminal/* is declined
+			// and never trying it, even though acp_local_terminal would have
+			// answered.
+			Terminal: req.ForwardTerminal || b.localTerminal,
 			Fs:       api.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
 		},
 		ClientInfo: &api.Implementation{Name: clientName, Version: clientVersion},

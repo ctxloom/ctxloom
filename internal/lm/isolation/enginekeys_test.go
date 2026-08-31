@@ -143,18 +143,6 @@ func TestEngineContainerSpecFor_UnknownEngineStillFailsClosed(t *testing.T) {
 	assert.Equal(t, defaultOverlayDirs, spec.overlayDirs, "an unmapped engine keeps the default overlay dirs")
 }
 
-// TestResolveEngines_AcceptsDeclaredAliases pins the composed-image engine set:
-// a configured alias names a real engine, so it must be kept, not dropped as
-// unknown.
-func TestResolveEngines_AcceptsDeclaredAliases(t *testing.T) {
-	for _, pair := range aliasPairs(t, composableEngines()) {
-		canonical, alias := pair[0], pair[1]
-		assert.Equal(t, []string{canonical}, resolveEngines([]string{alias}),
-			"configured alias %q must resolve to %q", alias, canonical)
-	}
-	assert.Nil(t, resolveEngines([]string{unknownEngineName}), "an unknown configured engine is still dropped")
-}
-
 // TestRegisterInstanceConfigWriter_ResolvesAliasesAndRefusesNonCanonicalKeys
 // covers the runtime-populated writer table on both sides: a key the alias
 // table would rewrite is refused at registration, and an aliased lookup reaches

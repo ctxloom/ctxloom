@@ -359,9 +359,7 @@ var loadConfig = config.Load
 // agent_run without a coordinator restart (GAP 1: the captured s.cfg is a
 // startup snapshot otherwise). Pinned to s.cfg.AppPaths[0] — the .ctxloom
 // dir this spawner's OWN config already resolved to at construction — so
-// the reload never depends on this process's current working directory
-// (mirrors loadConfigForDir's dir-pinning in
-// internal/operations/engine_session.go).
+// the reload never depends on this process's current working directory.
 //
 // Scoped STRICTLY to agent-DEFINITION resolution: durable stores,
 // credentials, the broker, and the run loop all keep using the startup

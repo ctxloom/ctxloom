@@ -183,3 +183,24 @@ func GetMCPServer(ctx context.Context, cfg *config.Config, req GetMCPServerReque
 		Entries: entries,
 	}, nil
 }
+
+// MCPServerNames returns the names of a chat request's MCP servers: the
+// names only, never command, args or env, any of which can carry a
+// credential. The delegation journal/roster reads it, so an operator
+// auditing a live delegation sees WHAT a child can reach without the
+// journal ever holding a secret. Sorted rather than composition order
+// because the journaled value must be stable across runs.
+//
+// The CONFIGURED set only — what ctxloom asks the engine to attach — never
+// live connection status, which is not observable where this is called.
+func MCPServerNames(servers []agent.ChatMCPServer) []string {
+	if len(servers) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(servers))
+	for _, s := range servers {
+		names = append(names, s.Name)
+	}
+	sort.Strings(names)
+	return names
+}

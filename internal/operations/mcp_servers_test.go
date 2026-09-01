@@ -96,3 +96,26 @@ func TestSortMCPServers_UnknownKeySortsByNameLoudly(t *testing.T) {
 	sortMCPServers(servers, "name", "desc")
 	assert.Equal(t, "beta", servers[0].Name, "desc reverses the order")
 }
+
+// TestMCPServerNames_EmptyIsNil proves the zero-servers case degrades to
+// nil, not an empty-but-non-nil slice: a caller rendering "none" for an
+// absent set must not have to distinguish the two.
+func TestMCPServerNames_EmptyIsNil(t *testing.T) {
+	got := MCPServerNames(nil)
+	assert.Nil(t, got)
+	got = MCPServerNames([]agent.ChatMCPServer{})
+	assert.Nil(t, got)
+}
+
+// TestMCPServerNames_SortsRegardlessOfInputOrder proves the function
+// actually SORTS (not just projects .Name) — the journaled value must be
+// deterministic across runs regardless of the order servers were composed
+// in (client-supplied first, then ctxloom's managed injection).
+func TestMCPServerNames_SortsRegardlessOfInputOrder(t *testing.T) {
+	got := MCPServerNames([]agent.ChatMCPServer{
+		{Name: "zeta-server"},
+		{Name: "alpha-server"},
+		{Name: "mid-server"},
+	})
+	assert.Equal(t, []string{"alpha-server", "mid-server", "zeta-server"}, got)
+}

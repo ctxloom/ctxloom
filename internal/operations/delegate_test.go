@@ -1682,7 +1682,7 @@ func TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext(t *testing.T) {
 func TestPrepareAgentChat_BothLaunchPathsShareOneResolution(t *testing.T) {
 	resetStrictness(t)
 	workDir := t.TempDir()
-	client := &fakeACPEngineClient{}
+	client := &fakeChatClient{}
 	started := false
 	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
 		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host", Model: "resolved-model", Context: "lead"},
@@ -1710,3 +1710,43 @@ func TestPrepareAgentChat_BothLaunchPathsShareOneResolution(t *testing.T) {
 	assert.Equal(t, "ample-tidy-quail", client.gotReq.Env["CTXLOOM_SESSION_HARP"], "…with the same ambient identity")
 	assert.Equal(t, "ample-tidy-quail", eng.Env["CTXLOOM_SESSION_HARP"])
 }
+
+// fakeChatClient is a minimal pb.Client that records the ChatRequest it
+// received, so a test can assert WHAT the engine was told to run with
+// (WorkDir, Model, Env). Distinct from oneshot_test.go's stubClient, which
+// records the RunStart of the Run path instead and returns nils from Chat.
+type fakeChatClient struct {
+	gotReq *agent.ChatRequest
+}
+
+func (c *fakeChatClient) Chat(_ context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+	reqCopy := req
+	c.gotReq = &reqCopy
+	in := make(chan agent.ChatMessage, 1)
+	events := make(chan agent.ChatEvent, 1)
+	events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "engine-marker"}}
+	close(events)
+	errs := make(chan error, 1)
+	close(errs)
+	return in, events, errs, nil
+}
+func (c *fakeChatClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
+func (c *fakeChatClient) Run(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (int32, error) {
+	return 0, nil
+}
+func (c *fakeChatClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (*pb.RunResult, error) {
+	return &pb.RunResult{}, nil
+}
+func (c *fakeChatClient) GetSession(context.Context, string) (*agent.Session, error) {
+	return nil, nil
+}
+func (c *fakeChatClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
+	return nil, nil, nil
+}
+func (c *fakeChatClient) ListSessions(context.Context) ([]agent.SessionMeta, error) {
+	return nil, nil
+}
+func (c *fakeChatClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) {
+	return nil, nil
+}
+func (c *fakeChatClient) Kill() {}

@@ -21,10 +21,28 @@ import (
 // deliberately NOT modelled on terminal/*, because this face is scheduled for
 // deletion with the rest of this package and an API bent to fit a dying
 // consumer would outlive it. The awkwardness belongs on this side of the line.
-type localTerminals struct{ *tmuxhost.Terminals }
+type localTerminals struct{ hosts tmuxTerminals }
+
+// tmuxTerminals is the slice of *tmuxhost.Terminals this face uses.
+//
+// It is an interface ONLY so the translation below can be tested without a tmux
+// server. That matters more than it looks: every field-dropping mistake this
+// file can make — losing a cwd, an env var, a truncation flag, an exit code —
+// produces a successful response carrying wrong data, with no error anywhere.
+// Before the extraction those mappings were pinned by tests that drove the SDK
+// structs all the way to a tmux argv; those tests now live in tmuxhost and pin
+// its own types, so without a seam here the SDK-to-tmuxhost step would be the
+// one unasserted link in the chain.
+type tmuxTerminals interface {
+	Create(ctx context.Context, spec tmuxhost.Spec) (tmuxhost.TerminalID, error)
+	Output(id tmuxhost.TerminalID) (tmuxhost.Output, error)
+	Wait(ctx context.Context, id tmuxhost.TerminalID) (*tmuxhost.ExitStatus, error)
+	Kill(ctx context.Context, id tmuxhost.TerminalID) error
+	Release(ctx context.Context, id tmuxhost.TerminalID) error
+}
 
 func newLocalTerminals(runner tmuxhost.Runner, tmpDir string) *localTerminals {
-	return &localTerminals{Terminals: tmuxhost.New(runner, tmpDir)}
+	return &localTerminals{hosts: tmuxhost.New(runner, tmpDir)}
 }
 
 func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalRequest) (api.CreateTerminalResponse, error) {
@@ -43,7 +61,7 @@ func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalReque
 	for _, e := range req.Env {
 		spec.Env = append(spec.Env, tmuxhost.EnvVar{Name: e.Name, Value: e.Value})
 	}
-	id, err := l.Create(ctx, spec)
+	id, err := l.hosts.Create(ctx, spec)
 	if err != nil {
 		return api.CreateTerminalResponse{}, err
 	}
@@ -51,7 +69,7 @@ func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalReque
 }
 
 func (l *localTerminals) output(_ context.Context, req api.TerminalOutputRequest) (api.TerminalOutputResponse, error) {
-	out, err := l.Output(tmuxhost.TerminalID(req.TerminalId))
+	out, err := l.hosts.Output(tmuxhost.TerminalID(req.TerminalId))
 	if err != nil {
 		return api.TerminalOutputResponse{}, err
 	}
@@ -63,7 +81,7 @@ func (l *localTerminals) output(_ context.Context, req api.TerminalOutputRequest
 }
 
 func (l *localTerminals) wait(ctx context.Context, req api.WaitForTerminalExitRequest) (api.WaitForTerminalExitResponse, error) {
-	st, err := l.Wait(ctx, tmuxhost.TerminalID(req.TerminalId))
+	st, err := l.hosts.Wait(ctx, tmuxhost.TerminalID(req.TerminalId))
 	if err != nil {
 		return api.WaitForTerminalExitResponse{}, err
 	}
@@ -77,14 +95,14 @@ func (l *localTerminals) wait(ctx context.Context, req api.WaitForTerminalExitRe
 }
 
 func (l *localTerminals) kill(ctx context.Context, req api.KillTerminalRequest) (api.KillTerminalResponse, error) {
-	if err := l.Kill(ctx, tmuxhost.TerminalID(req.TerminalId)); err != nil {
+	if err := l.hosts.Kill(ctx, tmuxhost.TerminalID(req.TerminalId)); err != nil {
 		return api.KillTerminalResponse{}, err
 	}
 	return api.KillTerminalResponse{}, nil
 }
 
 func (l *localTerminals) release(ctx context.Context, req api.ReleaseTerminalRequest) (api.ReleaseTerminalResponse, error) {
-	if err := l.Release(ctx, tmuxhost.TerminalID(req.TerminalId)); err != nil {
+	if err := l.hosts.Release(ctx, tmuxhost.TerminalID(req.TerminalId)); err != nil {
 		return api.ReleaseTerminalResponse{}, err
 	}
 	return api.ReleaseTerminalResponse{}, nil

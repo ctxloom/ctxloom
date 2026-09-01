@@ -13,13 +13,8 @@ import (
 
 // nonTUIBackends names registered backends this completeness bar deliberately
 // exempts, with WHY each is not a native-TUI local-CLI engine:
-//   - "acp": a protocol-only driver. SupportedModes deliberately omits
-//     ModeInteractive (see acp.SupportedModes' own doc) — an interactive
-//     session belongs to the TARGET agent's own backend (claude-code/codex/
-//     kiro direct-CLI), not this generic ACP client.
 //   - "mock": a test double, never launched for a real session.
 var nonTUIBackends = map[string]string{
-	"acp":  "protocol-only ACP driver; interactive belongs to the target agent's own backend",
 	"mock": "test double, not a real engine",
 }
 
@@ -44,7 +39,7 @@ type launcherInjector interface {
 //     (Interactive: true) and names a binary to spawn (BinaryPath != "").
 //
 // A fake launcher captures the LaunchSpec instead of exec'ing the real
-// binary, so this never depends on claude/codex/kiro-cli/opencode
+// binary, so this never depends on any engine's CLI
 // actually being installed — it stays hermetic and fast. Registering a new
 // engine without wiring SetLauncher, without declaring ModeInteractive, or
 // whose buildArgs collapses interactive mode onto a headless flag is exactly

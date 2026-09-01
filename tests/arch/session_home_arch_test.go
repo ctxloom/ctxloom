@@ -21,7 +21,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
-	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -91,7 +90,6 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 		{"paths.SessionStatePath", func(h string) (string, error) { return paths.SessionStatePath(app, h) }},
 		{"paths.SessionHomePath", func(h string) (string, error) { return paths.SessionHomePath(app, h) }},
 		{"claude.SessionConfigDir", func(h string) (string, error) { return claude.SessionConfigDir(workDir, h) }},
-		{"kiro.SessionHome", func(h string) (string, error) { return kiro.SessionHome(workDir, h) }},
 		{"codex.SessionHome", func(h string) (string, error) { return codex.SessionHome(workDir, h) }},
 	}
 
@@ -119,9 +117,9 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 }
 
 // TestArch_EngineInstanceLeavesArePairwiseDistinct is what lets ONE session
-// root host every engine: claude's "claude", kiro's "kiro" and codex's ".codex"
-// hang off the same <harp>/home directory, so two engines in one session can
-// never read each other's config or credentials.
+// root host every engine: each engine's own leaf hangs off the same
+// <harp>/home directory, so two engines in one session can never read each
+// other's config or credentials.
 func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 	const workDir = "/proj"
 	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), archHarpA)
@@ -133,10 +131,6 @@ func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claude.SessionConfigDir() error = %v", err)
 	}
-	kiroDir, err := kiro.SessionHome(workDir, archHarpA)
-	if err != nil {
-		t.Fatalf("kiro.SessionHome() error = %v", err)
-	}
 	codexRoot, err := codex.SessionHome(workDir, archHarpA)
 	if err != nil {
 		t.Fatalf("codex.SessionHome() error = %v", err)
@@ -145,7 +139,7 @@ func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 	// package's exported statement of what that leaf is.
 	codexDir := filepath.Join(codexRoot, codex.ConfigDirName)
 
-	dirs := map[string]string{"claude-code": claudeDir, "kiro": kiroDir, "codex": codexDir}
+	dirs := map[string]string{"claude-code": claudeDir, "codex": codexDir}
 	for engine, dir := range dirs {
 		if filepath.Dir(dir) != root {
 			t.Errorf("%s's instance %q does not hang directly off the session home root %q", engine, dir, root)
@@ -161,7 +155,7 @@ func TestArch_EngineInstanceLeavesArePairwiseDistinct(t *testing.T) {
 }
 
 // TestArch_SessionInstancesDoNotShareAcrossSessions is the per-session property
-// asserted across the three engine packages at once: session A's instance and
+// asserted across every home-controlled engine package at once: session A's instance and
 // session B's instance are different directories for every engine, so a
 // coordinator and a concurrent second session in the same checkout cannot
 // clobber each other's engine config or read each other's copied credentials.
@@ -172,7 +166,6 @@ func TestArch_SessionInstancesDoNotShareAcrossSessions(t *testing.T) {
 		fn   func(harp string) (string, error)
 	}{
 		{"claude.SessionConfigDir", func(h string) (string, error) { return claude.SessionConfigDir(workDir, h) }},
-		{"kiro.SessionHome", func(h string) (string, error) { return kiro.SessionHome(workDir, h) }},
 		{"codex.SessionHome", func(h string) (string, error) { return codex.SessionHome(workDir, h) }},
 	} {
 		a, err := r.fn(archHarpA)

@@ -83,7 +83,7 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 		MCPSource: "internal/mcp",
 		// The documented surface is the RUNNER-terminated one (NewDocMCPServer →
 		// newRunnerMCPServer): what a harness actually sees inside `ctxloom run`
-		// / `ctxloom acp`, through its stdio `ctxloom mcp serve` shim. Naming
+		// through its stdio `ctxloom mcp serve` shim. Naming
 		// `ctxloom mcp serve` here would be a lie — that standalone server
 		// registers a REDUCED agent surface with different schemas (see mcpIntro).
 		MCPCommand: "ctxloom run",
@@ -96,7 +96,7 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 // just as importantly, what it deliberately is not (management is CLI-only;
 // tasks live in taskloom).
 const mcpIntro = "Reference for the tools and resources ctxloom exposes to the agent it launches — the " +
-	"**runner-terminated** MCP surface a harness sees inside `ctxloom run` (and `ctxloom acp`), " +
+	"**runner-terminated** MCP surface a harness sees inside `ctxloom run`, " +
 	"reached through the stdio `ctxloom mcp serve` shim ctxloom wires into the harness's settings. " +
 	"This is the surface you get in a normal ctxloom session, and it is the one generated here.\n" +
 	"\n" +
@@ -107,7 +107,7 @@ const mcpIntro = "Reference for the tools and resources ctxloom exposes to the a
 	"`agent_recv`, and `agent_stop` only (no `roster`, no `agent_report`, no " +
 	"`agent_fetch_artifact`), and `agent_run`, `agent_send` and `agent_stop` take different " +
 	"parameters there than documented here. " +
-	"Agent delegation is coordinated by the runner, so drive it from `ctxloom run` / `ctxloom acp`.\n" +
+	"Agent delegation is coordinated by the runner, so drive it from `ctxloom run`.\n" +
 	":::\n" +
 	"\n" +
 	"The MCP surface is for **working inside a session**: assembling context, searching content, " +

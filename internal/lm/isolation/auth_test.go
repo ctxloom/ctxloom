@@ -232,30 +232,20 @@ func TestCredentialSeedSpecs_ClaudeCodeRegistered(t *testing.T) {
 	assert.Equal(t, "ANTHROPIC_API_KEY", spec.envTrigger)
 }
 
-// TestCredentialSeedSpecs_CodexRegisteredKiroCredlessButHomed pins the
-// shape (per-engine-isolation-home plan §6, replacing
-// the old "codex/kiro not registered" pin): codex IS now registered — this
-// registry is its ONE credential-seed mechanism (backend.go's
+// TestCredentialSeedSpecs_CodexRegisteredWithCopyableCreds pins codex's
+// registry shape (per-engine-isolation-home plan §6): codex IS registered —
+// this registry is its ONE credential-seed mechanism (backend.go's
 // linkUserCodexAuth symlink is deleted) — with copyable sourceFiles and
-// HonoursVarForCreds true (CODEX_HOME relocates creds too). kiro IS also
-// registered (for its HomeVars — KIRO_HOME/XDG_DATA_HOME — so Env() has one
-// place to read them from) but carries NO sourceFiles: its creds live in a
-// global sqlite no per-agent HomeVar relocates, so HonoursVarForCreds is
-// false and its XDG_DATA_HOME entry is gated instead of seeded (see
-// gateHomeVars in worktree.go).
-func TestCredentialSeedSpecs_CodexRegisteredKiroCredlessButHomed(t *testing.T) {
+// HonoursVarForCreds true, because CODEX_HOME relocates credentials and not
+// merely config. Its single HomeVar is that same CODEX_HOME, so Env() has one
+// place to read the lever from.
+func TestCredentialSeedSpecs_CodexRegisteredWithCopyableCreds(t *testing.T) {
 	codexSpec, codexOK := credentialSeedSpecs["codex"]
 	require.True(t, codexOK, "codex now rides this registry's copy-seed, replacing linkUserCodexAuth's symlink")
 	assert.NotNil(t, codexSpec.sourceFiles, "codex has a copyable auth.json to seed")
 	assert.True(t, codexSpec.HonoursVarForCreds, "CODEX_HOME relocates codex's auth.json too")
 	require.Len(t, codexSpec.HomeVars, 1)
 	assert.Equal(t, "CODEX_HOME", codexSpec.HomeVars[0].EnvVar)
-
-	kiroSpec, kiroOK := credentialSeedSpecs["kiro"]
-	require.True(t, kiroOK, "kiro is registered for its HomeVars, even though it has nothing copyable")
-	assert.Nil(t, kiroSpec.sourceFiles, "kiro's creds live in a global sqlite no HomeVar relocates — nothing to seed")
-	assert.False(t, kiroSpec.HonoursVarForCreds)
-	require.Len(t, kiroSpec.HomeVars, 2)
 }
 
 // TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →
@@ -654,16 +644,16 @@ func writeOpencodeAuth(t *testing.T, home string, withMcpAuth bool) {
 // keyed by the registered backend name "opencode" (enginespec.go's
 // engineContainerSpecFor uses the same key), OPENROUTER_API_KEY as envTrigger
 // (mirroring resolveOpencodeContainerAuth's container-side trigger — the
-// same var covers both axes), HonoursVarForCreds TRUE — UNLIKE kiro:
-// opencode's XDG_DATA_HOME genuinely relocates its credential file, not a
-// global unrelocatable store — and two HomeVars, neither gated (gating only
-// applies to a HonoursVarForCreds==false spec).
+// same var covers both axes), HonoursVarForCreds TRUE — opencode's
+// XDG_DATA_HOME genuinely relocates its credential file, rather than leaving
+// it in a global unrelocatable store — and two HomeVars, neither gated
+// (gating only applies to a HonoursVarForCreds==false spec).
 func TestCredentialSeedSpecs_OpencodeRegistered(t *testing.T) {
 	spec, ok := credentialSeedSpecs["opencode"]
 	require.True(t, ok, "opencode must have a credentialSeedSpec (sunny-saga)")
 	assert.Equal(t, "opencode", spec.engine)
 	assert.Equal(t, "OPENROUTER_API_KEY", spec.envTrigger)
-	assert.True(t, spec.HonoursVarForCreds, "opencode's XDG_DATA_HOME genuinely relocates auth.json — unlike kiro's partial lever")
+	assert.True(t, spec.HonoursVarForCreds, "opencode's XDG_DATA_HOME genuinely relocates auth.json, not just config")
 	require.NotNil(t, spec.sourceFiles, "opencode has a copyable auth.json to seed")
 
 	require.Len(t, spec.HomeVars, 2)

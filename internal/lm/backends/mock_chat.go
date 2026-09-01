@@ -14,8 +14,8 @@ import (
 var _ agent.StructuredChat = (*Mock)(nil)
 
 // Chat implements a deterministic conversation for the mock backend, so
-// structured-chat plumbing — the gRPC Chat bridge and the ACP agent server —
-// can be conformance-tested hermetically. The default turn is an ECHO: one
+// structured-chat plumbing — the gRPC Chat bridge — can be conformance-tested
+// hermetically. The default turn is an ECHO: one
 // assistant entry ("mock chat: <text>") plus a completion, with the echoed text
 // proving exactly what was delivered to the engine (context lead blocks
 // included). Message markers script the control paths:
@@ -32,9 +32,7 @@ var _ agent.StructuredChat = (*Mock)(nil)
 //     ("mock chat: terminal output=... killed=..."). Exercises the SAME
 //     forwarding carrier a real engine's terminal/* call rides
 //     (internal/shared/agent.TerminalRequest/TerminalResponse) — this file
-//     never talks to tmux or ACP directly, only to whatever answers on the
-//     other end (acpagent.forwardTerminal, then either an upstream editor or
-//     internal/acp's own tmux-backed local path).
+//     never talks to tmux directly, only to whatever answers on the other end.
 //   - "TOOLS": the turn emits the FULL entry vocabulary a real engine produces
 //     — thinking, tool_use, tool_result, assistant — before completing. A
 //     container-progress liveness check asserts entry-type VARIETY, which is

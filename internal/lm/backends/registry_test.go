@@ -181,13 +181,10 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 			assert.Equal(t, name, d.newBackend().Name(),
 				"registry name must match the module's Name()")
 
-			// Deliberate exemptions: mock is the test double; acp is the GENERIC
-			// ACP client, which has no native config format to write — the known
-			// agents' ACP paths ride their own descriptors (kiro/codex Chat
-			// delegates to the acp driver), so materialization stays with the
-			// target's writer, never this descriptor. (acp still registers a
-			// newSurfaces that yields an EmptySurfaceSet so BuildSurfaces is total.)
-			if name == "mock" || name == "acp" {
+			// Deliberate exemption: mock is the test double. It registers only
+			// backend+config — no settings writer, no surfaces, no exports —
+			// so it must not gain either capability silently.
+			if name == "mock" {
 				assert.Nil(t, d.newWriter, "%s must not gain settings support silently", name)
 				assert.Nil(t, d.exports, "%s must not gain command export silently", name)
 				return

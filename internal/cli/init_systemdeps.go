@@ -41,7 +41,7 @@ import (
 // intentional (they serve different moments — doctor is a health report,
 // this is a "can PRIME even proceed" gate), not something to fold into a
 // shared helper here.
-func checkSystemDeps(engine string) error {
+func checkSystemDeps() error {
 	if _, err := exec.LookPath("git"); err != nil {
 		return fmt.Errorf("git is required (ctxloom is about to clone/pull remote content, and worktree isolation shells out to it later) but was not found on PATH — install it (e.g. `apt install git`, `brew install git`, `winget install Git.Git`) and re-run `ctxloom init`")
 	}

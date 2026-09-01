@@ -61,9 +61,10 @@ type agentDescriptor struct {
 	//
 	// Pushed into internal/lm/isolation by registerDescriptor because that
 	// package resolves engines by NAME and cannot import these
-	// ones. nil = the backend has no generated instance config at all; kiro is
-	// NOT nil — it registers a DECLARED-EMPTY writer, so "contributes nothing"
-	// is a fact about kiro rather than an inference from a missing entry.
+	// ones. nil = the backend has no generated instance config at all. A
+	// backend that contributes nothing can still register a DECLARED-EMPTY
+	// writer, so "contributes nothing" stays a stated fact rather than an
+	// inference from a missing entry.
 	newInstanceConfig func(agent.SettingsOptions) agent.InstanceConfigWriter
 	// newCredentialProjector constructs the backend's AMBIENT-CREDENTIAL
 	// projector — the engine-owned transform applied to a COPY of one host
@@ -76,10 +77,9 @@ type agentDescriptor struct {
 	// newSurfaces builds the backend's SurfaceSet from a run's shared inputs and a
 	// filesystem (nil = OS fs), so a name-only caller (materialize) can deliver
 	// every native surface through a cell without importing the concrete backend.
-	// It is the delivery-seam counterpart of newWriter. nil = backend materializes
-	// no surfaces (acp, whose native config format is a launch-time detail of
-	// the ACP driver, not this descriptor's business); BuildSurfaces then
-	// returns an EmptySurfaceSet. mock is NOT in that set: it registers a
+	// It is the delivery-seam counterpart of newWriter. nil = backend
+	// materializes no surfaces; BuildSurfaces then returns an
+	// EmptySurfaceSet. mock is NOT in that set: it registers a
 	// real newSurfaces (context + skills, mock_surfaces.go) so hermetic
 	// delivery tests can prove a fragment or a skill package actually reached
 	// a written file.
@@ -91,7 +91,7 @@ type agentDescriptor struct {
 	exports func([]*bundles.LoadedContent) []agent.CommandExport
 	// skillExports maps loaded bundle skills to this backend's Agent Skill
 	// package exports, resolving its per-skill enablement. nil = no skill
-	// export (acp today). Read by SkillExportsFor, the skills-surface analog
+	// export. Read by SkillExportsFor, the skills-surface analog
 	// of CommandExportsFor.
 	skillExports func([]*bundles.LoadedSkill) []agent.SkillExport
 	// enforcesReadOnlyPlan is true when the backend maps agent.PermissionPlan to a
@@ -101,13 +101,15 @@ type agentDescriptor struct {
 	// sync with the buildArgs plan mapping when a backend gains/loses the mode.
 	enforcesReadOnlyPlan bool
 	// resolveModel translates a configured model string into the concrete id
-	// this backend's launch path requires (claude's ACP nickname→concrete-id
-	// table today — see claude.ResolveModel), returning ok=false when the
-	// given model cannot be resolved to anything the launch path accepts. nil
-	// = the backend's model passes through untouched (every backend but
-	// claude-code today). Read by ResolveModelFor (delegate_seams.go), the
-	// polymorphic replacement for operations' old claude-only branch
-	// (ADR-0026).
+	// this backend's launch path requires, returning ok=false when the given
+	// model cannot be resolved to anything that path accepts. nil = the
+	// backend's model passes through untouched, which is every backend today:
+	// the engines are driven through their own CLIs, which accept the same
+	// model spellings a user configures. Read by ResolveModelFor
+	// (delegate_seams.go), the polymorphic replacement for operations' old
+	// claude-only branch (ADR-0026). The seam is kept because the decision is
+	// per-backend: an engine whose launch path rejects a spelling its config
+	// accepts needs exactly this hook rather than a caller-side special case.
 	resolveModel func(model string) (resolved string, ok bool)
 	// hookGlobalScopePaths resolves this backend's project-scoped config path
 	// (under a workDir) and its bare user-GLOBAL path, for backends that carry
@@ -164,15 +166,14 @@ type agentDescriptor struct {
 	// internal/engineversion's cached Prober; the probed version is recorded
 	// on the session at start (sessions.Entry.EngineVersion) and is what
 	// selects a vendor transcript reader later. The zero value (nil Parse)
-	// means "this engine cannot be asked" — correct for mock (no binary) and
-	// the generic acp backend (whatever command config names), and a
-	// REFUSAL-CAUSING gap for any engine whose transcripts ctxloom reads.
+	// means "this engine cannot be asked" — correct for mock (no binary), and
+	// a REFUSAL-CAUSING gap for any engine whose transcripts ctxloom reads.
 	versionCommand engineversion.Command
 	// launchOnlySettingsReason declares, in one clause, that this backend's
 	// settings/prompt/skill surfaces exist ONLY inside a per-session engine
 	// home, so no stable path a STATIC materialize/apply can write exists at
 	// all. Empty for every backend whose settings live at a cwd-keyed project
-	// path (claude-code, kiro, opencode) — codex is the only one, because it is
+	// path (claude-code, opencode) — codex is the only one, because it is
 	// the only engine with no cwd-keyed equivalent of .claude/settings.json.
 	//
 	// It is the third member of the declared-absence family beside
@@ -195,7 +196,7 @@ type agentDescriptor struct {
 	// string a HookRoute.Kind declares at write time (e.g. codex's
 	// addUnifiedHooks route for u.SessionEnd), valued with that SAME
 	// Unsupported reason, so UncarriedSurfaces can report the identical loss
-	// to a caller that never writes settings (doctor/agent show/acp list)
+	// to a caller that never writes settings (doctor/agent show)
 	// without hand-maintaining a second copy of either string. nil = every
 	// kind this backend's mechanism carries is natively supported.
 	unsupportedHookKinds map[string]string
@@ -332,10 +333,9 @@ func Exists(name string) bool {
 // EnforcesReadOnlyPlan reports whether the named backend maps
 // agent.PermissionPlan to a genuinely read-only, non-prompting mode (claude
 // --permission-mode plan, codex --sandbox read-only, opencode.json permission
-// {edit:deny, bash:deny}, kiro --trust-tools=fs_read). A backend that doesn't
-// (acp) would run plan unrestrained and can't be trusted to be headless-safe
-// for it, so the run resolver collapses plan to default for it instead. An
-// unregistered name reports false.
+// {edit:deny, bash:deny}). A backend that doesn't would run plan unrestrained
+// and can't be trusted to be headless-safe for it, so the run resolver
+// collapses plan to default for it instead. An unregistered name reports false.
 func EnforcesReadOnlyPlan(name string) bool {
 	d, ok := lookup(name)
 	return ok && d.enforcesReadOnlyPlan
@@ -394,7 +394,7 @@ func IsAvailable(name string) bool {
 }
 
 // Every backend registered here reaches its model by spawning the VENDOR'S OWN agent
-// binary (claude, codex, kiro-cli) or that vendor's ACP adapter. ctxloom holds no
+// binary. ctxloom holds no
 // provider SDK and makes no direct call to any model API — and must not acquire one on
 // any path that carries subscription credentials.
 //
@@ -444,7 +444,6 @@ func init() {
 		exports:              claudeExports,
 		skillExports:         claudeSkillExports,
 		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
-		resolveModel:         claude.ResolveModel,
 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseClaudeCodeVersion},
 		// claude's project settings.json (claude.ProjectSettingsPath) collapses
 		// onto its user-global one (claude.GlobalSettingsPath) exactly when
@@ -525,12 +524,12 @@ func init() {
 		// hookGlobalScopePaths is deliberately ABSENT (audited, not
 		// overlooked). Its purpose is the workDir == $HOME collision, where a
 		// backend's PROJECT config path collapses onto its user-global one —
-		// claude's and kiro's still do. codex no longer HAS a project config
+		// claude's still does. codex no longer HAS a project config
 		// path (the declared absence above), so the static path writes nothing
 		// that could land in the user's global home; and the run path has its
 		// own, stronger guard — codex.IsHostCodexHome refuses the real home
 		// outright, whatever the workDir.
-		// D2 (RULED): codex reads config_home like claude and kiro,
+		// D2 (RULED): codex reads config_home like claude,
 		// through THIS seam and no other. An in-tree run whose binding declares
 		// `config_home: project` gets this session's own CODEX_HOME,
 		// copy-seeded with the host's auth.json; every other in-tree run keeps

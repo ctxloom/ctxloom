@@ -22,7 +22,6 @@ type probeCellState struct {
 	Engine     string
 	Axis       probeAxis
 	ForcedPath probeAuthPath
-	Degraded   bool
 	Result     *probeResult
 }
 
@@ -81,28 +80,6 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the isolation probe targets kiro's known credential-store leak$`, func(c context.Context) error {
-		w := worldFrom(c)
-		p := probeStateOf(w)
-		p.Engine, p.Axis, p.Degraded = "kiro", probeAxisWorktree, true
-
-		// Deliberately the PLAIN decision (probeDecideAuthPath), not
-		// probeWorktreeAuthAvailable's kiro override — this scenario exists
-		// specifically to run past that override via --degraded, so it
-		// needs "is kiro probeable AT ALL" (env key OR host subscription
-		// file), not "is kiro probeable WITHOUT --degraded".
-		authPath, reason := probeDecideAuthPath("kiro")
-		if authPath == probeAuthNone {
-			return probeSkip("kiro", probeAxisWorktree, authPath, "no kiro credentials at all (neither KIRO_API_KEY nor a host subscription file) — "+reason)
-		}
-		if authPath == probeAuthEnvKey {
-			// KIRO_API_KEY genuinely isolates the credential store (j002200's own
-			// hermetic proof) — there is no leak to observe on this path.
-			return probeSkip("kiro", probeAxisWorktree, authPath, "KIRO_API_KEY is set, so kiro's credential store genuinely isolates on this box (per j002200's own hermetic proof) — there is no leak to demonstrate; unset KIRO_API_KEY to exercise this scenario against the subscription-only leak path")
-		}
-		return nil
-	})
-
 	ctx.Step(`^the probe runs it live, writing a unique token in one turn$`, func(c context.Context) error {
 		w := worldFrom(c)
 		p := probeStateOf(w)
@@ -110,7 +87,7 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		var err error
 		switch {
 		case p.Axis == probeAxisWorktree:
-			res, err = runProbeWorktree(w, p.Engine, p.ForcedPath, false)
+			res, err = runProbeWorktree(w, p.Engine, p.ForcedPath)
 		case isProbeContainerAxis(p.Axis):
 			// Resolve the SAME way probeCellGate does for the matrix probes
 			// (capability_probe_gate_live.go's probeContainerRuntimeForAxis):
@@ -132,17 +109,6 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		default:
 			return fmt.Errorf("isolation probe: unknown axis %q", p.Axis)
 		}
-		if err != nil {
-			return fmt.Errorf("isolation probe: %w", err)
-		}
-		p.Result = res
-		return nil
-	})
-
-	ctx.Step(`^the probe runs it live under --degraded, writing a unique token in one turn$`, func(c context.Context) error {
-		w := worldFrom(c)
-		p := probeStateOf(w)
-		res, err := runProbeWorktree(w, p.Engine, "", true)
 		if err != nil {
 			return fmt.Errorf("isolation probe: %w", err)
 		}
@@ -212,35 +178,6 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 			return assertErr
 		}
 		printProbeReport(engine, p.Axis, res.AuthPath, res.AuthReason, "PASSED", "")
-		return nil
-	})
-
-	ctx.Step(`^the probe confirms kiro's global credential store was touched, as expected$`, func(c context.Context) error {
-		w := worldFrom(c)
-		p := probeStateOf(w)
-		res := p.Result
-		if res == nil {
-			return fmt.Errorf("isolation probe: no result recorded — the When step never ran")
-		}
-		if res.ExitCode != 0 {
-			printProbeReport("kiro", probeAxisWorktree, res.AuthPath, res.AuthReason, "FAILED", ": run exited nonzero under --degraded")
-			return fmt.Errorf("(a) response: --degraded run exited %d, want 0; output:\n%s", res.ExitCode, res.Output)
-		}
-		if !res.Scratch.TokenFound {
-			printProbeReport("kiro", probeAxisWorktree, res.AuthPath, res.AuthReason, "FAILED", ": token file never observed")
-			return fmt.Errorf("(b) token file never observed under --degraded (checkout tree seen: %v)", res.Scratch.CheckoutTree)
-		}
-		// THE POSITIVE LEAK ASSERTION: under --degraded, kiro's global
-		// credential sqlite (this engine's census root — the SAME
-		// ~/.local/share/kiro-cli dir the worktree axis would otherwise
-		// isolate) is expected to be TOUCHED, not left clean. A clean
-		// census here is the SURPRISING result — see the feature file's own
-		// doc for why that reads as good news, not a probe bug.
-		if len(res.HostDiff) == 0 {
-			printProbeReport("kiro", probeAxisWorktree, res.AuthPath, res.AuthReason, "FAILED", ": expected leak did not occur")
-			return fmt.Errorf("expected kiro's known credential-store leak (global sqlite touched even under --degraded worktree isolation) but the host census was unchanged — kiro's credential store may have become genuinely isolated; see the scenario's own doc before treating this as a probe bug")
-		}
-		printProbeReport("kiro", probeAxisWorktree, res.AuthPath, res.AuthReason, "PASSED (leak confirmed)", fmt.Sprintf(": %d path(s) touched", len(res.HostDiff)))
 		return nil
 	})
 }

@@ -55,12 +55,12 @@ func TestVersionParsers_RefuseAnotherEnginesShape(t *testing.T) {
 
 // Every engine whose vendor transcripts ctxloom READS must be askable for its
 // version — otherwise reader selection has nothing to select on and every
-// session under that engine refuses. The three are the ones
+// session under that engine refuses. These are the REGISTERED engines
 // operations.vendorReaderRegistry covers (and .github/engine-versions.env
 // pins); this test states the requirement where the descriptors live so a new
 // engine cannot be added without one.
 func TestVersionCommands_DeclaredForEveryVendorReaderEngine(t *testing.T) {
-	for _, engine := range []string{"claude-code", "codex", "kiro"} {
+	for _, engine := range []string{"claude-code", "codex"} {
 		cmd, ok := VersionCommandFor(engine)
 		assert.True(t, ok, "%s reads a vendor transcript, so it must declare a version command", engine)
 		if ok {
@@ -70,12 +70,11 @@ func TestVersionCommands_DeclaredForEveryVendorReaderEngine(t *testing.T) {
 	}
 }
 
-// mock and acp deliberately declare NO version command: mock has no binary at
-// all, and the generic acp backend drives whatever command config names, so
+// mock deliberately declares NO version command: it has no binary at all, so
 // there is no single binary whose version would mean anything. Declaring a
-// bogus one for them would put a meaningless string in a session index.
+// bogus one for it would put a meaningless string in a session index.
 func TestVersionCommands_AbsentWhereThereIsNoOneBinaryToAsk(t *testing.T) {
-	for _, engine := range []string{"mock", "acp"} {
+	for _, engine := range []string{"mock"} {
 		_, ok := VersionCommandFor(engine)
 		assert.False(t, ok, "%s has no single binary whose version means anything", engine)
 	}
@@ -85,8 +84,8 @@ func TestVersionCommands_AbsentWhereThereIsNoOneBinaryToAsk(t *testing.T) {
 
 // An engine that IS registered but has no installed binary must resolve to
 // *engineversion.BinaryAbsentError, not to some other failure — that type is
-// what lets a caller treat "you don't have kiro" as ordinary while treating
-// "kiro is installed and printed junk" as worth reporting.
+// what lets a caller treat "you don't have that engine" as ordinary while
+// treating "it is installed and printed junk" as worth reporting.
 func TestResolveEngineVersionCommand_UndeclaredEngineRefuses(t *testing.T) {
 	_, _, err := ResolveEngineVersionCommand("mock")
 	require.Error(t, err)

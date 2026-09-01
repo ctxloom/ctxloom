@@ -11,11 +11,6 @@
 //	claude    --version  ->  "2.1.225 (Claude Code)"   version first, name in parens
 //	codex     --version  ->  "codex-cli 0.144.4"       name first, then version
 //	opencode  --version  ->  "1.18.4"                  bare version
-//
-// kiro-cli is not installed anywhere this project can reach, so its output
-// shape is UNMEASURED and it uses the tolerant scanner with that fact stated
-// at its site. Tighten it to a positional parser the first time it is run on
-// a real install.
 package backends
 
 import (
@@ -30,9 +25,8 @@ import (
 var engineVersionProber = engineversion.NewProber(ResolveEngineVersionCommand)
 
 // VersionCommandFor returns the named backend's declared version command, and
-// whether it declares one at all. mock and acp deliberately do not: mock has no
-// binary, and the generic acp backend drives WHATEVER command config names, so
-// there is no single binary whose version would mean anything.
+// whether it declares one at all. mock deliberately does not: it has no binary,
+// so there is no single binary whose version would mean anything.
 func VersionCommandFor(name string) (engineversion.Command, bool) {
 	d, ok := lookup(name)
 	if !ok || d.versionCommand.Parse == nil {
@@ -87,13 +81,4 @@ func parseCodexVersion(output string) (string, error) {
 // MEASURED: a bare "1.18.4" — no name, no decoration.
 func parseOpencodeVersion(output string) (string, error) {
 	return engineversion.TokenAt(output, 0)
-}
-
-// parseKiroVersion reads kiro-cli's `--version` output.
-// UNMEASURED: kiro-cli is not installed on any host this project can reach, so
-// the tolerant scanner is used rather than a guessed token position — see
-// engineversion.FirstSemverToken. Replace with a positional TokenAt once the
-// real output is seen.
-func parseKiroVersion(output string) (string, error) {
-	return engineversion.FirstSemverToken(output)
 }

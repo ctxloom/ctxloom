@@ -13,13 +13,12 @@ import (
 )
 
 // TestBuildSurfaces_OptOutBackends pins the name→SurfaceSet seam's opt-out: a
-// backend with no native config format (acp) and an unregistered name both
-// return an EmptySurfaceSet, so a caller (materialize) can iterate
-// Deliveries() unconditionally and simply deliver nothing. mock is NOT one of
-// these any more — it registers a real (context-only) SurfaceSet so hermetic
-// delivery tests have somewhere to look.
+// name no descriptor claims returns an EmptySurfaceSet rather than failing, so
+// a caller (materialize) can iterate Deliveries() unconditionally and simply
+// deliver nothing. mock is NOT one of these — it registers a real (context +
+// skills) SurfaceSet so hermetic delivery tests have somewhere to look.
 func TestBuildSurfaces_OptOutBackends(t *testing.T) {
-	for _, name := range []string{"acp", "does-not-exist"} {
+	for _, name := range []string{"does-not-exist"} {
 		t.Run(name, func(t *testing.T) {
 			set := BuildSurfaces(name, agent.SurfaceInputs{}, afero.NewMemMapFs())
 			resolved, err := agent.Select(set).WithEverything().Build()
@@ -71,17 +70,6 @@ func TestBuildSurfaces_Claude(t *testing.T) {
 	resolved, err := agent.Select(set).WithEverything().Build()
 	require.NoError(t, err)
 	assert.Len(t, resolved.Deliveries(), 5, "claude has context + MCP + settings + commands + skills surfaces")
-}
-
-// TestBuildSurfaces_Kiro proves the kiro descriptor closure routes through
-// kiro.NewSurfaces and now includes the skills surface (Part B5) alongside
-// context/MCP/settings/commands — kiro is the collision engine where commands
-// and skills share one native directory, reconciled inside kiro.NewSurfaces.
-func TestBuildSurfaces_Kiro(t *testing.T) {
-	set := BuildSurfaces("kiro", agent.SurfaceInputs{Context: "hello"}, afero.NewMemMapFs())
-	resolved, err := agent.Select(set).WithEverything().Build()
-	require.NoError(t, err)
-	assert.Len(t, resolved.Deliveries(), 5, "kiro has context + MCP + settings + commands + skills surfaces")
 }
 
 // TestBuildSurfaces_CodexNoNativeContextFile pins the codex opt-out invariant

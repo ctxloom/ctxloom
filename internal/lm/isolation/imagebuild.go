@@ -26,7 +26,7 @@ import (
 )
 
 // imageBuildTimeout caps one on-the-fly agent-image build. The production
-// builds are network-bound (npm / the kiro installer / an official-image pull)
+// builds are network-bound (npm / a vendor install script / an official-image pull)
 // so the first build takes minutes; a hung build must still degrade rather than
 // block the LLM forever.
 const imageBuildTimeout = 10 * time.Minute
@@ -271,8 +271,8 @@ type buildSourcesOptions struct {
 
 // buildSources orders a spec's local-build sources. An explicit base-IMAGE
 // override wins outright (the caller asserts the client lives there). A
-// COMPOSABLE spec (engineInstall != nil — claude-code/codex/kiro/
-// opencode) then builds the generated SINGLE-ENGINE Containerfile
+// COMPOSABLE spec (engineInstall != nil — every engine in
+// composableEngines()) then builds the generated SINGLE-ENGINE Containerfile
 // (composeAgentContainerfile) onto, in order: the explicit user base
 // Containerfile, the auto-detected project devcontainer, and the embedded
 // default base — precedence locked decision 8 (explicit beats auto-detect

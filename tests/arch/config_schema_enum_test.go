@@ -29,7 +29,7 @@
 // output of TestArch_ConfigSchemaEnums_ExclusionsAreExplained, printed
 // whenever the exclusion table changes shape. Three excluded classes exist
 // today: values a vendor CLI owns and ctxloom only passes through
-// (kiro's `effort`/`agent_engine`, claude-code's hook `type`); the `role`
+// (claude-code's hook `type`); the `role`
 // field, which is registry-only display metadata the schema itself says is
 // "stripped from persisted user configs and ignored otherwise"; and the
 // escalation ladder's `kinds`/`action`, whose real vocabulary
@@ -155,22 +155,19 @@ var schemaEnumBindings = []schemaEnumBinding{
 }
 
 func init() {
-	// $defs/llmConfig/anyOf has six backend branches. `permissions` and
+	// $defs/llmConfig/anyOf has four backend branches. `permissions` and
 	// `thinking` (where present) mirror the same ctxloom-owned vocabularies
 	// as everywhere else; `role` is registry-only display metadata the
 	// schema's own description says is "stripped from persisted user configs
 	// and ignored otherwise" — no Go vocabulary backs it, by design, so it is
-	// excluded rather than bound. `effort` and `agent_engine` (kiro only)
-	// are passthrough to kiro's own CLI flags (kiro.Config.Effort,
-	// kiro.Config.AgentEngine are unvalidated strings) — the vendor CLI owns
-	// that vocabulary, not ctxloom.
+	// excluded rather than bound.
 	//
-	// Built in init() rather than spelled out six times in the literal above:
-	// the six branches are homogeneous in which fields they share, and a
+	// Built in init() rather than spelled out four times in the literal above:
+	// the branches are homogeneous in which fields they share, and a
 	// loop keeps that homogeneity from silently drifting between branches as
 	// a hand-copied literal could.
-	branchesWithThinking := map[int]bool{0: true, 1: true, 2: true, 3: true}
-	for i := 0; i < 6; i++ {
+	branchesWithThinking := map[int]bool{0: true, 1: true, 2: true}
+	for i := 0; i < 4; i++ {
 		prefix := fmt.Sprintf("$defs/llmConfig/anyOf/%d/properties", i)
 		schemaEnumBindings = append(schemaEnumBindings,
 			schemaEnumBinding{
@@ -184,17 +181,6 @@ func init() {
 				schemaEnumBinding{path: prefix + "/thinking", goNames: agentaxis.ThinkingLevelNames})
 		}
 	}
-	// Kiro branch only (anyOf/2): effort and agent_engine.
-	schemaEnumBindings = append(schemaEnumBindings,
-		schemaEnumBinding{
-			path:          "$defs/llmConfig/anyOf/2/properties/effort",
-			excludeReason: "passthrough to kiro's own --effort flag (kiro.Config.Effort is an unvalidated string); the vendor CLI owns this vocabulary, not ctxloom",
-		},
-		schemaEnumBinding{
-			path:          "$defs/llmConfig/anyOf/2/properties/agent_engine",
-			excludeReason: "passthrough to kiro's own --agent-engine flag (kiro.Config.AgentEngine is an unvalidated string); the vendor CLI owns this vocabulary, not ctxloom",
-		},
-	)
 }
 
 // TestArch_ConfigSchemaEnums_TableIsWellFormed is a fixture-sanity check on

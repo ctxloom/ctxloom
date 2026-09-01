@@ -70,7 +70,7 @@ func TestCheckSystemDeps_GitMissing_FailsLoud(t *testing.T) {
 	isolateSignKeyEnv(t)
 	t.Setenv("PATH", t.TempDir()) // empty: no git, no ssh-keygen, no docker/podman
 
-	err := checkSystemDeps("claude-code")
+	err := checkSystemDeps()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "git")
 	assert.Contains(t, err.Error(), "ctxloom init", "the fix must tell the user to re-run init")
@@ -88,7 +88,7 @@ func TestCheckSystemDeps_GitPresent_MissingExtrasWarnButDoNotBlock(t *testing.T)
 
 	var err error
 	stderr := captureStderr(t, func() {
-		err = checkSystemDeps("claude-code")
+		err = checkSystemDeps()
 	})
 
 	require.NoError(t, err, "missing ssh-keygen/container runtime must not block init")
@@ -112,7 +112,7 @@ func TestCheckSystemDeps_AllPresent_Succeeds(t *testing.T) {
 	dir := fakeBinDir(t, "git", "ssh-keygen")
 	t.Setenv("PATH", dir)
 
-	err := checkSystemDeps("claude-code")
+	err := checkSystemDeps()
 	require.NoError(t, err)
 }
 
@@ -130,7 +130,7 @@ func TestCheckSystemDeps_SignKeyResolves_NoWarn(t *testing.T) {
 
 	var err error
 	stderr := captureStderr(t, func() {
-		err = checkSystemDeps("claude-code")
+		err = checkSystemDeps()
 	})
 
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestCheckSystemDeps_GitIdentitySet_NoWarn(t *testing.T) {
 
 	var err error
 	stderr := captureStderr(t, func() {
-		err = checkSystemDeps("claude-code")
+		err = checkSystemDeps()
 	})
 
 	require.NoError(t, err)

@@ -25,15 +25,6 @@
 ./cmd/probe-mcp-server/main.go|(s*server)handle req map [ string ] any|1|13|handle|95-154
 ./cmd/taskloom/commands_test.go| t * testing . T|1|11||82-106
 ./cmd/taskloom/mcp_docgen_test.go|TestNewMCPServerRegistersTaskTools t * testing . T|1|17|TestNewMCPServerRegistersTaskTools|15-74
-./internal/acp/acp.go|(b*ACP)Configure cfg agent . BackendConfig|1|19|Configure|226-301
-./internal/acp/container_transport.go|(b*ACP)containerTransport ctx context . Context , argv [ ] string , env map [ string ] string , workDir string , runtimeAxis isolation . RuntimeAxis|1|11|containerTransport|74-174
-./internal/acp/fsconfine.go|resolveRealPath path string|1|11|resolveRealPath|138-181
-./internal/acp/session.go|(b*ACP)Chat parentCtx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|24|Chat|42-277
-./internal/acpagent/mapping.go|(sess*session)mapEvent ev agent . ChatEvent|1|13|mapEvent|83-143
-./internal/acpagent/server.go|(s*Server)handleSessionLoad params json . RawMessage , reply func any , * jsonrpc . Error|1|11|handleSessionLoad|455-524
-./internal/acptest/schema.go|closeInstanceRoots node interface { } , mixins map [ string ] bool , isInstanceRoot bool|1|17|closeInstanceRoots|360-395
-./internal/acptest/schema.go|collectMixinRefs node interface { } , out map [ string ] bool , shared bool|1|17|collectMixinRefs|273-324
-./internal/acptest/schema_test.go| node interface { } , path string|1|11||132-158
 ./internal/agentcoord/coord/approval.go|(c*Coordinator)serveApproval caller Identity , req * agentcoordpb . ApprovalRequest|1|11|serveApproval|145-242
 ./internal/agentcoord/coord/children.go| c * Coordinator|1|17||1891-2051
 ./internal/agentcoord/coord/children.go|(c*Coordinator)AgentRun ctx context . Context , caller Identity , agentName , prompt , workspace string , dirtyTreeHandler operations . DirtyTreeHandler|1|11|AgentRun|273-393
@@ -166,7 +157,6 @@
 ./internal/docsgen/mcp.go|GenMCPTools ctx context . Context , p * Product , dir string|1|14|GenMCPTools|42-108
 ./internal/docsgen/mcp.go|enumerateMCPSurface ctx context . Context , server * mcp . Server|1|12|enumerateMCPSurface|113-174
 ./internal/enginepins/engineversions_test.go|TestDetectScriptHandlesEveryMatrixEngine t * testing . T|1|12|TestDetectScriptHandlesEveryMatrixEngine|170-214
-./internal/kiro/backend.go|(b*Kiro)buildArgs req * agent . ExecuteRequest , model string|1|11|buildArgs|180-239
 ./internal/liveness/arch_test.go| n ast . Node|1|14||238-268
 ./internal/liveness/arch_test.go| n ast . Node|2|17||323-355
 ./internal/lm/backends/mock.go|writeMockRecord recordFile string , in mockRecordFields , managed * agent . ManagedConfig|1|11|writeMockRecord|227-287
@@ -376,7 +366,6 @@
 ./tests/acceptance/steps_capability_hook_firing.go| c context . Context , engine , runtime , workspace string|1|16||81-198
 ./tests/acceptance/steps_capability_mcp_round_trip.go| c context . Context , engine , runtime , workspace string|1|12||194-287
 ./tests/acceptance/steps_cli.go|shellSplit cmdline string|1|17|shellSplit|420-473
-./tests/acceptance/steps_cli_acp.go| c context . Context|1|13||30-92
 ./tests/acceptance/steps_doc_capture.go| c context . Context , st * godog . Step , status godog . StepResultStatus , err error|1|21||202-321
 ./tests/acceptance/steps_isolation_probe.go| c context . Context , engine , axisStr string|1|13||153-216
 ./tests/acceptance/steps_j001600_signing.go| c context . Context|1|13||1307-1353

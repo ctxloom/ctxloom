@@ -14,9 +14,9 @@ import (
 // isolation.PrepareClaudeHome, which joins its OWN copy of that leaf under the
 // root it is handed, writes .credentials.json into the exact directory
 // SessionConfigDir names. The two literals live in different packages because
-// isolation cannot import this one (claude -> internal/acp ->
-// internal/lm/isolation is a real cycle);
-// TestSessionConfigDir_IsTheSeedDestination is the gate that keeps them equal.
+// internal/lm/isolation carries its own literal rather than importing this
+// package; TestSessionConfigDir_IsTheSeedDestination is the gate that keeps
+// the two equal.
 const inTreeConfigLeaf = "claude"
 
 // SessionConfigDir is the CLAUDE_CONFIG_DIR value for ONE SESSION's in-tree

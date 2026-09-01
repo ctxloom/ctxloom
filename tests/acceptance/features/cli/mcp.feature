@@ -176,7 +176,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     # format and asserts the actual command field under the actual server name
     # — never a bare file-exists and never a substring of a key name (the
     # vacuousness a ".mcp.json" contains "ctxloom" check would carry). claude
-    # and kiro share one JSON "mcpServers" table shape.
+    # uses a JSON "mcpServers" table shape.
     #
     # codex has NO ROW, and that is a product fact rather than a coverage gap:
     # its servers fold into $CODEX_HOME/config.toml, and the only $CODEX_HOME
@@ -195,7 +195,6 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       Examples:
         | engine      |
         | claude-code |
-        | kiro        |
 
     # codex's half of the same claim, stated as the absence it is. Both halves
     # are asserted: nothing landed, AND the report says where it does come from
@@ -233,7 +232,6 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       Examples:
         | engine      |
         | claude-code |
-        | kiro        |
 
   Rule: The bare noun answers a person and refuses a protocol client
 

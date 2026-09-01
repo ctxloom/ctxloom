@@ -55,7 +55,7 @@ func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 		Mode: agent.ModeOneshot,
 		Env: map[string]string{
 			"CLAUDE_CONFIG_DIR": "/agents/one/.claude",
-			// CODEX_HOME / KIRO_HOME deliberately absent: only set keys should appear.
+			// CODEX_HOME deliberately absent: only set keys should appear.
 		},
 	}
 
@@ -70,7 +70,6 @@ func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 	assert.Contains(t, content, "cwd="+wantCwd)
 	assert.Contains(t, content, "CLAUDE_CONFIG_DIR=/agents/one/.claude")
 	assert.NotContains(t, content, "CODEX_HOME=")
-	assert.NotContains(t, content, "KIRO_HOME=")
 }
 
 // TestRecordMockInput_CapturesDenyToolsAndSkills pins the mock backend's half

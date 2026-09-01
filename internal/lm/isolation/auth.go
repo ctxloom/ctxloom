@@ -44,7 +44,7 @@ func (m containerAuthMode) String() string {
 // container: the scoped env vars to inject (env passthrough) and/or the read-only
 // credential mounts to bind into the fresh HOME (subscription OAuth). Each engine
 // resolves its own plan behind the engineContainerSpec.resolveAuth seam (claude:
-// ANTHROPIC_* passthrough or ~/.claude mounts; kiro: KIRO_API_KEY passthrough).
+// ANTHROPIC_* passthrough or ~/.claude mounts).
 // Only the TRUSTED top-level run reaches it — low-trust fan-out auth
 // (budget-capped per-agent keys, T1.5) is a separate, later concern.
 type containerAuth struct {
@@ -89,11 +89,9 @@ var hostHomeDir = os.UserHomeDir
 
 // resolveEnvOrMountAuth is the common shape every per-engine resolver below
 // reduces to: prefer a scoped env passthrough when ANY of triggers is set in
-// the host env, else fall back to a mount lookup (nil = no mount fallback,
-// kiro's case), else degrade (ok=false). Factored out after reprise flagged
-// the codex/opencode resolvers as exact-normalized duplicates of each other;
-// claude and kiro are folded in too rather than leaving three near-identical
-// shapes alongside one shared one.
+// the host env, else fall back to a mount lookup (nil = no mount fallback),
+// else degrade (ok=false). One shared shape rather than a near-identical
+// resolver repeated per engine.
 func resolveEnvOrMountAuth(triggers []string, envVars []string, mountFn func() ([]Mount, bool)) (containerAuth, bool) {
 	triggered := false
 	for _, t := range triggers {
@@ -391,8 +389,8 @@ func fileExists(path string) bool {
 // The container path above authenticates a fresh, isolated HOME by BIND-
 // MOUNTING host credential files into it (claudeCredentialMounts). A
 // host+worktree run has no fresh HOME to mount into — it relocates the
-// engine's config lookup via an env var (CLAUDE_CONFIG_DIR/CODEX_HOME/
-// KIRO_HOME, see worktree.go's Env()) pointing at a per-agent scratch dir
+// engine's config lookup via an env var (CLAUDE_CONFIG_DIR/CODEX_HOME, see
+// worktree.go's Env()) pointing at a per-agent scratch dir
 // that starts EMPTY. An engine that honours the var for CREDENTIALS too
 // (not just config) then finds no creds there and starts logged out — silent
 // unless something seeds the dir. That "something" is this section: a COPY
@@ -421,22 +419,20 @@ type credentialSeedSpec struct {
 	// destSubdir is the config-home subdirectory the engine's PRIMARY
 	// isolation env var is pointed at by worktree.go's Env() (e.g. "claude"
 	// for CLAUDE_CONFIG_DIR). The seed lands here so Env()'s wiring picks it
-	// up unchanged. "" for a spec with no sourceFiles (kiro — nothing to
-	// seed).
+	// up unchanged. "" for a spec with no sourceFiles (nothing to seed).
 	destSubdir string
 	// envTrigger is the env var whose presence means the engine already has
 	// usable auth riding the process env (e.g. ANTHROPIC_API_KEY) — seeding
 	// is skipped (not an error), mirroring resolveClaudeContainerAuth's
 	// authEnv precedence (auth.go:82-83). "" if the engine has no such
 	// bypass. Doubles as the GatedOnCreds bypass check for a
-	// HonoursVarForCreds==false spec (kiro's KIRO_API_KEY): its presence is
-	// what makes isolating that var SAFE rather than silently logging the
-	// agent out.
+	// HonoursVarForCreds==false spec: its presence is what makes isolating
+	// that var SAFE rather than silently logging the agent out.
 	envTrigger string
 	// sourceFiles returns the host credential file(s) to copy, given the
 	// host home directory, in copy order. nil for a spec with no copyable
-	// credential material (kiro — its creds live in a global sqlite no
-	// per-agent home var relocates; see HonoursVarForCreds).
+	// credential material — creds that live in a global store no per-agent
+	// home var relocates; see HonoursVarForCreds.
 	sourceFiles func(hostHome string) []seedFile
 	// loginHint is the command that MAKES this engine's credential file
 	// exist (e.g. "claude login") — the one fix, besides envTrigger, that
@@ -444,23 +440,21 @@ type credentialSeedSpec struct {
 	// rather than inside a per-engine error string so
 	// CopyAmbient's one message covers every engine and no engine can be
 	// added with a fail-loud path that names no fix at all. "" for a spec
-	// with no sourceFiles (kiro — nothing to log in FOR, here).
+	// with no sourceFiles (nothing to log in FOR, here).
 	loginHint string
 	// HomeVars is the FULL set of isolation env vars this engine's per-agent
 	// config-home contributes to worktreeWorkspace.Env() — the creds-only
 	// descriptor widened to the full config/state/creds home map per the
 	// per-engine-isolation-home plan §6, so the var wiring rides the SAME
 	// struct as the credential seed instead of a
-	// second hardcoded map. claude/codex: one entry each (their whole home
-	// moves with the var). kiro: two — KIRO_HOME (kiro's WHOLE home except
-	// credentials, always isolated) and XDG_DATA_HOME (the credential store,
-	// GatedOnCreds).
+	// second hardcoded map. An engine whose whole home moves with a single
+	// var has one entry; an engine that splits config and data across
+	// separate XDG vars contributes one entry per var.
 	HomeVars []homeVar
 	// HonoursVarForCreds reports whether this engine's HomeVars actually
-	// relocate CREDENTIALS (true — claude/codex: sourceFiles/envTrigger seed
-	// them into the isolated home) or the credential store lives in a
-	// GLOBAL location no HomeVar moves (false — kiro's XDG-external sqlite,
-	// auth.go's resolveKiroContainerAuth doc). A false spec has no
+	// relocate CREDENTIALS (true — sourceFiles/envTrigger seed them into the
+	// isolated home) or the credential store lives in a GLOBAL location no
+	// HomeVar moves (false). A false spec has no
 	// sourceFiles; instead, each of its GatedOnCreds HomeVars is included in
 	// Env() ONLY when envTrigger is present in the process env — absent, a
 	// ClassIsolation fail-loud finding is recorded (worktree.go's
@@ -484,9 +478,9 @@ type homeVar struct {
 	EnvVar string
 	Subdir string
 	// GatedOnCreds marks this var as the one that relocates the engine's
-	// CREDENTIAL store (not just config/session state) — kiro's
-	// XDG_DATA_HOME (its KIRO_HOME entry is NOT gated: it relocates kiro's
-	// whole home but no creds, so it isolates unconditionally). Only meaningful on a
+	// CREDENTIAL store (not just config/session state). A var that relocates
+	// an engine's home but no credentials is NOT gated: it isolates
+	// unconditionally. Only meaningful on a
 	// HonoursVarForCreds==false spec; ignored otherwise (a
 	// HonoursVarForCreds==true spec's vars are never gated — a seed
 	// failure there is reported by seedCredentials, but the var still
@@ -506,9 +500,9 @@ type seedFile struct {
 }
 
 // credentialSeedSpecs is the registry provisionConfigHome (worktree.go)
-// consults, keyed by the REGISTERED backend name (internal/lm/backends:
-// "claude-code", "codex", "kiro" — see enginespec.go's engineContainerSpecFor,
-// which the same keys already drive). It is now the SINGLE per-engine
+// consults, keyed by the REGISTERED backend name (internal/lm/backends — see
+// enginespec.go's engineContainerSpecFor, which the same keys already drive).
+// It is the SINGLE per-engine
 // isolation-home descriptor (per-engine-isolation-home plan §6): every
 // entry's HomeVars drives worktreeWorkspace.Env() in addition to whatever
 // credential-seed behaviour HonoursVarForCreds selects. A backend absent from
@@ -536,36 +530,10 @@ type seedFile struct {
 //     own doc used to warn about here. destSubdir/HomeVars both use ".codex"
 //     (dot-prefixed) — see homeVar's doc for why the leaf name matters.
 //
-//   - kiro: HonoursVarForCreds FALSE — subscription auth lives in a GLOBAL
-//     sqlite under $XDG_DATA_HOME regardless of KIRO_HOME (see
-//     resolveKiroContainerAuth's doc, verified live against kiro-cli 2.12.1),
-//     so there is no per-agent file to copy (sourceFiles/destSubdir stay
-//     unset). Its XDG_DATA_HOME HomeVar is GatedOnCreds: worktree.go's
-//     seedCredentials includes it in Env() only when KIRO_API_KEY is set
-//     (live-verified: a fresh XDG_DATA_HOME + KIRO_API_KEY authenticates
-//     headlessly, no browser), and records a ClassIsolation fail-loud
-//     finding + omits it otherwise — turning kiro's previously-SILENT
-//     shared-sqlite non-isolation into a real per-agent
-//     isolation on the KIRO_API_KEY path and a loud, degradable error
-//     otherwise. Its KIRO_HOME entry stays unconditional — it carries no
-//     creds, so isolating it can never log an agent out.
-//
-//     KIRO_HOME's SCOPE, corrected: this file used to describe it
-//     as relocating "sessions only" / "session jsonl only". That was true of
-//     an older kiro-cli and is now wrong — since kiro-cli 2.3.0 KIRO_HOME
-//     relocates the FULL home: global agents, prompts, skills, steering,
-//     settings AND sessions (internal/kiro.HomeEnv's doc). The credential
-//     carve-out is the only part that still holds, and it is the only part
-//     this comment ever needed to make. The correction matters beyond
-//     accuracy: "sessions only" made pointing an in-tree AGENT run at the
-//     human's own ~/.kiro look harmless, when it in fact hands that agent the
-//     human's global agents and steering — see internal/kiro.SessionHome.
-//
-//   - opencode: HonoursVarForCreds TRUE — the OPPOSITE of
-//     kiro's shape immediately above, despite both engines relocating via
-//     XDG_DATA_HOME: opencode's auth.json genuinely lives under
-//     $XDG_DATA_HOME/opencode (live-verified against opencode 1.18.1 — see
-//     the entry's own doc for the full measurement), so it is seeded via
+//   - opencode: HonoursVarForCreds TRUE — opencode's auth.json genuinely
+//     lives under $XDG_DATA_HOME/opencode (live-verified against opencode
+//     1.18.1 — see the entry's own doc for the full measurement), so it is
+//     seeded via
 //     sourceFiles/destSubdir like claude/codex, never gated. Two HomeVars —
 //     XDG_CONFIG_HOME (config only) and XDG_DATA_HOME (config + creds,
 //     destSubdir "xdg-data/opencode" NESTED one level under the HomeVar's
@@ -574,8 +542,8 @@ type seedFile struct {
 //     CLAUDE_CONFIG_DIR/CODEX_HOME do). Before this entry existed,
 //     "opencode" had NO registry entry at all — worktree.go's
 //     seedCredentials short-circuited at `if !ok { return nil }` with no
-//     ClassIsolation finding, a SILENT no-op strictly worse than kiro's loud
-//     "nothing seedable" handling.
+//     ClassIsolation finding — a SILENT no-op strictly worse than the loud
+//     "nothing seedable" handling a registered spec gets.
 var credentialSeedSpecs = map[string]credentialSeedSpec{
 	"claude-code": {
 		engine:     "claude",
@@ -650,7 +618,7 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 	// printed "0 credentials", never silently falling back to the real host
 	// key. This is an implementation detail that can drift silently on
 	// upgrade (this project has been burned by that exact failure mode
-	// before — see kiro's entry above) — RE-VERIFY against any opencode
+	// before) — RE-VERIFY against any opencode
 	// version bump past 1.18.1 before trusting this comment.
 	//
 	// destSubdir is NESTED ("xdg-data/opencode"), unlike claude/codex's flat
@@ -733,11 +701,9 @@ func CredentialSeedEngineNames() []string {
 // CredentialSeedHomeVar is a read-only copy of one homeVar entry, exported so
 // tests/arch's engine-layout gate can check credentialSeedSpecs' env-var-name
 // and subdir literals against the owning
-// engine package's own exported constants. This package cannot import
-// claude/codex/kiro/opencode in production (each of them imports
-// internal/acp, which imports this package — a real cycle), so those tables
-// keep their literals; the arch test, which is free to import every package,
-// is the enforcement point instead.
+// engine package's own exported constants. This package does not import the
+// engine packages, so those tables keep their literals; the arch test, which
+// is free to import every package, is the enforcement point instead.
 type CredentialSeedHomeVar struct {
 	EnvVar       string
 	Subdir       string
@@ -791,8 +757,8 @@ type CredentialSeedFile struct {
 const credentialSeedSourceFileSentinelHome = "/sentinel-home-never-real"
 
 // CredentialSeedSourceFiles returns engine's seed-file facts (nil when the
-// engine has no sourceFiles — e.g. kiro, whose credentials do not relocate
-// via a seeded file at all).
+// engine has no sourceFiles — credentials that do not relocate via a seeded
+// file at all).
 func CredentialSeedSourceFiles(engine string) []CredentialSeedFile {
 	spec, ok := credentialSeedSpecFor(engine)
 	if !ok || spec.sourceFiles == nil {

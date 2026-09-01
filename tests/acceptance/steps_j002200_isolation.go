@@ -12,7 +12,7 @@
 // See the feature file's own "WHAT THIS JOURNEY CAN AND CANNOT SEE" note for
 // why this journey stops at workspace-boundary distinctness/non-escape and
 // does not attempt per-engine config-home variable isolation (that needs a
-// real registered-engine fixture — claude-code/codex/kiro — out of hermetic
+// real registered-engine fixture — claude-code/codex — out of hermetic
 // scope here) or a real container launch (needs a live daemon + built image,
 // deliberately deferred behind @container elsewhere, not in this file).
 package acceptance

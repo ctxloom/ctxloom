@@ -265,13 +265,6 @@ var matrixSpecs = map[string]deliverySpec{
 	"codex/commands/unsafe-file": {noOp: codexLaunchOnly},
 	"codex/skills/unsafe-file":   {noOp: codexLaunchOnly},
 
-	// ---- kiro --------------------------------------------------------------
-	"kiro/context/unsafe-file":  {wantFile: ".kiro/steering/ctxloom-context.md", wantSlot: slotContext},
-	"kiro/mcp/unsafe-file":      {wantFile: ".kiro/settings/mcp.json", wantSlot: slotMCPCmd},
-	"kiro/settings/unsafe-file": {wantFile: ".kiro/agents/ctxloom.json", wantSlot: slotHook},
-	"kiro/commands/unsafe-file": {wantFile: ".kiro/skills/ctxsentinelcmd/SKILL.md", wantSlot: slotCommand},
-	"kiro/skills/unsafe-file":   {wantFile: ".kiro/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
-
 	// ---- opencode ----------------------------------------------------------
 	// opencode's settings surface is asserted on the MCP payload, NOT the hook:
 	// opencode has no hooks mechanism at all and drops the hook silently. That
@@ -508,9 +501,9 @@ func containsApproachValue(list []agent.Approach, a agent.Approach) bool {
 // does not support must fail agent.SurfaceSelection.Build with the SUPPORTED SET
 // in the message, not deliver a different approach's file.
 func TestDeliveryApproach_UndeclaredApproachFailsTheBuilder(t *testing.T) {
-	// kiro/opencode declare context as unsafe-file ONLY, so both the
+	// opencode declares context as unsafe-file ONLY, so both the
 	// hook and the system-prompt approaches must be refused by the builder.
-	for _, name := range []string{"kiro", "opencode"} {
+	for _, name := range []string{"opencode"} {
 		for _, w := range []struct {
 			label string
 			write agent.ContextWrite

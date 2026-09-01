@@ -268,7 +268,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	// a raw git error out of the clone machinery. Runs on both the
 	// interactive and --non-interactive paths (both reach this same call) —
 	// a scripted init still needs git to clone.
-	if err := checkSystemDeps(engine); err != nil {
+	if err := checkSystemDeps(); err != nil {
 		return "", err
 	}
 

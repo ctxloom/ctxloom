@@ -41,10 +41,7 @@ belabor it):
 > **cross-engine delegation** — a coordinator agent spawns and collects work
 > from child agents, even ones on a different engine; and **signed,
 > trust-verified context** — bundles pulled from shared remotes carry
-> signatures from publishers you've chosen to trust. If you also want to
-> reach ctxloom from an editor's AI panel (Zed, VS Code, and other ACP
-> clients), that's available too, as an optional add-on we can set up later
-> — it's not required to get a working setup today.
+> signatures from publishers you've chosen to trust.
 >
 > Setup takes a few minutes: we'll wire up companions, choose your profiles
 > and agents, and verify it all.
@@ -159,7 +156,7 @@ several by spawning them as children with the `agent_run` MCP tool. Agents
 live only in this project's `.ctxloom` — never shipped in bundles or
 remotes; engine choice is always the user's, you facilitate. (Workspace
 isolation is a separate, per-invocation choice — `--workspace worktree` on
-`run`/`acp`, or the `workspace` field on an `agent_run` spawn — not an agent
+`run`, or the `workspace` field on an `agent_run` spawn — not an agent
 property.) Work this the same shape as phase 3: **SCAN → DISCUSS → SET**.
 
 ### 4a. Scan
@@ -238,10 +235,6 @@ Then tell the user, plainly:
 - **You have a working setup.** `ctxloom run` (or `ctxloom run --agent
   <name>`) is the primary way to reach ctxloom from here — this vendor
   CLI/TUI session was just the bootstrap door.
-- **Want to reach ctxloom from an editor's AI panel too?** That's optional
-  and separate from this interview — invoke the **acp-setup** skill (or ask
-  me to) any time to configure ctxloom as an ACP server for a client like
-  Zed/VSCode, or as an ACP client to a different ACP-speaking agent.
 - **`/ctxloom-init` reconfigures any time**, from any ordinary working
   session — nothing here was a one-shot wizard; come back whenever something
   needs to change (a new profile, a new agent, a new companion).

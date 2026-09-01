@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 func TestMock_History(t *testing.T) {
@@ -16,14 +14,10 @@ func TestMock_History(t *testing.T) {
 }
 
 // TestEnforcesReadOnlyPlan pins which backends map PermissionPlan to a genuine
-// read-only, non-prompting mode. claude-code (--permission-mode plan), codex
-// (--sandbox read-only --ask-for-approval never), and kiro (--trust-tools=
-// fs_read, LIVE VERIFIED) do; acp only distinguishes bypass.
+// read-only, non-prompting mode. claude-code (--permission-mode plan) and
+// codex (--sandbox read-only --ask-for-approval never) do.
 func TestEnforcesReadOnlyPlan(t *testing.T) {
 	assert.True(t, EnforcesReadOnlyPlan("claude-code"), "claude enforces read-only plan")
 	assert.True(t, EnforcesReadOnlyPlan("codex"), "codex enforces read-only plan")
-	assert.True(t, EnforcesReadOnlyPlan("kiro"), "kiro --trust-tools=fs_read is a live-verified genuine read-only posture")
-	assert.False(t, EnforcesReadOnlyPlan("acp"), "acp only distinguishes bypass")
 	assert.False(t, EnforcesReadOnlyPlan("unknown"), "unregistered backend cannot enforce anything")
 }
-

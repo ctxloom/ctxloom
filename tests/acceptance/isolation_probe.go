@@ -14,7 +14,7 @@
 // is the live counterpart, and it is built to be invoked on its own, for one
 // engine and one axis at a time, because its real job is not "pass once in
 // this repo's CI" — it is "answer the same question again, unattended, every
-// time claude-code/codex/kiro/opencode ship a new version." A
+// time claude-code/codex/opencode ship a new version." A
 // scenario welded into j002200's own feature file could not serve that; see
 // features/isolation_probe.feature and website/src/content/docs/security/
 // isolation.md's "The executable probe" section for how to invoke it for a
@@ -129,14 +129,13 @@ const (
 )
 
 // probeCensusEntry is one file's identity in a census: never its content.
-// ModTime is included deliberately, not just Size+SHA256: a live,
-// independently reproduced measurement found kiro-cli's
-// `whoami` — a nominally read-only auth probe — advances
-// ~/.local/share/kiro-cli/data.sqlite3's mtime with its SIZE UNCHANGED, a
-// genuine write a size/hash-only census would miss entirely. Two "isolated"
-// agents sharing that global file therefore share a mutable resource, not
-// merely an identity — the census must be able to see a touch even when the
-// touched bytes happen to round-trip unchanged.
+// ModTime is included deliberately, not just Size+SHA256: a nominally
+// read-only vendor auth probe has been measured advancing its own global
+// credential store's mtime with the SIZE UNCHANGED, a genuine write a
+// size/hash-only census would miss entirely. Two "isolated" agents sharing
+// such a global file therefore share a mutable resource, not merely an
+// identity — the census must be able to see a touch even when the touched
+// bytes happen to round-trip unchanged.
 type probeCensusEntry struct {
 	Size    int64
 	ModTime int64 // unix seconds
@@ -213,8 +212,8 @@ func probeCensusDiff(before, after map[string]probeCensusEntry) []string {
 		case a.ModTime != b.ModTime:
 			// Touched but byte-identical — a WRITE that happened to
 			// round-trip the same bytes (fsync/rewrite), not a no-op. See
-			// probeCensusEntry's doc: this is exactly the shape kiro-cli
-			// `whoami` produces against its own global sqlite.
+			// probeCensusEntry's doc: this is exactly the shape a vendor
+			// auth probe produces against its own global store.
 			out = append(out, "touched (mtime only, content unchanged): "+p)
 		}
 	}
@@ -228,7 +227,7 @@ func probeCensusDiff(before, after map[string]probeCensusEntry) []string {
 }
 
 // probeCensusRoots returns the host-census roots (relative to HOME) for the
-// named REGISTERED backend type (claude-code/codex/kiro/opencode)
+// named REGISTERED backend type (claude-code/codex/opencode)
 // — reusing liveAgents[...].credDir, the SAME root copyCreds
 // already knows to copy from, rather than re-declaring the path a second
 // time. claude-code carries one extra sibling file (.claude.json, the
@@ -253,20 +252,18 @@ func probeCensusRoots(backendType string) ([]string, error) {
 // disagree with what the run itself actually does. Returns probeAuthNone
 // when neither an env key nor a host credential file is available.
 // MEASUREMENT SAFETY, load-bearing for every census this file takes: this
-// function (and probeWorktreeAuthAvailable / probeContainerAuthAvailable
-// below) deliberately NEVER call a liveAgent's authCheck — only os.Getenv and
-// plain file reads (via copyCreds into a throwaway scratch dir). This is not
-// an arbitrary style choice: liveAgents["kiro"].authCheck shells out to
-// `kiro-cli whoami`, which is NOT side-effect-free — a live, independently
-// reproduced measurement (before/after mtime on
-// ~/.local/share/kiro-cli/data.sqlite3 across a session whose only kiro
-// command was `whoami`) showed the file's mtime advance with its size
-// unchanged, a genuine WRITE from a nominally read-only probe. Calling it
-// from inside this file's before/after census window would make the probe
-// itself the source of the very host-state change a kiro cell measures —
-// indistinguishable, from the outside, from the real vendor leak this file
-// exists to catch. See the isolation-probe doc page's "measurement safety"
-// section for the full writeup; this comment is the enforcement point.
+// function (and probeContainerAuthAvailable below) deliberately NEVER call a
+// liveAgent's authCheck — only os.Getenv and plain file reads (via copyCreds
+// into a throwaway scratch dir). This is not an arbitrary style choice: an
+// authCheck shells out to the vendor CLI, and a vendor's nominally read-only
+// status command is NOT reliably side-effect-free — one has been measured
+// advancing its own credential store's mtime with the size unchanged, a
+// genuine WRITE from a nominally read-only probe. Calling one from inside
+// this file's before/after census window would make the probe itself the
+// source of the very host-state change a cell measures — indistinguishable,
+// from the outside, from the real vendor leak this file exists to catch. See
+// the isolation-probe doc page's "measurement safety" section for the full
+// writeup; this comment is the enforcement point.
 func probeDecideAuthPath(backendType string) (probeAuthPath, string) {
 	key := backendTypeToLiveKey(backendType)
 	a, ok := liveAgents[key]
@@ -613,8 +610,8 @@ func isAncestorOf(path, target string) bool {
 // generous ceiling (real container image builds plus a real model call can
 // legitimately take minutes) but a REAL one: a hung engine CLI (a wedged
 // login prompt, a stalled network call) must not hang this probe forever.
-// Found the hard way: a kiro --degraded run once ran past 4 minutes with no
-// prior timeout at all to bound it.
+// Found the hard way: a live run once ran past 4 minutes with no prior
+// timeout at all to bound it.
 const probeRunTimeout = 5 * time.Minute
 
 // runWithTimeout starts cmd, kills it (best-effort) if it has not exited
@@ -661,7 +658,7 @@ func probePrompt(token string) string {
 // liveAgents config (model pinned cheap) plus a "probe" agent bound to it,
 // permissions bypass (the file-write action needs it — every backend maps
 // agent.PermissionBypass to its own skip-prompts flag, see
-// internal/{claude,codex,kiro,opencode}/backend.go), and,
+// internal/{claude,codex,opencode}/backend.go), and,
 // for a container axis, runtime: <the axis value verbatim> — config.yaml's
 // own spelling (config-schema.json's `runtime` enum), so this fixture writes
 // exactly what a real invocation would type and cannot drift from what the
@@ -690,26 +687,16 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 	return b.String()
 }
 
-// probeWorktreeAuthAvailable mirrors worktree.go's seedCredentials
-// precedence for the ONE engine where the worktree axis's own auth gate is
-// NOT simply "env key or host file", the same divergence
-// probeContainerAuthAvailable documents for the container axis: kiro's
-// XDG_DATA_HOME HomeVar is GatedOnCreds (auth.go's credentialSeedSpecs
-// entry) — a worktree run REFUSES to start (fatal isolation finding, exit 3)
-// rather than silently leaving a fresh, unauthenticated XDG_DATA_HOME in
-// place, UNLESS KIRO_API_KEY is set. The host's kiro-cli SUBSCRIPTION login
-// authenticates kiro itself but does NOT satisfy this specific gate, so a
-// naive "does a host credential file exist" check (probeDecideAuthPath)
-// would wrongly report kiro as probeable here — this override corrects
-// that. Every other engine's worktree gate is the plain env-key-or-host-file
-// shape probeDecideAuthPath already answers correctly.
+// probeWorktreeAuthAvailable reports the worktree axis's auth gate for
+// backendType, the counterpart to probeContainerAuthAvailable's container
+// gate. It exists as a named seam because the two axes are separately
+// gated in production (internal/lm/isolation/auth.go): an engine may be
+// probeable on one and not the other, and a caller must say which axis it
+// is asking about. No engine currently drives the worktree axis away from
+// the plain env-key-or-host-file precedence, so this defers wholly to
+// probeDecideAuthPath — an engine whose worktree gate diverges (a
+// GatedOnCreds HomeVar, say) gets its override here, not at the call sites.
 func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
-	if backendType == "kiro" {
-		if os.Getenv("KIRO_API_KEY") != "" {
-			return probeAuthEnvKey, "KIRO_API_KEY set in the environment"
-		}
-		return probeAuthNone, "kiro's worktree axis REFUSES to start without KIRO_API_KEY (ctxloom's own fail-loud gate — internal/lm/isolation/auth.go's credentialSeedSpecs[\"kiro\"] gates XDG_DATA_HOME on KIRO_API_KEY and aborts rather than silently sharing the host's global credential store); the host's kiro-cli SUBSCRIPTION login authenticates kiro itself but does not satisfy this gate. This probe does not pass --degraded here (that would test the escape hatch, not isolation) — see the separate kiro-credential-store-leak scenario, which intentionally does."
-	}
 	return probeDecideAuthPath(backendType)
 }
 
@@ -728,19 +715,10 @@ func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
 //     opencodeCredentialMounts all source the identical host path
 //     copyCreds does), so probeDecideAuthPath answers correctly for the
 //     container axis too.
-//   - kiro: ONLY KIRO_API_KEY (resolveKiroContainerAuth has NO
-//     credential-mount fallback at all) — the host's subscription sqlite
-//     that authenticates the WORKTREE axis cannot authenticate a
-//     containerized kiro today.
 func probeContainerAuthAvailable(backendType string) (probeAuthPath, string) {
 	switch backendType {
 	case "claude-code", "codex", "opencode":
 		return probeDecideAuthPath(backendType)
-	case "kiro":
-		if os.Getenv("KIRO_API_KEY") != "" {
-			return probeAuthEnvKey, "KIRO_API_KEY set in the environment"
-		}
-		return probeAuthNone, "kiro's container axis has NO credential-mount fallback in production (internal/lm/isolation/auth.go's resolveKiroContainerAuth) — only KIRO_API_KEY authenticates a containerized kiro run, and it is not set; the host's subscription credential (which DOES authenticate the worktree axis) cannot reach a container today"
 	default:
 		return probeAuthNone, fmt.Sprintf("unknown engine %q", backendType)
 	}
@@ -786,7 +764,7 @@ type probeResult struct {
 // an error only for a HARNESS failure (bad config, can't start the process);
 // a live run that fails/times out/misbehaves is still a *result* the caller
 // asserts against, not a Go error.
-func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, degraded bool) (*probeResult, error) {
+func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath) (*probeResult, error) {
 	key := backendTypeToLiveKey(backendType)
 	a, ok := liveAgents[key]
 	if !ok {
@@ -794,11 +772,6 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 	}
 	res := &probeResult{Engine: backendType, Axis: probeAxisWorktree}
 
-	// The kiro-leak scenario intentionally runs WITHOUT KIRO_API_KEY and
-	// WITH --degraded — probeWorktreeAuthAvailable's refusal is exactly the
-	// gate --degraded exists to bypass, so degraded runs use the plain
-	// env-key-or-host-file decision (probeDecideAuthPath) instead of the
-	// kiro-specific override.
 	authPath, reason := probeDecideAuthPath(backendType)
 	if forcedPath != "" && authPath != forcedPath {
 		return nil, fmt.Errorf("isolation probe: requested auth path %q for %s, but the ambient environment resolves to %q (%s) — set up the environment for the path you want to force", forcedPath, backendType, authPath, reason)
@@ -846,9 +819,6 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 	}
 
 	args := []string{"run", "--agent", "probe", "--workspace", "worktree", "--one-shot"}
-	if degraded {
-		args = append(args, "--degraded")
-	}
 	args = append(args, probePrompt(token))
 	cmd := w.env.Command(nil, args...)
 	var stdout, stderr bytes.Buffer
@@ -990,12 +960,7 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 
 // assertProbeWorktree checks the worktree axis's four guarantees. Every
 // engine that reaches this function (i.e. was not already turned away by
-// probeWorktreeAuthAvailable) is expected to hold ALL FOUR cleanly — kiro's
-// known leak is asserted separately (see the feature file's dedicated
-// --degraded scenario), because a bare worktree run for kiro without
-// KIRO_API_KEY never reaches this far, and WITH KIRO_API_KEY kiro is no
-// longer a leak case at all (both HomeVars relocate, per j002200's own hermetic
-// proof).
+// probeDecideAuthPath) is expected to hold ALL FOUR cleanly.
 func assertProbeWorktree(res *probeResult) error {
 	if res.ExitCode != 0 {
 		return fmt.Errorf("(a) response: run exited %d, want 0 — the credential or the engine itself is the suspect here, not isolation; output:\n%s", res.ExitCode, res.Output)

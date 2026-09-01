@@ -284,7 +284,7 @@ func StarterForWorkspace(p Policy, ws Workspace, backendName, label string, verb
 }
 
 // EnvWorkspace is an OPTIONAL Workspace capability: a workspace whose isolation
-// includes per-agent config-home env vars (CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME
+// includes per-agent config-home env vars (CLAUDE_CONFIG_DIR/CODEX_HOME
 // isolating each engine's GLOBAL config layer) exposes them here. The run threads
 // them into the member's RunOptions.Env. None and Container do not implement it
 // (None shares the host config; Container isolates via a fresh $HOME), so the
@@ -586,8 +586,8 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		// (prepareChain warns). This is the PURE host+worktree path:
 		// NewWorktree carries backend so PrepareWorkspace can provision
 		// whichever host isolation lever the backend registers — a scoped
-		// config-home var (credentialSeedSpecs, auth.go) for claude/codex/
-		// kiro. Reached both for a bare {worktree, host} request and for a
+		// config-home var (credentialSeedSpecs, auth.go). Reached both for a
+		// bare {worktree, host} request and for a
 		// {worktree, container} request that just degraded to host above (the
 		// container was dropped, worktree stays) — either way the agent ends
 		// up on the HOST with only a worktree.

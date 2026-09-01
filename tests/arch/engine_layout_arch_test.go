@@ -1,12 +1,10 @@
 //go:build arch
 
-// Each engine package (internal/claude, internal/codex, internal/kiro,
-// internal/opencode) knows how its OWN files are arranged: dir names like
-// .codex/.claude/.kiro/.opencode, config file names, and the env vars a
-// vendor CLI honors to relocate its home (CLAUDE_CONFIG_DIR, CODEX_HOME,
-// KIRO_HOME, XDG_CONFIG_HOME/XDG_DATA_HOME). That knowledge used to be
-// DUPLICATED as hand-typed string literals in four independently-maintained
-// tables OUTSIDE the engine packages, with nothing to catch drift:
+// Each engine package knows how its OWN files are arranged: its config dir
+// name, its config file names, and the env vars a vendor CLI honors to
+// relocate its home. That knowledge used to be DUPLICATED as hand-typed
+// string literals in independently-maintained tables OUTSIDE the engine
+// packages, with nothing to catch drift:
 //
 //   - internal/lm/isolation/auth.go's credentialSeedSpecs (env vars, dest
 //     subdirs, host source-file paths for the credential seed).
@@ -15,11 +13,11 @@
 //     transcript-mount tables).
 //   - internal/lm/backends/mock.go's configHomeEnvKeys (the roster
 //     isolation.EnvWorkspace threads into RunOptions.Env) — found STALE by
-//     the census this gate encodes: it listed CLAUDE_CONFIG_DIR/CODEX_HOME/
-//     KIRO_HOME but missed opencode's XDG_CONFIG_HOME/XDG_DATA_HOME despite
-//     its own comment claiming to mirror EnvWorkspace. Fixed alongside this
-//     gate (internal/lm/backends/mock.go now builds the roster from each
-//     engine package's own exported env-var constant).
+//     the census this gate encodes: it missed opencode's XDG_CONFIG_HOME/
+//     XDG_DATA_HOME entirely despite its own comment claiming to mirror
+//     EnvWorkspace. Fixed alongside this gate (internal/lm/backends/mock.go
+//     now builds the roster from each engine package's own exported env-var
+//     constant).
 //   - internal/gitignore/gitignore.go's WorktreeArtifactPatterns (the LIVE
 //     per-agent-worktree exclude set) and TransientArtifactPatterns/
 //     WorktreeArtifactPatterns' pinned LEGACY .codex/* entries (the
@@ -28,21 +26,17 @@
 //     re-opens — see that file's own "THE .codex ENTRIES ARE NOW LEGACY"
 //     comment).
 //
-// internal/lm/isolation and internal/gitignore cannot import
-// claude/codex/kiro/opencode in PRODUCTION code to fix this at the source:
-// every one of the four engine packages imports internal/acp (for its ACP
-// chat driver), and internal/acp imports both internal/lm/isolation
-// (container_transport.go) and internal/gitignore (verified by `go list
-// -deps`) — so isolation/gitignore importing any engine package back would
-// be a real cycle. internal/lm/backends is the one exception: it already
-// imports all four engine packages directly (registry.go), with no cycle,
-// so mock.go's roster now consumes their constants for real instead of
-// re-typing them (see the file's own updated doc).
+// internal/lm/isolation and internal/gitignore still carry these facts as
+// literals rather than importing the engine packages, so nothing in
+// PRODUCTION code makes the two sides agree. internal/lm/backends is the
+// exception: it already imports the engine packages directly (registry.go),
+// so mock.go's roster consumes their constants for real instead of re-typing
+// them (see that file's own doc).
 //
-// Where the production cycle blocks direct consumption, THIS gate is the
-// enforcement point instead: tests/arch is a standalone test binary free to
-// import every package, so it cross-checks each table row against the owning
-// engine package's own exported constant. A row that drifts — an isolation
+// Everywhere the literals remain, THIS gate is the enforcement point:
+// tests/arch is a standalone test binary free to import every package, so it
+// cross-checks each table row against the owning engine package's own
+// exported constant. A row that drifts — an isolation
 // literal, an engine constant, or the two disagreeing — fails here with both
 // values named.
 //
@@ -52,14 +46,14 @@
 //
 //   - credentialSeedSpecs' destSubdir/HomeVars[].Subdir choose the LEAF NAME
 //     isolation uses inside its OWN per-agent configHome tree. For claude
-//     ("claude", no dot) and kiro/opencode ("kiro"/"xdg-config"/"xdg-data")
-//     this is isolation's OWN arbitrary naming — it does not, and need not,
-//     match the engine's ConfigDirName. codex is the sole DOCUMENTED
-//     exception: homeVar's own doc says codex's Subdir is ".codex"
-//     (dot-prefixed) SPECIFICALLY so codex's OWN cellScopedCodexHome join
-//     lands on it — a real cross-package agreement, gated below. The other
-//     three are escalated in this file's own report rather than force-gated
-//     against a fact they do not actually share.
+//     ("claude", no dot) and opencode ("xdg-config"/"xdg-data") this is
+//     isolation's OWN arbitrary naming — it does not, and need not, match
+//     the engine's ConfigDirName. codex is the sole DOCUMENTED exception:
+//     homeVar's own doc says codex's Subdir is ".codex" (dot-prefixed)
+//     SPECIFICALLY so codex's OWN cellScopedCodexHome join lands on it — a
+//     real cross-package agreement, gated below. The rest are escalated in
+//     this file's own report rather than force-gated against a fact they do
+//     not actually share.
 //   - the shared ".ctxloom/cache" overlay entry every spec carries is
 //     ctxloom's own cache path, not a fact about any engine's file
 //     arrangement — never checked here.
@@ -80,7 +74,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
-	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/opencode"
@@ -122,7 +115,6 @@ func testCredentialSeedHomeVarEnvNames(t *testing.T) {
 	checks := []homeVarEnvCheck{
 		{seedKey: "claude-code", want: []string{claude.ConfigDirEnv}},
 		{seedKey: "codex", want: []string{codex.CodexHomeEnv}},
-		{seedKey: "kiro", want: []string{kiro.HomeEnv, kiro.XDGDataHomeEnv}},
 		{seedKey: "opencode", want: []string{opencode.XDGConfigHomeEnv, opencode.XDGDataHomeEnv}},
 	}
 	for _, c := range checks {
@@ -145,8 +137,8 @@ func testCredentialSeedHomeVarEnvNames(t *testing.T) {
 
 // testCredentialSeedCodexDestSubdir gates the ONE destSubdir/Subdir pair
 // homeVar's own doc documents as required to agree with the engine's
-// ConfigDirName — see this file's package doc for why the other three
-// engines' destSubdir is NOT gated the same way.
+// ConfigDirName — see this file's package doc for why the other engines'
+// destSubdir is NOT gated the same way.
 func testCredentialSeedCodexDestSubdir(t *testing.T) {
 	destSubdir, ok := isolation.CredentialSeedDestSubdir("codex")
 	if !ok {
@@ -245,7 +237,6 @@ type overlayCheck struct {
 func testSpecOverlayDirs(t *testing.T) {
 	checks := []overlayCheck{
 		{backend: "claude-code", want: claude.ConfigDirName},
-		{backend: "kiro", want: kiro.ConfigDirName},
 		{backend: "codex", want: codex.ConfigDirName},
 		{backend: "opencode", want: opencode.ConfigDirName},
 		{backend: "mock", want: backends.MockConfigDirName},
@@ -269,7 +260,6 @@ type transcriptCheck struct {
 func testSpecTranscriptStoreRel(t *testing.T) {
 	checks := []transcriptCheck{
 		{backend: "claude-code", want: filepath.ToSlash(filepath.Join(claude.ConfigDirName, claude.TranscriptsDirName))},
-		{backend: "kiro", want: kiro.ConfigDirName},
 		{backend: "codex", want: filepath.ToSlash(filepath.Join(codex.ConfigDirName, codex.SessionsDirName))},
 		{backend: "opencode", want: filepath.ToSlash(filepath.Join(".local", "share", opencode.DataDirName))},
 	}
@@ -334,7 +324,6 @@ func testGitignoreLivePatterns(t *testing.T) {
 		{claude.ConfigDirName + "/", "claude.ConfigDirName"},
 		{claude.MCPFileName, "claude.MCPFileName"},
 		{claude.ContextFileName, "claude.ContextFileName"},
-		{kiro.ConfigDirName + "/", "kiro.ConfigDirName"},
 		{opencode.ConfigDirName + "/", "opencode.ConfigDirName"},
 		{opencode.ConfigFileName, "opencode.ConfigFileName"},
 		{codex.AgentsMDFile, "codex.AgentsMDFile"},

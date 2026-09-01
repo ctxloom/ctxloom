@@ -3,8 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os/exec"
 )
 
 // StructuredChat is an OPTIONAL backend capability: a persistent, multi-turn

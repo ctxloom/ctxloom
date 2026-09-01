@@ -215,8 +215,8 @@ func TestCopyAmbient_ClaudeStripsRefreshTokenEndToEnd(t *testing.T) {
 
 // TestAmbientSet_IsAnExplicitAllowListPerEngine is the roster guard the plan
 // asks for: every engine with a declared ambient set names its files ONE BY
-// ONE, at owner-only mode, and kiro's set is empty by declaration rather than
-// by being missing from the roster.
+// ONE, at owner-only mode, and every registered backend appears in the roster
+// by declaration rather than by omission.
 //
 // The allow-list shape is what makes D4/D5 decisions rather than accidents: a
 // deny-list would copy each new engine file by default, and the default
@@ -226,13 +226,12 @@ func TestAmbientSet_IsAnExplicitAllowListPerEngine(t *testing.T) {
 
 	names := AmbientEngineNames()
 	sort.Strings(names)
-	assert.Equal(t, []string{"claude-code", "codex", "kiro", "opencode"}, names,
+	assert.Equal(t, []string{"claude-code", "codex", "opencode"}, names,
 		"every registered backend needs an EXPLICIT ambient declaration, empty or not")
 
 	want := map[string][]AmbientFile{
 		"claude-code": {{HostRel: ".claude/.credentials.json", DestRel: "claude/.credentials.json", Mode: 0o600, Required: true}},
 		"codex":       {{HostRel: ".codex/auth.json", DestRel: ".codex/auth.json", Mode: 0o600, Required: true}},
-		"kiro":        nil,
 		"opencode": {
 			{HostRel: ".local/share/opencode/auth.json", DestRel: "xdg-data/opencode/auth.json", Mode: 0o600, Required: true},
 			{HostRel: ".local/share/opencode/mcp-auth.json", DestRel: "xdg-data/opencode/mcp-auth.json", Mode: 0o600, Required: false},
@@ -321,22 +320,6 @@ func TestCopyAmbient_UnregisteredEngineIsAnError(t *testing.T) {
 	_, err := CopyAmbient(AmbientRequest{Engine: "acp", InstanceHome: t.TempDir()})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no declared ambient set")
-}
-
-// TestCopyAmbient_Kiro_DeclaredEmptyCopiesNothing: kiro's ambient set is empty
-// BY DESIGN (its credentials live in a global sqlite no home var relocates), so
-// the copy-in moves no bytes and reports no fail-loud "nothing seedable" —
-// there was never anything to seed.
-func TestCopyAmbient_Kiro_DeclaredEmptyCopiesNothing(t *testing.T) {
-	withFakeHome(t)
-	t.Setenv("KIRO_API_KEY", "")
-	instance := t.TempDir()
-
-	report, err := CopyAmbient(AmbientRequest{Engine: "kiro", InstanceHome: instance, WorkDir: t.TempDir()})
-	require.NoError(t, err)
-	assert.Zero(t, report.Copied)
-	assert.False(t, report.NoSource, "an empty set is not a failed seed")
-	assert.Nil(t, AmbientSet("kiro"))
 }
 
 // TestCopyAmbient_SerializesTwoRunsSharingOneInstance is the S5-flagged

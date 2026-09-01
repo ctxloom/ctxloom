@@ -14,7 +14,7 @@ Feature: fragment — reusable context units, and the engine surface each one re
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   including the engine-surface matrix that only matters to a machine parsing
   a generated file. The narrative version — Carol's team writing one shared
-  profile once and it reaching claude-code, codex, and kiro in
+  profile once and it reaching claude-code and codex in
   their own native format — is journeys/j000400_multi_engine.feature, which
   asserts what a PERSON sees; MCP, hooks, and commands are that same
   journey's other three surfaces, and live in cli/mcp.feature,
@@ -133,7 +133,6 @@ Feature: fragment — reusable context units, and the engine surface each one re
       Examples:
         | engine      |
         | claude-code |
-        | kiro        |
         | codex       |
 
   Rule: Materializing a profile never destroys a team's hand-authored context file

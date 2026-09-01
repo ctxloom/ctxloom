@@ -17,8 +17,8 @@ import "github.com/ctxloom/ctxloom/internal/shared/agent"
 
 // EngineCLIsFor returns the named backend's native CLI-surface declarations.
 // The bool is false when the name is unregistered OR when the backend declares
-// no CLI surfaces (it is not an agent.EngineCLIProvider) — an ACP-only backend,
-// say. "Has no declaration" is reported rather than fabricated, exactly as the
+// no CLI surfaces (it is not an agent.EngineCLIProvider).
+// "Has no declaration" is reported rather than fabricated, exactly as the
 // EngineCLIProvider doc intends, so a caller asking for a personality the mock
 // cannot impersonate gets a loud miss instead of an empty run.
 func EngineCLIsFor(name string) ([]agent.EngineCLI, bool) {

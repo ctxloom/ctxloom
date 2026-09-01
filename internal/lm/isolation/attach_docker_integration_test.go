@@ -1,9 +1,9 @@
 //go:build docker_integration
 
 // ISO1's docker-gated proof of RunAttached + ExecSpec: the plain-stdio
-// container primitive the ACP client driver's container transport
-// (internal/acp) uses instead of SpawnClient's go-plugin-over-socket
-// transport. Build-tagged so `just test` never compiles it (the gate stays
+// container primitive a caller speaking its own line protocol uses instead of
+// SpawnClient's go-plugin-over-socket transport. Build-tagged so `just test`
+// never compiles it (the gate stays
 // green without docker); run with:
 //
 //	GOWORK=off just test-pkg ./internal/lm/isolation/... -tags docker_integration -run RunAttached
@@ -50,8 +50,8 @@ func TestRunAttached_SamePathMountAndTeardown(t *testing.T) {
 	// would be a false gate here — this test proves the transport/mount
 	// primitive only, so bypass PrepareWorkspace's auth gate entirely by
 	// building the RunSpec directly instead of through the Container policy
-	// (which is exactly what a caller with its own resolved auth, like the
-	// real ACP container transport, layers on top of this primitive).
+	// (which is exactly what a caller with its own resolved auth layers on
+	// top of this primitive).
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

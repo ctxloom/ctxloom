@@ -9,28 +9,13 @@
 //
 // # Why this is its own package
 //
-// It was born inside internal/acp, because ACP's terminal/* RPCs were its first
-// caller. That was an accident of chronology, not a property of the capability:
-// hosting a process on a pty in tmux has nothing to do with the Agent Client
-// Protocol, and the pane path — `ctxloom attach`, injection — has no ACP in it
-// at all. Left where it was, the whole thing would have been deleted along with
-// internal/acp. Hence the ruling this package exists to satisfy: the tmux
-// shouldn't be bound to acp.
+// It names the CAPABILITY — terminals and panes hosted in tmux — rather than
+// any consumer. Hosting a process on a pty in tmux is independent of whatever
+// happens to drive it, and the pane path (`ctxloom attach`, injection) has its
+// own callers entirely.
 //
-// The name follows from that. It names the CAPABILITY — terminals and panes
-// hosted in tmux — rather than any consumer, so that no future reader has to
-// work out whether "acp" in the path still means anything.
-//
-// # The SDK line
-//
-// This package MUST NOT import github.com/coder/acp-go-sdk, and that is a
-// standing invariant rather than a present-tense fact about the imports. Every
-// type crossing its boundary is local and defined in types.go, including
-// ExitStatus, which was the last SDK type in the moved code.
-//
-// The exported API is deliberately NOT shaped to fit ACP's terminal/* wire
-// types. internal/acp keeps its own SDK-typed face and does the translation on
-// its side, which is mechanical and a little tedious — and that is the intended
-// division. Bending a surviving package's API to suit a consumer scheduled for
-// deletion is how a dead consumer's shape outlives it by years.
+// Every type crossing this package's boundary is local and defined in types.go,
+// including ExitStatus. The exported API is deliberately not shaped to fit any
+// one consumer's wire types: bending a surviving package's API to suit a single
+// caller is how that caller's shape outlives it by years.
 package tmuxhost

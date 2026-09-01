@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // These drive a REAL tmux, for the same reason tmux_host_test.go does: every
@@ -221,7 +223,7 @@ func TestPaneHost_InjectPastesAndSubmits(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, h.Start(ctx, "delta", PaneSpec{
-		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"}, Engine: "claude",
+		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"}, Engine: "claude", Surface: agent.CLISurfaceInteractive,
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "delta") })
 
@@ -249,7 +251,7 @@ func TestPaneHost_InjectWithoutSubmitDoesNotActuate(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, h.Start(ctx, "epsilon", PaneSpec{
-		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"}, Engine: "claude",
+		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"}, Engine: "claude", Surface: agent.CLISurfaceInteractive,
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "epsilon") })
 

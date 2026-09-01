@@ -8,10 +8,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// TestPaneInjector_UnmeasuredEngineIsRefusedWithNothingWritten pins the engine
-// allowlist, and it asserts the EFFECT rather than the error.
+// TestPaneInjector_UnmeasuredTargetIsRefusedWithNothingWritten pins the
+// engine+surface allowlist, and it asserts the EFFECT rather than the error.
 //
 // The hazard this gate exists for is silent: `paste-buffer -p` brackets only
 // for an application that enabled bracketed-paste mode, and for one that did
@@ -24,19 +26,40 @@ import (
 // The pane therefore runs a real `cat` and the test reads what it received:
 // the bytes must never have left.
 //
-// The EMPTY engine is covered alongside the named one on purpose, and is the
-// likelier regression of the two. A named unmeasured engine only appears when
-// someone deliberately runs one; an empty Engine appears whenever a caller
-// forgets to set the field, which for a struct literal is the DEFAULT state.
-// Treating "" as "no restriction" would therefore turn every forgetful caller
-// into a blind paste, so the zero value must refuse like any other unmeasured
-// engine.
-func TestPaneInjector_UnmeasuredEngineIsRefusedWithNothingWritten(t *testing.T) {
+// The ZERO VALUES are covered alongside the named cases on purpose, and are
+// the likelier regression. A named unmeasured engine only appears when someone
+// deliberately runs one; an empty field appears whenever a caller forgets to
+// set it, which for a struct literal is the DEFAULT state. Treating "" as "no
+// restriction" would turn every forgetful caller into a blind paste.
+//
+// The MEASURED-ENGINE-ON-AN-UNMEASURED-SURFACE case is the reason this gate is
+// keyed on a pair at all, and it is not hypothetical: the ACP config in this
+// package is literally {Command: "claude-code-acp", AgentEngine: "claude"}. So
+// an allowlist keyed on the engine name would admit a pane running a JSON-RPC
+// adapter on a measurement taken against the claude TUI, and paste prose into
+// a protocol stream. That subtest is what keeps the surface dimension honest —
+// delete it and the pair collapses back to an engine check that still passes
+// every other case here.
+func TestPaneInjector_UnmeasuredTargetIsRefusedWithNothingWritten(t *testing.T) {
 	for _, tc := range []struct {
 		name, harp, engine, wantIn string
+		surface                    agent.CLISurface
 	}{
-		{"a named engine nobody measured", "mu", "some-other-engine", "some-other-engine"},
-		{"the zero value, i.e. a caller that forgot", "nu", "", "engine"},
+		{name: "a named engine nobody measured", harp: "mu",
+			engine: "some-other-engine", surface: agent.CLISurfaceInteractive,
+			wantIn: "some-other-engine"},
+		{name: "the zero-value engine, i.e. a caller that forgot", harp: "nu",
+			engine: "", surface: agent.CLISurfaceInteractive,
+			wantIn: `engine ""`},
+		{name: "a measured engine on its ACP surface, which is not a TUI", harp: "xi",
+			engine: "claude", surface: agent.CLISurface("acp"),
+			wantIn: "acp"},
+		{name: "a measured engine on a surface nobody measured", harp: "omicron",
+			engine: "claude", surface: agent.CLISurfaceOneshot,
+			wantIn: "oneshot"},
+		{name: "the zero-value surface, i.e. a caller that forgot", harp: "pi",
+			engine: "claude", surface: "",
+			wantIn: `surface ""`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newPaneHostForTest(t)
@@ -46,7 +69,7 @@ func TestPaneInjector_UnmeasuredEngineIsRefusedWithNothingWritten(t *testing.T) 
 				Command: "sh",
 				Args: []string{"-c",
 					`printf '\033[?2004h'; stty raw -echo; printf READY-8b04; exec cat -v`},
-				Engine: tc.engine,
+				Engine: tc.engine, Surface: tc.surface,
 			}))
 			t.Cleanup(func() { _ = h.Stop(context.Background(), tc.harp) })
 
@@ -59,8 +82,8 @@ func TestPaneInjector_UnmeasuredEngineIsRefusedWithNothingWritten(t *testing.T) 
 
 			err = h.Injector().Inject(ctx, tc.harp, "MUST-NOT-ARRIVE-2d71", true)
 
-			require.Error(t, err, "an unmeasured engine must be refused, not pasted into blind")
-			assert.ErrorIs(t, err, ErrEngineUnmeasured,
+			require.Error(t, err, "an unmeasured engine+surface pair must be refused, not pasted into blind")
+			assert.ErrorIs(t, err, ErrPasteUnmeasured,
 				"the refusal must be typed so a caller can tell it from a tmux failure")
 			assert.Contains(t, err.Error(), tc.wantIn,
 				"the refusal must say what it refused")
@@ -123,7 +146,7 @@ func TestPaneInjector_PasteArrivesBracketed(t *testing.T) {
 			`printf '\033[?2004h'; stty raw -echo; printf READY-3f8a; exec cat -v`},
 		// The stand-in enables bracketed paste for real (the printf above),
 		// which is the property that puts claude on the allowlist.
-		Engine: "claude",
+		Engine: "claude", Surface: agent.CLISurfaceInteractive,
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "kappa") })
 
@@ -167,7 +190,7 @@ func TestPaneInjector_PasteLeavesNoBufferBehind(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, h.Start(ctx, "lambda", PaneSpec{
-		Command: "sh", Args: []string{"-c", "exec cat"}, Engine: "claude",
+		Command: "sh", Args: []string{"-c", "exec cat"}, Engine: "claude", Surface: agent.CLISurfaceInteractive,
 	}))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "lambda") })
 

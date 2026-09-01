@@ -7,6 +7,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // PaneHost is localTerminals.host's production caller: it owns one live pane
@@ -45,18 +47,25 @@ type PaneSpec struct {
 	Cwd     string
 	Env     map[string]string
 
-	// Engine names the agent engine the command runs, and is what decides
-	// whether this pane may be INJECTED into (see pasteMeasuredEngines).
+	// Engine and Surface name the agent engine the command runs and which of
+	// that engine's process surfaces it runs, and TOGETHER they decide whether
+	// this pane may be INJECTED into (see pasteMeasuredTargets).
 	//
-	// It is captured at Start rather than passed to Inject because the engine
-	// is a property of the run, fixed when the pane is created: taking it per
+	// Both are needed because neither alone identifies the program in the pane:
+	// one engine's interactive surface is a TUI while its ACP surface is a
+	// JSON-RPC adapter, and the two answer a bracketed paste completely
+	// differently.
+	//
+	// They are captured at Start rather than passed to Inject because they are
+	// properties of the run, fixed when the pane is created: taking them per
 	// injection would let two callers disagree about what is in the pane, and
-	// the one that guessed "claude" would win by pasting.
+	// the one that guessed "claude, interactive" would win by pasting.
 	//
-	// An empty Engine is not a wildcard — it matches no allowlist entry and so
-	// refuses, which is the correct answer for a pane whose engine the caller
-	// never established.
-	Engine string
+	// Neither zero value is a wildcard — an empty string matches no allowlist
+	// entry and so refuses, which is the correct answer for a pane whose
+	// occupant the caller never established.
+	Engine  string
+	Surface agent.CLISurface
 }
 
 // PaneClient is one attached viewer. Both methods are called from the pane's
@@ -91,9 +100,10 @@ type pane struct {
 	term *tmuxTerminal
 	host *PaneHost
 
-	// engine is fixed at Start and read only by the injection gate. It is
-	// immutable for the pane's life, so it needs no lock.
-	engine string
+	// engine and surface are fixed at Start and read only by the injection
+	// gate. They are immutable for the pane's life, so they need no lock.
+	engine  string
+	surface agent.CLISurface
 
 	// writeMu SERIALIZES every write into the pty. Input from concurrent
 	// viewers and an injected paste are all tmux commands against one window;
@@ -139,7 +149,7 @@ func (h *PaneHost) Start(ctx context.Context, harp string, spec PaneSpec) error 
 		return err
 	}
 
-	p := &pane{harp: harp, term: term, host: h, engine: spec.Engine, clients: map[uint64]PaneClient{}}
+	p := &pane{harp: harp, term: term, host: h, engine: spec.Engine, surface: spec.Surface, clients: map[uint64]PaneClient{}}
 	h.mu.Lock()
 	// Re-check under the lock: two concurrent Starts both pass the check
 	// above. Losing the race must not leak the window this one just made.

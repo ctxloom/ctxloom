@@ -6,44 +6,77 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// ErrEngineUnmeasured refuses injection into an engine whose paste behaviour
-// nobody has measured. It is typed so a caller can tell "this engine is out of
-// scope" from a tmux failure: the first is answered by measuring the engine
-// and widening pasteMeasuredEngines, the second by looking at the server.
-var ErrEngineUnmeasured = errors.New("pane injection is not measured for this engine")
+// ErrPasteUnmeasured refuses injection into a pane whose program nobody has
+// measured a bracketed paste against. It is typed so a caller can tell "this
+// engine and surface are out of scope" from a tmux failure: the first is
+// answered by measuring the pair and widening pasteMeasuredTargets, the second
+// by looking at the server.
+var ErrPasteUnmeasured = errors.New("pane injection is not measured for this engine and surface")
 
-// pasteMeasuredEngines lists the engines whose response to `paste-buffer -p`
-// has actually been OBSERVED, and is the whole allowlist.
+// pasteTarget is what the allowlist is keyed on: the pair that determines
+// which PROGRAM occupies the pane, and therefore whether that program enabled
+// bracketed-paste mode.
 //
-// Membership is an empirical claim, not a guess from a name or a version: an
-// engine belongs here once someone has watched a bracketed paste land in it
-// correctly. claude qualifies because it advertises bracketed-paste mode
-// (ESC[?2004h), never disables it, and was measured submitting 5/5 on an
-// explicitly delimited paste followed by a carriage return.
+// The engine name alone does not determine the program, which is the whole
+// reason surface is part of the key. claude's INTERACTIVE surface is a TUI
+// that advertises bracketed paste; the same engine's ACP surface runs a
+// different binary (claude-code-acp) whose stdin is a JSON-RPC stream — it
+// enables nothing, and would take a paste as protocol input. An allowlist
+// keyed on "claude" would admit that pane on a measurement taken against a TUI
+// it is not running.
+type pasteTarget struct {
+	engine  string
+	surface agent.CLISurface
+}
+
+// pasteMeasuredTargets lists the engine+surface pairs whose response to
+// `paste-buffer -p` has actually been OBSERVED, and is the whole allowlist.
 //
-// Do NOT add an engine here to make a test or a demo pass. The failure this
-// list prevents is silent — an unbracketed paste is not rejected by the
-// receiving TUI, it is accepted as literal text — so a wrong entry corrupts
-// input rather than erroring, and nothing downstream will report it.
-var pasteMeasuredEngines = map[string]bool{
-	"claude": true,
+// Membership is an empirical claim, not a guess from a name or a version: a
+// pair belongs here once someone has watched a bracketed paste land in it
+// correctly. claude/interactive qualifies because that TUI advertises
+// bracketed-paste mode (ESC[?2004h), never disables it, and was measured
+// submitting 5/5 on an explicitly delimited paste followed by a carriage
+// return.
+//
+// It is a POSITIVE list of measured pairs rather than a negative list of
+// forbidden ones, and that is load-bearing for surfaces that do not exist yet.
+// agent.CLISurface models oneshot and interactive only; the ACP surface is
+// deferred and deliberately not modelled there. A surface with no constant
+// cannot be enumerated as forbidden — but it is automatically absent from a
+// positive list, so it refuses by default. An ACP-surfaced run therefore has a
+// path through here today (a loud refusal) and gains delivery later by being
+// MEASURED and added, with no restructuring of this gate.
+//
+// Do NOT add a pair here to make a test or a demo pass. The failure this list
+// prevents is silent — an unbracketed paste is not rejected by the receiving
+// program, it is accepted as literal text — so a wrong entry corrupts input
+// rather than erroring, and nothing downstream will report it.
+var pasteMeasuredTargets = map[pasteTarget]bool{
+	{engine: "claude", surface: agent.CLISurfaceInteractive}: true,
 }
 
 // PaneInjector writes text into a run's live pane.
 //
-// ENGINE SCOPE, which is the rule most easily lost by generalizing this type:
-// injection is refused for every engine except the ones it has been MEASURED
-// against. `paste-buffer -p` brackets a paste ONLY IF the application in the
-// pane has enabled bracketed-paste mode (DECSET 2004). Against an engine that
-// has not, tmux does not error and does not fall back — it emits the raw text
-// unbracketed, which lands in that engine's input as literal garbage, silently.
-// The brackets are therefore a property of the APPLICATION, not of tmux, and
-// cannot be assumed from this side. An unmeasured engine gets a loud refusal
-// naming its remedy; it does not get a blind paste.
+// SCOPE, which is the rule most easily lost by generalizing this type:
+// injection is refused for every engine and surface except the pairs it has
+// been MEASURED against. `paste-buffer -p` brackets a paste ONLY IF the
+// application in the pane has enabled bracketed-paste mode (DECSET 2004).
+// Against one that has not, tmux does not error and does not fall back — it
+// emits the raw text unbracketed, which lands in that program's input as
+// literal garbage, silently. The brackets are therefore a property of the
+// APPLICATION, not of tmux, and cannot be assumed from this side. An unmeasured
+// pair gets a loud refusal naming its remedy; it does not get a blind paste.
 //
-// TIMING. For a measured engine it writes IMMEDIATELY. There is no quiet
+// The scope is a PAIR and not an engine because the engine name does not say
+// which program runs: the same engine's ACP surface is a JSON-RPC adapter
+// rather than a TUI. See pasteMeasuredTargets.
+//
+// TIMING. For a measured pair it writes IMMEDIATELY. There is no quiet
 // window, no output clock, and no wait-for-idle: the paste arrives as an EVENT
 // with explicit begin/end markers, so the program knows the bytes are pasted
 // content and not typing. That is what makes a mid-turn write safe, and it is
@@ -84,13 +117,13 @@ func (p *PaneInjector) Inject(ctx context.Context, harp, text string, submit boo
 		return err
 	}
 
-	// Refuse BEFORE staging anything. An unmeasured engine must leave no
+	// Refuse BEFORE staging anything. An unmeasured pair must leave no
 	// buffer, no file and no partial paste behind — a refusal that had
 	// already written half of itself into the pane would be the silent
 	// corruption this gate exists to prevent.
-	if !pasteMeasuredEngines[pn.engine] {
-		return fmt.Errorf("pane inject: %q runs engine %q: %w; measure that engine's response to a bracketed paste and add it to pasteMeasuredEngines, or deliver this text by a route that does not paste",
-			harp, pn.engine, ErrEngineUnmeasured)
+	if !pasteMeasuredTargets[pasteTarget{engine: pn.engine, surface: pn.surface}] {
+		return fmt.Errorf("pane inject: %q runs engine %q on surface %q: %w; measure THAT PAIR's response to a bracketed paste and add it to pasteMeasuredTargets, or deliver this text by a route that does not paste",
+			harp, pn.engine, pn.surface, ErrPasteUnmeasured)
 	}
 
 	// load-buffer takes a FILE, not stdin, because tmuxRunner deliberately

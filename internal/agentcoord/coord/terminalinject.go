@@ -74,11 +74,17 @@ const (
 	// worse than a late wake, because the mail is still buffered for the next
 	// Recv while the typed line is simply gone.
 	//
-	// JUDGEMENT, NOT A MEASUREMENT: 3s is chosen to clear an ordinary
-	// mid-sentence pause. Refining it means measuring real inter-keystroke gaps
-	// during composition, which nobody has done; do not treat this number as
-	// carrying evidence the way terminalInjectSubmitGap does.
-	terminalInjectInputQuiet = 3 * time.Second
+	// JUDGEMENT, NOT A MEASUREMENT: 20s is chosen to clear a THINKING pause,
+	// not merely a mid-sentence one. A person composing an instruction stops
+	// for far longer than a typing rhythm while deciding what to say, and the
+	// cost of the two errors is wildly asymmetric: waiting too long delays a
+	// wake whose mail stays buffered for the next Recv, while firing too early
+	// destroys a line the human cannot get back. When in doubt this constant
+	// should be too LARGE.
+	// Refining it means measuring real inter-keystroke gaps during
+	// composition, which nobody has done; do not treat this number as carrying
+	// evidence the way terminalInjectSubmitGap does.
+	terminalInjectInputQuiet = 20 * time.Second
 	terminalInjectSubmitGap  = 150 * time.Millisecond
 	// terminalInjectAckWait bounds how long an injection cycle watches for
 	// proof that the wake LANDED: the engine taking a turn and calling

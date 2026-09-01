@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // This file implements the StructuredChat capability for claude-code over its
@@ -43,8 +42,11 @@ var ErrChatForwardTerminalUnsupported = errors.New("claude chat: ForwardTerminal
 
 // ErrChatMCPTransportUnsupported is returned when a ChatRequest.MCPServers entry
 // names a transport claude's --mcp-config file cannot express. Remedy: only
-// MCPTransportStdio, MCPTransportHTTP, and MCPTransportSSE are valid.
-var ErrChatMCPTransportUnsupported = errors.New("claude chat: unsupported MCP transport")
+// MCPTransportStdio, MCPTransportHTTP, and MCPTransportSSE are valid. Aliases
+// agent.ErrChatMCPConfigTransportUnsupported (the shared marshal helper's own
+// sentinel) under this package's existing name, so callers checking
+// errors.Is(err, ErrChatMCPTransportUnsupported) are unaffected by the move.
+var ErrChatMCPTransportUnsupported = agent.ErrChatMCPConfigTransportUnsupported
 
 // chatTransport is the I/O seam for a stream-json conversation: a writable stdin,
 // a readable stdout, and a teardown. Default = a spawned `claude` process; tests
@@ -246,73 +248,30 @@ func (b *ClaudeCode) chatArgs(req agent.ChatRequest, mcpConfigPath string) []str
 	return args
 }
 
-// chatMCPServer is the wire shape written into claude's --mcp-config file for
-// one caller-supplied agent.ChatMCPServer: a local stdio command (Type left
-// empty, matching every other .mcp.json writer in this package — see
-// mcp_registrar.go/surfaces.go, neither of which emits a "type" field for the
-// stdio default either) or a remote http/sse server (Type set from the
-// transport, URL/Headers meaningful, Command/Args absent). agent.MCPTransport's
-// own string values ("", "http", "sse") are claude's own `type` vocabulary, so
-// they pass straight through.
-type chatMCPServer struct {
-	Type    string            `json:"type,omitempty"`
-	Command string            `json:"command,omitempty"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	URL     string            `json:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-}
-
-type chatMCPConfigFile struct {
-	MCPServers map[string]chatMCPServer `json:"mcpServers"`
-}
-
 // writeChatMCPConfig materializes req.MCPServers into a scratch claude
 // .mcp.json for one Chat call and returns its path (for --mcp-config) plus a
 // cleanup that removes the scratch directory. Returns ("", noop, nil) for an
 // empty server set — no --mcp-config flag is then emitted, and buildArgs's own
 // project-.mcp.json behavior (layered, not replaced) is unaffected.
 //
-// Each server's own Env map is preserved VERBATIM — this is how the
-// coordinator's CTXLOOM_MCP_SOCKET stamp (injectMCPSocketEnv,
-// internal/agentcoord/coord/enginehost.go) reaches the spawned MCP server;
-// dropping it here would silently break a delegated child's reach-back to its
-// parent even though the process itself started fine.
+// The document shape and write itself (mode 0o600, Env preserved verbatim —
+// load-bearing for the coordinator's CTXLOOM_MCP_SOCKET stamp, see
+// injectMCPSocketEnv in internal/agentcoord/coord/enginehost.go) are owned by
+// agent.WriteChatMCPConfigFile; this function only manages the scratch
+// directory a single Chat call needs the file to live in.
 func writeChatMCPConfig(servers []agent.ChatMCPServer) (path string, cleanup func(), err error) {
 	noop := func() {}
 	if len(servers) == 0 {
 		return "", noop, nil
 	}
 
-	out := chatMCPConfigFile{MCPServers: make(map[string]chatMCPServer, len(servers))}
-	for _, s := range servers {
-		var entry chatMCPServer
-		switch s.Transport {
-		case agent.MCPTransportStdio:
-			entry = chatMCPServer{Command: s.Command, Args: s.Args, Env: s.Env}
-		case agent.MCPTransportHTTP, agent.MCPTransportSSE:
-			entry = chatMCPServer{Type: string(s.Transport), URL: s.URL, Headers: s.Headers}
-		default:
-			return "", noop, fmt.Errorf("%w %q for server %q (claude's --mcp-config supports stdio, http, sse)",
-				ErrChatMCPTransportUnsupported, s.Transport, s.Name)
-		}
-		out.MCPServers[s.Name] = entry
-	}
-
-	data, err := json.Marshal(out)
-	if err != nil {
-		return "", noop, fmt.Errorf("claude chat: marshaling mcp config: %w", err)
-	}
 	dir, err := os.MkdirTemp("", "ctxloom-claude-chat-mcp-*")
 	if err != nil {
 		return "", noop, fmt.Errorf("claude chat: creating mcp config scratch dir: %w", err)
 	}
 	cleanup = func() { _ = os.RemoveAll(dir) }
 	path = filepath.Join(dir, MCPFileName)
-	// iox.WriteFileAtomic: unique temp + fsync + exact-perm chmod + rename,
-	// rather than a raw os.WriteFile — this config can carry MCP server auth
-	// headers/env, so the 0o600 mode must land exactly, not masked by umask.
-	if err := iox.WriteFileAtomic(path, data, 0o600); err != nil {
+	if err := agent.WriteChatMCPConfigFile(path, servers); err != nil {
 		cleanup()
 		return "", noop, fmt.Errorf("claude chat: writing mcp config: %w", err)
 	}

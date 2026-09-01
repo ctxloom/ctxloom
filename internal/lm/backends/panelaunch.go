@@ -90,6 +90,19 @@ func runInteractiveInPane(ctx context.Context, spec agent.LaunchSpec, stdin io.R
 		return 1, fmt.Errorf("interactive launch requires tmux: %w", err)
 	}
 
+	// A pane is addressed by harp, so an unnamed run cannot be hosted in one.
+	// This is reachable in production and is a SECOND breaking consequence of
+	// the single pane path: run.go warns and proceeds "unharped" when
+	// AssignSession fails, which used to still give the user a working
+	// pty-backed engine and now cannot. Answered here, with the actual cause
+	// named, rather than left to surface as tmuxhost's internal "a pane must
+	// name the run it belongs to" -- which is true but tells the user nothing
+	// about session naming having failed upstream.
+	if spec.Harp == "" {
+		return 1, fmt.Errorf("interactive launch requires a named session: this run has no harp " +
+			"(session naming failed earlier), and an interactive engine is hosted in a pane addressed by harp")
+	}
+
 	tmpDir, err := os.MkdirTemp("", "ctxloom-pane-")
 	if err != nil {
 		return 1, fmt.Errorf("pane launch: make capture dir: %w", err)

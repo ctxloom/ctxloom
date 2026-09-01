@@ -144,3 +144,28 @@ func TestInteractiveLaunch_WithTmuxHostsTheEngineInAPane(t *testing.T) {
 	// relaying its output to the caller's terminal.
 	assert.NotNil(t, r.argvFor("pipe-pane"), "the pane's output must be captured")
 }
+
+// TestInteractiveLaunch_UnnamedRunIsRefusedBeforeAnythingStarts covers the
+// second breaking consequence of the single pane path. run.go warns and
+// proceeds "unharped" when AssignSession fails; that run used to still get a
+// working pty-backed engine, and now cannot be hosted at all because a pane is
+// addressed by harp.
+//
+// It is pinned here so the failure states its real cause. Left unguarded it
+// surfaces as tmuxhost's "a pane must name the run it belongs to", which is
+// true and tells the user nothing about session naming having failed upstream.
+func TestInteractiveLaunch_UnnamedRunIsRefusedBeforeAnythingStarts(t *testing.T) {
+	r := &recordingRunner{}
+	swapTmux(t, func() (string, error) { return "/usr/bin/tmux", nil }, r)
+
+	code, err := RunLaunchSpec(context.Background(), agent.LaunchSpec{
+		BinaryPath:  "/opt/engine/claude",
+		Interactive: true,
+		Harp:        "",
+	}, nil, io.Discard, io.Discard, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "harp", "the error must name the cause, not just the symptom")
+	assert.NotEqual(t, int32(0), code)
+	assert.Zero(t, r.count(), "an unnamed run must be refused before any tmux command is issued")
+}

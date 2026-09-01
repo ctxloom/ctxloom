@@ -67,20 +67,6 @@ engine a narrower slice of a shared bundle's skills does not need a second
 bundle to do it.
 <!-- /doc:scenario -->
 
-<!-- doc:scenario: On kiro, a bundle-authored skill wins over the builtin command of the same name -->
-kiro is the one engine where this split actually collides on disk: both a
-slash command and a true Agent Skill land in the same `.kiro/skills/`
-directory, because kiro has only one native surface for both ideas. ctxloom
-ships built-in slash commands (`/recover`, `/check-triggers`, `/discover`)
-under exactly those bare names — so a project that authors its own skill
-sharing one of those names is a real, not contrived, collision.
-
-The resolution is deliberate and one-directional: the richer native package
-(the skill) wins, the command's rendering of that name is dropped before it
-is ever written, and ctxloom says so out loud rather than silently shadowing
-one file with another.
-<!-- /doc:scenario -->
-
 <!-- doc:scenario: A skill's signature is reported honestly on import, and its files always land byte-for-byte -->
 Importing a skill archive is deliberately never a trust decision by itself.
 The tree lands — reviewable, exactly like any other freshly-pulled content —
@@ -120,7 +106,6 @@ itself owns.
 | Engine | Skill folder |
 |---|---|
 | claude-code | `.claude/skills/<name>/SKILL.md` |
-| kiro | `.kiro/skills/<name>/SKILL.md` |
 | opencode | `.opencode/skill/<name>/SKILL.md` |
 | codex | `.codex/skills/<name>/SKILL.md` (harpless static path — see codex.CodexHookWriter.SettingsPath) |
 

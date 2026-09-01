@@ -1,9 +1,29 @@
 {
   "description": "ctxloom-managed agent (context via steering, MCP via settings/mcp.json).",
   "hooks": {
+    "agentSpawn": [
+      {
+        "command": "ctxloom hook session-bind"
+      }
+    ],
     "postToolUse": [
       {
         "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook tool-reflect --min-output-bytes 2048"
+      },
+      {
+        "command": "ctxloom hook stamp-plan",
+        "matcher": "fs_write"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "ltk evaluate",
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
+      }
+    ],
+    "stop": [
+      {
+        "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook next-step"
       }
     ]
   },

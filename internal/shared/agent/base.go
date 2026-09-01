@@ -27,6 +27,31 @@ type LaunchSpec struct {
 	// Launcher func type, which every launcher implementation would have had
 	// to adopt for a value only the interactive path uses.
 	StdinCleanup func()
+
+	// Harp, Engine and Surface identify the RUN this process belongs to and
+	// what program it is, for a launcher that hosts the process somewhere
+	// addressable (the tmux pane host) rather than merely exec'ing it. Harp
+	// names the pane; Engine and Surface decide whether that pane may be
+	// injected into (see tmuxhost.PaneSpec).
+	//
+	// ACCEPTED COST, recorded so the next reader sees a choice rather than an
+	// accident: run identity is not an exec concern, and putting it on an
+	// exec-shaped struct is conceptually muddy. The alternative was to widen
+	// the exported Launcher func type, which every launcher implementation
+	// would have had to adopt. This follows StdinCleanup's precedent above --
+	// the spec is already where non-exec concerns live, and it is there
+	// precisely so Launcher's signature would not have to change.
+	//
+	// It is taken because it is REVERSIBLE FROM A WORKING STATE: if launching
+	// proves to be genuinely run-aware, promoting these onto Launcher is
+	// mechanical. Better to learn that from running code than to assert it now.
+	//
+	// A zero Harp means "no addressable host for this run"; Engine and Surface
+	// are not wildcards when empty -- they match no injection allowlist entry,
+	// so a pane whose occupant nobody established refuses injection.
+	Harp    string
+	Engine  string
+	Surface CLISurface
 }
 
 // WindowSize is a terminal size for pty resize, carried from the frontend (which
@@ -150,6 +175,10 @@ func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]str
 	if b.launcher == nil {
 		return 1, fmt.Errorf("no launcher configured for %s", b.name)
 	}
+	surface := CLISurfaceOneshot
+	if interactive {
+		surface = CLISurfaceInteractive
+	}
 	return b.launcher(ctx, LaunchSpec{
 		BinaryPath:   b.BinaryPath,
 		Args:         args,
@@ -157,6 +186,16 @@ func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]str
 		WorkDir:      b.WorkDir(),
 		Interactive:  interactive,
 		StdinCleanup: stdinCleanup,
+		// The harp is read from the REQUEST env, which is where the caller
+		// already puts it (internal/lm/grpc/chat.go stamps SessionHarpEnv);
+		// a run nobody named one for gets "", which addresses no pane. The
+		// engine name is b.name rather than a closure injected at the four
+		// SetLauncher sites: the backend already knows what engine it is, so
+		// a closure would restate it four times with nothing to keep the
+		// copies honest.
+		Harp:    env[SessionHarpEnv],
+		Engine:  b.name,
+		Surface: surface,
 	}, stdin, stdout, stderr, resize)
 }
 

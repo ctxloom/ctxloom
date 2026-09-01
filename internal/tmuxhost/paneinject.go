@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // ErrPasteUnmeasured refuses injection into a pane whose program nobody has
@@ -63,6 +62,19 @@ var pasteMeasuredTargets = map[pasteTarget]bool{
 }
 
 // PaneInjector writes text into a run's live pane.
+//
+// IT HAS NO PRODUCTION CALLER YET, AND THAT IS NOT A SIGN IT IS DEAD. Do not
+// delete it as an unused seam. The reason is simply that nothing hosts an
+// engine in a pane yet: the interactive engine is run on a hand-rolled pty by
+// internal/shared/ptyrunner (via backends.RunLaunchSpec's spec.Interactive
+// branch), and a pty is not a pane, so there is no window for this type to
+// paste into. Give PaneHost a production caller and this type acquires one
+// with it.
+//
+// It is kept, complete and tested, because that is a wiring gap rather than a
+// law, and because rebuilding it later would mean re-deriving the
+// bracketed-paste measurement below from scratch. Deleting it discards the
+// measurement, which is the expensive part; the code is the cheap part.
 //
 // SCOPE, which is the rule most easily lost by generalizing this type:
 // injection is refused for every engine and surface except the pairs it has
@@ -132,19 +144,14 @@ func (p *PaneInjector) Inject(ctx context.Context, harp, text string, submit boo
 	// exposes only argv — a stdin seam would exist solely for this one call
 	// and would have to be threaded through every fake.
 	buf := filepath.Join(h.terms.tmpDir, "ctxloom-paste-"+pn.term.channel)
-	// Staged atomically: tmux load-buffer READS this path, so a torn write
-	// would paste a truncated prefix into a live pane — the exact silent
-	// corruption the refusal above already guards the other approach to.
-	af, aerr := iox.NewAtomicFile(buf, 0o600)
-	if aerr != nil {
-		return fmt.Errorf("pane inject: stage paste for %q: %w", harp, aerr)
-	}
-	if _, werr := af.Write([]byte(text)); werr != nil {
-		_ = af.Abort()
+	// AllowEmpty because the staged bytes are simply whatever the caller asked
+	// to paste, and an empty paste is a no-op rather than a truncation. Without
+	// it, iox refuses zero-length data over an EXISTING file -- so injecting ""
+	// would succeed normally and fail only when a previous call had died before
+	// its deferred Remove ran, making the outcome depend on an earlier call's
+	// cleanup.
+	if werr := iox.WriteFileAtomic(buf, []byte(text), 0o600, iox.AllowEmpty()); werr != nil {
 		return fmt.Errorf("pane inject: stage paste for %q: %w", harp, werr)
-	}
-	if cerr := af.Commit(); cerr != nil {
-		return fmt.Errorf("pane inject: stage paste for %q: %w", harp, cerr)
 	}
 	defer func() { _ = os.Remove(buf) }()
 

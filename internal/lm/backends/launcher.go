@@ -33,20 +33,20 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 	cmd.Env = spec.Env
 
 	if spec.Interactive {
-		// The pty merges the child's stdout and stderr into one stream, so the
-		// interactive branch has a single destination: stderr is unreachable
-		// here by construction and is not passed on (ptyrunner.RunInteractive
-		// takes one writer). Only the non-interactive branch below can keep
-		// the two apart.
+		// ONE interactive path: the engine is hosted in a tmux pane, so a
+		// human can attach to a run already in progress. There is no pty
+		// fallback when tmux is missing -- see panelaunch.go's doc for why a
+		// fallback is what would make the dependency untrue.
+		//
+		// The pane merges the child's stdout and stderr onto one real pty, so
+		// this branch has a single destination: stderr is unreachable here by
+		// construction and is not passed on. Only the non-interactive branch
+		// below can keep the two apart.
 		//
 		// spec.StdinCleanup travels with the reader from whoever created it;
 		// this layer relays it and never substitutes one, because it cannot
 		// tell whether stdin is a pipe it may close or a terminal it may not.
-		exitCode, err := ptyrunner.RunInteractive(ctx, cmd, stdin, spec.StdinCleanup, stdout, resize)
-		if err != nil {
-			return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
-		}
-		return int32(exitCode), nil
+		return runInteractiveInPane(ctx, spec, stdin, stdout, resize)
 	}
 
 	// Non-interactive: stdin is the caller's reader when provided (a backend

@@ -2,6 +2,7 @@ package tmuxhost
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -213,4 +214,88 @@ func TestPaneInjector_UnknownHarpIsRefused(t *testing.T) {
 	err := h.Injector().Inject(context.Background(), "nobody-here", "text", true)
 	require.Error(t, err, "injecting into a run with no pane must fail, not report success")
 	assert.ErrorIs(t, err, ErrNoPane)
+}
+
+// stagingCapturingRunner records the CONTENT of the paste staging file at the
+// moment `load-buffer` names it. The file cannot be read after Inject returns
+// -- a deferred Remove deletes it -- so capturing it mid-call is the only way
+// to see what tmux would actually have loaded.
+type stagingCapturingRunner struct {
+	*fakeTmuxRunner
+	staged    string
+	stagedSet bool
+	stagedErr error
+}
+
+func (r *stagingCapturingRunner) Run(ctx context.Context, args ...string) (string, error) {
+	if len(args) > 0 && args[0] == "load-buffer" {
+		b, err := os.ReadFile(args[len(args)-1])
+		r.staged, r.stagedSet, r.stagedErr = string(b), true, err
+	}
+	return r.fakeTmuxRunner.Run(ctx, args...)
+}
+
+// TestPaneInjector_StagesExactlyTheTextForLoadBuffer covers the staging write
+// itself, which until now NOTHING did.
+//
+// Found by mutation during close-out: replacing the staged bytes with a
+// constant ("MUTANT") left internal/tmuxhost fully green. Every existing test
+// that reaches the write drives a real tmux binary, and those skip wherever
+// tmux is off PATH -- as it was in the agent container this was found in,
+// whose image predated the base image gaining tmux (5dd35728). The host and
+// the current image both have it, so those tests do run there; the point is
+// that a gate CAN be green with them all skipped. Worse, the one
+// PaneInjector test that does still run without tmux,
+// TestPaneInjector_UnmeasuredTargetIsRefusedWithNothingWritten, reports
+// "--- PASS" while ALL FIVE of its subtests skip, and it returns at the
+// refusal anyway, before any write happens.
+//
+// This test is deliberately fake-backed so it runs everywhere. It does not
+// replace the real-tmux tests -- those prove tmux ACCEPTS the argv, which a
+// fake cannot -- it proves the bytes handed to tmux are the caller's, which
+// the real ones never isolated.
+func TestPaneInjector_StagesExactlyTheTextForLoadBuffer(t *testing.T) {
+	const text = "first line\nsecond line\n\twith a tab"
+
+	r := &stagingCapturingRunner{fakeTmuxRunner: newFakeTmuxRunner()}
+	h := NewPaneHost(r, t.TempDir())
+	ctx := context.Background()
+
+	require.NoError(t, h.Start(ctx, "h1", PaneSpec{
+		Command: "sh",
+		Engine:  "claude", Surface: agent.CLISurfaceInteractive,
+	}))
+	t.Cleanup(func() { _ = h.Stop(context.Background(), "h1") })
+
+	require.NoError(t, h.Injector().Inject(ctx, "h1", text, false))
+
+	require.True(t, r.stagedSet, "Inject must stage the paste through load-buffer")
+	require.NoError(t, r.stagedErr, "the staged file must exist when load-buffer names it")
+	assert.Equal(t, text, r.staged,
+		"tmux must be handed the caller's exact bytes, not a re-encoding of them")
+}
+
+// TestPaneInjector_StagingFileIsRemovedAfterThePaste pins the cleanup half.
+// The staged file holds whatever was injected, so a leaked one leaves that
+// text readable on disk after the paste is done.
+func TestPaneInjector_StagingFileIsRemovedAfterThePaste(t *testing.T) {
+	r := &stagingCapturingRunner{fakeTmuxRunner: newFakeTmuxRunner()}
+	dir := t.TempDir()
+	h := NewPaneHost(r, dir)
+	ctx := context.Background()
+
+	require.NoError(t, h.Start(ctx, "h1", PaneSpec{
+		Command: "sh",
+		Engine:  "claude", Surface: agent.CLISurfaceInteractive,
+	}))
+	t.Cleanup(func() { _ = h.Stop(context.Background(), "h1") })
+
+	require.NoError(t, h.Injector().Inject(ctx, "h1", "secret text", false))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.NotContains(t, e.Name(), "ctxloom-paste-",
+			"the staging file must not outlive the paste: %q", e.Name())
+	}
 }

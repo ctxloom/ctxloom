@@ -82,9 +82,9 @@ func (l *Terminals) host(ctx context.Context, spec hostSpec) (*tmuxTerminal, err
 	// `tmux -L <socket> attach -t ...` -- so hosting needs no handle of its own,
 	// and the four lifecycle operations below are the shared ones.
 	h := &tmuxTerminal{
-		window: tmuxSessionName + ":" + name, channel: "ctxloom-acp-host-" + name,
-		outputPath: filepath.Join(l.tmpDir, "ctxloom-acp-host-"+name+".out"),
-		statusPath: filepath.Join(l.tmpDir, "ctxloom-acp-host-"+name+".status"),
+		window: tmuxSessionName + ":" + name, channel: "ctxloom-host-" + name,
+		outputPath: filepath.Join(l.tmpDir, "ctxloom-host-"+name+".out"),
+		statusPath: filepath.Join(l.tmpDir, "ctxloom-host-"+name+".status"),
 	}
 	gate := h.channel + "-gate"
 

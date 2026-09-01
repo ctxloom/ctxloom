@@ -314,3 +314,47 @@ func TestPaneHost_AttachUnknownHarpIsRefused(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoPane)
 	assert.Nil(t, detach, "a refused attach must not hand back a detach")
 }
+
+// TestPaneExitCode_SignalDeathIsNeverSuccess is the regression guard for a
+// killed pane announcing a clean exit. The bug it pins was not a wrong number
+// — it was a killed engine and a successful one producing the SAME
+// observation, which no assertion about "some non-zero code" would have
+// caught either, because the old code returned the zero value for every
+// signal.
+func TestPaneExitCode_SignalDeathIsNeverSuccess(t *testing.T) {
+	for _, sig := range []string{"SIGHUP", "SIGINT", "SIGKILL", "SIGTERM", "SIGWOBBLE"} {
+		t.Run(sig, func(t *testing.T) {
+			s := sig
+			got := paneExitCode(&ExitStatus{Signal: &s})
+			assert.NotZero(t, got, "a pane killed by %s must not report success", sig)
+			assert.GreaterOrEqual(t, got, int32(128), "a signal death reports 128+signum like a shell")
+		})
+	}
+}
+
+// TestPaneExitCode_KnownSignalsUseShellNumbering pins the actual mapping, not
+// merely that it is non-zero — 128+signum is the convention
+// ptyrunner.ExitStatusFor already uses, and the two launch paths must agree.
+func TestPaneExitCode_KnownSignalsUseShellNumbering(t *testing.T) {
+	for sig, want := range map[string]int32{"SIGHUP": 129, "SIGINT": 130, "SIGKILL": 137, "SIGTERM": 143} {
+		s := sig
+		assert.Equal(t, want, paneExitCode(&ExitStatus{Signal: &s}), "%s", sig)
+	}
+}
+
+// TestPaneExitCode_UnknownSignalStillFails guards the map's own incompleteness:
+// adding a signal nobody listed must cost precision, never correctness.
+func TestPaneExitCode_UnknownSignalStillFails(t *testing.T) {
+	s := "SIGNOTINTHEMAP"
+	assert.Equal(t, int32(128), paneExitCode(&ExitStatus{Signal: &s}))
+}
+
+// TestPaneExitCode_RealExitCodePassesThrough keeps the ordinary path intact:
+// a command that exited 0 must still report 0, or the guard above would be
+// satisfied by simply never reporting success at all.
+func TestPaneExitCode_RealExitCodePassesThrough(t *testing.T) {
+	for _, code := range []int{0, 1, 42} {
+		c := code
+		assert.Equal(t, int32(code), paneExitCode(&ExitStatus{ExitCode: &c}))
+	}
+}

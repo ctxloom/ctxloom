@@ -301,11 +301,7 @@ func (p *pane) tail(ctx context.Context) {
 			}
 		}
 		if st := readStatus(p.term); st != nil {
-			var code int32
-			if st.ExitCode != nil {
-				code = int32(*st.ExitCode)
-			}
-			p.finish(code, "")
+			p.finish(paneExitCode(st), "")
 			return
 		}
 		select {
@@ -314,6 +310,47 @@ func (p *pane) tail(ctx context.Context) {
 		case <-tick.C:
 		}
 	}
+}
+
+// paneExitCode folds a finished pane's ExitStatus into the single code a
+// viewer is told, mapping a signal death to 128+signum the way a shell does
+// and ptyrunner.ExitStatusFor already does for the pty path. Both launch
+// modes must classify a killed engine identically or the exit code a caller
+// sees depends on which one happened to run it.
+//
+// THE INVARIANT IS THAT A SIGNAL DEATH IS NEVER REPORTED AS SUCCESS. This
+// used to read "if st.ExitCode != nil { code = *st.ExitCode }" over a zero
+// value, so a Signal-only status reported EXIT 0 — and killWindow produces
+// exactly such a status (Signal SIGHUP, tmux_terminal.go), which means every
+// pane torn down by Stop announced a clean exit to its viewers. Nothing was
+// red: a killed engine and a successful one were the same observation.
+//
+// An UNRECOGNISED signal name therefore maps to 128, not 0. The number is
+// approximate; the non-zero-ness is the contract, and a future signal nobody
+// listed here must not silently become success.
+func paneExitCode(st *ExitStatus) int32 {
+	if st == nil {
+		return 0
+	}
+	if st.ExitCode != nil {
+		return int32(*st.ExitCode)
+	}
+	if st.Signal != nil {
+		if n, ok := signalNumbers[*st.Signal]; ok {
+			return 128 + n
+		}
+		return 128
+	}
+	return 0
+}
+
+// signalNumbers carries only what this package can actually produce or a
+// wrapper shell can report. It is not a complete signal table and does not
+// need to be: paneExitCode's fallback is already non-zero, so an omission
+// costs precision, never correctness.
+var signalNumbers = map[string]int32{
+	"SIGHUP": 1, "SIGINT": 2, "SIGQUIT": 3, "SIGKILL": 9,
+	"SIGPIPE": 13, "SIGALRM": 14, "SIGTERM": 15,
 }
 
 // readAt reads up to len(buf) bytes from path starting at off. A missing file

@@ -4,9 +4,12 @@
 package agent
 
 import (
+	"context"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -196,4 +199,56 @@ func countSubstring(s, substr string) int {
 		}
 	}
 	return count
+}
+
+// TestRun_CarriesRunIdentityOntoTheLaunchSpec pins the three fields ruling (A)
+// put on LaunchSpec. They exist so a launcher that HOSTS a process somewhere
+// addressable can name the run and decide whether its pane may be injected
+// into, and none of them is derivable from the exec fields beside them: a
+// launcher handed only BinaryPath cannot tell claude's TUI from its ACP
+// adapter, and the two answer a bracketed paste differently.
+//
+// Surface is asserted for BOTH launch modes because it is DERIVED from the
+// interactive flag rather than passed in. A single-mode test would pass
+// against a constant, which is the likeliest way to get this wrong.
+func TestRun_CarriesRunIdentityOntoTheLaunchSpec(t *testing.T) {
+	newBackend := func() (*BaseBackend, *LaunchSpec) {
+		var captured LaunchSpec
+		b := NewBaseBackend("claude-code", "1.0.0")
+		b.BinaryPath = "/bin/true"
+		b.SetLauncher(func(_ context.Context, spec LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan WindowSize) (int32, error) {
+			captured = spec
+			return 0, nil
+		})
+		return &b, &captured
+	}
+	env := map[string]string{SessionHarpEnv: "swift-amber-falcon"}
+
+	t.Run("interactive", func(t *testing.T) {
+		b, got := newBackend()
+		_, err := b.RunInteractive(context.Background(), nil, env, nil, nil, io.Discard, io.Discard, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "swift-amber-falcon", got.Harp, "the harp must come off the request env, which is where the caller stamps it")
+		assert.Equal(t, "claude-code", got.Engine, "the engine is the backend's own name")
+		assert.Equal(t, CLISurfaceInteractive, got.Surface)
+	})
+
+	t.Run("non-interactive", func(t *testing.T) {
+		b, got := newBackend()
+		_, err := b.RunNonInteractive(context.Background(), nil, env, nil, io.Discard, io.Discard)
+		require.NoError(t, err)
+		assert.Equal(t, "swift-amber-falcon", got.Harp)
+		assert.Equal(t, "claude-code", got.Engine)
+		assert.Equal(t, CLISurfaceOneshot, got.Surface, "a oneshot run must NOT be labelled interactive")
+	})
+
+	// A run nobody named a harp for must not inherit one: "" addresses no
+	// pane, which is the honest answer. Defaulting to anything else would
+	// point injection at a pane belonging to a different run.
+	t.Run("no harp in env", func(t *testing.T) {
+		b, got := newBackend()
+		_, err := b.RunNonInteractive(context.Background(), nil, nil, nil, io.Discard, io.Discard)
+		require.NoError(t, err)
+		assert.Empty(t, got.Harp)
+	})
 }

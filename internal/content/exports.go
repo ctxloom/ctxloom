@@ -3,10 +3,10 @@ package content
 // EngineExport is one engine's export settings for an item — how a command
 // surfaces as that engine's slash command, or whether a skill is enabled for it.
 //
-// It is ONE struct keyed by engine name rather than four near-identical structs
-// (ClaudeCodeConfig, CodexConfig, KiroConfig, OpencodeConfig in internal/bundles).
-// Those four differ only in which of these fields they use, and mirroring them
-// here would mean four shapes to keep in step with a new engine's arrival. A
+// It is ONE struct keyed by engine name rather than a near-identical struct per
+// engine (the per-engine export configs in internal/bundles). Those differ only
+// in which of these fields they use, and mirroring them here would mean a shape
+// per engine to keep in step with a new engine's arrival. A
 // map keyed by engine name also means a NEW ENGINE needs no change to this
 // package at all — the same property the surface-type registry gives kinds.
 //

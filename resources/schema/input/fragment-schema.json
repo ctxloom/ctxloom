@@ -204,26 +204,6 @@
             }
           },
           "additionalProperties": false
-        },
-        "kiro": {
-          "type": "object",
-          "description": "Kiro CLI skill-file export settings (agentskills.io SKILL.md files). Prompts are exported by default (opt-out model) as .kiro/skills/<name>/SKILL.md files, invocable as /<name> slash commands.",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Set to false to disable skill export. Default is true (exported).",
-              "default": true
-            },
-            "description": {
-              "type": "string",
-              "description": "Description shown in Kiro's skill discovery / /help.",
-              "examples": [
-                "Review code for security issues",
-                "Generate unit tests"
-              ]
-            }
-          },
-          "additionalProperties": false
         }
       },
       "additionalProperties": false

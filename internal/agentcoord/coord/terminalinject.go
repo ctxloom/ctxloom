@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -113,6 +114,21 @@ type TerminalInjector struct {
 	lastWrite atomic.Int64 // unix nanos of the last stdout passthrough write
 	lastInput atomic.Int64 // unix nanos of the last REAL keystroke read from stdin
 
+	// gate is the ENGINE's own reading of whether it is accepting free text
+	// or a keypress. coord owns the plumbing and the engine owns the
+	// knowledge: the escape sequences that answer this are engine- and
+	// version-specific, and embedding them here would put one engine's
+	// terminal behaviour in the engine-agnostic coordination core, where no
+	// other engine could correct it.
+	//
+	// nil means the engine implements no gate, which is NOT the same as
+	// "safe". See run: an engine that has given no signal is refused.
+	gate agent.InputGate
+	// gateWarn makes the refusal above loud exactly once per injector, rather
+	// than on every nudge. Silence here would be the project's characteristic
+	// failure — a wake that never fires and never says why.
+	gateWarn sync.Once
+
 	mu      sync.Mutex
 	waiting bool // an injection cycle is already scheduled/running
 	// inject takes the frame and its submit as ONE unit. Two separate calls
@@ -137,8 +153,12 @@ type TerminalInjector struct {
 // terminal nudge immediately: a nudge that fires before Wrap is called finds
 // inject nil and is a no-op (the message stays buffered for the next nudge,
 // or a real Recv), rather than lost.
-func NewTerminalInjector(home *Home) *TerminalInjector {
+// gate is the engine's optional InputGate capability, discovered by the caller
+// via a type assertion on the backend. Passing nil is meaningful and safe: the
+// injector then REFUSES to inject rather than assuming the terminal is idle.
+func NewTerminalInjector(home *Home, gate agent.InputGate) *TerminalInjector {
 	ti := &TerminalInjector{
+		gate:       gate,
 		quiet:      terminalInjectQuiet,
 		inputQuiet: terminalInjectInputQuiet,
 		tick:       terminalInjectTick,
@@ -182,7 +202,7 @@ func (ti *TerminalInjector) Wrap(stdin io.Reader, stdout io.Writer) (io.Reader, 
 		}
 		ti.inject = nil
 	}
-	return r, &quietTap{dst: stdout, lastWrite: &ti.lastWrite}, release
+	return r, &quietTap{dst: stdout, lastWrite: &ti.lastWrite, gate: ti.gate}, release
 }
 
 // nudge is home's terminalNudge callback: it must not block (deliverNotice
@@ -210,16 +230,33 @@ func (ti *TerminalInjector) run() {
 		ti.waiting = false
 		ti.mu.Unlock()
 	}()
+	// An engine that implements no InputGate has said NOTHING about whether a
+	// write would land in a text field or be swallowed by a modal, and this
+	// path writes a carriage return. Absent a signal, refuse: silence is not
+	// consent, and the failure it prevents (a wake selecting an option in an
+	// open prompt) is unrecoverable, while the cost of refusing is only a
+	// delayed wake whose mail agent_recv still collects.
+	if ti.gate == nil {
+		ti.gateWarn.Do(func() {
+			clidiag.Warn("ctxloom", "coordinator: this engine publishes no input-state gate, so terminal wakes are withheld to avoid answering a prompt for you; "+
+				"the mail stays buffered and agent_recv still collects it. Measure this engine's modal markers and implement agent.InputGate to turn wakes back on")
+		})
+		return
+	}
 	deadline := time.Now().Add(ti.maxWait)
 	for {
 		now := time.Now().UnixNano()
 		outIdle := time.Duration(now - ti.lastWrite.Load())
 		inIdle := time.Duration(now - ti.lastInput.Load())
-		if outIdle >= ti.quiet && inIdle >= ti.inputQuiet {
+		// Asked once per pass and reused below, so the decision to break and
+		// the decision to give up cannot disagree about what the gate said.
+		accepting := ti.gate.AcceptingText()
+		if outIdle >= ti.quiet && inIdle >= ti.inputQuiet && accepting {
 			break
 		}
 		if !time.Now().Before(deadline) {
-			// THE DEADLINE WAIVES OUTPUT-QUIET, NEVER INPUT-QUIET. Waiving
+			// THE DEADLINE WAIVES OUTPUT-QUIET, NEVER INPUT-QUIET AND NEVER
+			// THE INPUT GATE. Waiving
 			// output-quiet is what the maxWait comment describes: an engine
 			// idling noisily must not block the wake forever. Waiving
 			// input-quiet would deliver a frame into a half-typed line and
@@ -228,7 +265,14 @@ func (ti *TerminalInjector) run() {
 			// human's typed line is unrecoverable. So give up this cycle
 			// instead; nudge re-arms when the next mail arrives, and Recv
 			// collects it regardless.
-			if inIdle < ti.inputQuiet {
+			//
+			// The gate belongs in that same class for a stronger reason. A
+			// split line is destroyed input; a wake delivered into a modal
+			// MANUFACTURES input, and the record then shows a ruling the
+			// human never gave. If a deadline could waive it, the guard would
+			// be exactly as good as no guard on any session busy enough to
+			// reach the bound.
+			if inIdle < ti.inputQuiet || !accepting {
 				return
 			}
 			break
@@ -295,10 +339,21 @@ func (ti *TerminalInjector) awaitAck(before int) {
 type quietTap struct {
 	dst       io.Writer
 	lastWrite *atomic.Int64
+	// gate, when the engine supplies one, is fed the same bytes so it can
+	// track whether a modal is on screen. This tap is the only place coord
+	// already sees every byte the engine writes, which is why the capability
+	// hangs off it rather than growing a second output seam.
+	gate agent.InputGate
 }
 
 func (t *quietTap) Write(p []byte) (int, error) {
 	n, err := t.dst.Write(p)
+	// Observe BEFORE stamping quiet, and observe what was HANDED to us rather
+	// than the n the writer reported: a short write still displayed those
+	// bytes downstream, and the marker this is looking for may sit past n.
+	if t.gate != nil {
+		t.gate.Observe(p)
+	}
 	t.lastWrite.Store(time.Now().UnixNano())
 	return n, err
 }

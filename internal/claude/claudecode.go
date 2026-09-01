@@ -53,6 +53,12 @@ type ClaudeCode struct {
 	// --append-system-prompt-file / --mcp-config / --settings scratch a SharedCell
 	// delivered) after Setup ran. Zero value (nil surface fields) before Setup.
 	surfaces Surfaces
+	// gate tracks whether claude is currently showing a modal, so a
+	// coordinator wake is withheld rather than answering the prompt for the
+	// human. It satisfies agent.InputGate; see inputgate.go for the
+	// measurement it rests on. Kept by VALUE, so a ClaudeCode must not be
+	// copied once in use — nothing copies one today (it is always *ClaudeCode).
+	gate inputGate
 	// thinking is the resolved normalized reasoning level (Configure defaults
 	// it to agent.ThinkingMedium — the Go zero value happens to be
 	// ThinkingOff, so an unconfigured backend must NOT rely on the zero

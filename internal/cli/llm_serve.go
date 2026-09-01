@@ -76,7 +76,14 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 		// into a dead reader. Wrap re-points the injection target under the
 		// mutex, so re-Wrapping is how a turn takes ownership; the release it
 		// returns is how a turn gives that ownership back.
-		ti := coord.NewTerminalInjector(standup.home)
+		// The engine's own input-state gate, discovered the same way every
+		// other optional capability on this backend is (agent.StructuredChat,
+		// agent.StateReader, agent.EngineCLIProvider). A backend that does not
+		// implement it yields nil, and a nil gate makes the injector REFUSE to
+		// inject rather than assume the terminal is safe to write into — see
+		// coord.TerminalInjector.run.
+		gate, _ := backend.(agent.InputGate)
+		ti := coord.NewTerminalInjector(standup.home, gate)
 		wrapStreams = ti.Wrap
 	}
 

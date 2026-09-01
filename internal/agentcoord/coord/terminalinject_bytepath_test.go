@@ -92,7 +92,7 @@ func TestHelperWakeStdinProbe(t *testing.T) {
 // the far end.
 func TestTerminalInject_SubmitReachesEngineStdinAsItsOwnRead(t *testing.T) {
 	h := newNoticeHome(t)
-	ti := &TerminalInjector{
+	ti := &TerminalInjector{gate: openGate{},
 		quiet:   20 * time.Millisecond,
 		tick:    time.Millisecond,
 		maxWait: 2 * time.Second,

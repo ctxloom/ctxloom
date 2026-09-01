@@ -227,9 +227,9 @@ message ChatStart {
   // agent.ParseRuntimeAxis (internal/lm/grpc/chat.go's chatStartFromProto),
   // refusing any other spelling rather than silently landing on host. Mirrors
   // agent.ChatRequest.Runtime, which had NO proto field at all — so a
-  // container-bound `ctxloom acp` session ran on the HOST while ctxloom
-  // announced container isolation. Only a backend whose structured-chat
-  // transport implements container isolation (internal/acp) consults it.
+  // container-bound session ran on the HOST while ctxloom announced
+  // container isolation. Only a backend whose structured-chat transport
+  // implements container isolation consults it.
   string runtime = 9;
   // resume_session_id asks the backend to resume a prior NATIVE session
   // instead of starting fresh (claude --resume, codex thread/resume, ACP

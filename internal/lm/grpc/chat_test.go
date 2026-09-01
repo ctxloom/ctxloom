@@ -494,8 +494,8 @@ func readCanonicalTranscript(t *testing.T, harp string) []transcript.Record {
 }
 
 // TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent pins the
-// S2 seam: when the caller stamps req.Env[agent.SessionHarpEnv] (exactly what
-// acp_cmd.go does today), GRPCClient.Chat must (a) forward every event on the
+// S2 seam: when the caller stamps req.Env[agent.SessionHarpEnv],
+// GRPCClient.Chat must (a) forward every event on the
 // returned channel UNCHANGED (lossless passthrough) and (b) ALSO have written
 // the same events to the harp's canonical transcript.jsonl, keyed by the
 // engine name the plugin's Info RPC reports.
@@ -592,9 +592,8 @@ func TestGRPCClient_Chat_CapturesUserTurn(t *testing.T) {
 	// record: they are recorded from two independent goroutines (the inbound
 	// `in`-channel tap vs. the outbound events tee) with no causal
 	// relationship to each other in this fake-stream test (the canned Session
-	// event is emitted independent of anything arriving on `in` — matching
-	// the real ACP driver, which likewise emits Session before ever reading
-	// its first inbound message, see internal/acp/session.go's Chat). Which
+	// event is emitted independent of anything arriving on `in`, so it can
+	// be produced before the first inbound message is ever read). Which
 	// one lands at seq 0 is genuinely a race, and Session — envelope
 	// metadata, not conversation content (transcript/history.go's
 	// entriesFromRecord) — never becomes a Session.Entries item either way,

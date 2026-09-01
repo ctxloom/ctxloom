@@ -19,8 +19,8 @@ import (
 //  1. Setsid — the runner leads a FRESH session (session id == its own pid) so
 //     killSession can later reap its entire subtree, including a grandchild the
 //     runner itself puts in a SEPARATE process group, as one unit, without
-//     touching anything outside that dedicated session. This is the DOWNWARD guarantee: when teardown runs,
-//     it reaches everything. See killSession.
+//     touching anything outside that dedicated session. This is the DOWNWARD
+//     guarantee: when teardown runs, it reaches everything. See killSession.
 //
 //  2. Pdeathsig — the kernel signals the runner the instant its host process
 //     dies, however it dies. This is the UPWARD guarantee, and it exists

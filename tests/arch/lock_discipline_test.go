@@ -63,11 +63,10 @@
 //     OUTSIDE the locked closure (in the same function, before or after)
 //     reads as compliant to this gate. It proves co-occurrence, not correct
 //     nesting.
-//   - A PURE whole-file overwrite with no prior read at all — kiro's
-//     writeAgentConfig/writeSteering (B8: defensible today, ctxloom owns the
-//     whole file, nothing to preserve) and opencode's
-//     materializeContextSurface, same shape — is invisible to this gate: it
-//     has a write signal but no read signal, so it is not flagged even
+//   - A PURE whole-file overwrite with no prior read at all (defensible
+//     where ctxloom owns the whole file and there is nothing to preserve)
+//     is invisible to this gate: it has a write signal but no read signal,
+//     so it is not flagged even
 //     though R6's text calls for locking every R6-exclusive-owned file
 //     regardless of RMW shape. This gate proves READ-MODIFY-WRITE discipline
 //     specifically, which is what the review's heuristic asked for; it does
@@ -117,7 +116,7 @@ import (
 	"testing"
 )
 
-// lockDisciplineScopes are the packages this gate walks: the four engine
+// lockDisciplineScopes are the packages this gate walks: the engine
 // SettingsWriter implementors plus the shared reconcilers they and R6's
 // exclusively-owned-file writers call into. internal/shared/ledger and the
 // lock primitive itself (github.com/gofrs/flock, called directly at each
@@ -127,7 +126,6 @@ import (
 var lockDisciplineScopes = []string{
 	"internal/claude",
 	"internal/codex",
-	"internal/kiro",
 	"internal/opencode",
 	"internal/shared/agent",
 }

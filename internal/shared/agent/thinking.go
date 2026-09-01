@@ -14,19 +14,18 @@ import "strings"
 // haiku/sonnet/opus at the same nominal budget).
 //
 // Each backend that has a real mechanism translates this same vocabulary to
-// its own knob (internal/claude/chat.go: MAX_THINKING_TOKENS env var;
-// internal/codex/chat.go: model_reasoning_effort config key). A backend with
-// no mechanism (kiro, opencode — verified by reading their chat.go) treats an
-// explicit setting as a documented, WARNED no-op rather than a silent
-// swallow — see their Configure methods.
+// its own knob (internal/claude: MAX_THINKING_TOKENS env var; internal/codex:
+// model_reasoning_effort config key). A backend with no mechanism (opencode)
+// treats an explicit setting as a documented, WARNED no-op rather than a
+// silent swallow — see their Configure methods.
 type ThinkingLevel int
 
 const (
 	// ThinkingMedium is the ZERO VALUE and the DEFAULT every backend falls
 	// back to when the labeled LLM config leaves `thinking` unset, sets an
 	// unrecognized value, or never runs Configure at all — the "think hard"
-	// tier, verified live to actually produce thought chunks (see
-	// internal/claude/chat.go's doc comment). Deliberately ordered first so
+	// tier, verified live to actually produce thought chunks. Deliberately
+	// ordered first so
 	// an un-configured ThinkingLevel field defaults SAFELY to medium rather
 	// than to an implicit "off" a plain int zero value would otherwise mean.
 	ThinkingMedium ThinkingLevel = iota

@@ -57,7 +57,7 @@ type ClaudeCode struct {
 	// it to agent.ThinkingMedium — the Go zero value happens to be
 	// ThinkingOff, so an unconfigured backend must NOT rely on the zero
 	// value; NewClaudeCode sets it explicitly). Chat translates it into
-	// claude's MAX_THINKING_TOKENS env var (chat.go).
+	// claude's MAX_THINKING_TOKENS env var.
 	thinking agent.ThinkingLevel
 }
 
@@ -77,7 +77,6 @@ func NewClaudeCode() *ClaudeCode {
 		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: b.buildSurfaces},
 	)
-	b.SetACPTransport(ClaudeACPTransport) // intrinsic: every construction path (incl. direct) gets it
 	return b
 }
 

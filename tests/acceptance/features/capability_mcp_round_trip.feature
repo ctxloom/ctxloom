@@ -2,9 +2,9 @@
 Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
 
   ctxloom tells every engine it drives about the MCP servers a project declares.
-  All four engines claim to accept them, and each has its own native place to put
+  Every engine claims to accept them, and each has its own native place to put
   them: claude gets a --mcp-config file, codex a [mcp_servers] table in its
-  config.toml, kiro .kiro/settings/mcp.json, opencode an `mcp` block inside
+  config.toml, opencode an `mcp` block inside
   opencode.json. Until this probe, none of that was ever demonstrated end to end.
   What HAD been demonstrated is narrower than it looks: j002300's delegated
   children each called mcp__ctxloom__agent_send, which is ctxloom's OWN
@@ -67,7 +67,7 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
   authoritatively and both were wrong: until 2026-08-25 this said MCP reach-back
   was undesigned, which misattributed a COORDINATOR-bus finding to a fixture that
   never used the bus; it was then replaced by a call for a probe-only bind-mount
-  seam, which mistook defence in depth for the mechanism. codex, kiro and
+  seam, which mistook defence in depth for the mechanism. codex and
   opencode stay host-only by SCOPE — 0.7.0 propagates claude onto this axis.
   Every cell here self-skips LOUDLY, naming the engine and the reason: an absent
   or unauthenticated engine. There is no interpreter to miss any more — the
@@ -94,8 +94,8 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
     # reached a containerized claude, which spawned the server in-container,
     # completed the handshake and enumerated the tool. Then no tools/call. The
     # identical fixture on host/none calls it reliably the same day, so this is
-    # neither the fixture nor the prompt. It is the same shape as kiro's host
-    # row: registration and discovery work, invocation does not.
+    # neither the fixture nor the prompt: registration and discovery work,
+    # invocation does not.
     #
     # These two rows must be read as a PAIR: P6's host/worktree cell failed
     # where both-off and both-on passed, because the two axes resolve a
@@ -122,38 +122,6 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
     Examples:
       | engine | runtime | workspace |
       | codex  | host    | none      |
-
-    # @wip — RED, measured twice on 2026-08-13, and the finding is narrow and
-    # real: kiro REGISTERS and DISCOVERS the server, and never calls it.
-    #
-    # The fixture server's own call log is what makes that sayable. It read:
-    #
-    #   start request(initialize) request(notifications/initialized)
-    #   request(tools/list) eof
-    #
-    # so ctxloom wrote .kiro/settings/mcp.json, kiro spawned the server, finished
-    # the handshake, and asked for the tool list — every step up to invocation.
-    # Then nothing. kiro's stderr looped for six minutes on
-    #
-    #   Tool validation failed: No tool with "dummy" is found
-    #
-    # and the model's eventual answer was the literal string
-    # {"nonce":"non-verbatim placeholder - tool not found"} — kiro reporting that
-    # no such tool existed, moments after enumerating it.
-    #
-    # This is NOT the kiro finding P0 already carries. That one is ctxloom's
-    # interactive `> ` prompt echo leaking ANSI decoration into a non-interactive
-    # capture, and it reds the output-format check. It masked this finding on the
-    # first attempt, which is why mcpProbeAssert now asks "was the tool called"
-    # BEFORE "is the output well formed": the tool-call fact is a property of the
-    # server's records, not of the stdout's shape, and it is what this probe is
-    # about. Fixing the decoration defect will not turn this cell green.
-    #
-    # Untag when a kiro run calls a registered MCP tool it has already listed.
-    @probe-p2-mcp-round-trip @kiro @host @ws-none @wip
-    Examples:
-      | engine | runtime | workspace |
-      | kiro   | host    | none      |
 
     @probe-p2-mcp-round-trip @opencode @host @ws-none
     Examples:

@@ -24,7 +24,7 @@ import (
 
 // buildHostCoordinator stands a real (production-spawner) coordinator up over
 // a hermetic fixture with HOME scrubbed, serving loopback listeners. It is the
-// same standup path `ctxloom run`/`ctxloom acp`/bare `ctxloom mcp` use. The
+// same standup path `ctxloom run`/bare `ctxloom mcp` use. The
 // returned *fakeChatEngineSpawns lets a test reach into a spawned child's
 // captured ChatRequest (see fakeChatEngineSpawns.nth) instead of only
 // observing that a harp came back.

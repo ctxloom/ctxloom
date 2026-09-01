@@ -11,13 +11,13 @@ import (
 // This file holds the two polymorphic seams T12 moved out of
 // internal/operations (hooks.go's checkHookTargetScope, delegate.go's
 // resolveChatModel): both used to branch on backend identity and call
-// claude/codex/kiro package functions directly from the operations core — a
+// claude/codex package functions directly from the operations core — a
 // literal ADR-0026 violation (operations, the core, reaching across the
 // subsidiary-application-plugin edge instead of depending on the injected,
 // polymorphic internal/lm/backends seam ADR-0020 already names for exactly
 // this). Per that ADR, this package IS the sanctioned place for
 // backend-identity branching; operations now calls ResolveModelFor /
-// CheckHookTargetScope and never imports claude/codex/kiro itself.
+// CheckHookTargetScope and never imports claude/codex itself.
 //
 // Both seams are descriptor fields (hookGlobalScopePaths/hookGlobalScopeLabel,
 // resolveModel in registry.go's agentDescriptor) rather than a hardcoded
@@ -30,7 +30,7 @@ import (
 
 // ResolveModelFor translates rs.Model through the named backend's own
 // resolveModel hook when it has one — the delegated-child launch path's
-// ACP/API model resolution (internal/claude.ResolveModel today), generalized
+// model resolution (internal/claude.ResolveModel today), generalized
 // off a hardcoded "is this claude-code" branch in operations. A backend with
 // no resolveModel hook (every backend but claude-code today) or an
 // unregistered name passes model through unchanged with ok=true: "nothing to
@@ -46,10 +46,10 @@ func ResolveModelFor(name, model string) (resolved string, ok bool) {
 // CheckHookTargetScope refuses (or, with force, loudly warns) when workDir
 // resolves onto the named backend's user-GLOBAL scope instead of a project's
 // per-PROJECT scope — Claude Code's settings.json, codex's whole
-// config.toml/prompts/skills home, kiro's whole agents/settings/steering home
+// config.toml/prompts/skills home
 // (see each one's hookGlobalScopePaths wiring in registry.go for the
 // collision class itself). A backend with no hookGlobalScopePaths hook
-// (opencode, acp, mock — audited as unable to hit this
+// (opencode, mock — audited as unable to hit this
 // collision; see each descriptor's comment) or an unregistered name is a
 // no-op: nothing to guard.
 //
@@ -105,7 +105,7 @@ func UnregisterForTesting(name string) {
 // any) that has to happen before the engine is launched at it.
 type InTreeAgentHomeSpec struct {
 	// EnvVar is the engine's home-relocation variable (CLAUDE_CONFIG_DIR,
-	// CODEX_HOME, KIRO_HOME).
+	// CODEX_HOME).
 	EnvVar string
 	// Dir is THIS SESSION's instance home, resolved through the owning engine
 	// package's own paths.SessionHomePath-derived helper — the engine package
@@ -114,9 +114,7 @@ type InTreeAgentHomeSpec struct {
 	// Prepare populates Dir before the engine is launched at it: the one-way
 	// copy-in of ambient host material (credentials today) plus any
 	// engine-specific scaffolding, returning an actionable error when there is
-	// nothing to authenticate with. nil when the backend needs neither (kiro,
-	// whose credentials live in a global store no home var relocates — a
-	// DECLARED empty ambient set, not an omission).
+	// nothing to authenticate with. nil when the backend needs neither.
 	Prepare func() error
 }
 
@@ -143,15 +141,14 @@ type InTreeAgentHomeSpec struct {
 //   - opencode has none because its only lever is XDG_CONFIG_HOME /
 //     XDG_DATA_HOME, which are not engine-private: relocating them moves git's,
 //     fish's and every other XDG-aware tool's config for the child too.
-//   - acp, mock and antigravity have no engine-global home for ctxloom to
-//     control.
+//   - mock has no engine-global home for ctxloom to control.
 //
 // codex USED to be an absentee, on the reasoning that it relocated CODEX_HOME
 // on every axis itself and a second contributor here would race the one that
 // works. The D2 ruling ended that asymmetry: codex reads config_home like
-// claude and kiro, its own resolver's non-isolated arm now lands on the real
+// claude, its own resolver's non-isolated arm now lands on the real
 // ~/.codex, and this seam is the single contributor of a controlled home for
-// all three.
+// both.
 func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) {
 	d, exists := lookup(name)
 	if !exists || d.inTreeAgentHome == nil {

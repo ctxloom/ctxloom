@@ -42,7 +42,7 @@ const (
 // j000400State is J000400's fixture state: which engine row (Outline A) is currently
 // materialized, and into which target dir.
 type j000400State struct {
-	engine string // current Examples row's backend name (claude-code/codex/kiro)
+	engine string // current Examples row's backend name (claude-code/codex)
 	target string // profile materialize --target dir for this row (relative to project root)
 
 	// handAuthoredBytes is the EXACT content the hand-authored fixture wrote
@@ -405,7 +405,7 @@ func j000400Excerpt(body, marker string, context int) string {
 }
 
 // engineContextRelPath returns dir-relative path to an engine's own native
-// context surface (internal/{claude,codex,kiro}/surfaces.go).
+// context surface (internal/{claude,codex}/surfaces.go).
 // Shared engine-axis knowledge: J000400's own materialization outline uses it
 // below, and J000800's onboarding journey reuses it rather than re-deriving a
 // second copy of the same per-engine path table (steps_j000800_onboarding.go's
@@ -421,8 +421,6 @@ func engineContextRelPath(dir, engine string) (string, error) {
 		return filepath.Join(dir, "CLAUDE.md"), nil
 	case "codex":
 		return filepath.Join(dir, "AGENTS.md"), nil
-	case "kiro":
-		return filepath.Join(dir, ".kiro", "steering", "ctxloom-context.md"), nil
 	case "opencode":
 		// opencode's ctxloom-owned context file, referenced from
 		// opencode.json's `instructions` key (internal/opencode's
@@ -472,8 +470,7 @@ func j000400ReadTOML(w *World, rel string) (map[string]any, error) {
 }
 
 // j000400AssertMCP parses each engine's MCP registry in its own native format
-// (JSON's shared "mcpServers" table for claude/kiro — the same
-// agent.MCPFileConfig reconciler backs both — or codex's TOML
+// (JSON's "mcpServers" table for claude — or codex's TOML
 // "mcp_servers" table folded into config.toml) and asserts the shared
 // server's command landed under its name.
 func j000400AssertMCP(w *World, engine string) error {
@@ -556,8 +553,8 @@ func j000400AssertCtxloomMCPInvocation(w *World, engine, want string) error {
 }
 
 // j000400MCPRegistryFor names the file an engine keeps its MCP registry in, and the
-// table key inside it. claude-code and kiro share JSON's "mcpServers" (one
-// agent.MCPFileConfig reconciler backs both); codex folds "mcp_servers"
+// table key inside it. claude-code uses JSON's "mcpServers"
+// (agent.MCPFileConfig's reconciler); codex folds "mcp_servers"
 // into the same config.toml its hooks live in; opencode folds "mcp" into the
 // same opencode.json its `instructions` context reference lives in.
 //
@@ -571,8 +568,6 @@ func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 	switch engine {
 	case "claude-code":
 		return filepath.Join(dir, ".mcp.json"), "mcpServers", nil
-	case "kiro":
-		return filepath.Join(dir, ".kiro", "settings", "mcp.json"), "mcpServers", nil
 	case "codex":
 		return "", "", fmt.Errorf("j000400: codex has no materialized MCP registry to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
 	case "opencode":
@@ -629,7 +624,7 @@ func j000400FormatArgs(v any) string {
 }
 
 // j000400HookCommandsFrom walks a decoded hooks event value — which is, depending
-// on the engine, either a flat list of {matcher, command} entries (kiro) or a
+// on the engine, either a flat list of {matcher, command} entries or a
 // list of {matcher, hooks: [{type, command}]} groups (claude, codex) — and
 // collects every command found, so one walker serves every engine's own
 // shape.
@@ -652,8 +647,7 @@ func j000400HookCommandsFrom(v any) []string {
 }
 
 // j000400AssertHook parses each engine's own hook configuration (claude's
-// .claude/settings.json "hooks.SessionStart", kiro's agent JSON
-// "hooks.agentSpawn" — kiro diverts session_start to its own event name —
+// .claude/settings.json "hooks.SessionStart",
 // codex's config.toml "hooks.SessionStart" folded into the same file MCP
 // lives in) and asserts the shared hook's command landed under the right
 // event.
@@ -671,10 +665,6 @@ func j000400AssertHook(w *World, engine string) error {
 		rel = filepath.Join(dir, ".claude", "settings.json")
 		doc, err = j000400ReadJSON(w, rel)
 		event = "SessionStart"
-	case "kiro":
-		rel = filepath.Join(dir, ".kiro", "agents", "ctxloom.json")
-		doc, err = j000400ReadJSON(w, rel)
-		event = "agentSpawn"
 	case "codex":
 		// No row, for the same reason j000400MCPRegistryFor has none: codex's
 		// hooks live in $CODEX_HOME/config.toml, which a harpless materialize
@@ -700,20 +690,14 @@ func j000400AssertHook(w *World, engine string) error {
 	}
 	// Surface the real event name and command this engine's own hook
 	// configuration carries to the @doc capture sidecar (set-and-consume;
-	// no-op when capture is off) — kiro diverts session_start to its own
-	// "agentSpawn" event name, which the note below makes visible rather than
-	// leaving it as a fact only findable by re-reading the Go source.
+	// no-op when capture is off).
 	//
 	// This used to print j000400HookCommand (the WANT, restating the
 	// claim) rather than cmds (what was actually parsed out of the generated
 	// file) — so a failing assertion published evidence that looked
 	// identical whether the real command matched or not. Now prints cmds,
 	// matching j000400AssertMCP's own pattern.
-	note := ""
-	if engine == "kiro" {
-		note = "  (kiro diverts session_start → agentSpawn, its own event name)"
-	}
-	w.docStepMaterialized = fmt.Sprintf("%s → hooks.%s%s\n  commands: %v", rel, event, note, cmds)
+	w.docStepMaterialized = fmt.Sprintf("%s → hooks.%s\n  commands: %v", rel, event, cmds)
 	if found {
 		return nil
 	}
@@ -722,9 +706,7 @@ func j000400AssertHook(w *World, engine string) error {
 
 // j000400AssertCommand asserts the shared command's body reached each engine's own
 // command file path — claude/codex flatten the "<bundle>/<item>" export name's
-// slash to a dash (backends/commandfiles.go's exportNames), while kiro
-// preserves it as a subdirectory (internal/kiro/capabilities.go), rendering
-// commands as `<name>/SKILL.md` directories.
+// slash to a dash (backends/commandfiles.go's exportNames).
 // j000400LostArtifacts maps the Gherkin phrase naming a shared artifact to the
 // sentinel that proves it landed. One map, so an absence claim and its matching
 // presence claim can never be about different bytes.
@@ -797,8 +779,6 @@ func j000400AssertCommand(w *World, engine string) error {
 		// No row: codex's prompts are $CODEX_HOME-global, so a harpless
 		// materialize writes none (internal/codex/declared_absence.go).
 		return fmt.Errorf("j000400: codex has no materialized command file to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
-	case "kiro":
-		rel = filepath.Join(dir, ".kiro", "skills", "team", "onboarding", "SKILL.md")
 	case "opencode":
 		rel = filepath.Join(dir, ".opencode", "command", "team", "onboarding.md")
 	default:

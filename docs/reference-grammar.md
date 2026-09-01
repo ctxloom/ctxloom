@@ -42,7 +42,7 @@ never a local file.
 ## Profile references
 
 Accepted wherever a profile is named (`run -p`,
-`--parent`, `agents:` profile lists (including the default agent's), `acp --profile`,
+`--parent`, `agents:` profile lists (including the default agent's),
 MCP `assemble_context`):
 
 | Spelling | Meaning |

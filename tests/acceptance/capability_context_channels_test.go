@@ -183,7 +183,7 @@ func TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace(t *testi
 	require.False(t, ok,
 		"unsafe-file is the caller's explicit request for the native in-workspace write; a realization here would silently convert it and make the two claude cells measure the same thing")
 
-	for _, engine := range []string{"codex", "kiro", "opencode"} {
+	for _, engine := range []string{"codex", "opencode"} {
 		for _, a := range []agent.Approach{agent.ApproachUnsafeFile, agent.ApproachHook, agent.ApproachSystemPrompt} {
 			_, ok := build(engine).SharedRealization(agent.SurfaceContext, a)
 			require.False(t, ok,

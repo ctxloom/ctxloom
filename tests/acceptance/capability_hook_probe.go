@@ -15,8 +15,8 @@
 // the right hook bytes into each engine's own native hook surface. Row 7 —
 // bundles.HookEvent*, the hooks actually FIRING — is proven NOWHERE, hermetic or
 // live. Those two rows are one step apart and the step is a vendor binary we do
-// not control: ctxloom writes .claude/settings.json / $CODEX_HOME/config.toml /
-// .kiro/agents/<name>.json, and then CLAUDE, CODEX or KIRO decides whether to
+// not control: ctxloom writes .claude/settings.json / $CODEX_HOME/config.toml,
+// and then CLAUDE or CODEX decides whether to
 // read that file and exec the command in it. Carriage is our behaviour; firing
 // is theirs. A suite that only ever checks carriage is measuring the half it
 // already controls.
@@ -74,12 +74,11 @@ import (
 // it prints. claude declares ApproachHook too, but claude's SurfaceFor resolves
 // that pair to noopContextDelivery — the documented no-op that never carries —
 // so ctxloom does not deliver claude's context that way and this probe must not
-// pretend it can observe it. kiro reads steering files instead and its
-// ApproachTable has no hook entry at all; opencode has no hook mechanism.
+// pretend it can observe it. opencode has no hook mechanism.
 //
 // Getting this wrong in the permissive direction is the expensive mistake: it
-// would red claude and kiro cells for failing to do something ctxloom never
-// asked them to do, and a red that blames the wrong subsystem is worse than no
+// would red claude's cell for failing to do something ctxloom never
+// asked it to do, and a red that blames the wrong subsystem is worse than no
 // cell at all.
 func hookProbeIngestsHookStdout(engine string) bool {
 	return engine == "codex"
@@ -196,9 +195,9 @@ func hookProbeBundleYAML(scriptPath, stampHarp string) string {
 // file on disk; the model's words are not read at all beyond "the run produced
 // something", so asking for anything elaborate would buy tokens to inspect
 // output nobody inspects — and would import the output-contract flakiness that
-// belongs to P0, not here. The live example of why that matters is kiro, whose
-// host/none P0 cell is red-mapped for terminal decoration leaking into stdout:
-// a P3 kiro cell that parsed stdout would inherit that red and report a
+// belongs to P0, not here. The live example of why that matters is an engine
+// whose host/none P0 cell is red-mapped for terminal decoration leaking into
+// stdout: a P3 cell that parsed stdout would inherit that red and report a
 // hook-firing failure that is nothing of the kind.
 //
 // For a stage-(b) cell the prompt asks for the phrase the hook's own output put

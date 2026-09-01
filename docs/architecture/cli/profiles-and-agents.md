@@ -4,7 +4,7 @@ A **profile** is a named, inheritable composition of fragments, commands, skills
 MCP servers and hooks — the unit `ctxloom run -p` and every agent binding
 compose. An **agent** is a named local binding of `{profiles, engine, runtime,
 workspace, permissions, driving, coordinator}` that `ctxloom run --agent`,
-`ctxloom acp server --agent` and `agent_run` (MCP delegation) all resolve
+and `agent_run` (MCP delegation) all resolve
 through. Both trees are thin cobra frontends over `internal/operations`; the
 resolution logic itself lives there, not here.
 
@@ -38,11 +38,11 @@ flowchart TD
     agent --> OPSA
 
     COMP["completion seams — agent.go:424-433, completion.go"]
-    COMP --> CWN["completeWorkspaceNames :424 — used by run, acp"]
+    COMP --> CWN["completeWorkspaceNames :424 — used by run"]
     COMP --> CAN["completeAgentNames :429 — 5 call sites"]
     COMP --> CPN["completeProfileNames — completion.go:93, 16 call sites"]
 
-    RUN[["run.go / acp_cmd.go / mcp agent_run"]] --> OPSA
+    RUN[["run.go / mcp agent_run"]] --> OPSA
 ```
 
 ## `ctxloom profile` (`profile.go:19`)
@@ -86,7 +86,7 @@ be unit-tested without mutating package state.
 Completions registered at `agent.go:392`: runtime names via
 `isolation.RuntimeNames()` (`:413`), driving modes via `agents.DrivingModeNames()`
 (`:417`), workspace names via `completeWorkspaceNames` (`:424`, shared with `run`
-and `acp`), agent names via `completeAgentNames` (`:429`, 5 call sites).
+), agent names via `completeAgentNames` (`:429`, 5 call sites).
 
 ### The completion seams (`completion.go`)
 

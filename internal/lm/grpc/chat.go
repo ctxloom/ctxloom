@@ -17,8 +17,8 @@ import (
 )
 
 // This file carries the structured-chat transport: a bidirectional stream that
-// drives a backend's StructuredChat capability (claude-code rides the ACP adapter)
-// — user messages in, normalized turn events out, no pty. The capability is
+// drives a backend's StructuredChat capability — user messages in,
+// normalized turn events out, no pty. The capability is
 // OPTIONAL: the server type-asserts it and returns UNIMPLEMENTED when absent.
 
 // --- conversions (agent <-> proto) ---
@@ -404,10 +404,10 @@ type chatRecvStream interface {
 // recorder could not be opened — capture is best-effort and never blocks,
 // delays or alters the chat it shadows.
 //
-// S2: this is THE host seam behind `ctxloom run --structured` and
-// `ctxloom acp` (plan §2c). The harp rides req.Env[SessionHarpEnv]: acp_cmd.go
-// already stamps it there for the engine subprocess's own env, and it is
-// equally available here without any ChatRequest field addition.
+// S2: this is THE host seam behind `ctxloom run --structured`. The harp
+// rides req.Env[SessionHarpEnv], stamped there for the engine subprocess's
+// own env, and it is equally available here without any ChatRequest field
+// addition.
 //
 // S4 verified this env-var plumbing rather than adding to it: run.go's
 // AssignSession (cmd/run.go, unconditional since well before S2/S4) mints

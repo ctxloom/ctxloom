@@ -5,8 +5,8 @@
 // internal/lm/grpc.RetiredScraperBackendNames, internal/operations'
 // vendorReaderRegistry, internal/lm/isolation's composableEngines, and
 // internal/lm/isolation's credentialSeedSpecs — and internal/operations (the
-// ADR-0026 core) imported internal/claude/codex/kiro directly to branch on
-// backend identity (hooks.go's checkHookTargetScope, delegate.go's
+// ADR-0026 core) imported concrete engine plugin packages directly to branch
+// on backend identity (hooks.go's checkHookTargetScope, delegate.go's
 // resolveChatModel), a literal violation of the ports-and-adapters boundary
 // docs/adr/0026-ports-and-adapters.md and docs/adr/0020-operations-llm-
 // boundary.md already name: operations may depend only on the injected,
@@ -17,9 +17,10 @@
 //
 //   - TestArch_Operations_DoesNotImportEnginePlugins is the layering gate: it
 //     re-catches the confirmed violation the moment a future change
-//     reintroduces a direct internal/operations -> internal/{claude,codex,
-//     kiro,opencode,acp} import edge, by the same AST-parse
-//     technique TestArch_NonTestPackages_DoNotImportTestSupport already uses
+//     reintroduces a direct internal/operations -> engine-plugin import
+//     edge (the packages enginePluginImportPaths names), by the same
+//     AST-parse technique TestArch_NonTestPackages_DoNotImportTestSupport
+//     already uses
 //     in this package (production (non-_test.go) imports only, so a test
 //     double importing an engine package for fixture purposes never trips
 //     it).
@@ -40,8 +41,8 @@
 //     roster member that has drifted out of registration does.
 //
 // Neither gate forces every roster to contain every registered backend: an
-// engine legitimately absent from a roster (e.g. "acp" from
-// vendorReaderRegistry — it has no vendor-native transcript store) is not a
+// engine legitimately absent from a roster (one with no vendor-native
+// transcript store is absent from vendorReaderRegistry, say) is not a
 // failure. The gate is a floor (every listed name is real), not a ceiling
 // (every real name must be listed everywhere).
 package arch
@@ -60,16 +61,12 @@ import (
 
 // enginePluginImportPaths are the concrete, engine-identity-branching plugin
 // packages ADR-0020/0026 reserve for internal/lm/backends (and each plugin's
-// own family — see internal/acptest's sibling "one door" invariant for
-// internal/acp specifically). Nothing else in the module's core may import
-// them directly; internal/operations doing so for
-// claude/codex/kiro was T12's confirmed violation.
+// own family). Nothing else in the module's core may import them directly;
+// internal/operations doing so was T12's confirmed violation.
 var enginePluginImportPaths = []string{
 	modulePath + "/internal/claude",
 	modulePath + "/internal/codex",
-	modulePath + "/internal/kiro",
 	modulePath + "/internal/opencode",
-	modulePath + "/internal/acp",
 }
 
 // TestArch_Operations_DoesNotImportEnginePlugins is the layering half of

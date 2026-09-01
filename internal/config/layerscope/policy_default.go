@@ -205,7 +205,5 @@ func DefaultPolicy() Policy {
 
 		{Path: "ui.prefix_key", Scope: ScopePreference, Note: "its own doc: flag/env never lives here — only presentation preferences"},
 		{Path: "ui.surround", Scope: ScopePreference, Note: "its own doc: flag/env never lives here — only presentation preferences"},
-
-		{Path: "acp_local_terminal", Scope: ScopeMachine, Note: "whether THIS box has tmux to serve terminal/* locally"},
 	}
 }

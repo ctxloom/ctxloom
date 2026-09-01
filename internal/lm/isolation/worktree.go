@@ -58,7 +58,7 @@ const worktreeScratchPrefix = "ctxloom-wt"
 
 // Worktree is the fan-out CONFIG-isolation policy: each member runs in its own
 // per-agent git worktree, so the existing native writers (.mcp.json/.claude/
-// AGENTS.md/.kiro/) populate an isolated cwd instead of clobbering the one shared
+// AGENTS.md) populate an isolated cwd instead of clobbering the one shared
 // project surface. It is NOT a security boundary — only container bypasses
 // approvals — so approvals stay Prompt. SpawnClient is the SAME bare self-invoked
 // subprocess as None; the isolation is expressed purely via the worktree cwd
@@ -115,7 +115,7 @@ func (Worktree) Name() string { return "worktree" }
 // workspace.
 //
 // The lever, when the backend is registered in credentialSeedSpecs (auth.go),
-// is a SCOPED env var (CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME) pointed at a
+// is a SCOPED env var (CLAUDE_CONFIG_DIR/CODEX_HOME) pointed at a
 // per-agent subdir; the rest of the process env, including HOME, is
 // untouched. A backend not in that registry gets the pre-fix,
 // config-only-isolation no-op (no per-agent env at all).
@@ -300,7 +300,7 @@ func (w Worktree) provisionConfigHome(agentID, workDir string) (home string, den
 // backend's HomeVars at. Seeding alone does not: hostCredentialSeed creates
 // spec.destSubdir and nothing else, and only on the path where there was
 // something to seed — so an engine that authenticates from its envTrigger, or
-// one with no seedable files at all (kiro), is otherwise handed a scoped var
+// one with no seedable files at all, is otherwise handed a scoped var
 // naming a directory nobody created. 0700 like every sibling scratch dir here:
 // these hold engine config/state, and leaving the engine to mkdir them itself
 // yields whatever its umask says instead. denied vars are skipped — Env() does
@@ -325,10 +325,10 @@ func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) 
 
 // seedCredentials seeds w.backend's subscription credentials into the per-agent
 // config-home when the backend has a registered credentialSeedSpec (auth.go)
-// with copyable sourceFiles (claude/codex — HonoursVarForCreds true: an engine
-// whose isolation env var relocates CREDENTIALS, not just config), or — for a
+// with copyable sourceFiles (HonoursVarForCreds true: an engine whose
+// isolation env var relocates CREDENTIALS, not just config), or — for a
 // HonoursVarForCreds==false spec whose creds live in an unrelocatable global
-// store (kiro) — gates each GatedOnCreds HomeVar on its bypass env instead (see
+// store — gates each GatedOnCreds HomeVar on its bypass env instead (see
 // gateHomeVars). No spec (w.backend == "", or a backend genuinely left out of
 // the registry, with no host isolation lever at all) is a silent no-op: the
 // pre-fix, config-only provisioning.
@@ -370,18 +370,17 @@ func (w Worktree) seedCredentials(configHome, agentID, workDir string) map[strin
 	return nil
 }
 
-// gateHomeVars decides, for a HonoursVarForCreds==false spec (kiro — its
-// credentials live in a global sqlite no per-agent HomeVar relocates), whether
+// gateHomeVars decides, for a HonoursVarForCreds==false spec (one whose
+// credentials live in a global store no per-agent HomeVar relocates), whether
 // each GatedOnCreds HomeVar is safe to isolate: safe when spec.envTrigger is
-// present in the process env (the agent authenticates under a fresh var via
-// that key — live-verified for kiro: KIRO_API_KEY + a fresh XDG_DATA_HOME
-// authenticates headlessly, no browser). When it is absent, isolating that var
+// present in the process env, so the agent can authenticate under a fresh var
+// via that key. When it is absent, isolating that var
 // would silently strand the agent logged out of a credential store it can never
 // reach again, so this records a
 // ClassIsolation fail-loud finding (degradable via --degraded) and returns the
 // var DENIED — Env() omits it, so the agent falls back to the engine's shared
-// global store instead. Non-gated HomeVars on the same spec (kiro's KIRO_HOME —
-// kiro's whole home, but no creds) are never denied.
+// global store instead. Non-gated HomeVars on the same spec — those relocating
+// config/state but no credentials — are never denied.
 func (w Worktree) gateHomeVars(spec credentialSeedSpec, agentID string) map[string]bool {
 	granted := spec.envTrigger != "" && os.Getenv(spec.envTrigger) != ""
 	var denied map[string]bool
@@ -457,8 +456,8 @@ type worktreeWorkspace struct {
 	// HomeVars set.
 	backend string
 	// deniedHomeVars names GatedOnCreds env vars seedCredentials decided NOT
-	// to isolate (gateHomeVars — kiro's XDG_DATA_HOME with no KIRO_API_KEY);
-	// Env() omits them.
+	// to isolate (gateHomeVars: a credential-relocating var whose spec's
+	// bypass env is unset); Env() omits them.
 	deniedHomeVars map[string]bool
 	// agentID is the member label PrepareWorkspace was given (Worktree.
 	// PrepareWorkspace's agentID param, copied at construction) — Env() uses
@@ -478,12 +477,11 @@ var _ EnvWorkspace = (*worktreeWorkspace)(nil)
 // Dir returns the worktree checkout the member's engine runs in.
 func (w *worktreeWorkspace) Dir() string { return w.dir }
 
-// Env returns the per-agent host-lever envs. configHome set (claude/codex/
-// kiro): the SCOPED config-home envs that isolate each engine's GLOBAL
-// config/state/creds home (T0.6, widened per per-engine-isolation-home plan
-// §6), driven entirely by credentialSeedSpecs[w.backend].HomeVars —
-// claude/codex each get their one var, kiro gets two (KIRO_HOME always,
-// XDG_DATA_HOME unless gateHomeVars denied it). HOME itself is left
+// Env returns the per-agent host-lever envs. configHome set: the SCOPED
+// config-home envs that isolate each engine's GLOBAL config/state/creds home
+// (T0.6, widened per per-engine-isolation-home plan §6), driven entirely by
+// credentialSeedSpecs[w.backend].HomeVars — one entry per var that engine
+// isolates, less any gateHomeVars denied. HOME itself is left
 // untouched, deliberately: a blanket HOME override would strip the
 // ~/.gitconfig/~/.ssh identity the worktree still needs for git itself,
 // which a scoped var avoids by construction.

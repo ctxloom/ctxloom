@@ -1,12 +1,12 @@
 package agent_test
 
 // This file exercises the SurfaceSelection builder (Select/Build/ResolvedSelection
-// — vital-tiger v2) against the REAL backend Surfaces (claude/codex/kiro),
+// — vital-tiger v2) against the REAL backend Surfaces,
 // proving the per-provider dispatch tables (S2) integrate correctly with the
 // generic builder BEFORE any caller is wired onto it (materialize/apply/remove/
 // launch are migrated separately, plan S4). It is an EXTERNAL test package
 // (agent_test, not agent) because internal test files cannot import a package
-// that itself imports the package under test — claude/codex/kiro all import
+// that itself imports the package under test — the engine packages all import
 // internal/shared/agent, so this file must live outside it to avoid the Go
 // toolchain's "import cycle not allowed in test" restriction.
 
@@ -23,7 +23,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
-	"github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -53,12 +53,12 @@ type fixedPlacement struct{ dir string }
 func (p fixedPlacement) Dir() string { return p.dir }
 
 // Build validates a named approach against the backend's SupportedApproaches:
-// SystemPrompt is claude-only — kiro and codex (native-file-only / hook-only
-// context, respectively) both reject it.
-func TestBuild_RejectsSystemPrompt_OnKiroAndCodex(t *testing.T) {
-	kiroSet := kiro.NewSurfaces(agent.SurfaceInputs{}, nil)
-	_, err := agent.Select(kiroSet).WithContext(agent.ContextWriteSystemPrompt).Build()
-	assert.Error(t, err, "kiro's context is native-file-only; system-prompt is unsupported")
+// SystemPrompt is claude-only — opencode and codex (native-file-only /
+// hook-only context, respectively) both reject it.
+func TestBuild_RejectsSystemPrompt_OnOpencodeAndCodex(t *testing.T) {
+	opencodeSet := opencode.NewSurfaces(agent.SurfaceInputs{}, nil)
+	_, err := agent.Select(opencodeSet).WithContext(agent.ContextWriteSystemPrompt).Build()
+	assert.Error(t, err, "opencode's context is native-file-only; system-prompt is unsupported")
 
 	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, "", "", nil)
 	_, err = agent.Select(codexSet).WithContext(agent.ContextWriteSystemPrompt).WithSettings(agent.SettingsWriteUnsafeFile).Build()
@@ -69,15 +69,16 @@ func TestBuild_RejectsSystemPrompt_OnKiroAndCodex(t *testing.T) {
 // downgraded to the backend's default — a caller who asked for one delivery and
 // silently received another would have no way to tell.
 //
-// kiro is the example because it reads a native steering file and has no hook
-// route at all. This test used to use CODEX and unsafe-file, on the grounds that
-// codex had no native context file; codex reads a workspace-fixed AGENTS.md and
-// now declares that approach, so the pair it asserted was unsupported is
-// supported and the test was pinning a limitation rather than a contract.
+// opencode is the example because its context surface declares unsafe-file
+// ALONE — a native file with no hook route at all. This test used to use CODEX
+// and unsafe-file, on the grounds that codex had no native context file; codex
+// reads a workspace-fixed AGENTS.md and now declares that approach, so the pair
+// it asserted was unsupported is supported and the test was pinning a
+// limitation rather than a contract.
 func TestBuild_RejectsUnsupportedContextApproach(t *testing.T) {
-	kiroSet := kiro.NewSurfaces(agent.SurfaceInputs{}, nil)
-	_, err := agent.Select(kiroSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
-	assert.Error(t, err, "kiro's context is native-file-only; hook is unsupported and must be refused, not downgraded")
+	opencodeSet := opencode.NewSurfaces(agent.SurfaceInputs{}, nil)
+	_, err := agent.Select(opencodeSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
+	assert.Error(t, err, "opencode's context is native-file-only; hook is unsupported and must be refused, not downgraded")
 }
 
 // The Hook approach rides the settings-carried inject hook: naming it without
@@ -155,14 +156,14 @@ func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *te
 		"context, commands, and skills all warn; only mcp/settings convert silently via SharedRealization (their sole approach IS the one that realizes)")
 }
 
-// A backend with NO SharedRealization for any surface (codex, kiro —
+// A backend with NO SharedRealization for any surface (codex, opencode —
 // only claude has one) falls back to the loud well-known write for EVERY
 // surface: the exact warning format survives (the substrings existing assertions
 // pin: "warning:", the surface name, "shared cwd"), and the write still proceeds.
 func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/live"
-	set := kiro.NewSurfaces(agent.SurfaceInputs{
+	set := opencode.NewSurfaces(agent.SurfaceInputs{
 		Commands: []agent.CommandExport{{Name: "review", Content: "do it", Enabled: true}},
 	}, fs)
 
@@ -180,6 +181,6 @@ func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	assert.Contains(t, stderr, "commands")
 	assert.Contains(t, stderr, "shared cwd")
 
-	exists, _ := afero.Exists(fs, filepath.Join(dir, ".kiro", "skills", "review", "SKILL.md"))
+	exists, _ := afero.Exists(fs, filepath.Join(dir, ".opencode", "command", "review.md"))
 	assert.True(t, exists, "the well-known write proceeded into the shared cwd despite the warning")
 }

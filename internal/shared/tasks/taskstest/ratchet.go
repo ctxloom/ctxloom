@@ -52,7 +52,6 @@ var appDirEscapeRatchet = map[string]bool{
 	"internal/transcript":                     true,
 	"internal/transcript/vendorreader/claude": true,
 	"internal/transcript/vendorreader/codex":  true,
-	"internal/transcript/vendorreader/kiro":   true,
 	"internal/vpio/dockerexec":                true,
 
 	// The two isolation helpers themselves. Their own tests drive Isolate and

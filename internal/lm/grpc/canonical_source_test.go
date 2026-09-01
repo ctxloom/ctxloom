@@ -324,8 +324,8 @@ func (e *erroringListStore) ListForProject(projectDir string) ([]sessions.Entry,
 }
 
 // TestCanonicalFallbackSource_ListSessions_NoLegacy_CanonicalErrorPropagates
-// pins that legacy==nil is the retired-scraper case (codex, kiro,
-// antigravity, claude-code — S5, canonical is the ONLY source). Before the
+// pins that legacy==nil is the retired-scraper case (see
+// retiredScraperBackends — S5, canonical is the ONLY source). Before the
 // fix, `canonMetas, _ := f.canonical.ListSessions(ctx)` discarded the error
 // and returned (nil, nil) — a confident "no sessions" indistinguishable from
 // a project that genuinely has none. With no legacy leg to degrade to, the
@@ -432,7 +432,7 @@ func TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale(t *testing.T)
 // A red for this could not be shown: the defect is the shape of the API, so the
 // test only compiles once the accessors exist.
 func TestRetiredScraperRoster_IsClosedAndImmutable(t *testing.T) {
-	assert.Equal(t, []string{"claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
+	assert.Equal(t, []string{"claude-code", "codex"}, RetiredScraperBackendNames())
 
 	for _, name := range RetiredScraperBackendNames() {
 		assert.True(t, IsRetiredScraperBackend(name), "%s must be reported as retired", name)
@@ -445,7 +445,7 @@ func TestRetiredScraperRoster_IsClosedAndImmutable(t *testing.T) {
 	// roster itself.
 	got := RetiredScraperBackendNames()
 	got[0] = "tampered"
-	assert.Equal(t, []string{"claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
+	assert.Equal(t, []string{"claude-code", "codex"}, RetiredScraperBackendNames())
 	assert.False(t, IsRetiredScraperBackend("tampered"))
 }
 

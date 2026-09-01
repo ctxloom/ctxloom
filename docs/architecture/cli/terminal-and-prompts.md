@@ -113,7 +113,7 @@ Defined in `init.go`, consumed almost entirely from elsewhere.
   even if stdout happens to still be a tty.
 - **Diagnostics redirection is interactive-only.** `clidiag` warnings go to a
   per-harp log only under `mode == INTERACTIVE && !runPlainTerminal`
-  (`run.go:1224`). `--plain-terminal`, `ctxloom acp`, and bare `ctxloom mcp` are
+  (`run.go:1224`). `--plain-terminal` and bare `ctxloom mcp` are
   unprotected — a warning raised by a session-owning process on those paths lands
   on the terminal the engine may be drawing on.
 

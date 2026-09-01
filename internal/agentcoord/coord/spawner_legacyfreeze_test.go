@@ -19,7 +19,7 @@ import (
 // the replacement, not just a generic failure.
 func TestCheckLegacyChatFreeze(t *testing.T) {
 	t.Run("StartRun backends pass", func(t *testing.T) {
-		for _, backend := range []string{"claude-code", "codex", "kiro", "acp", "opencode"} {
+		for _, backend := range []string{"claude-code", "codex", "opencode"} {
 			assert.NoError(t, checkLegacyChatFreeze(backend), "backend %q", backend)
 		}
 	})

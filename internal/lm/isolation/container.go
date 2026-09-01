@@ -51,7 +51,7 @@ const (
 //
 // AUTH crosses the boundary deliberately and scoped (PrepareWorkspace → the
 // spec's resolveAuth): the container gets the engine's scoped env passthrough
-// (claude: ANTHROPIC_* when ANTHROPIC_API_KEY is set; kiro: KIRO_API_KEY) or the
+// (claude: ANTHROPIC_* when ANTHROPIC_API_KEY is set) or the
 // engine's credentials bind-mounted READ-ONLY into the fresh HOME (claude
 // subscription OAuth). No resolvable auth → PrepareWorkspace errors → the caller
 // degrades down the chain to None — a fatal finding (ClassIsolation) the choke
@@ -380,10 +380,9 @@ func sharedFSGateError(rt Runtime, perr error) error {
 // this Container, matching Prepare's withSessionState for the Container case
 // (isolation.go). Exposed for a caller that constructs a Container directly
 // via NewContainerFor rather than going through the Resolve/Prepare axes
-// chain — ISO1's ACP container transport (internal/acp), whose caller (an
-// editor-launched session) must never silently degrade a requested container
-// to the host: PrepareWorkspace's error is the ONLY outcome of a failed
-// gate, unlike chainFor's degrade-to-None-unless-strict chain.
+// chain. Such a caller must never silently degrade a requested container to
+// the host: on that path PrepareWorkspace's error is the ONLY outcome of a
+// failed gate, unlike chainFor's degrade-to-None-unless-strict chain.
 func (c Container) WithSessionState(state SessionState) Container {
 	c.state = state
 	if c.base != nil {

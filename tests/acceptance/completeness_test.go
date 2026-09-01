@@ -237,7 +237,7 @@ func TestCompleteness(t *testing.T) {
 	// agent-delegation surface with different schemas, and points its
 	// generated reference page at mcp.NewDocMCPServer() instead -- the
 	// RUNNER-terminated surface every harness actually sees through
-	// `ctxloom run`/`ctxloom acp serve`. Before this subtest, the tools that
+	// `ctxloom run`. Before this subtest, the tools that
 	// exist ONLY on that documented surface (roster, agent_report,
 	// agent_fetch_artifact -- named explicitly in mcpIntro's own caution
 	// block) had ZERO completeness coverage: they never appeared in

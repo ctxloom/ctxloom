@@ -47,7 +47,7 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
   WHICH APPROACHES EXIST IS THE ENGINE'S ANSWER, NOT OURS. The cells below are
   exactly the (engine, approach) pairs the engines' own `ApproachTable`s
   declare: claude-code carries all three for its context surface, codex carries
-  hook and unsafe-file, and kiro and opencode carry unsafe-file alone. A pair an
+  hook and unsafe-file, and opencode carries unsafe-file alone. A pair an
   engine does not declare has NO Examples row here — a scenario for a capability
   the engine says it does not have would skip forever and read as coverage — and
   the absence is written down in the probe registry

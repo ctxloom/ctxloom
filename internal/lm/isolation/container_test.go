@@ -326,10 +326,10 @@ func TestContainer_NilBaseIsUnreachable(t *testing.T) {
 // RunSpec whose Command was nil — renderRunSpec then emits nothing after the
 // image, so the container silently runs the IMAGE's default entrypoint instead
 // of what the caller asked for. That is this project's signature failure: a
-// success return with zero payload delivered, and the caller (internal/acp's
-// container transport) would go on to speak JSON-RPC at whatever the image's
-// entrypoint happens to be. The refusal must assert on the PAYLOAD (no spec, an
-// error naming the empty command), never on an exit code.
+// success return with zero payload delivered, and the caller would go on to
+// speak its protocol at whatever the image's entrypoint happens to be. The
+// refusal must assert on the PAYLOAD (no spec, an error naming the empty
+// command), never on an exit code.
 func TestContainer_ExecSpecRefusesEmptyCommand(t *testing.T) {
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
 	ws := &containerWorkspace{dir: t.TempDir(), agentID: "m"}
@@ -382,11 +382,11 @@ func TestContainer_ExecSpec_RoutesProjectMountAndWorkDirThroughMapper(t *testing
 // writes into the mounted project.
 //
 // containerFor already did that for an isolation_images override by clearing the
-// spec's build recipe. WithImage — the override internal/acp's container
-// transport uses for a per-agent container_image — swapped the image and left
-// the recipe in place, so runAsIs() stayed false, the identity check never ran,
-// and ensureImage would try to BUILD the user's tag locally when absent. The two
-// override paths must agree.
+// spec's build recipe. WithImage — the override used for a per-agent
+// container_image — swapped the image and left the recipe in place, so
+// runAsIs() stayed false, the identity check never ran, and ensureImage would
+// try to BUILD the user's tag locally when absent. The two override paths
+// must agree.
 func TestContainer_WithImageRunsAsIs(t *testing.T) {
 	rt := fakeRuntime{name: "docker", available: true}
 

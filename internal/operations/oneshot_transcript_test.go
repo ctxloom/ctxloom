@@ -57,8 +57,8 @@ func TestRunResolvedAgent_OneshotCapture_WritesTwoEntryTranscript(t *testing.T) 
 }
 
 // TestRunResolvedAgent_OneshotCapture_NoHarpWritesNothing pins the degrade
-// path: a caller with no harp in ExtraEnv (RunOneshot's own direct callers,
-// e.g. `acp run`, today) must not crash and must not write any transcript
+// path: a caller with no harp in ExtraEnv (RunOneshot's own direct callers)
+// must not crash and must not write any transcript
 // file — RecordOneshot's own empty-harp no-op, exercised end to end through
 // runResolvedAgent.
 func TestRunResolvedAgent_OneshotCapture_NoHarpWritesNothing(t *testing.T) {

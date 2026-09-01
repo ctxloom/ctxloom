@@ -20,7 +20,6 @@ import (
 // path its engine's own writer produces:
 //
 //	claude       ClaudeCodeHookWriter.MCPConfigPath  (.mcp.json)
-//	kiro         KiroWriter.mcpPath                  (.kiro/settings/mcp.json)
 //	opencode     OpencodeWriter.SettingsPath         (opencode.json, with the
 //	             servers folded in under its own "mcp" key)
 //
@@ -39,7 +38,6 @@ import (
 // report instead.
 var doctorMCPInvocationSurfaces = []string{
 	claude.MCPFileName,
-	filepath.Join(".kiro", "settings", "mcp.json"),
 	"opencode.json",
 }
 

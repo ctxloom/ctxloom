@@ -1,5 +1,5 @@
-// This file wires the three per-engine vendorreader.VendorAdapter implementations
-// (internal/transcript/vendorreader/{codex,claude,kiro}) into the two
+// This file wires the per-engine vendorreader.VendorAdapter implementations
+// (internal/transcript/vendorreader/{codex,claude}) into the two
 // call sites that actually need a converted transcript: the interactive-pty
 // exit seam (internal/cli/run.go, right where transcript.RecordOneshot hooks
 // the oneshot exit) and the recover_session MCP tool (mcp_tools_memory.go),
@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -34,7 +33,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
 	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
-	kiroreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/kiro"
 )
 
 // lockFileMode and lockDirMode are the modes the canonical-transcript
@@ -48,8 +46,7 @@ const (
 )
 
 // vendorLocate resolves the vendor-native transcript locator (the src string
-// vendorreader.VendorAdapter.Convert expects — a bare file path for every engine
-// but kiro, kiro's own "<db-path>#<conversation-id>" composite for it) for
+// vendorreader.VendorAdapter.Convert expects — a bare file path) for
 // one indexed session entry. ok=false means "nothing to convert" — an
 // unbound session, a bind whose file has since vanished, an engine this
 // registry doesn't cover — which is the ordinary case for most entries, not
@@ -70,33 +67,29 @@ type vendorReaderEntry struct {
 
 // vendorReaderRegistry maps a backend registry name — the SAME name
 // backends.descriptors registers it under (agent.NewBaseBackend's first arg:
-// config.BackendClaudeCode "claude-code", "codex", "kiro"),
+// config.BackendClaudeCode "claude-code", "codex"),
 // the plugin's own Info RPC reports, and transcript.RecordOneshot's engine
 // param already carries — to its VendorAdapter + locate pair. This is
 // deliberately the REGISTRY name, not the reader packages' own short test
-// names ("claude"/"codex"/"kiro" in their _test.go fixtures):
+// names ("claude"/"codex" in their _test.go fixtures):
 // using anything else would make a harp's oneshot-mode entries (Engine:
 // "claude-code") and its interactive-mode entries (this file) disagree about
 // which engine wrote a canonical transcript's Engine field.
 //
-// opencode/acp/mock have no entry: opencode's own native reader
+// opencode/mock have no entry: opencode's own native reader
 // (internal/opencode/capabilities.go) was never broken and stays wired
-// separately (docs/transcript-schema.md §8's explicit carve-out); acp/mock
-// have no vendor-native transcript store of their own to import from.
+// separately (docs/transcript-schema.md §8's explicit carve-out); mock
+// has no vendor-native transcript store of its own to import from.
 //
-// Two of the three engines PREFER the already-bound transcript path
-// (locateBoundTranscript): the SessionStart bind hook (claude/codex) already
-// resolved the vendor file for ctxloom's OWN index — see
-// sessions.Manager.BindSession — so there is no path-derivation logic to
-// duplicate here, and no chance of resurrecting the deleted reader's claude
-// cwd→slug bug (docs/transcript-schema.md §8). kiro is the one exception,
-// wired separately in vendorreader_kiro.go: its bind (on the rare path where
-// one lands at all) is a session_id, not a file path, because a single
-// sqlite db holds every conversation.
+// Every registered engine PREFERS the already-bound transcript path
+// (locateBoundTranscript): the SessionStart bind hook already resolved the
+// vendor file for ctxloom's OWN index — see sessions.Manager.BindSession —
+// so there is no path-derivation logic to duplicate here, and no chance of
+// resurrecting the deleted reader's claude cwd→slug bug
+// (docs/transcript-schema.md §8).
 var vendorReaderRegistry = map[string]vendorReaderEntry{
 	config.BackendClaudeCode: {adapters: claudereader.VersionedAdapters, locate: locateBoundTranscript},
 	"codex":                  {adapters: codexreader.VersionedAdapters, locate: locateBoundTranscript},
-	"kiro":                   {adapters: kiroreader.VersionedAdapters, locate: locateKiroConversation},
 }
 
 // VendorReaderEngineNames returns the backend names vendorReaderRegistry
@@ -118,14 +111,14 @@ func VendorReaderEngineNames() []string {
 
 // VendorReaderAdaptersFor returns the version-scoped transcript adapters
 // ctxloom carries for one engine, and whether that engine has a vendor reader
-// at all (opencode/acp/mock do not — see vendorReaderRegistry's doc).
+// at all (opencode/mock do not — see vendorReaderRegistry's doc).
 //
 // Exported read-only, for `ctxloom doctor`'s transcript-reader check: a user
 // meeting a vendorreader refusal needs the detected engine version against the
 // ranges ctxloom actually carries, and that is the whole diagnosis. It reads
 // THIS registry — the same one conversion reads — rather than having doctor
-// import the three reader packages and assemble a fifth engine-identity roster
-// of its own (the four that already exist are enumerated in
+// import the reader packages and assemble yet another engine-identity roster
+// of its own (the ones that already exist are enumerated in
 // tests/arch/engine_identity_arch_test.go).
 //
 // The slice is copied: it is built from the reader packages' VersionedAdapters
@@ -139,8 +132,8 @@ func VendorReaderAdaptersFor(engine string) ([]vendorreader.VersionedAdapter, bo
 	return slices.Clone(reg.adapters), true
 }
 
-// locateBoundTranscript is the locate func shared by every JSONL-per-session
-// engine (claude/codex): sessions.Entry.TranscriptPath already carries the
+// locateBoundTranscript is the locate func shared by every registered
+// engine: sessions.Entry.TranscriptPath already carries the
 // vendor file's path (bound forward by the SessionStart hook), so this only
 // stats it — a stale or since-removed bind degrades to "not found" rather
 // than handing Convert a dead path to fail on.
@@ -169,21 +162,13 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 // The source file's own mtime is the fix: it does not change unless src
 // itself is rewritten, so every record of every conversion of an unchanged
 // file gets the identical TS, run after run. src is a bare file path for
-// every registered engine except kiro, whose locate func
-// (locateKiroConversation) returns kiroreader.Locator's composite
-// "<db-path>#<conversation-id>" (kiro.go's own documented convention) — the
-// conversation lives inside that db file, so the db's mtime is the right
-// proxy for "this source changed" there too, hence the split before Stat.
+// every registered engine.
 //
 // A stat failure falls back to time.Now: it only degrades the clock, never
 // blocks the conversion attempt (an unreadable/vanished src fails
 // adapter.Convert itself moments later, on its own, real error).
 func vendorSourceClock(src string) func() time.Time {
-	path := src
-	if i := strings.LastIndex(src, "#"); i >= 0 {
-		path = src[:i]
-	}
-	info, err := os.Stat(path)
+	info, err := os.Stat(src)
 	if err != nil {
 		return func() time.Time { return time.Now().UTC() }
 	}

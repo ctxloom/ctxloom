@@ -39,8 +39,6 @@ func TestRegistryLookups_ResolveEveryAcceptedSpelling(t *testing.T) {
 
 			assert.True(t, Exists(spelling), "Exists(%q)", spelling)
 			assert.True(t, EnforcesReadOnlyPlan(spelling), "EnforcesReadOnlyPlan(%q)", spelling)
-			assert.Equal(t, ACPTransportFor("claude-code"), ACPTransportFor(spelling),
-				"ACPTransportFor(%q) disagrees with the canonical name", spelling)
 
 			cfg, err := DecodeLLMConfig(spelling, map[string]interface{}{})
 			require.NoError(t, err, "DecodeLLMConfig(%q)", spelling)
@@ -71,7 +69,6 @@ func TestRegistryLookups_StillRefuseAnUnknownName(t *testing.T) {
 			assert.Nil(t, Get(name), "Get(%q) must not resolve", name)
 			assert.False(t, Exists(name), "Exists(%q) must be false", name)
 			assert.False(t, EnforcesReadOnlyPlan(name), "EnforcesReadOnlyPlan(%q) must be false", name)
-			assert.Equal(t, agent.ACPTransport{}, ACPTransportFor(name), "ACPTransportFor(%q) must be the zero value", name)
 			assert.Nil(t, GetSettingsWriter(name, afero.NewMemMapFs()), "GetSettingsWriter(%q) must be nil", name)
 
 			_, err := DecodeLLMConfig(name, map[string]interface{}{})

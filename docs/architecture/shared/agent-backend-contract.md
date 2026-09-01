@@ -46,7 +46,6 @@ classDiagram
         +Env envMap
         -workDir string
         -launcher Launcher
-        -acpTransport *ACPTransport
     }
     class BaseLifecycle {
         -backendName string
@@ -103,10 +102,9 @@ classDiagram
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `BaseBackend` | `internal/shared/agent/base.go:46` | Embedded identity + launch state every concrete backend reuses; also carries the `ACPTransport` declaration (parked here only to avoid an import cycle). |
+| `BaseBackend` | `internal/shared/agent/base.go:46` | Embedded identity + launch state every concrete backend reuses. |
 | `NewBaseBackend` | `internal/shared/agent/base.go:83` | The only constructor that guarantees non-nil `Args` and `Env` maps. |
 | `BaseBackend.SetLauncher` | `internal/shared/agent/base.go:59` | Injects the launcher. |
-| `BaseBackend.SetACPTransport` / `.ACPTransport` | `internal/shared/agent/base.go:71` / `:78` | Write/read half of the ACP transport declaration seam. |
 | `BaseBackend.Name` / `.Version` | `internal/shared/agent/base.go:93` / `:98` | Identity getters satisfying `Backend`. |
 | `BaseBackend.GetBinaryPath` | `internal/shared/agent/base.go:105` | Satisfies `backends.BinaryPathProvider`. |
 | `BaseBackend.SupportedModes` | `internal/shared/agent/base.go:110` | Returns both execution modes. |

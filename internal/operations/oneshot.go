@@ -20,10 +20,10 @@ import (
 )
 
 // RunOneshotRequest specifies a single profile-agent oneshot run: assemble a
-// profile's context, launch its backend once, and capture stdout. `ctxloom acp
-// client` and the init auth-ping both build on it directly; a delegated
-// child's oneshot fallback and `ctxloom run --print` mirror the same tail
-// (runResolvedAgent) without going through this facade.
+// profile's context, launch its backend once, and capture stdout. The init
+// auth-ping builds on it directly; a delegated child's oneshot fallback and
+// `ctxloom run --print` mirror the same tail (runResolvedAgent) without going
+// through this facade.
 type RunOneshotRequest struct {
 	Profile   string // profile whose context specializes this agent (may be empty)
 	Task      string // the prompt/task sent to the agent
@@ -402,7 +402,7 @@ func resolveOneshotPermissions(reqPerm, labelPerm, projectPerm string) string {
 // backend cannot enforce, silently ran at full bypass with no warning
 // anywhere — the same silent-elevation shape as the ONE-SHOT ARM bug this
 // refusal closes, just reached through the fan/delegated-child path instead
-// of `acp run --one-shot`. Elevating to the most permissive setting because a
+// of the one-shot arm itself. Elevating to the most permissive setting because a
 // posture could not be honoured headless is worse than refusing.
 //
 // A posture the parser does not RECOGNISE is a different input from an unset
@@ -607,7 +607,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	}
 
 	// A oneshot exists ONLY to capture output — this tail is shared by
-	// a delegated oneshot turn and `acp run` (and mirrored by `run --print`),
+	// a delegated oneshot turn and every headless run (mirrored by `run --print`),
 	// and every one of them publishes res.Output as the run's whole product
 	// (a child's assistant SessionEntry, RunOneshotResult.Output). Exit 0
 	// with zero bytes is therefore never "nothing to do, legitimately": it is an
@@ -629,7 +629,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	// transcript.RecordOneshot's doc. The harp rides req.ExtraEnv exactly
 	// like the delegated-child structured path (agent.SessionHarpEnv,
 	// stamped by coord/children.go's childEnv); RunOneshot's own direct
-	// callers (`acp run`, the init auth-ping) carry no harp and degrade to
+	// caller (the init auth-ping) carries no harp and degrades to
 	// RecordOneshot's own empty-harp no-op. Best-effort: a capture failure
 	// warns but must never fail an otherwise-successful run.
 	if harp := req.ExtraEnv[agent.SessionHarpEnv]; harp != "" {

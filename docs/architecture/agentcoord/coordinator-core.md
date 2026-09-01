@@ -102,7 +102,7 @@ because both are fixed at enqueue and never mutated.
 
 `identity.go` is the canonical explanation of the reach-back seam (the `Env*` block);
 three other packages duplicate the *values* to avoid an import cycle
-(`lm/isolation/none.go:9`, `acp/container_transport.go:16`, `mcp/mcp_forward.go:32`).
+(`lm/isolation/none.go:9`, `mcp/mcp_forward.go:32`).
 
 **Divergences.**
 - `RevokeSessionOwner` (`coordinator.go:590`) has **zero call sites anywhere,

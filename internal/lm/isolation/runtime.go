@@ -161,12 +161,11 @@ func (f funcMapper) toContainer(hostPath string) string { return f(hostPath) }
 // NewDockerWithMapperForTest builds a Docker runtime carrying a custom
 // host→container path-mapping function. mapper() is deliberately UNEXPORTED
 // (this interface's own doc: "not part of the public contract external
-// packages implement"), so a package outside internal/lm/isolation — notably
-// internal/acp's container reach-back test — has no other way to construct a
-// NON-IDENTITY Runtime and prove its call site actually routes a mount
-// through the mapper seam rather than hardcoding Host==Container. No
-// production caller uses this; every real construction path still passes a
-// nil pathMap (identity).
+// packages implement"), so a package outside internal/lm/isolation has no
+// other way to construct a NON-IDENTITY Runtime and prove its call site
+// actually routes a mount through the mapper seam rather than hardcoding
+// Host==Container. No production caller uses this; every real construction
+// path still passes a nil pathMap (identity).
 func NewDockerWithMapperForTest(toContainer func(hostPath string) string) Docker {
 	return Docker{ociRuntime: ociRuntime{pathMap: funcMapper(toContainer)}}
 }

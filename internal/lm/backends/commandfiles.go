@@ -50,17 +50,9 @@ func codexExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	})
 }
 
-// kiroExports resolves the kiro per-prompt LLM export config.
-func kiroExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
-		k := p.LLM.Kiro
-		return agent.CommandExport{Enabled: k.IsEnabled(), Description: k.Description}
-	})
-}
-
 // opencodeExports resolves the opencode per-prompt LLM export config. opencode
 // commands carry only a description in their frontmatter (the body is the
-// template), so — like kiro — only enablement + description are mapped.
+// template), so only enablement + description are mapped.
 func opencodeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
 		o := p.LLM.Opencode

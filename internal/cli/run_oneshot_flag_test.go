@@ -37,28 +37,3 @@ func TestRunPrint_IsRetiredNotAliased(t *testing.T) {
 	assert.Empty(t, runCmd.Flags().Lookup("one-shot").Deprecated,
 		"--one-shot is the flag, not a deprecation wrapper around one")
 }
-
-// TestACPRun_DrawsTheSameModeSplitAsRun pins that the acp leaf splits its two
-// forms on the same flag, in the same word, as root `run`.
-//
-// Bare is the session — a conversation you keep talking to — and --one-shot is
-// the single turn. The flag is optional on both leaves BECAUSE both forms
-// exist on both: a required --one-shot would say that the other form does not,
-// and a caller reading `run` help would learn a rule that the acp leaf then
-// breaks.
-func TestACPRun_DrawsTheSameModeSplitAsRun(t *testing.T) {
-	flags := acpRunCmd.Flags()
-	require.NotNil(t, flags.Lookup("one-shot"), "acp run takes the same --one-shot spelling as run")
-
-	assert.NoError(t, acpRunCmd.ValidateRequiredFlags(),
-		"a bare `acp run` opens a session, so naming the single-turn mode is a choice, not a requirement")
-
-	saved := acpRunOneShot
-	t.Cleanup(func() {
-		acpRunOneShot = saved
-		_ = flags.Set("one-shot", "false")
-		flags.Lookup("one-shot").Changed = false
-	})
-	require.NoError(t, flags.Set("one-shot", "true"))
-	assert.True(t, acpRunOneShot, "--one-shot must write through to acpRunOneShot")
-}

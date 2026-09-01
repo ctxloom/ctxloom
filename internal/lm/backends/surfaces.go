@@ -22,7 +22,7 @@ import (
 // BuildSurfaces builds the named backend's SurfaceSet from a run's shared inputs
 // and a filesystem (nil = OS fs, for a test-injected afero.Fs), reading the
 // descriptor's newSurfaces builder (registry.go). A backend that materializes no
-// surfaces (acp) or an unregistered name returns an agent.EmptySurfaceSet, so a
+// surfaces or an unregistered name returns an agent.EmptySurfaceSet, so a
 // caller can iterate Deliveries() unconditionally.
 func BuildSurfaces(name string, inputs agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
 	if d, ok := lookup(name); ok && d.newSurfaces != nil {

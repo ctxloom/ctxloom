@@ -44,8 +44,8 @@ func TestHarnessStatus_ReportsWiring(t *testing.T) {
 	assert.True(t, claude.StatusLine)
 	assert.True(t, claude.MCPPresent)
 
-	kiro := backendWiring(t, res, "kiro")
-	assert.False(t, kiro.SettingsExists, "untouched backend reports nothing wired")
+	untouched := backendWiring(t, res, "opencode")
+	assert.False(t, untouched.SettingsExists, "untouched backend reports nothing wired")
 }
 
 func TestRemoveHooks_StripsWiring(t *testing.T) {

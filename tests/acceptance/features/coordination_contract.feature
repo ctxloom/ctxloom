@@ -21,7 +21,7 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
 
   # WHAT THIS FEATURE CAN AND CANNOT SEE (see steps_coordination_contract.go):
   # it reads the runner-terminated MCP surface — the proto-canonical one a real
-  # harness gets through `ctxloom run` / `ctxloom acp`, enumerated over a real
+  # harness gets through `ctxloom run`, enumerated over a real
   # MCP transport. That surface is the ONLY place a coordination tool's RESULT
   # shape is advertised, and no external MCP client in this suite can reach a
   # spawned session's per-cell runner socket. What these scenarios claim is

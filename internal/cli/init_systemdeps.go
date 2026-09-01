@@ -1,5 +1,5 @@
 // `ctxloom init`'s targeted system-dependency gate and its informational
-// companion probes (signing identity, git identity, ACP adapter). See
+// companion probes (signing identity, git identity). See
 // checkSystemDeps for why git is the only hard block among them.
 
 package cli
@@ -35,17 +35,13 @@ import (
 // shells out to ssh-keygen) — it is only useful, by hand, to GENERATE a new
 // key if you don't already have one (`ssh-keygen -t ed25519-sk`).
 //
-// engine is the resolved backend this init is configuring (e.g.
-// "claude-code", "codex") — used only to know which ACP adapter, if any,
-// warnIfACPAdapterMissing should check for.
-//
 // A sibling slice adds git to `ctxloom doctor`'s own comprehensive dependency
 // check on a separate, unmerged branch; the couple of lines of overlap
 // between that comprehensive report and this narrow up-front gate are
 // intentional (they serve different moments — doctor is a health report,
 // this is a "can PRIME even proceed" gate), not something to fold into a
 // shared helper here.
-func checkSystemDeps(engine string) error {
+func checkSystemDeps() error {
 	if _, err := exec.LookPath("git"); err != nil {
 		return fmt.Errorf("git is required (ctxloom is about to clone/pull remote content, and worktree isolation shells out to it later) but was not found on PATH — install it (e.g. `apt install git`, `brew install git`, `winget install Git.Git`) and re-run `ctxloom init`")
 	}
@@ -55,7 +51,6 @@ func checkSystemDeps(engine string) error {
 	}
 	warnIfNoSignKey()
 	warnIfGitIdentityMissing()
-	warnIfACPAdapterMissing(engine)
 	if !(isolation.Docker{}.Available()) && !(isolation.Podman{}.Available()) {
 		clidiag.Warn("ctxloom", "no container runtime detected (docker/podman) — you'll need one later to run containerized agents")
 	}
@@ -99,27 +94,6 @@ func warnIfNoSignKey() {
 // surfacing it at init time, before that happens, beats discovering it then.
 func warnIfGitIdentityMissing() {
 	ok, detail := gitIdentityDetail(context.Background(), agentkey.NewDiscoverer().GitConfig)
-	if !ok {
-		clidiag.Warn("ctxloom", "%s", detail)
-	}
-}
-
-// warnIfACPAdapterMissing is checkSystemDeps' companion probe for the ACP
-// adapter binary (claude-code-acp/codex-acp) the resolved engine's
-// HOST-runtime structured chat needs (see DOCTOR-CHECK-ACPADAPTER-m3,
-// doctor_cmd.go, for the full rationale) — reusing the SAME shared
-// acpAdapterDetail (doctor_cmd.go) so this warn says the exact same thing
-// `ctxloom doctor --deps` reports. Informational only, like the other warns
-// beside it: the raw-CLI bootstrap interview this gate protects never
-// touches structured chat, so a missing adapter here is a heads-up for
-// LATER (agent_run cross-engine delegation, `ctxloom acp run`), not a
-// block on init completing now — nothing about ACP (server or client) is
-// ever a hard requirement for init; see the acp-setup skill for that
-// separate, optional configuration — and it's a non-issue entirely for an
-// agent that ends up configured with runtime: container, whose image
-// carries its own adapter (the detail text says so).
-func warnIfACPAdapterMissing(engine string) {
-	ok, detail := acpAdapterDetail([]string{engine})
 	if !ok {
 		clidiag.Warn("ctxloom", "%s", detail)
 	}

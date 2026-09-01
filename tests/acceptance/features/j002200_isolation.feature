@@ -44,9 +44,9 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #      mock now also records req.WorkDir (internal/lm/backends/mock.go),
   #      the value isolation.Prepare actually resolved and threaded through
   #      RunOptions.WorkDir — THAT is the honest signal this journey reads.
-  #   2. Per-engine config-home isolation (CLAUDE_CONFIG_DIR / CODEX_HOME /
-  #      KIRO_HOME — internal/lm/isolation/auth.go's credentialSeedSpecs) is
-  #      keyed by the REGISTERED backend name (claude-code/codex/kiro only);
+  #   2. Per-engine config-home isolation (CLAUDE_CONFIG_DIR / CODEX_HOME —
+  #      internal/lm/isolation/auth.go's credentialSeedSpecs) is
+  #      keyed by the REGISTERED backend name (claude-code/codex only);
   #      the built-in "mock" backend has no entry, so Worktree's Env()
   #      contributes nothing for it — hermetically true for every workspace
   #      axis. This journey therefore proves the WORKSPACE boundary itself
@@ -59,10 +59,10 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #
   # UPDATE (isolation-matrix task): (2)'s gap is now filled, below, WITHOUT
   # abandoning the mock's hermetic guarantee. A real registered backend name
-  # (claude-code/codex/kiro/opencode) drives isolation.Prepare
+  # (claude-code/codex/opencode) drives isolation.Prepare
   # exactly as a live run would — but PATH is rebuilt from scratch to a
   # scratch dir plus /usr/bin:/bin, so the literal binary a backend execs
-  # ("claude"/"codex"/"kiro-cli"/"opencode") resolves ONLY to a
+  # ("claude"/"codex"/"opencode") resolves ONLY to a
   # recording spy script this suite writes, NEVER to a real installed engine
   # — no live credential, no network call, ever, in any scenario in this
   # file. The spy dumps its OWN os.Environ() (exactly what a real engine
@@ -295,7 +295,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | engine      |
       | claude-code |
-      | kiro        |
 
   # THE OTHER HALF, and the positive control the scenario above depends on: the
   # SAME project, the SAME none axis, the SAME engine — but Alice names an
@@ -321,16 +320,10 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # worse than no relocation at all, and asserting only the variable would pass
   # in exactly that world.
   #
-  # kiro has no credential half and correctly so: its subscription auth lives in
-  # a global sqlite under $XDG_DATA_HOME that KIRO_HOME does not relocate, so a
-  # FRESH KIRO_HOME stays authenticated and there is nothing to seed. Its row
-  # asserts instead that the home really exists and that Alice's own ~/.kiro was
-  # never created behind her back.
-  #
   # codex IS a row now. It used to be absent because it relocated CODEX_HOME on
   # every in-tree run regardless of this key; D2 (ruled 2026-08-11) ended that
-  # asymmetry, so codex reads config_home exactly like claude and kiro and this
-  # outline covers all three. opencode stays out because its only home lever is
+  # asymmetry, so codex reads config_home exactly like claude and this
+  # outline covers both. opencode stays out because its only home lever is
   # XDG_CONFIG_HOME/XDG_DATA_HOME, which are not engine-private.
   Scenario Outline: An in-tree AGENT run gets a per-session config-home instance instead of Alice's own home
     Given Alice has a git-backed project
@@ -344,7 +337,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | engine      | var               |
       | claude-code | CLAUDE_CONFIG_DIR |
-      | kiro        | KIRO_HOME         |
       | codex       | CODEX_HOME        |
 
   # UNDECLARED config_home — the headline behaviour move. This is the SAME
@@ -355,7 +347,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # binding at all, and opting in requires the declaration above. This is the
   # red the implementation had to make pass: against the unchanged tree (every
   # agent-bound run gets a controlled home) this scenario fails, because the
-  # spy would report a project-scoped CLAUDE_CONFIG_DIR/KIRO_HOME that must not
+  # spy would report a project-scoped CLAUDE_CONFIG_DIR that must not
   # exist here.
   #
   # codex's row is D2's red-first case specifically: against the pre-D2 tree
@@ -372,7 +364,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | engine      |
       | claude-code |
-      | kiro        |
       | codex       |
 
   # THE EXPLICIT OPT-OUT. config_home: host reads IDENTICALLY to the undeclared
@@ -397,8 +388,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | codex       |
 
   # The credential half of the "gets a ctxloom-controlled config home" scenario
-  # above, claude-code only (kiro has no seedable credential — see that
-  # scenario's note). The copy is ACCESS-TOKEN-ONLY (easiest-stomp, ruled
+  # above, claude-code only. The copy is ACCESS-TOKEN-ONLY (easiest-stomp, ruled
   # 2026-08-12): the engine reads its access token out of the controlled home
   # and authenticates, but the single-use ROTATING refresh token is stripped —
   # a live experiment proved any copy that refreshes invalidates the human's own
@@ -467,7 +457,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # every in-tree run regardless of config_home, so `workspace: none` still met
   # a relocation that needed credentials seeded into it. D2 (ruled 2026-08-11)
   # ended that — an undeclared binding now keeps Alice's real ~/.codex, which
-  # the outlines above cover alongside claude and kiro.
+  # the outlines above cover alongside claude.
   #
   # What survives is the CREDENTIAL half, and it survives with a different
   # reason: codex still refuses to launch against a home with nothing to
@@ -574,8 +564,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # <engine> worktree`). The two layers are complementary, not redundant:
   # this one is fast, hermetic, and catches a ctxloom-side regression in CI on
   # every commit; the probe is slow, costs a real paid call, and is the one
-  # that would have caught kiro's actual credential-store leak (legal-hula) —
-  # discovered by running kiro live, not by any spy.
+  # that catches a vendor-side regression a spy can never see.
   # codex's whole auth.json is safe to copy verbatim — it never rotates in a
   # non-interactive run (auth.go's resolveCodexContainerAuth doc), so there is
   # no refresh token to strip and the isolated copy is byte-identical.
@@ -598,34 +587,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points to an isolated per-agent directory, not the host's own
     And the isolated "claude-code" credential is access-token-only (refresh token stripped)
     And the host "claude-code" credential file was never modified
-
-  # LOCKED — kiro's PARTIAL isolation, and this IS the leak: subscription auth
-  # lives in a GLOBAL sqlite under $XDG_DATA_HOME that KIRO_HOME does not
-  # touch (auth.go's resolveKiroContainerAuth doc, verified live against
-  # kiro-cli 2.12.1). Isolating XDG_DATA_HOME anyway with nothing to
-  # authenticate a fresh store would silently strand the agent logged out —
-  # so ctxloom refuses instead, the SAME ClassIsolation mechanism as the
-  # claude/codex/opencode no-credential case above. The finding text itself
-  # names the mechanism: the credential store would NOT relocate. This is the
-  # positive leak assertion — it fails the moment kiro's credential store
-  # becomes genuinely KIRO_HOME-scoped (a vendor fix ctxloom would then need
-  # to widen HonoursVarForCreds to match), not merely an absent check.
-  Scenario: A worktree run for kiro isolates only session state without an API key, and refuses to silently share the global credential store
-    Given Alice has a git-backed project
-    When Alice runs the isolated "kiro" agent under workspace "worktree"
-    Then the run aborts with an isolation finding naming "isolating XDG_DATA_HOME would relocate kiro's credential store"
-
-  # The other half of kiro's story: KIRO_API_KEY genuinely authenticates a
-  # FRESH per-agent XDG_DATA_HOME headlessly (live-verified against kiro-cli
-  # 2.12.1, auth.go's own doc) — so once it is present, isolation widens to
-  # cover the credential store too, not just session state.
-  Scenario: A worktree run for kiro isolates its credential store too once KIRO_API_KEY authenticates a fresh one
-    Given Alice has a git-backed project
-    And Alice has set the "kiro" API key in the environment
-    When Alice runs the isolated "kiro" agent under workspace "worktree"
-    Then the run reports no isolation finding
-    And the spy "kiro" process's "KIRO_HOME" env var points to an isolated per-agent directory, not the host's own
-    And the spy "kiro" process's "XDG_DATA_HOME" env var points to an isolated per-agent directory, not the host's own
 
   # ARGV/STDIN VISIBILITY (U161-F01) — the spy previously dumped only its own
   # environment; it never emitted "$@" and never read stdin, so every argv

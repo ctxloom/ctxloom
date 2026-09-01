@@ -146,7 +146,7 @@ The SessionStart hook itself takes the hash and project directory as command-lin
 | Variable | Description |
 |----------|-------------|
 | `CTXLOOM_VERBOSE` | Enable verbose output for debugging |
-| `CTXLOOM_CONTEXT_FILE` | Path to the assembled context file, set on the launched process for backends with no hook mechanism (codex, antigravity, kiro) — not read by the SessionStart hook |
+| `CTXLOOM_CONTEXT_FILE` | Path to the assembled context file, set on the launched process for backends with no hook mechanism (codex, antigravity) — not read by the SessionStart hook |
 
 ## Debugging Hooks
 

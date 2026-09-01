@@ -198,8 +198,8 @@ func TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFi
 }
 
 // TestWriteManagedPackageFiles_FirstDeliveryIntoWhollyNonexistentTree pins the
-// merge-gate defect found in four consumer packages (internal/claude,
-// internal/kiro, internal/opencode, internal/operations): on a FIRST-EVER
+// merge-gate defect found across this writer's consumer packages: on a
+// FIRST-EVER
 // delivery, dir's own parent (e.g. .claude/, the engine's config dir) does not
 // exist yet either. Phase 2 creates dir's temp SIBLING via
 // afero.TempDir(fs, filepath.Dir(dir), …), which — unlike the pre-rewrite

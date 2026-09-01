@@ -30,7 +30,6 @@ import (
 type SkillLLMExports struct {
 	ClaudeCode SkillEngineExport `yaml:"claude-code"`
 	Codex      SkillEngineExport `yaml:"codex"`
-	Kiro       SkillEngineExport `yaml:"kiro"`
 	Opencode   SkillEngineExport `yaml:"opencode"`
 }
 

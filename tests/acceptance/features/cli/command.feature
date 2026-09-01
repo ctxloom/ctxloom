@@ -30,14 +30,9 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
 
   Rule: A materialized command lands in each engine's own native surface
 
-    # ONE command, THREE files, TWO idioms — PARSED in its own native shape,
-    # never a bare file-exists. claude and codex each get a flat command
-    # file; kiro renders the SAME command through
-    # RenderCommandAsSkillFile into a `<name>/SKILL.md` package — what the
-    # caller hands that renderer is always a CommandExport, never a Skill, so
-    # this is a command wearing a skill's file convention, not the command
-    # becoming one. Genuine Agent Skill packages are a different SurfaceKind,
-    # covered by cli/skill.feature.
+    # ONE command, PARSED in its own native shape, never a bare file-exists.
+    # claude and codex each get a flat command file. Genuine Agent Skill
+    # packages are a different SurfaceKind, covered by cli/skill.feature.
     #
     # codex's row is the one asymmetric idiom worth calling out by name:
     # every other engine's command surface is project-local, codex's own
@@ -59,7 +54,6 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       Examples:
         | engine      |
         | claude-code |
-        | kiro        |
 
   Rule: Creating a command writes real content, and it reaches every surface
 

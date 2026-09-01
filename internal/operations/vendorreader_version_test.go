@@ -71,7 +71,6 @@ func TestVendorReaderRanges_ContainThePinnedTestedVersion(t *testing.T) {
 	byEngine := map[string]string{
 		"claude-code": "CLAUDE_CODE_CLI_VERSION",
 		"codex":       "CODEX_CLI_VERSION",
-		"kiro":        "KIRO_CLI_VERSION",
 	}
 
 	for engine, key := range byEngine {

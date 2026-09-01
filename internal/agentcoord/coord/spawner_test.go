@@ -26,11 +26,9 @@ func TestChildVerbosity(t *testing.T) {
 	assert.Equal(t, 3, childVerbosity())
 }
 
-// TestViaStartRunBackends pins the Wave C3 spawn-cutover gate: claude-code
-// (C1), codex, kiro, the generic "acp" entry (C3) and opencode (the spool
-// cutover's S3b slice) all route their delegated children over StartRun —
-// every backend whose Chat rides the shared internal/acp driver, verified
-// per-backend in the C3/S3b recons.
+// TestViaStartRunBackends pins the spawn-cutover gate: every registered
+// backend admitted by its own per-backend recon routes its delegated
+// children over StartRun.
 // Backends NOT reviewed onto the migrated path stay on the FROZEN legacy
 // chat path only if legacyChatBackends admits them (since S3b: mock alone);
 // any other name is refused at Resolve by checkLegacyChatFreeze — this is a
@@ -41,8 +39,6 @@ func TestViaStartRunBackends(t *testing.T) {
 	cases := map[string]bool{
 		"claude-code":  true,
 		"codex":        true,
-		"kiro":         true,
-		"acp":          true,
 		"opencode":     true,
 		"mock":         false,
 		"":             false,
@@ -220,13 +216,6 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "resume-capable")
 		assert.Contains(t, err.Error(), "opencode")
-	})
-
-	t.Run("driving: oneshot on kiro (isolation-blocked) also fails loud with the capability reason", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: kiro\n    permissions: bypass\n    driving: oneshot\n")
-		_, err := s.Resolve(context.Background(), "dev")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "resume-capable")
 	})
 
 	t.Run("driving: oneshot on a SUPPORTED migrated engine (claude-code) now RESOLVES to ResumeModeOneShot (Slice 4 landed)", func(t *testing.T) {

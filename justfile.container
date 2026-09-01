@@ -506,11 +506,9 @@ proto:
 # `mutation` (see .golangci.yml for why this one is not on it),
 # and `test`/coverage exclude build-tagged files by construction (they simply
 # don't match `./...` without the tag). A test file that only compiles under
-# the tag can therefore bit-rot silently — exactly what happened to
-# acp_agent_test.go (stale agent.ChatRequest.AutoApprove field, replaced by
-# the Permissions/PermissionMode enum) and acp_live_test.go
-# (claude.NewClaudeCode's old one-arg signature), both invisible until
-# something finally ran `go vet -tags integration`. vet, not test/run — stays
+# the tag can therefore bit-rot silently — tag-gated tests have gone stale
+# against changed signatures before, invisible until something finally ran
+# `go vet -tags integration`. vet, not test/run — stays
 # cheap enough to gate every lint pass.
 # The SECOND vet line covers the `acceptance` tag, which gates ~23k lines the
 # integration tag does not reach. Both matrices are vetted because a package

@@ -1,9 +1,9 @@
 @live
 Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
 
-  ctxloom writes hooks into three engines' native surfaces: claude's
-  .claude/settings.json, codex's $CODEX_HOME/config.toml [hooks], kiro's
-  .kiro/agents/<name>.json. That ctxloom writes the right BYTES is well proven —
+  ctxloom writes hooks into its engines' native surfaces: claude's
+  .claude/settings.json and codex's $CODEX_HOME/config.toml [hooks].
+  That ctxloom writes the right BYTES is well proven —
   golden tests, the settings-io tests, and
   TestDeliveryApproach_HookCarriageMatchesDeclaration in tests/integration all
   check carriage, and carriage is our own behaviour.
@@ -44,8 +44,8 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
   DEFAULT context route. claude declares ApproachHook too, but claude's
   SurfaceFor resolves that pair to noopContextDelivery — the documented no-op
   that never carries — so asserting an echo on a claude cell would red it for
-  failing to do something ctxloom never asked. kiro reads steering files
-  instead. Stage (b) uses a SECOND minted harp, planted only in the hook's
+  failing to do something ctxloom never asked. Stage (b) uses a SECOND minted
+  harp, planted only in the hook's
   standard output, so the two stages cannot satisfy each other.
 
   WHAT IS ABSENT HERE IS DECLARED, NOT FORGOTTEN. opencode has no Examples row
@@ -55,7 +55,7 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
   session_end kind is absent for the same reason at finer grain
   (unsupportedHookKinds[bundles.HookEventSessionEnd] / codex.NoSessionEndReason,
   "codex has no session-end event"), which is precisely why this probe plants on
-  session_start: it is the one kind all three engines carry.
+  session_start: it is the one kind both engines carry.
 
   THE CONTAINER AXIS, AND THE REASON IT WAITED. This probe was host/none only,
   and the reason was physical rather than cautious: the stamp file was an
@@ -181,12 +181,3 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
     Examples:
       | engine | runtime | workspace |
       | codex  | host    | none      |
-
-    # kiro renames the event rather than lacking it: KiroWriter.mapHooks routes
-    # unified session_start onto kiro's own agentSpawn hook. Stage (a) only —
-    # kiro takes context from steering files, so hook-output ingestion is not a
-    # claim it makes.
-    @kiro @host @ws-none @probe-p3-hook-firing
-    Examples:
-      | engine | runtime | workspace |
-      | kiro   | host    | none      |

@@ -2,7 +2,7 @@
 // failure ("exit-0-on-failure", the project's signature bug family — see the
 // silent-no-op standing note: exit 0, success message, nothing actually
 // done). `strictness` is deliberately LAUNCH-ONLY (it records fatal startup
-// findings that OpenEngineSession/the agent spawner turn into an error via
+// findings that the agent spawner turns into an error via
 // strictness.FindingsError), so it gives ordinary management commands no
 // policy at all. The actual mechanism management commands need already
 // exists one layer up: cli.Run (root.go) turns any non-nil RunE error

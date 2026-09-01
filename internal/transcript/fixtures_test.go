@@ -68,7 +68,7 @@ func readFixtureLines(t *testing.T, engine string) ([]string, []Record) {
 	return raw, recs
 }
 
-var allFixtureEngines = []string{"codex", "kiro", "claude", "opencode", "acp", "antigravity"}
+var allFixtureEngines = []string{"codex", "claude", "opencode", "acp", "antigravity"}
 
 // TestFixtures_ConformToJSONSchema validates every line of every per-engine
 // fixture against docs/transcript.schema.json — the machine-checkable half of
@@ -138,33 +138,6 @@ func TestFixtures_RealPayloadSurvives(t *testing.T) {
 		assert.True(t, sawUser, "expected a real user entry")
 		assert.True(t, sawAssistant, "expected a real assistant entry")
 		assert.True(t, sawComplete, "expected a real complete accounting line")
-	})
-
-	t.Run("kiro: real tool-calling turn round-trips file path, output, and final answer", func(t *testing.T) {
-		_, recs := readFixtureLines(t, "kiro")
-		var sawToolUse, sawToolResult, sawFinalAssistant bool
-		for _, r := range recs {
-			if r.Kind != KindEntry {
-				continue
-			}
-			switch r.Entry.Type {
-			case "tool_use":
-				assert.Equal(t, "read", r.Entry.ToolName)
-				assert.Contains(t, string(r.Entry.ToolInput), "probe6.txt")
-				sawToolUse = true
-			case "tool_result":
-				assert.Equal(t, "sixth probe file contents for tool-call capture", r.Entry.ToolOutput)
-				assert.False(t, r.Entry.IsError)
-				sawToolResult = true
-			case "assistant":
-				if strings.Contains(r.Entry.Content, "sixth probe file contents for tool-call capture") {
-					sawFinalAssistant = true
-				}
-			}
-		}
-		assert.True(t, sawToolUse, "expected the real tool_use entry")
-		assert.True(t, sawToolResult, "expected the real tool_result entry")
-		assert.True(t, sawFinalAssistant, "expected the assistant's final answer to quote the real tool output")
 	})
 
 	t.Run("claude: real ACP ping/pong turn", func(t *testing.T) {

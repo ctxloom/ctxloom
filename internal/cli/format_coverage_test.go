@@ -213,11 +213,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"container tooling list": {extraArgs: noExtraArgs},
 
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
-	"acp":       {skip: "deprecated bare alias for `acp serve`; serves an ACP session, not a single rendered result"},
-	"acp serve": {skip: "serve: serves an ACP session over stdio for an editor to connect to, not a single rendered result"},
-	"acp run":   {skip: "requires a configured ACP-type llm label (--llm) and spawns a real third-party ACP-speaking subprocess via the plugin door; covered directly by acp_run_cmd_test.go's stub-Factory tests instead"},
 	"mcp":       {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
 	"mcp serve": {skip: "serve: runs the stdio MCP server"},
+	"attach":    {skip: "interactive: replaces this process with a tmux client attached to a run's pane; renders no result of its own"},
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
 	"session transcript watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
@@ -329,9 +327,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"manage commit untrust":       {skip: "installer: removes the dirty-tree-commit admission-store record"},
 	"config edit":                 {skip: "not wired to emit() yet; also opens an editor", formatDebt: true},
 	"config create":               {skip: "not wired to emit() yet; also an installer", formatDebt: true},
-
-	// --- skip: acp entries needing configured agents ---
-	"acp list": {skip: "wired to emit(), but needs a configured ACP agent entry fixture; not exercised here"},
 
 	// --- skip: not wired to emit() yet (pre-existing gap, outside this task's named stragglers) ---
 	"fragment show":    {skip: "not wired to emit() yet (item_helpers.go showItem)", formatDebt: true},

@@ -17,8 +17,8 @@
 //	internal/lm/grpc        -> internal/transcript           (production)
 //	internal/transcript_test -> internal/lm/grpc             (test-only)
 //
-//	internal/{claude,codex,kiro} -> internal/shared/agent    (production)
-//	internal/shared/agent_test   -> internal/{claude,codex,kiro} (test-only)
+//	internal/{claude,codex}    -> internal/shared/agent      (production)
+//	internal/shared/agent_test -> internal/{claude,codex}    (test-only)
 //
 // The Go compiler already refuses a real cycle, but only once BOTH edges
 // exist in production code — which means the developer who adds the SECOND
@@ -87,7 +87,7 @@ var layeringRules = []layeringRule{
 	{
 		name:   "shared/agent-must-not-import-engine-plugins",
 		from:   "internal/shared/agent",
-		forbid: []string{"internal/claude", "internal/codex", "internal/kiro"},
+		forbid: []string{"internal/claude", "internal/codex"},
 	},
 	{
 		// The coarse ancestor of T20's future `cli/<flow> -> operations/<flow>

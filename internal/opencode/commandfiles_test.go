@@ -55,11 +55,11 @@ func TestWriteCommandFiles_DescriptionFallback(t *testing.T) {
 	assert.Contains(t, string(data), "description: bare\n")
 }
 
-// TestWriteCommandFiles_EmptyContentIsSkippedNotWritten pins the same
-// defect class RenderCommandAsSkillFile had: a command with empty
-// or whitespace-only Content used to still render a valid-looking
-// `<name>.md` carrying only frontmatter — success, zero instruction bytes
-// delivered to opencode. WriteManagedPackageFiles already warns loudly and
+// TestWriteCommandFiles_EmptyContentIsSkippedNotWritten pins the silent-no-op
+// this renderer's guard exists to stop: a command with empty or
+// whitespace-only Content used to still render a valid-looking `<name>.md`
+// carrying only frontmatter — success, zero instruction bytes delivered to
+// opencode. WriteManagedPackageFiles already warns loudly and
 // skips an item whose render fails, so refusing to render is enough to
 // surface the loss instead of materializing a hollow command file.
 func TestWriteCommandFiles_EmptyContentIsSkippedNotWritten(t *testing.T) {

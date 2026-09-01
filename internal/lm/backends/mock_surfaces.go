@@ -121,8 +121,8 @@ func (s *mockContextSurface) State(dir string) (agent.DeliveryState, error) {
 }
 
 // MockConfigDirName is the mock engine's project-relative managed-config
-// directory — its analogue of claude.ConfigDirName/codex.ConfigDirName/
-// kiro.ConfigDirName/opencode.ConfigDirName. Exported so tests/arch's
+// directory — its analogue of each real engine's own ConfigDirName.
+// Exported so tests/arch's
 // engine-layout gate can check internal/lm/isolation's mockOverlayDirs
 // literal against this package's own fact; mock has no separate engine
 // plugin package (it IS internal/lm/backends), so this package is the
@@ -132,7 +132,7 @@ const MockConfigDirName = ".mock"
 // mockSkillsDirName is the directory the mock engine "reads" its Agent Skill
 // packages from, relative to the delivery dir. Unlike the context file it is
 // NESTED, because that is the shape every real engine has (.claude/skills,
-// .agents/skills, .kiro/skills, .opencode/skill, .codex/skills) and because a
+// .agents/skills, .opencode/skill, .codex/skills) and because a
 // bare top-level `skills/` would collide with the `skills/` directory of a
 // bundle content tree materialized into the same project.
 const mockSkillsDirName = MockConfigDirName + "/skills"
@@ -147,7 +147,7 @@ func mockSkillsPath(dir string) string {
 // newMockSkillsSurface builds mock's skills surface: the SHARED
 // agent.ManagedSkillPackagesDelivery bound to the SHARED
 // agent.WriteManagedSkillPackages writer, exactly as claude's newSkillsSurface
-// and opencode's/kiro's do. Everything that makes a skill
+// and opencode's do. Everything that makes a skill
 // package land correctly — the per-skill directory prefix, the DECLARED mode
 // on each file, the manifest-scoped reversal — lives in that shared body, not
 // here; this function contributes a directory and a manifest name.
@@ -159,7 +159,7 @@ func newMockSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.Manage
 
 // mockContextPresenter composes mock's context surface: the well-known
 // MOCK_CONTEXT.md at the target dir's root. It roots UnderProjectRoot, never
-// UnderEngineHome — mock has no out-of-cwd redirect, matching kiro/codex/
+// UnderEngineHome — mock has no out-of-cwd redirect, matching codex/
 // opencode (claude is the one backend with an out-of-cwd scratch conversion).
 func mockContextPresenter(s present.Start) present.Presentation {
 	return s.UnderProjectRoot(mockContextFilename).Build()

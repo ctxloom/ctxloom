@@ -200,10 +200,10 @@ type SessionEntry struct {
 	// tool_call.toolCallId / tool_call_update.toolCallId), when the backend's
 	// protocol exposes a stable one. Carried through the hub so a re-emission
 	// can reuse the SAME id instead of inventing a fresh one keyed by tool
-	// NAME — killing the same-name mispair risk a live drive confirmed
-	// (internal/acpagent's FIFO push/pop-by-name assigns a fresh "call-N" per
-	// tool name and pairs results in FIFO order; two concurrent calls to the
-	// SAME tool can pop the wrong one's result). Empty means the backend
+	// NAME — killing the same-name mispair risk a live drive confirmed (a hub
+	// that pairs by tool NAME assigns a fresh "call-N" per tool name and pairs
+	// results in FIFO order; two concurrent calls to the SAME tool can pop the
+	// wrong one's result). Empty means the backend
 	// assigned none (or doesn't have the concept), and the hub falls back to
 	// its own generated id exactly as before this field existed.
 	ToolCallID string
@@ -300,8 +300,8 @@ type ContentBlock struct {
 // ToolContentBlock is one element of a tool call's structured content
 // collection (ACP ToolCallContent: content block | diff | terminal
 // reference). Diff fields are decoded (not left in Raw) because ctxloom
-// already flattens diffs for text display (internal/acp/mapping.go's
-// toolContentText) and a diff-aware consumer wants the structured form
+// already flattens diffs for text display and a diff-aware consumer wants
+// the structured form
 // without a second JSON round-trip; Raw carries the element verbatim
 // regardless, for anything this type doesn't otherwise model.
 // Canonical ToolContentBlock.Kind values.

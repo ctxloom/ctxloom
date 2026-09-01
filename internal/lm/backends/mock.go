@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
-	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
@@ -152,7 +151,7 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 // threads into RunOptions.Env (see internal/lm/isolation.EnvWorkspace) — each
 // engine's own global-config isolation knob. Sourced from each engine
 // package's own exported env-var constant (this package already imports
-// claude/codex/kiro/opencode directly in registry.go, so no cycle) rather
+// the engine packages directly in registry.go, so no cycle) rather
 // than re-typed literals, so a roster gap like the one this doc used to
 // carry — opencode's XDG_CONFIG_HOME/XDG_DATA_HOME were missing despite this
 // comment claiming to mirror EnvWorkspace — cannot recur silently.
@@ -162,9 +161,8 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 var configHomeEnvKeys = []string{
 	claude.ConfigDirEnv,
 	codex.CodexHomeEnv,
-	kiro.HomeEnv,
-	kiro.XDGDataHomeEnv,
 	opencode.XDGConfigHomeEnv,
+	opencode.XDGDataHomeEnv,
 }
 
 // ConfigHomeEnvKeys returns a copy of configHomeEnvKeys, exported read-only

@@ -27,7 +27,7 @@ func DecodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 			// above it: that is the one channel that honours the process's
 			// structured-diagnostics wire shape and the TUI's sink redirect,
 			// both of which a bare write to os.Stderr corrupts.
-			clidiag.Warn("ctxloom", "the %q backend is not supported in this release; point this entry's type at a currently-supported engine (claude-code, codex, kiro, opencode)", entry.EffectiveType())
+			clidiag.Warn("ctxloom", "the %q backend is not supported in this release; point this entry's type at a currently-supported engine (claude-code, codex, opencode)", entry.EffectiveType())
 		}
 		return nil
 	}

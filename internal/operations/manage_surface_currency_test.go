@@ -94,17 +94,15 @@ func TestSurfaceCurrencies_ReportsMissingWhereExpected(t *testing.T) {
 }
 
 // TestSurfaceCurrencies_ReportsMissingForEveryFileDefaultedEngine widens arm one
-// across the three backends this task ported the read half onto. kiro and
-// opencode both declare their owned context file the default route, so both owe
-// a missing verdict; the assertion names each route so a port that reads the
-// WRONG path still fails.
+// across the backends this task ported the read half onto. Every engine that
+// declares its owned context file the default route owes a missing verdict; the
+// assertion names each route so a port that reads the WRONG path still fails.
 func TestSurfaceCurrencies_ReportsMissingForEveryFileDefaultedEngine(t *testing.T) {
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 
 	surfaces, _ := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
 
 	for backend, route := range map[string]string{
-		"kiro":     ".kiro/steering/ctxloom-context.md",
 		"opencode": ".opencode/ctxloom-context.md",
 	} {
 		got, ok := currencyFor(surfaces, backend)
@@ -191,7 +189,7 @@ func TestReportableContextCurrency_AlwaysReportsAFileThatExists(t *testing.T) {
 // --- PART ONE: the ported read halves actually read ---------------------------
 
 // TestSurfaceCurrencies_ReportsStaleForPortedBackends is the port's payload:
-// codex, kiro and opencode each get their materialized native file reported
+// codex and opencode each get their materialized native file reported
 // when it no longer matches. codex appears HERE and not in the missing test —
 // a file that is actually sitting there is reported for every engine that can
 // read it, expectation or not, because content nobody composes any more is
@@ -199,7 +197,7 @@ func TestReportableContextCurrency_AlwaysReportsAFileThatExists(t *testing.T) {
 func TestSurfaceCurrencies_ReportsStaleForPortedBackends(t *testing.T) {
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 
-	for _, backend := range []string{"codex", "kiro", "opencode"} {
+	for _, backend := range []string{"codex", "opencode"} {
 		deliverNativeContext(t, backend, workDir, "CONTEXT FROM A PREVIOUS COMPOSITION")
 	}
 
@@ -208,7 +206,6 @@ func TestSurfaceCurrencies_ReportsStaleForPortedBackends(t *testing.T) {
 
 	for backend, route := range map[string]string{
 		"codex":    "AGENTS.md",
-		"kiro":     ".kiro/steering/ctxloom-context.md",
 		"opencode": ".opencode/ctxloom-context.md",
 	} {
 		got, ok := currencyFor(surfaces, backend)
@@ -220,21 +217,21 @@ func TestSurfaceCurrencies_ReportsStaleForPortedBackends(t *testing.T) {
 }
 
 // TestSurfaceCurrencies_ReportsDeliveredForPortedBackends closes the loop: the
-// read half must agree with the write half it wraps. A frame the writer adds
-// and the reader forgets to strip (kiro's `inclusion: always` front matter)
-// would show up here as a permanent, unfixable "stale".
+// read half must agree with the write half it wraps. Any frame the writer adds
+// and the reader forgets to strip would show up here as a permanent,
+// unfixable "stale".
 func TestSurfaceCurrencies_ReportsDeliveredForPortedBackends(t *testing.T) {
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 	current := composedContext(t, cfg)
 
-	for _, backend := range []string{"claude-code", "codex", "kiro", "opencode"} {
+	for _, backend := range []string{"claude-code", "codex", "opencode"} {
 		deliverNativeContext(t, backend, workDir, current)
 	}
 
 	surfaces, errs := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
 	assert.Empty(t, errs)
 
-	for _, backend := range []string{"claude-code", "codex", "kiro", "opencode"} {
+	for _, backend := range []string{"claude-code", "codex", "opencode"} {
 		got, ok := currencyFor(surfaces, backend)
 		require.True(t, ok, "%s's freshly written context file must be reported", backend)
 		assert.Equal(t, string(agent.StatusDelivered), got.Status,

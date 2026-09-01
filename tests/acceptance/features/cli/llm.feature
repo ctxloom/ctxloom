@@ -5,7 +5,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
   `llm default`, and the bare `ctxloom llm` form.
 
   An LLM entry is a LABEL for an engine configuration: a backend type
-  (claude-code, codex, kiro, ...), a model string, a launch-time permission
+  (claude-code, codex, ...), a model string, a launch-time permission
   posture, and — the part that makes this noun different from every other one
   in the CLI — an `env` block holding API credentials. Agents reference these
   labels by name (`ctxloom agent create dev --llm big`), so this is the

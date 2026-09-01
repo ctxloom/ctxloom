@@ -52,7 +52,7 @@ duplicate the checking logic.
 
 Confirm ` + "`ssh`" + ` and ` + "`ssh-keygen`" + ` are on PATH (needed for
 signing), that every configured engine's own client binary resolves (claude,
-codex, kiro-cli, opencode — whichever this project actually uses), and
+codex, opencode — whichever this project actually uses), and
 that a container runtime (docker or podman) is reachable if any agent uses
 ` + "`runtime: container`" + `.
 
@@ -146,8 +146,6 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 		switch j000600.engine {
 		case "claude-code":
 			return filepath.Join(j000600.target, ".claude", "skills", "ctxloom-doctor", "SKILL.md"), nil
-		case "kiro":
-			return filepath.Join(j000600.target, ".kiro", "skills", "ctxloom-doctor", "SKILL.md"), nil
 		case "opencode":
 			return filepath.Join(j000600.target, ".opencode", "skill", "ctxloom-doctor", "SKILL.md"), nil
 		case "codex":

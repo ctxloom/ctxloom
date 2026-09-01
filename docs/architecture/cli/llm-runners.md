@@ -82,7 +82,7 @@ via `defer` (`llm_turn.go:79`), `llm serve` after `plugin.Serve` returns
 |---|---|---|
 | `decodeBackendConfig` | `:20` | Label → typed backend config. Warns and returns nil on failure (fault-tolerant). |
 | `decodeBackendConfigForType` | `:46` | Type → typed config, deterministic pick when several labels share a type. |
-| `llmEnvFor` | `:72` | The label's `env` map. Returns nil for kiro/opencode/acp entries. |
+| `llmEnvFor` | `:72` | The label's `env` map. Returns nil for opencode entries. |
 | `serveBackendConfig` | `llm_serve.go:75` | Label first, then type fallback; warns on a label/type mismatch before falling back. |
 
 ## The RunStart handoff (`llm_turn.go`)
@@ -120,8 +120,7 @@ via `defer` (`llm_turn.go:79`), `llm serve` after `plugin.Serve` returns
   `standUpRunner` calls `config.Load()` at `:62` and reacts only with a
   `clidiag.Warn` on a hard error; `cfg.GetWarnings()` is never read and
   `failOnFindings` is never called. The contract they violate is stated verbatim
-  at `startup_helpers.go:44-54`. Same gap as `acp server` (see
-  [acp-and-coordinator.md](acp-and-coordinator.md)).
+  at `startup_helpers.go:44-54`.
 - When `config.Load()` fails, `standUpRunner` skips the entire runner-MCP block
   (`if cfg != nil`, `:94-112`) yet still calls `engineHost.BindHome(h)` at `:118` —
   reaching the exact "hosted run with no reach-back" end state the code fail-louds

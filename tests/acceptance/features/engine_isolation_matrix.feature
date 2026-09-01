@@ -9,7 +9,7 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
 
   CLAUDE IS THE ENGINE THIS FEATURE DRIVES NOW. The matrix is built on two axes
   that apply to any engine ctxloom ships, and claude is the one currently wired
-  active on all six combinations of them. Codex, kiro and opencode are
+  active on all six combinations of them. Codex and opencode are
   designed on the identical two axes — their Examples blocks are further down
   this file, each now tagged work-in-progress, carrying every comment and
   measured finding they already had, untouched — but they are not the engine
@@ -90,12 +90,9 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
   Agent containerization had never been demonstrably correct here — the
   container-auth lane sat red for fifteen days — so these rows were added red ON
   PURPOSE, as the map the fix would be measured against. Container auth keying
-  then landed, and all eight cells were run serially: claude-code, codex and
+  then landed, and the cells were run serially: claude-code, codex and
   opencode passed on BOTH container axes against real engines, credentials
-  arriving through the real-home read-write mount; kiro's two gated loudly on
-  its own limitation (its subscription credential is a global sqlite no HomeVar
-  relocates, so KIRO_API_KEY is the only key that opens the axis — a real
-  product limitation, recorded as one).
+  arriving through the real-home read-write mount.
 
   THAT EVIDENCE IS NOW ATTRIBUTED TO container-rootless SPECIFICALLY, not
   reproved. The runtime axis split into container-rootless/container-rootful on
@@ -135,13 +132,7 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
 
   # Each cell self-skips LOUDLY, naming the engine and BOTH axes, and every
   # remaining skip names something PRODUCTION cannot do — never something this
-  # harness declined to arrange. The live example is kiro's worktree and
-  # container axes: credentialSeedSpecs["kiro"] marks XDG_DATA_HOME
-  # GatedOnCreds with HonoursVarForCreds FALSE, because kiro's subscription
-  # credential is a GLOBAL sqlite that no HomeVar relocates — so ctxloom
-  # refuses to start rather than silently hand the agent a fresh, logged-out
-  # data home, and KIRO_API_KEY is the only key that opens those two axes.
-  # That is a real product limitation, recorded here as one. A container-rootful
+  # harness declined to arrange. A container-rootful
   # row that skips because THIS BOX has no rootful daemon reachable is a
   # DIFFERENT kind of blank — an ENVIRONMENT limitation, not a production one —
   # and CTXLOOM_REQUIRE_RUNTIMES is what turns that blank into a hard failure on
@@ -209,9 +200,9 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
     # block is tagged @wip rather than deleted or commented out: the rows stay
     # PARSED, stay ADDRESSABLE by `just engine-matrix <engine> <runtime>
     # <workspace>`, and stay VISIBLE in the corpus, and every measured finding
-    # recorded beside them — notably kiro's host/none row a few blocks down —
-    # survives verbatim. Wire an engine back into the ACTIVE FLOOR above the
-    # same way claude is wired: drop its @wip tag when it becomes the engine
+    # recorded beside them survives verbatim. Wire an engine back into the
+    # ACTIVE FLOOR above the same way claude is wired: drop its @wip tag when
+    # it becomes the engine
     # under active test again.
     # ============================================================
 
@@ -269,83 +260,6 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
     Examples:
       | engine | runtime          | workspace |
       | codex  | container-rootful | worktree  |
-
-    # @wip — RED, and the finding is NOT about the model. Measured 2026-08-13:
-    # kiro produced the requested object byte-perfectly, and ctxloom handed it
-    # back on stdout wrapped in TERMINAL DECORATION — an ANSI colour sequence
-    # and an interactive prompt marker:
-    #
-    #   \x1b[38;5;141m> \x1b[0m{"hello":"CTXLOOM-HELLO-a1eeaec503ddef0c"}\x1b[0m
-    #
-    # reported as: OUTPUT-FORMAT failure — stdout is not a bare JSON object
-    # (invalid character '\x1b' looking for beginning of value).
-    #
-    # So a one-shot kiro run's stdout is not machine-readable: any caller
-    # piping `ctxloom run --one-shot` into a JSON parser gets a syntax error,
-    # while the engine did everything right. That is a ctxloom-side channel
-    # defect (the interactive `> ` echo leaking into a non-interactive
-    # capture), not an engine one, and it is exactly the class of thing this
-    # floor exists to surface.
-    #
-    # DO NOT fix this by stripping ANSI in the assertion. The contract under
-    # test is "stdout IS the JSON"; a matcher that launders the stream would
-    # report success to this suite while every real consumer still breaks.
-    # Untag when a one-shot kiro run's stdout is the bare object.
-    @kiro @host @ws-none @wip
-    Examples:
-      | engine | runtime | workspace |
-      | kiro   | host    | none      |
-
-    # @wip — not a defect: kiro is designed on the same two axes claude drives
-    # above, but it is not the engine under active test right now. Untag when
-    # kiro becomes a driven engine again. (Separate from the host/none row
-    # above, which is @wip for its own measured ANSI-decoration finding and
-    # keeps that reason regardless of this one.)
-    @kiro @host @ws-worktree @wip
-    Examples:
-      | engine | runtime | workspace |
-      | kiro   | host    | worktree  |
-
-    # @wip — not a defect: kiro is designed on the same two axes claude drives
-    # above, but it is not the engine under active test right now. Untag when
-    # kiro becomes a driven engine again. (Production's own conditional gate
-    # on this axis — credentialSeedSpecs["kiro"] needs KIRO_API_KEY — still
-    # applies underneath this tag, on EITHER ownership mode: the limitation is
-    # about the credential mechanism, not about who owns the daemon. See the
-    # header comment above the outline.)
-    @kiro @container-rootless @ws-none @wip
-    Examples:
-      | engine | runtime           | workspace |
-      | kiro   | container-rootless | none      |
-
-    # @wip — not a defect: kiro is designed on the same two axes claude drives
-    # above, but it is not the engine under active test right now. Untag when
-    # kiro becomes a driven engine again. (Production's own conditional gate
-    # on this axis — credentialSeedSpecs["kiro"] needs KIRO_API_KEY — still
-    # applies underneath this tag, on EITHER ownership mode. See the header
-    # comment above the outline.)
-    @kiro @container-rootless @ws-worktree @wip
-    Examples:
-      | engine | runtime           | workspace |
-      | kiro   | container-rootless | worktree  |
-
-    # @wip — not a defect: kiro is designed on the same two axes claude drives
-    # above, but it is not the engine under active test right now. Untag when
-    # kiro becomes a driven engine again. Carries BOTH of kiro's own gates
-    # (KIRO_API_KEY for the container axis at all) AND this box's rootful gap
-    # (see the claude-code container-rootful rows above) — either one alone
-    # would keep this cell from running today.
-    @kiro @container-rootful @ws-none @wip
-    Examples:
-      | engine | runtime          | workspace |
-      | kiro   | container-rootful | none      |
-
-    # @wip — see the note on kiro's container-rootful/none block above;
-    # identical reasoning, worktree axis.
-    @kiro @container-rootful @ws-worktree @wip
-    Examples:
-      | engine | runtime          | workspace |
-      | kiro   | container-rootful | worktree  |
 
     # @wip — not a defect: opencode is designed on the same two axes claude
     # drives above, but it is not the engine under active test right now.

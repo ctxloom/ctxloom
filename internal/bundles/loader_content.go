@@ -161,18 +161,6 @@ func (c CodexConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
-// KiroConfig holds configuration for exporting commands as Kiro CLI skills
-// (agentskills.io SKILL.md files, invocable as /<name> slash commands).
-type KiroConfig struct {
-	Enabled     *bool  `yaml:"enabled"`     // nil = true (opt-out model)
-	Description string `yaml:"description"` // For skill discovery + /help
-}
-
-// IsEnabled returns true unless explicitly disabled (opt-out model).
-func (c KiroConfig) IsEnabled() bool {
-	return c.Enabled == nil || *c.Enabled
-}
-
 // OpencodeConfig holds configuration for exporting prompts as opencode CLI
 // custom commands (.opencode/command/<name>.md files, invocable as /<name>
 // slash commands).
@@ -191,7 +179,6 @@ func (c OpencodeConfig) IsEnabled() bool {
 type LLMExports struct {
 	ClaudeCode ClaudeCodeConfig `yaml:"claude-code"`
 	Codex      CodexConfig      `yaml:"codex"`
-	Kiro       KiroConfig       `yaml:"kiro"`
 	Opencode   OpencodeConfig   `yaml:"opencode"`
 }
 
@@ -250,12 +237,10 @@ func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
 // ListAllCommands returns info about all commands across all bundles. Unlike
 // its ListAllFragments twin, it populates ContentInfo.Description from the
 // command's own authored `description:` (BundleCommand.Description) —
-// fragments carry no such field at all (BundleFragment has none), and a
-// command's description is exactly what an ACP editor's available_commands_
-// update needs (B4, gap G5 — see internal/operations.buildSessionCommands)
-// to advertise something real instead of a fabricated placeholder. This is a
-// genuine, permanent shape difference between the two item kinds, not drift
-// to reconcile.
+// fragments carry no such field at all (BundleFragment has none), so a
+// surface listing commands can advertise something real instead of a
+// fabricated placeholder. This is a genuine, permanent shape difference
+// between the two item kinds, not drift to reconcile.
 // reprise:accept-drift
 func (c Catalog) ListAllCommands() ([]ContentInfo, error) {
 	seen := collections.NewSet[string]()

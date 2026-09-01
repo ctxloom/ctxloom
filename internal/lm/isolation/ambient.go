@@ -41,12 +41,11 @@ type AmbientFile struct {
 }
 
 // AmbientSet returns engine's ambient allow-list, keyed by REGISTERED backend
-// name ("claude-code", "codex", "kiro", "opencode"). It returns nil both for an
-// unregistered engine and for a registered one whose set is DECLARED EMPTY —
-// kiro, whose credentials live in a global SQLite store no home var relocates.
-// The two are told apart by AmbientEngineNames, which lists exactly the
-// registered ones; the roster arch gate asserts every registered backend has an
-// explicit entry, empty or not.
+// name. It returns nil both for an unregistered engine and for a registered one
+// whose set is DECLARED EMPTY — an engine whose credentials live in a global
+// store no home var relocates. The two are told apart by AmbientEngineNames,
+// which lists exactly the registered ones; the roster arch gate asserts every
+// registered backend has an explicit entry, empty or not.
 //
 // ALLOW-LIST, NEVER DENY-LIST. Under a deny-list, a file the engine vendor adds
 // tomorrow is copied by DEFAULT, and the default direction of a mistake there
@@ -143,12 +142,12 @@ type AmbientCopyReport struct {
 
 // instanceConfigWriters is the engine-owned instance-config generator per
 // registered backend, populated once at init by internal/lm/backends — the one
-// package that can see both this registry and internal/{claude,codex,kiro}.
+// package that can see both this registry and the engine packages.
 //
-// This indirection is not decoration. This package cannot import the engine
-// packages (each of them reaches internal/acp, which imports this one — a real
-// cycle) and cannot import internal/lm/backends either (backends imports this
-// package). But the WORKTREE axis resolves its engine by NAME, inside this
+// This indirection is not decoration. This package cannot import
+// internal/lm/backends (backends imports this package), so it cannot reach the
+// engine-owned writers directly. But the WORKTREE axis resolves its engine by
+// NAME, inside this
 // package, with no engine value in hand — so without a name-keyed registry the
 // engine write-config directive would reach only the in-tree axis, and D8's
 // "one mechanism for both axes" would be a mechanism for one.

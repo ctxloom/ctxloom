@@ -47,7 +47,6 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 	}{
 		{"claude-code", ".claude/projects"},
 		{"codex", ".codex/sessions"},
-		{"kiro", ".kiro"},
 		{"unmapped-backend", ".claude/projects"}, // default spec is claude-oriented
 	}
 	for _, tt := range tests {

@@ -1,30 +1,24 @@
 // Package opencode implements the ctxloom Backend for opencode (the `opencode`
-// CLI), driven over its first-party `opencode acp` mode — no third-party ACP
-// adapter. This is the HOST-only chat spine (slice 1): structured chat + the
-// headless oneshot projection of it, both riding the generic ACP driver in
-// internal/acp. opencode has no `--model` flag on its acp subcommand; the model
-// is delivered through a project-local opencode.json in the run's cwd (see
-// chat.go), which opencode reads and validates strictly.
+// CLI). This is a HOST-only, INTERACTIVE-only spine: opencode's TUI is launched
+// through the injected pty launcher (interactive.go). opencode exposes no
+// native non-interactive turn, so oneshot is not offered — see SupportedModes.
 //
-// LIVE-VERIFIED against opencode 1.18.1 authenticated to OpenRouter: a real
-// oneshot chat over `opencode acp` round-tripped a requested nonce back through
-// meta-llama/llama-3.3-70b-instruct:free, proving model delivery via
-// opencode.json reaches real model resolution.
+// opencode has no `--model` flag, so the model is delivered through a
+// project-local opencode.json in the run's cwd, which opencode reads and
+// validates strictly. Layered onto that same key: MCP servers, a read-only
+// `permission` for plan mode, assembled context via `instructions`, custom
+// commands (bundle prompt/skill exports -> .opencode/command/) and Agent Skill
+// packages (-> .opencode/skill/ + `skills.paths`). On the live path all of it
+// rides a TRANSIENT overlay reverted after the run; the persistent
+// `profile materialize` path uses the descriptor surfaces.
 //
-// Later slices layer native config onto the model key: MCP servers, a read-only
-// `permission` for plan mode, and assembled context via `instructions` (slice 2),
-// plus custom commands (bundle prompt/skill exports -> .opencode/command/, slice
-// 3), plus Agent Skill packages (bundle skill exports -> .opencode/skill/ +
-// `skills.paths`, Part B4). On the live path all of it rides transiently in Chat
-// and is reverted after the run; the persistent `profile materialize` path uses
-// the descriptor surfaces.
 // The session-history reader (capabilities.go) drives opencode's own `session
-// list`/`export` commands; interactive PTY launch rides opencode's TUI through
-// the injected pty launcher (interactive.go).
+// list`/`export` commands.
 package opencode
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -40,8 +34,7 @@ type OpencodeConfig struct {
 	Env        map[string]string `mapstructure:"env"`
 	// Thinking is the normalized cross-engine reasoning/thinking-budget
 	// level (off|low|medium|high). opencode has NO wired mechanism for it
-	// (verified by reading chat.go: no ACP config-option/env-var equivalent
-	// found) — this field is read ONLY to detect an explicit setting and
+	// — this field is read ONLY to detect an explicit setting and
 	// warn, an honest documented no-op rather than a silent swallow.
 	Thinking string `mapstructure:"thinking"`
 }
@@ -127,17 +120,23 @@ func (b *Opencode) Configure(cfg agent.BackendConfig) {
 	}
 }
 
-// SupportedModes reports both modes: oneshot rides the `opencode acp` structured
-// turn (chat.go), interactive launches opencode's TUI through the pty launcher
-// (interactive.go). This is the BaseBackend default, spelled out here for clarity.
+// SupportedModes reports INTERACTIVE ONLY: opencode's TUI through the pty
+// launcher (interactive.go). opencode exposes no native non-interactive turn —
+// its oneshot ran as a structured `opencode acp` turn, and that transport is
+// gone — so oneshot is not advertised rather than being silently served by
+// something that is not one.
 func (b *Opencode) SupportedModes() []agent.ExecutionMode {
-	return []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot}
+	return []agent.ExecutionMode{agent.ModeInteractive}
 }
 
-// Execute runs a ONESHOT prompt as a single structured ACP turn: one Chat
-// session, one message, the assistant's streamed text rendered to stdout — a
-// one-message projection of the StructuredChat path (chat.go), so the two paths
-// cannot diverge. Model delivery (opencode.json) happens inside Chat.
+// Execute launches opencode's TUI (interactive.go): model, MCP, context, and
+// the read-only permission ride a transient opencode.json overlay; bypass adds
+// --auto.
+//
+// Any other mode is REFUSED, not approximated. opencode has no native
+// non-interactive turn (see SupportedModes), and quietly launching a TUI for a
+// caller that asked for a scripted oneshot would hand back a session no script
+// can drive while reporting success.
 func (b *Opencode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
 	// The provider is decided by opencode's own resolution of the openrouter/...
 	// model string; "opencode" is honest, not a placeholder.
@@ -146,44 +145,10 @@ func (b *Opencode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdou
 	if req.DryRun {
 		return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
 	}
-	// Interactive launches opencode's TUI (interactive.go): model, MCP, context, and
-	// the read-only permission ride a transient opencode.json overlay; bypass adds
-	// --auto. Oneshot below is the `opencode acp` structured turn.
-	if req.Mode == agent.ModeInteractive {
-		return b.launchInteractive(ctx, req, modelInfo, stdout, stderr)
+	if req.Mode != agent.ModeInteractive {
+		return nil, fmt.Errorf("opencode supports interactive runs only; run it without a oneshot prompt, or choose an engine that has a non-interactive mode (`ctxloom llm list`)")
 	}
-
-	workDir := req.WorkDir
-	if workDir == "" {
-		workDir = b.WorkDir()
-	}
-
-	// This used to inline its own send/drain loop with no empty-prompt check
-	// and no diagnostic for a textless turn (exit 0, zero bytes, silent) —
-	// reprise flagged it byte-for-byte identical to internal/acp/execute.go's
-	// Execute. Both now share this one plumbing.
-	//
-	// req.SkipSetup is an INTERNAL invocation (distillation/compaction —
-	// see internal/acp/execute.go's identical fix for the full defect this
-	// closes: an internal Chat-routed Execute used to leak the caller's own
-	// CTXLOOM_SESSION_HARP down to the spawned `opencode acp` adapter, whose
-	// SessionStart hook then rebound the caller's real session). Scrub it so
-	// the hook still fires but binds nothing; a real delegated child or an
-	// interactive session never sets SkipSetup, so it is unaffected.
-	env := req.Env
-	if req.SkipSetup {
-		env = agent.ScrubInternalIdentityEnv(env)
-	}
-	return agent.RunOneshotTurn(req.Prompt, modelInfo, req.Verbosity, stdout, stderr,
-		func(in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
-			return b.Chat(ctx, agent.ChatRequest{
-				WorkDir:     workDir,
-				Model:       req.Model,
-				Env:         env,
-				Permissions: req.Permissions,
-				MCPServers:  b.ManagedChatMCPServers(req.Env[agent.MCPCommandOverrideEnv]),
-			}, in, out)
-		})
+	return b.launchInteractive(ctx, req, modelInfo, stdout, stderr)
 }
 
 // assertSetupRan is the assertion behind the Setup→Chat/launchInteractive

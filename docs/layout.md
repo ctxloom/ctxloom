@@ -136,7 +136,7 @@ absence is ever worth a doctor warning.
 
 ## Engine homes: your real home, and the per-session instance
 
-**Your real `~/.claude`, `~/.codex` and `~/.kiro` are the durable truth, and
+**Your real `~/.claude` and `~/.codex` are the durable truth, and
 ctxloom never writes them.** That is the model's hardest invariant, and it is
 pinned by a gate that hashes those trees before and after a real agent launch
 and requires byte identity:
@@ -146,7 +146,7 @@ assertion could only say where ctxloom *meant* to write.
 An agent whose binding declares `config_home: project` does not run against your
 real home. It gets a throwaway **per-session instance** at
 `.ctxloom/state/<harp>/home/<engine-leaf>` (`paths.SessionHomePath`; the leaves
-are `.codex`, `claude`, `kiro`, pairwise distinct so one instance root hosts
+are `.codex`, `claude`, pairwise distinct so one instance root hosts
 every engine a session runs). No binding, an undeclared `config_home`, or an
 explicit `config_home: host` all mean the engine uses its **real home directly**
 — no instance, no copy-in (`operations.ResolveConfigHome`).
@@ -169,7 +169,7 @@ direction of that mistake is a confidentiality leak: claude's `.claude.json`
 carries your own `mcpServers` registrations, codex's `config.toml` carries
 yours. So only named keys and named files cross — `claude.ambientConfigKeys` is
 the onboarding answers and nothing else, and codex's copy elides
-`[mcp_servers]` and `[hooks]` (`codex.elidedHostSections`). kiro's set is
+`[mcp_servers]` and `[hooks]` (`codex.elidedHostSections`). The set is
 **declared empty**, not omitted: its credentials live in a global store no home
 variable relocates.
 
@@ -270,7 +270,7 @@ Three reasons, and all three are about the axis, not about tidiness:
    "the project's `state/`" is ambiguous — and importing engine state back into
    the tree is precisely what the worktree axis exists to avoid.
 3. Consumers walk the home-rooted shape directly, with no project in hand:
-   the orphan-worktree reaper, session purge, and kiro's vendor transcript
+   the orphan-worktree reaper, session purge, and vendor transcript
    reader all enumerate `~/.ctxloom/sessions/*/ephemeral/`.
 
 When a run carries no usable harp, the per-agent scratch falls back to the OS
@@ -296,8 +296,8 @@ What follows:
   labelled with its harp, its age, and a note that it is not live configuration
   (`cli.doctorCheckCodexHome`).
 
-claude and kiro need none of this: their static surfaces are cwd-keyed
-(`CLAUDE.md`, `.claude/`, `.kiro/`), so they have durable project paths to
+claude needs none of this: its static surfaces are cwd-keyed
+(`CLAUDE.md`, `.claude/`), so it has durable project paths to
 write.
 
 ## See also

@@ -7,7 +7,7 @@
 // no-live-credential, no-network guarantee.
 //
 // SAFETY (the single load-bearing property of every step in this file):
-// config.yaml names a REAL registered backend type (claude-code/codex/kiro/
+// config.yaml names a REAL registered backend type (claude-code/codex/
 // opencode), which drives isolation.Prepare exactly as a live
 // run would — but PATH is rebuilt FROM SCRATCH to "<spy dir>:/usr/bin:/bin"
 // for the duration of the run (isoMatrixSanitizedPATH), never merely
@@ -18,7 +18,7 @@
 // binary elsewhere on the developer's PATH and made a real (if cheap)
 // completion call — discovered by hand while building this file, not by a
 // gate. Rebuilding PATH from scratch instead means the literal binary name
-// a backend execs ("claude"/"codex"/"kiro-cli"/"opencode") resolves
+// a backend execs ("claude"/"codex"/"opencode") resolves
 // ONLY to the recording script this file writes, or to nothing at all
 // (ENOENT) — never to a real installed engine. No scenario in this file
 // makes a network call or touches a real credential.
@@ -101,7 +101,6 @@ import (
 var isoSpyEnvAllowlist = []string{
 	"CLAUDE_CONFIG_DIR",
 	"CODEX_HOME",
-	"KIRO_HOME",
 	"XDG_CONFIG_HOME",
 	"XDG_DATA_HOME",
 	"XDG_CACHE_HOME",
@@ -150,7 +149,7 @@ out="$CTXLOOM_ISOSPY_OUT"
   echo "===CODEX_HOME_CREDS==="
   [ -n "$CODEX_HOME" ] && cat "$CODEX_HOME/auth.json" 2>/dev/null
   echo "===CONFIG_HOME_LISTING==="
-  for d in "$CLAUDE_CONFIG_DIR" "$CODEX_HOME" "$KIRO_HOME"; do
+  for d in "$CLAUDE_CONFIG_DIR" "$CODEX_HOME"; do
     [ -n "$d" ] && [ -d "$d" ] && echo "DIR $d"
   done
   for f in "$CLAUDE_CONFIG_DIR/.credentials.json" "$CODEX_HOME/auth.json"; do
@@ -213,7 +212,7 @@ const (
 )
 
 // isoBinaryNames maps a scenario's engine token to the literal binary
-// name(s) that engine's backend execs (internal/{claude,codex,kiro,
+// name(s) that engine's backend execs (internal/{claude,codex,
 // opencode}/backend.go's BinaryPath defaults) — the name(s) the
 // spy script must answer to on the sanitized PATH.
 func isoBinaryNames(engine string) ([]string, error) {
@@ -222,8 +221,6 @@ func isoBinaryNames(engine string) ([]string, error) {
 		return []string{"claude"}, nil
 	case "codex":
 		return []string{"codex"}, nil
-	case "kiro":
-		return []string{"kiro-cli"}, nil
 	case "opencode":
 		return []string{"opencode"}, nil
 	default:
@@ -232,8 +229,7 @@ func isoBinaryNames(engine string) ([]string, error) {
 }
 
 // isoAPIKeyEnvVar maps an engine to the env var whose presence bypasses
-// credential seeding (auth.go's credentialSeedSpecs[...].envTrigger /
-// kiroAuthEnvVars).
+// credential seeding (auth.go's credentialSeedSpecs[...].envTrigger).
 func isoAPIKeyEnvVar(engine string) (string, error) {
 	switch engine {
 	case "claude-code":
@@ -242,8 +238,6 @@ func isoAPIKeyEnvVar(engine string) (string, error) {
 		return "OPENAI_API_KEY", nil
 	case "opencode":
 		return "OPENROUTER_API_KEY", nil
-	case "kiro":
-		return "KIRO_API_KEY", nil
 	default:
 		return "", fmt.Errorf("iso matrix: engine %q has no API-key bypass", engine)
 	}
@@ -271,8 +265,6 @@ func isoHostHomeDirRel(engine string) (string, error) {
 		return ".claude", nil
 	case "codex":
 		return ".codex", nil
-	case "kiro":
-		return ".kiro", nil
 	default:
 		return "", fmt.Errorf("iso matrix: no known host config home for engine %q", engine)
 	}
@@ -280,7 +272,7 @@ func isoHostHomeDirRel(engine string) (string, error) {
 
 // isoInstanceLeaf maps an engine to its leaf inside ONE SESSION's config-home
 // instance — `.ctxloom/state/<harp>/home/<leaf>`. The leaves duplicate
-// internal/{claude,kiro,codex}'s own constants rather than importing them: this
+// internal/{claude,codex}'s own constants rather than importing them: this
 // file's whole point is to observe the value a REAL run hands a REAL engine
 // process from the outside, so deriving the expectation from the same helper
 // the production code uses would make the assertion tautological.
@@ -288,8 +280,6 @@ func isoInstanceLeaf(engine string) (string, error) {
 	switch engine {
 	case "claude-code":
 		return "claude", nil
-	case "kiro":
-		return "kiro", nil
 	case "codex":
 		return ".codex", nil
 	default:
@@ -710,13 +700,11 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	})
 
 	// The per-engine form of the credential-fixture step, for an outline whose
-	// rows genuinely differ in what "authenticated" means. claude-code needs a
-	// host ~/.claude/.credentials.json to seed; kiro needs NOTHING, because its
-	// subscription auth lives in a global sqlite under $XDG_DATA_HOME that
-	// KIRO_HOME does not relocate — a fresh KIRO_HOME is already authenticated.
-	// Spelled as a switch rather than "isoCredHostPath, ignore the error"
-	// so a future engine with a real credential cannot be silently seeded with
-	// nothing by falling into kiro's arm.
+	// rows genuinely differ in what "authenticated" means. Spelled as a switch
+	// rather than "isoCredHostPath, ignore the error" so an engine that needs
+	// NO host credential must say so explicitly, and a future engine with a
+	// real credential cannot be silently seeded with nothing by falling into
+	// such an arm.
 	ctx.Step(`^Alice has whatever host credentials "([^"]*)" needs to authenticate$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		switch engine {
@@ -730,8 +718,6 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			return w.env.WriteHomeFile(rel, body+"\n")
-		case "kiro":
-			return nil
 		default:
 			return fmt.Errorf("iso matrix: no declared host-credential requirement for engine %q", engine)
 		}
@@ -882,7 +868,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 
 	// The taking this whole rule exists to avoid, asserted from the other side:
 	// Alice's own engine home is not merely left unread, it is not brought into
-	// existence. A run that created ~/.kiro (or ~/.claude) and then wrote its
+	// existence. A run that created ~/.claude and then wrote its
 	// session state there would have relocated nothing at all.
 	ctx.Step(`^Alice's own "([^"]*)" home directory was never created by the run$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
@@ -1094,8 +1080,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// error (silently degrading the whole chain to None — the live project dir
 	// plus the host's global engine config, the exact loss of boundary this
 	// journey exists to prove), every row stayed green, because the degrade
-	// warning's wording matches neither needle. The kiro sibling scenario
-	// already got this right by reading the spy afterwards; this step now
+	// warning's wording matches neither needle. This step now
 	// carries the run-actually-happened half itself, so every user of it
 	// benefits, and the per-engine config-home var is asserted alongside it in
 	// the feature file.

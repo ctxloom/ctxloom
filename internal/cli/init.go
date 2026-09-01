@@ -44,10 +44,7 @@ When run interactively (TTY detected), init will guide you through:
      profiles, then bind agents to them (a coordinator you drive, a
      containerized developer, a cheap finder — plus any other roles)
 
-The working outcome of init is a functioning ctxloom CLI/TUI — ACP editor
-integration (either direction: ctxloom serving an editor, or ctxloom
-connecting out to an ACP-speaking agent) is optional, separate configuration
-via the acp-setup Agent Skill, never a gate on init completing.
+The working outcome of init is a functioning ctxloom CLI/TUI.
 
 Skipped or interrupted the interview? 'ctxloom init prompt' (or ask your
 agent to run it) re-enters the companions/profiles/agent-binding half any time.
@@ -91,9 +88,7 @@ var initPromptCmd = &cobra.Command{
 	Short: "Print ctxloom's setup prompt (companions, profiles, agents) for the LLM to follow",
 	Long: `Emit ctxloom's built-in setup prompt: instructions for the LLM to interview
 you and configure ctxloom collaboratively — companions (taskloom/ltk),
-profiles/content, and agents (engine↔profile bindings). ACP (editor
-integration, either direction) is a separate, optional step — see the
-acp-setup Agent Skill.
+profiles/content, and agents (engine↔profile bindings).
 
 This is the same body 'ctxloom init' hands to your engine at bootstrap and
 '/ctxloom-init' loads in any ordinary session — this command is just a
@@ -268,7 +263,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	// a raw git error out of the clone machinery. Runs on both the
 	// interactive and --non-interactive paths (both reach this same call) —
 	// a scripted init still needs git to clone.
-	if err := checkSystemDeps(engine); err != nil {
+	if err := checkSystemDeps(); err != nil {
 		return "", err
 	}
 

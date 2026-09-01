@@ -18,9 +18,8 @@ import (
 // destinations respectively. Exported so tests/arch's engine-layout gate
 // (TestArch_EngineLayoutAgreement) can check those isolation-owned literals
 // against this package's own fact instead of the two staying independently
-// hand-maintained; isolation itself still cannot import this package in
-// production (codex -> internal/acp -> internal/lm/isolation is a real
-// cycle), so its copy of "auth.json" stays a literal.
+// hand-maintained. isolation does not import this package, so its copy of
+// "auth.json" stays a literal; that arch gate is what keeps the two equal.
 const AuthFileName = "auth.json"
 
 // backend.go wires codex onto the shared launch core and the surfaces × cells
@@ -89,7 +88,7 @@ type Codex struct {
 	// thinking is the resolved normalized reasoning level (Configure defaults
 	// it to agent.ThinkingMedium — the zero value, so an unconfigured backend
 	// is still medium). Chat translates it into codex-acp's
-	// model_reasoning_effort/model_reasoning_summary config keys (chat.go).
+	// model_reasoning_effort/model_reasoning_summary config keys.
 	thinking agent.ThinkingLevel
 }
 
@@ -122,7 +121,6 @@ func NewCodex() *Codex {
 		&agent.CellDelivery{Build: b.buildSurfaces, RawContext: true, ContextHook: true},
 	)
 	b.SetExecuteEnv(b.cellCodexHomeEnv)
-	b.SetACPTransport(CodexACPTransport) // intrinsic: every construction path (incl. direct) gets it
 	return b
 }
 

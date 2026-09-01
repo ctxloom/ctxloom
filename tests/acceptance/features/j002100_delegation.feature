@@ -179,7 +179,7 @@ Feature: Coordinator delegates isolated work
   #
   # WHAT IT PROTECTED, recorded because the property outlived the mechanism:
   # ctxloom must never file a refusal under the OPERATOR'S name. The engine used
-  # to be handed a reject_once option, which claude-code-acp reports to the model
+  # to be handed a reject_once option, which the engine adapter reported to the model
   # as {behavior:"deny", message:"User refused permission to run tool"} -- a
   # refusal the operator never made and cannot correct.
   #

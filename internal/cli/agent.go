@@ -25,10 +25,7 @@ import (
 // every ordinary session (resources/commands/ctxloom-init.md, exported via
 // internal/lm/backends.builtinCommands — unconditional, on ALL backends'
 // command catalogs, loaded by the engine only on invocation, never injected
-// into always-on assembled context). ACP (server or client) is intentionally
-// NOT one of the five phases — it is optional, out-of-band configuration
-// handed off to the acp-setup Agent Skill; the working outcome of these five
-// phases alone is a functioning CLI/TUI. It is deliberately a markdown
+// into always-on assembled context). It is deliberately a markdown
 // RESOURCE, not Go: the role palette and example names are data that can
 // evolve (e.g. via a ctxloom-default augmentation) without a code change.
 // Read via GetBuiltinCommandBody (not GetPromptText) because the SAME file
@@ -309,13 +306,13 @@ explicitly. Not every engine can take a container axis: one with no way to
 authenticate inside a container is refused here, and 'ctxloom llm list' reports
 per engine which values it can be given. The workspace axis (worktree vs shared
 dir) is NOT set here — it is a session trait chosen at invocation time
-(run/acp --workspace, or an agent_run spawn's workspace field). Driving
+(run --workspace, or an agent_run spawn's workspace field). Driving
 (optional: conversational|oneshot) sets
 the per-turn execution axis; omit it to keep the default conversational
 (warm-engine) model. oneshot requires a resume-capable engine and is
 EXPERIMENTAL in this release — executable, but its interfaces and behavior
 may change. Config-home (optional: project|host) decides which engine config
-home this agent's claude-code/codex/kiro runs get on the in-tree (workspace:
+home this agent's claude-code/codex/opencode runs get on the in-tree (workspace:
 none) axis: "project" points the engine at a ctxloom-controlled, PER-SESSION
 home under .ctxloom/state/<session>/home/, isolated from your own and thrown
 away with the session; "host" (also the default when omitted) keeps the
@@ -681,7 +678,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 }
 
 // completeWorkspaceNames completes the session-level --workspace flag values
-// (run/acp) from the isolation package's single source.
+// (run) from the isolation package's single source.
 func completeWorkspaceNames(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return isolation.WorkspaceNames(), cobra.ShellCompDirectiveNoFileComp
 }

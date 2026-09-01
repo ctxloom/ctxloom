@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
 	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
-	kiroreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/kiro"
 )
 
 // mintTurnSession indexes a session for backend at the pinned engine version
@@ -42,7 +41,7 @@ func mintTurnSession(t *testing.T, backend, version string) string {
 // engine's adapter cannot leave this test asserting a stale pairing.
 //
 // MUTATION — resolve reg/SelectAdapter from a fixed backend instead of
-// entry.Backend — turns the two non-claude rows red.
+// entry.Backend — turns the non-claude row red.
 func TestResolveTurnTranscript_SelectsTheReaderForTheSessionsOwnEngine(t *testing.T) {
 	tests := []struct {
 		backend string
@@ -51,7 +50,6 @@ func TestResolveTurnTranscript_SelectsTheReaderForTheSessionsOwnEngine(t *testin
 	}{
 		{config.BackendClaudeCode, "2.1.214", claudereader.VersionedAdapters[0].Adapter},
 		{"codex", "0.144.6", codexreader.VersionedAdapters[0].Adapter},
-		{"kiro", "2.13.0", kiroreader.VersionedAdapters[0].Adapter},
 	}
 	for _, tc := range tests {
 		t.Run(tc.backend, func(t *testing.T) {

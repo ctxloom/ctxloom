@@ -3,16 +3,13 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os/exec"
 )
 
 // StructuredChat is an OPTIONAL backend capability: a persistent, multi-turn
 // structured conversation over the backend's NATIVE programmatic protocol — not
 // a pty/TUI. A backend implements it only if it can speak such a protocol; the
 // host discovers support via a type assertion (backend.(StructuredChat)) and
-// reports the feature unavailable otherwise. claude-code implements it through
-// the claude-code-acp adapter (internal/acp); other backends may not yet.
+// reports the feature unavailable otherwise.
 //
 // This is deliberately separate from the core Backend interface: adding a
 // required method would break every backend, and structured chat is a capability
@@ -43,9 +40,9 @@ type ChatRequest struct {
 	// request as a ChatEvent.Permission and park the engine until the matching
 	// ChatMessage.Permission answer arrives.
 	//
-	// The ACP driver IGNORES this and forwards unconditionally: ctxloom is a
-	// pass-through proxy for session/request_permission and keeps no local
-	// decider to fall back to (see internal/acp's chatSession.handlePermission).
+	// A driver may IGNORE this and forward unconditionally: ctxloom is a
+	// pass-through proxy for a permission request and keeps no local decider
+	// to fall back to.
 	// A request nobody answers parks the engine — the protocol's own semantics,
 	// and preferable to ctxloom filing an approval or a refusal under the
 	// operator's name. The field remains for backends that do consult it.
@@ -60,14 +57,12 @@ type ChatRequest struct {
 	// this is only honest when the caller actually has a live upstream editor
 	// that ADVERTISED the terminal capability at ITS OWN initialize: a
 	// backend must NEVER advertise ClientCapabilities.Terminal: true to the
-	// engine unless this is true AND actually wired (see
-	// internal/acp/session.go's setup) — ctxloom brokers terminal/* to a real
-	// editor, it never implements a terminal of its own. The one populator
-	// (internal/acpagent/server.go, via internal/operations.OpenRequest.
-	// ForwardTerminal) sets this from the connected editor's own
-	// clientCapabilities.terminal; every other caller (delegated child agents
-	// with no ACP editor upstream, e.g. agentcoord's HarnessSpec) leaves it
-	// false, which is exactly correct: there is nothing to broker to.
+	// engine unless this is true AND actually wired — ctxloom brokers
+	// terminal/* to a real editor, it never implements a terminal of its own.
+	// A populator must set this from the connected editor's own
+	// clientCapabilities.terminal; a caller with no editor upstream (delegated
+	// child agents, e.g. agentcoord's HarnessSpec) leaves it false, which is
+	// exactly correct: there is nothing to broker to.
 	ForwardTerminal bool
 	// MCPServers are caller-supplied MCP servers to attach to the conversation
 	// (e.g. the ACP client's session/new mcpServers), in addition to whatever
@@ -107,14 +102,13 @@ type ChatRequest struct {
 	// crossing (chatStartToProto/chatStartFromProto, internal/lm/grpc/chat.go)
 	// converts to and parses from a string, since a proto field cannot carry
 	// a Go type. Only a backend whose StructuredChat transport actually
-	// implements container isolation (the ACP client driver, internal/acp)
-	// consults it; every other backend ignores it — additive, host stays the
-	// default everywhere else.
+	// implements container isolation consults it; every other backend ignores
+	// it — additive, host stays the default everywhere else.
 	Runtime RuntimeAxis
 	// ModelQuirk optionally names a per-engine escape hatch (see
 	// ModelDeliveryQuirk) that forces Model onto the session via a non-spec
-	// call the ACP driver (internal/acp/session.go) makes right after setup,
-	// before the first prompt. nil — every backend but claude today — means
+	// call the structured-chat driver makes right after setup,
+	// before the first prompt. nil — every backend today — means
 	// no such call: the spec-standard delivery (--model / an env var / a
 	// future session/set_config_option) is trusted to work.
 	ModelQuirk *ModelDeliveryQuirk
@@ -126,10 +120,9 @@ type ChatRequest struct {
 // exists ONLY because CO1's controlled experiment proved claude-code-acp
 // 0.16.2 silently ignores every spec-standard model channel (argv, env, and
 // it does not implement session/set_config_option at all — zero hits in its
-// dist/*.js) — see internal/claude/chat.go for the full defect citation, the
-// one populator, and the removal condition. This type is deliberately
-// backend-neutral (it lives alongside ChatRequest, not inside internal/acp)
-// so the driver that executes it (internal/acp/session.go) never needs to
+// dist/*.js). This type is deliberately backend-neutral (it lives alongside
+// ChatRequest, not inside any one backend) so the driver that executes it
+// never needs to
 // know which engine it is talking to — it just compares the connected
 // agent's self-reported identity against these fields.
 type ModelDeliveryQuirk struct {
@@ -145,83 +138,6 @@ type ModelDeliveryQuirk struct {
 	AdapterVersions []string
 }
 
-// ACPTransportKind names how a backend's StructuredChat implementation
-// actually reaches an ACP-speaking process: the engine's OWN CLI speaks ACP
-// (ACPNative — kiro's `kiro-cli acp`, opencode's `opencode acp`, the generic
-// "acp" backend's configured passthrough command), a SEPARATE third-party
-// adapter binary wraps a CLI that has no ACP mode of its own (ACPAdapter —
-// claude-code-acp wrapping `claude`, codex-acp wrapping `codex`), or the
-// backend speaks no ACP at all and drives its own bespoke protocol instead
-// (ACPBespoke — no current registrant; reserved for an engine whose CLI has
-// neither a native ACP mode nor a third-party adapter). This is the single
-// per-engine declaration every ACP-transport consumer (a Chat() PATH gate, a
-// doctor/init readiness probe, an image-build install fragment) reads instead
-// of re-deriving "is this an adapter engine" from a hardcoded name switch.
-type ACPTransportKind int
-
-const (
-	// ACPNative is the zero value: the engine's own client binary speaks ACP
-	// directly, so there is no separate adapter to install or probe.
-	ACPNative ACPTransportKind = iota
-	// ACPAdapter means a separate, PATH-resolved adapter binary (Binary)
-	// wraps the engine's CLI to speak ACP on its behalf.
-	ACPAdapter
-	// ACPBespoke means the backend implements StructuredChat over its own
-	// non-ACP protocol (prose, JSON, whatever the vendor CLI offers) — there
-	// is no adapter to install and no native ACP mode to probe.
-	ACPBespoke
-)
-
-// ACPTransport is one engine's complete ACP-transport declaration: how its
-// structured chat reaches the model, and — for an ACPAdapter engine — enough
-// provenance for a human or an init agent to vet the adapter before it's
-// installed. Every field but Kind is meaningful only for ACPAdapter; a
-// native or bespoke engine leaves them empty.
-type ACPTransport struct {
-	Kind ACPTransportKind
-	// Binary is the adapter binary this engine's Chat() gate LookPath()s and
-	// spawns (ACPAdapter only), e.g. "claude-code-acp".
-	Binary string
-	// InstallCmd is the exact command a user runs to install Binary
-	// (ACPAdapter only) — the SINGLE source for what was previously a
-	// hardcoded string duplicated across each engine's Chat() error text and
-	// the doctor/init readiness warn.
-	InstallCmd string
-	// Publisher is who publishes the adapter (ACPAdapter only) — provenance
-	// for vetting before a user or an init agent installs a third-party
-	// binary onto PATH.
-	Publisher string
-	// SourceRepo is the URL an init agent or human reviews the adapter's
-	// source at (ACPAdapter only). Empty when no repo URL is derivable from
-	// this codebase's own record of the adapter (never fabricate one).
-	SourceRepo string
-}
-
-// RequireOnHost is the ONE gate every ACPAdapter engine's Chat() runs before
-// spawning its adapter: for a HOST-runtime chat (!IsContainerRuntimeAxis(runtime))
-// it LookPath()s Binary and fails loud, naming InstallCmd, if it's absent —
-// a containerized chat in EITHER ownership mode is EXEMPT (the agent image
-// carries its own adapter; this process's PATH is irrelevant there — see
-// internal/lm/isolation's container-runtime axis). A native or bespoke
-// transport (Kind != ACPAdapter) always reports nil: there is nothing on
-// PATH for those to look up. engineLabel names the engine in the error text
-// (e.g. "claude", "codex") — this method carries no opinion about which
-// engine it's gating, only what one ACPAdapter declaration requires.
-//
-// Centralizing this (rather than each ACPAdapter engine's Chat() re-writing
-// the same LookPath-or-fail-with-InstallCmd shape) is what makes the gate
-// itself, not just the underlying binary/InstallCmd data, a single
-// declaration every ACPAdapter engine shares.
-func (t ACPTransport) RequireOnHost(runtime RuntimeAxis, engineLabel string) error {
-	if IsContainerRuntimeAxis(runtime) || t.Kind != ACPAdapter {
-		return nil
-	}
-	if _, err := exec.LookPath(t.Binary); err != nil {
-		return fmt.Errorf("structured chat for %s needs the %s adapter on PATH; install it with: %s", engineLabel, t.Binary, t.InstallCmd)
-	}
-	return nil
-}
-
 // MCPTransport selects the wire-transport variant of one ChatMCPServer entry.
 // The zero value (MCPTransportStdio, "") is the protocol's unconditional
 // baseline — every EXISTING construction site (ComposeChatMCPServers and
@@ -230,8 +146,7 @@ func (t ACPTransport) RequireOnHost(runtime RuntimeAxis, engineLabel string) err
 // and is therefore completely unaffected by its addition. Http/Sse carry an
 // EDITOR-supplied remote MCP server instead of a local command (ACP's
 // session/new mcpServers, B3/gap G11): ctxloom's own materialized bundle
-// servers never populate these, only the ACP passthrough paths
-// (mcpServersFromACP / mcpServersToACP) do.
+// servers never populate these, only an editor-passthrough path does.
 type MCPTransport string
 
 const (
@@ -241,7 +156,7 @@ const (
 	MCPTransportStdio MCPTransport = ""
 	// MCPTransportHTTP is a remote MCP server reached over streamable HTTP.
 	// Only meaningful when the RECEIVING engine advertises
-	// mcpCapabilities.http — see internal/acp/session.go's mcpServersToACP.
+	// mcpCapabilities.http.
 	MCPTransportHTTP MCPTransport = "http"
 	// MCPTransportSSE is a remote MCP server reached over Server-Sent
 	// Events. Only meaningful when the RECEIVING engine advertises
@@ -328,8 +243,6 @@ type ChatEvent struct {
 	// an otherwise-fully-mapped entry) or stand ALONE (Entry/Complete/
 	// Session/Permission all nil — a pure passthrough frame, e.g.
 	// available_commands_update, that the IR has no other shape for at all).
-	// See internal/acp/mapping.go (producer) and internal/acpagent/mapping.go
-	// (consumer/re-emitter) for the allowlist enforcement.
 	//
 	// PERMISSIONS NEVER RIDE HERE. session/request_permission is not even a
 	// session/update variant (it is a separate agent→client REQUEST,
@@ -407,21 +320,16 @@ const (
 
 // TerminalRequest is a forwarded engine terminal/* request (B1, gap G6): the
 // engine wants ctxloom to broker ONE terminal operation to the connected
-// upstream editor. This carrier never implements a terminal itself — when
-// internal/acp's own client role does (acp_local_terminal on, no upstream
-// editor to forward to), that path answers terminal/* directly and never
-// touches ChatEvent.Terminal/this struct at all; see
-// internal/acp.handleTerminal. ID
+// upstream editor. This carrier never implements a terminal itself. ID
 // correlates the eventual TerminalResponse (unique within one chat, same
 // discipline as PermissionRequest.ID). Op names which ACP terminal/* method
 // this is (the TerminalOp* constants above). Params carries that method's
 // ACP request body VERBATIM as JSON, WITH THE SESSION ID STRIPPED: the id in
 // there is the CLIENT-role driver's own opaque session with the ENGINE,
-// which the upstream editor does not share and must never see — the
-// agent-role broker (internal/acpagent) substitutes ITS OWN editor-facing
-// session id before relaying, exactly as permissionRequestWire substitutes
-// sess.id for a forwarded permission request rather than carrying the
-// engine's own id through. Params/Result ride as raw JSON (not five
+// which the upstream editor does not share and must never see — an
+// agent-role broker substitutes ITS OWN editor-facing session id before
+// relaying, rather than carrying the engine's own id through, exactly as it
+// must for a forwarded permission request. Params/Result ride as raw JSON (not five
 // duplicated typed structs, one per op, in both this package and its proto
 // mirror) — the same established pattern as PermissionRequest.ToolInput and
 // ChatEvent.Raw: this hub layer relays bytes, it never needs to construct or
@@ -489,7 +397,7 @@ type ChatSessionInfo struct {
 	SessionID string
 	// Resumable reports that the backend advertised it can RESUME this native
 	// session by its SessionID key on a later spawn (ACP: the engine's
-	// initialize-time loadSession capability; internal/acp/session.go). It is
+	// initialize-time loadSession capability). It is
 	// the LIVE half of the one-shot resume gate (one-shot-resume plan, Slice 4
 	// / Fork 3): the static per-backend table says a backend COULD resume, but
 	// only the connected adapter's own handshake proves THIS engine actually

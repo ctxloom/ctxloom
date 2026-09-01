@@ -119,14 +119,14 @@ then validated against an embedded JSON Schema.
 **What it owns.** The list of agent MCP registrars `taskloom manage` can install into, and the
 server command line to register — **without depending on ctxloom**. 64 LOC; all engine-specific
 detail (config paths, on-disk format, merge semantics) lives in each agent module's own
-`MCPRegistrar` (`internal/claude`, `internal/antigravity`, `internal/codex`, `internal/kiro`).
+`MCPRegistrar` (`internal/claude`, `internal/codex`).
 
 | Symbol | file:line | Notes |
 |---|---|---|
 | `Engine` | `engine.go:22` | `= agent.MCPRegistrar` — a type **alias**, not a definition |
 | `TaskloomName` | `engine.go:25` | `"taskloom"`, the registration key |
 | `TaskloomServer` | `engine.go:29` | `wire.MCPServer{Command: "taskloom", Args: ["mcp"]}` — the one place the command line is named |
-| `engines` / `All` | `engine.go:34`, `:39` | The registry: claude, antigravity, codex, kiro |
+| `engines` / `All` | `engine.go:34`, `:39` | The registry: claude, codex |
 | `Get` | `engine.go:53` | Lowercase → `engineAliases` (`:44`) → linear scan on `Name()`. **No prefix matching** — a typo must error |
 
 **Invariants**

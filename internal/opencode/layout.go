@@ -8,11 +8,9 @@ package opencode
 // internal/lm/isolation's opencodeOverlayDirs/credentialSeedSpecs/
 // engineContainerSpec tables and internal/gitignore's WorktreeArtifactPatterns
 // have a single owner to check their opencode-shaped literals against,
-// instead of each hand-maintaining its own copy. isolation/gitignore cannot
-// import this package in production (opencode -> internal/acp ->
-// internal/lm/isolation, and acp -> internal/gitignore, are real cycles), so
-// their copies stay literals there; tests/arch's engine-layout gate is the
-// enforcement point.
+// instead of each hand-maintaining its own copy. isolation/gitignore carry
+// their copies as literals rather than importing this package; tests/arch's
+// engine-layout gate is the enforcement point that keeps the two equal.
 
 // ConfigDirName is opencode's project-scoped managed-config directory,
 // relative to the workspace root — the parent of the command/skill dirs

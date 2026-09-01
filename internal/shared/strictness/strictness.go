@@ -3,7 +3,7 @@
 // failure class and a fix-it command; the warning line still streams to stderr
 // exactly as before (so no diagnostic is ever lost, whichever command path
 // fired it), and in strict mode a fatal Finding is additionally collected. The
-// startup choke owners (`ctxloom run`, `ctxloom mcp`, `ctxloom acp`) then check
+// startup choke owners (`ctxloom run`, `ctxloom mcp`) then check
 // the collected findings once — all of them, never first-error — and abort
 // pre-launch with a distinct exit code listing every finding and its fix.
 //
@@ -124,8 +124,9 @@ var (
 	findings []Finding
 	// generation counts Checkpoint calls. onceRecorded keys FailOnce
 	// recordings by generation+class+message, so the RECORDING dedup is
-	// scoped to one checkpoint window: a long-lived server (`ctxloom acp`)
-	// that refuses a session over a FailOnce finding must see the SAME
+	// scoped to one checkpoint window: a long-lived server that opens many
+	// sessions in one process and refuses one over a FailOnce finding must
+	// see the SAME
 	// finding again when the unfixed session is retried under a new
 	// Checkpoint — a process-wide dedup would swallow the re-fire and the
 	// retry would open silently on broken context. The PRINT dedup

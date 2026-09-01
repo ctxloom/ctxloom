@@ -21,7 +21,7 @@ import "syscall"
 // (tests/integration/testenv/pdeathsig_linux.go, which arms the same signal on
 // the ctxloom processes IT spawns); the leak persisted because the harness
 // could only protect the hop it owned. Arming it here covers every host —
-// `ctxloom run`, `ctxloom mcp`, `ctxloom acp`, a test binary — without each
+// `ctxloom run`, `ctxloom mcp`, a test binary — without each
 // having to know about it.
 func setRunnerPdeathsig(attr *syscall.SysProcAttr) {
 	attr.Pdeathsig = syscall.SIGTERM

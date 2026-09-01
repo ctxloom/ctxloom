@@ -67,10 +67,9 @@ const (
 // and probe declarations both build paths from), these three describe how
 // claude relocates its home and where its OWN credential/transcript state
 // lives — facts internal/lm/isolation's credentialSeedSpecs/engineContainerSpec
-// tables duplicate as literals today (isolation cannot import this package in
-// production: claude -> internal/acp -> internal/lm/isolation is a real
-// cycle), so tests/arch's engine-layout gate cross-checks those literals
-// against these instead.
+// tables duplicate as literals today rather than importing this package, so
+// tests/arch's engine-layout gate cross-checks those literals against these
+// instead.
 const (
 	// ConfigDirEnv is the environment variable claude honors to relocate its
 	// config home away from the default ~/.claude — CLAUDE_CONFIG_DIR.
@@ -178,9 +177,7 @@ func probes() []agent.CLIProbe {
 // setEnv is the env ctxloom puts on the child for both CLI surfaces.
 // CTXLOOM_CONTEXT_FILE is set by LaunchBackend.ExecuteEnv whenever context was
 // provided; CTXLOOM_SESSION_HARP arrives on the run env from the host and is
-// what gates --name. claude's CLI surfaces STRIP NOTHING — the CLAUDECODE
-// nested-session guard is stripped only on the ACP transport (internal/acp),
-// which this contract does not cover.
+// what gates --name. claude's CLI surfaces STRIP NOTHING.
 func setEnv() []string {
 	return []string{agent.SCMContextFileEnv, agent.SessionHarpEnv}
 }

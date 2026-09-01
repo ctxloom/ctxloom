@@ -290,11 +290,10 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			if !ok || harp == "" {
 				return fmt.Errorf("j002100: no session harp remembered for %q — spawn it first", name)
 			}
-			// TWO assistant entries, not one: every ACP session opens with
+			// TWO assistant entries, not one: a session opens with
 			// ctxloom's always-on isolation-posture announcement, which is
 			// assistant-shaped and indistinguishable from content at this
-			// seam (tests/integration/acp_agent_test.go documents the same
-			// offset). The verdict rides the entry AFTER it, so the search
+			// seam. The verdict rides the entry AFTER it, so the search
 			// below scans them all for the mock's verdict line rather than
 			// counting positions.
 			assistants, err := j002300TranscriptAssistantCount(w, harp, 2)

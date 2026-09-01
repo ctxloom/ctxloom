@@ -2,6 +2,7 @@ package operations
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -64,4 +65,47 @@ func addFileToLocalRepo(t *testing.T, dir, filePath, content string) string {
 	})
 	require.NoError(t, err)
 	return sha.String()
+}
+
+// requireGit skips the test cleanly when git is unavailable, so the normal
+// suite stays green on a git-less host.
+func requireGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping a real-git test")
+	}
+}
+
+// initTestRepo creates a temp git repo with one commit and returns its path.
+func initTestRepo(t *testing.T) string {
+	t.Helper()
+	requireGit(t)
+	dir := t.TempDir()
+	gitFixtureRun(t, dir, "init", "-b", "main")
+	// A REPO-LOCAL identity, not just gitFixtureRun's env one. The env covers
+	// only the commands this helper runs; PRODUCTION code committing into this
+	// repo (git.ExecGit.CommitAll, reached via handleDirtyParentTree) shells out
+	// with a SANITIZED environment and sees none of it, falling through to
+	// global config — present on a developer box, absent in a container or on
+	// CI, where the commit dies with "Author identity unknown".
+	gitFixtureRun(t, dir, "config", "user.name", "ctxloom")
+	gitFixtureRun(t, dir, "config", "user.email", "ctxloom@example.com")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("seed"), 0o644))
+	gitFixtureRun(t, dir, "add", "README.md")
+	gitFixtureRun(t, dir, "commit", "-m", "seed")
+	return dir
+}
+
+func gitFixtureRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com",
+		"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com",
+		// Isolate from the developer's/CI's GLOBAL and SYSTEM git config.
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
 }

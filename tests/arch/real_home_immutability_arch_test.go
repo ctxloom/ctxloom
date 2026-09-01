@@ -5,8 +5,8 @@
 //
 // Everything else in the model is a consequence of it. The durable truth of a
 // user's engine configuration — codex's per-project trust entries, claude's
-// credentials and per-project keys, kiro's global agents and steering — lives
-// in ~/.codex, ~/.claude and ~/.kiro, and those are the user's. ctxloom reads
+// credentials and per-project keys — lives in the engine's own dotdir under
+// the user's home, and those are the user's. ctxloom reads
 // them (one-way copy-in at instance time) and points engines at throwaway
 // per-session instances instead. A single write-back would make an instance's
 // disposability a lie and could destroy configuration no clone and no rebuild
@@ -35,7 +35,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
-	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -44,7 +43,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// realHomeFixture writes a believable ~/.claude, ~/.codex and ~/.kiro into a
+// realHomeFixture writes a believable host home for each engine into a
 // scratch HOME and returns it. Every file carries CONTENT: a hash comparison
 // between two empty trees is vacuous, which is this project's characteristic
 // false green.
@@ -79,11 +78,6 @@ func realHomeFixture(t *testing.T) string {
 	write(filepath.Join(".codex", "config.toml"),
 		"model = 'o3'\napproval_policy = 'on-request'\n\n[projects.\"/somewhere/else\"]\ntrust_level = 'trusted'\n", 0o644)
 	write(filepath.Join(".codex", "prompts", "personal.md"), "# my own prompt\n", 0o644)
-
-	// kiro: global steering and an agent, the content KIRO_HOME relocation
-	// exists to keep an agent run away from.
-	write(filepath.Join(".kiro", "steering", "personal.md"), "my own steering\n", 0o644)
-	write(filepath.Join(".kiro", "agents", "mine.json"), `{"name":"mine"}`, 0o644)
 
 	return home
 }
@@ -139,11 +133,11 @@ func hashTree(t *testing.T, root string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// realHomeSnapshot fingerprints all three engine homes at once.
+// realHomeSnapshot fingerprints every engine home at once.
 func realHomeSnapshot(t *testing.T, home string) map[string]string {
 	t.Helper()
 	snap := map[string]string{}
-	for _, leaf := range []string{".claude", ".claude.json", ".codex", ".kiro"} {
+	for _, leaf := range []string{".claude", ".claude.json", ".codex"} {
 		snap[leaf] = hashTree(t, filepath.Join(home, leaf))
 	}
 	for leaf, sum := range snap {
@@ -195,14 +189,13 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	home := realHomeFixture(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("KIRO_API_KEY", "")
 	workDir := t.TempDir()
 	const harp = "ugly-icy-squid"
 
 	before := realHomeSnapshot(t, home)
 
 	instances := map[string]string{}
-	for _, backend := range []string{"claude-code", "kiro", "codex"} {
+	for _, backend := range []string{"claude-code", "codex"} {
 		env := operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
 			Backend:    backend,
 			WorkDir:    workDir,
@@ -335,10 +328,6 @@ func TestArch_InstanceHomesLiveInsideTheProjectStateTier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claude.SessionConfigDir: %v", err)
 	}
-	kiroDir, err := kiro.SessionHome(workDir, harp)
-	if err != nil {
-		t.Fatalf("kiro.SessionHome: %v", err)
-	}
 	codexRoot, err := codex.SessionHome(workDir, harp)
 	if err != nil {
 		t.Fatalf("codex.SessionHome: %v", err)
@@ -346,7 +335,6 @@ func TestArch_InstanceHomesLiveInsideTheProjectStateTier(t *testing.T) {
 
 	for name, dir := range map[string]string{
 		"claude-code": claudeDir,
-		"kiro":        kiroDir,
 		"codex":       filepath.Join(codexRoot, codex.ConfigDirName),
 	} {
 		if !strings.HasPrefix(dir, stateTier) {

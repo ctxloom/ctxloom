@@ -103,7 +103,7 @@ The detail that made it worth a scenario rather than a one-line fix is that
 an unresolvable harp and an unbound one — and only the unbound half was
 honoured. The unbound case degraded correctly with a warning. The unresolvable
 case never reached the warn that was written for it. The same call is shared by
-the ACP resume path and the coordinator's ended-child resume, so the blast
+every resume path with the same hole, the coordinator's ended-child resume included, so the blast
 radius was wider than one flag on one command. Fixed at the shared primitive;
 this scenario now proves the unresolvable half degrades the same way.
 

@@ -21,7 +21,7 @@ import (
 // this suite drives a `ctxloom mcp serve` SUBPROCESS, whose agent-delegation
 // tools are a deliberately reduced surface with DIFFERENT, hand-written schemas
 // (internal/mcp/mcp_tools_agents.go) and no output schemas at all. The
-// proto-canonical surface — the one `ctxloom run` / `ctxloom acp` give a real
+// proto-canonical surface — the one `ctxloom run` gives a real
 // harness, generated from coordination.proto — is a spawned session's own
 // per-cell runner socket, which no external MCP client here can reach.
 //

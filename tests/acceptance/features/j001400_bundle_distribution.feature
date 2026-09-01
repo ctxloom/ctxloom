@@ -323,7 +323,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # agent.WriteManagedContext, and a SKILLS surface — the shared
   # agent.ManagedSkillPackagesDelivery bound to the shared
   # agent.WriteManagedSkillPackages — producing a .mock/skills/ tree. Both are
-  # the same writers claude's .claude/skills/, kiro's .kiro/, and opencode's
+  # the same writers claude's .claude/skills/, codex's .codex/skills/, and opencode's
   # .opencode/skill/ go through, differing only in
   # the directory they target, so a row that passes here is exercising the
   # shared seam rather than a mock-only path.

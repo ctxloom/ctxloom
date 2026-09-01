@@ -1,7 +1,7 @@
 package coord
 
 // Env var names of the coordinator reach-back trio injected per spawn on both
-// spawn paths (and onto the parent harness by `ctxloom run`/`ctxloom acp`).
+// spawn paths (and onto the parent harness by `ctxloom run`).
 // The credential is read from the HARNESS-INHERITED process env only — it is
 // never written into any MCP config structure, file, or Env map.
 const (
@@ -25,15 +25,14 @@ const (
 	// boundary; the runner is the one credential holder and the one
 	// egress).
 	//
-	// One reach-back seam encodes a SECOND value shape here: the ACP
-	// editor driver's container transport (internal/acp/container_transport.go)
-	// cannot bind-mount a live unix socket across the Docker Desktop VM
-	// boundary off Linux (macOS/Windows), so there this instead carries
-	// "tcp://host:port" — a host-loopback TCP bridge onto the same unix
-	// socket, dialed by the shim's forward mode (internal/mcp/mcp_forward.go).
-	// Every OTHER setter of this var (this package's runner, in particular)
-	// always emits a plain unix path; only that one ACP seam ever emits the
-	// tcp:// form.
+	// This var has a SECOND value shape, which every reader must handle: a
+	// container transport cannot bind-mount a live unix socket across the
+	// Docker Desktop VM boundary off Linux (macOS/Windows), so there it
+	// instead carries "tcp://host:port" — a host-loopback TCP bridge onto the
+	// same unix socket. The marker is mcpsocket.TCPPrefix and the shim's
+	// forward mode dials on it (internal/mcp/mcp_forward.go's
+	// dialReachBackSocket). This package's runner always emits a plain unix
+	// path.
 	EnvMCPSocket = "CTXLOOM_MCP_SOCKET"
 	// EnvRunDepth carries this run's DELEGATION DEPTH to its runner process:
 	// "0" for the session owner, "1" for its directly-spawned subagents,

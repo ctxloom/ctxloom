@@ -1,6 +1,6 @@
 # agent — session transcript IR
 
-The normalized conversation representation every engine's transcript is mapped *into* and every consumer (memory compaction, resume, the transcript importers, the ACP mapping layer) reads *out of*. `SessionEntry` is the hub type: one struct per conversation turn, a discriminated union flattened into fields whose liveness depends on `Type` and `SystemKind`. Each of these DTOs has a proto mirror in `internal/lm/grpc` and a JSON mirror in `internal/transcript/record.go` — three declarations of one shape, the standing cost of a hub IR.
+The normalized conversation representation every engine's transcript is mapped *into* and every consumer (memory compaction, resume, the transcript importers) reads *out of*. `SessionEntry` is the hub type: one struct per conversation turn, a discriminated union flattened into fields whose liveness depends on `Type` and `SystemKind`. Each of these DTOs has a proto mirror in `internal/lm/grpc` and a JSON mirror in `internal/transcript/record.go` — three declarations of one shape, the standing cost of a hub IR.
 
 ```mermaid
 classDiagram

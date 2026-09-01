@@ -1,25 +1,24 @@
 @doc
-Feature: One shared profile, reaching three engines in their own native format
+Feature: One shared profile, reaching every engine in its own native format
 
   A team does not standardize on one assistant. Carol's team writes one shared
   profile — a fragment, a command, an MCP server, a hook — once. Alice's teammates
-  use claude-code, codex, and kiro, and every one of them needs that
+  use claude-code and codex, and every one of them needs that
   same profile to reach their own engine, in whatever native shape that engine
   actually reads. ctxloom's job is to be the one place the team's standard is
   authored, and to speak every engine's own dialect on the way out — nobody
   forks the profile per engine, and nobody hand-translates a fragment into
   different config formats.
 
-  The three engines do NOT converge on one shape, and this is not incidental —
+  The engines do NOT converge on one shape, and this is not incidental —
   it is the whole point of proving it here rather than asserting it in prose.
-  Verified straight from each engine's own surfaces.go (internal/{claude,codex,
-  kiro}/surfaces.go):
+  Verified straight from each engine's own surfaces.go
+  (internal/{claude,codex}/surfaces.go):
 
     | engine      | context lands in                                          | MCP lands in                              | hooks land in                | commands land in                   |
     |-------------|-------------------------------------------------------------|----------------------------------------------|-------------------------------|--------------------------------------|
     | claude-code | CLAUDE.md (managed markers)                                | .mcp.json                                   | .claude/settings.json          | .claude/commands/                    |
     | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | $CODEX_HOME/config.toml [hooks] — per-session only | $CODEX_HOME/prompts/ (global) — per-session only |
-    | kiro        | .kiro/steering/ctxloom-context.md                          | .kiro/settings/mcp.json                     | .kiro/agents/<name>.json        | .kiro/skills/<name>/SKILL.md         |
 
   codex's rows name $CODEX_HOME rather than a project-root .codex, and that is
   the second divergence worth stating: codex is the ONE engine with no
@@ -73,9 +72,8 @@ Feature: One shared profile, reaching three engines in their own native format
     Examples:
       | engine      |
       | claude-code |
-      | kiro        |
 
-  # codex is the THIRD engine of the fan-out and it gets its own scenario, not
+  # codex is the OTHER engine of the fan-out and it gets its own scenario, not
   # a row, because its answer is genuinely different: one surface materializes
   # and three are DECLARED as launch-only. Keeping it as a row would have meant
   # either asserting files the product deliberately does not write, or quietly
@@ -116,16 +114,14 @@ Feature: One shared profile, reaching three engines in their own native format
       | claude-code | CLAUDE.md |
       | codex       | AGENTS.md |
 
-  # LOCKED — @live: claude, kiro, and codex have a working live
-  # path today (kiro confirmed live: a logged-in kiro-cli genuinely reads the
-  # materialized steering context and echoes the sentinel back — the
-  # not-yet-authenticated gap in internal/kiro/chat.go's comment is closed).
+  # LOCKED — @live: claude and codex have a working live
+  # path today.
   # codex joined this table once 7beee9a routed AGENTS.md through SurfaceFor
   # on the real materialize/run path (not just the dead Deliveries() path) —
   # a logged-in codex CLI genuinely reads the materialized AGENTS.md and
   # echoes the sentinel back. Each present row self-skips without
   # credentials, exactly like J000200's own @live scenario. Adding an engine here
-  # is adding a ROW, no new Go and no new steps — proven true a third time by
+  # is adding a ROW, no new Go and no new steps — proven true again by
   # codex's row below.
   @live
   Scenario Outline: A real engine actually receives the shared context and can use it
@@ -137,5 +133,4 @@ Feature: One shared profile, reaching three engines in their own native format
     Examples:
       | engine      |
       | Claude      |
-      | Kiro        |
       | Codex       |

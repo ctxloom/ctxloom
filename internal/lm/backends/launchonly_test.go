@@ -54,7 +54,7 @@ func TestLaunchOnlySurfaces_ReportsCodexsFourSurfaces(t *testing.T) {
 // the fastest way to teach a reader to skip the "NOT carried" lines, taking the
 // real codex ones with them.
 func TestLaunchOnlySurfaces_QuietForEveryOtherBackend(t *testing.T) {
-	for _, name := range []string{"claude-code", "kiro", "opencode", "mock", "acp", "no-such-backend"} {
+	for _, name := range []string{"claude-code", "opencode", "mock", "no-such-backend"} {
 		assert.Empty(t, LaunchOnlySurfaces(name, launchOnlyInputs()),
 			"%s has a durable project surface (or no descriptor at all); nothing about it is launch-only", name)
 		assert.Empty(t, LaunchOnlySettingsReason(name), "%s declares no launch-only reason", name)

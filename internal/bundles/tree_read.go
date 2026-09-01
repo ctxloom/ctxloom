@@ -335,9 +335,6 @@ func commandLLM(e content.EngineExports) LLMExports {
 	if x, ok := e.For("codex"); ok {
 		out.Codex = CodexConfig{Enabled: x.Enabled, Description: x.Description}
 	}
-	if x, ok := e.For("kiro"); ok {
-		out.Kiro = KiroConfig{Enabled: x.Enabled, Description: x.Description}
-	}
 	if x, ok := e.For("opencode"); ok {
 		out.Opencode = OpencodeConfig{Enabled: x.Enabled, Description: x.Description}
 	}
@@ -354,7 +351,6 @@ func skillLLM(e content.EngineExports) SkillLLMExports {
 	}
 	set(&out.ClaudeCode, "claude-code")
 	set(&out.Codex, "codex")
-	set(&out.Kiro, "kiro")
 	set(&out.Opencode, "opencode")
 	return out
 }

@@ -24,13 +24,13 @@ import (
 // plays one of two roles, fixed by environment at startup:
 //
 //   - COORDINATOR HOST (no CTXLOOM_COORD_URL): this server owns delegation.
-//     `ctxloom run` and `ctxloom acp` stand the coordinator up eagerly and
-//     hand it to their engines via the env trio; a bare `ctxloom mcp` (an
+//     `ctxloom run` stands the coordinator up eagerly and hands it to its
+//     engine via the env trio; a bare `ctxloom mcp` (an
 //     externally-launched harness — the orphaned-orchestrator fallback)
 //     builds one lazily on first agent-tool use. Either way the durable CQRS
 //     stores, credentials, and listeners live in the coordinator library.
 //   - FORWARDER (CTXLOOM_COORD_URL set): this server belongs to a spawned
-//     child's engine (or the parent harness of a hosting run/acp process);
+//     child's engine (or the parent harness of a hosting run process);
 //     it never registers local tools at all — the WHOLE server is a
 //     stdio↔HTTP proxy onto the coordinator's MCP endpoint (mcp_forward.go),
 //     and identity derives from the credential per request, never from this

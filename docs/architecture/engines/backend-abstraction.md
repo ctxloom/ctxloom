@@ -50,23 +50,16 @@ classDiagram
 
     Backend <|.. ClaudeCode
     Backend <|.. Codex
-    Backend <|.. Kiro
     Backend <|.. Antigravity
     Backend <|.. Opencode
-    Backend <|.. ACP
     Backend <|.. Mock
 
     LaunchBackend <|-- ClaudeCode
     LaunchBackend <|-- Codex
-    LaunchBackend <|-- Kiro
     LaunchBackend <|-- Antigravity
     LaunchBackend <|-- Opencode
 
-    ClaudeCode ..|> StructuredChat
-    Codex ..|> StructuredChat
-    Kiro ..|> StructuredChat
-    Antigravity ..|> StructuredChat
-    Opencode ..|> StructuredChat
+    Mock ..|> StructuredChat
 ```
 
 `Backend` (`internal/shared/agent/backend.go:65-79`) is deliberately **narrow**:
@@ -102,7 +95,6 @@ type's own doc comment).
 | `List() []string` | `internal/lm/backends/registry.go:117` | All names with a constructor. |
 | `Exists(name) bool` | `internal/lm/backends/registry.go:128` | Registration predicate. |
 | `EnforcesReadOnlyPlan(name) bool` | `internal/lm/backends/registry.go:148` | **The plan-collapse authority.** Unregistered name → `false`. |
-| `ACPTransportFor(name) agent.ACPTransport` | `internal/lm/backends/registry.go:160` | Declared ACP transport for consumers with no live instance (`doctor`, init PRIME, container image fragments). Unregistered → zero value (`ACPNative`). |
 | `GetDefaultBinary(name) string` | `internal/lm/backends/registry.go:176` | Instantiates and asks via `BinaryPathProvider`. |
 | `IsAvailable(name) bool` | `internal/lm/backends/registry.go:192` | Binary resolvable on inherited PATH *or* login-shell PATH (`shellenv.Resolve`). |
 | `Configurable` | `internal/lm/backends/registry.go:20-22` | Optional: backend accepts its own typed config. |
@@ -110,23 +102,15 @@ type's own doc comment).
 
 ### Registered backends
 
-All seven are registered in one `init()` at `internal/lm/backends/registry.go:261-450`.
+All of them are registered in one `init()` in `internal/lm/backends/registry.go`.
 
 | Name | Constructor | Descriptor line | Settings writer | Surfaces | Cmd export | Skill export |
 |---|---|---|---|---|---|---|
 | `claude-code` | `claude.NewClaudeCode()` | `:266` | yes | yes | yes | yes |
 | `antigravity` | `antigravity.NewAntigravity()` | `:301` | yes | yes | yes | yes |
 | `codex` | `codex.NewCodex()` | `:322` | yes | yes | yes | yes |
-| `kiro` | `kiro.NewKiro()` | `:355` | yes | yes | yes | yes |
-| `acp` (generic) | `acp.NewACP()` | `:391` | **no** | `EmptySurfaceSet` | **no** | **no** |
 | `opencode` | `opencode.NewOpencode()` | `:422` | yes | yes | yes | yes |
 | `mock` | `backends.NewMock()` | `:443` | **no** | **no** | **no** | **no** |
-
-The generic `acp` backend drives *whatever* ACP-speaking command config supplies
-(`command: "kiro-cli acp"`, `claude-code-acp`, …), so **new ACP agents become
-config, not code** (`registry.go:381-390`). It registers no settings writer and
-no exports precisely because a generic agent has no known native config format to
-materialize.
 
 ## Invariants this layer owns
 
@@ -134,8 +118,7 @@ materialize.
 
 `registry.go:239-260` states it as a **licensing invariant, not a style
 preference**: every registered backend reaches its model by spawning the vendor's
-own binary (`claude`, `codex`, `kiro-cli`, `agy`, `opencode`) or that vendor's ACP
-adapter. ctxloom holds no provider SDK and makes no direct model-API call. The
+own binary (`claude`, `codex`, `opencode`). ctxloom holds no provider SDK and makes no direct model-API call. The
 compliance lives in the *shape of the registry table*, not in any one backend.
 Adding `anthropic-sdk-go` / `openai-go` / `langchaingo` "to simplify the launcher"
 would forfeit that standing.
@@ -175,10 +158,8 @@ Per-engine truth, from the descriptor table:
 |---|---|---|---|
 | `claude-code` | **true** | `--permission-mode plan` | `registry.go:297` |
 | `codex` | **true** | `--sandbox read-only` (both subcommands) | `registry.go:342` |
-| `kiro` | **true** | `--trust-tools=fs_read` — LIVE VERIFIED 2026-07-15 (kiro-cli 2.12.1) | `registry.go:370-377` |
 | `opencode` | **true** | `opencode.json permission {edit:deny, bash:deny}` — stricter than opencode's own `plan` agent, which leaves bash allowed | `registry.go:437` |
 | `antigravity` | **false** | Passes `--mode plan`, but the flag was LIVE VERIFIED 2026-07-15 (agy 1.1.2) **not** to enforce read-only headlessly | `registry.go:133-151` |
-| `acp` (generic) | **false** | No read-only tier | (unset) |
 | `mock` | **false** | (unset) | (unset) |
 
 The antigravity case is a deliberate, documented exception: the flag *is* emitted
@@ -187,32 +168,11 @@ unblocked and the engine self-reported "not in read-only mode". Flipping the
 descriptor `true` would tell the resolver to trust a flag proven not to work. See
 [antigravity](antigravity.md).
 
-### 4. ACP transport is declared once per engine
-
-`agent.ACPTransportKind` (`internal/shared/agent/chat.go:156-168`) has three values:
-
-- `ACPNative` (zero) — the engine's own binary speaks ACP (`kiro-cli acp`, `opencode acp`).
-- `ACPAdapter` — a separate PATH-resolved adapter binary wraps a CLI with no ACP mode.
-- `ACPBespoke` — the backend implements `StructuredChat` over its own driver, bypassing the `acp` package entirely.
-
-| Engine | Kind | Adapter binary | Install | Declared at |
-|---|---|---|---|---|
-| `claude-code` | `ACPAdapter` | `claude-code-acp` | `npm install -g @zed-industries/claude-code-acp` (Zed Industries) | `internal/claude/chat.go:28-34` |
-| `codex` | `ACPAdapter` | `codex-acp` | `npm install -g @zed-industries/codex-acp` (Zed Industries) | `internal/codex/chat.go:21-27` |
-| `kiro` | `ACPNative` | — | — | `internal/lm/backends/registry.go:221` |
-| `opencode` | `ACPNative` | — | — | `internal/lm/backends/registry.go:224` |
-| `antigravity` | `ACPBespoke` | — | — | `internal/lm/backends/registry.go:229` |
-| `acp` (generic) | `ACPNative` | (config's own `command`) | — | `internal/lm/backends/registry.go:236` |
-
-The two **adapter** engines declare their transport in their *own* packages so
-their constructors set it on every instance including direct construction outside
-the registry — an un-injected instance would default to `ACPNative` and silently
-skip its adapter (`registry.go:208-220`).
-
 ## The transcript IR
 
 `SessionEntry` (`internal/shared/agent/backend.go:153-224`) is the normalized,
-ACP-shaped conversation IR every backend's `History()` produces. Beyond the
+ACP-shaped conversation IR every backend's `History()` produces (the IR keeps
+that shape by design; the ACP packages themselves are gone). Beyond the
 original flat fields (`Timestamp`, `Type`, `Content`, `ToolName`, `ToolInput`,
 `ToolOutput`, `IsError`), the IR2 revision added optional richness — every field
 zero-valued means "the producing backend didn't have one":
@@ -249,8 +209,8 @@ across claude JSON / antigravity JSON / codex TOML.
 
 **It runs against 3 of the 5 backends that implement `SettingsWriter`**:
 `claude-code` (`:48`), `antigravity` (`:49`), `codex` (`:50`). **Absent: `opencode`
-(`internal/opencode/settings.go:465`) and `kiro` (`internal/kiro/settings.go:48`)**,
-both of which implement the interface. `acp` and `mock` legitimately have no writer.
+(`internal/opencode/settings.go:465`)**, which implements the interface.
+`mock` legitimately has no writer.
 
 How strongly each test constrains, rather than merely exercises:
 
@@ -260,7 +220,7 @@ How strongly each test constrains, rather than merely exercises:
 - `FaultTolerantLoad` (`:82`) — grades via the writer's own `Status(projectDir).HooksPresent` (`:94`).
 - `MCPAutoRegister` (`:139`) — merely exercises: the sole assertion is the writer's own `st.MCPPresent` (`:148`), never whether the entry reached the file.
 
-Not covered: opencode, kiro, atomicity, hook-event *mapping*, and `SessionEnd`
+Not covered: opencode, atomicity, hook-event *mapping*, and `SessionEnd`
 (deliberately excluded — codex's CLI has no such event, `conformance_test.go:63-64`).
 Note the suite's subjects are `internal/claude`, `internal/antigravity` and
 `internal/codex` — **none under `internal/lm/`**, despite where it lives.
@@ -277,11 +237,11 @@ corrupt settings file while antigravity and codex still **warn and continue**.
 
 *Stated factually; defect triage lives in `FINDINGS.md`, not here.*
 
-- **`ContentCommands` is implemented six times and invoked zero times.** The interface at `internal/shared/agent/launch_backend.go:51` has a real `RegisterFromContent` body in claude, antigravity, acp, kiro, codex, and opencode. `LaunchBackend.commands` is assigned at `launch_backend.go:92` and read nowhere; production call sites of `RegisterFromContent` number zero. A future backend author reading the interface will believe it must be implemented.
+- **`ContentCommands` is implemented six times and invoked zero times.** The interface at `internal/shared/agent/launch_backend.go:51` has a real `RegisterFromContent` body in every registered backend. `LaunchBackend.commands` is assigned at `launch_backend.go:92` and read nowhere; production call sites of `RegisterFromContent` number zero. A future backend author reading the interface will believe it must be implemented.
 - ~~**`ManagedConfig.Skills` and `ManagedConfig.DenyTools` never reach any backend.**~~ **RESOLVED `40b49a7f`** — the proto carries all 7 fields, and `SurfaceInputs`/`setupViaCells` (`cells.go:166`, `:181`; `launch_backend.go`) now receive real values rather than always-empty ones. Full chain in [the plugin wire](grpc-wire.md). Kept on this page because it is the abstraction's sharpest lesson: **the Go interface looked complete at every layer** — the host populated the fields, the struct declared them, the consumer read them — and the only broken link was a hand-written converter with no compiler binding. The parity sweep (`internal/lm/grpc/arch_test.go`) is what supplies that binding now.
-- **`binary_path` has two incompatible meanings**, decided by an unexported type switch at `internal/cli/llm_resolve.go:89-100`: on claude / codex / antigravity it flips the run onto the external go-plugin path and **drops isolation**; on kiro / opencode / acp it is merely a CLI override. The config schema documents it identically for all six.
-- **A backend in neither `credentialSeedSpecs` nor `curatedHomeSpecs` gets zero engine-global isolation, silently** (`internal/lm/isolation/auth.go:341` bare `return nil`; `Env()` at `:526` emits nothing). The registered generic `acp` backend (`registry.go:391`) hits that branch. See [isolation](isolation.md).
-- **Two backends are marked LIVE-UNTESTED in the registry itself**: `codex` (`registry.go:319-321`) and `kiro` (`registry.go:352-354`) have never been run against a real authenticated account on any dev host.
+- **`binary_path` has two incompatible meanings**, decided by an unexported type switch at `internal/cli/llm_resolve.go:89-100`: on claude / codex / antigravity it flips the run onto the external go-plugin path and **drops isolation**; on opencode it is merely a CLI override. The config schema documents it identically for all of them.
+- **A backend in neither `credentialSeedSpecs` nor `curatedHomeSpecs` gets zero engine-global isolation, silently** (`internal/lm/isolation/auth.go:341` bare `return nil`; `Env()` at `:526` emits nothing). See [isolation](isolation.md).
+- **`codex` is marked LIVE-UNTESTED in the registry itself** — it has never been run against a real authenticated account on any dev host.
 
 ## See also
 

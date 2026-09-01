@@ -18,7 +18,6 @@ gate that process-owning commands must pass before they spawn anything.
 | `cmd/ltk` | ~1,100 | The tool-rule hook companion. Separate root. |
 | `cmd/gen-schemas` | 43 | Reflects over `cli.SchemaTargets()` (`schematargets.go:16`) to emit JSON schemas. Build-tagged. |
 | `cmd/mockengine` | 122 | Test double engine used by the conformance suites. |
-| `cmd/acpl1harness` | 325 | ACP level-1 conformance harness. |
 | `cmd/validate` | 48 | Schema validation utility. |
 
 Only two things import `internal/cli`: `cmd/ctxloom` (via `cli.Execute`) and
@@ -131,7 +130,7 @@ state — a side effect their names disclaim.
   must surface its warnings, otherwise a corrupted `config.yaml` silently
   launches an empty-context session.* Honoured by `run`, `mcp serve`,
   `profile materialize`. Not honoured by
-  `llm serve`/`host`/`turn` (`llm_runner_common.go:62`), or `acp server`.
+  `llm serve`/`host`/`turn` (`llm_runner_common.go:62`).
 - **I9 (exit codes).** Exit 3 = strictness abort. Exit 1 = any other error, via
   `reportExecuteError`. A wrapped engine's own exit code arrives as
   `ExitError{Code: status.Code}` (`run.go:1296`).

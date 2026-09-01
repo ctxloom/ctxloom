@@ -207,7 +207,7 @@ Six steps, warn-and-continue by design, with two `ctx.Err()` checkpoints:
   verbatim string copies of literals in `mcp_tools_memory.go`, kept honest by a
   test; the sixth (`relayEvaluateTriggersDesc`) simply aliases the real constant.
 - `reachBackTCPPrefix` (`mcp_forward.go:35`) is a hand-synced duplicate of
-  `internal/acp/container_transport.go:227`, with a comment instructing humans to
+  the removed ACP container transport, with a comment instructing humans to
   keep them in sync.
 - Two doc comments (`mcp_server.go:29-30`, `mcp_tools_agents.go:192`) direct the
   reader to `newCtxServerForIdentity`, a function that does not exist; the real

@@ -157,16 +157,6 @@ signer. An organization cannot yet ship signed context through an MDM-style drop
 fails safe (unverified content is reviewed), so it is a missing feature rather than a hole,
 but it does not work today.
 
-**An editor's own MCP servers bypass the trust gate entirely.** When an ACP-speaking editor
-(Zed, or any other client) opens a session, it can hand ctxloom MCP servers directly in that
-request. Those servers are forwarded to the engine as given — never checked against a
-publisher signature, never routed through review or rejection, on any transport (stdio, http,
-or sse). This is not an oversight: the gate authenticates content *ctxloom itself* resolves
-from a bundle or a remote, and an editor's own session configuration has no publisher and no
-bundle to check — it is Alice's own direct configuration of her own already-trusted editor.
-Only the MCP servers ctxloom resolves for you (from bundles and remotes) are gated; anything
-your editor hands ctxloom directly is outside this system's remit and rides along unreviewed.
-
 **One key signs every ctxloom surface, and the release binaries are not signed at all.** A
 single embedded publish key signs the default bundles and the companion loadouts, so its
 compromise radius is every signed surface at once. The released *binaries* carry no signature
@@ -250,7 +240,7 @@ promise:
   servers via `--mcp-config`, pointing at an out-of-cwd file, and deliberately omits
   `--strict-mcp-config` so the engine *layers* ctxloom's set on top of yours instead of
   replacing it. Your file is untouched because ctxloom never opens it.
-- For **Antigravity** and **Kiro**, ctxloom does write the engine's native registry in place —
+- For **Codex**, ctxloom does write the engine's native registry in place —
   and records the names it wrote in a sidecar **ledger**. Removal keys off that ledger, not off
   the file, so user-authored entries (including remote `url` servers) survive byte-for-byte,
   along with top-level fields ctxloom does not model.

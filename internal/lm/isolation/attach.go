@@ -17,33 +17,32 @@ import (
 // AttachedContainer is a running container's foreground stdio for a caller
 // that speaks its OWN protocol directly with the in-container process — as
 // opposed to SpawnClient's go-plugin-over-socket transport, which serves the
-// `ctxloom llm serve` gRPC protocol. The ACP client driver's container
-// transport (ISO1, internal/acp) is the first such caller: plain JSON-RPC
-// rides Stdin/Stdout directly, no go-plugin handshake involved, so the
-// heavier RunnerFunc/AddrTranslator machinery SpawnClient uses would be pure
-// overhead here — this is the minimal primitive underneath it (exec the
-// runtime's `run` argv, no daemon-specific socket dance).
+// `ctxloom llm serve` gRPC protocol. For a line protocol riding Stdin/Stdout
+// directly, with no go-plugin handshake involved, the heavier
+// RunnerFunc/AddrTranslator machinery SpawnClient uses would be pure overhead
+// — this is the minimal primitive underneath it (exec the runtime's `run`
+// argv, no daemon-specific socket dance).
 type AttachedContainer struct {
 	Stdin  io.WriteCloser
 	Stdout io.Reader
 	// ShutdownGrace bounds how long Close waits for the in-container process to
 	// exit ON ITS OWN after stdin EOF, before force-removing the container.
 	// Zero means DefaultShutdownGrace. Set it before Close; a caller that knows
-	// its protocol ends the conversation by closing stdin (the ACP driver) needs
-	// this for the same reason its host path does — see DefaultShutdownGrace.
+	// its protocol ends the conversation by closing stdin needs this for the
+	// same reason its host path does — see DefaultShutdownGrace.
 	ShutdownGrace time.Duration
 	close         func(grace time.Duration) error
 	stderr        *stderrtail.Ring
 }
 
 // DefaultShutdownGrace is how long an attached container gets to exit on its own
-// after stdin closes before teardown force-removes it. The engine adapters that
-// ride this transport flush their own NATIVE session transcript asynchronously
-// once the conversation ends, and a zero-grace removal races that flush and
-// truncates it — measured on the HOST path first (internal/acp's identical
-// constant, tidy-gush) and true for exactly the same reason in a container,
-// where the removal is even less forgiving: `docker rm -f` takes the whole
-// filesystem the half-written transcript lives on with it.
+// after stdin closes before teardown force-removes it. An engine riding this
+// transport flushes its own NATIVE session transcript asynchronously once the
+// conversation ends, and a zero-grace removal races that flush and truncates
+// it — measured on the HOST path first (tidy-gush) and true for exactly the
+// same reason in a container, where the removal is even less forgiving:
+// `docker rm -f` takes the whole filesystem the half-written transcript lives
+// on with it.
 const DefaultShutdownGrace = 3 * time.Second
 
 // attachWaitDelay bounds how long cmd.Wait may spend draining the container's
@@ -53,8 +52,8 @@ const DefaultShutdownGrace = 3 * time.Second
 const attachWaitDelay = time.Second
 
 // StderrTail is the bounded tail of everything the CONTAINER wrote to stderr,
-// captured as it streamed. For the ACP container transport this is the engine
-// adapter's own dying words — the only root-cause evidence a caller ever gets
+// captured as it streamed. This is the in-container engine's own dying words
+// — the only root-cause evidence a caller ever gets
 // when the in-container process exits before answering a JSON-RPC call, and
 // the reason this is captured rather than merely inherited: Close force-
 // removes the container, so `docker logs` afterwards has nothing to read.

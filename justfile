@@ -428,7 +428,7 @@ test-conformance:
 # already part of `go test ./...`, but named here so a release-monitoring job
 # can point at exactly this engine's parser against a fresh vendor transcript
 # without pulling in the rest of the suite). Add a sibling target per engine
-# as internal/transcript/vendorreader/<engine> lands (kiro/claude).
+# as internal/transcript/vendorreader/<engine> lands.
 #
 # It ALSO carries internal/codex's hook-trust vendor pin, which is not a
 # transcript reader but has the identical exposure and belongs in the identical
@@ -448,15 +448,6 @@ test-vendor-codex:
     go test -race ./internal/transcript/vendorreader/codex/...
     CTXLOOM_VENDOR_PIN=require go test -race -run 'TestVendorPin_' ./internal/codex/...
 
-# Validate the kiro vendor-transcript reader in isolation. Its own fixture
-# is a sqlite db built at test time (see
-# internal/transcript/vendorreader/kiro/testdata/MANIFEST.json) via
-# modernc.org/sqlite, the pure-Go (CGO_ENABLED=0-safe) driver this package
-# isolates to itself — -race here also exercises that driver under the race
-# detector, not just this package's own goroutine-free logic.
-test-vendor-kiro:
-    go test -race ./internal/transcript/vendorreader/kiro/...
-
 test-vendor-claude:
     go test -race ./internal/transcript/vendorreader/claude/...
 
@@ -467,10 +458,9 @@ test-vendor-claude:
 # type-checks this tag: golangci-lint's build-tags list carries only
 # `mutation` (see .golangci.yml for why this one is not on it), and
 # `test`/coverage exclude build-tagged files by construction. A test file
-# that only compiles under the tag can therefore bit-rot silently — exactly
-# what happened to acp_agent_test.go (stale agent.ChatRequest.AutoApprove
-# field) and acp_live_test.go (claude.NewClaudeCode's old one-arg signature),
-# both invisible until something finally ran this. Wired into both `test`
+# that only compiles under the tag can therefore bit-rot silently — tag-gated
+# tests have gone stale against changed signatures before, invisible until
+# something finally ran this. Wired into both `test`
 # below and `lint` (justfile.container), so it gates the default local AND CI
 # paths. vet, not test/run — stays cheap.
 # The SECOND vet line covers the `acceptance` tag, which gates ~23k lines the
@@ -927,7 +917,6 @@ test-acceptance-container: build _ensure-gotmpdir
 #                                progress/liveness trio
 #                                (TestCoordContainerProgress_*);
 #   internal/vpio/dockerexec   — the interactive docker-exec turn;
-#   internal/acp               — containerTransport against a real container;
 #   internal/testsupport/containercell
 #                              — the hermetic container cell's three-runtime
 #                                matrix (docker rootful, docker rootless,
@@ -1069,10 +1058,9 @@ test-acceptance-live-container: container-build-acceptance
 # Run the standalone isolation probe (tests/acceptance/features/
 # isolation_probe.feature) for exactly ONE engine x axis cell — the
 # per-engine-release regression check, not the whole live suite. ENGINE is
-# one of claude-code|codex|kiro|opencode|antigravity; AXIS is worktree,
+# one of claude-code|codex|opencode|antigravity; AXIS is worktree,
 # container-rootless, or container-rootful (or "bypass" for the engine's
-# env-API-key-forced worktree row, or "kiro-leak" for the dedicated
-# --degraded credential-store-leak proof — that one ignores ENGINE/AXIS).
+# env-API-key-forced worktree row).
 # container-rootful is wired but has never gone green on any box this suite
 # has run on (no reachable rootful daemon) — it self-skips loudly. Makes AT
 # MOST one real, paid engine call.
@@ -1088,7 +1076,7 @@ isolation-probe ENGINE AXIS: build
 
 # Run the LIVE delegation round trip (j002300_cross_engine_delegation.feature's
 # per-engine floor) for exactly ONE engine. ENGINE is one of
-# claude-code|codex|kiro|opencode. It spawns a real delegated child on that
+# claude-code|codex|opencode. It spawns a real delegated child on that
 # engine and asserts the marker phrase that exists ONLY in the child's own
 # composed context comes back to the coordinator's mailbox over the
 # agent_send/agent_recv bus — the round trip agent_run's own success value
@@ -1107,7 +1095,7 @@ live-delegation ENGINE: build _ensure-gotmpdir
 # Run ONE cell of the engine x isolation floor
 # (features/engine_isolation_matrix.feature): the simplest live round trip —
 # "emit exactly this JSON object, nothing else" — for one engine under one
-# isolation scheme. ENGINE is claude-code|codex|kiro|opencode, RUNTIME is
+# isolation scheme. ENGINE is claude-code|codex|opencode, RUNTIME is
 # host|container-rootless|container-rootful, WORKSPACE is none|worktree.
 # container-rootless and container-rootful are ownership modes of ONE
 # containerization axis, not a fourth engine — a host has at most one of them
@@ -1132,7 +1120,7 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
 # Run ONE cell of the capability-probe ladder (tests/acceptance's probe
 # registry): PROBE is a registry probe name without the @probe- prefix
 # ("p3-hook-firing"), FEATURE is that probe's own feature file, ENGINE is
-# claude-code|codex|kiro|opencode, RUNTIME is host|container, WORKSPACE is
+# claude-code|codex|opencode, RUNTIME is host|container, WORKSPACE is
 # none|worktree. The five tags it composes are exactly the tag line every
 # probe's Examples block carries (probeCell.Tags), so this recipe and the
 # registry cannot drift about how a cell is addressed.
@@ -2015,9 +2003,6 @@ _container-build-via-cli backend *engines:
 # resolved content-addressed tag.
 # Build the claude-code agent image (one engine, tagged by resolved content).
 container-build-claude: (_container-build-via-cli "claude-code")
-
-# Build the kiro agent image (see container-build-claude).
-container-build-kiro: (_container-build-via-cli "kiro")
 
 # List all ctxloom container images
 container-list:

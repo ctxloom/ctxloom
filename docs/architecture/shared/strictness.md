@@ -11,11 +11,10 @@ flowchart TD
   subgraph callers["choke sites (~34 prod Fail/FailOnce/Record)"]
     C1["isolation.Prepare<br/>config.Load<br/>profiles parent resolve<br/>bundles loader<br/>operations hooks/sync/trust"]
   end
-  subgraph gates["gate owners (10 prod Checkpoints)"]
+  subgraph gates["gate owners (production Checkpoints)"]
     G1["cli.failOnFindings<br/>(run/mcp → exit 3)"]
     G2["coord.prodSpawner.Resolve<br/>(refuse delegated child)"]
     G3["operations.isolationGateErr<br/>(refuse fan member)"]
-    G4["engine_session<br/>(refuse ACP session)"]
   end
 
   C1 -->|"Fail / FailOnce / Record"| REC["record(class, fixit, msg, once)<br/>strictness.go:364"]
@@ -28,7 +27,7 @@ flowchart TD
   Fail --> REC
   Record["Record :353<br/>(no printing)"] --> REC
 
-  G1 & G2 & G3 & G4 -->|"Checkpoint()"| MK["Mark{w *window, idx int}<br/>strictness.go:207"]
+  G1 & G2 & G3 -->|"Checkpoint()"| MK["Mark{w *window, idx int}<br/>strictness.go:207"]
   MK -->|Since| WIN
   MK -->|FindingsError| WIN
   MK -->|Close| WIN
@@ -82,7 +81,7 @@ flowchart TD
 **Goroutine ownership**
 
 - The goroutine that calls `Checkpoint` **must be** the goroutine that records the faults the gate intends to see. `record` appends to `currentWindow()`, resolved from `runtime.Stack`'s gid; a fault raised on a helper goroutine lands in that goroutine's window and is invisible to the parent's `Mark`.
-- `Since` must be called **before** `Close`. Every current production caller honours this; all five per-request `Checkpoint` sites (`coord/spawner.go:337`, `operations/oneshot.go:362`, `operations/delegate.go:255`, `operations/engine_session.go:115`, `:719`) read before closing.
+- `Since` must be called **before** `Close`. Every current production caller honours this; every per-request `Checkpoint` site (`coord/spawner.go`, `operations/oneshot.go`, `operations/delegate.go`) reads before closing.
 - `Mark` carries no nesting depth or refcount. `Close(inner)` on a goroutine that also holds a live **outer** mark deletes the shared window entry, so the goroutine's next `record` builds a fresh window and the outer mark reads an orphaned one. Nesting marks on one goroutine is unsupported and undetected.
 - The zero `Mark` means "since the very start of the process" and is safe to pass to `Since`, `Close`, and `FindingsError`.
 
@@ -110,7 +109,7 @@ flowchart TD
 
 **Lifetime and locking**
 
-- The process-wide `findings` slice and `onceRecorded` map are append-only and never pruned in production (`Reset` has no production caller). In long-lived processes (`ctxloom acp`, the coordinator daemon) both grow for the life of the process.
+- The process-wide `findings` slice and `onceRecorded` map are append-only and never pruned in production (`Reset` has no production caller). In long-lived processes (the coordinator daemon) both grow for the life of the process.
 - `record`'s two appends are **not atomic together**: `mu` is released before `w.mu` is taken, so a concurrent `All()` can observe a finding the window has not got yet.
 - One `sync.Mutex` guards `degraded`, `findings`, `generation`, and `onceRecorded`, so every `Degraded()` read contends with every `record`.
 

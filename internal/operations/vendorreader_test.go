@@ -26,7 +26,7 @@ import (
 // (main_test.go) chdirs the whole test run into a throwaway sandbox dir
 // (isolation from the package source dir as a working dir), so a
 // cwd-relative fixture path would silently resolve to nothing there —
-// mirrors codex_test.go's/kiro_test.go's own repoRoot helper.
+// mirrors each reader package's own test suite's repoRoot helper.
 func thisDir() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Dir(file)
@@ -243,15 +243,15 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 	assert.False(t, converted)
 }
 
-// TestVendorReaderRegistry_CoversThreeEngines locks in exactly which backend
+// TestVendorReaderRegistry_CoversTwoEngines locks in exactly which backend
 // names carry a vendor reader — a change here (adding/removing an engine) should
 // be a deliberate, visible edit to this test, not a silent registry drift.
-func TestVendorReaderRegistry_CoversThreeEngines(t *testing.T) {
+func TestVendorReaderRegistry_CoversTwoEngines(t *testing.T) {
 	got := make([]string, 0, len(vendorReaderRegistry))
 	for name := range vendorReaderRegistry {
 		got = append(got, name)
 	}
-	assert.ElementsMatch(t, []string{config.BackendClaudeCode, "codex", "kiro"}, got)
+	assert.ElementsMatch(t, []string{config.BackendClaudeCode, "codex"}, got)
 }
 
 // TestLocateBoundTranscript exercises the shared locate func directly

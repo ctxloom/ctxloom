@@ -81,16 +81,25 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	assert.Equal(t, []string{"p1", "p2"}, sub.Profiles)
 }
 
-// llmLabelsFixture declares a config-only LLM LABEL — a name that is NOT a
-// registered backend — so the accepting-side assertion below does not depend on
+// llmLabelsFixture declares config-only LLM LABELS — names that are NOT
+// registered backends — so the accepting-side assertion below does not depend on
 // resources/default-config.yaml happening to ship one. Engine validation is a
 // membership test over operations.AvailableLLMNames: registered backends UNION
 // the labels the loaded config declares.
+//
+// no-auth-engine is bound to a backend name nothing registers, so it reaches
+// engineContainerSpecFor's fail-closed default arm and has NO container auth.
+// It is a label rather than a backend deliberately: every backend in the
+// registry today HAS container auth, so a label pointing at an unmapped engine
+// is the only reachable subject for the container-auth refusal — and it is a
+// real one, since `llm.configs.<label>.type` accepts any string a user types.
 const llmLabelsFixture = `version: 5
 llm:
   configs:
     claude-fast:
       type: claude-code
+    no-auth-engine:
+      type: unmapped-engine
 `
 
 // TestSetAgent_RejectsUnknownEngine pins the binding-time engine check.
@@ -626,10 +635,10 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 
 	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
 		Name:     "scout",
-		LLM:      ptr("kiro"),
+		LLM:      ptr("opencode"),
 		Surfaces: map[string]string{"context": "system-prompt"},
 	})
-	require.Error(t, err, "system-prompt is claude-only; kiro must refuse it")
+	require.Error(t, err, "system-prompt is claude-only; opencode must refuse it")
 
 	reloaded, rerr := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, rerr)
@@ -639,8 +648,8 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 
 // TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth pins the
 // binding-time half of the container-auth rule: container auth is keyed on the
-// ENGINE, and an engine with no mapping (the generic "acp" backend today) has
-// no credentials to give a containerized run. Before this check the pair was
+// ENGINE, and an engine with no mapping (llmLabelsFixture's no-auth-engine,
+// whose type nothing registers) has no credentials to give a containerized run. Before this check the pair was
 // happily written and `agent list` showed a normal-looking agent; the failure
 // arrived at the first launch, from isolation, as "no container auth is
 // registered for this engine" — a config defect reported by a subsystem the
@@ -660,14 +669,14 @@ func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testin
 
 			_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
 				Name:     "editor",
-				LLM:      ptr("acp"),
+				LLM:      ptr("no-auth-engine"),
 				Profiles: ptr([]string{"default"}),
 				Runtime:  ptr(mode),
 			})
-			require.Errorf(t, err, "`backend: acp` + `runtime: %s` has no way to authenticate the engine and must be refused at write time", mode)
+			require.Errorf(t, err, "an engine with no container auth + `runtime: %s` has no way to authenticate and must be refused at write time", mode)
 			msg := err.Error()
 			assert.Contains(t, msg, "editor", "the refusal must name the agent it refused")
-			assert.Contains(t, msg, "acp", "the refusal must name the engine that cannot be containerized")
+			assert.Contains(t, msg, "no-auth-engine", "the refusal must name the engine that cannot be containerized")
 			assert.Contains(t, msg, "container auth", "the refusal must say WHAT is missing, not just that something is wrong")
 			for _, supported := range isolation.ContainerAuthEngines() {
 				assert.Containsf(t, msg, supported, "the refusal must name the supported set, including %q", supported)
@@ -683,8 +692,8 @@ func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testin
 }
 
 // TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn is the edit half,
-// and the one a narrower fix would miss: neither `--runtime container` nor
-// `--engine acp` is wrong on its own — the PAIR is. So each field is validated
+// and the one a narrower fix would miss: neither `--runtime container` nor an
+// engine without container auth is wrong on its own — the PAIR is. So each field is validated
 // against the value the OTHER one already holds (the same rule the surface
 // preference above follows), from either direction, and a live binding is never
 // left half-updated into a shape that cannot launch.
@@ -694,10 +703,10 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 			cfg, appDir := loadConfigDir(t, llmLabelsFixture)
 			mgr := managerFor(appDir)
 
-			// An acp agent on the host is perfectly legal.
+			// That same engine on the host is perfectly legal.
 			_, err := SetAgent(mgr, cfg, SetAgentRequest{
 				Name:    "editor",
-				LLM:     ptr("acp"),
+				LLM:     ptr("no-auth-engine"),
 				Runtime: ptr("host"),
 			})
 			require.NoError(t, err)
@@ -707,13 +716,13 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 			require.NoError(t, err)
 			_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "editor", Runtime: ptr(mode)})
 			require.Error(t, err, "the recorded engine must be read when only the runtime is set")
-			assert.Contains(t, err.Error(), "acp")
+			assert.Contains(t, err.Error(), "no-auth-engine")
 
 			final, err := config.Load(config.WithAppDir(appDir))
 			require.NoError(t, err)
 			sub, ok := final.Agent("editor")
 			require.True(t, ok, "the existing agent must survive a refused edit")
-			assert.Equal(t, "acp", sub.LLM, "a refused edit must not corrupt the binding it was editing")
+			assert.Equal(t, "no-auth-engine", sub.LLM, "a refused edit must not corrupt the binding it was editing")
 
 			// And a mapped engine takes the same runtime happily — the accepting side,
 			// which a too-broad refusal would break.

@@ -343,10 +343,6 @@
         }
       },
       "additionalProperties": false
-    },
-    "acp_local_terminal": {
-      "type": "boolean",
-      "description": "Turns on ctxloom's own tmux-backed implementation of ACP's terminal/* client methods (create/output/wait_for_exit/kill/release), for a session where no upstream editor advertised the terminal capability to forward to. Default false, and off means literally the pre-existing behaviour: ctxloom's client role declines terminal/* with a specific error and has no dependency on tmux at all. On, a missing tmux binary is a fail-loud finding the first time a terminal/* request arrives, never a silent fall-back to declining or to a no-op terminal."
     }
   },
   "$defs": {
@@ -474,86 +470,6 @@
           "additionalProperties": false
         },
         {
-          "title": "kiro",
-          "properties": {
-            "type": {
-              "const": "kiro"
-            },
-            "role": {
-              "type": "string",
-              "enum": [
-                "primary",
-                "fast"
-              ],
-              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
-            },
-            "permissions": {
-              "type": "string",
-              "enum": [
-                "default",
-                "acceptEdits",
-                "plan",
-                "bypass"
-              ],
-              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
-            },
-            "model": {
-              "type": "string"
-            },
-            "binary_path": {
-              "type": "string",
-              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
-            },
-            "args": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "env": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
-            },
-            "effort": {
-              "type": "string",
-              "enum": [
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
-              ],
-              "description": "Kiro reasoning effort via --effort."
-            },
-            "agent": {
-              "type": "string",
-              "description": "Kiro custom agent selected via --agent (default \"ctxloom\")."
-            },
-            "agent_engine": {
-              "type": "string",
-              "enum": [
-                "v1",
-                "v2",
-                "v3"
-              ],
-              "description": "Kiro harness version via --agent-engine."
-            },
-            "thinking": {
-              "type": "string",
-              "enum": [
-                "off",
-                "low",
-                "medium",
-                "high"
-              ],
-              "description": "The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on kiro: no wired mechanism (setting it only logs a warning) \u2014 use \"effort\" above instead."
-            }
-          },
-          "additionalProperties": false
-        },
-        {
           "title": "opencode",
           "description": "opencode driven over its first-party `opencode acp` mode (host-only chat spine). The model is delivered through a project-local opencode.json in the run's cwd \u2014 `opencode acp` has no --model flag.",
           "properties": {
@@ -640,97 +556,6 @@
             },
             "model": {
               "type": "string"
-            },
-            "env": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
-            }
-          },
-          "additionalProperties": false
-        },
-        {
-          "title": "acp",
-          "description": "Generic Agent Client Protocol client: drives any ACP-capable agent chosen by config (e.g. \"kiro-cli acp\", \"claude-code-acp\"). Structured chat + headless oneshot only (no TUI); materializes no native settings of its own.",
-          "properties": {
-            "type": {
-              "const": "acp"
-            },
-            "role": {
-              "type": "string",
-              "enum": [
-                "primary",
-                "fast"
-              ],
-              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
-            },
-            "permissions": {
-              "type": "string",
-              "enum": [
-                "default",
-                "acceptEdits",
-                "plan",
-                "bypass"
-              ],
-              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
-            },
-            "command": {
-              "type": "string",
-              "description": "The agent's ACP-mode invocation, whitespace-split into the binary and its leading args (e.g. \"kiro-cli acp\")."
-            },
-            "agent": {
-              "type": "string",
-              "description": "Selects a named agent on the target CLI via `--agent`."
-            },
-            "agent_engine": {
-              "type": "string",
-              "description": "Names the target agent (kiro/claude/codex/agy); also passed as `--agent-engine`."
-            },
-            "model": {
-              "type": "string",
-              "description": "Passed to the spawned agent via `--model` when set."
-            },
-            "model_env_var": {
-              "type": "string",
-              "description": "When set, also delivers the request's model into the spawned agent's environment under this variable name (e.g. claude's ANTHROPIC_MODEL)."
-            },
-            "model_config_key": {
-              "type": "string",
-              "description": "When set, delivers the request's model via a `-c <key>=<value>` config-override flag instead of the generic `--model` flag (mutually exclusive with it)."
-            },
-            "reasoning_config_key": {
-              "type": "string",
-              "description": "When set, delivers reasoning_effort via an ADDITIONAL `-c <key>=<value>` override, independent of model_config_key (e.g. codex's model_reasoning_effort)."
-            },
-            "reasoning_effort": {
-              "type": "string",
-              "description": "The resolved value reasoning_config_key delivers."
-            },
-            "reasoning_summary_config_key": {
-              "type": "string",
-              "description": "A companion `-c <key>=<value>` override in the same shape (e.g. codex's model_reasoning_summary)."
-            },
-            "reasoning_summary": {
-              "type": "string",
-              "description": "The resolved value reasoning_summary_config_key delivers."
-            },
-            "strip_env": {
-              "type": "array",
-              "description": "Inherited environment variables removed from the spawned agent's env.",
-              "items": {
-                "type": "string"
-              }
-            },
-            "binary_path": {
-              "type": "string",
-              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
-            },
-            "args": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
             },
             "env": {
               "type": "object",

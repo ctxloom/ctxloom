@@ -114,9 +114,6 @@ llm:
     enabled: true
     description: "Review code"
     argument_hint: "[file]"
-  kiro:
-    enabled: true
-    description: "Review code"
   opencode:
     enabled: true
     description: "Review code"

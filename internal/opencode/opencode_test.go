@@ -63,28 +63,6 @@ func TestOpencode_ConfigureIgnoresForeignConfig(t *testing.T) {
 	assert.Equal(t, "opencode", b.BinaryPath)
 }
 
-// TestChatACPConfig_NoModelFlag pins that opencode's ACP config carries NO model
-// delivery via argv/env: `opencode acp` has no --model flag (it treats the
-// unknown flag as a usage error and exits without starting the server), so the
-// model rides opencode.json, never the driver's --model/-c/env mechanisms.
-func TestChatACPConfig_NoModelFlag(t *testing.T) {
-	b := NewOpencode()
-	b.Configure(&OpencodeConfig{BinaryPath: "/opt/opencode", Env: map[string]string{"K": "v"}})
-	cfg := b.chatACPConfig()
-	assert.Equal(t, "/opt/opencode acp", cfg.Command, "honors configured binary_path")
-	assert.Empty(t, cfg.Model, "model rides opencode.json, not --model argv")
-	assert.Empty(t, cfg.ModelConfigKey)
-	assert.Empty(t, cfg.ModelEnvVar)
-	assert.Empty(t, cfg.Agent, "opencode acp rejects --agent")
-	assert.Empty(t, cfg.AgentEngine, "opencode acp rejects --agent-engine")
-	assert.Equal(t, map[string]string{"K": "v"}, cfg.Env)
-}
-
-func TestChatACPConfig_DefaultBinary(t *testing.T) {
-	b := NewOpencode()
-	assert.Equal(t, "opencode acp", b.chatACPConfig().Command)
-}
-
 // writeModelConfig (the model-only projection of writeOpencodeConfig) was
 // deleted as dead: test-only, and a single-expression pass-through. Its three
 // tests here duplicated settings_test.go's direct

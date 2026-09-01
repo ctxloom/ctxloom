@@ -79,7 +79,7 @@ func buildInvocations(t *testing.T, logFile string) []string {
 // TestEnsureImage_PresentIsNoop: `<binary> image inspect` succeeding (binary
 // "true") short-circuits — no build attempted, no error.
 func TestEnsureImage_PresentIsNoop(t *testing.T) {
-	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "kiro")
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "claude-code")
 	assert.NoError(t, c.ensureImage(context.Background()))
 }
 
@@ -98,8 +98,8 @@ func TestEnsureImage_AbsentWithoutRecipeDegrades(t *testing.T) {
 // isolation_images) is run AS-IS — an absent override degrades without any
 // build attempt, even for a backend that IS locally buildable.
 func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
-	c := containerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "kiro", ImageConfig{Image: "my-registry/my-kiro:v2"})
-	assert.Equal(t, "my-registry/my-kiro:v2", c.image)
+	c := containerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "claude-code", ImageConfig{Image: "my-registry/my-claude:v2"})
+	assert.Equal(t, "my-registry/my-claude:v2", c.image)
 	err := c.ensureImage(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no local build recipe")
@@ -135,13 +135,13 @@ func TestBuildSources_NonComposableHasNoRecipe(t *testing.T) {
 }
 
 // TestBuildSources_Composable pins the COMPOSABLE spec shape
-// (claude-code/codex/kiro/opencode — engineInstall != nil): the SAME
+// (every engine in composableEngines() — engineInstall != nil): the SAME
 // generated multi-engine Containerfile builds onto each candidate base in
 // precedence order (explicit user base > auto-detected devcontainer >
 // embedded default), and an explicit base-image override still wins outright
 // exactly like the legacy shape.
 func TestBuildSources_Composable(t *testing.T) {
-	for _, backend := range []string{"claude-code", "codex", "kiro", "opencode"} {
+	for _, backend := range composableEngines() {
 		p := engineContainerSpecFor(backend)
 		require.NotNil(t, p.engineInstall, "backend %q must be composable", backend)
 
@@ -213,8 +213,7 @@ func TestComposeAgentContainerfile_ExactlyOneEngineStage(t *testing.T) {
 	// caught by what it installs rather than by a comment we control.
 	others := map[string][]string{
 		"claude-code": {"claude --version"},
-		"kiro":        {"kiro-cli --version"},
-		"codex":       {"codex-acp"},
+		"codex":       {"codex --version"},
 		"opencode":    {"opencode --version"},
 	}
 	for _, engine := range composableEngines() {
@@ -272,20 +271,6 @@ func TestComposeAgentContainerfile_EngineInstallPrecedesTheVolatileLayers(t *tes
 		assert.Greater(t, at, engineAt,
 			"%q changes on every build and MUST sit below the engine install, or every ctxloom rebuild re-runs the vendor installer", volatile)
 	}
-}
-
-// TestComposeAgentContainerfile_CodexIncludesACPAdapter pins the real gap
-// this ACP-transport generalization found: codexInstallFragment previously
-// installed the `codex` client only, never the `codex-acp` adapter, so a
-// containerized codex agent's structured chat (internal/codex/chat.go's
-// Chat(), gated by agent.IsContainerRuntime(req.Runtime), trusts the IMAGE
-// to already carry the adapter) silently had no adapter to spawn. Mirrors
-// claude's fragment, which has always installed BOTH claude and
-// claude-code-acp in one npm line.
-func TestComposeAgentContainerfile_CodexIncludesACPAdapter(t *testing.T) {
-	cf := string(composeAgentContainerfile("codex"))
-	assert.Contains(t, cf, "codex-acp", "the codex-acp adapter must be installed alongside codex itself")
-	assert.Contains(t, cf, "command -v codex-acp", "a hard validate gate must prove the adapter actually landed, not just be requested")
 }
 
 // TestOverlayContainerfile pins the generated overlay: the base FROM, the
@@ -478,7 +463,7 @@ func TestStageCompanions_EmptyPathStillCreatesDir(t *testing.T) {
 // caller degrades — the build is best-effort, never a blocker.
 func TestEnsureImage_BuildFailureDegrades(t *testing.T) {
 	withFakeSelfExe(t)
-	c := NewContainerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "kiro")
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "claude-code")
 	err := c.ensureImage(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "local build of container image")
@@ -492,7 +477,7 @@ func TestEnsureImage_UnbuildableBinaryDegrades(t *testing.T) {
 	resolveSelfExe = func() (string, error) { return "", assert.AnError }
 	t.Cleanup(func() { resolveSelfExe = orig })
 
-	c := NewContainerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "kiro")
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "claude-code")
 	err := c.ensureImage(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot be built from this binary")

@@ -22,7 +22,7 @@ flowchart TD
         PFER --> IP["initPrompts :149 → readCleanLine :183"]
         IP --> PES["promptEngineSelection :267"] & PPR["promptPersonalRepos :385"] & PDTH["promptDirtyTreeHandler :465"]
         SNCD --> WIC["writeInitialConfig :928"]
-        SNCD --> CSD["checkSystemDeps :712"] --> W1["warnIfNoSignKey :746 / warnIfGitIdentityMissing :764 / warnIfACPAdapterMissing :785"]
+        SNCD --> CSD["checkSystemDeps :712"] --> W1["warnIfNoSignKey :746 / warnIfGitIdentityMissing :764"]
         SNCD --> POST["addPersonalRemotes :966 · cloneConfiguredRemotes :987<br/>pullSeededDependencies :1008 · applyInitHooks :1029"]
         RI --> LD["launchDiscovery :1118"] --> PEA["pingEngineAuth :1090"] --> LEWP["launchEngineWithPrompt :525 (pty)"]
     end
@@ -58,7 +58,7 @@ flowchart TD
         DC["doctor :108"] --> DCL["11 doctorCheck* funcs → DoctorCheck :85 / DoctorReport :92"]
         DCL --> RDR["renderDoctorReport :737"]
         DCL --> DCE["doctorConfiguredEngines :180"]
-        DCL --> SKRD["signKeyResolutionDetail :307 / gitIdentityDetail :390 / acpAdapterDetail :469"]
+        DCL --> SKRD["signKeyResolutionDetail :307 / gitIdentityDetail :390"]
     end
 
     subgraph util["util_config_write.go (hidden)"]
@@ -148,13 +148,13 @@ resolution.
 Skill**, and `Status` is `"ok"` | `"warn"` | `"info"` — a free-form string with
 its three legal values in a trailing comment and 20+ literal write sites.
 
-Checks: deps (`:206`), sign key (`:269`), git identity (`:377`), ACP adapter
+Checks: deps (`:206`), sign key (`:269`), git identity (`:377`)
 (`:452`), agents (`:508`), version (`:539`), hooks/trust (`:551`), setup marker
 (`:637`), lockfile + a real `AssembleContext` (`:658`), companions (`:694`), auth
 ping (`:729`).
 
 Three of the detail helpers — `signKeyResolutionDetail:307`,
-`gitIdentityDetail:390`, `acpAdapterDetail:469` — are shared with `init.go`'s
+`gitIdentityDetail:390` — are shared with `init.go`'s
 three `warnIf*` probes, so a diagnosis is worded identically in both places.
 `signKeyResolutionDetail` in particular is a four-shape `errors.As` ladder where
 every failure gets a named cause and a concrete fix.

@@ -76,9 +76,15 @@ func TestMaterializeProfile_CodexDeclaresItsLaunchOnlySurfaces(t *testing.T) {
 func TestMaterializeProfile_OtherEnginesUnaffectedByCodexDeclaration(t *testing.T) {
 	for _, tc := range []struct {
 		backend, file, marker string
+		// carriesHooks: the engine has a hook mechanism, so the profile's
+		// session_start hook reaches its settings surface and NOTHING is
+		// launch-only. An engine without one still writes the surface — it just
+		// reports the hook as not carried, which is a declared absence of its
+		// own and not the codex one under test here.
+		carriesHooks bool
 	}{
-		{"claude-code", filepath.Join(".claude", "settings.json"), "team-guardrail"},
-		{"kiro", filepath.Join(".kiro", "agents", "ctxloom.json"), "team-guardrail"},
+		{backend: "claude-code", file: filepath.Join(".claude", "settings.json"), marker: "team-guardrail", carriesHooks: true},
+		{backend: "opencode", file: "opencode.json", marker: `"serve"`},
 	} {
 		t.Run(tc.backend, func(t *testing.T) {
 			cfg, target := materializeHookFixture(t)
@@ -87,11 +93,14 @@ func TestMaterializeProfile_OtherEnginesUnaffectedByCodexDeclaration(t *testing.
 				Profiles: []string{"reviewer"}, Target: target, Backend: tc.backend,
 			})
 			require.NoError(t, err)
-			assert.Empty(t, res.NotCarried, "%s carries its own settings surface; nothing is launch-only for it", tc.backend)
+			if tc.carriesHooks {
+				assert.Empty(t, res.NotCarried, "%s carries hooks on its own settings surface; nothing is launch-only for it", tc.backend)
+			}
 
 			data, rerr := os.ReadFile(filepath.Join(target, tc.file))
 			require.NoError(t, rerr, "%s's settings surface must still be written", tc.backend)
-			assert.Contains(t, string(data), tc.marker, "and must still carry the team's hook")
+			assert.Contains(t, string(data), tc.marker,
+				"and must still carry what this engine CAN take from the profile — an emptied surface is the regression this guards")
 		})
 	}
 }

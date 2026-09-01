@@ -98,7 +98,7 @@ Four one-line wrappers re-export it under local names: `coord.PidAlive` (`intern
 
 ## `internal/shared/stderrtail`
 
-A bounded, mutex-guarded tail of a child's stderr, filled by the child's own stderr pump as bytes arrive. Created 2026-07-24 after a containerized-agent incident where the ACP adapter's dying words went to a `--rm` container's stdout and were unrecoverable.
+A bounded, mutex-guarded tail of a child's stderr, filled by the child's own stderr pump as bytes arrive. Created 2026-07-24 after a containerized-agent incident where a dying engine adapter's last words went to a `--rm` container's stdout and were unrecoverable.
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -111,7 +111,6 @@ A bounded, mutex-guarded tail of a child's stderr, filled by the child's own std
 
 | Consumer | Site | Shape |
 |---|---|---|
-| `internal/acp` | `acp.go:490-491` | `TeeStderr` → `cmd.Stderr = sink` |
 | `internal/lm/isolation` | `attach.go:85-86` (tee), `direct_runner.go:129-130` (`New`) | tail read via `AttachedContainer.StderrTail()` (`attach.go:36`) |
 | `internal/lm/grpc` | `host_runner.go:72-73` (`New`) | tail read via `HostRunner.StderrTail()` (`host_runner.go:123`) |
 
@@ -173,7 +172,7 @@ Widens binary resolution from the process's inherited `PATH` to the user's login
 - **Capture is ADDITIVE via `TeeStderr`.** The obvious `cmd.Stderr = ring` silently removes a passthrough an operator may depend on. Both spellings are offered; `direct_runner.go:130` and `host_runner.go:73` use plain `New` and do replace stderr.
 - `Tail()` is nil-receiver safe and returns `""` when the child said nothing; consumers guard on non-emptiness before wrapping it into an error.
 - Peak memory is bounded by the largest *single* write, not by `max`: `append` happens before the budget check, so one 50 MB line transiently grows `buf` to 50 MB before re-slicing to 8 KB.
-- `DefaultBytes` is re-aliased to a private constant at `internal/acp/acp.go:393`, `internal/lm/isolation/direct_runner.go:25`, and `internal/lm/grpc/host_runner.go:19`, while `internal/lm/isolation/attach.go:85` uses it directly.
+- `DefaultBytes` is re-aliased to a private constant at `internal/lm/isolation/direct_runner.go:25` and `internal/lm/grpc/host_runner.go:19`, while `internal/lm/isolation/attach.go:85` uses it directly.
 
 **PATH resolution (`shellenv`)**
 

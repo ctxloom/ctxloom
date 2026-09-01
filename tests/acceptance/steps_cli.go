@@ -103,7 +103,6 @@ func registerCLISteps(ctx *godog.ScenarioContext) {
 
 	registerJSONOutputSteps(ctx)
 	registerVersionSteps(ctx)
-	registerACPBlockSteps(ctx)
 }
 
 // registerJSONOutputSteps carries the `--format json` assertions.
@@ -699,74 +698,6 @@ func registerVersionSteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
-}
-
-// zedBlockMarker is the line `acp list` prints immediately before the
-// ready-to-paste Zed object; the JSON runs from the next line to the end of
-// stdout.
-const zedBlockMarker = `merge into "agent_servers"`
-
-func registerACPBlockSteps(ctx *godog.ScenarioContext) {
-	// The human paste block is the artifact a user actually copies, and it is
-	// rendered by its own function (zedAgentServersBlock) that `--format json`
-	// never runs — so asserting on the JSON form proves nothing about it.
-	// Asserting on the literal "agent_servers" proves less still: that string
-	// is in the surrounding prose, present even when the object is `{}`.
-	ctx.Step(`^the agent_servers paste block declares a server "([^"]*)" running "([^"]*)"$`,
-		func(c context.Context, name, argv string) error {
-			w := worldFrom(c)
-			block, err := zedAgentServersJSON(w.env.LastStdout())
-			if err != nil {
-				return fmt.Errorf("%w; output:\n%s", err, w.env.LastOutput())
-			}
-			if len(block) == 0 {
-				return fmt.Errorf("the agent_servers paste block is an EMPTY object — it advertises no server at all; output:\n%s", w.env.LastOutput())
-			}
-			entry, ok := block[name]
-			if !ok {
-				keys := make([]string, 0, len(block))
-				for k := range block {
-					keys = append(keys, k)
-				}
-				return fmt.Errorf("the agent_servers paste block has no %q entry (has: %v)", name, keys)
-			}
-			if strings.TrimSpace(entry.Command) == "" {
-				return fmt.Errorf("agent_servers entry %q has an empty command", name)
-			}
-			if got := strings.Join(entry.Args, " "); got != argv {
-				return fmt.Errorf("agent_servers entry %q args = %q, want %q", name, got, argv)
-			}
-			return nil
-		})
-}
-
-// zedAgentServerEntry mirrors the value shape `acp list` pastes.
-type zedAgentServerEntry struct {
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-}
-
-// zedAgentServersJSON pulls the paste block out of `acp list`'s human output
-// and decodes it. Fails loudly when the marker line or the object is missing
-// rather than returning an empty map, which would read as "no servers".
-func zedAgentServersJSON(out string) (map[string]zedAgentServerEntry, error) {
-	i := strings.Index(out, zedBlockMarker)
-	if i < 0 {
-		return nil, fmt.Errorf("output has no %q line", zedBlockMarker)
-	}
-	j := strings.Index(out[i:], "{")
-	if j < 0 {
-		return nil, fmt.Errorf("no JSON object follows the %q line", zedBlockMarker)
-	}
-	k := strings.LastIndex(out, "}")
-	if k < i+j {
-		return nil, fmt.Errorf("the paste block after the %q line is unterminated", zedBlockMarker)
-	}
-	var block map[string]zedAgentServerEntry
-	if err := json.Unmarshal([]byte(out[i+j:k+1]), &block); err != nil {
-		return nil, fmt.Errorf("the agent_servers paste block is not valid JSON: %w", err)
-	}
-	return block, nil
 }
 
 func runCLI(c context.Context, cmdline, stdin string) error {

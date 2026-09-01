@@ -750,7 +750,7 @@ func (st *runState) resolveNamedAgent() error {
 // retired). Unlike --agent (a HARD error on an unknown name), a
 // missing/empty/unresolvable default_agent must NEVER block startup: warn and
 // continue with empty context at the project-default label + runtime (CLAUDE.md
-// fault tolerance; mirrors acp's operations.OpenEngineSession degrade).
+// fault tolerance).
 func (st *runState) resolveDefaultAgent() error {
 	rs, rerr := operations.ResolveAgent(st.ctx, st.cfg, st.cfg.GetDefaultAgent(), runLLM)
 	if rerr == nil {

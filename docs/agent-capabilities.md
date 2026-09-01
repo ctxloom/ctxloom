@@ -1,8 +1,8 @@
 # Engine capabilities and parity
 
 What ctxloom actually wires per **engine**. Vocabulary is GLOSSARY.md's: an
-**engine** is the thing a runner drives (claude-code, codex, kiro, antigravity,
-or a generic ACP client); an **agent** is a ctxloom actor (a profile in action);
+**engine** is the thing a runner drives (claude-code, codex, opencode); an
+**agent** is a ctxloom actor (a profile in action);
 a **surface** is one managed deliverable (context, MCP, hooks, commands,
 settings), and the composed set is a **loadout**.
 
@@ -15,8 +15,8 @@ capability exists everywhere, ctxloom implements it everywhere; where only one
 engine's CLI supports it, the rest are N/A by CLI limitation and are listed
 under "Documented divergences" below.
 
-> Status (GLOSSARY.md): `codex` and `kiro` are implemented and hermetically
-> tested, but live operation is untested — no codex or kiro account exists on
+> Status (GLOSSARY.md): `codex` is implemented and hermetically
+> tested, but live operation is untested — no codex account exists on
 > any dev host. Treat their rows as derived from vendor docs plus hermetic
 > tests, not from a live run.
 
@@ -26,40 +26,33 @@ Each engine's writer materializes the loadout into that engine's own native
 config. Paths are relative to the runner's working directory unless marked
 global.
 
-| Surface | claude-code | antigravity | codex | kiro | acp |
-|---|---|---|---|---|---|
-| Context | `CLAUDE.md` | `.agents/AGENTS.md` | context file + SessionStart hook | `.kiro/steering/ctxloom-context.md` (auto-loaded) | in-band (lead fragment) |
-| MCP | `.mcp.json` | `.agents/mcp_config.json` | `.codex/config.toml` | `.kiro/settings/mcp.json` | — |
-| Hooks | `.claude/settings.json` | `.agents/hooks.json` | `.codex/config.toml` | `.kiro/agents/<name>.json` | — |
-| Commands (slash commands) | `.claude/commands/` | `.agents/skills/` | `~/.codex/prompts/` (**global**) | `.kiro/skills/<name>/SKILL.md` | — |
-| Settings writer | ✓ | ✓ | ✓ | ✓ | **none** |
-| Out-of-cwd surface placement (concurrency-safe in a shared cwd) | ✓ `--append-system-prompt-file`, `--mcp-config`, `--settings` (commands: **no**) | **N/A** (no flag) | **N/A** (no flag) | **N/A** (no flag) | n/a (no surfaces) |
+| Surface | claude-code | antigravity | codex |
+|---|---|---|---|
+| Context | `CLAUDE.md` | `.agents/AGENTS.md` | context file + SessionStart hook |
+| MCP | `.mcp.json` | `.agents/mcp_config.json` | `.codex/config.toml` |
+| Hooks | `.claude/settings.json` | `.agents/hooks.json` | `.codex/config.toml` |
+| Commands (slash commands) | `.claude/commands/` | `.agents/skills/` | `~/.codex/prompts/` (**global**) |
+| Settings writer | ✓ | ✓ | ✓ |
+| Out-of-cwd surface placement (concurrency-safe in a shared cwd) | ✓ `--append-system-prompt-file`, `--mcp-config`, `--settings` (commands: **no**) | **N/A** (no flag) | **N/A** (no flag) |
 | Command metadata accepted | description, argument-hint, allowed-tools, model | description | description, argument-hint | description | — |
 | Read-only plan mode enforced by the CLI | ✓ `--permission-mode plan` | — | ✓ `exec --sandbox read-only --ask-for-approval never` | — | — |
 | Statusline / HUD | ✓ (`ctxloom hook hud`) | **N/A** | **N/A** | **N/A** | **N/A** |
 | Resolved-model provenance | ✓ (real model from `--output-format json`) | **N/A** | **N/A** | **N/A** | **N/A** |
 
 Hooks and settings fold into one surface wherever the engine keeps its hooks
-inside its settings file: claude (`.claude/settings.json`), codex
-(`.codex/config.toml`), kiro (the agent JSON).
+inside its settings file: claude (`.claude/settings.json`) and codex
+(`.codex/config.toml`).
 
-Only claude accepts every surface at a path ctxloom chooses. Codex, kiro, and
+Only claude accepts every surface at a path ctxloom chooses. Codex and
 antigravity expose no out-of-cwd redirect, so each of their surfaces is a
 well-known write into the working directory. Concurrent per-agent isolation on
 those engines therefore needs a private cwd — a worktree or a container cell,
 which is what the isolation axes below provide.
 
-The generic `acp` engine deliberately registers no settings writer and no
-command exports (`registry.go`, the `acp` descriptor). A generic ACP client has
-no known native config format to materialize, so it opts out with an empty
-surface set, and its context rides in-band. It offers structured chat and
-headless oneshot, never a TUI.
-
-Structured chat is ACP everywhere it exists. claude-code, codex, and kiro each
-implement `agent.StructuredChat` by delegating to `acp.NewChatDriver` from their
-own backend (`internal/{claude,codex,kiro}/chat.go`), so materialization stays
-with the engine's own writer while the chat transport is shared. Antigravity has
-no structured-chat path.
+The `agent.StructuredChat` interface still exists and the runner still
+type-asserts for it (`internal/cli/llm_runner_common.go`), but **no shipped
+engine implements it** — the only implementation is the mock backend used by the
+conformance suites. Engines are driven through their own CLI instead.
 
 ## Hook translation
 
@@ -69,22 +62,20 @@ absent from the table on purpose: it has no hook mechanism at all, which its
 registry descriptor declares (`noHooksReason`) rather than leaving the silence
 to be discovered.
 
-| Unified event | claude-code | codex | kiro |
-|---|---|---|---|
-| `session_start` | `SessionStart` | `SessionStart` | `agentSpawn` |
-| `session_end` | `SessionEnd` | **dropped, with a warning** (no such event) | **dropped, with a warning** (no such event) |
-| `turn_end` | `Stop`, no matcher | `Stop`, matcher dropped | `stop`, matcher dropped |
-| `pre_tool` | `PreToolUse` | `PreToolUse` | `preToolUse` |
-| `post_tool` | `PostToolUse` | `PostToolUse` | `postToolUse` |
-| `pre_shell` | `PreToolUse` matcher `Bash` | `PreToolUse` matcher `Bash` | `preToolUse` matcher `execute_bash` |
+| Unified event | claude-code | codex |
+|---|---|---|
+| `session_start` | `SessionStart` | `SessionStart` |
+| `session_end` | `SessionEnd` | **dropped, with a warning** (no such event) |
+| `turn_end` | `Stop`, no matcher | `Stop`, matcher dropped |
+| `pre_tool` | `PreToolUse` | `PreToolUse` |
+| `post_tool` | `PostToolUse` | `PostToolUse` |
+| `pre_shell` | `PreToolUse` matcher `Bash` | `PreToolUse` matcher `Bash` |
 | `post_file_edit` | `PostToolUse` matcher `Edit\|Write` | `PostToolUse` matcher `Edit\|Write` | `postToolUse` matcher `fs_write` |
 
 `session_end` and `turn_end` are not interchangeable, and the difference is why
 `turn_end` exists. `session_end` fires ONCE, at teardown; `turn_end` fires every
 time the agent finishes a response, which is the only point at which a close-out
-contract can still be acted on. kiro's `stop` used to be fed from `session_end`,
-which made one config fire per-session on claude-code and per-TURN on kiro with
-no warning either way; kiro has no session-end trigger at all, and now says so.
+contract can still be acted on.
 
 No engine honours a matcher on its turn-end event — there is no tool to match
 against at a turn boundary. codex goes further and forces the matcher to `None`
@@ -109,7 +100,7 @@ Claude's `--output-format json` reports the model that actually produced a
 result, so ctxloom records it (distill provenance uses this). Every other engine
 reports the *requested* model, falling back to the engine name rather than a
 fabricated id (`internal/claude/claudecode.go`, `internal/codex/backend.go`,
-`internal/antigravity/backend.go`, `internal/kiro/backend.go`).
+`internal/antigravity/backend.go`).
 
 ### 3. SessionEnd — not on codex
 Codex's hook set has no SessionEnd-equivalent event, so unified `session_end`
@@ -138,8 +129,8 @@ Claude takes each surface from a path ctxloom chooses
 (`--append-system-prompt-file`, `--mcp-config`, `--settings`), so concurrent
 runs can share one working directory without fighting over config files. Its
 commands are the exception even there: `.claude/commands/` has no redirect flag.
-Antigravity, codex, and kiro expose no such flag for any surface
-(`internal/{antigravity,codex,kiro}/surfaces.go`), so concurrent per-agent runs
+Antigravity and codex expose no such flag for any surface
+(`internal/{antigravity,codex}/surfaces.go`), so concurrent per-agent runs
 on those engines need a private cwd.
 
 ## Isolation axes
@@ -149,7 +140,7 @@ launch (`isolation.Axes`), and both are defined in `internal/config/config.go`.
 
 | Axis | Level | Values | Set by | Governs |
 |---|---|---|---|---|
-| `workspace` | session | `none` \| `worktree` | `run`/`acp --workspace`, an `agent_run` spawn's workspace field, or the `workspace` config key | where a session's working directory lives |
+| `workspace` | session | `none` \| `worktree` | `run --workspace`, an `agent_run` spawn's workspace field, or the `workspace` config key | where a session's working directory lives |
 | `runtime` | agent | `host` \| `container-rootless` \| `container-rootful` | an agent binding's `runtime:`, or the `runtime` config key | where an agent's engine process executes |
 
 They are two axes rather than one "isolation" setting because they belong to
@@ -212,7 +203,7 @@ A ctxloom `agent_run` child is a separate session with its own engine process,
 and it is worth being precise about what it does and does not receive, because
 the two halves have different answers:
 
-- **MCP reaches it.** Its tools arrive over the runner-terminated ACP surface
+- **MCP reaches it.** Its tools arrive over the runner-terminated MCP surface
   rather than from a config file, so the absence of an `.mcp.json` on its argv
   is not a gap.
 - **Settings do not.** Plugin enablement lives in settings, nothing passes a

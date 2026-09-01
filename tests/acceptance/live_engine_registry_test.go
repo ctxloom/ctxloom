@@ -107,11 +107,11 @@ func TestProbeEngine_CarriesName(t *testing.T) {
 func TestFormatLiveEngineReport(t *testing.T) {
 	report := []engineStatus{
 		{name: "claude", available: true},
-		{name: "kiro", available: true},
+		{name: "opencode", available: true},
 		{name: "codex", available: false, reason: "binary not found"},
 	}
 	got := formatLiveEngineReport(report)
-	assert.Equal(t, "live engines: claude ✓ · kiro ✓ · codex ✗ (binary not found)", got)
+	assert.Equal(t, "live engines: claude ✓ · opencode ✓ · codex ✗ (binary not found)", got)
 }
 
 // TestComputeLiveEngineReport_OrderAndCoverage is computeLiveEngineReport's
@@ -148,8 +148,8 @@ func TestParseRequiredEngines(t *testing.T) {
 		{name: "empty is nil (floor off by default)", raw: "", want: nil},
 		{name: "whitespace-only is nil", raw: "   ", want: nil},
 		{name: "single engine", raw: "claude", want: []string{"claude"}},
-		{name: "comma separated, trimmed, lowercased", raw: " Claude, KIRO ,codex", want: []string{"claude", "kiro", "codex"}},
-		{name: "empty entries between commas are dropped", raw: "claude,,kiro", want: []string{"claude", "kiro"}},
+		{name: "comma separated, trimmed, lowercased", raw: " Claude, OPENCODE ,codex", want: []string{"claude", "opencode", "codex"}},
+		{name: "empty entries between commas are dropped", raw: "claude,,codex", want: []string{"claude", "codex"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -165,7 +165,7 @@ func TestParseRequiredEngines(t *testing.T) {
 func TestCheckRequiredEngines_Floor(t *testing.T) {
 	report := []engineStatus{
 		{name: "claude", available: true},
-		{name: "kiro", available: true},
+		{name: "opencode", available: true},
 		{name: "codex", available: false, reason: "binary not found on PATH"},
 	}
 
@@ -182,7 +182,7 @@ func TestCheckRequiredEngines_Floor(t *testing.T) {
 		},
 		{
 			name:     "all required engines available: passes",
-			required: []string{"claude", "kiro"},
+			required: []string{"claude", "opencode"},
 			wantErr:  false,
 		},
 		{
@@ -273,7 +273,7 @@ func TestMatchedEnvAndEnvSet(t *testing.T) {
 }
 
 // TestBackendTypeToLiveKey guards the one mapping the hermetic j002200 matrix's
-// backend-type vocabulary (claude-code/codex/kiro/opencode) and
+// backend-type vocabulary (claude-code/codex/opencode) and
 // the live isolation probe (tests/acceptance/isolation_probe.go, behind the
 // acceptance tag) both resolve through to reach this registry's own liveAgents
 // keys — kept here, untagged, so `just lint`'s default (no build-tag) pass
@@ -282,7 +282,6 @@ func TestBackendTypeToLiveKey(t *testing.T) {
 	cases := []struct{ backendType, want string }{
 		{"claude-code", "claude"},
 		{"codex", "codex"},
-		{"kiro", "kiro"},
 		{"opencode", "opencode"},
 	}
 	for _, tc := range cases {
@@ -350,7 +349,7 @@ func TestCodexRegistryEntry_IsWiredNotStub(t *testing.T) {
 // copy*Credentials function used to succeed silently while copying zero
 // bytes — continuing/returning past a missing source with no signal at
 // all — so a caller that seeded no credentials was indistinguishable from
-// one that seeded correctly. All four now return an error when nothing was
+// one that seeded correctly. Each now returns an error when nothing was
 // copied.
 func TestCopyCredentials_ZeroFilesCopiedIsAnError(t *testing.T) {
 	cases := []struct {
@@ -358,7 +357,6 @@ func TestCopyCredentials_ZeroFilesCopiedIsAnError(t *testing.T) {
 		fn   func(realHome, fakeHome string) error
 	}{
 		{"claude", copyClaudeCredentials},
-		{"kiro", copyKiroCredentials},
 		{"codex", copyCodexCredentials},
 		{"opencode", copyOpencodeCredentials},
 	}
@@ -615,15 +613,15 @@ func TestSeedLiveCredentials_NoMechanismIsLoud(t *testing.T) {
 }
 
 // TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot is the registry
-// floor for the policy. claude/codex/opencode are the three engines
+// floor for the policy. claude/codex/opencode are the engines
 // internal/lm/isolation/auth.go's credentialSeedSpecs records as
-// HonoursVarForCreds TRUE, so all three must be MAPPED. kiro
-// (HonoursVarForCreds FALSE — its subscription auth is a global sqlite no
-// HomeVar relocates) cannot be mapped this way; it keeps the copier until
-// the human decides, and this pins that so a future edit cannot quietly map
-// it at a directory the engine never reads.
+// HonoursVarForCreds TRUE, so all of them must be MAPPED. An engine whose
+// credentials no config-home var relocates (HonoursVarForCreds FALSE) cannot
+// be mapped this way and must keep a copier instead; the false arm below is
+// what stops a future edit from quietly mapping such an engine at a
+// directory the engine never reads.
 func TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot(t *testing.T) {
-	mappable := map[string]bool{"claude": true, "codex": true, "opencode": true, "kiro": false}
+	mappable := map[string]bool{"claude": true, "codex": true, "opencode": true}
 	for _, name := range liveAgentOrder {
 		a := liveAgents[name]
 		want, known := mappable[name]
@@ -637,27 +635,4 @@ func TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot(t *testing.T) {
 			assert.NotNil(t, a.copyCreds, "%s cannot be mapped, so it must keep its copier", name)
 		}
 	}
-}
-
-// TestSeedLiveCredentials_UnmappableEngineFallsBackToCopy pins the escalated
-// engines' preserved behaviour: kiro still seeds by copy, and sets no env var
-// (setting one would silently fork its global credential store).
-func TestSeedLiveCredentials_UnmappableEngineFallsBackToCopy(t *testing.T) {
-	realHome := t.TempDir()
-	kiroDir := filepath.Join(realHome, ".local", "share", "kiro-cli")
-	if err := os.MkdirAll(kiroDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(kiroDir, "data.sqlite3"), []byte("sqlite-ish"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fakeHome := t.TempDir()
-
-	got, setEnv := recordEnv()
-	if err := seedLiveCredentials("kiro", liveAgents["kiro"], realHome, fakeHome, setEnv); err != nil {
-		t.Fatalf("seedLiveCredentials: %v", err)
-	}
-	assert.Empty(t, got, "an unmappable engine must set no credential env var")
-	assert.Equal(t, map[string]string{filepath.Join(".local", "share", "kiro-cli", "data.sqlite3"): "sqlite-ish"},
-		treeSnapshot(t, fakeHome), "kiro keeps its copier until the human decides")
 }

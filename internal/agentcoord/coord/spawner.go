@@ -61,14 +61,12 @@ type SpawnPlan struct {
 	// ViaStartRun routes this child's engine control over the agentcoord
 	// StartRun path (spawn the runner process, await its dial-home, issue
 	// StartRun on its RunnerChannel) instead of the legacy go-plugin Chat
-	// dial. Wave C1 landed claude-only; Wave C3 extends the gate to every
-	// backend that rides the shared internal/acp driver (see
-	// viaStartRunBackends) — codex, kiro, and the generic "acp" entry —
-	// once its recon confirmed the runner-side EngineHost/adaptation path
-	// (llm_serve.go) was ALREADY backend-agnostic (gated only on the
-	// agent.StructuredChat type assertion, never a backend-name check): the
-	// only real per-backend deltas lived in each backend's own chatACPConfig
-	// (model delivery), not in the coordinator/runner machinery.
+	// dial. The gate covers exactly the backends in viaStartRunBackends. It
+	// could be widened because the runner-side EngineHost/adaptation path
+	// (llm_serve.go) is ALREADY backend-agnostic — gated only on the
+	// agent.StructuredChat type assertion, never a backend-name check — so
+	// the only real per-backend deltas were in model delivery, not in the
+	// coordinator/runner machinery.
 	ViaStartRun bool
 	// ResumeMode is the per-engine resume-capability gate's outcome (one-shot
 	// + resume-key plan, Slice 2 / Fork 3's STATIC half): ResumeModeOneShot
@@ -187,45 +185,31 @@ func newProdSpawner(cfg *config.Config, projectDir string, factory pb.ClientFact
 	return s
 }
 
-// viaStartRunBackends is the C3 spawn-cutover gate: the set of backend types
-// whose delegated Chat implementation rides the shared internal/acp driver
-// (claude/codex/kiro/opencode embed it via their own chatACPConfig; "acp" IS
-// it directly — see internal/acp/registry.go's descriptor comment). C3 recon
-// confirmed the runner-side EngineHost (internal/cli/llm_serve.go) already
-// gates on the agent.StructuredChat type assertion alone, never a backend
-// name, so every member of this set gets the identical StartRun/adaptation/
-// approval-forwarding/resume machinery — only each backend's OWN
-// chatACPConfig differs (model delivery: internal/claude, internal/codex,
-// internal/kiro, internal/opencode, internal/acp's agent_engine default).
+// viaStartRunBackends is the spawn-cutover gate: the set of backend types
+// whose delegated children route their engine control over the StartRun path.
+// The runner-side EngineHost (internal/cli/llm_serve.go) gates on the
+// agent.StructuredChat type assertion alone, never a backend name, so every
+// member of this set gets the identical StartRun/adaptation/
+// approval-forwarding/resume machinery; the per-backend deltas were only ever
+// in model delivery.
+//
 // Backends NOT in this set ride the legacy coordinator-driven chat path ONLY
 // if they are in legacyChatBackends below; anything else is refused at Resolve
 // (checkLegacyChatFreeze) — this gate is deliberately an
 // allowlist of VERIFIED backends, not "implements StructuredChat", so a new
 // backend must be reviewed onto StartRun explicitly rather than swept in.
 //
-// opencode joined in the spool cutover's S3b slice, the shrink the freeze
-// below exists to permit. Its recon measured the SAME delta C3 measured for
-// kiro and found it empty: internal/opencode's Chat is acp.NewChatDriver over
-// `opencode acp` (a first-party ACP subcommand — an ACPNative transport, like
-// kiro's `kiro-cli acp`, NOT a server the coordinator dials), wrapped in a
-// transient opencode.json overlay that carries what `opencode acp` has no
-// flag for (model, MCP set, the plan-mode read-only permission). That overlay
-// is written by Chat itself from the ChatRequest it is handed, so it is
-// identical whichever transport delivered the request; the runner-side
-// standup (internal/cli's standUpRunner), the isolation starter
-// (`ctxloom llm host opencode --label ...`, which applies the configured
-// binary_path exactly as `llm serve` did) and the HarnessSpec codec never
-// name a backend at all. The one Setup-time dependency in that overlay
-// (b.pendingContext/Commands/Skills) is not a delta either: a delegated
-// child's context rides the FIRST TURN on both paths — legacy via
-// operations.leadContextIn, StartRun via runChildViaStartRun's JoinLeadBlocks
-// into StartRun.input — never through opencode.json, which is exactly the
-// ACP-hosted case assertSetupRan documents.
+// The bar for admitting one is a per-backend recon showing that delta is
+// empty. What makes it empty generally: the runner-side standup
+// (internal/cli's standUpRunner), the isolation starter
+// (`ctxloom llm host <backend> --label ...`) and the HarnessSpec codec never
+// name a backend at all, and a delegated child's context rides the FIRST TURN
+// on BOTH paths — legacy via operations.leadContextIn, StartRun via
+// runChildViaStartRun's JoinLeadBlocks into StartRun.input — rather than
+// through any backend-specific config file a Setup step would have to write.
 var viaStartRunBackends = map[string]bool{
 	config.BackendClaudeCode: true,
 	"codex":                  true,
-	"kiro":                   true,
-	"acp":                    true,
 	"opencode":               true,
 }
 
@@ -276,8 +260,8 @@ func checkLegacyChatFreeze(backend string) error {
 // wire path a child's Chat rides; this one is about whether ASKING an
 // already-ended engine to continue its own native session is even possible).
 //
-//   - claude-code / codex: resume via the shared ACP driver's
-//     `session/load` (internal/acp/session.go) — LIVE-gated a second time on
+//   - claude-code / codex: resume by asking the engine to load its own prior
+//     session — LIVE-gated a second time on
 //     the adapter's advertised loadSession capability once Slice 4 records it
 //     from the first StartRunResult/init (see SpawnPlan.ResumeMode's doc);
 //     this table is the STATIC half alone.
@@ -285,18 +269,12 @@ func checkLegacyChatFreeze(backend string) error {
 //     the StartRun path (viaStartRunBackends["opencode"] == true) — the two
 //     tables answer different questions. It neither consumes
 //     ChatRequest.ResumeSessionID nor emits a native session-id Session
-//     event (internal/opencode/chat.go); its only resume surface is
+//     event; its only resume surface is
 //     read-only `opencode export`. No cheap resume-by-key primitive exists;
 //     new backend work (v0.8+), not a config toggle. A resumed opencode child
 //     therefore re-primes from rendered history (resumeChild's
 //     ResumeContext fallback), over StartRun like every other migrated
 //     backend.
-//   - kiro: FALSE, deliberately absent even though it rides the migrated
-//     StartRun path (viaStartRunBackends["kiro"] == true) — per
-//     isolation-must-not-negotiate its GLOBAL sqlite makes resume IDENTITY
-//     itself suspect (an isolation/container precondition, not a
-//     coordinator-resolvable one). Deferred until that is proven, not a
-//     permanent no.
 //   - mock (tests) and any unlisted/future backend: FALSE — an allowlist,
 //     exactly like viaStartRunBackends, so a new backend is reviewed onto
 //     resume explicitly rather than swept in by implementing StructuredChat.
@@ -381,8 +359,7 @@ var loadConfig = config.Load
 // agent_run without a coordinator restart (GAP 1: the captured s.cfg is a
 // startup snapshot otherwise). Pinned to s.cfg.AppPaths[0] — the .ctxloom
 // dir this spawner's OWN config already resolved to at construction — so
-// the reload never depends on this process's current working directory
-// (mirrors loadConfigForDir's dir-pinning in internal/cli/acp_cmd.go).
+// the reload never depends on this process's current working directory.
 //
 // Scoped STRICTLY to agent-DEFINITION resolution: durable stores,
 // credentials, the broker, and the run loop all keep using the startup

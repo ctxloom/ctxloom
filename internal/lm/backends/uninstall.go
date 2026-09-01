@@ -31,7 +31,7 @@ func RemoveSettings(backendName, projectDir string, opts ...SettingsOption) erro
 }
 
 // BackendStatus reports the named backend's ctxloom wiring. A registered
-// backend with no settings writer (acp, mock — deliberately no native config
+// backend with no settings writer (mock — deliberately no native config
 // format) reports an empty (un-wired) status with a nil error: a legitimate
 // "nothing to report". An UNREGISTERED name errors instead: before
 // this, both cases returned the identical zero status + nil error, so a

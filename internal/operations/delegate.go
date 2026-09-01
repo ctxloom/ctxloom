@@ -424,47 +424,40 @@ func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.C
 	return nil
 }
 
-// resolveChatModel resolves a delegated child's model into the concrete,
-// ACP/API-shaped id its Chat spawn requires, MUTATING rs.Model in place so
-// Start's ChatRequest (and any future reader of the resolved agent) sees the
-// resolved value with no further plumbing. Only claude-code needs this today:
-// its Chat spawn rides the ACP/API path (internal/claude.ResolveModel, wired
-// as claude-code's descriptor-level resolveModel hook — see
-// backends.ResolveModelFor), which rejects both an unset model — silently
-// inheriting the user's saved INTERACTIVE default (e.g. an alias like
-// "fable") — and a bare interactive nickname; either dies at session/new with
-// an opaque -32603. Other backends' models pass through untouched via
-// ResolveModelFor's nil-hook default: their Chat spawns don't share claude's
-// ACP nickname rejection.
+// resolveChatModel resolves a delegated child's model through the owning
+// backend's descriptor-level resolveModel hook (backends.ResolveModelFor),
+// MUTATING rs.Model in place so Start's ChatRequest (and any future reader of
+// the resolved agent) sees the resolved value with no further plumbing.
 //
-// This used to branch on `rs.Backend != config.BackendClaudeCode` and call
-// claude.ResolveModel directly — operations (the core) importing claude and
-// branching on backend identity, a literal ADR-0026 violation. Routing
-// through backends.ResolveModelFor (the injected, polymorphic seam ADR-0020
-// already names for this) means a future backend with its own nickname table
-// registers resolveModel once, in its own descriptor, with no operations-side
-// edit — closing the gap the hardcoded branch left: a new backend's own
-// alias-rejection failure mode got NO protection until someone remembered to
-// widen this one `if`.
+// The seam is polymorphic on purpose: a backend whose spawn path rejects the
+// model strings a user may legitimately configure — an engine-side alias table,
+// or a spawn that refuses an unset model instead of falling back to a sane
+// default — registers resolveModel once in its OWN descriptor, with no
+// operations-side edit. The alternative, branching on backend identity here,
+// is an ADR-0026 violation and leaves every future backend's own
+// model-rejection failure mode unprotected until someone remembers to widen
+// one `if`.
+//
+// A backend that registers no hook takes ResolveModelFor's documented
+// pass-through default (the model is handed back unchanged, ok true), which is
+// every backend in the registry today: their spawns accept a configured model
+// string verbatim, and an empty one falls through to the engine's own
+// configured default rather than a wrong one.
+//
+// The refusal arm below is what makes registering a hook safe: a hook that
+// answers "no model I can accept" must stop the launch rather than let the
+// child die later on an opaque engine-side error, so the finding names the
+// agent and the llm label to pin. --degraded downgrades it to a warning and
+// launches with whatever was configured.
 //
 // This IS the delegated child's backend config assembly step — PrepareAgentChat
 // assembles the ChatRequest Start hands the spawned engine, and this runs
 // before any of that is built. It deliberately lives here rather than in
 // agentcoord/coord/spawner.go: an analogous fail-loud gate already lives
 // there (headlessSafePermission, checkpointed inside Resolve), and this check
-// is its natural sibling — but spawner.go is under concurrent development on
-// a sibling slice, so the check sits one layer down instead, upstream in
-// operations, gating the exact same spawn moment (Start calls straight
+// is its natural sibling — but this one sits one layer down instead, upstream
+// in operations, gating the exact same spawn moment (Start calls straight
 // through here with nothing in between).
-//
-// This stays claude-only: codex/kiro have no interactive-nickname table to
-// mis-resolve (claude's is the ONE alias layer in this codebase), and both
-// adapters accept a raw configured model string
-// verbatim through their own delivery mechanism (codex: -c model=<value>;
-// kiro: --model <value> — see internal/codex/chat.go, internal/kiro/chat.go)
-// with no silent-fallback failure mode analogous to claude's opaque -32603.
-// An empty model on either simply falls through to the adapter's own
-// configured default rather than a wrong one.
 func resolveChatModel(rs *ResolvedAgent) error {
 	model, ok := backends.ResolveModelFor(rs.Backend, rs.Model)
 	if ok {
@@ -473,12 +466,12 @@ func resolveChatModel(rs *ResolvedAgent) error {
 	}
 	fixIt := fmt.Sprintf("pin model: on llm config label %q or agent %q in .ctxloom/config.yaml", rs.Label, rs.Name)
 	strictness.Fail(strictness.ClassConfig, fixIt,
-		"agent_run: agent %q (llm label %q) resolves no model the ACP/API path accepts (got %q): an empty model silently inherits your saved interactive default, and a bare interactive alias (e.g. \"fable\") is rejected at chat-open",
-		rs.Name, rs.Label, rs.Model)
+		"agent_run: agent %q (llm label %q) resolves no model engine %q accepts (got %q): launching anyway would die later on an opaque engine-side error instead of here",
+		rs.Name, rs.Label, rs.Backend, rs.Model)
 	if strictness.Degraded() {
 		return nil // degraded: launch anyway with whatever was configured (rs.Model unchanged)
 	}
-	return fmt.Errorf("agent %q: no ACP-resolvable model for its delegated claude chat (llm label %q, got %q); %s", rs.Name, rs.Label, rs.Model, fixIt)
+	return fmt.Errorf("agent %q: engine %q resolves no usable model for its delegated chat (llm label %q, got %q); %s", rs.Name, rs.Backend, rs.Label, rs.Model, fixIt)
 }
 
 // maxDirtyFilesListed bounds how many uncommitted paths a dirty-tree message
@@ -961,15 +954,14 @@ type AgentEngineProcess struct {
 	// Env is the harness env the legacy Chat path would have sent: the
 	// workspace env merged under the request's extra env (ambient identity).
 	Env map[string]string
-	// Model is the RESOLVED model (post resolveChatModel — never an alias).
+	// Model is the RESOLVED model (post resolveChatModel).
 	Model string
 	// Kill tears the engine process and its workspace down (idempotent).
 	Kill func()
 	// StderrTail reads the runner's bounded stderr tail without reaping it.
 	// For a docker-direct runner this is the CONTAINER's streamed stderr —
-	// the in-container `ctxloom llm host` process's, and (since internal/acp
-	// tees the adapter's stderr to os.Stderr as well as its own ring) the
-	// engine adapter's dying words too. It is the ONLY reason available when
+	// the in-container `ctxloom llm host` process's, plus whatever the engine
+	// adapter tees to that same stream. It is the ONLY reason available when
 	// the whole container dies WITHOUT the in-process EngineHost getting to
 	// emit a FAILED RunCompleted — a docker-stop / OOM-kill (runner loss),
 	// where the RunChannel simply disconnects. Nil-safe via
@@ -1101,8 +1093,8 @@ const defaultChatDialTimeout = 5 * time.Minute
 // no coordinator endpoint reachable — the runner could never dial home, so
 // StartRun is impossible and this is the only way the child launches at
 // all). Both are real, reachable, and intentional — this is NOT the general
-// delegated-child path anymore (claude/codex/kiro/acp WITH reach-back ride
-// StartRun), so it stays, narrowly scoped and documented as such, and its
+// delegated-child path anymore (a StartRun-eligible backend WITH reach-back
+// rides StartRun), so it stays, narrowly scoped and documented as such, and its
 // client.Chat dial gets the same fail-loud bound StartRun's dial-home wait
 // already has (defaultChatDialTimeout above).
 //

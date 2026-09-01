@@ -14,11 +14,11 @@ import (
 var startHostRunner = pb.StartHostRunner
 
 // envCellWorkDir duplicates agentcoord/coord.EnvCellWorkDir's value
-// ("CTXLOOM_CELL_WORKDIR") as a literal rather than importing it: that
-// package pulls in internal/lm/backends -> internal/acp -> this package
-// (acp's container transport imports isolation), so importing it here would
-// cycle — the same reason internal/acp/container_transport.go duplicates
-// coord.EnvMCPSocket instead of importing it. See
+// ("CTXLOOM_CELL_WORKDIR") as a literal rather than importing it: coord
+// already imports THIS package (see runchannel.go), so importing coord back
+// from here would be an import cycle. The copy is not left unguarded —
+// TestEnvCellWorkDir_MatchesTheCanonicalCoordConstant (an EXTERNAL test
+// package, so it adds no production edge) fails if the two ever drift. See
 // internal/agentcoord/coord/identity.go's EnvCellWorkDir doc for the
 // canonical source of truth on this variable's meaning and lifecycle.
 const envCellWorkDir = "CTXLOOM_CELL_WORKDIR"

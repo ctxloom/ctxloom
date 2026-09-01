@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -230,4 +232,29 @@ func EscapeYAMLString(s string) string {
 		return yamlDoubleQuoted(s)
 	}
 	return s
+}
+
+// yamlDoubleQuoted renders s as a double-quoted scalar safe for YAML
+// front-matter. A JSON string literal is a valid YAML double-quoted scalar, so
+// the JSON encoder supplies the escaping — quotes, backslashes AND control
+// characters — without a bespoke quoter. It is the ONE escaping algorithm this
+// package has; EscapeYAMLString applies its own quote-or-not policy and then
+// delegates here rather than keeping hand-written rules of its own, which
+// escaped neither \n nor \r.
+//
+// HTML escaping is turned OFF deliberately: json.Marshal's default would emit
+// < / > / & for <, > and &, which are ordinary characters in YAML. Leaving
+// them escaped made the two quoters disagree and put unreadable sequences into
+// every generated file carrying an angle bracket.
+//
+// It is unexported: no package outside this one has ever called it.
+func yamlDoubleQuoted(s string) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
+		return `""`
+	}
+	// Encode appends a trailing newline; the scalar is everything before it.
+	return strings.TrimRight(buf.String(), "\n")
 }

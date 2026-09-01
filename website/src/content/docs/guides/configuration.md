@@ -112,7 +112,7 @@ runtime: host                 # agent runtime axis: host|container-rootless|cont
 isolation_base_containerfile: .ctxloom/base.Containerfile   # your base stage
 isolation_devcontainer_base: true      # auto-detect .devcontainer/devcontainer.json as the base (default true)
 isolation_devcontainer_service: app    # compose service to use as the base, if devcontainer.json declares dockerComposeFile
-isolation_engines: [claude-code, kiro] # trim the composed engine set (default: every known engine)
+isolation_engines: [claude-code, codex] # trim the composed engine set (default: every known engine)
 isolation_images:             # fully user-provided images, run as-is
   claude-code: my-registry/claude-agent:latest
 
@@ -149,11 +149,9 @@ Registered LLM backends:
 | `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude (default) |
 | `antigravity` | [Antigravity CLI](https://antigravity.google) (`agy`) | Google's Antigravity |
 | `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI Codex |
-| `kiro` | Kiro | AWS Kiro (chat rides its ACP adapter) |
-| `opencode` | [opencode](https://opencode.ai) | First-party `opencode acp` mode (host-only chat spine) |
-| `acp` | any ACP agent | Generic Agent Client Protocol backend descriptor |
+| `opencode` | [opencode](https://opencode.ai) | opencode's own CLI |
 
-**Status:** `codex` and `kiro` are implemented and hermetically tested; live operation is untested (requires a codex/kiro account, which the maintainers do not currently have). Model selection is accepted by kiro-cli but its honoring is unverified.
+**Status:** `codex` is implemented and hermetically tested; live operation is untested (requires a codex account, which the maintainers do not currently have).
 
 Each backend launches the vendor's own CLI as a child process — ctxloom holds no model API
 client of its own, so the backend's binary must be installed and on `PATH` before you can run

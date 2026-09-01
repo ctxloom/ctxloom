@@ -116,7 +116,6 @@ func TestDoctorCheckMCPInvocation_RightState_CurrentEntryIsQuiet(t *testing.T) {
 func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 	staleFor := map[string]string{
 		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
-		filepath.Join(".kiro", "settings", "mcp.json"): `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
 		// codex is absent: its registry is home-keyed, so it has no
 		// project-relative row here at all — TestDoctorCheckMCPInvocation_
 		// ReadsCodexHostHome covers the TOML format against the home it does

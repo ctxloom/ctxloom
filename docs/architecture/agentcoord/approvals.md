@@ -64,7 +64,7 @@ flowchart TD
 | `approvalResolution` | `approval.go:161` | maps a decision onto the audit vocabulary by delegating to `interactionResolution` — the single-definition guarantee that the two audit trails agree |
 | `EngineHost.resolveApproval` | `enginehost.go:588` | runner side: forward the request, await the decision, pick the engine's option id, record an `InteractionRecorded` |
 | `interactionResolution` | `enginehost.go:739` | the security-load-bearing allow-list |
-| `classifyApprovalKind` | `enginehost.go:698` | ACP tool kind → `ApprovalKind`, defaulting to `TOOL_USE` so nothing is silently unbucketed |
+| `classifyApprovalKind` | `enginehost.go:698` | Tool kind → `ApprovalKind`, defaulting to `TOOL_USE` so nothing is silently unbucketed |
 | `pickPermissionOption` | `enginehost.go:755` | decision → engine option id; `""` is documented as the engine's cancelled no-op |
 
 ## Invariants

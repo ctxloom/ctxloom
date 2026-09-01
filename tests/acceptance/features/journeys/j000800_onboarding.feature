@@ -95,8 +95,8 @@ Feature: A new engineer clones the repo and is already set up
       | installed     | reaches        |
       | not installed | does not reach |
 
-  # LOCKED — hermetic materialization, over the same three-engine axis J000400
-  # proved (j000400_multi_engine.feature's Outline A: claude-code, kiro,
+  # LOCKED — hermetic materialization, over the same engine axis J000400
+  # proved (j000400_multi_engine.feature's Outline A: claude-code and
   # codex — reusing that engine-axis machinery, not re-deriving
   # it, see engineContextRelPath in steps_j000400.go). Bob is precisely the person
   # most likely to be on a different engine from the rest of the team, so a
@@ -117,7 +117,6 @@ Feature: A new engineer clones the repo and is already set up
     Examples:
       | engine      |
       | claude-code |
-      | kiro        |
       | codex       |
 
   # U3's axis-aware row (FLOWS-UNIFIED.md §3, finding class (b)): "what Bob

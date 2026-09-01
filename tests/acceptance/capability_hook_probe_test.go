@@ -246,13 +246,13 @@ func TestHookProbeAssert_EchoCellRefusesFencesAndPreamble(t *testing.T) {
 	}
 }
 
-// A stage-(a)-only cell must not be judged on its stdout at all. kiro is the
-// live reason: its P0 host/none cell is red-mapped because terminal decoration
-// leaks into a one-shot run's stdout, and a P3 cell that parsed stdout would
+// A stage-(a)-only cell must not be judged on its stdout at all. The live
+// reason is an engine whose P0 cell is red-mapped because terminal decoration
+// leaks into a one-shot run's stdout: a P3 cell that parsed stdout would
 // inherit that red and report a hook-firing failure that is nothing of the kind.
 func TestHookProbeAssert_StageAOnlyCellIgnoresStdoutShape(t *testing.T) {
 	h := hookCell("swift-amber-falcon", "swift-amber-falcon\n")
-	h.engine = "kiro"
+	h.engine = "claude-code"
 	h.stdout = "\x1b[38;5;141m> \x1b[0mOK\x1b[0m"
 	if err := hookProbeAssert(h); err != nil {
 		t.Fatalf("a stage-(a)-only cell asserts a FILE; decorated stdout must not red it, got: %v", err)
@@ -263,12 +263,11 @@ func TestHookProbeAssert_StageAOnlyCellIgnoresStdoutShape(t *testing.T) {
 
 // The declaration must mirror production's own ApproachTable, and getting it
 // wrong in the permissive direction is the expensive mistake: it would red
-// claude and kiro for failing to do something ctxloom never asked of them.
+// claude for failing to do something ctxloom never asked of it.
 func TestHookProbeIngestsHookStdout_MatchesTheDeclaredApproachTables(t *testing.T) {
 	for engine, want := range map[string]bool{
 		"codex":       true,  // codexApproaches: ApproachHook FIRST for SurfaceContext — the default context route
 		"claude-code": false, // declares ApproachHook, but SurfaceFor resolves it to noopContextDelivery
-		"kiro":        false, // no hook entry in its ApproachTable; context arrives via steering files
 		"opencode":    false, // noHooksReason: no hook mechanism at all
 	} {
 		if got := hookProbeIngestsHookStdout(engine); got != want {
@@ -535,9 +534,9 @@ func TestHookProbeRegistryRow_IsWiredToThisFeature(t *testing.T) {
 			t.Errorf("%s is still PLANNED although the feature exists — a planned row beside a runnable scenario is the registry lying about what is built", c.ID(p.Name))
 		}
 	}
-	for _, e := range []string{"claude-code", "codex", "kiro"} {
+	for _, e := range []string{"claude-code", "codex"} {
 		if !runnable[e] {
-			t.Errorf("P3 must declare a runnable %s cell: it is one of the three engines that carry hooks at all", e)
+			t.Errorf("P3 must declare a runnable %s cell: it is one of the engines that carry hooks at all", e)
 		}
 	}
 	if runnable["opencode"] {

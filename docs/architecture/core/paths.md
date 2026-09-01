@@ -251,7 +251,7 @@ whole derivation here removed the need for that copy entirely.
   was given or returns an error.
 - **Imported by:** 23 internal packages plus `cmd/validate` — `config` and `operations` for
   project artifacts; `sessions`, `memory`, `transcript`, `lm/isolation`, `lm/grpc`,
-  `agentcoord/coord` and `cli` for per-harp session state; `claude`, `codex` and `kiro` for
+  `agentcoord/coord` and `cli` for per-harp session state; `claude` and `codex` for
   the per-session engine-home instance.
 
 ## Where documented and real behavior diverge

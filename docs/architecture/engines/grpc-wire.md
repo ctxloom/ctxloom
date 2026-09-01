@@ -194,10 +194,10 @@ Since `40b49a7f` the proto also carries `runtime = 9` and `resume_session_id = 1
 
 > **Both used to be dropped, with consequences worth keeping on record.**
 > `Runtime` had no carrier of any kind — no proto field and no env var — so a
-> container-bound `ctxloom acp` session ran the engine **on the host** while
+> container-bound structured session ran the engine **on the host** while
 > `engine_session.go` reported container isolation in the session summary. That is
 > also why repairing this wire had to wait: fixing `Runtime` *activates* the
-> `internal/acp` path-confinement hole it was masking, so confinement landed first
+> path-confinement hole it was masking, so confinement landed first
 > (`73ea8d7f`) and this second (`40b49a7f`). See fix-ordering constraint 1 in
 > `FINDINGS.md`.
 > `ResumeSessionID` dropping meant a delegated child's resume silently started a
@@ -303,7 +303,7 @@ Values **added or defaulted on decode**, none of which the caller sent:
 | `ReadPlanFiles` | `plans.go:49` | Reads `*.plan.md` from the harp's session dir, name-sorted. |
 | `SessionReader` | `session_reader.go:20` | Host-side facade that spawns a short-lived runner per read (`withClient`, `:78`, `defer c.Kill()`); `WatchSession` (`:104`) deliberately binds plugin lifetime to stream lifetime instead. |
 | `CanonicalFallbackSource` | `canonical_source.go:68` | Canonical-transcript-first `SessionSource` with an optional legacy leg. Lives here only to dodge a `transcript → grpc → transcript` import cycle (`canonical_source.go:24-28`). |
-| `RetiredScraperBackends` | `canonical_source.go:50` | Exported **mutable** map of backends whose legacy transcript scraper was deleted: codex, kiro, antigravity, claude-code. |
+| `RetiredScraperBackends` | `canonical_source.go:50` | Exported **mutable** map of backends whose legacy transcript scraper was deleted: codex, claude-code. |
 | `MockClient` / `MockClientFactory` | `mock_client.go:13` / `:163` | Cross-package test double shipped in a non-test file. |
 | `HandshakeConfig` / `LLMPluginKey` / `PluginMap` | `shared.go:15` / `:22` / `:25` | go-plugin identity. |
 | `isolateRunner` / `killSession` / `ReapRunnerDescendants` / `InstallRunnerTeardown` | `procsession_unix.go:47` / `:77` / `:121` / `:143` | POSIX process-lifetime primitives; no-ops on Windows. |

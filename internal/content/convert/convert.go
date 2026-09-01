@@ -475,7 +475,6 @@ func commandExports(l bundles.LLMExports) content.EngineExports {
 		ArgumentHint: l.ClaudeCode.ArgumentHint, AllowedTools: l.ClaudeCode.AllowedTools, Model: l.ClaudeCode.Model,
 	})
 	add("codex", content.EngineExport{Enabled: l.Codex.Enabled, Description: l.Codex.Description})
-	add("kiro", content.EngineExport{Enabled: l.Kiro.Enabled, Description: l.Kiro.Description})
 	add("opencode", content.EngineExport{Enabled: l.Opencode.Enabled, Description: l.Opencode.Description})
 	if len(out) == 0 {
 		return nil
@@ -496,7 +495,6 @@ func skillExports(l bundles.SkillLLMExports) content.EngineExports {
 	}
 	add("claude-code", l.ClaudeCode)
 	add("codex", l.Codex)
-	add("kiro", l.Kiro)
 	add("opencode", l.Opencode)
 	if len(out) == 0 {
 		return nil

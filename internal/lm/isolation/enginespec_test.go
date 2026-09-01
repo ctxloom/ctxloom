@@ -18,7 +18,7 @@ func TestEngineContainerSpecFor_Claude(t *testing.T) {
 	assert.Contains(t, string(p.engineInstall), "npm install -g @anthropic-ai/claude-code")
 	assert.Equal(t, "claude --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".claude")
-	assert.NotContains(t, p.overlayDirs, ".kiro")
+	assert.NotContains(t, p.overlayDirs, ".codex")
 
 	// The auth axis: the degrade hint names claude's trigger var, and the wired
 	// resolver IS the claude (ANTHROPIC_*) one — asserted behaviorally since a
@@ -32,37 +32,13 @@ func TestEngineContainerSpecFor_Claude(t *testing.T) {
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the wired resolver is the claude (ANTHROPIC_*) resolver")
 }
 
-// TestEngineContainerSpecFor_Kiro pins the kiro spec: its OWN image tag (a kiro
-// run in a claude image would fail at engine spawn, worse than degrading), a
-// local-build recipe, and the .kiro overlay set.
-func TestEngineContainerSpecFor_Kiro(t *testing.T) {
-	p := engineContainerSpecFor("kiro")
-	assert.Equal(t, "ctxloom-agent-kiro:latest", p.image)
-	assert.NotEmpty(t, p.engineInstall, "kiro is composable (official installer fragment)")
-	assert.Contains(t, string(p.engineInstall), "cli.kiro.dev/install")
-	assert.Equal(t, "kiro-cli --version", p.validate)
-	assert.Contains(t, p.overlayDirs, ".kiro")
-	assert.NotContains(t, p.overlayDirs, ".claude", "kiro writes no .claude config")
-
-	// The auth axis: the degrade hint names kiro's trigger var, and the wired
-	// resolver IS the kiro (KIRO_API_KEY) one — not claude's — asserted
-	// behaviorally since a func value is not directly comparable.
-	assert.Contains(t, p.authHint, "KIRO_API_KEY", "the degrade hint names kiro's trigger var")
-	require.NotNil(t, p.resolveAuth, "the kiro spec wires an auth resolver")
-	t.Setenv("KIRO_API_KEY", "kiro-test")
-	auth, ok := p.resolveAuth("/root", t.TempDir())
-	require.True(t, ok, "with KIRO_API_KEY set the wired resolver authenticates")
-	assert.Equal(t, authEnv, auth.mode)
-	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY", "the wired resolver is the kiro (KIRO_API_KEY) resolver")
-}
-
 // TestEngineContainerSpecFor_UnknownIsDefault: a genuinely unknown/unregistered
 // backend name keeps the pre-spec semantics for image/overlay/build shape
 // — the generic image, NO local build (run if the image is present, degrade
 // if not) — but no longer fails OPEN on credentials. Before
 // the fix the default wired resolveClaudeContainerAuth, so any unrecognized
-// engine (registry.go's generic "acp" backend; container_transport.go's own
-// doc names this exact fallthrough) got the user's ANTHROPIC_API_KEY/
+// engine (registry.go's generic "acp" backend) got the user's
+// ANTHROPIC_API_KEY/
 // ANTHROPIC_AUTH_TOKEN passed through and ~/.claude credentials copy-mounted
 // into a foreign engine's container. It must now fail CLOSED: resolveAuth
 // always returns ok=false, and the hint names the missing spec rather
@@ -103,7 +79,6 @@ func TestEngineContainerSpecFor_NoRegisteredEngineReachesClaudeDefault(t *testin
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 		t.Setenv("OPENAI_API_KEY", "")
 		t.Setenv("OPENROUTER_API_KEY", "")
-		t.Setenv("KIRO_API_KEY", "")
 		_, ok := p.resolveAuth("/root", t.TempDir())
 		assert.False(t, ok, "backend %q must NOT authenticate off ANTHROPIC_API_KEY (that would be the claude-shaped security edge)", name)
 		assert.NotEqual(t, claudeDefault.authHint, p.authHint, "backend %q must not inherit claude's degrade hint verbatim", name)
@@ -198,109 +173,12 @@ func TestResolveMockContainerAuth_AlwaysSucceeds(t *testing.T) {
 // the two constructors: For resolves the spec's image; the legacy explicit
 // image overrides it over the default spec.
 func TestNewContainerFor_UsesSpecImage(t *testing.T) {
-	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "kiro")
-	assert.Equal(t, "ctxloom-agent-kiro:latest", c.image)
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+	assert.Equal(t, defaultContainerImage, c.image)
 
 	explicit := NewContainerFor(fakeRuntime{name: "docker", available: true}, "mock").WithImage("custom:tag")
 	assert.Equal(t, "custom:tag", explicit.image)
 	assert.Nil(t, explicit.engineSpec.engineInstall, "an explicit image is never locally built")
-}
-
-// TestResolveKiroContainerAuth pins kiro's container auth: KIRO_API_KEY env
-// passthrough (headless mode) or nothing — no credential mount until the
-// ~/.kiro layout is verified live.
-func TestResolveKiroContainerAuth(t *testing.T) {
-	t.Setenv("KIRO_API_KEY", "")
-	_, ok := resolveKiroContainerAuth("/root", t.TempDir())
-	assert.False(t, ok, "no KIRO_API_KEY → degrade (never launch an engine stuck at browser login)")
-
-	t.Setenv("KIRO_API_KEY", "kiro-test")
-	auth, ok := resolveKiroContainerAuth("/root", t.TempDir())
-	require.True(t, ok)
-	assert.Equal(t, authEnv, auth.mode)
-	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY", "the auth var crosses by NAME only")
-	assert.NotContains(t, auth.envPassthrough, "KIRO_API_KEY=kiro-test", "the secret value must not be stored in the plan")
-	assert.Empty(t, auth.mounts, "kiro env passthrough mounts nothing")
-}
-
-// TestResolveKiroContainerAuth_AWSRidesAlongOnlyWhenTriggered pins wired-unit's
-// AWS/Bedrock passthrough: AWS_* vars ride ALONG in the passthrough when
-// KIRO_API_KEY is the trigger, but do NOT stand alone as a trigger of their
-// own (that combination needs a live kiro check before it can be trusted —
-// see kiroAuthEnvVars' doc).
-func TestResolveKiroContainerAuth_AWSRidesAlongOnlyWhenTriggered(t *testing.T) {
-	t.Setenv("KIRO_API_KEY", "")
-	t.Setenv("AWS_REGION", "us-east-1")
-	t.Setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
-	_, ok := resolveKiroContainerAuth("/root", t.TempDir())
-	assert.False(t, ok, "AWS_* alone (no KIRO_API_KEY) must NOT trigger — unverified live combination")
-
-	t.Setenv("KIRO_API_KEY", "kiro-test")
-	auth, ok := resolveKiroContainerAuth("/root", t.TempDir())
-	require.True(t, ok)
-	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY")
-	assert.Contains(t, auth.envPassthrough, "AWS_REGION", "AWS_* rides along once KIRO_API_KEY triggers")
-	assert.Contains(t, auth.envPassthrough, "AWS_ACCESS_KEY_ID")
-}
-
-// TestEveryComposableEngineGatesItsACPSurfaceByExecution is the generalization
-// of a container-delegation defect (task minty-wilt): NO composable
-// engine's install fragment may validate its structured-chat surface by PATH
-// presence, or by a `--version` that exercises a DIFFERENT code path from the
-// one delegation actually spawns.
-//
-// It is deliberately table-driven over the surface each engine's ACP transport
-// declares (internal/lm/backends: claude-code/codex are agent.ACPAdapter with a
-// separate binary; kiro/opencode are agent.ACPNative with an `acp` subcommand
-// of their own client). Adding an engine to composableEngines() without giving
-// it an execution gate fails here.
-func TestEveryComposableEngineGatesItsACPSurfaceByExecution(t *testing.T) {
-	for _, tc := range []struct {
-		backend string
-		surface string // the exact command structured chat spawns
-	}{
-		{"claude-code", "claude-code-acp"},
-		{"codex", "codex-acp"},
-		{"kiro", "kiro-cli acp"},
-		{"opencode", "opencode acp"},
-	} {
-		t.Run(tc.backend, func(t *testing.T) {
-			frag := string(engineContainerSpecFor(tc.backend).engineInstall)
-			require.NotEmpty(t, frag, "%s must be composable", tc.backend)
-			assert.Contains(t, frag, "timeout 20 "+tc.surface+" </dev/null",
-				"%s must RUN its ACP surface at image-build time, not merely locate it", tc.backend)
-			assert.Contains(t, frag, acpProbeFailurePatterns,
-				"%s must fail the build on the shared ACP-failure vocabulary", tc.backend)
-			assert.Contains(t, frag, "exit 1",
-				"%s's gate must FAIL THE BUILD, not warn", tc.backend)
-		})
-	}
-}
-
-// TestACPProbeFailurePatterns_CoverBothMechanisms pins the two distinct
-// silent-no-op mechanisms the shared grep must see. The node-loader half is the
-// original claude-code defect; the argument-parser/loader half is what kiro and
-// opencode were exposed to. "Failed to change directory" is opencode's measured
-// shape for a MISSING `acp` command — it exits ZERO, which is why nothing here
-// may be reduced to an exit-status check.
-func TestACPProbeFailurePatterns_CoverBothMechanisms(t *testing.T) {
-	for _, pat := range []string{
-		"SyntaxError", "Cannot find module", "ERR_MODULE_NOT_FOUND", "ERR_UNKNOWN_BUILTIN_MODULE",
-		"unrecognized subcommand", "unknown command", "unexpected argument",
-		"error while loading shared libraries", "symbol lookup error", "Failed to change directory",
-	} {
-		assert.Contains(t, acpProbeFailurePatterns, pat)
-	}
-}
-
-// TestNativeACPRunGate_ProbesTheSubcommandNotTheClient: the gate must run
-// `<client> <sub>`, never bare `<client>` — running kiro-cli with no arguments
-// would open its interactive chat, which proves nothing about the ACP surface.
-func TestNativeACPRunGate_ProbesTheSubcommandNotTheClient(t *testing.T) {
-	g := nativeACPRunGate("kiro-cli", "acp")
-	assert.Contains(t, g, "timeout 20 kiro-cli acp </dev/null")
-	assert.Contains(t, g, "kiro-cli acp is installed but its ACP surface cannot start")
-	assert.Contains(t, g, "exit 1")
 }
 
 // TestEngineContainerSpecFor_EverySpecMapsATranscriptStore pins that a

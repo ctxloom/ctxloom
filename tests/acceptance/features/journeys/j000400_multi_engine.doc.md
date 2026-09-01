@@ -14,7 +14,7 @@ same three HTML-comment marker pairs the generator splits j000200_setup.doc.md o
 
 <!-- doc:intro -->
 A team never actually standardizes on one assistant. One developer lives in
-claude-code, another in codex, another in kiro — and
+claude-code, another in codex — and
 every one of them still needs to onboard onto the same team standard: the same
 fragment of context, the same shared skill, the same MCP tool, the same hook.
 Without a common delivery mechanism, a team either forces everyone onto one
@@ -24,14 +24,14 @@ formats and lets them drift the moment anyone forgets to update all three.
 ctxloom's answer is to let the team author the standard exactly once — as a
 profile — and materialize it into each engine's own native surface on demand.
 Nobody forks the profile per engine. Nobody hand-writes a `.mcp.json` next to
-codex's `config.toml` next to a `.kiro/settings/mcp.json` and prays they stay
-in sync. One profile in, three genuinely different file layouts out, each one
+codex's `config.toml` and prays they stay
+in sync. One profile in, genuinely different file layouts out, each one
 exactly the shape its own engine already expects.
 
 That "genuinely different" part is the whole point, not an inconvenience to
-paper over. claude-code's context lands in a plain `CLAUDE.md`; kiro's lands
-in `.kiro/steering/ctxloom-context.md`; codex has no native context file at
-all. claude-code and kiro each get their own MCP file; codex folds its MCP
+paper over. claude-code's context lands in a plain `CLAUDE.md`; codex has no
+native context file at
+all. claude-code gets its own MCP file; codex folds its MCP
 servers into the same `config.toml` that also carries its hooks. This journey
 proves those shapes are actually produced — by parsing each generated file in
 its own format (JSON, TOML, or plain text) and checking the real field, never
@@ -39,10 +39,10 @@ a bare "the file exists" or "the key name shows up somewhere in it."
 
 And it draws an honest line most journeys of this kind blur: writing a file in
 an engine's native format is not the same claim as that engine having read it.
-The first table below (materialization) covers three engines — claude-code,
-kiro, and codex — and needs no engine binary at all: it is pure file
-generation, provable today, for all three. The second table (live
-delivery) covers claude, kiro, and codex, because those are the three
+The first table below (materialization) covers claude-code
+and codex — and needs no engine binary at all: it is pure file
+generation, provable today, for both. The second table (live
+delivery) covers claude and codex, because those are the
 engines with a real, working, unattended path on this project's dev hosts
 right now. Nobody reading this journey can mistake either table for more
 coverage than it has — extending either later is adding a row, not rewriting
@@ -52,7 +52,7 @@ a claim.
 <!-- doc:scenario: The same profile materializes into each engine's own native surfaces -->
 Carol's team authors one shared bundle — a fragment, a skill, an MCP server,
 a hook — and Alice materializes that same profile once per engine. For each
-of claude-code, kiro, and codex, this scenario opens the actual
+of claude-code and codex, this scenario opens the actual
 generated file and reads the actual field: the assembled context carries the
 fragment's own text, the MCP config's own JSON has the server's own command
 under its own key, the hook config has the hook's own command under the
@@ -101,13 +101,6 @@ phrase it can see. If the marker comes back in the actual reply, the context
 genuinely reached a genuinely running assistant — not a mock, not a captured
 request, a real reply from a real engine process.
 
-kiro joined this table once a logged-in `kiro-cli` became available to test
-against: the same row, the same steps, no new Go and no new step definitions
-— exactly the row-not-code claim this table was built to make. Its assistant
-read the materialized `.kiro/steering/ctxloom-context.md` steering file
-(kiro's stand-in for a SessionStart hook) and echoed the sentinel back through
-kiro's own agentSpawn hook and skill-resource wiring, live.
-
 codex joined this table once its context surface actually fired on the real
 materialize/run path: a logged-in `codex` CLI reads the materialized
 `AGENTS.md` and echoes the sentinel back, live, the same row and the same
@@ -118,12 +111,12 @@ from.
 <!-- /doc:scenario -->
 
 <!-- doc:outro -->
-Three engines, one authored standard, and an honest map of exactly how far
+One authored standard, and an honest map of exactly how far
 that standard's delivery is proven today: fully proven for the bytes on disk
-across two of them — claude-code, kiro. codex's MCP, hook, and
+for claude-code. codex's MCP, hook, and
 skill surfaces prove out the same way, but its context does not — a
 confirmed, silent gap this journey names explicitly instead of folding into a
-passing row. All three are additionally proven end-to-end through a real
+passing row. Both are additionally proven end-to-end through a real
 running assistant, not just bytes on disk. That is the shape of claim this
 journey is built to make — never more than what was actually checked, and
 structured so that adding real coverage later means adding a row, not

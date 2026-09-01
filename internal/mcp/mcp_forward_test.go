@@ -104,9 +104,8 @@ func TestDialReachBackSocket_UnixDefault(t *testing.T) {
 }
 
 // TestDialReachBackSocket_TCPFallback pins the off-Linux fallback's far side:
-// a "tcp://host:port" value dials TCP, not unix — the exact form
-// internal/acp/container_transport.go's containerReachBackEnv emits on
-// darwin/windows.
+// a "tcp://host:port" value dials TCP, not unix — the exact form a container
+// reach-back must emit on darwin/windows.
 func TestDialReachBackSocket_TCPFallback(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -125,8 +124,8 @@ func TestDialReachBackSocket_TCPFallback(t *testing.T) {
 
 // TestForward_TCPFallbackRoundTrip is TestForward_UnixSocketRoundTrip's
 // off-Linux twin: the SAME runner MCP endpoint, reached over a TCP bridge
-// (standing in for internal/acp/container_transport.go's reachBackBridge)
-// instead of the unix socket directly, dialed via dialReachBackSocket exactly
+// standing in for a container reach-back's host-loopback bridge, instead of
+// the unix socket directly, dialed via dialReachBackSocket exactly
 // as runMCPForward would. Proves the far-side dial change is not just wiring
 // — the whole forwarded toolset survives the TCP hop.
 func TestForward_TCPFallbackRoundTrip(t *testing.T) {
@@ -134,8 +133,8 @@ func TestForward_TCPFallbackRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(endpoint.Close)
 
-	// A minimal TCP<->unix bridge, mirroring reachBackBridge without
-	// importing internal/acp (which would cycle back into this package).
+	// A minimal TCP<->unix bridge, standing in for a container reach-back's
+	// host-loopback bridge.
 	bridgeLn, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = bridgeLn.Close() })

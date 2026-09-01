@@ -280,8 +280,8 @@ func TestBuildInitialConfig(t *testing.T) {
 // role: primary with no fast counterpart. Now that entry is gone (antigravity
 // engine removal) and default-config.yaml marks roles for claude-code only
 // (both primary AND fast), so no surviving engine takes this branch through
-// the real shipped registry any more — repointing the old case at "codex" or
-// "kiro" would silently retest the OTHER branch (primaryLabel == "", full
+// the real shipped registry any more — repointing the old case at any other
+// shipped engine would silently retest the OTHER branch (primaryLabel == "", full
 // fallbackRegistry) that the "engine without role markers" case above already
 // covers, not this one. That is exactly the kind of hole this removal keeps
 // finding: the table-driven case still passed, but for the wrong reason. This

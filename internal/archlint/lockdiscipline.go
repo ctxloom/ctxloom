@@ -15,7 +15,6 @@ import (
 var lockDisciplineScopes = []string{
 	"internal/claude",
 	"internal/codex",
-	"internal/kiro",
 	"internal/opencode",
 	"internal/shared/agent",
 }

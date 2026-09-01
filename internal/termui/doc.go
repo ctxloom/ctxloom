@@ -22,8 +22,8 @@
 //
 // # This package is a PARALLEL system, deliberately, and it is on a clock
 //
-// ctxloom is growing a second, unrelated way to observe an agent: the ACP
-// server (internal/acpagent) driving an editor or a deliberately ultra-simple
+// ctxloom is growing a second, unrelated way to observe an agent: an
+// agent-protocol server driving an editor, or a deliberately ultra-simple
 // terminal rendering of the LLM UI. That is not drift and it is not an
 // oversight — it was chosen by the maintainer on 2026-08-30, with this package
 // left in place ON PURPOSE while the replacement is built.

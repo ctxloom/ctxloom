@@ -280,7 +280,7 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 }
 
 // TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly: a prior change
-// deleted the by-location legacy-file readers for claude-code/codex/kiro
+// deleted the by-location legacy-file readers for claude-code/codex
 // outright (the user's DELETE decision, not a demoted reader —
 // see each package's backend.go doc). A watch addressed by HARP whose only
 // association is a located legacy-format transcript (no hook-bound session,
@@ -291,17 +291,17 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 // panic, or silently stream zero entries — matching the task's explicit
 // acceptance that a retired-scraper backend with no canonical transcript
 // "simply has no legacy reader" this release (interactive-pty/by-location
-// memory for these three is scoped out to a later task). opencode is
+// memory for these two is scoped out to a later task). opencode is
 // deliberately absent — its
 // native reader was never file/path-addressable to begin with
 // (GetSessionByPath always errored, see opencode/capabilities.go), so it was
-// never covered by this by-location mechanism. antigravity was a fourth
-// retired-scraper backend here until 0.7.0 removed the engine outright — a
-// harp addressed to it now fails one gate earlier, with "unknown backend",
-// since the backend itself no longer resolves; that is a different failure
-// shape than this test pins, not the same one with a renamed message.
+// never covered by this by-location mechanism. antigravity and kiro were
+// retired-scraper backends here until each engine was removed outright — a
+// harp addressed to either now fails one gate earlier, with "unknown
+// backend", since the backend itself no longer resolves; that is a different
+// failure shape than this test pins, not the same one with a renamed message.
 func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
-	for _, backend := range []string{"claude-code", "codex", "kiro"} {
+	for _, backend := range []string{"claude-code", "codex"} {
 		t.Run(backend, func(t *testing.T) {
 			home := testsupport.Isolate(t)
 			harp := seedUnboundHarp(t, home, backend, "t.jsonl", "{}\n")

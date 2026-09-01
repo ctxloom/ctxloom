@@ -84,12 +84,11 @@ type corpusCounts struct {
 }
 
 // engineScopes are the subtrees the lock- and ledger-discipline rules read.
-// They are counted separately because a rule scoped to five packages can be
-// broken by a bad prefix while the module-wide count stays healthy.
+// They are counted separately because a rule scoped to a handful of packages
+// can be broken by a bad prefix while the module-wide count stays healthy.
 var engineScopes = []string{
 	"internal/claude",
 	"internal/codex",
-	"internal/kiro",
 	"internal/opencode",
 	"internal/shared/agent",
 }

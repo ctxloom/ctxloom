@@ -20,15 +20,9 @@ func modeFromPOSIX(mode uint32) os.FileMode {
 
 // This file is the skills analog of commands.go/commandfiles.go: the
 // single skill-export assembly (LoadSkillExports) and the per-engine mapping
-// from a resolved bundle skill to that engine's agent.SkillExport. claude
-// (Part B3-seam, the reference engine), codex, opencode (Part
-// B4), and kiro (Part B5, the collision case) are wired. kiro's mapping here
-// is ordinary — its distinctiveness (sharing .kiro/skills/ with the renamed
-// command surface, and the D6 skill-wins collision rule) lives entirely in
-// internal/kiro/surfaces.go's filterClaimedCommands
-// (skill-command-split.plan.md §3.3/§3.5). An engine with no skillExports
-// mapper simply exports no skills (mirrors a nil `exports` meaning no command
-// export).
+// from a resolved bundle skill to that engine's agent.SkillExport. An engine
+// with no skillExports mapper simply exports no skills (mirrors a nil
+// `exports` meaning no command export).
 
 // LoadSkillExports loads every Agent Skill package shipped by the SELECTED (or
 // default) profiles' bundles. Unlike LoadCommandExports there are no built-in
@@ -116,7 +110,6 @@ func forceExportSkill(ls *bundles.LoadedSkill) *bundles.LoadedSkill {
 	on := true
 	ls.LLM.ClaudeCode.Enabled = &on
 	ls.LLM.Codex.Enabled = &on
-	ls.LLM.Kiro.Enabled = &on
 	ls.LLM.Opencode.Enabled = &on
 	return ls
 }
@@ -171,13 +164,4 @@ func opencodeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 // file bytes and the DECLARED modes reach the surface by the one path.
 func mockSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 	return buildSkillExports(skills, func(*bundles.LoadedSkill) bool { return true })
-}
-
-// kiroSkillExports resolves kiro's per-skill enablement (Part B5 — the
-// collision engine). This mapping is identical in shape to every other
-// engine's; kiro's distinctiveness (sharing .kiro/skills/ with the renamed
-// command surface, and the resulting D6 skill-wins collision rule) lives
-// entirely in internal/kiro/surfaces.go's filterClaimedCommands, not here.
-func kiroSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Kiro.IsEnabled() })
 }

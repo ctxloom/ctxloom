@@ -158,20 +158,18 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # mcp__ctxloom__agent_send, and its PermissionRequest parked forever
   # (90s+, twice) — never resolved despite a `[{"action":"auto_accept"}]`
   # ladder. ROOT CAUSE was NOT the approval ladder (a full-stack
-  # reproduction — real internal/acp driver + real ACP subprocess + real
-  # gRPC RunChannel + coordinator — resolves it every time; see
-  # internal/agentcoord/coord/acp_approval_test.go). It was runner WIRING:
+  # reproduction resolved it every time). It was runner WIRING:
   # internal/cli/llm_serve.go bound the engine host (which unblocks
   # StartRun -> the engine spawn) BEFORE exporting CTXLOOM_MCP_SOCKET, so
   # the child engine could spawn with no reach-back socket; its `ctxloom
   # mcp` shim then ran its LOCAL surface — a second, rogue in-process
-  # coordinator — and claude-code-acp's own MCP-tool permission flow stalls
+  # coordinator — and the child engine's own MCP-tool permission flow stalls
   # on that mis-wired server. FIX: export the socket (and fail loud if it
   # can't be stood up) BEFORE BindHome. With it, the claude child now
   # reports its marker over the real bus — the two claude assertions here
   # pass.
   #
-  # SUPERSEDED 2026-08-03 — the "codex-acp drops the stdio server's env"
+  # SUPERSEDED 2026-08-03 — the "codex drops the stdio server's env"
   # diagnosis recorded here previously is NOT what blocks this scenario, and
   # a live re-run found no evidence for it: no "this session is the
   # coordinator — it has no parent" was raised by either child, and no rogue
@@ -239,11 +237,10 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # question an operator actually asks before trusting `agent_run` on their own
   # box: "does a delegated child on MY engine really launch, really receive its
   # composed context, and really get a word back to its coordinator?" Until
-  # this outline existed, three of the four 0.7 engines had never had a full
+  # this outline existed, two of the three 0.7 engines had never had a full
   # live delegation round trip verified AT ALL — opencode's child path was
-  # migrated onto the StartRun/runner model (coord.viaStartRunBackends now
-  # carries claude-code, codex, kiro, acp and opencode) with no live proof
-  # behind it, and kiro's was proven only at the isolation layer. A per-engine
+  # migrated onto the StartRun/runner model (see coord.viaStartRunBackends)
+  # with no live proof behind it. A per-engine
   # matrix, in the suite's own live lane, is the difference between "the code
   # path exists" and "the engine came back".
   #
@@ -319,11 +316,6 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine | marker                                 |
       | codex  | J002300-DELEGATE-MARKER-CODEX-8b3f52cd |
 
-    @kiro
-    Examples:
-      | engine | marker                                |
-      | kiro   | J002300-DELEGATE-MARKER-KIRO-2e9a16ef |
-
     # GREEN — and the one row here whose history is a warning about this row
     # itself, not about opencode. Keep it: it is the reason to distrust a
     # single live failure.
@@ -367,13 +359,13 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # exactly as they are.
   #
   # WHAT IT ADDS TO THE FLOOR ABOVE. The per-engine floor proves the
-  # CHILD -> COORDINATOR direction on all four engines: a marker that exists
+  # CHILD -> COORDINATOR direction on all three engines: a marker that exists
   # only in the child's own composed context reaches the coordinator's mailbox.
   # The other direction — the coordinator reaching INTO a live session
   # mid-flight, and the child acting on what it was handed — was proven for
   # claude-code alone, by the J002300-LIVE-ECHO-TOKEN step of the @live
-  # cross-engine scenario above. Capability-inventory row 13 records codex, kiro
-  # and opencode as claimed-and-unproven for exactly that half. These four rows
+  # cross-engine scenario above. Capability-inventory row 13 records codex
+  # and opencode as claimed-and-unproven for exactly that half. These three rows
   # are that gap.
   #
   # THE CHANNEL IS THE BUS MESSAGE BODY, AND ONLY THAT. The value the child must
@@ -405,17 +397,17 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # on while nothing is written is this project's characteristic bug wearing the
   # cutover's clothes.
   #
-  # MEASURED 2026-08-13, ALL FOUR ROWS GREEN — and three of them are new. The
+  # MEASURED 2026-08-13, ALL THREE ROWS GREEN — and two of them are new. The
   # claude-code row re-proves what the LOCKED scenario above already proves;
-  # codex, kiro and opencode had coordinator->child mid-session steer claimed
+  # codex and opencode had coordinator->child mid-session steer claimed
   # and never demonstrated (capability inventory row 13 read "marker only; no
-  # mid-session steer" for all three). Each child returned the minted harp as
+  # mid-session steer" for both). Each child returned the minted harp as
   # its whole message body. Each row's assertion was then mutated on the
   # ASSERTION SIDE ONLY — the verdict made to look for harp+"-MUTANT" while the
   # fixture still sent the real one — and each went RED with a BUS-DELIVERY
   # shape, so no row is passing because the check cannot fail.
   #
-  # WHAT THE SPOOL CENSUS ACTUALLY SHOWED, on every one of the four: three
+  # WHAT THE SPOOL CENSUS ACTUALLY SHOWED, on every one of the three: three
   # message files, and BOTH directions on disk.
   #
   #   in/consumed   1: <ts>.00000001.coord.md            <- the coordinator's steer
@@ -432,9 +424,9 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # regression gate for a neighbouring subsystem's scope. If child->parent file
   # delivery is meant to be guaranteed, that belongs in its own assertion.
   #
-  # TIMING, for whoever tunes the budget: claude-code, codex and kiro completed
+  # TIMING, for whoever tunes the budget: claude-code and codex completed
   # in well under a minute each; opencode's echo turn landed roughly 79 seconds
-  # after the steer. Do not shorten 240s on the strength of the fast three.
+  # after the steer. Do not shorten 240s on the strength of the fast two.
   #
   # ONE ROW AT A TIME, two paid turns each (the wake-up and the steer). Address
   # exactly one cell with the registry's own tag expression:
@@ -472,11 +464,6 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     Examples:
       | engine | runtime | workspace | marker                          |
       | codex  | host    | none      | P6-WAKE-MARKER-CODEX-2f9d61a8   |
-
-    @kiro @host @ws-none
-    Examples:
-      | engine | runtime | workspace | marker                         |
-      | kiro   | host    | none      | P6-WAKE-MARKER-KIRO-8c34e7f2   |
 
     @opencode @host @ws-none
     Examples:

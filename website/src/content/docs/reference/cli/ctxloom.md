@@ -58,7 +58,6 @@ Run 'ctxloom <command> --help' for details on any command.
 
 ### SEE ALSO
 
-* [ctxloom acp](/reference/cli/ctxloom_acp/)	 - ACP (Agent Client Protocol): serve ctxloom to an editor, or connect ctxloom out to an ACP-speaking agent
 * [ctxloom agent](/reference/cli/ctxloom_agent/)	 - Inspect local agents (engine↔profile bindings)
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
 * [ctxloom command](/reference/cli/ctxloom_command/)	 - Manage commands

@@ -21,19 +21,22 @@ import (
 // agreement against the real writer instead of restating the predicate.
 // =============================================================================
 
-// acpConfig is a project whose only engine label is bound to the generic "acp"
-// backend — a REGISTERED backend (so the write's engine-membership check passes
-// and the container-auth refusal is the one thing left to fail on) that reaches
+// noContainerAuthConfig is a project whose only engine label is bound to a
+// backend name nothing registers. The LABEL is what the engine-membership check
+// reads, so that check passes and the container-auth refusal is the one thing
+// left to fail on; the unregistered backend it resolves to reaches
 // engineContainerSpecFor's fail-closed default arm and therefore has no
-// container auth.
-const acpConfig = "version: 6\nllm:\n  configs:\n    editor: { type: acp }\n  defaults:\n    primary: editor\n"
+// container auth. A label is the only reachable subject for this gate — every
+// backend in the registry has container auth — and it is a real one, since
+// `llm.configs.<label>.type` accepts any string a user types.
+const noContainerAuthConfig = "version: 6\nllm:\n  configs:\n    editor: { type: unmapped-engine }\n  defaults:\n    primary: editor\n"
 
 // TestAgentRuntimeOffer_EngineWithoutContainerAuthIsNotOfferedAContainerRuntime
 // is the gate. An engine that cannot authenticate inside a container gets host
 // and nothing else — offering it a container axis would collect a decision the
 // user has the least context to re-derive, and then throw it away at the write.
 func TestAgentRuntimeOffer_EngineWithoutContainerAuthIsNotOfferedAContainerRuntime(t *testing.T) {
-	cfg, _ := loadConfigDir(t, acpConfig)
+	cfg, _ := loadConfigDir(t, noContainerAuthConfig)
 
 	offer := AgentRuntimeOffer(cfg, "editor")
 
@@ -50,7 +53,7 @@ func TestAgentRuntimeOffer_EngineWithoutContainerAuthIsNotOfferedAContainerRunti
 // reads as ctxloom having decided against containers, when the real fact is
 // narrow and fixable.
 func TestAgentRuntimeOffer_WithheldContainerSaysWhy(t *testing.T) {
-	cfg, _ := loadConfigDir(t, acpConfig)
+	cfg, _ := loadConfigDir(t, noContainerAuthConfig)
 
 	offer := AgentRuntimeOffer(cfg, "editor")
 
@@ -58,7 +61,7 @@ func TestAgentRuntimeOffer_WithheldContainerSaysWhy(t *testing.T) {
 		"a withheld container axis must carry its reason, not just be missing")
 	assert.Contains(t, offer.ContainerWithheld, `"editor"`,
 		"the reason names the label the user typed")
-	assert.Contains(t, offer.ContainerWithheld, `"acp"`,
+	assert.Contains(t, offer.ContainerWithheld, `"unmapped-engine"`,
 		"the reason names the backend the label resolved to, since the two differ here")
 	assert.Contains(t, offer.ContainerWithheld, "container auth",
 		"the reason states the actual obstacle")

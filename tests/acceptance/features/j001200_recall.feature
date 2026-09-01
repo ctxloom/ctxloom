@@ -251,8 +251,8 @@ Feature: The archaeologist — what did we decide in March?
   #
   # UNTAGGED: RecordedSessionEntries now returns an error naming the harp and
   # pointing at `session list`, and resumeFullContext's existing warn-and-carry-
-  # on path does the rest. Fixed at the shared primitive, so the ACP resume path
-  # and the coordinator's ended-child resume — which had the same hole — are
+  # on path does the rest. Fixed at the shared primitive, so every resume path
+  # that had the same hole — the coordinator's ended-child resume included — is
   # covered by the same change.
   Scenario: A mistyped harp warns instead of taking the process down
     When I run "ctxloom run --session no-such-harp-anywhere --dry-run -p default"

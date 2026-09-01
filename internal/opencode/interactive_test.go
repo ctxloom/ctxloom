@@ -1,7 +1,9 @@
 package opencode
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -149,11 +151,21 @@ func TestOpencode_InteractiveArgs_PreservesBaseArgs(t *testing.T) {
 	assert.Contains(t, args, "--auto")
 }
 
-// TestOpencode_SupportedModes: interactive is now a supported mode.
+// TestOpencode_SupportedModes pins interactive-only. The ABSENCE of oneshot is
+// the load-bearing half: opencode has no native non-interactive turn, so
+// advertising one would route a scripted caller into a TUI it cannot drive.
 func TestOpencode_SupportedModes(t *testing.T) {
 	modes := NewOpencode().SupportedModes()
-	assert.Contains(t, modes, agent.ModeInteractive)
-	assert.Contains(t, modes, agent.ModeOneshot)
+	assert.Equal(t, []agent.ExecutionMode{agent.ModeInteractive}, modes)
+}
+
+// TestOpencode_ExecuteRefusesOneshot is the behavioural twin of the roster
+// above: a oneshot request must FAIL rather than silently launching the TUI.
+func TestOpencode_ExecuteRefusesOneshot(t *testing.T) {
+	b := NewOpencode()
+	_, err := b.Execute(context.Background(), &agent.ExecuteRequest{Mode: agent.ModeOneshot}, io.Discard, io.Discard)
+	require.Error(t, err, "oneshot must be refused, not approximated by an interactive launch")
+	assert.Contains(t, err.Error(), "interactive")
 }
 
 // sanity: the permission map we assert against matches the package's canonical block.

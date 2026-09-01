@@ -255,7 +255,7 @@ func TestWorktree_MockBackendExemptFromUnregisteredFinding(t *testing.T) {
 
 // TestWorktree_ConfigHomeMkdirFailureRecordsFinding pins that a total
 // provisionConfigHome MkdirAll failure — which costs ALL engine-global
-// isolation for claude/codex/kiro/opencode — used to be a plain clidiag.Warn,
+// isolation for every registered engine — used to be a plain clidiag.Warn,
 // a QUIETER severity than the LESSER (partial: creds present but unseedable)
 // failure in seedCredentials, which is a strictness.Fail. The ordering was
 // inverted; both must now be fatal-unless-degraded.
@@ -626,8 +626,8 @@ func TestWorktree_GitIdentity_AttributesToAgentNotHuman(t *testing.T) {
 
 // TestWorktree_HomeVars_PerBackend is the "descriptor table guard" the
 // per-engine-isolation-home plan §9 asks for: each backend's Env() var-set
-// size must match the cartography table — claude:1, codex:1, kiro:2, and ""
-// (no backend context):0 config-home vars (the pre-fix, config-only-isolation
+// size must match the cartography table — claude:1, codex:1, opencode:2, and
+// "" (no backend context):0 config-home vars (the pre-fix, config-only-isolation
 // default — see
 // TestWorktree_NoBackendSkipsSeedingAndFailLoud) — PLUS the 6 toolchain vars
 // (spawner-env: TMPDIR, GOTMPDIR, GIT_AUTHOR_{NAME,EMAIL},
@@ -640,7 +640,6 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 	withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")  // skip claude's seed attempt — only var COUNT matters here
 	t.Setenv("OPENAI_API_KEY", "sk-test")     // skip codex's seed attempt
-	t.Setenv("KIRO_API_KEY", "sk-test")       // grant kiro's gated XDG_DATA_HOME
 	t.Setenv("OPENROUTER_API_KEY", "sk-test") // skip opencode's seed attempt
 
 	const toolchainVars = 6 // TMPDIR, GOTMPDIR, GIT_AUTHOR_{NAME,EMAIL}, GIT_COMMITTER_{NAME,EMAIL}
@@ -650,7 +649,6 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 	}{
 		{"claude-code", 1 + toolchainVars},
 		{"codex", 1 + toolchainVars},
-		{"kiro", 2 + toolchainVars},
 		{"opencode", 2 + toolchainVars},
 		{"", 0 + toolchainVars},
 	}
@@ -670,11 +668,11 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 
 // TestWorktree_ScopedLeverEngines_NoHomeOverride pins that every
 // credentialSeedSpecs-registered engine gets its OWN scoped config-home var
-// (CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME/XDG_DATA_HOME) with no blanket HOME
+// (CLAUDE_CONFIG_DIR/CODEX_HOME/XDG_DATA_HOME) with no blanket HOME
 // override — a scoped var leaves ~/.gitconfig/~/.ssh identity untouched,
 // which a HOME override would strip. Formerly lived alongside the curated-HOME
 // mechanism (deleted with antigravity, its only registrant) as the negative
-// space proving these four engines never took that path; kept standalone now
+// space proving these engines never took that path; kept standalone now
 // that there is no second lever kind to contrast against.
 func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 	for _, tc := range []struct {
@@ -683,7 +681,6 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 	}{
 		{"claude-code", "CLAUDE_CONFIG_DIR"},
 		{"codex", "CODEX_HOME"},
-		{"kiro", "KIRO_HOME"},
 		{"opencode", "XDG_DATA_HOME"},
 	} {
 		t.Run(tc.backend, func(t *testing.T) {
@@ -691,7 +688,6 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 			withFakeHome(t)
 			t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 			t.Setenv("OPENAI_API_KEY", "sk-test")
-			t.Setenv("KIRO_API_KEY", "sk-test")
 			t.Setenv("OPENROUTER_API_KEY", "sk-test")
 
 			common := t.TempDir()
@@ -706,90 +702,6 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 			assert.Contains(t, env, tc.envVar)
 		})
 	}
-}
-
-// TestWorktree_KiroTwoAgentsDisjointXDG is the headline PAYLOAD test:
-// two concurrent kiro worktree agents (KIRO_API_KEY set, so XDG isolation is
-// granted) get DISJOINT XDG_DATA_HOME roots — the assertion that would have
-// caught the original bug (both "isolated" agents sharing one global
-// $XDG_DATA_HOME/kiro-cli/data.sqlite3, silently reading each other's
-// conversations). Simulates a marker write into agent A's would-be sqlite
-// path and asserts agent B's XDG root does not contain it.
-func TestWorktree_KiroTwoAgentsDisjointXDG(t *testing.T) {
-	resetStrictness(t)
-	t.Setenv("KIRO_API_KEY", "sk-test")
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-
-	wsA, err := NewWorktree(f, "kiro").PrepareWorkspace(context.Background(), "/proj", "agent-a")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = wsA.Cleanup() })
-	wsB, err := NewWorktree(f, "kiro").PrepareWorkspace(context.Background(), "/proj", "agent-b")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = wsB.Cleanup() })
-
-	envA, envB := WorkspaceEnv(wsA), WorkspaceEnv(wsB)
-	require.NotEmpty(t, envA["XDG_DATA_HOME"])
-	require.NotEmpty(t, envB["XDG_DATA_HOME"])
-	assert.NotEqual(t, envA["XDG_DATA_HOME"], envB["XDG_DATA_HOME"], "two agents must resolve to DISJOINT XDG roots")
-
-	// Payload: a marker "conversation" written under A's kiro-cli data dir
-	// must not be visible under B's.
-	markerRel := filepath.Join("kiro-cli", "data.sqlite3")
-	markerPath := filepath.Join(envA["XDG_DATA_HOME"], markerRel)
-	require.NoError(t, os.MkdirAll(filepath.Dir(markerPath), 0o700))
-	require.NoError(t, os.WriteFile(markerPath, []byte("agent-a-conversation"), 0o600))
-
-	assert.NoFileExists(t, filepath.Join(envB["XDG_DATA_HOME"], markerRel),
-		"agent B's XDG root must not contain agent A's conversation store")
-	assert.Empty(t, strictness.All(), "KIRO_API_KEY present — both agents isolate cleanly, no finding")
-}
-
-// TestWorktree_KiroFailLoudWithoutApiKey pins the fail-loud floor: no
-// KIRO_API_KEY means isolating XDG_DATA_HOME would silently strand the agent
-// logged out of its (global, unrelocatable) credential store, so it is
-// OMITTED from Env() (falling back to the shared global store) and a
-// ClassIsolation finding is recorded — the previously-SILENT non-isolation
-// becomes a loud, degradable error instead. KIRO_HOME (sessions
-// only, no creds) still isolates unconditionally.
-func TestWorktree_KiroFailLoudWithoutApiKey(t *testing.T) {
-	resetStrictness(t)
-	t.Setenv("KIRO_API_KEY", "")
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-
-	ws, err := NewWorktree(f, "kiro").PrepareWorkspace(context.Background(), "/proj", "member-nokey")
-	require.NoError(t, err, "PrepareWorkspace itself still succeeds — the fail-loud gate is the CALLER's job")
-	t.Cleanup(func() { _ = ws.Cleanup() })
-
-	env := WorkspaceEnv(ws)
-	assert.NotEmpty(t, env["KIRO_HOME"], "KIRO_HOME isolates unconditionally (no creds live there)")
-	assert.Empty(t, env["XDG_DATA_HOME"], "XDG_DATA_HOME is DENIED — isolating it would silently log the agent out")
-
-	findings := strictness.All()
-	require.Len(t, findings, 1)
-	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "XDG_DATA_HOME")
-	assert.Contains(t, findings[0].Message, "member-nokey")
-	assert.NotEmpty(t, findings[0].FixIt)
-}
-
-// TestWorktree_KiroIsolatesXDGWithApiKey is the positive half of the gate:
-// KIRO_API_KEY set → XDG_DATA_HOME isolates (present in Env()) and no
-// ClassIsolation finding is recorded.
-func TestWorktree_KiroIsolatesXDGWithApiKey(t *testing.T) {
-	resetStrictness(t)
-	t.Setenv("KIRO_API_KEY", "sk-test")
-	common := t.TempDir()
-	f := &git.Fake{CommonDirValue: common}
-
-	ws, err := NewWorktree(f, "kiro").PrepareWorkspace(context.Background(), "/proj", "member-key")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ws.Cleanup() })
-
-	env := WorkspaceEnv(ws)
-	assert.NotEmpty(t, env["XDG_DATA_HOME"], "KIRO_API_KEY present — XDG_DATA_HOME isolates")
-	assert.Empty(t, strictness.All(), "no finding when the gate is satisfied")
 }
 
 // --- opencode host+worktree credential seeding ------------------------------
@@ -833,9 +745,9 @@ func TestWorktree_PrepareSeedsOpencodeCredentials(t *testing.T) {
 // closed silent no-op: before this fix, an "opencode" worktree with no
 // OPENROUTER_API_KEY and no host auth.json made NO finding at all
 // (credentialSeedSpecs had no "opencode" entry, so seedCredentials
-// short-circuited silently) — strictly worse than kiro's loud
-// "nothing seedable" handling. Now it records the same fatal ClassIsolation
-// finding claude/codex/kiro already get.
+// short-circuited silently) — strictly worse than the loud "nothing seedable"
+// handling a registered spec gets. Now it records the same fatal
+// ClassIsolation finding every other registered engine already gets.
 func TestWorktree_PrepareFailsLoudForOpencodeWhenNoCredsAndNoKey(t *testing.T) {
 	resetStrictness(t)
 	withFakeHome(t) // empty fake home — nothing to seed
@@ -888,7 +800,7 @@ func TestWorktree_PrepareSkipsOpencodeSeedingWithOpenrouterKeyNoFailLoud(t *test
 // subdirectory, it created spec.destSubdir alone, and only on the path where
 // there was something to seed — so an engine authenticating from the
 // environment (ANTHROPIC_API_KEY below) or one with no seedable files at all
-// (kiro) was handed a scoped var naming a directory nothing had created. The
+// was handed a scoped var naming a directory nothing had created. The
 // MODE is half the assertion: these hold engine config/state and must be 0700
 // like every sibling scratch dir, not whatever umask the engine would have
 // mkdir'd them with itself.
@@ -896,9 +808,8 @@ func TestWorktree_HomeVarDirsExist(t *testing.T) {
 	resetStrictness(t)
 	withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test") // claude authenticates from the env: nothing to seed
-	t.Setenv("KIRO_API_KEY", "sk-test")      // grant kiro's gated XDG_DATA_HOME
 
-	for _, backend := range []string{"claude-code", "kiro"} {
+	for _, backend := range []string{"claude-code"} {
 		t.Run(backend, func(t *testing.T) {
 			common := t.TempDir()
 			f := &git.Fake{CommonDirValue: common}

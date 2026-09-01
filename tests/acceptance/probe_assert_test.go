@@ -116,7 +116,7 @@ func TestProbeCellID_StampsEveryAxisAndOmitsEmptyOnes(t *testing.T) {
 			t.Fatalf("a cell stamp missing %q is unusable in the one context it is ever read in — a matrix of them; got %s", want, full)
 		}
 	}
-	bare := probeCellID{Engine: "kiro", Runtime: "host", Workspace: "none"}
+	bare := probeCellID{Engine: "codex", Runtime: "host", Workspace: "none"}
 	if strings.Contains(bare.String(), "probe=") || strings.Contains(bare.String(), "variant=") {
 		t.Fatalf("a probe with one dimension must not stamp empty fields into its own evidence; got %s", bare)
 	}

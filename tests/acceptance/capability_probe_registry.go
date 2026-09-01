@@ -35,9 +35,8 @@
 // it. The container rows were the worked example: added red under the ruling
 // because containerized delegation had never been demonstrably correct,
 // then flipped to live-verified once container auth keying landed
-// and all eight were run. Two red maps stand today, and both are product
-// findings rather than expectations: P0's kiro host/none (ANSI decoration leaking
-// into a non-interactive capture) and P1's claude-code hook cell (the hook
+// and they were run. The red maps that stand today are product findings
+// rather than expectations — P1's claude-code hook cell (the hook
 // context route delivering nothing — see the note under the P1 rows, which is
 // also where the minted-harp ruling earns its keep). Flipping one is a one-line
 // edit per cell that the completeness gate forces somebody to make consciously —
@@ -80,7 +79,7 @@ var capabilityInventory = []capabilityRow{
 	{14, "ChatRequest.ResumeSessionID / ChatSessionInfo.Resumable — resume and session identity"},
 	{15, "transcript.Record / paths.HarpCanonicalTranscriptPath — canonical transcript capture"},
 	{16, "agentDescriptor.versionCommand / engineversion.Command — version reporting"},
-	{17, "authCheckClaude/Kiro/Codex/Opencode — availability and auth probing"},
+	{17, "authCheckClaude/Codex/Opencode — availability and auth probing"},
 	{18, "structured output contract — JSON only, no preamble"},
 	{19, "ChatRequest.Runtime=container — container runtime and per-engine container auth"},
 	{20, "resolveModel / ModelDeliveryQuirk — model resolution and pinning"},
@@ -141,9 +140,9 @@ type probeCell struct {
 	// capability gone — opencode's noHooksReason, resolveResumeMode's refusal —
 	// so there is nothing to run and the feature must carry NO Examples row for
 	// it. A gate enforced AT RUNTIME means production itself refuses, loudly,
-	// naming the reason, when the cell is attempted: kiro's container axis,
-	// which needs KIRO_API_KEY because its credential is a global sqlite no
-	// HomeVar relocates. Those cells KEEP their Examples row, because the loud
+	// naming the reason, when the cell is attempted — an axis that needs a
+	// credential the ambient environment cannot supply, say. Those cells KEEP
+	// their Examples row, because the loud
 	// skip is the report — deleting the row would delete the only place a human
 	// meets the limitation.
 	//
@@ -336,9 +335,8 @@ var probeRegistry = []probeSpec{
 		Channel:      channelMCPToolResult,
 		Feature:      "capability_mcp_round_trip.feature",
 		Paid:         true,
-		// ALL FOUR CELLS WERE RUN, one at a time on this box, against
-		// real engines on real subscriptions. Three went green and one went red,
-		// and the red is the interesting one — see kiro below.
+		// EVERY CELL WAS RUN, one at a time on this box, against
+		// real engines on real subscriptions.
 		//
 		// What every row shares is the delivery path under test: the fixture's own
 		// BUNDLE `mcp:` block → ManagedConfig.MCP → that engine's own native file.
@@ -389,13 +387,13 @@ var probeRegistry = []probeSpec{
 			//     which is part of why the false reason was never revisited.
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Status: probeWired,
 				ExpectedFailure:     channelMCPToolResult.Shape,
-				ExpectedFailureNote: "measured TWICE, 2026-08-26, identical both times: the fixture server STARTED INSIDE THE CONTAINER and its call log read `start request(initialize) request(notifications/initialized) request(tools/list)` — then nothing. So ctxloom's delivery is PROVEN on this axis: the bundle's mcp: block reached a containerized claude, the engine spawned the server in-container, completed the handshake and enumerated the tool. get_nonce was never called. The identical fixture on host/none calls it reliably (same day, full round trip logged), so this is not the fixture and not the prompt. SAME SHAPE as kiro's host row: registration and discovery work, invocation does not. Root cause not isolated; do NOT loosen this cell to green.",
+				ExpectedFailureNote: "measured TWICE, 2026-08-26, identical both times: the fixture server STARTED INSIDE THE CONTAINER and its call log read `start request(initialize) request(notifications/initialized) request(tools/list)` — then nothing. So ctxloom's delivery is PROVEN on this axis: the bundle's mcp: block reached a containerized claude, the engine spawned the server in-container, completed the handshake and enumerated the tool. get_nonce was never called. The identical fixture on host/none calls it reliably (same day, full round trip logged), so this is not the fixture and not the prompt. The shape is that registration and discovery work while invocation does not. Root cause not isolated; do NOT loosen this cell to green.",
 				Reason:              "THE SEAM WAS NEVER NEEDED, and this row previously said it was. The old reason called for a probe-only bind-mount in internal/lm/isolation modelled on isolation.ProbeTraceEnvVar; the premise under it was that the fixture must stay OUTSIDE the workspace, which was defence in depth misread as the mechanism. What actually keeps this probe honest is mcpProbeAssert's demand for a tools/call in the fixture server's OWN log — reading the nonce file cannot forge that. So the fixture moved INTO the workspace, which a container cell bind-mounts at the same absolute path (isolation.buildRunSpec's identity mapper), and the registration names it by a WORKSPACE-RELATIVE path so one fixture shape serves every axis. No production change was made and none is wanted: ProbeTraceEnvVar stays the only such seam."},
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired,
 				ExpectedFailure:     channelMCPToolResult.Shape,
 				ExpectedFailureNote: "measured 2026-08-26: IDENTICAL to the container/none row above (server started in-container, handshake and tools/list completed, get_nonce never called), so the mixed corner adds no separate defect. It DID prove the evidence path: probeCellRunDir resolved the per-agent checkout from `git worktree list --porcelain` and read the call log out of it, which works here because the server's writes leave the checkout dirty and the WIP-safe teardown spares it. P3's worktree cell shows the other side of that — its hook never fired, the checkout stayed clean, teardown pruned it, and there was no evidence left to read.",
 				Reason:              "LANDED WITH the container/none row, never after it, for the reason that kept them paired while both were deferred: P6 measured what skipping a mixed corner costs — its host/worktree cell failed where both-off and both-on passed, because the axes resolve the credential by DIFFERENT mechanisms (a container bind-mounts it, a worktree seeds it via credentialSeedSpecs). This row carries one thing its partner does not: the engine runs a per-agent CHECKOUT, so the fixture arrives only because it is committed, and its call log is written there rather than in the project. probeCellRunDir resolves that checkout from `git worktree list --porcelain` AFTER the run; reading the project copy instead would report that the server never ran."},
-			// codex/kiro/opencode: deferred to 0.8.0 by decision, NOT by a
+			// codex/opencode: deferred to 0.8.0 by decision, NOT by a
 			// technical blocker. Their runtime value is corrected here so the
 			// retired "container" spelling does not outlive the split, but they
 			// are deliberately not admitted — 0.7.0 propagates claude-code only.
@@ -436,8 +434,8 @@ var probeRegistry = []probeSpec{
 			// claude-code only, and that is SCOPE rather than obstacle — 0.7.0
 			// propagates claude onto the container axis. codex is red on the
 			// host row for a vendor hook-trust gate it would hit identically
-			// here; kiro and opencode are unbuilt for the same 0.8.0 reason as
-			// their P2 rows.
+			// here; opencode is unbuilt for the same 0.8.0 reason as
+			// its P2 row.
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Status: probeWired,
 				ExpectedFailure:     "HOOK-DELIVERY failure",
 				ExpectedFailureNote: "MEASURED 2026-08-26 and it is a CAPABILITY FINDING: a containerized claude run does not produce the stamp. exit 0, the turn answered normally, no stamp file on the bind-mounted workspace. CONTROLLED AGAINST THE OBVIOUS HARNESS CAUSE: the run was repeated with the hook command written as a HOST-ABSOLUTE path (valid in-container under the identity mapper) instead of the workspace-relative one, and it did not fire either — so the relative path is not the cause. The identical fixture on host/none fires reliably the same day. NOT YET ISOLATED between ctxloom never writing the hook into the container and claude never running one it was given: the carriage scan reads the project tree and the session root on the HOST, and a container's settings are written where neither looks, so carriage is unobservable here rather than absent. Isolating it needs a scan inside the container.",
@@ -585,7 +583,7 @@ var probeRegistry = []probeSpec{
 		Channel:      channelComposedContext,
 		Paid:         true,
 		Cells: func() []probeCell {
-			const why = "headless invocation of a delivered slash command is not a uniform engine surface: claude -p \"/cmd\" is plausible, codex prompts are $CODEX_HOME-global, kiro conflates the command and skill dirs. Delivery BYTES stay proven hermetically by the golden tests; invocation becomes a rung when someone needs the claim."
+			const why = "headless invocation of a delivered slash command is not a uniform engine surface: claude -p \"/cmd\" is plausible, codex prompts are $CODEX_HOME-global. Delivery BYTES stay proven hermetically by the golden tests; invocation becomes a rung when someone needs the claim."
 			var cells []probeCell
 			for _, e := range probeEngines {
 				cells = append(cells, hostCell(e, probeDeferred, why))
@@ -625,10 +623,9 @@ func p0Cells() []probeCell {
 	// demonstrably correct, and the map of which cells failed and how was the
 	// measure of the container-auth work. That work landed ("container auth
 	// keys on the engine"), and the coordinator then
-	// ran all eight container cells serially: claude-code, codex and opencode
+	// ran the container cells serially: claude-code, codex and opencode
 	// went GREEN on both container axes against real engines through the
-	// real-home read-write credential mount; kiro's two gated, loudly, on its
-	// own production limitation.
+	// real-home read-write credential mount.
 	//
 	// So the red map is spent, and flipping it is exactly the conscious one-line
 	// edit the completeness gate was built to force. What replaces it is not a
@@ -776,10 +773,10 @@ func p0Cells() []probeCell {
 // WHAT EVERY OTHER CONTEXT PROBE INHERITS — P0 INCLUDED. The nonce lives in a
 // bundle file inside the project tree, and every engine except claude-at-
 // system-prompt also has its context DELIVERED into the working directory (no
-// out-of-cwd realization exists for codex, kiro or opencode). So for any
+// out-of-cwd realization exists for codex or opencode). So for any
 // tool-using engine, a nonce-echo context cell cannot separate "ctxloom
-// delivered the context" from "the engine read the bytes off disk". P0's sixteen
-// cells are all in this position. That is not a reason to delete them — they
+// delivered the context" from "the engine read the bytes off disk". Every P0
+// cell is in this position. That is not a reason to delete them — they
 // still prove the run completes, the isolation scheme survives, and the output
 // contract holds — but "context delivery survived that isolation scheme" is a
 // stronger claim than they can support, and P0's header currently makes it.

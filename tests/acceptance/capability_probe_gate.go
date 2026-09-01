@@ -25,8 +25,8 @@
 // WHY THE AXIS RESOLVERS ARE REUSED RATHER THAN RE-DERIVED.
 // probeWorktreeAuthAvailable and probeContainerAuthAvailable (isolation_probe.go)
 // already encode production's own resolveEnvOrMountAuth / seedCredentials
-// precedence per axis, including the engines whose axis simply cannot be
-// authenticated today (kiro's, without KIRO_API_KEY). A probe that asked the
+// precedence per axis, including any engine whose axis simply cannot be
+// authenticated today. A probe that asked the
 // question its own way would eventually disagree with what a run actually does,
 // and the disagreement would surface as a mysterious red rather than as a gate.
 //

@@ -79,7 +79,6 @@ func TestEngineContainerSpecFor_NoRegisteredEngineReachesClaudeDefault(t *testin
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 		t.Setenv("OPENAI_API_KEY", "")
 		t.Setenv("OPENROUTER_API_KEY", "")
-		t.Setenv("KIRO_API_KEY", "")
 		_, ok := p.resolveAuth("/root", t.TempDir())
 		assert.False(t, ok, "backend %q must NOT authenticate off ANTHROPIC_API_KEY (that would be the claude-shaped security edge)", name)
 		assert.NotEqual(t, claudeDefault.authHint, p.authHint, "backend %q must not inherit claude's degrade hint verbatim", name)

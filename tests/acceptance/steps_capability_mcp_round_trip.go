@@ -17,7 +17,7 @@
 // server into the project's config.yaml `mcp.servers`, and from there the value
 // is production's the whole way — ManagedConfig.MCP → the engine's own native
 // surface (claude's --mcp-config scratch file in a shared cell, codex's
-// config.toml [mcp_servers], kiro's .kiro/settings/mcp.json, opencode's
+// config.toml [mcp_servers], opencode's
 // opencode.json `mcp`). Nothing in this file writes an engine's file. If it did,
 // the cell would prove the engine can read a file we wrote, which nobody
 // doubted, instead of proving ctxloom delivers.
@@ -67,7 +67,7 @@ const mcpProbeAgent = "nonce"
 // mcpProbeRunTimeout bounds one cell, at the floor's own eight minutes.
 //
 // It was six, on the reasoning that every P2 cell was host/none with no image to
-// pull. Measured: kiro's cell spent six minutes in a tool-validation retry loop
+// pull. Measured: a cell once spent six minutes in a tool-validation retry loop
 // and finished at 6m00.3s — inside the bound by three tenths of a second. Had it
 // lost that race the cell would have reported a RUN failure, which blames the
 // engine for the harness's impatience and would have buried the actual finding
@@ -349,7 +349,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 		// Also printed UNCONDITIONALLY, and this is not belt-and-braces. The
 		// sidecar above only materializes under CTXLOOM_DOC_CAPTURE_DIR, and the
 		// call log itself lives in the harness's temp tree, which is deleted the
-		// moment the scenario ends. Measured the hard way: kiro's
+		// moment the scenario ends. Measured the hard way: a
 		// cell went red, the temp tree was gone before anyone could look, and the
 		// only surviving question — did the server ever start? — had no answer
 		// short of paying for another turn. This line is what makes the MCP

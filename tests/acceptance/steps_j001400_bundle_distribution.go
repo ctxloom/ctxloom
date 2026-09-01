@@ -163,7 +163,7 @@ func j001400BundleRel(rel string) string {
 // and the only backend that both materializes real surfaces and needs nothing
 // on the host is "mock" (internal/lm/backends/mock_surfaces.go: a context
 // surface at MOCK_CONTEXT.md and a skills tree at .mock/skills/, both through
-// the SAME shared writers claude/kiro/opencode go through).
+// the SAME shared writers claude/codex/opencode go through).
 // Hardcoding a single claude-code engine here is what previously kept every
 // matrix row away from that route.
 //
@@ -1054,7 +1054,7 @@ func j001400AgentVisiblePath(w *World, rel string) (string, error) {
 	// as a file at all — it is merged into the engine's one context file.
 	//
 	// mock nests its skills under .mock/ for the same reason every real engine
-	// nests its own (.claude/skills, .agents/skills, .kiro/skills,
+	// nests its own (.claude/skills, .agents/skills,
 	// .opencode/skill, .codex/skills): a bare top-level skills/ would collide
 	// with the skills/ directory of a bundle content tree materialized into the
 	// same project.

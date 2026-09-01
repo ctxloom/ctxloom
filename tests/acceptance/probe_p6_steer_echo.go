@@ -13,7 +13,7 @@
 // is the CHILD→PARENT direction. The other direction — the coordinator reaching
 // INTO a live session mid-flight and the child acting on what it was handed —
 // was proven for claude-code alone, by the J002300-LIVE-ECHO-TOKEN step of the
-// cross-engine scenario. codex, kiro and opencode had it claimed and unproven
+// cross-engine scenario. codex and opencode had it claimed and unproven
 // (capability inventory row 13).
 //
 // THE CHANNEL IS THE BUS MESSAGE BODY AND NOTHING ELSE (channelBusMessage). The

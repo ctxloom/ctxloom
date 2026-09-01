@@ -411,7 +411,7 @@ func hookProbeConfigYAML(a liveAgent, llmKey, engine, runtime string) string {
 // <project>/.ctxloom/state/<harp>/home/.codex/config.toml while the engine ran.
 // That is what lets this probe's codex red be attributed to firing.
 //
-// claude and kiro need nothing here — both write cwd-keyed or ephemeral
+// claude needs nothing here — it writes cwd-keyed or ephemeral
 // per-session surfaces that ctxloom delivers under a default binding, and
 // claude's cell is green on exactly that path.
 func hookProbeNeedsProjectConfigHome(engine string) bool {

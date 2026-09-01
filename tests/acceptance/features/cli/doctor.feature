@@ -80,7 +80,7 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
 
     `--deps` scopes the report to the probes that are true-or-false regardless
     of whether anything has been configured: binaries on PATH, signing-key
-    readiness, git identity, the ACP adapter. init's PRIME and the setup
+    readiness, git identity. init's PRIME and the setup
     skill's phase 1 run in this mode, because a full report on a brand-new
     project is a wall of expected-missing state that would alarm a user at the
     very start of the setup about to configure it.

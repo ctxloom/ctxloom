@@ -211,7 +211,7 @@ func TestP4Plan_InheritsItsMeaningFromTheControl(t *testing.T) {
 
 	t.Run("another engine's control does not license this one", func(t *testing.T) {
 		l := newP4ControlLedger()
-		l.Record("kiro", nil)
+		l.Record("codex", nil)
 		require.NoError(t, p4AssertPlan(intact, l),
 			"an unrelated engine's control is simply not a record for this one — it must fall through to the provisional note, not borrow another engine's evidence")
 		if _, recorded := l.Lookup("claude-code"); recorded {

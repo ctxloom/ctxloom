@@ -465,8 +465,8 @@ func TestProbeRegistry_ReportsItsOwnCost(t *testing.T) {
 // TestProbeRegistry_SetCellRefusesToAnnotateACellThatIsNotThere guards the one
 // place in this file where a measured finding can vanish without trace.
 //
-// setCell attaches the evidenced exceptions — kiro's ANSI-decoration red,
-// opencode's flakiness, the container red-map — onto generated rows. If it ever
+// setCell attaches the evidenced exceptions — opencode's flakiness, the
+// container red-map — onto generated rows. If it ever
 // stops matching (an engine renamed, an axis spelled differently), a silent
 // miss would leave the generated table looking complete while the finding it
 // was supposed to carry simply is not there: exactly the "work that never ran
@@ -486,11 +486,11 @@ func TestProbeRegistry_SetCellRefusesToAnnotateACellThatIsNotThere(t *testing.T)
 			if r == nil {
 				t.Fatal("setCell silently ignored a cell that is not there — the finding it carries would vanish while the table still looked complete")
 			}
-			if !strings.Contains(fmt.Sprint(r), "engine=kiro") {
+			if !strings.Contains(fmt.Sprint(r), "engine=no-such-engine") {
 				t.Fatalf("the panic must name the cell it could not find, got: %v", r)
 			}
 		}()
-		setCell(cells, "kiro", "container", "worktree", func(c *probeCell) { c.Reason = "unreachable" })
+		setCell(cells, "no-such-engine", "container", "worktree", func(c *probeCell) { c.Reason = "unreachable" })
 	})
 }
 

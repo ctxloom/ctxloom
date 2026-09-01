@@ -332,8 +332,8 @@ type mcpProbeRun struct {
 // channel deliver, is it the right object. P2 puts THE TOOL PATH ahead of form,
 // and the reason is measured rather than aesthetic.
 //
-// Run against kiro, the floor's order reported an OUTPUT-FORMAT
-// failure — kiro's already-known ANSI-decoration defect, which P0's own kiro
+// Run live, the floor's order reported an OUTPUT-FORMAT failure — an
+// already-known ANSI-decoration defect, which P0's own
 // host/none row exists to carry — and the interesting finding was underneath it,
 // visible only because the raw stdout happened to be printed: the model had
 // answered "tool not found". A probe about MCP that reds on terminal colour

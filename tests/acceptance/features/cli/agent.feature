@@ -276,7 +276,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
   Rule: --config-home decides WHOSE engine config home this binding's runs get
 
     The other axes above pick what runs. `--config-home` picks whose ~/.codex,
-    ~/.claude or ~/.kiro it runs against — the directory the engine reads its
+    or ~/.claude it runs against — the directory the engine reads its
     hooks, MCP registrations, prompts and skills from, and writes its session
     state back into. `host` (and leaving it unsaid) keeps the human's own;
     `project` gives this binding's runs a disposable PER-SESSION home under

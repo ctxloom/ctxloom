@@ -41,9 +41,9 @@ func readRecordedLines(t *testing.T, harp string) []Record {
 	return recs
 }
 
-// TestRecorder_RoundTrip_RealKiroToolCallTurn feeds the REAL kiro tool-calling
-// turn (see testdata/fixtures/MANIFEST.json — captured from a live kiro CLI
-// session on this box, ~/.kiro/sessions/cli/3808ae21-...jsonl) through the
+// TestRecorder_RoundTrip_RealKiroToolCallTurn feeds a REAL tool-calling turn
+// (captured from a live kiro CLI session, back when that engine was wired;
+// the payload below is that capture verbatim) through the
 // Recorder as agent.ChatEvents (the shape mapSessionUpdate would actually
 // produce), then reads the written file back off disk and asserts the real
 // payload survived byte-for-byte — not merely that five lines exist.

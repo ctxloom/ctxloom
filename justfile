@@ -1058,10 +1058,9 @@ test-acceptance-live-container: container-build-acceptance
 # Run the standalone isolation probe (tests/acceptance/features/
 # isolation_probe.feature) for exactly ONE engine x axis cell — the
 # per-engine-release regression check, not the whole live suite. ENGINE is
-# one of claude-code|codex|kiro|opencode|antigravity; AXIS is worktree,
+# one of claude-code|codex|opencode|antigravity; AXIS is worktree,
 # container-rootless, or container-rootful (or "bypass" for the engine's
-# env-API-key-forced worktree row, or "kiro-leak" for the dedicated
-# --degraded credential-store-leak proof — that one ignores ENGINE/AXIS).
+# env-API-key-forced worktree row).
 # container-rootful is wired but has never gone green on any box this suite
 # has run on (no reachable rootful daemon) — it self-skips loudly. Makes AT
 # MOST one real, paid engine call.
@@ -1077,7 +1076,7 @@ isolation-probe ENGINE AXIS: build
 
 # Run the LIVE delegation round trip (j002300_cross_engine_delegation.feature's
 # per-engine floor) for exactly ONE engine. ENGINE is one of
-# claude-code|codex|kiro|opencode. It spawns a real delegated child on that
+# claude-code|codex|opencode. It spawns a real delegated child on that
 # engine and asserts the marker phrase that exists ONLY in the child's own
 # composed context comes back to the coordinator's mailbox over the
 # agent_send/agent_recv bus — the round trip agent_run's own success value
@@ -1096,7 +1095,7 @@ live-delegation ENGINE: build _ensure-gotmpdir
 # Run ONE cell of the engine x isolation floor
 # (features/engine_isolation_matrix.feature): the simplest live round trip —
 # "emit exactly this JSON object, nothing else" — for one engine under one
-# isolation scheme. ENGINE is claude-code|codex|kiro|opencode, RUNTIME is
+# isolation scheme. ENGINE is claude-code|codex|opencode, RUNTIME is
 # host|container-rootless|container-rootful, WORKSPACE is none|worktree.
 # container-rootless and container-rootful are ownership modes of ONE
 # containerization axis, not a fourth engine — a host has at most one of them
@@ -1121,7 +1120,7 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
 # Run ONE cell of the capability-probe ladder (tests/acceptance's probe
 # registry): PROBE is a registry probe name without the @probe- prefix
 # ("p3-hook-firing"), FEATURE is that probe's own feature file, ENGINE is
-# claude-code|codex|kiro|opencode, RUNTIME is host|container, WORKSPACE is
+# claude-code|codex|opencode, RUNTIME is host|container, WORKSPACE is
 # none|worktree. The five tags it composes are exactly the tag line every
 # probe's Examples block carries (probeCell.Tags), so this recipe and the
 # registry cannot drift about how a cell is addressed.

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // ErrPasteUnmeasured refuses injection into a pane whose program nobody has
@@ -143,7 +144,13 @@ func (p *PaneInjector) Inject(ctx context.Context, harp, text string, submit boo
 	// exposes only argv — a stdin seam would exist solely for this one call
 	// and would have to be threaded through every fake.
 	buf := filepath.Join(h.terms.tmpDir, "ctxloom-paste-"+pn.term.channel)
-	if werr := os.WriteFile(buf, []byte(text), 0o600); werr != nil {
+	// AllowEmpty because the staged bytes are simply whatever the caller asked
+	// to paste, and an empty paste is a no-op rather than a truncation. Without
+	// it, iox refuses zero-length data over an EXISTING file -- so injecting ""
+	// would succeed normally and fail only when a previous call had died before
+	// its deferred Remove ran, making the outcome depend on an earlier call's
+	// cleanup.
+	if werr := iox.WriteFileAtomic(buf, []byte(text), 0o600, iox.AllowEmpty()); werr != nil {
 		return fmt.Errorf("pane inject: stage paste for %q: %w", harp, werr)
 	}
 	defer func() { _ = os.Remove(buf) }()

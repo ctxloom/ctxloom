@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -130,8 +132,19 @@ func (p *PaneInjector) Inject(ctx context.Context, harp, text string, submit boo
 	// exposes only argv — a stdin seam would exist solely for this one call
 	// and would have to be threaded through every fake.
 	buf := filepath.Join(h.terms.tmpDir, "ctxloom-paste-"+pn.term.channel)
-	if werr := os.WriteFile(buf, []byte(text), 0o600); werr != nil {
+	// Staged atomically: tmux load-buffer READS this path, so a torn write
+	// would paste a truncated prefix into a live pane — the exact silent
+	// corruption the refusal above already guards the other approach to.
+	af, aerr := iox.NewAtomicFile(buf, 0o600)
+	if aerr != nil {
+		return fmt.Errorf("pane inject: stage paste for %q: %w", harp, aerr)
+	}
+	if _, werr := af.Write([]byte(text)); werr != nil {
+		_ = af.Abort()
 		return fmt.Errorf("pane inject: stage paste for %q: %w", harp, werr)
+	}
+	if cerr := af.Commit(); cerr != nil {
+		return fmt.Errorf("pane inject: stage paste for %q: %w", harp, cerr)
 	}
 	defer func() { _ = os.Remove(buf) }()
 

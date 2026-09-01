@@ -91,26 +91,6 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 		assert.False(t, byType["tool_result"][0].IsError)
 	})
 
-	t.Run("kiro", func(t *testing.T) {
-		harp := "kiro-fixture-harp"
-		installFixture(t, "kiro", harp)
-		h := NewCanonicalHistory("/proj/kiro", sessions.NewMemStore())
-
-		sess, err := h.GetSession(ctx, harp)
-		require.NoError(t, err)
-		require.Len(t, sess.Entries, 4)
-
-		byType := entriesByType(sess.Entries)
-		require.Len(t, byType["tool_use"], 1)
-		assert.Equal(t, "read", byType["tool_use"][0].ToolName)
-		assert.Contains(t, string(byType["tool_use"][0].ToolInput), "probe6.txt")
-		require.Len(t, byType["tool_result"], 1)
-		assert.Equal(t, "sixth probe file contents for tool-call capture", byType["tool_result"][0].ToolOutput)
-		assert.False(t, byType["tool_result"][0].IsError)
-		require.Len(t, byType["assistant"], 1)
-		assert.Contains(t, byType["assistant"][0].Content, "sixth probe file contents for tool-call capture")
-	})
-
 	t.Run("claude", func(t *testing.T) {
 		harp := "claude-fixture-harp"
 		installFixture(t, "claude", harp)
@@ -327,9 +307,9 @@ func TestCanonicalHistory_ListSessions_And_CurrentSession(t *testing.T) {
 	const projectDir = "/proj/multi"
 
 	older := "codex-fixture-harp"
-	newer := "kiro-fixture-harp"
+	newer := "acp-fixture-harp"
 	installFixture(t, "codex", older)
-	installFixture(t, "kiro", newer)
+	installFixture(t, "acp", newer)
 
 	store := sessions.NewMemStore()
 	mint(t, store, older, projectDir)
@@ -348,7 +328,7 @@ func TestCanonicalHistory_ListSessions_And_CurrentSession(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, metas, 2, "exactly the two project harps WITH a captured canonical transcript")
 	assert.Equal(t, newer, metas[0].ID, "most-recent-first by StartedAt")
-	assert.Equal(t, 4, metas[0].EntryCount, "kiro fixture's 4 entry-kind lines")
+	assert.Equal(t, 4, metas[0].EntryCount, "acp fixture's 4 entry-kind lines")
 	assert.Equal(t, older, metas[1].ID)
 	assert.Equal(t, 5, metas[1].EntryCount, "codex fixture's 5 entry-kind lines")
 

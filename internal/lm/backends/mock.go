@@ -162,6 +162,7 @@ var configHomeEnvKeys = []string{
 	claude.ConfigDirEnv,
 	codex.CodexHomeEnv,
 	opencode.XDGConfigHomeEnv,
+	opencode.XDGDataHomeEnv,
 }
 
 // ConfigHomeEnvKeys returns a copy of configHomeEnvKeys, exported read-only

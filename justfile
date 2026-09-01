@@ -428,7 +428,7 @@ test-conformance:
 # already part of `go test ./...`, but named here so a release-monitoring job
 # can point at exactly this engine's parser against a fresh vendor transcript
 # without pulling in the rest of the suite). Add a sibling target per engine
-# as internal/transcript/vendorreader/<engine> lands (kiro/claude).
+# as internal/transcript/vendorreader/<engine> lands.
 #
 # It ALSO carries internal/codex's hook-trust vendor pin, which is not a
 # transcript reader but has the identical exposure and belongs in the identical
@@ -447,15 +447,6 @@ test-conformance:
 test-vendor-codex:
     go test -race ./internal/transcript/vendorreader/codex/...
     CTXLOOM_VENDOR_PIN=require go test -race -run 'TestVendorPin_' ./internal/codex/...
-
-# Validate the kiro vendor-transcript reader in isolation. Its own fixture
-# is a sqlite db built at test time (see
-# internal/transcript/vendorreader/kiro/testdata/MANIFEST.json) via
-# modernc.org/sqlite, the pure-Go (CGO_ENABLED=0-safe) driver this package
-# isolates to itself — -race here also exercises that driver under the race
-# detector, not just this package's own goroutine-free logic.
-test-vendor-kiro:
-    go test -race ./internal/transcript/vendorreader/kiro/...
 
 test-vendor-claude:
     go test -race ./internal/transcript/vendorreader/claude/...

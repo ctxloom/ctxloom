@@ -6,10 +6,7 @@ import "os/exec"
 
 // isolateRunner is a no-op on Windows: syscall.SysProcAttr has no Setsid field
 // there, and Windows has no POSIX-style session/process-group kill
-// primitive — the equivalent would be a Job Object, out of scope here. See
-// internal/acp/procgroup_windows.go for the identical precedent (this
-// package's killSession is the runner-level counterpart of that file's
-// killProcessGroup).
+// primitive — the equivalent would be a Job Object, out of scope here.
 func isolateRunner(_ *exec.Cmd) {}
 
 // killSession is a no-op on Windows for the same reason isolateRunner is: no cheap

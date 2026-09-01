@@ -18,9 +18,8 @@ import (
 //
 //  1. Setsid — the runner leads a FRESH session (session id == its own pid) so
 //     killSession can later reap its entire subtree, including a grandchild the
-//     runner itself puts in a SEPARATE process group (internal/acp's setpgid,
-//     moral-scorn), as one unit, without touching anything outside that
-//     dedicated session. This is the DOWNWARD guarantee: when teardown runs,
+//     runner itself puts in a SEPARATE process group, as one unit, without
+//     touching anything outside that dedicated session. This is the DOWNWARD guarantee: when teardown runs,
 //     it reaches everything. See killSession.
 //
 //  2. Pdeathsig — the kernel signals the runner the instant its host process
@@ -55,25 +54,25 @@ func isolateRunner(cmd *exec.Cmd) {
 // killSession SIGKILLs every process whose /proc session id equals sid. A
 // go-plugin runner spawned via isolateRunner (above) has sid == its own pid, so
 // this reaps the runner's ENTIRE host subtree in one sweep: the runner
-// itself plus any descendant that moved into its own process group
-// (internal/acp's setpgid'd claude-code-acp, and any worker IT
-// double-forks) without ALSO calling setsid(2) — none of them do, so all stay
-// tagged with the runner's session id regardless of how many nested
-// process groups they create.
+// itself plus any descendant that moved into its own process group (an
+// engine adapter the runner setpgid's, and any worker IT double-forks)
+// without ALSO calling setsid(2) — none of them do, so all stay tagged with
+// the runner's session id regardless of how many nested process groups they
+// create.
 //
 // This exists because go-plugin's own Kill() (github.com/hashicorp/go-plugin) only
 // ever targets the runner's OWN pid (graceful RPC close, or a raw
 // cmd.Process.Kill() fallback) — neither reaches a process the runner
 // deliberately isolated into its own group. On a HARD kill (the fallback,
 // or any external kill -9 on the runner) the runner never gets a chance to
-// run its own cleanup (moral-scorn's killProcessGroup lives INSIDE the
+// run its own cleanup (a runner-side process-group kill lives INSIDE the
 // runner process and can't run once it's dead), so that grandchild orphans
-// and keeps running until something manually reaps it (damp-pupil 3).
+// and keeps running until something manually reaps it.
 //
 // Best-effort: unreadable/vanished /proc entries and already-dead targets
 // are not errors — "nothing left to kill" is the outcome every caller wants
-// either way. Linux-only (/proc); the windows build has no equivalent, the
-// same honest gap as internal/acp/procgroup_windows.go.
+// either way. Linux-only (/proc); the windows build has no equivalent — see
+// this package's procsession_windows.go for that honest gap.
 func killSession(sid int) { killSessionExcept(sid, 0) }
 
 // killSessionExcept is killSession with one member spared — used by
@@ -163,8 +162,8 @@ func InstallRunnerTeardown() {
 
 // procSessionID reads a process's session id from /proc/<pid>/stat (field 6;
 // proc(5)) — the comm field can itself contain parens, so the fields after
-// it are located from the LAST ')', matching the approach in
-// internal/acp/procgroup_unix_test.go's isZombie.
+// it are located from the LAST ')', matching the approach in isZombie
+// (procsession_unix_test.go).
 func procSessionID(pid int) int {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {

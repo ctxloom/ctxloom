@@ -19,8 +19,7 @@ import (
 // standard library's own TestHelperProcess idiom, os/exec_test.go). Guarded
 // by an env var so `go test` running it directly (as an ordinary test) is an
 // instant no-op. It plays the part of a go-plugin runner: spawns a
-// grandchild in its OWN process group (mirroring internal/acp's setpgid'd
-// claude-code-acp, moral-scorn), records that pid, then blocks — like a
+// grandchild in its OWN process group, records that pid, then blocks — like a
 // runner sitting inside plugin.Serve().
 func TestHelperKillSessionRunner(t *testing.T) {
 	if os.Getenv("CTXLOOM_GRPC_HELPER_PROCESS") != "1" {
@@ -41,8 +40,9 @@ func TestHelperKillSessionRunner(t *testing.T) {
 }
 
 // processAlive reports whether pid denotes a still-running process (not a
-// zombie) — see internal/acp/procgroup_unix_test.go's identical helper for
-// why the zombie carve-out matters under an unreaped-ancestor container.
+// zombie). The zombie carve-out matters under an unreaped-ancestor
+// container, where a reaped-by-nobody process lingers in the table and
+// kill(pid, 0) still succeeds against it.
 func processAlive(pid int) bool {
 	if err := syscall.Kill(pid, 0); err != nil {
 		return false
@@ -81,8 +81,7 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) string {
 // go-plugin's raw cmd.Process.Kill() fallback in github.com/hashicorp/go-plugin, or
 // an operator's/OOM-killer's kill -9 on the runner pid — the graceful RPC
 // path never runs either way) orphans a grandchild it isolated into its own
-// process group, mirroring internal/acp's setpgid'd claude-code-acp.
-// A plain single-pid kill of the runner never reaches that
+// process group. A plain single-pid kill of the runner never reaches that
 // grandchild — proven below BEFORE killSession is invoked, so the failure
 // mode is on the record, not assumed. killSession, given the runner's pid
 // (== its session id, since it was spawned via isolateRunner), reaps it.
@@ -205,9 +204,8 @@ func TestIsolateRunner_RunnerDiesWithItsHost(t *testing.T) {
 // TestHelperTeardownRunner is not a real test — it is the re-exec target
 // TestInstallRunnerTeardown_ReapsEngineOnParentDeath spawns via os.Args[0].
 // It plays the part of `ctxloom llm serve <backend>`: optionally installs the
-// production teardown, spawns an engine subprocess in its OWN process group
-// (mirroring internal/acp's setpgid'd claude-code-acp), records that pid, then
-// blocks the way plugin.Serve does.
+// production teardown, spawns an engine subprocess in its OWN process group,
+// records that pid, then blocks the way plugin.Serve does.
 //
 // CTXLOOM_GRPC_TEARDOWN selects the arm: "0" reproduces the pre-fix runner
 // (SIGTERM's default disposition, no sweep), "1" the fixed one.

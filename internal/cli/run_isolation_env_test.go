@@ -70,15 +70,15 @@ func TestMergeWorkspaceEnv(t *testing.T) {
 // TestTopLevelRunIsolationEnv_WorktreeDeliversConfigHomeEnv is the wiring
 // regression test: `ctxloom run --workspace worktree` at the
 // TOP LEVEL never merged isolation.WorkspaceEnv into the wire
-// RunOptions.Env, so a worktree-isolated claude or kiro run silently kept
-// reading the GLOBAL ~/.claude.json / kiro config instead of the per-agent
+// RunOptions.Env, so a worktree-isolated claude run silently kept
+// reading the GLOBAL ~/.claude.json instead of the per-agent
 // config-home isolation.Prepare had already resolved and seeded — a silent
 // isolation no-op. This drives the EXACT two calls run.go's built-in-backend
 // branch makes — isolation.Prepare(axes, backend, ...) then
 // isolation.WorkspaceEnv(ws) — against a real git worktree, then runs the
 // result through mergeWorkspaceEnv exactly as run.go does, and asserts the
-// per-engine config-home var actually lands in the final env for both
-// claude-code and kiro. (operations/oneshot.go's fan-out path already had
+// per-engine config-home var actually lands in the final env.
+// (operations/oneshot.go's fan-out path already had
 // equivalent coverage — worktree_managed_integration_test.go,
 // oneshot_isolation_gate_test.go; this is the top-level path's missing twin.)
 func TestTopLevelRunIsolationEnv_WorktreeDeliversConfigHomeEnv(t *testing.T) {
@@ -91,7 +91,6 @@ func TestTopLevelRunIsolationEnv_WorktreeDeliversConfigHomeEnv(t *testing.T) {
 		envVar  string
 	}{
 		{backend: "claude-code", envVar: "CLAUDE_CONFIG_DIR"},
-		{backend: "kiro", envVar: "KIRO_HOME"},
 	}
 
 	for _, tc := range cases {

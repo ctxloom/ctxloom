@@ -100,7 +100,7 @@ func TestManageInstall_UnknownEngineRefusesLoud(t *testing.T) {
 
 // TestManageInstall_EngineScopesWrites pins the fix for the second defect on
 // the same flag: `--engine codex` used to write EVERY registered engine's
-// surfaces (.claude/, .kiro/, .opencode/, .agents/ all materializing in a
+// surfaces (.claude/, .opencode/, .agents/ all materializing in a
 // project that uses only codex) because ApplyHooks was always called with
 // Backend: "all", ignoring the flag entirely except for the config's
 // recorded default. An explicit --engine must scope the hook apply to that
@@ -122,7 +122,7 @@ func TestManageInstall_EngineScopesWrites(t *testing.T) {
 		"and no project-root .codex: codex has no durable project home to write one into")
 	assert.NoDirExists(t, filepath.Join(dir, ".ctxloom", "state", "engines"),
 		"nor the retired durable per-project engine home")
-	for _, other := range []string{".claude", ".kiro", ".opencode", ".agents"} {
+	for _, other := range []string{".claude", ".opencode", ".agents"} {
 		_, statErr := os.Stat(filepath.Join(dir, other))
 		assert.True(t, os.IsNotExist(statErr), "%s must NOT be written when --engine codex was asked for", other)
 	}
@@ -146,7 +146,7 @@ func TestManageInstall_NoEngineFlagAppliesAllBackends(t *testing.T) {
 	_, err := runCLIErr(t, "manage", "install", "--print=false")
 	require.NoError(t, err)
 
-	for _, backend := range []string{".claude", ".kiro", ".opencode"} {
+	for _, backend := range []string{".claude", ".opencode"} {
 		assert.DirExists(t, filepath.Join(dir, backend), "omitting --engine must still wire %s", backend)
 	}
 	// codex has no sibling dot-dir to check: its home-keyed surfaces are a

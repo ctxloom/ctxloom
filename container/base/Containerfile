@@ -14,17 +14,16 @@
 #
 # The tool layer is the coding-agent baseline the engines expect at RUN time:
 # git (repo operations, worktree-in-container), ripgrep (claude's Grep tool —
-# the CLI no longer vendors its own), curl + ca-certificates (fetches, the kiro
-# installer), unzip (installer archives), jq (ubiquitous in hook scripts),
+# the CLI no longer vendors its own), curl + ca-certificates (fetches, the
+# opencode installer), unzip (installer archives), jq (ubiquitous in hook scripts),
 # strace (the read-observation isolation probe wraps the engine exec in it —
 # harmless without CAP_SYS_PTRACE, which only the probe run grants), tmux (see
 # below).
 #
-# WHY tmux IS HERE, and what it is NOT for. It serves ACP terminal/*: when
-# acp_local_terminal is on and an engine asks ctxloom to run a command, ctxloom
-# runs it in a tmux window (internal/acp). For a CONTAINERIZED engine that
-# command runs in the container, so tmux has to be here or the feature simply
-# cannot work there.
+# WHY tmux IS HERE, and what it is NOT for. It hosts processes on a real pty in
+# their own tmux window (internal/tmuxhost). For a CONTAINERIZED engine that
+# process runs in the container, so tmux has to be here or the capability
+# simply cannot work there.
 #
 # It IS also the path by which a human watches a containerized agent, via
 # `<runtime> exec -it <container> tmux -L <socket> attach`. This reverses an

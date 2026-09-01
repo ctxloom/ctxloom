@@ -18,9 +18,9 @@ package schemagen
 // Deliberately NOT behind //go:build schemagen: doc.go is the untagged half of
 // this package, so its prose must be checkable in an untagged run.
 //
-// Uses `go list -deps -json`, following internal/acptest's precedent: the
-// per-package Imports field is production imports only, so a test-only import
-// can never satisfy or trip either assertion.
+// Uses `go list -deps -json` because its per-package Imports field is
+// production imports only, so a test-only import can never satisfy or trip
+// either assertion.
 
 import (
 	"bytes"

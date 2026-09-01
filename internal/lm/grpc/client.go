@@ -279,9 +279,8 @@ func (r *realLLMConnection) Client() (plugin.ClientProtocol, error) { return r.c
 // unchanged) only ever reaches the runner's OWN pid — the graceful path
 // (close the RPC connection, let the runner exit on its own) or, failing
 // that, a raw cmd.Process.Kill() fallback. Neither reaches a grandchild the
-// runner deliberately isolated into its own process group (internal/acp's
-// setpgid'd claude-code-acp) — a hard kill never gives the
-// runner a chance to run ITS OWN cleanup for that. killSession is the
+// runner deliberately isolated into its own process group — a hard kill
+// never gives the runner a chance to run ITS OWN cleanup for that. killSession is the
 // defensive sweep for that gap: the runner was spawned via
 // isolateRunner (dialLLMConnection), so its pid doubles as its session id, and
 // every descendant that never called setsid(2) itself — including one in a

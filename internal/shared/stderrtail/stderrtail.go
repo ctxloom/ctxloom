@@ -7,10 +7,10 @@
 // private ring so a runner dying pre-dial-home surfaced its stderr instead of
 // a bare "exit status 1". The 2026-07-24 containerized-agent incident showed
 // the pattern was missing at the layer where it mattered MOST — the engine
-// subprocess itself (internal/acp spawned the ACP adapter with stderr
-// INHERITED), so the adapter's dying words ("SyntaxError: Unexpected token
-// 'with'", a Node 18 that could not load claude-code-acp's entry module) went
-// to the container's stdout and nowhere else. The container is force-removed
+// subprocess itself, which was spawned with its stderr INHERITED — so the
+// engine adapter's dying words ("SyntaxError: Unexpected token 'with'", a
+// Node 18 that could not load the adapter's entry module) went to the
+// container's stdout and nowhere else. The container is force-removed
 // on teardown, so `docker logs` was too late: the evidence was unrecoverable
 // in production and the diagnosis took 49 minutes.
 //

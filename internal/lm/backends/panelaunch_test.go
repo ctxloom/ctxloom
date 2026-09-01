@@ -110,9 +110,14 @@ func TestInteractiveLaunch_WithTmuxHostsTheEngineInAPane(t *testing.T) {
 	go func() {
 		defer close(done)
 		_, _ = RunLaunchSpec(ctx, agent.LaunchSpec{
-			BinaryPath:  "/opt/engine/claude",
-			Args:        []string{"--resume"},
-			Env:         []string{"CTXLOOM_MARKER=pane-arm"},
+			BinaryPath: "/opt/engine/claude",
+			Args:       []string{"--resume"},
+			// Duplicated deliberately: BuildEnv produces os.Environ() first
+			// and the caller's overrides last, so LAST MUST WIN. A conversion
+			// that kept the first occurrence would silently revert every
+			// override to the ambient value -- the engine would run with the
+			// wrong config and nothing would look wrong.
+			Env:         []string{"CTXLOOM_MARKER=ambient-stale", "CTXLOOM_MARKER=pane-arm"},
 			WorkDir:     "/w",
 			Interactive: true,
 			Harp:        "swift-amber-falcon",
@@ -132,6 +137,8 @@ func TestInteractiveLaunch_WithTmuxHostsTheEngineInAPane(t *testing.T) {
 	assert.Contains(t, joined, "-c /w", "the run's working directory must reach the pane")
 	assert.Contains(t, joined, "-e CTXLOOM_MARKER=pane-arm",
 		"the merged environment must be passed explicitly: a tmux window otherwise inherits the shared server's env, not this run's")
+	assert.NotContains(t, joined, "ambient-stale",
+		"a later duplicate must win, or every override BuildEnv layered on is reverted by the conversion")
 
 	// Capture must be armed, or the pane would host the engine with nothing
 	// relaying its output to the caller's terminal.

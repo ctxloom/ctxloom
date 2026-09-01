@@ -128,7 +128,9 @@ fragments:
       through jq. The default text output is for a person reading a terminal.
 
           # one task's exact body — no header to strip, no offset to guess
-          taskloom show <harp> --json | jq -r '.text'
+          # `show` is variadic, so --json is ALWAYS an array, even for one
+          # id -- a consumer never has to branch on how many it asked for.
+          taskloom show <harp> --json | jq -r '.[0].text'
 
           # every harp; every harp carrying a tag
           taskloom list --all --json | jq -r '.[].harp_id'

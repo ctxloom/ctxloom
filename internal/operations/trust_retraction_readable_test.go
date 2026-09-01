@@ -269,9 +269,9 @@ func TestEffectiveTrust_CorruptLockfile_RejectionStillOutranks(t *testing.T) {
 // TestEffectiveTrust_CorruptLockfile_FindingNamesTheRecovery is the message
 // discipline. A user cannot otherwise diagnose this: nothing they typed
 // mentions lock.yaml, and the abort has to read as a POLICY refusal, not a
-// crash. Following internal/acp/fsconfine.go's discipline, it must name the
-// reason, name the file, say the state is intact (the corrupt file is
-// preserved byte-identical), and name the recovery.
+// crash. The message must name the reason, name the file, say the state is
+// intact (the corrupt file is preserved byte-identical), and name the
+// recovery.
 func TestEffectiveTrust_CorruptLockfile_FindingNamesTheRecovery(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())

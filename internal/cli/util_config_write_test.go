@@ -69,7 +69,7 @@ func TestRunConfigWrite_JSONMerge_PreservesForeignKeysAndAddsNew(t *testing.T) {
 	original := `{"foreign_setting":"keep-me","agent_servers":{"other-client":{"command":"other","args":["run"]}}}`
 	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0644))
 
-	patch := `{"agent_servers":{"ctxloom: dev":{"command":"/usr/local/bin/ctxloom","args":["acp","--agent","dev"]}}}`
+	patch := `{"agent_servers":{"ctxloom: dev":{"command":"/usr/local/bin/ctxloom","args":["run","--agent","dev"]}}}`
 	cmd, _ := configWriteTestCmd(patch)
 
 	result, err := runConfigWrite(fs, cmd, path, "")
@@ -90,7 +90,7 @@ func TestRunConfigWrite_JSONMerge_PreservesForeignKeysAndAddsNew(t *testing.T) {
 
 	dev := servers["ctxloom: dev"].(map[string]any)
 	assert.Equal(t, "/usr/local/bin/ctxloom", dev["command"])
-	assert.Equal(t, []any{"acp", "--agent", "dev"}, dev["args"])
+	assert.Equal(t, []any{"run", "--agent", "dev"}, dev["args"])
 }
 
 // --- Rule 3: TOML parse-merge, preserving foreign keys ---
@@ -101,7 +101,7 @@ func TestRunConfigWrite_TOMLMerge_PreservesForeignKeysAndAddsNew(t *testing.T) {
 	original := "[foreign_setting]\nkeep = \"yes\"\n\n[agent_servers.other-client]\ncommand = \"other\"\n"
 	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0644))
 
-	patch := `{"agent_servers":{"ctxloom: dev":{"command":"/usr/local/bin/ctxloom","args":["acp","--agent","dev"]}}}`
+	patch := `{"agent_servers":{"ctxloom: dev":{"command":"/usr/local/bin/ctxloom","args":["run","--agent","dev"]}}}`
 	cmd, _ := configWriteTestCmd(patch)
 
 	result, err := runConfigWrite(fs, cmd, path, "")
@@ -296,7 +296,7 @@ func TestConfigWriteCmd_RunE_EndToEnd(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.Flags().String("format", formatText, "")
 	require.NoError(t, cmd.Flags().Set("format", "json"))
-	cmd.SetIn(strings.NewReader(`{"agent_servers":{"ctxloom: dev":{"command":"ctxloom","args":["acp","--agent","dev"]}}}`))
+	cmd.SetIn(strings.NewReader(`{"agent_servers":{"ctxloom: dev":{"command":"ctxloom","args":["run","--agent","dev"]}}}`))
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 

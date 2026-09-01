@@ -813,7 +813,7 @@ func (c *Coordinator) audit(kind, actor string, detail map[string]string) {
 }
 
 // RegisterSessionOwner mints the depth-0 credential identifying a session
-// owner (the parent harness `ctxloom run`/`ctxloom acp` launches). The token
+// owner (the parent harness `ctxloom run` launches). The token
 // is returned exactly once for the env seam; only its hash is journaled.
 func (c *Coordinator) RegisterSessionOwner(harp string) (token string, err error) {
 	token, credHash, err := mintToken()

@@ -180,9 +180,9 @@ type fakeSpawner struct {
 	kills    []func()
 	// nextBackend, when set, supplies a REAL agent.StructuredChat backend
 	// for the MIGRATED path instead of nextChat's scripted double — the
-	// seam the live-path reproduction (acp_approval_test.go) uses to put
-	// the genuine internal/acp driver, spawning a genuine ACP subprocess,
-	// under the genuine EngineHost/Home/Coordinator stack. engineWorkDir
+	// seam a live-path reproduction uses to put a genuine driver, spawning a
+	// genuine engine subprocess, under the genuine
+	// EngineHost/Home/Coordinator stack. engineWorkDir
 	// and engineEnv ride into the HarnessSpec the runner decodes, so that
 	// subprocess gets a real cwd and its own marker env.
 	nextBackend   func() agent.StructuredChat

@@ -43,7 +43,7 @@ func brokenConfigProject(t *testing.T) string {
 //
 // The contract this pins is the one strictness and the config warning kinds
 // both state: every config warning kind is fatal-class in strict mode, and the
-// startup choke owners — `ctxloom run`, `ctxloom mcp` and `ctxloom acp` alike
+// startup choke owners — `ctxloom run` and `ctxloom mcp` alike
 // — abort on the recorded findings. The ACP opener's own strictness window
 // (OpenEngineSession) can only refuse a session over findings something
 // actually recorded.

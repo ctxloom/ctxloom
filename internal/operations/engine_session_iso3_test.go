@@ -88,7 +88,7 @@ func TestBuildSessionInitSummary_AgentNotFound(t *testing.T) {
 		requestedAgent: "default",
 		workDir:        "/home/user/project",
 	})
-	want := `ctxloom: WARNING — agent "default" was requested but NOT FOUND; this session fell back to the plain profile flow instead of refusing to open. NONE of that agent's engine override, composed profiles, permissions posture, or runtime isolation apply — it is running on the HOST, unisolated, against this project's live working directory, /home/user/project. Check the agent name (see ` + "`ctxloom acp entries`" + `) and reconnect.`
+	want := `ctxloom: WARNING — agent "default" was requested but NOT FOUND; this session fell back to the plain profile flow instead of refusing to open. NONE of that agent's engine override, composed profiles, permissions posture, or runtime isolation apply — it is running on the HOST, unisolated, against this project's live working directory, /home/user/project. Check the agent name (see ` + "`ctxloom agent list`" + `) and reconnect.`
 	assert.Equal(t, want, got)
 }
 
@@ -265,7 +265,7 @@ func TestBuildSessionInitSummary_LongListsCollapseToCount(t *testing.T) {
 // --- facing Events channel as the FIRST event, for real postures ---------
 
 // TestOpenEngineSession_UnisolatedAnnouncesOnce proves the ALWAYS decision:
-// even the fully unisolated, no-agent, plain `ctxloom acp` entry gets the
+// even the fully unisolated, no-agent, plain entry gets the
 // initialization summary — set unconditionally on EngineChat.InitSummary,
 // independent of the engine's own Events, which carry ONLY the engine's
 // real output now (no synthetic entry spliced in).
@@ -276,7 +276,7 @@ func TestOpenEngineSession_UnisolatedAnnouncesOnce(t *testing.T) {
 
 	prevPrep := prepareIsolation
 	prepareIsolation = func(context.Context, isolation.Axes, string, isolation.ImageConfig, string, string, isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		t.Fatal("the plain ctxloom acp entry (no --agent) must never invoke isolation.Prepare")
+		t.Fatal("the plain entry (no --agent) must never invoke isolation.Prepare")
 		return nil, nil
 	}
 	t.Cleanup(func() { prepareIsolation = prevPrep })
@@ -401,8 +401,8 @@ func openEngineSessionContainerAnnounces(t *testing.T, mode string) {
 // proof: the model NAMED in the init summary is not just some string ctxloom
 // printed — it is BYTE-IDENTICAL to req.Model, the value OpenEngineSession
 // actually placed on the ChatRequest the engine client received (and which
-// internal/acp's spawnEnv, session.go, stamps under the backend's own env
-// var — ANTHROPIC_MODEL for claude — only when non-empty). A test asserting
+// a backend's spawn env stamps under that backend's own env var —
+// ANTHROPIC_MODEL for claude — only when non-empty). A test asserting
 // a hardcoded model string would prove nothing about correctness; this one
 // reads the SAME resolved value the real delivery path reads and compares
 // the summary against it. It also proves profiles/commands/mcp name real,
@@ -446,8 +446,8 @@ func TestOpenEngineSession_InitSummaryModelMatchesDelivered(t *testing.T) {
 // half of the model-honesty requirement: when nothing pins a model, the
 // summary says so plainly rather than guessing or inventing one — and this
 // matches req.Model actually being empty (so the engine truly does fall back
-// to its own default; see internal/acp's spawnEnv, which skips setting the
-// backend's model env var entirely when req.Model == "").
+// to its own default: a backend's spawn env skips setting its model env var
+// entirely when req.Model == "").
 func TestOpenEngineSession_InitSummaryModelUnconfiguredIsHonest(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())

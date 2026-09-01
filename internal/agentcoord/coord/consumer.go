@@ -110,8 +110,8 @@ type watchSub struct {
 // hub-wide with subscribe(nil) and calls narrow(runID) the moment it learns
 // the ID, so it only competes for its own ring's budget for the run's
 // remaining, near-entire lifetime instead of forever. narrow is safe to
-// discard — a caller that never needs it (D3's acp_children.go, which
-// legitimately wants every run in the project) can simply ignore it.
+// discard — a caller that never needs it (one that legitimately wants every
+// run in the project) can simply ignore it.
 func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan *agentcoordpb.AgentEvent, cancel func(), narrow func(runID string)) {
 	sub := &watchSub{runIDs: runIDs, ch: make(chan *agentcoordpb.AgentEvent, watchRingSize)}
 	h.mu.Lock()
@@ -303,16 +303,16 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agent
 	return result
 }
 
-// WatchRuns is the in-process form of ConsumerService.WatchRuns — D3's acp
-// session loop, hosting this coordinator library directly, calls this
-// instead of dialing its own gRPC loopback. Same semantics: a snapshot
+// WatchRuns is the in-process form of ConsumerService.WatchRuns — a caller
+// hosting this coordinator library directly calls this instead of dialing
+// its own gRPC loopback. Same semantics: a snapshot
 // (returned directly, not framed) plus a live event channel from
 // subscribe-time forward; call cancel exactly once when done watching. narrow
 // lets a caller that subscribed unscoped (runIDs nil/empty, e.g.
 // because its own run's ID does not exist yet) re-scope down to one run the
 // moment it learns that ID — see watchHub.subscribe's doc. A caller that
-// already knows its run IDs, or genuinely wants every run (D3's
-// acp_children.go), can simply discard it.
+// already knows its run IDs, or genuinely wants every run, can simply
+// discard it.
 func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRunsResult, events <-chan *agentcoordpb.AgentEvent, cancel func(), narrow func(runID string)) {
 	var filter map[string]bool
 	if len(runIDs) > 0 {

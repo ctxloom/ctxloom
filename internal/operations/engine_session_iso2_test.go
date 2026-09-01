@@ -31,7 +31,7 @@ import (
 
 // TestAcpWorkspaceAxis pins the ISO2 posture rule directly: worktree
 // isolation applies ONLY when an EXPLICIT --agent flag resolved successfully
-// (currentAgent == flagAgent) — never for the plain `ctxloom acp` entry
+// (currentAgent == flagAgent) — never for a plain, agent-less entry
 // (flagAgent == ""), and never when --agent was given but resolution
 // DEGRADED to the bare profile flow (currentAgent == "" even though flagAgent
 // was set) or resolved to a DIFFERENT name (defensive; today currentAgent is
@@ -286,7 +286,7 @@ func TestOpenEngineSession_ExplicitAgentWorktree(t *testing.T) {
 }
 
 // TestOpenEngineSession_PlainEntryNeverWorktrees is the negative-space proof
-// the memo demands: the plain `ctxloom acp` entry (no --agent) must NEVER get
+// the memo demands: a plain, agent-less entry (no --agent) must NEVER get
 // a worktree, even though this same project's `workspace:` default is
 // "worktree" (the exact config the previous test proves DOES isolate an
 // explicit --agent session). isolation.Prepare is stubbed to fail the test if
@@ -305,7 +305,7 @@ func TestOpenEngineSession_PlainEntryNeverWorktrees(t *testing.T) {
 
 	prevPrep := prepareIsolation
 	prepareIsolation = func(context.Context, isolation.Axes, string, isolation.ImageConfig, string, string, isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		t.Fatal("the plain ctxloom acp entry (no --agent) must never invoke isolation.Prepare")
+		t.Fatal("the plain entry (no --agent) must never invoke isolation.Prepare")
 		return nil, nil
 	}
 	t.Cleanup(func() { prepareIsolation = prevPrep })
@@ -437,7 +437,7 @@ func iso2GitRun(t *testing.T, dir string, args ...string) {
 }
 
 // TestAcpWorkspaceAxis_DiscardedFlagIsAnnounced pins the discard-must-say-so
-// fix. The posture rule itself is deliberate — the plain `ctxloom acp` entry
+// fix. The posture rule itself is deliberate — a plain, agent-less entry
 // never isolates, whatever --workspace says — but a user who TYPED `--workspace worktree` and
 // got a shared-checkout session was told nothing at all. An isolation posture
 // silently weaker than the one asked for is the one belief that is actively

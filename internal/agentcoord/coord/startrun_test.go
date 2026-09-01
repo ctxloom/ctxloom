@@ -142,25 +142,22 @@ func awaitItemsDurable(t *testing.T, c *Coordinator, sp *fakeSpawner, harp strin
 		"the coordinator's durable watermark never caught up with the events the runner emitted — the item journal is stalled, not merely slow")
 }
 
-// TestStartRun_BackendParity pins Wave C3's acceptance (and, for the
-// opencode row, the spool cutover's S3b): codex, kiro, opencode and the
-// generic "acp" entry ride the IDENTICAL StartRun mechanics claude proved in
-// C1 — the coordinator/runner machinery (EngineHost, HarnessSpec codec,
+// TestStartRun_BackendParity pins that codex and opencode ride the
+// IDENTICAL StartRun mechanics claude proved
+// first — the coordinator/runner machinery (EngineHost, HarnessSpec codec,
 // turn delivery, journaling) is backend-agnostic by construction (it only
 // ever threads plan.Backend through as an opaque string, see
 // runChildViaStartRun's Harness: rt.plan.Backend), so this is a hermetic,
 // per-backend structural proof: each backend label reaches the migrated
 // path (no legacy go-plugin Chat dial), completes a turn, and journals a
 // RunStarted whose harness field records the SPECIFIC backend. The
-// backend-SPECIFIC deltas (model delivery argv/env) live in each real
-// backend's own chatACPConfig and are pinned separately (internal/acp,
-// internal/codex, internal/kiro driver-level tests) — codex-acp and
-// kiro-cli acp both lack usable auth on the recon host (verified live: no
+// backend-SPECIFIC deltas (model delivery argv/env) are each backend's own
+// concern and out of scope here. Note what this test is NOT: the real engines
+// behind these labels lacked usable auth on the recon host (verified live: no
 // OPENAI_API_KEY/CODEX_API_KEY, and kiro-cli requires `kiro-cli login`
 // before it even opens its JSON-RPC loop), so a live multi-turn engine echo
-// could not be exercised for either; this scripted-adapter proof is the
-// stated hermetic substitute per the acceptance's own allowance. opencode's
-// row carries the same substitution for the same reason.
+// was never exercised for any row; this scripted-adapter proof is the
+// stated hermetic substitute per the acceptance's own allowance.
 //
 // The per-backend proof is not cosmetic: the runner's EngineHost refuses a
 // StartRun whose HarnessSpec.harness does not equal the name its own
@@ -169,7 +166,7 @@ func awaitItemsDurable(t *testing.T, c *Coordinator, sp *fakeSpawner, harp strin
 // whose name were dropped or coerced anywhere between Resolve and the wire
 // would never deliver the briefing this asserts.
 func TestStartRun_BackendParity(t *testing.T) {
-	for _, backend := range []string{"codex", "kiro", "acp", "opencode"} {
+	for _, backend := range []string{"codex", "opencode"} {
 		t.Run(backend, func(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(map[string]fakeAgent{

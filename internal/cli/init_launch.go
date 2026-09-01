@@ -27,10 +27,7 @@ import (
 // ctxloom's built-in five-phase setup body (ctxloomInitPrompt, see agent.go) —
 // orient+scan, companions, profiles+content, agents, close — so content
 // selection and agent binding happen in a single continuous conversation (no
-// mid-session prompt fetch). ACP is deliberately not one of the five phases
-// (it is optional, handed off to the acp-setup skill), so the discovery
-// session reaches a working CLI/TUI outcome without ever gating on it.
-// Resolves through ResolveSetupPrompt so every bundle- or companion-shipped
+// mid-session prompt fetch). Resolves through ResolveSetupPrompt so every bundle- or companion-shipped
 // `agent-setup` command is composed in identically for the init discovery
 // launch, for `ctxloom init prompt`, and for the `/ctxloom-init` slash
 // command. A nil config degrades to the built-in text alone (CLAUDE.md fault
@@ -219,7 +216,6 @@ const authPingTask = "Reply with exactly: ok"
 var engineAuthFix = map[string]string{
 	"claude-code": "run `claude login` (or set ANTHROPIC_API_KEY)",
 	"codex":       "run `codex login` (or set OPENAI_API_KEY)",
-	"kiro":        "run `kiro-cli login` (or set KIRO_API_KEY)",
 	"opencode":    "authenticate opencode (see its `auth` subcommand) or set OPENROUTER_API_KEY",
 }
 
@@ -323,13 +319,10 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 
 // printReentryHint tells the user how to reach ctxloom once the raw-CLI setup
 // session has ended: `ctxloom run` (the CLI/TUI) is the primary, working
-// outcome of init — no ACP client is required. Reconfigure any time via
-// `/ctxloom-init` (from any session) or `ctxloom init prompt`; add optional
-// ACP editor integration any time via the acp-setup skill. Printed once,
-// after the session — init then returns and the process exits; there is no
-// relaunch loop.
+// outcome of init. Reconfigure any time via `/ctxloom-init` (from any
+// session) or `ctxloom init prompt`. Printed once, after the session — init
+// then returns and the process exits; there is no relaunch loop.
 func printReentryHint() {
 	fmt.Println("\nSetup session ended. `ctxloom run` is the primary way to reach ctxloom from here.")
-	fmt.Println("Want an editor's AI panel too (Zed, VSCode, ...)? Invoke the acp-setup skill any time.")
 	fmt.Println("Run `/ctxloom-init` from any session (or `ctxloom init prompt`) to reconfigure any time.")
 }

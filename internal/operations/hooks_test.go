@@ -350,10 +350,9 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	assert.Len(t, result.Backends, 4)
+	assert.Len(t, result.Backends, 3)
 	assert.Contains(t, result.Backends, "claude-code")
 	assert.Contains(t, result.Backends, "codex")
-	assert.Contains(t, result.Backends, "kiro")
 	assert.Contains(t, result.Backends, "opencode")
 
 	// Verify each backend's settings file was created
@@ -365,10 +364,6 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 	// codex's own writer (the engine-home policy's single owner) rather than
 	// from a literal this test would then have to keep in step by hand.
 	exists, err = afero.Exists(fs, (&codex.CodexHookWriter{}).SettingsPath(tmpDir))
-	require.NoError(t, err)
-	assert.True(t, exists)
-
-	exists, err = afero.Exists(fs, "/project/.kiro/agents/ctxloom.json")
 	require.NoError(t, err)
 	assert.True(t, exists)
 
@@ -396,7 +391,7 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Len(t, result.Backends, 4)
+	assert.Len(t, result.Backends, 3)
 }
 
 // TestApplyHooks_ConfigLoadError tests error handling when config load fails.
@@ -520,8 +515,8 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 }
 
 // TestApplyHooks_CodexHomeCollisionIsUnreachable replaces the codex half of the
-// three-engine hook-scope guard family (claude's and kiro's siblings above and
-// below are unchanged and still load-bearing).
+// hook-scope guard family (claude's sibling above is unchanged and still
+// load-bearing).
 //
 // The guard existed because `manage hooks install` from $HOME made codex's
 // PROJECT home resolve onto its GLOBAL one, so ctxloom's hooks and MCP servers
@@ -559,79 +554,20 @@ func TestApplyHooks_CodexHomeCollisionIsUnreachable(t *testing.T) {
 	assert.False(t, leaked, "ctxloom never writes the user's own codex home — least of all by accident, from $HOME")
 }
 
-// TestApplyHooks_RefusesKiroHomeCollision is the kiro hook-scope guard's
-// canonical red case, the kiro sibling of
-// TestApplyHooks_RefusesHomeCollision / TestApplyHooks_RefusesCodexHomeCollision:
-// WorkDir set to HOME makes kiro's project-scoped .kiro dir
-// (filepath.Join(WorkDir, ".kiro")) resolve onto kiro's global home
-// (kiroHome(): $KIRO_HOME, else ~/.kiro) too — kiro's whole
-// agents/settings/steering home, not just one file. This is the SAME
-// collision class found for claude and codex;
-// kiro was unaudited until now (see kiro.go's own doc: "kiro-cli resolves
-// the materialized WORKSPACE .kiro/agents/<name>.json over any global
-// ~/.kiro/agents copy" — that precedence is moot when workDir==HOME, because
-// there IS no separate workspace copy at that point, only the global one).
-func TestApplyHooks_RefusesKiroHomeCollision(t *testing.T) {
-	home := testsupport.Isolate(t)
-	fs := afero.NewMemMapFs()
-	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
-
-	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "kiro",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      home,
-	})
-	require.Error(t, err, "installing hooks with WorkDir==HOME must be refused for kiro too")
-	assert.Contains(t, err.Error(), "kiro's global home")
-
-	exists, existsErr := afero.Exists(fs, filepath.Join(home, ".kiro", "agents", "ctxloom.json"))
-	require.NoError(t, existsErr)
-	assert.False(t, exists, "a refused apply must not write kiro's agent config under HOME")
-}
-
-// TestApplyHooks_ForceOverridesKiroHomeCollision proves --force also covers
-// the kiro collision, writing anyway with a loud warning.
-func TestApplyHooks_ForceOverridesKiroHomeCollision(t *testing.T) {
-	home := testsupport.Isolate(t)
-	fs := afero.NewMemMapFs()
-	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
-
-	var result *ApplyHooksResult
-	stderr := captureStderr(t, func() {
-		var err error
-		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
-			Backend:      "kiro",
-			FS:           fs,
-			ConfigLoader: mockConfigLoader,
-			WorkDir:      home,
-			Force:        true,
-		})
-		require.NoError(t, err, "Force:true must let the kiro collision proceed")
-	})
-	require.NotNil(t, result)
-	assert.Equal(t, "applied", result.Status)
-	assert.Contains(t, stderr, "kiro's global home", "Force must still warn loudly, not silently proceed")
-
-	exists, err := afero.Exists(fs, filepath.Join(home, ".kiro", "agents", "ctxloom.json"))
-	require.NoError(t, err)
-	assert.True(t, exists, "--force must actually write kiro's agent config")
-}
-
 // TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend is the
 // flow-level proof: the target-scope guard is a property of the
-// internal/lm/backends descriptor table, not a hardcoded claude/codex/kiro
-// list operations maintains its own copy of. Before this fix,
-// checkHookTargetScope was a literal 3-way if/else naming exactly those three backends and calling
-// claude/codex/kiro package functions directly (the ADR-0026 violation) — a
-// FOURTH backend with the identical $HOME==global collision class got NO
+// internal/lm/backends descriptor table, not a hardcoded per-engine list
+// operations maintains its own copy of. Before this fix,
+// checkHookTargetScope was a literal if/else naming each guarded backend and calling
+// those engines' packages directly (the ADR-0026 violation) — a
+// FURTHER backend with the identical $HOME==global collision class got NO
 // protection no matter how it registered itself, because operations' copy of
 // "which backends have this collision" could only ever be edited by hand.
 //
 // This test registers a synthetic backend nobody has hardcoded anywhere
 // (backends.RegisterHookGlobalScopeForTesting, the exact seam a real
 // backend's descriptor uses in registry.go) and proves ApplyHooks refuses the
-// $HOME collision for it — generalizing the claude/codex/kiro
+// $HOME collision for it — generalizing the per-engine
 // fix to "any registered backend", the property the old hardcoded branch
 // could not have: it would have silently proceeded for this name.
 func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) {
@@ -640,7 +576,7 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	fs := afero.NewMemMapFs()
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
-	// A collision class shaped exactly like claude/codex/kiro's: the
+	// A collision class shaped exactly like the guarded engines' own: the
 	// "project" path is a workDir join that happens to equal the "global"
 	// path whenever workDir == HOME.
 	backends.RegisterHookGlobalScopeForTesting(fakeBackend,
@@ -657,7 +593,7 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      home,
 	})
-	require.Error(t, err, "a backend registered with a hookGlobalScopePaths collision must be refused just like claude/codex/kiro, with no operations-side edit for this backend name")
+	require.Error(t, err, "a backend registered with a hookGlobalScopePaths collision must be refused just like every descriptor-registered backend, with no operations-side edit for this backend name")
 	assert.Contains(t, err.Error(), "the T12 fake engine's global settings")
 
 	exists, existsErr := afero.Exists(fs, filepath.Join(home, ".t12fake", "settings.json"))

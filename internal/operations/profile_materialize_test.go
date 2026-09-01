@@ -67,7 +67,7 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 // own ~/.claude/commands must still land in --target. Pre-fix, claude's
 // DeliverCommands unconditionally deduped against GlobalCommandsDir(), silently
 // dropping it — exactly the observed cr-correctness bug (3 built-ins missing
-// for claude-code only, present for antigravity/kiro/codex, because this host
+// for claude-code only and present for every other engine, because this host
 // happened to already have them installed under ~/.claude/commands).
 func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")

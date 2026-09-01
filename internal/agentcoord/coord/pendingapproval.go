@@ -17,10 +17,6 @@ import (
 // (that deletion is gated on `ctxloom attach` being proven in use); it goes
 // with them. internal/cli/run_terminal_ui.go no longer wires the pane, so
 // tui.Sources.PendingApprovals is nil — its documented "pane disabled" state.
-//
-// This is NOT the ACP permission relay, which is live and unrelated: an
-// attached editor still handles session/request_permission via
-// acpagent.forwardPermission.
 type PendingApproval struct {
 	MessageID string
 	Harp      string // the run asking

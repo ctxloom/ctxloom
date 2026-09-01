@@ -91,7 +91,7 @@ func TestBuildSessionCommands_ResolveExpandsMatchedName(t *testing.T) {
 
 // TestBuildSessionCommands_ResolveUnknownNamePassesThrough proves an
 // unmatched name is reported as NOT resolved (ok=false, no error) — the
-// caller (acpagent's expandCommand) must leave text like this untouched,
+// caller expanding it must leave text like this untouched,
 // since most "/word ..." prompts are ordinary user text, not a command
 // invocation.
 func TestBuildSessionCommands_ResolveUnknownNamePassesThrough(t *testing.T) {

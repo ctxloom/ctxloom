@@ -1,7 +1,7 @@
 // Package coord is the agentcoord.v1 runtime coordinator library (Wave B1).
 //
-// It is stood up as a LIBRARY by every session-owning process — `ctxloom run`,
-// `ctxloom acp`, and (as the orphaned-orchestrator fallback) a bare
+// It is stood up as a LIBRARY by every session-owning process — `ctxloom run`
+// and (as the orphaned-orchestrator fallback) a bare
 // `ctxloom mcp` — and owns everything runtime-state-shaped about agent
 // delegation:
 //

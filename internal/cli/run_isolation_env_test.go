@@ -47,12 +47,12 @@ func TestMergeWorkspaceEnv(t *testing.T) {
 
 	t.Run("workspaceEnv fills gaps alongside existing vars", func(t *testing.T) {
 		existing := map[string]string{"CTXLOOM_SESSION_HARP": "swift-amber-falcon"}
-		workspaceEnv := map[string]string{"CLAUDE_CONFIG_DIR": "/tmp/cfg/claude", "KIRO_HOME": "/tmp/cfg/kiro"}
+		workspaceEnv := map[string]string{"CLAUDE_CONFIG_DIR": "/tmp/cfg/claude", "CODEX_HOME": "/tmp/cfg/codex"}
 		got := mergeWorkspaceEnv(existing, workspaceEnv)
 		assert.Equal(t, map[string]string{
 			"CTXLOOM_SESSION_HARP": "swift-amber-falcon",
 			"CLAUDE_CONFIG_DIR":    "/tmp/cfg/claude",
-			"KIRO_HOME":            "/tmp/cfg/kiro",
+			"CODEX_HOME":           "/tmp/cfg/codex",
 		}, got)
 	})
 

@@ -15,9 +15,9 @@ import (
 )
 
 // engineDeathTail is the distinctive diagnostic a dying engine adapter writes
-// to stderr — the shape internal/acp now captures and wraps into the Chat
-// error, which enginehost.adapt turns into a FAILED RunCompleted's
-// Result.Text. It stands in for real evidence
+// to stderr — the shape the stderr-tail capture wraps into the Chat error,
+// which EngineHost.adapt turns into a FAILED RunCompleted's Result.Text.
+// It stands in for real evidence
 // ("SyntaxError: Unexpected token 'with'", a JSON-RPC -32603 "Invalid API
 // key") that was recoverable only via `docker logs` on a since-removed
 // container.

@@ -181,9 +181,9 @@ type childRt struct {
 	turnOutput  []string // result bridging: this turn's assistant output (see bridgeTurnResult)
 	turnErrored bool     // result bridging: this turn's Entry.IsError was set (Result.status)
 	// runFailure is the last FAILED RunCompleted's Result.Text for this run —
-	// the engine's own reason for dying, which since the stderr-tail capture
-	// (internal/acp) carries the adapter's dying words (a module-loader
-	// SyntaxError, a JSON-RPC -32603 "Invalid API key"). A migrated child
+	// the engine's own reason for dying, which carries the adapter's dying
+	// words (a module-loader SyntaxError, a JSON-RPC -32603 "Invalid API
+	// key"). A migrated child
 	// that dies below the protocol emits NO final-channel output, so
 	// bridgeTurnResult has nothing to deliver and the parent would otherwise
 	// learn only "exited (runner-exit)" with no cause — the exact silent
@@ -1219,8 +1219,8 @@ func (c *Coordinator) accumulateFinalText(role string, ev *agentcoordpb.AgentEve
 
 // captureRunFailure records a FAILED RunCompleted's reason on the child's
 // runtime so terminateRun can fold it into the parent's terminal notice. The
-// reason is the engine's OWN account of its death — and since internal/acp's
-// stderr-tail capture it carries the adapter's dying words (a module-loader
+// reason is the engine's OWN account of its death — via the stderr-tail
+// capture it carries the adapter's dying words (a module-loader
 // SyntaxError, a JSON-RPC -32603 "Invalid API key") for a death that happens
 // below the protocol, exactly the case that emits no final-channel output for
 // bridgeTurnResult to deliver. Any terminal that is neither SUCCEEDED nor
@@ -1997,8 +1997,8 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 			body += ": " + detail
 		}
 		// A dead engine says WHY: the FAILED RunCompleted's reason
-		// (captureRunFailure) — carrying the adapter's stderr tail since the
-		// internal/acp capture — is appended when the run failed and the
+		// (captureRunFailure) — carrying the adapter's stderr tail — is
+		// appended when the run failed and the
 		// terminal cause did not already carry it. Without this a child that
 		// died in its module loader reached the parent as a bare
 		// "exited (runner-exit)", the 49-minute dead end. Not appended when

@@ -1,12 +1,15 @@
-// ISO0 (v0.7.0 ACP Hub plan): OpenEngineSession is the frontend-neutral
-// session opener extracted from `ctxloom acp`'s former openACPEngineChat. It
-// does the load-bearing work that gives ctxloom its value — reads config
-// from the session cwd, assembles context, mints the harp, applies the MCP
-// trust gate, and stands up the engine conversation — so that value
-// injection (context assembly, trust gate, harp mint) lives in ONE place no
-// frontend can forget to call. Only `internal/cli`'s `ctxloom acp` command
-// calls it today; ISO1 (container runtime) and ISO2 (worktree workspace) are
-// expected to reuse it for other ACP-shaped session surfaces.
+// ISO0: OpenEngineSession is the frontend-neutral session opener. It does the
+// load-bearing work that gives ctxloom its value — reads config from the
+// session cwd, assembles context, mints the harp, applies the MCP trust gate,
+// and stands up the engine conversation — so that value injection (context
+// assembly, trust gate, harp mint) lives in ONE place no frontend can forget
+// to call.
+//
+// It has NO production caller today: the frontend that drove it was removed,
+// and only this package's own tests exercise it. Treat that as a fact to
+// check before relying on it, not as a claim that it is dead — the isolation
+// wiring it carries (ISO1 runtime axis, ISO2 workspace axis) is the reason it
+// was made frontend-neutral in the first place.
 package operations
 
 import (
@@ -29,15 +32,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// EngineSessionCoordinator abstracts the ACP-hosted runtime coordinator's
+// EngineSessionCoordinator abstracts the hosting runtime coordinator's
 // reach-back services that OpenEngineSession needs: minting a session's
 // delegation-credential env, and building its child-update watch closure.
 // It is declared here — rather than OpenEngineSession taking a
 // *agentcoord/coord.Coordinator directly — because that package already
 // imports operations (children.go, spawner.go); a direct import back would
-// cycle. `internal/cli`'s acpCoordinator (coord_acp.go, acp_children.go)
-// satisfies this interface structurally, with no import of this package's
-// interface type required on its side.
+// cycle. A frontend's own coordinator adapter satisfies this interface
+// structurally, with no import of this package's interface type required on
+// its side.
 type EngineSessionCoordinator interface {
 	// SessionEnv returns the coordinator reach-back trio for one session's
 	// engine spawn env (nil on any standup/mint failure — the caller degrades
@@ -96,10 +99,10 @@ var newACPEngineClient = func(backendName, label string, verbosity int, spawnEnv
 // config for the session's cwd, assembles the context (an agent's composed
 // profiles, or the profile flow), resolves the engine label (override →
 // agent engine / profile llm → primary), records the session under a harp,
-// and opens the plugin's structured chat — the same substrate `ctxloom acp
-// run`'s session form drives. For a resume (session/load) it additionally fetches
-// the recorded harp's history: the entries replay to the ACP client, and a
-// rendered transcript primes the fresh engine via the first-turn lead block.
+// and opens the plugin's structured chat. For a resume (session/load) it
+// additionally fetches the recorded harp's history: the entries replay to the
+// client, and a rendered transcript primes the fresh engine via the
+// first-turn lead block.
 //
 // acpCoord may be nil: a frontend that hosts no runtime coordinator gets the
 // same degraded behaviour as one whose coordinator never stood up (no
@@ -108,7 +111,7 @@ var newACPEngineClient = func(backendName, label string, verbosity int, spawnEnv
 // ISO2 (WORKSPACE axis): flagWorkspace is the session-level --workspace
 // override (isolation.WorkspaceAxis values "none"|"worktree", mirroring
 // `ctxloom run`'s flag), honored ONLY for a session bound to an EXPLICIT
-// flagAgent — never the plain `ctxloom acp` entry — see prepareACPWorkspace's
+// flagAgent — never a plain, agent-less entry — see prepareACPWorkspace's
 // doc for why and how that gate is drawn.
 func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSessionCoordinator, flagProfile, flagAgent, llmOverride, flagWorkspace string) (*EngineChat, error) {
 	if acpCoord == nil {
@@ -203,10 +206,10 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 				// engine's StructuredChat call below — a container-bound agent
 				// runs its engine subprocess inside a container (same-path
 				// workspace mount, reach-back via the runner-terminated MCP
-				// socket), never silently on the host. See internal/acp's
-				// container transport (acp.go) for the honoring half; a backend
-				// whose structured chat does not implement it fails loudly
-				// there rather than falling back to the host.
+				// socket), never silently on the host. The honoring half is
+				// the backend's own structured-chat transport; a backend whose
+				// structured chat does not implement it fails loudly there
+				// rather than falling back to the host.
 				runtimeAxis = rs.Runtime
 			}
 		}
@@ -237,7 +240,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 		backendName, model = ResolveBackend(cfg, label)
 
-		// An ACP session never runs backend Setup (which writes the managed MCP
+		// A session opened here never runs backend Setup (which writes the managed MCP
 		// servers into the engine's settings file), so the managed set rides
 		// session/new mcpServers instead. Bundle executables pass the SAME trust
 		// gate the run path applies before reaching the engine (fail-closed);
@@ -255,9 +258,8 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		// "gateable" by a signer-trust model than a stdio command is: neither
 		// carries a Ref). Extending to http/sse therefore does not lower the
 		// bar — client-supplied servers were already outside this gate's
-		// domain before B3. See mcpServersFromACP/mcpServersToACP for the
-		// actual delivery-time decision (an engine's own advertised
-		// capability), which is a DIFFERENT axis (can the engine take it) from
+		// domain before B3. The actual delivery-time decision (an engine's own
+		// advertised capability) is a DIFFERENT axis (can the engine take it) from
 		// trust (should ctxloom forward it) — B3 does not invent a new trust
 		// policy for either axis.
 		execGate := NewExecutableTrustGate(cfg)
@@ -275,8 +277,8 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 	}
 
 	// ISO2: resolve the WORKSPACE axis. See prepareACPWorkspace's doc for the
-	// full gate (only an EXPLICIT --agent binding may isolate; the plain
-	// `ctxloom acp` entry never does, regardless of cfg.Workspace or an
+	// full gate (only an EXPLICIT --agent binding may isolate; a plain,
+	// agent-less entry never does, regardless of cfg.Workspace or an
 	// auto-bound cfg.DefaultAgent). The RUNTIME axis deliberately stays the
 	// zero value (host) here — ISO1 owns that axis on this same opener.
 	acpWorkspace, err := acpWorkspaceAxis(cfg, flagAgent, currentAgent, flagWorkspace)
@@ -368,7 +370,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		// interactive approvals in structured mode (no terminal prompt here).
 		ForwardPermissions: true,
 		// ForwardTerminal (B1, gap G6) rides straight through from the
-		// caller's OpenRequest — only true when acpagent.Server's own
+		// caller's OpenRequest — only true when the hosting frontend's own
 		// connected editor advertised clientCapabilities.terminal at
 		// initialize; see OpenRequest.ForwardTerminal's doc comment.
 		ForwardTerminal: req.ForwardTerminal,
@@ -417,13 +419,13 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 	// AT-CONNECT (not per-turn): this used to ride the Events channel as a
 	// synthetic first entry (announceOnFirstEvent, since deleted) — which
 	// only ever reached the client once a session/prompt actually ran a turn
-	// (acpagent's runTurn is the only Events reader), so a connected editor
-	// that hadn't sent its first prompt yet saw nothing. The text is plain
-	// session data instead: EngineChat.InitSummary, delivered by whatever
-	// frontend hosts this opener as soon as the session itself exists — for
-	// ACP that is a session/update notification emitted right after
-	// session/new|load, before the editor ever gets to send session/prompt
-	// (see acpagent's emitSessionInitSummary, announce.go).
+	// (the frontend's turn loop is the only Events reader), so a connected
+	// editor that hadn't sent its first prompt yet saw nothing. The text is
+	// plain session data instead: EngineChat.InitSummary, delivered by
+	// whatever frontend hosts this opener as soon as the session itself
+	// exists — for an editor protocol that is a session/update notification
+	// emitted right after session/new|load, before the editor ever gets to
+	// send session/prompt.
 	initSummary := buildSessionInitSummary(sessionInitSummaryInputs{
 		cfg:             cfg,
 		backendName:     backendName,
@@ -526,7 +528,7 @@ func MCPServerNames(servers []agent.ChatMCPServer) []string {
 // <name>` (internal/cli/run.go) and the MCP commands resource already read)
 // as ACP's own agent-role command system (B4, gap G5): an editor's command
 // palette gets ctxloom's REAL commands, and a recognized "/<name> ..." in a
-// prompt (see acpagent's expandCommand) resolves through the IDENTICAL
+// prompt resolves through the IDENTICAL
 // GetCommand path — one command system, two surfaces, never a separate
 // reimplementation. nil when no commands are configured for this cwd (the
 // session advertises none), degrading fault-tolerantly exactly like
@@ -686,7 +688,7 @@ var assembleModeContext = AssembleContext
 func assembleModeFunc(cfg *config.Config, sessionLabel string) func(ctx context.Context, mode SessionMode) (string, error) {
 	return func(ctx context.Context, mode SessionMode) (string, error) {
 		if mode.Engine != "" && mode.Engine != sessionLabel {
-			clidiag.Warn("ctxloom", "acp agent: mode %q declares engine %q but this session runs %q — the engine is pinned at launch (use `ctxloom acp --agent %s` to honor it)",
+			clidiag.Warn("ctxloom", "agent: mode %q declares engine %q but this session runs %q — the engine is pinned at launch; start a new session bound to agent %q to honor it",
 				mode.ID, mode.Engine, sessionLabel, strings.TrimPrefix(mode.ID, agentModePrefix))
 		}
 		res, err := assembleModeContext(ctx, cfg, AssembleContextRequest{Profiles: mode.Profiles})
@@ -752,17 +754,16 @@ func loadConfigForDirRaw(dir string) (*config.Config, error) {
 // resolve+prepare it via isolation.Prepare/isolation.WorkspaceEnv over the
 // oneshot.go package-level seams (prepareIsolation, isolationGateErr).
 // Nothing isolation-specific is reinvented below — this is
-// that same machinery wired onto the ACP opener, plus one ACP-only posture
-// rule layered on top (see acpWorkspaceAxis).
+// that same machinery wired onto this opener, plus one posture rule layered
+// on top (see acpWorkspaceAxis).
 
-// acpWorkspaceAxis decides the workspace-axis VALUE for one ACP session:
-// flagWorkspace (this invocation's --workspace) else the project's
+// acpWorkspaceAxis decides the workspace-axis VALUE for one session opened
+// here: flagWorkspace (this invocation's --workspace) else the project's
 // `workspace:` default — but ONLY when the session is bound to an EXPLICIT
-// --agent, never the plain `ctxloom acp server` entry (D-ISO's posture:
-// worktree-under-ACP is for deliberately-isolated agent bindings —
-// reviewer/executor agents an editor configures as their OWN client entry via
-// `ctxloom acp server --agent <name>`, see 'ctxloom acp entries' — never a
-// silent default for the entry with no --agent).
+// --agent, never a plain, agent-less entry (D-ISO's posture: a worktree here
+// is for deliberately-isolated agent bindings — reviewer/executor agents an
+// editor configures as their OWN client entry — never a silent default for
+// the entry with no --agent).
 //
 // currentAgent != "" is not sufficient on its own to detect "an explicit
 // --agent was given": an unset --agent still auto-binds the project's
@@ -782,7 +783,7 @@ func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace
 		// `workspace:` default being ignored here is the documented posture
 		// rather than a discarded request, so it earns no warning.
 		if flagWorkspace != "" {
-			clidiag.Warn("ctxloom", "acp agent: --workspace %q is IGNORED for a session with no explicit --agent — this session runs against the shared project checkout, not an isolated worktree (worktree-under-ACP applies only to a deliberately-bound `ctxloom acp server --agent <name>` entry)", flagWorkspace)
+			clidiag.Warn("ctxloom", "agent: --workspace %q is IGNORED for a session with no explicit --agent — this session runs against the shared project checkout, not an isolated worktree (an isolated worktree applies only to a deliberately-bound agent)", flagWorkspace)
 		}
 		return "", nil
 	}
@@ -823,7 +824,7 @@ type acpWorkspace struct {
 // session. It returns (nil, nil) — no isolation.Prepare call at all — when
 // axes asks for nothing but the shared project dir (acpWorkspaceAxis already
 // enforces the "no --agent → never worktree" posture, so this is the path
-// for the plain `ctxloom acp` entry and any --agent session that didn't ask
+// for a plain, agent-less entry and any --agent session that didn't ask
 // for a worktree).
 //
 // Otherwise this is the SAME checkpoint→Prepare→gate window
@@ -884,7 +885,7 @@ func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation
 //   - agent.IsContainerRuntimeAxis(runtimeAxis) (ISO1 containerized the
 //     ENGINE's own subprocess): ISO1's same-path mount already makes
 //     local disk correct — this "ctxloom llm serve" subprocess (where
-//     internal/acp/session.go's fs handlers actually run) is ALWAYS on
+//     the backend's own fs handlers actually run) is ALWAYS on
 //     the HOST, never inside that container, so req.Path is valid on
 //     both sides already; chaining would add nothing.
 //   - Otherwise (the fully unisolated default): true — this is the ONLY
@@ -917,10 +918,10 @@ type sessionInitSummaryInputs struct {
 	currentAgent   string
 	label          string
 	// model is the value that actually reaches the engine (OpenEngineSession's
-	// `model` local, threaded straight onto ChatRequest.Model — see
-	// internal/acp/session.go's spawnEnv, which stamps it under the backend's
-	// OWN env var, e.g. claude's ANTHROPIC_MODEL, only when both the backend
-	// configured one AND req.Model != ""), never the raw config label: a
+	// `model` local, threaded straight onto ChatRequest.Model — a backend's
+	// spawn env stamps it under that backend's OWN env var, e.g. claude's
+	// ANTHROPIC_MODEL, only when both the backend configured one AND
+	// req.Model != ""), never the raw config label: a
 	// label like "claude-sonnet" names a CONFIG ENTRY, not a model build.
 	// Empty means ctxloom pinned nothing and the engine falls back to ITS
 	// OWN saved default — said PLAINLY rather than guessed at, because a
@@ -943,8 +944,8 @@ type sessionInitSummaryInputs struct {
 	// engine to attach — req.MCPServers plus acpSessionMCPServers' managed
 	// injection) — never live connection status. Status (agent.MCPStatus)
 	// rides agent.ChatSessionInfo on the Events channel, populated only once
-	// the engine's own session/new handshake completes inside internal/acp's
-	// Chat (session.go:129) — which runs in the background relative to
+	// the engine's own session/new handshake completes inside the backend's
+	// own Chat — which runs in the background relative to
 	// OpenEngineSession's synchronous return here (client.Chat above hands
 	// back channels before that handshake necessarily finishes). Blocking
 	// this summary on the first Events entry to report "connected" would
@@ -1122,8 +1123,8 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 				"back to the plain profile flow instead of refusing to open. NONE of that "+
 				"agent's engine override, composed profiles, permissions posture, or runtime "+
 				"isolation apply — it is running on the HOST, unisolated, against this "+
-				"project's live working directory, %s. Check the agent name (see `ctxloom acp "+
-				"entries`) and reconnect.",
+				"project's live working directory, %s. Check the agent name (see `ctxloom "+
+				"agent list`) and reconnect.",
 			in.requestedAgent, in.workDir)
 	}
 

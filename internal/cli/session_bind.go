@@ -118,20 +118,6 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 		clidiag.Warn("ctxloom", "session-bind: harp %q: SessionStart hook payload did not parse as JSON: %v — harp<->session_id bind skipped", harp, err)
 		return nil
 	}
-	// Confirmed live against real kiro-cli 2.12.1:
-	// kiro's agentSpawn hook stdin payload carries NO session identifier at
-	// all ({"hook_event_name":"agentSpawn","cwd":...,"prompt":...} — no
-	// session_id/conversation_id field), unlike Claude/Codex's
-	// payloads. It DOES set KIRO_SESSION_ID in the hook subprocess's OWN
-	// environment, confirmed (by direct sqlite query against the real
-	// conversations_v2 table) to equal that conversation's actual
-	// conversation_id. Falling back to it here means locateKiroConversation
-	// (vendorreader_kiro.go) hits its SessionID-bound fast path — an exact
-	// match, not the best-effort enumerate-by-workdir heuristic — for every
-	// ctxloom-launched kiro session, since the agentSpawn hook always fires.
-	if payload.SessionID == "" {
-		payload.SessionID = os.Getenv("KIRO_SESSION_ID")
-	}
 	// operations.BindSession no-ops a harp that is absent from the index, and
 	// re-points one whose engine has rotated to a new transcript.
 	return operations.BindSession(harp, payload.SessionID, payload.TranscriptPath)

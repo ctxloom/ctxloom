@@ -250,7 +250,6 @@ func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
 	}{
 		{"claude-code", "claude login"},
 		{"codex", "codex login"},
-		{"kiro", "kiro-cli login"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.engine, func(t *testing.T) {

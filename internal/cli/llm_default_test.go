@@ -155,7 +155,7 @@ func TestIsKnownLLM_AgreesWithTheAdvertisedSet(t *testing.T) {
 	})
 
 	for _, name := range []string{
-		"claude-code", "codex", "kiro", "opencode", mockBackendName,
+		"claude-code", "codex", "opencode", mockBackendName,
 		"my-claude", "stale", "nonexistent-plugin", "",
 	} {
 		advertised := slices.Contains(operations.AvailableLLMNames(cfg), name)

@@ -78,7 +78,7 @@ func TestMaterializeProfile_OtherEnginesUnaffectedByCodexDeclaration(t *testing.
 		backend, file, marker string
 	}{
 		{"claude-code", filepath.Join(".claude", "settings.json"), "team-guardrail"},
-		{"kiro", filepath.Join(".kiro", "agents", "ctxloom.json"), "team-guardrail"},
+		{"opencode", "opencode.json", "team-guardrail"},
 	} {
 		t.Run(tc.backend, func(t *testing.T) {
 			cfg, target := materializeHookFixture(t)

@@ -98,7 +98,7 @@ func attachArgv(t attachTarget, readOnly bool) ([]string, error) {
 // Three of the four things attachTarget needs already resolve from a harp: the
 // runtime axis and container name are journaled (RunRecord.Runtime,
 // RunRecord.ContainerName via factRunContainer) and the socket name is a
-// constant (acp.TmuxSocketName).
+// constant (tmuxhost.TmuxSocketName).
 //
 // THE WINDOW TARGET DOES NOT EXIST TO BE LOOKED UP. A pane's window is named
 // "<session>:<runToken>-h<n>" where runToken is four random bytes minted per

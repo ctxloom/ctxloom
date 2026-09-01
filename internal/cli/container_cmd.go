@@ -65,14 +65,14 @@ skipped. A devcontainer.json declaring dockerComposeFile needs an explicit
 service pick (--devcontainer-service, or config isolation_devcontainer_service)
 since a multi-service compose project does not map to one agent container.
 
-The engine set (claude-code, codex, kiro, opencode — each via
+The engine set (claude-code, codex, opencode — each via
 its OWN official installer, one independently-cacheable Containerfile layer)
 composes into ONE shared image by default; --engines (or config
 isolation_engines) trims it.
 
 By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
-` + "`ctxloom run`/`acp`" + ` (and delegated ` + "`agent_run`" + ` children) also build this image
+` + "`ctxloom run`" + ` (and delegated ` + "`agent_run`" + ` children) also build this image
 automatically when it is absent (honoring the same base/engine resolution); this command is the
 explicit path (refresh, custom base). To run a fully user-provided image
 instead, set isolation_images in config — those are run as-is and never built.`,
@@ -446,7 +446,7 @@ func init() {
 	containerBuildCmd.Flags().StringVar(&containerBuildDevcontainerService, "devcontainer-service", "",
 		"docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile")
 	containerBuildCmd.Flags().StringSliceVar(&containerBuildEngines, "engines", nil,
-		"engines to compose into the agent image (claude-code,codex,kiro,opencode); empty = every known engine")
+		"engines to compose into the agent image (claude-code,codex,opencode); empty = every known engine")
 	containerBuildCmd.Flags().StringVar(&containerBuildRuntime, "runtime", "",
 		"container runtime to build with (docker|podman); auto-detected when empty")
 	containerBuildCmd.Flags().BoolVar(&containerBuildKeepCache, "keep-cache", false,

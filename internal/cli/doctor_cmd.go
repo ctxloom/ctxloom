@@ -72,7 +72,6 @@ var doctorDepBinariesRecommended = []string{"ssh", "ssh-keygen"}
 var doctorEngineBinaries = map[string]string{
 	"claude-code": "claude",
 	"codex":       "codex",
-	"kiro":        "kiro-cli",
 	"opencode":    "opencode",
 }
 

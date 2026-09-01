@@ -7,14 +7,11 @@ import (
 )
 
 // This file holds the frontend-neutral session-opener types: OpenEngineSession
-// (engine_session.go) is their producer, and any ACP-shaped frontend (the ACP
-// agent server package today; future non-ACP frontends like an in-process TUI
-// or the VSCode extension) is a consumer. They live here — not in that
-// frontend package — precisely so a frontend can depend on the opener without
-// the opener depending back on any one frontend's wire protocol. The ACP
-// agent server aliases these types (see its server.go, children.go, wire.go)
-// so every existing reference through its own package keeps compiling
-// unchanged.
+// (engine_session.go) is their producer, and a session frontend (an editor
+// protocol server, an in-process TUI, the VSCode extension) is a consumer.
+// They live here — not in a frontend package — precisely so a frontend can
+// depend on the opener without the opener depending back on any one
+// frontend's wire protocol.
 
 // EngineChat is one live engine conversation backing a session: the
 // assembled context to deliver on the first turn, the message-in/events-out
@@ -50,15 +47,14 @@ type EngineChat struct {
 	Replay []agent.SessionEntry
 	// LLMs advertises the ctxloom LLMs this session could run (nil = none). It
 	// is ADVERTISEMENT ONLY — the engine's LLM is pinned at launch; a live
-	// mid-session switch is not implemented (see modelState in acpagent's
-	// wire.go).
+	// mid-session switch is not implemented.
 	LLMs *SessionLLMs
 	// WatchChildren subscribes this session to its delegated children's live
 	// activity (D3, Tier A push): nil when no coordinator is
 	// hosted (delegation degraded — the session behaves exactly as it did
 	// pre-D3). The returned channel closes and cancel becomes a no-op once
-	// ctx (the session's own lifetime) ends; the caller (acpagent's
-	// pushChildUpdates) owns calling cancel exactly once.
+	// ctx (the session's own lifetime) ends; the caller owns calling cancel
+	// exactly once.
 	WatchChildren func(ctx context.Context) (<-chan ChildUpdate, func())
 	// Commands surfaces ctxloom's OWN command system (B4, gap G5) as ACP's
 	// available_commands_update — nil when the cwd has no commands
@@ -76,31 +72,29 @@ type EngineChat struct {
 	// which an editor or user can otherwise see (MCP status in particular
 	// has NO other spec-legal home: it would otherwise ride `_meta`, which a
 	// foreign client may ignore by contract). It crosses the
-	// operations→acpagent boundary as plain data on this struct, the same
+	// operations→frontend boundary as plain data on this struct, the same
 	// way Modes/LLMs/Commands already do, rather than riding the Events
 	// channel: this is a fact about the SESSION, known before the engine is
-	// even dialed, not a fact about any one TURN — and a frontend (acpagent)
-	// that only ever drains Events from inside a turn (see server.go's
-	// runTurn) would otherwise never see it until session/prompt ran once,
-	// exactly the bug this field exists to fix. A frontend decides how (and
-	// whether) to deliver it; acpagent emits it as a session/update
-	// notification immediately after session/new|load, before replying —
-	// see its emitSessionInitSummary (announce.go).
+	// even dialed, not a fact about any one TURN — and a frontend that only
+	// ever drains Events from inside a turn would otherwise never see it
+	// until session/prompt ran once, exactly the bug this field exists to
+	// fix. A frontend decides how (and whether) to deliver it; an editor
+	// protocol emits it as a session/update notification immediately after
+	// session/new|load, before replying.
 	InitSummary string
 }
 
 // SessionCommands surfaces ctxloom's OWN command system (bundle "commands" —
 // internal/operations/commands.go's ListCommands/GetCommand, the same surface
 // `ctxloom run --command <name>` and the MCP commands resource already
-// expose) as ACP's available_commands_update (B4, gap G5): an editor driving
-// `ctxloom acp` sees ctxloom's REAL commands in its command palette.
+// expose) as ACP's available_commands_update (B4, gap G5): a connected editor
+// sees ctxloom's REAL commands in its command palette.
 //
 // This is deliberately separate from IR3's engine-side passthrough
 // (ChatEvent.Raw forwarding a connected ENGINE's own available_commands_update
-// verbatim — internal/acp/mapping.go's rawOnlyEvent / internal/acpagent/
-// mapping.go's rawOnlyUpdates allowlist): that surfaces the underlying
-// engine's commands (e.g. claude-code-acp's own slash commands, if it has
-// any); THIS surfaces ctxloom's, in ctxloom's own agent role. A session can
+// verbatim, via the wire mapping layer's allowlist): that surfaces the
+// underlying engine's own slash commands, if it has any; THIS surfaces
+// ctxloom's, in ctxloom's own agent role. A session can
 // legitimately advertise both — they are not alternatives.
 type SessionCommands struct {
 	// Available lists ctxloom's own commands as of session open. nil/empty
@@ -183,14 +177,13 @@ type OpenRequest struct {
 	// the opener replays its history and primes the fresh engine with it.
 	ResumeHarp string
 	// FsUpstreamAddr, when non-empty, is the address of a local unix socket
-	// the ACP AGENT role stood up so this session's engine conversation CAN
+	// the hosting agent-role frontend stood up so this session's engine CAN
 	// chain fs/read_text_file and fs/write_text_file upstream to the
 	// connected editor, instead of local disk (B5, gap G14). "" means no
 	// such upstream exists (the connected editor never declared the fs
-	// capability, or this OpenRequest isn't coming from an ACP-hosted
-	// session at all — e.g. `ctxloom acp run`/oneshot Execute never set
-	// this field, and both keep reading local disk exactly as before this
-	// field existed).
+	// capability, or this OpenRequest isn't coming from an editor-hosted
+	// session at all — a oneshot Execute never sets this field, and keeps
+	// reading local disk exactly as before this field existed).
 	//
 	// OpenEngineSession forwards this into the engine's env (under
 	// FsUpstreamEnvVar) ONLY when the RESOLVED axes are BOTH the fully
@@ -198,12 +191,12 @@ type OpenRequest struct {
 	// lives and why: a worktree- or container-bound session must never
 	// chain (the editor's buffers describe a DIFFERENT tree in the worktree
 	// case; container's same-path mount already makes local serving
-	// correct) — see internal/acp/session.go's handleFsRead for the
-	// consuming half of this same rule.
+	// correct). The consuming half of this same rule lives in whichever
+	// backend serves fs/*.
 	FsUpstreamAddr string
 	// ForwardTerminal asks the opened engine conversation to broker terminal/*
-	// requests to the connected editor (B1, gap G6): the caller (acpagent.
-	// Server) sets this from whatever THAT editor advertised at ITS OWN
+	// requests to the connected editor (B1, gap G6): the calling frontend
+	// sets this from whatever THAT editor advertised at ITS OWN
 	// initialize (clientCapabilities.terminal) — see agent.ChatRequest.
 	// ForwardTerminal's doc comment for exactly what "true" honestly promises
 	// and why this cannot default true. Rides straight through to the
@@ -213,18 +206,16 @@ type OpenRequest struct {
 
 // FsUpstreamEnvVar names the engine-env variable OpenEngineSession uses to
 // forward OpenRequest.FsUpstreamAddr to the engine conversation (B5, gap
-// G14). internal/acp/fsupstream.go mirrors this EXACT string literal rather
-// than importing this package: internal/acp cannot import operations, because
-// operations pulls in internal/lm/backends, which registers acp.NewACP() and
-// so imports acp back. (agent.RuntimeContainerRootless/Rootful and their
-// isolation counterparts are literal copies for the identical reason — see that const's
-// doc in internal/shared/agent/chat.go.)
+// G14).
 //
-// The copies are NOT unbound. internal/acp/constants_binding_test.go
-// — an external test package, which is outside that cycle and so may import
-// both sides — asserts they are equal (TestFsUpstreamEnvVarMatchesOperations),
-// so a rename on either side fails a test instead of silently serving fs/*
-// from local disk.
+// NOTHING DECODES IT TODAY: engine_session.go stamps it into the engine env
+// and no consumer in this repo reads it back. Whoever re-adds a backend that
+// serves fs/read_text_file and fs/write_text_file upstream must read THIS
+// constant rather than hand-copy the literal — if a consumer's copy ever
+// diverges from this name, fs/* silently falls back to LOCAL DISK, serving
+// wrong content with no error at all. Where the consumer genuinely cannot
+// import this package, bind the two with an external test asserting they are
+// equal, so a rename fails loudly instead of going quiet.
 const FsUpstreamEnvVar = "CTXLOOM_ACP_FS_UPSTREAM"
 
 // ChildUpdateKind names what a ChildUpdate reports.
@@ -240,10 +231,9 @@ const (
 )
 
 // ChildUpdate is one normalized, frontend-shaped notice about a delegated
-// child's activity — cli's WatchChildren implementation (acpChildWatcher)
-// translates coordinator AgentEvents into this shape; a frontend (acpagent's
-// pushChildUpdates/childUpdateWire) only ever maps THIS onto its own wire,
-// never the coordinator's own contract types.
+// child's activity — a WatchChildren implementation translates coordinator
+// AgentEvents into this shape, and a frontend only ever maps THIS onto its
+// own wire, never the coordinator's own contract types.
 type ChildUpdate struct {
 	Harp string
 	Kind ChildUpdateKind

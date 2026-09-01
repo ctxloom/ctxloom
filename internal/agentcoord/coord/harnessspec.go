@@ -196,13 +196,13 @@ func decodeHarnessSpec(spec *agentcoordpb.HarnessSpec) (DecodedHarnessSpec, erro
 		// terminal (a CLI in the agent's tmux window) prompts natively, and a
 		// human answers it there by attaching to the agent's tmux window.
 		//
-		// This does NOT mean something answers on the engine's behalf. The ACP
-		// driver ignores this flag and forwards every permission request
-		// regardless (acp.chatSession.handlePermission is a pass-through
-		// proxy), so a delegated ACP run that prompts parks with nobody
-		// upstream to answer it. That is why buildHarnessSpec confines a
-		// delegated run to a headless-safe posture (D3, PermissionMode.
-		// SafeHeadless) — one that does not prompt in the first place.
+		// This does NOT mean something answers on the engine's behalf. A
+		// delegated run has no human upstream of it, so a prompt it does
+		// raise parks with nobody to answer it — and a driver that forwards
+		// permission requests regardless of this flag would still park. That
+		// is why buildHarnessSpec confines a delegated run to a headless-safe
+		// posture (D3, agent.PermissionMode.SafeHeadless) — one that does not
+		// prompt in the first place.
 		ForwardPermissions: false,
 		MCPServers:         servers,
 		ResumeSessionID:    spec.GetResumeSessionId(),

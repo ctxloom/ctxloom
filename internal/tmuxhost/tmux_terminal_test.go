@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"unicode/utf8"
@@ -392,4 +393,88 @@ func TestTruncateFromStart(t *testing.T) {
 	s, truncated = truncateFromStart(multibyte, 6)
 	require.True(t, truncated)
 	assert.True(t, utf8.ValidString(s), "truncation must land on a rune boundary: got %q", s)
+}
+
+// TestTmuxIdentifiers_ReachTmuxWithoutAnAcpSegment pins the socket, session
+// and channel names AS TMUX RECEIVES THEM, not as constants.
+//
+// These three are a user-visible contract, not internal detail: a person
+// debugging a stuck run types `tmux -L ctxloom-terminal ls` by hand, and the
+// run.pane fact that attach is waiting on (attach_cmd.go's refusal names it)
+// will have to record this exact "<session>:<window>" target. A silent drift
+// in either name breaks both, and neither has a compiler to catch it.
+//
+// Written because a mutation proved the gap: reverting tmuxSessionName to
+// "ctxloom-acp-terminal" left BOTH internal/tmuxhost and internal/cli fully
+// green. The socket half was covered (by TestAttachSocket_IsTheHostedPaneSocket)
+// and the session half was covered by nothing at all -- the only tests that
+// exercise a real session are the tmux-backed ones, which skip wherever tmux
+// is off PATH, which includes CI's container.
+//
+// Asserting the ARGV rather than the constant is the point: `tmuxSessionName
+// == "ctxloom-terminal"` restates the declaration and would still pass if
+// ensureSession stopped using it.
+func TestTmuxIdentifiers_ReachTmuxWithoutAnAcpSegment(t *testing.T) {
+	f := newFakeTmuxRunner()
+	l := New(f, t.TempDir())
+
+	_, err := l.Create(context.Background(), Spec{Command: "true"})
+	require.NoError(t, err)
+
+	sess := f.argsFor("has-session")
+	require.NotEmpty(t, sess, "ensureSession must probe the session by name")
+	assert.Contains(t, sess, tmuxSessionName)
+	assert.Contains(t, sess, "ctxloom-terminal",
+		"the session tmux is asked about is the one a human types by hand")
+
+	win := f.argsFor("new-window")
+	require.NotEmpty(t, win, "Create must open a window")
+	joined := strings.Join(win, " ")
+	assert.Contains(t, joined, "ctxloom-term-",
+		"the per-terminal wait-for channel keeps its ctxloom-term- prefix")
+
+	// The negative half. The assertions above would all still hold if a name
+	// GAINED an acp segment somewhere else in the argv, and this rename exists
+	// precisely to remove that segment.
+	for _, c := range f.calls {
+		for _, a := range c {
+			assert.NotContains(t, a, "ctxloom-acp",
+				"no tmux identifier may carry an acp segment: %v", c)
+		}
+	}
+}
+
+// TestHostIdentifiers_ReachTmuxWithoutAnAcpSegment is the hosting-path twin of
+// TestTmuxIdentifiers_ReachTmuxWithoutAnAcpSegment.
+//
+// It exists as a SEPARATE test because the two surfaces mint their names in
+// two different functions -- Terminals.create and Terminals.host -- from two
+// different literals, so a test driving only one of them proves nothing about
+// the other. A mutation confirmed exactly that: reverting host's prefix to
+// "ctxloom-acp-host-" left the whole package green, because every existing
+// test of the hosting path (tmux_host_test.go, by its own header) drives a
+// REAL tmux binary and therefore skips wherever tmux is off PATH -- including
+// the container the gate runs in.
+func TestHostIdentifiers_ReachTmuxWithoutAnAcpSegment(t *testing.T) {
+	f := newFakeTmuxRunner()
+	l := New(f, t.TempDir())
+
+	h, err := l.host(context.Background(), hostSpec{Command: "true"})
+	require.NoError(t, err)
+
+	assert.True(t, strings.HasPrefix(h.channel, "ctxloom-host-"),
+		"a hosted pane's wait-for channel keeps its ctxloom-host- prefix, got %q", h.channel)
+	assert.True(t, strings.HasPrefix(h.window, tmuxSessionName+":"),
+		"a hosted window's attach target is <session>:<window>, got %q", h.window)
+	for _, p := range []string{h.outputPath, h.statusPath} {
+		assert.Contains(t, p, "ctxloom-host-", "capture files stay namespaced: %q", p)
+		assert.NotContains(t, p, "ctxloom-acp", "capture files carry no acp segment: %q", p)
+	}
+
+	for _, c := range f.calls {
+		for _, a := range c {
+			assert.NotContains(t, a, "ctxloom-acp",
+				"no tmux identifier on the hosting path may carry an acp segment: %v", c)
+		}
+	}
 }

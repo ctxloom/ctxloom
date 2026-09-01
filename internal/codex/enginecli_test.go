@@ -81,8 +81,9 @@ func buildArgsMatrix() []argvCase {
 // own output through agent.EngineCLI.ParseArgv, which errors on any token that
 // starts with "-" and is not declared, AND buildArgs emits the flag CONSTANTS
 // this declaration is built from — so a typo cannot make both sides agree on a
-// spelling the vendor never sees. (internal/acp/argv.go's equivalent test does
-// NOT have that property: its chatArgv still emits string literals.)
+// spelling the vendor never sees. A driver that emitted its flags as string
+// literals instead would not have that property, and this gate would pass by
+// coincidence.
 func TestEngineCLI_BuildArgsFlagsAreDeclared(t *testing.T) {
 	b := NewCodex()
 	clis := b.EngineCLIs()

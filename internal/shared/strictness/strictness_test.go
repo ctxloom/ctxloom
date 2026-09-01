@@ -69,7 +69,7 @@ func TestDegraded_RecordsButNeverAborts(t *testing.T) {
 // re-fired by every subsystem that rebuilds a loader yields exactly one
 // finding per window. DELIBERATE CHANGE: this test used to pin process-wide
 // recording dedup; that swallowed re-fired findings in later windows of a
-// long-lived server (`ctxloom acp`), letting a session that was refused on a
+// long-lived, many-session server, letting a session that was refused on a
 // broken profile silently open on retry — see
 // TestFailOnce_RefiresAcrossCheckpoints for the cross-window contract.
 func TestFailOnce_DedupsRecording(t *testing.T) {
@@ -85,7 +85,7 @@ func TestFailOnce_DedupsRecording(t *testing.T) {
 	assert.Contains(t, got[1].Message, `parent other`)
 }
 
-// A long-lived server (`ctxloom acp`) opens each session under a fresh
+// A long-lived, many-session server opens each session under a fresh
 // Checkpoint. A session refused over a FailOnce finding and retried UNFIXED
 // re-fires the same FailOnce — the recording must land in the NEW window, or
 // the retry opens silently on broken context (the print dedup even suppresses

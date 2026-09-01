@@ -57,7 +57,7 @@ type ClaudeCode struct {
 	// it to agent.ThinkingMedium — the Go zero value happens to be
 	// ThinkingOff, so an unconfigured backend must NOT rely on the zero
 	// value; NewClaudeCode sets it explicitly). Chat translates it into
-	// claude's MAX_THINKING_TOKENS env var (chat.go).
+	// claude's MAX_THINKING_TOKENS env var.
 	thinking agent.ThinkingLevel
 }
 

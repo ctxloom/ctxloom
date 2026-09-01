@@ -269,7 +269,7 @@ func checkLegacyChatFreeze(backend string) error {
 //     the StartRun path (viaStartRunBackends["opencode"] == true) — the two
 //     tables answer different questions. It neither consumes
 //     ChatRequest.ResumeSessionID nor emits a native session-id Session
-//     event (internal/opencode/chat.go); its only resume surface is
+//     event; its only resume surface is
 //     read-only `opencode export`. No cheap resume-by-key primitive exists;
 //     new backend work (v0.8+), not a config toggle. A resumed opencode child
 //     therefore re-primes from rendered history (resumeChild's

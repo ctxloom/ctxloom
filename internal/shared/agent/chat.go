@@ -9,8 +9,7 @@ import (
 // structured conversation over the backend's NATIVE programmatic protocol — not
 // a pty/TUI. A backend implements it only if it can speak such a protocol; the
 // host discovers support via a type assertion (backend.(StructuredChat)) and
-// reports the feature unavailable otherwise. claude-code implements it through
-// the claude-code-acp adapter (internal/acp); other backends may not yet.
+// reports the feature unavailable otherwise.
 //
 // This is deliberately separate from the core Backend interface: adding a
 // required method would break every backend, and structured chat is a capability
@@ -41,9 +40,9 @@ type ChatRequest struct {
 	// request as a ChatEvent.Permission and park the engine until the matching
 	// ChatMessage.Permission answer arrives.
 	//
-	// The ACP driver IGNORES this and forwards unconditionally: ctxloom is a
-	// pass-through proxy for session/request_permission and keeps no local
-	// decider to fall back to (see internal/acp's chatSession.handlePermission).
+	// A driver may IGNORE this and forward unconditionally: ctxloom is a
+	// pass-through proxy for a permission request and keeps no local decider
+	// to fall back to.
 	// A request nobody answers parks the engine — the protocol's own semantics,
 	// and preferable to ctxloom filing an approval or a refusal under the
 	// operator's name. The field remains for backends that do consult it.
@@ -58,14 +57,12 @@ type ChatRequest struct {
 	// this is only honest when the caller actually has a live upstream editor
 	// that ADVERTISED the terminal capability at ITS OWN initialize: a
 	// backend must NEVER advertise ClientCapabilities.Terminal: true to the
-	// engine unless this is true AND actually wired (see
-	// internal/acp/session.go's setup) — ctxloom brokers terminal/* to a real
-	// editor, it never implements a terminal of its own. The one populator
-	// (internal/acpagent/server.go, via internal/operations.OpenRequest.
-	// ForwardTerminal) sets this from the connected editor's own
-	// clientCapabilities.terminal; every other caller (delegated child agents
-	// with no ACP editor upstream, e.g. agentcoord's HarnessSpec) leaves it
-	// false, which is exactly correct: there is nothing to broker to.
+	// engine unless this is true AND actually wired — ctxloom brokers
+	// terminal/* to a real editor, it never implements a terminal of its own.
+	// A populator must set this from the connected editor's own
+	// clientCapabilities.terminal; a caller with no editor upstream (delegated
+	// child agents, e.g. agentcoord's HarnessSpec) leaves it false, which is
+	// exactly correct: there is nothing to broker to.
 	ForwardTerminal bool
 	// MCPServers are caller-supplied MCP servers to attach to the conversation
 	// (e.g. the ACP client's session/new mcpServers), in addition to whatever
@@ -105,14 +102,13 @@ type ChatRequest struct {
 	// crossing (chatStartToProto/chatStartFromProto, internal/lm/grpc/chat.go)
 	// converts to and parses from a string, since a proto field cannot carry
 	// a Go type. Only a backend whose StructuredChat transport actually
-	// implements container isolation (the ACP client driver, internal/acp)
-	// consults it; every other backend ignores it — additive, host stays the
-	// default everywhere else.
+	// implements container isolation consults it; every other backend ignores
+	// it — additive, host stays the default everywhere else.
 	Runtime RuntimeAxis
 	// ModelQuirk optionally names a per-engine escape hatch (see
 	// ModelDeliveryQuirk) that forces Model onto the session via a non-spec
-	// call the ACP driver (internal/acp/session.go) makes right after setup,
-	// before the first prompt. nil — every backend but claude today — means
+	// call the structured-chat driver makes right after setup,
+	// before the first prompt. nil — every backend today — means
 	// no such call: the spec-standard delivery (--model / an env var / a
 	// future session/set_config_option) is trusted to work.
 	ModelQuirk *ModelDeliveryQuirk
@@ -124,10 +120,9 @@ type ChatRequest struct {
 // exists ONLY because CO1's controlled experiment proved claude-code-acp
 // 0.16.2 silently ignores every spec-standard model channel (argv, env, and
 // it does not implement session/set_config_option at all — zero hits in its
-// dist/*.js) — see internal/claude/chat.go for the full defect citation, the
-// one populator, and the removal condition. This type is deliberately
-// backend-neutral (it lives alongside ChatRequest, not inside internal/acp)
-// so the driver that executes it (internal/acp/session.go) never needs to
+// dist/*.js). This type is deliberately backend-neutral (it lives alongside
+// ChatRequest, not inside any one backend) so the driver that executes it
+// never needs to
 // know which engine it is talking to — it just compares the connected
 // agent's self-reported identity against these fields.
 type ModelDeliveryQuirk struct {
@@ -151,8 +146,7 @@ type ModelDeliveryQuirk struct {
 // and is therefore completely unaffected by its addition. Http/Sse carry an
 // EDITOR-supplied remote MCP server instead of a local command (ACP's
 // session/new mcpServers, B3/gap G11): ctxloom's own materialized bundle
-// servers never populate these, only the ACP passthrough paths
-// (mcpServersFromACP / mcpServersToACP) do.
+// servers never populate these, only an editor-passthrough path does.
 type MCPTransport string
 
 const (
@@ -162,7 +156,7 @@ const (
 	MCPTransportStdio MCPTransport = ""
 	// MCPTransportHTTP is a remote MCP server reached over streamable HTTP.
 	// Only meaningful when the RECEIVING engine advertises
-	// mcpCapabilities.http — see internal/acp/session.go's mcpServersToACP.
+	// mcpCapabilities.http.
 	MCPTransportHTTP MCPTransport = "http"
 	// MCPTransportSSE is a remote MCP server reached over Server-Sent
 	// Events. Only meaningful when the RECEIVING engine advertises
@@ -249,8 +243,6 @@ type ChatEvent struct {
 	// an otherwise-fully-mapped entry) or stand ALONE (Entry/Complete/
 	// Session/Permission all nil — a pure passthrough frame, e.g.
 	// available_commands_update, that the IR has no other shape for at all).
-	// See internal/acp/mapping.go (producer) and internal/acpagent/mapping.go
-	// (consumer/re-emitter) for the allowlist enforcement.
 	//
 	// PERMISSIONS NEVER RIDE HERE. session/request_permission is not even a
 	// session/update variant (it is a separate agent→client REQUEST,
@@ -334,11 +326,10 @@ const (
 // this is (the TerminalOp* constants above). Params carries that method's
 // ACP request body VERBATIM as JSON, WITH THE SESSION ID STRIPPED: the id in
 // there is the CLIENT-role driver's own opaque session with the ENGINE,
-// which the upstream editor does not share and must never see — the
-// agent-role broker (internal/acpagent) substitutes ITS OWN editor-facing
-// session id before relaying, exactly as permissionRequestWire substitutes
-// sess.id for a forwarded permission request rather than carrying the
-// engine's own id through. Params/Result ride as raw JSON (not five
+// which the upstream editor does not share and must never see — an
+// agent-role broker substitutes ITS OWN editor-facing session id before
+// relaying, rather than carrying the engine's own id through, exactly as it
+// must for a forwarded permission request. Params/Result ride as raw JSON (not five
 // duplicated typed structs, one per op, in both this package and its proto
 // mirror) — the same established pattern as PermissionRequest.ToolInput and
 // ChatEvent.Raw: this hub layer relays bytes, it never needs to construct or
@@ -406,7 +397,7 @@ type ChatSessionInfo struct {
 	SessionID string
 	// Resumable reports that the backend advertised it can RESUME this native
 	// session by its SessionID key on a later spawn (ACP: the engine's
-	// initialize-time loadSession capability; internal/acp/session.go). It is
+	// initialize-time loadSession capability). It is
 	// the LIVE half of the one-shot resume gate (one-shot-resume plan, Slice 4
 	// / Fork 3): the static per-backend table says a backend COULD resume, but
 	// only the connected adapter's own handshake proves THIS engine actually

@@ -289,7 +289,7 @@ func WriteManagedPackageFiles[T any](
 	// ruled out on reading the actual call sites: dir is shared territory a
 	// bare directory swap would destroy. kiro writes its commands surface AND
 	// its skills surface into the SAME native directory (two ledger surfaces,
-	// one dir — internal/kiro/skillfiles.go), and a hand-authored file can sit
+	// one dir), and a hand-authored file can sit
 	// right beside managed content in any engine's dir. Swapping dir itself
 	// would evict the co-located surface's files and any user content in the
 	// same breath as this call's own content. Per-file rename against a temp

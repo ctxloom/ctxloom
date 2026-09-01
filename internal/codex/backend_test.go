@@ -50,10 +50,9 @@ func (foreignBackendConfig) BackendType() string { return "not-codex" }
 // A past review called Configure's missing else a silent swallow. The branch is
 // unreachable by construction, not merely untaken: every caller resolves the
 // config BY the backend's own name — backends.ConfiguredBackend does
-// Get(cfg.BackendType()), llm_serve's serveBackendConfig gates on
-// entry.EffectiveType() == backendName, and acp.NewChatDriver configures a
-// backend with its own config type. A config that reached codex's Configure at
-// all therefore declares BackendType "codex", which only *CodexConfig does.
+// Get(cfg.BackendType()), and llm_serve's serveBackendConfig gates on
+// entry.EffectiveType() == backendName. A config that reached codex's Configure
+// at all therefore declares BackendType "codex", which only *CodexConfig does.
 // This pins both halves of that: the real config applies every field it
 // declares, and the assert's guard string is codex's own.
 func TestCodex_Configure_MismatchIsUnreachableNotSwallowed(t *testing.T) {

@@ -58,13 +58,14 @@ import (
 // A field belongs here only when it is STRUCTURALLY not wire-carried. "The
 // converter forgot it" is a bug to fix, never an entry to add.
 var parityExclusions = map[string]string{
-	// Populated on the PLUGIN side, after the wire crossing: the claude backend
-	// sets req.ModelQuirk itself in its StructuredChat entry point
-	// (internal/claude/chat.go, D-CO-QUIRK) from a package-level constant. The
-	// host never sets it, so there is nothing for chatStartToProto to carry —
-	// mirroring it onto the wire would let a host dictate a non-spec JSON-RPC
-	// method to a plugin, which is strictly worse than leaving it plugin-local.
-	"agent.ChatRequest.ModelQuirk": "set plugin-side by the backend (internal/claude/chat.go), never sent host→plugin",
+	// Populated on the PLUGIN side, after the wire crossing, if at all: a
+	// backend sets req.ModelQuirk itself in its StructuredChat entry point
+	// (D-CO-QUIRK). The host never sets it, so there is nothing for
+	// chatStartToProto to carry — mirroring it onto the wire would let a host
+	// dictate a non-spec JSON-RPC method to a plugin, which is strictly worse
+	// than leaving it plugin-local. No backend populates it today; the
+	// exclusion is about the DIRECTION it may travel, not about who fills it.
+	"agent.ChatRequest.ModelQuirk": "set plugin-side by the backend, never sent host→plugin",
 	// In-process only, by construction and by doc: wire.Hook.ContextHash marks
 	// the context-injection hook, and ManagedConfig's hooks are explicitly the
 	// set WITHOUT context-injection (the plugin appends its own from its

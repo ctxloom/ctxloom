@@ -72,9 +72,10 @@ const (
 
 // The codex argv vocabulary. Named constants rather than literals so buildArgs
 // and this declaration cannot disagree about spelling. This is NOT ceremony:
-// internal/acp/argv.go's equivalent test passes by COINCIDENCE because its
-// chatArgv still emits string literals, so a typo there would read as a
-// perfectly declared grammar describing a flag the driver never sends.
+// where a driver emits its flags as literals instead, a typo reads as a
+// perfectly declared grammar describing a flag the vendor never sees, and the
+// anti-drift gate over it passes by COINCIDENCE. Emitting these constants is
+// what makes TestEngineCLI_BuildArgsFlagsAreDeclared a real gate.
 const (
 	// subcommandExec is codex's non-interactive subcommand. Its flag set is not
 	// the interactive one's, and an unknown flag is a hard exit-2 "unexpected

@@ -17,11 +17,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/tmuxhost"
 )
 
-// recordingRunner is a tmux that records instead of executing. It exists
-// because tmux is NOT INSTALLED in this project's test environment, so the
-// success arm below would otherwise be unrunnable -- and an unrunnable success
-// arm is exactly how a hard dependency's happy path rots while the refusal arm
-// keeps the suite green.
+// recordingRunner is a tmux that records instead of executing.
+//
+// It exists so the success arm below runs ANYWHERE. That is the property a
+// test of the argv we hand tmux should have: what is under test is what THIS
+// package sends, and that claim is true whether or not a tmux is installed to
+// receive it. Gating it on a real binary is how a hard dependency's happy path
+// rots unnoticed while the refusal arm keeps the suite green.
+//
+// It does not replace a real-tmux test. Only a real tmux can prove tmux
+// ACCEPTS the argv; this proves we built the argv we meant to, unconditionally.
 type recordingRunner struct {
 	mu    sync.Mutex
 	calls [][]string

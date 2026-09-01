@@ -241,8 +241,11 @@ func (r *stagingCapturingRunner) Run(ctx context.Context, args ...string) (strin
 // Found by mutation during close-out: replacing the staged bytes with a
 // constant ("MUTANT") left internal/tmuxhost fully green. Every existing test
 // that reaches the write drives a real tmux binary, and those skip wherever
-// tmux is off PATH -- which is the container the gate runs in. Worse, the one
-// PaneInjector test that does run there,
+// tmux is off PATH -- as it was in the agent container this was found in,
+// whose image predated the base image gaining tmux (5dd35728). The host and
+// the current image both have it, so those tests do run there; the point is
+// that a gate CAN be green with them all skipped. Worse, the one
+// PaneInjector test that does still run without tmux,
 // TestPaneInjector_UnmeasuredTargetIsRefusedWithNothingWritten, reports
 // "--- PASS" while ALL FIVE of its subtests skip, and it returns at the
 // refusal anyway, before any write happens.

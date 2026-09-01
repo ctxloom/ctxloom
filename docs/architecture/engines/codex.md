@@ -2,7 +2,7 @@
 
 ctxloom's adapter for the OpenAI Codex CLI. It declares codex's two process
 surfaces, resolves and seeds `CODEX_HOME`, writes codex's native
-config/prompt/skill/`AGENTS.md` files, and launches `codex` — or `codex-acp` for
+config/prompt/skill/`AGENTS.md` files, and launches `codex` for
 structured chat.
 
 Its distinguishing contract is **`CODEX_HOME` ownership**. codex is the only backend
@@ -20,14 +20,12 @@ scraper was deleted outright and `History()` returns `nil`.
 | Symbol | Location | Meaning |
 |---|---|---|
 | `Codex` | `backend.go:50` | The `agent.Backend`; embeds `LaunchBackend`. Private state: `resolvedProjectDir`, `resolvedTrustAbsPath`, `credentialErr`, `thinking` |
-| `NewCodex` | `backend.go:90` | `InitLaunch(NewBaseLifecycle("codex"), &CodexCommands{}, ctxProvider, nil, &agent.CellDelivery{Build: b.buildSurfaces, RawContext: true, ContextHook: true})`, `SetExecuteEnv(b.cellCodexHomeEnv)`, `SetACPTransport(CodexACPTransport)` |
+| `NewCodex` | `backend.go:90` | `InitLaunch(NewBaseLifecycle("codex"), &CodexCommands{}, ctxProvider, nil, &agent.CellDelivery{Build: b.buildSurfaces, RawContext: true, ContextHook: true})`, `SetExecuteEnv(b.cellCodexHomeEnv)` |
 | `CodexConfig` | `backend.go:29` | Decode target. `BinaryPath`/`Args`/`Env`/`Thinking` live; `Model` decoded and never read |
 | `CodexConfig.BackendType` | `backend.go:45` | `"codex"` |
 | `Setup` | `backend.go:230` | Resolves `CODEX_HOME`, stashes the trust path, runs the credential gate |
 | `Execute` | `backend.go:351` | Credential gate first, then `ExecuteCLI` |
 | `buildArgs` | `backend.go:437` | subcommand + model + sandbox tier + approval + positional prompt |
-| `Chat` | `chat.go:38` | `agent.StructuredChat` via the generic ACP driver over `codex-acp` |
-| `CodexACPTransport` | `chat.go:21` | `{Kind: ACPAdapter, Binary: CodexACPAdapter, InstallCmd: "npm install -g @zed-industries/codex-acp", Publisher: "Zed Industries"}` |
 | `EngineCLIs` / `CodexEngineCLIs` | `enginecli.go:167` / `:181` | Surface declarations |
 | `GlobalHome` / `ProjectHome` | `commandfiles.go:72` / `:77` | The only export seam for `internal/operations/hooks.go:301,305` |
 | `CodexHookWriter` | `settings.go:54` | `agent.SettingsWriter` + `agent.ContextWriter` (`config.toml` + `AGENTS.md`) |
@@ -50,7 +48,6 @@ mechanism at all.
 - **Emitted argv** (`backend.go:437-475`): `[exec] <b.Args…> [--model M] [--sandbox read-only|workspace-write | --dangerously-bypass-approvals-and-sandbox] [--ask-for-approval never] [<prompt>]`.
 - **Flag vocabulary** (`enginecli.go:80-85`): `--model`, `--sandbox`, `--dangerously-bypass-approvals-and-sandbox`, `--ask-for-approval` (**interactive only** — `codex exec` rejects it with exit 2, `enginecli.go:206-208`).
 - **Env set on the child** (`enginecli.go:162`): `CODEX_HOME`, `CTXLOOM_CONTEXT_FILE`, `CTXLOOM_SESSION_HARP`. The harp is consumed by nothing — codex has no session-naming lever.
-- **Structured chat**: `codex-acp` (Zed Industries) on PATH; host-PATH gate then the generic ACP driver (`chat.go:38`). Config overrides pass as `-c key=value` (`chat.go:89`).
 
 ## Capabilities
 
@@ -65,7 +62,7 @@ mechanism at all.
 | Commands | **`$CODEX_HOME/prompts/<name>.md` — global only** (`commandfiles.go:98`, `:108`; delivered at `surfaces.go:316-323`, labelled `"codex/commands (global $CODEX_HOME)"`) |
 | Skills | **`$CODEX_HOME/skills/<name>/SKILL.md` — global only** (`writeCodexSkillPackages`, `skillfiles.go:60`; `surfaces.go:324-331`) |
 | | **codex has no project-level prompts or skills dir** (`enginecli.go:60-66`), so an isolated *directory* alone would not isolate them; only the per-run `CODEX_HOME` does |
-| One-shot / resume | **Supported.** In both `resumeCapableBackends` and `oneShotSupportedBackends` (`spawner.go:226`, `:249`). Resume-id capture is in `internal/acp`. codex has no session-naming flag |
+| One-shot / resume | **Supported.** In both `resumeCapableBackends` and `oneShotSupportedBackends` (`spawner.go:226`, `:249`). codex has no session-naming flag |
 | Transcript | **No scrape.** `SessionHistory` is `nil`; the `rollout-*.jsonl` reader was deleted (`capabilities.go:17-25`) after its envelope-vs-flat parsing mismatch silently returned zero-entry sessions. Opt-in vendor reader at `internal/operations/vendorreader.go:72` — the reference implementation the other readers copy |
 | Model + auth | `--model` emitted only when non-empty; empty lets codex resolve its account-scoped default. Auth: `OPENAI_API_KEY` (live-verified trigger; **`CODEX_API_KEY` is not a confirmed trigger and is deliberately excluded**, `internal/lm/isolation/auth.go:186-196`), else the ChatGPT subscription `auth.json`. The credential gate `ensureCodexCredentials` (`backend.go:272`) picks one of three treatments by `codexHomeSource` (`backend.go:189`). Reasoning rides `-c model_reasoning_effort=…` with `high`→`xhigh` (`chat.go:112`) |
 | Isolation | **Supported; container auth works.** Scoped env passthrough plus a **read-only** mount of `~/.codex/auth.json` — RO is safe because non-interactive codex never refreshes the token in place, unlike claude (`internal/lm/isolation/auth.go:198-245`). ctxloom also pre-seeds codex's own trust prompt by writing `[projects."<abs>"] trust_level` (`addProjectTrust`, `settings.go:161`) |
@@ -89,7 +86,7 @@ mechanism at all.
 - **`save` writes a 0-byte `config.toml` when the table is empty** — `toml.Encode(map[string]any{})` produces zero bytes on the pinned go-toml v2.4.3, and `agent.AtomicWriteFile` has no zero-length guard, so prior contents are destroyed with exit 0 (`settings.go:195-201`). Reachable from `RemoveSettings` (`settings.go:217`) — the `configSurface` Cleanup path on **every isolated run**.
 - **A TOML parse failure is converted to an empty table and written back, replacing every user key** (`settings.go:187-190`). The same package's `mcpTOMLDoc` (`mcp_registrar.go:101`) treats the identical failure as a hard error — **the two readers of the same file disagree**. The warning does not name the `.ctxloom.bak` backup, so there is no recovery pointer.
 - **The credential gate reads the ambient process `OPENAI_API_KEY`** (`backend.go:276`) while its caller resolves `CODEX_HOME` from `req.Env`, so a per-agent `env:` key that would have authenticated the child is invisible and `Execute` refuses a run that would have worked.
-- **A configured unified `SessionEnd` hook is silently discarded for codex** — no route, no warning (`settings.go:319-329`). Every sibling routes it (`internal/claude/claude.go:590`, `internal/antigravity/antigravity.go:399`, `internal/kiro/settings.go:142`).
+- **A configured unified `SessionEnd` hook is silently discarded for codex** — no route, no warning (`settings.go:319-329`). Its sibling routes it (`internal/claude/claude.go:590`).
 - **An explicitly-set `CODEX_HOME` not ending in `/.codex` is silently rewritten** (`backend.go:163-167`): `CODEX_HOME=/opt/codexhome` means the child receives `/opt/codexhome/.codex`, with no diagnostic. Pinned as expected at `backend_test.go:282`.
 - **The declared "SINGLE source of the names codex reads" is contradicted by literals in three files** (`enginecli.go:45-49` vs `mcp_registrar.go:49,51`; `commandfiles.go:23,30`; `skillfiles.go:35`) — including consumers the comment explicitly names.
 - **`agent.SurfaceInputs.DenyTools` configured for a codex agent is accepted and silently dropped** (`internal/shared/agent/cells.go:179-181` vs `surfaces.go:311`).

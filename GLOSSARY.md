@@ -27,7 +27,7 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 | **wire** | The network-agnostic control-plane→runner transport. Carries **all** data the runner needs; assumes **no** shared filesystem (the runner may be remote). | gRPC (`SetupRequest`, plugin server) |
 | **virtualized-process-io (vpio)** | The host-side transport for an interactive agent **turn**, formalized behind one interface so the frontend (raw-terminal ownership, SIGWINCH→resize plumbing, the termui surround, stdin-close semantics, exit propagation) never touches a transport directly. Distinct from the **wire**: the wire carries the *loadout*, once, before the turn starts; vpio carries the *turn itself* (stdio + resize + signal + exit), for as long as it runs. Current (only) implementation: **go-plugin** — wraps the existing hashicorp/go-plugin-backed bidirectional `Run` RPC (`internal/lm/grpc`, `llm.proto`'s `Run`); the wire protocol is unchanged, only the host-side call shape is. Registered future swaps (not yet implemented): **docker-exec** (attach to an already-running container's process via `docker exec -it`, for the container-isolation runtime) and **host-pty** (a bare local pty-spawned process, for a non-plugin engine). | `internal/vpio` (`Launcher`/`Session`/`ProcessSpec`/`ExitStatus`); go-plugin impl `internal/vpio/goplugin`; consumers `internal/cli/run.go`, `internal/cli/init.go` |
 | **runner** | Everything after the wire: receives transmitted config/content, **materializes it locally** (the delivery seam), and drives the engine. Neutral about mechanism — it may spawn a process or call an API. | `internal/shared/agent` (`LaunchBackend`) + the per-engine backends |
-| **engine** | What the runner drives to produce agent behavior — an agentic CLI product (claude-code, codex, gemini-cli) **or** a direct-API integration. Coined: unclaimed at this layer (elsewhere "engine" means an inference server). Continuity with the existing `agent_engine` key. | claude / codex / kiro / antigravity backends |
+| **engine** | What the runner drives to produce agent behavior — an agentic CLI product (claude-code, codex, gemini-cli) **or** a direct-API integration. Coined: unclaimed at this layer (elsewhere "engine" means an inference server). Continuity with the existing `agent_engine` key. | claude / codex / opencode backends |
 | **provider** / **model** | Standard sub-terms *beneath* an engine, for the model/API layer: `provider` = the vendor (Anthropic/OpenAI), `model` = the specific LLM. Industry-standard pair (Vercel AI SDK, opencode, Goose, Cline, LiteLLM, OpenRouter) — do not coin here. | (config for API-backed engines) |
 | **loadout** | The full set of **surfaces** the control-plane assembles and the runner injects for a session — the composed delivery payload transmitted over the wire. | context assembly + `internal/lm/backends` (`AssembleManagedConfig`) |
 | **surface** | One managed deliverable within a loadout — WHAT is delivered (the **context**, MCP, hooks, commands, skills and settings deliverables; `SurfaceKind` enumerates those the delivery chain dispatches on). Contrast **channel**, which is *how* the engine reaches it. | `ManagedConfig` fields + framed context + `.mcp.json` / `.claude/*` |
@@ -35,17 +35,17 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 | **presentation** | The composed result for ONE surface: where its bytes are on the host, where the **engine** sees them, and everything the engine is told in order to find them. Built against an already-**advised** `Paths`, never selected from a set. | `present.Presentation` |
 | **advice** | The rewrite of a `Paths` — every named **root**'s host-vs-engine sides and, for a container, the mounts that make the engine side true — applied ONCE, to the whole run, before any presenter composes anything. Two independent axes each rewrite one half of a root: a workspace advice rewrites Host (worktree materialization), a runtime advice rewrites Engine and records mounts (containerization); the identity host transport (`OnHost`) is the same `PathsAdvice` vocabulary as `Containerize`, not a branch a call site takes. Because advice finishes before a presenter runs, a presenter cannot be un-containerizable by the shape of what it announces — the old failure mode, where a channel needed its own advice interface and a flag-only presenter had no channel a container could discover a lever through. | `internal/shared/agent/present` (`PathsAdvice`, `Containerize`, `OnHost`) |
 | **config modification record** | The sidecar file recording WHICH ENTRIES ctxloom currently has in a config file it SHARES with the user (`.ctxloom-managed`, beside the file it describes). It is what makes reconciling to a declared state possible in a file ctxloom does not own: the entries it names are removed and re-added each run, so a hand-authored entry in the same file survives untouched and one ctxloom no longer declares is withdrawn. CURRENT STATE, never a history — a surface ctxloom stops writing is cleared rather than grown, which is why "ledger" was the wrong noun for it. It exists as a SIDECAR because some engines forbid an in-file marker: Claude Code's settings schema is strict, so ctxloom cannot leave one in the file at all. | `internal/shared/ledger`; `.ctxloom-managed` |
-| **command** | A **user-invoked** slash-command template (`/name`): the engine substitutes a prompt. Every engine has this under its own name (claude `.claude/commands/`, codex `$CODEX_HOME/prompts/`, opencode `.opencode/command/`, kiro `/name`). ctxloom's `command` item-kind and CLI group. | `ctxloom command`; `agent.CommandExport`; bundle `commands:` |
-| **skill** | A **model-invoked** Agent Skill package: a directory containing `SKILL.md` (YAML frontmatter `name`+`description`, instructions body) plus optional bundled `scripts/`/assets, loaded by the engine via progressive disclosure when the description matches the task at hand — never typed by the user. Distinct item-kind from **command**; the two collide in the ecosystem word "skill" only for kiro (§3.3 of the skill/command split plan), reconciled by materializing both into `.kiro/skills/` under two separate manifests. | `ctxloom skill`; `bundles.BundleSkill`/`SkillPackage`; bundle `skills:`; `agent.SkillExport` |
+| **command** | A **user-invoked** slash-command template (`/name`): the engine substitutes a prompt. Every engine has this under its own name (claude `.claude/commands/`, codex `$CODEX_HOME/prompts/`, opencode `.opencode/command/`). ctxloom's `command` item-kind and CLI group. | `ctxloom command`; `agent.CommandExport`; bundle `commands:` |
+| **skill** | A **model-invoked** Agent Skill package: a directory containing `SKILL.md` (YAML frontmatter `name`+`description`, instructions body) plus optional bundled `scripts/`/assets, loaded by the engine via progressive disclosure when the description matches the task at hand — never typed by the user. Distinct item-kind from **command**. | `ctxloom skill`; `bundles.BundleSkill`/`SkillPackage`; bundle `skills:`; `agent.SkillExport` |
 | **context** | The model-facing instructions **surface** (the sysprompt / `CLAUDE.md` text). **Narrow** — one surface, never the umbrella (that's the loadout). Matches industry "context" = what's in the model's context window. | assembled context; framed sysprompt; `CLAUDE.md` |
 | **agent** | A **ctxloom actor**: a profile-in-action — the primary you launch *and* each delegated worker (coordinator, finder, programmer, reviewer). What `run --agent` selects and what delegation spawns. **Reserved** — bare "agent" always means this. | the `subagent→agent` rename; `run --agent` |
-| **engine agent** | The engine's *own* internal subagent (claude `--agent`, "agent family", the ACP `agent` field). Always qualified; never bare "agent." | claude `--agent`, ACP descriptor `agent` |
+| **engine agent** | The engine's *own* internal subagent (claude `--agent`, "agent family"). Always qualified; never bare "agent." | claude `--agent` |
 | **session** | A launched ctxloom run (harp-named). Hosts the primary agent and its delegated agents. | `~/.ctxloom/sessions/<harp>`; harp IDs |
 | **profile** | An agent's *definition* (config). `agent` = profile-in-action. | `internal/config` profiles |
-| **runtime coordinator** | The **process/library**: durable CQRS stores (run registry, role mailboxes, interaction journal), credential minting/verification, the agentcoord gRPC server (RunnerChannel/RunChannel), spawn-queue scheduling, and runner-loss synthesis. Hosted by every session-owning process (`ctxloom run`, `ctxloom acp`, the `ctxloom mcp serve` fallback). Never an LLM. | `internal/agentcoord/coord` |
+| **runtime coordinator** | The **process/library**: durable CQRS stores (run registry, role mailboxes, interaction journal), credential minting/verification, the agentcoord gRPC server (RunnerChannel/RunChannel), spawn-queue scheduling, and runner-loss synthesis. Hosted by every session-owning process (`ctxloom run`, the `ctxloom mcp serve` fallback). Never an LLM. | `internal/agentcoord/coord` |
 | **coordinating agent** | The **LLM role**: an agent (usually the session's primary) that *uses* the coordination tools — spawning children (`agent_run`), routing their mail (`agent_send`/`agent_recv`), reading the roster, filing reports. Judgment lives here; process facts live in the runtime coordinator. | the parent session's model; the coordinator-ensemble profiles |
 
-> Status: the `codex` and `kiro` engines above are implemented and hermetically tested; live operation is untested (no codex/kiro account on any dev host).
+> Status: the `codex` engine above is implemented and hermetically tested; live operation is untested (no codex account on any dev host).
 
 ## Naming decisions (why these words)
 
@@ -54,7 +54,7 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   distinct name so bare "agent" is never ambiguous.
 - **"engine" is a deliberate coinage.** There is *no* established, collision-free
   noun for "the CLI-product-or-direct-API backend a tool drives." The category
-  words ("coding agent", "CLI agent", Zed/ACP "external agent") all collide with
+  words ("coding agent", "CLI agent", Zed's "external agent") all collide with
   "agent." "engine" is unclaimed at this layer, so we use it.
 - **"virtualized-process-io" names the role, not the transport.** go-plugin,
   docker-exec, and host-pty are three different ways to get bytes in and out
@@ -71,9 +71,6 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   instructions surface (industry usage), name each deliverable a **surface**, and
   call the composed set a **loadout**. So: surfaces compose into a loadout; context
   is the context surface.
-- **ACP impedance:** ACP (a dependency) calls the driven backend **"agent"**
-  (Zed: "external agent"). That is our **engine**, not our agent. We map ACP's
-  "agent" → our "engine" at the boundary and never adopt ACP's noun internally.
 - **"coordinator" is split, never bare.** The peer-model work made one word
   carry two natures: the **runtime coordinator** is deterministic
   infrastructure (journals, credentials, gRPC channels, lifecycle synthesis —
@@ -89,6 +86,5 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 
 - package `internal/shared/agent` → `runner` (biggest bare-"agent" offender).
 - `agent_engine` config key → `engine`.
-- ACP/descriptor `agent` field → `engine_agent`.
-- audit `ctxloom agents` / `acp agents` — name each by whether it lists
+- audit `ctxloom agents` — name each by whether it lists
   *ctxloom agents* or *engine agents*.

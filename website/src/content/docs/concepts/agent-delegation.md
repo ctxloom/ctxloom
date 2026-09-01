@@ -45,7 +45,7 @@ children — harp, run state, latest report, last activity — the live-status v
 a coordinator itself reads instead of holding it all in the conversation.
 
 Every one of these is part of the **runner-terminated** MCP surface a normal `ctxloom run` /
-`ctxloom acp` session gets automatically — richer than, and schema-different from, what a
+`ctxloom run` session gets automatically — richer than, and schema-different from, what a
 standalone `ctxloom mcp serve` registration exposes (see the [MCP Server
 guide](/guides/mcp-server/)). You don't wire this up; it's there because you're running through
 `ctxloom run` at all.

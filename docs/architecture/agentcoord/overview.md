@@ -18,7 +18,7 @@ Two processes, one bidirectional gRPC link per run.
 
 ```mermaid
 flowchart TD
-  subgraph CoordProc["coordinator process — ctxloom run / acp / mcp"]
+  subgraph CoordProc["coordinator process — ctxloom run / mcp"]
     C["Coordinator<br/>coordinator.go:92"]
     ST[("Store ×4<br/>runs · mailbox · items · interactions<br/>journal.go:58")]
     FOLDS["folds: runs/queue/roster/mail/items/reports"]
@@ -32,7 +32,7 @@ flowchart TD
     H["Home<br/>home.go:31"]
     RL["RunnerLink<br/>runnerlink.go:34"]
     EH["EngineHost<br/>enginehost.go:53"]
-    BE[["agent.StructuredChat<br/>(claude · codex · kiro · opencode · acp)"]]
+    BE[["agent.StructuredChat<br/>(mock only — no shipped engine implements it)"]]
     EH -->|in-process Chat| BE
     H --> EH
     RL --> EH
@@ -131,8 +131,6 @@ linked page.
 | `RevokeSessionOwner` has zero call sites — depth-0 owner credentials are never revoked, contradicting `doc.go:16-18` | [coordinator-core.md](coordinator-core.md) |
 | `Home.abandonPark`'s comment says "requeue"; no requeue exists | [transport.md](transport.md) |
 | `artifactstore.go:20-24` attributes corrupt-read detection to `artifacts.go`; verification is client-side in `homeartifacts.go` | [artifacts.md](artifacts.md) |
-| `jsonrpc`'s package doc claims it "warns and continues on a malformed frame"; any decode error tears the session down | [acp-jsonrpc.md](acp-jsonrpc.md) |
-| `ChatRequest.Runtime` and `ResumeSessionID` do not exist on the `ChatStart` proto, so the ACP container transport and `session/load` resume are unreachable on the go-plugin path (reachable in-process via `EngineHost`) | [acp-client.md](acp-client.md) |
 | Summary dedupe keys `(harp, seq)` while `seq` is per-run and restarts at 1 on resume | [artifacts.md](artifacts.md) |
 | `children.go:551-554` claims the legacy chat path is production-unreachable; `antigravity` and `opencode` both take it | [child-lifecycle.md](child-lifecycle.md) |
 | `spawner.go:102-119` says one-shot is "not yet executed (v0.8)"; `Resolve` returns `ResumeModeOneShot` for claude-code and codex today | [child-lifecycle.md](child-lifecycle.md) |

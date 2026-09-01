@@ -1,6 +1,6 @@
 # agent — LaunchBackend setup/execute/cleanup
 
-`LaunchBackend` is the shared core every local-CLI engine embeds (`internal/claude`, `codex`, `antigravity`, `kiro`, `opencode`, `acp`). It owns two things that happen to live on one struct: the **generic Setup/Cleanup** that turns a host-assembled `ManagedConfig` into written surfaces and reversible cleanup handles, and the **exec half** that assembles the child environment and routes an interactive or oneshot launch. Capabilities are injected once via `InitLaunch` and probed at use.
+`LaunchBackend` is the shared core every local-CLI engine embeds (`internal/claude`, `codex`, `opencode`). It owns two things that happen to live on one struct: the **generic Setup/Cleanup** that turns a host-assembled `ManagedConfig` into written surfaces and reversible cleanup handles, and the **exec half** that assembles the child environment and routes an interactive or oneshot launch. Capabilities are injected once via `InitLaunch` and probed at use.
 
 ```mermaid
 flowchart TD
@@ -58,7 +58,7 @@ flowchart TD
 ## Invariants and contracts
 
 - **`InitLaunch` must run before `Setup`.** It performs no validation: a nil `lifecycle` passes and panics later inside `setupViaCells` at `:241`.
-- **`Setup` returns `nil` — full success — when `b.delivery` is nil.** A backend that forgot `InitLaunch`'s delivery argument launches with zero surfaces written and exit 0. Every real backend passes a `CellDelivery` (acp passes an empty-set one), so a nil delivery is a misconfiguration, not a mode.
+- **`Setup` returns `nil` — full success — when `b.delivery` is nil.** A backend that forgot `InitLaunch`'s delivery argument launches with zero surfaces written and exit 0. Every real backend passes a `CellDelivery`, so a nil delivery is a misconfiguration, not a mode.
 - **`setupViaCells` discards `mergedState`'s `ok`** (`hooks, mcp, _ := b.mergedState()` at `:245`). A lifecycle whose type assertions fail delivers the settings and MCP surfaces with `nil` hooks and `nil` MCP — a written settings file containing none of ctxloom's hooks, exit 0.
 - **`ManagedLifecycle` declares one method but four are required.** `setupViaCells` and `ManagedChatMCPServers` immediately type-assert past it for `GetHooks`, `GetMCP`, and `ChatMCPServers` (`:114-118`, `:366-377`). The capability is a runtime assertion, not a compile-time contract.
 - **`req.Managed == nil` makes `setupViaCells` return `nil`** without writing anything.
@@ -66,6 +66,6 @@ flowchart TD
 - **`recoverContextViaHook` returns a `bool`, not an `error`.** The reason a recovery failed — `Provide`'s error, or a `mergedState` miss — is discarded, and its warning goes directly to `os.Stderr` rather than the run's stderr.
 - **`Cleanup` is LIFO and attempts every handle, but keeps only the first error**; every subsequent teardown failure is discarded rather than joined.
 - **`ContentCommands` and the `commands` field are dead.** `b.commands` is written by `InitLaunch` (`:92`) and read nowhere; six backends implement `RegisterFromContent` and the only call is in `claude/capabilities_test.go:32`. The commands surface now rides `ManagedCommandsDelivery`.
-- **The context is assembled twice per Setup for `RawContext` backends** (codex/antigravity/kiro): once via `context.Provide` → `WriteContextFile` at `:224`, and again at `:249` for `SurfaceInputs.Context`. Both paths emit the >16KB warning to `os.Stderr`.
+- **The context is assembled twice per Setup for `RawContext` backends** (codex): once via `context.Provide` → `WriteContextFile` at `:224`, and again at `:249` for `SurfaceInputs.Context`. Both paths emit the >16KB warning to `os.Stderr`.
 - **`LaunchBackend` is two types on one struct.** Exec half: `{BaseBackend, extraEnv}` ← `ExecuteCLI`/`TraceArgs`/`ExecuteEnv`. Setup half: `{lifecycle, delivery, delivered}` ← `Setup`/`setupViaCells`/`deliverSet`/`recoverContextViaHook`/`mergedState`/`Cleanup`. Only `context` is shared, and the exec half uses it for a path string while the setup half uses it to write files; `history` and `commands` belong to neither.
 - **`ApplyLocalCLIConfig`** (`internal/shared/agent/localcli.go:9`) applies per-backend binary/args/env overrides and is called by all six backends; it assigns into `b.Env` without a nil check, so it is safe only because every production path constructs through `NewBaseBackend`.

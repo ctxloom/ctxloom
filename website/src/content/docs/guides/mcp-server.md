@@ -73,7 +73,7 @@ The MCP surface is deliberately small: it retrieves context, works with session 
 
 :::note
 This is the standalone `ctxloom mcp serve` surface — the one this page documents. A normal
-`ctxloom run` / `ctxloom acp` session gets a **richer, runner-terminated** delegation surface
+A `ctxloom run` session gets a **richer, runner-terminated** delegation surface
 instead (different `agent_run`/`agent_send`/`agent_recv`/`agent_stop` schemas, plus
 `agent_report`, `agent_fetch_artifact`, and `roster`), reached automatically — you never
 register `ctxloom mcp serve` yourself for a normal session. See [Agent

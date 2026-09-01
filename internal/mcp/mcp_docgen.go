@@ -67,7 +67,7 @@ func NewDocMCPServer() (server *mcp.Server, closeHome func(), err error) {
 // only ever enumerated the STANDALONE `ctxloom mcp serve` surface (a
 // deliberately reduced agent-delegation surface with different schemas --
 // see mcpIntro's own caution block), so the surface a real harness actually
-// talks to through `ctxloom run`/`ctxloom acp` had zero completeness
+// talks to through `ctxloom run` had zero completeness
 // coverage: roster, agent_report and agent_fetch_artifact are named in this
 // package's own doc as existing only here, and were never checked by
 // anything.

@@ -21,10 +21,9 @@ Doctor is diagnostic only — it always exits `0` and never blocks or changes an
 Run with no flags on an already-set-up project and doctor runs the full set:
 
 - **`DOCTOR-CHECK-SETUP-MARKER-e5`** — the `.ctxloom` marker directory is present and config loaded without error
-- **`DOCTOR-CHECK-DEPS-a1`** — `git` and a container runtime are on `PATH` (required); each configured engine's native client (`claude`, `codex`, `kiro-cli`, `agy`, `opencode`) is on `PATH` (required); `ssh` and `ssh-keygen` are present (recommended — `ssh` is what `git` itself needs for an `ssh://` remote, `ssh-keygen` is only for generating a *new* signing key by hand; ctxloom's own signing is pure Go over the ssh-agent protocol and never execs either)
+- **`DOCTOR-CHECK-DEPS-a1`** — `git` and a container runtime are on `PATH` (required); each configured engine's native client (`claude`, `codex`, `opencode`) is on `PATH` (required); `ssh` and `ssh-keygen` are present (recommended — `ssh` is what `git` itself needs for an `ssh://` remote, `ssh-keygen` is only for generating a *new* signing key by hand; ctxloom's own signing is pure Go over the ssh-agent protocol and never execs either)
 - **`DOCTOR-CHECK-SIGNKEY-k1`** — a signing identity resolves via the exact resolver `ctxloom review`'s approve path and `ctxloom bundle sign`/`--sign` use (explicit `sign.key`, then `git config user.signingkey`, then ssh-agent's sole identity)
 - **`DOCTOR-CHECK-GITIDENT-l2`** — `git config user.name` and `user.email` both resolve, because agents ctxloom launches commit their own work inside isolated worktrees, and an unset identity means a commit fails or gets silently mis-attributed to whatever the OS account derives
-- **`DOCTOR-CHECK-ACPADAPTER-m3`** — for every configured `claude-code`/`codex` engine (the two that need one), the separate npm-installed ACP adapter binary (`claude-code-acp`, `codex-acp`) is on `PATH`; a missing adapter hard-fails host-runtime structured chat, but containerized agents carry their own adapter in-image and aren't affected
 - **`DOCTOR-CHECK-AGENTS-b2`** — every configured agent resolves (profile composition + engine/runtime), and the roster isn't empty
 - **`DOCTOR-CHECK-CAPABILITY-LOSS-u1`** — names, per configured agent, what the engine it resolves to has *no structural place for*: hooks its profiles declare that this engine can never fire (opencode has no hook mechanism at all; codex has hooks but no native session-end event). This is the one breakage the wiring checks are blind to by construction — they report what landed, and every line of that is true, so a hook that could never land anywhere is invisible in it. Move an agent to a different engine and your guardrail stays in your config, the binding stays valid, and it silently stops running. It's the same loss `ctxloom profile materialize` and `ctxloom agent show` report as "NOT carried", read here across the whole roster
 - **`DOCTOR-CHECK-VERSION-c3`** — informational only: reports the running version; comparing it against the newest remote tag is left to the `ctxloom-doctor` skill or a human, since there's no built-in update check yet
@@ -36,15 +35,13 @@ Run with no flags on an already-set-up project and doctor runs the full set:
 - **`DOCTOR-CHECK-SETUP-COMPANIONS-i9`** — companion detection and loadout probing (taskloom, ltk, ...); absence is informational, not a warning, since companions are optional
 - **`DOCTOR-CHECK-SETUP-AUTHPING-j0`** — informational placeholder: there's no deterministic pre-launch auth ping yet, so this line names that gap explicitly rather than staying silent about it
 
-Deliberately out of scope: doctor never parses a third-party ACP client's own config (Zed settings, a VSCode `acp-client` config, Toad, ...). Verifying that a specific client is wired correctly is that client's own job — ctxloom stays unbound to any one frontend.
-
 ## `--deps`: before a project is even set up
 
 ```
 ctxloom doctor --deps
 ```
 
-Running the full report against a brand-new, never-initialized project is a wall of expected-missing state — no agents, no profiles, no hooks — that would needlessly alarm you at the very start of setup. `--deps` scopes the report to just the machine-capability questions that are true or false regardless of setup state: `DEPS-a1`, `SIGNKEY-k1`, `GITIDENT-l2`, and `ACPADAPTER-m3`. This is the mode `ctxloom init`'s PRIME phase and the setup skill's phase 1 use internally, before there's anything else to check.
+Running the full report against a brand-new, never-initialized project is a wall of expected-missing state — no agents, no profiles, no hooks — that would needlessly alarm you at the very start of setup. `--deps` scopes the report to just the machine-capability questions that are true or false regardless of setup state: `DEPS-a1`, `SIGNKEY-k1` and `GITIDENT-l2`. This is the mode `ctxloom init`'s PRIME phase and the setup skill's phase 1 use internally, before there's anything else to check.
 
 ## `--format json`
 

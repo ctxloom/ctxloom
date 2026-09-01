@@ -10,8 +10,8 @@ owns the per-harp retry budget and stop flag; `owner_run.go` is the parent-less
 top-level container run.
 
 Two mutually exclusive launch drivers coexist: the **migrated** StartRun path
-(`plan.ViaStartRun` — claude-code, codex, kiro, acp) and the **legacy** go-plugin chat
-path (antigravity, opencode).
+(`plan.ViaStartRun` — claude-code, codex, opencode) and the **legacy** go-plugin chat
+path, which now has no registered backend at all.
 
 ```mermaid
 flowchart TD
@@ -163,10 +163,8 @@ Two consequences a reader must hold:
   says "stopped". Two bodies, one verb.
 - **`children.go:551-554` states the legacy chat path has no production backends**
   ("today: none in production, only test doubles"). `viaStartRunBackends` is
-  `{claude-code, codex, kiro, acp}`; `antigravity` (`internal/antigravity/chat.go:57`)
-  and `opencode` (`internal/opencode/chat.go:41`) are registered backends implementing
-  `Chat` and absent from that set, so both take the legacy path — and with it the
-  documented "not LIVE-observable via ConsumerService" gap.
+  `{claude-code, codex, opencode}`, and since the ACP removal no registered backend
+  implements `Chat` at all, so the statement now holds.
 - **`ResumeMode`'s doc contradicts the code.** `spawner.go:102-119` says one-shot is
   "not yet executed", persistent is "today's only behavior", and one-shot is
   "(v0.8, Slice 4)"; `Resolve` (`spawner.go:361-375`) returns `ResumeModeOneShot` for

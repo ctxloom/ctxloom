@@ -8,7 +8,7 @@ Environment variables that affect ctxloom behavior.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CTXLOOM_VERBOSE` | Enable verbose logging (including delegated-child launch diagnostics: the child plugin's and ACP adapter's stderr) | `0` (disabled) |
+| `CTXLOOM_VERBOSE` | Enable verbose logging (including delegated-child launch diagnostics: the child plugin's stderr) | `0` (disabled) |
 | `CTXLOOM_ROOT` | Override project-root resolution (normally the git root or the directory containing `.ctxloom`) | unset |
 | `CTXLOOM_DEBUG_HTTP` | Log HTTP requests made to remote forges | `0` (disabled) |
 | `CTXLOOM_DEGRADED` | Set to `1` for the environment-variable form of `--degraded`: relaxed strictness (warn-and-continue instead of a hard fail on findings that would otherwise abort). Read before cobra dispatch, so it also covers the pre-command window (config discovery, project-root resolution). There is deliberately no config-file equivalent — a broken config can't excuse itself. As config decoding becomes stricter, this is the escape hatch that unblocks a session a strict decode would otherwise refuse to start | unset |
@@ -51,14 +51,13 @@ Agents with `runtime: container-rootless` or `runtime: container-rootful` pass a
 | `ANTHROPIC_API_KEY` | Passed through for token-based Claude auth (subscription auth, via mounted OAuth credentials, is the default when this is unset) |
 | `ANTHROPIC_AUTH_TOKEN` | Forwarded alongside `ANTHROPIC_API_KEY` when present |
 | `ANTHROPIC_BASE_URL` | Forwarded alongside `ANTHROPIC_API_KEY` when present |
-| `ANTHROPIC_MODEL` | Forwarded alongside `ANTHROPIC_API_KEY` when present. This is not a convenience — `claude-code-acp` 0.16.2 silently ignores the driver's `--model` argument, so this env var is the *only* way to select a model for a containerized (or generic ACP-driven) claude run |
+| `ANTHROPIC_MODEL` | Forwarded alongside `ANTHROPIC_API_KEY` when present. Selects the model for a containerized claude run |
 | `ANTHROPIC_SMALL_FAST_MODEL` | Forwarded alongside `ANTHROPIC_API_KEY` when present |
-| `KIRO_API_KEY` | Passed through for the kiro backend (triggers headless auth, skipping the browser login) |
 | `TERM`, `COLORTERM` | Forwarded so the engine renders with the host terminal's actual capabilities instead of the image default (or `dumb`, which drops color and cursor control) |
 | `PUID`, `PGID` | *Not* read from your environment — set by the isolation runtime from `os.Getuid()`/`os.Getgid()` and passed into the container. Under a rootful daemon (rootful Docker, Podman) the entrypoint uses them to remap the image's baked-in `ctxloom` user to your uid/gid and drop privileges to it before the engine starts, so files the engine writes into the bind-mounted project are owned by you, not by the container's generic user or by root. If the remap can't be performed (no usable `gosu`/`setpriv` in the image) the entrypoint refuses to run the engine as root and fails the launch loudly, unless `--degraded` (or `CTXLOOM_DEGRADED=1`) is in effect, which downgrades the refusal to a warning and lets the engine run as root. Rootless Docker never sets these — container-root there already is the launching user |
 | `CLAUDECODE` | Claude's own nested-session guard. When driving claude, ctxloom strips this from the spawned child's environment unconditionally, because claude 2.x refuses to start with it set — it would otherwise leak in as pure process-tree lineage under delegation |
 
-Status: the `kiro`, `codex`, and `antigravity` backends are **experimental** — implemented and hermetically tested, but live operation is not fully verified. `kiro` and `antigravity` additionally cannot authenticate under container isolation with a subscription login (kiro's credential is a sqlite store, antigravity's is the OS keyring — neither mounts into a container), so a containerized run of either requires an API key / token (`KIRO_API_KEY` for kiro). `claude-code` is the exercised default.
+Status: the `codex` backend is **experimental** — implemented and hermetically tested, but live operation is not fully verified. `claude-code` is the exercised default.
 
 ## Host and Engine Integration
 
@@ -66,8 +65,7 @@ These are read on the host (or inside the launched engine process) rather than c
 
 | Variable | Description |
 |----------|-------------|
-| `CODEX_HOME` | Codex's home directory. It **is** the `.codex` directory itself, not its parent (default `~/.codex`). This is a host-side lookup only — `CODEX_HOME` is honored when ctxloom resolves Codex's prompts directory, MCP registrar config path, and sessions directory, all of which key off it as the single source of truth for Codex-home precedence, but it never crosses into a container (it's in neither the claude nor the kiro auth passthrough list). ctxloom itself sets it (alongside `CLAUDE_CONFIG_DIR` and `KIRO_HOME`) for a worktree-isolated agent run, to give each concurrent agent its own global config layer rather than sharing yours |
-| `KIRO_HOME` | Kiro's home directory, used to locate kiro's session-history store (default `~/.kiro`). Like `CODEX_HOME`, ctxloom itself sets this for a worktree-isolated agent run |
+| `CODEX_HOME` | Codex's home directory. It **is** the `.codex` directory itself, not its parent (default `~/.codex`). This is a host-side lookup only — `CODEX_HOME` is honored when ctxloom resolves Codex's prompts directory, MCP registrar config path, and sessions directory, all of which key off it as the single source of truth for Codex-home precedence, but it never crosses into a container (it is not in the claude auth passthrough list). ctxloom itself sets it (alongside `CLAUDE_CONFIG_DIR`) for a worktree-isolated agent run, to give each concurrent agent its own global config layer rather than sharing yours |
 | `SSH_AUTH_SOCK` | ssh-agent socket used when signing a bundle with an ssh-agent-held key |
 | `XDG_RUNTIME_DIR` | Preferred base directory for the MCP runner's local unix-socket dir (`$XDG_RUNTIME_DIR/ctxloom`), tried after `/run/ctxloom/local` and before a `MkdirTemp` fallback |
 

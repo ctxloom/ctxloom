@@ -67,15 +67,6 @@ type agentCase struct {
 //     project dir — a real change to its shape, not a table edit, and out of
 //     scope for the slice that created this gap.
 //
-//   - kiro's writer has no SettingsPath method at all — its settings are
-//     genuinely multi-file (agentPath/mcpPath/mcpLedgerPath/steeringPath,
-//     see kiro/settings.go), so it does not implement this suite's
-//     settingsWriter interface and `concrete[*kiro.KiroWriter]` does not
-//     COMPILE (see concrete's doc). Covering kiro needs this suite's
-//     path-based assertions (WriteSettings/AtomicWriteBackup/
-//     RemovePreservesUser all read/write ONE file at SettingsPath) redesigned
-//     for a multi-file writer first — not a one-line table addition.
-//
 //   - opencode's WriteSettings explicitly IGNORES the hooks argument (it "has
 //     no ctxloom-style hook mechanism", see opencode/settings.go's own doc
 //     comment) — TestConformance_HookEventCoverage would fail immediately,
@@ -116,9 +107,9 @@ func TestConformance_CodexIsAbsentByDECLARATION(t *testing.T) {
 // RUN time, inside a range expression, where a writer that stopped exposing
 // SettingsPath produced a bare interface-conversion panic with no agent named
 // — a compile-time contract spent as a runtime crash. Binding W instead makes
-// the compiler check it at the call site: `concrete[*kiro.KiroWriter]` does
-// not build, because KiroWriter's settings are genuinely multi-file and it has
-// no SettingsPath at all. That is exactly the failure this table must produce
+// the compiler check it at the call site: a writer whose settings are
+// genuinely multi-file, and which therefore has no single SettingsPath, does
+// not build here at all. That is exactly the failure this table must produce
 // for an agent it cannot yet cover.
 func concrete[W settingsWriter](newWriter func(agent.SettingsOptions) agent.SettingsWriter) func(agent.SettingsOptions) settingsWriter {
 	return func(o agent.SettingsOptions) settingsWriter { return newWriter(o).(W) }

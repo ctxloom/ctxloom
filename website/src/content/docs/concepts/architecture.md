@@ -13,9 +13,9 @@ This page uses the project's canonical launch-architecture terms (defined in
 
 | term | meaning |
 |---|---|
-| **engine** | The thing ctxloom drives to produce agent behavior — Claude Code, Codex, Kiro, Antigravity, or any ACP-speaking client. Not "backend", not "AI tool". |
+| **engine** | The thing ctxloom drives to produce agent behavior — Claude Code, Codex, opencode. Not "backend", not "AI tool". |
 | **agent** | A ctxloom actor: a profile in action. The primary you launch with `run --agent`, and each delegated worker it spawns. |
-| **engine agent** | The engine's *own* internal subagent (claude's `--agent`, ACP's `agent` field). Always qualified — bare "agent" never means this. |
+| **engine agent** | The engine's *own* internal subagent (claude's `--agent`). Always qualified — bare "agent" never means this. |
 | **session** | One launched ctxloom run, harp-named. Hosts the primary agent and its delegated agents. |
 | **surface** | One managed deliverable: **context**, **MCP**, **hooks**, **commands**, or **settings**. |
 | **loadout** | The composed set of all five surfaces for a session — what gets handed to the runner. |
@@ -30,7 +30,7 @@ the session's own isolated workspace and drives the **engine**.
 ```mermaid
 flowchart LR
     CP["control-plane<br/>(config, profiles,<br/>context assembly,<br/>isolation policy)"] -->|"wire<br/>(loadout)"| R["runner<br/>(materializes surfaces,<br/>launches)"]
-    R -->|drives| E["engine<br/>(claude-code / codex /<br/>kiro / antigravity / acp)"]
+    R -->|drives| E["engine<br/>(claude-code / codex /<br/>opencode)"]
 ```
 
 The wire is network-agnostic: it carries **data**, not file handles, so nothing
@@ -340,36 +340,10 @@ Only hooks and settings live there.
 | context | injected by the SessionStart hook declared in `config.toml` |
 | commands | `$CODEX_HOME/prompts` (with `CODEX_HOME` scoped to the session's cell) |
 
-### Kiro
-
-| surface | delivered as |
-|---|---|
-| engine agent + hooks | `.kiro/agents/ctxloom.json` |
-| MCP | `.kiro/settings/mcp.json` |
-| context | `.kiro/steering/` |
-| commands | `.kiro/skills/<name>/SKILL.md` |
-
-### ACP (generic)
-
-:::caution[Experimental]
-Experimental — interfaces may change and it is not yet verified against all editors.
-:::
-
-`ctxloom acp` speaks the Agent Client Protocol, and an `acp` engine drives any
-ACP-capable client chosen by config (`claude-code-acp`, `kiro-cli acp`, a Zed
-external agent). A *generic* ACP target has no known native config format, so it
-deliberately registers no settings writer and no command exports — context still
-reaches the run in-band.
-
 :::caution[Experimental engines]
-The `kiro`, `codex`, and `antigravity` engines are **experimental**: implemented and
-hermetically tested, but live operation is not fully verified. `kiro` in particular
-cannot run under container isolation with a subscription login — its credential
-lives in a sqlite store (`~/.local/share/kiro-cli/data.sqlite3`) that can't be
-mounted into a container, so a containerized kiro run needs `KIRO_API_KEY` (headless
-auth). `antigravity` has the same shape with its credential in the OS keyring. Use
-these engines knowing the live path may have gaps; `claude-code` is the exercised
-default.
+The `codex` engine is **experimental**: implemented and hermetically tested, but
+live operation is not fully verified. Use it knowing the live path may have gaps;
+`claude-code` is the exercised default.
 :::
 
 ## Extension Points
@@ -473,9 +447,7 @@ flowchart TB
         direction LR
         claude["Claude Code"]
         codex["Codex"]
-        kiro["Kiro"]
-        agy["Antigravity"]
-        acp["ACP clients (Zed)"]
+        opencode["opencode"]
     end
 
     Engines -->|"MCP / hooks / native config"| Core

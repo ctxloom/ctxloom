@@ -64,7 +64,7 @@ flowchart TD
 
 ## R6: exclusively-owned files inside a foreign engine's directory (ruled 2026-08-14)
 
-Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped, `$CODEX_HOME`, `.kiro/`, `opencode.json`'s directory) but ctxloom is the **sole** author of the whole file — claude's per-instance `.claude.json`, kiro's `.kiro/agents/<n>.json` and steering file, opencode's context file. Three call sites answered "does exclusive ownership excuse the lock and the ledger" three different ways before this ruling: one relied on the *caller's* project lock rather than its own (`claude.claudeInstanceConfig.WriteInstanceConfig`), the four locked `SettingsWriter` entry points said "not sufficient" for the very same opencode file a fifth entry point left unlocked, and kiro's whole-file writers said "sufficient" outright.
+Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped, `$CODEX_HOME`, `opencode.json`'s directory) but ctxloom is the **sole** author of the whole file — claude's per-instance `.claude.json`, opencode's context file. Three call sites answered "does exclusive ownership excuse the lock and the ledger" three different ways before this ruling: one relied on the *caller's* project lock rather than its own (`claude.claudeInstanceConfig.WriteInstanceConfig`), the four locked `SettingsWriter` entry points said "not sufficient" for the very same opencode file a fifth entry point left unlocked, and a third set of whole-file writers said "sufficient" outright.
 
 **The rule, no per-site judgment:** a file ctxloom exclusively owns inside a foreign engine's directory is locked and ledgered like a shared file.
 
@@ -116,7 +116,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | `TransformMustacheToPositional` | Rewrites `{{var}}` → `$N` by first-occurrence order. |
 | `EscapeYAMLString` | Quotes and escapes for YAML frontmatter (claude, opencode). |
 | `SkillExport` | Agent-agnostic Agent Skill package export spec — the `SurfaceSkills` sibling of `CommandExport`. |
-| `JSONScalar` (`skillcommandshape.go`) | `json.Marshal` of a string for YAML frontmatter (kiro). |
+| `JSONScalar` (`skillcommandshape.go`) | `json.Marshal` of a string for YAML frontmatter. |
 | `RenderCommandAsSkillFile` | Renders a `CommandExport` as `<name>/SKILL.md` with YAML frontmatter. |
 | `FilterCommandsClaimedBySkills` | Drops commands whose name an enabled skill already claims, warning per drop. |
 | `NewSkillShapedCommandsAndSkills` | The single assembly point that keeps the SKILL.md-shaped engines from drifting: filter, then build the commands/skills delivery pair. |
@@ -127,7 +127,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 
 | Symbol | Purpose |
 |---|---|
-| `MCPFileConfig` | Shared reconciler for the `{"mcpServers": {...}}` JSON registry shape (claude's `.mcp.json`/`.claude.json`, kiro's `.kiro/settings/mcp.json`). Value receiver throughout, so it is safely copyable. Its own `WriteServers`/`RemoveServers` wrap the whole read-modify-write-and-ledger cycle in `WithFileLock`. |
+| `MCPFileConfig` | Shared reconciler for the `{"mcpServers": {...}}` JSON registry shape (claude's `.mcp.json`/`.claude.json`). Value receiver throughout, so it is safely copyable. Its own `WriteServers`/`RemoveServers` wrap the whole read-modify-write-and-ledger cycle in `WithFileLock`. |
 | `MCPFileConfig.WriteServers` | Drop previously-managed names (read from the ledger, plus the well-known `ctxloom` name for pre-ledger files), re-add the current set, rewrite the ledger. A hand-authored name the ledger never claimed is left alone (warned, not overwritten) rather than clobbered — a single collision does not block the rest of the reconcile. |
 | `MCPFileConfig.RemoveServers` | Drop managed names and clear the ledger. |
 | `MCPFileConfig.load` | Reads the registry. A **fully unparseable** top-level document is refused (`RefuseCorrupt`'s posture: "I could not read it" is not "it was empty") — the writer that used to warn and silently replace an unparseable registry with one containing only ctxloom's own servers destroyed every user-authored entry on a success path. A `mcpServers` sub-object that fails to parse *within* an otherwise-valid document still warns and degrades to empty for that one field, not a full refusal. |
@@ -135,11 +135,11 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | `MCPFileConfig.ledger` / `.readLedger` / `.writeLedger` | Wraps `internal/shared/ledger.Ledger`, scoped to `ledger.SurfaceMCP`. This package used to keep its own private `<Path>.ledger` read/write pair, duplicated per engine; `internal/shared/ledger` is now the one shared implementation (see that package's doc for the co-location invariant that made a single marker filename, with surface-typed entries, the right shape). A read error from the ledger is **propagated**, not flattened to "nothing managed" — a writer that mistook an unreadable ledger for an empty one would orphan every entry it wrote last time. |
 | `InstallMCPServerJSON` | Merges one server into `mcpServers`, preserving foreign top-level keys. A **present-but-wrong-type** `mcpServers` value (a string, an array) is **refused**, not silently replaced with a fresh empty map — the failure mode that used to destroy whatever the user had under that key. |
 | `UninstallMCPServerJSON` | Removes one server; absent is a no-op by contract. |
-| `MCPRegistrar` | The facet an external tool (`taskloom manage`) uses to register a server without learning per-agent paths: `{Name, Present, ConfigPath, Install, Uninstall, Installed}`. `claude`, `kiro`, and codex's TOML-shaped `codex.MCPRegistrar` all implement it; codex's `Install` and the shared JSON `InstallMCPServerJSON` now agree on the wrong-type refusal (they used to be asymmetric — the JSON path refused, the TOML path silently replaced). |
+| `MCPRegistrar` | The facet an external tool (`taskloom manage`) uses to register a server without learning per-agent paths: `{Name, Present, ConfigPath, Install, Uninstall, Installed}`. `claude` and codex's TOML-shaped `codex.MCPRegistrar` both implement it; codex's `Install` and the shared JSON `InstallMCPServerJSON` now agree on the wrong-type refusal (they used to be asymmetric — the JSON path refused, the TOML path silently replaced). |
 
 ## internal/shared/ledger — the sidecar ownership record
 
-**Marker filename:** `.ctxloom-managed` (constant `ledger.Name`) — **one filename for every engine and every surface**, not the per-engine `<Path>.ledger` variants that predated it. Lines are `<name>\t<surface>`; `Surface` is a deliberately open string type (`ledger.SurfaceMCP`, `SurfaceCommands`, `SurfaceSkills`, `SurfaceHooks`, `SurfaceContext`, `SurfacePermissions`, `SurfaceStatusLine`, and any caller-defined value), so two co-located surfaces (kiro's commands and skills share one directory) never delete each other's entries, and a plugin can claim its own surface with no registration step.
+**Marker filename:** `.ctxloom-managed` (constant `ledger.Name`) — **one filename for every engine and every surface**, not the per-engine `<Path>.ledger` variants that predated it. Lines are `<name>\t<surface>`; `Surface` is a deliberately open string type (`ledger.SurfaceMCP`, `SurfaceCommands`, `SurfaceSkills`, `SurfaceHooks`, `SurfaceContext`, `SurfacePermissions`, `SurfaceStatusLine`, and any caller-defined value), so two co-located surfaces sharing one directory never delete each other's entries, and a plugin can claim its own surface with no registration step.
 
 `ledger.Ledger.Read` returns `(nil, nil)` for a missing marker (the legitimate "nothing managed yet" case) but propagates any other read error — never flattens it to empty. `ledger.Ledger.Write` rewrites the marker atomically (`iox.WriteFileAtomicFs`), in a stable sorted order (so an unchanged managed set produces byte-identical output), and removes the marker file only when **every** surface is empty.
 

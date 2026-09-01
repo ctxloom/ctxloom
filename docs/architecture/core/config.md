@@ -279,5 +279,5 @@ flowchart TD
 - `Fixture`'s doc states a Fixture-built `Config` never aliases a `Load` result; `ToFixture`/`NewFixture` (`fixture.go:60`, `:110`) copy structs and share every map and slice.
 - `Profile.DenyTools` (`config_types.go:165`) is parsed and honoured by the resolver, but `deny_tools` is absent from `resources/schema/input/config-schema.json`, whose profile object is `additionalProperties:false` — so using it produces an unknown-key warning saying the key is ignored, and a fatal finding in strict mode.
 - `unknown_keys.go:17` states the schema uses `additionalProperties:false` at every level; `$defs/hook` in `resources/schema/input/config-schema.json:605` sets it to `true`, so unknown keys inside a hook definition are accepted without a warning.
-- `warnings.go:5` says all four warning kinds are fatal-class in strict mode; there are five kinds (`warnings.go:13-28`), and `ctxloom acp server` (`cli/acp_cmd.go:120`) calls neither `printConfigWarnings` nor `failOnFindings`, so no config warning aborts that path.
+- `warnings.go:5` says all four warning kinds are fatal-class in strict mode; there are five kinds (`warnings.go:13-28`).
 - `GetEditorCommand`'s doc comment is attached to `IsolationImageFor` (`config.go:573-586`); `GetEditorCommand` itself (`config.go:609`) has none.

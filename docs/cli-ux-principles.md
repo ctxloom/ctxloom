@@ -47,7 +47,7 @@ with something worth having.
 The ladder has no exception for a namespace that could plausibly act. `mcp` is
 the case that tests it: it holds a stdio server, which is behaviour a namespace
 could carry directly. It does not. The server is the `serve` leaf, one spelling,
-symmetric with `acp serve`, and bare `ctxloom mcp` lists the configured servers
+and bare `ctxloom mcp` lists the configured servers
 like every other noun.
 
 That is a deliberate cost. The machine surface a caller invokes must be a leaf

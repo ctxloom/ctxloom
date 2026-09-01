@@ -1,8 +1,15 @@
 # ctxloom Canonical Transcript — Specification
 
 **Status:** SHIPPED, `tough-cloud` slices S1–S6 all landed on v0.7.0-pre1.
+> **ACP and the kiro engine have since been removed** (`internal/acp`,
+> `internal/acpagent`, `internal/kiro` and the generic `acp` backend are gone).
+> The canonical record format below is unchanged and remains ACP-SHAPED by
+> design — that is the format's deliberate lineage, not a live dependency — but
+> §2's survey of how engines reach that format describes the pre-removal code
+> and is kept as design rationale, not as a description of the current tree.
+
 ctxloom captures its own transcript at the host-side `agent.ChatEvent` seams
-for every structured/ACP engine, plus a low-fidelity two-entry capture for
+for every structured engine, plus a low-fidelity two-entry capture for
 oneshot `Execute` runs. `CanonicalHistory` is the live read path for
 compaction, MCP memory tools, `session current|list|show|watch`, and the
 resume picker. The four broken per-engine file scrapers (codex, kiro,
@@ -47,9 +54,9 @@ plus what actually shipped (§7–§8).
 
 ## 2. Survey: what each engine actually exposes
 
-The critical fact this schema leans on: **five of ctxloom's six engines
-(codex, kiro, claude, opencode, and generic `acp`) drive structured chat
-through the exact same code path** — `internal/acp.NewChatDriver` — which
+The critical fact this schema leaned on *when it was written*: **five of
+ctxloom's six engines then (codex, kiro, claude, opencode, and generic `acp`)
+drove structured chat through the exact same code path** — `internal/acp.NewChatDriver` — which
 normalizes every engine's wire protocol onto one Go type,
 `agent.ChatEvent` (`internal/shared/agent/chat.go`), via
 `internal/acp/mapping.go`'s `mapSessionUpdate`. **antigravity** is the one
@@ -77,7 +84,7 @@ it wraps `agent.ChatEvent` in an envelope, verbatim.
 | `agent_thought_chunk` | `thinking` | summarized reasoning — ACP surfaces this where claude's own stream-json strips it |
 | `tool_call` | `tool_use` | title/kind → `ToolName`, rawInput → `ToolInput` |
 | `tool_call_update` | `tool_result` | only once it carries output or a terminal status; `failed` → `IsError` |
-| `plan` | `system` | IR2 (2026-07): structured entries carried in `SessionEntry.Plan` (`SystemKind=="plan"`), not just a rendered checklist string — a re-emission (`ctxloom acp`) rebuilds a real ACP `plan` update from it instead of only a text fallback |
+| `plan` | `system` | IR2 (2026-07): structured entries carried in `SessionEntry.Plan` (`SystemKind=="plan"`), not just a rendered checklist string — a re-emission rebuilds a real `plan` update from it instead of only a text fallback |
 | `user_message_chunk` | *(dropped)* | never echo the user's own message back |
 | `usage_update` / `session_info_update` *(out-of-SDK, hand-decoded)* | `ChatEvent.Complete` / `ChatEvent.Session` | the ONLY accounting data any ACP agent delivers — protocol v1 carries no token/cost/context-window/timing fields anywhere else |
 | `session/request_permission` | `ChatEvent.Permission` | forwarded only under `ChatRequest.ForwardPermissions` |
@@ -244,9 +251,7 @@ is already the mapping `mapSessionUpdate` chose to keep. Concrete gaps:
 **Update (IR3, 2026-07):** `agent.ChatEvent` now DOES carry a `Raw`
 field — the protocol-level side channel for a curated allowlist
 (`available_commands_update`, `current_mode_update`, any variant's `_meta`)
-that has no dedicated IR projection of its own (see
-`internal/acp/mapping.go`'s `rawOnlyEvent`/`metaRaw` and
-`internal/acpagent/mapping.go`'s `rawOnlyUpdates`/`metaFromRaw`). The
+that has no dedicated IR projection of its own (mapped, before the ACP removal, by `internal/acp` and `internal/acpagent`). The
 Recorder in THIS package now populates `Record.Raw` FROM that field, gated by
 a `RawPolicy` (`off | lossy-only | all`, default `lossy-only` —
 `NewRecorder`'s `WithRawPolicy` option, `internal/transcript/recorder.go`):
@@ -259,8 +264,8 @@ an empty placeholder.
 exists (or doesn't) by the time any Recorder sees it — RawPolicy cannot make
 the hub forward more than the ACP mapping layer chose to; it only decides
 what of that gets written to DISK. It is UNRELATED to protocol `_meta`/
-passthrough forwarding itself (which is unconditional and lives entirely in
-`internal/acp`/`internal/acpagent`) — the two happen to share the word "raw"
+passthrough forwarding itself, which lived entirely in the removed ACP
+packages — the two happen to share the word "raw"
 and nothing else. **Permissions never ride this channel at all**, at either
 layer: `session/request_permission` is not even a `session/update` variant,
 so there is no `ChatEvent.Raw` producer that could carry one even in
@@ -279,13 +284,12 @@ outright rather than demoting them (see §8).
 Documented here because it explains the schema's `engine` enum including
 `antigravity`, which never reaches the tee.
 
-- **Structured/ACP** (codex, kiro, claude-via-acp, opencode, generic acp):
+- **Structured** (at the time: codex, kiro, claude, opencode, generic acp):
   the tee at `GRPCClient.Chat` (`internal/lm/grpc/chat.go`) and
   `coord/enginehost.adapt` (delegated children) records every `ChatEvent` —
   zero scraping, full fidelity within `mapSessionUpdate`'s documented drops.
-  This is the default and the win: five of ctxloom's six engines run
-  structured chat, so five of six get full-fidelity canonical memory with no
-  per-engine parsing on the capture side at all.
+  This was the default and the win: no per-engine parsing on the capture side
+  at all. With ACP removed, no shipped engine drives structured chat today.
 - **Oneshot** (antigravity `-p`, `kiro --no-interactive`, `codex exec`): no
   `ChatEvent` stream exists; `transcript.RecordOneshot`
   (`internal/transcript/oneshot.go`) captures a two-entry transcript (one
@@ -380,8 +384,9 @@ for v0.7.0-pre1 — not a silent regression — tracked as task `petty-green`
 
 **Update (writer-a-wiring, closing petty-green's importer half):** the four
 per-engine `vendorreader.VendorAdapter` implementations this section's own
-successor work built (`internal/transcript/vendorreader/{codex,claude,
-antigravity,kiro}`) are now WIRED IN, closing the gap described above for
+successor work built are now WIRED IN (the surviving ones are
+`internal/transcript/vendorreader/{codex,claude}`; the antigravity and kiro
+adapters went with their engines), closing the gap described above for
 the two moments that matter:
 
 - **On exit of an interactive `ctxloom run`** (`internal/cli/run.go`'s
@@ -401,14 +406,8 @@ the two moments that matter:
 The engine→adapter+locate registry (`internal/operations/vendorreader.go`)
 prefers each harp's already-bound `sessions.Entry.TranscriptPath` (the
 SessionStart bind hook, or its PreToolUse-fallback equivalent for
-antigravity) for codex/claude/antigravity — sidestepping the very cwd→slug
-bug this section describes above. kiro is the one exception
-(`vendorreader_kiro.go`): its bind, where one lands at all, is a
-session_id, not a file path, so its locate falls back to
-`kiroreader.EnumerateConversations` matched by project dir — a
-best-effort heuristic, not a guarantee (two concurrent kiro-cli sessions in
-the same project dir within the same window are indistinguishable by that
-signal).
+antigravity) for codex/claude — sidestepping the very cwd→slug
+bug this section describes above.
 
 **opencode remains excluded** from all of the above, unchanged from this
 section's original scope: it never had a broken reader to replace and keeps

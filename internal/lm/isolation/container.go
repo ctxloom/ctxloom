@@ -380,10 +380,9 @@ func sharedFSGateError(rt Runtime, perr error) error {
 // this Container, matching Prepare's withSessionState for the Container case
 // (isolation.go). Exposed for a caller that constructs a Container directly
 // via NewContainerFor rather than going through the Resolve/Prepare axes
-// chain — ISO1's ACP container transport (internal/acp), whose caller (an
-// editor-launched session) must never silently degrade a requested container
-// to the host: PrepareWorkspace's error is the ONLY outcome of a failed
-// gate, unlike chainFor's degrade-to-None-unless-strict chain.
+// chain. Such a caller must never silently degrade a requested container to
+// the host: on that path PrepareWorkspace's error is the ONLY outcome of a
+// failed gate, unlike chainFor's degrade-to-None-unless-strict chain.
 func (c Container) WithSessionState(state SessionState) Container {
 	c.state = state
 	if c.base != nil {

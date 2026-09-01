@@ -265,7 +265,7 @@ section exists so a missing one is a documented prerequisite, not a confusing fa
 
 ### Running an AI engine
 
-`ctxloom run` (and `acp`, delegated `agent_run` children) launches the **vendor's own CLI** as a child process —
+`ctxloom run` (and delegated `agent_run` children) launches the **vendor's own CLI** as a child process —
 ctxloom holds no model API client of its own (this is a licensing requirement, not a choice; see
 [Architecture](/concepts/architecture/)). Each backend needs its own binary installed and on
 `PATH`:
@@ -275,7 +275,6 @@ ctxloom holds no model API client of its own (this is a licensing requirement, n
 | `claude-code` | `claude` | [claude.ai/code](https://claude.ai/code) |
 | `antigravity` | `agy` | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
 | `codex` | `codex` | [github.com/openai/codex](https://github.com/openai/codex) |
-| `kiro` | `kiro-cli` | AWS Kiro |
 | `opencode` | `opencode` | [opencode.ai](https://opencode.ai) |
 
 If the backend you launch (the configured default, or `--llm <label>`) has no binary on `PATH`,

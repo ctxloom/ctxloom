@@ -741,7 +741,6 @@ at all) — the per-session instance under `.ctxloom/state/<harp>/home/claude`.
 Both are disposable, so under `config_home: project` an interactive agent run
 sees that dialog **once per session**. That is the second of the model's two
 accepted costs, stated plainly: answers given inside an instance die with it.
-kiro has no such prompt at all.
 
 ## Lifecycle
 

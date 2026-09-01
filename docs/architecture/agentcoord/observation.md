@@ -71,7 +71,7 @@ removes a harp's current run.
 | `Coordinator.ListRuns` | `consumer.go:253` | one-line pass-through; test-only — production uses `consumerService.ListRuns` or `listRunsSnapshot` directly |
 
 Both production subscribers call `WatchRuns(nil)` — no run filter — so one ring carries
-every run's events (`cli/acp_children.go:32`, `cli/run_owned.go:86`).
+every run's events (`cli/run_owned.go:86`).
 `operations/sessionfeed.go`'s consumer ends a feed **only** on `RunCompleted`, which is
 why `sendTerminal` exists.
 

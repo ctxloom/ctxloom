@@ -1,7 +1,7 @@
 # internal/operations
 
 `internal/operations` is the frontend-neutral orchestration layer: every CLI command, MCP
-tool and ACP call routes through a function here rather than touching `internal/bundles`,
+tool call routes through a function here rather than touching `internal/bundles`,
 `internal/config`, `internal/remote`, `internal/profiles` or `internal/lm` directly. Its
 contract is the package ABI — `f(ctx, cfg|mgr, XxxRequest) (*XxxResult, error)` with
 JSON-tagged DTOs — which is what lets one implementation back three frontends. It owns no
@@ -178,7 +178,7 @@ both hits and failures per URL. Consumers: `upgrade.go`, `depgraph.go`.
 ## Context assembly — `context.go`
 
 `AssembleContext` (`context.go:112`) is the single composition entry point; 20+ production call
-sites across `cli/`, `lm/`, `codex/`, `shared/agent/` and `acpagent/`.
+sites across `cli/`, `lm/`, `codex/` and `shared/agent/`.
 
 ```mermaid
 flowchart LR
@@ -216,7 +216,7 @@ flowchart LR
 | Function | file:line | Contract |
 |---|---|---|
 | `ApplyHooks` | `hooks.go:54` | Reloads config, runs the $HOME-collision scope guard, optionally regenerates context, builds the executable trust gate, then writes every requested backend's surfaces. Callers: `cli/manage.go:109,257`, `cli/trust.go:223`, `mcp/mcp_server.go:270`, `cli/init.go:1035`. |
-| `checkHookTargetScope` (+ claude/codex/kiro variants) | `hooks.go:234,271,300,326` | Refuses to apply when the resolved workDir would write onto an engine's *global* settings file. |
+| `checkHookTargetScope` (+ per-engine variants) | `hooks.go:234,271,300,326` | Refuses to apply when the resolved workDir would write onto an engine's *global* settings file. |
 | `maybeRegenerateContext` / `regenerateContext` | `hooks.go:358,487` | Collects, dedupes, sorts and loads fragments and writes the SessionStart context cache. |
 | `applyHooksToBackends` / `applyHooksToBackend` | `hooks.go:397,435` | Per-backend loop; each failure is recorded via `strictness.Fail` and collected, and the loop aborts on ctx cancel. |
 | `hookBackendNames` | `hooks.go:372` | `"all"` → every settings backend, else the single named backend. |
@@ -246,7 +246,7 @@ flowchart LR
 | Function | file:line | Contract |
 |---|---|---|
 | `RunOneshot` | `oneshot.go:59` | Assembles a profile's context, resolves label/backend/model/axes/gate, delegates to the launch tail. |
-| `runResolvedAgent` | `oneshot.go:315` | **The single choke point** for delegated child turns and `acp run --one-shot` (mirrored by `run --one-shot`): prepare isolation, gate it, assemble the per-member managed config, floor the headless posture, run the plugin once, capture stdout, record the one-shot transcript. |
+| `runResolvedAgent` | `oneshot.go:315` | **The single choke point** for delegated child turns and `run --one-shot`: prepare isolation, gate it, assemble the per-member managed config, floor the headless posture, run the plugin once, capture stdout, record the one-shot transcript. |
 | `resolvedRunRequest` | `oneshot.go:122` | The already-resolved run; `Factory == nil` selects the isolating path. |
 | `ResolveBackend` / `resolveOneshotLabel` | `oneshot.go:490,502` | Label → (backend, model); three-level precedence: override → profile LLM → primary role. |
 | `IsolationImageConfig` / `CellKindForPolicy` / `MCPCommandOverrideForPolicy` / `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go:178,199,228,247,257` | Capability probes over `isolation.Policy`, declared here so `internal/lm/isolation` need not import `agent`. |
@@ -255,10 +255,10 @@ flowchart LR
 | `handleDirtyParentTree` / `commitDirtyTree` / `applyCopySnapshot` | `delegate.go:494,581,652` | The dirty-tree policy: a detached HEAD or a missing acknowledgement refuses to auto-commit; `copySnapshot` captures patch + untracked list once so there is no drift window. |
 | `PreparedAgentChat.Start` / `.StartEngine` / `.startOneshot` / `.Abort` | `delegate.go:831,734,965,689` | The three launch protocols and idempotent teardown. |
 | `leadContextIn` | `delegate.go:928` | Prepends the composed context to a delegated child's first turn. |
-| `OpenEngineSession` | `engine_session.go:78` | The single frontend-neutral ACP session opener: config load, agent/profile bind, engine/model resolution, harp mint or resume, both isolation axes, MCP trust gate, modes/LLMs/commands, at-connect init summary. Caller: `cli/acp_cmd.go:135`. |
-| `buildSessionModes` / `sessionModesFrom` / `buildSessionLLMs` / `buildSessionCommands` | `engine_session.go:546,566,521,469` | The advertisement set an ACP editor sees; `agentModeID` (`:538`) namespaces agent modes as `agent:<name>` so they cannot collide with profile modes. |
+| `OpenEngineSession` | `engine_session.go:116` | The single frontend-neutral session opener: config load, agent/profile bind, engine/model resolution, harp mint or resume, both isolation axes, MCP trust gate, modes/LLMs/commands, at-connect init summary. **No production caller** since the `ctxloom acp` command tree was removed — reached only from its own tests. |
+| `buildSessionModes` / `sessionModesFrom` / `buildSessionLLMs` / `buildSessionCommands` | `engine_session.go:546,566,521,469` | The advertisement set a frontend sees; `agentModeID` (`:538`) namespaces agent modes as `agent:<name>` so they cannot collide with profile modes. |
 | `buildSessionInitSummary` | `engine_session.go:922` | The at-connect summary block. |
-| `EngineChat` and the session DTOs | `engine_types.go:22,105,128,143,149,174,225,241` | The wire-neutral vocabulary handed to any ACP-shaped frontend. |
+| `EngineChat` and the session DTOs | `engine_types.go:22,105,128,143,149,174,225,241` | The wire-neutral vocabulary handed to a frontend. |
 
 ## Sessions, feeds and transcripts
 
@@ -270,8 +270,7 @@ flowchart LR
 | `WatchSessionFeed` / `watchLiveFeed` / `watchStoreFeed` / `adaptConsumerFeed` | `sessionfeed.go:96,133,460,264` | Unified observation feed: prefer a live coordinator over gRPC, fall back to the recorded store. `adaptConsumerFeed` folds live item-lifecycle deltas back into whole `agent.SessionEntry` values with seq-based gap detection. |
 | `feedScrollback` | `sessionfeed.go:422` | Reads the harp's recorded transcript once as the live feed's prefix. |
 | `RecordedSessionEntries` / `RenderResumedTranscript` / `JoinLeadBlocks` | `resume.go:16,41,82` | Transcript replay for resume; the rendered block is tail-truncated to 32 KiB. `JoinLeadBlocks` joins non-empty lead blocks with a blank line and has six production call sites across three packages. |
-| `ConvertVendorTranscript` / `BackfillVendorTranscripts` | `vendorreader.go:122`, `vendorreader_backfill.go:37` | Converts a vendor-native transcript into the canonical JSONL via a per-engine registry (`claude`, `codex`, `antigravity`, `kiro`); backfill never stops early and records per-harp failures. |
-| `locateKiroConversation` / `candidateKiroDBPaths` / `locateKiroConversationInDB` | `vendorreader_kiro.go:38,67,88` | Kiro's sqlite locator: per-harp isolated DBs first, then the host DB. |
+| `ConvertVendorTranscript` / `BackfillVendorTranscripts` | `vendorreader.go:122`, `vendorreader_backfill.go:37` | Converts a vendor-native transcript into the canonical JSONL via a per-engine registry (`claude`, `codex`); backfill never stops early and records per-harp failures. |
 
 ## Review, search and schema targets
 
@@ -290,7 +289,7 @@ flowchart LR
 
 1. **The package ABI is `f(ctx, cfg|mgr, XxxRequest) (*XxxResult, error)`** with JSON-tagged DTOs and
    `json:"-"` injection seams. That uniformity is what lets one CLI command, one MCP tool and one
-   ACP call share an implementation (`doc.go`).
+   call share an implementation (`doc.go`).
 2. **`lock.yaml` is authoritative for three things and nothing else**: the commit SHA each bundle
    ref resolves to, the operator's `Pinned` hold, and the recorded `Retracted` verdict. It is not a
    content store and not a trust record — trust lives in countersignatures.
@@ -317,7 +316,7 @@ flowchart LR
    (`AddMCPServer`, `RemoveMCPServer`, `SetAgent`, `RemoveAgent`, `SetDefaultLLM`,
    `SetStatusline`, `SetMCPAutoRegister`).
 9. **`runResolvedAgent` (`oneshot.go:315`) is the single non-interactive launch tail.** Delegated
-   child turns and `acp run --one-shot` funnel through it directly; `run --one-shot` mirrors the same tail.
+   child turns funnel through it directly; `run --one-shot` mirrors the same tail.
 10. **Path confinement for authored bundles is `requireSafeBundlePath`** (`bundles.go:926`):
     absolute, under a configured dir, and no symlink in any component.
 11. **`AssembleContext` (`context.go:112`) is the single composition entry point.** `hooks.go`'s
@@ -326,7 +325,7 @@ flowchart LR
 
 ## Boundaries
 
-- **Called by:** `internal/cli` (all porcelain), the MCP server, `internal/acpagent`,
+- **Called by:** `internal/cli` (all porcelain), the MCP server,
   `internal/cli/tui`, and `internal/agentcoord/coord` (`AssignSession`, `MarkSessionEnded`,
   `WatchSessionFeed`, `ResolveAgent`, `PrepareAgentChat`).
 - **Calls:** `internal/bundles`, `internal/config`, `internal/remote`, `internal/profiles`,

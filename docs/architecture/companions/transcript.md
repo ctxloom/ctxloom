@@ -3,13 +3,13 @@
 **What it is.** `internal/transcript` owns ctxloom's **own** record of a conversation: a
 versioned, append-only JSONL envelope schema, the writer that stamps it, and the reader that
 turns the file back into an `agent.Session`. `internal/transcript/vendorreader` and its four
-per-engine adapters (`codex`, `claude`, `kiro`, `antigravity`) convert a **vendor-native**
+per-engine adapters (`codex`, `claude`) convert a **vendor-native**
 transcript into the same canonical stream through the same writer.
 
 **The contract it owns.** *One harp, one engine, one append-only file at
 `~/.ctxloom/sessions/<harp>/persist/transcript.jsonl`, whose every line is a schema-versioned
 `Record` with a monotonic `seq`.* It is the replacement for four deleted per-engine scrapers, so
-it is the **only** remaining memory source for codex / kiro / claude-code / antigravity.
+it is the **only** remaining memory source for codex / claude-code.
 
 Two capture regimes exist because two things can drive an engine: a **live structured stream**
 (the host tees `agent.ChatEvent`s through a `Recorder`) and an **interactive pty** (a human
@@ -170,20 +170,15 @@ flowchart TD
 
     IFACE -.implemented by.-> CODEX["codex.Adapter<br/>codex.go:30"]
     IFACE -.implemented by.-> CLAUDE["claude.Adapter<br/>claude.go:39"]
-    IFACE -.implemented by.-> KIRO["kiro.Adapter<br/>kiro.go:49"]
-    IFACE -.implemented by.-> ANTI["antigravity.Adapter<br/>antigravity.go:49"]
 
     CODEX --> DRV["ConvertJSONLLines<br/>driver.go:29"]
     CLAUDE --> DRV
-    KIRO -.->|"re-implements the loop<br/>kiro.go:120-135"| DRV
-    ANTI -.->|"re-implements the loop<br/>brain.go:64-83"| DRV
 
-    CODEX & CLAUDE & ANTI --> LINES["OpenAndReadJSONLLines<br/>lines.go:57"]
-    KIRO --> SQL["openReadOnly + queryConversationValue<br/>store.go:37,61"]
+    CODEX & CLAUDE --> LINES["OpenAndReadJSONLLines<br/>lines.go:57"]
 
-    CODEX & CLAUDE & KIRO --> SIB["SessionInfoBuilder<br/>sessioninfo.go:16<br/>latch-first, nil when nothing found"]
-    CODEX & CLAUDE & KIRO & ANTI --> ENT["TextEntry / ToolUseEvent /<br/>ToolResultEvent / NonEmptyRaw<br/>entries.go:33,45,60,19"]
-    CODEX & CLAUDE & KIRO & ANTI --> RF["RecordFunc<br/>record.go:17"]
+    CODEX & CLAUDE --> SIB["SessionInfoBuilder<br/>sessioninfo.go:16<br/>latch-first, nil when nothing found"]
+    CODEX & CLAUDE --> ENT["TextEntry / ToolUseEvent /<br/>ToolResultEvent / NonEmptyRaw<br/>entries.go:33,45,60,19"]
+    CODEX & CLAUDE --> RF["RecordFunc<br/>record.go:17"]
     CODEX & CLAUDE --> FC["FlushComplete<br/>turn.go:22"]
 
     DRV --> REC[["transcript.Recorder"]]
@@ -194,7 +189,7 @@ flowchart TD
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `VendorAdapter` | `adapter.go:68` | `Convert(ctx, rec transcript.Recorder, src string) error`. `src` is engine-specific: a file path for codex/claude/antigravity, a `"<db>#<conversation-id>"` composite for kiro |
+| `VendorAdapter` | `adapter.go:68` | `Convert(ctx, rec transcript.Recorder, src string) error`. `src` is engine-specific: a file path for codex/claude |
 | `ConvertJSONLLines` | `driver.go:29` | The scan/stream/flush driver: record the up-front `Session` event if `info != nil`, then per line — ctx check, `dispatch(line)` — then `flush()` |
 | `ReadJSONLLines` / `OpenAndReadJSONLLines` | `lines.go:31`, `:57` | Unbounded `bufio.Reader` (deliberately not a capped `Scanner` — vendor lines run to tens of KB). Keeps a final line with no trailing newline. Wraps failures with the vendor prefix |
 | `SessionInfoBuilder` | `sessioninfo.go:16` | Latches each `ChatSessionInfo` field on its **first non-zero value** and tracks `found`, so "no metadata anywhere" yields `nil` rather than an all-zero struct. Setters at `:23`,`:31`,`:40`,`:49`; `Build` at `:57` |
@@ -221,33 +216,26 @@ bool.
 |---|---|---|---|
 | **codex** (`codex.go`, `rollout.go`) | `rollout-*.jsonl`, an envelope format `{timestamp, type, payload}` | `rolloutLine.Type` (`rollout.go:22`) → `response_item` / `event_msg` / `session_meta` / `turn_context`; `responseItemPayload.Type` (`:66`) → message / reasoning / function_call / function_call_output | The **reference adapter** the other three copy (`codex.go:1-16`). Reads `info.last_token_usage`, *not* the cumulative `total_token_usage` (`rollout.go:84-92`, with arithmetic evidence). `argumentsToRaw` (`:383`) unwraps codex's JSON-**encoded-string** `arguments` into valid raw JSON — the second half of the bug that got the live scraper deleted. `developer`-role messages are deliberately excluded (`messageEvents`, `:303`). Two-pass: `scanSessionInfo` (`:148`) then `convertLines` (`:117`) |
 | **claude** (`claude.go`, `session.go`) | `~/.claude/projects/<slug>/<uuid>.jsonl`, flat records with a top-level `type` | `line.Type` (`session.go:23`) → `user` / `assistant`, 15 enumerated administrative types dropped; `contentBlock.Type` (`:86`) → text / thinking / tool_use / tool_result | `decodeContentBlocks` (`:124`) normalizes the dual-shaped `content` field (bare string \| array). Turn boundaries detected on `message.id` change (`handleAssistant`, `:249`). `isSidechain` is stamped onto every entry (`recordAll`, `:279`). `message.Role` is decoded and never read — the role comes from `line.Type` |
-| **kiro** (`kiro.go`, `mapping.go`, `schema.go`, `store.go`, `enumerate.go`) | One row of `conversations_v2` in kiro-cli's `data.sqlite3` | `userContent` / `assistantContent` (`schema.go:114`,`:175`) — externally-tagged Rust enums, so the JSON keys are `"Prompt"`, `"ToolUseResults"`, `"CancelledToolUses"`, `"ToolUse"`, `"Response"` | The only adapter whose `src` is a composite locator (`Locator`/`parseLocator`, `kiro.go:70`,`:76`, split on the **last** `#`). `EnumerateConversations` (`enumerate.go:37`) discovers a conversation id when the spawn hook bound none. `openReadOnly` (`store.go:37`) opens `file:<path>?mode=ro` with an eager `Ping`. `requestMetadata`'s token counters are `*int` so `nz` (`mapping.go:156`) reports unknown as 0 rather than fabricating one; `durationMs` (`:169`) guards three ways against a fabricated duration |
 | **antigravity** (`antigravity.go`, `brain.go`) | `brain/<uuid>/transcript_full.jsonl`, a step log | `step.Status == "DONE"` gate (`brain.go:38`,`:74`) **then** `step.Type` → `USER_INPUT` / `PLANNER_RESPONSE` | Smallest adapter (203 LOC). `extractUserRequest` (`brain.go:111`) pulls text between `<USER_REQUEST>` tags and **falls back to the full trimmed content** — the one fallback in the family that degrades toward preserving data. `ERROR_MESSAGE` and `SYSTEM_MESSAGE` steps hit the empty `default` at `:100` and are dropped, though `agent.EntryTypeSystem` exists |
 
 ### 5.3 The class-wide silent-empty shape
 
 Every adapter can return `nil` having recorded zero conversational entries, and the routes are
-structurally the same in all four:
+structurally the same in both:
 
 1. **empty / all-blank source** — the line reader returns `(nil, nil)`, the loop runs zero times;
 2. **every line malformed** — each `dispatch` returns `nil` per the documented skip-don't-abort
-   contract (`claude/session.go:161`, `codex/rollout.go:123`, `antigravity/brain.go:72`,
-   `kiro/mapping.go:31`);
+   contract (`claude/session.go:161`, `codex/rollout.go:123`);
 3. **discriminator drift** — a renamed `type`/`status`/variant key matches no case and every line
-   falls through (`claude/session.go:174`, `codex/rollout.go:137`, `antigravity/brain.go:100`,
-   `kiro/mapping.go:73,126`);
+   falls through (`claude/session.go:174`, `codex/rollout.go:137`);
 4. **shape drift** — a renamed container field decodes to a zero value with no error, because
    `encoding/json` is used without `DisallowUnknownFields` and with no presence assertion on any
    required field.
 
-Three variants worth naming individually:
+One variant worth naming individually:
 
-- **Worse than empty (claude, kiro):** `scanSessionInfo` still latches the session id, so the
+- **Worse than empty (claude):** `scanSessionInfo` still latches the session id, so the
   output is **one Session record and zero conversation**. It looks captured.
-- **Structurally unrecoverable (kiro):** `parseLocator` guarantees a non-empty conversation id, so
-  `sessionInfo` (`mapping.go:182`) can never return nil — the locator fallback at `:190-193`
-  defeats `SessionInfoBuilder`'s nil-when-nothing-found contract. A one-line session-header file is
-  written, and `hasCanonicalTranscript` then makes that harp a permanent no-op.
 - **Poison pill (codex):** `functionCallEvents` / `functionCallOutputEvents`
   (`rollout.go:372`,`:409`) emit an entry unconditionally even when every field decoded empty,
   unlike the `TextEntry`-fed paths. Measured: a `function_call` with drifted field names writes a
@@ -281,7 +269,6 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
    cancel, `rec.Record` failure) aborts a conversion (`adapter.go` contract).
 8. **`SessionInfoBuilder` latches first-wins and returns nil when nothing was observed**
    (`sessioninfo.go:57`), so an all-zero `ChatSessionInfo` is never emitted as if meaningful.
-   *(kiro's locator fallback makes this unreachable for that adapter.)*
 9. **`CoordinatedRecorder` requires `producers` to equal the number of `ProducerDone` calls, and
    no `Submit` after the last one.** Neither is enforced; violating the latter panics on a closed
    channel inside the live chat's goroutine.
@@ -304,11 +291,6 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
   does not round-trip to a literal `null`. With `omitempty` (which `record.go:127` has) it is
   omitted; without it, `json.Marshal` **errors**. The function is still correct normalization; the
   reason given for it is not.
-- **`driver.go:18-19` names antigravity as a user of `ConvertJSONLLines`** — antigravity and kiro
-  both re-implement the loop; only codex and claude delegate.
-- **`kiro/store.go:32-34` calls `mode=ro` "a load-bearing guarantee"** — the URI is built by string
-  concatenation with no escaping, so a db path containing `#` or `?` silently drops the query and
-  opens **writable**. Verified by probe against `modernc.org/sqlite v1.54.0`.
 - **`vendorreader/adapter.go:9` still names the on-disk file `transcript.acp.jsonl`**, the pre-rename
   leaf; the fixtures under `internal/transcript/testdata/fixtures/` carry the same stale suffix.
 - **`RawPolicy` is unreachable in production** — nothing sets `agent.ChatRequest.TranscriptRawPolicy`,

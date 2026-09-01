@@ -15,7 +15,7 @@ flowchart TD
     G1["cli.failOnFindings<br/>(run/mcp → exit 3)"]
     G2["coord.prodSpawner.Resolve<br/>(refuse delegated child)"]
     G3["operations.isolationGateErr<br/>(refuse fan member)"]
-    G4["engine_session<br/>(refuse ACP session)"]
+    G4["engine_session<br/>(refuse engine session)"]
   end
 
   C1 -->|"Fail / FailOnce / Record"| REC["record(class, fixit, msg, once)<br/>strictness.go:364"]
@@ -110,7 +110,7 @@ flowchart TD
 
 **Lifetime and locking**
 
-- The process-wide `findings` slice and `onceRecorded` map are append-only and never pruned in production (`Reset` has no production caller). In long-lived processes (`ctxloom acp`, the coordinator daemon) both grow for the life of the process.
+- The process-wide `findings` slice and `onceRecorded` map are append-only and never pruned in production (`Reset` has no production caller). In long-lived processes (the coordinator daemon) both grow for the life of the process.
 - `record`'s two appends are **not atomic together**: `mu` is released before `w.mu` is taken, so a concurrent `All()` can observe a finding the window has not got yet.
 - One `sync.Mutex` guards `degraded`, `findings`, `generation`, and `onceRecorded`, so every `Degraded()` read contends with every `record`.
 

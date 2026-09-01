@@ -165,7 +165,7 @@ is after the child process and credential have already been spawned;
 `EngineHost` calls `eh.backend.Chat(ctx, dec.Chat, in, out)` **in-process**
 (`enginehost.go:311`) — the go-plugin `Chat` RPC is never dialed on this path, which is
 why `ChatRequest` fields that the `ChatStart` proto drops (`Runtime`,
-`ResumeSessionID`) still survive here. See [acp-client.md](acp-client.md).
+`ResumeSessionID`) still survive here.
 
 ## Invariants
 

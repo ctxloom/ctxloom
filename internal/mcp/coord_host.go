@@ -13,8 +13,8 @@ import (
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
-// Coordinator hosting: every session-owning process — `ctxloom run`,
-// `ctxloom acp`, and the bare `ctxloom mcp` fallback — stands the runtime
+// Coordinator hosting: every session-owning process — `ctxloom run` and the
+// bare `ctxloom mcp` fallback — stands the runtime
 // coordinator up as a LIBRARY. Since the B1.6 surface shrink the gRPC
 // channels are the ONLY agent ingress (tool surfaces live at each runner's
 // local socket); this process keeps the host-relay handlers, each bound to

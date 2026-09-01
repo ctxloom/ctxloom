@@ -1,6 +1,6 @@
-# `internal/agentcoord` + `internal/acp` — architecture
+# `internal/agentcoord` — architecture
 
-Agent delegation and the Agent Client Protocol. Written so a future session can reason
+Agent delegation. Written so a future session can reason
 about this subsystem's design without re-reading the source; every claim carries a
 `file:line`. Base commit `0f59fbae`.
 
@@ -16,8 +16,6 @@ about this subsystem's design without re-reading the source; every claim carries
 | [transport.md](transport.md) | The gRPC server and auth interceptors, `RunChannel`/`RunnerChannel`, the runner-side `Home`/`RunnerLink`/`EngineHost`, the `HarnessSpec` launch contract, and listener/endpoint plumbing |
 | [observation.md](observation.md) | The read-only plane: the roster projection, live event fan-out, consumer credentials, out-of-process endpoint discovery, and the liveness watchdog |
 | [mcp-tool-surface.md](mcp-tool-surface.md) | `mcpschema`: the tool→proto binding table, the JSON Schema projector, the routing table and leaf trust gate, and the generator plus its drift gates |
-| [acp-client.md](acp-client.md) | `internal/acp`: driving an `<engine> acp` subprocess in the client role — config, host and container transports, the session driver, wire→IR mapping, one-shot `Execute` |
-| [acp-jsonrpc.md](acp-jsonrpc.md) | `internal/acp/jsonrpc`: the NDJSON JSON-RPC 2.0 codec that frames, multiplexes and correlates for both the client and agent roles |
 
 ## Package map
 
@@ -28,9 +26,6 @@ flowchart TD
   SCHEMA["internal/agentcoord/mcpschema<br/>the LLM-facing tool surface"]
   GEN["internal/agentcoord/mcpschema/gen<br/>build-time generator"]
   DISC["internal/agentcoord/discover<br/>endpoint discovery (leaf)"]
-  ACP["internal/acp<br/>ACP client role"]
-  JRPC["internal/acp/jsonrpc<br/>NDJSON codec"]
-  AGENT["internal/acpagent<br/>ACP agent role (separate subsystem)"]
   OPS[["internal/operations"]]
   CLI[["internal/cli · cli/tui"]]
 
@@ -39,9 +34,6 @@ flowchart TD
   SCHEMA --> CLI
   COORD --> OPS
   DISC --> OPS
-  COORD --> ACP
-  ACP --> JRPC
-  AGENT --> JRPC
   CLI --> COORD
 ```
 

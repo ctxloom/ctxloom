@@ -4,7 +4,7 @@ ctxloom's adapter for Anthropic's `claude` CLI. It declares the CLI's process
 contract (argv, flags, probes, env), builds its argv, materializes claude's native
 on-disk surfaces (`.claude/settings.json`, `.mcp.json`, `CLAUDE.md`,
 `.claude/commands/`, `.claude/skills/`), and drives structured chat through the
-`claude-code-acp` ACP adapter. It owns the mapping from ctxloom's generalized
+vendor CLI. It owns the mapping from ctxloom's generalized
 posture — permission tier, context, MCP set, hooks, commands, skills, deny-tools —
 onto claude's **own documented surfaces**, never onto private internals.
 
@@ -18,15 +18,13 @@ is never written into.
 | Symbol | Location | Meaning |
 |---|---|---|
 | `ClaudeCode` | `claudecode.go:38` | The launch backend; embeds `agent.LaunchBackend`. Fields `surfaces Surfaces`, `thinking agent.ThinkingLevel` |
-| `NewClaudeCode` | `claudecode.go:54` | Constructor: `BinaryPath="claude"`, `NewBaseBackend("claude-code","1.0.0")`, `InitLaunch(lifecycle, &ClaudeCommands{}, ctxProvider, nil /*SessionHistory*/, &agent.CellDelivery{Build: b.buildSurfaces})`, `SetACPTransport(ClaudeACPTransport)` |
+| `NewClaudeCode` | `claudecode.go:54` | Constructor: `BinaryPath="claude"`, `NewBaseBackend("claude-code","1.0.0")`, `InitLaunch(lifecycle, &ClaudeCommands{}, ctxProvider, nil /*SessionHistory*/, &agent.CellDelivery{Build: b.buildSurfaces})` |
 | `ClaudeConfig` | `claudecode.go:18` | Typed decode target. `BinaryPath`/`Args`/`Env`/`Thinking` are live; `Model` is decoded and never read |
 | `ClaudeConfig.BackendType` | `claudecode.go:33` | `"claude-code"` |
 | `Configure` | `claudecode.go:96` | `agent.Configurable`: binary/args/env + thinking level |
 | `Execute` | `claudecode.go:114` | Minimal-oneshot JSON branch, else `ExecuteCLI` |
 | `buildArgs` | `claudecode.go:231` | The whole claude argv |
-| `Chat` | `chat.go:53` | `agent.StructuredChat` via `acp.NewChatDriver` |
 | `ResolveModel` | `chat.go:254` | Nickname → concrete model id; `ok=false` fails loud. Sole production caller `internal/operations/delegate.go:317` |
-| `ClaudeACPTransport` | `chat.go:28` | `{Kind: ACPAdapter, Binary: ClaudeACPAdapter, InstallCmd: "npm install -g @zed-industries/claude-code-acp", Publisher: "Zed Industries"}` |
 | `EngineCLIs` / `ClaudeEngineCLIs` | `enginecli.go:172` / `:178` | Oneshot + interactive surface declarations |
 | `ClaudeCodeHookWriter` | `claude.go:26` | `agent.SettingsWriter` + `agent.ContextWriter` |
 | `NewWriter` | `claude.go:20` | Registry `newWriter` seam (`registry.go:276`) |
@@ -44,12 +42,11 @@ is never written into.
 
 ## How it drives the engine
 
-Two native CLI surfaces plus an ACP adapter for structured chat.
+Two native CLI surfaces.
 
 - **Oneshot**: `claude --print`, **prompt on stdin** (`agent.PromptStdin`, `enginecli.go:182`; `promptStdin`, `claudecode.go:350`). Argv delivery was moved to stdin after it hit `E2BIG` on `ctxloom weave`.
 - **Interactive**: prompt as a trailing argv positional (`enginecli.go:194`; `claudecode.go:338-342`), plus `--name <harp>` from `CTXLOOM_SESSION_HARP` (`claudecode.go:223`, `:273`) — interactive only, since `/rename` cannot be injected.
 - **SkipSetup / distill argv** (`claudecode.go:314-330`): `--output-format json --tools "" --disable-slash-commands --no-session-persistence --strict-mcp-config --system-prompt "" --settings <inline JSON>`.
-- **Structured chat**: `claude-code-acp` (Zed Industries), located on PATH and **never installed by ctxloom** — absence produces an install hint (`chat.go:28-34`). The retired stream-json path left no code residue.
 
 The declared flag vocabulary (`enginecli.go:79-95`) is 15 flags, all verified
 against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
@@ -70,9 +67,9 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 | MCP | Project `.mcp.json` (`writeMCPConfig`, `claude.go:460`; `mcpSurface`, `surfaces.go:105`). In a shared cell it is an out-of-cwd file passed as `--mcp-config` **without** `--strict-mcp-config`, so ctxloom's servers **layer over** the user's project `.mcp.json` (`claudecode.go:288-292`). Global via `MCPRegistrar.ConfigPath` → `~/.claude.json` |
 | Commands | `.claude/commands/*.md`, frontmatter + mustache→`$N` body (`commandfiles.go:18`, `:44`); optional home dedup against `~/.claude/commands` (`surfacedelivery.go:99-104`) |
 | Skills | `.claude/skills/<name>/**` (`skillfiles.go:21`) |
-| One-shot / resume | **Supported.** In both `resumeCapableBackends` and `oneShotSupportedBackends` (`internal/agentcoord/coord/spawner.go:225`, `:248`). Resume-id capture lives in `internal/acp`, not here; this adapter's only session-identity lever is `--name <harp>` (display name only) |
+| One-shot / resume | **Supported.** In both `resumeCapableBackends` and `oneShotSupportedBackends` (`internal/agentcoord/coord/spawner.go:225`, `:248`). This adapter's only session-identity lever is `--name <harp>` (display name only) |
 | Transcript | **No scrape.** `SessionHistory` is `nil`; the `~/.claude/projects/<encoded-cwd>/*.jsonl` scraper was deleted (`capabilities.go:17-27`) after its cwd→slug encoder produced non-existent dirs for any path with a dot, underscore, or space. An opt-in vendor reader exists for the interactive-pty gap (`internal/operations/vendorreader.go:71`) |
-| Model + auth | `--model` emitted when non-empty; empty lets the CLI pick (`claudecode.go:263-266`). Auth is **ambient subscription** by default; `chatACPConfig` (`chat.go:207`) declares `ModelEnvVar` and strips `CLAUDECODE`. Thinking rides `MAX_THINKING_TOKENS` (`chat.go:110`, `:129`) |
+| Model + auth | `--model` emitted when non-empty; empty lets the CLI pick (`claudecode.go:263-266`). Auth is **ambient subscription** by default |
 | Isolation | **Supported, no auth gap.** Scoped host env passthrough plus a **copy-then-mount-read-write** of `~/.claude/.credentials.json` — RW because claude refreshes its OAuth token in place (`internal/lm/isolation/auth.go:423-468`). `~/.claude.json` is deliberately not copied. Additionally, claude is the one engine that can isolate a *shared* cwd without a container, via the out-of-cwd flag trio |
 | Status | **Supported — the exercised default** |
 
@@ -87,7 +84,6 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 7. **Writes are marker-merged or manifest-scoped, never whole-file overwrites.**
 8. **`agent.CanonicalJSON` always emits at least `{}\n`**, so claude's two `AtomicWriteFile` callers cannot write zero bytes — safe by accident of the JSON encoder, not by a guard.
 9. **`--mcp-config` is used without `--strict-mcp-config` on the launch path**, so ctxloom layers rather than replaces.
-10. **The ACP producer closes `out` exactly once**: `RequireOnHost`'s error is returned *after* `close(out)` (`chat.go:53`).
 
 ## Divergences from documented or implied behavior
 
@@ -106,7 +102,6 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 - **On a failed `DeliverIsolated`, `s.path` retains its prior value**, so `Path()` can report a path for a delivery that did not happen (`surfaces.go:131-136`, `:182-187`).
 - **A `minimalSettings` marshal failure returns `"{}"`, dropping `permissions.defaultMode: bypassPermissions`** — the setting that keeps a headless distill run from blocking (`claudecode.go:375-378`).
 - **Four `exists, _ := afero.Exists(...)` sites treat an I/O error as "absent"** (`claude.go:759`, `:781`, `:803`, `:814`; `commandfiles.go:24`), so a permission-denied `settings.json` makes `RemoveSettings` a silent no-op and `Status` report "not installed".
-- **The one departure from "native surfaces only"**: ACP model switching drives the unstable, undocumented `session/set_model` JSON-RPC method found by grepping `claude-code-acp`'s `dist/*.js`, pinned to adapter version `0.16.2` (`chat.go:143-187`). It is version-gated with a documented removal condition.
 - **`internal/claude/docs/design/*.md` carries 357 lines describing deleted symbols** (`chat_stream.go`, `chat_run.go`, `ClaudeSessionHistory.parseEntries`) and the unwired `agentfiles.go`.
 
 ## See also

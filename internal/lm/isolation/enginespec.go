@@ -353,9 +353,9 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 	default:
 		// This used to be resolveAuth: resolveClaudeContainerAuth —
 		// the unknown-backend default failed OPEN on credentials, so any
-		// unrecognized engine (a real, reachable path: registry.go registers
-		// a generic "acp" backend, and container_transport.go treats an
-		// unrecognized/empty engine name as this default spec) got the
+		// unrecognized engine (a real, reachable path: an unrecognized OR
+		// EMPTY engine name lands on this default spec — see the
+		// engineContainerSpecFor("") call sites above) got the
 		// user's ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN passed through and
 		// ~/.claude credentials copy-mounted into a FOREIGN engine's
 		// container. codex/opencode above each earned their

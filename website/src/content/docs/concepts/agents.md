@@ -62,10 +62,9 @@ Re-running `agent set` with the same name updates the binding. `agent set` cover
 
 ```bash
 ctxloom run --agent dev "implement the feature"          # one agent, interactive
-ctxloom acp serve --agent dev                           # serve over ACP (editors, optional)
 ```
 
-A running coordinator fans work across several agents in parallel by spawning each as a child via the `agent_run` MCP tool (see [Agent Delegation](/concepts/agent-delegation/)) — each child runs on its own configured engine binding. ACP editor integration is optional (see the acp-setup skill); `ctxloom acp list` prints one editor agent-server entry per binding so ACP clients (like Zed) can pick agents from the editor.
+A running coordinator fans work across several agents in parallel by spawning each as a child via the `agent_run` MCP tool (see [Agent Delegation](/concepts/agent-delegation/)) — each child runs on its own configured engine binding.
 
 ## The two isolation axes
 
@@ -74,7 +73,7 @@ Isolation is split into two independent axes, chosen at different times:
 | Axis | Values | Set where | Governs |
 |------|--------|-----------|---------|
 | **Agent runtime** | `host` \| `container-rootless` \| `container-rootful` | On the agent (`agent set --runtime`) or the project `runtime:` default | *Where the engine process executes* |
-| **Session workspace** | `none` \| `worktree` | At invocation (`run`/`acp --workspace`, or an `agent_run` spawn's `workspace` field) or the project `workspace:` default | *Which copy of the repo the session mutates* |
+| **Session workspace** | `none` \| `worktree` | At invocation (`run --workspace`, or an `agent_run` spawn's `workspace` field) or the project `workspace:` default | *Which copy of the repo the session mutates* |
 
 The runtime axis is a property of the agent — a containerized developer stays containerized wherever it's used. The workspace axis is a property of the *session*: the same agent might work in the shared checkout for a quick question but in an isolated git worktree for a parallel fan-out where members would otherwise trample each other's edits.
 
@@ -91,8 +90,8 @@ Agents with `runtime: container-rootless` or `runtime: container-rootful` run th
 It is **not a security sandbox**, and you should not run untrusted content in it on that assumption. Specifically:
 
 - **The network is not restricted.** ctxloom passes no network isolation flag; a containerized agent has the same egress your host does and can reach anything on it.
-- **Your engine credentials cross the boundary.** The container gets either the engine's scoped env passthrough (`ANTHROPIC_*` for claude when `ANTHROPIC_API_KEY` is set, `KIRO_API_KEY` for kiro) or a copy of the engine's credential files mounted into the fresh `$HOME`. Most are **read-only**, but self-renewing OAuth tokens (Claude subscription, antigravity) are mounted **read-write** so their `refresh_token` can rotate. The boundary does not stop the agent reading a credential or spending it — and for the read-write tokens, it does not stop it rewriting them either.
-- **Not every engine can run containerized.** The container gets the engine's credentials because ctxloom knows *which* credentials that engine needs — a mapping that exists for `claude-code`, `codex`, `kiro`, `opencode` and `mock`. The generic `acp` backend has none (nobody has decided what an arbitrary ACP engine should be handed), so `ctxloom agent create`/`agent edit` **refuses** to write `runtime: container-rootless` or `runtime: container-rootful` for it and names the engines that do work, rather than accepting a binding whose every launch would then abort.
+- **Your engine credentials cross the boundary.** The container gets either the engine's scoped env passthrough (`ANTHROPIC_*` for claude when `ANTHROPIC_API_KEY` is set) or a copy of the engine's credential files mounted into the fresh `$HOME`. Most are **read-only**, but self-renewing OAuth tokens (Claude subscription, antigravity) are mounted **read-write** so their `refresh_token` can rotate. The boundary does not stop the agent reading a credential or spending it — and for the read-write tokens, it does not stop it rewriting them either.
+- **Not every engine can run containerized.** The container gets the engine's credentials because ctxloom knows *which* credentials that engine needs — a mapping that exists for `claude-code`, `codex`, `opencode` and `mock`. An engine with no such mapping has none, so `ctxloom agent create`/`agent edit` **refuses** to write `runtime: container-rootless` or `runtime: container-rootful` for it and names the engines that do work, rather than accepting a binding whose every launch would then abort.
 - **Some host state outside the project is mounted read-write.** The session's transcript store and persist dir under `~/.ctxloom/sessions/<harp>/`, and this project's task log `~/.ctxloom/tasks/<project-id>.jsonl` with its `.lock` sidecar — writable so in-container hooks, transcripts, and `taskloom` reach the one host store the session shares. The mount is those two **files**, not the `~/.ctxloom/tasks` directory: a run keyed to one project never sees another project's task log.
 
 Use it to keep a long unattended run from wrecking your home directory. Do not use it as the thing standing between a prompt-injected agent and your API key or the internet.
@@ -103,9 +102,9 @@ ctxloom container build          # build/refresh the image for the default backe
 ctxloom container scaffold       # materialize an editable base Containerfile
 ```
 
-Images build in two stages: a shared **base** and a **composed agent stage** — one independently-cacheable install layer per engine (antigravity, claude-code, codex, kiro, opencode today, each via its own official installer), layered onto the base and content-keyed so identical (base, engine set) builds share one tag. ctxloom builds the image automatically when it's absent, whether launched via `run`, `acp`, or a delegated `agent_run` spawn.
+Images build in two stages: a shared **base** and a **composed agent stage** — one independently-cacheable install layer per engine (claude-code, codex, opencode today, each via its own official installer), layered onto the base and content-keyed so identical (base, engine set) builds share one tag. ctxloom builds the image automatically when it's absent, whether launched via `run` or a delegated `agent_run` spawn.
 
-Antigravity is the one engine where a container runtime (`container-rootless` or `container-rootful`) is not just the recommended isolation — it is the *only* one available. It has no config-home environment variable at all, so `workspace: worktree` on `runtime: host` has nothing to point at; ctxloom refuses that combination as a fatal finding (escapable with `--degraded`, which then runs it on your shared, un-isolated global antigravity config) rather than silently reporting the agent as isolated when it isn't. Containerizing it works — its CLI installs into the composed image like any other engine — and authentication now rides a credential mount rather than a manual login: ctxloom copies the host's file-based OAuth token (`~/.gemini/antigravity-cli/antigravity-oauth-token`) into scratch and mounts the copy read-write into the container's fresh `$HOME` at the identical path agy itself reads (read-write, not read-only, because the token's `refresh_token` self-renews by writing back — the same shape Claude Code's OAuth token gets). There is still no scoped env-var passthrough — antigravity has no `ANTIGRAVITY_*`/`AGY_*` trigger of its own — so this credential mount is the only auth path; when no such host token exists, ctxloom refuses to start the container (a fatal finding, downgradable with `--degraded`, the same posture Kiro gets when `KIRO_API_KEY` is absent) rather than launching an unauthenticated engine.
+Antigravity is the one engine where a container runtime (`container-rootless` or `container-rootful`) is not just the recommended isolation — it is the *only* one available. It has no config-home environment variable at all, so `workspace: worktree` on `runtime: host` has nothing to point at; ctxloom refuses that combination as a fatal finding (escapable with `--degraded`, which then runs it on your shared, un-isolated global antigravity config) rather than silently reporting the agent as isolated when it isn't. Containerizing it works — its CLI installs into the composed image like any other engine — and authentication now rides a credential mount rather than a manual login: ctxloom copies the host's file-based OAuth token (`~/.gemini/antigravity-cli/antigravity-oauth-token`) into scratch and mounts the copy read-write into the container's fresh `$HOME` at the identical path agy itself reads (read-write, not read-only, because the token's `refresh_token` self-renews by writing back — the same shape Claude Code's OAuth token gets). There is still no scoped env-var passthrough — antigravity has no `ANTIGRAVITY_*`/`AGY_*` trigger of its own — so this credential mount is the only auth path; when no such host token exists, ctxloom refuses to start the container (a fatal finding, downgradable with `--degraded`, the same posture any engine gets when its container credential is absent) rather than launching an unauthenticated engine.
 
 You control the base, in this order (first one present wins):
 
@@ -132,7 +131,7 @@ Bundles can declare the tools their content needs inside the agent image (a `too
 |---|---------|-------|
 | Defines | Context (fragments, commands, MCP servers, variables) | Engine + profiles + runtime |
 | Shipped in bundles | Yes (`<bundle>#profiles/<name>`) | Never — local only |
-| Used by | `run -p`, agents | `run --agent`, `agent_run`, `acp --agent` |
+| Used by | `run -p`, agents | `run --agent`, `agent_run` |
 | Engine choice | Optional `llm:` preference | Explicit `engine:` binding (overrides the profiles') |
 
 A bare `-p` profile with `ctxloom run` is fine for a quick, unnamed context — reach for a named agent when you want a specific engine per role, a containerized runtime, a reusable role name, or the ability to spawn it as a delegated child (`agent_run` launches a *configured agent*, never a bare profile).

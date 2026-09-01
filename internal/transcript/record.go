@@ -8,9 +8,8 @@
 // line, an envelope (v/harp/session_id/engine/seq/ts/kind) wrapping exactly one
 // populated payload matching Kind, mirroring agent.ChatEvent's four variants
 // field-for-field — because that type is ALREADY the semantic union every
-// structured engine (codex, kiro, claude-via-acp, opencode, generic acp)
-// normalizes onto via internal/acp/mapping.go before ctxloom ever sees a wire
-// frame. This package does not invent a new vocabulary; it adds an
+// structured engine normalizes onto before ctxloom ever sees a wire frame.
+// This package does not invent a new vocabulary; it adds an
 // append-only, ordered, harp-addressed envelope around the one that already
 // exists. See recorder.go for the writer (Recorder) and Tee.
 package transcript
@@ -53,8 +52,8 @@ const (
 	// KindRaw carries ONLY the IR3 raw side channel (Record.Raw) — a
 	// ChatEvent that had no Entry/Session/Complete/Permission of its own
 	// (e.g. an available_commands_update/current_mode_update passthrough
-	// forwarded via agent.ChatEvent.Raw; see internal/acp/mapping.go's
-	// rawOnlyEvent). Distinct from the other four Kinds carrying no payload:
+	// forwarded via agent.ChatEvent.Raw). Distinct from the other four Kinds
+	// carrying no payload:
 	// this one is legitimately payload-FREE of the structured kinds by
 	// construction, not an error.
 	KindRaw Kind = "raw"
@@ -91,8 +90,9 @@ type Record struct {
 	//
 	// antigravity's lines (before the engine was removed in 0.7.0) never
 	// arrived through the structured tee either: its StructuredChat was a
-	// bespoke prose driver over `agy -p` rather than internal/acp.NewChatDriver,
-	// so its canonical lines came from the oneshot/reader regimes (plan §2d),
+	// bespoke prose driver over `agy -p` rather than the shared structured
+	// chat driver, so its canonical lines came from the oneshot/reader
+	// regimes (plan §2d),
 	// which stamp Engine the same way — a fact still worth knowing when
 	// reading one of its historical transcripts back.
 	Engine string `json:"engine"`
@@ -121,8 +121,8 @@ type Record struct {
 	// WithRawPolicy option). This is a CAPTURE-layer decision only — it
 	// governs what gets written to DISK from a ChatEvent.Raw that already
 	// exists (or doesn't) by the time a Recorder sees it; it has nothing to
-	// do with what crosses the wire (that is entirely internal/acp's and
-	// internal/acpagent's mapping-layer allowlist). Never conflate protocol
+	// do with what crosses the wire (that is entirely the wire mapping
+	// layer's allowlist). Never conflate protocol
 	// `_meta`/passthrough forwarding with this transcript capture policy —
 	// they are unrelated decisions that happen to share a name ("raw").
 	Raw json.RawMessage `json:"raw,omitempty"`
@@ -285,9 +285,9 @@ func payloadFromChatEvent(ev agent.ChatEvent) (Kind, *EntryPayload, *SessionPayl
 // RawPolicy controls whether/when the Recorder persists a ChatEvent's IR3 raw
 // protocol side channel (agent.ChatEvent.Raw) into Record.Raw. This is a
 // CAPTURE-layer policy ONLY: by the time a Recorder ever sees a ChatEvent,
-// ev.Raw already exists (or doesn't) — the mapping layer
-// (internal/acp/mapping.go, internal/acpagent/mapping.go) decided that; this
-// policy cannot make the hub carry MORE than the mapping layer already chose
+// ev.Raw already exists (or doesn't) — the wire mapping layer decided that;
+// this policy cannot make the hub carry MORE than the mapping layer already
+// chose
 // to forward, and in particular can never surface a permission request here
 // — permissions are never carried on ChatEvent.Raw in the first place (see
 // that field's doc comment).

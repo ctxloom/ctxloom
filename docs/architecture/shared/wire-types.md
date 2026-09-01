@@ -26,7 +26,7 @@ flowchart TD
     MC -->|MergeMCPConfig| ASM
     ASM --> PROTO["internal/lm/grpc<br/>hookToProto / hookFromProto / mcpServerToProto<br/>total: guarded by the parity sweep"]
     PROTO --> LIFE["internal/shared/agent<br/>BaseLifecycle.MergeManaged<br/>MergeHooksConfig lives HERE, not in wire"]
-    LIFE --> WRITERS["engine writers<br/>claude · codex · antigravity · kiro · opencode"]
+    LIFE --> WRITERS["engine writers<br/>claude · codex · antigravity · opencode"]
     WRITERS --> NATIVE["settings.json · config.toml · opencode.json"]
 
     CHAT["internal/shared/agent.ChatMCPServer<br/>Transport/URL/Headers — remote MCP"]
@@ -53,7 +53,7 @@ One lifecycle action (shell command, prompt, or agent invocation) plus the metad
 | `Timeout int` | `hooks.go:19` | `timeout` | claude only (`internal/claude/claude.go:613`) and codex (`internal/codex/settings.go:360`) |
 | `Async bool` | `hooks.go:20` | `async` | claude only (`internal/claude/claude.go:614`) |
 | `SCM string` | `hooks.go:21` | `_ctxloom` | the remove-all-then-re-add reconciler (`internal/claude/claude.go:567,834`) |
-| `ContextHash string` | `hooks.go:30` | never (`yaml:"-" json:"-" mapstructure:"-"`) | `internal/antigravity/antigravity.go:381`, `internal/kiro/settings.go:136` |
+| `ContextHash string` | `hooks.go:30` | never (`yaml:"-" json:"-" mapstructure:"-"`) | `internal/antigravity/antigravity.go:381` |
 | `PreToolFallback bool` | `hooks.go:38` | `pre_tool_fallback` | `internal/antigravity/antigravity.go:388` only |
 
 ### `wire.UnifiedHooks`
@@ -150,7 +150,7 @@ The persisted MCP document.
 
 **Shape limits**
 
-- `MCPServer` can express **only a stdio (command) server**. Remote MCP exists end-to-end through a second, parallel type — `internal/shared/agent.ChatMCPServer` (`chat.go:248-267`) with `Transport`/`URL`/`Headers`, consumed by `internal/opencode/settings.go:133-135` and `internal/acp/session.go:524` — but everything sourced from config, profiles, or bundles goes through `ComposeChatMCPServers` (`internal/shared/agent/chat_mcp.go:33-35`), which always builds the stdio form. Two MCP representations coexist with asymmetric capability.
+- `MCPServer` can express **only a stdio (command) server**. Remote MCP exists end-to-end through a second, parallel type — `internal/shared/agent.ChatMCPServer` (`chat.go:248-267`) with `Transport`/`URL`/`Headers`, consumed by `internal/opencode/settings.go:133-135` — but everything sourced from config, profiles, or bundles goes through `ComposeChatMCPServers` (`internal/shared/agent/chat_mcp.go:33-35`), which always builds the stdio form. Two MCP representations coexist with asymmetric capability.
 - `ComposeChatMCPServers` passes `s.Env` through **without cloning**, bypassing the aliasing protection `MergeMCPConfig` provides. `internal/agentcoord/coord/enginehost.go:665-681` then writes into `servers[i].Env`; it is safe only because the mutation targets the entry named `agent.MCPServerName`, which is constructed with a nil `Env` and gets a fresh map.
 - Three of eight `Hook` fields are silently ignored by most consumers, and **no consumer declares which fields it honours**. Adding a unified event is not a one-line change: `turn_end`, the seventh, touched this type, `bundles.BundleHooks` plus its const/`hookEventOrder`/`eventHooks`/`(*reader).appendHook`, the proto `UnifiedHooks` message, the JSON Schema `unifiedHooks` def, `backends.HookEvents`/`unifiedEventHooks`/`setUnifiedEventHooks`/`gateProfileHooks`, `config.extractHooksFromBundle`/`filterMissingCompanionHooks`/`builtinBundleCompanionMissing`, `convert.hookEvents`, `profiles.Profile.HasContent`, `agent.countHooks`, and each engine writer's route table. NONE of those is a compile error if missed — every one of them is a silent drop, which is why each is now covered by a test that reflects over the struct rather than re-listing the events.
 - `Hook`'s field set is connascent-by-algorithm with `bundles.BundleHook`, which hashes `Matcher+Type+Command+Prompt+PreToolFallback` as the signed preimage a trust grant binds to (`internal/bundles/bundles.go:632-641`), and with the proto `Hook` message. All three must gain a field together. **Two of the three legs are now enforced** — the parity sweep fails if `wire.Hook` gains a field the proto does not carry — but nothing binds the *preimage* leg, so a field added to `wire.Hook` and to the proto without being added to `ContentPayload` still passes CI.

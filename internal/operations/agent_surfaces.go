@@ -19,9 +19,9 @@ import (
 // different way than the binding asked for.
 //
 // An unsupported pair is an ERROR, never a downgrade to the engine's default.
-// system-prompt is claude-only; a kiro agent naming it has made a mistake worth
-// hearing about, and silently giving it a native-file delivery instead would
-// teach it the request had worked.
+// system-prompt is claude-only; an agent bound to any other engine and naming
+// it has made a mistake worth hearing about, and silently giving it that
+// engine's own delivery instead would teach it the request had worked.
 func ResolveAgentSurfaces(engine string, declared map[string]string) (map[agent.SurfaceKind]agent.Approach, error) {
 	if len(declared) == 0 {
 		return nil, nil

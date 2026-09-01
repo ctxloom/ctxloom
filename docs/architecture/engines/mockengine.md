@@ -107,7 +107,7 @@ Resolution then runs `backends.EngineCLIsFor(personality)` (`main.go:83`, seam a
 | `codex` | `renderCodexOneshot` (`oneshot_codex.go:25`) | Plain text, **no envelope**. Its *existence* is the assertion (`runtime_test.go:190`) |
 | anything else | — | **LOUD error**, explicitly rather than falling through to claude's shape (`oneshot.go:44-45`) |
 
-There is **no opencode / kiro / antigravity / acp adapter**: those backends do not
+There is **no opencode adapter**: that backend does not
 implement `EngineCLIProvider` — only `internal/claude/enginecli.go:172` and
 `internal/codex/enginecli.go:167` do — so `EngineCLIsFor` reports a loud miss.
 

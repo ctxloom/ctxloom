@@ -29,19 +29,18 @@ import (
 // forward-to-coordinator HTTP mode: CTXLOOM_COORD_URL/CRED are now consumed
 // ONLY by the runner.)
 //
-// OFF-LINUX TCP FALLBACK: internal/acp/container_transport.go's ACP
-// reach-back cannot always hand this a unix socket path — off Linux (macOS/
-// Windows Docker Desktop) it bridges the runner's unix socket onto a host-
-// loopback TCP port instead (a bind-mounted unix socket file is not a live
-// endpoint across the Docker Desktop VM boundary) and encodes that as
-// "tcp://host:port". Both ends read that marker from the same shared leaf
-// (internal/shared/mcpsocket) so they cannot drift — and from a LEAF, not from
-// internal/acp itself: a CLI frontend must never import the ACP client (the
-// one-door invariant, internal/acptest's no-import test).
+// OFF-LINUX TCP FALLBACK: a container reach-back cannot always hand this a
+// unix socket path — off Linux (macOS/Windows Docker Desktop) it must bridge
+// the runner's unix socket onto a host-loopback TCP port instead (a
+// bind-mounted unix socket file is not a live endpoint across the Docker
+// Desktop VM boundary) and encode that as "tcp://host:port". Both ends read
+// that marker from the same shared leaf (internal/shared/mcpsocket) so they
+// cannot drift — and from a LEAF, not from the engine-client side: a CLI
+// frontend must never import the engine client (the one-door invariant).
 
 // dialReachBackSocket dials socketPath as either a unix socket (the default —
 // any absolute filesystem path) or, when it carries the mcpsocket.TCPPrefix
-// marker, a TCP host:port — the off-Linux ACP reach-back fallback. Factored
+// marker, a TCP host:port — the off-Linux reach-back fallback. Factored
 // out of runMCPForward's transport so the dial decision is independently
 // unit-testable without driving a full stdio server.
 func dialReachBackSocket(ctx context.Context, socketPath string) (net.Conn, error) {

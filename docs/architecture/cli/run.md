@@ -24,7 +24,7 @@ almost certainly inside that closure, not in a named function.
 |---|---|---|
 | `run.go` | 1,776 | The command, the `RunE` closure, and 30 helpers |
 | `run_owned.go` | 283 | Phase 2a-B: coordinator-owned container run over Transport 2 |
-| `run_structured.go` | ~290 | `runChatSession` (the shared driver `ctxloom acp run`'s session form uses), its `renderChatEvents`/`chatEventToJSON` renderer, and the NDJSON wire DTOs |
+| `run_structured.go` | ~290 | `runChatSession`, its `renderChatEvents`/`chatEventToJSON` renderer, and the NDJSON wire DTOs. **Its `ctxloom acp run` caller is gone; no production caller remains.** |
 | `run_terminal.go` | 60 | Raw-mode acquisition + resize plumbing (see [terminal-and-prompts.md](terminal-and-prompts.md)) |
 | `run_resize_unix.go` / `run_resize_windows.go` | 59 / 23 | Build-tagged `watchResize` |
 | `run_terminal_ui.go` | ~190 | Prefix-key interceptor, surround bar, diagnostics redirect |
@@ -174,8 +174,7 @@ The whole file has zero test coverage (`rg "ViaCoord|ownedRunSession|renderOwned
 Despite the filename, this file is no longer `run`-specific: `runStructuredREPL`
 (the `--structured` flag's thin wrapper) was removed as an orphan CLI surface,
 but `runChatSession` and everything below it survive — they are the shared
-driver `ctxloom acp run`'s session form (`acp_run_cmd.go`) drives, over the
-SAME `pb.Client.Chat` door `ctxloom acp serve` uses.
+driver, over `pb.Client.Chat`.
 
 | Symbol | file:line | Notes |
 |---|---|---|
@@ -249,7 +248,7 @@ SAME `pb.Client.Chat` door `ctxloom acp serve` uses.
   does that accounting for the same stream; this renderer does not.
 - The container oneshot arm's `renderOwnedRunEvents` emits only `entry` events;
   the `complete` and `session` halves of the documented NDJSON contract are
-  produced only by `chatEventToJSON` on the go-plugin/`acp run` arm.
+  produced only by `chatEventToJSON` on the go-plugin arm.
 - The distill-timeout message at `:220` says "it will complete on next startup";
   nothing distills on startup — recovery is a manual `ctxloom session distill <harp>`.
 - `startContainerOwnedRun` returns a live `RunnerHandle` alongside a non-nil

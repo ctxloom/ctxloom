@@ -11,7 +11,8 @@ import (
 
 // TestEnvCellWorkDir_MatchesTheCanonicalCoordConstant pins that the
 // isolation package copies coord.EnvCellWorkDir's VALUE as a literal because
-// importing coord would cycle (coord -> lm/backends -> isolation), and
+// importing coord would cycle (coord already imports isolation directly —
+// see coord/runchannel.go), and
 // nothing guarded the two staying equal: a rename on either side would leave
 // the host+worktree runner keying its MCP discovery marker off a variable the
 // shim never sets, silently disabling discovery with no error anywhere.

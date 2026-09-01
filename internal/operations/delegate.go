@@ -1093,8 +1093,8 @@ const defaultChatDialTimeout = 5 * time.Minute
 // no coordinator endpoint reachable — the runner could never dial home, so
 // StartRun is impossible and this is the only way the child launches at
 // all). Both are real, reachable, and intentional — this is NOT the general
-// delegated-child path anymore (claude/codex/kiro/acp WITH reach-back ride
-// StartRun), so it stays, narrowly scoped and documented as such, and its
+// delegated-child path anymore (a StartRun-eligible backend WITH reach-back
+// rides StartRun), so it stays, narrowly scoped and documented as such, and its
 // client.Chat dial gets the same fail-loud bound StartRun's dial-home wait
 // already has (defaultChatDialTimeout above).
 //

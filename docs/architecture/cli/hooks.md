@@ -97,7 +97,7 @@ frontmatter. Gated on a non-empty `CTXLOOM_SESSION_HARP`.
 Runs at SessionStart. Two jobs: `emitHarpMarker:268` writes the
 index-independent harp self-id marker into the transcript via
 `additionalContext`, and `bindSessionFromPayload:291` decodes the engine's
-SessionStart payload (Claude / Antigravity / kiro shapes, discriminated by
+SessionStart payload (per-engine shapes, discriminated by
 `isAntigravityHookPayload:334`) and calls `BindSession` so the harp and the
 engine's own session id are linked. Without that binding, `compactEntry` later
 fails with "harp %q has no session_id bound".

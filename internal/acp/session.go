@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/tmuxhost"
 )
 
 // This file drives one ACP conversation and implements the StructuredChat
@@ -91,7 +92,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		if b.newLocalTerminals != nil {
 			sess.localTerminals = b.newLocalTerminals()
 		} else {
-			sess.localTerminals = newLocalTerminals(execTmuxRunner{}, os.TempDir())
+			sess.localTerminals = newLocalTerminals(tmuxhost.ExecRunner{}, os.TempDir())
 		}
 	}
 	// req.Env[fsUpstreamEnvVar] is set ONLY on the fully

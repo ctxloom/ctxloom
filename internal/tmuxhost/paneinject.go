@@ -1,4 +1,4 @@
-package acp
+package tmuxhost
 
 import (
 	"context"
@@ -126,7 +126,7 @@ func (p *PaneInjector) Inject(ctx context.Context, harp, text string, submit boo
 			harp, pn.engine, pn.surface, ErrPasteUnmeasured)
 	}
 
-	// load-buffer takes a FILE, not stdin, because tmuxRunner deliberately
+	// load-buffer takes a FILE, not stdin, because Runner deliberately
 	// exposes only argv — a stdin seam would exist solely for this one call
 	// and would have to be threaded through every fake.
 	buf := filepath.Join(h.terms.tmpDir, "ctxloom-paste-"+pn.term.channel)

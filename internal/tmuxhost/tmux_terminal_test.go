@@ -1,4 +1,4 @@
-package acp
+package tmuxhost
 
 import (
 	"context"
@@ -8,13 +8,12 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	api "github.com/coder/acp-go-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// fakeTmuxRunner is a scriptable tmuxRunner: unit tests drive localTerminals'
-// mapping logic (create/output/wait/kill/release, ensureSession, the
+// fakeTmuxRunner is a scriptable Runner: unit tests drive Terminals'
+// mapping logic (Create/Output/Wait/Kill/Release, ensureSession, the
 // tmux-missing failure) without a real tmux binary. Each call is recorded so
 // a test can assert the exact tmux argv this file builds.
 type fakeTmuxRunner struct {
@@ -82,9 +81,9 @@ func TestEnsureSession_ConfiguresAnAdoptedServerToo(t *testing.T) {
 	f := newFakeTmuxRunner()
 	// has-session SUCCEEDS: the session already exists, i.e. this process is
 	// adopting a server some earlier run left behind.
-	l := newLocalTerminals(f, t.TempDir())
+	l := New(f, t.TempDir())
 
-	_, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "true"})
+	_, err := l.Create(context.Background(), Spec{Command: "true"})
 	require.NoError(t, err)
 
 	require.True(t, f.calledWith("has-session"), "ensureSession still probes first")
@@ -97,28 +96,28 @@ func TestEnsureSession_ConfiguresAnAdoptedServerToo(t *testing.T) {
 	assert.Contains(t, opt, "on")
 }
 
-// TestLocalTerminals_NamesDoNotCollideAcrossProcesses: two localTerminals —
+// TestTerminals_NamesDoNotCollideAcrossProcesses: two Terminals —
 // standing in for two ctxloom RUNS sharing the fixed tmux server — must not
 // mint the same window name or terminal id.
 //
 // PROVEN CAUSE of the 30-minute hang (exposable-overturn): the name comes from
-// localTerminals.seq, a per-PROCESS counter that restarts at zero, so every
+// Terminals.seq, a per-PROCESS counter that restarts at zero, so every
 // run's first terminal is window "t1" on channel "ctxloom-acp-term-t1". tmux
 // ALLOWS duplicate window names, so run 2's window is shadowed by run 1's
 // leftover: kill-window and the wait target both become ambiguous, and run 2
 // blocks forever on a channel its own window never signals. Measured: run 1
 // green 3/3, run 2 panicked with "test timed out after 30m0s".
-func TestLocalTerminals_NamesDoNotCollideAcrossProcesses(t *testing.T) {
+func TestTerminals_NamesDoNotCollideAcrossProcesses(t *testing.T) {
 	f1, f2 := newFakeTmuxRunner(), newFakeTmuxRunner()
-	l1 := newLocalTerminals(f1, t.TempDir())
-	l2 := newLocalTerminals(f2, t.TempDir())
+	l1 := New(f1, t.TempDir())
+	l2 := New(f2, t.TempDir())
 
-	r1, err := l1.create(context.Background(), api.CreateTerminalRequest{Command: "true"})
+	id1, err := l1.Create(context.Background(), Spec{Command: "true"})
 	require.NoError(t, err)
-	r2, err := l2.create(context.Background(), api.CreateTerminalRequest{Command: "true"})
+	id2, err := l2.Create(context.Background(), Spec{Command: "true"})
 	require.NoError(t, err)
 
-	assert.NotEqual(t, r1.TerminalId, r2.TerminalId,
+	assert.NotEqual(t, id1, id2,
 		"two runs sharing one tmux server must not mint the same terminal id")
 
 	win1, win2 := f1.argsFor("new-window"), f2.argsFor("new-window")
@@ -138,26 +137,26 @@ func nameAfterFlag(args []string, flag string) string {
 	return ""
 }
 
-// TestLocalTerminals_Create_MapsToNewWindow: CreateTerminal maps onto tmux
-// new-window, carrying cwd/env/command/args through, and mints a distinct
-// TerminalId per call.
-func TestLocalTerminals_Create_MapsToNewWindow(t *testing.T) {
+// TestTerminals_Create_MapsToNewWindow: Create maps onto tmux new-window,
+// carrying cwd/env/command/args through, and mints a distinct TerminalID per
+// call.
+func TestTerminals_Create_MapsToNewWindow(t *testing.T) {
 	f := newFakeTmuxRunner()
-	l := newLocalTerminals(f, t.TempDir())
+	l := New(f, t.TempDir())
 	cwd := "/work"
 
-	resp1, err := l.create(context.Background(), api.CreateTerminalRequest{
-		Command: "echo", Args: []string{"hi"}, Cwd: &cwd,
-		Env: []api.EnvVariable{{Name: "FOO", Value: "bar"}},
+	id1, err := l.Create(context.Background(), Spec{
+		Command: "echo", Args: []string{"hi"}, Cwd: cwd,
+		Env: []EnvVar{{Name: "FOO", Value: "bar"}},
 	})
 	require.NoError(t, err)
-	resp2, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "true"})
+	id2, err := l.Create(context.Background(), Spec{Command: "true"})
 	require.NoError(t, err)
-	assert.NotEqual(t, resp1.TerminalId, resp2.TerminalId, "each CreateTerminal mints a distinct id")
+	assert.NotEqual(t, id1, id2, "each Create mints a distinct id")
 
 	require.True(t, f.calledWith("has-session"), "ensureSession must probe for the fixed session first")
 	newWindowArgs := f.argsFor("new-window")
-	require.NotEmpty(t, newWindowArgs, "CreateTerminal must map onto tmux new-window")
+	require.NotEmpty(t, newWindowArgs, "Create must map onto tmux new-window")
 	assert.Contains(t, newWindowArgs, "-c")
 	assert.Contains(t, newWindowArgs, cwd)
 	assert.Contains(t, newWindowArgs, "-e")
@@ -166,199 +165,190 @@ func TestLocalTerminals_Create_MapsToNewWindow(t *testing.T) {
 	assert.Contains(t, newWindowArgs, "hi")
 }
 
-// TestLocalTerminals_Output_ReadsCapturedFileNotPane: TerminalOutput reads
-// the wrapper's captured-output file, not tmux's own pane — proven here by
-// never invoking capture-pane at all, and by returning exactly what a test
-// double writes to that file (as the real wrapper script would).
-func TestLocalTerminals_Output_ReadsCapturedFileNotPane(t *testing.T) {
+// TestTerminals_Output_ReadsCapturedFileNotPane: Output reads the wrapper's
+// captured-output file, not tmux's own pane — proven here by never invoking
+// capture-pane at all, and by returning exactly what a test double writes to
+// that file (as the real wrapper script would).
+func TestTerminals_Output_ReadsCapturedFileNotPane(t *testing.T) {
 	f := newFakeTmuxRunner()
-	l := newLocalTerminals(f, t.TempDir())
+	l := New(f, t.TempDir())
 
-	resp, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "echo", Args: []string{"hi"}})
+	id, err := l.Create(context.Background(), Spec{Command: "echo", Args: []string{"hi"}})
 	require.NoError(t, err)
 
 	// Simulate the wrapper script having run: write captured output + exit
 	// status directly, since the fake runner never spawns a real process.
-	term, ok := l.lookup(resp.TerminalId)
+	term, ok := l.lookup(id)
 	require.True(t, ok)
 	require.NoError(t, os.WriteFile(term.outputPath, []byte("hello world\n"), 0o600))
 	require.NoError(t, os.WriteFile(term.statusPath, []byte("0\n"), 0o600))
 
-	out, err := l.output(context.Background(), api.TerminalOutputRequest{TerminalId: resp.TerminalId})
+	out, err := l.Output(id)
 	require.NoError(t, err)
-	assert.Equal(t, "hello world\n", out.Output)
+	assert.Equal(t, "hello world\n", out.Text)
 	assert.False(t, out.Truncated)
-	require.NotNil(t, out.ExitStatus)
-	require.NotNil(t, out.ExitStatus.ExitCode)
-	assert.Equal(t, 0, *out.ExitStatus.ExitCode)
+	require.NotNil(t, out.Exit)
+	require.NotNil(t, out.Exit.ExitCode)
+	assert.Equal(t, 0, *out.Exit.ExitCode)
 	assert.False(t, f.calledWith("capture-pane"), "output must never read tmux's own pane (dead-pane placeholder text), only the captured file")
 }
 
-// TestLocalTerminals_Output_TruncatesFromStart honors
-// CreateTerminalRequest.OutputByteLimit's documented contract: truncate from
-// the BEGINNING, keeping the tail, at a UTF-8 boundary.
-func TestLocalTerminals_Output_TruncatesFromStart(t *testing.T) {
+// TestTerminals_Output_TruncatesFromStart honors Spec.OutputLimit's documented
+// contract: truncate from the BEGINNING, keeping the tail, at a UTF-8 boundary.
+func TestTerminals_Output_TruncatesFromStart(t *testing.T) {
 	f := newFakeTmuxRunner()
-	l := newLocalTerminals(f, t.TempDir())
+	l := New(f, t.TempDir())
 	limit := 5
-	resp, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "echo", OutputByteLimit: &limit})
+	id, err := l.Create(context.Background(), Spec{Command: "echo", OutputLimit: &limit})
 	require.NoError(t, err)
 
-	term, ok := l.lookup(resp.TerminalId)
+	term, ok := l.lookup(id)
 	require.True(t, ok)
 	require.NoError(t, os.WriteFile(term.outputPath, []byte("0123456789"), 0o600))
 
-	out, err := l.output(context.Background(), api.TerminalOutputRequest{TerminalId: resp.TerminalId})
+	out, err := l.Output(id)
 	require.NoError(t, err)
-	assert.Equal(t, "56789", out.Output, "keeps the LAST `limit` bytes, dropping from the start")
+	assert.Equal(t, "56789", out.Text, "keeps the LAST `limit` bytes, dropping from the start")
 	assert.True(t, out.Truncated)
 }
 
-// TestLocalTerminals_Wait_BlocksOnChannelThenReadsStatus: WaitForTerminalExit
-// maps onto tmux wait-for against the terminal's own channel, and the
-// returned status comes from the status file the wrapper writes before
-// signalling it.
-func TestLocalTerminals_Wait_BlocksOnChannelThenReadsStatus(t *testing.T) {
+// TestTerminals_Wait_BlocksOnChannelThenReadsStatus: Wait maps onto tmux
+// wait-for against the terminal's own channel, and the returned status comes
+// from the status file the wrapper writes before signalling it.
+func TestTerminals_Wait_BlocksOnChannelThenReadsStatus(t *testing.T) {
 	f := newFakeTmuxRunner()
-	l := newLocalTerminals(f, t.TempDir())
-	resp, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "sh"})
+	l := New(f, t.TempDir())
+	id, err := l.Create(context.Background(), Spec{Command: "sh"})
 	require.NoError(t, err)
 
-	term, ok := l.lookup(resp.TerminalId)
+	term, ok := l.lookup(id)
 	require.True(t, ok)
 	require.NoError(t, os.WriteFile(term.statusPath, []byte("7\n"), 0o600))
 
-	waitResp, err := l.wait(context.Background(), api.WaitForTerminalExitRequest{TerminalId: resp.TerminalId})
+	st, err := l.Wait(context.Background(), id)
 	require.NoError(t, err)
-	require.NotNil(t, waitResp.ExitCode)
-	assert.Equal(t, 7, *waitResp.ExitCode)
+	require.NotNil(t, st)
+	require.NotNil(t, st.ExitCode)
+	assert.Equal(t, 7, *st.ExitCode)
 	assert.True(t, f.calledWith("wait-for"))
 }
 
-// TestLocalTerminals_Kill_MapsToKillWindowAndUnblocksWait: KillTerminal maps
-// onto tmux kill-window and, because kill-window destroys the window before
-// the wrapper script's own signal line can run, ALSO signals the wait
-// channel itself so a parked WaitForTerminalExit call is not left hanging
-// forever.
-func TestLocalTerminals_Kill_MapsToKillWindowAndUnblocksWait(t *testing.T) {
+// TestTerminals_Kill_MapsToKillWindowAndUnblocksWait: Kill maps onto tmux
+// kill-window and, because kill-window destroys the window before the wrapper
+// script's own signal line can run, ALSO signals the wait channel itself so a
+// parked Wait call is not left hanging forever.
+func TestTerminals_Kill_MapsToKillWindowAndUnblocksWait(t *testing.T) {
 	f := newFakeTmuxRunner()
-	l := newLocalTerminals(f, t.TempDir())
-	resp, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "sleep", Args: []string{"30"}})
+	l := New(f, t.TempDir())
+	id, err := l.Create(context.Background(), Spec{Command: "sleep", Args: []string{"30"}})
 	require.NoError(t, err)
 
-	_, err = l.kill(context.Background(), api.KillTerminalRequest{TerminalId: resp.TerminalId})
-	require.NoError(t, err)
+	require.NoError(t, l.Kill(context.Background(), id))
 	assert.True(t, f.calledWith("kill-window"))
 
-	waitResp, err := l.wait(context.Background(), api.WaitForTerminalExitRequest{TerminalId: resp.TerminalId})
+	st, err := l.Wait(context.Background(), id)
 	require.NoError(t, err, "wait-for after kill must not hang or error — the channel was signalled by kill itself")
-	require.Nil(t, waitResp.ExitCode, "a killed process has no real exit CODE")
-	require.NotNil(t, waitResp.Signal)
-	assert.Equal(t, "SIGHUP", *waitResp.Signal)
+	require.NotNil(t, st)
+	require.Nil(t, st.ExitCode, "a killed process has no real exit CODE")
+	require.NotNil(t, st.Signal)
+	assert.Equal(t, "SIGHUP", *st.Signal)
 }
 
-// TestLocalTerminals_Release_KillsIfStillRunningThenForgetsHandle:
-// ReleaseTerminal frees resources (kills first if not yet finished) and
-// afterward the id is unknown to every other operation.
-func TestLocalTerminals_Release_KillsIfStillRunningThenForgetsHandle(t *testing.T) {
+// TestTerminals_Release_KillsIfStillRunningThenForgetsHandle: Release frees
+// resources (kills first if not yet finished) and afterward the id is unknown
+// to every other operation.
+func TestTerminals_Release_KillsIfStillRunningThenForgetsHandle(t *testing.T) {
 	f := newFakeTmuxRunner()
-	l := newLocalTerminals(f, t.TempDir())
-	resp, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "sleep", Args: []string{"30"}})
+	l := New(f, t.TempDir())
+	id, err := l.Create(context.Background(), Spec{Command: "sleep", Args: []string{"30"}})
 	require.NoError(t, err)
 
-	_, err = l.release(context.Background(), api.ReleaseTerminalRequest{TerminalId: resp.TerminalId})
-	require.NoError(t, err)
+	require.NoError(t, l.Release(context.Background(), id))
 	assert.True(t, f.calledWith("kill-window"), "release of a still-running terminal must kill it first")
 
-	_, err = l.output(context.Background(), api.TerminalOutputRequest{TerminalId: resp.TerminalId})
+	_, err = l.Output(id)
 	assert.Error(t, err, "a released id must be unknown afterward")
 
 	// Releasing twice, or an id that never existed, is a benign no-op.
-	_, err = l.release(context.Background(), api.ReleaseTerminalRequest{TerminalId: resp.TerminalId})
-	assert.NoError(t, err)
-	_, err = l.release(context.Background(), api.ReleaseTerminalRequest{TerminalId: "no-such-id"})
-	assert.NoError(t, err)
+	assert.NoError(t, l.Release(context.Background(), id))
+	assert.NoError(t, l.Release(context.Background(), "no-such-id"))
 }
 
-// TestLocalTerminals_Release_AlsoKillsAnAlreadyFinishedTerminal: a terminal
-// that already exited on its own still has a live tmux window behind it
+// TestTerminals_Release_AlsoKillsAnAlreadyFinishedTerminal: a terminal that
+// already exited on its own still has a live tmux window behind it
 // (remain-on-exit keeps the dead pane around) — release must kill it too,
 // not only a still-running one, or the window leaks in the tmux session for
 // the life of the server. Measured driving this end to end against real
 // tmux: a released-but-never-killed window survived in `tmux ... list-windows`
 // after the whole chat had ended.
-func TestLocalTerminals_Release_AlsoKillsAnAlreadyFinishedTerminal(t *testing.T) {
+func TestTerminals_Release_AlsoKillsAnAlreadyFinishedTerminal(t *testing.T) {
 	f := newFakeTmuxRunner()
-	l := newLocalTerminals(f, t.TempDir())
-	resp, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "echo", Args: []string{"hi"}})
+	l := New(f, t.TempDir())
+	id, err := l.Create(context.Background(), Spec{Command: "echo", Args: []string{"hi"}})
 	require.NoError(t, err)
 
-	term, ok := l.lookup(resp.TerminalId)
+	term, ok := l.lookup(id)
 	require.True(t, ok)
 	require.NoError(t, os.WriteFile(term.statusPath, []byte("0\n"), 0o600))
 	// Establish that the terminal is known to be FINISHED before releasing.
-	_, err = l.wait(context.Background(), api.WaitForTerminalExitRequest{TerminalId: resp.TerminalId})
+	_, err = l.Wait(context.Background(), id)
 	require.NoError(t, err)
 
-	_, err = l.release(context.Background(), api.ReleaseTerminalRequest{TerminalId: resp.TerminalId})
-	require.NoError(t, err)
+	require.NoError(t, l.Release(context.Background(), id))
 	assert.True(t, f.calledWith("kill-window"), "release of an already-finished terminal must still kill its window")
 }
 
-// TestLocalTerminals_UnknownId_Errors covers output/wait/kill against an id
-// that was never created.
-func TestLocalTerminals_UnknownId_Errors(t *testing.T) {
+// TestTerminals_UnknownId_Errors covers Output/Wait/Kill against an id that was
+// never created.
+func TestTerminals_UnknownId_Errors(t *testing.T) {
 	f := newFakeTmuxRunner()
-	l := newLocalTerminals(f, t.TempDir())
-	_, err := l.output(context.Background(), api.TerminalOutputRequest{TerminalId: "nope"})
+	l := New(f, t.TempDir())
+	_, err := l.Output("nope")
 	assert.Error(t, err)
-	_, err = l.wait(context.Background(), api.WaitForTerminalExitRequest{TerminalId: "nope"})
+	_, err = l.Wait(context.Background(), "nope")
 	assert.Error(t, err)
-	_, err = l.kill(context.Background(), api.KillTerminalRequest{TerminalId: "nope"})
-	assert.Error(t, err)
+	assert.Error(t, l.Kill(context.Background(), "nope"))
 }
 
-// TestLocalTerminals_Create_TmuxMissing_FailsLoud: with tmux unreachable
-// (the "tmux is not installed" case), CreateTerminal returns the runner's
-// error rather than falling back to any decline or no-op terminal — the
-// caller (session.go's serveLocalTerminal/localTerminalError) is what turns
-// this into the remedy-carrying jsonrpc error; this test pins that the
-// failure actually PROPAGATES this far rather than being swallowed.
-func TestLocalTerminals_Create_TmuxMissing_FailsLoud(t *testing.T) {
+// TestTerminals_Create_TmuxMissing_FailsLoud: with tmux unreachable (the "tmux
+// is not installed" case), Create returns the runner's error rather than
+// falling back to any decline or no-op terminal. Turning that into a
+// remedy-carrying message is the CALLER's job; this test pins that the failure
+// actually PROPAGATES this far rather than being swallowed here.
+func TestTerminals_Create_TmuxMissing_FailsLoud(t *testing.T) {
 	f := newFakeTmuxRunner()
 	f.failAll = errors.New(`exec: "tmux": executable file not found in $PATH`)
-	l := newLocalTerminals(f, t.TempDir())
+	l := New(f, t.TempDir())
 
-	_, err := l.create(context.Background(), api.CreateTerminalRequest{Command: "echo"})
+	_, err := l.Create(context.Background(), Spec{Command: "echo"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "executable file not found")
 }
 
-// TestLocalTerminals_EnsureSession_ToleratesConcurrentCreateRace: a
-// new-session failure (another process won the race to create the same
-// fixed session first) is tolerated as long as a re-checked has-session
-// confirms the session now exists — never surfaced as a CreateTerminal
-// failure.
-func TestLocalTerminals_EnsureSession_ToleratesConcurrentCreateRace(t *testing.T) {
+// TestTerminals_EnsureSession_ToleratesConcurrentCreateRace: a new-session
+// failure (another process won the race to create the same fixed session
+// first) is tolerated as long as a re-checked has-session confirms the session
+// now exists — never surfaced as a Create failure.
+func TestTerminals_EnsureSession_ToleratesConcurrentCreateRace(t *testing.T) {
 	r := &sequencedRunner{steps: []stepResult{
 		{args0: "has-session", err: errors.New("no such session")},   // first probe: missing
 		{args0: "new-session", err: errors.New("duplicate session")}, // lost the race to create it
 		{args0: "has-session", err: nil},                             // re-check: it exists now
 	}}
-	l := newLocalTerminals(r, t.TempDir())
+	l := New(r, t.TempDir())
 	assert.NoError(t, l.ensureSession(context.Background()))
 }
 
-// TestLocalTerminals_EnsureSession_SurfacesGenuineFailure: when the retry
-// ALSO fails, ensureSession returns the original creation error rather than
+// TestTerminals_EnsureSession_SurfacesGenuineFailure: when the retry ALSO
+// fails, ensureSession returns the original creation error rather than
 // pretending the session exists.
-func TestLocalTerminals_EnsureSession_SurfacesGenuineFailure(t *testing.T) {
+func TestTerminals_EnsureSession_SurfacesGenuineFailure(t *testing.T) {
 	r := &sequencedRunner{steps: []stepResult{
 		{args0: "has-session", err: errors.New("no such session")},
 		{args0: "new-session", err: errors.New("permission denied")},
 		{args0: "has-session", err: errors.New("no such session")},
 	}}
-	l := newLocalTerminals(r, t.TempDir())
+	l := New(r, t.TempDir())
 	assert.Error(t, l.ensureSession(context.Background()))
 }
 

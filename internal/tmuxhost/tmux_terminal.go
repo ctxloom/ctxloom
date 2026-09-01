@@ -1,4 +1,4 @@
-package acp
+package tmuxhost
 
 import (
 	"context"
@@ -14,30 +14,25 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
-
-	api "github.com/coder/acp-go-sdk"
 )
 
-// This file backs handleTerminal's LOCAL path (see session.go): when
-// acp_local_terminal is on and no upstream editor advertised the terminal
-// capability to forward to, ctxloom serves ACP's terminal/* itself, mapping
-// each method onto tmux(1):
+// This file is Terminals, the registry that maps a hosted process's lifecycle
+// onto tmux(1):
 //
-//	CreateTerminal        -> tmux new-window
-//	TerminalOutput        -> read a captured-output file (see below, not
-//	                          tmux capture-pane)
-//	WaitForTerminalExit   -> tmux wait-for, blocking on a per-terminal channel
-//	KillTerminal          -> tmux kill-window
-//	ReleaseTerminal       -> drop the handle (killing it first if still running)
+//	Create   -> tmux new-window
+//	Output   -> read a captured-output file (see below, NOT tmux capture-pane)
+//	Wait     -> tmux wait-for, blocking on a per-terminal channel
+//	Kill     -> tmux kill-window
+//	Release  -> drop the handle (killing it first if still running)
 //
-// TerminalOutput does not read tmux's own pane scrollback: once a pane dies,
-// tmux overwrites what capture-pane would return with its own "Pane is dead
+// Output does not read tmux's own pane scrollback: once a pane dies, tmux
+// overwrites what capture-pane would return with its own "Pane is dead
 // (status N, ...)" placeholder text, so the real output would have to be
-// scraped back out from underneath that synthetic line. Instead the
-// spawned command's stdout/stderr are redirected straight to a plain file by
-// a small shell wrapper, and TerminalOutput just reads that file — content
-// survives KillTerminal (which destroys the tmux window outright, not just
-// marks it dead) for exactly the same reason.
+// scraped back out from underneath that synthetic line. Instead the spawned
+// command's stdout/stderr are redirected straight to a plain file by a small
+// shell wrapper, and Output just reads that file — content survives Kill
+// (which destroys the tmux window outright, not just marks it dead) for
+// exactly the same reason.
 
 // tmuxSocketName names the DEDICATED tmux server this file talks to
 // (`tmux -L tmuxSocketName ...`) — never the caller's own default tmux
@@ -54,35 +49,35 @@ const tmuxSocketName = "ctxloom-acp-terminal"
 // declare where these panes live, only ask.
 func TmuxSocketName() string { return tmuxSocketName }
 
-// tmuxSessionName is the one fixed session every local terminal's window
+// tmuxSessionName is the one fixed session every hosted terminal's window
 // lives in, created if missing on first use.
 //
-// UNRESOLVED BY THE ACP SPEC: nothing says who owns the session a
-// `tmux new-window` target requires to already exist. A fixed,
-// create-if-missing name is the smallest defensible choice here — the
-// rejected alternative was a session named per chatSession (per ACP
-// session id), which would have needed its own teardown path (who deletes
-// it, and when, given a session can outlive the terminals opened in it) for
-// no isolation benefit: window names are already minted uniquely per
-// terminal (localTerminals.seq), so concurrent chatSessions sharing one
-// tmux session cannot collide on a window target either way.
+// NOTHING DECIDES THIS FOR US: `tmux new-window` requires a session to already
+// exist, and no caller of this package owns one. A fixed, create-if-missing
+// name is the smallest defensible choice — the rejected alternative was a
+// session per calling context, which would have needed its own teardown path
+// (who deletes it, and when, given a session can outlive the terminals opened
+// in it) for no isolation benefit: window names are already minted uniquely
+// per terminal (Terminals.seq plus a per-process runToken), so concurrent
+// callers sharing one tmux session cannot collide on a window target either
+// way.
 const tmuxSessionName = "ctxloom-acp-terminal"
 
-// tmuxRunner executes one tmux subcommand against the dedicated ctxloom
+// Runner executes one tmux subcommand against the dedicated ctxloom
 // socket and returns its stdout. Abstracted so unit tests can drive the
-// mapping logic (localTerminals) without a real tmux binary; production
-// code always wires execTmuxRunner.
-type tmuxRunner interface {
+// mapping logic (Terminals) without a real tmux binary; production
+// code always wires ExecRunner.
+type Runner interface {
 	Run(ctx context.Context, args ...string) (string, error)
 }
 
-// execTmuxRunner shells out to the real tmux binary on tmuxSocketName. A
-// missing tmux binary surfaces as an ordinary *exec.Error from cmd.Run,
-// which callers turn into a fail-loud, remedy-carrying jsonrpc.Error
-// (localTerminalError) rather than a silent decline — see the config flag's
-// own doc (config.Config's acpLocalTerminal field) for why that is the
-// required behaviour, not a preference.
-type execTmuxRunner struct {
+// ExecRunner shells out to the real tmux binary on tmuxSocketName. A missing
+// tmux binary surfaces as an ordinary *exec.Error from cmd.Run and is
+// PROPAGATED, never swallowed: this package has no fallback for "no tmux" and
+// must not invent one, because the only alternatives available to it are a
+// silent decline and a fabricated success. Turning that error into a
+// remedy-carrying message for whoever asked is the caller's job.
+type ExecRunner struct {
 	// bin overrides the tmux binary path; empty means "tmux" (resolved via
 	// PATH). Test-only seam.
 	bin string
@@ -98,14 +93,14 @@ type execTmuxRunner struct {
 // tmuxSocketName wherever the name has to appear INSIDE a command string (a
 // wrapper script's own `tmux` call), or a test's private server will signal
 // the shared one.
-func (r execTmuxRunner) socketName() string {
+func (r ExecRunner) socketName() string {
 	if r.socket != "" {
 		return r.socket
 	}
 	return tmuxSocketName
 }
 
-func (r execTmuxRunner) Run(ctx context.Context, args ...string) (string, error) {
+func (r ExecRunner) Run(ctx context.Context, args ...string) (string, error) {
 	bin := r.bin
 	if bin == "" {
 		bin = "tmux"
@@ -136,7 +131,7 @@ type tmuxTerminal struct {
 	// and a KillTerminal call (writing) can reach concurrently — see kill's
 	// own comment for the race this closes.
 	mu         sync.Mutex
-	exitStatus *api.TerminalExitStatus // set once known: from the status file, or synthesized by kill
+	exitStatus *ExitStatus // set once known: from the status file, or synthesized by kill
 	killed     bool
 
 	// stop disarms the session-end trigger registered in create. An explicit
@@ -144,26 +139,27 @@ type tmuxTerminal struct {
 	stop func() bool
 }
 
-// localTerminals is the per-chatSession registry of open local terminals.
-// nil on a chatSession unless acp_local_terminal is on for it (see
-// session.go's Chat).
-type localTerminals struct {
-	runner tmuxRunner
+// Terminals is a registry of open tmux-hosted terminals. One instance owns the
+// window names it mints (seq plus a per-process runToken) and the handles it
+// hands back, so a caller holds one for as long as it holds any TerminalID
+// from it.
+type Terminals struct {
+	runner Runner
 	tmpDir string // os.TempDir() in production; a t.TempDir() in tests
 
 	mu      sync.Mutex
 	ensured bool
 	seq     atomic.Uint64
 	// run distinguishes this process's terminals from those of any other run
-	// sharing the fixed tmux server — see newLocalTerminals.
+	// sharing the fixed tmux server — see New.
 	run   string
-	terms map[api.TerminalId]*tmuxTerminal
+	terms map[TerminalID]*tmuxTerminal
 }
 
-func newLocalTerminals(runner tmuxRunner, tmpDir string) *localTerminals {
-	return &localTerminals{
+func New(runner Runner, tmpDir string) *Terminals {
+	return &Terminals{
 		runner: runner, tmpDir: tmpDir,
-		terms: map[api.TerminalId]*tmuxTerminal{},
+		terms: map[TerminalID]*tmuxTerminal{},
 		// run is what keeps two ctxloom processes sharing this server from
 		// minting the same window name. seq alone cannot: it is per-process
 		// and restarts at zero, so every run's first terminal would be "t1".
@@ -175,7 +171,7 @@ func newLocalTerminals(runner tmuxRunner, tmpDir string) *localTerminals {
 	}
 }
 
-// runToken mints a short token unique to this localTerminals. Uniqueness is
+// runToken mints a short token unique to this Terminals. Uniqueness is
 // all that is required — not unpredictability — so a rand failure falls back
 // to the clock rather than failing terminal creation.
 func runToken() string {
@@ -205,7 +201,7 @@ func runToken() string {
 // a file, not tmux's own scrollback — see the top-of-file doc) but it keeps
 // a just-exited window's WAIT_TIMEOUT-vulnerable state inspectable via tmux
 // directly during debugging, and costs nothing to set once.
-func (l *localTerminals) ensureSession(ctx context.Context) error {
+func (l *Terminals) ensureSession(ctx context.Context) error {
 	l.mu.Lock()
 	already := l.ensured
 	l.mu.Unlock()
@@ -323,22 +319,22 @@ exit $ec`
 
 // create opens a new local terminal for req, returning the id every later
 // call (output/wait/kill/release) addresses it by.
-func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalRequest) (api.CreateTerminalResponse, error) {
+func (l *Terminals) Create(ctx context.Context, spec Spec) (TerminalID, error) {
 	if err := l.ensureSession(ctx); err != nil {
-		return api.CreateTerminalResponse{}, err
+		return "", err
 	}
 	n := l.seq.Add(1)
 	name := fmt.Sprintf("%s-t%d", l.run, n)
-	id := api.TerminalId(name)
+	id := TerminalID(name)
 	outputPath := filepath.Join(l.tmpDir, "ctxloom-acp-term-"+name+".out")
 	statusPath := filepath.Join(l.tmpDir, "ctxloom-acp-term-"+name+".status")
 	channel := "ctxloom-acp-term-" + name
 
 	args := []string{"new-window", "-d", "-t", tmuxSessionName, "-n", name}
-	if req.Cwd != nil && *req.Cwd != "" {
-		args = append(args, "-c", *req.Cwd)
+	if spec.Cwd != "" {
+		args = append(args, "-c", spec.Cwd)
 	}
-	for _, e := range req.Env {
+	for _, e := range spec.Env {
 		args = append(args, "-e", e.Name+"="+e.Value)
 	}
 	// The socket is passed as $0 rather than baked into the script. Baking it
@@ -350,11 +346,11 @@ func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalReque
 	// stdout goes straight to the file and the pane stays blank. That is this
 	// surface's contract, not a limitation to work around.
 	args = append(args, "sh", "-c", tmuxWindowWrapper,
-		l.socketName(), string(writerRedirect), outputPath, channel+"-gate", statusPath, channel, req.Command)
-	args = append(args, req.Args...)
+		l.socketName(), string(writerRedirect), outputPath, channel+"-gate", statusPath, channel, spec.Command)
+	args = append(args, spec.Args...)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {
-		return api.CreateTerminalResponse{}, err
+		return "", err
 	}
 
 	term := &tmuxTerminal{
@@ -362,7 +358,7 @@ func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalReque
 		channel:    channel,
 		outputPath: outputPath,
 		statusPath: statusPath,
-		limit:      req.OutputByteLimit,
+		limit:      spec.OutputLimit,
 	}
 	l.mu.Lock()
 	l.terms[id] = term
@@ -380,18 +376,18 @@ func (l *localTerminals) create(ctx context.Context, req api.CreateTerminalReque
 	// far too early. Same mechanism as host()'s.
 	//
 	// WithoutCancel is REQUIRED, not stylistic: this hook runs with ctx
-	// already cancelled, and execTmuxRunner builds an exec.CommandContext, so
+	// already cancelled, and ExecRunner builds an exec.CommandContext, so
 	// reusing ctx would kill kill-window before it ran. Its error is
 	// swallowed, so the window would leak SILENTLY while every file-based
 	// assertion stayed green — measured on the hosting path, where exactly
 	// that mutation survived a files-only test.
 	term.stop = context.AfterFunc(ctx, func() {
-		_, _ = l.release(context.WithoutCancel(ctx), api.ReleaseTerminalRequest{TerminalId: id})
+		_ = l.Release(context.WithoutCancel(ctx), id)
 	})
-	return api.CreateTerminalResponse{TerminalId: id}, nil
+	return id, nil
 }
 
-func (l *localTerminals) lookup(id api.TerminalId) (*tmuxTerminal, bool) {
+func (l *Terminals) lookup(id TerminalID) (*tmuxTerminal, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	t, ok := l.terms[id]
@@ -401,7 +397,7 @@ func (l *localTerminals) lookup(id api.TerminalId) (*tmuxTerminal, bool) {
 // readStatus returns t's exit status once known: the cached value if
 // kill or an earlier read already resolved it, else whatever the status
 // file currently holds (nil if the command has not exited yet).
-func readStatus(t *tmuxTerminal) *api.TerminalExitStatus {
+func readStatus(t *tmuxTerminal) *ExitStatus {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.exitStatus != nil {
@@ -415,7 +411,7 @@ func readStatus(t *tmuxTerminal) *api.TerminalExitStatus {
 	if err != nil {
 		return nil
 	}
-	t.exitStatus = &api.TerminalExitStatus{ExitCode: &code}
+	t.exitStatus = &ExitStatus{ExitCode: &code}
 	return t.exitStatus
 }
 
@@ -446,7 +442,7 @@ func truncateFromStart(s string, limit int) (string, bool) {
 // waitWindow blocks (bounded by ctx) until the window's command exits.
 // Safe after the command has already finished: tmux's wait-for is a counting
 // channel, so an already-signalled channel returns immediately.
-func (l *localTerminals) waitWindow(ctx context.Context, t *tmuxTerminal) error {
+func (l *Terminals) waitWindow(ctx context.Context, t *tmuxTerminal) error {
 	_, err := l.runner.Run(ctx, "wait-for", t.channel)
 	return err
 }
@@ -474,7 +470,7 @@ func windowOutput(t *tmuxTerminal) (string, error) {
 // own check and the status read is reported as killed (Signal SIGHUP -- what
 // kill-window actually delivers, by closing the pane's pty) even though it had
 // just exited with a real code. Every terminal-owning editor accepts this.
-func (l *localTerminals) killWindow(ctx context.Context, t *tmuxTerminal) {
+func (l *Terminals) killWindow(ctx context.Context, t *tmuxTerminal) {
 	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
 
 	t.mu.Lock()
@@ -482,12 +478,12 @@ func (l *localTerminals) killWindow(ctx context.Context, t *tmuxTerminal) {
 	if t.exitStatus == nil {
 		if b, err := os.ReadFile(t.statusPath); err == nil {
 			if code, perr := strconv.Atoi(strings.TrimSpace(string(b))); perr == nil {
-				t.exitStatus = &api.TerminalExitStatus{ExitCode: &code}
+				t.exitStatus = &ExitStatus{ExitCode: &code}
 			}
 		}
 		if t.exitStatus == nil {
 			sig := "SIGHUP"
-			t.exitStatus = &api.TerminalExitStatus{Signal: &sig}
+			t.exitStatus = &ExitStatus{Signal: &sig}
 		}
 	}
 	t.mu.Unlock()
@@ -506,7 +502,7 @@ func (l *localTerminals) killWindow(ctx context.Context, t *tmuxTerminal) {
 //
 // The files are a transient MAILBOX, not a log: nothing reads them after
 // release, so anything left on disk then is a leak.
-func (l *localTerminals) releaseWindow(ctx context.Context, t *tmuxTerminal) {
+func (l *Terminals) releaseWindow(ctx context.Context, t *tmuxTerminal) {
 	if t.stop != nil {
 		t.stop()
 	}
@@ -520,20 +516,20 @@ func (l *localTerminals) releaseWindow(ctx context.Context, t *tmuxTerminal) {
 // tmuxOutputWrapper's doc), trimmed to the terminal's OutputByteLimit if one
 // was given at create time, plus the exit status if the command has
 // finished.
-func (l *localTerminals) output(_ context.Context, req api.TerminalOutputRequest) (api.TerminalOutputResponse, error) {
-	t, ok := l.lookup(req.TerminalId)
+func (l *Terminals) Output(id TerminalID) (Output, error) {
+	t, ok := l.lookup(id)
 	if !ok {
-		return api.TerminalOutputResponse{}, fmt.Errorf("unknown terminal %q", req.TerminalId)
+		return Output{}, fmt.Errorf("unknown terminal %q", id)
 	}
 	out, err := windowOutput(t)
 	if err != nil {
-		return api.TerminalOutputResponse{}, err
+		return Output{}, err
 	}
 	truncated := false
 	if t.limit != nil {
 		out, truncated = truncateFromStart(out, *t.limit)
 	}
-	return api.TerminalOutputResponse{Output: out, Truncated: truncated, ExitStatus: readStatus(t)}, nil
+	return Output{Text: out, Truncated: truncated, Exit: readStatus(t)}, nil
 }
 
 // wait answers terminal/wait_for_exit: blocks (bounded by ctx) on the
@@ -541,19 +537,15 @@ func (l *localTerminals) output(_ context.Context, req api.TerminalOutputRequest
 // call after the command has already exited — tmux wait-for is a counting
 // semaphore, so a channel already signalled (by the wrapper script, or by
 // kill below) returns immediately rather than hanging.
-func (l *localTerminals) wait(ctx context.Context, req api.WaitForTerminalExitRequest) (api.WaitForTerminalExitResponse, error) {
-	t, ok := l.lookup(req.TerminalId)
+func (l *Terminals) Wait(ctx context.Context, id TerminalID) (*ExitStatus, error) {
+	t, ok := l.lookup(id)
 	if !ok {
-		return api.WaitForTerminalExitResponse{}, fmt.Errorf("unknown terminal %q", req.TerminalId)
+		return nil, fmt.Errorf("unknown terminal %q", id)
 	}
 	if err := l.waitWindow(ctx, t); err != nil {
-		return api.WaitForTerminalExitResponse{}, err
+		return nil, err
 	}
-	st := readStatus(t)
-	if st == nil {
-		return api.WaitForTerminalExitResponse{}, nil
-	}
-	return api.WaitForTerminalExitResponse{ExitCode: st.ExitCode, Signal: st.Signal}, nil
+	return readStatus(t), nil
 }
 
 // kill answers terminal/kill: tears the tmux window down (best-effort — a
@@ -574,13 +566,13 @@ func (l *localTerminals) wait(ctx context.Context, req api.WaitForTerminalExitRe
 // actually delivers to the pane's foreground process group by closing its
 // pty) even though it had just exited with a real code. This matches the
 // same race every terminal-owning editor's kill implementation accepts.
-func (l *localTerminals) kill(ctx context.Context, req api.KillTerminalRequest) (api.KillTerminalResponse, error) {
-	t, ok := l.lookup(req.TerminalId)
+func (l *Terminals) Kill(ctx context.Context, id TerminalID) error {
+	t, ok := l.lookup(id)
 	if !ok {
-		return api.KillTerminalResponse{}, fmt.Errorf("unknown terminal %q", req.TerminalId)
+		return fmt.Errorf("unknown terminal %q", id)
 	}
 	l.killWindow(ctx, t)
-	return api.KillTerminalResponse{}, nil
+	return nil
 }
 
 // release answers terminal/release: forgets the handle and frees its
@@ -594,17 +586,17 @@ func (l *localTerminals) kill(ctx context.Context, req api.KillTerminalRequest) 
 // ignored error), so there is no cost to always trying. Releasing an
 // already-released or unknown id is a benign no-op, matching
 // ReleaseTerminalResponse's empty, error-free shape.
-func (l *localTerminals) release(ctx context.Context, req api.ReleaseTerminalRequest) (api.ReleaseTerminalResponse, error) {
+func (l *Terminals) Release(ctx context.Context, id TerminalID) error {
 	l.mu.Lock()
-	t, ok := l.terms[req.TerminalId]
+	t, ok := l.terms[id]
 	if ok {
-		delete(l.terms, req.TerminalId)
+		delete(l.terms, id)
 	}
 	l.mu.Unlock()
 	if !ok {
-		return api.ReleaseTerminalResponse{}, nil
+		return nil
 	}
 
 	l.releaseWindow(ctx, t)
-	return api.ReleaseTerminalResponse{}, nil
+	return nil
 }

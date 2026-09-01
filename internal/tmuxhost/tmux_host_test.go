@@ -1,4 +1,4 @@
-package acp
+package tmuxhost
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/coder/acp-go-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,13 +29,13 @@ import (
 // realTmux returns a runner on a socket private to this test, and registers
 // its teardown. It skips (never fails) when tmux is absent: the host's
 // toolchain is not what these tests are about.
-func realTmux(t *testing.T) (*execTmuxRunner, string) {
+func realTmux(t *testing.T) (*ExecRunner, string) {
 	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not on PATH; interactive hosting is tmux-backed")
 	}
 	socket := "ctxloom-hosttest-" + runToken()
-	r := &execTmuxRunner{socket: socket}
+	r := &ExecRunner{socket: socket}
 	t.Cleanup(func() {
 		// kill-server on an already-dead server is not an error worth failing a
 		// passing test over, so the result is deliberately dropped.
@@ -69,7 +68,7 @@ func realTmux(t *testing.T) (*execTmuxRunner, string) {
 // is the property that makes it worth having.
 func TestHost_RunsOnARealTTY(t *testing.T) {
 	runner, _ := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 
 	h, err := l.host(context.Background(), hostSpec{Command: "sh", Args: []string{"-c", "tty"}})
 	require.NoError(t, err)
@@ -96,7 +95,7 @@ func TestHost_RunsOnARealTTY(t *testing.T) {
 // or reports the wrapper's own exit instead of the command's cannot produce 7.
 func TestHost_CapturesOutputAndTrueExitCode(t *testing.T) {
 	runner, _ := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 
 	h, err := l.host(context.Background(), hostSpec{
 		Command: "sh",
@@ -120,7 +119,7 @@ func TestHost_CapturesOutputAndTrueExitCode(t *testing.T) {
 // consult the window name.
 func TestHost_AttachTargetNamesALiveWindow(t *testing.T) {
 	runner, _ := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 
 	// A command that stays alive, so the window is still there to be found.
 	h, err := l.host(context.Background(), hostSpec{Command: "sh", Args: []string{"-c", "sleep 30"}})
@@ -141,7 +140,7 @@ func TestHost_AttachTargetNamesALiveWindow(t *testing.T) {
 // assert the PROCESS observed them, not that the argv contained them.
 func TestHost_EnvAndCwdReachTheProcess(t *testing.T) {
 	runner, _ := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 	dir := t.TempDir()
 
 	h, err := l.host(context.Background(), hostSpec{
@@ -169,7 +168,7 @@ func TestHost_EnvAndCwdReachTheProcess(t *testing.T) {
 
 // waitHosted blocks until the hosted command exits, failing the test rather
 // than hanging the suite if it never does.
-func waitHosted(t *testing.T, l *localTerminals, h *tmuxTerminal) *api.TerminalExitStatus {
+func waitHosted(t *testing.T, l *Terminals, h *tmuxTerminal) *ExitStatus {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -177,7 +176,7 @@ func waitHosted(t *testing.T, l *localTerminals, h *tmuxTerminal) *api.TerminalE
 	return readStatus(h)
 }
 
-func readHosted(t *testing.T, l *localTerminals, h *tmuxTerminal) string {
+func readHosted(t *testing.T, l *Terminals, h *tmuxTerminal) string {
 	t.Helper()
 	out, err := windowOutput(h)
 	require.NoError(t, err)
@@ -202,7 +201,7 @@ func TestHost_LaunchesARealFullScreenTUI(t *testing.T) {
 		t.Skip("top not present; it is the full-screen witness this test needs")
 	}
 	runner, socket := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 
 	h, err := l.host(context.Background(), hostSpec{Command: "top", Args: []string{"-d", "1"}})
 	require.NoError(t, err)
@@ -254,7 +253,7 @@ func tmuxSocketDir() string {
 // what makes the post-condition mean something.
 func TestHost_ReleaseRemovesTheCaptureFiles(t *testing.T) {
 	runner, _ := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 
 	h, err := l.host(context.Background(), hostSpec{
 		Command: "sh",
@@ -277,7 +276,7 @@ func TestHost_ReleaseRemovesTheCaptureFiles(t *testing.T) {
 // done. The terminal/* path tolerates exactly this.
 func TestHost_ReleaseIsSafeOnAnAlreadyKilledTerminal(t *testing.T) {
 	runner, _ := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 
 	h, err := l.host(context.Background(), hostSpec{Command: "sh", Args: []string{"-c", "sleep 30"}})
 	require.NoError(t, err)
@@ -299,13 +298,13 @@ func TestHost_ReleaseIsSafeOnAnAlreadyKilledTerminal(t *testing.T) {
 // fire at all if the session died some other way.
 //
 // The cleanup necessarily runs with the context ALREADY cancelled, so it must
-// not use that context for its own tmux calls: execTmuxRunner builds
+// not use that context for its own tmux calls: ExecRunner builds
 // exec.CommandContext, and a cancelled context kills the command before it
 // runs. Mutating the WithoutCancel away makes this test fail, which is the
 // point of asserting the files are gone rather than that the hook ran.
 func TestHost_ContextCancellationReleasesTheTerminal(t *testing.T) {
 	runner, _ := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	h, err := l.host(ctx, hostSpec{Command: "sh", Args: []string{"-c", "echo trigger-probe-2e7b"}})
@@ -329,7 +328,7 @@ func TestHost_ContextCancellationReleasesTheTerminal(t *testing.T) {
 	// pins context.WithoutCancel. os.Remove ignores contexts, so the files
 	// are reclaimed even by a hook that reuses the cancelled context; the
 	// tmux calls are not. Reusing the cancelled context makes kill-window die
-	// before it runs (execTmuxRunner builds an exec.CommandContext) and its
+	// before it runs (ExecRunner builds an exec.CommandContext) and its
 	// error is deliberately swallowed, so the window would leak SILENTLY with
 	// every file-based assertion still green. Asserting on the files alone
 	// let that mutation survive — measured, not hypothesised.

@@ -1,4 +1,4 @@
-package acp
+package tmuxhost
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// PaneHost is localTerminals.host's production caller: it owns one live pane
+// PaneHost is Terminals.host's production caller: it owns one live pane
 // per run (keyed by harp) and lends that pane out to any number of attached
 // viewers.
 //
@@ -26,7 +26,7 @@ import (
 // it, and Detach does neither — a human closing their terminal must not kill
 // the agent they were watching. Every other rule here follows from that one.
 type PaneHost struct {
-	terms *localTerminals
+	terms *Terminals
 
 	// pollEvery is how often a pane's capture file is re-read for new bytes.
 	// This is a FILE TAIL interval, not an injection-timing knob: pipe-pane
@@ -86,9 +86,9 @@ var ErrNoPane = errors.New("no live pane for this run")
 
 // NewPaneHost builds a pane host over a tmux runner. tmpDir holds the capture
 // and paste-buffer files.
-func NewPaneHost(runner tmuxRunner, tmpDir string) *PaneHost {
+func NewPaneHost(runner Runner, tmpDir string) *PaneHost {
 	return &PaneHost{
-		terms:     newLocalTerminals(runner, tmpDir),
+		terms:     New(runner, tmpDir),
 		pollEvery: 25 * time.Millisecond,
 		panes:     map[string]*pane{},
 	}
@@ -120,7 +120,7 @@ type pane struct {
 }
 
 // Start hosts spec's command in a fresh pane for harp. It is the production
-// call into localTerminals.host.
+// call into Terminals.host.
 //
 // Starting a harp that already has a live pane is refused rather than
 // silently replacing it: the second pane would orphan the first, whose

@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/acp"
+	"github.com/ctxloom/ctxloom/internal/tmuxhost"
 )
 
 // attachReadOnly backs --read-only: watch a run without being able to type
@@ -121,4 +121,4 @@ func runAttach(cmd *cobra.Command, args []string) error {
 // attachSocket is the socket every ctxloom pane lives on. It exists so the
 // resolution above has one named source when it is completed, rather than the
 // constant being re-derived at the call site.
-func attachSocket() string { return acp.TmuxSocketName() }
+func attachSocket() string { return tmuxhost.TmuxSocketName() }

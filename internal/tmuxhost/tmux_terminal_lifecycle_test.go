@@ -1,4 +1,4 @@
-package acp
+package tmuxhost
 
 import (
 	"context"
@@ -7,13 +7,12 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/coder/acp-go-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // terminal/*'s only reclamation path is terminal/release, and release is driven
-// by the CLIENT. Nothing on ctxloom's side is a backstop: localTerminals.terms
+// by the CLIENT. Nothing on ctxloom's side is a backstop: Terminals.terms
 // is inserted in create, read in lookup and deleted in release, and nothing
 // iterates it — so a client that creates a terminal and then disconnects
 // without releasing leaves its tmux window and both files behind forever.
@@ -26,25 +25,25 @@ import (
 // This drives a REAL tmux (see tmux_host_test.go's realTmux) because the thing
 // under test is whether tmux actually loses the window, which a fake runner
 // cannot show.
-func TestLocalTerminals_SessionEndReclaimsAnUnreleasedTerminal(t *testing.T) {
+func TestTerminals_SessionEndReclaimsAnUnreleasedTerminal(t *testing.T) {
 	runner, _ := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 
 	ctx, cancel := context.WithCancel(context.Background())
-	resp, err := l.create(ctx, api.CreateTerminalRequest{
+	id, err := l.Create(ctx, Spec{
 		Command: "sh",
 		Args:    []string{"-c", "echo unreleased-probe-6f4c"},
 	})
 	require.NoError(t, err)
 
-	term, ok := l.lookup(resp.TerminalId)
+	term, ok := l.lookup(id)
 	require.True(t, ok)
 
 	// Let it finish, so the files exist and the pane is dead-but-present
 	// (remain-on-exit) — the exact state an abandoned terminal is left in.
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer waitCancel()
-	_, err = l.wait(waitCtx, api.WaitForTerminalExitRequest{TerminalId: resp.TerminalId})
+	_, err = l.Wait(waitCtx, id)
 	require.NoError(t, err)
 
 	// PRECONDITIONS. Without these, "it is gone" is satisfied by something that
@@ -98,7 +97,7 @@ func TestLocalTerminals_SessionEndReclaimsAnUnreleasedTerminal(t *testing.T) {
 // checking that an argv was built, because the argv proves only that we asked.
 func TestEnsureSession_DisablesClipboardEscape(t *testing.T) {
 	runner, _ := realTmux(t)
-	l := newLocalTerminals(runner, t.TempDir())
+	l := New(runner, t.TempDir())
 
 	require.NoError(t, l.ensureSession(context.Background()))
 

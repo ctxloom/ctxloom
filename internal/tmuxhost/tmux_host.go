@@ -1,4 +1,4 @@
-package acp
+package tmuxhost
 
 import (
 	"context"
@@ -55,10 +55,10 @@ type hostSpec struct {
 // socketName reports the tmux server this registry's runner talks to. The
 // wrapper script above has to name the socket INSIDE a command string, so it
 // cannot rely on the runner prepending `-L`. Resolved by assertion rather than
-// widened onto the tmuxRunner interface because only a real runner ever
+// widened onto the Runner interface because only a real runner ever
 // executes a wrapper: the unit-test fake records argv and runs nothing, so
 // requiring it to answer this would be ceremony with no caller.
-func (l *localTerminals) socketName() string {
+func (l *Terminals) socketName() string {
 	if s, ok := l.runner.(interface{ socketName() string }); ok {
 		return s.socketName()
 	}
@@ -67,7 +67,7 @@ func (l *localTerminals) socketName() string {
 
 // host starts spec's command in a tmux window on a real pty and begins
 // capturing the pane. The command does not run until capture is armed.
-func (l *localTerminals) host(ctx context.Context, spec hostSpec) (*tmuxTerminal, error) {
+func (l *Terminals) host(ctx context.Context, spec hostSpec) (*tmuxTerminal, error) {
 	if spec.Command == "" {
 		return nil, fmt.Errorf("host: no command given")
 	}
@@ -128,7 +128,7 @@ func (l *localTerminals) host(ctx context.Context, spec hostSpec) (*tmuxTerminal
 	// not run through this frame.
 	//
 	// The hook necessarily runs with ctx ALREADY cancelled, so it must not
-	// reuse ctx for its own tmux calls — execTmuxRunner builds an
+	// reuse ctx for its own tmux calls — ExecRunner builds an
 	// exec.CommandContext, and a cancelled context kills the command before
 	// it can run. WithoutCancel keeps the values and drops the cancellation.
 	h.stop = context.AfterFunc(ctx, func() {

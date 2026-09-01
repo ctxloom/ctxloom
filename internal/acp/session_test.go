@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/tmuxhost"
 )
 
 // chatHarness wires the ACP client's StructuredChat driver to a fakeAgent over
@@ -1864,9 +1865,9 @@ func TestChat_ModelQuirk_NameMismatch_SilentNoOp(t *testing.T) {
 }
 
 // startChatWithLocalTerminal is startChat with acp_local_terminal on and its
-// tmux runner swapped for a fake (via ACP.newLocalTerminals, tmux_terminal.go's
+// tmux runner swapped for a fake (via ACP.newLocalTerminals, localterminals.go's
 // test seam) — no real tmux binary required.
-func startChatWithLocalTerminal(t *testing.T, runner tmuxRunner) *chatHarness {
+func startChatWithLocalTerminal(t *testing.T, runner tmuxhost.Runner) *chatHarness {
 	t.Helper()
 	c2aR, c2aW := io.Pipe()
 	a2cR, a2cW := io.Pipe()

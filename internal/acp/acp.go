@@ -184,10 +184,10 @@ type ACP struct {
 	localTerminal bool
 	// newLocalTerminals constructs this Chat call's local-terminal registry
 	// when localTerminal is on. nil (every production path) means the real
-	// default: newLocalTerminals(execTmuxRunner{}, os.TempDir()). Test-only
-	// seam, mirroring openTransport above, so a test can drive
-	// handleTerminal's local-tmux path against a fake tmuxRunner instead of
-	// a real tmux binary.
+	// default: newLocalTerminals(tmuxhost.ExecRunner{}, os.TempDir()).
+	// Test-only seam, mirroring openTransport above, so a test can drive
+	// handleTerminal's local-tmux path against a fake tmuxhost.Runner instead
+	// of a real tmux binary.
 	newLocalTerminals func() *localTerminals
 }
 

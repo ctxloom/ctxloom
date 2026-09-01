@@ -9,104 +9,59 @@
             "type": "command"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "command": "ctxloom hook stamp-plan",
-            "type": "command"
-          }
-        ],
-        "matcher": "Edit|Write"
-      }
-    ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "ltk evaluate",
-            "type": "command"
-          }
-        ],
-        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
       }
     ],
     "SessionStart": [
       {
         "hooks": [
           {
-            "command": "ctxloom hook session-bind",
-            "type": "command"
-          },
-          {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 6 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 6 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 7 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 7 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 8 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 8 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 9 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 9 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 10 --of 12 2c3f8bf2fa802c5b",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 10 --of 10 4881379e5d6e3f3b",
             "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 11 --of 12 2c3f8bf2fa802c5b",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 12 --of 12 2c3f8bf2fa802c5b",
-            "timeout": 60,
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook next-step",
-            "timeout": 15,
             "type": "command"
           }
         ]

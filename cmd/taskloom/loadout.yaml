@@ -127,10 +127,12 @@ fragments:
       `--json` is your surface — reach for it before anything else, and pipe it
       through jq. The default text output is for a person reading a terminal.
 
-          # one task's exact body — no header to strip, no offset to guess
-          # `show` is variadic, so --json is ALWAYS an array, even for one
-          # id -- a consumer never has to branch on how many it asked for.
-          taskloom show <harp> --json | jq -r '.[0].text'
+          # one task's exact body — no header to strip, no offset to guess.
+          # A GROUP serializes as a LIST and a SINGLE value as an OBJECT, so
+          # one id is a bare object and several are an array. The shape
+          # follows what you ASKED FOR, not what was found.
+          taskloom show <harp> --json | jq -r '.text'
+          taskloom show <harp-a> <harp-b> --json | jq -r '.[].text'
 
           # every harp; every harp carrying a tag
           taskloom list --all --json | jq -r '.[].harp_id'

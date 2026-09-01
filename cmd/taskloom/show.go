@@ -31,9 +31,12 @@ that was not found — a partial result that looks complete is exactly the silen
 truncation this project's diagnostics exist to prevent — so nothing is printed
 at all rather than the subset that happened to resolve.
 
---format json/yaml/toml/markdown emit an ARRAY of structured tasks, always:
-one id yields a one-element array, not a bare object, so a consumer never has
-to branch on how many ids it asked for.`,
+--format json/yaml/toml/markdown follow the project's serialization rule: a
+GROUP serializes as a LIST, a SINGLE value as an OBJECT. One id therefore
+yields a bare object, so ` + "`jq -r '.text'`" + ` reads its body; two or more yield an
+array, so ` + "`jq -r '.[].text'`" + ` reads theirs. The shape follows what was ASKED
+FOR, not what happened to be found — a single id that resolves is always an
+object, never a one-element list.`,
 	Example: `  taskloom show swift-amber-falcon
   taskloom show swift-amber-falcon brisk-copper-otter
   taskloom show swift-amber-falcon brisk-copper-otter --format json`,
@@ -58,7 +61,19 @@ func runShow(cmd *cobra.Command, args []string) error {
 	}
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	cfg := hideConfigFor(tc)
-	return cliemit.Emit(cmd, selected, func() error {
+	// A GROUP serializes as a list and a SINGLE value as an object. The choice
+	// keys off how many ids were ASKED FOR, not how many were found: every id
+	// must resolve or the call already failed above, so the two counts agree —
+	// but keying on the request is what makes the shape predictable from the
+	// command line alone, without knowing the store's contents.
+	//
+	// A repeated id (`show a a`) is two ids asked for, so it stays a list, the
+	// same way selectTasks honors it twice.
+	var payload any = selected
+	if len(args) == 1 {
+		payload = selected[0]
+	}
+	return cliemit.Emit(cmd, payload, func() error {
 		return renderTaskDetails(cmd.OutOrStdout(), selected, cfg)
 	})
 }

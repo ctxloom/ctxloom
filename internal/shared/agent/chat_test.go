@@ -112,42 +112,6 @@ func TestStructuredChat_ContextCancelReturns(t *testing.T) {
 	}
 }
 
-// TestACPTransport_RequireOnHost_AdapterMissing pins the gate every
-// ACPAdapter engine's Chat() shares: a host-runtime chat (runtime != "")
-// with the declared adapter binary NOT on PATH fails loud, naming both the
-// binary and the exact InstallCmd from the declaration — never a second,
-// hardcoded copy of the install string.
-func TestACPTransport_RequireOnHost_AdapterMissing(t *testing.T) {
-	t.Setenv("PATH", t.TempDir()) // guaranteed empty: the binary cannot resolve
-	transport := ACPTransport{
-		Kind:       ACPAdapter,
-		Binary:     "definitely-not-a-real-binary-xyz",
-		InstallCmd: "npm install -g @zed-industries/definitely-not-a-real-binary-xyz",
-	}
-	err := transport.RequireOnHost("", "testengine")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "testengine", "must name the engine")
-	assert.Contains(t, err.Error(), transport.Binary, "must name the missing binary")
-	assert.Contains(t, err.Error(), transport.InstallCmd, "must give the exact install command from the declaration")
-}
-
-// TestACPTransport_RequireOnHost_ContainerRuntimeExempt pins the container
-// exemption: a container runtime value means the AGENT IMAGE carries its own
-// adapter, so this host process's PATH is irrelevant — RequireOnHost must
-// return nil even though the binary genuinely resolves nowhere on this PATH.
-//
-// BOTH ownership modes are asserted. The exemption is about the image, which
-// is identical either way, so a gate written as an equality test against one
-// const would fail the other mode with a PATH error about a binary that was
-// never going to be used — the reason the gate asks IsContainerRuntime.
-func TestACPTransport_RequireOnHost_ContainerRuntimeExempt(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	transport := ACPTransport{Kind: ACPAdapter, Binary: "definitely-not-a-real-binary-xyz", InstallCmd: "npm install -g whatever"}
-	for _, runtime := range []RuntimeAxis{RuntimeContainerRootless, RuntimeContainerRootful} {
-		assert.NoError(t, transport.RequireOnHost(runtime, "testengine"), "runtime %q", runtime)
-	}
-}
-
 // TestIsContainerRuntime pins the predicate every containerization gate in
 // this package funnels through: exactly the two container values, and nothing
 // else. "container" in particular is NOT one of them — the pre-split value was
@@ -160,15 +124,6 @@ func TestIsContainerRuntime(t *testing.T) {
 	for _, v := range []string{"", "host", "container", "Container-Rootless", "rootless"} {
 		assert.False(t, IsContainerRuntime(v), "%q is not a container runtime", v)
 	}
-}
-
-// TestACPTransport_RequireOnHost_NativeAndBespokeNeverGate pins that a
-// native (ACPNative) or bespoke (ACPBespoke) transport is never gated by
-// this check regardless of PATH — there is no adapter binary to look up.
-func TestACPTransport_RequireOnHost_NativeAndBespokeNeverGate(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	assert.NoError(t, ACPTransport{Kind: ACPNative}.RequireOnHost("", "kiro"))
-	assert.NoError(t, ACPTransport{Kind: ACPBespoke}.RequireOnHost("", "testengine"))
 }
 
 // TestChatEvent_ExactlyOneVariant documents that a ChatEvent carries exactly one

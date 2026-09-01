@@ -11,7 +11,7 @@ Feature: Isolation probe — live proof against real vendor engines
   This feature is that other half, built to be run on its own — for ONE engine and
   ONE axis at a time — because its job is not "pass once in this repo's CI" but
   "answer the same question again, unattended, every time claude-code / codex /
-  kiro / opencode ships a new version." See
+  opencode ships a new version." See
   website/src/content/docs/security/isolation.md's "The executable probe" section
   for how to run a single row and how to read a failure (vendor regression vs
   ctxloom regression — they read differently, see below), and
@@ -31,10 +31,9 @@ Feature: Isolation probe — live proof against real vendor engines
   an isolation bug. If the response arrives but assertions b/c/d fail, isolation
   itself is the suspect: a write landed somewhere the boundary should have stopped
   it, or ctxloom's own bookkeeping (the config-home var, the container mount plan)
-  didn't do what it claims. kiro's row below asserts a KNOWN leak
-  positively — that is expected RED-if-fixed, not a bug; every other row's leak
-  assertion failing IS a bug (either a vendor regression or a ctxloom one — the
-  scenario's own Then step names which half it is asserting).
+  didn't do what it claims. A row's leak assertion failing IS a bug (either a
+  vendor regression or a ctxloom one — the scenario's own Then step names which
+  half it is asserting).
 
   Background:
     Given Alice has a git-backed project
@@ -44,9 +43,7 @@ Feature: Isolation probe — live proof against real vendor engines
   # ctxloom's own resolveEnvOrMountAuth precedence, so a cell can never claim to
   # have proven a path it did not actually take. Self-skips LOUDLY, per cell, with
   # the specific missing credential AND axis named — see isolation_probe.go's
-  # probeWorktreeAuthAvailable / probeContainerAuthAvailable for kiro, the one
-  # engine whose skip reason is a documented product gap rather than
-  # a missing credential.
+  # probeWorktreeAuthAvailable / probeContainerAuthAvailable.
   # Each Examples block below carries its own @<engine> @<axis> tag pair —
   # not decoration, the addressing mechanism: `just isolation-probe <engine>
   # <axis>` sets ACCEPTANCE_TAGS="@live && @<engine> && @<axis>" to run
@@ -101,22 +98,6 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine | axis              |
       | codex  | container-rootful |
 
-    @kiro @worktree
-    Examples:
-      | engine | axis     |
-      | kiro   | worktree |
-
-    @kiro @container-rootless
-    Examples:
-      | engine | axis               |
-      | kiro   | container-rootless |
-
-    # container-rootful: WIRED, UNVERIFIED — see claude-code's row above.
-    @kiro @container-rootful
-    Examples:
-      | engine | axis              |
-      | kiro   | container-rootful |
-
     @opencode @worktree
     Examples:
       | engine   | axis     |
@@ -159,24 +140,6 @@ Feature: Isolation probe — live proof against real vendor engines
     Examples:
       | engine   |
       | opencode |
-
-  # kiro's credential-store leak (legal-hula: KIRO_HOME isolates config, but
-  # subscription auth lives in a GLOBAL sqlite KIRO_HOME never touches) is no
-  # longer reachable via a bare worktree run — ctxloom now REFUSES to start kiro
-  # in worktree isolation without KIRO_API_KEY specifically BECAUSE of this leak
-  # (credentialSeedFixIt), which is the right behavior but also closes off the one
-  # window this probe would otherwise use to prove the leak live. --degraded is
-  # the documented escape hatch for exactly this refusal, so this ONE scenario
-  # deliberately passes it, to keep the leak provable rather than merely asserted
-  # in prose. If this ever goes RED because the run reports NO leak, that is
-  # GOOD NEWS (kiro's credential store became genuinely KIRO_HOME-scoped) and the
-  # fix is to widen HonoursVarForCreds in auth.go and retire this scenario, not to
-  # "fix" the assertion.
-  @kiro @kiro-leak
-  Scenario: The isolation probe proves kiro's global credential store leak under --degraded
-    Given the isolation probe targets kiro's known credential-store leak
-    When the probe runs it live under --degraded, writing a unique token in one turn
-    Then the probe confirms kiro's global credential store was touched, as expected
 
   # Back to: tests/acceptance/features/j002200_isolation.feature (the hermetic layer
   # this feature complements) · website/src/content/docs/security/isolation.md

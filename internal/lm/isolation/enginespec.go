@@ -11,7 +11,7 @@ import (
 // worktree-in-container composition), which are otherwise engine-agnostic:
 //
 //   - image: the agent image tag this engine runs in (it must carry the engine
-//     CLI — a kiro run in a claude image would launch a container whose engine
+//     CLI — a codex run in a claude image would launch a container whose engine
 //     spawn fails, which is worse than degrading). For a COMPOSABLE spec
 //     (engineInstall != nil) this is only the FALLBACK when the shared composed
 //     tag cannot be computed (e.g. the base content is unreadable); containerFor
@@ -57,7 +57,7 @@ import (
 //     co.) is deliberately not consulted — the container axis never sets one.
 //
 // Specs are keyed by the REGISTERED backend name (internal/lm/backends
-// registry: "claude-code", "kiro", ...). The isolation package deliberately does
+// registry: "claude-code", "codex", ...). The isolation package deliberately does
 // not import the backends registry (it would drag the whole backend tree into
 // the seam); the names are part of the descriptor contract.
 type engineContainerSpec struct {
@@ -76,15 +76,6 @@ type engineContainerSpec struct {
 // flagged single-file residue — see the Container doc).
 var defaultOverlayDirs = []string{
 	".claude",
-	filepath.FromSlash(".ctxloom/cache"),
-}
-
-// kiroOverlayDirs shadows kiro's managed-config surface: everything ctxloom
-// writes for kiro lives under .kiro (agents/, settings/mcp.json, steering/,
-// skills/) plus the shared .ctxloom/cache. Unlike claude there is no project-root
-// single-file residue — kiro's MCP config sits inside .kiro/settings.
-var kiroOverlayDirs = []string{
-	".kiro",
 	filepath.FromSlash(".ctxloom/cache"),
 }
 
@@ -116,7 +107,7 @@ var opencodeOverlayDirs = []string{
 // mockSkillsPath — the shared ManagedSkillPackages delivery, the same
 // mechanism every other backend's skills surface uses). The whole ".mock"
 // parent is shadowed, not just "skills" underneath it, mirroring every other
-// spec's whole-managed-dir mount (.claude/.kiro/.codex/.opencode); .mock
+// spec's whole-managed-dir mount (.claude/.codex/.opencode); .mock
 // has no other sibling content today, so the wider shadow costs nothing.
 // mock's CONTEXT surface (MOCK_CONTEXT.md, mockContextPath) is a PROJECT-ROOT
 // SINGLE FILE, deliberately NOT listed here — the same single-file residue
@@ -154,28 +145,27 @@ var mockOverlayDirs = []string{
 // build recipe" for a backend that plainly does not need one refused; and (2)
 // assert the one thing that genuinely IS mock-specific — `cat` — as a
 // build-time gate rather than a bare, unverified assumption, the same
-// "prove it, don't assume it" discipline nodeFloorFragment and the ACP run
-// gates apply to their own floors.
+// "prove it, don't assume it" discipline nodeFloorFragment applies to its
+// own floor.
 //
 // NOT a template for a real engine: every other fragment in this file
 // installs an actual vendor client and hard-gates it running
-// (`<client> --version` / adapterRunGate / nativeACPRunGate). A future real
-// engine's fragment must do the same — this shape is correct ONLY because
-// mock has no vendor client at all.
+// (`<client> --version`). A future real engine's fragment must do the same —
+// this shape is correct ONLY because mock has no vendor client at all.
 var mockInstallFragment = []byte(`RUN command -v cat >/dev/null 2>&1 \
     || { echo "ctxloom: this base has no cat (needed by the shared-fs probe, sharedfs.go's probeOneRoot)" >&2; exit 1; }
 `)
 
-// nodeFloorFragment is the shared prereq every ACP-adapter install depends on:
-// a node the adapter can actually PARSE.
+// nodeFloorFragment is the shared prereq every npm-installed engine client
+// depends on: a node that can actually PARSE what npm just landed.
 //
 // A container-delegation defect lived here. The old prereq was
 // `command -v npm || apt-get install -y nodejs npm || true` — "best-effort",
 // version-blind. On an Ubuntu 24.04 base that resolves to Node 18.19.1, which
 // predates import attributes (`import x from "./p.json" with {type:"json"}`,
-// Node 18.20/20.10), the exact syntax @zed-industries/claude-code-acp's entry
-// module opens with. So the image built GREEN, the adapter sat on PATH, and
-// EVERY containerized claude-code agent's structured chat died at startup with
+// Node 18.20/20.10) — syntax a current npm-published client's entry module
+// opens with. So the image built GREEN, the binary sat on PATH, and EVERY
+// containerized agent of that engine died at startup with
 // `SyntaxError: Unexpected token 'with'` — producing zero ChatEvents, a
 // transcript holding only the briefing `user` record at seq 0, and an endless
 // coordinator relaunch loop.
@@ -199,175 +189,48 @@ const nodeFloorFragment = `RUN set -e \
          && rm -rf /var/lib/apt/lists/*; \
        fi \
     && NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]') \
-    && { [ "$NODE_MAJOR" -ge 20 ] || { echo "ctxloom: this base resolves node $(node --version), below the ACP adapters' floor (>= 20); provide a newer node in the base image" >&2; exit 1; }; }
+    && { [ "$NODE_MAJOR" -ge 20 ] || { echo "ctxloom: this base resolves node $(node --version), below the engine clients' floor (>= 20); provide a newer node in the base image" >&2; exit 1; }; }
 `
 
-// acpProbeFailurePatterns is the vocabulary of "this ACP surface did not come
-// up" — the one grep both execution gates below share. It unions the two
-// mechanisms by which an image can ship a present-but-dead structured-chat
-// surface:
-//
-//   - the NODE MODULE LOADER (SyntaxError … ERR_UNKNOWN_BUILTIN_MODULE): the
-//     claude-code defect nodeFloorFragment guards against, where the adapter
-//     was installed on an image whose node could not parse it.
-//   - the CLIENT'S OWN ARGUMENT PARSER plus the dynamic loader (unrecognized
-//     subcommand … symbol lookup error): a client binary that landed but whose
-//     `acp` subcommand does not exist (a half-succeeded installer, a pinned-old
-//     release) or that cannot be loaded at all.
-//
-// "Failed to change directory" is opencode's specific shape for the SAME
-// condition and is deliberately listed: opencode does not reject an
-// unrecognized first argument, it adopts it as the working directory — so an
-// opencode with no `acp` command reports `Error: Failed to change directory to
-// <cwd>/acp` AND EXITS ZERO. Measured live. That is precisely why
-// these gates match on TEXT rather than exit status.
-const acpProbeFailurePatterns = `SyntaxError|Cannot find module|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_BUILTIN_MODULE|` +
-	`unrecognized subcommand|unknown subcommand|unknown command|unexpected argument|` +
-	`error while loading shared libraries|symbol lookup error|command not found|Failed to change directory`
-
-// acpRunProbe is the shared body of both ACP execution gates: run the
-// structured-chat surface with stdin closed under a timeout, capture
-// everything it says, and fail the BUILD if it said any of
-// acpProbeFailurePatterns.
-//
-// probe is the shell command to run; label names it in the diagnostic. The
-// exit status is deliberately DISCARDED (`|| true`): a healthy ACP server and
-// a dead one can both exit zero or non-zero (claude-code-acp exits non-zero on
-// a clean EOF shutdown; opencode exits ZERO when its `acp` command is missing
-// — both measured live), and it was precisely an exit-status-shaped check that
-// let the original defect through.
-func acpRunProbe(label, probe string) string {
-	return `    && { timeout 20 ` + probe + ` </dev/null >/tmp/ctxloom-acp-probe.log 2>&1 || true; } \
-    && { ! grep -qE '` + acpProbeFailurePatterns + `' /tmp/ctxloom-acp-probe.log \
-         || { echo "ctxloom: ` + label + ` is installed but its ACP surface cannot start in this image:" >&2; cat /tmp/ctxloom-acp-probe.log >&2; exit 1; }; } \
-    && rm -f /tmp/ctxloom-acp-probe.log
-`
-}
-
-// adapterRunGate returns the image-time validation for an engine whose ACP
-// surface is a SEPARATE adapter binary (agent.ACPAdapter — claude-code's
-// claude-code-acp, codex's codex-acp).
-//
-// PATH presence — the old gate, `command -v <adapter>` — is exactly the
-// silent-no-op this project bans: it proved a FILE existed and nothing about
-// whether it could run (see nodeFloorFragment for the defect it let through).
-// The adapter has no --version (running it bare serves ACP on stdio), so this
-// starts it with stdin closed under a timeout and fails the build on any
-// module-loader error in its output. A healthy adapter reaches its stdio loop
-// and says nothing of the sort; a broken one dies before it ever reads a byte.
-func adapterRunGate(adapter string) string {
-	return `    && command -v ` + adapter + ` \
-` + acpRunProbe(adapter, adapter)
-}
-
-// nativeACPRunGate returns the image-time validation for an engine whose ACP
-// surface is a SUBCOMMAND OF ITS OWN CLIENT (agent.ACPNative — kiro's
-// `kiro-cli acp`, opencode's `opencode acp`; see internal/lm/backends'
-// kiroACPTransport / opencodeACPTransport and internal/kiro,
-// internal/opencode's chatACPConfig).
-//
-// These engines install from shell installers, not npm, so they were never
-// exposed to the node-version defect — but they carried the SAME silent-no-op
-// class by a different mechanism. Their only build gate was `<client>
-// --version`, which proves the client binary loads and NOTHING about the
-// surface every structured-chat run actually spawns. A half-succeeded
-// installer, a pinned-old release predating `acp`, or a binary that cannot
-// resolve a shared library would all ship a green image whose delegated agents
-// produce zero ChatEvents — exactly claude-code's failure with a different
-// first cause. `--version` is not a substitute: it exercises a different code
-// path from the one that has to work.
-//
-// Measured live: a healthy `kiro-cli acp </dev/null` and a healthy
-// `opencode acp </dev/null` each exit 0 having printed NOTHING, so a
-// well-behaved image passes this silently.
-func nativeACPRunGate(client, sub string) string {
-	return acpRunProbe(client+" "+sub, client+" "+sub)
-}
-
-// claudeCodeInstallFragment installs claude via its OFFICIAL npm package plus
-// the claude-code-acp adapter ctxloom's structured chat needs, on an ARBITRARY
-// base: the asserted node floor (nodeFloorFragment) first, then the real
-// install, then a validate gate that RUNS both the client (`claude --version`)
-// and the adapter (adapterRunGate) rather than merely locating them.
-var claudeCodeInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @anthropic-ai/claude-code @zed-industries/claude-code-acp \
-    && claude --version \
-` + adapterRunGate("claude-code-acp"))
+// claudeCodeInstallFragment installs claude via its OFFICIAL npm package on an
+// ARBITRARY base: the asserted node floor (nodeFloorFragment) first, then the
+// real install, then a validate gate that RUNS the client (`claude --version`)
+// rather than merely locating it.
+var claudeCodeInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @anthropic-ai/claude-code \
+    && claude --version
+`)
 
 // codexInstallFragment installs the codex CLI via its npm package (the
 // official installer table also lists the chatgpt.com/codex/install.sh shell
 // script; npm is used here to mirror claude's prereq/validate shape and keep
-// the fragment self-contained), PLUS the codex-acp adapter ctxloom's
-// structured chat needs on the container-runtime axis (internal/codex/
-// chat.go's `agent.IsContainerRuntime(req.Runtime)` gate is what makes this
-// image-time install load-bearing instead of merely convenient — without it
-// a containerized codex agent's structured chat fails at LookPath, exactly
-// the CodexACPAdapter-missing error the host-PATH gate would report, just
-// inside the container instead of on the host).
-//
-// Mirrors claudeCodeInstallFragment's shape (single `npm install -g` line
-// carrying BOTH the client and its adapter, one hard validate gate at the
-// end) — closes the real gap this generalization found: this fragment
-// previously installed `codex` only, never `codex-acp`, so EVERY
-// containerized codex agent's structured chat was silently broken.
-//
-// TODO(acp-transport-generalization): this literal ("codex-acp") is NOT yet
-// sourced from the SAME single declaration internal/codex/chat.go's Chat()
-// gate and DOCTOR-CHECK-ACPADAPTER-m3 read (internal/lm/backends'
-// agent.ACPTransport, ACPTransportFor("codex")) — this package deliberately
-// does not import internal/lm/backends (engineContainerSpec's own doc, above:
-// "it would drag the whole backend tree into the seam"), so wiring this
-// fragment onto that descriptor is a separate, more invasive slice (e.g.
-// threading the resolved InstallCmd through composeAgentContainerfile's
-// caller instead of a package-level []byte var). Until then, keep this
-// binary name in sync BY HAND with codex.CodexACPAdapter/CodexACPTransport's
-// InstallCmd if either ever changes.
-var codexInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @openai/codex @zed-industries/codex-acp \
-    && codex --version \
-` + adapterRunGate("codex-acp"))
-
-// kiroInstallFragment installs kiro-cli via its official installer script,
-// mirroring the retired Containerfile-kiro's install block exactly: curl/
-// unzip ensured best-effort, the binary relocated to /usr/local/bin when the
-// installer lands it under ~/.local/bin instead (any uid finds it there —
-// the rootful-docker path runs the container as the host uid, not root).
-//
-// The validate gate is TWO steps, not one: `kiro-cli --version` proves the
-// client binary loads, and nativeACPRunGate proves `kiro-cli acp` — the
-// surface every structured-chat run actually spawns — comes up. The second is
-// not implied by the first; see nativeACPRunGate's doc.
-var kiroInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*) || true) \
-    && curl -fsSL https://cli.kiro.dev/install | bash \
-    && { command -v kiro-cli >/dev/null 2>&1 \
-         || install -m 0755 /root/.local/bin/kiro-cli /usr/local/bin/kiro-cli; } \
-    && kiro-cli --version \
-` + nativeACPRunGate("kiro-cli", "acp"))
+// the fragment self-contained), then RUNS it (`codex --version`) rather than
+// merely locating it.
+var codexInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @openai/codex \
+    && codex --version
+`)
 
 // opencodeInstallFragment installs opencode via its official install script.
 // The installer lands the binary under $HOME/.opencode/bin (per the opencode
-// backend's own binary_path finding — it is NOT put on PATH), so it is
-// relocated the same way kiro's is. Its own auth resolver is
+// backend's own binary_path finding — it is NOT put on PATH), so this fragment
+// relocates it onto PATH itself. Its own auth resolver is
 // resolveOpencodeContainerAuth (auth.go: OpenRouter env / seeded
 // ~/.local/share/opencode/auth.json) — see the opencode case below.
 //
-// Like kiro's, the validate gate is TWO steps: `opencode --version` for the
-// client, then nativeACPRunGate for `opencode acp`, the surface structured
-// chat spawns. opencode is the sharpest case for gating on TEXT rather than
-// status — with no `acp` command it adopts "acp" as a directory, prints
-// `Error: Failed to change directory to <cwd>/acp`, and EXITS ZERO
-// (measured live).
+// The validate gate RUNS the client (`opencode --version`) rather than merely
+// locating it.
 var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*) || true) \
     && curl -fsSL https://opencode.ai/install | bash \
     && { command -v opencode >/dev/null 2>&1 \
          || install -m 0755 "$HOME/.opencode/bin/opencode" /usr/local/bin/opencode; } \
-    && opencode --version \
-` + nativeACPRunGate("opencode", "acp"))
+    && opencode --version
+`)
 
 // composableEngines is the deterministic default engine set a composed agent
 // image bakes when isolation_engines is unconfigured — every backend with a
 // known OFFICIAL-installer fragment (locked decision 3: "all engines CAN be
 // present" by default; isolation_engines trims it down), alphabetical order.
 func composableEngines() []string {
-	return []string{"claude-code", "codex", "kiro", "opencode"}
+	return []string{"claude-code", "codex", "opencode"}
 }
 
 // ComposableEngines exports composableEngines() (one of the four
@@ -420,30 +283,6 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 			authHint:           claudeContainerAuthHint(),
 			overlayDirs:        defaultOverlayDirs,
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
-		}
-	case "kiro":
-		return engineContainerSpec{
-			image: "ctxloom-agent-kiro:latest",
-			// No officialImage: kiro ships no official container image (only
-			// community ones); the composed engineInstall fragment fetches the
-			// most recent kiro-cli via the official installer instead.
-			engineInstall: kiroInstallFragment,
-			validate:      "kiro-cli --version",
-			resolveAuth:   resolveKiroContainerAuth,
-			authHint:      "no KIRO_API_KEY to authenticate the in-container engine (AWS_* creds ride along when present but are not yet a standalone trigger, pending live kiro verification; subscription credential mounts pend live verification too)",
-			overlayDirs:   kiroOverlayDirs,
-			// ".kiro" is the ROOT of kiro's engine-home state (agents/,
-			// settings/, skills/, steering/, sessions/), not the transcript
-			// leaf directory itself — real per-session json+jsonl triples live
-			// one level deeper, under sessions/cli/ (see internal/kiro/session.go).
-			// Mounting the root still captures them (per this field's ROOT,
-			// never a leaf contract above), so no change is needed here, only
-			// this comment. NOTE a separate real gap this mount does NOT
-			// cover: a `kiro-cli chat --no-interactive` oneshot run persists
-			// into $XDG_DATA_HOME/kiro-cli/data.sqlite3 instead — a location
-			// outside containerHome/.kiro entirely, so oneshot session state
-			// is not captured by this mount at all.
-			transcriptStoreRel: ".kiro",
 		}
 	case "codex":
 		// codex is now COMPOSABLE (its own official-installer fragment) AND
@@ -519,7 +358,7 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 		// unrecognized/empty engine name as this default spec) got the
 		// user's ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN passed through and
 		// ~/.claude credentials copy-mounted into a FOREIGN engine's
-		// container. codex/kiro/opencode above each earned their
+		// container. codex/opencode above each earned their
 		// own resolveAuth for exactly this reason; the default must not hand
 		// out Anthropic credentials to an engine nobody vetted. It now fails
 		// closed (noContainerAuth) so an unmapped engine degrades
@@ -561,14 +400,14 @@ func HasContainerAuth(backend string) bool {
 // TestContainerAuthEngines_AllHaveAuth, so a spec added to the table without a
 // listing here (or vice versa) fails loudly.
 func ContainerAuthEngines() []string {
-	return []string{"claude-code", "codex", "kiro", "opencode", "mock"}
+	return []string{"claude-code", "codex", "opencode", "mock"}
 }
 
 // ContainerOverlayDirsFor returns a copy of engineContainerSpecFor(backend)'s
 // overlayDirs — the project-relative managed-config directories a
 // containerized run of backend shadows. Exported read-only so tests/arch's
 // engine-layout gate can check this package's
-// defaultOverlayDirs/kiroOverlayDirs/codexOverlayDirs/
+// defaultOverlayDirs/codexOverlayDirs/
 // opencodeOverlayDirs/mockOverlayDirs literals against each owning engine
 // package's own ConfigDirName constant, the same import-cycle reasoning as
 // ComposableEngines/CredentialSeedEngineNames above applies here too.

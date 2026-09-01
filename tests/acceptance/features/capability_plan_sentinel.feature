@@ -1,15 +1,15 @@
 @live @probe-p4-plan-sentinel
 Feature: P4 — the plan sentinel: does permissions=plan actually stop a write
 
-  ctxloom tells you that `permissions: plan` is read-only. Four backends declare
-  it — claude-code, codex, kiro and opencode all set enforcesReadOnlyPlan TRUE —
+  ctxloom tells you that `permissions: plan` is read-only. Its backends declare
+  it — claude-code, codex and opencode all set enforcesReadOnlyPlan TRUE —
   and a user who pins it on an agent binding is trusting that an engine handed a
   destructive instruction will not carry it out. That is a security claim, and
-  until this rung it was very nearly unevidenced: claude-code and kiro were
+  until this rung it was very nearly unevidenced: claude-code was
   proven by hand once, on 2026-07-15, by a person in a terminal who then closed
   it, and codex's `--sandbox read-only` and opencode's written
   `permission {edit:deny,bash:deny}` had never been run against a live engine at
-  all. The surviving evidence was four prose comments in the backend registry.
+  all. The surviving evidence was prose comments in the backend registry.
 
   This feature is those comments turned into cells that anybody can re-run,
   unattended, every time an engine ships a new version.
@@ -50,7 +50,7 @@ Feature: P4 — the plan sentinel: does permissions=plan actually stop a write
   ONE-SHOT DOES NOT LAUNDER THE POSTURE, and it is worth knowing why, because
   the neighbouring approval probe cannot use this invocation at all. A headless
   ONESHOT has no human to answer a prompt, so resolvePermissionMode floors any
-  posture that is not SafeHeadless up to bypass. Plan IS SafeHeadless and all four
+  posture that is not SafeHeadless up to bypass. Plan IS SafeHeadless and all
   backends enforce it, so CollapsePlanIfUnenforced leaves it alone and the floor
   does not fire: plan reaches the engine intact. Production announces this itself
   — warnPlanOneshotCancels prints "--one-shot with plan permissions has no human
@@ -103,16 +103,6 @@ Feature: P4 — the plan sentinel: does permissions=plan actually stop a write
     Examples:
       | engine | runtime | workspace | posture |
       | codex  | host    | none      | plan    |
-
-    @kiro @host @ws-none @var-control
-    Examples:
-      | engine | runtime | workspace | posture |
-      | kiro   | host    | none      | control |
-
-    @kiro @host @ws-none @var-plan
-    Examples:
-      | engine | runtime | workspace | posture |
-      | kiro   | host    | none      | plan    |
 
     @opencode @host @ws-none @var-control
     Examples:

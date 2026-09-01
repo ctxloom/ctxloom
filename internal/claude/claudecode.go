@@ -77,7 +77,6 @@ func NewClaudeCode() *ClaudeCode {
 		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: b.buildSurfaces},
 	)
-	b.SetACPTransport(ClaudeACPTransport) // intrinsic: every construction path (incl. direct) gets it
 	return b
 }
 

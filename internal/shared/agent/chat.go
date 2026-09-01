@@ -145,83 +145,6 @@ type ModelDeliveryQuirk struct {
 	AdapterVersions []string
 }
 
-// ACPTransportKind names how a backend's StructuredChat implementation
-// actually reaches an ACP-speaking process: the engine's OWN CLI speaks ACP
-// (ACPNative — kiro's `kiro-cli acp`, opencode's `opencode acp`, the generic
-// "acp" backend's configured passthrough command), a SEPARATE third-party
-// adapter binary wraps a CLI that has no ACP mode of its own (ACPAdapter —
-// claude-code-acp wrapping `claude`, codex-acp wrapping `codex`), or the
-// backend speaks no ACP at all and drives its own bespoke protocol instead
-// (ACPBespoke — no current registrant; reserved for an engine whose CLI has
-// neither a native ACP mode nor a third-party adapter). This is the single
-// per-engine declaration every ACP-transport consumer (a Chat() PATH gate, a
-// doctor/init readiness probe, an image-build install fragment) reads instead
-// of re-deriving "is this an adapter engine" from a hardcoded name switch.
-type ACPTransportKind int
-
-const (
-	// ACPNative is the zero value: the engine's own client binary speaks ACP
-	// directly, so there is no separate adapter to install or probe.
-	ACPNative ACPTransportKind = iota
-	// ACPAdapter means a separate, PATH-resolved adapter binary (Binary)
-	// wraps the engine's CLI to speak ACP on its behalf.
-	ACPAdapter
-	// ACPBespoke means the backend implements StructuredChat over its own
-	// non-ACP protocol (prose, JSON, whatever the vendor CLI offers) — there
-	// is no adapter to install and no native ACP mode to probe.
-	ACPBespoke
-)
-
-// ACPTransport is one engine's complete ACP-transport declaration: how its
-// structured chat reaches the model, and — for an ACPAdapter engine — enough
-// provenance for a human or an init agent to vet the adapter before it's
-// installed. Every field but Kind is meaningful only for ACPAdapter; a
-// native or bespoke engine leaves them empty.
-type ACPTransport struct {
-	Kind ACPTransportKind
-	// Binary is the adapter binary this engine's Chat() gate LookPath()s and
-	// spawns (ACPAdapter only), e.g. "claude-code-acp".
-	Binary string
-	// InstallCmd is the exact command a user runs to install Binary
-	// (ACPAdapter only) — the SINGLE source for what was previously a
-	// hardcoded string duplicated across each engine's Chat() error text and
-	// the doctor/init readiness warn.
-	InstallCmd string
-	// Publisher is who publishes the adapter (ACPAdapter only) — provenance
-	// for vetting before a user or an init agent installs a third-party
-	// binary onto PATH.
-	Publisher string
-	// SourceRepo is the URL an init agent or human reviews the adapter's
-	// source at (ACPAdapter only). Empty when no repo URL is derivable from
-	// this codebase's own record of the adapter (never fabricate one).
-	SourceRepo string
-}
-
-// RequireOnHost is the ONE gate every ACPAdapter engine's Chat() runs before
-// spawning its adapter: for a HOST-runtime chat (!IsContainerRuntimeAxis(runtime))
-// it LookPath()s Binary and fails loud, naming InstallCmd, if it's absent —
-// a containerized chat in EITHER ownership mode is EXEMPT (the agent image
-// carries its own adapter; this process's PATH is irrelevant there — see
-// internal/lm/isolation's container-runtime axis). A native or bespoke
-// transport (Kind != ACPAdapter) always reports nil: there is nothing on
-// PATH for those to look up. engineLabel names the engine in the error text
-// (e.g. "claude", "codex") — this method carries no opinion about which
-// engine it's gating, only what one ACPAdapter declaration requires.
-//
-// Centralizing this (rather than each ACPAdapter engine's Chat() re-writing
-// the same LookPath-or-fail-with-InstallCmd shape) is what makes the gate
-// itself, not just the underlying binary/InstallCmd data, a single
-// declaration every ACPAdapter engine shares.
-func (t ACPTransport) RequireOnHost(runtime RuntimeAxis, engineLabel string) error {
-	if IsContainerRuntimeAxis(runtime) || t.Kind != ACPAdapter {
-		return nil
-	}
-	if _, err := exec.LookPath(t.Binary); err != nil {
-		return fmt.Errorf("structured chat for %s needs the %s adapter on PATH; install it with: %s", engineLabel, t.Binary, t.InstallCmd)
-	}
-	return nil
-}
-
 // MCPTransport selects the wire-transport variant of one ChatMCPServer entry.
 // The zero value (MCPTransportStdio, "") is the protocol's unconditional
 // baseline — every EXISTING construction site (ComposeChatMCPServers and
@@ -407,11 +330,7 @@ const (
 
 // TerminalRequest is a forwarded engine terminal/* request (B1, gap G6): the
 // engine wants ctxloom to broker ONE terminal operation to the connected
-// upstream editor. This carrier never implements a terminal itself — when
-// internal/acp's own client role does (acp_local_terminal on, no upstream
-// editor to forward to), that path answers terminal/* directly and never
-// touches ChatEvent.Terminal/this struct at all; see
-// internal/acp.handleTerminal. ID
+// upstream editor. This carrier never implements a terminal itself. ID
 // correlates the eventual TerminalResponse (unique within one chat, same
 // discipline as PermissionRequest.ID). Op names which ACP terminal/* method
 // this is (the TerminalOp* constants above). Params carries that method's

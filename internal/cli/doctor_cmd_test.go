@@ -24,8 +24,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -47,8 +45,8 @@ func writeFakeExecutable(t *testing.T, dir, name string) {
 
 // prependFakeBinToPath adds a fake executable named name to a NEW PATH entry
 // prepended in front of the host's real PATH — for a full-command test that
-// needs ONE additional binary resolvable (e.g. claude-code-acp, which is
-// npm-installed and not expected to be on the suite's real host PATH)
+// needs ONE additional binary resolvable (e.g. a container runtime, which
+// is not expected to be on the suite's real host PATH)
 // without losing the real PATH's other binaries (git, ssh, ssh-keygen, the
 // engine clients, a container runtime) that the same test also depends on.
 func prependFakeBinToPath(t *testing.T, name string) {
@@ -332,63 +330,6 @@ func TestDoctorCheckGitIdentity_WrongState_BlankValueTreatedAsUnset(t *testing.T
 	check := doctorCheckGitIdentity(context.Background(), gc)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "user.name")
-}
-
-// --- DOCTOR-CHECK-ACPADAPTER-m3: the ACP adapter is a SEPARATE npm-installed
-// binary (claude-code-acp/codex-acp), distinct from the engine's own client
-// binary DEPS-a1 checks. Isolated from whatever the host actually has
-// installed via t.Setenv("PATH", ...), same discipline as
-// TestDoctorCheckDeps_* above — never depends on claude-code-acp really
-// being on the machine running this suite.
-
-func TestDoctorCheckACPAdapter_RightState_AdapterPresent(t *testing.T) {
-	dir := t.TempDir()
-	writeFakeExecutable(t, dir, claude.ClaudeACPAdapter)
-	t.Setenv("PATH", dir)
-	_, cfg := setupProject(t, "claude-code")
-
-	check := doctorCheckACPAdapter(cfg)
-	assert.Equal(t, doctorOK, check.Status)
-	assert.Contains(t, check.Detail, "claude-code")
-}
-
-func TestDoctorCheckACPAdapter_WrongState_AdapterMissingForConfiguredEngine(t *testing.T) {
-	dir := t.TempDir() // deliberately empty: claude-code-acp is NOT on this PATH
-	t.Setenv("PATH", dir)
-	_, cfg := setupProject(t, "claude-code")
-
-	check := doctorCheckACPAdapter(cfg)
-	assert.Equal(t, doctorWarn, check.Status)
-	assert.Contains(t, check.Detail, claude.ClaudeACPAdapter, "must name the missing adapter binary")
-	assert.Contains(t, check.Detail, "claude-code", "must name the engine it's missing for")
-	assert.Contains(t, check.Detail, "npm install -g @zed-industries/"+claude.ClaudeACPAdapter, "must give the exact install command")
-	assert.Contains(t, check.Detail, "HOST-runtime", "must scope the warning to host-runtime structured chat")
-	assert.Contains(t, check.Detail, "containerized agents", "must acknowledge container-runtime agents get the adapter from their image, not a false universal block")
-}
-
-func TestDoctorCheckACPAdapter_WrongState_CodexAdapterMissing(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("PATH", dir)
-	_, cfg := setupProject(t, "codex")
-
-	check := doctorCheckACPAdapter(cfg)
-	assert.Equal(t, doctorWarn, check.Status)
-	assert.Contains(t, check.Detail, codex.CodexACPAdapter)
-	assert.Contains(t, check.Detail, "codex")
-	assert.Contains(t, check.Detail, "npm install -g @zed-industries/"+codex.CodexACPAdapter)
-}
-
-// TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone proves kiro
-// (which declares agent.ACPNative — no separate adapter subprocess, see
-// backends.ACPTransportFor("kiro")) never warns here regardless of PATH.
-func TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone(t *testing.T) {
-	dir := t.TempDir() // empty PATH is irrelevant: kiro has no adapter to look up
-	t.Setenv("PATH", dir)
-	_, cfg := setupProject(t, "kiro")
-
-	check := doctorCheckACPAdapter(cfg)
-	assert.Equal(t, doctorOK, check.Status)
-	assert.Contains(t, check.Detail, "natively")
 }
 
 // --- DOCTOR-CHECK-AGENTS-b2: promoted to WARN on an empty roster ---
@@ -891,19 +832,15 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 
 	// A fully-wired project must show no warn lines at all, including the
 	// host-dependent checks — so it needs a hermetic ssh-agent with a
-	// resolvable sole identity, a real git identity, and (npm-installed,
-	// almost certainly absent from this suite's real host PATH) a fake
-	// claude-code-acp so DOCTOR-CHECK-ACPADAPTER-m3 resolves too — not the
-	// empty defaults runDoctor/runDoctorWithSSHAgentSock otherwise force.
+	// resolvable sole identity and a real git identity — not the empty
+	// defaults runDoctor/runDoctorWithSSHAgentSock otherwise force.
 	// DOCTOR-CHECK-DEPS-a1 needs the same treatment for its two probes that
 	// have no ambient presence in a bare container (unlike git/ssh/ssh-keygen,
 	// which the devcontainer image itself provides): a fake "claude" binary
 	// (doctorEngineBinaries["claude-code"]) and a fake "docker" — its `docker
 	// info` reachability check (isolation.Docker.Available) only shells out to
-	// whatever LookPath finds, so a no-op script satisfies it exactly like the
-	// ACP-adapter fake above.
+	// whatever LookPath finds, so a no-op script satisfies it.
 	sock := startFakeSSHAgent(t, "ben@abbitt.me")
-	prependFakeBinToPath(t, claude.ClaudeACPAdapter)
 	prependFakeBinToPath(t, "claude")
 	prependFakeBinToPath(t, "docker")
 	scaffoldLocalTierState(t, root)
@@ -914,7 +851,6 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 		"DOCTOR-CHECK-DEPS-a1",
 		"DOCTOR-CHECK-SIGNKEY-k1",
 		"DOCTOR-CHECK-GITIDENT-l2",
-		"DOCTOR-CHECK-ACPADAPTER-m3",
 		"DOCTOR-CHECK-HOOKS-TRUST-d4",
 		"DOCTOR-CHECK-LOCAL-STATE-p6",
 	} {
@@ -994,10 +930,10 @@ func materializeLayoutEntry(t *testing.T, base, rel string) {
 
 // TestDoctorCmd_DepsFlag_ScopesToDepsAlone proves `ctxloom doctor --deps`
 // runs ONLY the machine-capability probes — DOCTOR-CHECK-DEPS-a1,
-// DOCTOR-CHECK-SIGNKEY-k1, DOCTOR-CHECK-GITIDENT-l2, and
-// DOCTOR-CHECK-ACPADAPTER-m3 (signing-key, git-identity, and ACP-adapter
-// readiness all belong beside DEPS-a1: they're dep/capability questions too,
-// true-or-false regardless of project setup) — on a project with an empty
+// DOCTOR-CHECK-SIGNKEY-k1 and DOCTOR-CHECK-GITIDENT-l2 (signing-key and
+// git-identity readiness both belong beside DEPS-a1: they're dep/capability
+// questions too, true-or-false regardless of project setup) — on a project
+// with an empty
 // agent roster (which unscoped `doctor` reports as a WARN — see
 // TestDoctorCheckAgents_WrongState_EmptyRoster), the scoped invocation must
 // show none of that noise, matching what init's PRIME/setup skill's phase 1
@@ -1018,11 +954,10 @@ func TestDoctorCmd_DepsFlag_ScopesToDepsAlone(t *testing.T) {
 			lines++
 		}
 	}
-	assert.Equal(t, 4, lines, "--deps must emit exactly the four machine-capability check lines")
+	assert.Equal(t, 3, lines, "--deps must emit exactly the three machine-capability check lines")
 	assert.Contains(t, out, "DOCTOR-CHECK-DEPS-a1")
 	assert.Contains(t, out, "DOCTOR-CHECK-SIGNKEY-k1", "signing-key readiness is a dep/capability check, must be included in --deps scope")
 	assert.Contains(t, out, "DOCTOR-CHECK-GITIDENT-l2", "git-identity readiness is a dep/capability check, must be included in --deps scope")
-	assert.Contains(t, out, "DOCTOR-CHECK-ACPADAPTER-m3", "ACP-adapter readiness is a dep/capability check, must be included in --deps scope")
 	assert.NotContains(t, out, "DOCTOR-CHECK-AGENTS-b2", "--deps must not surface the empty-roster warn")
 	assert.NotContains(t, out, "DOCTOR-CHECK-SETUP-MARKER-e5")
 	assert.NotContains(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4")
@@ -1038,17 +973,16 @@ func TestDoctorCmd_DepsFlag_WorksBeforeAnySetup(t *testing.T) {
 	assert.Contains(t, out, "DOCTOR-CHECK-DEPS-a1")
 	assert.Contains(t, out, "DOCTOR-CHECK-SIGNKEY-k1")
 	assert.Contains(t, out, "DOCTOR-CHECK-GITIDENT-l2")
-	assert.Contains(t, out, "DOCTOR-CHECK-ACPADAPTER-m3")
 	assert.NotContains(t, out, "DOCTOR-CHECK-SETUP-MARKER-e5")
 }
 
-func TestDoctorCmd_DepsFlag_JSONShapeIsDepsSignKeyGitIdentityAndACPAdapter(t *testing.T) {
+func TestDoctorCmd_DepsFlag_JSONShapeIsDepsSignKeyAndGitIdentity(t *testing.T) {
 	root := t.TempDir()
 	out, err := runDoctor(t, root, "--deps", "--format", "json")
 	require.NoError(t, err)
 	var report doctorReport
 	require.NoError(t, json.Unmarshal([]byte(out), &report))
-	require.Len(t, report.Checks, 4)
+	require.Len(t, report.Checks, 3)
 	markers := make([]string, len(report.Checks))
 	for i, c := range report.Checks {
 		markers[i] = c.Marker
@@ -1056,7 +990,6 @@ func TestDoctorCmd_DepsFlag_JSONShapeIsDepsSignKeyGitIdentityAndACPAdapter(t *te
 	assert.Contains(t, markers, "DOCTOR-CHECK-DEPS-a1")
 	assert.Contains(t, markers, "DOCTOR-CHECK-SIGNKEY-k1")
 	assert.Contains(t, markers, "DOCTOR-CHECK-GITIDENT-l2")
-	assert.Contains(t, markers, "DOCTOR-CHECK-ACPADAPTER-m3")
 }
 
 func TestDoctorCmd_JSONShape(t *testing.T) {
@@ -1085,7 +1018,6 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 		"DOCTOR-CHECK-DEPS-a1",
 		"DOCTOR-CHECK-SIGNKEY-k1",
 		"DOCTOR-CHECK-GITIDENT-l2",
-		"DOCTOR-CHECK-ACPADAPTER-m3",
 		"DOCTOR-CHECK-AGENTS-b2",
 		"DOCTOR-CHECK-HOOKS-TRUST-d4",
 		"DOCTOR-CHECK-SETUP-DEPS-h8",

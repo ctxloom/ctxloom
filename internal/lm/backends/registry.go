@@ -7,12 +7,10 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/engineversion"
-	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -102,14 +100,6 @@ type agentDescriptor struct {
 	// unrestrained — the run resolver collapses plan to default for them. Keep in
 	// sync with the buildArgs plan mapping when a backend gains/loses the mode.
 	enforcesReadOnlyPlan bool
-	// acpTransport is this backend's single ACP-transport declaration (see
-	// agent.ACPTransport's doc): native/adapter/bespoke, and — for an adapter
-	// engine — the binary, install command, and provenance. Read by
-	// ACPTransportFor (consumers with no backend instance, e.g. doctor_cmd.go)
-	// and injected into the constructed instance via SetACPTransport in
-	// newBackend (consumers that ARE the instance, e.g. claude/codex's Chat()
-	// gate) — ONE value, two read paths, never a third hardcoded copy.
-	acpTransport agent.ACPTransport
 	// resolveModel translates a configured model string into the concrete id
 	// this backend's launch path requires (claude's ACP nickname→concrete-id
 	// table today — see claude.ResolveModel), returning ok=false when the
@@ -351,21 +341,6 @@ func EnforcesReadOnlyPlan(name string) bool {
 	return ok && d.enforcesReadOnlyPlan
 }
 
-// ACPTransportFor returns the named backend's declared ACP transport (see
-// agent.ACPTransport) — the single source every consumer without a live
-// backend instance reads (doctor's DOCTOR-CHECK-ACPADAPTER-m3, init PRIME's
-// mirror of it, container-image install-fragment generation), instead of a
-// second hardcoded claude/codex name switch. An unregistered name reports the
-// zero value (agent.ACPNative, everything else empty) — "needs nothing" is
-// the safe default for a name this registry doesn't know.
-func ACPTransportFor(name string) agent.ACPTransport {
-	d, ok := lookup(name)
-	if !ok {
-		return agent.ACPTransport{}
-	}
-	return d.acpTransport
-}
-
 // BinaryPathProvider is implemented by backends that expose their binary path.
 // agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so
 // every backend registered in THIS package's descriptor table is a provider.
@@ -418,39 +393,6 @@ func IsAvailable(name string) bool {
 	return err == nil
 }
 
-// Per-engine ACP-transport declarations (agent.ACPTransport) — the single
-// source registerDescriptor's acpTransport field AND each constructed
-// backend's SetACPTransport injection both read, so a claude/codex Chat()
-// gate, DOCTOR-CHECK-ACPADAPTER-m3, and (isolation/profile.go, separately,
-// since that package deliberately does not import this one — see its own
-// doc) the Containerfile install fragment can never disagree about the
-// binary name or install command for the same engine.
-var (
-	// The two ADAPTER engines declare their transport in their OWN packages
-	// (claude.ClaudeACPTransport, codex.CodexACPTransport) so their
-	// constructors set it on every instance — including direct construction
-	// outside this registry — instead of relying on registry-only injection
-	// (which left an un-injected instance defaulting to ACPNative and skipping
-	// its adapter). This block declares only the engines whose transport has
-	// no package-level home to live in: the native/bespoke cases below, whose
-	// zero-ish values are correct by construction and whose Chat() either has
-	// no adapter gate (native) or bypasses the acp package entirely (bespoke).
-	//
-	// kiroACPTransport: kiro-cli speaks ACP natively (`kiro-cli acp` —
-	// internal/kiro/chat.go) — no separate adapter binary.
-	kiroACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
-	// opencodeACPTransport: opencode speaks ACP natively (`opencode acp` —
-	// internal/opencode/chat.go) — no separate adapter binary.
-	opencodeACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
-	// acpGenericACPTransport: the generic "acp" backend drives WHATEVER
-	// ACP-speaking command config supplies (`command: "kiro-cli acp"`,
-	// `claude-code-acp`, ...) — from this backend's own point of view that
-	// command is a native passthrough, not an adapter it manages; provenance
-	// vetting for a THIRD-PARTY command configured here is the user's own
-	// job, same posture as any other config value.
-	acpGenericACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
-)
-
 // Every backend registered here reaches its model by spawning the VENDOR'S OWN agent
 // binary (claude, codex, kiro-cli) or that vendor's ACP adapter. ctxloom holds no
 // provider SDK and makes no direct call to any model API — and must not acquire one on
@@ -481,7 +423,7 @@ func init() {
 	registerDescriptor(agentDescriptor{
 		name: "claude-code",
 		newBackend: func() agent.Backend {
-			b := claude.NewClaudeCode() // sets its own ACPTransport intrinsically
+			b := claude.NewClaudeCode()
 			b.SetLauncher(RunLaunchSpec)
 			return b
 		},
@@ -502,7 +444,6 @@ func init() {
 		exports:              claudeExports,
 		skillExports:         claudeSkillExports,
 		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
-		acpTransport:         claude.ClaudeACPTransport,
 		resolveModel:         claude.ResolveModel,
 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseClaudeCodeVersion},
 		// claude's project settings.json (claude.ProjectSettingsPath) collapses
@@ -547,7 +488,7 @@ func init() {
 	registerDescriptor(agentDescriptor{
 		name: "codex",
 		newBackend: func() agent.Backend {
-			b := codex.NewCodex() // sets its own ACPTransport intrinsically
+			b := codex.NewCodex()
 			b.SetLauncher(RunLaunchSpec)
 			return b
 		},
@@ -566,7 +507,6 @@ func init() {
 		exports:              codexExports,
 		skillExports:         codexSkillExports,
 		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
-		acpTransport:         codex.CodexACPTransport,
 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseCodexVersion},
 		// codex has hooks generally (unlike opencode, so noHooksReason stays
 		// empty) but no native session_end event — see codex.NoSessionEndReason
@@ -623,98 +563,6 @@ func init() {
 		},
 	})
 
-	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
-	// agent reads from cwd: the ctxloom agent (.kiro/agents/ctxloom.json — hooks +
-	// skill resources), MCP (.kiro/settings/mcp.json), context (.kiro/steering/),
-	// commands AND Agent Skills, both under .kiro/skills/<n>/SKILL.md — the one
-	// engine where those two surfaces collide (D6 skill-wins, see
-	// kiro.filterClaimedCommands in kiro/surfaces.go).
-	// LIVE-VERIFIED against an authenticated kiro-cli — see the package doc in
-	// internal/kiro for exactly what was proven (backend parity, a real oneshot
-	// chat, and --model honor confirmed two independent ways).
-	registerDescriptor(agentDescriptor{
-		name: "kiro",
-		newBackend: func() agent.Backend {
-			b := kiro.NewKiro()
-			b.SetLauncher(RunLaunchSpec)
-			b.SetACPTransport(kiroACPTransport)
-			return b
-		},
-		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
-			return decodeBody(body, &kiro.KiroConfig{})
-		},
-		newWriter:         kiro.NewWriter,
-		newInstanceConfig: kiro.NewInstanceConfigWriter,
-		newSurfaces:       func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
-		exports:           kiroExports,
-		skillExports:      kiroSkillExports,
-		// LIVE VERIFIED (authenticated kiro-cli 2.12.1):
-		// `--trust-tools=fs_read` genuinely denies a headless fs_write — a
-		// sentinel-file overwrite left the file byte-unchanged and kiro-cli
-		// printed "Command fs_write is rejected because it matches one or
-		// more rules on the denied list". `--trust-tools=fs_read,fs_write`
-		// and `--trust-all-tools` (positive controls) both let the same write
-		// land. See kiro.buildArgs (backend.go) for the mapping.
-		enforcesReadOnlyPlan: true,
-		acpTransport:         kiroACPTransport,
-		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseKiroVersion},
-		// kiro has hooks generally but no native session_end event — its only
-		// turn-boundary event is `stop`, which fires once per TURN. See
-		// kiro.NoSessionEndReason and mapHooks' route for the write-time half.
-		unsupportedHookKinds: map[string]string{
-			bundles.HookEventSessionEnd: kiro.NoSessionEndReason,
-		},
-		// kiro's project .kiro dir (kiro.ProjectHome) collapses onto its bare
-		// GLOBAL home (kiro.GlobalHome) exactly when workDir == $HOME --
-		// the same collision class found for claude.
-		hookGlobalScopePaths: func(workDir string) (string, string, error) {
-			global, err := kiro.GlobalHome()
-			return kiro.ProjectHome(workDir), global, err
-		},
-		hookGlobalScopeLabel: "kiro's global home",
-		// An in-tree AGENT run gets a project-scoped KIRO_HOME instead of the
-		// human's own ~/.kiro (which since kiro-cli 2.3.0 carries their global
-		// agents, prompts, skills, steering and settings, not just sessions).
-		// No Seed, and none possible: kiro's subscription auth lives in a global
-		// sqlite under XDG_DATA_HOME that KIRO_HOME does not relocate, so a
-		// FRESH home stays authenticated — and XDG_DATA_HOME is deliberately
-		// NOT relocated alongside it, since relocating a credential store with
-		// nothing to seed into it is what strands an agent logged out.
-		inTreeAgentHome: func(workDir, harp string) (InTreeAgentHomeSpec, error) {
-			dir, err := kiro.SessionHome(workDir, harp)
-			if err != nil {
-				return InTreeAgentHomeSpec{}, err
-			}
-			return InTreeAgentHomeSpec{EnvVar: kiro.HomeEnv, Dir: dir}, nil
-		},
-	})
-
-	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent
-	// chosen by config (`command: "kiro-cli acp"`, `claude-code-acp`) — new ACP
-	// agents become CONFIG, not code. Structured chat +
-	// headless oneshot only (no TUI). It deliberately registers NO settings
-	// writer and NO command exports: a GENERIC agent has no known native config
-	// format to materialize (context still reaches a run as the lead fragment /
-	// prompt). The KNOWN agents' ACP paths ride their OWN backends — kiro/codex
-	// StructuredChat delegates to this driver — where materialization is the
-	// target's own writer; that is the settings-delegation answer, so no
-	// per-target "acp-<agent>" descriptors exist.
-	registerDescriptor(agentDescriptor{
-		name: "acp",
-		newBackend: func() agent.Backend {
-			b := acp.NewACP()
-			b.SetACPTransport(acpGenericACPTransport)
-			return b
-		},
-		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
-			return decodeBody(body, &acp.ACPConfig{})
-		},
-		// A GENERIC ACP agent has no known native config format to materialize, so
-		// it opts out with an empty surface set (mirrors its nil settings writer).
-		newSurfaces:  func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet { return agent.EmptySurfaceSet{} },
-		acpTransport: acpGenericACPTransport,
-	})
-
 	// opencode (first-party `opencode acp`, HOST-only chat spine). Slice 2 adds the
 	// settings/materialization seam: ctxloom's managed keys are merged into a
 	// project-local, strictly-validated opencode.json — MCP servers (`mcp`),
@@ -735,7 +583,6 @@ func init() {
 		newBackend: func() agent.Backend {
 			b := opencode.NewOpencode()
 			b.SetLauncher(RunLaunchSpec)
-			b.SetACPTransport(opencodeACPTransport)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
@@ -746,7 +593,6 @@ func init() {
 		exports:              opencodeExports,
 		skillExports:         opencodeSkillExports,
 		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
-		acpTransport:         opencodeACPTransport,
 		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseOpencodeVersion},
 		// opencode is the one backend with no hooks surface of any shape:
 		// opencode.json has no hook key, there is no settings event vocabulary

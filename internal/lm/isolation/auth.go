@@ -166,54 +166,6 @@ func claudeContainerAuthHint() string {
 	return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN and no ~/.claude credentials to authenticate the in-container engine"
 }
 
-// kiroAuthEnvVars is the SCOPED set of Kiro auth vars a kiro run honors — the
-// only host env allowed to cross into the container for kiro auth. KIRO_API_KEY
-// presence is the TRIGGER (Kiro's headless mode skips the browser login when it
-// is set); the AWS_* vars ride ALONG when present (a Bedrock-backed kiro
-// configuration reads them like any AWS SDK client) but are deliberately NOT a
-// standalone trigger of their own yet — whether AWS credentials alone (no
-// KIRO_API_KEY) authenticate a containerized kiro needs a live kiro
-// verification this package cannot run hermetically; treating them as a
-// trigger without that confirmation risks launching a container that starts but
-// never actually authenticates, a NEW silent-no-op. AWS_PROFILE alone is
-// forwarded but is likely insufficient on its own: spec-based auth resolves
-// against ~/.aws/{config,credentials}, which this package does NOT mount —
-// explicit key vars (or KIRO_API_KEY) are the supported path until that's
-// revisited. NEVER logged.
-var kiroAuthEnvVars = []string{
-	"KIRO_API_KEY",
-	"AWS_REGION",
-	"AWS_DEFAULT_REGION",
-	"AWS_ACCESS_KEY_ID",
-	"AWS_SECRET_ACCESS_KEY",
-	"AWS_SESSION_TOKEN",
-	"AWS_PROFILE",
-}
-
-// resolveKiroContainerAuth builds the auth plan for a containerized kiro run:
-// KIRO_API_KEY env passthrough (headless mode) only, no credential-mount
-// fallback. Verified live against an authenticated kiro-cli 2.12.1:
-// subscription `kiro-cli login` (GitHub OAuth) credentials do NOT live under
-// ~/.kiro at all — they live in $XDG_DATA_HOME/kiro-cli/data.sqlite3
-// (default ~/.local/share/kiro-cli/data.sqlite3), a SQLite database (tables
-// include auth_kv and state) that ALSO holds one of kiro's two session
-// stores (conversations_v2 — see internal/kiro/session.go's package comment).
-// ~/.kiro itself carries no credentials, only session/agent/settings state.
-// No mount fallback is implemented here even now that the real path is
-// known: KIRO_HOME (the env this package already relocates per-agent, see
-// worktree.go) does NOT relocate $XDG_DATA_HOME, so per-agent isolation
-// cannot scope this file without also wiring XDG_DATA_HOME through the
-// isolation env — and bind-mounting a live SQLite database another kiro-cli
-// process may have open (WAL mode) read-only into a container is an
-// untested operational risk, not merely an untested path. ok=false → the
-// caller degrades rather than launching an engine stuck at a browser login.
-// KIRO_API_KEY stays the sole trigger (see kiroAuthEnvVars' doc for why AWS_*
-// alone does not yet trigger); when it is set, any present AWS_* vars ride
-// along in the same passthrough for a Bedrock-backed configuration.
-func resolveKiroContainerAuth(string, string) (containerAuth, bool) {
-	return resolveEnvOrMountAuth([]string{"KIRO_API_KEY"}, kiroAuthEnvVars, nil)
-}
-
 // codexAuthEnvVars is the SCOPED set of codex auth vars a codex run honors —
 // the only host env allowed to cross into the container for codex auth.
 // OPENAI_API_KEY is the trigger, live-verified against `codex doctor`
@@ -677,19 +629,10 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 		HomeVars:           []homeVar{{EnvVar: "CODEX_HOME", Subdir: ".codex"}},
 		HonoursVarForCreds: true,
 	},
-	"kiro": {
-		engine:     "kiro",
-		envTrigger: "KIRO_API_KEY",
-		HomeVars: []homeVar{
-			{EnvVar: "KIRO_HOME", Subdir: "kiro"},
-			{EnvVar: "XDG_DATA_HOME", Subdir: "xdg-data", GatedOnCreds: true},
-		},
-		HonoursVarForCreds: false,
-	},
-	// opencode: HonoursVarForCreds TRUE — UNLIKE kiro. This is the opposite
-	// shape from kiro's entry immediately above: opencode's XDG_DATA_HOME
-	// genuinely relocates its credential file, not a global unrelocatable
-	// store, so it seeds via sourceFiles/destSubdir exactly like claude/codex
+	// opencode: HonoursVarForCreds TRUE — its XDG_DATA_HOME genuinely
+	// relocates its credential file rather than pointing at a global
+	// unrelocatable store, so it seeds via sourceFiles/destSubdir exactly
+	// like claude/codex
 	// rather than gating via GatedOnCreds (see
 	// resolveOpencodeContainerAuth's doc for the container-axis half of this
 	// same engine's auth story).

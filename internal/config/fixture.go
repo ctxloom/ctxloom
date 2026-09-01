@@ -45,7 +45,6 @@ type Fixture struct {
 	IsolationDevcontainerService string
 	IsolationEngines             []string
 	UI                           UIConfig
-	AcpLocalTerminal             bool
 
 	// Runtime-only fields, mirroring Config's own (see Config's doc).
 	AppPaths           []string
@@ -86,7 +85,6 @@ func (c *Config) ToFixture() Fixture {
 		IsolationDevcontainerService: c.isolationDevcontainerService,
 		IsolationEngines:             cloneStrings(c.isolationEngines),
 		UI:                           cloneUIConfig(c.ui),
-		AcpLocalTerminal:             c.acpLocalTerminal,
 		AppPaths:                     cloneStrings(c.appPaths),
 		AppRoot:                      c.appRoot,
 		AppDir:                       c.appDir,
@@ -134,7 +132,6 @@ func NewFixture(f Fixture) *Config {
 		isolationDevcontainerService: f.IsolationDevcontainerService,
 		isolationEngines:             cloneStrings(f.IsolationEngines),
 		ui:                           cloneUIConfig(f.UI),
-		acpLocalTerminal:             f.AcpLocalTerminal,
 		appPaths:                     cloneStrings(f.AppPaths),
 		appRoot:                      f.AppRoot,
 		appDir:                       f.AppDir,

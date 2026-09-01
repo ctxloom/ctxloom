@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/acpagent"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -266,11 +265,6 @@ func init() {
 	// isolation could import internal/version directly (it's a leaf), but
 	// this stays a Set* push for now rather than churning that wiring too.
 	isolation.SetBinaryVersion(version.Version)
-
-	// `ctxloom acp` reports this as agentInfo.version in the ACP initialize
-	// handshake — the field an editor reads to identify the build it is
-	// talking to. Same reasoning as the line above.
-	acpagent.SetAgentVersion(version.Version)
 
 	// --config-set is the ONLY source of CLI-layer config overrides (see
 	// confload.ConfigSetFlagName's doc): a dedicated, repeatable, PERSISTENT flag

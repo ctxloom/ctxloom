@@ -467,10 +467,9 @@ test-vendor-claude:
 # type-checks this tag: golangci-lint's build-tags list carries only
 # `mutation` (see .golangci.yml for why this one is not on it), and
 # `test`/coverage exclude build-tagged files by construction. A test file
-# that only compiles under the tag can therefore bit-rot silently — exactly
-# what happened to acp_agent_test.go (stale agent.ChatRequest.AutoApprove
-# field) and acp_live_test.go (claude.NewClaudeCode's old one-arg signature),
-# both invisible until something finally ran this. Wired into both `test`
+# that only compiles under the tag can therefore bit-rot silently — tag-gated
+# tests have gone stale against changed signatures before, invisible until
+# something finally ran this. Wired into both `test`
 # below and `lint` (justfile.container), so it gates the default local AND CI
 # paths. vet, not test/run — stays cheap.
 # The SECOND vet line covers the `acceptance` tag, which gates ~23k lines the
@@ -927,7 +926,6 @@ test-acceptance-container: build _ensure-gotmpdir
 #                                progress/liveness trio
 #                                (TestCoordContainerProgress_*);
 #   internal/vpio/dockerexec   — the interactive docker-exec turn;
-#   internal/acp               — containerTransport against a real container;
 #   internal/testsupport/containercell
 #                              — the hermetic container cell's three-runtime
 #                                matrix (docker rootful, docker rootless,
@@ -2015,9 +2013,6 @@ _container-build-via-cli backend *engines:
 # resolved content-addressed tag.
 # Build the claude-code agent image (one engine, tagged by resolved content).
 container-build-claude: (_container-build-via-cli "claude-code")
-
-# Build the kiro agent image (see container-build-claude).
-container-build-kiro: (_container-build-via-cli "kiro")
 
 # List all ctxloom container images
 container-list:

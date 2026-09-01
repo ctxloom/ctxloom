@@ -97,21 +97,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       Then "out-curated/.claude/skills/reviewer/SKILL.md" carries the marker "SKILL-MARKER-reviewer-9f3c21"
       And "out-curated/.claude/skills/planner" does not exist
 
-  Rule: A bundle-authored skill outranks a builtin of the same name
-
-    Names collide. When they do, what the project authored wins over what
-    ctxloom ships, or a team cannot override guidance they disagree with.
-
-
-    Scenario: On kiro, a bundle-authored skill wins over the builtin command of the same name
-      Given Alice's project has a directory-form bundle "vault"
-      And I run "ctxloom skill create vault discover -d SKILL-MARKER-discover-6f19aa"
-      And I run "ctxloom skill sync vault#skills/discover"
-      And a profile "studio" with bundle "vault"
-      When I run "ctxloom profile materialize studio --target out-kiro --backend kiro"
-      Then "out-kiro/.kiro/skills/discover" carries the "discover" skill's content, not the builtin command's prose
-      And ctxloom warned that the skill won over the command of the same name
-
   Rule: A package's signature is reported honestly, and its bytes always land
 
     Import reports what it could verify — trusted, untrusted, or tampered — and
@@ -169,7 +154,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     #   | engine      | skill surface (via `profile materialize`) | scope       |
     #   |-------------|---------------------------------------------|-------------|
     #   | claude-code | .claude/skills/<name>/SKILL.md              | project     |
-    #   | kiro        | .kiro/skills/<name>/SKILL.md                | project     |
     #   | opencode    | .opencode/skill/<name>/SKILL.md             | project     |
     #   | codex       | .codex/skills/<name>/SKILL.md | cell-scoped (harpless static path) |
     #
@@ -211,7 +195,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       Examples:
         | engine      |
         | claude-code |
-        | kiro        |
         | opencode    |
 
     # Structural invocability, beyond bare file-presence: opencode's skill

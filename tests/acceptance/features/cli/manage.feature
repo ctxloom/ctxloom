@@ -58,7 +58,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
       Examples: engines without one — context is read from a materialized file
         | engine      | context_surface                 | context_marker         |
-        | kiro        | .kiro/steering/ctxloom-context.md | inclusion: always    |
         | opencode    | .opencode/ctxloom-context.md    | Isolation              |
         | mock        | MOCK_CONTEXT.md                 | ctxloom:context:begin  |
 
@@ -105,7 +104,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Examples: a file of its own
         | engine      | mcp_surface              | server_key   | launch_marker |
         | claude-code | .mcp.json                | mcpServers   | ${CLAUDE_PROJECT_DIR} |
-        | kiro        | .kiro/settings/mcp.json  | mcpServers   | mcp           |
 
       # codex folds its servers into a config the engine owns too — but into
       # $CODEX_HOME's copy, which only a session has, so a static install
@@ -131,17 +129,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Examples:
         | engine      | agents_file       | marker                |
         | codex       | AGENTS.md         | ctxloom:context:begin |
-
-    # kiro registers ctxloom as an AGENT DEFINITION as well as an MCP server —
-    # a surface no other engine has.
-    Scenario: Installing for kiro writes its agent definition
-      Given an empty project directory
-      When Alice installs ctxloom for kiro:
-        """
-        ctxloom manage install --engine kiro
-        """
-      Then the command succeeds
-      And the file ".kiro/agents/ctxloom.json" contains "ctxloom"
 
     # THE COMMAND SURFACE, the third thing install writes. ctxloom ships
     # first-party commands, and every engine gets them in its own idiom: a flat
@@ -172,10 +159,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | engine      | command_surface               |
         | claude-code | .claude/commands/discover.md  |
         | opencode    | .opencode/command/discover.md |
-
-      Examples: a SKILL.md package directory
-        | engine      | command_surface                  |
-        | kiro        | .kiro/skills/discover/SKILL.md   |
 
     # NOTHING IS WRITTEN UNTIL THE ARGUMENT IS UNDERSTOOD. The "does not
     # exist" checks are the load-bearing half — a wrong-but-loud message
@@ -226,7 +209,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Examples:
         | engine |
         | codex  |
-        | kiro   |
 
   Rule: The wiring can be inspected, and reports per-surface state
 
@@ -255,9 +237,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
     # ONE hook, TWO files, TWO formats — PARSED in its own format and
     # asserted on the actual command field under the right event, never a
-    # bare file-exists or a substring of a key name. kiro diverts the event
-    # name itself — session_start becomes agentSpawn — because that is kiro's
-    # own name for it, not ctxloom's.
+    # bare file-exists or a substring of a key name.
     #
     # codex is the third engine and its answer is an absence, so it gets the
     # scenario after this one rather than a row: it folds hooks into
@@ -270,7 +250,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Examples:
         | engine      |
         | claude-code |
-        | kiro        |
 
     # The team's guardrail does not reach a statically-materialized codex tree,
     # and the report says so. This is the scenario that makes the narrowing

@@ -50,7 +50,6 @@ func fullyPopulatedFixture() Fixture {
 		IsolationDevcontainerService: "app",
 		IsolationEngines:             []string{"claude-code"},
 		UI:                           UIConfig{PrefixKey: "ctrl-]", Surround: &surround},
-		AcpLocalTerminal:             true,
 	}
 }
 

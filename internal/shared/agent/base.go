@@ -52,13 +52,13 @@ type Launcher func(ctx context.Context, spec LaunchSpec, stdin io.Reader, stdout
 // BaseBackend provides common functionality for all AI backends.
 // Embed this struct in concrete backend implementations.
 type BaseBackend struct {
-	name         string
-	version      string
-	BinaryPath   string
-	Args         []string
-	Env          map[string]string
-	workDir      string
-	launcher     Launcher
+	name       string
+	version    string
+	BinaryPath string
+	Args       []string
+	Env        map[string]string
+	workDir    string
+	launcher   Launcher
 }
 
 // SetLauncher injects the process launcher. ctxloom sets a pty-backed launcher at

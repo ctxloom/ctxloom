@@ -28,16 +28,14 @@ session can grep straight to it.
   (`profiles.go`, `profile_transfer.go`, `profile_materialize.go`, `agents.go`).
 - Managed-harness apply: settings, MCP, context, commands, across backends
   (`hooks.go`, `manage.go`, `mcp_servers.go`, `tooling.go`).
-- Session index, feeds, resume, engine sessions, delegation, and one-shot launches
-  (`sessions.go`, `sessionfeed.go`, `resume.go`, `engine_session.go`, `engine_types.go`,
-  `delegate.go`, `oneshot.go`).
+- Session index, feeds, resume, delegation, and one-shot launches
+  (`sessions.go`, `sessionfeed.go`, `resume.go`, `delegate.go`, `oneshot.go`).
 - Vendor transcript import (`vendorreader*.go`) and Deferred-task trigger triage (`task_triggers*.go`).
 - The hand-maintained JSON-Schema target registry (`schematargets.go`).
 
 ## Non-responsibilities
 
-- Rendering and output formatting — `internal/cli` (the ABI's stated rule; `engine_types.go`
-  and `buildSessionInitSummary` are the exceptions).
+- Rendering and output formatting — `internal/cli` (the ABI's stated rule).
 - Storage: bundle files (`internal/bundles`), config (`internal/config`), lockfile and clones
   (`internal/remote`), profiles (`internal/profiles`), countersignatures (`internal/signing/countersign`).
 - Path vocabulary — `internal/paths`; see [paths.md](./paths.md).
@@ -255,10 +253,6 @@ flowchart LR
 | `handleDirtyParentTree` / `commitDirtyTree` / `applyCopySnapshot` | `delegate.go:494,581,652` | The dirty-tree policy: a detached HEAD or a missing acknowledgement refuses to auto-commit; `copySnapshot` captures patch + untracked list once so there is no drift window. |
 | `PreparedAgentChat.Start` / `.StartEngine` / `.startOneshot` / `.Abort` | `delegate.go:831,734,965,689` | The three launch protocols and idempotent teardown. |
 | `leadContextIn` | `delegate.go:928` | Prepends the composed context to a delegated child's first turn. |
-| `OpenEngineSession` | `engine_session.go:116` | The single frontend-neutral session opener: config load, agent/profile bind, engine/model resolution, harp mint or resume, both isolation axes, MCP trust gate, modes/LLMs/commands, at-connect init summary. **No production caller** since the `ctxloom acp` command tree was removed — reached only from its own tests. |
-| `buildSessionModes` / `sessionModesFrom` / `buildSessionLLMs` / `buildSessionCommands` | `engine_session.go:546,566,521,469` | The advertisement set a frontend sees; `agentModeID` (`:538`) namespaces agent modes as `agent:<name>` so they cannot collide with profile modes. |
-| `buildSessionInitSummary` | `engine_session.go:922` | The at-connect summary block. |
-| `EngineChat` and the session DTOs | `engine_types.go:22,105,128,143,149,174,225,241` | The wire-neutral vocabulary handed to a frontend. |
 
 ## Sessions, feeds and transcripts
 
@@ -344,8 +338,7 @@ flowchart LR
   seed profile at `init.go:104-105` is write-if-absent. Preservation semantics are therefore not
   uniform within one function.
 - `doc.go` states that operations return JSON-serializable structs and do no output formatting;
-  `EngineChat` (`engine_types.go:22`) and `AgentChatLaunch` (`delegate.go:124`) carry live channels
-  and closures, and `buildSessionInitSummary` (`engine_session.go:922`) is ~70 lines of formatted prose.
+  `AgentChatLaunch` (`delegate.go:124`) carries live channels and closures.
 - `EffectiveTrust`'s `error` return is never non-nil, so `review.go:306`'s
   `err != nil || res == nil` guard is unreachable.
 - `AcceptReviewItems` (`review.go:464`) documents itself as backing review's "accept all"; the

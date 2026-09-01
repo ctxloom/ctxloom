@@ -40,7 +40,7 @@ import (
 // doc); doing that against a user's real tmux server would leak into every
 // session they run interactively. A throwaway server on its own socket is
 // the isolation boundary that makes that safe.
-const tmuxSocketName = "ctxloom-acp-terminal"
+const tmuxSocketName = "ctxloom-terminal"
 
 // TmuxSocketName is tmuxSocketName for callers outside this package, which in
 // practice means whoever builds a `tmux -L <socket> attach` argv to reach a
@@ -61,7 +61,7 @@ func TmuxSocketName() string { return tmuxSocketName }
 // per terminal (Terminals.seq plus a per-process runToken), so concurrent
 // callers sharing one tmux session cannot collide on a window target either
 // way.
-const tmuxSessionName = "ctxloom-acp-terminal"
+const tmuxSessionName = "ctxloom-terminal"
 
 // Runner executes one tmux subcommand against the dedicated ctxloom
 // socket and returns its stdout. Abstracted so unit tests can drive the
@@ -326,9 +326,9 @@ func (l *Terminals) Create(ctx context.Context, spec Spec) (TerminalID, error) {
 	n := l.seq.Add(1)
 	name := fmt.Sprintf("%s-t%d", l.run, n)
 	id := TerminalID(name)
-	outputPath := filepath.Join(l.tmpDir, "ctxloom-acp-term-"+name+".out")
-	statusPath := filepath.Join(l.tmpDir, "ctxloom-acp-term-"+name+".status")
-	channel := "ctxloom-acp-term-" + name
+	outputPath := filepath.Join(l.tmpDir, "ctxloom-term-"+name+".out")
+	statusPath := filepath.Join(l.tmpDir, "ctxloom-term-"+name+".status")
+	channel := "ctxloom-term-" + name
 
 	args := []string{"new-window", "-d", "-t", tmuxSessionName, "-n", name}
 	if spec.Cwd != "" {
@@ -581,7 +581,7 @@ func (l *Terminals) Kill(ctx context.Context, id TerminalID) error {
 // naturally-exited command leaves remain-on-exit's dead pane (and its
 // window) sitting in the tmux session forever otherwise — measured, driving
 // this end to end, a released-but-never-killed window survived in
-// `tmux -L ctxloom-acp-terminal list-windows` after the whole chat ended.
+// `tmux -L ctxloom-terminal list-windows` after the whole chat ended.
 // kill-window on an already-dead or already-gone window is harmless (an
 // ignored error), so there is no cost to always trying. Releasing an
 // already-released or unknown id is a benign no-op, matching

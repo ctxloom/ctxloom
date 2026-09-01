@@ -102,7 +102,7 @@ func TestEnsureSession_ConfiguresAnAdoptedServerToo(t *testing.T) {
 //
 // PROVEN CAUSE of the 30-minute hang (exposable-overturn): the name comes from
 // Terminals.seq, a per-PROCESS counter that restarts at zero, so every
-// run's first terminal is window "t1" on channel "ctxloom-acp-term-t1". tmux
+// run's first terminal is window "t1" on channel "ctxloom-term-t1". tmux
 // ALLOWS duplicate window names, so run 2's window is shadowed by run 1's
 // leftover: kill-window and the wait target both become ambiguous, and run 2
 // blocks forever on a channel its own window never signals. Measured: run 1

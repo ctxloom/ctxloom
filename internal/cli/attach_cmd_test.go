@@ -11,13 +11,13 @@ import (
 // container needs no hop, because its tmux server is already on this machine.
 func TestAttachArgv_HostRunsTmuxDirectly(t *testing.T) {
 	got, err := attachArgv(attachTarget{
-		Socket: "ctxloom-acp-terminal",
+		Socket: "ctxloom-terminal",
 		Window: "ctxloom:ab12cd34-h1",
 	}, false)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"tmux", "-L", "ctxloom-acp-terminal", "attach", "-t", "ctxloom:ab12cd34-h1",
+		"tmux", "-L", "ctxloom-terminal", "attach", "-t", "ctxloom:ab12cd34-h1",
 	}, got)
 }
 
@@ -34,14 +34,14 @@ func TestAttachArgv_ContainerExecsTheClientInside(t *testing.T) {
 	got, err := attachArgv(attachTarget{
 		Runtime:       "podman",
 		ContainerName: "ctxloom-sharp-close-treat",
-		Socket:        "ctxloom-acp-terminal",
+		Socket:        "ctxloom-terminal",
 		Window:        "ctxloom:ab12cd34-h1",
 	}, false)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"podman", "exec", "-it", "ctxloom-sharp-close-treat",
-		"tmux", "-L", "ctxloom-acp-terminal", "attach", "-t", "ctxloom:ab12cd34-h1",
+		"tmux", "-L", "ctxloom-terminal", "attach", "-t", "ctxloom:ab12cd34-h1",
 	}, got)
 }
 
@@ -133,9 +133,15 @@ func TestRunAttach_RefusesUntilTheWindowIsJournaled(t *testing.T) {
 	assert.Contains(t, err.Error(), "run.pane", "the refusal must name the remedy")
 }
 
-// TestAttachSocket_IsTheAcpPaneSocket keeps the wrapper pointed at the server
-// internal/acp actually creates. A wrapper that attached to a different socket
-// would create an empty tmux server and attach to nothing.
-func TestAttachSocket_IsTheAcpPaneSocket(t *testing.T) {
-	assert.Equal(t, "ctxloom-acp-terminal", attachSocket())
+// TestAttachSocket_IsTheHostedPaneSocket keeps the wrapper pointed at the
+// server internal/tmuxhost actually creates. A wrapper that attached to a
+// different socket would create an empty tmux server and attach to nothing --
+// succeeding, and showing the user nothing.
+//
+// The name is spelled as a literal rather than compared against
+// tmuxhost.TmuxSocketName(): sourcing both sides from the one constant would
+// make the assertion true by construction, so it would survive any rename of
+// the socket -- the single thing it exists to catch.
+func TestAttachSocket_IsTheHostedPaneSocket(t *testing.T) {
+	assert.Equal(t, "ctxloom-terminal", attachSocket())
 }

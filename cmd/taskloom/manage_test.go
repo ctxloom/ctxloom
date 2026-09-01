@@ -44,34 +44,6 @@ func TestManageInstall_AutoRegistersOnlyPresentBackends(t *testing.T) {
 
 	// Absent backends must not have configs conjured for them.
 	assert.NoDirExists(t, filepath.Join(home, ".codex"))
-	assert.NoDirExists(t, filepath.Join(home, ".kiro"))
-}
-
-// TestManageInstall_AutoRegistersKiroAlongsideOtherBackends is the
-// silent-no-op regression test (task snowy-worst): before kiro shipped its
-// own agent.MCPRegistrar, engine.All() omitted it entirely, so an
-// auto-register install with kiro AND another backend present would
-// register the taskloom MCP server for the other backend and silently say
-// nothing about kiro — no error, zero bytes written to
-// $KIRO_HOME/settings/mcp.json. This asserts the PAYLOAD kiro-cli actually
-// reads (the "mcpServers" table in settings/mcp.json), not just an exit
-// code, so a registrar that runs but writes the wrong file/key would still
-// fail this test.
-func TestManageInstall_AutoRegistersKiroAlongsideOtherBackends(t *testing.T) {
-	home := fakeHome(t)
-	// Both claude and kiro are "present" on this machine.
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".kiro"), 0o755))
-
-	require.NoError(t, manageInstall("", ".", true, false, os.Stderr))
-
-	claudeServers := readServers(t, filepath.Join(home, ".claude.json"))
-	require.Contains(t, claudeServers, "taskloom", "claude must still be registered")
-
-	kiroServers := readServers(t, filepath.Join(home, ".kiro", "settings", "mcp.json"))
-	require.Contains(t, kiroServers, "taskloom", "kiro must be registered, not silently skipped")
-	entry := kiroServers["taskloom"].(map[string]any)
-	assert.Equal(t, "taskloom", entry["command"])
 }
 
 func TestManageInstall_ExplicitEngineCreatesConfig(t *testing.T) {
@@ -90,39 +62,6 @@ func TestManageInstall_ProjectScope(t *testing.T) {
 	require.NoError(t, manageInstall("", proj, false, false, os.Stderr))
 
 	servers := readServers(t, filepath.Join(proj, ".mcp.json"))
-	assert.Contains(t, servers, "taskloom")
-}
-
-func TestManageInstall_KiroExplicitEngineCreatesConfig(t *testing.T) {
-	home := fakeHome(t)
-	// kiro is not "present", but the user asked for it by name.
-	require.NoError(t, manageInstall("kiro", ".", true, false, os.Stderr))
-	servers := readServers(t, filepath.Join(home, ".kiro", "settings", "mcp.json"))
-	assert.Contains(t, servers, "taskloom")
-}
-
-func TestManageInstall_KiroProjectScope(t *testing.T) {
-	fakeHome(t)
-	proj := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".kiro"), 0o755))
-
-	require.NoError(t, manageInstall("", proj, false, false, os.Stderr))
-
-	servers := readServers(t, filepath.Join(proj, ".kiro", "settings", "mcp.json"))
-	assert.Contains(t, servers, "taskloom")
-}
-
-func TestManageInstall_KiroPreservesExistingServers(t *testing.T) {
-	fakeHome(t)
-	proj := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".kiro", "settings"), 0o755))
-	existing := `{"mcpServers": {"remote": {"serverUrl": "https://example.com/mcp"}}}`
-	require.NoError(t, os.WriteFile(filepath.Join(proj, ".kiro", "settings", "mcp.json"), []byte(existing), 0o644))
-
-	require.NoError(t, manageInstall("kiro", proj, false, false, os.Stderr))
-
-	servers := readServers(t, filepath.Join(proj, ".kiro", "settings", "mcp.json"))
-	assert.Contains(t, servers, "remote", "foreign servers must survive")
 	assert.Contains(t, servers, "taskloom")
 }
 
@@ -156,18 +95,6 @@ func TestWriteConfig_RefusesToTruncateToZeroBytes(t *testing.T) {
 	}
 }
 
-func TestManageUninstall_RemovesKiroEntry(t *testing.T) {
-	fakeHome(t)
-	proj := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".kiro"), 0o755))
-	require.NoError(t, manageInstall("kiro", proj, false, false, os.Stderr))
-
-	require.NoError(t, manageUninstall("kiro", proj, false, os.Stderr))
-
-	servers := readServers(t, filepath.Join(proj, ".kiro", "settings", "mcp.json"))
-	assert.NotContains(t, servers, "taskloom")
-}
-
 // Uninstalling from a config that never carried the taskloom entry is a
 // no-op, and must not be reported as a removal — nor rewrite the user's
 // config file. "removed MCP server from claude-code" for a backend that was
@@ -176,15 +103,14 @@ func TestManageUninstall_RemovesKiroEntry(t *testing.T) {
 func TestManageUninstall_NotRegisteredIsNotReportedAsRemoved(t *testing.T) {
 	fakeHome(t)
 	proj := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".kiro", "settings"), 0o755))
-	path := filepath.Join(proj, ".kiro", "settings", "mcp.json")
+	path := filepath.Join(proj, ".mcp.json")
 	// A real config carrying somebody else's server, deliberately formatted
 	// unlike our writer's output so a rewrite is visible byte-for-byte.
 	original := "{\n  \"mcpServers\": {\n    \"other\": {\"command\": \"x\"}\n  }\n}\n"
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 
 	var errOut bytes.Buffer
-	require.NoError(t, manageUninstall("kiro", proj, false, &errOut))
+	require.NoError(t, manageUninstall("claude-code", proj, false, &errOut))
 
 	assert.NotContains(t, errOut.String(), "removed MCP server",
 		"reporting a removal that never happened is a success message for a no-op")
@@ -205,13 +131,13 @@ func TestManageCheck_UnreadableConfigIsReportedNotSkipped(t *testing.T) {
 	proj := t.TempDir()
 	// A directory where the config file belongs: os.ReadFile fails with a
 	// real error that is not fs.ErrNotExist, on every platform and every uid.
-	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".kiro", "settings", "mcp.json"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".mcp.json"), 0o755))
 
 	var out bytes.Buffer
 	require.NoError(t, manageCheck(proj, &out))
 
 	assert.Contains(t, out.String(), "unreadable",
 		"a config that cannot be read must be reported, not silently skipped")
-	assert.Contains(t, out.String(), filepath.Join(proj, ".kiro", "settings", "mcp.json"),
+	assert.Contains(t, out.String(), filepath.Join(proj, ".mcp.json"),
 		"the report must name the path that could not be read")
 }

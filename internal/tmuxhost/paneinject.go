@@ -62,6 +62,23 @@ var pasteMeasuredTargets = map[pasteTarget]bool{
 
 // PaneInjector writes text into a run's live pane.
 //
+// IT HAS NO PRODUCTION CALLER YET, AND THAT IS NOT A SIGN IT IS DEAD. Do not
+// delete it as an unused seam. The reason is a property of how engines are
+// run, not an omission: the containerized engine is started WITHOUT a pty,
+// deliberately. See internal/lm/isolation/attach.go, which spells out the
+// constraint at the point it is imposed — "no -d/-t: a pty would mangle a
+// piped protocol exactly as it would the go-plugin handshake". No pty means
+// no pane, and no pane means nothing for this type to write into — so the
+// caller is absent for a reason that lives in the process model, several
+// layers away from here, where a reader of this file will not trip over it.
+//
+// It is kept, complete and tested, because the constraint is a choice rather
+// than a law: a run that DOES get a pane (an attached local session, or a
+// containerized engine whose surface is a TUI rather than a pipe) needs this
+// route on the day it exists, and rebuilding it then would mean re-deriving
+// the bracketed-paste measurement below from scratch. Deleting it discards
+// the measurement, which is the expensive part; the code is the cheap part.
+//
 // SCOPE, which is the rule most easily lost by generalizing this type:
 // injection is refused for every engine and surface except the pairs it has
 // been MEASURED against. `paste-buffer -p` brackets a paste ONLY IF the

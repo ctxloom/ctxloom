@@ -107,14 +107,20 @@ func mapStreamJSONEvent(raw []byte) []agent.ChatEvent {
 	if err := json.Unmarshal(raw, &e); err != nil {
 		return nil
 	}
+	// e.Type compares against agent.SessionEntryType's own exported constants
+	// (converted to string, since sjEvent.Type is a bare wire string) rather
+	// than re-spelling "assistant"/"user"/"system" as literals — those three
+	// wire values happen to coincide with ctxloom's internal vocabulary today.
+	// "result" has no SessionEntryType member (it is TurnMeta, not an entry)
+	// and stays a literal on purpose.
 	switch e.Type {
-	case "assistant":
+	case string(agent.EntryTypeAssistant):
 		return mapAssistantBlocks(e.Message)
-	case "user":
+	case string(agent.EntryTypeUser):
 		return mapToolResults(e.Message)
 	case "result":
 		return []agent.ChatEvent{{Complete: resultToTurnMeta(&e)}}
-	case "system":
+	case string(agent.EntryTypeSystem):
 		if e.Subtype == "init" {
 			return []agent.ChatEvent{{Session: initToSessionInfo(&e)}}
 		}
@@ -140,6 +146,11 @@ func mapAssistantBlocks(m *sjMessage) []agent.ChatEvent {
 		}
 		return nil
 	}
+	// b.Type compares against agent.SessionEntryType's exported constants
+	// (converted to string) for the two wire values that coincide with the
+	// internal vocabulary; "text" has no SessionEntryType member of its own
+	// (a text block maps onto EntryTypeAssistant, not a same-named entry
+	// type) and stays a literal.
 	var out []agent.ChatEvent
 	for _, b := range blocks {
 		switch b.Type {
@@ -147,7 +158,7 @@ func mapAssistantBlocks(m *sjMessage) []agent.ChatEvent {
 			if b.Text != "" {
 				out = append(out, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: b.Text}})
 			}
-		case "thinking":
+		case string(agent.EntryTypeThinking):
 			// Emit a thinking marker even when the text is blank. NOTE: claude-code
 			// intentionally strips the reasoning text from its `-p --output-format
 			// stream-json` output — the block arrives as {type:"thinking",
@@ -161,7 +172,7 @@ func mapAssistantBlocks(m *sjMessage) []agent.ChatEvent {
 			// timing carried by the result/Complete event. Content carries the prose
 			// unchanged if a future build (or a direct-API backend) ever provides it.
 			out = append(out, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: b.Thinking}})
-		case "tool_use":
+		case string(agent.EntryTypeToolUse):
 			out = append(out, agent.ChatEvent{Entry: &agent.SessionEntry{
 				Type:      agent.EntryTypeToolUse,
 				ToolName:  b.Name,

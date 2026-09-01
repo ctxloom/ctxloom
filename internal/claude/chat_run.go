@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // This file implements the StructuredChat capability for claude-code over its
@@ -308,7 +309,10 @@ func writeChatMCPConfig(servers []agent.ChatMCPServer) (path string, cleanup fun
 	}
 	cleanup = func() { _ = os.RemoveAll(dir) }
 	path = filepath.Join(dir, MCPFileName)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	// iox.WriteFileAtomic: unique temp + fsync + exact-perm chmod + rename,
+	// rather than a raw os.WriteFile — this config can carry MCP server auth
+	// headers/env, so the 0o600 mode must land exactly, not masked by umask.
+	if err := iox.WriteFileAtomic(path, data, 0o600); err != nil {
 		cleanup()
 		return "", noop, fmt.Errorf("claude chat: writing mcp config: %w", err)
 	}

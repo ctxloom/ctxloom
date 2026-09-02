@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
-	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
 )
 
 // --- DOCTOR-CHECK-TRANSCRIPT-READER-v2 --------------------------------------
@@ -21,7 +20,7 @@ import (
 // characteristic bug takes: a clean exit over an empty finding.
 //
 // The probe is injected in every unit test here, so none of them depends on
-// claude-code, codex or kiro actually being installed on the machine running
+// the configured engine actually being installed on the machine running
 // the suite, and each can name the exact version it wants selected.
 
 // fixedVersionProbe answers every engine with one version, whatever it is
@@ -57,25 +56,6 @@ func TestDoctorCheckTranscriptReaders_RightState_DetectedVersionSelectsCarriedRe
 	assert.Contains(t, check.Detail, declared.Versions.String(), "must report the range that reader declares")
 	assert.Contains(t, check.Detail, declared.ValidatedVersion, "must cite the version that range was validated at")
 	assert.NotContains(t, check.Detail, "REFUSE")
-}
-
-// TestDoctorCheckTranscriptReaders_RightState_RangesAreThisEngineOwn proves the
-// ranges reported are read per-engine rather than one hard-coded list: codex's
-// declared range is deliberately narrow (0.144.x) where claude's spans a major
-// line, so a check that printed a single fixed list would fail here.
-func TestDoctorCheckTranscriptReaders_RightState_RangesAreThisEngineOwn(t *testing.T) {
-	_, cfg := setupProject(t, "codex")
-	require.Len(t, codexreader.VersionedAdapters, 1, "this test reads the single declared codex reader")
-	declared := codexreader.VersionedAdapters[0]
-
-	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("0.144.4"))
-
-	assert.Equal(t, doctorInfo, check.Status)
-	assert.Contains(t, check.Detail, "codex 0.144.4")
-	assert.Contains(t, check.Detail, declared.Versions.String())
-	assert.Contains(t, check.Detail, declared.ValidatedVersion)
-	assert.NotContains(t, check.Detail, claudereader.VersionedAdapters[0].Versions.String(),
-		"must not report another engine's range")
 }
 
 // TestDoctorCheckTranscriptReaders_WrongState_DetectedVersionCarriesNoReader is
@@ -128,10 +108,10 @@ func TestDoctorCheckTranscriptReaders_RightState_UnprobedVersionIsInfoNotWarn(t 
 
 // TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader proves
 // an engine with no vendor-native transcript store is SILENT rather than
-// reported as a gap — opencode reads its own store, and inventing a missing
-// reader for it would be a false finding.
+// reported as a gap — inventing a missing reader for it would be a false
+// finding.
 func TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader(t *testing.T) {
-	_, cfg := setupProject(t, "opencode")
+	_, cfg := setupProject(t, "mock")
 
 	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("1.18.4"))
 

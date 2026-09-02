@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -58,7 +57,7 @@ func VerifyCommandResolvable() error {
 // fresh slice each call, so a caller mutating its result never corrupts the
 // registry.
 func All() []Engine {
-	return []Engine{claude.MCPRegistrar{}, codex.MCPRegistrar{}}
+	return []Engine{claude.MCPRegistrar{}}
 }
 
 // Get returns the engine for a name: the canonical name or a declared alias,

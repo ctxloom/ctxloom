@@ -2,8 +2,6 @@ package turnchange
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
-	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
 )
 
 // assistantTextLine is an assistant message carrying TEXT rather than a tool
@@ -117,32 +114,4 @@ func TestReadTranscript_UnreadableFileErrors(t *testing.T) {
 	_, err := ReadTranscript(context.Background(), claudereader.Adapter{}, "/nonexistent/transcript.jsonl")
 	require.Error(t, err)
 	assert.False(t, strings.Contains(err.Error(), "no error"))
-}
-
-// TestReadTranscript_HonorsTheAdapterItIsGiven reads a CODEX rollout — a
-// format claude's adapter cannot parse — and proves the caller's engine
-// choice is what decides the reader.
-//
-// This is the assertion that makes next-step capture cross-engine rather than
-// claude-only: the hook is installed on every hooking backend, so a reader
-// nailed to one vendor fires every turn on the others and yields nothing.
-//
-// MUTATION — ignore the adapter parameter and convert through
-// claudereader.Adapter{} instead — turns this red (zero events, no text)
-// while every claude-fixture test in this package stays green, which is
-// exactly the blind spot a claude-only suite had.
-func TestReadTranscript_HonorsTheAdapterItIsGiven(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "rollout-codex.jsonl")
-	lines := []string{
-		`{"timestamp":"2026-08-27T10:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"what next"}]}}`,
-		`{"timestamp":"2026-08-27T10:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Next I will land the codex adapter."}]}}`,
-	}
-	require.NoError(t, os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644))
-
-	evs, err := ReadTranscript(context.Background(), codexreader.Adapter{}, p)
-	require.NoError(t, err)
-	require.NotEmpty(t, evs, "the codex rollout must yield events through codex's own adapter")
-
-	assert.Equal(t, "Next I will land the codex adapter.", LastAssistantText(evs))
 }

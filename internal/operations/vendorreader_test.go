@@ -32,7 +32,7 @@ func thisDir() string {
 	return filepath.Dir(file)
 }
 
-// codexFixturePath, claudeFixturePath resolve to the
+// claudeFixturePath, claudeFixturePath resolve to the
 // REAL vendor-native fixture files each reader package's own test suite
 // already exercises (internal/transcript/vendorreader/<engine>/testdata) — this
 // suite reuses them rather than inventing a second, parallel set, per the
@@ -40,7 +40,6 @@ func thisDir() string {
 // assert on real payload content, not a hand-rolled minimal stub that could
 // never expose a real parse bug).
 var (
-	codexFixturePath  = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "codex", "testdata", "rollout-fixture.jsonl")
 	claudeFixturePath = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
 )
 
@@ -96,28 +95,12 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 	}
 }
 
-func TestConvertVendorTranscript_CodexBoundPath(t *testing.T) {
-	testsupport.Isolate(t)
-	harp := "convert-codex-harp"
-	e := sessions.Entry{
-		HarpName:       harp,
-		Backend:        "codex",
-		TranscriptPath: codexFixturePath,
-		EngineVersion:  "0.144.4",
-	}
-
-	converted, err := ConvertVendorTranscript(context.Background(), e)
-	require.NoError(t, err)
-	assert.True(t, converted)
-	assert.NotEmpty(t, canonicalLines(t, harp))
-}
-
 func TestConvertVendorTranscript_UnregisteredBackend(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-unregistered-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        "opencode", // opencode keeps its own native reader — no vendor-reader entry
+		Backend:        "not-a-registered-engine", // no vendor-reader entry
 		TranscriptPath: claudeFixturePath,
 	}
 
@@ -130,7 +113,7 @@ func TestConvertVendorTranscript_UnregisteredBackend(t *testing.T) {
 func TestConvertVendorTranscript_NoBoundTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-no-transcript-harp"
-	e := sessions.Entry{HarpName: harp, Backend: "codex"} // never bound
+	e := sessions.Entry{HarpName: harp, Backend: config.BackendClaudeCode} // never bound
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)
@@ -143,7 +126,7 @@ func TestConvertVendorTranscript_DanglingBoundPath(t *testing.T) {
 	harp := "convert-dangling-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        "codex",
+		Backend:        config.BackendClaudeCode,
 		TranscriptPath: filepath.Join(t.TempDir(), "does-not-exist.jsonl"),
 	}
 
@@ -162,9 +145,9 @@ func TestConvertVendorTranscript_Idempotent(t *testing.T) {
 	harp := "convert-idempotent-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        "codex",
-		TranscriptPath: codexFixturePath,
-		EngineVersion:  "0.144.4",
+		Backend:        config.BackendClaudeCode,
+		TranscriptPath: claudeFixturePath,
+		EngineVersion:  stubEngineVersion,
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
@@ -199,9 +182,9 @@ func TestConvertVendorTranscript_SkipsWhenLegacyCanonicalExists(t *testing.T) {
 
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        "codex",
-		TranscriptPath: codexFixturePath,
-		EngineVersion:  "0.144.4",
+		Backend:        config.BackendClaudeCode,
+		TranscriptPath: claudeFixturePath,
+		EngineVersion:  stubEngineVersion,
 	}
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)
@@ -224,9 +207,9 @@ func TestConvertVendorTranscript_BestEffortOnFailure(t *testing.T) {
 	harp := "convert-failure-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        "codex",
+		Backend:        config.BackendClaudeCode,
 		TranscriptPath: t.TempDir(), // exists (os.Stat succeeds) but is not a file
-		EngineVersion:  "0.144.4",
+		EngineVersion:  stubEngineVersion,
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
@@ -236,7 +219,7 @@ func TestConvertVendorTranscript_BestEffortOnFailure(t *testing.T) {
 
 func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 	testsupport.Isolate(t)
-	e := sessions.Entry{Backend: "codex", TranscriptPath: codexFixturePath}
+	e := sessions.Entry{Backend: config.BackendClaudeCode, TranscriptPath: claudeFixturePath}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)
@@ -246,12 +229,12 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 // TestVendorReaderRegistry_CoversTwoEngines locks in exactly which backend
 // names carry a vendor reader — a change here (adding/removing an engine) should
 // be a deliberate, visible edit to this test, not a silent registry drift.
-func TestVendorReaderRegistry_CoversTwoEngines(t *testing.T) {
+func TestVendorReaderRegistry_Membership(t *testing.T) {
 	got := make([]string, 0, len(vendorReaderRegistry))
 	for name := range vendorReaderRegistry {
 		got = append(got, name)
 	}
-	assert.ElementsMatch(t, []string{config.BackendClaudeCode, "codex"}, got)
+	assert.ElementsMatch(t, []string{config.BackendClaudeCode}, got)
 }
 
 // TestLocateBoundTranscript exercises the shared locate func directly
@@ -456,8 +439,8 @@ func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySuc
 	goneRotation := filepath.Join(t.TempDir(), "rotation-gone.jsonl")
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        "codex",
-		EngineVersion:  "0.144.4",
+		Backend:        config.BackendClaudeCode,
+		EngineVersion:  stubEngineVersion,
 		TranscriptPath: goneLive,
 		Rotations: []sessions.Rotation{
 			{SessionID: "vanished-id", TranscriptPath: goneRotation, RotatedAt: time.Now()},

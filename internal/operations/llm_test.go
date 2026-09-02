@@ -24,8 +24,7 @@ func TestAvailableLLMNames_IncludesBuiltIns(t *testing.T) {
 
 	expected := map[string]bool{
 		"claude-code": false,
-		"codex":       false,
-		"opencode":    false,
+		"mock":        false,
 	}
 
 	for _, name := range names {

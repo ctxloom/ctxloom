@@ -170,7 +170,7 @@ func TestRefreshVendorTranscript_KeepsExistingTranscriptWhenNothingToConvert(t *
 func TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "refresh-failure-harp"
-	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath, EngineVersion: stubEngineVersion}
+	e := sessions.Entry{HarpName: harp, Backend: config.BackendClaudeCode, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)
@@ -180,12 +180,12 @@ func TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad(t *testing
 
 	// The engine's store is now unreadable partway through — a bad byte on a
 	// line the first conversion never reached.
-	orig := vendorReaderRegistry["codex"]
-	vendorReaderRegistry["codex"] = vendorReaderEntry{
+	orig := vendorReaderRegistry[config.BackendClaudeCode]
+	vendorReaderRegistry[config.BackendClaudeCode] = vendorReaderEntry{
 		adapters: stubVersionedAdapter(partialFailAdapter{n: 3}),
 		locate:   orig.locate,
 	}
-	defer func() { vendorReaderRegistry["codex"] = orig }()
+	defer func() { vendorReaderRegistry[config.BackendClaudeCode] = orig }()
 
 	_, err = RefreshVendorTranscript(context.Background(), e)
 	require.Error(t, err, "a conversion that dies partway must surface, not be swallowed")

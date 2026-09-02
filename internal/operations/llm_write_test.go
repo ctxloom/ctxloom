@@ -24,13 +24,13 @@ func TestSetLLM_CreatesAndPersists(t *testing.T) {
 
 	entry, err := SetLLM(mgr, SetLLMRequest{
 		Label:       "big",
-		Type:        ptr("codex"),
+		Type:        ptr("mock"),
 		Model:       ptr("o1"),
 		Permissions: ptr("bypass"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "big", entry.Label)
-	assert.Equal(t, "codex", entry.Type)
+	assert.Equal(t, "mock", entry.Type)
 	assert.Equal(t, "o1", entry.Model)
 	assert.Equal(t, "bypass", entry.Permissions)
 
@@ -38,7 +38,7 @@ func TestSetLLM_CreatesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	got, ok := reloaded.GetLLMEntry("big")
 	require.True(t, ok, "the created llm must survive a reload")
-	assert.Equal(t, "codex", got.Type)
+	assert.Equal(t, "mock", got.Type)
 }
 
 // TestSetLLM_StoresTheCanonicalType pins the write BOUNDARY: an accepted alias
@@ -89,12 +89,12 @@ func TestSetLLM_EditOnlyChangesNamedFields(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := managerFor(appDir)
 
-	_, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr("codex"), Model: ptr("o1")})
+	_, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr("mock"), Model: ptr("o1")})
 	require.NoError(t, err)
 
 	entry, err := SetLLM(mgr, SetLLMRequest{Label: "big", Permissions: ptr("plan")})
 	require.NoError(t, err)
-	assert.Equal(t, "codex", entry.Type, "an unnamed field must survive an edit that names a different one")
+	assert.Equal(t, "mock", entry.Type, "an unnamed field must survive an edit that names a different one")
 	assert.Equal(t, "o1", entry.Model)
 	assert.Equal(t, "plan", entry.Permissions)
 }
@@ -109,7 +109,7 @@ func TestSetLLM_EnvReplacesWholeBlock(t *testing.T) {
 
 	_, err := SetLLM(mgr, SetLLMRequest{
 		Label: "big",
-		Type:  ptr("codex"),
+		Type:  ptr("mock"),
 		Env:   map[string]string{"A": "1", "B": "2"},
 	})
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestSetLLM_EnvKeysNeverCarryValues(t *testing.T) {
 	const secret = "sk-TOTALLY-SECRET-abc123"
 	entry, err := SetLLM(mgr, SetLLMRequest{
 		Label: "big",
-		Type:  ptr("codex"),
+		Type:  ptr("mock"),
 		Env:   map[string]string{"OPENAI_API_KEY": secret},
 	})
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestRemoveLLM_DeletesAndPersists(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := managerFor(appDir)
 
-	_, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr("codex")})
+	_, err := SetLLM(mgr, SetLLMRequest{Label: "big", Type: ptr("mock")})
 	require.NoError(t, err)
 
 	cfg, err := config.Load(config.WithAppDir(appDir))

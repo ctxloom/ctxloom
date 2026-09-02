@@ -11,15 +11,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 )
 
-// stubEngineVersion is a codex version inside the real codex adapter's
-// declared range, so a test that is not ABOUT version selection can hand
+// stubEngineVersion is a version inside the real claude adapter's declared
+// range, so a test that is not ABOUT version selection can hand
 // ConvertVendorTranscript a session it will actually read.
-const stubEngineVersion = "0.144.4"
+const stubEngineVersion = "2.1.225"
 
 // stubVersionedAdapter wraps a test adapter in the same declaration shape the
 // real readers use, covering every version — a test that swaps the adapter is
@@ -70,7 +71,6 @@ func TestVendorReaderRanges_ContainThePinnedTestedVersion(t *testing.T) {
 	pins := enginePins(t)
 	byEngine := map[string]string{
 		"claude-code": "CLAUDE_CODE_CLI_VERSION",
-		"codex":       "CODEX_CLI_VERSION",
 	}
 
 	for engine, key := range byEngine {
@@ -100,7 +100,7 @@ func TestVendorReaderRanges_ContainThePinnedTestedVersion(t *testing.T) {
 // by whichever adapter happens to be first.
 func TestConvertVendorTranscript_UnrecordedVersionRefusesAndWritesNothing(t *testing.T) {
 	harp := "convert-unversioned-harp"
-	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath}
+	e := sessions.Entry{HarpName: harp, Backend: config.BackendClaudeCode, TranscriptPath: claudeFixturePath}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	assert.False(t, converted, "nothing may be attempted for a session whose format is unknown")
@@ -117,7 +117,7 @@ func TestConvertVendorTranscript_UnrecordedVersionRefusesAndWritesNothing(t *tes
 // version and the ranges it does carry.
 func TestConvertVendorTranscript_UnknownVersionRefuses(t *testing.T) {
 	harp := "convert-future-version-harp"
-	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath, EngineVersion: "9.9.9"}
+	e := sessions.Entry{HarpName: harp, Backend: config.BackendClaudeCode, TranscriptPath: claudeFixturePath, EngineVersion: "9.9.9"}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	assert.False(t, converted)
@@ -135,7 +135,7 @@ func TestConvertVendorTranscript_UnknownVersionRefuses(t *testing.T) {
 // signal about a transcript that exists, and raising it for every unbound or
 // long-vanished session would fire it constantly until nobody reads it.
 func TestConvertVendorTranscript_UnlocatableSessionStaysSilentDespiteNoVersion(t *testing.T) {
-	e := sessions.Entry{HarpName: "convert-unbound-harp", Backend: "codex"}
+	e := sessions.Entry{HarpName: "convert-unbound-harp", Backend: config.BackendClaudeCode}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	assert.False(t, converted)
@@ -154,7 +154,7 @@ func TestConvertVendorTranscript_MalformedLineInAKnownVersionDegradesToPartial(t
 	testsupport.Isolate(t)
 	harp := "convert-partial-known-version-harp"
 
-	good, err := os.ReadFile(codexFixturePath)
+	good, err := os.ReadFile(claudeFixturePath)
 	require.NoError(t, err)
 	corrupted := filepath.Join(t.TempDir(), "corrupted-rollout.jsonl")
 	require.NoError(t, os.WriteFile(corrupted,
@@ -162,7 +162,7 @@ func TestConvertVendorTranscript_MalformedLineInAKnownVersionDegradesToPartial(t
 
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        "codex",
+		Backend:        config.BackendClaudeCode,
 		TranscriptPath: corrupted,
 		EngineVersion:  stubEngineVersion, // a version the codex adapter IS validated for
 	}

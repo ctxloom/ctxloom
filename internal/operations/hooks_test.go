@@ -374,7 +374,12 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Len(t, result.Backends, 3)
+	// DERIVED, not a count: an empty Backend means "all", and "all" is exactly
+	// backends.BackendsWithSettings(). Pinning a number here only restated how
+	// many engines existed the day it was written.
+	want := backends.BackendsWithSettings()
+	require.NotEmpty(t, want, "no backend has a settings surface; this comparison would be vacuous")
+	assert.ElementsMatch(t, want, result.Backends)
 }
 
 // TestApplyHooks_ConfigLoadError tests error handling when config load fails.

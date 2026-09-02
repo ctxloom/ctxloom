@@ -23,14 +23,14 @@ func TestResolveAgentSurfaces_AcceptsWhatTheEngineDeclares(t *testing.T) {
 
 // TestResolveAgentSurfaces_RefusesAnApproachTheEngineDoesNotHave is the claim
 // this validator exists for. system-prompt is claude-only, so an agent bound to
-// any other engine and naming it has made a mistake — and the refusal must NAME
+// any other REGISTERED engine and naming it has made a mistake — and the refusal must NAME
 // what that engine CAN do, because "unsupported" alone leaves the user to guess.
 //
 // Refused, never downgraded: silently substituting the engine's default would
 // teach the caller their request worked, and their sessions would deliver
 // context a way they did not choose.
 func TestResolveAgentSurfaces_RefusesAnApproachTheEngineDoesNotHave(t *testing.T) {
-	for _, engine := range []string{"opencode", "codex"} {
+	for _, engine := range []string{"mock"} {
 		got, err := ResolveAgentSurfaces(engine, map[string]string{"context": "system-prompt"})
 		require.Error(t, err, "%s does not declare system-prompt", engine)
 		assert.Nil(t, got, "%s: a refused preference must resolve to nothing, never a partial map", engine)

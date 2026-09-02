@@ -93,25 +93,6 @@ func TestSurfaceCurrencies_ReportsMissingWhereExpected(t *testing.T) {
 	assert.Equal(t, "CLAUDE.md does not exist", claude.Detail)
 }
 
-// TestSurfaceCurrencies_ReportsMissingForEveryFileDefaultedEngine widens arm one
-// across the backends this task ported the read half onto. Every engine that
-// declares its owned context file the default route owes a missing verdict; the
-// assertion names each route so a port that reads the WRONG path still fails.
-func TestSurfaceCurrencies_ReportsMissingForEveryFileDefaultedEngine(t *testing.T) {
-	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
-
-	surfaces, _ := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
-
-	for backend, route := range map[string]string{
-		"opencode": ".opencode/ctxloom-context.md",
-	} {
-		got, ok := currencyFor(surfaces, backend)
-		require.True(t, ok, "%s must report its absent context file", backend)
-		assert.Equal(t, route, got.Route)
-		assert.Equal(t, string(agent.StatusMissing), got.Status)
-	}
-}
-
 // --- ARM TWO: the alarm STAYS SILENT where nothing was expected --------------
 
 // TestSurfaceCurrencies_LeavesTheHermeticMockEngineOutOfTheReport keeps a test
@@ -126,21 +107,6 @@ func TestSurfaceCurrencies_LeavesTheHermeticMockEngineOutOfTheReport(t *testing.
 	got, ok := currencyFor(surfaces, "mock")
 	assert.False(t, ok, "mock must not appear in the report; got %+v", got)
 	assert.NotEmpty(t, surfaces, "the real engines are still reported")
-}
-
-// TestSurfaceCurrencies_StaysSilentForCodex is the false-alarm guard the
-// ruling names by engine. codex HAS a native context file (AGENTS.md) and now
-// HAS a read half for it — but its DECLARED default context route is the hook
-// (a per-run content-addressed cache file), so a harpless caller has no grounds
-// to expect a materialized file and must say nothing. This is the same fact
-// backends.LaunchOnlySurfaces encodes for codex's other surfaces.
-func TestSurfaceCurrencies_StaysSilentForCodex(t *testing.T) {
-	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
-
-	surfaces, _ := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
-
-	got, ok := currencyFor(surfaces, "codex")
-	assert.False(t, ok, "codex must not be reported missing; got %+v", got)
 }
 
 // TestReportableContextCurrency_StaysSilentWhenTheLoadoutCarriesNothing is the
@@ -188,16 +154,15 @@ func TestReportableContextCurrency_AlwaysReportsAFileThatExists(t *testing.T) {
 
 // --- PART ONE: the ported read halves actually read ---------------------------
 
-// TestSurfaceCurrencies_ReportsStaleForPortedBackends is the port's payload:
-// codex and opencode each get their materialized native file reported
-// when it no longer matches. codex appears HERE and not in the missing test —
-// a file that is actually sitting there is reported for every engine that can
-// read it, expectation or not, because content nobody composes any more is
-// real drift.
+// TestSurfaceCurrencies_ReportsStaleForPortedBackends is the port's payload: a
+// backend gets its materialized native file reported when it no longer
+// matches. A file that is actually sitting there is reported for every engine
+// that can read it, expectation or not, because content nobody composes any
+// more is real drift.
 func TestSurfaceCurrencies_ReportsStaleForPortedBackends(t *testing.T) {
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 
-	for _, backend := range []string{"codex", "opencode"} {
+	for _, backend := range []string{"claude-code"} {
 		deliverNativeContext(t, backend, workDir, "CONTEXT FROM A PREVIOUS COMPOSITION")
 	}
 
@@ -205,8 +170,7 @@ func TestSurfaceCurrencies_ReportsStaleForPortedBackends(t *testing.T) {
 	assert.Empty(t, errs)
 
 	for backend, route := range map[string]string{
-		"codex":    "AGENTS.md",
-		"opencode": ".opencode/ctxloom-context.md",
+		"claude-code": "CLAUDE.md",
 	} {
 		got, ok := currencyFor(surfaces, backend)
 		require.True(t, ok, "%s's materialized context file must be reported", backend)
@@ -224,14 +188,14 @@ func TestSurfaceCurrencies_ReportsDeliveredForPortedBackends(t *testing.T) {
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 	current := composedContext(t, cfg)
 
-	for _, backend := range []string{"claude-code", "codex", "opencode"} {
+	for _, backend := range []string{"claude-code"} {
 		deliverNativeContext(t, backend, workDir, current)
 	}
 
 	surfaces, errs := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
 	assert.Empty(t, errs)
 
-	for _, backend := range []string{"claude-code", "codex", "opencode"} {
+	for _, backend := range []string{"claude-code"} {
 		got, ok := currencyFor(surfaces, backend)
 		require.True(t, ok, "%s's freshly written context file must be reported", backend)
 		assert.Equal(t, string(agent.StatusDelivered), got.Status,

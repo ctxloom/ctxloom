@@ -398,14 +398,14 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 	require.NoError(t, err)
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("codex"), Profiles: ptr([]string{"y", "z"})})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("mock"), Profiles: ptr([]string{"y", "z"})})
 	require.NoError(t, err)
 
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := final.Agent("dev")
 	require.True(t, ok)
-	assert.Equal(t, "codex", sub.LLM, "engine replaced")
+	assert.Equal(t, "mock", sub.LLM, "engine replaced")
 	assert.Equal(t, []string{"y", "z"}, sub.Profiles, "profiles replaced, not unioned")
 }
 

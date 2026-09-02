@@ -198,14 +198,14 @@ func TestMaterializeProfile_ReportsHooksAnEngineCannotCarry(t *testing.T) {
 	cfg, target := materializeHookFixture(t)
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: "opencode",
+		Profiles: []string{"reviewer"}, Target: target, Backend: "mock",
 	})
 	require.NoError(t, err, "the loss is REPORTED, not fatal: the rest of the tree is still worth having")
-	require.Contains(t, res.Wrote, "settings",
-		"precondition: opencode's folded settings surface IS written — the hook is what does not ride it")
+	require.Contains(t, res.Wrote, "context",
+		"precondition: the engine's own surfaces ARE written — the hook is what does not ride them")
 
 	require.Len(t, res.NotCarried, 1,
-		"opencode's one structural loss (hooks) must appear in the report")
+		"the engine's one structural loss (hooks) must appear in the report")
 	assert.Equal(t, "hooks", res.NotCarried[0].Surface)
 	assert.Contains(t, res.NotCarried[0].Detail, "session_start",
 		"the report must name WHICH hooks were dropped, not just that some were")
@@ -234,7 +234,7 @@ func TestMaterializeProfile_ReportsNoLossForAnEngineThatCarriesHooks(t *testing.
 }
 
 // TestMaterializeProfile_ReportsNoHookLossWhenNoHooksDeclared pins the third
-// case: opencode still cannot carry hooks, but a profile that declares none has
+// case: a hook-less engine still cannot carry hooks, but a profile that declares none has
 // lost nothing. Reporting a capability gap nobody asked to use is noise, and the
 // same rule the unified hook router already applies (RouteUnifiedHooks warns
 // only when hooks of the unsupported kind were actually configured).
@@ -242,7 +242,7 @@ func TestMaterializeProfile_ReportsNoHookLossWhenNoHooksDeclared(t *testing.T) {
 	cfg, target := materializeFixture(t, "NO-HOOKS")
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: "opencode",
+		Profiles: []string{"reviewer"}, Target: target, Backend: "mock",
 	})
 	require.NoError(t, err)
 	assert.Empty(t, res.NotCarried,

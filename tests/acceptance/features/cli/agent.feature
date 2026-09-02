@@ -275,8 +275,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
 
   Rule: --config-home decides WHOSE engine config home this binding's runs get
 
-    The other axes above pick what runs. `--config-home` picks whose ~/.codex,
-    or ~/.claude it runs against — the directory the engine reads its
+    The other axes above pick what runs. `--config-home` picks whose engine
+    home (~/.claude, say) it runs against — the directory the engine reads its
     hooks, MCP registrations, prompts and skills from, and writes its session
     state back into. `host` (and leaving it unsaid) keeps the human's own;
     `project` gives this binding's runs a disposable PER-SESSION home under
@@ -292,7 +292,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     #
     # So this borrows J002200's PATH-sandboxed recording spy (see
     # j002200_isolation.feature) rather than a real engine binary, and reads
-    # CODEX_HOME back out of the spawned process's OWN environment. The
+    # CLAUDE_CONFIG_DIR back out of the spawned process's OWN environment. The
     # difference from the sibling scenario there is the only thing under test
     # here: that fixture writes `config_home: project` into config.yaml itself,
     # while this one renders NO config_home at all and makes `ctxloom agent
@@ -302,12 +302,12 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     # Alice's own home.
     Scenario: --config-home project moves the engine off Alice's own home onto a per-session one
       Given Alice has a git-backed project
-      And Alice has whatever host credentials "codex" needs to authenticate
+      And Alice has whatever host credentials "claude-code" needs to authenticate
       And Alice declares config_home "project" on her agent with the ctxloom CLI
-      When Alice runs the isolated "codex" agent under workspace "none"
+      When Alice runs the isolated "claude-code" agent under workspace "none"
       Then the file ".ctxloom/config.yaml" contains "config_home: project"
-      And the spy "codex" process's "CODEX_HOME" env var points at this session's config-home instance
-      And Alice's own "codex" home directory was never created by the run
+      And the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
+      And Alice's own "claude-code" home directory was never created by the run
 
   Rule: The default agent is what a bare run binds
 

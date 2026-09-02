@@ -73,7 +73,7 @@ func TestDecodeBackendConfigForType_DeterministicWithoutPrimary(t *testing.T) {
 
 func TestDecodeBackendConfigForType_PrimaryOfOtherTypeFallsBack(t *testing.T) {
 	f := twoLabelConfig().ToFixture()
-	f.LM.Configs["oc"] = config.LLMConfig{Type: "opencode", Body: map[string]interface{}{}}
+	f.LM.Configs["oc"] = config.LLMConfig{Type: "mock", Body: map[string]interface{}{}}
 	f.LM.Defaults.Primary = "oc"
 	cfg := config.NewFixture(f)
 
@@ -85,8 +85,10 @@ func TestDecodeBackendConfigForType_PrimaryOfOtherTypeFallsBack(t *testing.T) {
 // getAvailableEngines (init.go) now share: the "mock"
 // backend must never surface in a user-facing engine list, and nothing else
 // should be caught by the same check.
-func TestIsMockBackend(t *testing.T) {
-	assert.True(t, isMockBackend("mock"))
-	assert.False(t, isMockBackend("claude-code"))
-	assert.False(t, isMockBackend(""))
+func TestIsTestOnlyBackend(t *testing.T) {
+	assert.True(t, isTestOnlyBackend(config.BackendMock))
+	assert.True(t, isTestOnlyBackend(config.BackendMockLossy),
+		"a SECOND double must be hidden too — that is the whole reason this asks the registry instead of matching a name")
+	assert.False(t, isTestOnlyBackend(config.BackendClaudeCode))
+	assert.False(t, isTestOnlyBackend(""), "an unknown name is not test-only: a typo must not read as a hidden engine")
 }

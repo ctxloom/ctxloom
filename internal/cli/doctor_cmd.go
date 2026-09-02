@@ -70,9 +70,7 @@ var doctorDepBinariesRecommended = []string{"ssh", "ssh-keygen"}
 // native CLI ctxloom would launch for it, for the DOCTOR-CHECK-DEPS-a1 PATH
 // probe. Only backends with a real external client binary are listed.
 var doctorEngineBinaries = map[string]string{
-	"claude-code": "claude",
-	"codex":       "codex",
-	"opencode":    "opencode",
+	config.BackendClaudeCode: "claude",
 }
 
 // doctorStatus is one check's verdict, and there are exactly three of them. It

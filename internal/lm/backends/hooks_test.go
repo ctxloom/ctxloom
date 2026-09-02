@@ -131,10 +131,11 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 		expected bool
 	}{
 		{"claude-code", "claude-code", true},
-		// A REGISTERED backend with no settings surface at all — a different
-		// case from an unknown name, and the one that catches a factory that
-		// hands back a writer for anything it recognizes.
-		{"mock", "mock", false},
+		// mock is a complete engine and carries a real settings writer. The
+		// case that catches a factory handing back a writer for anything it
+		// recognizes is the UNKNOWN name below, which is the honest test for
+		// it — mock stopped being that case when it gained the capability.
+		{"mock", "mock", true},
 		{"unknown", "unknown", false}, // Unknown backend
 		{"empty", "", false},          // Empty string
 	}

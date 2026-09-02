@@ -11,12 +11,17 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// primaryEngines are shown first in the selection menu (curated list).
-var primaryEngines = []string{"claude-code", "codex"}
+// primaryEngines are shown first in the selection menu (curated list). Every
+// entry must be a REGISTERED backend name: an unregistered one is offered to
+// the user, accepted, and then fails at launch on an engine ctxloom cannot
+// run — the menu is the last place that should name something that is not
+// there.
+var primaryEngines = []string{config.BackendClaudeCode}
 
 // getAvailableEngines returns engines filtered by what's actually installed.
 // Primary engines come first, then secondary engines, all sorted.
@@ -35,7 +40,7 @@ func getAvailableEngines() (primary, secondary []string) {
 
 	// Get secondary engines (all others except mock)
 	for _, name := range backends.List() {
-		if isMockBackend(name) || primarySet[name] {
+		if isTestOnlyBackend(name) || primarySet[name] {
 			continue
 		}
 		if backends.IsAvailable(name) {

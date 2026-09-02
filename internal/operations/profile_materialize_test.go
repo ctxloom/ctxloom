@@ -198,7 +198,7 @@ func TestMaterializeProfile_ReportsHooksAnEngineCannotCarry(t *testing.T) {
 	cfg, target := materializeHookFixture(t)
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: "mock",
+		Profiles: []string{"reviewer"}, Target: target, Backend: config.BackendMockLossy,
 	})
 	require.NoError(t, err, "the loss is REPORTED, not fatal: the rest of the tree is still worth having")
 	require.Contains(t, res.Wrote, "context",

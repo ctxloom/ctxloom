@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file hermetically proves the mock engine's context and skills routes —
@@ -219,37 +220,59 @@ func TestMockContextSurface_IsTheSameObjectThroughSurfaceFor(t *testing.T) {
 	assert.Same(t, set.Context, reader, "SurfaceFor must resolve to the SAME instance NewMockSurfaces built, not a copy")
 }
 
-// TestMockSurfaces_SupportedApproaches_ContextAndSkills pins mock's declared
-// scope: context and skills are supported, every other SurfaceKind is absent
-// (folded/unsupported for mock, matching how codex declares no MCP surface) —
-// never silently materializing a surface nobody built.
-func TestMockSurfaces_SupportedApproaches_ContextAndSkills(t *testing.T) {
+// TestMockSurfaces_SupportedApproaches_EveryKind pins mock's declared scope:
+// EVERY SurfaceKind is supported, because mock is a complete engine with no
+// real model behind it rather than a partial one.
+//
+// The completeness is load-bearing, not tidiness: a partial double makes its
+// gaps load-bearing somewhere else, where nothing states that they are.
+//
+// Each kind must also RESOLVE to a concrete surface: declaring an approach and
+// then failing to dispatch would be a surface that exists only in the roster.
+func TestMockSurfaces_SupportedApproaches_EveryKind(t *testing.T) {
 	set := NewMockSurfaces(agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
 
-	assert.NotEmpty(t, set.SupportedApproaches(agent.SurfaceContext))
-	assert.NotEmpty(t, set.SupportedApproaches(agent.SurfaceSkills))
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
-		assert.Empty(t, set.SupportedApproaches(kind), "mock declares no %s surface", kind)
+	for _, kind := range []agent.SurfaceKind{
+		agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings,
+		agent.SurfaceCommands, agent.SurfaceSkills,
+	} {
+		require.NotEmpty(t, set.SupportedApproaches(kind), "mock must declare a %s surface", kind)
+
+		a, ok := set.DefaultApproach(kind)
+		require.True(t, ok, "%s must have a default approach", kind)
+		del, err := set.SurfaceFor(kind, a)
+		require.NoError(t, err, "%s must resolve to a concrete surface", kind)
+		require.NotNil(t, del, "%s resolved to a nil delivery", kind)
 	}
 }
 
-// TestMockSurfaces_WithEverything_MaterializesBothSurfaces is the end-to-end
+// TestMockSurfaces_WithEverything_MaterializesEverySurface is the end-to-end
 // payload proof through the SAME builder path a real caller (materialize)
-// uses: WithEverything + DeliverUnder must land BOTH surfaces' bytes, each at
+// uses: WithEverything + DeliverUnder must land EVERY surface's bytes, each at
 // the path its route promises.
-func TestMockSurfaces_WithEverything_MaterializesBothSurfaces(t *testing.T) {
+//
+// Asserting the delivered COUNT as well as the bytes is deliberate: a set that
+// silently dropped one kind would still satisfy every individual file
+// assertion below, and the count is the only thing that notices.
+func TestMockSurfaces_WithEverything_MaterializesEverySurface(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
 	set := NewMockSurfaces(agent.SurfaceInputs{
-		Context: "END-TO-END-MARKER",
-		Skills:  []agent.SkillExport{reviewerSkillExport()},
+		Context:   "END-TO-END-MARKER",
+		Skills:    []agent.SkillExport{reviewerSkillExport()},
+		BundleMCP: map[string]wire.MCPServer{"postgres": {Command: "mcp-postgres"}},
+		Hooks:     &wire.HooksConfig{},
+		Commands:  []agent.CommandExport{{Name: "review", Content: "REVIEW-COMMAND-BODY", Enabled: true}},
 	}, fs)
 	delivered, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(dir)
 	require.Empty(t, errs)
-	require.Len(t, delivered, 2)
-	require.Equal(t, []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSkills}, kinds)
+	require.Len(t, delivered, 5, "every declared surface must actually deliver")
+	require.ElementsMatch(t, []agent.SurfaceKind{
+		agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings,
+		agent.SurfaceCommands, agent.SurfaceSkills,
+	}, kinds)
 
 	got, err := afero.ReadFile(fs, filepath.Join(dir, mockContextFilename))
 	require.NoError(t, err)
@@ -258,6 +281,18 @@ func TestMockSurfaces_WithEverything_MaterializesBothSurfaces(t *testing.T) {
 	skill, err := afero.ReadFile(fs, filepath.Join(mockSkillsPath(dir), "reviewer", "SKILL.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(skill), "MOCK-SKILL-BODY-2c7e")
+
+	mcp, err := afero.ReadFile(fs, mockMCPPath(dir))
+	require.NoError(t, err)
+	assert.Contains(t, string(mcp), "mcp-postgres")
+
+	settings, err := afero.ReadFile(fs, mockSettingsPath(dir))
+	require.NoError(t, err)
+	assert.Contains(t, string(settings), "hooks")
+
+	cmd, err := afero.ReadFile(fs, filepath.Join(mockCommandsPath(dir), "review.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(cmd), "REVIEW-COMMAND-BODY")
 }
 
 // ---------------------------------------------------------------------------

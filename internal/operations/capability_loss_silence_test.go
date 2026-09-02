@@ -23,12 +23,12 @@ func silencedFrom(t *testing.T, cfg *config.Config) *config.Config {
 func TestCapabilityLoss_SilenceOptOut(t *testing.T) {
 	loud, _ := materializeHookFixture(t)
 
-	lossy := CapabilityLoss(loud, "mock", []string{"reviewer"})
+	lossy := CapabilityLoss(loud, config.BackendMockLossy, []string{"reviewer"})
 	if len(lossy) == 0 {
 		t.Fatal("precondition: the fixture must produce a real declared loss on mock")
 	}
 
-	if got := CapabilityLoss(silencedFrom(t, loud), "mock", []string{"reviewer"}); got != nil {
+	if got := CapabilityLoss(silencedFrom(t, loud), config.BackendMockLossy, []string{"reviewer"}); got != nil {
 		t.Fatalf("silenced config still reported loss: %v", got)
 	}
 }
@@ -39,7 +39,7 @@ func TestMaterializeProfile_SilenceOptOut(t *testing.T) {
 	loud, target := materializeHookFixture(t)
 
 	res, err := MaterializeProfile(context.Background(), loud, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: "mock",
+		Profiles: []string{"reviewer"}, Target: target, Backend: config.BackendMockLossy,
 	})
 	if err != nil {
 		t.Fatalf("MaterializeProfile (loud): %v", err)
@@ -50,7 +50,7 @@ func TestMaterializeProfile_SilenceOptOut(t *testing.T) {
 
 	quiet, qtarget := materializeHookFixture(t)
 	res2, err := MaterializeProfile(context.Background(), silencedFrom(t, quiet), MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: qtarget, Backend: "mock",
+		Profiles: []string{"reviewer"}, Target: qtarget, Backend: config.BackendMockLossy,
 	})
 	if err != nil {
 		t.Fatalf("MaterializeProfile (silenced): %v", err)

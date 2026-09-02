@@ -59,7 +59,7 @@ func TestRemoveSettings_AbsentFilesAreNoOp(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	require.NoError(t, RemoveSettings("claude-code", "/empty", WithSettingsFS(fs)))
-	require.NoError(t, RemoveSettings("antigravity", "/empty", WithSettingsFS(fs)))
+	require.NoError(t, RemoveSettings("mock", "/empty", WithSettingsFS(fs)))
 
 	// Uninstall must never create config files.
 	exists, _ := afero.Exists(fs, "/empty/.claude/settings.json")

@@ -29,11 +29,12 @@ func TestBuildSurfaces_OptOutBackends(t *testing.T) {
 }
 
 // TestBuildSurfaces_Mock proves the mock descriptor closure routes through
-// NewMockSurfaces: exactly its two surfaces (context + skills) are returned —
-// never zero, which was the whole bug this change fixes, EmptySurfaceSet made
-// the mock backend unable to prove delivery at all — and, the payload
-// assertion rather than merely a count, BOTH delivered files actually carry
-// their composed bytes rather than existing empty.
+// NewMockSurfaces: EVERY surface is returned — never zero, which was the
+// original bug (EmptySurfaceSet made the mock backend unable to prove delivery
+// at all), and never a partial set, which was the later one (a double whose
+// gaps other fixtures quietly came to depend on). The payload assertions below
+// matter more than the count: a delivered file that exists empty is the silent
+// no-op this backend exists to catch in others.
 func TestBuildSurfaces_Mock(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/target"
@@ -47,7 +48,7 @@ func TestBuildSurfaces_Mock(t *testing.T) {
 	}, fs)
 	resolved, err := agent.Select(set).WithEverything().Build()
 	require.NoError(t, err)
-	assert.Len(t, resolved.Deliveries(), 2, "mock has exactly the context and skills surfaces")
+	assert.Len(t, resolved.Deliveries(), 5, "mock is a complete engine and carries every surface")
 
 	_, _, errs := resolved.DeliverUnder(dir)
 	require.Empty(t, errs, "mock's surfaces deliver cleanly")

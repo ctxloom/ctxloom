@@ -64,6 +64,9 @@ func TestRegistryLookups_ResolveEveryAcceptedSpelling(t *testing.T) {
 // lookup must answer for an unknown name exactly what it answered before —
 // nothing, not a default.
 func TestRegistryLookups_StillRefuseAnUnknownName(t *testing.T) {
+	// "antigravity" is a RETIRED engine name, kept deliberately: a stale config
+	// naming a backend this build has removed must be refused, not silently
+	// accepted. It is a rejection case, not a live roster member.
 	for _, name := range []string{"totally-bogus", "clau", "claude-", "", "antigravity", "CLAUDECODEX"} {
 		t.Run(name, func(t *testing.T) {
 			assert.Nil(t, Get(name), "Get(%q) must not resolve", name)

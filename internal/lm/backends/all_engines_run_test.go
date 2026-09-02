@@ -11,13 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// nonTUIBackends names registered backends this completeness bar deliberately
-// exempts, with WHY each is not a native-TUI local-CLI engine:
-//   - "mock": a test double, never launched for a real session.
-var nonTUIBackends = map[string]string{
-	"mock": "test double, not a real engine",
-}
-
 // launcherInjector is satisfied by every concrete backend via its embedded
 // agent.BaseBackend — asserted against agent.Backend so this test never
 // imports a concrete engine package (the registry already does that).
@@ -51,8 +44,11 @@ func TestAllEngines_LaunchNativeTUI(t *testing.T) {
 	tested := 0
 	for _, name := range names {
 		name := name
-		if reason, excluded := nonTUIBackends[name]; excluded {
-			t.Logf("%s excluded from the native-TUI bar: %s", name, reason)
+		// Ask the REGISTRY, not a name map: a double declares that it is one
+		// where it is registered, so a newly registered double is excluded
+		// automatically rather than silently required to spawn a TUI.
+		if IsTestOnly(name) {
+			t.Logf("%s excluded from the native-TUI bar: test double, not a real engine", name)
 			continue
 		}
 		tested++

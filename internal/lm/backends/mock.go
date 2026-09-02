@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 )
@@ -55,7 +56,24 @@ type MockConfig struct {
 }
 
 // BackendType identifies the backend this config drives.
-func (MockConfig) BackendType() string { return "mock" }
+func (MockConfig) BackendType() string { return config.BackendMock }
+
+// MockLossyConfig is the deliberately-lossy double's config. It carries the
+// same fields as MockConfig and exists only so the config NAMES ITS OWN
+// BACKEND: TestDescriptorTable_ConfigDecodesToItsOwnType requires every
+// descriptor's decoded config to report the backend it was registered under,
+// and a shared type would have reported "mock" for both — the exact
+// two-things-one-name confusion the registry invariant is there to prevent.
+type MockLossyConfig struct {
+	Model string            `mapstructure:"model"`
+	Env   map[string]string `mapstructure:"env"`
+}
+
+// BackendType identifies the backend this config drives.
+func (MockLossyConfig) BackendType() string { return config.BackendMockLossy }
+
+// GetEnv returns the labeled entry's env map, the same way MockConfig does.
+func (c MockLossyConfig) GetEnv() map[string]string { return c.Env }
 
 // GetEnv returns the labeled entry's env map. Lets shared code (see
 // operations.LLMEnvFor) reach a decoded config's Env through an interface
@@ -76,6 +94,22 @@ func (c MockConfig) GetEnv() map[string]string { return c.Env }
 // ContextHook (which requires RawContext) stays false with it. History is the
 // same NilSessionHistory the backend has always reported — mock keeps no
 // transcripts.
+// NewMockLossy builds the deliberately-lossy sibling of the mock backend. It
+// is mock in every respect but its registered NAME and the hook kind its
+// descriptor declares unsupported — see config.BackendMockLossy for why a
+// second double beats making the first one imperfect.
+func NewMockLossy() *Mock {
+	b := &Mock{}
+	b.BaseBackend = agent.NewBaseBackend(config.BackendMockLossy, "1.0.0")
+	b.InitLaunch(
+		agent.NewBaseLifecycle(config.BackendMockLossy),
+		agent.NewBaseContextProvider(),
+		&NilSessionHistory{},
+		&agent.CellDelivery{Build: agent.BuildWellKnown(NewMockSurfaces)},
+	)
+	return b
+}
+
 func NewMock() *Mock {
 	b := &Mock{}
 	b.BaseBackend = agent.NewBaseBackend("mock", "1.0.0")

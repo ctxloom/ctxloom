@@ -2,24 +2,21 @@ package cli
 
 import (
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// mockBackendName is backends.List()'s one entry that must never surface in a
-// user-facing engine list: the "mock" backend is a test/development double
-// registered into the production descriptor table (registry.go), reachable
-// at runtime as `--llm mock`, but not something a real user should ever be
-// offered as a choice. Every user-facing enumeration over backends.List()
-// filters it out through this one name — a prior review found two independent
-// hand-written `== "mock"` skips (here and in init.go) before this constant
-// existed; consolidating the literal to one place is the minimal fix that
-// keeps working without reaching into the backends package's registration
-// table (which is outside this package).
-const mockBackendName = "mock"
-
-// isMockBackend reports whether name is the test-only mock backend.
-func isMockBackend(name string) bool { return name == mockBackendName }
+// isTestOnlyBackend reports whether name is a test/development double that
+// must never surface in a user-facing engine list. Such a backend is
+// registered in the production descriptor table and reachable at runtime
+// (`--llm mock`), but is not something a real user should be offered.
+//
+// It asks the REGISTRY rather than comparing a name: a backend declares that
+// it is test-only where it is registered, so a newly registered double is
+// hidden everywhere at once rather than wherever someone remembers to skip
+// its name.
+func isTestOnlyBackend(name string) bool { return backends.IsTestOnly(name) }
 
 // decodeBackendConfigForType returns the decoded config of a labeled entry
 // whose type matches backendType. Used where only a backend type is known

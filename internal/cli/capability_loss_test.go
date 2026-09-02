@@ -79,10 +79,24 @@ func requireFixtureLosesSomething(t *testing.T, cfg *config.Config, wantDetail, 
 	require.Contains(t, joined, wantReason, "precondition: the fixture's loss must carry the engine's reason")
 }
 
+// linesContaining is lineContaining's plural sibling, for a report that
+// legitimately carries several matching lines — one per lost hook kind. It
+// asserts NOTHING about the count so the caller can state the number it
+// expects, which is the part worth pinning.
+func linesContaining(t *testing.T, out, needle string) []string {
+	t.Helper()
+	var found []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, needle) {
+			found = append(found, line)
+		}
+	}
+	return found
+}
+
 // requireFixtureLosesNothing is requireFixtureLosesSomething's twin for the
-// quiet case: the SAME hook-declaring profile on an engine that carries it, so
-// a "stays quiet" assertion is proving silence about a real non-loss rather
-// than about a fixture that declared no hooks in the first place.
+// false-alarm guards: it proves the fixture's engine CAN carry what it was
+// given, so a report that stays silent is silent for the right reason.
 func requireFixtureLosesNothing(t *testing.T, cfg *config.Config) {
 	t.Helper()
 	resolved, err := operations.ResolveAgent(context.Background(), cfg, "default", "")
@@ -91,32 +105,22 @@ func requireFixtureLosesNothing(t *testing.T, cfg *config.Config) {
 		"precondition: %s must carry this fixture's hooks, or the silence below proves nothing", resolved.Backend)
 }
 
-// lineContaining returns the one output line carrying needle, failing when no
-// line does or when several do. Every specific below is asserted against THAT
-// line rather than against the whole report: doctor prints "default" in its
-// roster check and "hooks" in its wiring check, so a whole-output Contains
-// would stay green against a capability-loss line that named nothing at all.
-func lineContaining(t *testing.T, out, needle string) string {
-	t.Helper()
-	var found []string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, needle) {
-			found = append(found, line)
-		}
-	}
-	require.Lenf(t, found, 1, "expected exactly one line containing %q in:\n%s", needle, out)
-	return found[0]
-}
-
 // --- DOCTOR-CHECK-CAPABILITY-LOSS-u1 ---
 
 // TestDoctorCmd_CapabilityLoss_NamesTheHooksAnEngineCannotCarry is the
 // terminal-facing proof for the whole-mechanism shape. Pre-fix `doctor` ran
 // twenty-one checks and not one of them mentioned that this project's
 // guardrail will never fire.
+// mockLossyHookReason is the reason the deliberately-lossy double declares,
+// stated once here rather than retyped per assertion. It must match the
+// descriptor's unsupportedHookKinds entry — a drifted copy would assert a
+// message the product never emits, and the test would fail for the wrong
+// reason.
+const mockLossyHookReason = config.BackendMockLossy + " has no native session_start event"
+
 func TestDoctorCmd_CapabilityLoss_NamesTheHooksAnEngineCannotCarry(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, "mock")
-	requireFixtureLosesSomething(t, cfg, "session_start", "mock has no settings/hook surface")
+	root, cfg := setupCapabilityLossProject(t, config.BackendMockLossy)
+	requireFixtureLosesSomething(t, cfg, "session_start", mockLossyHookReason)
 
 	out, err := runDoctor(t, root)
 	require.NoError(t, err, "doctor stays diagnostic-only: a capability gap is reported, never fatal")
@@ -128,7 +132,7 @@ func TestDoctorCmd_CapabilityLoss_NamesTheHooksAnEngineCannotCarry(t *testing.T)
 		"the detail must name WHICH agent loses it, or a multi-agent roster is unactionable:\n"+out)
 	assert.Contains(t, check.Detail, "session_start",
 		"naming the hook event the user actually wrote is what makes the detail actionable rather than ominous:\n"+out)
-	assert.Contains(t, check.Detail, "mock has no settings/hook surface",
+	assert.Contains(t, check.Detail, mockLossyHookReason,
 		"the detail must say WHY the engine cannot give it, so a reader can tell a capability gap from a ctxloom bug:\n"+out)
 }
 
@@ -199,17 +203,26 @@ func execManageCheckAs(t *testing.T, root, format string) (string, error) {
 // and every line of it was true while the guardrail it could not wire went
 // unmentioned — the same silence the delivery report had.
 func TestManageCheck_CapabilityLoss_NamesTheHooksAnEngineCannotCarry(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, "mock")
-	requireFixtureLosesSomething(t, cfg, "session_start", "mock has no settings/hook surface")
+	root, cfg := setupCapabilityLossProject(t, config.BackendMockLossy)
+	requireFixtureLosesSomething(t, cfg, "session_start", mockLossyHookReason)
 
 	out, err := execManageCheck(t, root)
 	require.NoError(t, err)
 
 	assert.Contains(t, out, "Project:", "precondition: the wiring report itself still rendered")
-	line := lineContaining(t, out, "NOT carried")
-	assert.Contains(t, line, "default", "the line must name which agent loses it:\n"+out)
-	assert.Contains(t, line, "session_start", "the line must name the hook event that was requested:\n"+out)
-	assert.Contains(t, line, "mock has no settings/hook surface", "the line must say why it is not available:\n"+out)
+
+	// ONE LINE PER LOST KIND. The double declares two unsupported events, and
+	// the report must not collapse them: a reader told only that "hooks" were
+	// lost cannot tell which of their guardrails is missing, and each kind
+	// carries its own reason.
+	lines := linesContaining(t, out, "NOT carried")
+	require.Len(t, lines, 2, "expected one NOT-carried line per declared unsupported kind in:\n"+out)
+
+	joined := strings.Join(lines, "\n")
+	assert.Contains(t, joined, "default", "a line must name which agent loses it:\n"+out)
+	assert.Contains(t, joined, "session_start", "the requested session_start hook must be named:\n"+out)
+	assert.Contains(t, joined, "session_end", "the requested session_end hook must be named:\n"+out)
+	assert.Contains(t, joined, mockLossyHookReason, "a line must say why it is not available:\n"+out)
 }
 
 // TestManageCheck_CapabilityLoss_StaysQuietWhenNothingIsLost is the
@@ -235,8 +248,8 @@ func TestManageCheck_CapabilityLoss_StaysQuietWhenNothingIsLost(t *testing.T) {
 // A report that named the loss only in prose would state it to a human and
 // withhold it from every machine consumer.
 func TestManageCheck_CapabilityLoss_JSONCarriesTheLoss(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, "mock")
-	requireFixtureLosesSomething(t, cfg, "session_start", "mock has no settings/hook surface")
+	root, cfg := setupCapabilityLossProject(t, config.BackendMockLossy)
+	requireFixtureLosesSomething(t, cfg, "session_start", mockLossyHookReason)
 
 	out, err := execManageCheckAs(t, root, "json")
 	require.NoError(t, err)
@@ -247,10 +260,20 @@ func TestManageCheck_CapabilityLoss_JSONCarriesTheLoss(t *testing.T) {
 	require.Len(t, got.CapabilityLoss, 1, "exactly the one configured agent loses something:\n"+out)
 	entry := got.CapabilityLoss[0]
 	assert.Equal(t, "default", entry.Agent, "the payload must name WHICH agent loses it")
-	assert.Equal(t, "mock", entry.Backend, "the payload must name the engine that cannot carry it")
-	require.NotEmpty(t, entry.Losses, "an agent listed as losing something must say what")
-	assert.Equal(t, "hooks", entry.Losses[0].Surface, "the surface is named in the user's own vocabulary")
-	assert.Contains(t, entry.Losses[0].Detail, "session_start", "the detail must name the hook event actually requested")
+	assert.Equal(t, config.BackendMockLossy, entry.Backend, "the payload must name the engine that cannot carry it")
+	// ONE LOSS PER DECLARED KIND, each carrying its own detail and reason. A
+	// payload that merged them would tell a consumer that "hooks" were lost
+	// without saying which events, and would attribute one kind's absence to
+	// the other's cause.
+	require.Len(t, entry.Losses, 2, "an agent listed as losing something must say what, per kind")
+	var details []string
+	for _, l := range entry.Losses {
+		assert.Equal(t, "hooks", l.Surface, "the surface is named in the user's own vocabulary")
+		assert.NotEmpty(t, l.Reason, "each loss must carry its own reason, not share one")
+		details = append(details, l.Detail)
+	}
+	assert.Contains(t, strings.Join(details, " "), "session_start", "the detail must name the hook events actually requested")
+	assert.Contains(t, strings.Join(details, " "), "session_end", "the detail must name the hook events actually requested")
 }
 
 // TestManageCheck_CapabilityLoss_JSONOmitsTheKeyWhenNothingIsLost is the

@@ -3,11 +3,15 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
 )
 
@@ -107,11 +111,28 @@ func TestDoctorCheckTranscriptReaders_RightState_UnprobedVersionIsInfoNotWarn(t 
 }
 
 // TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader proves
-// an engine with no vendor-native transcript store is SILENT rather than
-// reported as a gap — inventing a missing reader for it would be a false
-// finding.
+// an engine with no vendor reader is SILENT rather than reported as a gap —
+// inventing a missing reader for it would be a false finding.
+//
+// It uses an UNREGISTERED engine name deliberately. Every registered backend
+// now carries a vendor reader (mock included, as the degenerate second adapter
+// that keeps vendorReaderRegistry polymorphic), so this branch is reachable
+// only through a config naming a backend this build does not have.
 func TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader(t *testing.T) {
-	_, cfg := setupProject(t, "mock")
+	// InitializeProject REFUSES an unregistered engine, so the config is built
+	// normally and then edited to name one — which is precisely the state this
+	// branch exists for: a config written by an older ctxloom, or by hand,
+	// naming a backend this build has since dropped.
+	root, _ := setupProject(t, "mock")
+	cfgPath := filepath.Join(root, ".ctxloom", "config.yaml")
+	body, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "mock", "the scaffolded config must name the engine it was built with")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(strings.ReplaceAll(string(body), "mock", "some-future-engine")), 0o644))
+
+	config.Invalidate()
+	cfg, err := config.Load(config.WithAppDir(filepath.Join(root, ".ctxloom")))
+	require.NoError(t, err)
 
 	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("1.18.4"))
 

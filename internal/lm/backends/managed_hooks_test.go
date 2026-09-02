@@ -361,7 +361,7 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 		Plugins: map[string]wire.BackendHooks{
 			"zed":    {"PreCompact": []wire.Hook{{Command: "z-native"}}},
 			"claude": {"PreToolUse": []wire.Hook{{Command: "c-native"}}, "PostToolUse": {}},
-			"codex":  {},
+			"mock":   {},
 		},
 	}})
 	require.NoError(t, err)
@@ -376,7 +376,7 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 	assert.Equal(t, "zed", native[1].Backend, "sorted by backend, so the report can be diffed between runs")
 
 	// ...and the empty keys still reach the wire projection.
-	require.Contains(t, m.Wire().Plugins, "codex")
+	require.Contains(t, m.Wire().Plugins, "mock")
 	require.Contains(t, m.Wire().Plugins["claude"], "PostToolUse")
 }
 

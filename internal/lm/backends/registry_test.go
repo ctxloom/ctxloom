@@ -202,14 +202,13 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 			assert.Equal(t, name, d.newBackend().Name(),
 				"registry name must match the module's Name()")
 
-			// Deliberate exemption: mock is the test double. It registers only
-			// backend+config — no settings writer, no surfaces, no exports —
-			// so it must not gain either capability silently.
-			if name == "mock" {
-				assert.Nil(t, d.newWriter, "%s must not gain settings support silently", name)
-				assert.Nil(t, d.exports, "%s must not gain command export silently", name)
-				return
-			}
+			// NO exemption, deliberately — mock included. mock is a complete
+			// engine with no real model behind it, so it satisfies the same
+			// descriptor invariants as every shipped backend. The exemption
+			// that used to sit here ("mock must not gain settings support
+			// silently") existed to force a visible edit at the moment mock
+			// grew those capabilities; it has served that purpose, and keeping
+			// it would now assert an absence that is no longer true.
 			assert.NotNil(t, d.newWriter, "backend must have a settings writer")
 			assert.NotNil(t, d.newSurfaces, "backend must build a surface set")
 			assert.NotNil(t, d.exports, "backend must have a command-export mapper")

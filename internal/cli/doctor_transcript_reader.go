@@ -62,10 +62,12 @@ func doctorCheckTranscriptReaders(ctx context.Context, cfg *config.Config, probe
 	for _, engine := range engines {
 		adapters, ok := operations.VendorReaderAdaptersFor(engine)
 		if !ok {
-			// No vendor reader for this engine at all: opencode reads its own
-			// store through its native reader, and acp/mock have no
-			// vendor-native transcript to read. Silence here is correct —
-			// naming them would invent a gap that does not exist.
+			// No vendor reader for this engine at all. Every REGISTERED
+			// backend has one, so this is the config-names-an-unknown-engine
+			// case: a stale or hand-edited config naming a backend this build
+			// does not carry. Silence is correct — naming it here would
+			// report a missing READER when the real problem is an
+			// unrecognized engine, which other checks own.
 			continue
 		}
 		carried := doctorReaderRanges(adapters)

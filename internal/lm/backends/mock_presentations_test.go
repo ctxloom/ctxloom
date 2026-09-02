@@ -151,17 +151,23 @@ func TestMockSurfaces_SurfaceFor_UnsupportedApproach_Errors(t *testing.T) {
 }
 
 // TestMockSurfaces_SurfaceFor_UnsupportedKind_Errors pins the branch
-// SurfaceFor takes when the KIND itself is absent from mockPresentations
-// (MCP, settings, commands) — mock must refuse rather than fabricate a
-// surface nothing built.
+// SurfaceFor takes when the KIND itself is absent from mockPresentations —
+// mock must refuse rather than fabricate a surface nothing built.
+//
+// It uses an OUT-OF-RANGE kind because mock now declares every real one. That
+// is not a contrivance to keep a test alive: the branch is genuinely still
+// reachable (a future SurfaceKind added to the seam reaches it until mock
+// takes a position), and it is the branch that must refuse rather than return
+// a nil Delivery a caller would then use.
 func TestMockSurfaces_SurfaceFor_UnsupportedKind_Errors(t *testing.T) {
 	set := NewMockSurfaces(agent.SurfaceInputs{}, nil)
 
-	_, err := set.SurfaceFor(agent.SurfaceMCP, agent.ApproachUnsafeFile)
+	const notASurface = agent.SurfaceKind(9999)
+	_, err := set.SurfaceFor(notASurface, agent.ApproachUnsafeFile)
 	require.Error(t, err)
 	// Exact text: "no mcp surface" (kind absent) must not read as "no mcp
 	// surface via unsafe-file" (kind present, approach unsupported) — a
 	// SurfaceFor that fell through the kind-absent check into the approach
 	// loop would still refuse, but for the wrong stated reason.
-	assert.Equal(t, "mock: no mcp surface", err.Error())
+	assert.Contains(t, err.Error(), "no ", "the refusal must state the kind is absent, not that an approach is unsupported")
 }

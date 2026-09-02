@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -196,6 +197,27 @@ type agentDescriptor struct {
 	// without hand-maintaining a second copy of either string. nil = every
 	// kind this backend's mechanism carries is natively supported.
 	unsupportedHookKinds map[string]string
+	// testOnly marks a descriptor as a test/development double: registered in
+	// the production table and reachable at runtime (`--llm mock`), but never
+	// offered to a user as a choice.
+	//
+	// It is a PROPERTY of the registration, not a name a caller matches on: a
+	// registration that declares what it IS cannot drift from the list of
+	// names each caller remembers to skip.
+	testOnly bool
+}
+
+// IsTestOnly reports whether name is a registered test/development double
+// rather than a shippable engine. Every user-facing enumeration over List()
+// filters through this, so registering a new double hides it everywhere at
+// once instead of requiring each caller to learn its name.
+//
+// An unknown name is NOT test-only: callers distinguish "unknown engine" from
+// "engine you may not pick" separately, and folding the two here would turn a
+// typo into a silent omission.
+func IsTestOnly(name string) bool {
+	d, ok := lookup(name)
+	return ok && d.testOnly
 }
 
 // descriptors holds the per-agent descriptor table, keyed by CANONICAL backend
@@ -477,11 +499,12 @@ func init() {
 		},
 	})
 
-	// Mock registers backend+config+surfaces+skillExports: still no settings
-	// writer and no command export (descriptor fields are optional) — but it
-	// DOES build a real SurfaceSet, so BuildSurfaces("mock", …) materializes a
-	// hermetic MOCK_CONTEXT.md and a hermetic .mock/skills/ tree instead of
-	// returning agent.EmptySurfaceSet (see mock_surfaces.go).
+	// Mock registers the COMPLETE descriptor — backend, config, surfaces,
+	// settings writer, command exports and skill exports. It is a full engine
+	// with no real model behind it, not a partial one, and that is deliberate:
+	// while mock delivered only some surfaces, fixtures quietly came to depend
+	// on the gaps, and a gap depended upon is a gap that breaks something the
+	// day it closes.
 	registerDescriptor(agentDescriptor{
 		name:       "mock",
 		newBackend: func() agent.Backend { return NewMock() },
@@ -489,18 +512,46 @@ func init() {
 			return decodeBody(body, &MockConfig{})
 		},
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return NewMockSurfaces(in, fs) },
+		newWriter:   NewMockSettingsWriter,
+		exports:     mockExports,
+		testOnly:    true,
 		// Without this mapper SurfaceInputs.Skills is always empty for mock and
 		// the skills surface above delivers nothing — a surface that exists,
 		// reports success and writes zero bytes, which is precisely the
 		// silent no-op the mock engine exists to catch in others.
 		skillExports: mockSkillExports,
-		// mockPresentations (mock_surfaces.go) declares context and skills, so
-		// a configured session_start hook has no settings surface to land on
-		// and reaches no file. Declared for the same reason any noHooksReason
-		// is — UncarriedSurfaces can only report a loss that is DECLARED, and
-		// an undeclared one reads as silence. When mock gains a
-		// settings/hook surface (tracked separately), delete this line; the
-		// hook sentinel will then need a real destination instead.
-		noHooksReason: "mock has no settings/hook surface",
+	})
+
+	// The deliberately-LOSSY double. Identical to mock except for its
+	// registered NAME and the one unified hook kind its descriptor declares
+	// unsupported — which is what gives UncarriedSurfaces, and therefore
+	// doctor's capability-loss check and `manage check`'s loss reporting, a
+	// subject to report on.
+	//
+	// It is a SECOND double rather than a limitation bolted onto mock because
+	// the two prove different things: mock proves the surface seam is
+	// polymorphic (it must be complete), this one proves the seam REPORTS what
+	// an engine cannot carry (it must be lossy). One double cannot be both.
+	// See config.BackendMockLossy.
+	registerDescriptor(agentDescriptor{
+		name:       config.BackendMockLossy,
+		newBackend: func() agent.Backend { return NewMockLossy() },
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &MockLossyConfig{})
+		},
+		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return NewMockSurfaces(in, fs) },
+		newWriter:    NewMockSettingsWriter,
+		exports:      mockExports,
+		skillExports: mockSkillExports,
+		testOnly:     true,
+		// TWO kinds, not one: a double that models a single missing event
+		// cannot exercise a report that groups several, and both shapes exist
+		// in the wild (codex lacked session_end while carrying hooks
+		// generally). Each names its own reason so a report cannot attribute
+		// one kind's absence to the other's cause.
+		unsupportedHookKinds: map[string]string{
+			"session_start": config.BackendMockLossy + " has no native session_start event",
+			"session_end":   config.BackendMockLossy + " has no native session_end event",
+		},
 	})
 }

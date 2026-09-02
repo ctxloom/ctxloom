@@ -1,12 +1,18 @@
 package backends
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file lands the mock backend on the unified surface-delivery seam
@@ -172,20 +178,66 @@ func mockSkillsPresenter(s present.Start) present.Presentation {
 	return s.UnderProjectRoot(mockSkillsDirName).Build()
 }
 
-// mockPresentations is mock's declared per-surface presentation table: context
-// and skills, each with exactly one delivery (unsafe-file) built by the
-// presenter above — the present-package counterpart of the per-backend
-// ApproachTable literal every other backend still declares. mock has no
-// out-of-cwd redirect and no SharedRealization (see SharedRealization below),
-// so neither declaration ever calls .Or to add an alternative.
+// mockMCPFilename, mockSettingsFilename and mockCommandsDirName are mock's
+// remaining native surfaces, all under its own .mock/ config dir — the shape
+// every real engine has (.claude/, .codex/, .kiro/), not a top-level scatter.
+const (
+	mockMCPFilename      = MockConfigDirName + "/mcp.json"
+	mockSettingsFilename = MockConfigDirName + "/settings.json"
+	mockCommandsDirName  = MockConfigDirName + "/commands"
+)
+
+// mockMCPPath, mockSettingsPath and mockCommandsPath resolve each surface's
+// path through its declared presenter, exactly as the context and skills
+// halves do — never by joining strings here, so Route() and the delivery agree
+// by construction.
+func mockMCPPath(dir string) string {
+	d := mockPresentations[agent.SurfaceMCP]
+	return d.Resolve(d.Default(), hostStart(dir)).HostPath
+}
+
+func mockSettingsPath(dir string) string {
+	d := mockPresentations[agent.SurfaceSettings]
+	return d.Resolve(d.Default(), hostStart(dir)).HostPath
+}
+
+func mockCommandsPath(dir string) string {
+	d := mockPresentations[agent.SurfaceCommands]
+	return d.Resolve(d.Default(), hostStart(dir)).HostPath
+}
+
+func mockMCPPresenter(s present.Start) present.Presentation {
+	return s.UnderProjectRoot(mockMCPFilename).Build()
+}
+
+func mockSettingsPresenter(s present.Start) present.Presentation {
+	return s.UnderProjectRoot(mockSettingsFilename).Build()
+}
+
+func mockCommandsPresenter(s present.Start) present.Presentation {
+	return s.UnderProjectRoot(mockCommandsDirName).Build()
+}
+
+// mockPresentations is mock's declared per-surface presentation table — one
+// entry per SurfaceKind, each with exactly one delivery (unsafe-file) built by
+// a presenter above. It is the present-package counterpart of the per-backend
+// ApproachTable every other backend declares, and it is the SINGLE place
+// mock's surface membership is stated: SupportedApproaches, DefaultApproach
+// and SurfaceFor all derive from this map rather than repeating the list.
 //
-// A SurfaceKind absent here (MCP, settings, commands) is folded/absent for
-// mock, exactly as an absent entry in an ApproachTable was — SupportedApproaches/
-// DefaultApproach/SurfaceFor below report that via the map's ok-check, never an
-// error.
+// mock declares EVERY kind, deliberately: it is a complete engine with no real
+// model behind it, not a hole in the registry. A partial double makes its gaps
+// load-bearing somewhere else, where nothing states that they are.
+//
+// mock has no out-of-cwd redirect and no SharedRealization (see
+// SharedRealization below), so no declaration here calls .Or to add an
+// alternative.
 var mockPresentations = map[agent.SurfaceKind]agent.Presentations{
-	agent.SurfaceContext: agent.Presents("mock", agent.SurfaceContext, agent.ApproachUnsafeFile.String(), mockContextPresenter),
-	agent.SurfaceSkills:  agent.Presents("mock", agent.SurfaceSkills, agent.ApproachUnsafeFile.String(), mockSkillsPresenter),
+	agent.SurfaceContext:  agent.Presents("mock", agent.SurfaceContext, agent.ApproachUnsafeFile.String(), mockContextPresenter),
+	agent.SurfaceSkills:   agent.Presents("mock", agent.SurfaceSkills, agent.ApproachUnsafeFile.String(), mockSkillsPresenter),
+	agent.SurfaceMCP:      agent.Presents("mock", agent.SurfaceMCP, agent.ApproachUnsafeFile.String(), mockMCPPresenter),
+	agent.SurfaceSettings: agent.Presents("mock", agent.SurfaceSettings, agent.ApproachUnsafeFile.String(), mockSettingsPresenter),
+	agent.SurfaceCommands: agent.Presents("mock", agent.SurfaceCommands, agent.ApproachUnsafeFile.String(), mockCommandsPresenter),
 }
 
 // approachesFor renders a Presentations' declared names back into the shared
@@ -204,13 +256,174 @@ func approachesFor(d agent.Presentations) []agent.Approach {
 	return out
 }
 
-// MockSurfaces is mock's SurfaceSet: context and skills. Every other
-// SurfaceKind is absent from mockPresentations, so SupportedApproaches/
-// DefaultApproach report it as folded/absent (a permitted no-op for
-// WithEverything) exactly as codex's MCP kind does — never an error.
+// mockMCPSurface is mock's MCP surface: .mock/mcp.json, composed by the SHARED
+// agent.ComposeChatMCPServers and marshalled by the SHARED
+// agent.MarshalChatMCPConfig.
+//
+// It marshals-then-writes rather than calling agent.WriteChatMCPConfigFile,
+// and that is not a style choice: that helper writes through
+// iox.WriteFileAtomic to the REAL filesystem, while every mock surface takes
+// an injected afero.Fs so a hermetic test can assert on delivered bytes
+// without touching the developer's disk. Reusing the marshaller keeps the
+// FORMAT shared — which is the part that could drift — while honouring mock's
+// own fs seam.
+type mockMCPSurface struct {
+	bundle   map[string]wire.MCPServer
+	override string
+	fs       afero.Fs
+}
+
+// Deliver writes .mock/mcp.json and returns a handle whose Cleanup removes it.
+func (s *mockMCPSurface) Deliver(dir string) (agent.Delivered, error) {
+	fs := agent.GetFS(s.fs)
+	path := mockMCPPath(dir)
+
+	data, err := agent.MarshalChatMCPConfig(agent.ComposeChatMCPServers(s.override, s.bundle, nil))
+	if err != nil {
+		return nil, fmt.Errorf("mock: marshal mcp config: %w", err)
+	}
+	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("mock: create mcp dir: %w", err)
+	}
+	// iox.WriteFileAtomicFs, not afero.WriteFile: 0o600 must land EXACTLY
+	// rather than be masked by umask, because this file can carry MCP server
+	// auth headers and env — the same reason agent.WriteChatMCPConfigFile
+	// writes atomically. The Fs variant is what lets mock keep its injected
+	// filesystem while still honouring that discipline.
+	if err := iox.WriteFileAtomicFs(fs, path, data, 0o600); err != nil {
+		return nil, fmt.Errorf("mock: write %s: %w", path, err)
+	}
+	return agent.DeliveredFunc(func() error { return fs.Remove(path) }), nil
+}
+
+// UnsafeInfo names mock's MCP surface for the DeliverShared fallback warning.
+func (s *mockMCPSurface) UnsafeInfo() string { return "mock/mcp" }
+
+// mockSettingsSurface is mock's settings surface: .mock/settings.json carrying
+// the session's managed hooks.
+//
+// Its existence is what lets a configured session_start hook actually LAND for
+// mock. Before it, mock declared a hook loss via noHooksReason — an honest
+// declaration of a real gap, but a gap that made mock unusable as the second
+// engine in any scenario about hook delivery.
+type mockSettingsSurface struct {
+	hooks *wire.HooksConfig
+	fs    afero.Fs
+}
+
+// Deliver merges the managed hooks into .mock/settings.json, PRESERVING every
+// top-level key it did not write. That preservation is the whole contract a
+// settings surface has — a delivery that clobbered a user's own settings would
+// model the opposite of what every real engine's writer promises.
+func (s *mockSettingsSurface) Deliver(dir string) (agent.Delivered, error) {
+	fs := agent.GetFS(s.fs)
+	path := mockSettingsPath(dir)
+
+	doc, err := readMockSettings(fs, path)
+	if err != nil {
+		return nil, err
+	}
+	if s.hooks == nil {
+		delete(doc, mockSettingsHooksKey)
+	} else {
+		raw, merr := json.Marshal(s.hooks)
+		if merr != nil {
+			return nil, fmt.Errorf("mock: marshal hooks: %w", merr)
+		}
+		doc[mockSettingsHooksKey] = raw
+	}
+	if err := writeMockSettings(fs, path, doc); err != nil {
+		return nil, err
+	}
+
+	return agent.DeliveredFunc(func() error {
+		current, rerr := readMockSettings(fs, path)
+		if rerr != nil {
+			return rerr
+		}
+		delete(current, mockSettingsHooksKey)
+		// Nothing of ours left AND nothing of theirs: remove the file rather
+		// than leave an empty object behind, matching how the context surface
+		// removes MOCK_CONTEXT.md when its managed section was all there was.
+		if len(current) == 0 {
+			if err := fs.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			return nil
+		}
+		return writeMockSettings(fs, path, current)
+	}), nil
+}
+
+// UnsafeInfo names mock's settings surface for the DeliverShared fallback.
+func (s *mockSettingsSurface) UnsafeInfo() string { return "mock/settings" }
+
+// mockSettingsHooksKey is the settings document key mock's managed hooks live
+// under. Named once so the write and the cleanup cannot disagree about it.
+const mockSettingsHooksKey = "hooks"
+
+// readMockSettings loads path as a key->raw-JSON map, so keys ctxloom does not
+// own survive a merge byte-for-byte. An absent file is an empty document, not
+// an error: delivering into a project that has none is the normal case.
+func readMockSettings(fs afero.Fs, path string) (map[string]json.RawMessage, error) {
+	data, err := afero.ReadFile(fs, path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]json.RawMessage{}, nil
+		}
+		return nil, fmt.Errorf("mock: read %s: %w", path, err)
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return map[string]json.RawMessage{}, nil
+	}
+	doc := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("mock: parse %s: %w", path, err)
+	}
+	return doc, nil
+}
+
+// writeMockSettings renders doc and writes it at 0o600 — a settings file can
+// carry hook commands, so it gets the same mode as the MCP config.
+func writeMockSettings(fs afero.Fs, path string, doc map[string]json.RawMessage) error {
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("mock: marshal settings: %w", err)
+	}
+	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mock: create settings dir: %w", err)
+	}
+	if err := iox.WriteFileAtomicFs(fs, path, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("mock: write %s: %w", path, err)
+	}
+	return nil
+}
+
+// newMockCommandsSurface builds mock's commands surface: the SHARED
+// agent.ManagedCommandsDelivery bound to the SHARED
+// agent.WriteManagedCommandFiles, exactly as the skills surface binds the
+// shared skill-package writer. The render func contributes a filename and a
+// body; everything that makes a command file land correctly lives in the
+// shared writer.
+func newMockCommandsSurface(cmds []agent.CommandExport, fs afero.Fs) *agent.ManagedCommandsDelivery {
+	return agent.NewManagedCommandsDelivery("mock/commands", cmds, func(dir string, cmds []agent.CommandExport) error {
+		return agent.WriteManagedCommandFiles(agent.GetFS(fs), mockCommandsPath(dir), cmds,
+			func(c agent.CommandExport) (string, []byte, error) {
+				return filepath.Base(c.Name) + ".md", []byte(c.Content), nil
+			})
+	})
+}
+
+// MockSurfaces is mock's SurfaceSet, and it carries EVERY SurfaceKind: mock is
+// a complete engine with no real model behind it, not a partial one. See
+// mockPresentations for why that completeness is load-bearing rather than
+// tidiness.
 type MockSurfaces struct {
-	Context *mockContextSurface
-	Skills  *agent.ManagedSkillPackagesDelivery
+	Context  *mockContextSurface
+	Skills   *agent.ManagedSkillPackagesDelivery
+	MCP      *mockMCPSurface
+	Settings *mockSettingsSurface
+	Commands *agent.ManagedCommandsDelivery
 
 	dispatch map[agent.SurfaceKind]agent.Delivery
 }
@@ -224,12 +437,21 @@ func NewMockSurfaces(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
 	fs = agent.GetFS(fs)
 	context := &mockContextSurface{context: in.Context, fs: fs}
 	skills := newMockSkillsSurface(in.Skills, fs)
+	mcp := &mockMCPSurface{bundle: in.BundleMCP, override: in.MCPCommandOverride, fs: fs}
+	settings := &mockSettingsSurface{hooks: in.Hooks, fs: fs}
+	commands := newMockCommandsSurface(in.Commands, fs)
 	return MockSurfaces{
-		Context: context,
-		Skills:  skills,
+		Context:  context,
+		Skills:   skills,
+		MCP:      mcp,
+		Settings: settings,
+		Commands: commands,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
-			agent.SurfaceContext: context,
-			agent.SurfaceSkills:  skills,
+			agent.SurfaceContext:  context,
+			agent.SurfaceSkills:   skills,
+			agent.SurfaceMCP:      mcp,
+			agent.SurfaceSettings: settings,
+			agent.SurfaceCommands: commands,
 		},
 	}
 }
@@ -285,11 +507,10 @@ func (s MockSurfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agen
 }
 
 // SharedRealization reports no out-of-cwd conversion for any (kind, approach)
-// pair: mock has no race-safe redirect, so a SHARED-cwd delivery of either
-// surface always falls back to the loud well-known write (each surface's
-// UnsafeInfo — "mock/context" and "mock/skills" — is that fallback's warning).
-// No engine has an out-of-cwd flag for a skill package at all, so the skills
-// half is not a mock shortcut.
+// pair: mock has no race-safe redirect, so a SHARED-cwd delivery of any
+// surface always falls back to the loud well-known write (each surface's own
+// UnsafeInfo is that fallback's warning). No engine has an out-of-cwd flag for
+// a skill package at all, so the skills half is not a mock shortcut.
 func (s MockSurfaces) SharedRealization(agent.SurfaceKind, agent.Approach) (func() (agent.Delivered, error), bool) {
 	return nil, false
 }
@@ -299,5 +520,7 @@ var (
 	_ agent.Delivery      = (*mockContextSurface)(nil)
 	_ agent.StateReader   = (*mockContextSurface)(nil)
 	_ agent.ContextWriter = (*mockContextWriter)(nil)
+	_ agent.Delivery      = (*mockMCPSurface)(nil)
+	_ agent.Delivery      = (*mockSettingsSurface)(nil)
 	_ agent.SurfaceSet    = MockSurfaces{}
 )

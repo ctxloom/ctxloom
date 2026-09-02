@@ -382,7 +382,7 @@ Feature: profile — the composition that decides what an agent actually receive
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" with bundle "demo"
-      And I run "ctxloom llm create big --type codex --model o1"
+      And I run "ctxloom llm create big --type mock --model o1"
       When Alice sets which engine this profile prefers to launch:
         """
         ctxloom profile modify dev --llm big

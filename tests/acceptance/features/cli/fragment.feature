@@ -154,5 +154,5 @@ Feature: fragment — reusable context units, and the engine surface each one re
 
       Examples:
         | engine      | file      |
-        | claude-code | CLAUDE.md |
-        | codex       | AGENTS.md |
+        | claude-code | CLAUDE.md       |
+        | mock        | MOCK_CONTEXT.md |

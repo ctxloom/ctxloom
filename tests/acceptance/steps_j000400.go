@@ -404,27 +404,17 @@ func j000400Excerpt(body, marker string, context int) string {
 }
 
 // engineContextRelPath returns dir-relative path to an engine's own native
-// context surface (internal/{claude,codex}/surfaces.go).
+// context surface.
 // Shared engine-axis knowledge: J000400's own materialization outline uses it
 // below, and J000800's onboarding journey reuses it rather than re-deriving a
 // second copy of the same per-engine path table (steps_j000800_onboarding.go's
-// "Bob starts a session on <engine>" outline). codex is now a case here:
-// `profile materialize` used to leave its context surface a silent no-op
-// (keyed on agent.SurfaceInputs.Fragments, which materialize never
-// populates); codex's context surface now ALSO writes
-// AGENTS.md from agent.SurfaceInputs.Context, which materialize does
-// populate (internal/codex/surfaces.go's agentsMDSurface).
+// "Bob starts a session on <engine>" outline).
 func engineContextRelPath(dir, engine string) (string, error) {
 	switch engine {
 	case "claude-code":
 		return filepath.Join(dir, "CLAUDE.md"), nil
-	case "codex":
-		return filepath.Join(dir, "AGENTS.md"), nil
-	case "opencode":
-		// opencode's ctxloom-owned context file, referenced from
-		// opencode.json's `instructions` key (internal/opencode's
-		// contextSurface / OpencodeWriter.WriteContext).
-		return filepath.Join(dir, ".opencode", "ctxloom-context.md"), nil
+	case "mock":
+		return filepath.Join(dir, "MOCK_CONTEXT.md"), nil
 	default:
 		return "", fmt.Errorf("unknown engine %q for native context surface", engine)
 	}

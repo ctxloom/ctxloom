@@ -146,26 +146,12 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
 
     # PATH CORRECTION vs the command surface (j000400_multi_engine.feature's own
     # table): a skill is NOT the same directory a flat command file lands in.
-    # Verified against each engine's own skillfiles.go, and — for codex —
-    # against a REAL `profile materialize --backend codex` run, not just its
-    # source (see steps_j000600_doctor.go's engineSkillMDPath doc for the full
-    # story):
+    # Verified against each engine's own skillfiles.go (see
+    # steps_j000600_doctor.go's engineSkillMDPath doc for the full story):
     #
     #   | engine      | skill surface (via `profile materialize`) | scope       |
     #   |-------------|---------------------------------------------|-------------|
     #   | claude-code | .claude/skills/<name>/SKILL.md              | project     |
-    #   | opencode    | .opencode/skill/<name>/SKILL.md             | project     |
-    #   | codex       | .codex/skills/<name>/SKILL.md | cell-scoped (harpless static path) |
-    #
-    # codex's OWN skills directory is documented GLOBAL ($CODEX_HOME/skills —
-    # internal/codex/skillfiles.go), but that path only fires on the LIVE
-    # run/launch path. `profile materialize` binds codex's Skills surface
-    # through NewSurfaces' inline closure with no homeOverride, which — just
-    # like its Commands surface (j000400_multi_engine.feature's own codex row) —
-    # cell-scopes the PROJECT-SCOPED home derived from --target instead
-    # (codex.ProjectHome, the engine-home policy's single owner). A naive
-    # Outline redirecting $CODEX_HOME here would assert a file that never gets
-    # written.
 
     Background:
       Given Alice's project has a directory-form bundle "ops"
@@ -189,20 +175,9 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       And the <engine> skill surface carries the doctor skill's marker "DOCTOR-CHECK-VERSION-c3"
       And the <engine> skill surface carries the doctor skill's marker "DOCTOR-CHECK-HOOKS-TRUST-d4"
 
-      # codex removed: skills are home-keyed and a declared absence at rest
-      # (codex.LaunchOnlySettingsReason) — delivered per-session at launch;
-      # see manage.feature's launch-only scenario and the j002200 lane.
       Examples:
         | engine      |
         | claude-code |
-        | opencode    |
-
-    # Structural invocability, beyond bare file-presence: opencode's skill
-    # loader is registered explicitly in opencode.json (skillfiles.go's
-    # reconcileSkillsSurface), not merely discovered by convention.
-    Scenario: opencode registers the doctor skill's directory in opencode.json
-      When Carol materializes the "clinic" profile for opencode
-      Then opencode.json registers the skills surface
 
     # Exec bit survives materialization for a REAL surface, proving the doctor
     # skill's bundled precheck script is actually runnable once it lands. This is

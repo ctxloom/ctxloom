@@ -13,7 +13,7 @@ func emissionRuntime(t *testing.T, reportFile string, stderr, stdout *strings.Bu
 	t.Helper()
 	return &Runtime{
 		CLI: agent.EngineCLI{
-			Engine:  "codex",
+			Engine:  "claude-code",
 			Surface: agent.CLISurfaceOneshot,
 			Prompt:  agent.PromptStdin,
 		},

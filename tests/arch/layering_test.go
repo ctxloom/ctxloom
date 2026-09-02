@@ -87,7 +87,7 @@ var layeringRules = []layeringRule{
 	{
 		name:   "shared/agent-must-not-import-engine-plugins",
 		from:   "internal/shared/agent",
-		forbid: []string{"internal/claude", "internal/codex"},
+		forbid: []string{"internal/claude"},
 	},
 	{
 		// The coarse ancestor of T20's future `cli/<flow> -> operations/<flow>

@@ -142,7 +142,7 @@ func awaitItemsDurable(t *testing.T, c *Coordinator, sp *fakeSpawner, harp strin
 		"the coordinator's durable watermark never caught up with the events the runner emitted — the item journal is stalled, not merely slow")
 }
 
-// TestStartRun_BackendParity pins that codex and opencode ride the
+// TestStartRun_BackendParity pins that a second backend label rides the
 // IDENTICAL StartRun mechanics claude proved
 // first — the coordinator/runner machinery (EngineHost, HarnessSpec codec,
 // turn delivery, journaling) is backend-agnostic by construction (it only
@@ -152,12 +152,10 @@ func awaitItemsDurable(t *testing.T, c *Coordinator, sp *fakeSpawner, harp strin
 // path (no legacy go-plugin Chat dial), completes a turn, and journals a
 // RunStarted whose harness field records the SPECIFIC backend. The
 // backend-SPECIFIC deltas (model delivery argv/env) are each backend's own
-// concern and out of scope here. Note what this test is NOT: the real engines
-// behind these labels lacked usable auth on the recon host (verified live: no
-// OPENAI_API_KEY/CODEX_API_KEY, and kiro-cli requires `kiro-cli login`
-// before it even opens its JSON-RPC loop), so a live multi-turn engine echo
-// was never exercised for any row; this scripted-adapter proof is the
-// stated hermetic substitute per the acceptance's own allowance.
+// concern and out of scope here. Note what this test is NOT: it drives a FAKE
+// spawner and a scripted adapter, so no real engine process runs and no live
+// multi-turn echo is exercised for any row — this is the stated hermetic
+// substitute per the acceptance's own allowance.
 //
 // The per-backend proof is not cosmetic: the runner's EngineHost refuses a
 // StartRun whose HarnessSpec.harness does not equal the name its own
@@ -166,7 +164,7 @@ func awaitItemsDurable(t *testing.T, c *Coordinator, sp *fakeSpawner, harp strin
 // whose name were dropped or coerced anywhere between Resolve and the wire
 // would never deliver the briefing this asserts.
 func TestStartRun_BackendParity(t *testing.T) {
-	for _, backend := range []string{"codex", "opencode"} {
+	for _, backend := range []string{"claude-code", "mock"} {
 		t.Run(backend, func(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(map[string]fakeAgent{

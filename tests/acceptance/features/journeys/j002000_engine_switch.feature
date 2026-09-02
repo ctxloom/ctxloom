@@ -118,11 +118,10 @@ Feature: Engine switch day
 
   # THE MISSING FLOW, stated as the question a migrating team actually asks.
   # Not "did it work" — they can see that — but "what did I just give up?"
-  # The concrete, verified loss on this exact engine pair: codex has no
-  # session_end hook. A team moving from claude-code to codex loses a hook
-  # event they may well have built on, and no surface anywhere mentions it,
-  # before or after the switch. They will find out when something stops
-  # happening.
+  # The concrete, verified loss on this exact engine pair: the new engine
+  # declares no hook surface at all. A team moving onto it loses a hook event
+  # they may well have built on, and no surface anywhere mentions it, before
+  # or after the switch. They will find out when something stops happening.
   #
   # This is the same shape as U3's missing per-engine capability-loss report,
   # arriving through a different door: there, a new hire silently inherits less
@@ -139,11 +138,10 @@ Feature: Engine switch day
   # backends.UncarriedSurfaces read `profile materialize` already performed
   # (whiny-exclusive), against the resolved agent's ACTUAL backend and
   # profiles rather than a materialize target, read once per configured agent.
-  # codex declaring only a whole-mechanism noHooksReason (empty for
-  # codex — it has hooks) could not have caught this: the gap was PER-EVENT,
-  # so agentDescriptor gained unsupportedHookKinds (codex: session_end →
-  # codex.NoSessionEndReason, the SAME string addUnifiedHooks' route already
-  # used to warn at write time) and UncarriedSurfaces now checks it too.
+  # A whole-mechanism noHooksReason alone cannot catch a PER-EVENT gap, which
+  # is why agentDescriptor also carries unsupportedHookKinds — the SAME string
+  # addUnifiedHooks' route uses to warn at write time — and UncarriedSurfaces
+  # now checks it too.
   Scenario: Nothing tells her what the team just gave up
     When Alice swaps the engine under the binding
     And Alice asks ctxloom what the switch changed and what to verify

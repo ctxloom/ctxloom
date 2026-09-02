@@ -503,7 +503,7 @@ func TestHookProbeCarriageScan_RefusesAnEmptyNeedle(t *testing.T) {
 // ledger — and the foreign-harp scanner that reads it — describe a cell that
 // does not exist.
 func TestHookProbeState_StagesMintUnderDistinctLedgerKeys(t *testing.T) {
-	h := &hookProbeState{engine: "codex", runtime: "host", workspace: "none"}
+	h := &hookProbeState{engine: "claude-code", runtime: "host", workspace: "none"}
 	if h.cell() == h.echoCell() {
 		t.Fatal("stage (a) and stage (b) must mint under DISTINCT cell keys, or the ledger records one harp where two were planted")
 	}
@@ -534,13 +534,10 @@ func TestHookProbeRegistryRow_IsWiredToThisFeature(t *testing.T) {
 			t.Errorf("%s is still PLANNED although the feature exists — a planned row beside a runnable scenario is the registry lying about what is built", c.ID(p.Name))
 		}
 	}
-	for _, e := range []string{"claude-code", "codex"} {
+	for _, e := range []string{"claude-code"} {
 		if !runnable[e] {
 			t.Errorf("P3 must declare a runnable %s cell: it is one of the engines that carry hooks at all", e)
 		}
-	}
-	if runnable["opencode"] {
-		t.Error("opencode must stay gated-out (noHooksReason) — a runnable row for an engine with no hook mechanism would skip forever and read as coverage")
 	}
 }
 

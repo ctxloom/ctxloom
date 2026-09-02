@@ -48,7 +48,7 @@ func TestRuntime_MalformedExitCodeKnobFailsTheRun(t *testing.T) {
 	var stdout, stderr strings.Builder
 	rt := &Runtime{
 		CLI: agent.EngineCLI{
-			Engine:  "codex",
+			Engine:  "claude-code",
 			Surface: agent.CLISurfaceOneshot,
 			Prompt:  agent.PromptStdin,
 		},

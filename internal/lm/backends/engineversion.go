@@ -68,17 +68,3 @@ func ProbeEngineVersion(ctx context.Context, engine string) (string, error) {
 func parseClaudeCodeVersion(output string) (string, error) {
 	return engineversion.TokenAt(output, 0)
 }
-
-// parseCodexVersion reads codex's `--version` output.
-// MEASURED: "codex-cli 0.144.4" — the binary name leads, so the
-// version is the SECOND token. A parser that took the first token here would
-// refuse every working codex install.
-func parseCodexVersion(output string) (string, error) {
-	return engineversion.TokenAt(output, 1)
-}
-
-// parseOpencodeVersion reads opencode's `--version` output.
-// MEASURED: a bare "1.18.4" — no name, no decoration.
-func parseOpencodeVersion(output string) (string, error) {
-	return engineversion.TokenAt(output, 0)
-}

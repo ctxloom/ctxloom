@@ -45,52 +45,39 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file "<context_surface>" contains "<context_marker>"
       And the file ".gitignore" contains "ctxloom"
 
-      # codex has no row here at all. Its settings surface is
-      # $CODEX_HOME/config.toml, and the only $CODEX_HOME ctxloom writes is a
-      # per-session one created at launch — a static `manage install` has no
-      # session and so no file (a DECLARED ABSENCE; see
-      # internal/codex/declared_absence.go). What install DOES write for codex
-      # is its cwd-keyed AGENTS.md, asserted in its own scenario below, and the
-      # absence itself is asserted right after this one.
       Examples: engines with a session hook — context is injected at launch
         | engine      | context_surface       | context_marker      |
         | claude-code | .claude/settings.json | hook inject-context |
 
       Examples: engines without one — context is read from a materialized file
         | engine      | context_surface                 | context_marker         |
-        | opencode    | .opencode/ctxloom-context.md    | Isolation              |
         | mock        | MOCK_CONTEXT.md                 | ctxloom:context:begin  |
 
-    # codex's install, stated in full: the cwd-keyed surface lands, the
-    # home-keyed ones do not, and the user is told which is which.
-    #
-    # BOTH HALVES OR NEITHER. The absence alone would be satisfied by an
-    # install that wrote nothing whatsoever; the presence alone would hide the
-    # narrowing. Together they say what a codex user actually gets from
-    # `manage install` — and the message is what stops them looking for a
-    # config.toml that is never coming.
-    Scenario: Installing for codex writes its cwd-keyed surface and declares the rest launch-only
-      Given an empty project directory
-      When Alice installs ctxloom for codex:
-        """
-        ctxloom manage install --engine codex
-        """
-      Then the command succeeds
-      And the file "AGENTS.md" contains "ctxloom:context:begin"
-      And the file ".codex/config.toml" does not exist
-      And the file ".codex/prompts/discover.md" does not exist
-      And the output contains "delivered per-session at launch"
-
-    # ONE CLAIM, FOUR SHAPES. Every engine ctxloom drives gets the SAME
+    # ONE CLAIM, MANY SHAPES. Every engine ctxloom drives gets the SAME
     # registration — ctxloom as an MCP server, launched by the ctxloom binary
     # with the `mcp` subcommand — and each writes it into a different file in
-    # a different dialect. Two engines fold it into a config file they already
-    # own; two give it a file of its own.
+    # a different dialect. Some fold it into a config file they already own;
+    # others give it a file of its own.
     #
     # The marker is a field from INSIDE the server's body, never the key that
     # names it: a registration with the right key and an empty body gives the
     # engine a server with no command to launch, and a key-only assertion
     # cannot tell that apart from a working one.
+    # PARKED — the fan-out this scenario exists to prove needs at least TWO
+    # engines carrying an MCP surface, and only ONE remains. The other
+    # registered engine, mock, has NO MCP surface at all: mockPresentations
+    # (internal/lm/backends/mock_surfaces.go) declares context and skills
+    # only, and MCP/settings/commands stay on the refusal path deliberately.
+    # So the opencode row cannot be repointed at mock — mock writes no MCP
+    # file for the assertion to read — and repointing it would mean asserting
+    # a surface that does not exist. Dropping the row instead would leave a
+    # single-row "in its own dialect" outline, which proves no dialect at all.
+    # The cost is accepted and stated: this per-engine-idiom claim goes
+    # UNEXERCISED meanwhile.
+    #
+    # UNTAG WHEN: a second engine carrying an MCP surface is added — then
+    # restore this row as that engine's, and the fan-out has a contrast again.
+    @wip
     Scenario Outline: Every engine gets ctxloom registered as an MCP server, in its own dialect
       Given an empty project directory
       When Alice installs ctxloom for <engine>:
@@ -113,23 +100,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | engine   | mcp_surface        | server_key            | launch_marker |
         | opencode | opencode.json      | ctxloom               | mcp           |
 
-    # The engines that ALSO write a native agent-instruction file, which is a
-    # separate surface from either of the two above — an engine can read its
-    # context from a hook and still expect this file to exist for its own
-    # unrelated conventions.
-    Scenario Outline: An engine with a native agent-instruction file gets one
-      Given an empty project directory
-      When Alice installs ctxloom for <engine>:
-        """
-        ctxloom manage install --engine <engine>
-        """
-      Then the command succeeds
-      And the file "<agents_file>" contains "<marker>"
-
-      Examples:
-        | engine      | agents_file       | marker                |
-        | codex       | AGENTS.md         | ctxloom:context:begin |
-
     # THE COMMAND SURFACE, the third thing install writes. ctxloom ships
     # first-party commands, and every engine gets them in its own idiom: a flat
     # markdown file for the engines that have slash-commands, a SKILL.md
@@ -141,9 +111,21 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # writes only frontmatter into them satisfies a name check and delivers a
     # command that does nothing.
     #
-    # mock has no row: it is a registered engine with context and MCP surfaces
-    # but no command surface of its own, and asserting an absent surface would
-    # be asserting nothing.
+    # mock has no row: it is a registered engine with context and skills
+    # surfaces but no command surface of its own, and asserting an absent
+    # surface would be asserting nothing.
+    #
+    # PARKED — same shape as the MCP outline above, and for the same reason:
+    # proving "in its own idiom" needs two idioms to differ, and only ONE
+    # engine with a command surface remains. mock is the only other
+    # registered engine and it has NO command surface (see the note just
+    # above), so the opencode row has no honest substitute — a repoint would
+    # assert a file mock never writes. The cost is accepted and stated: this
+    # per-engine-idiom claim goes UNEXERCISED meanwhile.
+    #
+    # UNTAG WHEN: a second engine carrying a command surface is added — then
+    # restore this row as that engine's.
+    @wip
     Scenario Outline: Every engine gets ctxloom's shipped commands in its own idiom
       Given an empty project directory
       When Alice installs ctxloom for <engine>:
@@ -208,7 +190,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
       Examples:
         | engine |
-        | codex  |
+        | mock   |
 
   Rule: The wiring can be inspected, and reports per-surface state
 
@@ -238,10 +220,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # ONE hook, TWO files, TWO formats — PARSED in its own format and
     # asserted on the actual command field under the right event, never a
     # bare file-exists or a substring of a key name.
-    #
-    # codex is the third engine and its answer is an absence, so it gets the
-    # scenario after this one rather than a row: it folds hooks into
-    # $CODEX_HOME/config.toml, which a static materialize cannot name.
     Scenario Outline: A team's hook reaches every engine's own hook surface
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       When Alice materializes the team profile for <engine>
@@ -250,21 +228,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Examples:
         | engine      |
         | claude-code |
-
-    # The team's guardrail does not reach a statically-materialized codex tree,
-    # and the report says so. This is the scenario that makes the narrowing
-    # honest: a hook silently dropped is a guardrail a team believes it has.
-    Scenario: A team's hook does not reach a materialized codex tree, and the report says why
-      Given Carol's team profile carries a shared fragment, command, MCP server, and hook
-      When Alice materializes the team profile for codex
-      Then no codex surface anywhere in the materialized tree carries the shared hook's command
-      # The claim below is prose READABILITY — that the loss is stated in
-      # words a human reads, not silently dropped — which only means
-      # something against the text renderer. Off a terminal ctxloom now
-      # derives JSON, so this re-runs the same materialize under an explicit
-      # --format text before reading the report.
-      When I run "ctxloom profile materialize team --target out-codex --backend codex --format text"
-      Then the materialize report says codex delivers those surfaces per-session at launch
 
   Rule: Hooks install, list, and genuinely uninstall
 

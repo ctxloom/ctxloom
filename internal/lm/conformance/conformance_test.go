@@ -1,10 +1,10 @@
 //go:build conformance
 
 // The cross-agent equity suite. Gated behind the `conformance` build tag (see
-// doc.go) and kept in its own package so it composes claude/codex without
+// doc.go) and kept in its own package so it composes the engine packages without
 // touching their per-module test files — safe alongside concurrent work. Every
 // assertion goes through the public agent.SettingsWriter interface, so it is
-// format-agnostic (claude JSON, codex TOML both pass the same suite).
+// format-agnostic (a second agent's own format must pass the same suite).
 package conformance
 
 import (
@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -42,37 +41,12 @@ type agentCase struct {
 }
 
 // agentCases returns the agents this suite actually covers today — NOT every
-// agent.SettingsWriter implementation in the repo. Three are absent, for three
-// DIFFERENT reasons, not one shared oversight:
+// agent.SettingsWriter implementation in the repo.
 //
-//   - codex's settings surface is LAUNCH-ONLY. Its config.toml lives in
-//     $CODEX_HOME, and the only $CODEX_HOME ctxloom writes is a per-session
-//     instance; its harpless agent.SettingsWriter methods therefore DECLARE
-//     that absence rather than target a path (SettingsPath returns "",
-//     WriteSettings refuses — internal/codex/declared_absence.go). Every
-//     assertion below is "write at SettingsPath, read it back", which cannot be
-//     asked of a writer that correctly has no path. The suite HONOURS that
-//     declaration by not asking, exactly as it honours opencode's
-//     noHooksReason below.
-//     WHERE THE COVERAGE WENT, so this reads as a move and not a loss:
-//     internal/codex's own settings_test.go / settings_wipe_test.go /
-//     settings_sessionend_test.go drive the identical assertions — unparseable
-//     refusal, per-event hook emission, MCP auto-registration,
-//     remove-preserves-user — through writeSettingsIn, the resolved-home entry
-//     point that is now the only writer there is.
-//     WHAT IT COSTS, stated plainly: this suite's premise is CROSS-AGENT
-//     EQUITY ("claude JSON, codex TOML both pass the same suite"), and with
-//     codex gone it covers one agent and proves nothing cross-format. Restoring
-//     that needs the suite reworked around a RESOLVED ENGINE HOME rather than a
-//     project dir — a real change to its shape, not a table edit, and out of
-//     scope for the slice that created this gap.
-//
-//   - opencode's WriteSettings explicitly IGNORES the hooks argument (it "has
-//     no ctxloom-style hook mechanism", see opencode/settings.go's own doc
-//     comment) — TestConformance_HookEventCoverage would fail immediately,
-//     correctly, on a documented and deliberate design gap this suite has no
-//     vocabulary to distinguish from a real regression (the way the codex
-//     no-backup case above IS distinguished, via backsUpCorruptFile).
+// WHAT THIS SUITE CURRENTLY PROVES, stated plainly: its premise is CROSS-AGENT
+// EQUITY, and with one row it covers one agent and proves nothing
+// cross-format. A second row is what restores the premise; until there is one,
+// do not read a green run here as equity evidence.
 //
 // Add a new agent here ONLY once it can actually honor every assertion below
 // (or once each assertion gains the same per-agent escape hatch
@@ -82,19 +56,6 @@ func agentCases() []agentCase {
 	return []agentCase{
 		{"claude-code", concrete[*claude.ClaudeCodeHookWriter](claude.NewWriter), `{"theme":"dark"}`, "dark"},
 	}
-}
-
-// TestConformance_CodexIsAbsentByDECLARATION keeps the omission above from
-// decaying into an unnoticed hole. A commented-out table row is a hole; an
-// assertion that the row's PREMISE is still false is a statement that gets
-// re-checked on every run — and goes red the day codex gains a project-keyed
-// settings path, which is the day it belongs back in this table.
-func TestConformance_CodexIsAbsentByDECLARATION(t *testing.T) {
-	assert.Empty(t, (&codex.CodexHookWriter{}).SettingsPath("/project"),
-		"codex is absent from agentCases because it has NO project-keyed settings path; if it has one again, add the row back")
-
-	err := (&codex.CodexHookWriter{}).WriteSettings(standardHooks(), nil, "/project")
-	assert.Error(t, err, "and because its harpless writer declares the absence rather than writing")
 }
 
 // concrete widens a constructor's agent.SettingsWriter result to this suite's
@@ -125,7 +86,7 @@ type coveredEvent struct {
 }
 
 // coveredEvents are the unified hook events every agent must emit. SessionEnd
-// is intentionally absent — codex's CLI has no such event.
+// is intentionally absent — not every engine's CLI has such an event.
 var coveredEvents = []coveredEvent{
 	{"conf-sessionstart", func(u *wire.UnifiedHooks, h []wire.Hook) { u.SessionStart = h }},
 	{"conf-pretool", func(u *wire.UnifiedHooks, h []wire.Hook) { u.PreTool = h }},
@@ -166,21 +127,20 @@ const projectDir = "/project"
 // the corrupt file, which is precisely the silent-data-loss shape production
 // now refuses (see agent.RefuseCorrupt). claude-code also backs
 // the corrupt bytes up to a sibling "<path>.corrupt-<unix-ts>" file before
-// refusing; that backup is asserted per-engine below since codex's writer
-// (internal/codex/settings.go loadSettings/load) returns a bare error with no
-// backup file — a genuine behavioural divergence between engines, not
-// something this test papers over.
+// refusing; that backup is asserted PER-ENGINE below rather than universally,
+// because an engine's loader may instead return a bare error with no backup
+// file — a genuine behavioural divergence between engines, not something this
+// test papers over.
 func TestConformance_RefusesToOverwriteUnparseableSettings(t *testing.T) {
 	const corrupt = "!!! not valid !!!"
 
 	// engines whose writer backs the corrupt original up to a sibling
-	// "<path>.corrupt-<ts>" file before refusing to write. codex is
-	// deliberately absent: its loader (internal/codex/settings.go) returns a
-	// bare "refusing to write over a config.toml ctxloom could not read"
-	// error with no backup file at all.
+	// "<path>.corrupt-<ts>" file before refusing to write. An engine whose
+	// loader refuses with a bare error and no backup belongs here as false,
+	// not omitted — the map is the per-engine escape hatch, and an absent key
+	// reads as false without saying so.
 	backsUpCorruptFile := map[string]bool{
 		"claude-code": true,
-		"codex":       false,
 	}
 
 	for _, a := range agentCases() {
@@ -312,12 +272,11 @@ func TestConformance_AtomicWriteLeavesNoBackup(t *testing.T) {
 //
 // WHAT IT DOES NOT PROVE, deliberately: that a command landed under the RIGHT
 // native event. The assertion is a substring search over the file's bytes,
-// because this suite is format-agnostic by construction (claude JSON,
-// codex TOML, both through one interface), and asserting slot
+// because this suite is format-agnostic by construction (each engine's own
+// format, all through one interface), and asserting slot
 // attachment needs per-agent format knowledge. That knowledge lives — and is
 // asserted — in the per-agent tests: claude/hooks_wire_test.go and
-// claude/surfacedelivery_test.go on "PreToolUse", codex/settings_test.go on
-// "[[hooks.PreToolUse]]". doc.go used
+// claude/surfacedelivery_test.go on "PreToolUse". doc.go used
 // to call this "full hook-event coverage", which reads as the stronger claim.
 func TestConformance_HookEventCoverage(t *testing.T) {
 	for _, a := range agentCases() {

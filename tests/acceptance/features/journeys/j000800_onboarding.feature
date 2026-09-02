@@ -96,19 +96,11 @@ Feature: A new engineer clones the repo and is already set up
       | not installed | does not reach |
 
   # LOCKED — hermetic materialization, over the same engine axis J000400
-  # proved (j000400_multi_engine.feature's Outline A: claude-code and
-  # codex — reusing that engine-axis machinery, not re-deriving
-  # it, see engineContextRelPath in steps_j000400.go). Bob is precisely the person
+  # proved (reusing that engine-axis machinery, not re-deriving it, see
+  # engineContextRelPath in steps_j000400.go). Bob is precisely the person
   # most likely to be on a different engine from the rest of the team, so a
   # journey whose thesis is "cloning IS the onboarding" must prove this on
   # more than one engine, not just claude-code.
-  #
-  # codex IS a row now (taskloom lanky-plop/tiny-ooze): `profile materialize`
-  # used to leave codex's context surface a silent no-op (keyed on
-  # agent.SurfaceInputs.Fragments, which materialize never populates); codex's
-  # context surface now ALSO writes AGENTS.md from agent.SurfaceInputs.Context,
-  # which materialize does populate — the same fix J000400's own materialization
-  # outline proves.
   Scenario Outline: Bob's engine is not Alice's and the team's context still reaches him natively
     When Bob clones the project
     And Bob starts a session on <engine>
@@ -117,45 +109,19 @@ Feature: A new engineer clones the repo and is already set up
     Examples:
       | engine      |
       | claude-code |
-      | codex       |
-
-  # U3's axis-aware row (FLOWS-UNIFIED.md §3, finding class (b)): "what Bob
-  # does NOT inherit on engine X". The outline above is the reassuring half —
-  # four engines, same context, each in its own idiom. This is the other
-  # half, and it is the one that bit somebody: Bob's deskmate uses opencode,
-  # got the same bundle, and did NOT get the team's guardrails.
-  #
-  # The loss is STRUCTURAL, not a bug: internal/opencode's NewSurfaces
-  # registers a context surface, a folded settings+MCP surface, commands and
-  # skills — and no hook surface at all, because opencode has no
-  # ctxloom-managed hook mechanism to write into. Three of the four things
-  # the team shares do cross; the fourth cannot.
-  #
-  # Asserting the loss on the payload matters more here than usual, because
-  # the deceiving signal is so strong: `profile materialize --backend
-  # opencode` exits 0 and prints "wrote context / wrote settings / wrote
-  # commands / wrote skills". Every line is true. Nothing is false. The
-  # guardrail is simply not in the list, and no reader was ever going to
-  # notice an absence in a success report.
-  Scenario: Bob's opencode deskmate inherits the team's context and commands, but its hooks cannot follow
-    Given Carol's team profile carries a shared fragment, command, MCP server, and hook
-    When Alice materializes the team profile for opencode
-    Then the materialized opencode context carries the shared fragment's marker, in its own native shape
-    And the materialized opencode MCP configuration carries the shared server's command, in its own native shape
-    And the materialized opencode command file carries the shared command's body, in its own native shape
-    And no opencode surface anywhere in the materialized tree carries the shared hook's command
+      | mock        |
 
   # THE PRODUCT GAP THAT CLOSED, stated as the scenario that proves it fixed.
-  # The scenario above proves the loss is real; this one asks for the thing
-  # that would have saved Bob's deskmate an afternoon: the materialize report
-  # naming what it could not deliver.
+  # A backend that cannot carry hooks loses the team's guardrail; this asks
+  # for the thing that would have saved Bob's deskmate an afternoon: the
+  # materialize report naming what it could not deliver.
   #
   # It asserts on the RIGHT thing: it is not sensitive to the eventual wording,
-  # only to whether the loss is reported at all — before the fix, `profile
-  # materialize --backend opencode` never mentioned hooks in any form.
+  # only to whether the loss is reported at all — before the fix, materializing
+  # for a hookless backend never mentioned hooks in any form.
   #
   # UNTAGGED: backends.UncarriedSurfaces (declared per-backend as
-  # `noHooksReason`, "opencode has no hook mechanism") is the delivery report's
+  # `noHooksReason`) is the delivery report's
   # inverse over the same inputs, and internal/cli's materialize renderer prints
   # its lines among the `wrote` lines rather than in a trailing pass — so a
   # reader who scans only the top no longer comes away with "wrote four things"
@@ -164,5 +130,5 @@ Feature: A new engineer clones the repo and is already set up
   # no mention of hooks, and turns this red.
   Scenario: Materializing for an engine that cannot carry hooks says so
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
-    When Alice materializes the team profile for opencode
-    Then the materialize report names the hook it could not deliver to opencode
+    When Alice materializes the team profile for mock
+    Then the materialize report names the hook it could not deliver to mock

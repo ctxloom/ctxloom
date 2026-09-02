@@ -4,7 +4,7 @@
 // with nothing pinning it: **ctxloom never writes the engine's real host home.**
 //
 // Everything else in the model is a consequence of it. The durable truth of a
-// user's engine configuration — codex's per-project trust entries, claude's
+// user's engine configuration — claude's
 // credentials and per-project keys — lives in the engine's own dotdir under
 // the user's home, and those are the user's. ctxloom reads
 // them (one-way copy-in at instance time) and points engines at throwaway
@@ -34,7 +34,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -195,7 +194,7 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	before := realHomeSnapshot(t, home)
 
 	instances := map[string]string{}
-	for _, backend := range []string{"claude-code", "codex"} {
+	for _, backend := range []string{"claude-code"} {
 		env := operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
 			Backend:    backend,
 			WorkDir:    workDir,
@@ -234,21 +233,27 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 		t.Errorf("claude's instance credential lost its access token; the copy must still authenticate.\ncopy: %s", string(credential))
 	}
 
-	// codex is the engine whose hooks, MCP servers, prompts and skills are all
-	// home-keyed, so its Setup is the fullest home-writing path there is. Drive
-	// it against the instance the contribution just named.
-	b := codex.NewCodex()
+	// Drive a real Setup against the instance the contribution just named, so
+	// the invariant below is asserted over a launch that actually delivered
+	// rather than one that did nothing.
+	//
+	// NOTE ON REACH: no currently-registered engine keys its hooks, MCP
+	// servers, prompts and skills to its HOME — the engine that did is gone —
+	// so this drives the cwd-keyed path only. A home-keyed engine's Setup is
+	// the fullest home-writing path there is, and until one exists again this
+	// gate does not cover it.
+	b := claude.NewClaudeCode()
 	if err := b.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   workDir,
-		Env:       map[string]string{codex.CodexHomeEnv: instances["codex"]},
+		Env:       map[string]string{claude.ConfigDirEnv: instances["claude-code"]},
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		CellKind:  agent.CellKindShared,
 		Managed:   launchManaged(),
 	}); err != nil {
-		t.Fatalf("codex Setup: %v", err)
+		t.Fatalf("claude Setup: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(instances["codex"], codex.ConfigFileName)); err != nil {
-		t.Fatalf("codex delivered no config.toml into its instance (%v); the invariant below would be vacuous", err)
+	if _, err := os.Stat(filepath.Join(workDir, claude.ConfigDirName)); err != nil {
+		t.Fatalf("claude's Setup delivered nothing into the project (%v); the invariant below would be vacuous", err)
 	}
 
 	after := realHomeSnapshot(t, home)
@@ -259,59 +264,6 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 				"per-session instances are copied-into one way and thrown away. A write here can destroy configuration "+
 				"nothing rebuilds. Find what wrote it rather than relaxing this gate.", leaf)
 		}
-	}
-}
-
-// TestArch_RealHostHomesAreByteIdenticalWithNoControlledHome is D2's half of
-// the same invariant. A run with NO controlled home — no binding, an undeclared
-// one, or `config_home: host` — points the engine at its real home, and that is
-// exactly the case where a delivery would land there. It must not: codex's
-// home-keyed surfaces refuse and say so (surfaces.go's deliveryHome), and the
-// cwd-keyed ones are unaffected.
-func TestArch_RealHostHomesAreByteIdenticalWithNoControlledHome(t *testing.T) {
-	resetArchStrictness(t)
-	home := realHomeFixture(t)
-	t.Setenv("OPENAI_API_KEY", "")
-	workDir := t.TempDir()
-
-	before := realHomeSnapshot(t, home)
-
-	for _, configHome := range []string{"", agents.ConfigHomeHost} {
-		env := operations.InTreeAgentHomeEnv(operations.InTreeAgentHome{
-			Backend:    "codex",
-			WorkDir:    workDir,
-			Harp:       "ugly-icy-squid",
-			ConfigHome: configHome,
-			Policy:     isolation.None{},
-		})
-		if env != nil {
-			t.Fatalf("config_home=%q: a run without an opt-in must be handed no config home, got %v", configHome, env)
-		}
-	}
-
-	b := codex.NewCodex()
-	// Setup's own error is not the assertion here (an unauthenticated run fails
-	// loud from Execute); what matters is what it wrote.
-	_ = b.Setup(context.Background(), &agent.SetupRequest{
-		WorkDir:   workDir,
-		Fragments: []*agent.Fragment{{Content: "project rules"}},
-		CellKind:  agent.CellKindShared,
-		Managed:   launchManaged(),
-	})
-
-	after := realHomeSnapshot(t, home)
-	for leaf, want := range before {
-		if after[leaf] != want {
-			t.Errorf("a run with NO controlled home modified the user's real %s. "+
-				"Keeping the real home means READING it, never writing it — codex's home-keyed surfaces must refuse "+
-				"(loudly) rather than deliver there.", leaf)
-		}
-	}
-
-	// Degraded, not silent: the cwd-keyed context surface still landed, which
-	// is what distinguishes "refused with a warning" from "did nothing at all".
-	if _, err := os.Stat(filepath.Join(workDir, codex.AgentsMDFile)); err != nil {
-		t.Errorf("the cwd-keyed AGENTS.md surface must still deliver when the home-keyed ones refuse: %v", err)
 	}
 }
 
@@ -328,14 +280,8 @@ func TestArch_InstanceHomesLiveInsideTheProjectStateTier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claude.SessionConfigDir: %v", err)
 	}
-	codexRoot, err := codex.SessionHome(workDir, harp)
-	if err != nil {
-		t.Fatalf("codex.SessionHome: %v", err)
-	}
-
 	for name, dir := range map[string]string{
 		"claude-code": claudeDir,
-		"codex":       filepath.Join(codexRoot, codex.ConfigDirName),
 	} {
 		if !strings.HasPrefix(dir, stateTier) {
 			t.Errorf("%s's instance %q is not inside the project state tier %q", name, dir, stateTier)

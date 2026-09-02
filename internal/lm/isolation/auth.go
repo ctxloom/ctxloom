@@ -22,7 +22,7 @@ const (
 	authEnv
 	// authCredentialMount: the host's subscription OAuth credentials are
 	// bind-mounted into the container's fresh HOME — read-only for engines whose
-	// non-interactive mode never refreshes (codex/opencode), read-WRITE and
+	// non-interactive mode never refreshes, read-WRITE and
 	// pointed at the REAL host file for claude, whose token refresh must write
 	// back in place (see claudeCredentialMounts).
 	authCredentialMount
@@ -164,129 +164,6 @@ func claudeContainerAuthHint() string {
 	return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN and no ~/.claude credentials to authenticate the in-container engine"
 }
 
-// codexAuthEnvVars is the SCOPED set of codex auth vars a codex run honors —
-// the only host env allowed to cross into the container for codex auth.
-// OPENAI_API_KEY is the trigger, live-verified against `codex doctor`
-// (credentialSeedSpecs["codex"]'s envTrigger doc: "codex doctor reports 'auth
-// is provided by environment' with a fresh CODEX_HOME + OPENAI_API_KEY set,
-// no `codex login` needed"). CODEX_API_KEY is NOT a confirmed codex trigger —
-// it appears nowhere in internal/codex's own env handling — so it is
-// deliberately excluded here rather than guessed in. NEVER logged.
-var codexAuthEnvVars = []string{
-	"OPENAI_API_KEY",
-}
-
-// resolveCodexContainerAuth builds the auth plan for a containerized codex run
-// whose fresh HOME is containerHome. It PREFERS env passthrough
-// (OPENAI_API_KEY) and otherwise falls back to mounting the host's
-// ~/.codex/auth.json READ-ONLY into the container HOME (codexCredentialMounts).
-// Unlike claude's subscription refresh, the read-only mount is SAFE here:
-// `codex exec`/non-interactive mode never refreshes the ChatGPT auth token in
-// place, so there is no write-back to collide with — codex does
-// not need claude's copy-then-mount-rw treatment. Returns ok=false when
-// neither is available, so the caller degrades rather than launching an
-// unauthenticated engine.
-func resolveCodexContainerAuth(containerHome, _ string) (containerAuth, bool) {
-	return resolveEnvOrMountAuth(
-		[]string{"OPENAI_API_KEY"},
-		codexAuthEnvVars,
-		func() ([]Mount, bool) { return codexCredentialMounts(containerHome) },
-	)
-}
-
-// codexCredentialMounts builds the read-only credential mount that
-// authenticates a subscription codex inside the container:
-// ~/.codex/auth.json mapped into containerHome/.codex/auth.json. It reuses
-// credentialSeedSpecs["codex"]'s sourceFiles descriptor — the SAME host-file
-// location the host+worktree credential seed path
-// (hostCredentialSeed below) already knows — instead of hard-coding the path a
-// second time, per the plan's "one source-discovery, not two"
-// (container-image-auth-delivery.plan.md §2.2). Returns ok=false when the
-// file is absent or the codex spec is missing/has no sourceFiles (defensive;
-// should never happen — codex's spec always sets both).
-func codexCredentialMounts(containerHome string) ([]Mount, bool) {
-	home, err := hostHomeDir()
-	if err != nil || home == "" {
-		return nil, false
-	}
-	spec, ok := credentialSeedSpecFor("codex")
-	if !ok || spec.sourceFiles == nil {
-		return nil, false
-	}
-	var mounts []Mount
-	for _, f := range spec.sourceFiles(home) {
-		if !f.required {
-			continue // codex's spec has one required file (auth.json) today; a future optional entry is account-association residue, not the credential itself
-		}
-		if !fileExists(f.host) {
-			return nil, false
-		}
-		mounts = append(mounts, Mount{
-			Host:      f.host,
-			Container: filepath.Join(containerHome, ".codex", f.destName),
-			ReadOnly:  true,
-		})
-	}
-	if len(mounts) == 0 {
-		return nil, false
-	}
-	return mounts, true
-}
-
-// opencodeAuthEnvVars is the SCOPED set of opencode auth vars a containerized
-// opencode run honors. OPENROUTER_API_KEY is the trigger: OpenRouter is
-// ctxloom's documented default opencode provider. opencode's own provider
-// config can in principle honor other providers' native env vars too, but
-// only OpenRouter is wired here until a broader multi-provider container auth
-// story is designed. NEVER logged.
-var opencodeAuthEnvVars = []string{
-	"OPENROUTER_API_KEY",
-}
-
-// resolveOpencodeContainerAuth builds the auth plan for a containerized
-// opencode run whose fresh HOME is containerHome. It PREFERS env passthrough
-// (OPENROUTER_API_KEY) and otherwise falls back to mounting the host's seeded
-// ~/.local/share/opencode/auth.json (the file `opencode auth login` writes)
-// READ-ONLY into the container HOME. opencode has no credentialSeedSpecs entry
-// (host+worktree isolation does not relocate its creds today — a separate,
-// undecided workstream), so opencodeCredentialMounts mirrors
-// claudeCredentialCopyMounts' host-file discovery shape directly rather than
-// reusing that registry. The mount stays read-only: whether a non-interactive
-// opencode run refreshes auth.json in place is unverified (no live-verified
-// evidence either way, unlike codex's confirmed no-refresh or claude's
-// confirmed refresh), so this does not claim the rw-copy treatment is
-// unnecessary — it is the conservative default pending that verification.
-// Returns ok=false when neither is available.
-func resolveOpencodeContainerAuth(containerHome, _ string) (containerAuth, bool) {
-	return resolveEnvOrMountAuth(
-		[]string{"OPENROUTER_API_KEY"},
-		opencodeAuthEnvVars,
-		func() ([]Mount, bool) { return opencodeCredentialMounts(containerHome) },
-	)
-}
-
-// opencodeCredentialMounts builds the read-only credential mount that
-// authenticates a containerized opencode via its seeded auth.json:
-// ~/.local/share/opencode/auth.json mapped into
-// containerHome/.local/share/opencode/auth.json (matching opencode's own
-// storage layout — see internal/opencode/capabilities.go's doc). Returns
-// ok=false when the file is absent.
-func opencodeCredentialMounts(containerHome string) ([]Mount, bool) {
-	home, err := hostHomeDir()
-	if err != nil || home == "" {
-		return nil, false
-	}
-	auth := filepath.Join(home, ".local", "share", "opencode", "auth.json")
-	if !fileExists(auth) {
-		return nil, false
-	}
-	return []Mount{{
-		Host:      auth,
-		Container: filepath.Join(containerHome, ".local", "share", "opencode", "auth.json"),
-		ReadOnly:  true,
-	}}, true
-}
-
 // resolveMockContainerAuth builds the (trivial) auth plan for a containerized
 // mock run: mock authenticates against NO vendor at all. internal/lm/backends'
 // Mock is compiled directly into ctxloom and calls no external AI service (see
@@ -389,7 +266,7 @@ func fileExists(path string) bool {
 // The container path above authenticates a fresh, isolated HOME by BIND-
 // MOUNTING host credential files into it (claudeCredentialMounts). A
 // host+worktree run has no fresh HOME to mount into — it relocates the
-// engine's config lookup via an env var (CLAUDE_CONFIG_DIR/CODEX_HOME, see
+// engine's config lookup via an env var (CLAUDE_CONFIG_DIR, see
 // worktree.go's Env()) pointing at a per-agent scratch dir
 // that starts EMPTY. An engine that honours the var for CREDENTIALS too
 // (not just config) then finds no creds there and starts logged out — silent
@@ -468,12 +345,11 @@ type credentialSeedSpec struct {
 // homeVar is one env-var-to-subdir mapping an engine's isolation home
 // contributes to worktreeWorkspace.Env(). Subdir is joined under the
 // per-agent configHome (e.g. "claude" → CLAUDE_CONFIG_DIR=<configHome>/claude).
-// codex's Subdir is ".codex" (dot-prefixed) so codex's OWN
-// cellScopedCodexHome join (which appends "/.codex" to a project-dir-shaped
-// value) lands on this EXACT directory when the isolation-provided configHome
-// is treated as that virtual project dir — see internal/codex/backend.go's
-// resolveCodexHome, which is the single place this convention is documented
-// and relied on.
+//
+// The LEAF NAME is load-bearing, not cosmetic: an engine that composes its own
+// home path from a project-dir-shaped value must land on this EXACT directory,
+// so a Subdir here has to match whatever leaf that engine's own resolution
+// appends.
 type homeVar struct {
 	EnvVar string
 	Subdir string
@@ -516,34 +392,6 @@ type seedFile struct {
 //   - claude: HonoursVarForCreds true — CLAUDE_CONFIG_DIR relocates both
 //     config AND credentials, so seeding copies .credentials.json (+
 //     .claude.json) into it.
-//
-//   - codex: HonoursVarForCreds true — CODEX_HOME relocates config, state,
-//     AND credentials (auth.json resolves from $CODEX_HOME only — see
-//     internal/codex/backend.go's package doc). This registry is now codex's
-//     ONE credential-seed mechanism: codex's prior seed path
-//     (linkUserCodexAuth, a SYMLINK into a cell-scoped
-//     <WorkDir>/.codex — a DIFFERENT directory than this package's
-//     configHome) is deleted in favour of this COPY, and
-//     internal/codex/backend.go's resolveCodexHome makes the isolation-
-//     provided CODEX_HOME (this spec's HomeVars entry) the single owner for
-//     an isolated run, resolving the two-mechanism conflict this package's
-//     own doc used to warn about here. destSubdir/HomeVars both use ".codex"
-//     (dot-prefixed) — see homeVar's doc for why the leaf name matters.
-//
-//   - opencode: HonoursVarForCreds TRUE — opencode's auth.json genuinely
-//     lives under $XDG_DATA_HOME/opencode (live-verified against opencode
-//     1.18.1 — see the entry's own doc for the full measurement), so it is
-//     seeded via
-//     sourceFiles/destSubdir like claude/codex, never gated. Two HomeVars —
-//     XDG_CONFIG_HOME (config only) and XDG_DATA_HOME (config + creds,
-//     destSubdir "xdg-data/opencode" NESTED one level under the HomeVar's
-//     own "xdg-data" Subdir, because opencode itself appends "/opencode"
-//     onto XDG_DATA_HOME rather than owning the var outright the way
-//     CLAUDE_CONFIG_DIR/CODEX_HOME do). Before this entry existed,
-//     "opencode" had NO registry entry at all — worktree.go's
-//     seedCredentials short-circuited at `if !ok { return nil }` with no
-//     ClassIsolation finding — a SILENT no-op strictly worse than the loud
-//     "nothing seedable" handling a registered spec gets.
 var credentialSeedSpecs = map[string]credentialSeedSpec{
 	"claude-code": {
 		engine:     "claude",
@@ -574,109 +422,6 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 			}
 		},
 		HomeVars:           []homeVar{{EnvVar: "CLAUDE_CONFIG_DIR", Subdir: "claude"}},
-		HonoursVarForCreds: true,
-	},
-	"codex": {
-		engine:     "codex",
-		destSubdir: ".codex",
-		envTrigger: "OPENAI_API_KEY", // live-verified: `codex doctor` reports "auth is provided by environment" with a fresh CODEX_HOME + OPENAI_API_KEY set, no `codex login` needed.
-		loginHint:  "codex login",
-		sourceFiles: func(hostHome string) []seedFile {
-			return []seedFile{
-				{
-					// "auth.json" duplicates internal/codex/backend.go's
-					// codexAuthFile literal — not imported to avoid a
-					// cross-package dependency from this generic seed
-					// registry onto one specific engine package.
-					host:     filepath.Join(hostHome, ".codex", "auth.json"),
-					destName: "auth.json",
-					required: true,
-				},
-			}
-		},
-		HomeVars:           []homeVar{{EnvVar: "CODEX_HOME", Subdir: ".codex"}},
-		HonoursVarForCreds: true,
-	},
-	// opencode: HonoursVarForCreds TRUE — its XDG_DATA_HOME genuinely
-	// relocates its credential file rather than pointing at a global
-	// unrelocatable store, so it seeds via sourceFiles/destSubdir exactly
-	// like claude/codex
-	// rather than gating via GatedOnCreds (see
-	// resolveOpencodeContainerAuth's doc for the container-axis half of this
-	// same engine's auth story).
-	//
-	// MEASURED against opencode 1.18.1, not vendor-documented: opencode's
-	// docs cover only OPENCODE_CONFIG/OPENCODE_CONFIG_DIR — XDG_DATA_HOME,
-	// the resulting auth.json location, and OPENCODE_DB appear NOWHERE in its
-	// docs. Confirmed by direct interrogation of the compiled binary
-	// (`process.env.XDG_DATA_HOME`, read directly with a `~/.local/share`
-	// fallback, then joined with "opencode" then "auth.json") and,
-	// decisively, live: `opencode auth list` under `env -i` with a fresh
-	// scratch HOME and all four XDG_* vars pointed at a seeded auth.json
-	// printed the RELOCATED path and "1 credentials" (the OpenRouter entry
-	// copied in) — the same command against an EMPTY scratch XDG_DATA_HOME
-	// printed "0 credentials", never silently falling back to the real host
-	// key. This is an implementation detail that can drift silently on
-	// upgrade (this project has been burned by that exact failure mode
-	// before) — RE-VERIFY against any opencode
-	// version bump past 1.18.1 before trusting this comment.
-	//
-	// destSubdir is NESTED ("xdg-data/opencode"), unlike claude/codex's flat
-	// destSubdir that equals their one HomeVar's Subdir directly: opencode
-	// itself appends "/opencode" onto whatever XDG_DATA_HOME resolves to (it
-	// is a shared per-app-name XDG root, not a ctxloom-owned directory the
-	// way CLAUDE_CONFIG_DIR/CODEX_HOME are), so the seeded file must land one
-	// level deeper than the HomeVar's own Subdir ("xdg-data") for opencode's
-	// OWN join to land on it. XDG_CONFIG_HOME rides along as a second
-	// HomeVar for config-only isolation (opencode.json/opencode.jsonc read
-	// from Path.config, same OPENCODE_CONFIG_DIR-or-XDG_CONFIG_HOME
-	// precedence) — it never carries credentials, but leaving it unisolated
-	// while XDG_DATA_HOME isolates would be a needless half-measure now that
-	// the mechanism is known to work.
-	//
-	// mcp-auth.json (per-MCP-server OAuth tokens) rides along as an OPTIONAL
-	// sourceFiles entry: confirmed present in the 1.18.1 binary at the exact
-	// same Path.data-joined location as auth.json, but not every user has
-	// configured an OAuth-authenticated MCP server, so its absence must never
-	// block seeding the credential that actually matters.
-	//
-	// NOT used here: OPENCODE_TEST_HOME, also present in the binary — it is
-	// explicitly a TEST-only hook (its own name says so), not a production
-	// isolation lever; using it here would be relying on unstable internal
-	// test scaffolding rather than the real, user-facing XDG contract this
-	// entry is built on. Also unresolved and NOT claimed either way: whether
-	// a non-interactive opencode run refreshes auth.json in place
-	// (opencodeCredentialMounts above already flags this as unverified for
-	// the container mount path); this worktree seed COPIES into a writable
-	// per-agent directory, so a refresh there would land in the copy rather
-	// than colliding with a read-only mount the way claude's container path
-	// had to guard against — but whether opencode ever performs such a
-	// refresh at all remains unmeasured, and this entry does not resolve
-	// that question.
-	"opencode": {
-		engine:     "opencode",
-		destSubdir: filepath.Join("xdg-data", "opencode"),
-		envTrigger: "OPENROUTER_API_KEY", // mirrors resolveOpencodeContainerAuth's container-axis trigger
-		loginHint:  "opencode auth login",
-		sourceFiles: func(hostHome string) []seedFile {
-			dir := filepath.Join(hostHome, ".local", "share", "opencode")
-			return []seedFile{
-				{
-					host:     filepath.Join(dir, "auth.json"),
-					destName: "auth.json",
-					required: true,
-				},
-				{
-					host:     filepath.Join(dir, "mcp-auth.json"),
-					destName: "mcp-auth.json",
-					required: false,
-				},
-			}
-		},
-		HomeVars: []homeVar{
-			{EnvVar: "XDG_CONFIG_HOME", Subdir: "xdg-config"},
-			{EnvVar: "XDG_DATA_HOME", Subdir: "xdg-data"},
-		},
 		HonoursVarForCreds: true,
 	},
 }
@@ -742,7 +487,7 @@ func CredentialSeedDestSubdir(engine string) (string, bool) {
 // its own.
 type CredentialSeedFile struct {
 	// HostRelToHome is the source path's slash-separated component(s) after
-	// $HOME — e.g. ".codex/auth.json" or ".local/share/opencode/auth.json".
+	// $HOME — e.g. ".claude/.credentials.json".
 	HostRelToHome string
 	DestName      string
 	Required      bool
@@ -777,7 +522,7 @@ func CredentialSeedSourceFiles(engine string) []CredentialSeedFile {
 }
 
 // CopyAmbient (ambient.go) is what REPLACED the two exported per-engine
-// preparers that used to live here, PrepareCodexHome and PrepareClaudeHome.
+// preparers that used to live here, one per engine.
 // They were the same function twice — the same credentialSeedSpecs descriptor,
 // the same hostCredentialSeed mechanics, differing only in a map key and an
 // error string — and neither could carry the working directory the engine
@@ -838,7 +583,7 @@ func hostSeedSources(spec credentialSeedSpec) ([]seedFile, bool) {
 		// HOME lookup). But an unresolvable host HOME is an ENVIRONMENT FAULT,
 		// not the ordinary "this host has no credential file" the caller's own
 		// message describes — leaving it silent surfaced a real fault as advice
-		// to run `claude login`/`codex login`, which cannot help. Same handling
+		// to run `claude login`, which cannot help. Same handling
 		// provisionCuratedHome gives the identical failure.
 		clidiag.Warn("ctxloom",
 			"%s credential seed: could not resolve the host HOME to copy credentials from (%v); this run is treated as having no host credentials to seed",
@@ -926,8 +671,8 @@ func copyCredentialFile(src, dst string, project func([]byte) ([]byte, error)) e
 	}
 	// os.WriteFile follows a symlink at the destination (it is
 	// OpenFile(dst, O_WRONLY|O_CREATE|O_TRUNC, perm) under the hood), so an
-	// unvalidated destination — e.g. a repo-tracked `.codex/auth.json` symlink
-	// pointing at the real `~/.codex/auth.json` — turns this seed into an
+	// unvalidated destination — e.g. a repo-tracked `.claude/.credentials.json`
+	// symlink pointing at the real `~/.claude/.credentials.json` — turns this seed into an
 	// arbitrary-file overwrite of the user's own credential. Refuse a
 	// pre-existing symlink destination outright rather than writing through
 	// it; a fresh (non-symlink, non-existent) destination is unaffected.

@@ -65,8 +65,6 @@ import (
 // internal/operations doing so was T12's confirmed violation.
 var enginePluginImportPaths = []string{
 	modulePath + "/internal/claude",
-	modulePath + "/internal/codex",
-	modulePath + "/internal/opencode",
 }
 
 // TestArch_Operations_DoesNotImportEnginePlugins is the layering half of

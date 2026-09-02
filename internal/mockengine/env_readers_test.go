@@ -29,7 +29,7 @@ func TestRuntimeGetenv_NilReadsTheRealProcessEnvironment(t *testing.T) {
 
 // Resolver.getenv resolves PROBE ROOTS — observed data, not control. Its nil
 // policy is the opposite ON PURPOSE: a walk that quietly read the developer's
-// own environment would stat the developer's own ~/.codex and report
+// own environment would stat the developer's own engine home and report
 // present:true with a hash of their personal config for a surface ctxloom never
 // delivered. "Never reach past the seam" is the whole point.
 func TestResolverGetenv_NilNeverReachesTheProcessEnvironment(t *testing.T) {
@@ -47,7 +47,7 @@ func TestResolverGetenv_NilNeverReachesTheProcessEnvironment(t *testing.T) {
 func TestEnvDirProbe_NilResolverFallsBackAndSaysSo(t *testing.T) {
 	home := t.TempDir()
 	elsewhere := t.TempDir()
-	t.Setenv("CODEX_HOME", elsewhere)
+	t.Setenv("MOCK_ENGINE_HOME", elsewhere)
 
 	cli := agent.EngineCLI{
 		Engine:  "probe-test",
@@ -55,8 +55,8 @@ func TestEnvDirProbe_NilResolverFallsBackAndSaysSo(t *testing.T) {
 		Probes: []agent.CLIProbe{{
 			Kind:           agent.ProbeKindContext,
 			Scope:          agent.ScopeEnvDir,
-			EnvVar:         "CODEX_HOME",
-			EnvHomeDefault: ".codex",
+			EnvVar:         "MOCK_ENGINE_HOME",
+			EnvHomeDefault: ".mock-engine",
 			Rel:            "config.toml",
 		}},
 	}
@@ -67,9 +67,9 @@ func TestEnvDirProbe_NilResolverFallsBackAndSaysSo(t *testing.T) {
 	}
 	rec := recs[0]
 	if !rec.Fallback {
-		t.Error("a nil Resolver.Getenv must record the $HOME fallback, not silently adopt the process's CODEX_HOME")
+		t.Error("a nil Resolver.Getenv must record the $HOME fallback, not silently adopt the process's MOCK_ENGINE_HOME")
 	}
-	if want := filepath.Join(home, ".codex"); rec.Root != want {
+	if want := filepath.Join(home, ".mock-engine"); rec.Root != want {
 		t.Errorf("probe root = %q, want %q — the walk reached past its seam into the real environment", rec.Root, want)
 	}
 }

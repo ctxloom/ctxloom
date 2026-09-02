@@ -133,13 +133,13 @@ Feature: fragment — reusable context units, and the engine surface each one re
       Examples:
         | engine      |
         | claude-code |
-        | codex       |
+        | mock        |
 
   Rule: Materializing a profile never destroys a team's hand-authored context file
 
     # Regression coverage for a P0 data-loss defect: materializing a profile
-    # for claude-code/codex must never destroy a team's hand-authored
-    # CLAUDE.md / AGENTS.md — content outside ctxloom's managed markers must
+    # must never destroy a team's hand-authored native context file, whichever
+    # engine owns it — content outside ctxloom's managed markers must
     # survive byte-for-byte, and ctxloom's own content must still land
     # alongside it. Gutting the marker-merge core
     # (agent.WriteManagedContext, internal/shared/agent/managedcontext.go)
@@ -154,5 +154,5 @@ Feature: fragment — reusable context units, and the engine surface each one re
 
       Examples:
         | engine      | file      |
-        | claude-code | CLAUDE.md |
-        | codex       | AGENTS.md |
+        | claude-code | CLAUDE.md       |
+        | mock        | MOCK_CONTEXT.md |

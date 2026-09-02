@@ -20,7 +20,7 @@ import (
 func oneShotSpawner(mk func() *scriptedChat) *fakeSpawner {
 	sp := newFakeSpawner(map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
-			viaStartRun: true, backend: "codex", oneshot: true},
+			viaStartRun: true, backend: "claude-code", oneshot: true},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -311,7 +311,7 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	// static half is false, so the boundary must NOT tear down.
 	sp := newFakeSpawner(map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
-			viaStartRun: true, backend: "codex"}, // oneshot:false
+			viaStartRun: true, backend: "claude-code"}, // oneshot:false
 	}, nil)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{resumable: true} }
 	c := newTestCoordinator(t, sp, nil)

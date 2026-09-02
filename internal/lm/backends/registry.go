@@ -9,10 +9,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
@@ -53,8 +51,8 @@ type agentDescriptor struct {
 	newWriter func(agent.SettingsOptions) agent.SettingsWriter
 	// newInstanceConfig constructs the backend's INSTANCE-CONFIG writer — the
 	// engine-owned generator of its own top-level config file inside a config
-	// home ctxloom provisioned (claude's .claude.json, codex's config.toml
-	// base). It is the write-config half of the engine capability set, sibling
+	// home ctxloom provisioned (claude's .claude.json, for instance). It is
+	// the write-config half of the engine capability set, sibling
 	// to newWriter, and exists because config-file manipulation is an ENGINE
 	// capability: the ambient copy-in decides WHICH files cross from the user's
 	// real host home, the engine owns every byte of its own format.
@@ -116,9 +114,9 @@ type agentDescriptor struct {
 	// a project/global collision class `manage hooks install` must guard
 	// against (see the claude-code descriptor below for the collision itself,
 	// and CheckHookTargetScope in delegate_seams.go for how it's used). nil =
-	// audited, no guard needed (opencode's global path never collapses onto
-	// its project path — see operations.checkHookTargetScope's historical doc,
-	// preserved there).
+	// audited, no guard needed — a backend whose global path never collapses
+	// onto its project path (see operations.checkHookTargetScope's historical
+	// doc, preserved there).
 	hookGlobalScopePaths func(workDir string) (projectPath, globalPath string, err error)
 	// hookGlobalScopeLabel is the human-facing name for this backend's global
 	// scope, read into CheckHookTargetScope's refusal/warning message (e.g.
@@ -143,8 +141,7 @@ type agentDescriptor struct {
 	// concrete engine package to learn it.
 	inTreeAgentHome func(workDir, harp string) (InTreeAgentHomeSpec, error)
 	// noHooksReason declares, in one clause, that this backend has NO hook
-	// mechanism AT ALL and says why ("opencode has no hook mechanism"). Empty
-	// means the backend carries hooks — every backend but opencode today.
+	// mechanism AT ALL and says why. Empty means the backend carries hooks.
 	//
 	// It is the whole-mechanism twin of agent.HookRoute.Unsupported (which says
 	// the same thing about ONE unified event on a backend that does have hooks)
@@ -173,8 +170,8 @@ type agentDescriptor struct {
 	// settings/prompt/skill surfaces exist ONLY inside a per-session engine
 	// home, so no stable path a STATIC materialize/apply can write exists at
 	// all. Empty for every backend whose settings live at a cwd-keyed project
-	// path (claude-code, opencode) — codex is the only one, because it is
-	// the only engine with no cwd-keyed equivalent of .claude/settings.json.
+	// path; set only by a backend with no cwd-keyed equivalent of
+	// .claude/settings.json.
 	//
 	// It is the third member of the declared-absence family beside
 	// noHooksReason and unsupportedHookKinds, and it is declared for the
@@ -193,8 +190,7 @@ type agentDescriptor struct {
 	// unsupportedHookKinds is the PER-EVENT twin of noHooksReason, for a
 	// backend that has a hook mechanism generally but lacks a native event
 	// for specific unified KINDS ("session_end") — keyed by the same kind
-	// string a HookRoute.Kind declares at write time (e.g. codex's
-	// addUnifiedHooks route for u.SessionEnd), valued with that SAME
+	// string a HookRoute.Kind declares at write time, valued with that SAME
 	// Unsupported reason, so UncarriedSurfaces can report the identical loss
 	// to a caller that never writes settings (doctor/agent show)
 	// without hand-maintaining a second copy of either string. nil = every
@@ -332,8 +328,8 @@ func Exists(name string) bool {
 
 // EnforcesReadOnlyPlan reports whether the named backend maps
 // agent.PermissionPlan to a genuinely read-only, non-prompting mode (claude
-// --permission-mode plan, codex --sandbox read-only, opencode.json permission
-// {edit:deny, bash:deny}). A backend that doesn't would run plan unrestrained
+// --permission-mode plan, for instance). A backend that doesn't would run
+// plan unrestrained
 // and can't be trusted to be headless-safe for it, so the run resolver
 // collapses plan to default for it instead. An unregistered name reports false.
 func EnforcesReadOnlyPlan(name string) bool {
@@ -481,127 +477,6 @@ func init() {
 		},
 	})
 
-	// LIVE-UNTESTED: codex has never been run against a real account on any
-	// dev host (see the package doc in internal/codex for what's proven vs
-	// unverified; taskloom bold-smirk tracks the revive).
-	registerDescriptor(agentDescriptor{
-		name: "codex",
-		newBackend: func() agent.Backend {
-			b := codex.NewCodex()
-			b.SetLauncher(RunLaunchSpec)
-			return b
-		},
-		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
-			return decodeBody(body, &codex.CodexConfig{})
-		},
-		newWriter:         codex.NewWriter,
-		newInstanceConfig: codex.NewInstanceConfigWriter,
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
-			// The static apply/materialize path has no isolation context — no
-			// homeOverride/trustAbsPath, exactly as before those params existed
-			// (the live run/launch path wires them via Codex.buildSurfaces
-			// instead, which does not go through this registry closure).
-			return codex.NewSurfaces(in, "", "", fs)
-		},
-		exports:              codexExports,
-		skillExports:         codexSkillExports,
-		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
-		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseCodexVersion},
-		// codex has hooks generally (unlike opencode, so noHooksReason stays
-		// empty) but no native session_end event — see codex.NoSessionEndReason
-		// and addUnifiedHooks' route for the write-time half of this same fact.
-		unsupportedHookKinds: map[string]string{
-			bundles.HookEventSessionEnd: codex.NoSessionEndReason,
-		},
-		// S7's DECLARED ABSENCE. codex reads hooks, MCP servers, prompts and
-		// skills only from $CODEX_HOME, which since S5 is either a per-session
-		// instance ctxloom creates at launch or the user's own ~/.codex, which
-		// ctxloom never writes — so a harpless materialize/install has no
-		// target at all. Stated once, in internal/codex, and read here so a
-		// caller that never imports that package reports the identical
-		// sentence.
-		launchOnlySettingsReason: codex.LaunchOnlySettingsReason,
-		// hookGlobalScopePaths is deliberately ABSENT (audited, not
-		// overlooked). Its purpose is the workDir == $HOME collision, where a
-		// backend's PROJECT config path collapses onto its user-global one —
-		// claude's still does. codex no longer HAS a project config
-		// path (the declared absence above), so the static path writes nothing
-		// that could land in the user's global home; and the run path has its
-		// own, stronger guard — codex.IsHostCodexHome refuses the real home
-		// outright, whatever the workDir.
-		// D2 (RULED): codex reads config_home like claude,
-		// through THIS seam and no other. An in-tree run whose binding declares
-		// `config_home: project` gets this session's own CODEX_HOME,
-		// copy-seeded with the host's auth.json; every other in-tree run keeps
-		// the real ~/.codex (internal/codex's resolveCodexProjectDir,
-		// codexHomeRealHost). codex used to relocate CODEX_HOME here
-		// unconditionally, which stopped being defensible the moment the
-		// relocation target became a DISPOSABLE per-session instance: an
-		// unbound interactive run would have lost its token refreshes and its
-		// codex state every session.
-		//
-		// The env value is the session instance root plus codex's own
-		// ConfigDirName, because CODEX_HOME IS the .codex directory rather
-		// than its parent — the same composition
-		// isolation's credentialSeedSpecs["codex"] HomeVar Subdir performs for
-		// the worktree axis, and the suffix resolveCodexProjectDir strips back
-		// off to recover the virtual project dir. Prepare is handed the ROOT,
-		// which is what PrepareCodexHome joins ".codex" under.
-		inTreeAgentHome: func(workDir, harp string) (InTreeAgentHomeSpec, error) {
-			root, err := codex.SessionHome(workDir, harp)
-			if err != nil {
-				return InTreeAgentHomeSpec{}, err
-			}
-			return InTreeAgentHomeSpec{
-				EnvVar: codex.CodexHomeEnv,
-				Dir:    filepath.Join(root, codex.ConfigDirName),
-				Prepare: func() error {
-					return prepareInTreeAmbient("codex", root, workDir)
-				},
-			}, nil
-		},
-	})
-
-	// opencode (first-party `opencode acp`, HOST-only chat spine). Slice 2 adds the
-	// settings/materialization seam: ctxloom's managed keys are merged into a
-	// project-local, strictly-validated opencode.json — MCP servers (`mcp`),
-	// assembled context (`instructions` -> .opencode/ctxloom-context.md), and, on the
-	// live chat path only, a GENUINE read-only `permission` for plan mode. Slice 3
-	// adds command (commands) materialization: enabled bundle prompts become
-	// opencode custom commands (.opencode/command/<name>.md), delivered by the
-	// commands surface on the static `profile materialize` path and transiently
-	// in Chat on the LIVE path (written before the run, reverted after — same
-	// no-debris shape as the opencode.json overlay). The newSurfaces builder
-	// serves materialize (mcp + context + commands).
-	// enforcesReadOnlyPlan is TRUE: the written permission denies edit (which gates
-	// opencode's write tool too) AND bash, so a plan run genuinely cannot mutate —
-	// stricter than opencode's built-in `plan` agent, which leaves bash allowed.
-	// Session-history and interactive PTY launch are later slices.
-	registerDescriptor(agentDescriptor{
-		name: "opencode",
-		newBackend: func() agent.Backend {
-			b := opencode.NewOpencode()
-			b.SetLauncher(RunLaunchSpec)
-			return b
-		},
-		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
-			return decodeBody(body, &opencode.OpencodeConfig{})
-		},
-		newWriter:            opencode.NewWriter,
-		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return opencode.NewSurfaces(in, fs) },
-		exports:              opencodeExports,
-		skillExports:         opencodeSkillExports,
-		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
-		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseOpencodeVersion},
-		// opencode is the one backend with no hooks surface of any shape:
-		// opencode.json has no hook key, there is no settings event vocabulary
-		// to route the seven unified events onto, and OpencodeWriter.WriteSettings
-		// accepts a *wire.HooksConfig it cannot do anything with. Declared here
-		// so `profile materialize` can SAY so instead of writing four true
-		// "wrote" lines over a silently dropped guardrail.
-		noHooksReason: "opencode has no hook mechanism",
-	})
-
 	// Mock registers backend+config+surfaces+skillExports: still no settings
 	// writer and no command export (descriptor fields are optional) — but it
 	// DOES build a real SurfaceSet, so BuildSurfaces("mock", …) materializes a
@@ -619,12 +494,11 @@ func init() {
 		// reports success and writes zero bytes, which is precisely the
 		// silent no-op the mock engine exists to catch in others.
 		skillExports: mockSkillExports,
-		// mock is the SAME structural shape as opencode here: mockPresentations
-		// (mock_surfaces.go) declares context and skills, so a configured
-		// session_start hook has no settings surface to land on and reaches no
-		// file. Declared for the same reason opencode's noHooksReason is —
-		// UncarriedSurfaces can only report a loss that is DECLARED, and an
-		// undeclared one reads as silence. When mock gains a
+		// mockPresentations (mock_surfaces.go) declares context and skills, so
+		// a configured session_start hook has no settings surface to land on
+		// and reaches no file. Declared for the same reason any noHooksReason
+		// is — UncarriedSurfaces can only report a loss that is DECLARED, and
+		// an undeclared one reads as silence. When mock gains a
 		// settings/hook surface (tracked separately), delete this line; the
 		// hook sentinel will then need a real destination instead.
 		noHooksReason: "mock has no settings/hook surface",

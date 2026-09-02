@@ -87,7 +87,7 @@ type ProbeRecord struct {
 	// Fallback marks a ScopeEnvDir probe whose env var was UNSET, so the root
 	// came from $HOME/<EnvHomeDefault> instead. It is in the digest because
 	// the alternative is a false green on the host path: a developer with a
-	// real ~/.codex gets present:true and a hash of their personal config for
+	// real engine home gets present:true and a hash of their personal config for
 	// a surface ctxloom never delivered. Root would show it, but
 	// Root is machine-specific and deliberately outside the digest.
 	Fallback bool `json:"fallback,omitempty"`

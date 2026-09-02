@@ -14,8 +14,6 @@ import (
 // what must hold the lock.
 var lockDisciplineScopes = []string{
 	"internal/claude",
-	"internal/codex",
-	"internal/opencode",
 	"internal/shared/agent",
 }
 
@@ -143,7 +141,5 @@ func CalleeName(call *ast.CallExpr) string {
 // lockDisciplineAllowed is the reasoned, symbol-keyed baseline: a durable
 // "file.go#Symbol" reference mapped to why the entry stands.
 var lockDisciplineAllowed = map[string]string{
-	"internal/codex/instanceconfig.go#codexInstanceConfig.WriteInstanceConfig": "REAL GAP, not a heuristic false positive: codexInstanceConfig.WriteInstanceConfig checks afero.Exists(dest) then, on a separate path, reads the HOST config (afero.ReadFile) and writes dest via writer.save — the identical seed-once TOCTOU shape unit 1 (claude.claudeInstanceConfig.WriteInstanceConfig, B5) fixed, but for codex's instance config. Not in the R6 bypass batch's named units (B1-B9) — a NEW finding this gate surfaced. Deferred: needs its own agent.WithFileLock wrap, same reasoning as unit 1's fix (verify it does not collide with isolation.lockInstanceHome's caller-side project lock the same way unit 1's doc proves for claude).",
-	"internal/codex/settings.go#CodexHookWriter.save":                          "false positive (leaf helper under the caller's lock): save's own body reads the existing file (afero.ReadFile, the zero-byte-over-existing-content guard) and writes it (agent.AtomicWriteFile), but save is ALWAYS called from inside writeSettingsIn's or removeSettingsIn's agent.WithFileLock closure — this gate's per-function heuristic cannot see a lock held by the CALLER two frames up. See this file's header, blind spot 4.",
-	"internal/shared/agent/managedcontext.go#writeManagedContextLocked":        "false positive (leaf helper under the caller's lock): writeManagedContextLocked is WriteManagedContext's body, split out for readability and invoked BY NAME from inside WriteManagedContext's own agent.WithFileLock closure (see its doc: \"run under its caller's lock\") — same shape as CodexHookWriter.save above. See this file's header, blind spot 4.",
+	"internal/shared/agent/managedcontext.go#writeManagedContextLocked": "false positive (leaf helper under the caller's lock): writeManagedContextLocked is WriteManagedContext's body, split out for readability and invoked BY NAME from inside WriteManagedContext's own agent.WithFileLock closure (see its doc: \"run under its caller's lock\") — same shape as CodexHookWriter.save above. See this file's header, blind spot 4.",
 }

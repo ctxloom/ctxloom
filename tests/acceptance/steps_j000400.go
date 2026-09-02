@@ -21,7 +21,6 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -405,27 +404,17 @@ func j000400Excerpt(body, marker string, context int) string {
 }
 
 // engineContextRelPath returns dir-relative path to an engine's own native
-// context surface (internal/{claude,codex}/surfaces.go).
+// context surface.
 // Shared engine-axis knowledge: J000400's own materialization outline uses it
 // below, and J000800's onboarding journey reuses it rather than re-deriving a
 // second copy of the same per-engine path table (steps_j000800_onboarding.go's
-// "Bob starts a session on <engine>" outline). codex is now a case here:
-// `profile materialize` used to leave its context surface a silent no-op
-// (keyed on agent.SurfaceInputs.Fragments, which materialize never
-// populates); codex's context surface now ALSO writes
-// AGENTS.md from agent.SurfaceInputs.Context, which materialize does
-// populate (internal/codex/surfaces.go's agentsMDSurface).
+// "Bob starts a session on <engine>" outline).
 func engineContextRelPath(dir, engine string) (string, error) {
 	switch engine {
 	case "claude-code":
 		return filepath.Join(dir, "CLAUDE.md"), nil
-	case "codex":
-		return filepath.Join(dir, "AGENTS.md"), nil
-	case "opencode":
-		// opencode's ctxloom-owned context file, referenced from
-		// opencode.json's `instructions` key (internal/opencode's
-		// contextSurface / OpencodeWriter.WriteContext).
-		return filepath.Join(dir, ".opencode", "ctxloom-context.md"), nil
+	case "mock":
+		return filepath.Join(dir, "MOCK_CONTEXT.md"), nil
 	default:
 		return "", fmt.Errorf("unknown engine %q for native context surface", engine)
 	}
@@ -568,10 +557,6 @@ func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 	switch engine {
 	case "claude-code":
 		return filepath.Join(dir, ".mcp.json"), "mcpServers", nil
-	case "codex":
-		return "", "", fmt.Errorf("j000400: codex has no materialized MCP registry to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
-	case "opencode":
-		return filepath.Join(dir, "opencode.json"), "mcp", nil
 	default:
 		return "", "", fmt.Errorf("j000400: unknown engine %q", engine)
 	}
@@ -665,11 +650,6 @@ func j000400AssertHook(w *World, engine string) error {
 		rel = filepath.Join(dir, ".claude", "settings.json")
 		doc, err = j000400ReadJSON(w, rel)
 		event = "SessionStart"
-	case "codex":
-		// No row, for the same reason j000400MCPRegistryFor has none: codex's
-		// hooks live in $CODEX_HOME/config.toml, which a harpless materialize
-		// cannot name at all.
-		return fmt.Errorf("j000400: codex has no materialized hook configuration to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
 	default:
 		return fmt.Errorf("j000400: unknown engine %q", engine)
 	}
@@ -775,10 +755,6 @@ func j000400AssertCommand(w *World, engine string) error {
 	switch engine {
 	case "claude-code":
 		rel = filepath.Join(dir, ".claude", "commands", "team-onboarding.md")
-	case "codex":
-		// No row: codex's prompts are $CODEX_HOME-global, so a harpless
-		// materialize writes none (internal/codex/declared_absence.go).
-		return fmt.Errorf("j000400: codex has no materialized command file to read — %s; assert its absence over the whole tree instead", codex.LaunchOnlySettingsReason)
 	case "opencode":
 		rel = filepath.Join(dir, ".opencode", "command", "team", "onboarding.md")
 	default:

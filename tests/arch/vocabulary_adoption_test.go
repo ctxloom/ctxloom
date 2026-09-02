@@ -774,7 +774,6 @@ var vocabMembershipAllowed = map[string]string{
 	"internal/transcript/vendorreader/claude/session.go#convertLines#internal/shared/agent.SessionEntryType":        "re-spells two SessionEntryType members while reading a vendor format",
 	"internal/transcript/vendorreader/claude/session.go#sessionScan.observe#internal/shared/agent.SessionEntryType": "re-spells two SessionEntryType members while reading a vendor format",
 	"internal/transcript/vendorreader/claude/session.go#messageEntries#internal/shared/agent.SessionEntryType":      "re-spells four SessionEntryType members while reading a vendor format",
-	"internal/transcript/vendorreader/codex/rollout.go#messageEvents#internal/shared/agent.SessionEntryType":        "re-spells two SessionEntryType members while reading a vendor format",
 
 	"internal/liveness/transcript.go#txScan.line#internal/transcript.Kind":     "re-spells transcript.Kind members rather than comparing against internal/transcript's own constants, which this package already imports",
 	"internal/liveness/transcript.go#txScan.tailLine#internal/transcript.Kind": "same transcript.Kind re-spelling in the tail path",

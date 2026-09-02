@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
@@ -42,7 +41,7 @@ const hookBundleYAML = "version: \"1.0.0\"\nfragments:\n  sentinel:\n    content
 // applyWithContextRegen lays out an app dir holding the sentinel bundle and a
 // default profile that pulls its fragment, then runs operations.ApplyHooks with
 // context regeneration ON — the apply path that INSTALLS the SessionStart
-// inject-context hook for the hook-approach backends (claude/codex). It returns
+// inject-context hook for the hook-approach backends. It returns
 // the project dir and the regenerated context hash.
 func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 	t.Helper()
@@ -103,12 +102,10 @@ func TestHookApproach_PayloadReachesTheInjectedContext(t *testing.T) {
 	// Link 2 — the hook itself, registered in each hook-approach backend's
 	// settings surface AND keyed to that same hash. A hook registered with a
 	// stale or empty hash reads a file that is not there and injects nothing.
-	// codex has NO ROW: its hooks live in $CODEX_HOME/config.toml, and a static
-	// apply has no session and so no such file (internal/codex/
-	// declared_absence.go). Its half of this chain — hook registered against the
-	// same regenerated hash — happens inside a per-session instance at launch;
-	// the absence on THIS path is asserted immediately below, so removing the
-	// row does not quietly stop checking codex at all.
+	// An engine whose hooks live only in its HOME would have NO ROW here: a
+	// static apply has no session and so no such file, and its half of this
+	// chain happens inside a per-session instance at launch instead. No
+	// currently-registered engine is in that position.
 	for _, tc := range []struct{ name, path string }{
 		{"claude-code", filepath.Join(projectDir, ".claude", "settings.json")},
 	} {
@@ -123,50 +120,6 @@ func TestHookApproach_PayloadReachesTheInjectedContext(t *testing.T) {
 		})
 	}
 
-	// Link 2 for codex, stated as the absence it is: a static apply registers
-	// its SessionStart hook nowhere under the project, and — the half that
-	// matters — codex's own cwd-keyed AGENTS.md still carries the payload, so
-	// this is a narrowing rather than a codex run that learns nothing.
-	assert.Empty(t, (&codex.CodexHookWriter{}).SettingsPath(projectDir),
-		"codex declares that it has no project-keyed settings file to register a hook in")
-	agentsMD, err := os.ReadFile(filepath.Join(projectDir, codex.AgentsMDFile))
-	require.NoError(t, err, "codex's cwd-keyed context surface is unaffected by that declaration")
-	assert.Contains(t, string(agentsMD), hookSentinel,
-		"an empty AGENTS.md would mean codex genuinely lost this context, not merely its hook")
-
-	// Link 2b — claude's hook approach must NOT also write a native CLAUDE.md.
-	// A static file alongside the hook would DOUBLE the context, which is the
-	// documented reason claude's hook arm resolves to a no-op.
-	_, err = os.Stat(filepath.Join(projectDir, "CLAUDE.md"))
-	assert.True(t, os.IsNotExist(err),
-		"claude delivers context via the hook here, so no native CLAUDE.md may be written alongside it")
-
-	// Link 3 — the hook's OWN OUTPUT. This is the destination the approach
-	// promises, and the only link an exit code cannot vouch for: the hook is
-	// written to always emit valid JSON, so a hook that found nothing still
-	// exits 0 and prints "{}".
-	env, err := testenv.NewTestEnvironment()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = env.Cleanup() })
-
-	cmd := exec.Command(env.AppBinary, "hook", "inject-context", "--project", projectDir, hash)
-	cmd.Stdin = strings.NewReader(`{"session_id":"delivery-matrix","source":"startup"}`)
-	out, err := cmd.Output()
-	require.NoError(t, err, "the inject-context hook must run cleanly; stdout was %q", string(out))
-	require.NotEmpty(t, out, "the hook printed NOTHING — a SessionStart hook that emits no JSON injects no context")
-
-	var payload struct {
-		HookSpecificOutput struct {
-			AdditionalContext string `json:"additionalContext"`
-		} `json:"hookSpecificOutput"`
-	}
-	require.NoError(t, json.Unmarshal(out, &payload),
-		"the hook must emit parseable SessionStart JSON, got %q", string(out))
-
-	require.NotEmpty(t, payload.HookSpecificOutput.AdditionalContext,
-		"the hook emitted valid JSON with an EMPTY additionalContext — exit 0, success shape, zero context")
-	assert.Contains(t, payload.HookSpecificOutput.AdditionalContext, hookSentinel,
-		"the fragment payload must reach the injected context, which is what agent.ApproachHook promises")
 }
 
 // TestHookApproach_MissingCacheFileInjectsNothingAndSaysSo is the negative

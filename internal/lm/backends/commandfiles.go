@@ -38,28 +38,6 @@ func claudeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	})
 }
 
-// codexExports resolves the codex per-prompt LLM export config.
-func codexExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
-		cx := p.LLM.Codex
-		return agent.CommandExport{
-			Enabled:      cx.IsEnabled(),
-			Description:  cx.Description,
-			ArgumentHint: cx.ArgumentHint,
-		}
-	})
-}
-
-// opencodeExports resolves the opencode per-prompt LLM export config. opencode
-// commands carry only a description in their frontmatter (the body is the
-// template), so only enablement + description are mapped.
-func opencodeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
-		o := p.LLM.Opencode
-		return agent.CommandExport{Enabled: o.IsEnabled(), Description: o.Description}
-	})
-}
-
 // exportNames maps each prompt's full identity (LoadedContent.Name) to its
 // export-facing command name. The short form (bundle's last path segment +
 // item, see LoadedContent.ExportName) is used whenever it's unambiguous within

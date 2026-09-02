@@ -6,9 +6,9 @@
 // what ctxloom wrote. That is exactly backwards for a probe whose whole subject
 // is which mechanism carried the bytes: a model's answer is downstream of every
 // channel at once, so it can never attribute one. S4's hook-firing probe found
-// the same class of error from the other side (a codex cell answered correctly
-// while its hook had provably never run — the engine had searched the workspace
-// for the phrase), which is what forced this re-adjudication.
+// the same class of error from the other side (a cell answered correctly while
+// its hook had provably never run — the engine had searched the workspace for
+// the phrase), which is what forced this re-adjudication.
 //
 // The corrective is not a better live assertion. It is to pin the mechanisms
 // where they are DECLARED — in each backend's SurfaceFor — by building the real
@@ -16,12 +16,9 @@
 // A test here fails the day a backend changes what an approach delivers, which
 // is the day a P1 cell would otherwise start quietly measuring something else.
 //
-// Both findings below were established by reading production and are now held
-// by it:
+// The finding below was established by reading production and is now held by
+// it:
 //
-//   - codex's ApproachHook is a COMPOSED delivery that also writes AGENTS.md,
-//     which codex reads natively with no hook involved. So a green codex cell
-//     under a hook pin attributes nothing to the hook.
 //   - claude's ApproachHook context delivery is a documented NO-OP. Pinning it
 //     writes no context at all, which is why that cell reds — the route is not
 //     broken, it is empty by declaration.
@@ -30,7 +27,6 @@ package acceptance
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -86,49 +82,6 @@ func deliverContextUnder(t *testing.T, engine string, approach agent.Approach) m
 	return out
 }
 
-// TestCodexHookApproach_AlsoWritesAGENTSMD is the fact that falsified P1's
-// original codex finding.
-//
-// codex's Surfaces.SurfaceFor resolves (context, Hook) to its COMPOSED route:
-// the raw cache file a SessionStart hook would read AND the native AGENTS.md
-// managed-marker write. AGENTS.md needs no hook — codex reads it by itself at
-// session start — so a codex cell that pins the hook approach and gets its nonce
-// back has learned nothing whatsoever about the hook. The pin was honoured; it
-// simply is not a channel isolator.
-//
-// If this ever stops being true (codex gains a hook-only selector), the codex
-// hook cell can come back off deferred. Until then, this test is the reason it
-// is deferred.
-func TestCodexHookApproach_AlsoWritesAGENTSMD(t *testing.T) {
-	files := deliverContextUnder(t, "codex", agent.ApproachHook)
-	require.NotEmpty(t, files, "the hook approach delivered no files at all — if this is now true, P1's codex row needs re-measuring, not this test relaxing")
-
-	var agentsMD string
-	for name, body := range files {
-		if strings.EqualFold(filepath.Base(name), "AGENTS.md") {
-			agentsMD = body
-		}
-	}
-	require.NotEmpty(t, agentsMD,
-		"codex's HOOK approach must still write AGENTS.md — that composition is the whole reason a hook-pinned codex cell cannot attribute its green to the hook. Files delivered: %v", keysOf(files))
-	require.Contains(t, agentsMD, channelProbeHarp,
-		"AGENTS.md must carry the composed context: it is the channel codex actually reads, hook or no hook")
-}
-
-// TestCodexUnsafeFileApproach_IsTheNativeFileAlone is the other half of the
-// codex picture: the unsafe-file selector asks for AGENTS.md ALONE. Both codex
-// context approaches therefore deliver AGENTS.md, and only one of them adds a
-// cache file nobody reads unless a hook exists — which is why P1 keeps exactly
-// one codex context cell rather than a cell and its "control".
-func TestCodexUnsafeFileApproach_IsTheNativeFileAlone(t *testing.T) {
-	files := deliverContextUnder(t, "codex", agent.ApproachUnsafeFile)
-	require.Len(t, files, 1, "unsafe-file is documented as the native file ALONE; got %v", keysOf(files))
-	for name, body := range files {
-		require.True(t, strings.EqualFold(filepath.Base(name), "AGENTS.md"), "expected AGENTS.md, got %s", name)
-		require.Contains(t, body, channelProbeHarp)
-	}
-}
-
 // TestClaudeHookApproach_DeliversNothing pins the mechanism behind P1's one red.
 //
 // claude's SurfaceFor returns noopContextDelivery for (context, Hook) — a
@@ -158,13 +111,12 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 // workspace search can reach them" is answered here, per (engine, approach),
 // and nowhere else.
 //
-// The answer is lopsided, and the asymmetry is exactly why claude's cells can
-// be argued side-channel-controlled and codex's cannot:
+// The answer is lopsided, and the asymmetry is exactly which of claude's cells
+// can be argued side-channel-controlled:
 //
 //	claude  context/system-prompt -> HAS a realization (out-of-cwd scratch)
 //	claude  context/unsafe-file   -> none: the caller asked for CLAUDE.md
 //	claude  context/hook          -> none: it is a no-op anyway
-//	codex   anything              -> none, ever: codex has no out-of-cwd redirect
 //
 // An engine with no realization writes its context INTO the working directory
 // by construction. For a tool-using engine that is a channel, whatever the
@@ -182,14 +134,6 @@ func TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace(t *testi
 	_, ok = build("claude-code").SharedRealization(agent.SurfaceContext, agent.ApproachUnsafeFile)
 	require.False(t, ok,
 		"unsafe-file is the caller's explicit request for the native in-workspace write; a realization here would silently convert it and make the two claude cells measure the same thing")
-
-	for _, engine := range []string{"codex", "opencode"} {
-		for _, a := range []agent.Approach{agent.ApproachUnsafeFile, agent.ApproachHook, agent.ApproachSystemPrompt} {
-			_, ok := build(engine).SharedRealization(agent.SurfaceContext, a)
-			require.False(t, ok,
-				"%s must have no out-of-cwd realization at %s. If one appears, that engine's context cells stop being search-reachable by construction and their side-channel judgement in the registry must be revisited — do not leave the old judgement standing.", engine, a)
-		}
-	}
 }
 
 func keysOf(m map[string]string) []string {

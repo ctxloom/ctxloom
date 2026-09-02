@@ -102,7 +102,7 @@ func probeKey(rt Runtime, image string, roots []string) string {
 // the host scratch root (covers the socket dir, config overlays, session-state
 // mounts, and any copy-based credential mount — all of them live under
 // scratchRoot), and every OTHER mount's host path (a directly-mounted host
-// file or dir, e.g. codex's ~/.codex/auth.json or a linked worktree's mirrored
+// file or dir, e.g. claude's ~/.claude/.credentials.json or a linked worktree's mirrored
 // git common-dir). A mount whose Host is a FILE (a direct read-only credential
 // mount) probes its PARENT DIRECTORY instead — the probe writes its own marker
 // file alongside, never touching the real mounted file. Deduplicated and

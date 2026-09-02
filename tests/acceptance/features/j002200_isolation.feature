@@ -44,9 +44,9 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #      mock now also records req.WorkDir (internal/lm/backends/mock.go),
   #      the value isolation.Prepare actually resolved and threaded through
   #      RunOptions.WorkDir — THAT is the honest signal this journey reads.
-  #   2. Per-engine config-home isolation (CLAUDE_CONFIG_DIR / CODEX_HOME —
+  #   2. Per-engine config-home isolation (CLAUDE_CONFIG_DIR —
   #      internal/lm/isolation/auth.go's credentialSeedSpecs) is
-  #      keyed by the REGISTERED backend name (claude-code/codex only);
+  #      keyed by the REGISTERED backend name;
   #      the built-in "mock" backend has no entry, so Worktree's Env()
   #      contributes nothing for it — hermetically true for every workspace
   #      axis. This journey therefore proves the WORKSPACE boundary itself
@@ -59,10 +59,10 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #
   # UPDATE (isolation-matrix task): (2)'s gap is now filled, below, WITHOUT
   # abandoning the mock's hermetic guarantee. A real registered backend name
-  # (claude-code/codex/opencode) drives isolation.Prepare
+  # drives isolation.Prepare
   # exactly as a live run would — but PATH is rebuilt from scratch to a
   # scratch dir plus /usr/bin:/bin, so the literal binary a backend execs
-  # ("claude"/"codex"/"opencode") resolves ONLY to a
+  # resolves ONLY to a
   # recording spy script this suite writes, NEVER to a real installed engine
   # — no live credential, no network call, ever, in any scenario in this
   # file. The spy dumps its OWN os.Environ() (exactly what a real engine
@@ -73,9 +73,9 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # only vantage point from which the seeded byte content is observable at
   # all. See j002200_isolation.doc.md for the rendered matrix this proves and does
   # not prove, and steps_j002200_isolation_matrix.go's own package doc for why
-  # opencode (a stateful ACP handshake, not a plain oneshot exec) gets the
-  # fail-loud/warn CONTRACT below but not the exact spawned-env payload —
-  # that half stays pinned at the Go level (auth_test.go).
+  # an engine driven over a stateful handshake rather than a plain oneshot
+  # exec gets the fail-loud/warn CONTRACT below but not the exact spawned-env
+  # payload — that half stays pinned at the Go level (auth_test.go).
   #
   # The RUNTIME axis's real container LAUNCH boundary needs a live container
   # daemon plus a built agent image; that is out of hermetic scope. What IS
@@ -280,12 +280,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # project. An earlier version checked only that two phrases were missing from
   # the output, which an audit showed is equally satisfied by a run in which the
   # engine never launched at all.
-  #
-  # This table lists TWO engines, not four, and the two absentees are the
-  # honest part. codex and opencode each have their own scenario below,
-  # because for them the sentence above is not true as written — and a table
-  # row that quietly asserts less than its scenario's title claims is how the
-  # audit's finding happened in the first place.
   Scenario Outline: workspace "none" never touches any engine's config-home isolation for Alice's own session
     Given Alice has a git-backed project
     When Alice runs "<engine>" under workspace "none" as her own session, naming no agent
@@ -319,12 +313,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # matter — a variable naming a home the engine cannot authenticate against is
   # worse than no relocation at all, and asserting only the variable would pass
   # in exactly that world.
-  #
-  # codex IS a row now. It used to be absent because it relocated CODEX_HOME on
-  # every in-tree run regardless of this key; D2 (ruled 2026-08-11) ended that
-  # asymmetry, so codex reads config_home exactly like claude and this
-  # outline covers both. opencode stays out because its only home lever is
-  # XDG_CONFIG_HOME/XDG_DATA_HOME, which are not engine-private.
   Scenario Outline: An in-tree AGENT run gets a per-session config-home instance instead of Alice's own home
     Given Alice has a git-backed project
     And Alice has whatever host credentials "<engine>" needs to authenticate
@@ -337,7 +325,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | engine      | var               |
       | claude-code | CLAUDE_CONFIG_DIR |
-      | codex       | CODEX_HOME        |
 
   # UNDECLARED config_home — the headline behaviour move. This is the SAME
   # fixture as the scenario above with ONE difference: the "iso" binding never
@@ -349,11 +336,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # agent-bound run gets a controlled home) this scenario fails, because the
   # spy would report a project-scoped CLAUDE_CONFIG_DIR that must not
   # exist here.
-  #
-  # codex's row is D2's red-first case specifically: against the pre-D2 tree
-  # codex relocated CODEX_HOME here unconditionally, so an instance WOULD exist
-  # in the project and this row fails. It is the one that proves the asymmetry
-  # actually ended rather than merely being described as ended.
   Scenario Outline: An in-tree AGENT run with an undeclared config_home keeps Alice's own real home
     Given Alice has a git-backed project
     And Alice has whatever host credentials "<engine>" needs to authenticate
@@ -364,7 +346,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | engine      |
       | claude-code |
-      | codex       |
 
   # THE EXPLICIT OPT-OUT. config_home: host reads IDENTICALLY to the undeclared
   # scenario above on outcome — both keep the real host home — but the two pin
@@ -385,7 +366,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | engine      |
       | claude-code |
-      | codex       |
 
   # The credential half of the "gets a ctxloom-controlled config home" scenario
   # above, claude-code only. The copy is ACCESS-TOKEN-ONLY (easiest-stomp, ruled
@@ -453,41 +433,9 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     When Alice runs the isolated "claude-code" agent under workspace "none"
     Then the run aborts with an isolation finding naming "no ANTHROPIC_API_KEY and no host ~/.claude/.credentials.json"
 
-  # codex USED TO BE the documented exception here: it relocated CODEX_HOME on
-  # every in-tree run regardless of config_home, so `workspace: none` still met
-  # a relocation that needed credentials seeded into it. D2 (ruled 2026-08-11)
-  # ended that — an undeclared binding now keeps Alice's real ~/.codex, which
-  # the outlines above cover alongside claude.
-  #
-  # What survives is the CREDENTIAL half, and it survives with a different
-  # reason: codex still refuses to launch against a home with nothing to
-  # authenticate with, but the home is now Alice's own, so ctxloom VERIFIES it
-  # rather than copying into it — and says so, because ctxloom never writes a
-  # home it did not create. The failure is a plain backend error (exit 1), NOT
-  # a ClassIsolation finding (exit 3): ctxloom's isolation gates genuinely
-  # stayed out of the way.
-  Scenario: workspace "none" leaves codex on Alice's own home, and refuses to launch when it cannot authenticate
-    Given Alice has a git-backed project
-    And Alice has no "codex" credentials or API key on the host
-    When Alice runs the isolated "codex" agent under workspace "none"
-    Then the run fails without any isolation finding, naming "no OPENAI_API_KEY and no credentials at"
-    And no ctxloom-controlled config home exists for "codex" in the project
-
-  # opencode's baseline row, split out for a HARNESS reason rather than a
-  # product one: opencode is driven over ACP, a stateful JSON-RPC handshake,
-  # and this file's spy is a dumb recorder that dumps its env and exits — so
-  # the handshake never completes and no exit code or spy recording is
-  # available to assert on. What the row can still prove, and does, is that
-  # every isolation gate was passed and the run reached an actual engine
-  # spawn from the PATH-sandboxed spy directory.
-  Scenario: workspace "none" leaves opencode's own launch untouched, right up to the engine spawn
-    Given Alice has a git-backed project
-    When Alice runs the isolated "opencode" agent under workspace "none"
-    Then the run proceeds past every isolation gate to spawn the engine itself
-
   # LOCKED — the safety net grave-prize exists to guarantee: an isolated
   # worktree run for an engine that DOES relocate credentials with its
-  # config-home var (claude/codex/opencode all HonoursVarForCreds=true —
+  # config-home var (HonoursVarForCreds=true —
   # auth.go) refuses to start rather than silently handing the engine an
   # empty, logged-out config-home. This is provable without any engine binary
   # at all: the finding fires, and the run aborts, BEFORE isolation.Prepare
@@ -501,8 +449,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | engine      | needle                                                              |
       | claude-code | no ANTHROPIC_API_KEY and no host claude credentials                |
-      | codex       | no OPENAI_API_KEY and no host codex credentials                    |
-      | opencode    | no OPENROUTER_API_KEY and no host opencode credentials             |
 
   # The bypass half of the SAME gate: an API key riding the environment is
   # its own proof of intent to authenticate that way (auth.go's
@@ -516,8 +462,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # gate stood down. Asserting merely that no finding was printed used to let
   # this pass under a mutation that stopped any engine from launching, and
   # under one that collapsed isolation to nothing at all; the degrade warning's
-  # wording matched neither needle. opencode's row moved to its own scenario
-  # below for the ACP reason described there.
+  # wording matched neither needle.
   Scenario Outline: The same engines proceed without any isolation finding once their API key rides the environment
     Given Alice has a git-backed project
     And Alice has no "<engine>" credentials on the host
@@ -529,22 +474,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | engine      | var               |
       | claude-code | CLAUDE_CONFIG_DIR |
-      | codex       | CODEX_HOME        |
-
-  # opencode's row of the same claim. Its ACP launch cannot reach this file's
-  # dumb spy (see the workspace-"none" opencode scenario above and the
-  # file-level note in steps_j002200_isolation_matrix.go), so the payload it can
-  # prove is that the credential gate stood down and the run went all the way
-  # to spawning opencode from the sandboxed PATH. The spawned-env payload
-  # proper — opencode's XDG_DATA_HOME/opencode nesting — is pinned at the Go
-  # level by internal/lm/isolation/auth_test.go's
-  # TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode.
-  Scenario: opencode proceeds past the credential gate too once OPENROUTER_API_KEY rides the environment
-    Given Alice has a git-backed project
-    And Alice has no "opencode" credentials on the host
-    And Alice has set the "opencode" API key in the environment
-    When Alice runs the isolated "opencode" agent under workspace "worktree"
-    Then the run proceeds past every isolation gate to spawn the engine itself
 
   # LOCKED — the ISOLATED case, positively proven, but only ONE HALF of the
   # claim its own name suggests. What this scenario actually proves: ctxloom's
@@ -553,7 +482,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # cooperative BY CONSTRUCTION (see the file-level UPDATE note above): it
   # dumps whatever env it was handed and cats whatever file that env points
   # at, so this scenario is INCAPABLE of going red if a real vendor engine
-  # read CLAUDE_CONFIG_DIR/CODEX_HOME and then wrote somewhere else anyway —
+  # read CLAUDE_CONFIG_DIR and then wrote somewhere else anyway —
   # that engine would never run here at all. A prior version of this comment
   # claimed otherwise ("this is the exact claim that would go RED the moment
   # a vendor engine... stopped honoring the var"); that claim was false and
@@ -565,17 +494,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # this one is fast, hermetic, and catches a ctxloom-side regression in CI on
   # every commit; the probe is slow, costs a real paid call, and is the one
   # that catches a vendor-side regression a spy can never see.
-  # codex's whole auth.json is safe to copy verbatim — it never rotates in a
-  # non-interactive run (auth.go's resolveCodexContainerAuth doc), so there is
-  # no refresh token to strip and the isolated copy is byte-identical.
-  Scenario: A worktree codex run copies the host credential into the isolated config-home verbatim, and never touches the host's own copy
-    Given Alice has a git-backed project
-    And Alice has a "codex" credential fixture on the host
-    When Alice runs the isolated "codex" agent under workspace "worktree"
-    Then the spy "codex" process's "CODEX_HOME" env var points to an isolated per-agent directory, not the host's own
-    And the isolated "codex" credential matches the host fixture byte-for-byte
-    And the host "codex" credential file was never modified
-
   # claude's copy is ACCESS-TOKEN-ONLY (easiest-stomp): the same CopyAmbient
   # mechanism as the in-tree axis, so the worktree exposure closes here too —
   # the isolated copy authenticates but cannot rotate the host's single-use

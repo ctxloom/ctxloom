@@ -42,7 +42,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -350,26 +349,10 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	assert.Len(t, result.Backends, 3)
 	assert.Contains(t, result.Backends, "claude-code")
-	assert.Contains(t, result.Backends, "codex")
-	assert.Contains(t, result.Backends, "opencode")
 
 	// Verify each backend's settings file was created
 	exists, err := afero.Exists(fs, "/project/.claude/settings.json")
-	require.NoError(t, err)
-	assert.True(t, exists)
-
-	// codex's config home is the one ctxloom RELOCATES, so its path comes from
-	// codex's own writer (the engine-home policy's single owner) rather than
-	// from a literal this test would then have to keep in step by hand.
-	exists, err = afero.Exists(fs, (&codex.CodexHookWriter{}).SettingsPath(tmpDir))
-	require.NoError(t, err)
-	assert.True(t, exists)
-
-	// opencode has no ctxloom hook mechanism, but its MCP (the auto-registered
-	// ctxloom server) is written into opencode.json.
-	exists, err = afero.Exists(fs, "/project/opencode.json")
 	require.NoError(t, err)
 	assert.True(t, exists)
 }
@@ -512,46 +495,6 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 	exists, err := afero.Exists(fs, claude.ProjectSettingsPath(home))
 	require.NoError(t, err)
 	assert.True(t, exists, "--force must actually write the settings file")
-}
-
-// TestApplyHooks_CodexHomeCollisionIsUnreachable replaces the codex half of the
-// hook-scope guard family (claude's sibling above is unchanged and still
-// load-bearing).
-//
-// The guard existed because `manage hooks install` from $HOME made codex's
-// PROJECT home resolve onto its GLOBAL one, so ctxloom's hooks and MCP servers
-// would land in the developer's ~/.codex/config.toml and follow them into every
-// project. S7 removed the collision at its source rather than guarding it:
-// codex has no project home to collapse (internal/codex/declared_absence.go),
-// so there is nothing to point at $HOME.
-//
-// THE CLAIM IS STRONGER THAN THE OLD REFUSAL, and that is why the scenario is
-// kept rather than deleted. The apply SUCCEEDS — a declared absence is a skip,
-// not a failure — and the user's own ~/.codex/config.toml is still not there
-// afterwards. A regression that regrows any project-root fallback writes that
-// file and fails here, exactly as the old refusal would have.
-func TestApplyHooks_CodexHomeCollisionIsUnreachable(t *testing.T) {
-	home := testsupport.Isolate(t)
-	fs := afero.NewMemMapFs()
-	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
-
-	globalHome, err := codex.GlobalHome()
-	require.NoError(t, err)
-	require.Equal(t, filepath.Join(home, ".codex"), globalHome,
-		"precondition: WorkDir IS $HOME, which is what used to make the two collapse")
-
-	res, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "codex",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      home,
-	})
-	require.NoError(t, err, "there is no longer a collision to refuse")
-	require.NotNil(t, res)
-
-	leaked, err := afero.Exists(fs, filepath.Join(globalHome, "config.toml"))
-	require.NoError(t, err)
-	assert.False(t, leaked, "ctxloom never writes the user's own codex home — least of all by accident, from $HOME")
 }
 
 // TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend is the
@@ -764,32 +707,6 @@ func TestApplyHooks_ClaudeCode_NoNativeContextFile(t *testing.T) {
 	assert.True(t, exists, "the settings.json carrying the inject hook must still be written")
 }
 
-// TestApplyHooks_Codex_NoNativeContextFile pins the same guardrail for codex:
-// its context surface is Hook-only (no CLAUDE.md-style native file exists for
-// codex at all), so apply must write only config.toml — never a stray native
-// context file.
-func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	tmpDir := "/project"
-
-	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{}, nil
-	}
-
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "codex",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      tmpDir,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "applied", result.Status)
-
-	exists, err := afero.Exists(fs, (&codex.CodexHookWriter{}).SettingsPath(tmpDir))
-	require.NoError(t, err)
-	assert.True(t, exists, "codex's config.toml must be written")
-}
-
 // TestApplyHooks_RegenerateContextSubstitutesVariables pins parity with
 // AssembleContext: profile-declared variables must be substituted into the
 // regenerated context file. regenerateContext is a second assembly of the
@@ -799,7 +716,7 @@ func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
 // pins that a genuine context-regeneration FAILURE (RegenerateContext:
 // true, but the regen write itself errors — degraded mode warns and does
 // not abort) must never silently strip a native-file backend's
-// PREVIOUSLY-installed managed context (.agents/AGENTS.md), and must never
+// PREVIOUSLY-installed managed context, and must never
 // report status "applied" — the signature "success reported, bytes
 // destroyed" bug. This is distinct from the LEGITIMATE RegenerateContext:
 // false path (which never attempts regeneration at all, and is unaffected
@@ -832,19 +749,19 @@ fragments:
 		}), nil
 	}
 
-	agentsMDPath := filepath.Join(tmpDir, "AGENTS.md")
+	nativeContextPath := filepath.Join(tmpDir, "MOCK_CONTEXT.md")
 
 	// First apply: succeeds, installs real managed context.
 	result1, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:           "codex",
+		Backend:           "mock",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "applied", result1.Status)
-	before, err := os.ReadFile(agentsMDPath)
-	require.NoError(t, err, "AGENTS.md must carry the assembled context after the first apply")
+	before, err := os.ReadFile(nativeContextPath)
+	require.NoError(t, err, "the native context file must carry the assembled context after the first apply")
 	require.Contains(t, string(before), "Always validate input")
 
 	// Force the NEXT regeneration to genuinely fail: WriteContextFile's
@@ -857,7 +774,7 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "cache"), []byte("blocking file"), 0644))
 
 	result2, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:           "codex",
+		Backend:           "mock",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
@@ -866,7 +783,7 @@ fragments:
 	assert.NotEqual(t, "applied", result2.Status,
 		"a genuine context-regeneration failure must never report status \"applied\"")
 
-	after, err := os.ReadFile(agentsMDPath)
+	after, err := os.ReadFile(nativeContextPath)
 	require.NoError(t, err, "the existing native context file must still exist after a failed regeneration")
 	assert.Equal(t, string(before), string(after),
 		"a failed regeneration must never strip or alter existing native-file managed context")

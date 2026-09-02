@@ -11,7 +11,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -20,44 +19,12 @@ import (
 // path its engine's own writer produces:
 //
 //	claude       ClaudeCodeHookWriter.MCPConfigPath  (.mcp.json)
-//	opencode     OpencodeWriter.SettingsPath         (opencode.json, with the
-//	             servers folded in under its own "mcp" key)
 //
-// CODEX IS ABSENT FROM THIS LIST, and that absence is the declared one, not an
-// oversight: codex has no project-relative MCP registry at all — its servers
-// fold into $CODEX_HOME/config.toml, and CodexHookWriter.SettingsPath returns
-// "" to say so (internal/codex/declared_absence.go). It is still CHECKED, by
-// absolute path, through doctorCodexMCPSurfaces below; dropping it from the
-// list without putting it back somewhere would have quietly ended stale-entry
-// coverage for the one engine whose entry lives outside the project.
-//
-// A user-global surface (~/.claude.json) is deliberately absent for claude:
-// this check reports what THIS project materialized, and a fix it names
-// ('ctxloom init' in this project) would not reach a home-scoped entry anyway.
-// codex is the exception because it has no project-scoped alternative to
-// report instead.
+// A user-global surface (~/.claude.json) is deliberately absent: this check
+// reports what THIS project materialized, and a fix it names ('ctxloom init'
+// in this project) would not reach a home-scoped entry anyway.
 var doctorMCPInvocationSurfaces = []string{
 	claude.MCPFileName,
-	"opencode.json",
-}
-
-// doctorCodexMCPSurfaces returns the ABSOLUTE config.toml paths codex's MCP
-// entries can actually live in, for the same stale-invocation read the
-// project-relative list gets: the host home codex resolves for an unbound run,
-// and the most recent per-session instance if one is on disk.
-//
-// Both are OUTSIDE the project tree (or, for the instance, inside it but under
-// a harp nobody can spell in a static list), which is exactly why they need
-// their own resolver. Neither is created; an absent one is simply not returned.
-func doctorCodexMCPSurfaces(projectDir string) []string {
-	var out []string
-	if home, err := codex.GlobalHome(); err == nil && home != "" {
-		out = append(out, filepath.Join(home, codex.ConfigFileName))
-	}
-	if instance, err := doctorMostRecentCodexInstance(projectDir); err == nil && instance.path != "" {
-		out = append(out, filepath.Join(instance.path, codex.ConfigFileName))
-	}
-	return out
 }
 
 // doctorCheckMCPInvocation reports any materialized ctxloom MCP entry whose
@@ -81,18 +48,12 @@ func doctorCheckMCPInvocation(projectDir string) doctorCheck {
 			Detail: "no project directory to check"}
 	}
 
-	// One list of (what to report it as, where to read it): the project-relative
-	// surfaces resolved against this project root, plus codex's home-keyed ones,
-	// which are already absolute. Reporting the ABSOLUTE path for codex is
-	// deliberate — a bare "config.toml" would leave the reader unable to tell
-	// which of the two homes carries the stale entry.
+	// One list of (what to report it as, where to read it): the
+	// project-relative surfaces resolved against this project root.
 	type mcpSurface struct{ label, path string }
-	surfaces := make([]mcpSurface, 0, len(doctorMCPInvocationSurfaces)+2)
+	surfaces := make([]mcpSurface, 0, len(doctorMCPInvocationSurfaces))
 	for _, rel := range doctorMCPInvocationSurfaces {
 		surfaces = append(surfaces, mcpSurface{label: rel, path: filepath.Join(projectDir, rel)})
-	}
-	for _, abs := range doctorCodexMCPSurfaces(projectDir) {
-		surfaces = append(surfaces, mcpSurface{label: abs, path: abs})
 	}
 
 	var stale, unreadable []string
@@ -186,8 +147,8 @@ const mcpNounToken = "mcp"
 // entry launches, and whether the entry is a stdio server at all.
 //
 // Two spellings are in play and both are the engine's own, not a ctxloom
-// choice: most registries carry `command` plus an `args` array, while
-// opencode.json folds the binary and its arguments into ONE `command` array.
+// choice: most registries carry `command` plus an `args` array, while some
+// fold the binary and its arguments into ONE `command` array.
 // A remote (url/serverUrl) entry is user-authored and names no subcommand, so
 // it reports false rather than an empty token list — "not a stdio server" and
 // "a stdio server invoking nothing" are different findings, and only the

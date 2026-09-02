@@ -19,7 +19,7 @@ type EngineExport struct {
 	Enabled *bool `yaml:"enabled,omitempty"`
 	// Description is the engine-facing description (help text, command palette).
 	Description string `yaml:"description,omitempty"`
-	// ArgumentHint is the autocomplete hint (claude-code, codex).
+	// ArgumentHint is the autocomplete hint, for engines that take one.
 	ArgumentHint string `yaml:"argument_hint,omitempty"`
 	// AllowedTools restricts tools for the exported command (claude-code).
 	AllowedTools []string `yaml:"allowed_tools,omitempty"`
@@ -34,7 +34,7 @@ func (e EngineExport) IsEnabled() bool {
 }
 
 // EngineExports is per-engine export settings keyed by engine name
-// ("claude-code", "codex", "kiro", "opencode", …).
+// ("claude-code", …).
 //
 // Engine names are NOT validated against a closed list. An unknown engine's
 // settings are carried verbatim rather than dropped: a bundle authored against a

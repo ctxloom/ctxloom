@@ -192,8 +192,6 @@ func loadCuratedPrompts(pipe *bundles.Pipeline, refs []string) []*bundles.Loaded
 func forceExport(c *bundles.LoadedContent) *bundles.LoadedContent {
 	on := true
 	c.LLM.ClaudeCode.Enabled = &on
-	c.LLM.Codex.Enabled = &on
-	c.LLM.Opencode.Enabled = &on
 	return c
 }
 
@@ -234,9 +232,6 @@ func builtinCommands() []*bundles.LoadedContent {
 			Content: body,
 			LLM: bundles.LLMExports{
 				ClaudeCode: bundles.ClaudeCodeConfig{
-					Description: description,
-				},
-				Codex: bundles.CodexConfig{
 					Description: description,
 				},
 			},

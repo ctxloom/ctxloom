@@ -7,55 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/codex"
 )
-
-// TestDoctorMCPSurfaces_CodexIsHomeKeyedNotProjectRelative is the cross-package
-// half of the codex writer-agreement gate: doctor must read the files codex's
-// MCP servers can actually be in, and since S7 none of them is
-// project-relative.
-//
-// BOTH HALVES MATTER. The absence from the project-relative list is what stops
-// doctor statting the project ROOT — SettingsPath returns "" now, and
-// filepath.Join(root, "") is root, so a leftover entry there reads a directory
-// and reports it unreadable on every healthy project. The presence in the
-// home-keyed list is what stops the removal from silently ending stale-entry
-// coverage for the one engine whose entry lives outside the project.
-func TestDoctorMCPSurfaces_CodexIsHomeKeyedNotProjectRelative(t *testing.T) {
-	for _, rel := range doctorMCPInvocationSurfaces {
-		assert.NotEqual(t, ".toml", filepath.Ext(rel),
-			"codex has no project-relative MCP registry; %q would be read against the project root", rel)
-	}
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(codex.CodexHomeEnv, "")
-
-	surfaces := doctorCodexMCPSurfaces(t.TempDir())
-	require.NotEmpty(t, surfaces, "doctor must still read codex's home-keyed registry")
-	assert.Equal(t, filepath.Join(home, ".codex", codex.ConfigFileName), surfaces[0],
-		"the first codex surface is the host home codex itself resolves for an unbound run")
-}
-
-// TestDoctorCheckMCPInvocation_ReadsCodexHostHome is the payload half: a stale
-// entry in the user's OWN ~/.codex/config.toml — the home an unbound codex run
-// uses — must still be found and named by its absolute path. A relative name
-// would leave a user with two codex homes unable to tell which one to fix.
-func TestDoctorCheckMCPInvocation_ReadsCodexHostHome(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(codex.CodexHomeEnv, "")
-	hostConfig := filepath.Join(home, ".codex", codex.ConfigFileName)
-	require.NoError(t, os.MkdirAll(filepath.Dir(hostConfig), 0o755))
-	require.NoError(t, os.WriteFile(hostConfig,
-		[]byte("[mcp_servers.ctxloom]\ncommand = \"/bin/ctxloom\"\nargs = [\"mcp\"]\n"), 0o644))
-
-	check := doctorCheckMCPInvocation(t.TempDir())
-
-	assert.Equal(t, doctorWarn, check.Status)
-	assert.Contains(t, check.Detail, hostConfig, "the report names the absolute path of the home it read")
-}
 
 // writeSurface materializes one engine's MCP registry under root, creating the
 // directories the engine would have created itself.
@@ -110,19 +62,12 @@ func TestDoctorCheckMCPInvocation_RightState_CurrentEntryIsQuiet(t *testing.T) {
 }
 
 // TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat pins that the
-// check follows each engine to its OWN surface in its OWN format. Reading only
-// claude's .mcp.json would report a clean project to a user whose codex or
-// opencode entry is the broken one.
+// check follows each engine to its OWN surface in its OWN format. Reading a
+// surface an engine does not use would report a clean project to a user whose
+// materialized entry is the broken one.
 func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 	staleFor := map[string]string{
 		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
-		// codex is absent: its registry is home-keyed, so it has no
-		// project-relative row here at all — TestDoctorCheckMCPInvocation_
-		// ReadsCodexHostHome covers the TOML format against the home it does
-		// live in.
-		// opencode folds the binary and its arguments into one array, so the
-		// stale spelling there is a trailing "mcp" rather than an args list.
-		"opencode.json": `{"mcp": {"ctxloom": {"type": "local", "command": ["/bin/ctxloom", "mcp"], "enabled": true}}}`,
 	}
 
 	for rel, body := range staleFor {
@@ -143,8 +88,7 @@ func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 // read as healthy, or the check is just a file-exists probe wearing a warning.
 func TestDoctorCheckMCPInvocation_RightState_CurrentEntryInEveryFormatIsQuiet(t *testing.T) {
 	currentFor := map[string]string{
-		".mcp.json":     `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp", "serve"]}}}`,
-		"opencode.json": `{"mcp": {"ctxloom": {"type": "local", "command": ["/bin/ctxloom", "mcp", "serve"], "enabled": true}}}`,
+		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp", "serve"]}}}`,
 	}
 
 	for rel, body := range currentFor {

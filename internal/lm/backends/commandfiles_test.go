@@ -33,10 +33,6 @@ func TestExports_UseShortNamesForRemoteBundles(t *testing.T) {
 	claudeEx := claudeExports(prompts)
 	require.Len(t, claudeEx, 1)
 	assert.Equal(t, "go-development/code-review", claudeEx[0].Name)
-
-	codexEx := codexExports(prompts)
-	require.Len(t, codexEx, 1)
-	assert.Equal(t, "go-development/code-review", codexEx[0].Name)
 }
 
 // When two bundles shorten to the same export name, both fall back to their
@@ -54,25 +50,6 @@ func TestExports_CollisionFallsBackToFullSanitizedName(t *testing.T) {
 	for _, e := range claudeEx {
 		assert.NotContains(t, e.Name, ":", "fallback names must be filesystem-safe on Windows")
 	}
-}
-
-// Codex is a first-class export target: it resolves the codex per-prompt
-// enablement + metadata exactly like claude. (The codex module ships a
-// full WriteCommandFiles; the host dispatch falling through to nil meant codex
-// never received ctxloom slash commands.)
-func TestExports_CodexResolvesEnablementAndMetadata(t *testing.T) {
-	enabled := true
-	p := remotePrompt("https://github.com/owner/repo@bundles/go-dev", "review")
-	p.LLM.Codex.Enabled = &enabled
-	p.LLM.Codex.Description = "codex desc"
-	p.LLM.Codex.ArgumentHint = "hint"
-
-	ex := CommandExportsFor("codex", []*bundles.LoadedContent{p})
-	require.Len(t, ex, 1)
-	assert.Equal(t, "go-dev/review", ex[0].Name)
-	assert.Equal(t, "codex desc", ex[0].Description)
-	assert.Equal(t, "hint", ex[0].ArgumentHint)
-	assert.True(t, ex[0].Enabled)
 }
 
 // Builtin prompts have no bundle metadata; their names pass through untouched.

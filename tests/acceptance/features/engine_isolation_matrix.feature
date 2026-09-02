@@ -9,13 +9,9 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
 
   CLAUDE IS THE ENGINE THIS FEATURE DRIVES NOW. The matrix is built on two axes
   that apply to any engine ctxloom ships, and claude is the one currently wired
-  active on all six combinations of them. Codex and opencode are
-  designed on the identical two axes — their Examples blocks are further down
-  this file, each now tagged work-in-progress, carrying every comment and
-  measured finding they already had, untouched — but they are not the engine
-  under active test here. Wire one back in the same way claude is wired above
-  them: drop the work-in-progress tag once it becomes the engine under active
-  test again.
+  active on all six combinations of them. Wire another engine in the same way
+  claude is wired: give it an Examples block per combination of the two axes,
+  and a registry cell recording what each is expected to do.
 
   THE TWO AXES, NAMED PLAINLY, because the table below crosses them and a
   reader should not have to already know which is which to read it. `runtime`
@@ -90,8 +86,8 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
   Agent containerization had never been demonstrably correct here — the
   container-auth lane sat red for fifteen days — so these rows were added red ON
   PURPOSE, as the map the fix would be measured against. Container auth keying
-  then landed, and the cells were run serially: claude-code, codex and
-  opencode passed on BOTH container axes against real engines, credentials
+  then landed, and the cells were run serially, passing on BOTH container axes
+  against real engines, credentials
   arriving through the real-home read-write mount.
 
   THAT EVIDENCE IS NOW ATTRIBUTED TO container-rootless SPECIFICALLY, not
@@ -192,149 +188,3 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
     Examples:
       | engine      | runtime          | workspace |
       | claude-code | container-rootful | worktree  |
-
-    # ============================================================
-    # OTHER ENGINES — SAME TWO AXES (runtime × workspace), NOT YET DRIVEN.
-    #
-    # Everything below runs on the identical grid claude uses above. Each
-    # block is tagged @wip rather than deleted or commented out: the rows stay
-    # PARSED, stay ADDRESSABLE by `just engine-matrix <engine> <runtime>
-    # <workspace>`, and stay VISIBLE in the corpus, and every measured finding
-    # recorded beside them survives verbatim. Wire an engine back into the
-    # ACTIVE FLOOR above the same way claude is wired: drop its @wip tag when
-    # it becomes the engine
-    # under active test again.
-    # ============================================================
-
-    # @wip — not a defect: codex is designed on the same two axes claude
-    # drives above, but it is not the engine under active test right now.
-    # Untag when codex becomes a driven engine again.
-    @codex @host @ws-none @wip
-    Examples:
-      | engine | runtime | workspace |
-      | codex  | host    | none      |
-
-    # @wip — not a defect: codex is designed on the same two axes claude
-    # drives above, but it is not the engine under active test right now.
-    # Untag when codex becomes a driven engine again.
-    @codex @host @ws-worktree @wip
-    Examples:
-      | engine | runtime | workspace |
-      | codex  | host    | worktree  |
-
-    # @wip — not a defect: codex is designed on the same two axes claude
-    # drives above, but it is not the engine under active test right now.
-    # This is the container-rootless row; see the header's "THAT EVIDENCE IS
-    # NOW ATTRIBUTED" paragraph — codex was one of the three engines the
-    # 2026-08-13 coordinator chain ran green here, under the only ownership
-    # this suite has ever reached. Untag when codex becomes a driven engine
-    # again.
-    @codex @container-rootless @ws-none @wip
-    Examples:
-      | engine | runtime           | workspace |
-      | codex  | container-rootless | none      |
-
-    # @wip — not a defect: codex is designed on the same two axes claude
-    # drives above, but it is not the engine under active test right now.
-    # Container-rootless row; see the note on codex's container-rootless/none
-    # block above. Untag when codex becomes a driven engine again.
-    @codex @container-rootless @ws-worktree @wip
-    Examples:
-      | engine | runtime           | workspace |
-      | codex  | container-rootless | worktree  |
-
-    # @wip, and WIRED-NOT-YET-LIVE-VERIFIED for a second, independent reason:
-    # codex is not the engine under active test, AND this box cannot reach a
-    # rootful container runtime at all (see the claude-code container-rootful
-    # rows above for the full account). Untag when codex becomes a driven
-    # engine again; that is independent of the rootful-runner gap, which stays
-    # open regardless.
-    @codex @container-rootful @ws-none @wip
-    Examples:
-      | engine | runtime          | workspace |
-      | codex  | container-rootful | none      |
-
-    # @wip, and WIRED-NOT-YET-LIVE-VERIFIED — see the note on codex's
-    # container-rootful/none block above; identical reasoning, worktree axis.
-    @codex @container-rootful @ws-worktree @wip
-    Examples:
-      | engine | runtime          | workspace |
-      | codex  | container-rootful | worktree  |
-
-    # @wip — not a defect: opencode is designed on the same two axes claude
-    # drives above, but it is not the engine under active test right now.
-    # Untag when opencode becomes a driven engine again.
-    @opencode @host @ws-none @wip
-    Examples:
-      | engine   | runtime | workspace |
-      | opencode | host    | none      |
-
-    # GREEN, but FLAKY — recorded rather than smoothed over. Measured
-    # 2026-08-13: two consecutive attempts, the first FAILED and the second
-    # passed in 100s, same fixture, same box. The failing attempt's stderr:
-    #
-    #   ctxloom: warning: run channel down (reconnecting): rpc error: code =
-    #     Unavailable ... dial tcp 127.0.0.1:1: connect: connection refused
-    #   ctxloom: warning: runner dial-home failed (reconnecting; the
-    #     coordinator synthesizes loss meanwhile): coord: open RunnerChannel:
-    #     ... dial tcp 127.0.0.1:1: connect: connection refused
-    #
-    # 127.0.0.1:1 is not a real endpoint, so the runner was handed a
-    # placeholder reach-back address rather than a live one — the same family
-    # as the standup-death silence fixed at 2725325e, and worth chasing on
-    # that evidence. This cell is left untagged (it does pass) with the
-    # flakiness documented here: if it goes red in a lane, check for that dial
-    # address before assuming the engine.
-    #
-    # ADDENDUM 2026-08-16: this cell is now ALSO tagged @wip, for an
-    # unrelated, second reason — opencode is not the engine under active test
-    # right now (same as every other row in this section). The "left
-    # untagged" sentence above describes the 2026-08-13 decision and is kept
-    # verbatim as history; it no longer describes this cell's current tag
-    # state. Untag when opencode becomes a driven engine again — that is
-    # independent of the flakiness finding above, which remains open on its
-    # own and does not itself block untagging.
-    @opencode @host @ws-worktree @wip
-    Examples:
-      | engine   | runtime | workspace |
-      | opencode | host    | worktree  |
-
-    # @wip — not a defect: opencode is designed on the same two axes claude
-    # drives above, but it is not the engine under active test right now. This
-    # is the container-rootless row; see the header's "THAT EVIDENCE IS NOW
-    # ATTRIBUTED" paragraph — opencode was one of the three engines the
-    # 2026-08-13 coordinator chain ran green here, under the only ownership
-    # this suite has ever reached. Untag when opencode becomes a driven engine
-    # again.
-    @opencode @container-rootless @ws-none @wip
-    Examples:
-      | engine   | runtime           | workspace |
-      | opencode | container-rootless | none      |
-
-    # @wip — not a defect: opencode is designed on the same two axes claude
-    # drives above, but it is not the engine under active test right now.
-    # Container-rootless row; see the note on opencode's
-    # container-rootless/none block above. Untag when opencode becomes a
-    # driven engine again.
-    @opencode @container-rootless @ws-worktree @wip
-    Examples:
-      | engine   | runtime           | workspace |
-      | opencode | container-rootless | worktree  |
-
-    # @wip, and WIRED-NOT-YET-LIVE-VERIFIED for a second, independent reason:
-    # opencode is not the engine under active test, AND this box cannot reach
-    # a rootful container runtime at all (see the claude-code
-    # container-rootful rows above for the full account). Untag when opencode
-    # becomes a driven engine again; that is independent of the rootful-runner
-    # gap, which stays open regardless.
-    @opencode @container-rootful @ws-none @wip
-    Examples:
-      | engine   | runtime          | workspace |
-      | opencode | container-rootful | none      |
-
-    # @wip, and WIRED-NOT-YET-LIVE-VERIFIED — see the note on opencode's
-    # container-rootful/none block above; identical reasoning, worktree axis.
-    @opencode @container-rootful @ws-worktree @wip
-    Examples:
-      | engine   | runtime          | workspace |
-      | opencode | container-rootful | worktree  |

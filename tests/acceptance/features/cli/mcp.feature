@@ -178,12 +178,6 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     # vacuousness a ".mcp.json" contains "ctxloom" check would carry). claude
     # uses a JSON "mcpServers" table shape.
     #
-    # codex has NO ROW, and that is a product fact rather than a coverage gap:
-    # its servers fold into $CODEX_HOME/config.toml, and the only $CODEX_HOME
-    # ctxloom writes is the per-session one an agent launch creates. A static
-    # materialize has no session and so no file — the scenario below asserts
-    # exactly that, over the whole tree.
-    #
     # EVERY ROW IS UNTAGGED because materializing a profile only WRITES
     # files; it never launches an engine, so no credential is needed and
     # nothing here gates behind @live.
@@ -196,16 +190,6 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
         | engine      |
         | claude-code |
 
-    # codex's half of the same claim, stated as the absence it is. Both halves
-    # are asserted: nothing landed, AND the report says where it does come from
-    # — a materialize that silently dropped a team's MCP registration would
-    # satisfy the first alone.
-    Scenario: A shared MCP server does not materialize for codex, and the report says why
-      Given Carol's team profile carries a shared fragment, command, MCP server, and hook
-      When Alice materializes the team profile for codex
-      Then no codex surface anywhere in the materialized tree carries the shared MCP server's command
-      And the materialize report says codex delivers those surfaces per-session at launch
-
   Rule: What an engine is told to launch is `mcp serve`, and nothing else
 
     An engine reads its MCP configuration, launches the command it finds, and
@@ -216,14 +200,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
 
     # ARGV, NOT PRESENCE. Every other assertion in this file is satisfied by an
     # entry naming any subcommand at all. This one reads the subcommand out of
-    # each engine's own native shape and pins it. opencode's shape differs (it
-    # folds the binary and its arguments into ONE `command` array rather than
-    # carrying a separate `args`); the rows below mirror the materialize
-    # outline above, and the opencode shape is pinned in the doctor check's own
-    # tests instead. codex is absent for the same reason as in the outline
-    # above: a static materialize writes it no MCP registry at all, so there is
-    # no argv here to read. Its per-session one is written by the launch path
-    # and pinned by internal/codex's own TestWriteSettings_MCPCommandOverride.
+    # each engine's own native shape and pins it.
     Scenario Outline: <engine>'s generated configuration launches the protocol server
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       When Alice materializes the team profile for <engine>

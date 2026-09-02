@@ -284,7 +284,7 @@ func StarterForWorkspace(p Policy, ws Workspace, backendName, label string, verb
 }
 
 // EnvWorkspace is an OPTIONAL Workspace capability: a workspace whose isolation
-// includes per-agent config-home env vars (CLAUDE_CONFIG_DIR/CODEX_HOME
+// includes per-agent config-home env vars (CLAUDE_CONFIG_DIR
 // isolating each engine's GLOBAL config layer) exposes them here. The run threads
 // them into the member's RunOptions.Env. None and Container do not implement it
 // (None shares the host config; Container isolates via a fresh $HOME), so the

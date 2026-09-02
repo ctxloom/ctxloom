@@ -1,5 +1,5 @@
 // This file wires the per-engine vendorreader.VendorAdapter implementations
-// (internal/transcript/vendorreader/{codex,claude}) into the two
+// (internal/transcript/vendorreader/claude) into the two
 // call sites that actually need a converted transcript: the interactive-pty
 // exit seam (internal/cli/run.go, right where transcript.RecordOneshot hooks
 // the oneshot exit) and the recover_session MCP tool (mcp_tools_memory.go),
@@ -32,7 +32,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
-	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
 )
 
 // lockFileMode and lockDirMode are the modes the canonical-transcript
@@ -67,19 +66,17 @@ type vendorReaderEntry struct {
 
 // vendorReaderRegistry maps a backend registry name — the SAME name
 // backends.descriptors registers it under (agent.NewBaseBackend's first arg:
-// config.BackendClaudeCode "claude-code", "codex"),
+// config.BackendClaudeCode "claude-code"),
 // the plugin's own Info RPC reports, and transcript.RecordOneshot's engine
 // param already carries — to its VendorAdapter + locate pair. This is
 // deliberately the REGISTRY name, not the reader packages' own short test
-// names ("claude"/"codex" in their _test.go fixtures):
+// names ("claude" in their _test.go fixtures):
 // using anything else would make a harp's oneshot-mode entries (Engine:
 // "claude-code") and its interactive-mode entries (this file) disagree about
 // which engine wrote a canonical transcript's Engine field.
 //
-// opencode/mock have no entry: opencode's own native reader
-// (internal/opencode/capabilities.go) was never broken and stays wired
-// separately (docs/transcript-schema.md §8's explicit carve-out); mock
-// has no vendor-native transcript store of its own to import from.
+// mock has no entry: it has no vendor-native transcript store of its own to
+// import from.
 //
 // Every registered engine PREFERS the already-bound transcript path
 // (locateBoundTranscript): the SessionStart bind hook already resolved the
@@ -89,7 +86,6 @@ type vendorReaderEntry struct {
 // (docs/transcript-schema.md §8).
 var vendorReaderRegistry = map[string]vendorReaderEntry{
 	config.BackendClaudeCode: {adapters: claudereader.VersionedAdapters, locate: locateBoundTranscript},
-	"codex":                  {adapters: codexreader.VersionedAdapters, locate: locateBoundTranscript},
 }
 
 // VendorReaderEngineNames returns the backend names vendorReaderRegistry
@@ -111,7 +107,7 @@ func VendorReaderEngineNames() []string {
 
 // VendorReaderAdaptersFor returns the version-scoped transcript adapters
 // ctxloom carries for one engine, and whether that engine has a vendor reader
-// at all (opencode/mock do not — see vendorReaderRegistry's doc).
+// at all (mock does not — see vendorReaderRegistry's doc).
 //
 // Exported read-only, for `ctxloom doctor`'s transcript-reader check: a user
 // meeting a vendorreader refusal needs the detected engine version against the

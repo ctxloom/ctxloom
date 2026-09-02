@@ -85,6 +85,22 @@ Feature: One shared profile, reaching every engine in its own native format
   # which a single-path check cannot see. And the REPORT is asserted alongside,
   # because a narrowing a user is not told about is indistinguishable from a
   # loss.
+  #
+  # PARKED — this scenario's claim is NARROWING-IS-DECLARED, and its last step
+  # asserts the materialize report names those surfaces "delivered per-session
+  # at launch" (steps_j000400.go's "the materialize report says <engine>
+  # delivers those surfaces per-session at launch"). The only other registered
+  # engine, mock, cannot carry that claim: its MCP/settings/command surfaces
+  # are ABSENT outright, declared as "mock has no settings/hook surface"
+  # (backends/registry.go) — a different fact from home-keyed surfaces
+  # delivered at launch. The first four steps would pass against mock for the
+  # wrong reason (nothing exists rather than something is deferred), and the
+  # fifth would have to be rewritten into a weaker claim. Weakening it is
+  # exactly what must not happen, so it is parked whole instead.
+  #
+  # UNTAG WHEN: an engine with HOME-KEYED, launch-delivered surfaces returns —
+  # then repoint the scenario at it; the steps need no new Go.
+  @wip
   Scenario: codex materializes its native context, and declares the three surfaces it delivers at launch instead
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
     When Alice materializes the team profile for codex
@@ -110,9 +126,9 @@ Feature: One shared profile, reaching every engine in its own native format
     And the materialized <engine> context carries the shared fragment's marker, in its own native shape
 
     Examples:
-      | engine      | file      |
-      | claude-code | CLAUDE.md |
-      | codex       | AGENTS.md |
+      | engine      | file            |
+      | claude-code | CLAUDE.md       |
+      | mock        | MOCK_CONTEXT.md |
 
   # LOCKED — @live: claude and codex have a working live
   # path today.

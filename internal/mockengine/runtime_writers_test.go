@@ -18,7 +18,7 @@ import (
 // silent no-op this package exists to catch.
 func TestRuntime_NilWritersDoNotPanic(t *testing.T) {
 	cli := agent.EngineCLI{
-		Engine:  "codex",
+		Engine:  "claude-code",
 		Surface: agent.CLISurfaceOneshot,
 		Prompt:  agent.PromptStdin,
 	}
@@ -51,7 +51,7 @@ func TestRuntime_InjectedWritersAreUsed(t *testing.T) {
 	var stdout, stderr strings.Builder
 	rt := &Runtime{
 		CLI: agent.EngineCLI{
-			Engine:  "codex",
+			Engine:  "claude-code",
 			Surface: agent.CLISurfaceOneshot,
 			Prompt:  agent.PromptStdin,
 		},

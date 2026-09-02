@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
-	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
 )
 
 // mintTurnSession indexes a session for backend at the pinned engine version
@@ -40,8 +39,12 @@ func mintTurnSession(t *testing.T, backend, version string) string {
 // VersionedAdapters rather than named here, so adding or re-versioning an
 // engine's adapter cannot leave this test asserting a stale pairing.
 //
-// MUTATION — resolve reg/SelectAdapter from a fixed backend instead of
-// entry.Backend — turns the non-claude row red.
+// NOTE ON WHAT THIS CAN AND CANNOT CATCH: only ONE engine carries a vendor
+// reader today, so the table has a single row and a mutation that resolved
+// the reader from a fixed backend instead of entry.Backend would SURVIVE it.
+// Restoring that kill needs a second engine with a vendor reader, not another
+// assertion here — do not read this table as covering the by-engine
+// resolution until there is one.
 func TestResolveTurnTranscript_SelectsTheReaderForTheSessionsOwnEngine(t *testing.T) {
 	tests := []struct {
 		backend string
@@ -49,7 +52,6 @@ func TestResolveTurnTranscript_SelectsTheReaderForTheSessionsOwnEngine(t *testin
 		want    any
 	}{
 		{config.BackendClaudeCode, "2.1.214", claudereader.VersionedAdapters[0].Adapter},
-		{"codex", "0.144.6", codexreader.VersionedAdapters[0].Adapter},
 	}
 	for _, tc := range tests {
 		t.Run(tc.backend, func(t *testing.T) {

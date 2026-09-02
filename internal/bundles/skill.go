@@ -29,8 +29,6 @@ import (
 // single source of truth, and never duplicated into bundle.yaml.
 type SkillLLMExports struct {
 	ClaudeCode SkillEngineExport `yaml:"claude-code"`
-	Codex      SkillEngineExport `yaml:"codex"`
-	Opencode   SkillEngineExport `yaml:"opencode"`
 }
 
 // SkillEngineExport is one engine's enablement setting for a skill.

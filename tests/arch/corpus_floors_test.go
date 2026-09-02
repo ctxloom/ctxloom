@@ -88,8 +88,6 @@ type corpusCounts struct {
 // can be broken by a bad prefix while the module-wide count stays healthy.
 var engineScopes = []string{
 	"internal/claude",
-	"internal/codex",
-	"internal/opencode",
 	"internal/shared/agent",
 }
 

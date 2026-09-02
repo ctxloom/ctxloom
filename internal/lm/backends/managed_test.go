@@ -167,8 +167,6 @@ func TestCommandExportsFor(t *testing.T) {
 	c.LLM.ClaudeCode.Enabled = &enabled
 	c.LLM.ClaudeCode.Description = "claude desc"
 	c.LLM.ClaudeCode.ArgumentHint = "hint"
-	c.LLM.Codex.Enabled = &enabled
-	c.LLM.Codex.Description = "codex desc"
 	prompts := []*bundles.LoadedContent{c}
 
 	claudeEx := CommandExportsFor("claude-code", prompts)
@@ -176,10 +174,6 @@ func TestCommandExportsFor(t *testing.T) {
 	assert.Equal(t, "claude desc", claudeEx[0].Description)
 	assert.Equal(t, "hint", claudeEx[0].ArgumentHint)
 	assert.True(t, claudeEx[0].Enabled)
-
-	codexEx := CommandExportsFor("codex", prompts)
-	require.Len(t, codexEx, 1)
-	assert.Equal(t, "codex desc", codexEx[0].Description)
 
 	assert.Nil(t, CommandExportsFor("unknown-backend", prompts))
 }

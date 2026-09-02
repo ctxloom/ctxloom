@@ -53,16 +53,31 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | engine      | context_surface                 | context_marker         |
         | mock        | MOCK_CONTEXT.md                 | ctxloom:context:begin  |
 
-    # ONE CLAIM, FOUR SHAPES. Every engine ctxloom drives gets the SAME
+    # ONE CLAIM, MANY SHAPES. Every engine ctxloom drives gets the SAME
     # registration — ctxloom as an MCP server, launched by the ctxloom binary
     # with the `mcp` subcommand — and each writes it into a different file in
-    # a different dialect. Two engines fold it into a config file they already
-    # own; two give it a file of its own.
+    # a different dialect. Some fold it into a config file they already own;
+    # others give it a file of its own.
     #
     # The marker is a field from INSIDE the server's body, never the key that
     # names it: a registration with the right key and an empty body gives the
     # engine a server with no command to launch, and a key-only assertion
     # cannot tell that apart from a working one.
+    # PARKED — the fan-out this scenario exists to prove needs at least TWO
+    # engines carrying an MCP surface, and only ONE remains. The other
+    # registered engine, mock, has NO MCP surface at all: mockPresentations
+    # (internal/lm/backends/mock_surfaces.go) declares context and skills
+    # only, and MCP/settings/commands stay on the refusal path deliberately.
+    # So the opencode row cannot be repointed at mock — mock writes no MCP
+    # file for the assertion to read — and repointing it would mean asserting
+    # a surface that does not exist. Dropping the row instead would leave a
+    # single-row "in its own dialect" outline, which proves no dialect at all.
+    # The cost is accepted and stated: this per-engine-idiom claim goes
+    # UNEXERCISED meanwhile.
+    #
+    # UNTAG WHEN: a second engine carrying an MCP surface is added — then
+    # restore this row as that engine's, and the fan-out has a contrast again.
+    @wip
     Scenario Outline: Every engine gets ctxloom registered as an MCP server, in its own dialect
       Given an empty project directory
       When Alice installs ctxloom for <engine>:
@@ -96,9 +111,21 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # writes only frontmatter into them satisfies a name check and delivers a
     # command that does nothing.
     #
-    # mock has no row: it is a registered engine with context and MCP surfaces
-    # but no command surface of its own, and asserting an absent surface would
-    # be asserting nothing.
+    # mock has no row: it is a registered engine with context and skills
+    # surfaces but no command surface of its own, and asserting an absent
+    # surface would be asserting nothing.
+    #
+    # PARKED — same shape as the MCP outline above, and for the same reason:
+    # proving "in its own idiom" needs two idioms to differ, and only ONE
+    # engine with a command surface remains. mock is the only other
+    # registered engine and it has NO command surface (see the note just
+    # above), so the opencode row has no honest substitute — a repoint would
+    # assert a file mock never writes. The cost is accepted and stated: this
+    # per-engine-idiom claim goes UNEXERCISED meanwhile.
+    #
+    # UNTAG WHEN: a second engine carrying a command surface is added — then
+    # restore this row as that engine's.
+    @wip
     Scenario Outline: Every engine gets ctxloom's shipped commands in its own idiom
       Given an empty project directory
       When Alice installs ctxloom for <engine>:

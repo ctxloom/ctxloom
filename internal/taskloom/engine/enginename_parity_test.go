@@ -121,6 +121,12 @@ var nonRegistryCanonicalUsers = map[string]string{
 	// internal/lm/isolation's own tests. It canonicalizes at every lookup and
 	// pins canonical keys at registration.
 	"github.com/ctxloom/ctxloom/internal/lm/isolation": "canonicalizes lookups into several keyed tables, no single membership",
+	// A MEASURED-capability allowlist keyed on (engine, surface), not a
+	// name -> engine registry: an absent pair means "bracketed paste has not
+	// been measured here", never "unknown engine", so there is no membership
+	// to be in parity about. It canonicalizes the launcher's engine name at
+	// lookup precisely so an alias cannot silently miss the allowlist.
+	"github.com/ctxloom/ctxloom/internal/tmuxhost": "canonicalizes into a measured paste allowlist, no membership",
 }
 
 // TestEngineNameVocabularyParity pins every engine registry to ONE spelling

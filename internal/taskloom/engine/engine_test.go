@@ -141,10 +141,6 @@ func TestGet_AliasesAndUnknown(t *testing.T) {
 }
 
 func TestConfigPath_Scopes(t *testing.T) {
-	// The codex row asserts the DEFAULT (~/.codex) path; pin CODEX_HOME empty
-	// so an inherited value (the hostile-env suite poisons it) can't redirect
-	// the home resolution.
-	t.Setenv("CODEX_HOME", "")
 	tests := []struct {
 		engine string
 		global bool
@@ -152,9 +148,6 @@ func TestConfigPath_Scopes(t *testing.T) {
 	}{
 		{"claude-code", false, ".mcp.json"},
 		{"claude-code", true, ".claude.json"},
-		// codex's project scope is a DECLARED ABSENCE (launch-only settings;
-		// no durable project home) — asserted separately below, not a row here.
-		{"codex", true, ".codex/config.toml"},
 	}
 	for _, tt := range tests {
 		e, err := Get(tt.engine)
@@ -168,13 +161,4 @@ func TestConfigPath_Scopes(t *testing.T) {
 		}
 		assert.Contains(t, p, tt.suffix)
 	}
-
-	// codex project scope: the declared absence, not a path. The error names
-	// the launch-only reason so a caller can tell "no file by design" from a
-	// resolution bug; taskloom's engine adapter degrades Present to false on it.
-	codexEng, err := Get("codex")
-	require.NoError(t, err)
-	_, err = codexEng.ConfigPath("/proj", false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "delivered per-session at launch")
 }

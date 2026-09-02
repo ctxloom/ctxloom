@@ -19,6 +19,14 @@ type UpgradeResult struct {
 	// Incomplete reports that part of the dependency closure could not be
 	// reached this round, so Advanced==0 does not mean "everything checked out".
 	Incomplete bool `json:"incomplete"`
+	// NothingDeclared reports that the resolved closure was EMPTY and there was
+	// no existing lock state either: nothing in reach of this run declares a
+	// dependency at all. It is a different fact from "your dependencies are all
+	// current", and a caller that collapses the two tells a user who ran the
+	// command outside their project that everything is fine. Advanced==0 alone
+	// cannot distinguish them — it counts moves among what was resolved, and
+	// here nothing was resolved because nothing was asked for.
+	NothingDeclared bool `json:"nothing_declared"`
 	// Refused lists the pins that were NOT moved because the content at the
 	// proposed commit failed publisher verification. Non-empty means the human
 	// must be told: the lockfile deliberately did not change.
@@ -47,6 +55,11 @@ type UpgradeResult struct {
 // non-advance is indistinguishable from "already up to date"). See
 // verifyAdvance for the exact rule and why unsigned content is not covered by
 // it.
+//
+// UpgradeResult.NothingDeclared is true when the closure resolved to nothing
+// and no lock state existed either. Such a round writes NO lockfile: a file
+// that pins nothing is not a record of a successful check, and creating one
+// where none existed marks a directory as a project that never was.
 //
 // UpgradeResult.Incomplete is true when part of the dependency closure could
 // not be reached this round: the caller must not report "everything is up to
@@ -166,8 +179,27 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult
 		}
 	}
 
-	if serr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Save(newActive); serr != nil {
-		return result, serr
+	// NOTHING DECLARED, AND NOTHING ON DISK TO PROTECT. Writing here would
+	// CREATE a lockfile that pins nothing — a project marker for a project that
+	// does not exist — or re-stamp LockedAt on an empty one to record a check
+	// that had nothing to check. Save's own guard is the mirror image of this
+	// one and deliberately does not cover it: ErrLockfileWouldErase protects
+	// entries that EXIST, and by construction there are none here, so an empty
+	// write is a legitimate success at that layer (a genuinely empty project
+	// must still be able to lock). Only this caller knows the emptiness came
+	// from resolving nothing rather than from meaning nothing, so the refusal
+	// to fabricate belongs here.
+	//
+	// The Incomplete case skips the write for the same reason but is NOT
+	// "nothing declared": something may well be declared behind the part of the
+	// closure that could not be reached, and saying otherwise would be a
+	// confident wrong answer rather than an honest empty one.
+	nothingToRecord := newActive.IsEmpty() && active.IsEmpty()
+	result.NothingDeclared = nothingToRecord && !result.Incomplete
+	if !nothingToRecord {
+		if serr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Save(newActive); serr != nil {
+			return result, serr
+		}
 	}
 
 	// Persist this round's refusals AFTER the lockfile write, never before: a

@@ -9,6 +9,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
+// The two terminal lines for a round that advanced nothing. They are constants
+// because the WHOLE POINT of the pair is that they are different sentences for
+// different facts, and a test that pins the difference has to name them.
+//
+// msgEverythingUpToDate is a claim about DECLARED dependencies: they were
+// resolved, and none needed to move. It is a lie about a directory that
+// declares none, which is why msgNothingDeclared exists and why it states the
+// remedy — a user who sees it has almost always run the command somewhere
+// other than the project they meant.
+const (
+	msgEverythingUpToDate = "Everything is up to date."
+	msgNothingDeclared    = "Nothing to upgrade: no dependencies are declared here, so there was nothing to check and no lockfile was written.\n" +
+		"  If you expected some, you are probably not in the project you meant: run 'ctxloom deps upgrade' from your project root.\n" +
+		"  'ctxloom profile list' shows what this directory actually resolves, and 'ctxloom init' sets a new project up."
+)
+
 // depsUpgradeCmd is the apt-style "upgrade" verb: it advances every unheld
 // pinned dependency to the newest commit its version constraint allows and
 // writes the result straight to the active lock. Where 'deps check' reads and
@@ -94,8 +110,15 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 		// about the part that was never resolved at all.
 		if res.Incomplete {
 			fmt.Println("No pins advanced among what could be resolved — part of the dependency closure was unreachable this round (see warning above); re-run once it's reachable to get a complete picture.")
+		} else if res.NothingDeclared {
+			// An empty closure reaches this branch with advanced==0 and nothing
+			// refused, exactly like a healthy current project — and it used to
+			// print the same line. The difference is the one the user needs:
+			// one means "your pins are current", the other means "there is
+			// nothing here", and only the second has a remedy.
+			fmt.Println(msgNothingDeclared)
 		} else {
-			fmt.Println("Everything is up to date.")
+			fmt.Println(msgEverythingUpToDate)
 		}
 		return nil
 	}

@@ -174,18 +174,66 @@ func TestUpgrade_RetractionSurvivesNonEmptyReresolve(t *testing.T) {
 // The legitimate empty case: a project with genuinely nothing pinned upgrades
 // to nothing, successfully. Replacing a data-loss bug with a usability one is
 // not a fix.
+//
+// Succeeding is not the whole contract, though. An empty closure means NOTHING
+// IS DECLARED HERE, which is a different fact from "your declared dependencies
+// are all current" — and the caller can only tell them apart if this reports
+// it. Nor may the round FABRICATE a lockfile: a file pinning nothing, written
+// into a directory that had no lock, is the write half of the same silence.
 func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
 	baseDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(baseDir, 0o755))
+	lockPath := remote.NewLockfileManager(baseDir).Path()
 
 	res, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir))
 	require.NoError(t, err, "an empty project has nothing to upgrade and nothing to lose")
 	assert.Equal(t, 0, res.Advanced)
+	assert.True(t, res.NothingDeclared,
+		"an empty closure is 'nothing is declared here', not 'everything is up to date'")
+	_, statErr := os.Stat(lockPath)
+	assert.True(t, os.IsNotExist(statErr),
+		"a project that declares nothing must not be given a lockfile that pins nothing: %s", lockPath)
 
-	// Same again once an empty lockfile actually exists on disk.
+	// Same again once an empty lockfile actually exists on disk. The file must
+	// be left ALONE — re-stamping LockedAt on a lock that pins nothing records
+	// a check that had nothing to check.
+	require.NoError(t, remote.NewLockfileManager(baseDir).Save(
+		&remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{}}))
+	before, err := os.Stat(lockPath)
+	require.NoError(t, err)
+
 	res, err = UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir))
 	require.NoError(t, err)
 	assert.Equal(t, 0, res.Advanced)
+	assert.True(t, res.NothingDeclared)
+
+	after, err := os.Stat(lockPath)
+	require.NoError(t, err)
+	assert.Equal(t, before.ModTime(), after.ModTime(),
+		"an upgrade with nothing declared must not rewrite the lockfile")
+}
+
+// The DISCRIMINATING half of the pair above, and the reason NothingDeclared
+// cannot simply be an alias for Advanced==0: a project that really does declare
+// a dependency, and whose pin really is current, is the case that still earns
+// an unqualified "everything is up to date".
+func TestUpgrade_DeclaredAndCurrentIsNotNothingDeclared(t *testing.T) {
+	baseDir, _, _, _ := setupUpgrade(t)
+	cfg := testConfigWithSCMPath(baseDir)
+	ctx := context.Background()
+
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	require.NoError(t, err)
+
+	// Nothing moved upstream, so nothing advances — the same Advanced==0 the
+	// empty project produces, from a completely different situation.
+	res, err := UpgradeDependencies(ctx, cfg)
+	require.NoError(t, err)
+	require.Equal(t, 0, res.Advanced)
+	assert.False(t, res.NothingDeclared,
+		"this project declares a dependency and it is current: that IS 'up to date'")
+	assert.False(t, mustLoadActive(t, baseDir).IsEmpty(),
+		"the declared pin is still recorded")
 }
 
 // TestUpgrade_HonoursInjectedLockfileFS pins that UpgradeDependencies must
@@ -225,9 +273,23 @@ func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
 	require.True(t, ok, "UpgradeDependencies must not touch the real OS lockfile when an FS is injected")
 	assert.Equal(t, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", entry.SHA)
 
-	// The injected in-memory FS must now hold ITS OWN (empty) lock.yaml — the
-	// write actually landed where cfg said it should.
+	// THE FS-THREADING DISCRIMINATOR IS THE require.NoError ABOVE, and it is
+	// worth spelling out because it is not obvious.
+	//
+	// Correctly threaded, `active` is loaded from the injected FS — which has no
+	// lock.yaml — so the round resolves nothing, finds nothing to protect, and
+	// writes nothing. If EITHER Load or Save fell back to the OS filesystem, it
+	// would find the seeded one-entry lock there instead, and an empty closure
+	// over a populated lock is precisely what ErrLockfileWouldErase refuses:
+	// UpgradeDependencies would have returned an error and the assertion above
+	// would be red.
+	//
+	// This test used to prove the same point by asserting that an empty lock.yaml
+	// APPEARED on the injected FS. That evidence was the fabrication bug wearing
+	// an instrument's hat — a round that declares nothing now writes nothing, so
+	// the absence below is the behaviour and the error-free return is the proof.
 	exists, err := afero.Exists(memFS, paths.LockPath(baseDir))
 	require.NoError(t, err)
-	assert.True(t, exists, "UpgradeDependencies must write the lockfile through the injected FS, not the OS filesystem")
+	assert.False(t, exists,
+		"a round with nothing declared must not fabricate a lockfile on the injected FS either")
 }

@@ -22,8 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
-	"github.com/ctxloom/ctxloom/internal/opencode"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -53,43 +52,36 @@ type fixedPlacement struct{ dir string }
 func (p fixedPlacement) Dir() string { return p.dir }
 
 // Build validates a named approach against the backend's SupportedApproaches:
-// SystemPrompt is claude-only — opencode and codex (native-file-only /
-// hook-only context, respectively) both reject it.
-func TestBuild_RejectsSystemPrompt_OnOpencodeAndCodex(t *testing.T) {
-	opencodeSet := opencode.NewSurfaces(agent.SurfaceInputs{}, nil)
-	_, err := agent.Select(opencodeSet).WithContext(agent.ContextWriteSystemPrompt).Build()
-	assert.Error(t, err, "opencode's context is native-file-only; system-prompt is unsupported")
-
-	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, "", "", nil)
-	_, err = agent.Select(codexSet).WithContext(agent.ContextWriteSystemPrompt).WithSettings(agent.SettingsWriteUnsafeFile).Build()
-	assert.Error(t, err, "codex's context is hook-only; system-prompt is unsupported")
+// SystemPrompt is claude-only, so a backend whose context surface declares
+// native-file delivery alone rejects it.
+func TestBuild_RejectsSystemPrompt_OnANativeFileOnlyBackend(t *testing.T) {
+	mockSet := backends.NewMockSurfaces(agent.SurfaceInputs{}, nil)
+	_, err := agent.Select(mockSet).WithContext(agent.ContextWriteSystemPrompt).Build()
+	assert.Error(t, err, "a native-file-only context surface must reject system-prompt")
 }
 
 // An unsupported (kind, approach) pair is rejected LOUDLY rather than
 // downgraded to the backend's default — a caller who asked for one delivery and
 // silently received another would have no way to tell.
 //
-// opencode is the example because its context surface declares unsafe-file
-// ALONE — a native file with no hook route at all. This test used to use CODEX
-// and unsafe-file, on the grounds that codex had no native context file; codex
-// reads a workspace-fixed AGENTS.md and now declares that approach, so the pair
-// it asserted was unsupported is supported and the test was pinning a
-// limitation rather than a contract.
+// mock is the example because its context surface declares unsafe-file ALONE —
+// a native file with no hook route at all — so (context, hook) is a genuinely
+// unsupported pair rather than a limitation that might later be declared.
 func TestBuild_RejectsUnsupportedContextApproach(t *testing.T) {
-	opencodeSet := opencode.NewSurfaces(agent.SurfaceInputs{}, nil)
-	_, err := agent.Select(opencodeSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
-	assert.Error(t, err, "opencode's context is native-file-only; hook is unsupported and must be refused, not downgraded")
+	mockSet := backends.NewMockSurfaces(agent.SurfaceInputs{}, nil)
+	_, err := agent.Select(mockSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
+	assert.Error(t, err, "a native-file-only context surface must refuse hook, not downgrade to it")
 }
 
 // The Hook approach rides the settings-carried inject hook: naming it without
 // also selecting settings in the SAME Build() is rejected (there is no hook to
 // carry the injection — an unread cache file, or nothing at all).
 func TestBuild_RejectsContextHookWithoutSettings(t *testing.T) {
-	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, "", "", nil)
-	_, err := agent.Select(codexSet).WithContext(agent.ContextWriteHook).Build()
+	claudeSet := claude.NewSurfaces(agent.SurfaceInputs{}, nil, nil)
+	_, err := agent.Select(claudeSet).WithContext(agent.ContextWriteHook).Build()
 	assert.Error(t, err, "Hook without Settings selected in the same Build() must fail")
 
-	_, err = agent.Select(codexSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
+	_, err = agent.Select(claudeSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
 	assert.NoError(t, err, "Hook WITH Settings selected builds cleanly")
 }
 
@@ -156,18 +148,19 @@ func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *te
 		"context, commands, and skills all warn; only mcp/settings convert silently via SharedRealization (their sole approach IS the one that realizes)")
 }
 
-// A backend with NO SharedRealization for any surface (codex, opencode —
-// only claude has one) falls back to the loud well-known write for EVERY
-// surface: the exact warning format survives (the substrings existing assertions
-// pin: "warning:", the surface name, "shared cwd"), and the write still proceeds.
+// A backend with NO SharedRealization for a surface (only claude declares one)
+// falls back to the loud well-known write for that surface: the exact warning
+// format survives (the substrings existing assertions pin: "warning:", the
+// surface name, "shared cwd"), and the write still proceeds.
 func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/live"
-	set := opencode.NewSurfaces(agent.SurfaceInputs{
-		Commands: []agent.CommandExport{{Name: "review", Content: "do it", Enabled: true}},
+	set := backends.NewMockSurfaces(agent.SurfaceInputs{
+		Skills: []agent.SkillExport{{Name: "review", Enabled: true,
+			Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("do it")}}}},
 	}, fs)
 
-	r, err := agent.Select(set).WithCommands(agent.CommandsWriteUnsafeFile).Build()
+	r, err := agent.Select(set).WithSkills(agent.SkillsWriteUnsafeFile).Build()
 	require.NoError(t, err)
 
 	var delivered []agent.Delivered
@@ -178,9 +171,9 @@ func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	})
 	require.Len(t, delivered, 1)
 	assert.Contains(t, stderr, "warning:")
-	assert.Contains(t, stderr, "commands")
+	assert.Contains(t, stderr, "skills")
 	assert.Contains(t, stderr, "shared cwd")
 
-	exists, _ := afero.Exists(fs, filepath.Join(dir, ".opencode", "command", "review.md"))
+	exists, _ := afero.DirExists(fs, filepath.Join(dir, ".mock", "skills"))
 	assert.True(t, exists, "the well-known write proceeded into the shared cwd despite the warning")
 }
